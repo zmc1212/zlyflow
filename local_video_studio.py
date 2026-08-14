@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import json
 import mimetypes
@@ -7,7 +9,10 @@ import threading
 import time
 from pathlib import Path
 
-import gradio as gr
+try:
+    import gradio as gr
+except ModuleNotFoundError:
+    gr = None
 import requests
 from starlette.responses import FileResponse as StarletteFileResponse
 
@@ -17,7 +22,7 @@ RESULT_DIR = APP_DIR / "results"
 RESULT_DIR.mkdir(exist_ok=True)
 
 COMFY_URL = "http://127.0.0.1:8189"
-WORKFLOW_DIR = Path(r"D:\zlyun\Toonflow\配置文件+工作流")
+WORKFLOW_DIR = Path(os.getenv("ZLY_AI_VIDEO_STUDIO_WORKFLOW_DIR", str(APP_DIR.parent / "配置文件+工作流")))
 FLUX_WORKFLOW_PATH = WORKFLOW_DIR / "Flux2-Klein-三图参考.json"
 LTX_WORKFLOW_PATH = WORKFLOW_DIR / "video_ltx2_3_i2v(new).json"
 TEXT_TO_IMAGE_WORKFLOW_PATH = WORKFLOW_DIR / "Flux2-Klein-文生图.json"
@@ -32,7 +37,7 @@ LTX_PROMPT_NODE = "167:164"
 LTX_SEED_NODES = ("167:135", "167:165")
 LTX_OUTPUT_NODE = "75"
 
-VACE_OUTPUT_NODE = "17"
+VACE_OUTPUT_NODE = "18"
 VACE_WIDTH = 832
 VACE_HEIGHT = 480
 VACE_FRAMES = 81
@@ -162,7 +167,14 @@ def get_error_message(record: dict) -> str:
 def wait_for_history(prompt_id: str) -> dict:
     started = time.monotonic()
     while time.monotonic() - started < REQUEST_TIMEOUT_SECONDS:
-        response = requests.get(f"{COMFY_URL}/history/{prompt_id}", timeout=30)
+        try:
+            response = requests.get(f"{COMFY_URL}/history/{prompt_id}", timeout=(5, 15))
+        except requests.RequestException:
+            # Loading a large video model can briefly block ComfyUI's HTTP
+            # response loop. Keep polling because the submitted prompt is
+            # still executing in ComfyUI.
+            time.sleep(2)
+            continue
         if response.ok:
             record = response.json().get(prompt_id)
             if record:
@@ -249,7 +261,10 @@ def build_vace_multi_reference_workflow(reference_images: tuple[str, str, str], 
             "_meta": {"title": "正向提示词"},
         },
         "5": {
-            "inputs": {"text": "低清晰度，画面变形，主体不一致，文字水印", "clip": ["3", 0]},
+            "inputs": {
+                "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+                "clip": ["3", 0],
+            },
             "class_type": "CLIPTextEncode",
             "_meta": {"title": "负向提示词"},
         },
@@ -274,14 +289,20 @@ def build_vace_multi_reference_workflow(reference_images: tuple[str, str, str], 
             "_meta": {"title": "风格参考"},
         },
         "10": {
-            "inputs": {"image1": ["7", 0], "image2": ["8", 0]},
+            "inputs": {
+                "image1": ["7", 0],
+                "image2": ["8", 0],
+            },
             "class_type": "ImageBatch",
-            "_meta": {"title": "合并前两张参考图"},
+            "_meta": {"title": "合并第 1、2 张参考图"},
         },
         "11": {
-            "inputs": {"image1": ["10", 0], "image2": ["9", 0]},
+            "inputs": {
+                "image1": ["10", 0],
+                "image2": ["9", 0],
+            },
             "class_type": "ImageBatch",
-            "_meta": {"title": "合并三张参考图"},
+            "_meta": {"title": "合并三张独立参考图"},
         },
         "12": {
             "inputs": {
@@ -296,13 +317,13 @@ def build_vace_multi_reference_workflow(reference_images: tuple[str, str, str], 
                 "reference_images": ["11", 0],
             },
             "class_type": "WanVaceMultiReference",
-            "_meta": {"title": "Wan VACE 多图参考"},
+            "_meta": {"title": "Wan VACE 官方 R2V 多图参考"},
         },
         "13": {
             "inputs": {
                 "model": ["2", 0],
                 "seed": random_seed(),
-                "steps": 30,
+                "steps": 50,
                 "cfg": 5.0,
                 "sampler_name": "uni_pc",
                 "scheduler": "simple",
@@ -312,7 +333,7 @@ def build_vace_multi_reference_workflow(reference_images: tuple[str, str, str], 
                 "denoise": 1.0,
             },
             "class_type": "KSampler",
-            "_meta": {"title": "Wan VACE 采样"},
+            "_meta": {"title": "Wan VACE 官方采样"},
         },
         "14": {
             "inputs": {"samples": ["13", 0], "trim_amount": ["12", 3]},
@@ -918,11 +939,13 @@ body, .gradio-container {
 
 
 def create_app() -> gr.Blocks:
+    if gr is None:
+        raise RuntimeError("旧版 Gradio 工作台已移除；请运行 启动本地视频工作台.bat 启动新版工作台。")
     install_gradio_upload_preview_fix()
-    with gr.Blocks(title="Toonflow 本地视频工作台") as app:
+    with gr.Blocks(title="ZLY AI Video Studio") as app:
         with gr.Column(elem_id="studio-shell"):
             gr.HTML(
-                '<div id="studio-brand"><span class="brand-mark">T</span><span>Toonflow</span></div>'
+                '<div id="studio-brand"><span class="brand-mark">Z</span><span>ZLY AI Video Studio</span></div>'
             )
             gr.Markdown("# 你好，想创作什么？", elem_id="composer-title")
 
@@ -1069,11 +1092,4 @@ def create_app() -> gr.Blocks:
 
 
 if __name__ == "__main__":
-    app = create_app()
-    app.queue(default_concurrency_limit=1)
-    app.launch(
-        server_name="0.0.0.0",
-        server_port=7865,
-        show_error=True,
-        css=STUDIO_CSS,
-    )
+    raise SystemExit("旧版 Gradio 工作台已移除；请运行 启动本地视频工作台.bat 启动新版工作台。")

@@ -1,0 +1,28 @@
+name: zly-ai-video-studio
+
+services:
+  zly-ai-video-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: zly-ai-video-studio:latest
+    container_name: zly-ai-video-studio
+    restart: unless-stopped
+    # Linux server deployment: directly access the host-only ComfyUI on 18188.
+    network_mode: host
+    command: ["sh", "-c", "python -m uvicorn backend.app.main:app --host 127.0.0.1 --port $${ZLY_AI_VIDEO_STUDIO_WORKBENCH_PORT}"]
+    environment:
+      ZLY_AI_VIDEO_STUDIO_COMFY_URL: ${ZLY_AI_VIDEO_STUDIO_COMFY_URL:?Set ZLY_AI_VIDEO_STUDIO_COMFY_URL in .env}
+      ZLY_AI_VIDEO_STUDIO_PUBLIC_API_PREFIX: /api
+      ZLY_AI_VIDEO_STUDIO_WORKBENCH_PORT: "18189"
+      ZLY_AI_VIDEO_STUDIO_DATA_DIR: /var/lib/zly-ai-video-studio
+      ZLY_AI_VIDEO_STUDIO_RESOURCE_PROVIDER: browser-stream
+      ZLY_AI_VIDEO_STUDIO_SECURE_COOKIES: "true"
+      ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY: ${ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY:-}
+      ZLY_AI_VIDEO_STUDIO_GRS_POLL_INTERVAL_SECONDS: "5"
+      ZLY_AI_VIDEO_STUDIO_GRS_TIMEOUT_SECONDS: "1800"
+      ZLY_AI_VIDEO_STUDIO_GRS_MAX_CONCURRENCY: "4"
+    volumes:
+      - zly-ai-video-studio-data:/var/lib/zly-ai-video-studio
+volumes:
+  zly-ai-video-studio-data:

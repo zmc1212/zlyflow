@@ -1,0 +1,21 @@
+[package]
+name = "zly-ai-video-studio-desktop"
+version = "0.1.0"
+description = "ZLY AI Video Studio enterprise desktop client"
+authors = ["ZLYUN"]
+edition = "2021"
+
+[lib]
+name = "zly_ai_video_studio_desktop_lib"
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rfd = "0.15"
+reqwest = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["protocol-asset"] }

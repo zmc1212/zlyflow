@@ -1,0 +1,5 @@
+packages:
+  - frontend
+  - desktop
+allowBuilds:
+  esbuild: true

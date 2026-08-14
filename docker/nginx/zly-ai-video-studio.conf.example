@@ -1,0 +1,62 @@
+# ZLY AI Video Studio and FastAPI share one HTTPS origin.
+# Nginx runs on the same Linux server as the host-networked container.
+# Do not add a ComfyUI proxy location: ComfyUI remains private at 127.0.0.1:18188.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name comfyui.zlyun168.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name comfyui.zlyun168.com;
+
+    ssl_certificate /etc/nginx/certs/comfyui.zlyun168.com/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/comfyui.zlyun168.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    server_tokens off;
+    client_max_body_size 55m;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # The public API namespace belongs to ZLY AI Video Studio, not ComfyUI.
+    # Create the first super administrator from docker compose exec only.
+    location = /api/auth/setup {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        proxy_pass http://127.0.0.1:18189;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    # browser-stream sends ComfyUI output to the employee without writing a
+    # completed video to either the workbench container or Nginx temp files.
+    location /api/ {
+        proxy_pass http://127.0.0.1:18189;
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_max_temp_file_size 0;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:18189;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}

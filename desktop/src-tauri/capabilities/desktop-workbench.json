@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-workbench",
+  "description": "仅允许受信任的 ZLY AI 视频创作平台使用本机作品交付命令。",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["https://comfyui.zlyun168.com/*"]
+  },
+  "permissions": ["core:default"]
+}

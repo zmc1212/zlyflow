@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZLYUN AI</title>
+    <style>
+      :root { color: #f5f5f7; background: #17181e; font-family: "Microsoft YaHei UI", sans-serif; }
+      body { display: grid; min-height: 100vh; margin: 0; place-items: center; }
+      main { width: min(420px, calc(100vw - 48px)); }
+      .brand { display: flex; align-items: center; gap: 12px; }
+      .brand img { width: 42px; height: 42px; object-fit: contain; }
+      h1 { margin: 0; font-size: 24px; font-weight: 650; }
+      p { color: #b4b4be; font-size: 14px; line-height: 1.65; }
+      code { display: block; overflow-wrap: anywhere; color: #d9d4ff; font-size: 12px; }
+      button { width: 100%; height: 42px; border: 0; border-radius: 6px; background: #7047f6; color: #fff; cursor: pointer; font: inherit; font-weight: 600; }
+      button:hover { background: #7c58f8; }
+      #error { color: #ffb4ae; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand"><img src="zlyun-ai-mark.png" alt="ZLYUN AI" /><h1>ZLYUN AI</h1></div>
+      <p>正在打开企业视频工作台。</p>
+      <code id="url"></code>
+      <p id="error" hidden></p>
+      <button id="open" type="button">打开工作台</button>
+    </main>
+    <script>
+      const invoke = window.__TAURI__.core.invoke
+      const openButton = document.getElementById("open")
+      const error = document.getElementById("error")
+      const openWorkbench = async () => {
+        try {
+          const url = await invoke("desktop_workbench_url")
+          document.getElementById("url").textContent = url
+          window.location.replace(url)
+        } catch (reason) {
+          error.hidden = false
+          error.textContent = reason instanceof Error ? reason.message : "无法打开企业工作台"
+        }
+      }
+      openButton.addEventListener("click", openWorkbench)
+      void openWorkbench()
+    </script>
+  </body>
+</html>
