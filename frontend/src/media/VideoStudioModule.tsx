@@ -14,15 +14,17 @@ export type VideoResult = {
 }
 
 export default function VideoStudioModule({
-  results, roundCount, pendingSave, onSave,
+  results, roundCount, pendingSave, onSave, embedded = false, showHeading = true,
 }: {
   results: VideoResult[]
   roundCount: number
   pendingSave?: string
   onSave: (result: VideoResult) => void
+  embedded?: boolean
+  showHeading?: boolean
 }) {
-  return <section className="relative z-10 mx-auto mt-8 max-w-[1080px]" aria-label="视频生成结果">
-    <div className="mb-3"><h2 className="text-sm font-medium text-[#dedee5]">视频结果</h2><p className="mt-1 text-xs text-[#85858f]">共 {roundCount} 轮</p></div>
+  return <section className={embedded ? "studio-video-results min-w-0" : "studio-video-results relative z-10 mx-auto mt-8 max-w-[1080px]"} aria-label="视频生成结果">
+    {showHeading && <div className="mb-3"><h2 className="text-sm font-medium text-[#dedee5]">视频结果</h2><p className="mt-1 text-xs text-[#85858f]">共 {roundCount} 轮</p></div>}
     <div className="grid gap-4 sm:grid-cols-2">
       {results.map((result) => <article key={`${result.generationItemId}:${result.outputIndex}`} className="overflow-hidden rounded-xl border border-white/[0.1] bg-[#202127]">
         <div className="aspect-video bg-[#17181e]">{result.src ? <video className="h-full w-full object-contain" controls preload="metadata" src={result.src} /> : <div className="grid h-full place-items-center text-[#777781]"><HardDrive size={20} /></div>}</div>

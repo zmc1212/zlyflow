@@ -45,6 +45,19 @@ const DATABASE_VERSION = 1
 const RESOURCE_DIRECTORY = "ZLY AI Studio"
 const MIGRATION_MARKER = "migration:zly-ai-video-studio-v1"
 
+function localFilename(resourceKey: string): string {
+  let hash = 5381
+  for (const character of resourceKey) hash = ((hash << 5) + hash) ^ character.charCodeAt(0)
+  const stablePrefix = (hash >>> 0).toString(36)
+  const leaf = resourceKey.split(/[\\/]+/).filter(Boolean).at(-1) ?? "resource"
+  const normalized = leaf
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
+    .replace(/[. ]+$/g, "")
+  const extension = normalized.match(/\.[a-z0-9]{1,10}$/i)?.[0] ?? ""
+  const stem = (extension ? normalized.slice(0, -extension.length) : normalized).slice(0, 64) || "resource"
+  return `${stablePrefix}-${stem}${extension}`
+}
+
 type DatabaseInfo = { name?: string }
 type IndexedDbWithDatabaseList = IDBFactory & { databases?: () => Promise<DatabaseInfo[]> }
 
@@ -257,6 +270,7 @@ export async function saveToResourceDirectory(
   csrfToken?: string,
   generationItemId?: string,
 ): Promise<LocalResourceRecord> {
+  const filename = localFilename(resourceKey)
   const outputBase = generationItemId
     ? `/api/jobs/${jobId}/generations/${generationItemId}/outputs/${outputIndex}`
     : `/api/jobs/${jobId}/outputs/${outputIndex}`
@@ -269,7 +283,7 @@ export async function saveToResourceDirectory(
     const ticket = await ticketResponse.json() as DesktopDeliveryTicket
     const saved = await desktopInvoke<DesktopSavedResource>("desktop_save_resource", {
       userId,
-      resourceKey,
+      resourceKey: filename,
       downloadUrl: ticket.download_url,
     })
     const record: LocalResourceRecord = {
@@ -280,7 +294,7 @@ export async function saveToResourceDirectory(
       generationItemId,
       resourceKey,
       directories: [],
-      filename: resourceKey,
+      filename,
       savedAt: new Date().toISOString(),
       desktopRelativePath: saved.relativePath,
     }
@@ -292,7 +306,7 @@ export async function saveToResourceDirectory(
   const month = new Date().toISOString().slice(0, 7)
   const base = await handle.getDirectoryHandle(RESOURCE_DIRECTORY, { create: true })
   const monthDirectory = await base.getDirectoryHandle(month, { create: true })
-  const fileHandle = await monthDirectory.getFileHandle(resourceKey, { create: true })
+  const fileHandle = await monthDirectory.getFileHandle(filename, { create: true })
   await writeResponseToFile(response, fileHandle)
   const record: LocalResourceRecord = {
     id: `${userId}:${resourceKey}`,
@@ -302,7 +316,7 @@ export async function saveToResourceDirectory(
     generationItemId,
     resourceKey,
     directories: [RESOURCE_DIRECTORY, month],
-    filename: resourceKey,
+    filename,
     savedAt: new Date().toISOString(),
   }
   await writeStore("resources", record)

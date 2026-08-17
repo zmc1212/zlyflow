@@ -90,8 +90,10 @@ GRS_IMAGE_OPTION_SCHEMA = {
     "type": "object",
     "properties": {
         "aspect_ratio": option(
-            "画面比例", "string", "1:1", group="primary", enum=GRS_ASPECT_RATIOS,
-            ui_control="visual-settings", ui_companion="resolution", ui_options=GRS_ASPECT_RATIO_UI_OPTIONS,
+            "比例", "string", "1:1", group="primary", enum=GRS_ASPECT_RATIOS,
+            ui_control="visual-settings", ui_companion="resolution",
+            ui_companions=["resolution", "count"],
+            ui_options=GRS_ASPECT_RATIO_UI_OPTIONS,
         ),
         "resolution": option(
             "分辨率", "string", "1K", group="primary", enum=["1K"], ui_control="select",
@@ -109,8 +111,10 @@ GRS_IMAGE_VIP_OPTION_SCHEMA = {
     "type": "object",
     "properties": {
         "aspect_ratio": option(
-            "画面比例", "string", "1:1", group="primary", enum=GRS_VIP_ASPECT_RATIOS,
-            ui_control="visual-settings", ui_companion="resolution", ui_options=GRS_VIP_ASPECT_RATIO_UI_OPTIONS,
+            "比例", "string", "1:1", group="primary", enum=GRS_VIP_ASPECT_RATIOS,
+            ui_control="visual-settings", ui_companion="resolution",
+            ui_companions=["resolution", "count", "custom_width", "custom_height"],
+            ui_options=GRS_VIP_ASPECT_RATIO_UI_OPTIONS,
         ),
         "resolution": option(
             "分辨率", "string", "1K", group="primary", enum=["1K", "2K", "4K", "CUSTOM"],

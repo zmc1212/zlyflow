@@ -5,13 +5,17 @@ import unittest
 from pathlib import Path
 
 from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
 
+from backend.app import main as main_module
+from backend.app.auth import csrf_token
+from backend.app.config import Settings
 from backend.app.grs_client import GrsClient, GrsError
 from backend.app.local_credential_key import ensure_local_credential_key
 from backend.app.grs_provider import CredentialManager, GrsProviderService
+from backend.app.models import JobMode, JobStatus, UserRole
 from backend.app.qiniu_provider import QiniuProviderService
 from backend.app.qiniu_storage import qiniu_upload_host
-from backend.app.models import JobMode, JobStatus
 from backend.app.storage import JobStore
 from backend.app.workflow_registry import (
     IMAGE_WORKFLOWS, grs_request_size, normalize_options, validate_references, workflow_for,
@@ -58,6 +62,9 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(standard.max_references, 10)
         properties = standard.option_schema["properties"]
         self.assertEqual(properties["count"]["ui_group"], "primary")
+        self.assertEqual(properties["aspect_ratio"]["ui_companions"], ["resolution", "count"])
+        vip_properties = workflow_for(JobMode.GRS_GPT_IMAGE_2_VIP).option_schema["properties"]
+        self.assertEqual(vip_properties["aspect_ratio"]["ui_companions"], ["resolution", "count", "custom_width", "custom_height"])
         self.assertEqual(properties["provider_model"]["ui_group"], "internal")
 
     def test_standard_and_vip_option_matrix(self) -> None:
@@ -157,7 +164,66 @@ class QiniuStorageTests(unittest.TestCase):
         self.assertEqual(qiniu_upload_host("z0"), "up-z0.qiniup.com")
 
 
+class JobEndpointTests(unittest.TestCase):
+    def test_delete_terminal_job_returns_json_and_removes_the_record(self) -> None:
+        class WorkerStub:
+            def __init__(self, *_args) -> None:
+                pass
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            try:
+                with TestClient(main_module.app) as client:
+                    user = main_module.app.state.auth_store.create_user(
+                        "delete-test", "删除测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
+                    )
+                    token, _ = main_module.app.state.auth_store.create_session(user["id"])
+                    main_module.app.state.store.create(
+                        "delete-test-job", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [], owner_user_id=user["id"],
+                    )
+                    main_module.app.state.store.update("delete-test-job", status=JobStatus.SUCCEEDED)
+
+                    response = client.delete(
+                        "/api/jobs/delete-test-job",
+                        headers={"X-CSRF-Token": csrf_token(token)},
+                        cookies={"zly_ai_video_studio_session": token},
+                    )
+
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn("application/json", response.headers["content-type"])
+                    self.assertEqual(response.json(), {"id": "delete-test-job"})
+                    with self.assertRaises(KeyError):
+                        main_module.app.state.store.get("delete-test-job")
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
+
+
 class StorageAndCredentialTests(unittest.TestCase):
+    def test_job_metadata_can_be_pinned_renamed_and_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("metadata-job", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [], owner_user_id="user-a")
+
+            updated = store.update_metadata("metadata-job", title="自定义标题", pinned=True, update_title=True)
+            self.assertEqual(updated["title"], "自定义标题")
+            self.assertTrue(updated["pinned"])
+            self.assertEqual(store.list_for_user("user-a")[0]["id"], "metadata-job")
+
+            self.assertTrue(store.delete("metadata-job"))
+            with self.assertRaises(KeyError):
+                store.get("metadata-job")
+
     def test_local_credential_key_is_created_once_and_reused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "credential.key"
@@ -242,6 +308,29 @@ class StorageAndCredentialTests(unittest.TestCase):
                 "credits": 123.45,
                 "queried_at": "2026-08-14T09:30:00+00:00",
             })
+
+    def test_balance_refresh_is_rate_limited_and_updates_the_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            provider = GrsProviderService(store, Fernet.generate_key().decode())
+            provider.update({
+                "enabled": True, "base_url": "https://grs.example.com", "api_key": "top-secret-key",
+                "gpt_image_2_enabled": True, "gpt_image_2_vip_enabled": True,
+            })
+
+            class FakeClient:
+                calls = 0
+
+                def balance(self) -> float:
+                    self.calls += 1
+                    return 98.5
+
+            client = FakeClient()
+            provider.client = lambda: client  # type: ignore[method-assign]
+
+            self.assertEqual(provider.refresh_balance_snapshot(), {"credits": 98.5, "queried_at": store.get_grs_settings()["last_balance_at"]})
+            self.assertEqual(provider.refresh_balance_snapshot(), {"credits": 98.5, "queried_at": store.get_grs_settings()["last_balance_at"]})
+            self.assertEqual(client.calls, 1)
 
     def test_qiniu_settings_encrypt_credentials_and_require_complete_enablement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

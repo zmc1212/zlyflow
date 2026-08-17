@@ -95,6 +95,7 @@ class JobStore:
                 "comfy_phase": "TEXT",
                 "media_type": "TEXT NOT NULL DEFAULT 'video'",
                 "title": "TEXT",
+                "pinned": "INTEGER NOT NULL DEFAULT 0",
                 "last_round_id": "TEXT",
                 "source_job_id": "TEXT",
                 "source_generation_item_id": "TEXT",
@@ -562,6 +563,7 @@ class JobStore:
         data["submitted_options"] = json.loads(data.pop("submitted_options_json", "{}") or "{}")
         data["options_submitted"] = bool(data.pop("options_submitted", False))
         data["legacy_read_only"] = bool(data.get("legacy_read_only", False))
+        data["pinned"] = bool(data.get("pinned", False))
         data["outputs"] = self._decode_outputs(data.pop("outputs_json") or "[]")
         data["reference_count"] = len(refs)
         if include_references:
@@ -621,9 +623,38 @@ class JobStore:
     def list_for_user(self, user_id: str, limit: int = 100) -> list[dict]:
         with self.connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM jobs WHERE owner_user_id = ? ORDER BY created_at DESC LIMIT ?", (user_id, limit)
+                "SELECT * FROM jobs WHERE owner_user_id = ? ORDER BY pinned DESC, created_at DESC LIMIT ?", (user_id, limit)
             ).fetchall()
             return [self.decode(row, connection=connection) for row in rows]
+
+    def update_metadata(
+        self, job_id: str, *, title: str | None = None, pinned: bool | None = None, update_title: bool = False,
+    ) -> dict:
+        updates: list[str] = []
+        values: list[Any] = []
+        if update_title:
+            updates.append("title = ?")
+            values.append(title.strip() if title and title.strip() else None)
+        if pinned is not None:
+            updates.append("pinned = ?")
+            values.append(1 if pinned else 0)
+        if not updates:
+            return self.get(job_id)
+        values.extend([now(), job_id])
+        with self.connection() as connection:
+            cursor = connection.execute(
+                f"UPDATE jobs SET {', '.join(updates)}, updated_at = ? WHERE id = ?",
+                tuple(values),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(job_id)
+            row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return self.decode(row, connection=connection)
+
+    def delete(self, job_id: str) -> bool:
+        with self.connection() as connection:
+            cursor = connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        return cursor.rowcount > 0
 
     def assign_unowned(self, user_id: str) -> int:
         with self.connection() as connection:

@@ -26,8 +26,9 @@ from .grs_provider import GrsProviderService
 from .models import (
     AuthStatusResponse, BrowserDirectOutputResponse, ChangePasswordRequest, CreateUserRequest, HealthResponse, JobMode, JobResponse,
     DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
-    LibraryItemResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest, SetupAdminRequest,
+    LibraryItemResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest, SetupAdminRequest, JobStatus,
     QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateUserRequest, UserResponse, UserRole,
+    JobMetadataUpdateRequest,
 )
 from .qiniu_provider import QiniuProviderService
 from .resource_storage import create_resource_storage
@@ -701,8 +702,8 @@ def get_grs_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
 
 
 @app.get("/api/providers/grs/balance", response_model=GrsBalanceSnapshotResponse, tags=["创作台"])
-def get_grs_balance_snapshot(_: Annotated[dict, Depends(current_user)]) -> dict:
-    return app.state.grs_provider.balance_snapshot()
+async def get_grs_balance_snapshot(_: Annotated[dict, Depends(current_user)]) -> dict:
+    return await asyncio.to_thread(app.state.grs_provider.refresh_balance_snapshot)
 
 
 def refresh_resource_storage() -> None:
@@ -976,6 +977,33 @@ def list_jobs(user: Annotated[dict, Depends(current_user)], limit: int = 100) ->
 @app.get("/api/jobs/{job_id}", response_model=JobResponse, tags=["任务"], summary="查询任务状态")
 def get_job(job_id: str, user: Annotated[dict, Depends(current_user)]) -> dict:
     return public_job(job_or_404(app.state.store, job_id, user))
+
+
+@app.patch("/api/jobs/{job_id}", response_model=JobResponse, tags=["任务"], summary="更新任务标题与置顶状态")
+def update_job_metadata(
+    job_id: str, payload: JobMetadataUpdateRequest, user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    job_or_404(app.state.store, job_id, user)
+    try:
+        job = app.state.store.update_metadata(
+            job_id,
+            title=payload.title,
+            pinned=payload.pinned,
+            update_title="title" in payload.model_fields_set,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="任务不存在") from error
+    return public_job(job)
+
+
+@app.delete("/api/jobs/{job_id}", tags=["任务"], summary="删除任务记录")
+def delete_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+    job = job_or_404(app.state.store, job_id, user)
+    if job["status"] in {JobStatus.QUEUED.value, JobStatus.RUNNING.value}:
+        raise HTTPException(status_code=409, detail="任务生成中，完成后才能删除")
+    if not app.state.store.delete(job_id):
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return {"id": job_id}
 
 
 @app.post(

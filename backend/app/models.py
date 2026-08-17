@@ -126,8 +126,14 @@ class JobResponse(BaseModel):
     updated_at: str
     media_type: MediaType = MediaType.VIDEO
     title: str | None = None
+    pinned: bool = False
     rounds: list[JobRoundResponse] = Field(default_factory=list)
     source: JobSourceResponse | None = None
+
+
+class JobMetadataUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    pinned: bool | None = None
 
 
 class UserResponse(BaseModel):
@@ -312,6 +318,7 @@ class GrsBalanceResponse(BaseModel):
 class GrsBalanceSnapshotResponse(BaseModel):
     credits: float | None = None
     queried_at: str | None = None
+    refresh_error: str | None = None
 
 
 class BrowserDirectOutputResponse(BaseModel):

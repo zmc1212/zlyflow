@@ -299,6 +299,15 @@ class JobWorker:
                     generation_item_id, status=JobStatus.SUCCEEDED, stage="生成完成", progress=100,
                     outputs=[output], error="", remote_status=status,
                 )
+                asyncio.create_task(self._refresh_grs_balance(), name="grs-balance-refresh")
                 return
             await asyncio.sleep(delay)
         raise GrsError("GRS 图片生成超过 30 分钟，已停止轮询。")
+
+    async def _refresh_grs_balance(self) -> None:
+        if self.grs_provider is None:
+            return
+        try:
+            await asyncio.to_thread(self.grs_provider.refresh_balance_snapshot)
+        except Exception:
+            return

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -44,6 +46,8 @@ class GrsProviderService:
     def __init__(self, store: JobStore, credential_key: str | None) -> None:
         self.store = store
         self.credentials = CredentialManager(credential_key)
+        self._balance_refresh_lock = threading.Lock()
+        self._balance_refresh_deadline = 0.0
 
     def api_key(self) -> str | None:
         return self.credentials.decrypt(self.store.get_grs_settings().get("api_key_encrypted"))
@@ -142,3 +146,18 @@ class GrsProviderService:
             "credits": config.get("last_balance"),
             "queried_at": config.get("last_balance_at"),
         }
+
+    def refresh_balance_snapshot(self, min_interval_seconds: float = 10.0) -> dict[str, float | str | None]:
+        with self._balance_refresh_lock:
+            snapshot = self.balance_snapshot()
+            if time.monotonic() < self._balance_refresh_deadline:
+                return snapshot
+            self._balance_refresh_deadline = time.monotonic() + max(1.0, min_interval_seconds)
+            available, reason = self.availability()
+            if not available:
+                return {**snapshot, "refresh_error": reason or "GRS 余额暂不可用"}
+            try:
+                self.balance()
+            except Exception:
+                return {**snapshot, "refresh_error": "GRS 余额暂不可用"}
+            return self.balance_snapshot()
