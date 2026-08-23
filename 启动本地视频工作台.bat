@@ -66,9 +66,10 @@ for /f %%P in ('powershell -NoProfile -Command "(Get-NetTCPConnection -LocalPort
 
 :vite_ready
 start "" "%WEBUI_SCHEME%://127.0.0.1:5173/"
-"%PYTHON_EXE%" -m uvicorn backend.app.main:app --host 0.0.0.0 --port 7865 %SSL_ARGS%
+"%PYTHON_EXE%" -m uvicorn backend.app.main:app --host 0.0.0.0 --port 7865 --reload --reload-dir "%CD%\backend" %SSL_ARGS%
 set "WEBUI_EXIT_CODE=%errorlevel%"
 if defined VITE_LISTENING_PID taskkill /pid %VITE_LISTENING_PID% /t /f >nul 2>nul
+
 if not "%WEBUI_EXIT_CODE%"=="0" pause
 exit /b %WEBUI_EXIT_CODE%
 

@@ -184,6 +184,20 @@ class JobStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS llm_provider_settings (
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    base_url TEXT NOT NULL DEFAULT 'https://api-inference.modelscope.cn/v1',
+                    api_key_encrypted TEXT,
+                    model TEXT NOT NULL DEFAULT 'Qwen/Qwen2.5-Coder-32B-Instruct',
+                    last_test_status TEXT,
+                    last_test_message TEXT,
+                    last_test_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
+
+
                 CREATE INDEX IF NOT EXISTS idx_jobs_owner_created ON jobs(owner_user_id, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rounds_job_sequence ON job_rounds(job_id, sequence DESC);
                 CREATE INDEX IF NOT EXISTS idx_items_round_index ON generation_items(round_id, item_index);
@@ -202,11 +216,18 @@ class JobStore:
                 VALUES (1, 0, '', 'z0', '', 'zly-ai-video-studio/', ?)""",
                 (now(),),
             )
+            connection.execute(
+                """INSERT OR IGNORE INTO llm_provider_settings
+                (id, enabled, base_url, model, updated_at)
+                VALUES (1, 0, 'https://api-inference.modelscope.cn/v1', 'Qwen/Qwen2.5-72B-Instruct', ?)""",
+                (now(),),
+            )
             self._migrate_legacy_jobs(connection)
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
                 (self.MIGRATION_NAME, now()),
             )
+
 
     @staticmethod
     def _media_for_mode(mode: str) -> str:
@@ -712,14 +733,39 @@ class JobStore:
         data["enabled"] = bool(data["enabled"])
         return data
 
-    def update_qiniu_settings(self, **values: Any) -> dict:
+    def update_qiniu_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {
             "enabled", "access_key_encrypted", "secret_key_encrypted", "bucket", "region", "domain", "object_prefix",
             "last_test_status", "last_test_message", "last_test_at",
         }
-        updates = {key: value for key, value in values.items() if key in allowed}
+        merged = dict(values) if isinstance(values, dict) else {}
+        merged.update(kwargs)
+        updates = {key: value for key, value in merged.items() if key in allowed}
         updates["updated_at"] = now()
         assignment = ", ".join(f"{key} = ?" for key in updates)
         with self.connection() as connection:
             connection.execute(f"UPDATE qiniu_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
         return self.get_qiniu_settings()
+
+    def get_llm_settings(self) -> dict:
+        with self.connection() as connection:
+            row = connection.execute("SELECT * FROM llm_provider_settings WHERE id = 1").fetchone()
+        data = dict(row)
+        data["enabled"] = bool(data["enabled"])
+        return data
+
+    def update_llm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
+        allowed = {
+            "enabled", "base_url", "api_key_encrypted", "model",
+            "last_test_status", "last_test_message", "last_test_at",
+        }
+        merged = dict(values) if isinstance(values, dict) else {}
+        merged.update(kwargs)
+        updates = {key: value for key, value in merged.items() if key in allowed}
+        updates["updated_at"] = now()
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        with self.connection() as connection:
+            connection.execute(f"UPDATE llm_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
+        return self.get_llm_settings()
+
+

@@ -73,7 +73,7 @@ class WorkflowTests(unittest.TestCase):
             validate_references(JobMode.IMAGE, [])
 
     def test_minimax_h3_reference_workflow_grows_with_uploaded_images(self) -> None:
-        options = normalize_options(JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "16:9", "quality": "1K", "duration": 5})
+        options = normalize_options(JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "16:9", "quality": "0.98", "duration": 5})
         workflow = build_minimax_h3_workflow(
             JobMode.MINIMAX_H3_R2V,
             "Use <Picture 1> and <Picture 2>.",
@@ -81,28 +81,50 @@ class WorkflowTests(unittest.TestCase):
             options,
             42,
         )
-        self.assertEqual(h3_dimensions(options), (608, 352))
+        self.assertEqual(h3_dimensions(options), (1344, 768))
         self.assertEqual(workflow["5"]["class_type"], "MiniMaxH3ReferenceToVideo")
+        self.assertEqual(workflow["5"]["inputs"]["width"], 1344)
+        self.assertEqual(workflow["5"]["inputs"]["height"], 768)
         self.assertEqual(workflow["5"]["inputs"]["ref_images.ref_image_0"], ["20", 0])
         self.assertEqual(workflow["5"]["inputs"]["ref_images.ref_image_1"], ["21", 0])
         self.assertEqual(workflow["14"]["class_type"], "SaveVideo")
 
     def test_minimax_h3_accepts_arbitrary_positive_aspect_ratios(self) -> None:
-        options = normalize_options(JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "2:3", "quality": "1K", "duration": 5})
+        options = normalize_options(JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "2:3", "quality": "0.98", "duration": 5})
         self.assertEqual(options["aspect_ratio"], "2:3")
-        self.assertEqual(h3_dimensions(options), (384, 576))
+        self.assertEqual(h3_dimensions(options), (832, 1248))
         with self.assertRaises(ValueError):
             normalize_options(JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "2:0"})
         with self.assertRaises(ValueError):
             normalize_options(JobMode.MINIMAX_H3_R2V, {"unrecognized": True})
 
+    def test_standard_h3_uses_the_official_two_megapixel_ceiling_without_a_local_canvas_cap(self) -> None:
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {"aspect_ratio": "16:9", "quality": "2.0"})
+        self.assertEqual(options["megapixels"], 2.0)
+        self.assertEqual(h3_dimensions(options), (1920, 1088))
+
+    def test_standard_h3_dimensions_match_comfyui_resolution_selector(self) -> None:
+        expected_sizes = {
+            "0.2": (608, 352),
+            "0.7": (1152, 640),
+            "0.98": (1344, 768),
+            "1.0": (1376, 768),
+            "2.0": (1920, 1088),
+        }
+        for quality, expected in expected_sizes.items():
+            options = normalize_options(JobMode.MINIMAX_H3_T2V, {"aspect_ratio": "16:9", "quality": quality})
+            self.assertEqual(h3_dimensions(options), expected)
+
     def test_minimax_h3_quality_presets_map_to_internal_megapixels_and_accept_legacy_mp(self) -> None:
-        options = normalize_options(JobMode.MINIMAX_H3_T2V, {"quality": "4K"})
-        self.assertEqual(options["quality"], "4K")
-        self.assertEqual(options["megapixels"], 0.5)
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {"quality": "0.98"})
+        self.assertEqual(options["quality"], "0.98")
+        self.assertEqual(options["megapixels"], 0.98)
         legacy = normalize_options(JobMode.MINIMAX_H3_T2V, {"megapixels": 0.3})
-        self.assertEqual(legacy["quality"], "2K")
+        self.assertEqual(legacy["quality"], "0.3")
         self.assertEqual(legacy["megapixels"], 0.3)
+        legacy_named = normalize_options(JobMode.MINIMAX_H3_T2V, {"quality": "2K"})
+        self.assertEqual(legacy_named["quality"], "0.3")
+        self.assertEqual(legacy_named["megapixels"], 0.3)
 
     def test_minimax_h3_image_to_video_uses_first_and_last_frame(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_I2V, {})
@@ -114,7 +136,7 @@ class WorkflowTests(unittest.TestCase):
             validate_references(JobMode.MINIMAX_H3_R2V, [])
 
     def test_t8_all_reference_builds_multirate_graph_and_grows_references(self) -> None:
-        options = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {})
+        options = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"quality": "0.98"})
         workflow = build_minimax_h3_t8_workflow(
             JobMode.MINIMAX_H3_T8_ALL_REFERENCE,
             "Use <Picture 1> and <Picture 2>.",
@@ -124,6 +146,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["8"]["class_type"], "MiniMaxH3MultiRateSamplerEXPT8")
         self.assertEqual(workflow["8"]["inputs"]["video_steps"], 8)
         self.assertEqual(workflow["8"]["inputs"]["audio_steps"], 10)
+        self.assertEqual(workflow["7"]["inputs"]["megapixels"], 0.98)
         self.assertEqual(workflow["3"]["inputs"]["task_type"], "Ref2VA")
         self.assertEqual(workflow["3"]["inputs"]["ref_images.ref_image_0"], ["20", 0])
         self.assertEqual(workflow["3"]["inputs"]["ref_images.ref_image_1"], ["21", 0])
@@ -131,24 +154,27 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(workflow["14"]["inputs"]["save_output"])
 
     def test_t8_dual_clock_builds_source_sampler_contract(self) -> None:
-        options = normalize_options(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, {})
+        options = normalize_options(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, {"quality": "0.98"})
         workflow = build_minimax_h3_t8_workflow(
             JobMode.MINIMAX_H3_T8_DUAL_CLOCK, "Rain on a roof.", [], options,
         )
         self.assertEqual(workflow["8"]["class_type"], "MiniMaxH3DualClockSamplerT8")
         self.assertEqual(workflow["8"]["inputs"]["steps"], 8)
+        self.assertEqual(workflow["7"]["inputs"]["megapixels"], 0.98)
         self.assertEqual(workflow["3"]["inputs"]["task_type"], "T2VA")
         self.assertEqual(workflow["16"]["class_type"], "LoraLoaderBypassModelOnly")
 
     def test_t8_options_validate_ranges_and_cross_field_rules(self) -> None:
         mode = JobMode.MINIMAX_H3_T8_ALL_REFERENCE
-        normalized = normalize_options(mode, {"quality": "2K", "video_steps": 6, "audio_steps": 8})
-        self.assertEqual(normalized["quality"], "2K")
-        self.assertEqual(normalized["megapixels"], 1.0)
+        normalized = normalize_options(mode, {"quality": "0.98", "video_steps": 6, "audio_steps": 8})
+        self.assertEqual(normalized["quality"], "0.98")
+        self.assertEqual(normalized["megapixels"], 0.98)
+        self.assertEqual(normalize_options(mode, {})["quality"], "0.4")
+        self.assertEqual(normalize_options(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, {})["quality"], "0.7")
         self.assertEqual(normalized["video_steps"], 6)
         self.assertIsInstance(normalized["seed"], int)
         self.assertNotEqual(normalized["seed"], 123456789)
-        self.assertNotEqual(normalized["seed"], normalize_options(mode, {"quality": "2K"})["seed"])
+        self.assertNotEqual(normalized["seed"], normalize_options(mode, {"quality": "0.98"})["seed"])
         with self.assertRaises(ValueError):
             normalize_options(mode, {"audio_steps": 3, "video_steps": 4})
         with self.assertRaises(ValueError):
@@ -196,6 +222,10 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertIn("pattern", parameters["options"]["schema"]["properties"]["aspect_ratio"])
         self.assertEqual(parameters["options"]["schema"]["properties"]["aspect_ratio"]["ui_control"], "visual-settings")
         self.assertEqual(parameters["options"]["schema"]["properties"]["aspect_ratio"]["ui_companion"], "quality")
+        self.assertEqual(
+            parameters["options"]["schema"]["properties"]["quality"]["enum"],
+            ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.98", "1.0", "1.2", "1.5", "1.8", "2.0"],
+        )
         self.assertEqual(parameters["options"]["schema"]["properties"]["duration"]["ui_control"], "duration-slider")
         self.assertEqual(
             parameters["options"]["schema"]["properties"]["aspect_ratio"]["ui_options"][0],
@@ -219,6 +249,10 @@ class ApiDocumentationTests(unittest.TestCase):
             {"quality"},
         )
         self.assertEqual(t8_options["megapixels"]["ui_group"], "internal")
+        self.assertEqual(t8_options["quality"]["enum"], ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.98"])
+        dual_t8 = workflow_for(JobMode.MINIMAX_H3_T8_DUAL_CLOCK).payload()
+        dual_t8_options = {item["name"]: item for item in dual_t8["parameters"]}["options"]["schema"]["properties"]
+        self.assertEqual(dual_t8_options["quality"]["enum"], ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.98"])
         self.assertEqual(t8_options["seed"]["ui_group"], "internal")
         self.assertEqual(t8_options["task_type"]["ui_group"], "internal")
         self.assertEqual(t8_options["video_steps"]["ui_group"], "internal")
@@ -258,8 +292,8 @@ class StoreTests(unittest.TestCase):
             "negative_prompt": "",
             "image_size": None,
             "reference_count": 2,
-            "options": {"aspect_ratio": "2:3", "quality": "1K", "megapixels": 0.2, "duration": 5},
-            "submitted_options": {"aspect_ratio": "2:3", "quality": "1K", "duration": 5},
+            "options": {"aspect_ratio": "2:3", "quality": "0.2", "megapixels": 0.2, "duration": 5},
+            "submitted_options": {"aspect_ratio": "2:3", "quality": "0.2", "duration": 5},
             "options_submitted": True,
             "outputs": [],
         })
@@ -277,7 +311,7 @@ class StoreTests(unittest.TestCase):
                 {"name": "prompt", "label": "创作提示词", "value": "Use the first reference.", "visibility": "primary"},
                 {"name": "references", "label": "参考图", "value": 2, "visibility": "primary"},
                 {"name": "options.aspect_ratio", "label": "画面比例", "value": "2:3", "visibility": "primary"},
-                {"name": "options.quality", "label": "分辨率", "value": "1K", "visibility": "advanced"},
+                {"name": "options.quality", "label": "分辨率", "value": "0.2", "visibility": "advanced"},
                 {"name": "options.megapixels", "label": "内部像素面积", "value": 0.2, "visibility": "internal", "unit": "MP"},
                 {"name": "options.duration", "label": "时长", "value": 5, "visibility": "primary", "unit": "秒"},
             ],

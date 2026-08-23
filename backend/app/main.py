@@ -14,8 +14,10 @@ from threading import Lock
 from typing import Annotated
 from urllib.parse import urlencode
 
+import requests
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, Security, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+
 from fastapi.security import APIKeyCookie
 from fastapi.openapi.utils import get_openapi
 
@@ -23,14 +25,20 @@ from .auth import AuthStore, SESSION_HOURS, csrf_token
 from .comfy_service import ComfyService
 from .config import settings
 from .grs_provider import GrsProviderService
+from .llm_client import LlmError, LlmTemporaryError
+from .llm_provider import LlmProviderService
 from .models import (
     AuthStatusResponse, BrowserDirectOutputResponse, ChangePasswordRequest, CreateUserRequest, HealthResponse, JobMode, JobResponse,
     DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
     LibraryItemResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest, SetupAdminRequest, JobStatus,
     QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateUserRequest, UserResponse, UserRole,
     JobMetadataUpdateRequest,
+    LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmStatusResponse,
+    PromptOptimizeRequest, PromptOptimizeResponse, SkillsListResponse,
 )
+
 from .qiniu_provider import QiniuProviderService
+
 from .resource_storage import create_resource_storage
 from .storage import JobStore
 from .worker import JobWorker
@@ -415,17 +423,20 @@ async def lifespan(app: FastAPI):
     qiniu_provider = QiniuProviderService(store, settings.credential_key)
     resource_storage = qiniu_provider.enabled_storage() or create_resource_storage(settings.resource_provider, settings.staging_dir)
     grs_provider = GrsProviderService(store, settings.credential_key)
+    llm_provider = LlmProviderService(store, settings.credential_key)
     worker = JobWorker(store, ComfyService(settings, resource_storage), grs_provider, resource_storage)
     app.state.auth_store = auth_store
     app.state.store = store
     app.state.resource_storage = resource_storage
     app.state.grs_provider = grs_provider
     app.state.qiniu_provider = qiniu_provider
+    app.state.llm_provider = llm_provider
     app.state.worker = worker
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
     await worker.start()
     yield
     await worker.stop()
+
 
 
 app = FastAPI(
@@ -809,6 +820,103 @@ async def query_grs_balance(
         detail="balance queried", ip_address=client_ip(request),
     )
     return {"credits": credits, "queried_at": queried_at}
+
+
+@app.get("/api/admin/providers/llm", response_model=LlmProviderResponse, tags=["管理后台"], summary="获取 LLM 大模型配置")
+def get_llm_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.llm_provider.public_config()
+
+
+@app.put("/api/admin/providers/llm", response_model=LlmProviderResponse, tags=["管理后台"], summary="更新 LLM 大模型配置")
+def update_llm_provider(
+    payload: LlmProviderUpdateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        result = app.state.llm_provider.update(payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_llm_provider", "provider", actor_user_id=user["id"], target_id="llm",
+        detail=f"model={payload.model}", ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post("/api/admin/providers/llm/test", response_model=LlmProviderResponse, tags=["管理后台"], summary="测试 LLM 大模型连接")
+async def test_llm_provider(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: LlmProviderTestRequest | None = None,
+) -> dict:
+    try:
+        arguments = None if payload is None else payload.model_dump()
+        result = await asyncio.to_thread(app.state.llm_provider.test, arguments)
+    except Exception as error:
+        app.state.auth_store.audit(
+            "test_llm_provider_failed", "provider", actor_user_id=user["id"], target_id="llm",
+            detail=type(error).__name__, ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "test_llm_provider", "provider", actor_user_id=user["id"], target_id="llm",
+        detail="success", ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.get("/api/llm/skills", response_model=SkillsListResponse, tags=["大模型"], summary="获取 MiniMax H3 官方提示词技能列表")
+def get_llm_skills(_: Annotated[dict, Depends(current_user)]) -> dict:
+    from .llm_minimax_skills import list_h3_skills_payload
+    return {"skills": list_h3_skills_payload()}
+
+
+@app.get("/api/llm/status", response_model=LlmStatusResponse, tags=["大模型"], summary="查询大模型服务可用状态")
+def get_llm_status(_: Annotated[dict, Depends(current_user)]) -> dict:
+    available, reason = app.state.llm_provider.availability()
+    return {"available": available, "message": reason}
+
+
+@app.post("/api/llm/optimize-prompt", response_model=PromptOptimizeResponse, tags=["大模型"], summary="优化视频或图片生成提示词")
+async def optimize_prompt_endpoint(
+    payload: PromptOptimizeRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    available, reason = app.state.llm_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+
+    try:
+        optimized = await asyncio.to_thread(
+            app.state.llm_provider.optimize_prompt,
+            payload.prompt,
+            media_type=payload.media_type,
+            workflow_name=payload.workflow_name,
+            skill_id=payload.skill_id,
+            reference_count=payload.reference_count or 0,
+            workflow_id=payload.workflow_id,
+        )
+    except (LlmTemporaryError, requests.exceptions.RequestException) as error:
+        raise HTTPException(status_code=502, detail=f"大模型响应超时或网络异常：{error}") from error
+    except LlmError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"提示词优化异常：{error}") from error
+
+
+    app.state.auth_store.audit(
+        "optimize_prompt", "llm", actor_user_id=user["id"], target_id="prompt",
+        detail=f"media_type={payload.media_type}; skill_id={payload.skill_id or 'default'}; refs={payload.reference_count or 0}",
+        ip_address=client_ip(request),
+    )
+    return {
+        "original_prompt": payload.prompt,
+        "optimized_prompt": optimized,
+        "skill_id": payload.skill_id,
+    }
+
+
 
 
 @app.post(

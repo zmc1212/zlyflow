@@ -133,6 +133,8 @@
 .studio-resolution-choice:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
 .studio-resolution-choice:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(112, 71, 255, 0.55); }
 .studio-resolution-choice-selected { background: #7047f6; color: #fff; font-weight: 500; }
+.studio-resolution-choice-detailed { display: flex; min-height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 1px; line-height: 1.2; }
+.studio-resolution-choice-detailed small { color: inherit; font-size: 10px; font-weight: 400; opacity: 0.68; }
 
 .studio-duration-slider { margin: 5px 0 30px !important; }
 .studio-duration-slider .ant-slider-rail { background: rgba(255, 255, 255, 0.1) !important; }

@@ -91,7 +91,9 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 
 - GRS 图片生成：GPT Image 2 与 VIP；支持参考图、比例、1K/2K/4K、VIP 自定义尺寸、单轮 1–4 个并发生成项、部分成功和失败项重试。
 - 图片与视频任务统一为“任务 → 轮次 → 生成项”；同任务不混合媒介，图片结果可创建有关联的新视频任务并预填首帧。
+- MiniMax H3 提示词技能体系与大模型智能优化：结合 MiniMax-H3 官方开源技能规范（三维运镜语法、多模态时序结构、环境音效与背景配乐），融合 OpenAI 兼容大模型（如 ModelScope 免费模型），提供电影级通用、极简电商广告、3D动画短片、立体纸艺定格、品牌宣传、音乐短片、双人游戏片头、纸拼贴与手绘发光实景等 9 大细分风格技能的一键智能优化。
 - MiniMax H3：文生视频、首尾帧视频，以及 1-9 张可排序参考图的视频生成；另接入“全能参考（多速率）”和“双时钟 8 步”工作流。新工作流的尺寸、时长、种子、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
+
 - 串行任务队列、任务状态、SQLite 任务记录与本地作品库。
 - ComfyUI 或 FRP 短暂重启时，运行任务会在连续 30 秒无法通信后标记为“已中断”或安全失败，自动释放队列；恢复连接后可在任务详情点击“重新提交”，无需重启工作台镜像。
 - 超级管理员、管理员、员工三级角色；员工仅可读取自己的任务、参考图和资源。
@@ -158,7 +160,25 @@ pnpm --dir desktop run build
 
 AI 或开发者进行跨模块、接口、工作流、数据库、模型路径或端口调整前，必须先阅读根目录 `AGENTS.md` 和 `docs/ARCHITECTURE.md`。重大架构变更需要同步更新架构快照和 `功能说明与扩展指南.md`。
 
+## 2026-08-17 管理设置白色系高对比度视觉重构与本地凭据回退
+
+- 原因：管理设置此前沿用暗黑背景与低对比度文字，导致 Ant Design 警告框和输入控件在暗色底上严重看不清；本地直接启动时未加载 `credential.key` 会出现“凭证主密钥不可用”提示。
+- 受影响文件：`backend/app/config.py`、`frontend/src/Root.tsx`、`frontend/src/admin/LlmProviderSettings.tsx`、`frontend/src/admin/GrsProviderSettings.tsx`、`frontend/src/admin/QiniuStorageSettings.tsx`、`AGENTS.md`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改变接口路由与数据库结构，纯视觉与配置加载优化。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复对应前端与配置文件后重新构建。
+
+## 2026-08-17 LLM 大模型服务与提示词智能优化
+
+- 原因：工作台创作者需要将简短粗糙的视频/图像想法快速扩写为具有电影级运镜、动态细节与艺术质感的高质量提示词；原生支持 ModelScope（魔搭社区）每日免费额度模型及通用 OpenAI 兼容协议。
+- 受影响文件：`backend/app/llm_client.py`、`backend/app/llm_provider.py`、`backend/app/models.py`、`backend/app/storage.py`、`backend/app/main.py`、`backend/tests/test_llm.py`、`frontend/src/admin/LlmProviderSettings.tsx`、`frontend/src/Root.tsx`、`frontend/src/App.tsx`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：新增独立的 Provider 表和 API 接口，完全向下兼容已有的任务数据、ComfyUI 实例与 GRS 服务；未启用 LLM 时工作台提示词输入保持原有手动编辑行为。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码与文档文件，重新执行前端 build 即可；数据库表无破坏性改动。
+
+
 ## 2026-08-11 首次目录配置强制引导
+
 
 - 原因：未配置本地目录时，用户可以进入工作台并创建任务，导致生成资源无法按既定交付流程保存到员工电脑。
 - 受影响文件：`frontend/src/App.tsx`、`README.md`、`docs/ARCHITECTURE.md` 和 `功能说明与扩展指南.md`。
@@ -402,3 +422,12 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 ### 即梦式资产媒体库（2026-08-17）
 
 资产页现使用即梦式生成历史布局：可按图片、视频、音频或文档筛选，按日期分组浏览 16:9 媒体缩略图，视频带时长角标；“主体”和“画布”保留独立入口。资产视图隐藏会话任务栏，但保留左侧全局“生成/资产”导航。
+
+## 2026-08-21 MiniMax H3 本地输出尺寸预设
+
+- 原因：原先本地 H3 的 `1K/2K/4K` 文案与实际画布像素面积不一致，例如“2K”实际仅为 `0.3 MP`，造成下载尺寸预期错误。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/tests/test_core.py`、`README.md`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md`。
+- 用户可见行为：分辨率弹层直接显示实际输出尺寸，画面比例切换后尺寸会即时重算。标准 H3 依照 MiniMax `ResolutionSelector` 提供最高 `2.0 MP` 的档位，16:9 实际对齐为 `1920×1088`；T8 仍按其节点硬限制最高 `.98 MP`。MP 仅作为次要说明。
+- 兼容性：历史明确传入的 `1K/2K/4K` 请求仍按原有 `0.2/0.3/0.5 MP` 执行；已保存任务的实际 MP 参数不改变。`GET /api/modes` 按每个工作流的注册表下发可用尺寸档位，标准 H3 与 T8 的上限互不混用。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`；在桌面与 `390×844` 视口切换三种 H3 工作流，确认尺寸随比例更新且不超过工作流上限。
+- 回滚方式：恢复上述注册表、测试和三份文档；无需数据库迁移、清理任务或媒体。

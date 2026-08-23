@@ -138,6 +138,42 @@ GRS_IMAGE_VIP_OPTION_SCHEMA = {
 }
 
 
+H3_STANDARD_RESOLUTION_PRESETS = {
+    "0.2": 0.2,
+    "0.3": 0.3,
+    "0.4": 0.4,
+    "0.5": 0.5,
+    "0.6": 0.6,
+    "0.7": 0.7,
+    "0.8": 0.8,
+    "0.9": 0.9,
+    "0.98": 0.98,
+    "1.0": 1.0,
+    "1.2": 1.2,
+    "1.5": 1.5,
+    "1.8": 1.8,
+    "2.0": 2.0,
+}
+H3_T8_RESOLUTION_PRESETS = {
+    "0.2": 0.2,
+    "0.3": 0.3,
+    "0.4": 0.4,
+    "0.5": 0.5,
+    "0.6": 0.6,
+    "0.7": 0.7,
+    "0.8": 0.8,
+    "0.9": 0.9,
+    "0.98": 0.98,
+}
+H3_LOCAL_RESOLUTION_PREVIEW = {
+    "multiple": 32,
+}
+
+
+def local_resolution_options(presets: dict[str, float]) -> list[dict[str, str]]:
+    return [{"value": key, "label": f"{megapixels:g} MP"} for key, megapixels in presets.items()]
+
+
 H3_STANDARD_OPTION_SCHEMA = {
     "type": "object",
     "properties": {
@@ -159,14 +195,12 @@ H3_STANDARD_OPTION_SCHEMA = {
             description="任意有限正数的宽:高比例，例如 16:9、2:3、3:2 或 21:9。",
         ),
         "quality": option(
-            "分辨率", "string", "1K", group="advanced", ui_control="select",
-            ui_options=[
-                {"value": "1K", "label": "1K"},
-                {"value": "2K", "label": "2K"},
-                {"value": "4K", "label": "4K"},
-            ],
-            megapixels_by_quality={"1K": 0.2, "2K": 0.3, "4K": 0.5},
-            description="更高分辨率会提高画面细节、显存占用和生成时间。",
+            "分辨率", "string", "0.2", group="advanced", ui_control="select",
+            enum=list(H3_STANDARD_RESOLUTION_PRESETS),
+            ui_options=local_resolution_options(H3_STANDARD_RESOLUTION_PRESETS),
+            megapixels_by_quality=H3_STANDARD_RESOLUTION_PRESETS,
+            ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+            description="选择实际输出尺寸；尺寸会随画面比例变化，最高档 16:9 为 1920×1088。",
         ),
         "megapixels": option(
             "内部像素面积", "number", 0.2, group="internal", minimum=0.1, maximum=16.0, step=0.1, unit="MP",
@@ -186,7 +220,10 @@ T8_ASPECT_RATIOS = [
 
 def t8_option_schema(*, sampler: str) -> dict[str, Any]:
     multirate = sampler == "multirate"
-    quality_megapixels = {"1K": 0.4 if multirate else 0.7, "2K": 1.0, "4K": 2.0}
+    # The T8 conditioning node rejects canvases larger than 768x1344. 0.98 MP
+    # resolves to that maximum at 16:9 with ComfyUI's 32-pixel grid.
+    quality_megapixels = H3_T8_RESOLUTION_PRESETS
+    default_quality = "0.4" if multirate else "0.7"
     properties: dict[str, Any] = {
         "task_type": option(
             "任务类型", "string", "auto", enum=["auto", "T2VA", "Ref2VA"],
@@ -197,17 +234,15 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
             ui_control="visual-settings", ui_companion="quality",
         ),
         "quality": option(
-            "分辨率", "string", "1K", group="advanced", ui_control="select",
-            ui_options=[
-                {"value": "1K", "label": "1K"},
-                {"value": "2K", "label": "2K"},
-                {"value": "4K", "label": "4K"},
-            ],
+            "分辨率", "string", default_quality, group="advanced", ui_control="select",
+            enum=list(quality_megapixels),
+            ui_options=local_resolution_options(quality_megapixels),
             megapixels_by_quality=quality_megapixels,
-            description="更高分辨率会提高画面细节、显存占用和生成时间。",
+            ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+            description="选择实际输出尺寸；尺寸会随画面比例变化，最高为 1344×768。",
         ),
         "megapixels": option(
-            "内部像素面积", "number", 0.4 if multirate else 0.7, group="internal",
+            "内部像素面积", "number", quality_megapixels[default_quality], group="internal",
             minimum=0.1, maximum=16.0, step=0.1, unit="MP",
         ),
         "multiple": option("尺寸对齐倍数", "integer", 32, minimum=8, maximum=128, step=4),
@@ -377,7 +412,8 @@ H3_WORKFLOWS = {
 }
 
 H3_QUALITY_MEGAPIXELS = H3_STANDARD_OPTION_SCHEMA["properties"]["quality"]["megapixels_by_quality"]
-H3_LEGACY_MEGAPIXELS = set(H3_QUALITY_MEGAPIXELS.values()) | {0.4}
+H3_LEGACY_QUALITY_MEGAPIXELS = {"1K": 0.2, "2K": 0.3, "4K": 0.5}
+H3_LEGACY_MEGAPIXELS = set(H3_QUALITY_MEGAPIXELS.values()) | {0.98}
 H3_OPTION_NAMES = {"aspect_ratio", "quality", "megapixels", "duration"}
 H3_ASPECT_RATIO_PART = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
 
@@ -481,20 +517,24 @@ def normalize_options(mode: JobMode, raw: dict[str, Any] | None) -> dict[str, An
     aspect_ratio, _ = parse_h3_aspect_ratio(raw.get("aspect_ratio", "16:9"))
     quality = raw.get("quality")
     legacy_megapixels = raw.get("megapixels")
+    legacy_quality = quality in H3_LEGACY_QUALITY_MEGAPIXELS
+    if legacy_quality:
+        legacy_megapixels = H3_LEGACY_QUALITY_MEGAPIXELS[raw["quality"]]
+        quality = min(H3_QUALITY_MEGAPIXELS, key=lambda item: abs(H3_QUALITY_MEGAPIXELS[item] - legacy_megapixels))
     if quality is None and legacy_megapixels is not None and float(legacy_megapixels) not in H3_LEGACY_MEGAPIXELS:
-        raise ValueError("MiniMax H3 请选择 1K、2K 或 4K 分辨率。")
+        raise ValueError("MiniMax H3 请选择当前工作流支持的分辨率。")
     if quality is None and legacy_megapixels is not None:
         quality = min(H3_QUALITY_MEGAPIXELS, key=lambda item: abs(H3_QUALITY_MEGAPIXELS[item] - float(legacy_megapixels)))
-    quality = quality or "1K"
+    quality = quality or next(iter(H3_QUALITY_MEGAPIXELS))
     duration = float(raw.get("duration", 5))
     if quality not in H3_QUALITY_MEGAPIXELS:
-        raise ValueError("MiniMax H3 请选择 1K、2K 或 4K 分辨率。")
+        raise ValueError("MiniMax H3 请选择当前工作流支持的分辨率。")
     if not 5 <= duration <= 15:
         raise ValueError("MiniMax H3 时长必须在 5 到 15 秒之间。")
     return {
         "aspect_ratio": aspect_ratio,
         "quality": quality,
-        "megapixels": float(legacy_megapixels) if raw.get("quality") is None and legacy_megapixels is not None else H3_QUALITY_MEGAPIXELS[quality],
+        "megapixels": float(legacy_megapixels) if legacy_megapixels is not None and (raw.get("quality") is None or legacy_quality) else H3_QUALITY_MEGAPIXELS[quality],
         "duration": duration,
         "reference_image_size": "match",
     }
@@ -576,16 +616,14 @@ def grs_request_size(mode: JobMode, options: dict[str, Any]) -> tuple[str, str |
 
 def h3_dimensions(options: dict[str, Any]) -> tuple[int, int]:
     _, ratio = parse_h3_aspect_ratio(options["aspect_ratio"])
-    area = options["megapixels"] * 1_000_000
+    # Keep the workbench calculation byte-for-byte compatible with ComfyUI's
+    # ResolutionSelector: MP is based on 1024² and each side is rounded to the
+    # configured 32-pixel alignment grid.
+    area = options["megapixels"] * 1024 * 1024
     if not math.isfinite(area * ratio) or not math.isfinite(area / ratio):
         raise ValueError("MiniMax H3 aspect ratio is outside the supported numeric range")
-    width = math.ceil(math.sqrt(area * ratio) / 32) * 32
-    height = math.ceil(math.sqrt(area / ratio) / 32) * 32
-    max_width, max_height = (1344, 768) if ratio >= 1 else (768, 1344)
-    if width > max_width or height > max_height:
-        scale = min(max_width / width, max_height / height)
-        width = max(32, round(width * scale / 32) * 32)
-        height = max(32, round(height * scale / 32) * 32)
+    width = round(math.sqrt(area * ratio) / 32) * 32
+    height = round(math.sqrt(area / ratio) / 32) * 32
     return width, height
 
 

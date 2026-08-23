@@ -19,14 +19,26 @@ class Settings:
     secure_cookies: bool = os.getenv("ZLY_AI_VIDEO_STUDIO_SECURE_COOKIES", "false").lower() in {"1", "true", "yes"}
     data_dir_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_DATA_DIR")
     comfy_root_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_COMFY_ROOT")
-    credential_key: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY")
+    credential_key_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY")
     grs_poll_interval_seconds: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_POLL_INTERVAL_SECONDS", "5"))
     grs_timeout_seconds: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_TIMEOUT_SECONDS", "1800"))
     grs_max_concurrency: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_MAX_CONCURRENCY", "4"))
 
     @property
+    def credential_key(self) -> str | None:
+        if self.credential_key_override:
+            return self.credential_key_override
+        key_path = self.data_dir / "credential.key"
+        try:
+            from .local_credential_key import ensure_local_credential_key
+            return ensure_local_credential_key(key_path)
+        except Exception:
+            return None
+
+    @property
     def results_dir(self) -> Path:
         return self.workspace_dir / "results"
+
 
     @property
     def data_dir(self) -> Path:

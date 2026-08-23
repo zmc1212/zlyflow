@@ -75,17 +75,19 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
   const response = await fetch(path, init)
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? ""
-    if (!contentType.includes("application/json")) {
-      throw new Error(`服务端返回了非 JSON 响应（HTTP ${response.status}），请刷新页面后重试`)
+    if (contentType.includes("application/json")) {
+      const body = await response.json().catch(() => null)
+      throw new Error(apiErrorMessage(body))
     }
-    const body = await response.json().catch(() => null)
-    throw new Error(apiErrorMessage(body))
+    const text = await response.text().catch(() => "")
+    throw new Error(text.trim() || `请求失败（HTTP ${response.status}）`)
   }
   if (!(response.headers.get("content-type") ?? "").includes("application/json")) {
     throw new Error("服务端返回了非 JSON 响应，请确认工作台后端已启动")
   }
   return response.json() as Promise<T>
 }
+
 
 export function jsonMutation(csrfToken: string, body?: unknown, method = "POST"): RequestInit {
   return {

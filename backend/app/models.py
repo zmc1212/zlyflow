@@ -336,3 +336,63 @@ class LibraryItemResponse(MediaOutput):
     generation_item_id: str | None = None
     output_index: int | None = None
     created_at: str = Field(description="创建时间；任务记录为 ISO 8601，历史文件为 Unix 时间戳字符串。")
+
+
+class LlmProviderUpdateRequest(BaseModel):
+    enabled: bool = False
+    base_url: str = Field(default="https://api-inference.modelscope.cn/v1", max_length=500)
+    api_key: str | None = Field(default=None, max_length=512)
+    model: str = Field(default="Qwen/Qwen2.5-72B-Instruct", max_length=128)
+
+
+class LlmProviderTestRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=512)
+    model: str | None = Field(default=None, max_length=128)
+
+
+class LlmProviderResponse(BaseModel):
+    enabled: bool
+    base_url: str
+    model: str
+    api_key_masked: str | None = None
+    has_api_key: bool
+    credential_ready: bool
+    available: bool
+    unavailable_reason: str | None = None
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    last_test_at: str | None = None
+
+
+class LlmStatusResponse(BaseModel):
+    available: bool
+    message: str | None = None
+
+
+class PromptOptimizeRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000, description="待优化的原始创意或提示词")
+    media_type: Literal["video", "image"] = Field(default="video", description="生成目标媒体类型")
+    workflow_name: str | None = Field(default=None, max_length=128, description="当前选择的工作流名称")
+    skill_id: str | None = Field(default=None, max_length=64, description="指定 MiniMax 技能风格 ID")
+    reference_count: int | None = Field(default=0, ge=0, le=10, description="当前参考图数量")
+    workflow_id: str | None = Field(default=None, max_length=64, description="当前工作流 ID")
+
+
+class PromptOptimizeResponse(BaseModel):
+    original_prompt: str
+    optimized_prompt: str
+    skill_id: str | None = None
+
+
+class SkillItem(BaseModel):
+    id: str
+    name: str
+    description: str
+    icon: str
+    category: str
+
+
+class SkillsListResponse(BaseModel):
+    skills: list[SkillItem]
+

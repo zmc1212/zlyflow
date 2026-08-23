@@ -60,6 +60,8 @@ type OptionDefinition = {
   description?: string; unit?: string; ui_group?: ParameterVisibility
   ui_control?: "select" | "visual-settings" | "duration-slider"; ui_companion?: string; ui_companions?: string[]
   ui_options?: { value: string | number; label: string; hint?: string }[]
+  megapixels_by_quality?: Record<string, number>
+  ui_resolution_preview?: { multiple?: number; max_width?: number; max_height?: number }
   ui_visible_when?: Record<string, string | number | boolean>
 }
 type WorkflowParameter = { name: string; schema?: { properties?: Record<string, OptionDefinition> } | null }
@@ -75,6 +77,14 @@ type MediaDraft = {
   source?: { jobId: string; generationItemId: string; outputIndex: number }
 }
 type AssetMediaFilter = "all" | "image" | "video" | "audio" | "document"
+type H3Skill = {
+  id: string
+  name: string
+  description: string
+  icon: string
+  category: string
+}
+
 
 function normalizeWorkflow(workflow: Workflow): Workflow {
   return {
@@ -162,6 +172,27 @@ function defaultOptionValues(workflow?: Workflow): Record<string, OptionInputVal
 function optionVisible(definition: OptionDefinition, values: Record<string, OptionInputValue>) {
   if (!definition.ui_visible_when) return true
   return Object.entries(definition.ui_visible_when).every(([name, expected]) => String(values[name]) === String(expected))
+}
+
+function generatedResolutionLabel(definition: OptionDefinition, quality: string, aspectRatio: string) {
+  const megapixels = definition.megapixels_by_quality?.[quality]
+  const match = aspectRatio.match(/(?:\d+(?:\.\d+)?|\.\d+)\s*:\s*(?:\d+(?:\.\d+)?|\.\d+)/)?.[0]
+  const [aspectWidth, aspectHeight] = match?.split(":").map(Number) ?? []
+  if (!megapixels || !aspectWidth || !aspectHeight) return undefined
+
+  const preview = definition.ui_resolution_preview
+  const multiple = preview?.multiple ?? 32
+  const ratio = aspectWidth / aspectHeight
+  let width = Math.round(Math.sqrt(megapixels * 1024 * 1024 * ratio) / multiple) * multiple
+  let height = Math.round(Math.sqrt((megapixels * 1024 * 1024) / ratio) / multiple) * multiple
+  const maxWidth = ratio >= 1 ? preview?.max_width : preview?.max_height
+  const maxHeight = ratio >= 1 ? preview?.max_height : preview?.max_width
+  if (maxWidth && maxHeight && (width > maxWidth || height > maxHeight)) {
+    const scale = Math.min(maxWidth / width, maxHeight / height)
+    width = Math.max(multiple, Math.round((width * scale) / multiple) * multiple)
+    height = Math.max(multiple, Math.round((height * scale) / multiple) * multiple)
+  }
+  return `${width} × ${height}`
 }
 
 function serializeOptionValues(
@@ -338,7 +369,17 @@ export default function App({
   })
   const grsBalanceUnavailable = Boolean(grsBalanceQuery.error || (grsBalanceQuery.data?.refresh_error && grsBalanceQuery.data.credits === null))
   const grsBalanceStale = Boolean(grsBalanceQuery.data?.refresh_error)
+  const [selectedSkillId, setSelectedSkillId] = useState<string>("general")
+  const skillsQuery = useQuery({
+    queryKey: ["llm-skills"],
+    queryFn: () => requestJson<{ skills: H3Skill[] }>("/api/llm/skills"),
+    enabled: Boolean(user),
+    staleTime: 1000 * 60 * 10,
+  })
+  const h3Skills = skillsQuery.data?.skills || []
+  const activeSkill = h3Skills.find((s) => s.id === selectedSkillId) || h3Skills[0]
   const selectedJob = selectedJobId ? jobs.find((job) => job.id === selectedJobId) : undefined
+
   const recentJobs = selectedJob ? jobs.filter((job) => job.id !== selectedJob.id) : jobs
   const assetEntries = useMemo(
     () => allJobs.flatMap((job) => {
@@ -634,7 +675,38 @@ export default function App({
     onError: (error: Error) => messageApi.error(error.message),
   })
 
+  const optimizeMutation = useMutation({
+    mutationFn: async (skillIdOverride?: string | void) => {
+      const cleanPrompt = prompt.trim()
+      if (!cleanPrompt) {
+        throw new Error("请先输入简短的画面描述或想法")
+      }
+      const targetSkillId = (typeof skillIdOverride === "string" ? skillIdOverride : undefined) || selectedSkillId
+      return requestJson<{ original_prompt: string; optimized_prompt: string; skill_id?: string }>(
+        "/api/llm/optimize-prompt",
+        jsonMutation(csrfToken, {
+          prompt: cleanPrompt,
+          media_type: mediaType,
+          workflow_name: workflow?.name,
+          skill_id: mediaType === "video" ? targetSkillId : undefined,
+          reference_count: references.length,
+          workflow_id: workflowId,
+        }),
+      )
+    },
+
+    onSuccess: (data) => {
+      setPrompt(data.optimized_prompt)
+      messageApi.success("提示词已使用 AI 优化完成")
+    },
+    onError: (error: Error) => {
+      messageApi.warning(error.message || "提示词优化失败")
+    },
+  })
+
+
   const referenceCount = references.length
+
   const previewReference = referencePreviewIndex === null ? undefined : references[referencePreviewIndex]
   const openReferencePreview = (index: number) => {
     setReferencePreviewIndex(index)
@@ -1020,7 +1092,6 @@ export default function App({
 
           {isComposerCompact && <button type="button" onClick={() => returnToComposer()} className="studio-return-bottom" title="回到底部"><span>回到底部</span><ChevronDown size={15} /></button>}
           <form id="studio-composer" onSubmit={submit} className={`studio-composer-form relative z-20 mx-auto max-w-[1080px] border border-black/[0.05] bg-white p-4 shadow-[0_16px_36px_rgba(22,31,44,0.10)] sm:rounded-[24px] sm:p-5 lg:sticky lg:bottom-5 ${isComposerCompact ? "studio-composer-collapsed" : ""}`}>
-            <button type="button" title="提示词优化" className="absolute -left-14 top-0 hidden size-12 place-items-center rounded-full bg-white/10 text-white hover:bg-white/15 xl:grid"><WandSparkles size={19} /></button>
             <div className="absolute -top-8 right-7 flex max-w-[calc(100%-56px)] items-center gap-1.5 text-sm text-[#babac3]">
               <span className="studio-ai-badge grid size-5 shrink-0 place-items-center rounded-full bg-[#7046df] text-[10px] font-semibold text-white">AI</span>
               {mediaType === "image" ? <>
@@ -1037,11 +1108,74 @@ export default function App({
             <div className="studio-composer-prompt grid min-h-[142px] grid-cols-1 gap-4 sm:grid-cols-[minmax(102px,154px)_minmax(0,1fr)]">
               <ReferencePanel workflow={workflow} references={references} onAppend={appendFiles} onReplaceKeyframe={replaceKeyframe} onRemove={removeReference} onMove={moveReference} onPreview={openReferencePreview} fileInputRef={fileInputRef} />
               <div className="studio-composer-editor min-w-0 pt-1">
-                <div className="studio-composer-editor-meta mb-2 flex items-center justify-between gap-3"><span className="text-xs text-[#aaaab4]">{workflow?.name || "正在加载工作流"}</span><span className="truncate text-[11px] text-[#797982]">{referenceHint}</span></div>
+                <div className="studio-composer-editor-meta mb-2 flex items-center justify-between gap-3">
+                  <span className="text-xs text-[#aaaab4]">{workflow?.name || "正在加载工作流"}</span>
+                  <div className="flex items-center gap-2">
+                    {mediaType === "video" && h3Skills.length > 0 ? (
+                      <Dropdown
+                        placement="bottomRight"
+                        trigger={["click", "hover"]}
+                        menu={{
+                          items: [
+                            {
+                              key: "header",
+                              type: "group",
+                              label: <span className="text-[11px] font-semibold text-[#6b7280]">MiniMax H3 官方技能体系</span>,
+                            },
+                            ...h3Skills.map((skill) => ({
+                              key: skill.id,
+                              label: (
+                                <div className="flex items-start gap-2 py-1 max-w-[280px]">
+                                  <span className="text-base shrink-0 select-none leading-none pt-0.5">{skill.icon}</span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className={`text-xs font-semibold ${selectedSkillId === skill.id ? "text-[#7047f6]" : "text-[#1f2937]"}`}>
+                                      {skill.name} {selectedSkillId === skill.id && <span className="text-[10px] text-[#7047f6] ml-1 font-normal">● 当前</span>}
+                                    </div>
+                                    <div className="text-[11px] text-[#6b7280] leading-tight mt-0.5">{skill.description}</div>
+                                  </div>
+                                </div>
+                              ),
+                              onClick: () => {
+                                setSelectedSkillId(skill.id)
+                                optimizeMutation.mutate(skill.id)
+                              },
+                            })),
+                          ],
+                        }}
+                      >
+                        <button
+                          type="button"
+                          disabled={optimizeMutation.isPending}
+                          onClick={() => optimizeMutation.mutate(selectedSkillId)}
+                          title="点击使用当前技能优化，或展开切换 MiniMax H3 官方技能风格"
+                          className="flex items-center gap-1 rounded-md border border-[#7655ff]/35 bg-[#7655ff]/15 px-2 py-0.5 text-xs text-[#7047f6] font-medium transition hover:bg-[#7655ff]/25 hover:text-[#5a32df] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {optimizeMutation.isPending ? <LoaderCircle className="animate-spin text-[#7047f6]" size={12} /> : <WandSparkles size={12} className="text-[#7047f6]" />}
+                          <span>{activeSkill?.name ? `${activeSkill.icon} ${activeSkill.name}` : "AI 优化"}</span>
+                          <ChevronDown size={11} className="opacity-60 text-[#7047f6]" />
+                        </button>
+                      </Dropdown>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={optimizeMutation.isPending}
+                        onClick={() => optimizeMutation.mutate()}
+                        title="AI 提示词优化（Midjourney / FLUX 风格增强）"
+                        className="flex items-center gap-1 rounded-md border border-[#7655ff]/35 bg-[#7655ff]/15 px-2 py-0.5 text-xs text-[#7047f6] font-medium transition hover:bg-[#7655ff]/25 hover:text-[#5a32df] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {optimizeMutation.isPending ? <LoaderCircle className="animate-spin text-[#7047f6]" size={12} /> : <WandSparkles size={12} className="text-[#7047f6]" />}
+                        <span>AI 优化</span>
+                      </button>
+                    )}
+
+                    <span className="truncate text-[11px] text-[#797982]">{referenceHint}</span>
+                  </div>
+                </div>
                 <textarea ref={promptRef} value={prompt} onFocus={() => { if (isComposerCompact) returnToComposer(true) }} onChange={(event) => setPrompt(event.target.value)} placeholder={workflow?.description || "描述镜头、动作、运镜、音效和氛围"} className="studio-prompt-input h-[106px] w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 text-[#d7d7dc] outline-none placeholder:text-[#777780]" />
                 {workflow?.reference_mode === "collection" && references.length > 0 && <div className="studio-picture-tags mt-2 flex flex-wrap gap-1.5">{references.map((asset, index) => <button key={asset.id} type="button" onClick={() => addPictureTag(index + 1)} className="rounded-md border border-[#7047ff]/40 bg-[#7047ff]/10 px-2 py-1 text-[11px] text-[#b5a4ff] hover:bg-[#7047ff]/20">&lt;Picture {index + 1}&gt;</button>)}</div>}
               </div>
             </div>
+
 
             <div className="studio-composer-toolbar mt-4 flex flex-col gap-3 border-t border-white/[0.08] pt-4 lg:flex-row lg:items-center">
               <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:flex sm:flex-wrap">
@@ -1180,7 +1314,7 @@ function OptionControl({
     const ratioLabel = String(value).match(/(?:\d+(?:\.\d+)?|\.\d+)\s*:\s*(?:\d+(?:\.\d+)?|\.\d+)/)?.[0] ?? String(value)
     const companionLabels = companions
       .filter(({ input }) => !input)
-      .map(({ options, value: companionValue }) => options.find((item) => item.value === companionValue)?.label ?? companionValue)
+      .map(({ definition: companion, options, value: companionValue }) => generatedResolutionLabel(companion, companionValue, String(value)) ?? options.find((item) => item.value === companionValue)?.label ?? companionValue)
     return <VisualSettingsControl
       name={name}
       definition={definition}
@@ -1257,10 +1391,14 @@ function VisualSettingsControl({
     </section>
     {companions.filter(({ input }) => !input).map(({ name: companionName, definition: companion, options: companionOptions, value: companionValue }) => companionOptions.length > 0 && <section key={companionName} aria-label={companion.label} className="mt-3 pt-1">
       <p className="mb-2 px-1 text-xs font-medium text-[#536471]">选择{companion.label}</p>
-      <div role="radiogroup" aria-label={companion.label} className={`studio-segmented-options grid gap-1 ${companionOptions.length === 1 ? "grid-cols-1" : companionOptions.length === 2 ? "grid-cols-2" : companionOptions.length === 3 ? "grid-cols-3" : "grid-cols-4"}`}>
-        {companionOptions.map((item) => <button key={item.value} type="button" role="radio" aria-checked={item.value === companionValue} onClick={() => onChange(companionName, item.value)} className={`studio-resolution-choice ${item.value === companionValue ? "studio-resolution-choice-selected" : ""}`}>
-          {item.label}
-        </button>)}
+      <div role="radiogroup" aria-label={companion.label} className={`studio-segmented-options grid gap-1 ${companionOptions.length <= 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+        {companionOptions.map((item) => {
+          const outputSize = generatedResolutionLabel(companion, item.value, value)
+          return <button key={item.value} type="button" role="radio" aria-checked={item.value === companionValue} aria-label={outputSize ? `${outputSize}，${item.label}` : item.label} onClick={() => onChange(companionName, item.value)} className={`studio-resolution-choice ${outputSize ? "studio-resolution-choice-detailed" : ""} ${item.value === companionValue ? "studio-resolution-choice-selected" : ""}`}>
+            <span>{outputSize ?? item.label}</span>
+            {outputSize && <small>{item.label}</small>}
+          </button>
+        })}
       </div>
     </section>)}
     {dimensionCompanions.length > 0 && <section aria-label="尺寸" className="studio-dimension-section mt-3 pt-1">
@@ -1278,7 +1416,7 @@ function VisualSettingsControl({
     </section>}
   </div>
   return <Popover trigger="click" placement="topLeft" content={content} overlayClassName="studio-parameter-popover">
-    <button type="button" aria-label={`设置${definition.label}，当前${triggerLabel}`} className={`studio-parameter-trigger ${compact ? "w-full sm:w-[153px]" : "w-full"}`}>
+    <button type="button" aria-label={`设置${definition.label}，当前${triggerLabel}`} className={`studio-parameter-trigger ${compact ? "w-full sm:w-[200px]" : "w-full"}`}>
       <Maximize2 size={16} className="shrink-0 text-[#a995ff]" />
       <span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
       <ChevronDown size={14} className="shrink-0 text-[#85858d]" />
