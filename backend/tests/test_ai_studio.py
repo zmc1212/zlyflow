@@ -15,7 +15,7 @@ from backend.app.local_credential_key import ensure_local_credential_key
 from backend.app.grs_provider import CredentialManager, GrsProviderService
 from backend.app.models import JobMode, JobStatus, UserRole
 from backend.app.qiniu_provider import QiniuProviderService
-from backend.app.qiniu_storage import qiniu_upload_host
+from backend.app.qiniu_storage import QiniuStorage, qiniu_upload_host
 from backend.app.storage import JobStore
 from backend.app.workflow_registry import (
     IMAGE_WORKFLOWS, grs_request_size, normalize_options, validate_references, workflow_for,
@@ -162,6 +162,43 @@ class QiniuStorageTests(unittest.TestCase):
     def test_upload_host_matches_configured_region(self) -> None:
         self.assertEqual(qiniu_upload_host("cn-east-2"), "up-cn-east-2.qiniup.com")
         self.assertEqual(qiniu_upload_host("z0"), "up-z0.qiniup.com")
+
+    def test_store_bytes_retries_transient_remote_disconnect(self) -> None:
+        class Info:
+            def __init__(self, status_code: int, exception: object | None = None) -> None:
+                self.status_code = status_code
+                self.exception = exception
+
+            def ok(self) -> bool:
+                return self.status_code == 200
+
+            def __str__(self) -> str:
+                return "remote upload response"
+
+        class AuthStub:
+            def upload_token(self, bucket: str, key: str, expires: int) -> str:
+                return f"token:{bucket}:{key}:{expires}"
+
+        class QiniuStub:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def put_data(self, *_args, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    from http.client import RemoteDisconnected
+                    return None, Info(-1, RemoteDisconnected("Remote end closed connection without response"))
+                return {"key": _args[1]}, Info(200)
+
+        storage = object.__new__(QiniuStorage)
+        storage.config = {"bucket": "bucket", "object_prefix": "studio/"}
+        storage._auth = AuthStub()
+        storage._qiniu = QiniuStub()
+        storage._upload_regions = []
+
+        stored = storage.store_bytes("video", "result.mp4", b"video-bytes")
+        self.assertEqual(stored.local_path, None)
+        self.assertEqual(storage._qiniu.calls, 2)
 
 
 class JobEndpointTests(unittest.TestCase):

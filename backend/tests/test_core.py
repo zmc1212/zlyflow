@@ -202,6 +202,37 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertIn("/api/openapi.json", app.openapi_url)
         self.assertIn("APIKeyCookie", schema["components"]["securitySchemes"])
 
+    def test_openapi_has_chinese_operation_and_field_documentation(self) -> None:
+        schema = app.openapi()
+        declared_tags = {tag["name"] for tag in schema["tags"]}
+        public_without_session = {
+            ("get", "/api/health"),
+            ("get", "/api/auth/status"),
+            ("post", "/api/auth/setup"),
+            ("post", "/api/auth/login"),
+        }
+        for path, path_item in schema["paths"].items():
+            for method, operation in path_item.items():
+                if method not in {"get", "post", "put", "patch", "delete"}:
+                    continue
+                self.assertTrue(operation.get("summary"), f"{method.upper()} {path} 缺少摘要")
+                self.assertTrue(operation.get("description"), f"{method.upper()} {path} 缺少说明")
+                self.assertTrue(set(operation.get("tags", [])).issubset(declared_tags))
+                if (method, path) not in public_without_session:
+                    self.assertEqual(operation.get("security"), [{"APIKeyCookie": []}])
+                for parameter in operation.get("parameters", []):
+                    self.assertTrue(parameter.get("description"), f"{method.upper()} {path} 参数缺少说明")
+        for name, component in schema["components"]["schemas"].items():
+            for property_name, property_schema in component.get("properties", {}).items():
+                self.assertTrue(
+                    property_schema.get("description"),
+                    f"{name}.{property_name} 缺少字段说明",
+                )
+        create_job = schema["paths"]["/api/jobs"]["post"]
+        form = create_job["requestBody"]["content"]["multipart/form-data"]
+        self.assertIn("example", form)
+        self.assertIn("X-CSRF-Token", schema["info"]["description"])
+
     def test_mode_parameter_schema_is_derived_from_the_registry(self) -> None:
         image_options = {item["name"]: item for item in workflow_for(JobMode.GRS_GPT_IMAGE_2).payload()["parameters"]}["options"]["schema"]["properties"]
         self.assertEqual(image_options["aspect_ratio"]["ui_control"], "visual-settings")
@@ -523,6 +554,27 @@ class ResourceStorageTests(unittest.TestCase):
             }],
         })
         self.assertNotIn("_comfy_source", job["outputs"][0])
+
+    def test_public_job_prefers_the_persistent_storage_url(self) -> None:
+        class CloudStorage:
+            def download_url(self, key: str) -> str | None:
+                return f"https://media.example.com/{key}?signed=1"
+
+        previous_storage = getattr(app.state, "resource_storage", None)
+        app.state.resource_storage = CloudStorage()
+        try:
+            job = public_job({
+                "id": "cloud-job", "mode": JobMode.MINIMAX_H3_T2V, "status": "succeeded",
+                "prompt": "prompt", "negative_prompt": "", "image_size": None, "reference_count": 0,
+                "options": {}, "submitted_options": {}, "options_submitted": False,
+                "outputs": [{"kind": "video", "path": "video/key.mp4", "label": "视频", "delivery_status": "cloud"}], "rounds": [],
+            })
+            self.assertEqual(job["outputs"][0]["download_url"], "https://media.example.com/video/key.mp4?signed=1")
+        finally:
+            if previous_storage is None:
+                del app.state.resource_storage
+            else:
+                app.state.resource_storage = previous_storage
 
     def test_browser_direct_view_url_uses_only_the_fixed_local_comfyui_origin(self) -> None:
         url = browser_direct_view_url({

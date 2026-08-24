@@ -360,12 +360,13 @@ class ComfyService:
             response.close()
         return StoredResource(stored.key, stored.local_path, source_info)
 
-    @staticmethod
-    def output_payload(resource: StoredResource, kind: str, label: str) -> dict:
+    def output_payload(self, resource: StoredResource, kind: str, label: str) -> dict:
         return {
             "kind": kind,
             "path": resource.key,
             "label": label,
+            "delivery_status": "cloud" if self.resource_storage.persistent_outputs else "pending",
+            "delivered_at": None,
             "_comfy_source": resource.source_info,
         }
 

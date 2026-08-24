@@ -188,6 +188,7 @@ class StorageCapabilityResponse(BaseModel):
     provider: str
     delivery: Literal["browser-directory"]
     temporary_server_staging: bool
+    requires_local_directory: bool = Field(description="当前交付方式是否要求浏览器授权员工电脑上的本地目录。")
     qiniu_compatible: bool
 
 
@@ -395,4 +396,3 @@ class SkillItem(BaseModel):
 
 class SkillsListResponse(BaseModel):
     skills: list[SkillItem]
-

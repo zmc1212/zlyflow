@@ -68,6 +68,7 @@ type WorkflowParameter = { name: string; schema?: { properties?: Record<string, 
 type OptionInputValue = string | boolean
 type ModesPayload = { modes: Workflow[]; image_sizes: string[]; presets: Record<string, string> }
 type GrsBalanceSnapshot = { credits: number | null; queried_at: string | null; refresh_error?: string | null }
+type StorageCapability = { provider: string; requires_local_directory: boolean }
 type ReferenceAsset = { id: string; file: File; preview: string }
 type ImagePreview = { src: string; alt: string }
 type DirectoryState = "checking" | "unsupported" | "missing" | "prompt" | "granted"
@@ -83,6 +84,16 @@ type H3Skill = {
   description: string
   icon: string
   category: string
+}
+
+function isRemoteIpAddress(hostname: string): boolean {
+  const normalized = hostname.trim().replace(/^\[|\]$/g, "").toLowerCase()
+  if (!normalized || normalized === "localhost" || normalized === "::1") return false
+  const ipv4 = normalized.split(".")
+  if (ipv4.length === 4 && ipv4.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) {
+    return normalized !== "127.0.0.1"
+  }
+  return normalized.includes(":")
 }
 
 
@@ -355,6 +366,7 @@ export default function App({
     return { ...payload, modes: payload.modes.map(normalizeWorkflow) }
   } })
   const jobsQuery = useQuery({ queryKey: ["jobs", user.id], queryFn: async () => (await api<Job[]>("/api/jobs")).map(normalizeJob), refetchInterval: 1600 })
+  const storageQuery = useQuery({ queryKey: ["storage-capability"], queryFn: () => api<StorageCapability>("/api/storage") })
   const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => api<{ comfy: { reachable: boolean }; grs: { available: boolean; message?: string | null } }>("/api/health"), refetchInterval: 8000 })
   const workflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === mediaType)
   const workflow = workflows.find((item) => item.id === workflowId) ?? workflows[0]
@@ -495,9 +507,14 @@ export default function App({
   useEffect(() => () => {
     Object.values(localMediaUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
   }, [])
+  const ipAddressAccess = isRemoteIpAddress(window.location.hostname)
+  const localDirectoryRequired = !ipAddressAccess && (
+    storageQuery.isError || Boolean(storageQuery.data?.requires_local_directory)
+  )
+
   useEffect(() => {
     let active = true
-    if (!directoryApiSupported()) return
+    if (!localDirectoryRequired || !directoryApiSupported()) return
     void getResourceDirectory(user.id).then(async (handle) => {
       if (!active) return
       if (!handle) {
@@ -510,7 +527,7 @@ export default function App({
       setDirectoryState(permission === "granted" ? "granted" : "prompt")
     }).catch(() => { if (active) setDirectoryState("missing") })
     return () => { active = false }
-  }, [user.id])
+  }, [localDirectoryRequired, user.id])
 
   const loadLocalMedia = useCallback(async (handle: DirectoryHandleLike, sourceJobs: Job[]) => {
     const outputs = sourceJobs.flatMap((job) => job.rounds.flatMap((round) => round.generation_items.flatMap((item) => item.outputs.map((output) => ({ job, output })))))
@@ -591,7 +608,7 @@ export default function App({
     }
   }, [deliverOutput, directoryHandle, directoryState, allJobs, localMediaUrls])
 
-  const requiresDirectorySetup = directoryState !== "granted"
+  const requiresDirectorySetup = localDirectoryRequired && directoryState !== "granted"
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -863,7 +880,7 @@ export default function App({
       if (focusEditor) promptRef.current?.focus()
     })
   }, [])
-  const submit = (event: FormEvent) => { event.preventDefault(); if (canSubmit && !requiresDirectorySetup) createMutation.mutate() }
+  const submit = (event: FormEvent) => { event.preventDefault(); if (canSubmit && !storageQuery.isLoading && !requiresDirectorySetup) createMutation.mutate() }
   const openRename = (job: Job) => { setRenameTarget(job); setRenameValue(job.title || job.prompt.slice(0, 40)) }
   const togglePinned = (job: Job) => metadataMutation.mutate({ jobId: job.id, pinned: !job.pinned })
   const confirmDelete = (job: Job) => Modal.confirm({
@@ -924,7 +941,7 @@ export default function App({
           <h1 className="hidden truncate text-base font-medium lg:block">创作工作台</h1>
         </div>
         <div className="flex items-center gap-2 text-[#b6b6bf]">
-          <button type="button" title="本地资源目录" onClick={() => { setStorageOpen((open) => !open); setAccountOpen(false) }} className={`grid size-9 place-items-center rounded-lg border transition sm:flex sm:w-auto sm:gap-2 sm:px-3 ${directoryState === "granted" ? "border-emerald-400/25 bg-emerald-400/[0.07] text-emerald-300" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"}`}><HardDrive size={16} /><span className="hidden text-xs sm:inline">{directoryState === "granted" ? "本地目录" : "设置存储"}</span></button>
+          {localDirectoryRequired ? <button type="button" title="本地资源目录" onClick={() => { setStorageOpen((open) => !open); setAccountOpen(false) }} className={`grid size-9 place-items-center rounded-lg border transition sm:flex sm:w-auto sm:gap-2 sm:px-3 ${directoryState === "granted" ? "border-emerald-400/25 bg-emerald-400/[0.07] text-emerald-300" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"}`}><HardDrive size={16} /><span className="hidden text-xs sm:inline">{directoryState === "granted" ? "本地目录" : "设置存储"}</span></button> : null}
           <Tooltip title={mediaType === "image" ? healthQuery.data?.grs?.message : undefined}>
             <span className="hidden h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs md:flex"><span className={`size-2 rounded-full ${(mediaType === "image" ? healthQuery.data?.grs?.available : healthQuery.data?.comfy.reachable) ? "bg-emerald-400" : "bg-amber-400"}`} />{mediaType === "image" ? "GRS" : "ComfyUI"}</span>
           </Tooltip>
@@ -1200,7 +1217,7 @@ export default function App({
                 {advancedOptionDefinitions.length > 0 && <button type="button" aria-expanded={advancedOptionsOpen} onClick={() => setAdvancedOptionsOpen((open) => !open)} className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-sm text-[#d8d8df] transition hover:bg-[#29292f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7047ff]/45"><SlidersHorizontal size={16} className="text-[#947dff]" />更多设置</button>}
               </div>
               <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : undefined}>
-                <button type="submit" disabled={!canSubmit} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{createMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{mediaType === "image" ? "开始生图" : "开始生成"}</button>
+                <button type="submit" disabled={!canSubmit || storageQuery.isLoading} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{createMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{mediaType === "image" ? "开始生图" : "开始生成"}</button>
               </Tooltip>
             </div>
             {advancedOptionsOpen && advancedOptionDefinitions.length > 0 && <section aria-label="更多生成设置" className="mt-4 border-t border-white/[0.08] pt-4">

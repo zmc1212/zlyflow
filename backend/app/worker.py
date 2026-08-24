@@ -293,7 +293,8 @@ class JobWorker:
                 stored = await asyncio.to_thread(self.resource_storage.store_bytes, "image", filename, content)
                 output = {
                     "kind": "image", "path": stored.key, "label": "生成图片",
-                    "delivery_status": "pending", "delivered_at": None,
+                    "delivery_status": "cloud" if self.resource_storage.persistent_outputs else "pending",
+                    "delivered_at": None,
                 }
                 self.store.update_generation(
                     generation_item_id, status=JobStatus.SUCCEEDED, stage="生成完成", progress=100,

@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.security import APIKeyCookie
 from fastapi.openapi.utils import get_openapi
 
+from .api_documentation import enrich_openapi_documentation
 from .auth import AuthStore, SESSION_HOURS, csrf_token
 from .comfy_service import ComfyService
 from .config import settings
@@ -153,6 +154,18 @@ def output_response(output: dict) -> Response:
     if app.state.worker.comfy.can_stream_output(output.get("_comfy_source")):
         return streamed_output_response(output)
     raise HTTPException(status_code=410, detail="资源暂存已过期")
+
+
+def public_output_download_url(output: dict, fallback_url: str) -> str:
+    """Prefer a short-lived object-storage URL when the active provider has one."""
+    if output.get("delivery_status") != "cloud":
+        return fallback_url
+    storage = getattr(app.state, "resource_storage", None)
+    if storage is not None:
+        remote_url = storage.download_url(output["path"])
+        if remote_url:
+            return remote_url
+    return fallback_url
 
 
 def output_available(output: dict) -> bool:
@@ -308,7 +321,9 @@ def public_job(job: dict) -> dict:
         output = dict(raw_output)
         output.pop("_comfy_source", None)
         if job.get("status") in {"succeeded", "partial"} and output.get("delivery_status", "pending") != "local":
-            output["download_url"] = public_api_path(f"jobs/{job['id']}/outputs/{output_index}/download")
+            output["download_url"] = public_output_download_url(
+                output, public_api_path(f"jobs/{job['id']}/outputs/{output_index}/download"),
+            )
         else:
             output["download_url"] = None
         data["outputs"].append(output)
@@ -336,8 +351,9 @@ def public_job(job: dict) -> dict:
                 output = dict(raw_output)
                 output.pop("_comfy_source", None)
                 if item.get("status") == "succeeded" and output.get("delivery_status", "pending") != "local":
-                    output["download_url"] = public_api_path(
-                        f"jobs/{job['id']}/generations/{item['id']}/outputs/{output_index}/download"
+                    output["download_url"] = public_output_download_url(
+                        output,
+                        public_api_path(f"jobs/{job['id']}/generations/{item['id']}/outputs/{output_index}/download"),
                     )
                 else:
                     output["download_url"] = None
@@ -458,6 +474,8 @@ app = FastAPI(
         {"name": "任务", "description": "创建、查询生成任务。任务由单 worker 串行执行。"},
         {"name": "资源", "description": "把临时结果交付到员工电脑并清理服务器暂存。"},
         {"name": "作品库", "description": "已生成媒体的列表与文件访问。"},
+        {"name": "创作台", "description": "创作页面需要的供应商状态与余额快照。"},
+        {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
     ],
     lifespan=lifespan,
 )
@@ -470,6 +488,7 @@ def public_openapi() -> dict:
         title=app.title, version=app.version, description=app.description,
         routes=app.routes, tags=app.openapi_tags,
     )
+    schema = enrich_openapi_documentation(schema)
     if settings.public_api_prefix != "/api":
         schema["paths"] = {
             path.removeprefix("/api") or "/": operation
@@ -656,6 +675,7 @@ def storage_capability(_: Annotated[dict, Depends(current_user)]) -> dict:
         "provider": app.state.resource_storage.provider_id,
         "delivery": "browser-directory",
         "temporary_server_staging": not app.state.resource_storage.persistent_outputs,
+        "requires_local_directory": not app.state.resource_storage.persistent_outputs,
         "qiniu_compatible": True,
     }
 
@@ -1179,10 +1199,10 @@ def library(user: Annotated[dict, Depends(current_user)]) -> list[dict]:
     return [
         {
             **output,
-            "download_url": (
-                public_api_path(f"jobs/{job['id']}/generations/{item['id']}/outputs/{output_index}/download")
-                if output.get("delivery_status", "pending") != "local" else None
-            ),
+            "download_url": public_output_download_url(
+                output,
+                public_api_path(f"jobs/{job['id']}/generations/{item['id']}/outputs/{output_index}/download"),
+            ) if output.get("delivery_status", "pending") != "local" else None,
             "job_id": job["id"],
             "generation_item_id": item["id"],
             "output_index": output_index,
@@ -1250,7 +1270,7 @@ def download_output(
 @app.get(
     "/api/jobs/{job_id}/outputs/{output_index}/browser-direct",
     response_model=BrowserDirectOutputResponse,
-    tags=["Resources"], summary="Get the same-host ComfyUI output address for browser delivery",
+    tags=["资源"], summary="获取任务输出的同机 ComfyUI 直连地址",
 )
 def browser_direct_output(
     job_id: str,

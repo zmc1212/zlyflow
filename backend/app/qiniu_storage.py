@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import io
+import mimetypes
 import secrets
+import socket
 import time
+from http.client import RemoteDisconnected
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -72,15 +76,80 @@ class QiniuStorage:
         timestamp = time.strftime("%Y%m%d/%H%M%S")
         return f"{self.config['object_prefix']}{prefix}/{timestamp}_{secrets.token_hex(8)}{suffix}"
 
+    @staticmethod
+    def _retryable_upload(info: object) -> bool:
+        """判断七牛 SDK 返回的失败是否属于可安全重试的传输错误。"""
+        status = getattr(info, "status_code", None)
+        if status in {-1, 0, 408, 429} or isinstance(status, int) and 500 <= status < 600:
+            return True
+        exception = getattr(info, "exception", None)
+        if isinstance(exception, (ConnectionError, OSError, TimeoutError, RemoteDisconnected, socket.timeout)):
+            return True
+        # qiniu.ResponseInfo 在不同 SDK 小版本中可能只保留异常的字符串表示。
+        detail = str(exception or info)
+        return any(token in detail for token in (
+            "RemoteDisconnected", "Connection aborted", "Connection reset", "ConnectionError", "Broken pipe", "timed out",
+        ))
+
+    def _upload(self, token: str, key: str, source_filename: str, content: bytes) -> tuple[dict | None, object]:
+        mime_type = mimetypes.guess_type(source_filename)[0] or "application/octet-stream"
+        # 七牛官方建议超过 8 MiB 使用分片上传；put_data 会把整个视频作为单次表单请求发送，
+        # 在本地网络或代理短暂断开时很容易留下 RemoteDisconnected。
+        if len(content) > 8 * 1024 * 1024:
+            stream_uploader = getattr(self._qiniu, "put_stream_v2", None)
+            if stream_uploader is not None:
+                return stream_uploader(
+                    token,
+                    key,
+                    io.BytesIO(content),
+                    source_filename,
+                    len(content),
+                    mime_type=mime_type,
+                    bucket_name=str(self.config["bucket"]),
+                    part_size=4 * 1024 * 1024,
+                    regions=self._upload_regions,
+                )
+            # qiniu==7.16.0 exposes the same v2 resumable uploader as
+            # put_stream(..., version="v2"); newer SDKs expose put_stream_v2.
+            stream_uploader = getattr(self._qiniu, "put_stream", None)
+            if stream_uploader is not None:
+                return stream_uploader(
+                    token,
+                    key,
+                    io.BytesIO(content),
+                    source_filename,
+                    len(content),
+                    mime_type=mime_type,
+                    bucket_name=str(self.config["bucket"]),
+                    part_size=4 * 1024 * 1024,
+                    version="v2",
+                    regions=self._upload_regions,
+                )
+        return self._qiniu.put_data(
+            token, key, content, mime_type=mime_type, check_crc=True, regions=self._upload_regions,
+        )
+
     def store_bytes(self, prefix: str, source_filename: str, content: bytes) -> StoredResource:
         key = self._key(prefix, source_filename)
         token = self._auth.upload_token(str(self.config["bucket"]), key, 3600)
-        result, info = self._qiniu.put_data(
-            token, key, content, mime_type=None, check_crc=True, regions=self._upload_regions,
-        )
-        if not info.ok() or not result or result.get("key") != key:
-            raise RuntimeError(f"七牛云上传失败: {info}")
-        return StoredResource(key=key, local_path=None)
+        last_info: object | None = None
+        for attempt in range(3):
+            try:
+                result, info = self._upload(token, key, source_filename, content)
+            except Exception as error:
+                last_info = error
+                if attempt < 2 and self._retryable_upload(error):
+                    time.sleep(0.5 * (2**attempt))
+                    continue
+                raise RuntimeError(f"七牛云上传失败: {error}") from error
+            last_info = info
+            if getattr(info, "ok", lambda: False)() and result and result.get("key") == key:
+                return StoredResource(key=key, local_path=None)
+            if attempt < 2 and self._retryable_upload(info):
+                time.sleep(0.5 * (2**attempt))
+                continue
+            break
+        raise RuntimeError(f"七牛云上传失败: {last_info}")
 
     def create_reference(self, prefix: str, source_filename: str) -> StoredResource:
         raise RuntimeError("七牛云存储需要先上传完成的媒体文件")
