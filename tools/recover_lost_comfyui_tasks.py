@@ -45,34 +45,45 @@ def main():
         print(f"[!] 无法连接到 ComfyUI ({comfy_url})，请确保它正在运行。错误信息: {e}")
         return
 
-    matched = 0
+    # 按照提示词将数据库中失败的任务分组
+    jobs_by_prompt = {}
     for job_id, prompt_text in jobs:
         if not prompt_text:
             continue
-        
-        matches = []
-        for prompt_id, data in history.items():
-            try:
-                # ComfyUI 的历史记录结构中，prompt 字段的索引 2 为完整的 workflow JSON
-                workflow = data["prompt"][2]
-                for node_id, node in workflow.items():
-                    # 匹配 MiniMax 系列的节点类名
-                    if node.get("class_type") in ["MiniMaxH3ReferenceToVideo", "MiniMaxH3ImageToVideo", "MiniMaxH3TextToVideo"]:
-                        # 比提示词是否完全一致
-                        if node.get("inputs", {}).get("prompt") == prompt_text:
-                            matches.append(prompt_id)
-            except Exception:
-                pass
-                
-        if len(matches) == 1:
-            print(f"[+] 成功匹配任务 {job_id} -> ComfyUI Prompt ID: {matches[0]}")
-            # 找回后，状态修改为 interrupted（中断），下次工作台重启或工作流轮询时就能自动重连
-            db.execute("UPDATE generation_items SET comfy_prompt_id = ?, status = 'interrupted' WHERE id = ?", (matches[0], job_id))
+        jobs_by_prompt.setdefault(prompt_text, []).append(job_id)
+
+    matched = 0
+    
+    # 按照提示词将 ComfyUI 历史记录分组
+    history_by_prompt = {}
+    for prompt_id, data in history.items():
+        try:
+            workflow = data["prompt"][2]
+            for node_id, node in workflow.items():
+                if node.get("class_type") in ["MiniMaxH3ReferenceToVideo", "MiniMaxH3ImageToVideo", "MiniMaxH3TextToVideo"]:
+                    p = node.get("inputs", {}).get("prompt")
+                    if p:
+                        history_by_prompt.setdefault(p, []).append(prompt_id)
+        except Exception:
+            pass
+
+    # 针对每种提示词进行一对一绑定
+    for prompt_text, job_ids in jobs_by_prompt.items():
+        matches = history_by_prompt.get(prompt_text, [])
+        if not matches:
+            continue
+            
+        # 如果有重复重试的任务，直接按顺序一对一配对
+        pairs = zip(job_ids, matches)
+        for job_id, comfy_prompt_id in pairs:
+            print(f"[+] 成功匹配任务 {job_id} -> ComfyUI Prompt ID: {comfy_prompt_id}")
+            db.execute("UPDATE generation_items SET comfy_prompt_id = ?, status = 'interrupted' WHERE id = ?", (comfy_prompt_id, job_id))
             matched += 1
-        elif len(matches) > 1:
-            print(f"[-] 任务 {job_id} 匹配到 {len(matches)} 条 ComfyUI 记录，因为无法确定哪一条是正确的，为安全起见已跳过。")
-        else:
-            pass # 没找到就不打印了，避免日志过多
+            
+        if len(matches) > len(job_ids):
+            print(f"[*] 提示词 '{prompt_text[:10]}...' 在 ComfyUI 中有 {len(matches)} 个记录，但工作台只有 {len(job_ids)} 个失败任务，多余的记录将被忽略。")
+        elif len(job_ids) > len(matches):
+            print(f"[-] 提示词 '{prompt_text[:10]}...' 在工作台有 {len(job_ids)} 个失败任务，但 ComfyUI 只有 {len(matches)} 个记录，部分任务无法恢复。")
 
     if matched > 0:
         db.commit()
