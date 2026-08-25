@@ -21,7 +21,7 @@ class Settings:
     comfy_root_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_COMFY_ROOT")
     credential_key_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY")
     grs_poll_interval_seconds: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_POLL_INTERVAL_SECONDS", "5"))
-    grs_timeout_seconds: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_TIMEOUT_SECONDS", "1800"))
+    grs_timeout_seconds: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_TIMEOUT_SECONDS", "43200"))
     grs_max_concurrency: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_MAX_CONCURRENCY", "4"))
 
     @property
