@@ -4,9 +4,16 @@ from pathlib import Path
 import sqlite3
 import requests
 
-# 自动将 backend 添加到系统路径，以便复用 config
-root_dir = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(root_dir))
+try:
+    root_dir = Path(__file__).resolve().parents[1]
+    if (root_dir / "backend").exists():
+        sys.path.insert(0, str(root_dir))
+except NameError:
+    pass # __file__ not defined, rely on PYTHONPATH
+
+# Docker 环境下通常已经在 /app 目录，不需要改 sys.path
+if Path("/app/backend").exists() and "/app" not in sys.path:
+    sys.path.insert(0, "/app")
 
 from backend.app.config import settings
 
