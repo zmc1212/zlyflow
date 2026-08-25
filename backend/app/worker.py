@@ -105,7 +105,7 @@ class JobWorker:
 
     def recover(self) -> list[str]:
         active_prompts = self.comfy.active_prompts()
-        active_jobs = self.store.with_statuses(JobStatus.QUEUED, JobStatus.RUNNING)
+        active_jobs = self.store.with_statuses(JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.INTERRUPTED)
         supported_jobs = []
         for job in active_jobs:
             if JobMode(job["mode"]) in H3_WORKFLOWS:
@@ -200,7 +200,6 @@ class JobWorker:
             self.store.clear_comfy_execution(job_id)
             self.store.update(job_id, status=JobStatus.SUCCEEDED, stage="生成完成", progress=100, outputs=outputs)
         except ComfyUnavailable as error:
-            self.store.clear_comfy_execution(job_id)
             self.store.update(
                 job_id,
                 status=JobStatus.INTERRUPTED,

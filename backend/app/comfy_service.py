@@ -274,7 +274,7 @@ class ComfyService:
                 if time.monotonic() - unavailable_since >= 30:
                     raise ComfyUnavailable("ComfyUI 或 FRP 连接中断，任务已暂停。恢复后可点击重新提交。")
             time.sleep(2)
-        raise legacy.ComfyError(f"等待 ComfyUI 超时（{legacy.REQUEST_TIMEOUT_SECONDS // 60} 分钟）。")
+        raise ComfyUnavailable(f"等待 ComfyUI 超时（{legacy.REQUEST_TIMEOUT_SECONDS // 60} 分钟）。")
 
     def run_workflow(
         self, workflow: dict, stage: str, update_stage: Callable[[str, int | None], None],
