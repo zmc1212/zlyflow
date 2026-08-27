@@ -164,10 +164,18 @@ class QiniuStorage:
             return True
         raise RuntimeError(f"七牛云删除失败: {info}")
 
+    def object_url(self, key: str) -> str | None:
+        domain = str(self.config.get("domain") or "").rstrip("/")
+        object_key = str(key or "").lstrip("/")
+        if not domain or not object_key:
+            return None
+        return f"{domain}/{object_key}"
+
     def download_url(self, key: str, expires_in_seconds: int = 300) -> str:
-        return self._auth.private_download_url(
-            f"{self.config['domain']}/{key}", expires=max(1, expires_in_seconds),
-        )
+        url = self.object_url(key)
+        if not url:
+            raise ValueError("七牛云对象地址无效")
+        return self._auth.private_download_url(url, expires=max(1, expires_in_seconds))
 
     def test_connection(self) -> None:
         stored: StoredResource | None = None

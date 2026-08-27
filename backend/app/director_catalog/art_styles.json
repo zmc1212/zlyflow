@@ -1,15 +1,51 @@
 {
   "source": "seme-org/open-director prisma/migrations/20260503000000_init/migration.sql",
   "categories": [
-    {"id": "cinematic", "name_zh": "电影感", "name_en": "Cinematic"},
-    {"id": "commercial", "name_zh": "商业", "name_en": "Commercial"},
-    {"id": "futuristic", "name_zh": "未来感", "name_en": "Futuristic"},
-    {"id": "retro", "name_zh": "复古", "name_en": "Retro"},
-    {"id": "anime", "name_zh": "动漫", "name_en": "Anime"},
-    {"id": "3d", "name_zh": "3D", "name_en": "3D"},
-    {"id": "illustration", "name_zh": "插画", "name_en": "Illustration"},
-    {"id": "realistic", "name_zh": "写实", "name_en": "Realistic"},
-    {"id": "experimental", "name_zh": "实验性", "name_en": "Experimental"}
+    {
+      "id": "cinematic",
+      "name_zh": "电影感",
+      "name_en": "Cinematic"
+    },
+    {
+      "id": "commercial",
+      "name_zh": "商业",
+      "name_en": "Commercial"
+    },
+    {
+      "id": "futuristic",
+      "name_zh": "未来感",
+      "name_en": "Futuristic"
+    },
+    {
+      "id": "retro",
+      "name_zh": "复古",
+      "name_en": "Retro"
+    },
+    {
+      "id": "anime",
+      "name_zh": "动漫",
+      "name_en": "Anime"
+    },
+    {
+      "id": "3d",
+      "name_zh": "3D",
+      "name_en": "3D"
+    },
+    {
+      "id": "illustration",
+      "name_zh": "插画",
+      "name_en": "Illustration"
+    },
+    {
+      "id": "realistic",
+      "name_zh": "写实",
+      "name_en": "Realistic"
+    },
+    {
+      "id": "experimental",
+      "name_zh": "实验性",
+      "name_en": "Experimental"
+    }
   ],
   "styles": [
     {
@@ -19,7 +55,13 @@
       "category": "cinematic",
       "description": "宏大电影视觉，戏剧光影与情感叙事。",
       "promptPrefix": "epic cinematic scene, dramatic lighting, rich atmosphere, film-grade composition, emotional visual storytelling",
-      "keywords": ["cinematic", "epic", "film", "dramatic"]
+      "keywords": [
+        "cinematic",
+        "epic",
+        "film",
+        "dramatic"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_01.jpg"
     },
     {
       "id": "as_1002",
@@ -28,7 +70,13 @@
       "category": "commercial",
       "description": "精致影棚光下的高端产品摄影。",
       "promptPrefix": "luxury product photography, premium studio lighting, elegant composition, high-end commercial look, clean background",
-      "keywords": ["luxury", "product", "studio", "premium"]
+      "keywords": [
+        "luxury",
+        "product",
+        "studio",
+        "premium"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_02.jpg"
     },
     {
       "id": "as_1003",
@@ -37,7 +85,13 @@
       "category": "futuristic",
       "description": "霓虹与赛博氛围的暗色未来都市。",
       "promptPrefix": "futuristic neon noir, glowing city lights, cyber atmosphere, dark cinematic shadows, high contrast",
-      "keywords": ["neon", "future", "cyber", "noir"]
+      "keywords": [
+        "neon",
+        "future",
+        "cyber",
+        "noir"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_03.jpg"
     },
     {
       "id": "as_1004",
@@ -46,7 +100,13 @@
       "category": "retro",
       "description": "温暖怀旧胶片质感与模拟色调。",
       "promptPrefix": "analog film aesthetic, warm vintage tones, subtle grain, nostalgic memory-like atmosphere, soft imperfections",
-      "keywords": ["analog", "vintage", "film", "nostalgia"]
+      "keywords": [
+        "analog",
+        "vintage",
+        "film",
+        "nostalgia"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_04.jpg"
     },
     {
       "id": "as_1005",
@@ -55,7 +115,13 @@
       "category": "cinematic",
       "description": "高反差黑白与戏剧性阴影。",
       "promptPrefix": "monochrome cinematic style, black and white, sharp contrast, dramatic shadows, tense atmosphere",
-      "keywords": ["black-white", "contrast", "shadow", "moody"]
+      "keywords": [
+        "black-white",
+        "contrast",
+        "shadow",
+        "moody"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_05.jpg"
     },
     {
       "id": "as_1006",
@@ -64,7 +130,13 @@
       "category": "retro",
       "description": "旧录像带噪点与低保真信号感。",
       "promptPrefix": "retro video signal, tape distortion, scan lines, lo-fi camcorder texture, imperfect analog footage",
-      "keywords": ["vhs", "lofi", "retro", "distortion"]
+      "keywords": [
+        "vhs",
+        "lofi",
+        "retro",
+        "distortion"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_06.jpg"
     },
     {
       "id": "as_1007",
@@ -73,7 +145,13 @@
       "category": "anime",
       "description": "写实场景与漫画式表现力结合。",
       "promptPrefix": "hyperreal manga fusion, realistic world with stylized anime energy, expressive faces, clean dramatic lighting",
-      "keywords": ["manga", "anime", "hyperreal", "stylized"]
+      "keywords": [
+        "manga",
+        "anime",
+        "hyperreal",
+        "stylized"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_07.jpg"
     },
     {
       "id": "as_1008",
@@ -82,7 +160,13 @@
       "category": "3d",
       "description": "柔和光照的亲切三维角色动画。",
       "promptPrefix": "warm 3D character animation, friendly proportions, soft lighting, colorful world, expressive emotions",
-      "keywords": ["3d", "animation", "character", "warm"]
+      "keywords": [
+        "3d",
+        "animation",
+        "character",
+        "warm"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_08.jpg"
     },
     {
       "id": "as_1009",
@@ -91,7 +175,13 @@
       "category": "3d",
       "description": "发光细节与柔和氛围的魔法三维世界。",
       "promptPrefix": "enchanted fantasy 3D render, magical atmosphere, glowing details, rich textures, whimsical lighting",
-      "keywords": ["fantasy", "3d", "magic", "render"]
+      "keywords": [
+        "fantasy",
+        "3d",
+        "magic",
+        "render"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_09.jpg"
     },
     {
       "id": "as_1010",
@@ -100,7 +190,13 @@
       "category": "3d",
       "description": "大胆造型与冒险气质的动画 CG。",
       "promptPrefix": "expressive adventure CG, bold character design, vibrant colors, dynamic camera angle, animated storytelling",
-      "keywords": ["cg", "adventure", "expressive", "animation"]
+      "keywords": [
+        "cg",
+        "adventure",
+        "expressive",
+        "animation"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_10.jpg"
     },
     {
       "id": "as_1011",
@@ -109,7 +205,13 @@
       "category": "anime",
       "description": "手绘水彩般的柔和动画氛围。",
       "promptPrefix": "dreamscape watercolor anime, soft painted backgrounds, gentle colors, poetic atmosphere, hand-crafted feel",
-      "keywords": ["anime", "watercolor", "dreamy", "soft"]
+      "keywords": [
+        "anime",
+        "watercolor",
+        "dreamy",
+        "soft"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_11.jpg"
     },
     {
       "id": "as_1012",
@@ -118,7 +220,13 @@
       "category": "retro",
       "description": "像素灵感与经典街机能量。",
       "promptPrefix": "digital arcade retro, pixel-inspired visuals, 8-bit game atmosphere, limited color palette, nostalgic gaming feel",
-      "keywords": ["pixel", "arcade", "retro", "game"]
+      "keywords": [
+        "pixel",
+        "arcade",
+        "retro",
+        "game"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_12.jpg"
     },
     {
       "id": "as_1013",
@@ -127,7 +235,13 @@
       "category": "illustration",
       "description": "清晰竖屏漫画叙事与表情角色。",
       "promptPrefix": "vertical story illustration, clean line art, expressive characters, modern comic panel composition, vibrant colors",
-      "keywords": ["webcomic", "story", "illustration", "vertical"]
+      "keywords": [
+        "webcomic",
+        "story",
+        "illustration",
+        "vertical"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_13.jpg"
     },
     {
       "id": "as_1014",
@@ -136,7 +250,13 @@
       "category": "illustration",
       "description": "温暖亲切的绘本插画气质。",
       "promptPrefix": "storybook illustration, warm colors, charming characters, soft texture, friendly magical atmosphere",
-      "keywords": ["storybook", "children", "warm", "cute"]
+      "keywords": [
+        "storybook",
+        "children",
+        "warm",
+        "cute"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_14.jpg"
     },
     {
       "id": "as_1015",
@@ -145,7 +265,13 @@
       "category": "3d",
       "description": "电影级细节的高端写实 CGI。",
       "promptPrefix": "premium VFX realism, photoreal 3D rendering, cinematic lighting, detailed textures, high-end visual effects",
-      "keywords": ["vfx", "cgi", "realistic", "premium"]
+      "keywords": [
+        "vfx",
+        "cgi",
+        "realistic",
+        "premium"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_15.jpg"
     },
     {
       "id": "as_1016",
@@ -154,7 +280,13 @@
       "category": "illustration",
       "description": "分层剪纸般的手工立体感。",
       "promptPrefix": "layered craft dimension, cut paper look, handmade texture, soft shadows, tactile composition",
-      "keywords": ["paper", "craft", "layered", "handmade"]
+      "keywords": [
+        "paper",
+        "craft",
+        "layered",
+        "handmade"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_16.jpg"
     },
     {
       "id": "as_1017",
@@ -163,7 +295,13 @@
       "category": "3d",
       "description": "可触材质的微缩定格动画感。",
       "promptPrefix": "handmade stop-motion style, tactile clay texture, miniature set design, imperfect handcrafted animation feel",
-      "keywords": ["stop-motion", "handmade", "clay", "miniature"]
+      "keywords": [
+        "stop-motion",
+        "handmade",
+        "clay",
+        "miniature"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_17.jpg"
     },
     {
       "id": "as_1018",
@@ -172,7 +310,13 @@
       "category": "illustration",
       "description": "干净几何形状的现代扁平插画。",
       "promptPrefix": "modern vector minimal, clean shapes, flat colors, geometric layout, simple elegant illustration",
-      "keywords": ["vector", "minimal", "flat", "modern"]
+      "keywords": [
+        "vector",
+        "minimal",
+        "flat",
+        "modern"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_18.jpg"
     },
     {
       "id": "as_1019",
@@ -181,7 +325,13 @@
       "category": "illustration",
       "description": "柔和流动的水彩与颜料肌理。",
       "promptPrefix": "fluid pigment art, watercolor texture, soft gradients, organic brush flow, artistic hand-painted mood",
-      "keywords": ["watercolor", "pigment", "artistic", "soft"]
+      "keywords": [
+        "watercolor",
+        "pigment",
+        "artistic",
+        "soft"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_19.jpg"
     },
     {
       "id": "as_1020",
@@ -190,7 +340,13 @@
       "category": "illustration",
       "description": "粗墨线与动态构图的漫画动作格。",
       "promptPrefix": "graphic hero panel, bold ink outlines, dynamic action pose, halftone texture, dramatic comic composition",
-      "keywords": ["comic", "hero", "graphic", "action"]
+      "keywords": [
+        "comic",
+        "hero",
+        "graphic",
+        "action"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_20.jpg"
     },
     {
       "id": "as_1021",
@@ -199,7 +355,13 @@
       "category": "commercial",
       "description": "杂志级时尚电影的优雅光影。",
       "promptPrefix": "editorial fashion film, luxury magazine lighting, elegant pose, refined color grading, premium visual direction",
-      "keywords": ["fashion", "editorial", "luxury", "cinematic"]
+      "keywords": [
+        "fashion",
+        "editorial",
+        "luxury",
+        "cinematic"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_21.jpg"
     },
     {
       "id": "as_1022",
@@ -208,7 +370,13 @@
       "category": "realistic",
       "description": "自然光下的真实纪实气质。",
       "promptPrefix": "documentary realism, natural light, authentic human moment, subtle camera movement, grounded realistic atmosphere",
-      "keywords": ["documentary", "realistic", "natural", "authentic"]
+      "keywords": [
+        "documentary",
+        "realistic",
+        "natural",
+        "authentic"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_22.jpg"
     },
     {
       "id": "as_1023",
@@ -217,7 +385,13 @@
       "category": "futuristic",
       "description": "暗色都市街头与机能服饰氛围。",
       "promptPrefix": "urban techwear mood, dark city street, functional fashion, futuristic accessories, cinematic urban lighting",
-      "keywords": ["techwear", "urban", "fashion", "dark"]
+      "keywords": [
+        "techwear",
+        "urban",
+        "fashion",
+        "dark"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_23.jpg"
     },
     {
       "id": "as_1024",
@@ -226,7 +400,13 @@
       "category": "commercial",
       "description": "高注意力、主体清晰的广告视觉。",
       "promptPrefix": "high CTR ad creative, bold subject, clean readable composition, vibrant lighting, strong focal point",
-      "keywords": ["ad", "marketing", "bright", "attention"]
+      "keywords": [
+        "ad",
+        "marketing",
+        "bright",
+        "attention"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_24.jpg"
     },
     {
       "id": "as_1025",
@@ -235,7 +415,13 @@
       "category": "commercial",
       "description": "干净现代的科技产品宣传气质。",
       "promptPrefix": "startup promo visual, modern tech branding, clean composition, confident lighting, polished SaaS commercial style",
-      "keywords": ["startup", "saas", "promo", "clean"]
+      "keywords": [
+        "startup",
+        "saas",
+        "promo",
+        "clean"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_25.jpg"
     },
     {
       "id": "as_1026",
@@ -244,7 +430,13 @@
       "category": "commercial",
       "description": "专业而亲近的创始人形象肖像。",
       "promptPrefix": "founder personal brand portrait, confident expression, modern workspace, premium natural lighting, professional but approachable",
-      "keywords": ["founder", "portrait", "brand", "professional"]
+      "keywords": [
+        "founder",
+        "portrait",
+        "brand",
+        "professional"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_26.jpg"
     },
     {
       "id": "as_1027",
@@ -253,7 +445,13 @@
       "category": "commercial",
       "description": "干净奢华的电商产品陈列。",
       "promptPrefix": "luxury ecommerce shot, elegant product placement, soft studio shadow, premium lifestyle background, commercial polish",
-      "keywords": ["ecommerce", "luxury", "product", "clean"]
+      "keywords": [
+        "ecommerce",
+        "luxury",
+        "product",
+        "clean"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_27.jpg"
     },
     {
       "id": "as_1028",
@@ -262,7 +460,13 @@
       "category": "cinematic",
       "description": "风格化灯光与运动的 MV 视觉。",
       "promptPrefix": "music video mood, expressive lighting, rhythmic composition, stylish camera angle, cinematic performance atmosphere",
-      "keywords": ["music", "video", "stylish", "cinematic"]
+      "keywords": [
+        "music",
+        "video",
+        "stylish",
+        "cinematic"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_28.jpg"
     },
     {
       "id": "as_1029",
@@ -271,7 +475,13 @@
       "category": "experimental",
       "description": "梦境象征与美术馆级构图。",
       "promptPrefix": "surreal fine art, dreamlike symbolism, impossible scene, painterly composition, museum-quality atmosphere",
-      "keywords": ["surreal", "fine-art", "dream", "symbolic"]
+      "keywords": [
+        "surreal",
+        "fine-art",
+        "dream",
+        "symbolic"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_29.jpg"
     },
     {
       "id": "as_1030",
@@ -280,7 +490,13 @@
       "category": "realistic",
       "description": "干净空间与材质的建筑渲染。",
       "promptPrefix": "architectural visualization, realistic interior or exterior render, natural lighting, clean materials, premium spatial composition",
-      "keywords": ["architecture", "interior", "render", "space"]
+      "keywords": [
+        "architecture",
+        "interior",
+        "render",
+        "space"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_30.jpg"
     },
     {
       "id": "as_1031",
@@ -289,7 +505,13 @@
       "category": "realistic",
       "description": "柔和日光与克制北欧室内。",
       "promptPrefix": "scandinavian interior mood, natural wood, soft daylight, minimal decor, calm neutral palette, cozy elegant space",
-      "keywords": ["interior", "scandinavian", "minimal", "cozy"]
+      "keywords": [
+        "interior",
+        "scandinavian",
+        "minimal",
+        "cozy"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_31.jpg"
     },
     {
       "id": "as_1032",
@@ -298,7 +520,13 @@
       "category": "commercial",
       "description": "强烈反光与动势的高端汽车视觉。",
       "promptPrefix": "hypercar showcase, glossy reflections, dramatic studio or street lighting, premium automotive photography, powerful composition",
-      "keywords": ["car", "automotive", "luxury", "motion"]
+      "keywords": [
+        "car",
+        "automotive",
+        "luxury",
+        "motion"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_32.jpg"
     },
     {
       "id": "as_1033",
@@ -307,7 +535,13 @@
       "category": "futuristic",
       "description": "未来时装杂志感与赛博能量。",
       "promptPrefix": "cyber editorial, futuristic fashion, neon accents, magazine composition, high contrast tech aesthetic",
-      "keywords": ["cyber", "editorial", "fashion", "future"]
+      "keywords": [
+        "cyber",
+        "editorial",
+        "fashion",
+        "future"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_33.jpg"
     },
     {
       "id": "as_1034",
@@ -316,7 +550,13 @@
       "category": "experimental",
       "description": "未来产品、世界与角色的概念设定。",
       "promptPrefix": "AI concept design, futuristic concept art, detailed design language, imaginative object or environment, polished visual exploration",
-      "keywords": ["concept", "design", "future", "creative"]
+      "keywords": [
+        "concept",
+        "design",
+        "future",
+        "creative"
+      ],
+      "imageUrl": "https://files.seme.cc/styles/style_34.jpg"
     }
   ]
 }

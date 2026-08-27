@@ -49,6 +49,7 @@ function timelinePayload(project: TimelineProject): Record<string, unknown> {
     previewSpeed: persistable.previewSpeed,
     finalQuality: persistable.finalQuality,
     finalSpeed: persistable.finalSpeed,
+    videoWorkflowFamily: persistable.videoWorkflowFamily,
     width: persistable.width,
     height: persistable.height,
     fps: persistable.fps,
@@ -110,6 +111,7 @@ export function timelineProjectFromApi(row: DirectorProjectResponse): TimelinePr
       payload.canvasTier === "past_native" ? "2.0" : payload.canvasTier === "fast" ? "0.4" : base.finalQuality
     ),
     finalSpeed: (payload.finalSpeed as TimelineProject["finalSpeed"]) || base.finalSpeed,
+    videoWorkflowFamily: typeof payload.videoWorkflowFamily === "string" ? payload.videoWorkflowFamily : base.videoWorkflowFamily,
     width: typeof payload.width === "number" ? payload.width : base.width,
     height: typeof payload.height === "number" ? payload.height : base.height,
     fps: typeof payload.fps === "number" ? payload.fps : base.fps,
@@ -135,12 +137,34 @@ export function listDirectorArtStyles() {
   return requestJson<DirectorArtStyleCatalog>("/api/director/art-styles")
 }
 
+export function listWorkflowModes() {
+  return requestJson<{ modes: Array<{
+    id: string
+    name: string
+    media_type?: string
+    reference_mode?: string
+    min_references?: number
+    max_references?: number
+    catalog_group?: string
+    catalog_group_label?: string
+    catalog_group_order?: number
+  }> }>("/api/modes")
+}
+
 export function recipePayloadFromApi(row: DirectorProjectResponse): RecipeProject | null {
-  return isRecipePayload(row.payload) ? row.payload : null
+  if (!isRecipePayload(row.payload)) return null
+  return {
+    ...row.payload,
+    videoWorkflowFamily: row.payload.videoWorkflowFamily || "official_h3",
+  }
 }
 
 export function batchPayloadFromApi(row: DirectorProjectResponse): BatchRunPayload | null {
-  return isBatchRunPayload(row.payload) ? row.payload : null
+  if (!isBatchRunPayload(row.payload)) return null
+  return {
+    ...row.payload,
+    videoWorkflowFamily: row.payload.videoWorkflowFamily || "official_h3",
+  }
 }
 
 export function getDirectorProject(projectId: string) {
@@ -261,12 +285,24 @@ export function renderDirectorShots(
   )
 }
 
+export function renderDirectorBatchItems(
+  projectId: string,
+  body: { item_ids?: string[] },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/batches/${encodeURIComponent(projectId)}/render`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
 export function createDirectorBatch(
   body: {
     theme: string
     count: number
     aspect_ratio: string
     duration_sec: number
+    video_workflow_family?: string
     art_style_id?: string
     title?: string
     project_id?: string

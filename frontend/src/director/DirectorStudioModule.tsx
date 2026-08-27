@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { message } from "antd"
-import { useState } from "react"
+import { useMatch, useNavigate } from "react-router-dom"
 import { User } from "../api"
 import { DirectoryHandleLike } from "../local-resource-store"
+import { directorBatchPath, directorProjectPath, PATHS, ROUTE_PATTERNS } from "../paths"
 import DirectorBatchStudio from "./DirectorBatchStudio"
 import DirectorHome from "./DirectorHome"
 import DirectorRecipeStudio from "./DirectorRecipeStudio"
@@ -21,8 +22,6 @@ interface DirectorStudioModuleProps {
   onExitDirector?: () => void
 }
 
-type StudioView = "home" | "recipe" | "batch"
-
 export default function DirectorStudioModule({
   user,
   csrfToken,
@@ -30,8 +29,11 @@ export default function DirectorStudioModule({
   onExitDirector,
 }: DirectorStudioModuleProps) {
   const queryClient = useQueryClient()
-  const [view, setView] = useState<StudioView>("home")
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const batchMatch = useMatch(ROUTE_PATTERNS.directorBatch)
+  const recipeMatch = useMatch(ROUTE_PATTERNS.directorProject)
+  const activeProjectId = batchMatch?.params.projectId ?? recipeMatch?.params.projectId
+  const view = batchMatch ? "batch" : recipeMatch ? "recipe" : "home"
 
   const listQuery = useQuery({
     queryKey: ["director-projects"],
@@ -42,6 +44,11 @@ export default function DirectorStudioModule({
     await queryClient.invalidateQueries({ queryKey: ["director-projects"] })
   }
 
+  function goHome() {
+    navigate(PATHS.director)
+    void refreshList()
+  }
+
   async function handleCreateDirector() {
     try {
       const created = await createDirectorProjectRecord({
@@ -50,8 +57,7 @@ export default function DirectorStudioModule({
         source_script: "",
         payload: createEmptyRecipe(),
       }, csrfToken)
-      setActiveProjectId(created.id)
-      setView("recipe")
+      navigate(directorProjectPath(created.id))
       await refreshList()
     } catch (error) {
       message.error(error instanceof Error ? error.message : "创建失败")
@@ -66,8 +72,7 @@ export default function DirectorStudioModule({
         source_script: "",
         payload: createEmptyBatch(),
       }, csrfToken)
-      setActiveProjectId(created.id)
-      setView("batch")
+      navigate(directorBatchPath(created.id))
       await refreshList()
     } catch (error) {
       message.error(error instanceof Error ? error.message : "创建失败")
@@ -77,20 +82,17 @@ export default function DirectorStudioModule({
   async function handleOpen(item: DirectorProjectListItem) {
     try {
       if (item.kind === "batch_run") {
-        setActiveProjectId(item.id)
-        setView("batch")
+        navigate(directorBatchPath(item.id))
         return
       }
       if (item.kind === "timeline") {
         const converted = await convertDirectorProjectToRecipe(item.id, csrfToken)
-        setActiveProjectId(converted.id)
-        setView("recipe")
+        navigate(directorProjectPath(converted.id))
         await refreshList()
         message.info("已将旧时间轴转为 Recipe")
         return
       }
-      setActiveProjectId(item.id)
-      setView("recipe")
+      navigate(directorProjectPath(item.id))
     } catch (error) {
       message.error(error instanceof Error ? error.message : "打开失败")
     }
@@ -109,10 +111,7 @@ export default function DirectorStudioModule({
   async function handleDelete(projectId: string) {
     try {
       await deleteDirectorProject(projectId, csrfToken)
-      if (activeProjectId === projectId) {
-        setActiveProjectId(null)
-        setView("home")
-      }
+      if (activeProjectId === projectId) goHome()
       await refreshList()
     } catch (error) {
       message.error(error instanceof Error ? error.message : "删除失败")
@@ -120,7 +119,7 @@ export default function DirectorStudioModule({
   }
 
   return (
-    <div className="director-shell">
+    <div className="director-shell !h-0 !min-h-0 flex-1 overflow-hidden">
       {view === "home" || !activeProjectId ? (
         <DirectorHome
           items={listQuery.data || []}
@@ -137,7 +136,7 @@ export default function DirectorStudioModule({
           projectId={activeProjectId}
           csrfToken={csrfToken}
           allJobs={allJobs}
-          onBack={() => { setView("home"); void refreshList() }}
+          onBack={goHome}
           onExitDirector={onExitDirector}
         />
       ) : (
@@ -146,7 +145,7 @@ export default function DirectorStudioModule({
           csrfToken={csrfToken}
           user={user}
           allJobs={allJobs}
-          onBack={() => { setView("home"); void refreshList() }}
+          onBack={goHome}
           onExitDirector={onExitDirector}
         />
       )}

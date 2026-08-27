@@ -1,18 +1,33 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .comfy_service import ComfyCancelled, ComfyQueuePrompt, ComfyService, ComfyUnavailable
 from .config import settings
-from .grs_client import FAILED_STATUSES, SUCCESS_STATUSES, GrsClient, GrsError, GrsTemporaryError
+from .grs_client import (
+    FAILED_STATUSES, SUCCESS_STATUSES, GrsClient, GrsConnectionError, GrsError, GrsTemporaryError,
+    with_grs_billing_caution,
+)
 from .grs_provider import GrsProviderService
 from .models import JobMode, JobStatus
-from .resource_storage import ResourceStorage
+from .resource_storage import ResourceStorage, resource_object_url
 from .storage import JobStore
 from .workflow_registry import grs_request_size, is_h3_workflow, is_image_workflow
+
+
+GRS_PROGRESS_HORIZON_SECONDS = 120.0
+logger = logging.getLogger(__name__)
+
+
+def grs_image_progress(elapsed_seconds: float) -> int:
+    """Map GRS wait time to 12-90% without using the 12-hour timeout as the bar scale."""
+    horizon = max(30.0, GRS_PROGRESS_HORIZON_SECONDS)
+    ratio = min(1.0, max(0.0, elapsed_seconds) / horizon)
+    return min(90, 12 + int(78 * ratio))
 
 
 class JobWorker:
@@ -357,12 +372,20 @@ class JobWorker:
                             model=context["options"]["provider_model"], prompt=context["prompt"], images=images,
                             aspect_ratio=aspect_ratio, image_size=image_size,
                         )
+                    except GrsConnectionError as error:
+                        if self._generation_cancelled(generation_item_id):
+                            return
+                        self.store.update_generation(
+                            generation_item_id, status=JobStatus.FAILED,
+                            stage="无法连接 GRS", error=str(error),
+                        )
+                        return
                     except Exception as error:
                         if self._generation_cancelled(generation_item_id):
                             return
                         self.store.update_generation(
                             generation_item_id, status=JobStatus.INTERRUPTED,
-                            stage="GRS 提交结果不确定", error=f"{error}；为避免重复扣费，请确认后显式重试。",
+                            stage="GRS 提交结果不确定", error=with_grs_billing_caution(str(error)),
                         )
                         return
                     if self._generation_cancelled(generation_item_id):
@@ -393,6 +416,27 @@ class JobWorker:
             return False
         return item.get("status") == JobStatus.SUCCEEDED.value or bool(item.get("outputs"))
 
+    def _bind_director_recipe_image(self, generation_item_id: str) -> None:
+        from .director_jobs import bind_director_asset_image, job_asset_image_url
+
+        try:
+            context = self.store.generation_context(generation_item_id)
+            job_id = str(context.get("job_id") or "")
+            if not job_id:
+                return
+            job = self.store.get(job_id)
+            image_url = job_asset_image_url(job, kind="image", resource_storage=self.resource_storage)
+            if not image_url:
+                return
+            bind_director_asset_image(
+                self.store,
+                owner_user_id=str(context.get("owner_user_id") or ""),
+                job_id=job_id,
+                image_url=image_url,
+            )
+        except Exception:
+            logger.exception("未能把定妆图地址写回导演工程")
+
     async def _ingest_image(
         self, client: GrsClient, generation_item_id: str, urls: list[str], remote_status: str,
     ) -> None:
@@ -411,10 +455,14 @@ class JobWorker:
                 "delivery_status": "cloud" if self.resource_storage.persistent_outputs else "pending",
                 "delivered_at": None,
             }
+            cloud_url = resource_object_url(self.resource_storage, stored.key)
+            if cloud_url:
+                output["cloud_url"] = cloud_url
             self.store.update_generation(
                 generation_item_id, status=JobStatus.SUCCEEDED, stage="生成完成", progress=100,
                 outputs=[output], error="", remote_status=remote_status,
             )
+            self._bind_director_recipe_image(generation_item_id)
             asyncio.create_task(self._refresh_grs_balance(), name="grs-balance-refresh")
             return
         if last_error is not None:
@@ -438,7 +486,7 @@ class JobWorker:
                 await asyncio.sleep(delay)
                 continue
             elapsed = time.monotonic() - started
-            progress = min(90, 12 + int(78 * elapsed / max(1, settings.grs_timeout_seconds)))
+            progress = grs_image_progress(elapsed)
             self.store.update_generation(
                 generation_item_id, stage="GRS 正在生成图片", progress=progress, remote_status=status,
             )

@@ -12,8 +12,10 @@ from .director_recipe import (
     empty_recipe_payload,
     normalize_recipe_payload,
     set_agent_status,
+    split_display_and_prompt,
 )
 from .llm_client import LlmError, OpenAICompatibleClient
+from .llm_minimax_skills import build_h3_batch_fission_prompt, build_h3_storyboard_agent_prompt
 
 
 ChatFn = Callable[[list[dict[str, Any]]], str]
@@ -105,7 +107,7 @@ def default_chat_fn(client: OpenAICompatibleClient, model: str) -> ChatFn:
             messages,
             model=model,
             temperature=0.6,
-            max_tokens=4096,
+            max_tokens=8192,
             timeout=120.0,
         )
     return _chat
@@ -196,9 +198,17 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
         for shot_raw in shots_raw[:6]:
             item = shot_raw if isinstance(shot_raw, dict) else {}
             names = item.get("characterNames") or item.get("character_names") or []
+            title = _text(item.get("title"), f"分镜 {shot_number}")
+            description, prompt_text = split_display_and_prompt(
+                title=title,
+                description=_text(item.get("description"), goal),
+                prompt_text=_text(item.get("promptText") or item.get("prompt_text") or item.get("prompt")),
+                fallback_zh=goal,
+            )
             shots.append({
-                "title": _text(item.get("title"), f"分镜 {shot_number}"),
-                "description": _text(item.get("description") or item.get("prompt"), goal),
+                "title": title,
+                "description": description,
+                "promptText": prompt_text,
                 "dialogue": _text(item.get("dialogue")),
                 "characterNames": [str(name).strip() for name in _list(names) if str(name).strip()],
                 "locationName": _text(item.get("locationName") or item.get("location_name") or scene_item.get("locationName")),
@@ -241,10 +251,16 @@ def _apply_characters(recipe: dict[str, Any], data: dict[str, Any]) -> None:
         char_type = _text(raw.get("type"), "character")
         if char_type not in {"character", "object"}:
             char_type = "object" if char_type in {"prop", "道具"} else "character"
+        description, prompt_text = split_display_and_prompt(
+            title=name,
+            description=_text(raw.get("description")),
+            prompt_text=_text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
+            fallback_zh=name,
+        )
         by_name[name] = {
             "name": name,
-            "description": _text(raw.get("description")),
-            "promptText": _text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
+            "description": description,
+            "promptText": prompt_text or _text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
             "gender": _text(raw.get("gender"), "unspecified") or "unspecified",
             "type": char_type,
         }
@@ -286,10 +302,16 @@ def _apply_locations(recipe: dict[str, Any], data: dict[str, Any]) -> None:
         name = _text(raw.get("name"))
         if not name:
             continue
+        description, prompt_text = split_display_and_prompt(
+            title=name,
+            description=_text(raw.get("description")),
+            prompt_text=_text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
+            fallback_zh=name,
+        )
         by_name[name] = {
             "name": name,
-            "description": _text(raw.get("description")),
-            "promptText": _text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
+            "description": description,
+            "promptText": prompt_text or _text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
         }
     ordered = names or list(by_name.keys())
     locations: list[dict[str, Any]] = []
@@ -362,11 +384,22 @@ def _apply_music(recipe: dict[str, Any], data: dict[str, Any]) -> None:
 
 def _story_context(recipe: dict[str, Any], goal: str) -> str:
     script = recipe.get("script") or {}
+    art = recipe.get("artStyle") if isinstance(recipe.get("artStyle"), dict) else {}
+    style_line = ""
+    if art:
+        style_line = (
+            f"画风：{art.get('name') or art.get('name_zh') or ''}"
+            f"（{art.get('nameEn') or art.get('name_en') or ''}）。"
+            f"画面前缀：{art.get('promptPrefix') or art.get('prompt_prefix') or ''}\n"
+        )
+    notes = _text(recipe.get("researchNotes"))
+    notes_line = f"研究备注：{notes}\n" if notes else ""
     return (
         f"用户一句话：{goal}\n"
         f"标题：{script.get('title') or ''}\n"
         f"梗概：{script.get('summary') or ''}\n"
         f"故事：{script.get('fullStory') or goal}\n"
+        f"{style_line}{notes_line}"
     )
 
 
@@ -427,14 +460,7 @@ def run_agent(
 
         if agent_id == "storyboard":
             parsed = _chat_json(chat_fn, [
-                {"role": "system", "content": _system(
-                    agent_id,
-                    "拆成 3-8 场，每场 1-4 镜。每镜 durationSec 为 2-15 整数。"
-                    "camera.scale 只能是 ELS/WS/MS/CU/ECU；movement 为 zoom_in/zoom_out/pan_left/pan_right/tilt_up/tilt_down/orbit/tracking/static；"
-                    "angle 为 eye_level/low_angle/high_angle/dutch/pov；speed 为 smooth/dynamic/slow；lighting 为 cinematic_soft/cyberpunk/golden_hour/dramatic_low_key/studio。"
-                    "characterNames 用角色真名；locationName 用地点名；dialogue 可空。"
-                    "输出 {\"scenes\":[{\"title\":\"\",\"locationName\":\"\",\"shots\":[{\"title\":\"\",\"description\":\"\",\"dialogue\":\"\",\"characterNames\":[],\"locationName\":\"\",\"durationSec\":5,\"camera\":{}}]}]}",
-                )},
+                {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
                 {"role": "user", "content": _story_context(recipe, goal)},
             ]) if chat_fn else None
             _apply_storyboard(recipe, parsed or {}, goal)
@@ -445,7 +471,8 @@ def run_agent(
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
-                    "只从分镜 characterNames 抽角色。道具 type=object。promptText 为英文定妆描述，不含地点人名以外的剧情。"
+                    "只从分镜 characterNames 抽角色。道具 type=object。"
+                    "description 用中文外貌说明给用户看；promptText 为英文定妆描述，不含地点人名以外的剧情。"
                     "输出 {\"characters\":[{\"name\":\"\",\"description\":\"\",\"promptText\":\"\",\"gender\":\"unspecified\",\"type\":\"character\"}]}",
                 )},
                 {"role": "user", "content": _story_context(recipe, goal) + "\n分镜：" + json.dumps(recipe.get("scenes") or [], ensure_ascii=False)[:6000]},
@@ -458,7 +485,7 @@ def run_agent(
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
-                    "只抽故事里反复出现的地点。promptText 必须是空景、无人物的英文环境描述。"
+                    "只抽故事里反复出现的地点。description 用中文空景说明给用户看；promptText 必须是空景、无人物的英文环境描述。"
                     "输出 {\"locations\":[{\"name\":\"\",\"description\":\"\",\"promptText\":\"\"}]}",
                 )},
                 {"role": "user", "content": _story_context(recipe, goal) + "\n分镜：" + json.dumps(recipe.get("scenes") or [], ensure_ascii=False)[:4000]},
@@ -472,6 +499,7 @@ def run_agent(
                 {"role": "system", "content": _system(
                     agent_id,
                     "把对白整理进各镜，供 MiniMax H3 联合音轨使用，不要生成独立音频文件。"
+                    "台词保留原文，不要翻译；编译器会包成 (S1) says: <d>[Chinese] ...</d>。"
                     "输出 {\"shots\":[{\"shotNumber\":1,\"dialogue\":\"\"}]}。无对白的镜头 dialogue 为空字符串。",
                 )},
                 {"role": "user", "content": json.dumps(recipe.get("scenes") or [], ensure_ascii=False)[:6000]},
@@ -484,7 +512,10 @@ def run_agent(
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
-                    "只写氛围标签，不生成音频文件。输出 {\"globalMusic\":\"英文或中文氛围\",\"globalSoundscape\":\"环境声\",\"shotSfx\":[{\"shotNumber\":1,\"sfx\":\"\"}]}",
+                    "按 MiniMax H3 官方 skill 写声音，不生成音频文件。"
+                    "globalMusic 即 non_diegetic_music：英文写乐器、速度、力度变化，禁止空洞情绪词；无配乐写 N/A。"
+                    "globalSoundscape 即 overall_soundscape：英文写环境声与物理交互声，不重复台词。"
+                    "输出 {\"globalMusic\":\"\",\"globalSoundscape\":\"\",\"shotSfx\":[{\"shotNumber\":1,\"sfx\":\"\"}]}",
                 )},
                 {"role": "user", "content": _story_context(recipe, goal)},
             ]) if chat_fn else None
@@ -515,6 +546,13 @@ def run_recipe_pipeline(
         current["script"]["fullStory"] = goal
     order = list(agents or AGENT_IDS)
     for agent_id in order:
+        set_agent_status(current, agent_id, "pending")
+    if on_progress:
+        on_progress(current)
+    for agent_id in order:
+        set_agent_status(current, agent_id, "running")
+        if on_progress:
+            on_progress(current)
         current = run_agent(
             agent_id,
             current,
@@ -548,10 +586,8 @@ def fission_batch_scripts(
     parsed = None
     if chat_fn is not None:
         parsed = _chat_json(chat_fn, [
-            {"role": "system", "content": (
-                "AGENT_ID: batch_fission\n把主题裂变成互不相同的短视频文生脚本。"
-                f"正好 {count} 条。每条 script 是可直接给 MiniMax H3 文生视频的画面描述，时长约 {duration} 秒，比例 {aspect_ratio}。"
-                "可含口播/字幕文本。必须输出 {\"items\":[{\"title\":\"\",\"script\":\"\"}]}，不要解释。"
+            {"role": "system", "content": build_h3_batch_fission_prompt(
+                count=count, duration_sec=duration, aspect_ratio=aspect_ratio,
             )},
             {"role": "user", "content": f"{style_hint}主题：{theme}"},
         ])
@@ -559,14 +595,27 @@ def fission_batch_scripts(
     for index, raw in enumerate(_list((parsed or {}).get("items"))[:count]):
         if not isinstance(raw, dict):
             continue
+        title = _text(raw.get("title"), f"{theme} · {index + 1}")
+        script = _text(raw.get("script") or raw.get("prompt"), theme)
+        raw_description = _text(raw.get("description"))
+        if raw_description == script:
+            raw_description = ""
+        description, _prompt = split_display_and_prompt(
+            title=title,
+            description=raw_description,
+            prompt_text=script,
+            fallback_zh=title,
+        )
         items.append({
-            "title": _text(raw.get("title"), f"{theme} · {index + 1}"),
-            "script": _text(raw.get("script") or raw.get("prompt"), theme),
+            "title": title,
+            "description": description,
+            "script": script,
         })
     while len(items) < count:
         index = len(items) + 1
         items.append({
             "title": f"{theme} · {index}",
+            "description": f"{theme}。版本 {index}。",
             "script": f"{theme}。版本 {index}，{duration} 秒，{aspect_ratio} 构图，电影级运镜。",
         })
     return items[:count]

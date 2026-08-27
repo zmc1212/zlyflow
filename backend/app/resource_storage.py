@@ -4,7 +4,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class ResourceStorage(Protocol):
     def resolve(self, key: str) -> Path | None: ...
     def delete(self, key: str) -> bool: ...
     def download_url(self, key: str, expires_in_seconds: int = 300) -> str | None: ...
+    def object_url(self, key: str) -> str | None: ...
 
 
 class BrowserLocalStagingStorage:
@@ -67,6 +68,9 @@ class BrowserLocalStagingStorage:
     def download_url(self, key: str, expires_in_seconds: int = 300) -> str | None:
         return None
 
+    def object_url(self, key: str) -> str | None:
+        return None
+
 
 class BrowserStreamStorage(BrowserLocalStagingStorage):
     """Keep completed output in ComfyUI and proxy it only while delivering to the employee."""
@@ -97,6 +101,19 @@ RESOURCE_STORAGE_PROVIDERS: dict[str, ResourceStorageFactory] = {
 def register_resource_storage(provider_id: str, factory: ResourceStorageFactory) -> None:
     """Register an optional provider such as a Qiniu-backed implementation."""
     RESOURCE_STORAGE_PROVIDERS[provider_id] = factory
+
+
+def resource_object_url(storage: Any | None, key: str | None) -> str | None:
+    """Stable object URL for persistent providers; never a time-limited signed link."""
+    if storage is None or not str(key or "").strip():
+        return None
+    getter = getattr(storage, "object_url", None)
+    if not callable(getter):
+        return None
+    url = getter(str(key).strip())
+    if not url:
+        return None
+    return str(url).strip() or None
 
 
 def create_resource_storage(provider_id: str, staging_dir: Path) -> ResourceStorage:

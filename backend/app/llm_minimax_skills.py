@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -124,6 +125,85 @@ H3_SKILLS: list[H3Skill] = [
 
 H3_SKILLS_BY_ID = {skill.id: skill for skill in H3_SKILLS}
 
+_H3_PROMPT_WRITING_ROOT = Path(__file__).resolve().parent / "h3_prompt_writing"
+
+DIRECTOR_STUDIO_ADAPTER = """Director Studio adapter (keep this even while following the official skill):
+- Each shot is submitted as its own MiniMax H3 job, usually T2VA. The compiler later adds I2VA/Ref2VA wrappers when keyframes or character stills exist.
+- promptText: English H3 shot prose from the official guide. Write one independent [Shot 1] clip covering style, composition, subjects, environment, action, camera (motion type + amplitude + speed), and dialogue. Do not wrap integrated_multimodal_description / overall_soundscape / non_diegetic_music in JSON; the compiler adds those fields.
+- title, description, soundscape: Chinese for the user-facing storyboard card. Never copy promptText into description.
+- dialogue: keep the user's original words. Inside promptText use <d>[Chinese] ...</d> or the matching language tag.
+- durationSec: integer 2–15, prefer 4–8. One dominant action and one camera move per shot.
+- characterNames use real names; locationName uses place names.
+"""
+
+
+def load_h3_prompt_writing_skill() -> str:
+    return (_H3_PROMPT_WRITING_ROOT / "SKILL.md").read_text(encoding="utf-8").strip()
+
+
+def load_h3_prompt_writing_guide(*, mode: str = "base") -> str:
+    name = "ref-en.txt" if mode == "ref" else "base-en.txt"
+    return (_H3_PROMPT_WRITING_ROOT / "references" / name).read_text(encoding="utf-8").strip()
+
+
+def build_h3_storyboard_agent_prompt() -> str:
+    return "\n\n".join([
+        "Follow the official MiniMax H3 h3-prompt-writing skill below. Use its English examples as the writing standard for promptText.",
+        DIRECTOR_STUDIO_ADAPTER,
+        load_h3_prompt_writing_skill(),
+        load_h3_prompt_writing_guide(mode="base"),
+        "Split the story into 3–8 scenes, 1–4 shots each, prefer 4–8 independently renderable shots in total.",
+        'description 必须是中文展示稿；promptText 必须是英文 H3 镜头正文。'
+        '输出 {"scenes":[{"title":"","locationName":"","shots":[{"title":"","description":"","promptText":"","dialogue":"","characterNames":[],"locationName":"","durationSec":5,"camera":{},"soundscape":""}]}]}',
+    ])
+
+
+def build_h3_split_script_prompt() -> str:
+    return f"""Follow the official MiniMax H3 h3-prompt-writing skill below.
+{DIRECTOR_STUDIO_ADAPTER}
+Split the user's script into a coherent shot list. Shots may continue the story, but each prompt field must be independently submittable to MiniMax H3 as a single [Shot 1] clip.
+title 用中文。prompt 字段写英文 H3 镜头正文。sfx 字段写中文环境声给用户看。
+
+{load_h3_prompt_writing_skill()}
+
+{load_h3_prompt_writing_guide(mode="base")}
+
+必须且仅输出严格合法的 JSON 对象：
+{{
+  "project_title": "短片标题",
+  "summary": "故事一句话梗概",
+  "shots": [
+    {{
+      "shot_number": 1,
+      "title": "中文场景镜头简述",
+      "prompt": "English MiniMax H3 shot body",
+      "scale": "WS",
+      "movement": "zoom_in",
+      "angle": "eye_level",
+      "speed": "smooth",
+      "lighting": "cinematic_soft",
+      "sfx": "中文环境音效"
+    }}
+  ]
+}}
+严禁输出任何思考过程或解释文字，直接输出 JSON。"""
+
+
+def build_h3_batch_fission_prompt(*, count: int, duration_sec: int, aspect_ratio: str) -> str:
+    return "\n".join([
+        "AGENT_ID: batch_fission",
+        "Follow the official MiniMax H3 h3-prompt-writing skill. Split the theme into distinct short T2VA scripts.",
+        f"Exactly {count} items. title and description are Chinese for the user-facing card.",
+        "script must be a complete English T2VA prompt ready to submit: integrated_multimodal_description, overall_soundscape, non_diegetic_music.",
+        f"Duration about {duration_sec} seconds, aspect {aspect_ratio}. One dominant action and camera move unless the official guide's multi-shot example is needed.",
+        "Preserve original dialogue inside <d>[Chinese] ...</d> or the matching language tag.",
+        'Output {"items":[{"title":"","description":"","script":""}]} and nothing else.',
+        "",
+        load_h3_prompt_writing_skill(),
+        "",
+        load_h3_prompt_writing_guide(mode="base"),
+    ])
+
 
 def list_h3_skills_payload() -> list[dict[str, Any]]:
     return [
@@ -179,29 +259,18 @@ For the target video, at 0.00 seconds into the target video, <Picture 1> (from [
 - 无需首行对齐声明，直接以 integrated_multimodal_description 开头构建完整的视听时间线。
 """
 
-    return f"""你是一位精通 MiniMax H3（海螺视频/H3大模型）的专业提示词架构专家与导演。
-你熟练掌握 MiniMax H3 官方的 Prompt 技能体系规范（h3-prompt-writing 及各风格技能），你的任务是将用户的初始创意扩写为工业级、高质量、格式严格符合 MiniMax H3 标准的提示词。
+    guides = [load_h3_prompt_writing_skill(), load_h3_prompt_writing_guide(mode="base")]
+    if reference_count >= 2:
+        guides.append(load_h3_prompt_writing_guide(mode="ref"))
+    official = "\n\n".join(guides)
 
-当前应用的风格技能：【{selected_skill.name}】（{selected_skill.description}）
-技能专项指导原则：
+    return f"""Follow the official MiniMax H3 h3-prompt-writing skill. You rewrite the user's idea into a production-ready H3 prompt.
+
+Current style skill: [{selected_skill.name}] ({selected_skill.description})
 {selected_skill.guidance}
 
 {mode_alignment_instruction}
 
-【MiniMax H3 提示词核心结构规范】
-最终输出文本必须包含以下三段式结构（英文段落标识）：
+{official}
 
-integrated_multimodal_description: [Shot 1] 画面风格描述（如 Live-action, cinematic / 3D Stylized animation），主体外观与初始构图。运镜动作（采用“运动类型 + 幅度 + 速度”的标准表达，如 The camera pushes in with small amplitude at slow speed...）。主体动作过程、环境光影。如有人物说话，使用标号 (S1) 并用 <d>[语言] 台词内容</d> 格式包裹。如有第二镜头，使用 [Shot 2] At 00:03.500, the camera cuts to...
-
-overall_soundscape: 用 1-3 句连贯文字总结全片的环境音、物理交互声（如脚步、风雨、摩擦声、按键声等），不重复台词。
-
-non_diegetic_music: 用 1-2 句文字描述观众能听到的背景配乐（乐器配器、节奏速度、渐强渐弱），避免空洞情绪词，无配乐时写 N/A。
-
-【三维运镜语法标准库】
-- 运动类型：Zoom In / Zoom Out (变焦), Push In / Pull Out (推/拉), Pan Left / Pan Right (摇镜头), Truck Left / Truck Right (平移), Tilt Up / Tilt Down (俯仰), Pedestal Up / Pedestal Down (升降), Arc Shot (弧形环绕), Tracking Shot (跟随跟踪), Static Shot (固定镜头), POV (第一人称主观), Roll Clockwise / Counterclockwise (旋转)。
-- 幅度：with small amplitude / with large amplitude。
-- 速度：at slow speed / at fast speed。
-
-【严格输出约束】
-1. 语言：除人物台词 `<d>` 内的内容可保留中文或指定语言外，描述主体、运镜、soundscape 和 music 请输出标准英语（或中英高质量结合，优先 MiniMax 最擅长的英语结构体）。
-2. 直接输出最终提示词纯文本，严禁包含任何前言、问候、解释分析或 markdown ``` 代码块包裹。"""
+Output only the final prompt text. No preamble, no markdown fences."""

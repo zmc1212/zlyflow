@@ -26,14 +26,21 @@ from .auth import AuthStore, SESSION_HOURS, csrf_token
 from .comfy_provider import ComfyProviderError, ComfyProviderService
 from .comfy_service import ComfyService
 from .config import settings
-from .director_catalog import art_style_catalog_payload, art_style_ref_for_recipe, find_art_style
+from .director_catalog import (
+    ArtStyleCatalogError,
+    art_style_catalog_payload,
+    art_style_ref_for_recipe,
+    ensure_art_style_preview,
+    find_art_style,
+)
 from .director_jobs import (
-    generate_recipe_assets, render_batch_items, render_recipe_shots,
+    generate_recipe_assets, recipe_asset_image_index, render_batch_items, render_recipe_shots,
     sync_batch_items, sync_recipe_asset_images,
 )
 from .director_recipe import (
     DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_RECIPE, empty_batch_payload,
     empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload, payload_kind,
+    set_agent_status,
 )
 from .grs_provider import GrsProviderService
 from .llm_client import LlmError, LlmTemporaryError
@@ -52,12 +59,12 @@ from .models import (
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
     DirectorProjectResponse, DirectorProjectMigrateRequest, DirectorProjectMigrateResponse,
     DirectorArtStyleCatalogResponse, DirectorRecipeRunRequest, DirectorRecipeStepRequest,
-    DirectorGenerateAssetsRequest, DirectorRenderShotsRequest, DirectorBatchCreateRequest,
+    DirectorGenerateAssetsRequest, DirectorRenderShotsRequest, DirectorRenderBatchRequest, DirectorBatchCreateRequest,
 )
 
 from .qiniu_provider import QiniuProviderService
 
-from .resource_storage import create_resource_storage
+from .resource_storage import create_resource_storage, resource_object_url
 from .storage import FINISHED_STATUSES, JobStore, elapsed_ms_between
 from .worker import JobWorker
 from .workflow_registry import (
@@ -206,6 +213,18 @@ def output_response(output: dict, request: Request | None = None) -> Response:
     if app.state.worker.comfy.can_stream_output(output.get("_comfy_source")):
         return streamed_output_response(output)
     raise HTTPException(status_code=410, detail="资源暂存已过期")
+
+
+def attach_output_cloud_url(output: dict) -> dict:
+    if output.get("cloud_url"):
+        return output
+    if output.get("delivery_status") != "cloud":
+        return output
+    storage = getattr(app.state, "resource_storage", None)
+    derived = resource_object_url(storage, output.get("path"))
+    if derived:
+        output["cloud_url"] = derived
+    return output
 
 
 def public_output_download_url(output: dict, fallback_url: str) -> str:
@@ -410,6 +429,7 @@ def public_job(job: dict) -> dict:
     for output_index, raw_output in enumerate(job.get("outputs", [])):
         output = dict(raw_output)
         output.pop("_comfy_source", None)
+        attach_output_cloud_url(output)
         if output_exposes_download(output):
             output["download_url"] = public_output_download_url(
                 output, public_api_path(f"jobs/{job['id']}/outputs/{output_index}/download"),
@@ -442,6 +462,7 @@ def public_job(job: dict) -> dict:
             for output_index, raw_output in enumerate(item.get("outputs", [])):
                 output = dict(raw_output)
                 output.pop("_comfy_source", None)
+                attach_output_cloud_url(output)
                 if output_exposes_download(output):
                     output["download_url"] = public_output_download_url(
                         output,
@@ -1262,6 +1283,29 @@ def list_director_art_styles(user: Annotated[dict, Depends(current_user)]) -> di
 
 
 @app.get(
+    "/api/director/art-styles/{style_id}/preview",
+    tags=["导演台"],
+    summary="读取画风预览图",
+    responses={200: {"content": {"image/jpeg": {}}}},
+)
+def director_art_style_preview(style_id: str, user: Annotated[dict, Depends(current_user)]) -> FileResponse:
+    del user
+    try:
+        path = ensure_art_style_preview(style_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="画风不存在")
+    except ArtStyleCatalogError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except OSError as error:
+        raise HTTPException(status_code=502, detail=f"画风预览暂不可用：{error}") from error
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
+@app.get(
     "/api/director/projects",
     response_model=list[DirectorProjectListItem],
     tags=["导演台"],
@@ -1363,7 +1407,12 @@ def get_director_project(project_id: str, user: Annotated[dict, Depends(current_
     kind = payload_kind(record.get("payload"))
     if kind == PAYLOAD_KIND_RECIPE:
         record = dict(record)
-        record["payload"] = sync_recipe_asset_images(app.state.store, record["payload"])
+        storage = getattr(app.state, "resource_storage", None)
+        recipe = sync_recipe_asset_images(app.state.store, record["payload"], resource_storage=storage)
+        if recipe_asset_image_index(recipe) != recipe_asset_image_index(record.get("payload")):
+            record = _persist_director_recipe(project_id, recipe, source_script=record.get("source_script"))
+        else:
+            record["payload"] = recipe
     elif kind == PAYLOAD_KIND_BATCH:
         record = dict(record)
         record["payload"] = sync_batch_items(app.state.store, record["payload"])
@@ -1568,6 +1617,9 @@ async def run_director_recipe_step(
     if not available and payload.agent_id != "media":
         raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
     goal = (payload.goal or record.get("source_script") or (record.get("payload") or {}).get("script", {}).get("fullStory") or record["title"]).strip()
+    running_recipe = normalize_recipe_payload(record.get("payload") or empty_recipe_payload())
+    set_agent_status(running_recipe, payload.agent_id, "running")
+    _persist_director_recipe(project_id, running_recipe, source_script=record.get("source_script"))
     try:
         if payload.agent_id == "media":
             from .director_agents import run_agent
@@ -1582,8 +1634,12 @@ async def run_director_recipe_step(
                 skip_research=payload.skip_research,
             )
     except LlmError as error:
+        set_agent_status(running_recipe, payload.agent_id, "failed", str(error))
+        _persist_director_recipe(project_id, running_recipe, source_script=record.get("source_script"))
         raise HTTPException(status_code=502, detail=str(error)) from error
     except (DirectorPayloadError, ValueError) as error:
+        set_agent_status(running_recipe, payload.agent_id, "failed", str(error))
+        _persist_director_recipe(project_id, running_recipe, source_script=record.get("source_script"))
         raise HTTPException(status_code=422, detail=str(error)) from error
     saved = _persist_director_recipe(project_id, updated, source_script=record.get("source_script"))
     app.state.auth_store.audit(
@@ -1617,6 +1673,7 @@ async def generate_director_recipe_assets(
             character_ids=payload.character_ids,
             location_ids=payload.location_ids,
             force=payload.force,
+            resource_storage=getattr(app.state, "resource_storage", None),
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1651,6 +1708,7 @@ async def render_director_recipe_shots(
             recipe=record["payload"],
             shot_ids=payload.shot_ids,
             render_pass=payload.render_pass,
+            resource_storage=getattr(app.state, "resource_storage", None),
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -1700,10 +1758,16 @@ async def create_director_batch(
         count=payload.count,
         aspect_ratio=payload.aspect_ratio,
         duration_sec=payload.duration_sec,
+        video_workflow_family=payload.video_workflow_family,
     )
     batch["artStyle"] = art_style
     batch["items"] = [
-        {"title": item["title"], "script": item["script"], "status": "idle"}
+        {
+            "title": item["title"],
+            "description": item.get("description") or item["title"],
+            "script": item["script"],
+            "status": "idle",
+        }
         for item in scripts
     ]
     title = (payload.title or payload.theme.strip()[:24] or "批量短视频").strip()
@@ -1737,6 +1801,41 @@ async def create_director_batch(
     app.state.auth_store.audit(
         "create_director_batch", "director", actor_user_id=user["id"], target_id=saved["id"],
         detail=f"count={payload.count}", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/batches/{project_id}/render",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="短视频批量：重提交指定条目",
+)
+async def render_director_batch_items(
+    project_id: str,
+    payload: DirectorRenderBatchRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_BATCH:
+        raise HTTPException(status_code=422, detail="只有批量工程可以按条重提交")
+    try:
+        updated_payload, job_ids = render_batch_items(
+            app.state.store,
+            owner_user_id=user["id"],
+            payload=record["payload"],
+            item_ids=payload.item_ids,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not job_ids:
+        raise HTTPException(status_code=409, detail="没有可重提交的条目")
+    saved = app.state.store.update_director_project(record["id"], payload=updated_payload)
+    await _enqueue_job_ids(job_ids)
+    app.state.auth_store.audit(
+        "render_director_batch", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"jobs={len(job_ids)}", ip_address=client_ip(request),
     )
     return public_director_project(saved)
 
@@ -2298,26 +2397,30 @@ def confirm_generation_output_delivered(
     return public_job(app.state.store.get(job_id))
 
 
-if settings.frontend_dist_dir.is_dir():
-    ASSET_MEDIA_TYPES = {
-        ".js": "application/javascript",
-        ".css": "text/css",
-        ".svg": "image/svg+xml",
-        ".json": "application/json",
-        ".woff2": "font/woff2",
-    }
+ASSET_MEDIA_TYPES = {
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".svg": "image/svg+xml",
+    ".json": "application/json",
+    ".woff2": "font/woff2",
+}
 
-    @app.get("/assets/{asset_path:path}", include_in_schema=False)
-    def frontend_asset(asset_path: str) -> FileResponse:
-        assets_dir = (settings.frontend_dist_dir / "assets").resolve()
-        asset = (assets_dir / asset_path).resolve()
-        if assets_dir not in asset.parents or not asset.is_file():
-            raise HTTPException(status_code=404, detail="前端资源不存在")
-        return FileResponse(asset, media_type=ASSET_MEDIA_TYPES.get(asset.suffix.lower()))
 
-    @app.get("/{path:path}", include_in_schema=False)
-    def frontend(path: str) -> FileResponse:
-        return FileResponse(settings.frontend_dist_dir / "index.html")
+@app.get("/assets/{asset_path:path}", include_in_schema=False)
+def frontend_asset(asset_path: str) -> FileResponse:
+    assets_dir = (settings.frontend_dist_dir / "assets").resolve()
+    asset = (assets_dir / asset_path).resolve()
+    if assets_dir not in asset.parents or not asset.is_file():
+        raise HTTPException(status_code=404, detail="前端资源不存在")
+    return FileResponse(asset, media_type=ASSET_MEDIA_TYPES.get(asset.suffix.lower()))
+
+
+@app.get("/{path:path}", include_in_schema=False)
+def frontend(path: str) -> FileResponse:
+    index = settings.frontend_dist_dir / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404, detail="前端未构建")
+    return FileResponse(index)
 
 
 if __name__ == "__main__":

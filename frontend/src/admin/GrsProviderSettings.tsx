@@ -195,6 +195,10 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
               onChange={(event) => setBaseUrl(event.target.value)}
               placeholder="https://grsai.dakka.com.cn"
             />
+            <p className="mt-1.5 text-xs leading-5 text-[#6b7280]">
+              国内节点 <code>https://grsai.dakka.com.cn</code>，国际节点 <code>https://grsaiapi.com</code>。
+              国内节点连不上时改用国际节点，先点「测试连接」再保存。
+            </p>
           </div>
 
           <div>

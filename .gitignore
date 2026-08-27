@@ -3,6 +3,8 @@
 # ==========================================
 data/
 results/
+backend/app/director_catalog/previews/*.jpg
+backend/app/director_catalog/previews/*.jpg.part
 *.db
 *.sqlite
 *.sqlite3

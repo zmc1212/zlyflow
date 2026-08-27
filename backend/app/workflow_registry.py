@@ -484,6 +484,7 @@ def apply_h3_speed_preset(normalized: dict[str, Any], raw: dict[str, Any]) -> di
         elif key not in normalized and key in {"steps", "lora_strength"}:
             normalized[key] = mapping[key]
     normalized.setdefault("lora_name", H3_TURBO_LORA_NAME)
+    normalized.setdefault("use_sage_attention", True)
     return normalized
 
 
@@ -536,6 +537,7 @@ H3_STANDARD_OPTION_SCHEMA = {
             enum=[H3_TURBO_LORA_NAME],
         ),
         "lora_strength": option("LoRA 强度", "number", 1, minimum=-100, maximum=100, step=0.01),
+        "use_sage_attention": option("SageAttention", "boolean", True),
     },
 }
 
@@ -809,6 +811,59 @@ H3_WORKFLOWS = {
 T8_WORKFLOW_IDS = {item.value for item in T8_WORKFLOWS}
 LIGHTX2V_WORKFLOW_IDS = {item.value for item in LIGHTX2V_WORKFLOWS}
 DUAL_ACCEL_WORKFLOW_IDS = {item.value for item in DUAL_ACCEL_WORKFLOWS}
+DEFAULT_DIRECTOR_WORKFLOW_FAMILY = CATALOG_GROUP_OFFICIAL_H3
+
+
+def director_route_key(definition: WorkflowDefinition) -> str | None:
+    if definition.media_type != "video":
+        return None
+    if definition.reference_mode == "none":
+        return "t2v"
+    if definition.reference_mode == "keyframes":
+        return "i2v"
+    if definition.reference_mode == "collection":
+        if definition.min_references == 0:
+            return "standalone"
+        if definition.max_references >= 3:
+            return "r2v"
+    return None
+
+
+def director_workflow_families() -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    standalones: list[dict[str, Any]] = []
+    for definition in WORKFLOWS:
+        route = director_route_key(definition)
+        if route is None:
+            continue
+        group_meta = CATALOG_GROUPS.get(definition.catalog_group, {})
+        if route == "standalone":
+            standalones.append({
+                "id": definition.id,
+                "label": definition.name,
+                "order": int(group_meta.get("order", 100)),
+                "routes": {"t2v": definition.id, "i2v": definition.id, "r2v": definition.id},
+            })
+            continue
+        group_id = definition.catalog_group or definition.id
+        entry = grouped.setdefault(group_id, {
+            "id": group_id,
+            "label": group_meta.get("label") or definition.name,
+            "order": int(group_meta.get("order", 100)),
+            "routes": {},
+        })
+        entry["routes"][route] = definition.id
+    families = [item for item in grouped.values() if item["routes"]] + standalones
+    families.sort(key=lambda item: (int(item["order"]), str(item["label"])))
+    return families
+
+
+def resolve_director_workflow(family: str | None, route: str) -> str:
+    wanted = route if route in {"t2v", "i2v", "r2v"} else "t2v"
+    families = {item["id"]: item for item in director_workflow_families()}
+    chosen = families.get(str(family or "").strip()) or families.get(DEFAULT_DIRECTOR_WORKFLOW_FAMILY)
+    routes = (chosen or {}).get("routes") or {}
+    return str(routes.get(wanted) or routes.get("t2v") or JobMode.MINIMAX_H3_T2V.value)
 H3_WORKFLOW_IDS = {item.value for item in H3_WORKFLOWS}
 _catalog_lookup: Callable[[str], dict[str, Any] | None] | None = None
 
@@ -872,7 +927,7 @@ IMAGE_WORKFLOWS = {JobMode.GRS_GPT_IMAGE_2, JobMode.GRS_GPT_IMAGE_2_VIP}
 H3_QUALITY_MEGAPIXELS = H3_STANDARD_OPTION_SCHEMA["properties"]["quality"]["megapixels_by_quality"]
 H3_LEGACY_QUALITY_MEGAPIXELS = {"1K": 0.2, "2K": 0.3, "4K": 0.5}
 H3_LEGACY_MEGAPIXELS = set(H3_QUALITY_MEGAPIXELS.values()) | {0.98}
-H3_OPTION_NAMES = {"aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps"}
+H3_OPTION_NAMES = {"aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps", "use_sage_attention"}
 H3_ASPECT_RATIO_PART = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
 
 
@@ -1022,6 +1077,9 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         raise ValueError(f"MiniMax H3 时长必须在 {H3_DURATION_MIN_SEC} 到 {H3_DURATION_MAX_SEC} 秒之间。")
     speed = raw.get("speed", H3_SPEED_BALANCED)
     custom_steps = raw.get("custom_steps", 8)
+    use_sage = raw.get("use_sage_attention", True)
+    if not isinstance(use_sage, bool):
+        raise ValueError("SageAttention 必须为布尔值。")
     return apply_h3_speed_preset({
         "aspect_ratio": aspect_ratio,
         "quality": quality,
@@ -1030,6 +1088,7 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         "reference_image_size": "match",
         "speed": speed,
         "custom_steps": custom_steps,
+        "use_sage_attention": use_sage,
     }, raw)
 
 

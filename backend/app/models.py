@@ -55,6 +55,7 @@ class MediaOutput(BaseModel):
         default="pending", description="资源交付状态；local 表示服务器暂存副本已清理。",
     )
     download_url: str | None = Field(default=None, description="当前用户可访问的临时交付 URL。")
+    cloud_url: str | None = Field(default=None, description="对象存储上的稳定资源地址，不含过期签名。")
     delivered_at: str | None = None
 
 
@@ -550,6 +551,7 @@ class DirectorArtStyle(BaseModel):
     category_name_en: str = ""
     description: str = ""
     promptPrefix: str
+    imageUrl: str | None = None
     keywords: list[str] = Field(default_factory=list)
 
 
@@ -642,11 +644,16 @@ class DirectorRenderShotsRequest(BaseModel):
     render_pass: Literal["preview", "final"] = "final"
 
 
+class DirectorRenderBatchRequest(BaseModel):
+    item_ids: list[str] = Field(default_factory=list)
+
+
 class DirectorBatchCreateRequest(BaseModel):
     theme: str = Field(min_length=1, max_length=2000)
     count: int = Field(default=3, ge=1, le=8)
     aspect_ratio: str = Field(default="9:16", max_length=16)
     duration_sec: int = Field(default=8, ge=2, le=15)
+    video_workflow_family: str | None = Field(default=None, max_length=80)
     art_style_id: str | None = Field(default=None, max_length=32)
     title: str | None = Field(default=None, max_length=120)
     project_id: str | None = Field(default=None, max_length=80)

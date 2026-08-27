@@ -30,6 +30,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "created_at": ("创建时间", "记录创建时的 ISO 8601 时间字符串（UTC）。"),
     "credential_ready": ("凭据加密可用", "服务端用于加密保存供应商凭据的主密钥是否可用。"),
     "credits": ("剩余额度", "上游 GRS 账户当前可查询到的余额或点数。"),
+    "cloud_url": ("云端资源地址", "对象存储上的稳定 HTTPS 地址，不含过期签名；任务 JSON 的 download_url 仍为同源下载路径。"),
     "csrf_token": ("CSRF 令牌", "登录后返回的防跨站请求伪造令牌；所有会改变服务端状态的 Cookie 会话请求须在 X-CSRF-Token 请求头中携带此值。"),
     "ctx": ("校验上下文", "字段校验失败时由验证器返回的附加上下文。"),
     "current_password": ("当前密码", "当前登录账号的密码；仅用于修改密码时核验，不会保存或回显。"),
@@ -219,7 +220,8 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("get", "/api/jobs/{job_id}/generations/{generation_item_id}/outputs/{output_index}/browser-direct"): "需要登录。返回指定生成项输出的同机 ComfyUI 直连地址；不支持时返回 409。",
     ("post", "/api/jobs/{job_id}/generations/{generation_item_id}/outputs/{output_index}/desktop-ticket"): "需要登录和 X-CSRF-Token。为指定生成项输出签发短时且范围受限的桌面下载凭证。",
     ("post", "/api/jobs/{job_id}/generations/{generation_item_id}/outputs/{output_index}/delivered"): "需要登录和 X-CSRF-Token。确认指定生成项输出已写入员工电脑，并按当前存储策略清理临时副本。",
-    ("get", "/api/director/art-styles"): "需要登录。返回 9 类 34 条画风目录；promptPrefix 对齐 OpenDirector 种子，画风 id 必须选自该目录。",
+    ("get", "/api/director/art-styles"): "需要登录。返回 9 类 34 条画风目录；promptPrefix 对齐 OpenDirector 种子，imageUrl 为同源 /api/director/art-styles/{id}/preview。画风 id 必须选自该目录。",
+    ("get", "/api/director/art-styles/{style_id}/preview"): "需要登录。返回画风 JPEG 预览。优先读本地缓存，缺失时由服务端从 OpenDirector CDN（files.seme.cc/styles/style_NN.jpg）拉取并缓存。未知 id 返回 404。",
     ("get", "/api/director/projects"): "需要登录。只返回当前用户的导演工程摘要，不含剧本文档和时间轴/Recipe payload。kind 为 timeline、director_recipe 或 batch_run。",
     ("post", "/api/director/projects"): "需要登录和 X-CSRF-Token。创建导演工程，可同时写入 source_script 与 payload。payload.kind=director_recipe 时按 Recipe 校验画风目录；缺省 kind 为旧时间轴。服务端剥离 data URL。",
     ("post", "/api/director/projects/migrate"): "需要登录和 X-CSRF-Token。将浏览器 localStorage 中的导演工程一次性迁入 SQLite；相同 ID 跳过，避免重复。",
@@ -231,8 +233,9 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/director/recipes/run"): "需要登录和 X-CSRF-Token。用现有 LLM Provider 顺序跑 9 Agent，写入 Recipe payload。可选 project_id 更新已有工程，否则新建。art_style_id 必须选自画风目录。",
     ("post", "/api/director/recipes/{project_id}/step"): "需要登录和 X-CSRF-Token。重跑单个 Agent。media 步只编译 H3 提示词，不调用大模型。",
     ("post", "/api/director/recipes/{project_id}/generate-assets"): "需要登录和 X-CSRF-Token。为角色/场景提交 GRS 定妆图任务，结果写入 imageJobId。",
-    ("post", "/api/director/recipes/{project_id}/render-shots"): "需要登录和 X-CSRF-Token。按镜编译 ≤9 张参考图并 POST 等价的 H3 T2V/R2V 任务。无定妆图时走 T2V。",
-    ("post", "/api/director/batches"): "需要登录和 X-CSRF-Token。主题裂变成多条脚本并并行排队 MiniMax H3 文生视频，不强制角色参考图。",
+    ("post", "/api/director/recipes/{project_id}/render-shots"): "需要登录和 X-CSRF-Token。按镜编译 ≤9 张参考图，并按 payload.videoWorkflowFamily 提交该族 T2V/I2V/R2V。无定妆图时走该族 T2V。缺省族为官方 MiniMax H3。",
+    ("post", "/api/director/batches"): "需要登录和 X-CSRF-Token。主题裂变成多条脚本并并行排队所选工作流族的文生视频，不强制角色参考图。可选 video_workflow_family，缺省 official_h3。",
+    ("post", "/api/director/batches/{project_id}/render"): "需要登录和 X-CSRF-Token。对已有批量工程按 item_ids 重新排队该工程所选工作流族的文生；空列表表示全部条目。",
 }
 
 

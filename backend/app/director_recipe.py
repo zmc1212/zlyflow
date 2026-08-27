@@ -5,6 +5,7 @@ from typing import Any
 
 from .director_catalog import art_style_ref_for_recipe, find_art_style
 from .director_compiler import snap_h3_duration_sec
+from .workflow_registry import DEFAULT_DIRECTOR_WORKFLOW_FAMILY
 
 
 PAYLOAD_KIND_TIMELINE = "timeline"
@@ -34,6 +35,7 @@ _RENDER_KEYS = (
     "previewSpeed",
     "finalQuality",
     "finalSpeed",
+    "videoWorkflowFamily",
     "width",
     "height",
     "fps",
@@ -69,6 +71,34 @@ def _text(value: Any, fallback: Any = "") -> str:
     if fallback is None:
         return ""
     return str(fallback).strip()
+
+
+def contains_cjk(text: str) -> bool:
+    return any("\u3400" <= ch <= "\u9fff" for ch in text or "")
+
+
+def split_display_and_prompt(
+    *,
+    title: str = "",
+    description: str = "",
+    prompt_text: str = "",
+    fallback_zh: str = "",
+) -> tuple[str, str]:
+    """Keep Chinese copy for cards; keep English (or original) text for H3/GRS submit."""
+    desc = (description or "").strip()
+    prompt = (prompt_text or "").strip()
+    title_text = (title or "").strip()
+    fallback = (fallback_zh or "").strip()
+    if not prompt and desc and not contains_cjk(desc):
+        prompt = desc
+    display_candidates = [desc]
+    if prompt and contains_cjk(prompt):
+        display_candidates.append(prompt)
+    display_candidates.extend([title_text, fallback])
+    display = next((item for item in display_candidates if item and contains_cjk(item)), "")
+    if not display:
+        display = title_text or fallback or desc
+    return display, prompt
 
 
 def payload_kind(payload: dict[str, Any] | None) -> str:
@@ -109,6 +139,7 @@ def empty_recipe_payload(
         "previewSpeed": "fast",
         "finalQuality": "1.0",
         "finalSpeed": "balanced",
+        "videoWorkflowFamily": DEFAULT_DIRECTOR_WORKFLOW_FAMILY,
         "width": 1344,
         "height": 768,
         "fps": 24,
@@ -118,7 +149,7 @@ def empty_recipe_payload(
     }
 
 
-def resolve_recipe_art_style(value: Any, *, required: bool = False) -> dict[str, str] | None:
+def resolve_recipe_art_style(value: Any, *, required: bool = False) -> dict[str, Any] | None:
     if value is None or value == "" or value == {}:
         if required:
             raise DirectorPayloadError("画风必须选自目录")
@@ -160,11 +191,18 @@ def _normalize_character(raw: Any, index: int) -> dict[str, Any]:
     gender = _text(item.get("gender"))
     if gender not in GENDERS:
         gender = "unspecified"
+    name = _text(item.get("name")) or f"角色 {index + 1}"
+    description, prompt_text = split_display_and_prompt(
+        title=name,
+        description=_text(item.get("description")),
+        prompt_text=_text(item.get("promptText"), item.get("prompt_text") or ""),
+        fallback_zh=name,
+    )
     return {
         "id": _text(item.get("id")) or _new_id("char"),
-        "name": _text(item.get("name")) or f"角色 {index + 1}",
-        "description": _text(item.get("description")),
-        "promptText": _text(item.get("promptText"), item.get("prompt_text") or ""),
+        "name": name,
+        "description": description,
+        "promptText": prompt_text or _text(item.get("promptText"), item.get("prompt_text") or item.get("description") or ""),
         "gender": gender,
         "type": char_type,
         "imageJobId": _text(item.get("imageJobId"), item.get("image_job_id") or "") or None,
@@ -174,11 +212,18 @@ def _normalize_character(raw: Any, index: int) -> dict[str, Any]:
 
 def _normalize_location(raw: Any, index: int) -> dict[str, Any]:
     item = _as_dict(raw)
+    name = _text(item.get("name")) or f"场景 {index + 1}"
+    description, prompt_text = split_display_and_prompt(
+        title=name,
+        description=_text(item.get("description")),
+        prompt_text=_text(item.get("promptText"), item.get("prompt_text") or ""),
+        fallback_zh=name,
+    )
     return {
         "id": _text(item.get("id")) or _new_id("loc"),
-        "name": _text(item.get("name")) or f"场景 {index + 1}",
-        "description": _text(item.get("description")),
-        "promptText": _text(item.get("promptText"), item.get("prompt_text") or ""),
+        "name": name,
+        "description": description,
+        "promptText": prompt_text or _text(item.get("promptText"), item.get("prompt_text") or item.get("description") or ""),
         "imageJobId": _text(item.get("imageJobId"), item.get("image_job_id") or "") or None,
         "imageUrl": _text(item.get("imageUrl"), item.get("image_url") or "") or None,
     }
@@ -190,15 +235,23 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
     if names is None:
         names = item.get("character_names")
     character_names = [str(name).strip() for name in _as_list(names) if str(name).strip()]
-    compiled = _text(item.get("compiledPrompt"), item.get("compiled_prompt") or item.get("prompt") or "")
+    compiled = _text(item.get("compiledPrompt"), item.get("compiled_prompt") or "")
     status = _text(item.get("status"), "idle") or "idle"
     duration = snap_h3_duration_sec(item.get("durationSec", item.get("duration_sec", 5)))
     location_name = _text(item.get("locationName"), item.get("location_name") or "") or scene_location
+    title = _text(item.get("title")) or f"分镜 {index + 1}"
+    description, prompt_text = split_display_and_prompt(
+        title=title,
+        description=_text(item.get("description")),
+        prompt_text=_text(item.get("promptText"), item.get("prompt_text") or item.get("prompt") or ""),
+        fallback_zh=title,
+    )
     shot: dict[str, Any] = {
         "id": _text(item.get("id")) or _new_id("shot"),
         "shotNumber": int(item.get("shotNumber") or item.get("shot_number") or index + 1),
-        "title": _text(item.get("title")) or f"分镜 {index + 1}",
-        "description": _text(item.get("description"), item.get("prompt") or ""),
+        "title": title,
+        "description": description,
+        "promptText": prompt_text,
         "dialogue": _text(item.get("dialogue")),
         "characterNames": character_names,
         "locationName": location_name,
@@ -248,6 +301,9 @@ def _copy_render_settings(source: dict[str, Any], target: dict[str, Any]) -> Non
     for key in _RENDER_KEYS:
         if key in source and source[key] is not None:
             target[key] = source[key]
+    family = _text(source.get("videoWorkflowFamily"), source.get("video_workflow_family") or "")
+    if family:
+        target["videoWorkflowFamily"] = family
 
 
 def flatten_recipe_shots(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -308,13 +364,26 @@ def normalize_recipe_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
 def _normalize_batch_item(raw: Any, index: int) -> dict[str, Any]:
     item = _as_dict(raw)
     status = _text(item.get("status"), "idle") or "idle"
+    title = _text(item.get("title")) or f"版本 {index + 1}"
+    script = _text(item.get("script"), item.get("prompt") or "")
+    raw_description = _text(item.get("description"))
+    if raw_description == script:
+        raw_description = ""
+    description, _prompt = split_display_and_prompt(
+        title=title,
+        description=raw_description,
+        prompt_text=script,
+        fallback_zh=title,
+    )
     return {
         "id": _text(item.get("id")) or _new_id("batch"),
-        "title": _text(item.get("title")) or f"版本 {index + 1}",
-        "script": _text(item.get("script"), item.get("prompt") or ""),
+        "title": title,
+        "description": description,
+        "script": script,
         "jobId": _text(item.get("jobId"), item.get("job_id") or "") or None,
         "status": status,
         "outputVideoUrl": _text(item.get("outputVideoUrl"), item.get("output_video_url") or "") or None,
+        "error": _text(item.get("error")) or None,
     }
 
 
@@ -338,6 +407,8 @@ def normalize_batch_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
         "agentStatus": _normalize_agent_status(raw.get("agentStatus") or raw.get("agent_status")),
     }
     _copy_render_settings(raw, normalized)
+    if not _text(normalized.get("videoWorkflowFamily")):
+        normalized["videoWorkflowFamily"] = DEFAULT_DIRECTOR_WORKFLOW_FAMILY
     return normalized
 
 
@@ -355,11 +426,19 @@ def _slot_to_character(slot: dict[str, Any], index: int) -> dict[str, Any]:
     kind = _text(slot.get("kind"), "character")
     char_type = "object" if kind in {"prop", "object", "style", "action"} else "character"
     image_url = _text(slot.get("previewUrl"), slot.get("preview_url") or "") or None
+    name = _text(slot.get("name")) or f"角色 {index + 1}"
+    original = _text(slot.get("description"))
+    description, prompt_text = split_display_and_prompt(
+        title=name,
+        description=original,
+        prompt_text="",
+        fallback_zh=name,
+    )
     return {
         "id": _text(slot.get("id")) or _new_id("char"),
-        "name": _text(slot.get("name")) or f"角色 {index + 1}",
-        "description": _text(slot.get("description")),
-        "promptText": _text(slot.get("description")),
+        "name": name,
+        "description": description,
+        "promptText": prompt_text or original,
         "gender": "unspecified",
         "type": char_type,
         "imageJobId": None,
@@ -369,11 +448,19 @@ def _slot_to_character(slot: dict[str, Any], index: int) -> dict[str, Any]:
 
 def _slot_to_location(slot: dict[str, Any], index: int) -> dict[str, Any]:
     image_url = _text(slot.get("previewUrl"), slot.get("preview_url") or "") or None
+    name = _text(slot.get("name")) or f"场景 {index + 1}"
+    original = _text(slot.get("description"))
+    description, prompt_text = split_display_and_prompt(
+        title=name,
+        description=original,
+        prompt_text="",
+        fallback_zh=name,
+    )
     return {
         "id": _text(slot.get("id")) or _new_id("loc"),
-        "name": _text(slot.get("name")) or f"场景 {index + 1}",
-        "description": _text(slot.get("description")),
-        "promptText": _text(slot.get("description")),
+        "name": name,
+        "description": description,
+        "promptText": prompt_text or original,
         "imageJobId": None,
         "imageUrl": image_url,
     }
@@ -440,19 +527,28 @@ def timeline_to_recipe(
                 location_name = location_name or name
             elif name:
                 character_names.append(name)
+        shot_title = _text(shot.get("title")) or f"分镜 {index + 1}"
+        description, prompt_text = split_display_and_prompt(
+            title=shot_title,
+            description=_text(shot.get("description")),
+            prompt_text=_text(shot.get("prompt")),
+            fallback_zh=shot_title,
+        )
         scenes.append(
             _normalize_scene(
                 {
                     "id": _text(shot.get("id")) or _new_id("scene"),
                     "sceneNumber": index + 1,
-                    "title": _text(shot.get("title")) or f"分镜 {index + 1}",
-                    "description": _text(shot.get("prompt"), shot.get("description") or ""),
+                    "title": shot_title,
+                    "description": description,
                     "locationName": location_name,
                     "shots": [
                         {
                             **shot,
                             "shotNumber": shot.get("shotNumber") or index + 1,
-                            "description": _text(shot.get("prompt"), shot.get("description") or ""),
+                            "title": shot_title,
+                            "description": description,
+                            "promptText": prompt_text,
                             "compiledPrompt": _text(shot.get("prompt")),
                             "characterNames": character_names,
                             "locationName": location_name,
@@ -497,6 +593,7 @@ def empty_batch_payload(
     count: int = 3,
     aspect_ratio: str = "9:16",
     duration_sec: int = 8,
+    video_workflow_family: str | None = None,
 ) -> dict[str, Any]:
     return normalize_batch_payload({
         "kind": PAYLOAD_KIND_BATCH,
@@ -504,6 +601,7 @@ def empty_batch_payload(
         "count": count,
         "aspectRatio": aspect_ratio,
         "durationSec": duration_sec,
+        "videoWorkflowFamily": video_workflow_family or DEFAULT_DIRECTOR_WORKFLOW_FAMILY,
         "items": [],
     })
 

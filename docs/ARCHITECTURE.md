@@ -18,14 +18,18 @@ React/Vite frontend
 
 Docker 部署：React 在镜像构建阶段生成 `frontend/dist`，运行阶段由同一 FastAPI 容器托管。Linux 服务器 Compose 使用 `host` 网络，FastAPI 仅监听 `127.0.0.1:18189`；Nginx 在 `https://comfyui.zlyun168.com/` 代理前端和 `/api` 后端。ComfyUI 不进入 Compose，也不向公网暴露路径；工作台通过服务器内部 `http://127.0.0.1:18188` 访问唯一实例，该地址可以是 FRP 映射到服务器回环地址的远端 ComfyUI。容器不挂载 ComfyUI `output`，已完成视频不写入服务器磁盘。
 
-Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（仅 `127.0.0.1:5173`）与 FastAPI（`0.0.0.0:7865`）。浏览器使用 Vite 地址，`/api` 由 Vite 代理到 FastAPI，以提供 React 热更新。FastAPI 由 `backend/dev_reloader.py` 在独立进程组中拉起 uvicorn（无 `--reload`），监视 `backend/app` 源码变更并在崩溃后重启；`frontend/dist` 继续仅用于 FastAPI 的生产静态托管和 Docker 镜像。
+Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（仅 `127.0.0.1:5173`）与 FastAPI（`0.0.0.0:7865`）。浏览器始终打开 Vite 地址（含 FastAPI 已在 7865 运行时的重复双击）；`/api` 由 Vite 代理到 FastAPI，以提供 React 热更新。FastAPI 由 `backend/dev_reloader.py` 在独立进程组中拉起 uvicorn（无 `--reload`），监视 `backend/app` 源码变更并在崩溃后重启；`frontend/dist` 继续仅用于 FastAPI 的生产静态托管、局域网访问和 Docker 镜像，启动脚本不再自动打开 7865。双击 `关闭本地视频工作台.bat` 结束 `5173` 与 `7865` 上的工作台进程树及启动控制台，不停止固定 ComfyUI `8188`。
 
 ## 目录职责
 
 | 路径 | 职责 |
 | --- | --- |
-| `frontend/src/Root.tsx` | 初始化、登录、强制改密和账号管理入口 |
-| `frontend/src/App.tsx` | 深色创作台、工作流选择、动态参考图、本地目录状态和任务结果 |
+| `frontend/src/Root.tsx` | 按 `/api/auth/status` 做鉴权闸门：初始化、登录、强制改密后进入创作台或管理设置 |
+| `frontend/src/paths.ts` | 前端路径常量、管理 Tab 权限与登录回跳规则 |
+| `frontend/src/router.tsx` | `BrowserRouter` 路由表：登录/改密、管理设置、创作台壳 |
+| `frontend/src/auth/AuthScreens.tsx` | 登录、首次超级管理员初始化与强制改密界面 |
+| `frontend/src/admin/AdminSettings.tsx` | 管理设置（账号 / AI 供应商 / LLM / 媒体存储） |
+| `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成/导演台/资产、图/视频与选中任务；工作流、参考图草稿仍在组件 state |
 | `frontend/src/local-resource-store.ts` | 目录句柄/资源索引 IndexedDB 持久化及本地文件读写 |
 | `desktop/client/` | ZLYUN AI 客户端本地启动页与品牌图标 |
 | `desktop/src-tauri/` | Tauri Windows 壳、可信 origin capability 与受限本地资源命令 |
@@ -38,11 +42,13 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/minimax_h3_t8_workflow.py` | 生成全能参考多速率与双时钟 T8 API graph |
 | `backend/app/comfy_provider.py` | 超级管理员可配置的 ComfyUI 连接地址、连接测试与运行时解析 |
 | `backend/app/comfy_service.py` | 上传素材、提交 ComfyUI prompt、轮询、下载结果；队列空闲时 `POST /free` 卸载模型 |
-| `backend/app/director_compiler.py` | 导演台 H3 提示词编译、Recipe 参考图装箱与 T2V/I2V/R2V 路由 |
+| `backend/app/director_compiler.py` | 导演台按 MiniMax H3 官方 skill 编译提示词、Recipe 参考图装箱，按所选工作流族自动路由 T2V/I2V/R2V |
 | `backend/app/director_catalog/` | 9 类 34 条画风 JSON 种子与查询 |
 | `backend/app/director_recipe.py` | Recipe / 批量 payload 规范化、画风目录校验、旧时间轴转 Recipe |
-| `backend/app/director_agents.py` | 9 Agent 顺序调度，复用现有 LLM Provider |
-| `backend/app/director_jobs.py` | Recipe 定妆 GRS 入队、分镜 H3 入队、批量 T2V |
+| `backend/app/director_agents.py` | 9 Agent 顺序调度；分镜 Agent 读取官方 h3-prompt-writing 原文生成 |
+| `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能与官方 prompt-writing 加载器，供生成页优化和导演台分镜共用 |
+| `backend/app/h3_prompt_writing/` | MiniMax 官方 `h3-prompt-writing` skill 原文（SKILL.md、T2VA/Ref2VA 参考） |
+| `backend/app/director_jobs.py` | Recipe 定妆 GRS 入队、七牛地址回写、分镜/批量按所选工作流族入队 |
 | `backend/app/storage.py` | SQLite 任务、owner、交付状态与导演工程元数据 |
 | `backend/app/worker.py` | 单任务串行执行，避免显存并发；最后一条视频任务结束后请求 ComfyUI 释放显存 |
 | `frontend/dist/` | FastAPI 生产环境托管的前端构建产物 |
@@ -53,7 +59,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 
 ## 2026-08-12 本地 Vite 热更新启动
 
-`启动本地视频工作台.bat` 不再按需构建并由 FastAPI 直接打开 `frontend/dist`，而是以独立终端启动 Vite 开发服务器并在确认 `5173` 端口已监听后打开它。Vite 固定绑定回环地址、固定端口，并将 `/api` 代理到固定的工作台 FastAPI `7865`；前端修改因此可热替换。若设置了现有 SSL 证书环境变量，Vite 会读取同一证书并以 HTTPS 运行。
+`启动本地视频工作台.bat` 不再按需构建并由 FastAPI 直接打开 `frontend/dist`，而是以独立终端启动 Vite 开发服务器并在确认 `5173` 端口已监听后打开它。重复双击时若 7865 已健康，脚本补齐或复用 Vite 后仍打开 `127.0.0.1:5173`，不再打开 7865 生产静态页。Vite 固定绑定回环地址、固定端口，并将 `/api` 代理到固定的工作台 FastAPI `7865`；前端修改因此可热替换。若设置了现有 SSL 证书环境变量，Vite 会读取同一证书并以 HTTPS 运行。
 
 - 原因：本地开发修改 React、TypeScript 或 CSS 后无需手动停止、构建并重启工作台。
 - 受影响文件：`启动本地视频工作台.bat`、`frontend/vite.config.ts`、`README.md`、`功能说明与扩展指南.md` 和本文件。
@@ -67,7 +73,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 
 - LightX2V：`minimax-h3-lightx2v-t2v`（0 张）、`minimax-h3-lightx2v-i2v`（1-2 张首尾帧）、`minimax-h3-lightx2v-r2v`（1-9 张参考图）。默认 1.0 MP、快速 4 步、euler 采样，加载 `G:\ComfyUI-Models\lightx2v` 下的 LightX2V LoRA；官方 H3 三个模式的节点 ID 不改动。
 - 八步双加速：`minimax-h3-dual-accel-t2v`（0 张）、`minimax-h3-dual-accel-i2v`（1-2 张首尾帧）、`minimax-h3-dual-accel-r2v`（1-9 张参考图）。复用参考 JSON 的加速链：`LoraLoaderModelOnly`（`minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors`，强度 1.0）→ `PathchSageAttentionKJ`（`auto` / 禁止 compile）→ `MiniMaxH3MemoryEfficientSageAttentionPatch`，默认 0.4 MP、8 步 `res_multistep` 与 video/audio Shift 12/3。不接入 `MiniMaxH3Director` 节点；文生/首尾帧用全量 INT8 FL2VA，多参考用全量 INT8 Ref2VA。
-- 官方 MiniMax H3：`minimax-h3-t2v`、`minimax-h3-i2v`、`minimax-h3-r2v`。
+- 官方 MiniMax H3：`minimax-h3-t2v`、`minimax-h3-i2v`、`minimax-h3-r2v`。动态 API graph 在既有节点 1–15 之后接入 `ReservedVRAMSetter`（预留 3 GB 并在采样前清缓存）与 `MiniMaxH3MemoryEfficientSageAttentionPatch`，避免 16GB 显卡在 `SamplerCustomAdvanced` 的 INT8 QKV 上 OOM。既有节点 ID 不变。
 - 自定义：`minimax-h3-t8-all-reference`（0-9 张；无图 `T2VA`+FL2VA，有图 `Ref2VA`+Ref2VA，`MiniMaxH3MultiRateSamplerEXPT8`）、`minimax-h3-t8-dual-clock`（0-1 张；无图 `T2VA`，单图 `I2VA` 首帧，`MiniMaxH3DualClockSamplerT8`）。
 
 H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`，以及自定义时的 `custom_steps`。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
@@ -942,7 +948,7 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 ## 2026-08-27 导演台画风目录与 Recipe payload
 
 - 原因：导演台要对标对话导演 → Recipe 方案，时间轴 payload 无法表达剧本/画风/人物/场景；画风不能由模型随意发明名称。
-- 当前基线：JSON 种子 `backend/app/director_catalog/art_styles.json` 提供 9 类 34 条画风（电影感/商业/未来感/复古/动漫/3D/插画/写实/实验性），`id`/`name_en`/`promptPrefix`/`keywords` 对齐 OpenDirector 的 `art_styles` 种子（`as_1001`–`as_1034`）。`GET /api/director/art-styles` 登录后返回目录。`director_projects.payload_json` 以 `kind` 区分：缺省为旧时间轴；`director_recipe` 含 `script` / `artStyle` / `characters` / `locations` / `scenes`（场内 `shots`）/ `agentStatus`；`batch_run` 为批量裂变。Recipe 的 `artStyle` 必须选自目录，保存时覆盖名称与 `promptPrefix`。旧工程可只读打开，或 `POST /api/director/projects/{id}/convert-to-recipe` 把时间轴 shots 映射为 scenes、主体槽映射为人物/场景。生成进度统计 Recipe 场内镜头。不改表结构、节点 ID 或 `POST /api/jobs`。
+- 当前基线：JSON 种子 `backend/app/director_catalog/art_styles.json` 提供 9 类 34 条画风（电影感/商业/未来感/复古/动漫/3D/插画/写实/实验性），`id`/`name_en`/`promptPrefix`/`keywords` 对齐 OpenDirector 的 `art_styles` 种子（`as_1001`–`as_1034`）。种子里的 `imageUrl` 仍指向 `files.seme.cc/styles/style_01.jpg`–`style_34.jpg`；对外 API 的 `imageUrl` 改写为同源 `/api/director/art-styles/{id}/preview`。`GET /api/director/art-styles` 登录后返回目录。`director_projects.payload_json` 以 `kind` 区分：缺省为旧时间轴；`director_recipe` 含 `script` / `artStyle` / `characters` / `locations` / `scenes`（场内 `shots`）/ `agentStatus`；`batch_run` 为批量裂变。Recipe 的 `artStyle` 必须选自目录，保存时覆盖名称与 `promptPrefix`。旧工程可只读打开，或 `POST /api/director/projects/{id}/convert-to-recipe` 把时间轴 shots 映射为 scenes、主体槽映射为人物/场景。生成进度统计 Recipe 场内镜头。不改表结构、节点 ID 或 `POST /api/jobs`。
 - 受影响文件：`backend/app/director_catalog/`、`backend/app/director_recipe.py`、`backend/app/storage.py`、`backend/app/models.py`、`backend/app/main.py`、`backend/app/api_documentation.py`、`backend/tests/test_director.py`、`frontend/src/director/types.ts`、`frontend/src/director/director-api.ts`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
 - 兼容性：旧时间轴 payload 无 `kind` 时仍按时间轴读写；不自动转换。不改 ComfyUI 端口/节点。
 - 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
@@ -956,3 +962,183 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改 ComfyUI 节点 ID、端口 7865/8188、`POST /api/jobs` 字段或员工隔离。旧时间轴 payload 仍可读，打开时转换。
 - 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
 - 回滚方式：恢复上述文件并重新构建前端、重启工作台；已生成的 GRS/H3 任务记录可保留。
+
+## 2026-08-27 导演流水线进度条实时刷新
+
+- 原因：研究步可跳过，进度会立刻停在 11%；后续脚本等 Agent 在等大模型时只写内存 `running`，要等整次 `POST /api/director/recipes/run` 返回后界面才跳变，看起来像卡住。
+- 当前基线：每个 Agent 开始时把 `agentStatus=running` 写入 SQLite；运行中前端每 1.5 秒 `GET` 当前工程。进度条按已完成步数 + 半步进行中计算，文案显示「正在运行：脚本」。单步 `/step` 在调用大模型前同样落盘 running。不改端口、节点或 `POST /api/jobs`。
+- 受影响文件：`backend/app/director_agents.py`、`backend/app/main.py`、`backend/tests/test_director.py`、`frontend/src/director/DirectorRecipeStudio.tsx`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：Recipe payload 字段不变；旧工程无 running 快照时行为与原先一致。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；无需迁移数据库。
+
+## 2026-08-27 导演定妆与场景卡实时进度
+
+- 原因：人物/场景定妆提交 GRS 后卡片只有按钮，任务进度只在任务列表里，界面看起来没动；GRS 进度还按 12 小时超时映射，会长期停在约 12%。
+- 当前基线：人物卡与场景卡各自显示该条 GRS 任务进度条与文案（排队/生成中 xx%）。任务列表仍 1.6 秒轮询。GRS 生图进度按约 2 分钟预期映射到 12–90%，完成时 100%；超时仍为 12 小时。不改端口、节点或 `POST /api/jobs`。
+- 受影响文件：`frontend/src/director/DirectorRecipeStudio.tsx`、`frontend/src/director/director-submit.ts`、`frontend/src/director/prompt-compiler.contract.ts`、`frontend/src/index.css`、`backend/app/worker.py`、`backend/tests/test_core.py`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：Recipe payload 字段不变；图片任务仍走现有 GRS Worker。
+- 验证命令：`python -m unittest backend.tests.test_core.WorkerTests.test_grs_image_progress_moves_within_two_minutes`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；无需迁移数据库。
+
+## 2026-08-27 导演分镜卡实时进度
+
+- 原因：分镜墙提交 H3 后只有英文 status 和按钮 loading，进度只在任务列表；「全部出片」时排队中的镜头完全没有进度反馈。
+- 当前基线：每张分镜卡显示独立进度条。排队显示「排队等待出片」，正在跑的镜头跟 ComfyUI `jobs.progress` 显示「出片中 xx%」。任务列表仍 1.6 秒轮询。不改端口、节点或 `POST /api/jobs`。
+- 受影响文件：`frontend/src/director/DirectorRecipeStudio.tsx`、`frontend/src/director/director-submit.ts`、`frontend/src/director/prompt-compiler.contract.ts`、`frontend/src/index.css`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：Recipe payload 已有 `progress`/`jobId`；视频任务仍走现有 H3 Worker。
+- 验证命令：`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；无需迁移数据库。
+
+## 2026-08-27 关闭本机前后端端口脚本
+
+- 原因：`启动本地视频工作台.bat` 把 Vite 放在独立控制台，FastAPI 由 `dev_reloader.py` 以新进程组拉起；只关其中一个窗口时，`5173` 或 `7865` 仍可能被占用。
+- 当前基线：根目录 `关闭本地视频工作台.bat` 结束监听 `5173` 的 Vite/Node 进程树、监听 `7865` 且命令行匹配工作台（`backend.app.main:app` / `dev_reloader` / `uvicorn` / 旧 Gradio）的进程树、残留 `dev_reloader.py`，以及标题为 `ZLY AI Video Studio` / `ZLY AI Video Studio Vite` 的控制台。不处理 `8188`。无关占用只提示。
+- 受影响文件：`关闭本地视频工作台.bat`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改工作台端口、API、SQLite 或 ComfyUI。
+- 验证命令：双击脚本后 `netstat -ano | findstr ":5173 :7865"` 无 LISTENING。
+- 回滚方式：删除该批处理并恢复本节文档。
+
+## 2026-08-27 GRS 定妆结果允许 *.aitohumanize.com
+
+- 原因：GRS 结果 CDN 从 `file1.aitohumanize.com` 扩到 `file8` 等子域，仍解析到 RFC 2544 `198.18.0.0/15`。下载只放行 file1，已成功的场景图被拒绝；「generate image failed」原文也不好懂。
+- 当前基线：`*.aitohumanize.com` 在解析到 `198.18.0.0/15` 时允许下载，其他主机仍禁止非公共 IP。上游 `generate image failed` 显示为「上游生图失败，请重新生成」。不改端口、节点或 `POST /api/jobs`。
+- 受影响文件：`backend/app/grs_client.py`、`backend/tests/test_ai_studio.py`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：既有 file1 路径不变；其他域名的 SSRF 拦截不变。
+- 验证命令：`python -m unittest backend.tests.test_ai_studio.GrsClientTests.test_download_allows_grs_benchmark_cdn_only`。
+- 回滚方式：恢复上述文件并重启工作台；无需迁移数据库。
+
+## 2026-08-27 导演定妆转存七牛并保存对象地址
+
+- 原因：GRS 定妆完成后工程只记下同源 `/api/jobs/.../download`，未把七牛对象地址写入 Recipe；云存储上的图也无法作为 H3 参考图落盘。
+- 当前基线：启用七牛云时 GRS/ComfyUI 输出写入对象键，并保存不含过期签名的 `cloud_url`（`https://域名/对象键`）。定妆任务成功后把该地址写进对应人物/场景的 `imageUrl`；打开工程时若任务已成功也会补写并落盘。任务 JSON 的 `download_url` 仍为同源下载路径，卡片预览走该路径以免私有空间直链打不开。提交分镜时若本地没有定妆文件，会按签名链接把对象拉到 `staging/director-plates` 再作为 R2V 参考。不把过期签名 URL 写入数据库。
+- 受影响文件：`backend/app/qiniu_storage.py`、`resource_storage.py`、`worker.py`、`comfy_service.py`、`director_jobs.py`、`main.py`、`models.py`、`frontend/src/director/DirectorRecipeStudio.tsx`、`director-submit.ts`、测试与三份主文档。
+- 兼容性：未启用七牛云时 `imageUrl` 仍为同源下载路径。已有任务不自动迁移对象；打开工程时若输出已是 `cloud` 会补写对象地址。不改节点、端口或 `POST /api/jobs` 字段。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorAssetCloudTests backend.tests.test_director.DirectorProjectApiTests.test_get_recipe_persists_qiniu_image_url backend.tests.test_ai_studio.QiniuStorageTests.test_object_url_is_canonical_https_path_not_signed`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；无需删除七牛对象或迁移数据库。
+
+## 2026-08-27 导演台画风预览同源代理
+
+- 原因：画风卡片把 OpenDirector CDN 当 `<img src>`，浏览器拿不到图时整卡显示「无预览」；目录接口也不应把外链交给前端。
+- 当前基线：`GET /api/director/art-styles` 的 `imageUrl` 固定为 `/api/director/art-styles/{id}/preview`。该预览接口需登录，命中 `backend/app/director_catalog/previews/{id}.jpg` 缓存，否则服务端从 `files.seme.cc/styles/style_NN.jpg` 拉取 JPEG 再返回。前端按 style id 组装同源地址，加载失败才显示「无预览」。不改表结构、节点 ID 或 `POST /api/jobs`。
+- 受影响文件：`backend/app/director_catalog/__init__.py`、`backend/app/main.py`、`backend/app/api_documentation.py`、`backend/tests/test_director.py`、`frontend/src/director/types.ts`、`DirectorRecipeStudio.tsx`、`DirectorBatchStudio.tsx`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：种子 JSON 仍保存 CDN 原址；已保存 Recipe 里的外链 `imageUrl` 会被目录覆盖为同源预览路径。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；可删除 `previews/*.jpg` 缓存。
+
+## 2026-08-27 GRS 连接超时不再误报扣费风险
+
+- 原因：导演台定妆在连不上 `grsai.dakka.com.cn` 时把 `ConnectTimeout` 原文写进任务，并一律标成「提交结果不确定、可能重复扣费」。TCP 未建立时请求并未发出。本机 Clash 假 IP（`198.18.0.0/15`）对该国内节点也不稳定。
+- 当前基线：GRS 提交/查询连接超时 12 秒、读超时 60 秒；连接失败自动重试一次。未发出请求时任务为失败，提示可改用国际节点 `https://grsaiapi.com`，不提示扣费。仅在已发出但等不到响应时才要求显式重试。管理后台 Base URL 旁说明国内/国际节点。
+- 受影响文件：`backend/app/grs_client.py`、`backend/app/worker.py`、`frontend/src/admin/GrsProviderSettings.tsx`、`backend/tests/test_ai_studio.py`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：`POST /v1/api/generate`、ComfyUI 节点/端口、任务字段不变。已保存的 GRS Base URL 不会自动改写。
+- 验证命令：`python -m unittest backend.tests.test_ai_studio.GrsClientTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；无需迁移数据库。
+
+## 2026-08-27 前端 BrowserRouter 鉴权路由
+
+- 原因：页面身份原先在 `Root` / `App` 的 React state 中，URL 恒为 `/`，刷新丢失当前页，管理 Tab 无法直达。
+- 当前基线：`frontend/src/main.tsx` 使用 `BrowserRouter`。`frontend/src/paths.ts` 集中声明路径；`frontend/src/router.tsx` 声明 `<Routes>`。`Root.tsx` 仍用 `/api/auth/status` 做闸门（不引入 router loader）：`setup_required` → `/setup`，未登录 → `/login`（记下原路径），`must_change_password` → `/password`，员工访问 `/admin/*` → `/generate/video`。`/` 与未知路径在已登录时去 `/generate/video`。管理设置抽出为 `AdminSettings`，Tab 受控于 `useParams().tab` 并 `navigate`。创作台 `App` 作为已登录壳挂在生成/导演/资产路径下，避免这些路径互切时卸载；进入 `/admin/:tab` 仍卸载 `App`。登出 `queryClient.clear()` 后硬跳 `/login`。FastAPI `GET /{path:path}` 回退 `index.html`（无构建产物时 404），`/assets/{file}` 提供打包静态资源，精确路径 `/assets` 仍回退 SPA。无需改 Nginx。
+- 受影响文件：`frontend/package.json`、`frontend/src/main.tsx`、`frontend/src/Root.tsx`、`frontend/src/router.tsx`、`frontend/src/paths.ts`、`frontend/src/auth/AuthScreens.tsx`、`frontend/src/admin/AdminSettings.tsx`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改 API、SQLite、ComfyUI 节点或端口。
+- 验证命令：`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端；无需数据库迁移。
+
+## 2026-08-27 创作台与导演台 URL
+
+- 原因：鉴权路由落地后，生成/导演台/资产与选中任务仍在组件 state，刷新会丢当前页，无法收藏或分享具体任务和导演工程。
+- 当前基线：创作台左侧「生成 / 导演台 / 资产」为 `NavLink`。`workspaceView`、`mediaType`、`selectedJobId` 只从 URL 读取：`/generate/image|video/:jobId?`、`/director`、`/director/:projectId`、`/director/batch/:projectId`、`/assets`。切图/视频时先写入 `draftsRef` 再 `navigate`；提交、选任务、新建对话、从图做视频都会改路径。URL 上的任务与媒介不一致时按任务真实 `media_type` 纠偏。导演台创建/打开/删除当前工程走对应路径，返回列表到 `/director`。提示词草稿、任务栏折叠、资产筛选仍用组件 state。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/paths.ts`、`frontend/src/router.tsx`、`frontend/src/director/DirectorStudioModule.tsx`、`frontend/src/index.css`、`backend/app/main.py`、`backend/tests/test_ai_studio.py`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改 API、SQLite、ComfyUI 节点或端口。旧书签仍是 `/`，会重定向到 `/generate/video`。
+- 验证命令：`python -m unittest backend.tests.test_ai_studio.FrontendSpaFallbackTests`、`pnpm --dir frontend build`；桌面 1440 与移动 390 检查刷新、进退与导演工程直达。
+- 回滚方式：恢复上述文件并重新构建前端；无需数据库迁移。
+
+## 2026-08-27 启动脚本始终打开 5173
+
+- 原因：FastAPI 已在 7865 健康运行时，启动脚本会直接打开 `127.0.0.1:7865` 的 `frontend/dist`，开发改动不可见。
+- 当前基线：`启动本地视频工作台.bat` 始终打开 `http://127.0.0.1:5173`。7865 已健康时补启或复用 Vite 后仍打开 5173，并退出而不重复拉起 uvicorn。5173 已被 Vite/pnpm/node 占用时复用。局域网与生产仍通过 7865 访问静态构建。
+- 受影响文件：`启动本地视频工作台.bat`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改 API、SQLite、ComfyUI 或端口号。
+- 验证命令：双击启动脚本，确认浏览器打开 `http://127.0.0.1:5173`；7865 已运行时再双击仍打开 5173。
+- 回滚方式：恢复启动脚本与三份文档。
+
+## 2026-08-27 官方 H3 预留显存并启用 Sage
+
+- 原因：官方 MiniMax H3 首尾帧在 16GB 显卡的 `SamplerCustomAdvanced` 上 CUDA OOM（已占用 12.51 GiB，再申请 2.56 GiB INT8 QKV）。官方 API graph 原先没有显存预留和 H3 Sage。
+- 当前基线：官方 `minimax-h3-t2v/i2v/r2v` 在节点 15（可选 LoRA）之后接入 `ReservedVRAMSetter`（预留 3 GB、`clean_gpu_before=true`）和 `MiniMaxH3MemoryEfficientSageAttentionPatch`。节点 1–15 ID 不变。内部 `use_sage_attention` 默认开启。导演台仍走官方三个模式。
+- 受影响文件：`backend/app/minimax_h3_workflow.py`、`backend/app/workflow_registry.py`、`backend/tests/test_core.py`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改端口、SQLite 或 `POST /api/jobs` 外部字段。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_core.py"`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-27 导演台分镜页可改分辨率
+
+- 原因：Recipe 成片默认 1.0 MP，分镜页没有分辨率控件，16GB 出片 OOM 后无法在当页改画质。
+- 当前基线：分镜预览栏提供画面比例、分辨率（0.4 / 1.0 / 2.0 MP）和生成速度；写入 `aspectRatio` / `finalQuality` / `finalSpeed` / `canvasTier`。点「全部出片」或「生成这一镜」前先保存。后端仍按 Recipe 字段编译官方 H3。
+- 受影响文件：`frontend/src/director/DirectorRecipeStudio.tsx`、`frontend/src/director/types.ts`、`frontend/src/director/prompt-compiler.contract.ts`、`frontend/src/index.css`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`pnpm --dir frontend build`；桌面 1440 与移动 390 检查分镜下拉与出片。
+- 回滚方式：恢复上述文件并重新构建前端。
+
+## 2026-08-27 导演台失败信息不撑破卡片
+
+- 原因：任务 `error` 含 ComfyUI traceback 时，分镜卡片按原文渲染会撑破 `auto-fill` 网格。
+- 当前基线：`summarizeJobError` 把 OOM / execution_error 收成短摘要；卡片只显示摘要，「查看详情」弹层展示完整日志。卡片 `min-width: 0`、`overflow-wrap: anywhere`。
+- 受影响文件：`frontend/src/director/director-submit.ts`、`frontend/src/director/DirectorRecipeStudio.tsx`、`frontend/src/director/prompt-compiler.contract.ts`、`frontend/src/index.css`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`pnpm --dir frontend build`；桌面 1440 与移动 390 检查失败卡片。
+- 回滚方式：恢复上述文件并重新构建前端。
+
+## 2026-08-27 导演台 Recipe/批量移动端出口与中文状态
+
+- 原因：手机上 `director-topbar` 被隐藏后，Recipe/批量没有返回工程库的头栏和主按钮；批量卡片直接显示英文 `status`；首页工程卡主体是不可聚焦的 `div`。
+- 当前基线：Recipe/批量在 ≤767px 显示与首页同结构的移动端头栏（返回工程库、标题、溢出菜单）和 44px 高底部主按钮。Recipe 主按钮随 Tab 变化（故事/画风=运行流水线，定妆=全部定妆，分镜=全部出片）。镜头/批量条目使用中文状态（排队中/生成中/已完成/失败/已中断/已停止）；失败显示错误摘要和「重试这一项」。分镜区另有「仅重试失败项」。首页工程卡主体为可聚焦 button，Enter/Space 打开。`POST /api/director/batches/{project_id}/render` 按 `item_ids` 重提交批量条目。
+- 受影响文件：导演台前端 Recipe/Batch/Home、`status-labels.ts`、`index.css`、`director_jobs.py`、`director_recipe.py`、`main.py`、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs` 外部字段。桌面顶栏仍在 ≥768px 显示。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorDualEngineApiTests.test_batch_render_retries_only_requested_item`、`pnpm --dir frontend build`；1440×900 与 390×844 检查返回、底部主按钮、中文状态与键盘打开工程。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 分镜出片先等切换工作流
+
+- 原因：加载器节点的 `progress_state` 会被当成出片百分比，分镜卡在 UNET 仍在加载时显示「出片中 75%」。
+- 当前基线：提交 H3 graph 后 `stage` 先为「正在切换工作流」。`interpret_comfy_progress` 按节点 `class_type` 区分加载器 / 采样器 / 导出。分镜卡显示 `jobs.stage`，准备阶段不再把进度抬到 8% 并写成「出片中」。
+- 受影响文件：`backend/app/comfy_service.py`、`frontend/src/director/director-submit.ts`、`frontend/src/director/prompt-compiler.contract.ts`、`backend/tests/test_core.py`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`python -m unittest backend.tests.test_core.WorkerTests.test_comfy_loader_progress_waits_for_workflow_switch`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 分镜生成可选择工作流
+
+- 原因：分镜出片原先锁死官方 MiniMax H3，无法像生成页那样改用 LightX2V、八步双加速或 T8。
+- 当前基线：Recipe / 时间轴 / 批量 payload 保存 `videoWorkflowFamily`（`catalog_group` 或独立工作流 id）。`resolve_director_workflow` 是提交权威；T2V/I2V/R2V 仍按镜头参考图自动路由。缺省 `official_h3`。分镜栏与批量表单用 Ant Design Select，选项来自 `/api/modes`。
+- 受影响文件：`backend/app/workflow_registry.py`、`director_compiler.py`、`director_jobs.py`、`director_recipe.py`、`models.py`、`main.py`、导演台前端、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs` 外部字段。旧工程未写该字段时仍走官方 H3。
+- 验证命令：`python -m unittest backend.tests.test_core.WorkflowTests.test_resolve_director_workflow_uses_family_then_route backend.tests.test_director.DirectorCompilerTests.test_workflow_family_routes_lightx2v_and_dual_accel backend.tests.test_director.DirectorDualEngineApiTests.test_batches_enqueue_selected_workflow_family`、`pnpm --dir frontend build`；桌面 1440 与移动 390 检查分镜下拉。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 导演分镜按 MiniMax H3 官方 skill 生成
+
+- 原因：自动分镜原先用通用影视枚举和中文机位前缀，提交给 H3 的提示词不符合官方 `h3-prompt-writing`，成片质量不稳定。
+- 当前基线：分镜 Agent 同时写中文 `description`（卡片展示）和英文 `promptText`（提交 H3）。编译器把 T2V/I2V 写成 `integrated_multimodal_description` / `overall_soundscape` / `non_diegetic_music`，I2V 带官方首帧/首尾帧对齐句；R2V 写成 Ref2VA 六段式。卡片上的景别/运镜枚举仍可手改。
+- 受影响文件：`backend/app/llm_minimax_skills.py`、`director_agents.py`、`director_compiler.py`、`llm_client.py`、导演台 `prompt-compiler.ts` / `types.ts`、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。旧工程手改中文描述仍可出片，编译时补上官方字段与英文运镜句。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorCompilerTests backend.tests.test_director.DirectorAgentPipelineTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 导演分镜对用户显示中文、提交仍用英文
+
+- 原因：官方 skill 英文镜头正文被直接画在分镜卡上，用户读起来不像分镜脚本。
+- 当前基线：卡片展示 `description`（中文）；出片编译优先 `promptText`（英文 H3）。人物/场景卡展示中文 `description`，定妆仍走英文 `promptText`。批量卡展示中文 `description`，提交仍走 `script`。
+- 受影响文件：`director_agents.py`、`director_recipe.py`、`director_compiler.py`、`main.py`、导演台 Recipe/批量卡片、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。无 `promptText` 的旧分镜仍用 `description` 编译。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorAgentPipelineTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 导演分镜直接使用官方 h3-prompt-writing 原文
+
+- 原因：原先把官方 skill 缩成中文摘要再喂给大模型，少了官方示例和完整运镜/对白规范，模型不如直接读 skill 稳。
+- 当前基线：`backend/app/h3_prompt_writing/` 保存 MiniMax 官方 SKILL.md、`base-en.txt`、`ref-en.txt`。分镜/拆剧本/批量裂变和生成页优化把官方原文放进 system prompt；导演台另附短 adapter，卡片仍用中文 `description`，出片仍用英文 `promptText`。多参考优化额外附上 `ref-en.txt`。
+- 受影响文件：`backend/app/h3_prompt_writing/`、`llm_minimax_skills.py`、`director_agents.py`、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。JSON 字段不变。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorRecipeModelTests.test_official_h3_prompt_writing_skill_is_vendored backend.tests.test_director.DirectorAgentPipelineTests.test_storyboard_agent_follows_h3_official_skill backend.tests.test_llm.LLMProviderTests.test_optimize_prompt_video`。
+- 回滚方式：恢复上述文件并重启工作台。

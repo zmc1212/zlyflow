@@ -631,39 +631,9 @@ class OpenAICompatibleClient:
         if not clean_script:
             raise LlmError("剧本或故事内容不能为空")
 
-        system_instruction = """你是一位顶级的电影导演与 AI 视频分镜专家（精通影视视听语言、镜头语法与 MiniMax H3 视频生成规范）。
-你的任务是将用户提供的剧本大纲、短片故事或文案，拆解为一组连贯、富有电影质感的结构化分镜头脚本。
+        from .llm_minimax_skills import build_h3_split_script_prompt
 
-拆解与规划原则：
-1. 叙事连贯性：按剧情节奏合理分配镜头数量，镜头与镜头之间具备视听连贯性和承接逻辑。
-2. 景别设计（scale）：合理搭配（ELS 大远景, WS 全景, MS 中景, CU 特写, ECU 大特写），创造丰富的视觉层次。
-3. 运镜调度（movement）：zoom_in (推近), zoom_out (拉远), pan_left (左移), pan_right (右移), tilt_up (仰拍向上), tilt_down (俯拍向下), orbit (环绕), tracking (跟拍), static (定焦静止)。
-4. 机位角度（angle）：eye_level (平拍), low_angle (仰角), high_angle (俯角), dutch (倾斜斜角), pov (主观第一人称视角)。
-5. 运镜节奏（speed）：smooth (平稳电影级), dynamic (快动态), slow (柔和微动)。
-6. 影调布光（lighting）：cinematic_soft (电影柔光), cyberpunk (赛博霓虹), golden_hour (黄金逆光), dramatic_low_key (悬疑低调), studio (明亮棚拍)。
-7. 画面提示词（prompt）：具体描述画面主体外观、动作演变与环境细节。若有角色标记（如 <Picture 1>），请自然融入提示词。
-8. 声音设计（sfx）：简要描述环境拟音或背景音乐。
-
-必须且仅输出严格合法的 JSON 对象，格式如下：
-{
-  "project_title": "短片标题",
-  "summary": "故事一句话梗概",
-  "shots": [
-    {
-      "shot_number": 1,
-      "title": "场景镜头简述",
-      "prompt": "详细的 MiniMax H3 画面提示词",
-      "scale": "WS",
-      "movement": "zoom_in",
-      "angle": "eye_level",
-      "speed": "smooth",
-      "lighting": "cinematic_soft",
-      "sfx": "环境音效描述"
-    }
-  ]
-}
-
-严禁输出任何思考过程或解释文字，直接输出 JSON。"""
+        system_instruction = build_h3_split_script_prompt()
 
         user_content = f"待拆解剧本内容：\n{clean_script}\n\n期望镜头数量：{shot_count} 个镜头"
         if style_vibe:
@@ -675,7 +645,7 @@ class OpenAICompatibleClient:
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": user_content},
         ]
-        raw_reply = self.chat_completion(messages, model=model, temperature=0.7, max_tokens=2048, timeout=90.0)
+        raw_reply = self.chat_completion(messages, model=model, temperature=0.7, max_tokens=8192, timeout=120.0)
         
         # 解析 JSON
         clean_text = raw_reply.strip()

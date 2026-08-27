@@ -5,8 +5,10 @@ import {
   Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, Link2, ListChecks, LoaderCircle, LogOut, Maximize2,
   Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Users, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
-import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { jsonMutation, requestJson, User } from "./api"
+import { generateJobPath, parseGeneratePath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import {
   chooseResourceDirectory, DirectoryHandleLike, directoryApiSupported, directoryPermission,
@@ -415,17 +417,28 @@ export default function App({
   logoutPending: boolean
 }) {
   const queryClient = useQueryClient()
+  const location = useLocation()
+  const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
+  const workspaceView = studioWorkspaceFromPath(location.pathname)
+  const generateRoute = parseGeneratePath(location.pathname)
+  const lastGeneratePathRef = useRef<string>(PATHS.generateVideo)
+  const lastDirectorPathRef = useRef<string>(PATHS.director)
+  const lastMediaTypeRef = useRef<GenerateMediaType>("video")
+  if (workspaceView === "generate" && generateRoute) {
+    lastGeneratePathRef.current = location.pathname
+    lastMediaTypeRef.current = generateRoute.mediaType
+  }
+  if (workspaceView === "director") lastDirectorPathRef.current = location.pathname
+  const mediaType: GenerateMediaType = generateRoute?.mediaType ?? lastMediaTypeRef.current
+  const selectedJobId = workspaceView === "generate" ? generateRoute?.jobId : undefined
   const [workflowId, setWorkflowId] = useState(FALLBACK_WORKFLOW)
-  const [mediaType, setMediaType] = useState<"image" | "video">("video")
   const [prompt, setPrompt] = useState("")
   const [negativePrompt, setNegativePrompt] = useState("")
   const [references, setReferences] = useState<ReferenceAsset[]>([])
   const referencesRef = useRef<ReferenceAsset[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [selectedJobId, setSelectedJobId] = useState<string | undefined>()
-  const [workspaceView, setWorkspaceView] = useState<"generate" | "director" | "assets">("generate")
   const [taskRailCollapsed, setTaskRailCollapsed] = useState(false)
   const [assetSection, setAssetSection] = useState<"history" | "subject" | "canvas">("history")
   const [assetMediaFilter, setAssetMediaFilter] = useState<AssetMediaFilter>("all")
@@ -450,6 +463,9 @@ export default function App({
   const [source, setSource] = useState<MediaDraft["source"]>()
   const draftsRef = useRef<Partial<Record<"image" | "video", MediaDraft>>>({})
   const restoringDraftRef = useRef(false)
+  const pendingMediaDraftRef = useRef<MediaDraft | "empty" | null>(null)
+  const liveDraftRef = useRef<MediaDraft | null>(null)
+  const prevMediaTypeRef = useRef<GenerateMediaType | null>(null)
   const [isSelectedPromptExpanded, setIsSelectedPromptExpanded] = useState(false)
   const [previewImage, setPreviewImage] = useState<ImagePreview | null>(null)
   const [referencePreviewIndex, setReferencePreviewIndex] = useState<number | null>(null)
@@ -520,8 +536,8 @@ export default function App({
   const isInspectingOtherUser = isAdminViewer && adminUserFilter !== "all" && adminUserFilter !== user.id
   const changeAdminUserFilter = (value: string) => {
     setAdminUserFilter(value)
-    setSelectedJobId(undefined)
     setIsSelectedPromptExpanded(false)
+    if (selectedJobId) navigate(generateJobPath(mediaType))
   }
   const imageGenerationActive = mediaType === "image" && jobs.some((job) => job.status === "queued" || job.status === "running")
   const grsBalanceQuery = useQuery({
@@ -725,6 +741,9 @@ export default function App({
     if (workflows.length && !workflows.some((item) => item.id === workflowId)) setWorkflowId(workflows[0].id)
   }, [workflowId, workflows])
   useEffect(() => {
+    setTaskRailCollapsed(workspaceView !== "generate")
+  }, [workspaceView])
+  useEffect(() => {
     restoringComposerRef.current = false
     setIsComposerCompact(false)
   }, [selectedJobId])
@@ -891,7 +910,7 @@ export default function App({
       return response.json() as Promise<Job>
     },
     onSuccess: (job) => {
-      setSelectedJobId(job.id)
+      navigate(generateJobPath(job.media_type, job.id))
       setIsSelectedPromptExpanded(false)
       queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
       setHistoryOpen(false)
@@ -903,7 +922,7 @@ export default function App({
       method: "POST", headers: { "X-CSRF-Token": csrfToken },
     }),
     onSuccess: (job) => {
-      setSelectedJobId(job.id)
+      navigate(generateJobPath(job.media_type, job.id))
       void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
     },
   })
@@ -913,7 +932,7 @@ export default function App({
       method: "POST", headers: { "X-CSRF-Token": csrfToken },
     }),
     onSuccess: (job) => {
-      setSelectedJobId(job.id)
+      navigate(generateJobPath(job.media_type, job.id))
       void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
     },
   })
@@ -927,7 +946,7 @@ export default function App({
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "创建下一轮失败")
       return response.json() as Promise<Job>
     },
-    onSuccess: (job) => { setSelectedJobId(job.id); void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] }) },
+    onSuccess: (job) => { navigate(generateJobPath(job.media_type, job.id)); void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] }) },
   })
 
   const retryFailedMutation = useMutation({
@@ -953,9 +972,7 @@ export default function App({
   const deleteMutation = useMutation({
     mutationFn: async (job: Job) => api<{ id: string }>(`/api/jobs/${job.id}`, jsonMutation(csrfToken, undefined, "DELETE")),
     onSuccess: ({ id }) => {
-      if (selectedJobId === id) {
-        setSelectedJobId(undefined)
-      }
+      if (selectedJobId === id) navigate(generateJobPath(mediaType))
       void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
       messageApi.success("任务已删除")
     },
@@ -1045,43 +1062,91 @@ export default function App({
     const videoWorkflow = (modesQuery.data?.modes ?? []).find((item) => item.id === "minimax-h3-i2v")
       ?? (modesQuery.data?.modes ?? []).find((item) => item.media_type === "video")
     if (!videoWorkflow || !selectedJob) return
-    switchMedia("video")
-    setWorkflowId(videoWorkflow.id)
-    setOptionValues(defaultOptionValues(videoWorkflow))
-    setReferences([asset])
-    setSelectedJobId(undefined)
-    setSource({ jobId: selectedJob.id, generationItemId: result.generationItemId, outputIndex: result.outputIndex })
-    setPrompt("")
+    draftsRef.current[mediaType] = currentDraft()
+    pendingMediaDraftRef.current = {
+      workflowId: videoWorkflow.id,
+      prompt: "",
+      negativePrompt: "",
+      references: [asset],
+      optionValues: defaultOptionValues(videoWorkflow),
+      source: { jobId: selectedJob.id, generationItemId: result.generationItemId, outputIndex: result.outputIndex },
+    }
+    navigate(PATHS.generateVideo)
     messageApi.success("原图已带入视频创作")
     requestAnimationFrame(() => promptRef.current?.focus())
   }
 
-  const resetCreation = () => {
-    setWorkspaceView("generate")
-    setTaskRailCollapsed(false)
-    setPrompt("")
-    setNegativePrompt("")
-    setReferences((current) => { releaseAssets(current); return [] })
-    setSelectedJobId(undefined)
-    setIsSelectedPromptExpanded(false)
-    setSource(undefined)
-  }
-  const switchMedia = (nextMedia: "image" | "video") => {
-    if (nextMedia === mediaType) return
-    draftsRef.current[mediaType] = { workflowId, prompt, negativePrompt, references, optionValues, selectedJobId, source }
-    const draft = draftsRef.current[nextMedia]
+  const currentDraft = (): MediaDraft => ({
+    workflowId, prompt, negativePrompt, references, optionValues, selectedJobId: selectedJob?.id, source,
+  })
+
+  const applyMediaDraft = (draft: MediaDraft | undefined, nextMedia: GenerateMediaType) => {
     const targetWorkflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === nextMedia)
-    setMediaType(nextMedia)
     restoringDraftRef.current = Boolean(draft)
     setWorkflowId(draft?.workflowId ?? targetWorkflows[0]?.id ?? FALLBACK_WORKFLOW)
     setPrompt(draft?.prompt ?? "")
     setNegativePrompt(draft?.negativePrompt ?? "")
     setReferences(draft?.references ?? [])
     setOptionValues(draft?.optionValues ?? defaultOptionValues(targetWorkflows[0]))
-    setSelectedJobId(draft?.selectedJobId)
     setSource(draft?.source)
     setAdvancedOptionsOpen(false)
   }
+
+  const resetCreation = () => {
+    setTaskRailCollapsed(false)
+    setPrompt("")
+    setNegativePrompt("")
+    setReferences((current) => { releaseAssets(current); return [] })
+    setIsSelectedPromptExpanded(false)
+    setSource(undefined)
+    if (location.pathname !== generateJobPath(mediaType)) navigate(generateJobPath(mediaType))
+  }
+  const switchMedia = (nextMedia: GenerateMediaType) => {
+    if (nextMedia === mediaType) return
+    draftsRef.current[mediaType] = currentDraft()
+    const draft = draftsRef.current[nextMedia]
+    pendingMediaDraftRef.current = draft ?? "empty"
+    navigate(generateJobPath(nextMedia, draft?.selectedJobId))
+  }
+  const selectJob = (jobId: string) => {
+    setIsSelectedPromptExpanded(false)
+    const next = generateJobPath(mediaType, jobId)
+    if (location.pathname !== next) navigate(next)
+  }
+  const openGenerateJob = (job: Job) => {
+    setTaskRailCollapsed(false)
+    setIsSelectedPromptExpanded(false)
+    if (job.media_type !== mediaType) {
+      draftsRef.current[mediaType] = currentDraft()
+      pendingMediaDraftRef.current = draftsRef.current[job.media_type] ?? "empty"
+    }
+    navigate(generateJobPath(job.media_type, job.id))
+  }
+  useLayoutEffect(() => {
+    if (prevMediaTypeRef.current === mediaType) liveDraftRef.current = currentDraft()
+  })
+  useEffect(() => {
+    if (prevMediaTypeRef.current === null) {
+      prevMediaTypeRef.current = mediaType
+      return
+    }
+    if (prevMediaTypeRef.current === mediaType) return
+    const leaving = prevMediaTypeRef.current
+    prevMediaTypeRef.current = mediaType
+    const pending = pendingMediaDraftRef.current
+    pendingMediaDraftRef.current = null
+    if (pending == null && liveDraftRef.current) draftsRef.current[leaving] = liveDraftRef.current
+    const draft = pending === "empty" ? undefined : pending ?? draftsRef.current[mediaType]
+    applyMediaDraft(draft, mediaType)
+  }, [mediaType])
+  useEffect(() => {
+    if (workspaceView !== "generate" || !selectedJobId || jobsQuery.isLoading) return
+    const job = allJobs.find((item) => item.id === selectedJobId)
+    if (!job || job.media_type === mediaType) return
+    draftsRef.current[mediaType] = currentDraft()
+    pendingMediaDraftRef.current = draftsRef.current[job.media_type] ?? "empty"
+    navigate(generateJobPath(job.media_type, job.id), { replace: true })
+  }, [workspaceView, selectedJobId, mediaType, allJobs, jobsQuery.isLoading, navigate])
   const selectWorkflow = (nextWorkflowId: string) => {
     setWorkflowId(nextWorkflowId)
     setOptionValues(defaultOptionValues(workflows.find((item) => item.id === nextWorkflowId)))
@@ -1200,8 +1265,8 @@ export default function App({
       setReferences((current) => { releaseAssets(current); return [] })
       messageApi.warning("已带回提示词和参数；原参考图无法读取，请重新添加。")
     }
-    setSelectedJobId(undefined)
     setIsSelectedPromptExpanded(false)
+    if (location.pathname !== generateJobPath(mediaType)) navigate(generateJobPath(mediaType))
     requestAnimationFrame(() => {
       document.getElementById("studio-composer")?.scrollIntoView({ behavior: "smooth", block: "center" })
       promptRef.current?.focus()
@@ -1423,7 +1488,7 @@ export default function App({
           </section> : null}
           {accountOpen ? <section className="absolute right-3 top-[60px] w-56 overflow-hidden rounded-xl border border-white/10 bg-[#1b1c22] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
             <div className="px-2 py-2"><p className="truncate text-sm font-medium text-white">{user.display_name}</p><p className="mt-0.5 truncate text-xs text-[#85858f]">{user.username}</p></div>
-            {onOpenAdmin ? <button type="button" onClick={onOpenAdmin} className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[#d6d6dc] hover:bg-white/[0.06]"><Users size={16} />管理设置</button> : null}
+            {onOpenAdmin ? <button type="button" onClick={() => { setAccountOpen(false); onOpenAdmin() }} className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[#d6d6dc] hover:bg-white/[0.06]"><Users size={16} />管理设置</button> : null}
             <button type="button" disabled={logoutPending} onClick={onLogout} className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[#d6d6dc] hover:bg-white/[0.06] disabled:opacity-40">{logoutPending ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />}退出登录</button>
           </section> : null}
         </div>
@@ -1449,15 +1514,15 @@ export default function App({
 
       <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "director" ? "studio-director-view" : ""}`}>
         <nav className="studio-mobile-nav" aria-label="工作区导航">
-          <button type="button" onClick={() => { setWorkspaceView("generate"); setTaskRailCollapsed(false) }} className={workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</button>
-          <button type="button" onClick={() => { setWorkspaceView("director"); setTaskRailCollapsed(true) }} className={workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</button>
-          <button type="button" onClick={() => { setWorkspaceView("assets"); setTaskRailCollapsed(true) }} className={workspaceView === "assets" ? "is-active" : ""}><FolderOpen size={16} />资产</button>
+          <NavLink to={lastGeneratePathRef.current} className={() => workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</NavLink>
+          <NavLink to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
+          <NavLink to={PATHS.assets} end className={() => workspaceView === "assets" ? "is-active" : ""}><FolderOpen size={16} />资产</NavLink>
         </nav>
         <aside className="studio-icon-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[76px] flex-col items-center border-r border-black/[0.05] bg-white pt-5 xl:flex">
           <div className="flex flex-col items-center gap-2">
-            <button type="button" title="生成" aria-label="生成" onClick={() => { setWorkspaceView("generate"); setTaskRailCollapsed(false) }} className={`studio-global-nav-item ${workspaceView === "generate" ? "studio-global-nav-item-active" : ""}`}><Sparkles size={19} /><span>生成</span></button>
-            <button type="button" title="导演台" aria-label="导演台" onClick={() => { setWorkspaceView("director"); setTaskRailCollapsed(true) }} className={`studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><Clapperboard size={19} /><span>导演台</span></button>
-            <button type="button" title="资产" aria-label="资产" onClick={() => { setWorkspaceView("assets"); setTaskRailCollapsed(true) }} className={`studio-global-nav-item ${workspaceView === "assets" ? "studio-global-nav-item-active" : ""}`}><FolderOpen size={19} /><span>资产</span></button>
+            <NavLink to={lastGeneratePathRef.current} title="生成" aria-label="生成" className={() => `studio-global-nav-item ${workspaceView === "generate" ? "studio-global-nav-item-active" : ""}`}><Sparkles size={19} /><span>生成</span></NavLink>
+            <NavLink to={lastDirectorPathRef.current} title="导演台" aria-label="导演台" className={() => `studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><Clapperboard size={19} /><span>导演台</span></NavLink>
+            <NavLink to={PATHS.assets} end title="资产" aria-label="资产" className={() => `studio-global-nav-item ${workspaceView === "assets" ? "studio-global-nav-item-active" : ""}`}><FolderOpen size={19} /><span>资产</span></NavLink>
           </div>
           {workspaceView === "generate" && taskRailCollapsed ? <Tooltip title="展开任务栏" placement="right"><button type="button" title="展开任务栏" aria-label="展开任务栏" onClick={() => setTaskRailCollapsed(false)} className="studio-task-rail-reopen"><PanelLeftOpen size={17} /></button></Tooltip> : null}
         </aside>
@@ -1476,11 +1541,11 @@ export default function App({
           <div className="flex min-h-0 flex-1 flex-col pt-3">
             <section className="studio-task-section">
               <p className="studio-task-section-title">当前创作</p>
-              {selectedJob ? <TaskRail jobs={[selectedJob]} selectedJobId={selectedJob.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} scrollMode="content" showEmpty={false} /> : <p className="px-4 pb-3 text-xs text-[#98a2ad]">{isInspectingOtherUser ? "从最近任务中选择一条查看" : "新对话会从这里开始"}</p>}
+              {selectedJob ? <TaskRail jobs={[selectedJob]} selectedJobId={selectedJob.id} localMediaUrls={localMediaUrls} onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} scrollMode="content" showEmpty={false} /> : <p className="px-4 pb-3 text-xs text-[#98a2ad]">{isInspectingOtherUser ? "从最近任务中选择一条查看" : "新对话会从这里开始"}</p>}
             </section>
             <section className="flex min-h-0 flex-1 flex-col">
               <p className="studio-task-section-title">最近</p>
-              <TaskRail jobs={recentJobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
+              <TaskRail jobs={recentJobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
             </section>
           </div>
         </aside>
@@ -1496,11 +1561,11 @@ export default function App({
           <div className="flex items-center justify-between border-b border-black/[0.05] px-4 pb-3 pt-4"><h2 className="text-base font-medium text-[#171a1f]">任务列表</h2><button type="button" onClick={() => setHistoryOpen(false)} title="关闭任务列表" className="grid size-8 place-items-center rounded-lg text-[#65707c] hover:bg-black/[0.05] hover:text-[#171a1f]"><X size={15} /></button></div>
           {isAdminViewer ? <div className="border-b border-black/[0.05] px-4 py-2"><AdminUserFilterSelect value={adminUserFilter} options={adminUserOptions} onChange={changeAdminUserFilter} className="w-full" /></div> : null}
           {isInspectingOtherUser ? <p className="border-b border-black/[0.05] px-4 py-2 text-[11px] leading-5 text-[#7c8794]">正在查看 {inspectedUserLabel} 的生成任务</p> : null}
-          <TaskRail compact jobs={jobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false); setHistoryOpen(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
+          <TaskRail compact jobs={jobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { selectJob(jobId); setHistoryOpen(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
         </section>}
 
         <main className={workspaceView === "director"
-          ? "director-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
+          ? "director-workspace-main relative flex !h-screen !max-h-screen !min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""}`
         }>
           {workspaceView === "director" ? (
@@ -1511,7 +1576,7 @@ export default function App({
                 allJobs={allJobs}
                 directoryHandle={directoryHandle}
                 onOpenDirectoryModal={() => setStorageOpen(true)}
-                onExitDirector={() => setWorkspaceView("generate")}
+                onExitDirector={() => navigate(lastGeneratePathRef.current)}
               />
             </Suspense>
           ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
@@ -1695,10 +1760,7 @@ export default function App({
                                     alt: output.label,
                                   })
                                 } else {
-                                  if (job.media_type !== mediaType) switchMedia(job.media_type)
-                                  setWorkspaceView("generate")
-                                  setTaskRailCollapsed(false)
-                                  setSelectedJobId(job.id)
+                                  openGenerateJob(job)
                                 }
                               }
                             }}

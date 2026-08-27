@@ -17,7 +17,7 @@ from backend.app.auth import AuthStore, csrf_token, validate_password, verify_pa
 from backend.app.config import Settings
 from backend.app.models import JobMode, JobStatus
 from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_username, current_user, login_failures, output_response, public_job
-from backend.app.comfy_service import ComfyQueuePrompt, ComfyService, ComfyUnavailable, resolve_minimax_picture_prompt, resolve_reference_prompt
+from backend.app.comfy_service import ComfyQueuePrompt, ComfyService, ComfyUnavailable, interpret_comfy_progress, resolve_minimax_picture_prompt, resolve_reference_prompt
 from backend.app.minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from backend.app.minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from backend.app.minimax_h3_workflow import build_minimax_h3_workflow
@@ -108,7 +108,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["7"]["inputs"]["steps"], 8)
         self.assertEqual(workflow["1"]["inputs"]["unet_name"], H3_REF2VA_FULL)
         self.assertEqual(workflow["15"]["class_type"], "LoraLoaderBypassModelOnly")
-        self.assertEqual(workflow["6"]["inputs"]["model"], ["15", 0])
+        self.assertEqual(workflow["16"]["class_type"], "ReservedVRAMSetter")
+        self.assertEqual(workflow["16"]["inputs"]["reserved"], 3.0)
+        self.assertTrue(workflow["16"]["inputs"]["clean_gpu_before"])
+        self.assertEqual(workflow["17"]["class_type"], "MiniMaxH3MemoryEfficientSageAttentionPatch")
+        self.assertEqual(workflow["6"]["inputs"]["model"], ["17", 0])
         quality = normalize_options(JobMode.MINIMAX_H3_R2V, {"speed": "quality", "duration": 5})
         quality_graph = build_minimax_h3_workflow(
             JobMode.MINIMAX_H3_R2V, "Use <Picture 1>.", ["character.png"], quality, 42,
@@ -162,6 +166,23 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_references(JobMode.MINIMAX_H3_R2V, [])
 
+    def test_official_h3_reserves_vram_and_patches_sage_by_default(self) -> None:
+        options = normalize_options(JobMode.MINIMAX_H3_I2V, {})
+        self.assertTrue(options["use_sage_attention"])
+        graph = build_minimax_h3_workflow(
+            JobMode.MINIMAX_H3_I2V, "Camera slowly pulls back.", ["start.png", "end.png"], options, 42,
+        )
+        self.assertEqual(graph["16"]["class_type"], "ReservedVRAMSetter")
+        self.assertEqual(graph["16"]["inputs"]["anything"], ["15", 0])
+        self.assertEqual(graph["16"]["inputs"]["reserved"], 3.0)
+        self.assertEqual(graph["17"]["class_type"], "MiniMaxH3MemoryEfficientSageAttentionPatch")
+        self.assertEqual(graph["17"]["inputs"]["model"], ["16", 0])
+        self.assertEqual(graph["6"]["inputs"]["model"], ["17", 0])
+        disabled = normalize_options(JobMode.MINIMAX_H3_T2V, {"use_sage_attention": False})
+        disabled_graph = build_minimax_h3_workflow(JobMode.MINIMAX_H3_T2V, "A preview.", [], disabled, 42)
+        self.assertNotIn("17", disabled_graph)
+        self.assertEqual(disabled_graph["6"]["inputs"]["model"], ["16", 0])
+
     def test_h3_duration_two_seconds_maps_to_aligned_frames(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_T2V, {"duration": 2})
         self.assertEqual(options["duration"], 2)
@@ -194,7 +215,8 @@ class WorkflowTests(unittest.TestCase):
         quality_graph = build_minimax_h3_workflow(JobMode.MINIMAX_H3_T2V, "A final pass.", [], quality, 42)
         self.assertEqual(quality_graph["7"]["inputs"]["steps"], 20)
         self.assertNotIn("15", quality_graph)
-        self.assertEqual(quality_graph["6"]["inputs"]["model"], ["1", 0])
+        self.assertEqual(quality_graph["16"]["inputs"]["anything"], ["1", 0])
+        self.assertEqual(quality_graph["6"]["inputs"]["model"], ["17", 0])
 
         t8_fast = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "fast"})
         self.assertEqual(t8_fast["video_steps"], 4)
@@ -338,6 +360,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(generation_output_label(JobMode.MINIMAX_H3_LIGHTX2V_I2V), "LightX2V 视频")
         self.assertEqual(generation_output_label(JobMode.MINIMAX_H3_DUAL_ACCEL_I2V), "八步双加速 视频")
         self.assertEqual(generation_output_label(JobMode.MINIMAX_H3_T2V), "MiniMax H3 视频")
+
+    def test_resolve_director_workflow_uses_family_then_route(self) -> None:
+        from backend.app.workflow_registry import resolve_director_workflow
+
+        self.assertEqual(resolve_director_workflow(None, "t2v"), "minimax-h3-t2v")
+        self.assertEqual(resolve_director_workflow("", "r2v"), "minimax-h3-r2v")
+        self.assertEqual(resolve_director_workflow("lightx2v", "r2v"), "minimax-h3-lightx2v-r2v")
+        self.assertEqual(resolve_director_workflow("dual_accel", "i2v"), "minimax-h3-dual-accel-i2v")
+        self.assertEqual(resolve_director_workflow("unknown-family", "t2v"), "minimax-h3-t2v")
 
 
 class ApiDocumentationTests(unittest.TestCase):
@@ -492,7 +523,8 @@ class ApiDocumentationTests(unittest.TestCase):
             JobMode.MINIMAX_H3_T2V, "A stadium strike.", [], normalize_options(JobMode.MINIMAX_H3_T2V, {"speed": "fast"}), 7,
         )
         self.assertEqual(official["9"]["inputs"]["sampler_name"], "res_multistep")
-        self.assertNotIn("17", official)
+        self.assertEqual(official["17"]["class_type"], "MiniMaxH3MemoryEfficientSageAttentionPatch")
+        self.assertNotIn("MiniMaxH3SigmaShift", {node["class_type"] for node in official.values()})
 
     def test_lightx2v_r2v_loads_ref2v_lora_and_quality_skips_acceleration(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_R2V, {"speed": "fast"})
@@ -1045,6 +1077,52 @@ class WorkerTests(unittest.TestCase):
         }
         self.assertEqual(ComfyService.progress_percent(message, "prompt-1"), 20)
         self.assertIsNone(ComfyService.progress_percent(message, "another-prompt"))
+
+    def test_comfy_loader_progress_waits_for_workflow_switch(self) -> None:
+        workflow = {
+            "1": {"class_type": "UNETLoader"},
+            "10": {"class_type": "SamplerCustomAdvanced"},
+            "14": {"class_type": "SaveVideo"},
+        }
+        loader = interpret_comfy_progress(
+            {"type": "executing", "data": {"node": "1", "prompt_id": "p1"}},
+            "p1", workflow, "MiniMax H3 正在生成视频",
+        )
+        self.assertIsNotNone(loader)
+        assert loader is not None
+        self.assertEqual(loader.stage, "正在切换工作流")
+        self.assertLess(loader.progress, 20)
+        loader_state = interpret_comfy_progress(
+            {
+                "type": "progress_state",
+                "data": {"prompt_id": "p1", "nodes": {"1": {"state": "running", "value": 3, "max": 4}}},
+            },
+            "p1", workflow, "MiniMax H3 正在生成视频",
+        )
+        self.assertIsNotNone(loader_state)
+        assert loader_state is not None
+        self.assertEqual(loader_state.stage, "正在切换工作流")
+        self.assertLess(loader_state.progress, 20)
+        sampler = interpret_comfy_progress(
+            {
+                "type": "progress_state",
+                "data": {"prompt_id": "p1", "nodes": {"10": {"state": "running", "value": 6, "max": 8}}},
+            },
+            "p1", workflow, "MiniMax H3 正在生成视频",
+        )
+        self.assertIsNotNone(sampler)
+        assert sampler is not None
+        self.assertEqual(sampler.stage, "MiniMax H3 正在生成视频")
+        self.assertEqual(sampler.progress, 75)
+
+    def test_grs_image_progress_moves_within_two_minutes(self) -> None:
+        from backend.app.worker import grs_image_progress
+
+        self.assertEqual(grs_image_progress(0), 12)
+        self.assertGreater(grs_image_progress(30), grs_image_progress(0))
+        self.assertGreater(grs_image_progress(60), 40)
+        self.assertEqual(grs_image_progress(120), 90)
+        self.assertEqual(grs_image_progress(600), 90)
 
     def test_comfy_history_messages_are_converted_to_execution_elapsed_ms(self) -> None:
         record = {

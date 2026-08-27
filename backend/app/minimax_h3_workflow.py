@@ -16,6 +16,9 @@ from .workflow_registry import (
 VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
 TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+# 16GB cards OOM in SamplerCustomAdvanced unless ComfyUI keeps headroom and
+# unloads CLIP/VAE before the INT8 QKV projection (~2.5 GiB extra).
+OFFICIAL_RESERVED_VRAM_GB = 3.0
 
 
 def build_minimax_h3_workflow(
@@ -58,6 +61,24 @@ def build_minimax_h3_workflow(
             },
         }
         model_source = ["15", 0]
+    workflow["16"] = {
+        "class_type": "ReservedVRAMSetter",
+        "inputs": {
+            "anything": model_source,
+            "reserved": OFFICIAL_RESERVED_VRAM_GB,
+            "mode": "manual",
+            "seed": 0,
+            "auto_max_reserved": 0,
+            "clean_gpu_before": True,
+        },
+    }
+    model_source = ["16", 0]
+    if bool(options.get("use_sage_attention", True)):
+        workflow["17"] = {
+            "class_type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+            "inputs": {"model": model_source},
+        }
+        model_source = ["17", 0]
     workflow["6"] = {"class_type": "BasicGuider", "inputs": {"model": model_source, "conditioning": ["5", 0]}}
     workflow["7"] = {
         "class_type": "BasicScheduler",

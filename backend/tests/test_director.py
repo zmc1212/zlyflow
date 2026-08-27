@@ -14,10 +14,13 @@ from backend.app.director_catalog import (
     EXPECTED_CATEGORY_COUNT,
     EXPECTED_STYLE_COUNT,
     art_style_catalog_payload,
+    ensure_art_style_preview,
     find_art_style,
     list_art_style_categories,
     list_art_styles,
     load_art_style_catalog,
+    public_preview_url,
+    source_preview_url,
 )
 from backend.app.director_recipe import (
     DirectorPayloadError,
@@ -57,12 +60,43 @@ class DirectorArtStyleCatalogTests(unittest.TestCase):
             prefixes["as_1003"],
             "futuristic neon noir, glowing city lights, cyber atmosphere, dark cinematic shadows, high contrast",
         )
-        for style in styles:
+        raw_styles = load_art_style_catalog()["styles"]
+        self.assertEqual(raw_styles[0]["imageUrl"], "https://files.seme.cc/styles/style_01.jpg")
+        self.assertEqual(raw_styles[33]["imageUrl"], "https://files.seme.cc/styles/style_34.jpg")
+        self.assertEqual(source_preview_url("as_1001"), "https://files.seme.cc/styles/style_01.jpg")
+        self.assertEqual(source_preview_url("as_1034"), "https://files.seme.cc/styles/style_34.jpg")
+        self.assertIsNone(source_preview_url("as_1999"))
+        for index, style in enumerate(styles):
             self.assertTrue(style["promptPrefix"].strip())
+            self.assertEqual(style["imageUrl"], public_preview_url(style["id"]))
+            self.assertEqual(style["imageUrl"], f"/api/director/art-styles/{style['id']}/preview")
+            self.assertTrue(str(raw_styles[index].get("imageUrl") or "").startswith("https://files.seme.cc/styles/style_"))
             self.assertIn(style["category"], category_ids)
             self.assertTrue(style["name_zh"])
             self.assertTrue(style["name_en"])
             self.assertTrue(style["keywords"])
+        self.assertEqual(styles[0]["imageUrl"], "/api/director/art-styles/as_1001/preview")
+        self.assertEqual(styles[33]["imageUrl"], "/api/director/art-styles/as_1034/preview")
+
+    def test_ensure_preview_caches_jpeg_and_skips_second_fetch(self) -> None:
+        jpeg = b"\xff\xd8" + b"fake-preview"
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_dir = Path(tmp)
+            with patch("backend.app.director_catalog.PREVIEW_DIR", dest_dir):
+                with patch("backend.app.director_catalog.urllib.request.urlopen") as urlopen:
+                    response = MagicMock()
+                    response.read.return_value = jpeg
+                    response.__enter__.return_value = response
+                    response.__exit__.return_value = False
+                    urlopen.return_value = response
+                    path = ensure_art_style_preview("as_1001")
+                    self.assertTrue(path.is_file())
+                    self.assertEqual(path.read_bytes(), jpeg)
+                    urlopen.assert_called_once()
+                    ensure_art_style_preview("as_1001")
+                    urlopen.assert_called_once()
+        with self.assertRaises(KeyError):
+            ensure_art_style_preview("as_1999")
 
     def test_find_art_style_rejects_unknown_names(self) -> None:
         known = find_art_style("as_1001")
@@ -109,9 +143,22 @@ class DirectorRecipeModelTests(unittest.TestCase):
             payload["artStyle"]["promptPrefix"],
             "futuristic neon noir, glowing city lights, cyber atmosphere, dark cinematic shadows, high contrast",
         )
+        self.assertEqual(payload["artStyle"]["imageUrl"], "/api/director/art-styles/as_1003/preview")
         shots = flatten_recipe_shots(payload)
         self.assertEqual(len(shots), 1)
         self.assertEqual(JobStore.director_generation_progress(payload), ("complete", 1, 1))
+
+    def test_official_h3_prompt_writing_skill_is_vendored(self) -> None:
+        from backend.app.llm_minimax_skills import load_h3_prompt_writing_guide, load_h3_prompt_writing_skill
+
+        skill = load_h3_prompt_writing_skill()
+        base = load_h3_prompt_writing_guide(mode="base")
+        ref = load_h3_prompt_writing_guide(mode="ref")
+        self.assertIn("name: h3-prompt-writing", skill)
+        self.assertIn("integrated_multimodal_description", base)
+        self.assertIn("<Picture 1>", base)
+        self.assertIn("subject_definitions", ref)
+        self.assertIn("<Subject 1>", ref)
 
     def test_timeline_payload_converts_shots_to_scenes(self) -> None:
         timeline = {
@@ -163,6 +210,24 @@ class DirectorRecipeModelTests(unittest.TestCase):
         self.assertEqual(len(flatten_recipe_shots(recipe)), 2)
         self.assertEqual(JobStore.director_generation_progress(recipe), ("partial", 1, 2))
         self.assertEqual(len(recipe["agentStatus"]), 9)
+
+    def test_english_shot_description_moves_to_prompt_text(self) -> None:
+        payload = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "script": {"title": "雨夜", "summary": "侦探", "fullStory": "侦探走进雨巷。"},
+            "artStyle": {"id": "as_1003"},
+            "scenes": [{
+                "title": "巷口",
+                "shots": [{
+                    "title": "跟踪",
+                    "description": "Live-action, cinematic, a medium shot frames detective Kai walking into a rainy alley. The camera follows with a tracking shot with small amplitude at slow speed.",
+                }],
+            }],
+        })
+        shot = payload["scenes"][0]["shots"][0]
+        self.assertEqual(shot["description"], "跟踪")
+        self.assertIn("tracking shot", shot["promptText"])
+        self.assertNotIn("Live-action", shot["description"])
 
 
 class DirectorScriptSplitTests(unittest.TestCase):
@@ -363,7 +428,7 @@ class DirectorCompilerTests(unittest.TestCase):
             shot["endFrameUrl"] = f"data:image/png;base64,last{number}"
         return shot
 
-    def _project(self, shots: list[dict], *, subjects: int = 0, refs_on: bool = True, override: str | None = None) -> dict:
+    def _project(self, shots: list[dict], *, subjects: int = 0, refs_on: bool = True, override: str | None = None, family: str | None = None) -> dict:
         slots = []
         for index in range(9):
             slot = {
@@ -378,7 +443,7 @@ class DirectorCompilerTests(unittest.TestCase):
                 slot["hasImage"] = True
                 slot["previewUrl"] = f"data:image/png;base64,sub{index + 1}"
             slots.append(slot)
-        return {
+        data = {
             "title": "测试工程",
             "aspectRatio": "16:9",
             "canvasTier": "native",
@@ -391,6 +456,9 @@ class DirectorCompilerTests(unittest.TestCase):
             "manualPromptOverrideEnabled": bool(override),
             "manualPromptOverrideText": override or "",
         }
+        if family:
+            data["videoWorkflowFamily"] = family
+        return data
 
     def test_duration_snap_and_frame_alignment(self) -> None:
         from backend.app.director_compiler import h3_aligned_frames, snap_h3_duration_sec
@@ -420,9 +488,13 @@ class DirectorCompilerTests(unittest.TestCase):
         self.assertIn("<Picture 2>", prompt)
         self.assertIn("shown in <Picture 2>", prompt)
         self.assertIn("shown in <Picture 3>", prompt)
-        self.assertIn("(@ref1) is the character", prompt)
-        body = prompt.split("\n\n")[-1]
-        self.assertNotIn("@ref1", body)
+        self.assertIn("<Subject 1> is the character", prompt)
+        self.assertIn("subject_definitions:", prompt)
+        self.assertIn("detailed_description:", prompt)
+        self.assertIn("overall_soundscape:", prompt)
+        self.assertIn("non_diegetic_music:", prompt)
+        self.assertNotIn("@ref1", prompt)
+        self.assertIn("the camera pushes in with small amplitude at slow speed", prompt.lower())
         submission = resolve_shot_submission(project, project["shots"][0])
         self.assertEqual(submission["quality"], "1.0")
         self.assertEqual(submission["speed"], "balanced")
@@ -438,7 +510,10 @@ class DirectorCompilerTests(unittest.TestCase):
         self.assertEqual(i2v_plan["workflowId"], "minimax-h3-i2v")
         self.assertEqual([item["role"] for item in i2v_plan["items"]], ["first_frame", "last_frame"])
         i2v_prompt = compile_shot_prompt(i2v_project, i2v_project["shots"][0], i2v_plan)
-        self.assertNotIn("<Picture", i2v_prompt)
+        self.assertIn("How the reference pictures align with the target video", i2v_prompt)
+        self.assertIn("<Picture 1>", i2v_prompt)
+        self.assertIn("integrated_multimodal_description:", i2v_prompt)
+        self.assertIn("[Shot 1]", i2v_prompt)
 
         t2v_project = self._project([self._shot(1)], subjects=0, refs_on=False)
         t2v_plan = build_reference_plan(t2v_project, t2v_project["shots"][0])
@@ -446,6 +521,27 @@ class DirectorCompilerTests(unittest.TestCase):
         self.assertEqual(t2v_plan["items"], [])
         t2v_prompt = compile_shot_prompt(t2v_project, t2v_project["shots"][0], t2v_plan)
         self.assertNotIn("<Picture", t2v_prompt)
+        self.assertIn("integrated_multimodal_description:", t2v_prompt)
+        self.assertIn("overall_soundscape:", t2v_prompt)
+        self.assertIn("non_diegetic_music:", t2v_prompt)
+        self.assertIn("The camera pushes in with small amplitude at slow speed", t2v_prompt)
+
+    def test_workflow_family_routes_lightx2v_and_dual_accel(self) -> None:
+        from backend.app.director_compiler import build_reference_plan
+
+        r2v_project = self._project(
+            [self._shot(1, first=True, ref="@ref1")],
+            subjects=1,
+            family="lightx2v",
+        )
+        r2v_plan = build_reference_plan(r2v_project, r2v_project["shots"][0])
+        self.assertEqual(r2v_plan["route"], "r2v")
+        self.assertEqual(r2v_plan["workflowId"], "minimax-h3-lightx2v-r2v")
+
+        t2v_project = self._project([self._shot(1)], subjects=0, refs_on=False, family="dual_accel")
+        t2v_plan = build_reference_plan(t2v_project, t2v_project["shots"][0])
+        self.assertEqual(t2v_plan["route"], "t2v")
+        self.assertEqual(t2v_plan["workflowId"], "minimax-h3-dual-accel-t2v")
 
     def test_clip_allowed_only_when_snapped_total_within_15s(self) -> None:
         from backend.app.director_compiler import compile_clip_prompt, resolve_clip_submission, resolve_shot_submission
@@ -460,8 +556,10 @@ class DirectorCompilerTests(unittest.TestCase):
         self.assertEqual(compiled["durationSec"], 15)
         self.assertIn("[Shot 1]", compiled["prompt"])
         self.assertIn("[Shot 3]", compiled["prompt"])
-        self.assertIn("[overall_soundscape]", compiled["prompt"])
+        self.assertIn("[Shot 2] At 00:05.000", compiled["prompt"])
+        self.assertIn("overall_soundscape:", compiled["prompt"])
         self.assertIn("<Picture 2>", compiled["prompt"])
+        self.assertIn("detailed_description:", compiled["prompt"])
 
         too_long = self._project([self._shot(1, 5), self._shot(2, 5), self._shot(3, 5), self._shot(4, 5)])
         rejected = compile_clip_prompt(too_long)
@@ -874,12 +972,40 @@ class DirectorProjectApiTests(unittest.TestCase):
         first = body["styles"][0]
         self.assertTrue(first["promptPrefix"])
         self.assertEqual(first["id"], "as_1001")
+        self.assertEqual(first["imageUrl"], "/api/director/art-styles/as_1001/preview")
         self.assertEqual(
             first["promptPrefix"],
             "epic cinematic scene, dramatic lighting, rich atmosphere, film-grade composition, emotional visual storytelling",
         )
+        self.assertTrue(all(item["imageUrl"] == f"/api/director/art-styles/{item['id']}/preview" for item in body["styles"]))
         payload = art_style_catalog_payload()
         self.assertEqual(payload["count"], 34)
+
+    def test_art_style_preview_requires_login_and_serves_cached_jpeg(self) -> None:
+        anonymous = TestClient(app)
+        self.assertEqual(anonymous.get("/api/director/art-styles/as_1001/preview").status_code, 401)
+        missing = self.client.get("/api/director/art-styles/as_1999/preview")
+        self.assertEqual(missing.status_code, 404)
+        jpeg = b"\xff\xd8\xff\xdb" + b"0" * 48
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("backend.app.director_catalog.PREVIEW_DIR", Path(tmp)):
+                with patch("backend.app.director_catalog.urllib.request.urlopen") as urlopen:
+                    response = MagicMock()
+                    response.read.return_value = jpeg
+                    response.__enter__.return_value = response
+                    response.__exit__.return_value = False
+                    urlopen.return_value = response
+                    ok = self.client.get("/api/director/art-styles/as_1001/preview")
+                    failed = MagicMock()
+                    failed.read.return_value = b"not-a-jpeg"
+                    failed.__enter__.return_value = failed
+                    failed.__exit__.return_value = False
+                    urlopen.return_value = failed
+                    bad = self.client.get("/api/director/art-styles/as_1002/preview")
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(ok.headers["content-type"].split(";")[0], "image/jpeg")
+        self.assertEqual(ok.content, jpeg)
+        self.assertEqual(bad.status_code, 502)
 
     def test_recipe_payload_roundtrip_and_invalid_art_style(self) -> None:
         created = self.client.post(
@@ -915,6 +1041,7 @@ class DirectorProjectApiTests(unittest.TestCase):
         self.assertEqual(body["payload"]["kind"], "director_recipe")
         self.assertEqual(body["payload"]["artStyle"]["id"], "as_1005")
         self.assertEqual(body["payload"]["artStyle"]["name"], "单色张力")
+        self.assertEqual(body["payload"]["artStyle"]["imageUrl"], "/api/director/art-styles/as_1005/preview")
         self.assertEqual(
             body["payload"]["artStyle"]["promptPrefix"],
             "monochrome cinematic style, black and white, sharp contrast, dramatic shadows, tense atmosphere",
@@ -930,6 +1057,44 @@ class DirectorProjectApiTests(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 422)
         self.assertIn("目录", rejected.json()["detail"])
+
+    def test_get_recipe_persists_qiniu_image_url(self) -> None:
+        from backend.app.models import JobMode, JobStatus
+
+        job = self.job_store.create(
+            "assetjob1", JobMode.GRS_GPT_IMAGE_2, "prompt", "", None, [],
+            owner_user_id=self.user["id"],
+        )
+        item = job["rounds"][0]["generation_items"][0]
+        self.job_store.update_generation(item["id"], status=JobStatus.SUCCEEDED, outputs=[{
+            "kind": "image",
+            "path": "studio/image/ada.png",
+            "label": "生成图片",
+            "delivery_status": "cloud",
+            "cloud_url": "https://media.example.com/studio/image/ada.png",
+        }])
+        recipe = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "artStyle": {"id": "as_1001"},
+            "characters": [{"name": "艾达", "promptText": "look", "imageJobId": "assetjob1"}],
+        })
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={"title": "定妆云地址", "payload": recipe},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        fetched = self.client.get(f"/api/director/projects/{created.json()['id']}")
+        self.assertEqual(fetched.status_code, 200, fetched.text)
+        self.assertEqual(
+            fetched.json()["payload"]["characters"][0]["imageUrl"],
+            "https://media.example.com/studio/image/ada.png",
+        )
+        persisted = self.job_store.get_director_project(created.json()["id"])
+        self.assertEqual(
+            persisted["payload"]["characters"][0]["imageUrl"],
+            "https://media.example.com/studio/image/ada.png",
+        )
 
     def test_convert_timeline_to_recipe(self) -> None:
         created = self.client.post(
@@ -1054,6 +1219,7 @@ class DirectorAgentPipelineTests(unittest.TestCase):
                         "shots": [{
                             "title": "跟踪",
                             "description": "侦探走进雨巷",
+                            "promptText": "Live-action, cinematic, a medium shot frames detective Kai walking into a rainy alley. The camera follows with a tracking shot with small amplitude at slow speed.",
                             "dialogue": "别动。",
                             "characterNames": ["阿凯"],
                             "locationName": "暗巷",
@@ -1078,12 +1244,125 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertEqual(recipe["characters"][0]["name"], "阿凯")
         self.assertEqual(recipe["locations"][0]["name"], "暗巷")
         self.assertEqual(recipe["scenes"][0]["shots"][0]["dialogue"], "别动。")
+        self.assertEqual(recipe["scenes"][0]["shots"][0]["description"], "侦探走进雨巷")
+        self.assertIn("tracking shot", recipe["scenes"][0]["shots"][0]["promptText"])
         self.assertTrue(recipe["scenes"][0]["shots"][0]["compiledPrompt"])
         self.assertIn("monochrome", recipe["scenes"][0]["shots"][0]["compiledPrompt"])
+        compiled = recipe["scenes"][0]["shots"][0]["compiledPrompt"]
+        self.assertIn("integrated_multimodal_description:", compiled)
+        self.assertIn("overall_soundscape:", compiled)
+        self.assertIn("non_diegetic_music:", compiled)
+        self.assertIn("<d>[Chinese] 别动。</d>", compiled)
+        self.assertIn("tracking shot", compiled)
+        self.assertNotIn("侦探走进雨巷", compiled)
         statuses = {item["id"]: item["status"] for item in recipe["agentStatus"]}
         self.assertEqual(statuses["research"], "completed")
         self.assertEqual(statuses["media"], "completed")
         self.assertTrue(all(status == "completed" for status in statuses.values()))
+
+    def test_storyboard_agent_follows_h3_official_skill(self) -> None:
+        from backend.app.director_agents import run_agent
+        from backend.app.llm_minimax_skills import build_h3_storyboard_agent_prompt
+
+        captured: list[str] = []
+
+        def chat(messages: list[dict]) -> str:
+            captured.append(messages[0]["content"])
+            return json.dumps({
+                "scenes": [{
+                    "title": "巷口",
+                    "locationName": "暗巷",
+                    "shots": [{
+                        "title": "跟踪",
+                        "description": "侦探走进雨巷，镜头平稳跟拍。",
+                        "promptText": "Live-action, cinematic, a medium shot frames detective Kai in a black coat walking into the rainy alley. The camera follows with a tracking shot with small amplitude at slow speed.",
+                        "dialogue": "别动。",
+                        "characterNames": ["阿凯"],
+                        "locationName": "暗巷",
+                        "durationSec": 5,
+                        "camera": {"scale": "MS", "movement": "tracking", "angle": "eye_level", "speed": "smooth", "lighting": "cinematic_soft"},
+                        "soundscape": "雨打石板和远处车声。",
+                    }],
+                }],
+            }, ensure_ascii=False)
+
+        skill = build_h3_storyboard_agent_prompt()
+        self.assertIn("h3-prompt-writing", skill)
+        self.assertIn("Video Prompt Writing Guide", skill)
+        self.assertIn("The camera pushes in with small amplitude at slow speed toward the folded letter", skill)
+        self.assertIn("<d>[Chinese]", skill)
+        self.assertIn("promptText", skill)
+
+        recipe = run_agent(
+            "storyboard",
+            {"kind": "director_recipe", "script": {"title": "雨夜", "summary": "侦探", "fullStory": "侦探走进雨巷。"}},
+            goal="雨夜里侦探穿过暗巷。",
+            chat_fn=chat,
+        )
+        self.assertTrue(captured)
+        self.assertIn("h3-prompt-writing", captured[0])
+        self.assertIn("侦探走进雨巷", recipe["scenes"][0]["shots"][0]["description"])
+        self.assertNotIn("Live-action", recipe["scenes"][0]["shots"][0]["description"])
+        self.assertIn("tracking shot", recipe["scenes"][0]["shots"][0]["promptText"])
+        self.assertEqual(recipe["scenes"][0]["shots"][0]["soundscape"], "雨打石板和远处车声。")
+
+    def test_storyboard_keeps_chinese_card_when_model_writes_english(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        def chat(messages: list[dict]) -> str:
+            return json.dumps({
+                "scenes": [{
+                    "title": "巷口",
+                    "locationName": "暗巷",
+                    "shots": [{
+                        "title": "跟踪",
+                        "description": "Live-action, cinematic, a medium shot frames detective Kai walking into a rainy alley.",
+                        "dialogue": "别动。",
+                        "characterNames": ["阿凯"],
+                        "locationName": "暗巷",
+                        "durationSec": 5,
+                    }],
+                }],
+            })
+
+        recipe = run_agent(
+            "storyboard",
+            {"kind": "director_recipe", "script": {"title": "雨夜", "summary": "侦探", "fullStory": "侦探走进雨巷。"}},
+            goal="雨夜里侦探穿过暗巷。",
+            chat_fn=chat,
+        )
+        shot = recipe["scenes"][0]["shots"][0]
+        self.assertNotIn("Live-action", shot["description"])
+        self.assertTrue(any("\u4e00" <= ch <= "\u9fff" for ch in shot["description"]))
+        self.assertIn("medium shot", shot["promptText"])
+
+    def test_pipeline_emits_running_status_before_llm(self) -> None:
+        from backend.app.director_agents import run_recipe_pipeline
+
+        snapshots: list[str] = []
+
+        def chat(messages: list[dict]) -> str:
+            system = messages[0]["content"]
+            if "AGENT_ID: script" in system:
+                self.assertIn("running", snapshots)
+                return '{"title": "雨夜", "summary": "侦探", "fullStory": "侦探走进雨巷。"}'
+            return "{}"
+
+        def on_progress(recipe: dict) -> None:
+            status = next(item["status"] for item in recipe["agentStatus"] if item["id"] == "script")
+            snapshots.append(status)
+
+        recipe = run_recipe_pipeline(
+            {},
+            goal="雨夜里侦探穿过暗巷。",
+            chat_fn=chat,
+            skip_research=True,
+            agents=["research", "script"],
+            on_progress=on_progress,
+        )
+        self.assertEqual(recipe["agentStatus"][1]["status"], "completed")
+        self.assertGreaterEqual(snapshots.count("running"), 1)
+        self.assertEqual(snapshots[-1], "completed")
 
     def test_recipe_r2v_packs_at_most_nine_references(self) -> None:
         from backend.app.director_compiler import recipe_assets_as_slots, resolve_recipe_shot_submission
@@ -1239,6 +1518,149 @@ class DirectorDualEngineApiTests(unittest.TestCase):
             self.assertEqual(job["mode"], "minimax-h3-t2v")
             self.assertEqual(job["options"]["duration"], 8)
             self.assertEqual(job["options"]["aspect_ratio"], "9:16")
+        self.assertEqual(body["payload"]["videoWorkflowFamily"], "official_h3")
+
+    def test_batches_enqueue_selected_workflow_family(self) -> None:
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com/v1",
+            "model": "deepseek-chat",
+            "api_key": "sk-dummy",
+        })
+        with patch.object(self.llm_provider, "fission_batch_scripts", return_value=[
+            {"title": "版本甲", "script": "清晨城市晨跑"},
+        ]):
+            response = self.client.post(
+                "/api/director/batches",
+                headers=self._headers(),
+                json={
+                    "theme": "运动活力",
+                    "count": 1,
+                    "aspect_ratio": "9:16",
+                    "duration_sec": 8,
+                    "video_workflow_family": "lightx2v",
+                },
+            )
+        self.assertEqual(response.status_code, 201, response.text)
+        body = response.json()
+        self.assertEqual(body["payload"]["videoWorkflowFamily"], "lightx2v")
+        job = self.job_store.get(body["payload"]["items"][0]["jobId"])
+        self.assertEqual(job["mode"], "minimax-h3-lightx2v-t2v")
+
+    def test_batch_render_retries_only_requested_item(self) -> None:
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com/v1",
+            "model": "deepseek-chat",
+            "api_key": "sk-dummy",
+        })
+        with patch.object(self.llm_provider, "fission_batch_scripts", return_value=[
+            {"title": "版本甲", "script": "清晨城市晨跑"},
+            {"title": "版本乙", "script": "夜晚霓虹骑行"},
+        ]):
+            created = self.client.post(
+                "/api/director/batches",
+                headers=self._headers(),
+                json={"theme": "运动活力", "count": 2, "aspect_ratio": "9:16", "duration_sec": 8},
+            )
+        self.assertEqual(created.status_code, 201, created.text)
+        project = created.json()
+        first = project["payload"]["items"][0]
+        first_job = first["jobId"]
+        retry = self.client.post(
+            f"/api/director/batches/{project['id']}/render",
+            headers=self._headers(),
+            json={"item_ids": [first["id"]]},
+        )
+        self.assertEqual(retry.status_code, 200, retry.text)
+        retried = retry.json()["payload"]["items"]
+        self.assertEqual(len(self.enqueued), 3)
+        self.assertNotEqual(retried[0]["jobId"], first_job)
+        self.assertEqual(retried[1]["jobId"], project["payload"]["items"][1]["jobId"])
+        self.assertEqual(retried[0]["status"], "queued")
+        self.assertIsNone(retried[0].get("error"))
+
+
+class DirectorAssetCloudTests(unittest.TestCase):
+    def test_job_asset_image_url_prefers_cloud_url(self) -> None:
+        from backend.app.director_jobs import job_asset_image_url, job_public_output_url
+
+        job = {
+            "id": "j1",
+            "outputs": [{
+                "kind": "image",
+                "path": "studio/a.png",
+                "delivery_status": "cloud",
+                "cloud_url": "https://media.example.com/studio/a.png",
+            }],
+        }
+        self.assertEqual(job_asset_image_url(job), "https://media.example.com/studio/a.png")
+        self.assertEqual(job_public_output_url(job, kind="image"), "/api/jobs/j1/outputs/0/download")
+
+        class Storage:
+            def object_url(self, key: str) -> str:
+                return f"https://media.example.com/{key}"
+
+        derived = {
+            "id": "j2",
+            "outputs": [{"kind": "image", "path": "studio/b.png", "delivery_status": "cloud"}],
+        }
+        self.assertEqual(
+            job_asset_image_url(derived, resource_storage=Storage()),
+            "https://media.example.com/studio/b.png",
+        )
+
+    def test_bind_writes_qiniu_url_onto_matching_recipe_assets(self) -> None:
+        from backend.app.director_jobs import bind_director_asset_image
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            recipe = normalize_recipe_payload({
+                "kind": PAYLOAD_KIND_RECIPE,
+                "artStyle": {"id": "as_1001"},
+                "characters": [{"name": "艾达", "promptText": "look", "imageJobId": "job-ada"}],
+                "locations": [{"name": "会议室", "promptText": "office", "imageJobId": "job-room"}],
+            })
+            project = store.create_director_project("user-1", "定妆", payload=recipe)
+            bound = bind_director_asset_image(
+                store,
+                owner_user_id="user-1",
+                job_id="job-ada",
+                image_url="https://media.example.com/studio/image/ada.png",
+            )
+            self.assertEqual(bound, 1)
+            saved = store.get_director_project(project["id"])
+            chars = {item["name"]: item["imageUrl"] for item in saved["payload"]["characters"]}
+            locs = {item["name"]: item["imageUrl"] for item in saved["payload"]["locations"]}
+            self.assertEqual(chars["艾达"], "https://media.example.com/studio/image/ada.png")
+            self.assertIsNone(locs["会议室"])
+
+    def test_materialize_downloads_cloud_object_when_local_file_missing(self) -> None:
+        from backend.app import director_jobs as director_jobs_module
+        from backend.app.director_jobs import materialize_job_output_file
+
+        class Storage:
+            def download_url(self, key: str, expires_in_seconds: int = 300) -> str:
+                return "https://signed.example.com/studio/a.png?e=1"
+
+        job = {
+            "id": "cloud-plate",
+            "outputs": [{"kind": "image", "path": "studio/a.png", "delivery_status": "cloud"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_settings = type("Settings", (), {"staging_dir": root, "results_dir": root / "results"})()
+            with patch.object(director_jobs_module, "settings", fake_settings):
+                with patch("backend.app.director_jobs.urllib.request.urlopen") as urlopen:
+                    response = MagicMock()
+                    response.read.return_value = b"png-bytes"
+                    response.__enter__.return_value = response
+                    response.__exit__.return_value = False
+                    urlopen.return_value = response
+                    path = materialize_job_output_file(job, resource_storage=Storage(), kind="image")
+            self.assertIsNotNone(path)
+            self.assertTrue(path.is_file())
+            self.assertEqual(path.read_bytes(), b"png-bytes")
 
 
 if __name__ == "__main__":

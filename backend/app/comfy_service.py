@@ -22,7 +22,7 @@ from .minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from .minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from .minimax_h3_workflow import build_minimax_h3_workflow
 from .models import JobMode
-from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, StoredResource
+from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, StoredResource, resource_object_url
 from .workflow_registry import (
     DUAL_ACCEL_WORKFLOWS,
     H3_WORKFLOWS,
@@ -74,6 +74,103 @@ class ComfyUnavailable(legacy.ComfyError):
 
 class ComfyCancelled(legacy.ComfyError):
     """The workbench user stopped this prompt; do not auto-retry."""
+
+
+COMFY_SWITCH_STAGE = "正在切换工作流"
+COMFY_PREPARE_STAGE = "正在准备任务"
+COMFY_EXPORT_STAGE = "正在导出视频"
+LOADER_CLASS_TYPES = frozenset({
+    "UNETLoader", "CLIPLoader", "VAELoader", "CheckpointLoaderSimple",
+    "LoraLoaderModelOnly", "LoraLoaderBypassModelOnly", "LoraLoader",
+    "ReservedVRAMSetter", "MiniMaxH3MemoryEfficientSageAttentionPatch",
+    "PathchSageAttentionKJ", "LoadImage", "VRAMCleanup", "RAMCleanup",
+})
+SAMPLER_CLASS_TYPES = frozenset({
+    "SamplerCustomAdvanced", "KSampler", "KSamplerAdvanced",
+    "MiniMaxH3MultiRateSamplerEXPT8", "MiniMaxH3DualClockSamplerT8",
+})
+DECODE_CLASS_TYPES = frozenset({
+    "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo",
+    "VHS_VideoCombine", "MiniMaxH3AVDecodeT8", "SaveImage",
+})
+
+
+@dataclass(frozen=True)
+class ComfyProgressTick:
+    stage: str
+    progress: int | None = None
+
+
+def node_class_type(workflow: dict | None, node_id: object) -> str:
+    if not workflow or node_id is None:
+        return ""
+    node = workflow.get(str(node_id))
+    if isinstance(node, dict):
+        return str(node.get("class_type") or "")
+    return ""
+
+
+def node_phase(class_type: str) -> str:
+    if class_type in LOADER_CLASS_TYPES:
+        return "loader"
+    if class_type in SAMPLER_CLASS_TYPES:
+        return "sampler"
+    if class_type in DECODE_CLASS_TYPES:
+        return "decode"
+    return "other"
+
+
+def node_percent(value: object, maximum: object) -> int | None:
+    if not isinstance(maximum, (int, float)) or maximum <= 0:
+        return None
+    if not isinstance(value, (int, float)):
+        return None
+    return max(0, min(100, round(value * 100 / maximum)))
+
+
+def interpret_comfy_progress(
+    message: dict, prompt_id: str, workflow: dict | None, generation_stage: str,
+) -> ComfyProgressTick | None:
+    """Map ComfyUI socket traffic to a wait-for-switch stage or sampling percent."""
+    if not isinstance(message, dict) or not workflow:
+        return None
+    msg_type = message.get("type")
+    data = message.get("data") if isinstance(message.get("data"), dict) else {}
+    incoming_prompt = data.get("prompt_id")
+    if incoming_prompt not in (None, prompt_id):
+        return None
+
+    def tick_for(node_id: object, percent: int | None) -> ComfyProgressTick | None:
+        phase = node_phase(node_class_type(workflow, node_id))
+        if phase == "loader":
+            return ComfyProgressTick(COMFY_SWITCH_STAGE, 5 + round((percent or 0) * 13 / 100))
+        if phase == "sampler":
+            return ComfyProgressTick(generation_stage or "正在生成", percent)
+        if phase == "decode":
+            return ComfyProgressTick(COMFY_EXPORT_STAGE, min(98, 90 + round((percent or 0) * 8 / 100)))
+        return ComfyProgressTick(
+            COMFY_PREPARE_STAGE,
+            12 if percent is None else min(20, 12 + round(percent * 8 / 100)),
+        )
+
+    if msg_type == "executing":
+        node = data.get("node")
+        if not node:
+            return None
+        return tick_for(node, None)
+    if msg_type == "progress":
+        return tick_for(data.get("node"), node_percent(data.get("value"), data.get("max")))
+    if msg_type != "progress_state" or incoming_prompt != prompt_id:
+        return None
+    nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
+    running = [
+        (node_id, node) for node_id, node in nodes.items()
+        if isinstance(node, dict) and node.get("state") == "running"
+    ]
+    if not running:
+        return None
+    node_id, node = running[-1]
+    return tick_for(node_id, node_percent(node.get("value"), node.get("max")))
 
 
 def resolve_reference_prompt(prompt: str, reference_count: int) -> str:
@@ -366,6 +463,10 @@ class ComfyService:
         self, prompt_id: str, update_progress: Callable[[int], None], progress_socket=None,
         progress_range: tuple[int, int] = (0, 100),
         is_cancelled: Callable[[], bool] | None = None,
+        *,
+        workflow: dict | None = None,
+        generation_stage: str | None = None,
+        update_stage: Callable[[str, int | None], None] | None = None,
     ) -> dict:
         started = time.monotonic()
         last_history_poll = 0.0
@@ -378,10 +479,24 @@ class ComfyService:
                 try:
                     raw_message = progress_socket.recv()
                     if isinstance(raw_message, str):
-                        percent = self.progress_percent(json.loads(raw_message), prompt_id)
-                        if percent is not None:
-                            start, end = progress_range
-                            update_progress(round(start + (end - start) * percent / 100))
+                        parsed = json.loads(raw_message)
+                        tick = interpret_comfy_progress(
+                            parsed, prompt_id, workflow, generation_stage or "",
+                        )
+                        start, end = progress_range
+                        if tick is not None:
+                            mapped = (
+                                round(start + (end - start) * tick.progress / 100)
+                                if tick.progress is not None else None
+                            )
+                            if update_stage is not None:
+                                update_stage(tick.stage, mapped)
+                            elif mapped is not None:
+                                update_progress(mapped)
+                        else:
+                            percent = self.progress_percent(parsed, prompt_id)
+                            if percent is not None:
+                                update_progress(round(start + (end - start) * percent / 100))
                 except websocket.WebSocketTimeoutException:
                     pass
                 except (ValueError, websocket.WebSocketException):
@@ -456,13 +571,16 @@ class ComfyService:
             if is_cancelled is not None and is_cancelled():
                 self.stop_prompt(prompt_id)
                 raise ComfyCancelled("任务已停止")
-            update_stage(stage, progress_range[0])
+            update_stage(COMFY_SWITCH_STAGE, 5 if progress_range[0] == 0 else progress_range[0])
             return self.wait(
                 prompt_id,
                 lambda progress: update_stage(stage, progress),
                 connection,
                 progress_range,
                 is_cancelled,
+                workflow=workflow,
+                generation_stage=stage,
+                update_stage=update_stage,
             )
         finally:
             if connection is not None:
@@ -531,7 +649,7 @@ class ComfyService:
         return StoredResource(stored.key, stored.local_path, source_info)
 
     def output_payload(self, resource: StoredResource, kind: str, label: str) -> dict:
-        return {
+        payload = {
             "kind": kind,
             "path": resource.key,
             "label": label,
@@ -539,6 +657,10 @@ class ComfyService:
             "delivered_at": None,
             "_comfy_source": resource.source_info,
         }
+        cloud_url = resource_object_url(self.resource_storage, resource.key)
+        if cloud_url:
+            payload["cloud_url"] = cloud_url
+        return payload
 
     def delete_output_source(self, source_info: dict | None) -> bool:
         if not source_info:

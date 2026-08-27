@@ -49,9 +49,8 @@ if defined WEBUI_PID (
     if not errorlevel 1 (
         powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 '%WEBUI_SCHEME%://127.0.0.1:7865/api/health'; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1"
         if not errorlevel 1 (
-            start "" "%WEBUI_SCHEME%://127.0.0.1:7865/"
-            echo ZLY AI Video Studio is already running on port 7865.
-            exit /b 0
+            set "BACKEND_ALREADY_RUNNING=1"
+            goto :ensure_vite
         )
         echo Existing workbench on port 7865 is not responding. Restarting it.
         taskkill /F /T /PID %WEBUI_PID% >nul 2>nul
@@ -72,18 +71,28 @@ if defined WEBUI_PID (
 )
 :port_cleared
 
-powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1) { exit 1 }; exit 0"
+:ensure_vite
+powershell -NoProfile -Command "$conn = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $conn) { exit 2 }; $process = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $conn.OwningProcess); if ($process.CommandLine -match '(?i)(vite|pnpm|node)') { exit 0 }; exit 1"
+if errorlevel 2 goto :start_vite
 if errorlevel 1 goto :vite_port_in_use
+goto :open_browser
 
+:start_vite
 start "ZLY AI Video Studio Vite" /d "%CD%\frontend" cmd.exe /d /k "pnpm dev -- --host 127.0.0.1 --port 5173 --strictPort"
 
 powershell -NoProfile -Command "$deadline = [DateTime]::UtcNow.AddSeconds(10); do { if (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1) { exit 0 }; Start-Sleep -Milliseconds 250 } while ([DateTime]::UtcNow -lt $deadline); exit 1"
 if errorlevel 1 goto :vite_start_failed
 for /f %%P in ('powershell -NoProfile -Command "(Get-NetTCPConnection -LocalPort 5173 -State Listen | Select-Object -First 1 -ExpandProperty OwningProcess)"') do set "VITE_LISTENING_PID=%%P"
 
+:open_browser
+start "" "%WEBUI_SCHEME%://127.0.0.1:5173/"
+if defined BACKEND_ALREADY_RUNNING (
+    echo FastAPI is already running on port 7865. Opened the Vite workbench at 5173.
+    exit /b 0
+)
+
 :vite_ready
 title ZLY AI Video Studio
-start "" "%WEBUI_SCHEME%://127.0.0.1:5173/"
 set "PYTHONUNBUFFERED=1"
 "%PYTHON_EXE%" "%CD%\backend\dev_reloader.py" --host 0.0.0.0 --port 7865 %SSL_ARGS%
 set "WEBUI_EXIT_CODE=%errorlevel%"
@@ -108,7 +117,7 @@ pause
 exit /b 1
 
 :vite_port_in_use
-echo Port 5173 is already in use. Close the existing Vite development server, then start ZLY AI Video Studio again.
+echo Port 5173 is already in use by another application. Close it, then start ZLY AI Video Studio again.
 pause
 exit /b 1
 

@@ -97,7 +97,7 @@ export type DirectorJobSnapshot = {
   stage?: string
   progress?: number
   error?: string | null
-  outputs?: Array<{ kind?: string; download_url?: string; path?: string }>
+  outputs?: Array<{ kind?: string; download_url?: string; cloud_url?: string; path?: string }>
 }
 
 export type DirectorJobStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled"
@@ -111,7 +111,48 @@ export function jobVideoUrl(job: DirectorJobSnapshot | null | undefined): string
 export function jobImageUrl(job: DirectorJobSnapshot | null | undefined): string | undefined {
   const output = job?.outputs?.find((item) => item.kind === "image") || job?.outputs?.[0]
   if (!output) return undefined
-  return output.download_url || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : undefined)
+  return output.download_url || output.cloud_url || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : undefined)
+}
+
+export function summarizeJobError(raw: string | null | undefined): { summary: string; detail: string } {
+  const detail = String(raw || "").trim()
+  if (!detail) return { summary: "", detail: "" }
+  const compact = detail.replace(/\s+/g, " ")
+  const lower = compact.toLowerCase()
+  if (
+    lower.includes("outofmemory")
+    || lower.includes("out of memory")
+    || compact.includes("exceed allowed memory")
+  ) {
+    return { summary: "显存不足。请把分辨率改到 0.4 MP 后再生成。", detail }
+  }
+  if (compact.includes("ComfyUI 推理失败") || lower.includes("execution_error")) {
+    return { summary: "ComfyUI 推理失败。可查看详情排查。", detail }
+  }
+  const firstLine = detail.split(/\r?\n/, 1)[0].trim()
+  if (detail.length <= 120) return { summary: firstLine, detail }
+  const clipped = firstLine.slice(0, 72).trimEnd()
+  return { summary: `${clipped}…`, detail }
+}
+
+export function jobStoredImageUrl(job: DirectorJobSnapshot | null | undefined): string | undefined {
+  const output = job?.outputs?.find((item) => item.kind === "image") || job?.outputs?.[0]
+  if (!output) return undefined
+  return output.cloud_url || output.download_url || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : undefined)
+}
+
+export function assetPreviewUrl(
+  job: DirectorJobSnapshot | null | undefined,
+  imageUrl?: string | null,
+  imageJobId?: string | null,
+): string | undefined {
+  const fromJob = jobImageUrl(job)
+  if (fromJob) return fromJob
+  if (imageUrl && imageUrl.startsWith("/api/")) return imageUrl
+  if (imageJobId && (imageUrl || shotStatusFromJob(job) === "succeeded")) {
+    return `/api/jobs/${imageJobId}/outputs/0/download`
+  }
+  return imageUrl || undefined
 }
 
 export function shotStatusFromJob(job: DirectorJobSnapshot | null | undefined): DirectorJobStatus {
@@ -138,6 +179,100 @@ export function jobProgressFromJob(job: DirectorJobSnapshot | null | undefined, 
   return fallback
 }
 
+export type AssetGenerationState = {
+  status: "idle" | DirectorJobStatus
+  progress: number
+  generating: boolean
+  label: string
+  error?: string | null
+}
+
+function isPrepareStage(stage: string): boolean {
+  return /切换工作流|正在准备|正在上传|正在提交文生|正在加载/.test(stage)
+}
+
+function runningProgressLabel(
+  job: DirectorJobSnapshot | null | undefined,
+  runningLabel: string,
+  progress: number,
+): string {
+  const stage = (job?.stage || "").trim()
+  if (!stage || stage === "等待排队") return `${runningLabel} ${progress}%`
+  if (isPrepareStage(stage)) return stage
+  return `${stage} ${progress}%`
+}
+
+function mediaGenerationState(
+  job: DirectorJobSnapshot | null | undefined,
+  resultUrl?: string | null,
+  jobId?: string | null,
+  noun = "生成",
+  runningLabel?: string,
+  fallback?: { status?: string; progress?: number },
+): AssetGenerationState {
+  const fromJob = job ? shotStatusFromJob(job) : null
+  const fallbackStatus = fallback?.status
+  const fromFallback = (
+    fallbackStatus === "queued"
+    || fallbackStatus === "running"
+    || fallbackStatus === "failed"
+    || fallbackStatus === "interrupted"
+    || fallbackStatus === "cancelled"
+  ) ? fallbackStatus : null
+  const jobStatus = fromJob || fromFallback || (jobId && !resultUrl ? "queued" : null)
+  if (jobStatus === "failed" || jobStatus === "interrupted" || jobStatus === "cancelled") {
+    const label = jobStatus === "failed" ? `${noun}失败` : jobStatus === "cancelled" ? "已取消" : "已中断"
+    return {
+      status: jobStatus,
+      progress: job ? jobProgressFromJob(job, 0) : 0,
+      generating: false,
+      label,
+      error: job?.error || null,
+    }
+  }
+  if (jobStatus === "queued" || jobStatus === "running") {
+    const stage = (job?.stage || "").trim()
+    const preparing = jobStatus === "running" && isPrepareStage(stage)
+    const raw = job
+      ? jobProgressFromJob(job, 0)
+      : Math.max(0, Math.min(100, Math.round(fallback?.progress ?? 0)))
+    const progress = jobStatus === "running" && !preparing ? Math.max(raw, 8) : raw
+    const liveLabel = runningLabel || `${noun}生成中`
+    return {
+      status: jobStatus,
+      progress,
+      generating: true,
+      label: jobStatus === "queued" ? `排队等待${noun}` : runningProgressLabel(job, liveLabel, progress),
+    }
+  }
+  if (resultUrl) {
+    return { status: "succeeded", progress: 100, generating: false, label: "" }
+  }
+  if (jobId) {
+    return { status: "queued", progress: 0, generating: true, label: `排队等待${noun}` }
+  }
+  return { status: "idle", progress: 0, generating: false, label: "" }
+}
+
+export function assetGenerationState(
+  job: DirectorJobSnapshot | null | undefined,
+  imageUrl?: string | null,
+  imageJobId?: string | null,
+  kind: "character" | "location" = "character",
+): AssetGenerationState {
+  const noun = kind === "location" ? "场景图" : "定妆"
+  return mediaGenerationState(job, imageUrl, imageJobId, noun)
+}
+
+export function shotGenerationState(
+  job: DirectorJobSnapshot | null | undefined,
+  outputVideoUrl?: string | null,
+  jobId?: string | null,
+  fallback?: { status?: string; progress?: number },
+): AssetGenerationState {
+  return mediaGenerationState(job, outputVideoUrl, jobId, "出片", "出片中", fallback)
+}
+
 export async function waitForJobTerminal(
   jobId: string,
   options?: {
@@ -161,7 +296,8 @@ export async function waitForJobTerminal(
       return job
     }
     if (job.status === "failed" || job.status === "interrupted" || job.status === "cancelled") {
-      throw new Error(job.error || (job.status === "cancelled" ? "分镜任务已停止" : `分镜任务${job.status === "failed" ? "失败" : "已中断"}`))
+      const fallback = job.status === "cancelled" ? "分镜任务已停止" : `分镜任务${job.status === "failed" ? "失败" : "已中断"}`
+      throw new Error(summarizeJobError(job.error).summary || fallback)
     }
     await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
   }

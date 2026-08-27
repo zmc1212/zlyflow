@@ -4,11 +4,13 @@ import base64
 import ipaddress
 import mimetypes
 import socket
+import time
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
 import requests
+from requests import exceptions as request_exceptions
 
 
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
@@ -18,11 +20,26 @@ IMAGE_URL_KEYS = {
     "url", "image", "image_url", "imageurl", "output", "result", "results",
     "urls", "images", "file", "src", "href",
 }
-# GRS currently serves generated files through this CDN name, which resolves to
-# RFC 2544's benchmark range. Keep this exception narrowly scoped so result
-# URLs from other hosts cannot be used to reach non-public addresses.
-GRS_BENCHMARK_RESULT_HOSTS = {"file1.aitohumanize.com"}
+GRS_CONNECT_TIMEOUT_SECONDS = 12.0
+GRS_READ_TIMEOUT_SECONDS = 60.0
+GRS_SUBMIT_TIMEOUT = (GRS_CONNECT_TIMEOUT_SECONDS, GRS_READ_TIMEOUT_SECONDS)
+GRS_RESULT_TIMEOUT = (GRS_CONNECT_TIMEOUT_SECONDS, GRS_READ_TIMEOUT_SECONDS)
+GRS_BALANCE_TIMEOUT = (10.0, 30.0)
+GRS_DOWNLOAD_TIMEOUT = (10.0, 120.0)
+GRS_CONNECT_RETRIES = 1
+GRS_CONNECT_RETRY_DELAY_SECONDS = 0.5
+GRS_BILLING_CAUTION = "为避免重复扣费，请确认后显式重试。"
+GRS_INTERNATIONAL_BASE_URL = "https://grsaiapi.com"
+# GRS serves generated files on *.aitohumanize.com, which may resolve to
+# RFC 2544's benchmark range. Keep this exception scoped to that domain so
+# other result URLs cannot be used to reach non-public addresses.
+GRS_BENCHMARK_RESULT_DOMAIN = "aitohumanize.com"
 RFC2544_BENCHMARK_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+
+
+def is_grs_benchmark_result_host(hostname: str) -> bool:
+    host = (hostname or "").lower().rstrip(".")
+    return host == GRS_BENCHMARK_RESULT_DOMAIN or host.endswith("." + GRS_BENCHMARK_RESULT_DOMAIN)
 
 
 class GrsError(RuntimeError):
@@ -31,6 +48,21 @@ class GrsError(RuntimeError):
 
 class GrsTemporaryError(GrsError):
     pass
+
+
+class GrsConnectionError(GrsTemporaryError):
+    """TCP/TLS never completed, so the HTTP body was not sent."""
+
+
+class GrsUncertainSubmitError(GrsError):
+    """The generate request may have reached GRS; callers must not auto-retry."""
+
+
+def with_grs_billing_caution(message: str) -> str:
+    text = (message or "").strip() or "GRS 提交失败"
+    if GRS_BILLING_CAUTION in text:
+        return text
+    return f"{text}；{GRS_BILLING_CAUTION}"
 
 
 class GrsClient:
@@ -42,6 +74,7 @@ class GrsClient:
         self.api_key = api_key
         self.session = session or requests.Session()
         self.resolver = resolver or self._resolve_host
+        self._connect_retry_delay = GRS_CONNECT_RETRY_DELAY_SECONDS
 
     @property
     def headers(self) -> dict[str, str]:
@@ -68,6 +101,56 @@ class GrsClient:
             raise GrsError(f"GRS {action} 失败（HTTP {response.status_code}）")
         return payload
 
+    def _host_hint(self, url: str) -> str:
+        host = (urlparse(url).hostname or "").lower()
+        if host == "grsai.dakka.com.cn" or host.endswith(".dakka.com.cn"):
+            return f"可在管理设置将 Base URL 改为国际节点 {GRS_INTERNATIONAL_BASE_URL} 后先「测试连接」。"
+        return ""
+
+    def _connect_error(self, url: str, reason: str) -> GrsConnectionError:
+        host = urlparse(url).hostname or self.base_url
+        message = f"无法连接 GRS（{host}）：{reason}。请求尚未发出，不会扣费。"
+        hint = self._host_hint(url)
+        if hint:
+            message = f"{message} {hint}"
+        return GrsConnectionError(message)
+
+    def _request(
+        self, method: str, url: str, *, action: str, timeout: float | tuple[float, float],
+        uncertain_on_read: bool = False, **kwargs: Any,
+    ) -> requests.Response:
+        last_connect: BaseException | None = None
+        attempts = GRS_CONNECT_RETRIES + 1
+        for attempt in range(attempts):
+            try:
+                return getattr(self.session, method)(url, timeout=timeout, **kwargs)
+            except request_exceptions.ReadTimeout as error:
+                if uncertain_on_read:
+                    raise GrsUncertainSubmitError(
+                        with_grs_billing_caution(f"GRS {action} 已发出但等待响应超时")
+                    ) from error
+                raise GrsTemporaryError(f"GRS {action} 读取超时") from error
+            except (
+                request_exceptions.ConnectTimeout,
+                request_exceptions.SSLError,
+                request_exceptions.ProxyError,
+                request_exceptions.ConnectionError,
+            ) as error:
+                last_connect = error
+                if attempt + 1 < attempts:
+                    time.sleep(self._connect_retry_delay)
+                    continue
+                if isinstance(error, request_exceptions.SSLError):
+                    reason = "TLS 握手失败"
+                elif isinstance(error, request_exceptions.ConnectTimeout):
+                    reason = "连接超时"
+                else:
+                    reason = "网络连接失败"
+                raise self._connect_error(url, reason) from error
+            except request_exceptions.RequestException as error:
+                raise GrsError(f"GRS {action} 网络请求失败") from error
+        raise self._connect_error(url, "网络连接失败") from last_connect
+
     def submit(
         self, *, model: str, prompt: str, images: list[str], aspect_ratio: str,
         image_size: str | None = None,
@@ -81,7 +164,10 @@ class GrsClient:
         }
         if image_size:
             body["imageSize"] = image_size
-        response = self.session.post(f"{self.base_url}/v1/api/generate", headers=self.headers, json=body, timeout=60)
+        response = self._request(
+            "post", f"{self.base_url}/v1/api/generate", action="提交", timeout=GRS_SUBMIT_TIMEOUT,
+            uncertain_on_read=True, headers=self.headers, json=body,
+        )
         payload = self._json(response, "提交")
         remote_id = self._first(payload, "id", "task_id", "taskId")
         if remote_id is None and isinstance(payload.get("data"), dict):
@@ -91,9 +177,9 @@ class GrsClient:
         return str(remote_id)
 
     def result(self, remote_task_id: str) -> tuple[str, list[str], str | None]:
-        response = self.session.get(
-            f"{self.base_url}/v1/api/result", headers=self.headers,
-            params={"id": remote_task_id}, timeout=60,
+        response = self._request(
+            "get", f"{self.base_url}/v1/api/result", action="查询", timeout=GRS_RESULT_TIMEOUT,
+            headers=self.headers, params={"id": remote_task_id},
         )
         payload = self._json(response, "查询", allow_client_error=True)
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
@@ -111,13 +197,16 @@ class GrsClient:
         if status == "violation":
             base = "内容未通过审核（可能含真人等受限内容）"
             return f"{base}：{detail}" if detail else base
+        if detail.casefold() in {"generate image failed", "generate image fail", "generate failed"}:
+            return "上游生图失败，请重新生成"
         return detail or f"GRS 任务失败：{status}"
 
     def balance(self) -> float:
-        response = self.session.post(
-            f"{self.base_url}/client/openapi/getAPIKeyCredits",
+        response = self._request(
+            "post", f"{self.base_url}/client/openapi/getAPIKeyCredits", action="余额查询",
+            timeout=GRS_BALANCE_TIMEOUT,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
-            json={"apiKey": self.api_key}, timeout=30,
+            json={"apiKey": self.api_key},
         )
         payload = self._json(response, "余额查询")
         if payload.get("code") not in {None, 0, "0"}:
@@ -174,15 +263,18 @@ class GrsClient:
         for address in addresses:
             resolved = ipaddress.ip_address(address)
             if not resolved.is_global and not (
-                hostname in GRS_BENCHMARK_RESULT_HOSTS and resolved in RFC2544_BENCHMARK_NETWORK
+                is_grs_benchmark_result_host(hostname) and resolved in RFC2544_BENCHMARK_NETWORK
             ):
-                raise GrsError("GRS 图片地址指向非公共网络，已拒绝下载")
+                raise GrsError(f"GRS 图片地址指向非公共网络，已拒绝下载（{hostname}）")
 
     def download_image(self, url: str) -> tuple[str, bytes]:
         current = url
         for _ in range(6):
             self._validate_public_https(current)
-            response = self.session.get(current, timeout=(10, 120), stream=True, allow_redirects=False)
+            response = self._request(
+                "get", current, action="图片下载", timeout=GRS_DOWNLOAD_TIMEOUT,
+                stream=True, allow_redirects=False,
+            )
             if response.status_code in {301, 302, 303, 307, 308}:
                 target = response.headers.get("Location")
                 response.close()

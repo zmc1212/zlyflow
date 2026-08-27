@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+import requests
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.app import main as main_module
 from backend.app.auth import csrf_token
 from backend.app.config import Settings
-from backend.app.grs_client import GrsClient, GrsError
+from backend.app.grs_client import (
+    GRS_INTERNATIONAL_BASE_URL, GRS_SUBMIT_TIMEOUT, GrsClient, GrsConnectionError, GrsError,
+    GrsUncertainSubmitError, with_grs_billing_caution,
+)
 from backend.app.local_credential_key import ensure_local_credential_key
 from backend.app.grs_provider import CredentialManager, GrsProviderService
 from backend.app.models import JobMode, JobStatus, UserRole
@@ -284,12 +291,76 @@ class GrsClientTests(unittest.TestCase):
 
         self.assertEqual(filename, "grs-result.png")
         self.assertEqual(content, image)
+        file8_session = FakeSession([FakeResponse({}, headers={"Content-Type": "image/png"}, content=image)])
+        file8 = GrsClient(
+            "https://grs.example.com", "secret", session=file8_session,
+            resolver=lambda _host: ["198.18.0.5"],
+        )
+        filename, content = file8.download_image("https://file8.aitohumanize.com/a.png")
+        self.assertEqual(filename, "grs-result.png")
+        self.assertEqual(content, image)
         untrusted = GrsClient(
             "https://grs.example.com", "secret", session=FakeSession([]),
             resolver=lambda _host: ["198.18.1.176"],
         )
         with self.assertRaises(GrsError):
             untrusted.download_image("https://cdn.example.com/a.png")
+
+    def test_format_failure_translates_upstream_generate_image_failed(self) -> None:
+        self.assertEqual(GrsClient.format_failure("failed", "generate image failed"), "上游生图失败，请重新生成")
+
+    def test_submit_retries_connect_timeout_then_succeeds(self) -> None:
+        class FlakySession:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def post(self, url: str, **kwargs):
+                self.calls.append(kwargs)
+                if len(self.calls) == 1:
+                    raise requests.exceptions.ConnectTimeout("connect timed out")
+                return FakeResponse({"data": {"id": "remote-ok"}})
+
+        session = FlakySession()
+        client = GrsClient("https://grsai.dakka.com.cn", "secret", session=session)
+        client._connect_retry_delay = 0
+
+        remote_id = client.submit(model="gpt-image-2", prompt="test", images=[], aspect_ratio="1:1")
+
+        self.assertEqual(remote_id, "remote-ok")
+        self.assertEqual(len(session.calls), 2)
+        self.assertEqual(session.calls[0]["timeout"], GRS_SUBMIT_TIMEOUT)
+
+    def test_submit_connect_timeout_is_safe_to_retry(self) -> None:
+        class DeadSession:
+            def post(self, url: str, **kwargs):
+                raise requests.exceptions.ConnectTimeout("connect timed out")
+
+        client = GrsClient("https://grsai.dakka.com.cn", "secret", session=DeadSession())
+        client._connect_retry_delay = 0
+
+        with self.assertRaises(GrsConnectionError) as ctx:
+            client.submit(model="gpt-image-2", prompt="test", images=[], aspect_ratio="1:1")
+
+        message = str(ctx.exception)
+        self.assertIn("不会扣费", message)
+        self.assertIn(GRS_INTERNATIONAL_BASE_URL, message)
+        self.assertNotIn("Max retries exceeded", message)
+        self.assertNotIn("HTTPSConnectionPool", message)
+
+    def test_submit_read_timeout_is_uncertain_and_does_not_duplicate_caution(self) -> None:
+        class SlowSession:
+            def post(self, url: str, **kwargs):
+                raise requests.exceptions.ReadTimeout("read timed out")
+
+        client = GrsClient("https://grs.example.com", "secret", session=SlowSession())
+
+        with self.assertRaises(GrsUncertainSubmitError) as ctx:
+            client.submit(model="gpt-image-2", prompt="test", images=[], aspect_ratio="1:1")
+
+        message = str(ctx.exception)
+        self.assertIn("等待响应超时", message)
+        self.assertEqual(message.count("为避免重复扣费"), 1)
+        self.assertEqual(with_grs_billing_caution(message), message)
 
     def test_balance_matches_smart_floor_planner_request_contract(self) -> None:
         session = FakeSession([FakeResponse({"code": 0, "data": {"credits": 321}})])
@@ -344,6 +415,15 @@ class QiniuStorageTests(unittest.TestCase):
         stored = storage.store_bytes("video", "result.mp4", b"video-bytes")
         self.assertEqual(stored.local_path, None)
         self.assertEqual(storage._qiniu.calls, 2)
+
+    def test_object_url_is_canonical_https_path_not_signed(self) -> None:
+        storage = object.__new__(QiniuStorage)
+        storage.config = {"domain": "https://media.example.com/", "bucket": "bucket"}
+        self.assertEqual(
+            storage.object_url("studio/image/look.png"),
+            "https://media.example.com/studio/image/look.png",
+        )
+        self.assertIsNone(storage.object_url(""))
 
 
 class JobEndpointTests(unittest.TestCase):
@@ -676,6 +756,63 @@ class StorageAndCredentialTests(unittest.TestCase):
             }])
             updated = store.mark_output_delivered("cloud-video", 0, "2026-08-14T00:00:00+00:00", "cloud")
             self.assertEqual(updated["outputs"][0]["delivery_status"], "cloud")
+
+
+class FrontendSpaFallbackTests(unittest.TestCase):
+    def test_generate_video_without_session_returns_index_and_does_not_capture_api(self) -> None:
+        class WorkerStub:
+            def __init__(self, *_args) -> None:
+                pass
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            dist = root / "frontend" / "dist"
+            (dist / "assets").mkdir(parents=True)
+            (dist / "index.html").write_text("<!doctype html><html><body>spa-shell</body></html>", encoding="utf-8")
+            (dist / "assets" / "app.js").write_text("console.log('ok')", encoding="utf-8")
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            try:
+                with TestClient(main_module.app) as client:
+                    spa = client.get("/generate/video")
+                    self.assertEqual(spa.status_code, 200)
+                    self.assertIn("text/html", spa.headers.get("content-type", ""))
+                    self.assertIn("spa-shell", spa.text)
+
+                    assets_page = client.get("/assets")
+                    self.assertEqual(assets_page.status_code, 200)
+                    self.assertIn("spa-shell", assets_page.text)
+
+                    director = client.get("/director/example-project")
+                    self.assertEqual(director.status_code, 200)
+                    self.assertIn("spa-shell", director.text)
+
+                    status = client.get("/api/auth/status")
+                    self.assertEqual(status.status_code, 200)
+                    self.assertIn("application/json", status.headers.get("content-type", ""))
+                    payload = status.json()
+                    self.assertIn("authenticated", payload)
+                    self.assertFalse(payload["authenticated"])
+
+                    health = client.get("/api/health")
+                    self.assertEqual(health.status_code, 200)
+                    self.assertIn("application/json", health.headers.get("content-type", ""))
+
+                    asset = client.get("/assets/app.js")
+                    self.assertEqual(asset.status_code, 200)
+                    self.assertIn("javascript", asset.headers.get("content-type", ""))
+                    self.assertIn("console.log('ok')", asset.text)
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
 
 
 if __name__ == "__main__":

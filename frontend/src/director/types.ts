@@ -116,6 +116,7 @@ export interface TimelineProject {
   previewSpeed: DirectorSpeed
   finalQuality: DirectorQuality
   finalSpeed: DirectorSpeed
+  videoWorkflowFamily?: string
   width: number
   height: number
   fps: number
@@ -208,7 +209,7 @@ export const H3_CANVAS_PRESETS: CanvasPreset[] = [
 ]
 
 export const DIRECTOR_FINAL_CANVAS_OPTIONS: Array<{ tier: CanvasTier; quality: DirectorQuality; label: string }> = [
-  { tier: "fast", quality: "0.4", label: "0.4 MP（预览档）" },
+  { tier: "fast", quality: "0.4", label: "0.4 MP（16GB 推荐）" },
   { tier: "native", quality: "1.0", label: "1.0 MP（成片）" },
   { tier: "past_native", quality: "2.0", label: "2.0 MP（高清）" },
 ]
@@ -243,6 +244,27 @@ export function applyCanvasTier(project: TimelineProject, tier: CanvasTier): Tim
 
 export function applyDirectorFinalQuality(project: TimelineProject, quality: DirectorQuality): TimelineProject {
   return applyCanvasTier({ ...project, finalQuality: quality }, canvasTierForQuality(quality))
+}
+
+export function recipeCanvasPreset(
+  recipe: Pick<RecipeProject, "aspectRatio" | "finalQuality" | "canvasTier">,
+): CanvasPreset | undefined {
+  const tier = canvasTierForQuality(recipe.finalQuality) || recipe.canvasTier
+  return H3_CANVAS_PRESETS.find((item) => item.ratio === recipe.aspectRatio && item.tier === tier)
+}
+
+export function applyRecipeOutputSettings(
+  recipe: RecipeProject,
+  patch: Partial<Pick<RecipeProject, "aspectRatio" | "finalQuality" | "finalSpeed" | "videoWorkflowFamily">>,
+): RecipeProject {
+  const next = { ...recipe, ...patch }
+  const tier = canvasTierForQuality(next.finalQuality)
+  const preset = recipeCanvasPreset(next) || H3_CANVAS_PRESETS.find((item) => item.ratio === next.aspectRatio && item.tier === "native")
+  return {
+    ...next,
+    canvasTier: tier,
+    ...(preset ? { width: preset.width, height: preset.height } : {}),
+  }
 }
 
 export function defaultCameraDirection(): CameraDirection {
@@ -302,6 +324,7 @@ export function createEmptyProject(title: string = "未命名分镜工程"): Tim
     previewSpeed: "fast",
     finalQuality: "1.0",
     finalSpeed: "balanced",
+    videoWorkflowFamily: "official_h3",
     width: 1344,
     height: 768,
     fps: 24,
@@ -328,27 +351,87 @@ export function projectHasGeneratedTakes(project: TimelineProject): boolean {
   })
 }
 
-export function buildFormattedShotPrompt(shot: DirectorShot): string {
-  const scaleText = CAMERA_SCALE_LABELS[shot.camera.scale]?.label.split(" ")[0] ?? "中景"
-  const movementText = CAMERA_MOVEMENT_LABELS[shot.camera.movement]?.label.split(" ")[0] ?? "前推"
-  const angleText = CAMERA_ANGLE_LABELS[shot.camera.angle]?.label ?? "平视"
-  const lightingText = CAMERA_LIGHTING_LABELS[shot.camera.lighting]?.label ?? "电影级柔光"
-  const speedText = CAMERA_SPEED_LABELS[shot.camera.speed]?.label ?? "平稳"
+const H3_SCALE_PHRASES: Record<CameraScale, string> = {
+  ELS: "an extreme long shot",
+  WS: "a wide shot",
+  MS: "a medium shot",
+  CU: "a close-up",
+  ECU: "an extreme close-up",
+}
+const H3_ANGLE_PHRASES: Record<CameraAngle, string> = {
+  eye_level: "eye-level",
+  low_angle: "low-angle",
+  high_angle: "high-angle",
+  dutch: "dutch-angle",
+  pov: "POV",
+}
+const H3_LIGHTING_PHRASES: Record<CameraLighting, string> = {
+  cinematic_soft: "soft cinematic lighting",
+  cyberpunk: "neon cyberpunk lighting",
+  golden_hour: "golden-hour backlight",
+  dramatic_low_key: "dramatic low-key lighting",
+  studio: "clean studio lighting",
+}
+const H3_CAMERA_ACTIONS: Record<CameraMovement, string> = {
+  zoom_in: "pushes in",
+  zoom_out: "pulls out",
+  pan_left: "pans left",
+  pan_right: "pans right",
+  tilt_up: "tilts up",
+  tilt_down: "tilts down",
+  orbit: "moves in an arc shot around the subject",
+  tracking: "follows with a tracking shot",
+  static: "holds a static shot",
+}
 
-  const cameraPrefix = `【${scaleText}，${angleText}，镜头${movementText}，${speedText}，${lightingText}】`
-  let result = shot.prompt.trim()
-  if (!result.startsWith("【")) {
-    result = `${cameraPrefix} ${result}`
+function hasCjk(text: string): boolean {
+  return /[\u4e00-\u9fff]/.test(text)
+}
+
+export function userFacingCopy(...candidates: Array<string | null | undefined>): string {
+  const texts = candidates.map((item) => (item || "").trim()).filter(Boolean)
+  return texts.find((item) => hasCjk(item)) || texts[0] || ""
+}
+
+function hasCameraProse(text: string): boolean {
+  const lowered = text.toLowerCase()
+  return lowered.includes("the camera") || lowered.includes("a static shot") || lowered.includes("tracking shot")
+}
+
+function hasScaleProse(text: string): boolean {
+  const lowered = text.toLowerCase()
+  return ["extreme long shot", "wide shot", "medium-wide", "medium shot", "close-up", "extreme close-up", "close up", "establishing shot"]
+    .some((marker) => lowered.includes(marker))
+}
+
+export function h3CameraSentence(camera: CameraDirection): string {
+  const movement = camera.movement || "zoom_in"
+  const action = H3_CAMERA_ACTIONS[movement] || H3_CAMERA_ACTIONS.zoom_in
+  if (movement === "static") return "The camera holds a static shot."
+  const amplitude = camera.speed === "dynamic" ? "with large amplitude" : "with small amplitude"
+  const tempo = camera.speed === "dynamic" ? "at fast speed" : "at slow speed"
+  return `The camera ${action} ${amplitude} ${tempo}.`
+}
+
+export function buildFormattedShotPrompt(shot: DirectorShot): string {
+  let visual = (shot.prompt || "").trim()
+  const camera = shot.camera || defaultCameraDirection()
+  if (visual && !hasScaleProse(visual)) {
+    visual = `${H3_SCALE_PHRASES[camera.scale] || H3_SCALE_PHRASES.MS} at ${H3_ANGLE_PHRASES[camera.angle] || H3_ANGLE_PHRASES.eye_level} frames the scene. ${visual}`.trim()
   }
-  if (shot.dialogue?.trim()) {
-    result += `\n[台词对白: ${shot.dialogue.trim()}]`
+  if (visual && !hasCameraProse(visual)) {
+    visual = `${visual.replace(/[. ]+$/, "")}. ${h3CameraSentence(camera)}`.trim()
   }
-  if (shot.soundscape?.trim()) {
-    result += `\n[音效: ${shot.soundscape.trim()}]`
-  } else if (shot.camera.sfx?.trim()) {
-    result += `\n[环境音效: ${shot.camera.sfx.trim()}]`
+  const lighting = H3_LIGHTING_PHRASES[camera.lighting]
+  if (lighting && !visual.toLowerCase().includes(lighting.toLowerCase())) {
+    visual = `${visual.replace(/[. ]+$/, "")}. ${lighting.charAt(0).toUpperCase()}${lighting.slice(1)}.`
   }
-  return result
+  const dialogue = shot.dialogue?.trim()
+  if (dialogue && !visual.includes("<d>")) {
+    const tag = hasCjk(dialogue) ? "Chinese" : "English"
+    visual = `${visual.replace(/[. ]+$/, "")}. the on-screen speaker (S1) says: <d>[${tag}] ${dialogue}</d>`
+  }
+  return visual.trim()
 }
 
 export interface CompiledPromptInfo {
@@ -392,6 +475,7 @@ export interface RecipeArtStyle {
   name: string
   name_en?: string
   promptPrefix: string
+  imageUrl?: string | null
 }
 
 export interface RecipeCharacter {
@@ -419,6 +503,7 @@ export interface RecipeShot {
   shotNumber: number
   title: string
   description: string
+  promptText?: string
   dialogue: string
   characterNames: string[]
   locationName: string
@@ -464,6 +549,7 @@ export interface RecipeProject {
   previewSpeed: DirectorSpeed
   finalQuality: DirectorQuality
   finalSpeed: DirectorSpeed
+  videoWorkflowFamily: string
   width: number
   height: number
   fps: number
@@ -475,10 +561,12 @@ export interface RecipeProject {
 export interface BatchRunItem {
   id: string
   title: string
+  description?: string
   script: string
   jobId?: string | null
   status: DirectorShot["status"]
   outputVideoUrl?: string | null
+  error?: string | null
 }
 
 export interface BatchRunPayload {
@@ -490,6 +578,7 @@ export interface BatchRunPayload {
   artStyle: RecipeArtStyle | null
   items: BatchRunItem[]
   agentStatus?: RecipeAgentStatus[]
+  videoWorkflowFamily?: string
 }
 
 export interface DirectorArtStyleCategory {
@@ -507,6 +596,7 @@ export interface DirectorArtStyle {
   category_name_en: string
   description: string
   promptPrefix: string
+  imageUrl?: string | null
   keywords: string[]
 }
 
@@ -514,6 +604,24 @@ export interface DirectorArtStyleCatalog {
   categories: DirectorArtStyleCategory[]
   styles: DirectorArtStyle[]
   count: number
+}
+
+export function artStylePreviewUrl(style: { id: string; imageUrl?: string | null }): string {
+  const url = (style.imageUrl || "").trim()
+  if (url.startsWith("/api/director/art-styles/") && url.endsWith("/preview")) {
+    return url
+  }
+  return `/api/director/art-styles/${encodeURIComponent(style.id)}/preview`
+}
+
+export function recipeArtStyleFromCatalog(style: DirectorArtStyle): RecipeArtStyle {
+  return {
+    id: style.id,
+    name: style.name_zh,
+    name_en: style.name_en,
+    promptPrefix: style.promptPrefix,
+    imageUrl: artStylePreviewUrl(style),
+  }
 }
 
 export function isRecipePayload(payload: unknown): payload is RecipeProject {
@@ -549,6 +657,7 @@ export function createEmptyBatch(theme: string = ""): BatchRunPayload {
     durationSec: 8,
     artStyle: null,
     items: [],
+    videoWorkflowFamily: "official_h3",
   }
 }
 
@@ -559,7 +668,7 @@ export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
     title: shot.title,
     startSec: 0,
     durationSec: shot.durationSec,
-    prompt: shot.compiledPrompt || shot.description,
+    prompt: userFacingCopy(shot.description, shot.title),
     dialogue: shot.dialogue,
     camera: defaultCameraDirection(),
     referencedSubjectIds: [],
@@ -600,6 +709,7 @@ export function createEmptyRecipe(title: string = ""): RecipeProject {
     previewSpeed: "fast",
     finalQuality: "1.0",
     finalSpeed: "balanced",
+    videoWorkflowFamily: "official_h3",
     width: 1344,
     height: 768,
     fps: 24,

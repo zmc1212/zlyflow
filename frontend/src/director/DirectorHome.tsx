@@ -1,6 +1,9 @@
+import { useRef } from "react"
 import { Button, Card, Empty, Popconfirm, Space, Spin, Tag, Typography } from "antd"
 import { ArrowLeft, Clapperboard, Copy, Layers, Plus, Trash2, Wand2 } from "lucide-react"
 import { DirectorProjectListItem, DirectorGenerationStatus, DirectorPayloadKind } from "./director-api"
+
+const CARD_OPEN_SUPPRESS_MS = 400
 
 function generationLabel(status: DirectorGenerationStatus): { text: string; color: string } {
   if (status === "complete") return { text: "已完成", color: "success" }
@@ -41,6 +44,17 @@ export default function DirectorHome({
   onDelete,
   onExitDirector,
 }: DirectorHomeProps) {
+  const suppressOpenUntilRef = useRef(0)
+
+  function suppressCardOpen() {
+    suppressOpenUntilRef.current = Date.now() + CARD_OPEN_SUPPRESS_MS
+  }
+
+  function openProject(item: DirectorProjectListItem) {
+    if (Date.now() < suppressOpenUntilRef.current) return
+    onOpen(item)
+  }
+
   return (
     <div className="director-library">
       <header className="director-mobile-header">
@@ -98,38 +112,58 @@ export default function DirectorHome({
                 key={item.id}
                 className="director-library-card"
                 hoverable
-                onClick={() => onOpen(item)}
                 actions={[
-                  <button key="copy" type="button" className="director-library-card-action" onClick={(event) => { event.stopPropagation(); onCopy(item.id) }}>
-                    <Copy size={14} />复制
-                  </button>,
-                  <Popconfirm
-                    key="delete"
-                    title="删除这个工程？"
-                    description="工程文档会从服务器移除，已生成的视频任务仍保留在任务列表。"
-                    okText="删除"
-                    cancelText="取消"
-                    onConfirm={() => onDelete(item.id)}
-                  >
-                    <button type="button" className="director-library-card-action is-danger" onClick={(event) => event.stopPropagation()}>
-                      <Trash2 size={14} />删除
+                  <span key="copy" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                    <button type="button" className="director-library-card-action" onClick={() => onCopy(item.id)}>
+                      <Copy size={14} />复制
                     </button>
-                  </Popconfirm>,
+                  </span>,
+                  <span key="delete" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                    <Popconfirm
+                      title="删除这个工程？"
+                      description="工程文档会从服务器移除，已生成的视频任务仍保留在任务列表。"
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      onPopupClick={(event) => event.stopPropagation()}
+                      onOpenChange={(open) => { if (!open) suppressCardOpen() }}
+                      onConfirm={(event) => {
+                        event?.stopPropagation()
+                        suppressCardOpen()
+                        onDelete(item.id)
+                      }}
+                      onCancel={(event) => {
+                        event?.stopPropagation()
+                        suppressCardOpen()
+                      }}
+                    >
+                      <button type="button" className="director-library-card-action is-danger" onClick={(event) => event.stopPropagation()}>
+                        <Trash2 size={14} />删除
+                      </button>
+                    </Popconfirm>
+                  </span>,
                 ]}
               >
-                <div className="director-library-card-top">
-                  {item.kind === "batch_run" ? <Layers size={16} /> : <Clapperboard size={16} />}
-                  <Typography.Text strong className="director-library-card-title" ellipsis>
-                    {item.title}
-                  </Typography.Text>
-                </div>
-                <p className="director-library-card-summary">{item.summary || "暂无梗概"}</p>
-                <div className="director-library-card-meta">
-                  <Tag color={kind.color}>{kind.text}</Tag>
-                  <Tag color={gen.color}>{gen.text}</Tag>
-                  <Tag>{item.shot_count} 镜</Tag>
-                </div>
-                <div className="director-library-card-updated">{formatUpdatedAt(item.updated_at)}</div>
+                <button
+                  type="button"
+                  className="director-library-card-main"
+                  onClick={() => openProject(item)}
+                  aria-label={`打开工程 ${item.title}`}
+                >
+                  <div className="director-library-card-top">
+                    {item.kind === "batch_run" ? <Layers size={16} /> : <Clapperboard size={16} />}
+                    <Typography.Text strong className="director-library-card-title" ellipsis>
+                      {item.title}
+                    </Typography.Text>
+                  </div>
+                  <p className="director-library-card-summary">{item.summary || "暂无梗概"}</p>
+                  <div className="director-library-card-meta">
+                    <Tag color={kind.color}>{kind.text}</Tag>
+                    <Tag color={gen.color}>{gen.text}</Tag>
+                    <Tag>{item.shot_count} 镜</Tag>
+                  </div>
+                  <div className="director-library-card-updated">{formatUpdatedAt(item.updated_at)}</div>
+                </button>
               </Card>
             )
           })}

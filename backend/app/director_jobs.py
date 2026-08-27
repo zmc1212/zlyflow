@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import secrets
 import shutil
+import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
 
 from .config import settings
 from .director_compiler import (
@@ -12,8 +14,15 @@ from .director_compiler import (
     recipe_style_prefix,
     resolve_recipe_shot_submission,
 )
-from .director_recipe import flatten_recipe_shots, normalize_recipe_payload
+from .workflow_registry import resolve_director_workflow
+from .director_recipe import (
+    PAYLOAD_KIND_RECIPE,
+    flatten_recipe_shots,
+    normalize_recipe_payload,
+    payload_kind,
+)
 from .models import JobStatus
+from .resource_storage import resource_object_url
 from .storage import JobStore
 from .workflow_registry import (
     is_image_workflow,
@@ -68,7 +77,124 @@ def job_public_output_url(job: dict[str, Any] | None, *, kind: str | None = None
     return f"/api/jobs/{job['id']}/outputs/0/download"
 
 
-def sync_recipe_asset_images(store: JobStore, recipe: dict[str, Any]) -> dict[str, Any]:
+def job_asset_image_url(
+    job: dict[str, Any] | None,
+    *,
+    kind: str | None = "image",
+    resource_storage: Any | None = None,
+) -> str | None:
+    if not isinstance(job, dict):
+        return None
+    outputs = [item for item in (job.get("outputs") or []) if isinstance(item, dict)]
+    if kind:
+        matched = [item for item in outputs if item.get("kind") == kind]
+        outputs = matched or outputs
+    for output in outputs:
+        stored = str(output.get("cloud_url") or "").strip()
+        if stored:
+            return stored
+        if output.get("delivery_status") == "cloud":
+            derived = resource_object_url(resource_storage, output.get("path"))
+            if derived:
+                return derived
+    return job_public_output_url(job, kind=kind)
+
+
+def recipe_asset_image_index(recipe: dict[str, Any] | None) -> dict[str, str | None]:
+    index: dict[str, str | None] = {}
+    if not isinstance(recipe, dict):
+        return index
+    for asset in list(recipe.get("characters") or []) + list(recipe.get("locations") or []):
+        if not isinstance(asset, dict) or not asset.get("id"):
+            continue
+        index[str(asset["id"])] = asset.get("imageUrl")
+    return index
+
+
+def bind_director_asset_image(
+    store: JobStore,
+    *,
+    owner_user_id: str,
+    job_id: str,
+    image_url: str,
+) -> int:
+    job_id = (job_id or "").strip()
+    image_url = (image_url or "").strip()
+    owner = (owner_user_id or "").strip()
+    if not job_id or not image_url or not owner:
+        return 0
+    bound = 0
+    for summary in store.list_director_projects(owner):
+        try:
+            project = store.get_director_project(summary["id"])
+        except KeyError:
+            continue
+        payload = project.get("payload")
+        if payload_kind(payload) != PAYLOAD_KIND_RECIPE:
+            continue
+        recipe = normalize_recipe_payload(payload)
+        changed = False
+        for asset in list(recipe.get("characters") or []) + list(recipe.get("locations") or []):
+            if asset.get("imageJobId") != job_id:
+                continue
+            if asset.get("imageUrl") != image_url:
+                asset["imageUrl"] = image_url
+                changed = True
+        if changed:
+            store.update_director_project(project["id"], payload=recipe)
+            bound += 1
+    return bound
+
+
+def materialize_job_output_file(
+    job: dict[str, Any] | None,
+    *,
+    resource_storage: Any | None = None,
+    kind: str | None = None,
+) -> Path | None:
+    local = job_first_output_file(job)
+    if local is not None:
+        return local
+    if not isinstance(job, dict) or resource_storage is None:
+        return None
+    getter = getattr(resource_storage, "download_url", None)
+    if not callable(getter):
+        return None
+    outputs = [item for item in (job.get("outputs") or []) if isinstance(item, dict)]
+    if kind:
+        matched = [item for item in outputs if item.get("kind") == kind]
+        outputs = matched or outputs
+    job_id = str(job.get("id") or "plate")
+    dest_dir = settings.staging_dir / "director-plates"
+    for output in outputs:
+        key = str(output.get("path") or "").strip()
+        if not key:
+            continue
+        url = getter(key)
+        if not url:
+            continue
+        suffix = Path(key).suffix or ".png"
+        dest = dest_dir / f"{job_id}{suffix}"
+        if dest.is_file() and dest.stat().st_size > 0:
+            return dest
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with urllib.request.urlopen(str(url), timeout=60) as response:
+                dest.write_bytes(response.read())
+        except (OSError, URLError, TimeoutError, ValueError):
+            dest.unlink(missing_ok=True)
+            continue
+        if dest.is_file() and dest.stat().st_size > 0:
+            return dest
+    return None
+
+
+def sync_recipe_asset_images(
+    store: JobStore,
+    recipe: dict[str, Any],
+    *,
+    resource_storage: Any | None = None,
+) -> dict[str, Any]:
     recipe = normalize_recipe_payload(recipe)
     for asset in list(recipe.get("characters") or []) + list(recipe.get("locations") or []):
         job_id = asset.get("imageJobId")
@@ -78,7 +204,7 @@ def sync_recipe_asset_images(store: JobStore, recipe: dict[str, Any]) -> dict[st
             job = store.get(job_id)
         except KeyError:
             continue
-        url = job_public_output_url(job, kind="image")
+        url = job_asset_image_url(job, kind="image", resource_storage=resource_storage)
         if url:
             asset["imageUrl"] = url
     for shot in flatten_recipe_shots(recipe):
@@ -167,6 +293,7 @@ def generate_recipe_assets(
     character_ids: list[str] | None = None,
     location_ids: list[str] | None = None,
     force: bool = False,
+    resource_storage: Any | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     available, reason = grs_provider.availability()
     if not available:
@@ -174,7 +301,7 @@ def generate_recipe_assets(
     workflow_id = default_image_workflow_id(grs_provider)
     if not is_image_workflow(workflow_id):
         raise ValueError("当前默认工作流不是图片生成")
-    recipe = sync_recipe_asset_images(store, recipe)
+    recipe = sync_recipe_asset_images(store, recipe, resource_storage=resource_storage)
     wanted_chars = {item for item in (character_ids or []) if item}
     wanted_locs = {item for item in (location_ids or []) if item}
     generate_all = not wanted_chars and not wanted_locs
@@ -221,7 +348,13 @@ def generate_recipe_assets(
     return recipe, job_ids
 
 
-def _reference_paths_for_shot(store: JobStore, recipe: dict[str, Any], shot: dict[str, Any]) -> list[str]:
+def _reference_paths_for_shot(
+    store: JobStore,
+    recipe: dict[str, Any],
+    shot: dict[str, Any],
+    *,
+    resource_storage: Any | None = None,
+) -> list[str]:
     paths: list[str] = []
     for slot in recipe_assets_as_slots(recipe, shot):
         job_id = slot.get("imageJobId")
@@ -231,7 +364,7 @@ def _reference_paths_for_shot(store: JobStore, recipe: dict[str, Any], shot: dic
             job = store.get(job_id)
         except KeyError:
             continue
-        file_path = job_first_output_file(job)
+        file_path = materialize_job_output_file(job, resource_storage=resource_storage, kind="image")
         if file_path is not None:
             paths.append(str(file_path))
     return paths[:H3_MAX_REFERENCE_IMAGES]
@@ -244,8 +377,9 @@ def render_recipe_shots(
     recipe: dict[str, Any],
     shot_ids: list[str] | None = None,
     render_pass: str = "final",
+    resource_storage: Any | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    recipe = sync_recipe_asset_images(store, recipe)
+    recipe = sync_recipe_asset_images(store, recipe, resource_storage=resource_storage)
     wanted = {item for item in (shot_ids or []) if item}
     job_ids: list[str] = []
     for _scene, shot in _iter_shots(recipe):
@@ -256,10 +390,13 @@ def render_recipe_shots(
         if errors:
             shot["status"] = "failed"
             continue
-        refs = _reference_paths_for_shot(store, recipe, shot)
+        refs = _reference_paths_for_shot(store, recipe, shot, resource_storage=resource_storage)
         workflow_id = submission["workflowId"]
-        if not refs and workflow_id != "minimax-h3-t2v":
-            workflow_id = "minimax-h3-t2v"
+        if not refs:
+            workflow_id = resolve_director_workflow(
+                recipe.get("videoWorkflowFamily") or recipe.get("video_workflow_family"),
+                "t2v",
+            )
         job = create_queued_job(
             store,
             owner_user_id=owner_user_id,
@@ -296,6 +433,7 @@ def render_batch_items(
     *,
     owner_user_id: str,
     payload: dict[str, Any],
+    item_ids: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     prefix = ""
     art = payload.get("artStyle") if isinstance(payload.get("artStyle"), dict) else {}
@@ -303,9 +441,12 @@ def render_batch_items(
         prefix = str(art.get("promptPrefix") or "").strip()
     duration = int(payload.get("durationSec") or 8)
     aspect = payload.get("aspectRatio") or "9:16"
+    wanted = {item for item in (item_ids or []) if item}
     job_ids: list[str] = []
     for item in payload.get("items") or []:
         if not isinstance(item, dict):
+            continue
+        if wanted and item.get("id") not in wanted:
             continue
         script = (item.get("script") or "").strip()
         if not script:
@@ -314,7 +455,10 @@ def render_batch_items(
         job = create_queued_job(
             store,
             owner_user_id=owner_user_id,
-            mode="minimax-h3-t2v",
+            mode=resolve_director_workflow(
+                payload.get("videoWorkflowFamily") or payload.get("video_workflow_family"),
+                "t2v",
+            ),
             prompt=prompt,
             options={
                 "aspect_ratio": aspect,
@@ -326,6 +470,7 @@ def render_batch_items(
         )
         item["jobId"] = job["id"]
         item["status"] = "queued"
+        item["error"] = None
         job_ids.append(job["id"])
     return payload, job_ids
 
@@ -346,4 +491,9 @@ def sync_batch_items(store: JobStore, payload: dict[str, Any]) -> dict[str, Any]
         url = job_public_output_url(job, kind="video")
         if url:
             item["outputVideoUrl"] = url
+        error = str(job.get("error") or "").strip()
+        if item.get("status") in {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}:
+            item["error"] = error or item.get("error")
+        elif item.get("status") == JobStatus.SUCCEEDED.value:
+            item["error"] = None
     return payload

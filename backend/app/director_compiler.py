@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .workflow_registry import H3_DURATION_MAX_SEC, H3_DURATION_MIN_SEC, H3_FPS, h3_length
+from .workflow_registry import (
+    DEFAULT_DIRECTOR_WORKFLOW_FAMILY, H3_DURATION_MAX_SEC, H3_DURATION_MIN_SEC, H3_FPS,
+    h3_length, resolve_director_workflow,
+)
 
 H3_MIN_DURATION_SEC = H3_DURATION_MIN_SEC
 H3_MAX_DURATION_SEC = H3_DURATION_MAX_SEC
@@ -13,19 +16,37 @@ WORKFLOW_T2V = "minimax-h3-t2v"
 WORKFLOW_I2V = "minimax-h3-i2v"
 WORKFLOW_R2V = "minimax-h3-r2v"
 
-CAMERA_SCALE_LABELS = {"ELS": "大远景", "WS": "全景", "MS": "中景", "CU": "特写", "ECU": "大特写"}
-CAMERA_MOVEMENT_LABELS = {
-    "zoom_in": "前推", "zoom_out": "后拉", "pan_left": "左移", "pan_right": "右移",
-    "tilt_up": "仰拍运镜", "tilt_down": "俯拍运镜", "orbit": "环绕旋转", "tracking": "跟拍跟随", "static": "定焦静止",
+H3_SCALE_PHRASES = {
+    "ELS": "an extreme long shot",
+    "WS": "a wide shot",
+    "MS": "a medium shot",
+    "CU": "a close-up",
+    "ECU": "an extreme close-up",
 }
-CAMERA_ANGLE_LABELS = {
-    "eye_level": "平视视平线", "low_angle": "低机位仰角", "high_angle": "高机位俯视",
-    "dutch": "倾斜荷兰角", "pov": "第一人称主观",
+H3_ANGLE_PHRASES = {
+    "eye_level": "eye-level",
+    "low_angle": "low-angle",
+    "high_angle": "high-angle",
+    "dutch": "dutch-angle",
+    "pov": "POV",
 }
-CAMERA_SPEED_LABELS = {"smooth": "平稳电影感", "dynamic": "激烈快动态", "slow": "柔和微动"}
-CAMERA_LIGHTING_LABELS = {
-    "cinematic_soft": "电影级柔光", "cyberpunk": "赛博霓虹", "golden_hour": "黄金时段逆光",
-    "dramatic_low_key": "低调戏剧性", "studio": "纯净影棚布光",
+H3_LIGHTING_PHRASES = {
+    "cinematic_soft": "soft cinematic lighting",
+    "cyberpunk": "neon cyberpunk lighting",
+    "golden_hour": "golden-hour backlight",
+    "dramatic_low_key": "dramatic low-key lighting",
+    "studio": "clean studio lighting",
+}
+H3_CAMERA_ACTIONS = {
+    "zoom_in": "pushes in",
+    "zoom_out": "pulls out",
+    "pan_left": "pans left",
+    "pan_right": "pans right",
+    "tilt_up": "tilts up",
+    "tilt_down": "tilts down",
+    "orbit": "moves in an arc shot around the subject",
+    "tracking": "follows with a tracking shot",
+    "static": "holds a static shot",
 }
 
 
@@ -106,6 +127,93 @@ def count_words(text: str) -> int:
     return len([part for part in (text or "").split() if part])
 
 
+def h3_timecode(seconds: float) -> str:
+    total_ms = max(0, int(round(float(seconds) * 1000)))
+    minutes, rest = divmod(total_ms, 60_000)
+    secs, millis = divmod(rest, 1000)
+    return f"{minutes:02d}:{secs:02d}.{millis:03d}"
+
+
+def _contains_cjk(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text or "")
+
+
+def _dialogue_language_tag(text: str) -> str:
+    return "Chinese" if _contains_cjk(text) else "English"
+
+
+def _camera_amplitude_speed(speed: str) -> tuple[str, str]:
+    if speed == "dynamic":
+        return "with large amplitude", "at fast speed"
+    return "with small amplitude", "at slow speed"
+
+
+def h3_camera_sentence(camera: dict[str, Any] | None) -> str:
+    item = camera if isinstance(camera, dict) else {}
+    movement = str(_get(item, "movement", default="zoom_in") or "zoom_in")
+    speed = str(_get(item, "speed", default="smooth") or "smooth")
+    action = H3_CAMERA_ACTIONS.get(movement, H3_CAMERA_ACTIONS["zoom_in"])
+    if movement == "static":
+        return "The camera holds a static shot."
+    if movement == "pov":
+        return "The camera holds a POV shot."
+    amplitude, tempo = _camera_amplitude_speed(speed)
+    if movement in {"orbit", "tracking"}:
+        return f"The camera {action} {amplitude} {tempo}."
+    return f"The camera {action} {amplitude} {tempo}."
+
+
+def _has_camera_prose(text: str) -> bool:
+    lowered = (text or "").casefold()
+    return "the camera" in lowered or "a static shot" in lowered or "tracking shot" in lowered
+
+
+def _has_scale_prose(text: str) -> bool:
+    lowered = (text or "").casefold()
+    markers = (
+        "extreme long shot", "wide shot", "medium-wide", "medium shot", "medium-close",
+        "close-up", "extreme close-up", "close up", "establishing shot",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _wrap_dialogue(text: str, shot: dict[str, Any]) -> str:
+    dialogue = str(_get(shot, "dialogue", default="") or "").strip()
+    if not dialogue:
+        return text
+    if "<d>" in (text or ""):
+        return text
+    names = [str(name).strip() for name in (_get(shot, "characterNames", "character_names", default=[]) or []) if str(name).strip()]
+    speaker = names[0] if names else "the on-screen speaker"
+    tag = _dialogue_language_tag(dialogue)
+    line = f" {speaker} (S1) says: <d>[{tag}] {dialogue}</d>"
+    base = text.rstrip(". ")
+    return f"{base}.{line}"
+
+
+def build_h3_shot_body(shot: dict[str, Any]) -> str:
+    camera = _get(shot, "camera", default={}) or {}
+    visual = str(_get(shot, "prompt", "description", default="") or "").strip()
+    scale = str(_get(camera, "scale", default="MS") or "MS")
+    angle = str(_get(camera, "angle", default="eye_level") or "eye_level")
+    lighting = str(_get(camera, "lighting", default="cinematic_soft") or "cinematic_soft")
+    if visual and not _has_scale_prose(visual):
+        scale_phrase = H3_SCALE_PHRASES.get(scale, H3_SCALE_PHRASES["MS"])
+        angle_phrase = H3_ANGLE_PHRASES.get(angle, H3_ANGLE_PHRASES["eye_level"])
+        visual = f"{scale_phrase} at {angle_phrase} frames the scene. {visual}".strip()
+    if visual and not _has_camera_prose(visual):
+        visual = f"{visual.rstrip('. ')}. {h3_camera_sentence(camera)}".strip()
+    lighting_phrase = H3_LIGHTING_PHRASES.get(lighting, "")
+    if lighting_phrase and lighting_phrase.casefold() not in (visual or "").casefold():
+        visual = f"{visual.rstrip('. ')}. {lighting_phrase[0].upper() + lighting_phrase[1:]}.".strip()
+    visual = _wrap_dialogue(visual, shot)
+    return visual.strip()
+
+
+def build_formatted_shot_prompt(shot: dict[str, Any]) -> str:
+    return build_h3_shot_body(shot)
+
+
 def _slot_has_image(slot: dict[str, Any]) -> bool:
     return bool(
         _get(slot, "file", "hasImage", "previewUrl", "preview_url")
@@ -139,12 +247,20 @@ def clip_duration_sec(shots: list[dict[str, Any]] | None) -> tuple[int, bool]:
     return duration, H3_MIN_DURATION_SEC <= duration <= H3_MAX_DURATION_SEC
 
 
-def _route_workflow(subject_count: int, has_first: bool, has_last: bool) -> str:
+def _route_kind(subject_count: int, has_first: bool, has_last: bool) -> str:
     if subject_count > 0:
-        return WORKFLOW_R2V
+        return "r2v"
     if has_first or has_last:
-        return WORKFLOW_I2V
-    return WORKFLOW_T2V
+        return "i2v"
+    return "t2v"
+
+
+def _project_workflow_family(project: dict[str, Any] | None) -> str:
+    return str(_get(project, "videoWorkflowFamily", "video_workflow_family", default="") or DEFAULT_DIRECTOR_WORKFLOW_FAMILY)
+
+
+def _route_workflow(subject_count: int, has_first: bool, has_last: bool, family: str | None = None) -> str:
+    return resolve_director_workflow(family, _route_kind(subject_count, has_first, has_last))
 
 
 def build_reference_plan(project: dict[str, Any], shot: dict[str, Any]) -> dict[str, Any]:
@@ -188,9 +304,12 @@ def build_reference_plan(project: dict[str, Any], shot: dict[str, Any]) -> dict[
     if len(items) > H3_MAX_REFERENCE_IMAGES:
         errors.append(f"参考图总数 ({len(items)}) 超过 MiniMax H3 上限 {H3_MAX_REFERENCE_IMAGES} 张")
 
+    family = _project_workflow_family(project)
+    route = _route_kind(len(subjects), _shot_has_first_frame(shot), _shot_has_last_frame(shot))
     return {
         "items": items,
-        "workflowId": _route_workflow(len(subjects), _shot_has_first_frame(shot), _shot_has_last_frame(shot)),
+        "route": route,
+        "workflowId": resolve_director_workflow(family, route),
         "warnings": warnings,
         "errors": errors,
     }
@@ -199,7 +318,7 @@ def build_reference_plan(project: dict[str, Any], shot: dict[str, Any]) -> dict[
 def build_clip_reference_plan(project: dict[str, Any]) -> dict[str, Any]:
     shots = list(_get(project, "shots", default=[]) or [])
     if not shots:
-        return {"items": [], "workflowId": WORKFLOW_T2V, "warnings": [], "errors": []}
+        return {"items": [], "route": "t2v", "workflowId": resolve_director_workflow(_project_workflow_family(project), "t2v"), "warnings": [], "errors": []}
     first = dict(shots[0])
     last = shots[-1]
     first["endFrameFile"] = _get(last, "endFrameFile", "end_frame_file")
@@ -217,34 +336,19 @@ def replace_ref_tags(text: str, plan: dict[str, Any]) -> str:
     return result
 
 
-def build_formatted_shot_prompt(shot: dict[str, Any]) -> str:
-    camera = _get(shot, "camera", default={}) or {}
-    scale = CAMERA_SCALE_LABELS.get(str(_get(camera, "scale", default="MS")), "中景")
-    movement = CAMERA_MOVEMENT_LABELS.get(str(_get(camera, "movement", default="zoom_in")), "前推")
-    angle = CAMERA_ANGLE_LABELS.get(str(_get(camera, "angle", default="eye_level")), "平视视平线")
-    lighting = CAMERA_LIGHTING_LABELS.get(str(_get(camera, "lighting", default="cinematic_soft")), "电影级柔光")
-    speed = CAMERA_SPEED_LABELS.get(str(_get(camera, "speed", default="smooth")), "平稳电影感")
-    prefix = f"【{scale}，{angle}，镜头{movement}，{speed}，{lighting}】"
-    result = str(_get(shot, "prompt", default="") or "").strip()
-    if not result.startswith("【"):
-        result = f"{prefix} {result}".strip()
-    dialogue = str(_get(shot, "dialogue", default="") or "").strip()
-    if dialogue:
-        result += f"\n[台词对白: {dialogue}]"
-    soundscape = str(_get(shot, "soundscape", default="") or "").strip()
-    sfx = str(_get(camera, "sfx", default="") or "").strip()
-    if soundscape:
-        result += f"\n[音效: {soundscape}]"
-    elif sfx:
-        result += f"\n[环境音效: {sfx}]"
-    return result
-
-
-def _subject_definitions(project: dict[str, Any], plan: dict[str, Any]) -> str:
+def _subject_definition_lines(project: dict[str, Any], plan: dict[str, Any]) -> list[str]:
     slots = {str(_get(slot, "id")): slot for slot in (_get(project, "subjectSlots", "subject_slots", default=[]) or []) if isinstance(slot, dict)}
     lines: list[str] = []
     for item in plan.get("items") or []:
-        if item.get("role") != "subject" or not item.get("slotId"):
+        role = item.get("role")
+        tag = picture_tag(int(item["pictureIndex"]))
+        if role == "first_frame":
+            lines.append(f"{tag} is the first frame of [Shot 1].")
+            continue
+        if role == "last_frame":
+            lines.append(f"{tag} is the last frame of the final shot.")
+            continue
+        if role != "subject" or not item.get("slotId"):
             continue
         slot = slots.get(str(item["slotId"]))
         if not slot:
@@ -252,37 +356,176 @@ def _subject_definitions(project: dict[str, Any], plan: dict[str, Any]) -> str:
         description = str(_get(slot, "description", default="") or "").strip()
         desc_part = f" {description}" if description else ""
         kind = _get(slot, "kind", default="character")
-        retention = _get(slot, "retention", default="fully_preserved")
         slot_index = _get(slot, "slotIndex", "slot_index", default=item.get("slotIndex"))
-        lines.append(
-            f"<Subject {slot_index}> ({item['slotId']}) is the {kind}{desc_part} shown in {picture_tag(int(item['pictureIndex']))} [retention: {retention}]."
-        )
+        lines.append(f"<Subject {slot_index}> is the {kind}{desc_part} shown in {tag}.")
+    return lines
+
+
+def _subject_definitions(project: dict[str, Any], plan: dict[str, Any]) -> str:
+    lines = _subject_definition_lines(project, plan)
     if not lines:
         return ""
-    return "[Subject definitions]:\n" + "\n".join(lines)
+    return "subject_definitions:\n" + "\n".join(lines)
+
+
+def _english_audio_text(*candidates: str, fallback: str) -> str:
+    for text in candidates:
+        value = (text or "").strip()
+        if value and not _contains_cjk(value) and value.casefold() != "n/a":
+            return value
+        if value.casefold() == "n/a":
+            return "N/A"
+    return fallback
+
+
+def _shot_soundscape(project: dict[str, Any], shots: list[dict[str, Any]]) -> str:
+    shot_texts: list[str] = []
+    for shot in shots:
+        shot_texts.append(str(_get(shot, "soundscape", default="") or "").strip())
+        camera = _get(shot, "camera", default={}) or {}
+        shot_texts.append(str(_get(camera, "sfx", default="") or "").strip())
+    global_sound = str(_get(project, "globalSoundscape", "global_soundscape", default="") or "").strip()
+    return _english_audio_text(*shot_texts, global_sound, fallback="Natural room tone and physical action sounds matching the on-screen movement.")
+
+
+def _non_diegetic_music(project: dict[str, Any]) -> str:
+    music = str(_get(project, "globalMusic", "global_music", default="") or "").strip()
+    return _english_audio_text(music, fallback="N/A")
+
+
+def _is_r2v(plan: dict[str, Any]) -> bool:
+    return plan.get("route") == "r2v" or str(plan.get("workflowId") or "").endswith("-r2v")
+
+
+def _is_i2v(plan: dict[str, Any]) -> bool:
+    return plan.get("route") == "i2v" or str(plan.get("workflowId") or "").endswith("-i2v")
+
+
+def _keyframe_alignment(plan: dict[str, Any], duration_sec: float) -> str:
+    first = next((item for item in plan.get("items") or [] if item.get("role") == "first_frame"), None)
+    last = next((item for item in plan.get("items") or [] if item.get("role") == "last_frame"), None)
+    if first and last:
+        end = f"{float(duration_sec):.2f}"
+        return (
+            "How the reference pictures align with the target video — "
+            f"Picture {int(first['pictureIndex'])} (from Shot 1) aligns with the 0.00-second mark of the target video; "
+            f"Picture {int(last['pictureIndex'])} (from Shot 1) aligns with the {end}-second mark of the target video."
+        )
+    if first:
+        return (
+            "For the target video, at 0.00 seconds into the target video, "
+            f"{picture_tag(int(first['pictureIndex']))} (from [Shot 1]) is fully referenced."
+        )
+    if last:
+        end = f"{float(duration_sec):.2f}"
+        return (
+            "How the reference pictures align with the target video — "
+            f"{picture_tag(int(last['pictureIndex']))} (from [Shot 1]) aligns with the {end}-second mark of the target video."
+        )
+    return ""
+
+
+def _shot_visual_body(shot: dict[str, Any], plan: dict[str, Any]) -> str:
+    body = replace_ref_tags(build_h3_shot_body(shot), plan)
+    first_frame = next((item for item in plan.get("items") or [] if item.get("role") == "first_frame"), None)
+    last_frame = next((item for item in plan.get("items") or [] if item.get("role") == "last_frame"), None)
+    if first_frame and "begins from" not in body.casefold():
+        body = f"{body.rstrip('. ')}. The shot begins from {picture_tag(int(first_frame['pictureIndex']))}."
+    if last_frame and "ends on" not in body.casefold() and _is_i2v(plan):
+        body = f"{body.rstrip('. ')}. The shot ends on {picture_tag(int(last_frame['pictureIndex']))}."
+    return body.strip()
+
+
+def _timeline_description(shots: list[dict[str, Any]], plan: dict[str, Any]) -> str:
+    cursor = 0.0
+    blocks: list[str] = []
+    for index, shot in enumerate(shots):
+        shot_duration = snap_h3_duration_sec(_get(shot, "durationSec", "duration_sec", default=5))
+        body = _shot_visual_body(shot, plan)
+        if index == 0:
+            blocks.append(f"[Shot 1] {body}")
+        else:
+            blocks.append(f"[Shot {index + 1}] At {h3_timecode(cursor)}, the camera cuts to {body}")
+        cursor += shot_duration
+    return " ".join(blocks).strip()
+
+
+def _retention_analysis(project: dict[str, Any], plan: dict[str, Any]) -> str:
+    lines: list[str] = []
+    for item in plan.get("items") or []:
+        role = item.get("role")
+        tag = picture_tag(int(item["pictureIndex"]))
+        if role == "first_frame":
+            lines.append(f"{tag} ([Shot 1] first frame): fully_preserved - the opening composition, subjects, and lighting remain the starting state of [Shot 1].")
+        elif role == "last_frame":
+            lines.append(f"{tag} (final frame): fully_preserved - the closing composition is reached by the end of the final shot.")
+        elif role == "subject":
+            slot_index = item.get("slotIndex") or item.get("pictureIndex")
+            retention = "fully_preserved"
+            slots = _get(project, "subjectSlots", "subject_slots", default=[]) or []
+            slot = next((candidate for candidate in slots if str(_get(candidate, "id")) == str(item.get("slotId"))), None)
+            if isinstance(slot, dict):
+                retention = str(_get(slot, "retention", default="fully_preserved") or "fully_preserved")
+                slot_index = _get(slot, "slotIndex", "slot_index", default=slot_index)
+            marker = retention if retention in {"fully_preserved", "partially_preserved", "attribute_transfer", "weak_reference"} else "fully_preserved"
+            if retention == "strong":
+                marker = "fully_preserved"
+            elif retention == "weak":
+                marker = "weak_reference"
+            lines.append(f"<Subject {slot_index}> (appears in [Shot 1]): {marker} - identity, costume, and key visual features are retained.")
+    return "\n".join(lines)
+
+
+def _ref2va_summary(plan: dict[str, Any]) -> str:
+    has_keyframe = any(item.get("role") in {"first_frame", "last_frame"} for item in plan.get("items") or [])
+    has_subject = any(item.get("role") == "subject" for item in plan.get("items") or [])
+    types: list[str] = []
+    if has_keyframe:
+        types.append("keyframe completion")
+    if has_subject:
+        types.append("reference generation")
+    prefix = " + ".join(types) or "reference generation"
+    return f"[{prefix}] The target video follows the referenced subjects and keyframes while playing the described actions, camera moves, and diegetic sound."
+
+
+def assemble_h3_prompt(
+    project: dict[str, Any],
+    shots: list[dict[str, Any]],
+    plan: dict[str, Any],
+    duration_sec: float,
+) -> str:
+    description = _timeline_description(shots, plan)
+    soundscape = _shot_soundscape(project, shots)
+    music = _non_diegetic_music(project)
+    if _is_r2v(plan):
+        definitions = _subject_definitions(project, plan)
+        retention = _retention_analysis(project, plan)
+        sections = [
+            definitions,
+            f"summary:\n{_ref2va_summary(plan)}",
+            f"retention_analysis:\n{retention}" if retention else "",
+            f"detailed_description:\n{description}",
+            f"overall_soundscape:\n{soundscape}",
+            f"non_diegetic_music:\n{music}",
+        ]
+        return "\n\n".join(part for part in sections if part).strip()
+
+    sections: list[str] = []
+    alignment = _keyframe_alignment(plan, duration_sec) if _is_i2v(plan) else ""
+    if alignment:
+        sections.append(alignment)
+    sections.extend([
+        f"integrated_multimodal_description: {description}",
+        f"overall_soundscape: {soundscape}",
+        f"non_diegetic_music: {music}",
+    ])
+    return "\n\n".join(sections).strip()
 
 
 def compile_shot_prompt(project: dict[str, Any], shot: dict[str, Any], plan: dict[str, Any] | None = None) -> str:
     plan = plan or build_reference_plan(project, shot)
-    sections: list[str] = []
-    if plan.get("workflowId") == WORKFLOW_R2V:
-        definitions = _subject_definitions(project, plan)
-        if definitions:
-            sections.append(definitions)
-    body = replace_ref_tags(build_formatted_shot_prompt(shot), plan)
-    first_frame = next((item for item in plan.get("items") or [] if item.get("role") == "first_frame"), None)
-    if first_frame and plan.get("workflowId") == WORKFLOW_R2V:
-        body += f"\n(begins from {picture_tag(int(first_frame['pictureIndex']))})"
-    sections.append(body)
-    return "\n\n".join(sections).strip()
-
-
-def _task_type_label(workflow_id: str) -> str:
-    if workflow_id == WORKFLOW_R2V:
-        return "Reference-to-Video (Ref2VA)"
-    if workflow_id == WORKFLOW_I2V:
-        return "Image-to-Video (I2VA)"
-    return "Text-to-Video (T2VA)"
+    duration = snap_h3_duration_sec(_get(shot, "durationSec", "duration_sec", default=5))
+    return assemble_h3_prompt(project, [shot], plan, duration)
 
 
 def compile_clip_prompt(project: dict[str, Any]) -> dict[str, Any]:
@@ -290,7 +533,7 @@ def compile_clip_prompt(project: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str] = []
     errors: list[str] = []
     duration, allowed = clip_duration_sec(shots)
-    empty_plan = {"items": [], "workflowId": WORKFLOW_T2V, "warnings": [], "errors": []}
+    empty_plan = {"items": [], "route": "t2v", "workflowId": resolve_director_workflow(_project_workflow_family(project), "t2v"), "warnings": [], "errors": []}
     if not shots:
         errors.append("没有可编译的分镜")
         return {"allowed": False, "prompt": "", "durationSec": H3_MIN_DURATION_SEC, "plan": empty_plan, "warnings": warnings, "errors": errors}
@@ -303,37 +546,7 @@ def compile_clip_prompt(project: dict[str, Any]) -> dict[str, Any]:
     plan = build_clip_reference_plan(project)
     errors.extend(plan.get("errors") or [])
     warnings.extend(plan.get("warnings") or [])
-
-    sections: list[str] = [f"[task type]: {_task_type_label(plan['workflowId'])}"]
-    soundscape = str(_get(project, "globalSoundscape", "global_soundscape", default="") or "").strip()
-    music = str(_get(project, "globalMusic", "global_music", default="") or "").strip()
-    if soundscape:
-        sections.append(f"[overall_soundscape]: {soundscape}")
-    if music:
-        sections.append(f"[non_diegetic_music]: {music}")
-    definitions = _subject_definitions(project, plan)
-    if definitions:
-        sections.append(definitions)
-
-    cursor = 0.0
-    shot_blocks: list[str] = []
-    first_frame = next((item for item in plan.get("items") or [] if item.get("role") == "first_frame"), None)
-    for index, shot in enumerate(shots):
-        shot_duration = snap_h3_duration_sec(_get(shot, "durationSec", "duration_sec", default=5))
-        start, end = cursor, cursor + shot_duration
-        cursor = end
-        shot_plan = plan
-        header = f"[Shot {index + 1}] ({start:.1f}s - {end:.1f}s"
-        if index == 0 and first_frame:
-            header += f", begins from {picture_tag(int(first_frame['pictureIndex']))}"
-        elif _get(shot, "usePreviousEndFrame", "use_previous_end_frame"):
-            header += ", corresponds to previous keyframe"
-        header += "):"
-        body = replace_ref_tags(build_formatted_shot_prompt(shot), shot_plan)
-        shot_blocks.append(f"{header} {body}")
-    sections.append("[Timeline sequence]:\n" + "\n\n".join(shot_blocks))
-
-    prompt = "\n\n".join(sections).strip()
+    prompt = assemble_h3_prompt(project, shots, plan, duration)
     word_count = count_words(prompt)
     if word_count > H3_WORD_COUNT_WARN:
         warnings.append(f"提示词总词数 ({word_count} words) 超过官方推荐的 {H3_WORD_COUNT_WARN} 词上限，建议精简分镜描述。")
@@ -485,16 +698,21 @@ def recipe_assets_as_slots(recipe: dict[str, Any], shot: dict[str, Any] | None =
 
 def recipe_shot_as_timeline_shot(recipe: dict[str, Any], shot: dict[str, Any]) -> dict[str, Any]:
     prefix = recipe_style_prefix(recipe)
-    description = str(_get(shot, "description", "prompt", default="") or "").strip()
-    visual = f"{prefix}. {description}".strip(". ").strip() if prefix else description
+    h3_body = ""
+    for key in ("promptText", "prompt_text", "prompt", "description"):
+        h3_body = str(_get(shot, key, default="") or "").strip()
+        if h3_body:
+            break
+    visual = f"{prefix}. {h3_body}".strip(". ").strip() if prefix else h3_body
     timeline_shot = {
         "id": shot.get("id"),
         "title": shot.get("title"),
-        "prompt": visual or description,
+        "prompt": visual or h3_body,
         "dialogue": _get(shot, "dialogue", default="") or "",
         "durationSec": snap_h3_duration_sec(_get(shot, "durationSec", "duration_sec", default=5)),
         "soundscape": _get(shot, "soundscape", default="") or _get(recipe, "globalSoundscape", "global_soundscape", default=""),
         "camera": _get(shot, "camera", default={}) or {},
+        "characterNames": list(shot.get("characterNames") or shot.get("character_names") or []),
     }
     return timeline_shot
 
@@ -516,6 +734,7 @@ def recipe_as_timeline_project(recipe: dict[str, Any], shot: dict[str, Any]) -> 
         "globalMusic": _get(recipe, "globalMusic", "global_music", default=""),
         "manualPromptOverrideEnabled": _get(recipe, "manualPromptOverrideEnabled", "manual_prompt_override_enabled"),
         "manualPromptOverrideText": _get(recipe, "manualPromptOverrideText", "manual_prompt_override_text", default=""),
+        "videoWorkflowFamily": _get(recipe, "videoWorkflowFamily", "video_workflow_family", default=DEFAULT_DIRECTOR_WORKFLOW_FAMILY),
     }
 
 
