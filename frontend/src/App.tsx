@@ -1,18 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Dropdown, Input, InputNumber, message, Modal, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
+import { DatePicker, Dropdown, Input, InputNumber, message, Modal, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
 import {
-  ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo,
-  Download, ExternalLink, FolderOpen, HardDrive, History, ImagePlus, Link2, ListChecks, LoaderCircle, LogOut, Maximize2,
-  Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, Trash2, UserRound, Users, Video, WalletCards, WandSparkles, X,
+  ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo,
+  Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, Link2, ListChecks, LoaderCircle, LogOut, Maximize2,
+  Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Users, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson, User } from "./api"
+import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import {
   chooseResourceDirectory, DirectoryHandleLike, directoryApiSupported, directoryPermission,
   getResourceDirectory, localResourceFile, localResourceUrl, saveToResourceDirectory,
 } from "./local-resource-store"
 import type { ImageResult } from "./media/ImageStudioModule"
 import type { VideoResult } from "./media/VideoStudioModule"
+import JianyingExportModal from "./media/JianyingExportModal"
+import type { JianyingMediaItem } from "./media/jianying-draft-builder"
+import { createLocalId } from "./lib/utils"
 
 /*
  * THESIS: A conversation-first AI studio, not a dashboard of cards.
@@ -23,8 +27,9 @@ import type { VideoResult } from "./media/VideoStudioModule"
  */
 const ImageStudioModule = lazy(() => import("./media/ImageStudioModule"))
 const VideoStudioModule = lazy(() => import("./media/VideoStudioModule"))
+const DirectorStudioModule = lazy(() => import("./director/DirectorStudioModule"))
 
-type Status = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "partial"
+type Status = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
 type Output = {
   kind: "image" | "video"; path: string; label: string
   delivery_status?: "pending" | "local" | "cloud" | "expired"
@@ -40,25 +45,39 @@ type Job = {
   negative_prompt: string; image_size?: string | null
   reference_count: number; references: { index: number; url: string }[]
   options?: Record<string, unknown>; request_parameters: RequestParameter[]; outputs: Output[]; error?: string | null
-  created_at: string; updated_at: string
+  created_at: string; updated_at: string; finished_at?: string | null
+  elapsed_ms?: number | null; execution_elapsed_ms?: number | null
   media_type: "image" | "video"; title?: string | null; pinned?: boolean
   rounds: JobRound[]
   source?: { job_id: string; generation_item_id?: string | null; output_index?: number | null } | null
 }
-type GenerationItem = { id: string; index: number; executor: string; status: Status; stage: string; progress: number; outputs: Output[]; error?: string | null }
-type JobRound = { id: string; sequence: number; mode: string; media_type: "image" | "video"; status: Status; stage: string; progress: number; prompt: string; options?: Record<string, unknown>; reference_count: number; references: { index: number; url: string }[]; request_parameters: RequestParameter[]; generation_items: GenerationItem[]; error?: string | null }
+type GenerationItem = {
+  id: string; index: number; executor: string; status: Status; stage: string; progress: number
+  outputs: Output[]; error?: string | null
+  created_at?: string; updated_at?: string; finished_at?: string | null
+  elapsed_ms?: number | null; execution_elapsed_ms?: number | null
+}
+type JobRound = {
+  id: string; sequence: number; mode: string; media_type: "image" | "video"; status: Status; stage: string
+  progress: number; prompt: string; options?: Record<string, unknown>
+  reference_count: number; references: { index: number; url: string }[]
+  request_parameters: RequestParameter[]; generation_items: GenerationItem[]; error?: string | null
+  created_at?: string; updated_at?: string; finished_at?: string | null
+  elapsed_ms?: number | null; execution_elapsed_ms?: number | null
+}
 type Workflow = {
   id: string; name: string; description: string; reference_mode: "none" | "keyframes" | "collection" | "fixed"
   min_references: number; max_references: number; reference_labels: string[]
   accepts_negative_prompt: boolean; accepts_image_size: boolean; supports_h3_options: boolean
   parameters: WorkflowParameter[]
   media_type: "image" | "video"; executor: string; available: boolean; unavailable_reason?: string | null
+  catalog_group?: string; catalog_group_label?: string; catalog_group_order?: number
 }
 type OptionDefinition = {
   label: string; type: "string" | "number" | "integer" | "boolean"; default: string | number | boolean
   enum?: (string | number)[]; minimum?: number; maximum?: number; step?: number; pattern?: string
   description?: string; unit?: string; ui_group?: ParameterVisibility
-  ui_control?: "select" | "visual-settings" | "duration-slider"; ui_companion?: string; ui_companions?: string[]
+  ui_control?: "select" | "visual-settings" | "duration-slider" | "input-number"; ui_companion?: string; ui_companions?: string[]
   ui_options?: { value: string | number; label: string; hint?: string }[]
   megapixels_by_quality?: Record<string, number>
   ui_resolution_preview?: { multiple?: number; max_width?: number; max_height?: number }
@@ -130,14 +149,44 @@ const parameterValue = (parameter: RequestParameter) => {
   if (parameter.unit) return `${parameter.value} ${parameter.unit}`
   return String(parameter.value)
 }
-const statusText: Record<Status, string> = { queued: "等待队列", running: "生成中", succeeded: "已完成", partial: "部分完成", failed: "失败", interrupted: "已中断" }
+const statusText: Record<Status, string> = { queued: "等待队列", running: "生成中", succeeded: "已完成", partial: "部分完成", failed: "失败", interrupted: "已中断", cancelled: "已停止" }
 const statusColor: Record<Status, string> = {
-  queued: "text-amber-300", running: "text-[#9f8cff]", succeeded: "text-emerald-300", partial: "text-amber-200", failed: "text-red-300", interrupted: "text-[#94949d]",
+  queued: "text-amber-600", running: "text-[#4d6bfe]", succeeded: "text-emerald-600", partial: "text-amber-600", failed: "text-red-600", interrupted: "text-[#6b7280]", cancelled: "text-[#6b7280]",
 }
 
 function formatTime(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+}
+
+function formatCreatedFull(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN", { hour12: false })
+}
+
+function formatCreatedShort(value: string, nowMs = Date.now()) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const now = new Date(nowMs)
+  const time = date.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" })
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) return time
+  if (date.getFullYear() === now.getFullYear()) return `${date.getMonth() + 1}/${date.getDate()} ${time}`
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`
+}
+
+function waitCaption(
+  source: { created_at?: string; finished_at?: string | null; elapsed_ms?: number | null; execution_elapsed_ms?: number | null; status: Status },
+  now: number,
+) {
+  const live = isLiveStatus(source.status)
+  const text = elapsedCaption(jobElapsedMs({
+    createdAt: source.created_at,
+    finishedAt: source.finished_at,
+    elapsedMs: source.elapsed_ms,
+    now,
+    live,
+  }), live)
+  return { text, title: executionCaption(source.execution_elapsed_ms) || undefined }
 }
 
 function formatAssetDate(value: string) {
@@ -161,7 +210,7 @@ function formatGrsBalance(value: number | null | undefined) {
 
 function newAssets(files: FileList | File[]) {
   return Array.from(files).filter((file) => file.type.startsWith("image/")).map((file) => ({
-    id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
+    id: `${file.name}-${file.lastModified}-${createLocalId()}`,
     file,
     preview: URL.createObjectURL(file),
   }))
@@ -209,7 +258,7 @@ function generatedResolutionLabel(definition: OptionDefinition, quality: string,
 function serializeOptionValues(
   definitions: Record<string, OptionDefinition>, values: Record<string, OptionInputValue>,
 ) {
-  return Object.fromEntries(Object.entries(definitions).filter(([, definition]) => definition.ui_group !== "internal").map(([name, definition]) => {
+  return Object.fromEntries(Object.entries(definitions).filter(([, definition]) => definition.ui_group !== "internal" && optionVisible(definition, values)).map(([name, definition]) => {
     const value = values[name] ?? (definition.type === "boolean" ? false : "")
     return [name, definition.type === "number" || definition.type === "integer" ? Number(value) : value]
   }))
@@ -240,6 +289,32 @@ function validateOptionValues(
   return ""
 }
 
+function groupedWorkflowOptions(workflows: Workflow[]) {
+  const groups = new Map<string, { label: string; order: number; options: { value: string; label: string; title?: string }[] }>()
+  const ungrouped: { value: string; label: string; title?: string }[] = []
+  for (const item of workflows) {
+    const option = { value: item.id, label: item.name, title: item.description }
+    if (!item.catalog_group) {
+      ungrouped.push(option)
+      continue
+    }
+    const existing = groups.get(item.catalog_group)
+    if (existing) {
+      existing.options.push(option)
+      continue
+    }
+    groups.set(item.catalog_group, {
+      label: item.catalog_group_label || item.catalog_group,
+      order: item.catalog_group_order ?? 100,
+      options: [option],
+    })
+  }
+  const grouped = [...groups.values()]
+    .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, "zh-CN"))
+    .map((group) => ({ label: group.label, options: group.options }))
+  return ungrouped.length ? [...grouped, ...ungrouped] : grouped
+}
+
 function MediaTile({ item, localUrl }: { item: Output; localUrl?: string }) {
   const src = item.delivery_status === "local" ? localUrl : (item.download_url ?? mediaUrl(item.path))
   if (!src) return <div className="grid h-full w-full place-items-center bg-[#27282e] text-[#898993]"><HardDrive size={18} /></div>
@@ -249,7 +324,7 @@ function MediaTile({ item, localUrl }: { item: Output; localUrl?: string }) {
 }
 
 function TaskRail({
-  jobs, selectedJobId, onSelect, onPinToggle, onRename, onDelete, localMediaUrls, compact = false, showEmpty = true, scrollMode = "fill",
+  jobs, selectedJobId, onSelect, onPinToggle, onRename, onDelete, onCancel, localMediaUrls, compact = false, showEmpty = true, scrollMode = "fill",
 }: {
   jobs: Job[]
   selectedJobId?: string
@@ -257,6 +332,7 @@ function TaskRail({
   onPinToggle: (job: Job) => void
   onRename: (job: Job) => void
   onDelete: (job: Job) => void
+  onCancel: (job: Job) => void
   localMediaUrls: Record<string, string>
   compact?: boolean
   showEmpty?: boolean
@@ -267,6 +343,8 @@ function TaskRail({
       const selected = selectedJobId === job.id
       const cover = job.outputs[0]
       const reference = job.references[0]
+      const created = formatCreatedShort(job.created_at)
+      const createdFull = formatCreatedFull(job.created_at)
       return <div
         key={job.id}
         role="button"
@@ -278,8 +356,9 @@ function TaskRail({
         <div className="size-8 shrink-0 overflow-hidden rounded-md bg-[#eef1f4]">
           {cover ? <MediaTile item={cover} localUrl={localMediaUrls[cover.path]} /> : reference ? <img src={reference.url} alt="任务封面" className="h-full w-full object-cover" /> : <div className="grid h-full w-full place-items-center text-[#a0a8b2]">{job.media_type === "image" ? <ImagePlus size={15} /> : <Video size={15} />}</div>}
         </div>
-        <span title={statusText[job.status]} className={`size-1.5 shrink-0 rounded-full ${job.status === "succeeded" ? "bg-emerald-500" : job.status === "failed" || job.status === "interrupted" ? "bg-rose-500" : job.status === "running" ? "bg-[#4d6bfe]" : "bg-amber-400"}`} />
+        <span title={statusText[job.status]} className={`size-1.5 shrink-0 rounded-full ${job.status === "succeeded" ? "bg-emerald-500" : job.status === "failed" || job.status === "interrupted" || job.status === "cancelled" ? "bg-rose-500" : job.status === "running" ? "bg-[#4d6bfe]" : "bg-amber-400"}`} />
         <p className="min-w-0 flex-1 truncate text-sm leading-[21px] text-[#171a1f]">{job.title || job.prompt}</p>
+        {created ? <span title={createdFull ? `创作时间 ${createdFull}` : "创作时间"} className="shrink-0 text-[10px] tabular-nums text-[#7c8794]">{created}</span> : null}
         {job.pinned ? <Pin size={12} className="shrink-0 rotate-45 text-[#4d6bfe]" /> : null}
         <Dropdown
           trigger={["click"]}
@@ -288,13 +367,15 @@ function TaskRail({
             items: [
               { key: "pin", icon: <Pin size={14} />, label: job.pinned ? "取消置顶" : "置顶" },
               { key: "rename", icon: <Pencil size={14} />, label: "重命名" },
-              { type: "divider" },
+              ...((job.status === "queued" || job.status === "running" || job.status === "interrupted") ? [{ key: "cancel", danger: true as const, icon: <CircleStop size={14} />, label: "停止生成" }] : []),
+              { type: "divider" as const },
               { key: "delete", danger: true, icon: <Trash2 size={14} />, label: "删除" },
             ],
             onClick: ({ key, domEvent }) => {
               domEvent.stopPropagation()
               if (key === "pin") onPinToggle(job)
               if (key === "rename") onRename(job)
+              if (key === "cancel") onCancel(job)
               if (key === "delete") onDelete(job)
             },
           }}
@@ -305,6 +386,23 @@ function TaskRail({
     })}
     {showEmpty && !jobs.length && <div className="flex min-h-40 flex-col items-center justify-center px-5 text-center text-xs leading-5 text-[#7c8794]"><ListChecks className="mb-2 text-[#a0a8b2]" size={20} />当前类型还没有任务</div>}
   </div>
+}
+
+function AdminUserFilterSelect({
+  value, options, onChange, className,
+}: {
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (value: string) => void
+  className?: string
+}) {
+  return <Select
+    aria-label="切换查看用户"
+    value={value}
+    onChange={onChange}
+    className={className}
+    options={options}
+  />
 }
 
 export default function App({
@@ -327,11 +425,25 @@ export default function App({
   const referencesRef = useRef<ReferenceAsset[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState<string | undefined>()
-  const [workspaceView, setWorkspaceView] = useState<"generate" | "assets">("generate")
+  const [workspaceView, setWorkspaceView] = useState<"generate" | "director" | "assets">("generate")
   const [taskRailCollapsed, setTaskRailCollapsed] = useState(false)
   const [assetSection, setAssetSection] = useState<"history" | "subject" | "canvas">("history")
   const [assetMediaFilter, setAssetMediaFilter] = useState<AssetMediaFilter>("all")
   const [assetSearch, setAssetSearch] = useState("")
+  const [isBatchMode, setIsBatchMode] = useState(false)
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set())
+  const [filterStatus, setFilterStatus] = useState<"all" | "succeeded" | "running" | "failed">("all")
+  const [filterRatio, setFilterRatio] = useState<"all" | "16:9" | "9:16" | "1:1">("all")
+  const [filterStorage, setFilterStorage] = useState<"all" | "local" | "cloud">("all")
+  const [timeFilter, setTimeFilter] = useState<"all" | "today" | "7days" | "30days" | "month" | "custom">("all")
+  const [customDateRange, setCustomDateRange] = useState<[string, string] | null>(null)
+  const [customDateModalOpen, setCustomDateModalOpen] = useState(false)
+  const [customDateRangeValue, setCustomDateRangeValue] = useState<any>(null)
+  const [sortOption, setSortOption] = useState<
+    "created_desc" | "created_asc" | "title_asc" | "title_desc" | "prompt_len_desc" | "prompt_len_asc"
+  >("created_desc")
+  const [jianyingModalOpen, setJianyingModalOpen] = useState(false)
+  const [jianyingSelectedItems, setJianyingSelectedItems] = useState<JianyingMediaItem[]>([])
   const [isComposerCompact, setIsComposerCompact] = useState(false)
   const [renameTarget, setRenameTarget] = useState<Job | null>(null)
   const [renameValue, setRenameValue] = useState("")
@@ -360,18 +472,57 @@ export default function App({
   const localMediaUrlsRef = useRef<Record<string, string>>({})
   const [messageApi, messageContext] = message.useMessage()
   const restoringComposerRef = useRef(false)
+  const [adminUserFilter, setAdminUserFilter] = useState<string>("all")
 
   const modesQuery = useQuery({ queryKey: ["modes"], queryFn: async () => {
     const payload = await api<ModesPayload>("/api/modes")
     return { ...payload, modes: payload.modes.map(normalizeWorkflow) }
   } })
-  const jobsQuery = useQuery({ queryKey: ["jobs", user.id], queryFn: async () => (await api<Job[]>("/api/jobs")).map(normalizeJob), refetchInterval: 1600 })
+  const isAdminViewer = user.role === "admin" || user.role === "super_admin"
+  const adminUsersQuery = useQuery({
+    queryKey: ["admin_users"],
+    queryFn: () => api<User[]>("/api/admin/users"),
+    enabled: isAdminViewer,
+  })
+  const jobsQuery = useQuery({
+    queryKey: ["jobs", user.id, adminUserFilter],
+    queryFn: async () => {
+      const search = new URLSearchParams()
+      if (isAdminViewer && adminUserFilter !== user.id) {
+        search.set("user_id", adminUserFilter)
+      }
+      const qs = search.toString()
+      return (await api<Job[]>(`/api/jobs${qs ? `?${qs}` : ""}`)).map(normalizeJob)
+    },
+    refetchInterval: (query) => {
+      if (workspaceView === "assets") return false
+      const jobs = query.state.data as Job[] | undefined
+      if (!jobs) return 1600
+      const hasActive = jobs.some((job) => job.status === "running" || job.status === "queued" || job.status === "interrupted")
+      return hasActive ? 1600 : 15000
+    },
+  })
   const storageQuery = useQuery({ queryKey: ["storage-capability"], queryFn: () => api<StorageCapability>("/api/storage") })
   const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => api<{ comfy: { reachable: boolean }; grs: { available: boolean; message?: string | null } }>("/api/health"), refetchInterval: 8000 })
   const workflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === mediaType)
   const workflow = workflows.find((item) => item.id === workflowId) ?? workflows[0]
   const allJobs = jobsQuery.data ?? []
   const jobs = allJobs.filter((job) => job.media_type === mediaType)
+  const adminUserOptions = useMemo(() => [
+    { value: "all", label: "全部用户" },
+    ...(adminUsersQuery.data ?? []).map((account) => ({
+      value: account.id,
+      label: account.display_name || account.username,
+    })),
+  ], [adminUsersQuery.data])
+  const inspectedUser = (adminUsersQuery.data ?? []).find((account) => account.id === adminUserFilter)
+  const inspectedUserLabel = inspectedUser?.display_name || inspectedUser?.username || "该用户"
+  const isInspectingOtherUser = isAdminViewer && adminUserFilter !== "all" && adminUserFilter !== user.id
+  const changeAdminUserFilter = (value: string) => {
+    setAdminUserFilter(value)
+    setSelectedJobId(undefined)
+    setIsSelectedPromptExpanded(false)
+  }
   const imageGenerationActive = mediaType === "image" && jobs.some((job) => job.status === "queued" || job.status === "running")
   const grsBalanceQuery = useQuery({
     queryKey: ["grs-balance"],
@@ -391,6 +542,7 @@ export default function App({
   const h3Skills = skillsQuery.data?.skills || []
   const activeSkill = h3Skills.find((s) => s.id === selectedSkillId) || h3Skills[0]
   const selectedJob = selectedJobId ? jobs.find((job) => job.id === selectedJobId) : undefined
+  const now = useNow(Boolean(selectedJob && (isLiveStatus(selectedJob.status) || selectedJob.rounds.some((round) => isLiveStatus(round.status)))))
 
   const recentJobs = selectedJob ? jobs.filter((job) => job.id !== selectedJob.id) : jobs
   const assetEntries = useMemo(
@@ -410,15 +562,119 @@ export default function App({
     }),
     [allJobs],
   )
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (filterStatus !== "all") count++
+    if (filterRatio !== "all") count++
+    if (filterStorage !== "all") count++
+    return count
+  }, [filterStatus, filterRatio, filterStorage])
+
   const visibleAssetEntries = useMemo(() => {
     const query = assetSearch.trim().toLocaleLowerCase()
-    return assetEntries.filter(({ job, output }) => {
+    const now = new Date()
+
+    const filtered = assetEntries.filter(({ job, output }) => {
+      if (assetSection !== "history") return false
+
+      // 1. Media Type Filter (全部/图片/视频/音频/文档)
       const matchesType = assetMediaFilter === "all" || output.kind === assetMediaFilter
+      if (!matchesType) return false
+
+      // 2. Search query (label, title, prompt)
       const searchable = `${output.label} ${job.title ?? ""} ${job.prompt}`.toLocaleLowerCase()
-      return assetSection === "history" && matchesType && (!query || searchable.includes(query))
+      if (query && !searchable.includes(query)) return false
+
+      // 3. Status Filter (全部/成功/进行中/失败)
+      if (filterStatus === "succeeded" && !(job.status === "succeeded" || job.status === "partial")) return false
+      if (filterStatus === "running" && !(job.status === "running" || job.status === "queued")) return false
+      if (filterStatus === "failed" && !(job.status === "failed" || job.status === "interrupted" || job.status === "cancelled")) return false
+
+      // 4. Ratio Filter (全部/16:9/9:16/1:1)
+      if (filterRatio !== "all") {
+        const paramStr = (job.request_parameters ?? []).map((p) => String(p.value)).join(" ")
+        const allText = `${job.image_size ?? ""} ${output.label} ${paramStr}`.toLowerCase()
+        if (filterRatio === "16:9" && !(allText.includes("16:9") || allText.includes("横版") || allText.includes("1280 x 720") || allText.includes("1920 x 1080") || allText.includes("1280*720"))) return false
+        if (filterRatio === "9:16" && !(allText.includes("9:16") || allText.includes("竖版") || allText.includes("720 x 1280") || allText.includes("1080 x 1920") || allText.includes("720*1280"))) return false
+        if (filterRatio === "1:1" && !(allText.includes("1:1") || allText.includes("方形") || allText.includes("1024 x 1024") || allText.includes("1024*1024"))) return false
+      }
+
+      // 5. Storage Filter (全部/已存本地/云端暂存)
+      const isLocal = output.delivery_status === "local" || Boolean(localMediaUrls[output.path])
+      if (filterStorage === "local" && !isLocal) return false
+      if (filterStorage === "cloud" && isLocal) return false
+
+      // 6. Time Filter (全部/今天/近7天/近30天/本月/自定义)
+      const createdDate = new Date(job.created_at)
+      const createdTime = createdDate.getTime()
+      if (!Number.isNaN(createdTime)) {
+        if (timeFilter === "today") {
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+          if (createdTime < todayStart) return false
+        } else if (timeFilter === "7days") {
+          const sevenDaysAgo = now.getTime() - 7 * 86400 * 1000
+          if (createdTime < sevenDaysAgo) return false
+        } else if (timeFilter === "30days") {
+          const thirtyDaysAgo = now.getTime() - 30 * 86400 * 1000
+          if (createdTime < thirtyDaysAgo) return false
+        } else if (timeFilter === "month") {
+          if (createdDate.getFullYear() !== now.getFullYear() || createdDate.getMonth() !== now.getMonth()) return false
+        } else if (timeFilter === "custom" && customDateRange) {
+          const start = new Date(customDateRange[0]).getTime()
+          const end = new Date(customDateRange[1]).getTime() + 86400 * 1000
+          if (createdTime < start || createdTime > end) return false
+        }
+      }
+
+      return true
     })
-  }, [assetEntries, assetMediaFilter, assetSearch, assetSection])
+
+    // 排序
+    return filtered.sort((a, b) => {
+      const timeA = new Date(a.job.created_at).getTime() || 0
+      const timeB = new Date(b.job.created_at).getTime() || 0
+      if (sortOption === "created_desc") return timeB - timeA
+      if (sortOption === "created_asc") return timeA - timeB
+      if (sortOption === "title_asc") {
+        const titleA = a.job.title || a.job.prompt || ""
+        const titleB = b.job.title || b.job.prompt || ""
+        return titleA.localeCompare(titleB, "zh-CN")
+      }
+      if (sortOption === "title_desc") {
+        const titleA = a.job.title || a.job.prompt || ""
+        const titleB = b.job.title || b.job.prompt || ""
+        return titleB.localeCompare(titleA, "zh-CN")
+      }
+      if (sortOption === "prompt_len_desc") {
+        return (b.job.prompt?.length || 0) - (a.job.prompt?.length || 0)
+      }
+      if (sortOption === "prompt_len_asc") {
+        return (a.job.prompt?.length || 0) - (b.job.prompt?.length || 0)
+      }
+      return timeB - timeA
+    })
+  }, [
+    assetEntries,
+    assetMediaFilter,
+    assetSearch,
+    assetSection,
+    customDateRange,
+    filterRatio,
+    filterStatus,
+    filterStorage,
+    localMediaUrls,
+    sortOption,
+    timeFilter,
+  ])
+
   const assetGroups = useMemo(() => {
+    if (sortOption.startsWith("title_") || sortOption.startsWith("prompt_len_")) {
+      return [{
+        label: sortOption.startsWith("title_") ? "按名称排列" : "按提示词长度排列",
+        timestamp: 0,
+        entries: visibleAssetEntries,
+      }]
+    }
     const groups = new Map<string, { label: string; timestamp: number; entries: typeof visibleAssetEntries }>()
     visibleAssetEntries.forEach((entry) => {
       const date = new Date(entry.job.created_at)
@@ -427,8 +683,12 @@ export default function App({
       if (current) current.entries.push(entry)
       else groups.set(key, { label: formatAssetDate(entry.job.created_at), timestamp: Number.isNaN(date.getTime()) ? 0 : date.getTime(), entries: [entry] })
     })
-    return Array.from(groups.values()).sort((left, right) => right.timestamp - left.timestamp)
-  }, [visibleAssetEntries])
+    const list = Array.from(groups.values())
+    if (sortOption === "created_asc") {
+      return list.sort((left, right) => left.timestamp - right.timestamp)
+    }
+    return list.sort((left, right) => right.timestamp - left.timestamp)
+  }, [visibleAssetEntries, sortOption])
   const optionDefinitions = useMemo(() => workflowOptionDefinitions(workflow), [workflow])
   const primaryOptionDefinitions = useMemo(
     () => {
@@ -648,6 +908,16 @@ export default function App({
     },
   })
 
+  const cancelMutation = useMutation({
+    mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${jobId}/cancel`, {
+      method: "POST", headers: { "X-CSRF-Token": csrfToken },
+    }),
+    onSuccess: (job) => {
+      setSelectedJobId(job.id)
+      void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
+    },
+  })
+
   const createRoundMutation = useMutation({
     mutationFn: async (job: Job) => {
       const form = new FormData()
@@ -743,7 +1013,7 @@ export default function App({
   const optionError = Object.keys(optionDefinitions).length
     ? validateOptionValues(optionDefinitions, optionValues, referenceCount)
     : ""
-  const canSubmit = Boolean(workflow?.available && prompt.trim() && referenceCount >= workflow.min_references && referenceCount <= workflow.max_references && !optionError && !createMutation.isPending)
+  const canSubmit = Boolean(!isInspectingOtherUser && workflow?.available && prompt.trim() && referenceCount >= workflow.min_references && referenceCount <= workflow.max_references && !optionError && !createMutation.isPending)
   const referenceHint = workflow?.reference_mode === "collection"
     ? `已添加 ${referenceCount} / ${workflow.max_references} 张`
     : workflow?.reference_mode === "keyframes" ? "首帧必填更稳定，尾帧用于锁定结尾" : ""
@@ -891,6 +1161,16 @@ export default function App({
     okButtonProps: { danger: true },
     onOk: () => deleteMutation.mutateAsync(job),
   })
+  const confirmCancel = (job: Job) => Modal.confirm({
+    title: "停止生成？",
+    content: job.media_type === "image"
+      ? "工作台将停止等待结果。云端任务可能仍会继续计费，尚未取回的图片不会自动拉取。"
+      : "将中断 ComfyUI 当前推理并取消排队。未完成的视频无法续跑，也不会自动重新提交。",
+    okText: "停止生成",
+    cancelText: "继续生成",
+    okButtonProps: { danger: true },
+    onOk: () => cancelMutation.mutateAsync(job.id),
+  })
   const reEditRound = async (job: Job, round: JobRound) => {
     const targetWorkflow = (modesQuery.data?.modes ?? []).find((item) => item.id === round.mode)
     if (!targetWorkflow) {
@@ -928,10 +1208,199 @@ export default function App({
     })
   }
 
+  const handleToggleBatchMode = () => {
+    setIsBatchMode((prev) => {
+      if (prev) {
+        setSelectedAssetIds(new Set())
+      }
+      return !prev
+    })
+  }
+
+  const handleToggleSelectAsset = (id: string) => {
+    setSelectedAssetIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleSelectAll = () => {
+    setSelectedAssetIds(new Set(visibleAssetEntries.map((e) => e.id)))
+  }
+
+  const handleDeselectAll = () => {
+    setSelectedAssetIds(new Set())
+  }
+
+  const handleBatchDownload = () => {
+    const selectedEntries = visibleAssetEntries.filter((e) => selectedAssetIds.has(e.id))
+    if (!selectedEntries.length) {
+      messageApi.warning("请先勾选需要下载的资产")
+      return
+    }
+
+    messageApi.info(`正在准备下载 ${selectedEntries.length} 个资产文件...`)
+    selectedEntries.forEach(({ job, output, outputIndex }, index) => {
+      const url = localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path)
+      if (!url) return
+      setTimeout(() => {
+        const ext = output.kind === "image" ? "png" : "mp4"
+        const cleanTitle = (job.title || job.prompt.slice(0, 30) || `asset_${job.id.slice(0, 8)}`).replace(/[\\/:*?"<>|]/g, "_")
+        const filename = `${cleanTitle}_${outputIndex + 1}.${ext}`
+        const a = document.createElement("a")
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }, index * 250)
+    })
+  }
+
+  const handleBatchDelete = () => {
+    const selectedEntries = visibleAssetEntries.filter((e) => selectedAssetIds.has(e.id))
+    if (!selectedEntries.length) {
+      messageApi.warning("请先勾选需要删除的资产")
+      return
+    }
+    const uniqueJobIds = Array.from(new Set(selectedEntries.map((e) => e.job.id)))
+    const jobsToDelete = uniqueJobIds.map((id) => allJobs.find((j) => j.id === id)).filter(Boolean) as Job[]
+
+    Modal.confirm({
+      title: "批量删除资产与任务记录？",
+      content: `已选中 ${selectedEntries.length} 个资产项，涉及 ${jobsToDelete.length} 个生成任务。删除后任务记录及全部生成轮次将从工作台移除，已保存到本地磁盘的文件不会被删除。`,
+      okText: "确认删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          for (const job of jobsToDelete) {
+            await deleteMutation.mutateAsync(job)
+          }
+          setSelectedAssetIds(new Set())
+          messageApi.success(`已批量删除 ${jobsToDelete.length} 个任务`)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "批量删除失败"
+          messageApi.error(`删除失败: ${msg}`)
+        }
+      },
+    })
+  }
+
+  const handleOpenJianying = (onlySelected = false) => {
+    const targetEntries = (onlySelected && selectedAssetIds.size > 0)
+      ? visibleAssetEntries.filter((e) => selectedAssetIds.has(e.id))
+      : visibleAssetEntries.filter((e) => e.output.kind === "video" || e.output.kind === "image")
+
+    const items: JianyingMediaItem[] = targetEntries.map(({ id, job, output, outputIndex }) => {
+      const url = localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path)
+      return {
+        id,
+        title: job.title || job.prompt.slice(0, 30) || `素材_${outputIndex + 1}`,
+        kind: output.kind,
+        path: output.path,
+        url,
+        durationSeconds: output.kind === "image" ? 3.0 : 5.0,
+      }
+    })
+
+    if (!items.length) {
+      messageApi.warning("当前没有可用于剪映剪辑的视频或图片资产")
+      return
+    }
+
+    setJianyingSelectedItems(items)
+    setJianyingModalOpen(true)
+  }
+
+  const timeLabel = {
+    all: "时间",
+    today: "今天",
+    "7days": "近 7 天",
+    "30days": "近 30 天",
+    month: "本月",
+    custom: "自定义时间",
+  }[timeFilter]
+
+  const sortLabel = {
+    created_desc: "最新在前",
+    created_asc: "最早在前",
+    title_asc: "名称 A-Z",
+    title_desc: "名称 Z-A",
+    prompt_len_desc: "提示词长到短",
+    prompt_len_asc: "提示词短到长",
+  }[sortOption]
+
+  const filterMenuItems = [
+    {
+      key: "status_group",
+      type: "group" as const,
+      label: "生成状态",
+      children: [
+        { key: "status:all", label: "全部状态", icon: filterStatus === "all" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+        { key: "status:succeeded", label: "已完成 (成功)", icon: filterStatus === "succeeded" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+        { key: "status:running", label: "生成中 (排队/运行)", icon: filterStatus === "running" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+        { key: "status:failed", label: "失败 / 中断 / 已停止", icon: filterStatus === "failed" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+      ],
+    },
+    { type: "divider" as const },
+    {
+      key: "ratio_group",
+      type: "group" as const,
+      label: "画面画幅",
+      children: [
+        { key: "ratio:all", label: "全部画幅", icon: filterRatio === "all" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+        { key: "ratio:16:9", label: "16:9 横屏", icon: filterRatio === "16:9" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+        { key: "ratio:9:16", label: "9:16 竖屏", icon: filterRatio === "9:16" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+        { key: "ratio:1:1", label: "1:1 方形", icon: filterRatio === "1:1" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+      ],
+    },
+    { type: "divider" as const },
+    {
+      key: "storage_group",
+      type: "group" as const,
+      label: "存储状态",
+      children: [
+        { key: "storage:all", label: "全部存储", icon: filterStorage === "all" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+        { key: "storage:local", label: "已保存至本地", icon: filterStorage === "local" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+        { key: "storage:cloud", label: "云端暂存 / 未存", icon: filterStorage === "cloud" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+      ],
+    },
+    { type: "divider" as const },
+    {
+      key: "reset_filter",
+      danger: true,
+      label: "重置所有筛选",
+    },
+  ]
+
+  const timeMenuItems = [
+    { key: "all", label: "全部时间", icon: timeFilter === "all" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { key: "today", label: "今天", icon: timeFilter === "today" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { key: "7days", label: "近 7 天", icon: timeFilter === "7days" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { key: "30days", label: "近 30 天", icon: timeFilter === "30days" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { key: "month", label: "本月", icon: timeFilter === "month" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { type: "divider" as const },
+    { key: "custom", label: "自定义范围...", icon: timeFilter === "custom" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+  ]
+
+  const sortMenuItems = [
+    { key: "created_desc", label: "创建时间：最新在前 (默认)", icon: sortOption === "created_desc" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { key: "created_asc", label: "创建时间：最早在前", icon: sortOption === "created_asc" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { type: "divider" as const },
+    { key: "title_asc", label: "任务标题：A → Z", icon: sortOption === "title_asc" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { key: "title_desc", label: "任务标题：Z → A", icon: sortOption === "title_desc" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { type: "divider" as const },
+    { key: "prompt_len_desc", label: "提示词：由长到短", icon: sortOption === "prompt_len_desc" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+    { key: "prompt_len_asc", label: "提示词：由短到长", icon: sortOption === "prompt_len_asc" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
+  ]
+
   return (
     <div className="studio-light min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]">
       {messageContext}
-      <header className="studio-header fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-black/[0.05] bg-white px-3 sm:px-5">
+      <header className={`studio-header fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-black/[0.05] bg-white px-3 sm:px-5 ${workspaceView === "director" ? "studio-header-director" : ""}`}>
         <div className="flex min-w-0 items-center gap-4">
           <div className="flex items-center gap-2 text-[#171a1f]">
             <span className="grid size-7 place-items-center rounded-md border border-[#7655ff] text-[#a28cff]"><Sparkles size={15} /></span>
@@ -978,47 +1447,125 @@ export default function App({
         </div>
       </section> : null}
 
-      <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""}`}>
+      <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "director" ? "studio-director-view" : ""}`}>
+        <nav className="studio-mobile-nav" aria-label="工作区导航">
+          <button type="button" onClick={() => { setWorkspaceView("generate"); setTaskRailCollapsed(false) }} className={workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</button>
+          <button type="button" onClick={() => { setWorkspaceView("director"); setTaskRailCollapsed(true) }} className={workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</button>
+          <button type="button" onClick={() => { setWorkspaceView("assets"); setTaskRailCollapsed(true) }} className={workspaceView === "assets" ? "is-active" : ""}><FolderOpen size={16} />资产</button>
+        </nav>
         <aside className="studio-icon-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[76px] flex-col items-center border-r border-black/[0.05] bg-white pt-5 xl:flex">
           <div className="flex flex-col items-center gap-2">
             <button type="button" title="生成" aria-label="生成" onClick={() => { setWorkspaceView("generate"); setTaskRailCollapsed(false) }} className={`studio-global-nav-item ${workspaceView === "generate" ? "studio-global-nav-item-active" : ""}`}><Sparkles size={19} /><span>生成</span></button>
+            <button type="button" title="导演台" aria-label="导演台" onClick={() => { setWorkspaceView("director"); setTaskRailCollapsed(true) }} className={`studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><Clapperboard size={19} /><span>导演台</span></button>
             <button type="button" title="资产" aria-label="资产" onClick={() => { setWorkspaceView("assets"); setTaskRailCollapsed(true) }} className={`studio-global-nav-item ${workspaceView === "assets" ? "studio-global-nav-item-active" : ""}`}><FolderOpen size={19} /><span>资产</span></button>
           </div>
           {workspaceView === "generate" && taskRailCollapsed ? <Tooltip title="展开任务栏" placement="right"><button type="button" title="展开任务栏" aria-label="展开任务栏" onClick={() => setTaskRailCollapsed(false)} className="studio-task-rail-reopen"><PanelLeftOpen size={17} /></button></Tooltip> : null}
         </aside>
 
-        <aside className="studio-task-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[240px] flex-col border-r border-black/[0.05] bg-white xl:left-[76px] lg:flex">
+        <aside className={`studio-task-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[240px] flex-col border-r border-black/[0.05] bg-white xl:left-[76px] ${workspaceView === "generate" ? "lg:flex" : "!hidden"}`}>
           <div className="border-b border-white/[0.08] px-4 pb-3 pt-4">
             <div className="flex items-center justify-between gap-3">
               <div><p className="text-sm font-medium text-[#171a1f]">开启创作</p><p className="mt-1 text-[11px] text-[#7c8794]">{jobs.length} 个{mediaType === "image" ? "图片" : "视频"}任务</p></div>
               <button type="button" title="收起任务栏" aria-label="收起任务栏" aria-expanded="true" onClick={() => setTaskRailCollapsed(true)} className="studio-task-rail-collapse grid size-8 place-items-center rounded-lg text-[#65707c] hover:bg-black/[0.04] hover:text-[#171a1f]"><PanelLeftClose size={16} /></button>
             </div>
-            <button type="button" onClick={resetCreation} className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-black/[0.06] bg-white text-sm text-[#27303a] transition hover:bg-[#f5f7f9]"><Pencil size={15} />新对话</button>
+            {isAdminViewer ? <AdminUserFilterSelect value={adminUserFilter} options={adminUserOptions} onChange={changeAdminUserFilter} className="studio-task-user-select mt-3 w-full" /> : null}
+            {isInspectingOtherUser
+              ? <p className="mt-3 text-[11px] leading-5 text-[#7c8794]">正在查看 {inspectedUserLabel} 的生成任务</p>
+              : <button type="button" onClick={resetCreation} className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-black/[0.06] bg-white text-sm text-[#27303a] transition hover:bg-[#f5f7f9]"><Pencil size={15} />新对话</button>}
           </div>
           <div className="flex min-h-0 flex-1 flex-col pt-3">
             <section className="studio-task-section">
               <p className="studio-task-section-title">当前创作</p>
-              {selectedJob ? <TaskRail jobs={[selectedJob]} selectedJobId={selectedJob.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} scrollMode="content" showEmpty={false} /> : <p className="px-4 pb-3 text-xs text-[#98a2ad]">新对话会从这里开始</p>}
+              {selectedJob ? <TaskRail jobs={[selectedJob]} selectedJobId={selectedJob.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} scrollMode="content" showEmpty={false} /> : <p className="px-4 pb-3 text-xs text-[#98a2ad]">{isInspectingOtherUser ? "从最近任务中选择一条查看" : "新对话会从这里开始"}</p>}
             </section>
             <section className="flex min-h-0 flex-1 flex-col">
               <p className="studio-task-section-title">最近</p>
-              <TaskRail jobs={recentJobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} />
+              <TaskRail jobs={recentJobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
             </section>
           </div>
         </aside>
 
-        <div className="absolute left-4 top-4 z-30 flex w-[136px] flex-col gap-2 lg:hidden">
-          <button type="button" onClick={resetCreation} className="flex h-9 items-center justify-center gap-2 rounded-[18px] bg-[#7047f6] px-3 text-sm text-white hover:bg-[#7c58f8]"><Plus size={16} />新建任务</button>
-          <button type="button" onClick={() => setHistoryOpen((open) => !open)} className={`flex h-9 items-center justify-center gap-2 rounded-[18px] border px-3 text-sm transition ${historyOpen ? "border-white bg-white/10" : "border-[#6947ee] bg-[#5d45aa]/20 hover:bg-[#5d45aa]/35"}`}><ListChecks size={16} />任务列表</button>
-        </div>
+        {workspaceView === "generate" && (
+          <div className="absolute left-4 top-4 z-30 flex w-[136px] flex-col gap-2 lg:hidden">
+            {isInspectingOtherUser ? null : <button type="button" onClick={resetCreation} className="flex h-9 items-center justify-center gap-2 rounded-[18px] bg-[#7047f6] px-3 text-sm text-white hover:bg-[#7c58f8]"><Plus size={16} />新建任务</button>}
+            <button type="button" onClick={() => setHistoryOpen((open) => !open)} className={`flex h-9 items-center justify-center gap-2 rounded-[18px] border px-3 text-sm transition ${historyOpen ? "border-white bg-white/10" : "border-[#6947ee] bg-[#5d45aa]/20 hover:bg-[#5d45aa]/35"}`}><ListChecks size={16} />任务列表</button>
+          </div>
+        )}
 
-        {historyOpen && <section className="absolute left-4 top-[106px] z-40 flex h-[420px] w-[min(392px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-[0_16px_36px_rgba(22,31,44,0.16)] lg:hidden">
+        {workspaceView === "generate" && historyOpen && <section className={`absolute left-4 z-40 flex h-[420px] w-[min(392px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-[0_16px_36px_rgba(22,31,44,0.16)] lg:hidden ${isInspectingOtherUser ? "top-[58px]" : "top-[106px]"}`}>
           <div className="flex items-center justify-between border-b border-black/[0.05] px-4 pb-3 pt-4"><h2 className="text-base font-medium text-[#171a1f]">任务列表</h2><button type="button" onClick={() => setHistoryOpen(false)} title="关闭任务列表" className="grid size-8 place-items-center rounded-lg text-[#65707c] hover:bg-black/[0.05] hover:text-[#171a1f]"><X size={15} /></button></div>
-          <TaskRail compact jobs={jobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false); setHistoryOpen(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} />
+          {isAdminViewer ? <div className="border-b border-black/[0.05] px-4 py-2"><AdminUserFilterSelect value={adminUserFilter} options={adminUserOptions} onChange={changeAdminUserFilter} className="w-full" /></div> : null}
+          {isInspectingOtherUser ? <p className="border-b border-black/[0.05] px-4 py-2 text-[11px] leading-5 text-[#7c8794]">正在查看 {inspectedUserLabel} 的生成任务</p> : null}
+          <TaskRail compact jobs={jobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { setSelectedJobId(jobId); setIsSelectedPromptExpanded(false); setHistoryOpen(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
         </section>}
 
-        <main className={`relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""}`}>
-          {workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
+        <main className={workspaceView === "director"
+          ? "director-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
+          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""}`
+        }>
+          {workspaceView === "director" ? (
+            <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 导演台...</div>}>
+              <DirectorStudioModule
+                user={user}
+                csrfToken={csrfToken}
+                allJobs={allJobs}
+                directoryHandle={directoryHandle}
+                onOpenDirectoryModal={() => setStorageOpen(true)}
+                onExitDirector={() => setWorkspaceView("generate")}
+              />
+            </Suspense>
+          ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
+
+            {isBatchMode && (
+              <div className="studio-asset-batch-bar mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#4d6bfe]/30 bg-[#eff4ff] px-4 py-2.5">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-[#1e40af]">
+                    已选择 <strong className="text-sm font-bold text-[#1d4ed8]">{selectedAssetIds.size}</strong> / {visibleAssetEntries.length} 项
+                  </span>
+                  <button
+                    type="button"
+                    onClick={selectedAssetIds.size === visibleAssetEntries.length && visibleAssetEntries.length > 0 ? handleDeselectAll : handleSelectAll}
+                    className="text-xs font-medium text-[#4d6bfe] hover:underline"
+                  >
+                    {selectedAssetIds.size === visibleAssetEntries.length && visibleAssetEntries.length > 0 ? "取消全选" : "全选当前"}
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBatchDownload}
+                    disabled={selectedAssetIds.size === 0}
+                    className="studio-asset-batch-btn studio-asset-batch-btn-download"
+                  >
+                    <Download size={13} /> 批量下载 ({selectedAssetIds.size})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenJianying(true)}
+                    disabled={selectedAssetIds.size === 0}
+                    className="studio-asset-batch-btn studio-asset-batch-btn-jianying"
+                  >
+                    <Clapperboard size={13} /> 导出剪映草稿 ({selectedAssetIds.size})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchDelete}
+                    disabled={selectedAssetIds.size === 0}
+                    className="studio-asset-batch-btn studio-asset-batch-btn-delete"
+                  >
+                    <Trash2 size={13} /> 批量删除
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleToggleBatchMode}
+                    className="studio-asset-batch-btn studio-asset-batch-btn-cancel"
+                  >
+                    <X size={13} /> 退出批量
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="studio-asset-toolbar">
               <Tabs
                 className="studio-asset-tabs"
@@ -1027,9 +1574,24 @@ export default function App({
                 items={[{ key: "history", label: "生成历史" }, { key: "subject", label: "主体" }, { key: "canvas", label: "画布" }]}
               />
               <div className="studio-asset-actions">
+                {isAdminViewer && (
+                  <AdminUserFilterSelect value={adminUserFilter} options={adminUserOptions} onChange={changeAdminUserFilter} className="w-32" />
+                )}
                 <Input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} allowClear prefix={<Search className="studio-asset-search-icon" size={15} />} placeholder="搜索" aria-label="搜索资产" />
-                <button type="button" className="studio-asset-action-button">批量操作</button>
-                <button type="button" className="studio-asset-action-button studio-asset-action-primary">去剪映剪辑 <ExternalLink size={14} /></button>
+                <button
+                  type="button"
+                  onClick={handleToggleBatchMode}
+                  className={`studio-asset-action-button ${isBatchMode ? "studio-asset-action-button-active" : ""}`}
+                >
+                  {isBatchMode ? "退出批量" : "批量操作"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenJianying(false)}
+                  className="studio-asset-action-button studio-asset-action-primary"
+                >
+                  去剪映剪辑 <ExternalLink size={14} />
+                </button>
               </div>
             </div>
             <div className="studio-asset-filter-bar">
@@ -1037,17 +1599,163 @@ export default function App({
                 {[{ key: "all", label: "全部" }, { key: "image", label: "图片" }, { key: "video", label: "视频" }, { key: "audio", label: "音频" }, { key: "document", label: "文档" }].map((filter) => <button key={filter.key} type="button" onClick={() => setAssetMediaFilter(filter.key as AssetMediaFilter)} className={`studio-asset-filter ${assetMediaFilter === filter.key ? "studio-asset-filter-active" : ""}`}>{filter.label}</button>)}
               </div>
               <div className="studio-asset-sort-tools">
-                <button type="button" className="studio-asset-sort-button">筛选 <ChevronDown size={14} /></button>
-                <button type="button" className="studio-asset-sort-button">时间 <ChevronDown size={14} /></button>
-                <button type="button" className="studio-asset-sort-button">排序 <ChevronDown size={14} /></button>
+                <Dropdown
+                  menu={{
+                    items: filterMenuItems,
+                    onClick: ({ key }) => {
+                      if (key === "reset_filter") {
+                        setFilterStatus("all")
+                        setFilterRatio("all")
+                        setFilterStorage("all")
+                        messageApi.info("已重置所有筛选条件")
+                        return
+                      }
+                      if (key.startsWith("status:")) setFilterStatus(key.slice(7) as typeof filterStatus)
+                      else if (key.startsWith("ratio:")) setFilterRatio(key.slice(6) as typeof filterRatio)
+                      else if (key.startsWith("storage:")) setFilterStorage(key.slice(8) as typeof filterStorage)
+                    },
+                  }}
+                  trigger={["click"]}
+                  placement="bottomRight"
+                >
+                  <button
+                    type="button"
+                    className={`studio-asset-sort-button ${activeFilterCount > 0 ? "studio-asset-sort-button-active" : ""}`}
+                  >
+                    <Filter size={13} />
+                    <span>{activeFilterCount > 0 ? `筛选 (${activeFilterCount})` : "筛选"}</span>
+                    <ChevronDown size={14} />
+                  </button>
+                </Dropdown>
+
+                <Dropdown
+                  menu={{
+                    items: timeMenuItems,
+                    onClick: ({ key }) => {
+                      if (key === "custom") {
+                        setCustomDateModalOpen(true)
+                      } else {
+                        setTimeFilter(key as typeof timeFilter)
+                        setCustomDateRange(null)
+                      }
+                    },
+                  }}
+                  trigger={["click"]}
+                  placement="bottomRight"
+                >
+                  <button
+                    type="button"
+                    className={`studio-asset-sort-button ${timeFilter !== "all" ? "studio-asset-sort-button-active" : ""}`}
+                  >
+                    <Clock3 size={13} />
+                    <span>{timeLabel}</span>
+                    <ChevronDown size={14} />
+                  </button>
+                </Dropdown>
+
+                <Dropdown
+                  menu={{
+                    items: sortMenuItems,
+                    onClick: ({ key }) => setSortOption(key as typeof sortOption),
+                  }}
+                  trigger={["click"]}
+                  placement="bottomRight"
+                >
+                  <button
+                    type="button"
+                    className={`studio-asset-sort-button ${sortOption !== "created_desc" ? "studio-asset-sort-button-active" : ""}`}
+                  >
+                    <ArrowUpDown size={13} />
+                    <span>{sortLabel}</span>
+                    <ChevronDown size={14} />
+                  </button>
+                </Dropdown>
               </div>
             </div>
-            {assetGroups.length ? <div className="studio-asset-groups">{assetGroups.map((group) => <section key={`${group.label}-${group.timestamp}`} className="studio-asset-group"><h2>{group.label}</h2><div className="studio-asset-grid">{group.entries.map(({ id, job, output }) => <button key={id} type="button" onClick={() => {
-              if (output.kind === "image") setPreviewImage({ src: localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path), alt: output.label })
-              else { if (job.media_type !== mediaType) switchMedia(job.media_type); setWorkspaceView("generate"); setTaskRailCollapsed(false); setSelectedJobId(job.id) }
-            }} className="studio-asset-media-card group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/35"><div className="studio-asset-media-frame"><MediaTile item={output} localUrl={localMediaUrls[output.path]} />{output.kind === "video" ? <span className="studio-asset-duration">{assetDuration(job, output.kind)}</span> : null}</div></button>)}</div></section>)}</div> : <div className="studio-asset-empty"><FolderOpen size={22} /><p>{assetSection === "history" ? "暂无符合条件的资产" : assetSection === "subject" ? "暂无主体资产" : "暂无画布资产"}</p></div>}
+            {assetGroups.length ? (
+              <div className="studio-asset-groups">
+                {assetGroups.map((group) => (
+                  <section key={`${group.label}-${group.timestamp}`} className="studio-asset-group">
+                    <h2>{group.label}</h2>
+                    <div className="studio-asset-grid">
+                      {group.entries.map(({ id, job, output }) => {
+                        const isSelected = selectedAssetIds.has(id)
+                        return (
+                          <div
+                            key={id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              if (isBatchMode) {
+                                handleToggleSelectAsset(id)
+                              } else {
+                                if (output.kind === "image") {
+                                  setPreviewImage({
+                                    src: localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path),
+                                    alt: output.label,
+                                  })
+                                } else {
+                                  if (job.media_type !== mediaType) switchMedia(job.media_type)
+                                  setWorkspaceView("generate")
+                                  setTaskRailCollapsed(false)
+                                  setSelectedJobId(job.id)
+                                }
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault()
+                                if (isBatchMode) handleToggleSelectAsset(id)
+                              }
+                            }}
+                            className={`studio-asset-media-card group relative cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/35 ${
+                              isSelected ? "studio-asset-card-selected ring-2 ring-[#4d6bfe]" : ""
+                            }`}
+                          >
+                            <div className="studio-asset-media-frame relative">
+                              <MediaTile item={output} localUrl={localMediaUrls[output.path]} />
+                              {output.kind === "video" ? (
+                                <span className="studio-asset-duration">{assetDuration(job, output.kind)}</span>
+                              ) : null}
+                              {(isBatchMode || isSelected) && (
+                                <div
+                                  className={`studio-asset-checkbox-wrapper absolute left-2.5 top-2.5 z-20 flex size-5 items-center justify-center rounded transition ${
+                                    isSelected
+                                      ? "bg-[#4d6bfe] text-white shadow-sm"
+                                      : "border border-white/80 bg-black/40 text-transparent hover:bg-black/60"
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleToggleSelectAsset(id)
+                                  }}
+                                >
+                                  <Check size={13} className={isSelected ? "stroke-[3]" : "opacity-0"} />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <div className="studio-asset-empty">
+                <FolderOpen size={22} />
+                <p>
+                  {assetSection === "history"
+                    ? activeFilterCount > 0 || timeFilter !== "all" || assetSearch
+                      ? "没有找到符合当前筛选条件的资产"
+                      : "暂无生成历史资产"
+                    : assetSection === "subject"
+                      ? "暂无主体资产"
+                      : "暂无画布资产"}
+                </p>
+              </div>
+            )}
           </section> : <>
-          {!selectedJob && <div className="relative z-10 mb-[112px] pt-12 text-center xl:mb-[130px]"><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">今天想创作什么？</h2><p className="mt-3 text-base text-[#65707c]">输入想法，AI 帮你实现创意</p></div>}
+          {!selectedJob && <div className="relative z-10 mb-[112px] pt-12 text-center xl:mb-[130px]">{isInspectingOtherUser ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在查看 {inspectedUserLabel} 的任务</h2><p className="mt-3 text-base text-[#65707c]">从左侧选择一条生成任务查看详情</p></> : <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">今天想创作什么？</h2><p className="mt-3 text-base text-[#65707c]">输入想法，AI 帮你实现创意</p></>}</div>}
 
           {selectedJob && <section className="studio-task-stream relative z-10 mb-8" aria-label="任务详情">
             {selectedJob.rounds.map((round) => {
@@ -1056,8 +1764,17 @@ export default function App({
               const runtimeParameters = round.request_parameters.filter((parameter) => parameter.visibility === "internal")
               const roundProgress = Math.max(0, Math.min(100, round.progress ?? 0))
               const canGenerateAgain = selectedJob.status === "succeeded" || selectedJob.status === "partial"
-              const canRetryRound = round.status === "partial" || round.status === "failed" || round.status === "interrupted"
+              const canRetryRound = round.status === "partial" || round.status === "failed" || round.status === "interrupted" || round.status === "cancelled"
+              const canCancelRound = round.status === "queued" || round.status === "running" || round.status === "interrupted"
+              const failedItems = round.generation_items.filter((item) => item.status === "failed" || item.status === "interrupted" || item.status === "cancelled")
               const cover = roundResults[0]?.output
+              const wait = waitCaption({
+                created_at: round.created_at || selectedJob.created_at,
+                finished_at: round.finished_at,
+                elapsed_ms: round.elapsed_ms,
+                execution_elapsed_ms: round.execution_elapsed_ms,
+                status: round.status,
+              }, now)
               return <article key={round.id} className="studio-round">
                 <header className="studio-round-header flex min-w-0 gap-3">
                   <div className="studio-round-cover grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-[#f2f4f6] text-[#7c8794]">
@@ -1068,7 +1785,11 @@ export default function App({
                       <p id={`round-prompt-${round.id}`} className={`min-w-0 flex-1 text-sm leading-5 text-[#1f2933] ${isSelectedPromptExpanded ? "whitespace-pre-wrap break-words" : "line-clamp-2"}`}>{round.prompt}</p>
                       <button type="button" onClick={() => setIsSelectedPromptExpanded((expanded) => !expanded)} aria-controls={`round-prompt-${round.id}`} aria-expanded={isSelectedPromptExpanded} className="shrink-0 text-xs text-[#4d6bfe] hover:text-[#314bc7]">{isSelectedPromptExpanded ? "收起" : "展开"}</button>
                     </div>
-                    <p className={`studio-round-status mt-1.5 text-xs ${statusColor[round.status]}`}>第 {round.sequence} 轮 · {statusText[round.status]} · {round.stage}</p>
+                    <p className={`studio-round-status mt-1.5 flex flex-wrap items-center gap-x-2 text-xs ${statusColor[round.status]}`}>
+                      <span>第 {round.sequence} 轮 · {statusText[round.status]} · {round.stage}</span>
+                      {wait.text ? <span title={wait.title || wait.text} className="studio-round-elapsed tabular-nums">{wait.text}</span> : null}
+                    </p>
+                    {round.error ? <p className="studio-round-error mt-1 text-xs leading-5">{round.error}</p> : null}
                   </div>
                 </header>
 
@@ -1091,14 +1812,24 @@ export default function App({
                 </div>}
 
                 {roundResults.length > 0 && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
-                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={(result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewImage({ src: result.src, alt: result.output.label })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} onSave={(result) => directoryState === "granted" ? void deliverOutput(selectedJob, result.generationItemId, result.outputIndex, result.output) : void connectDirectory()} />}
+                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewImage({ src: result.src, alt: result.output.label })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} onSave={(result) => directoryState === "granted" ? void deliverOutput(selectedJob, result.generationItemId, result.outputIndex, result.output) : void connectDirectory()} />}
                 </Suspense>}
 
+                {failedItems.length > 0 && <ul className="mt-3 space-y-1 text-xs leading-5 text-red-600">
+                  {failedItems.map((item) => (
+                    <li key={item.id}>第 {item.index} 张：{item.error || item.stage || "生成失败"}</li>
+                  ))}
+                </ul>}
+
+                {round.status === "interrupted" && mediaType === "video" && <p className="text-xs leading-5 text-[#4b5563]">ComfyUI 恢复后会按原参数自动重新生成。显存里未完成的推理无法续跑，也可立即手动重新提交。</p>}
+                {round.status === "cancelled" && mediaType === "video" && <p className="text-xs leading-5 text-[#4b5563]">已停止生成，不会自动重新提交。未完成的推理无法续跑，需要时可手动重新提交。</p>}
+                {round.status === "cancelled" && mediaType === "image" && <p className="text-xs leading-5 text-[#4b5563]">工作台已停止等待。云端任务可能仍会继续计费，尚未取回的图片不会自动拉取。</p>}
                 <div className="studio-round-actions" aria-label={`第 ${round.sequence} 轮操作`}>
-                  <button type="button" onClick={() => void reEditRound(selectedJob, round)} className="studio-round-action"><Pencil size={16} />重新编辑</button>
-                  {canGenerateAgain && <button type="button" disabled={createRoundMutation.isPending} onClick={() => createRoundMutation.mutate(selectedJob)} className="studio-round-action">{createRoundMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <RotateCw size={16} />}再次生成</button>}
-                  {canRetryRound && mediaType === "image" && <button type="button" disabled={retryFailedMutation.isPending} onClick={() => retryFailedMutation.mutate({ jobId: selectedJob.id, roundId: round.id })} className="studio-round-action">{retryFailedMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <RotateCw size={16} />}重试失败项</button>}
-                  {canRetryRound && mediaType === "video" && <button type="button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate(selectedJob.id)} className="studio-round-action">{retryMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <Send size={16} />}重新提交</button>}
+                  {isInspectingOtherUser ? null : <button type="button" onClick={() => void reEditRound(selectedJob, round)} className="studio-round-action"><Pencil size={16} />重新编辑</button>}
+                  {canCancelRound && <button type="button" disabled={cancelMutation.isPending} onClick={() => confirmCancel(selectedJob)} className="studio-round-action studio-round-action-stop">{cancelMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <CircleStop size={16} />}停止生成</button>}
+                  {!isInspectingOtherUser && canGenerateAgain && <button type="button" disabled={createRoundMutation.isPending} onClick={() => createRoundMutation.mutate(selectedJob)} className="studio-round-action">{createRoundMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <RotateCw size={16} />}再次生成</button>}
+                  {!isInspectingOtherUser && canRetryRound && mediaType === "image" && <button type="button" disabled={retryFailedMutation.isPending} onClick={() => retryFailedMutation.mutate({ jobId: selectedJob.id, roundId: round.id })} className="studio-round-action">{retryFailedMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <RotateCw size={16} />}重试失败项</button>}
+                  {!isInspectingOtherUser && canRetryRound && mediaType === "video" && <button type="button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate(selectedJob.id)} className="studio-round-action">{retryMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <Send size={16} />}重新提交</button>}
                   <Dropdown trigger={["click"]} popupRender={(menu) => <div className="studio-task-menu studio-round-menu">{menu}</div>} menu={{ items: [{ key: "delete", danger: true, icon: <Trash2 size={14} />, label: "删除任务" }], onClick: ({ domEvent }) => { domEvent.stopPropagation(); confirmDelete(selectedJob) } }}>
                     <button type="button" aria-label={`更多操作：第 ${round.sequence} 轮`} title="更多操作" className="studio-round-action studio-round-more"><MoreHorizontal size={18} /></button>
                   </Dropdown>
@@ -1107,8 +1838,8 @@ export default function App({
             })}
           </section>}
 
-          {isComposerCompact && <button type="button" onClick={() => returnToComposer()} className="studio-return-bottom" title="回到底部"><span>回到底部</span><ChevronDown size={15} /></button>}
-          <form id="studio-composer" onSubmit={submit} className={`studio-composer-form relative z-20 mx-auto max-w-[1080px] border border-black/[0.05] bg-white p-4 shadow-[0_16px_36px_rgba(22,31,44,0.10)] sm:rounded-[24px] sm:p-5 lg:sticky lg:bottom-5 ${isComposerCompact ? "studio-composer-collapsed" : ""}`}>
+          {!isInspectingOtherUser && isComposerCompact && <button type="button" onClick={() => returnToComposer()} className="studio-return-bottom" title="回到底部"><span>回到底部</span><ChevronDown size={15} /></button>}
+          {!isInspectingOtherUser && <form id="studio-composer" onSubmit={submit} className={`studio-composer-form relative z-20 mx-auto max-w-[1080px] border border-black/[0.05] bg-white p-4 shadow-[0_16px_36px_rgba(22,31,44,0.10)] sm:rounded-[24px] sm:p-5 lg:sticky lg:bottom-5 ${isComposerCompact ? "studio-composer-collapsed" : ""}`}>
             <div className="absolute -top-8 right-7 flex max-w-[calc(100%-56px)] items-center gap-1.5 text-sm text-[#babac3]">
               <span className="studio-ai-badge grid size-5 shrink-0 place-items-center rounded-full bg-[#7046df] text-[10px] font-semibold text-white">AI</span>
               {mediaType === "image" ? <>
@@ -1199,9 +1930,9 @@ export default function App({
                 <div className="studio-media-select flex h-9 min-w-0 items-center rounded-lg border border-[#37373b] bg-[#222226] px-1 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[140px]">
                   <Select aria-label="选择生成类型" value={mediaType} onChange={(value) => switchMedia(value as "image" | "video")} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-media-select-popup" options={[{ value: "image", label: <span className="studio-select-option"><ImagePlus size={14} />图片生成</span> }, { value: "video", label: <span className="studio-select-option"><Video size={14} />视频生成</span> }]} />
                 </div>
-                <div className="studio-control-shell flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[248px]">
+                <div className="studio-control-shell flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[280px]">
                   <Settings2 size={16} className="shrink-0 text-[#947dff]" />
-                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" options={workflows.map((item) => ({ value: item.id, label: item.name, title: item.description }))} />
+                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" options={groupedWorkflowOptions(workflows)} />
                 </div>
                 {primaryOptionDefinitions.map(([name, definition]) => <OptionControl
                   key={name}
@@ -1237,7 +1968,7 @@ export default function App({
             {!workflow?.available && workflow?.unavailable_reason ? <p className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-200">{workflow.unavailable_reason}</p> : null}
             {mediaType === "video" && workflow?.reference_mode === "collection" && references.length > 3 && <p className="mt-3 text-xs text-amber-200">较多参考图会显著增加显存和耗时，建议先使用 1K 预览。</p>}
             {createMutation.isError && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-200">{createMutation.error.message}</p>}
-          </form>
+          </form>}
           </>}
 
           <Modal
@@ -1250,6 +1981,42 @@ export default function App({
             onOk={() => renameTarget && metadataMutation.mutate({ jobId: renameTarget.id, title: renameValue })}
           >
             <Input autoFocus maxLength={120} value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onPressEnter={() => renameTarget && metadataMutation.mutate({ jobId: renameTarget.id, title: renameValue })} placeholder="输入任务名称" />
+          </Modal>
+
+          <JianyingExportModal
+            open={jianyingModalOpen}
+            onClose={() => setJianyingModalOpen(false)}
+            items={jianyingSelectedItems}
+            onRemoveItem={(id) => setJianyingSelectedItems((prev) => prev.filter((item) => item.id !== id))}
+          />
+
+          <Modal
+            open={customDateModalOpen}
+            title="选择自定义时间范围"
+            onCancel={() => setCustomDateModalOpen(false)}
+            onOk={() => {
+              if (customDateRangeValue && customDateRangeValue[0] && customDateRangeValue[1]) {
+                setCustomDateRange([
+                  customDateRangeValue[0].format("YYYY-MM-DD"),
+                  customDateRangeValue[1].format("YYYY-MM-DD"),
+                ])
+                setTimeFilter("custom")
+                setCustomDateModalOpen(false)
+              } else {
+                messageApi.warning("请选择有效的开始与结束日期")
+              }
+            }}
+            okText="应用筛选"
+            cancelText="取消"
+            destroyOnClose
+            centered
+          >
+            <div className="py-4">
+              <DatePicker.RangePicker
+                className="w-full"
+                onChange={(dates) => setCustomDateRangeValue(dates)}
+              />
+            </div>
           </Modal>
 
         </main>
@@ -1296,6 +2063,7 @@ function OptionControl({
   onChange: (name: string, value: OptionInputValue) => void
   compact?: boolean
 }) {
+  const compactChrome = "flex h-9 min-w-0 items-center rounded-lg border border-[#37373b] bg-[#222226] shadow-[0_6px_16px_rgba(0,0,0,0.12)]"
   if (definition.type === "boolean") {
     return <div title={definition.description} className={`studio-control-shell flex min-h-10 items-center justify-between gap-3 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-xs text-[#d8d8df] ${compact ? "w-full sm:w-[172px]" : ""}`}>
       <span className="min-w-0 leading-4">{definition.label}</span>
@@ -1346,26 +2114,28 @@ function OptionControl({
   if (definition.ui_control === "duration-slider" && (definition.type === "number" || definition.type === "integer")) {
     return <DurationControl name={name} definition={definition} value={Number(value)} onChange={onChange} compact={compact} />
   }
-  if (definition.ui_control === "select" || selectOptions.length) {
-    return <div title={definition.description} className={`studio-control-shell ${compact ? "w-full sm:w-[172px]" : "min-w-0"}`}>
+  if (definition.ui_control === "select" || (selectOptions.length && definition.ui_control !== "input-number")) {
+    return <div title={definition.description} className={`studio-control-shell ${compact ? `${compactChrome} gap-2 px-3 w-full sm:w-[188px]` : "min-w-0"}`}>
       {!compact && <span className="mb-1.5 block text-[11px] text-[#9898a2]">{definition.label}</span>}
+      {compact ? <Gauge size={16} className="shrink-0 text-[#947dff]" /> : null}
       <Select
         aria-label={definition.label}
         value={String(value)}
         onChange={(nextValue) => onChange(name, String(nextValue))}
-        className="studio-select w-full"
+        className="studio-select min-w-0 w-full flex-1"
         popupClassName="studio-select-popup"
         options={selectOptions}
       />
     </div>
   }
   if (definition.type === "number" || definition.type === "integer") {
-    return <div title={definition.description} className={`studio-control-shell ${compact ? "w-full sm:w-[172px]" : "min-w-0"}`}>
+    return <div title={definition.description} className={`studio-control-shell ${compact ? `${compactChrome} gap-1 px-2 w-full sm:w-[112px]` : "min-w-0"}`}>
       {!compact && <span className="mb-1.5 block text-[11px] text-[#9898a2]">{definition.label}</span>}
-      <InputNumber aria-label={definition.label} value={Number(value)} onChange={(nextValue) => { if (nextValue !== null) onChange(name, String(nextValue)) }} min={definition.minimum} max={definition.maximum} step={definition.step} controls className="studio-number w-full" addonAfter={definition.unit} />
+      <InputNumber aria-label={definition.label} value={Number(value)} onChange={(nextValue) => { if (nextValue !== null) onChange(name, String(nextValue)) }} min={definition.minimum} max={definition.maximum} step={definition.step} controls className="studio-number min-w-0 w-full flex-1" addonAfter={!compact ? definition.unit : undefined} />
+      {compact && definition.unit ? <span className="studio-toolbar-unit shrink-0 pr-0.5 text-xs text-[#85858d]">{definition.unit}</span> : null}
     </div>
   }
-  return <div title={definition.description} className={`studio-control-shell ${compact ? "w-full sm:w-[172px]" : "min-w-0"}`}>
+  return <div title={definition.description} className={`studio-control-shell ${compact ? `${compactChrome} px-3 w-full sm:w-[172px]` : "min-w-0"}`}>
     {!compact && <span className="mb-1.5 block text-[11px] text-[#9898a2]">{definition.label}</span>}
     <Input aria-label={definition.label} value={String(value)} onChange={(event) => onChange(name, event.target.value)} className="studio-input" />
   </div>

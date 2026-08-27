@@ -21,7 +21,7 @@ export default function ImageStudioModule({
   pendingSave?: (result: ImageResult) => boolean
   isLocallySaved?: (result: ImageResult) => boolean
   onSave: (result: ImageResult) => void
-  onCreateVideo: (result: ImageResult) => void
+  onCreateVideo?: (result: ImageResult) => void
   onPreview?: (result: ImageResult) => void
   onRetryFailed?: () => void
   retrying?: boolean
@@ -43,7 +43,7 @@ export default function ImageStudioModule({
             <div className="min-w-0"><p className="truncate text-xs text-[#d4d4da]">{result.output.label}</p><p className={`mt-0.5 text-[10px] ${saved ? "text-emerald-300" : "text-amber-200"}`}>{saved ? "已保存到本地目录" : "可保存到本地目录"}</p></div>
             <div className="flex items-center gap-2">
               <button type="button" disabled={saving || saved || !result.output.download_url} onClick={() => onSave(result)} className="studio-image-action-secondary flex h-8 items-center gap-1.5 rounded-md border border-white/10 px-2.5 text-xs disabled:opacity-45">{saving ? <LoaderCircle className="animate-spin" size={13} /> : saved ? <Check size={13} /> : <HardDrive size={13} />}{saving ? "保存中" : saved ? "已保存" : "保存"}</button>
-              <button type="button" disabled={saving} onClick={() => onCreateVideo(result)} className="studio-image-action-primary flex h-8 items-center gap-1.5 rounded-md bg-[#7047f6] px-2.5 text-xs text-white disabled:opacity-45"><Play size={13} />生成视频</button>
+              {onCreateVideo ? <button type="button" disabled={saving} onClick={() => onCreateVideo(result)} className="studio-image-action-primary flex h-8 items-center gap-1.5 rounded-md bg-[#7047f6] px-2.5 text-xs text-white disabled:opacity-45"><Play size={13} />生成视频</button> : null}
             </div>
           </div>
         </article>

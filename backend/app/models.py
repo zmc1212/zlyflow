@@ -14,6 +14,12 @@ class JobMode(str, Enum):
     MINIMAX_H3_T2V = "minimax-h3-t2v"
     MINIMAX_H3_I2V = "minimax-h3-i2v"
     MINIMAX_H3_R2V = "minimax-h3-r2v"
+    MINIMAX_H3_LIGHTX2V_T2V = "minimax-h3-lightx2v-t2v"
+    MINIMAX_H3_LIGHTX2V_I2V = "minimax-h3-lightx2v-i2v"
+    MINIMAX_H3_LIGHTX2V_R2V = "minimax-h3-lightx2v-r2v"
+    MINIMAX_H3_DUAL_ACCEL_T2V = "minimax-h3-dual-accel-t2v"
+    MINIMAX_H3_DUAL_ACCEL_I2V = "minimax-h3-dual-accel-i2v"
+    MINIMAX_H3_DUAL_ACCEL_R2V = "minimax-h3-dual-accel-r2v"
     MINIMAX_H3_T8_ALL_REFERENCE = "minimax-h3-t8-all-reference"
     MINIMAX_H3_T8_DUAL_CLOCK = "minimax-h3-t8-dual-clock"
     GRS_GPT_IMAGE_2 = "grs-gpt-image-2"
@@ -31,6 +37,7 @@ class JobStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     INTERRUPTED = "interrupted"
+    CANCELLED = "cancelled"
     PARTIAL = "partial"
 
 
@@ -78,12 +85,15 @@ class GenerationItemResponse(BaseModel):
     remote_task_id: str | None = None
     created_at: str
     updated_at: str
+    finished_at: str | None = None
+    elapsed_ms: int | None = Field(default=None, ge=0, description="从发起到结束的等待毫秒数；进行中为 null。")
+    execution_elapsed_ms: int | None = Field(default=None, ge=0, description="ComfyUI 历史记录中的推理耗时毫秒数；没有时为 null。")
 
 
 class JobRoundResponse(BaseModel):
     id: str
     sequence: int = Field(ge=1)
-    mode: JobMode
+    mode: str
     media_type: MediaType
     status: JobStatus
     stage: str
@@ -99,6 +109,9 @@ class JobRoundResponse(BaseModel):
     error: str | None = None
     created_at: str
     updated_at: str
+    finished_at: str | None = None
+    elapsed_ms: int | None = Field(default=None, ge=0, description="从发起到结束的等待毫秒数；进行中为 null。")
+    execution_elapsed_ms: int | None = Field(default=None, ge=0, description="ComfyUI 历史记录中的推理耗时毫秒数；没有时为 null。")
 
 
 class JobSourceResponse(BaseModel):
@@ -109,7 +122,7 @@ class JobSourceResponse(BaseModel):
 
 class JobResponse(BaseModel):
     id: str
-    mode: JobMode
+    mode: str
     status: JobStatus
     stage: str
     progress: int = Field(ge=0, le=100)
@@ -124,6 +137,9 @@ class JobResponse(BaseModel):
     error: str | None = None
     created_at: str
     updated_at: str
+    finished_at: str | None = None
+    elapsed_ms: int | None = Field(default=None, ge=0, description="从发起到结束的等待毫秒数；进行中为 null。")
+    execution_elapsed_ms: int | None = Field(default=None, ge=0, description="ComfyUI 历史记录中的推理耗时毫秒数；没有时为 null。")
     media_type: MediaType = MediaType.VIDEO
     title: str | None = None
     pinned: bool = False
@@ -216,7 +232,7 @@ class WorkflowParameterResponse(BaseModel):
 
 
 class ModeResponse(BaseModel):
-    id: JobMode
+    id: str
     name: str
     description: str
     reference_mode: str
@@ -232,11 +248,14 @@ class ModeResponse(BaseModel):
     executor: str = "comfyui"
     available: bool = True
     unavailable_reason: str | None = None
+    catalog_group: str = ""
+    catalog_group_label: str = ""
+    catalog_group_order: int = 100
 
 
 class ComfyHealthResponse(BaseModel):
     reachable: bool = Field(description="ComfyUI 的 /system_stats 是否在超时时间内可访问。")
-    url: str = Field(description="当前使用的固定 ComfyUI 地址。")
+    url: str = Field(description="当前生效的 ComfyUI 地址。")
     error: str | None = Field(default=None, description="连接失败时的错误摘要。")
 
 
@@ -256,12 +275,26 @@ class HealthResponse(BaseModel):
     grs: GrsHealthResponse
 
 
+class ComfyProviderUpdateRequest(BaseModel):
+    base_url: str = Field(default="http://127.0.0.1:8188", min_length=8, max_length=500)
+
+
+class ComfyProviderTestRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=500)
+
+
+class ComfyProviderResponse(BaseModel):
+    base_url: str
+    env_default: str
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    last_test_at: str | None = None
+
+
 class GrsProviderUpdateRequest(BaseModel):
     enabled: bool = False
     base_url: str = Field(default="https://grsai.dakka.com.cn", min_length=8, max_length=500)
     api_key: str | None = Field(default=None, max_length=4096)
-    gpt_image_2_enabled: bool = True
-    gpt_image_2_vip_enabled: bool = True
 
 
 class GrsProviderTestRequest(BaseModel):
@@ -277,6 +310,8 @@ class GrsProviderResponse(BaseModel):
     credential_ready: bool
     gpt_image_2_enabled: bool
     gpt_image_2_vip_enabled: bool
+    models: str
+    vip_models: str
     last_test_status: str | None = None
     last_test_message: str | None = None
     last_test_at: str | None = None
@@ -309,6 +344,44 @@ class QiniuProviderResponse(BaseModel):
     last_test_status: str | None = None
     last_test_message: str | None = None
     last_test_at: str | None = None
+
+
+class GrsImageModelResponse(BaseModel):
+    workflow_id: str
+    provider_model: str
+    display_name: str
+    description: str = ""
+    profile: str
+    resolutions: list[str] | None = None
+    enabled: bool
+    sort_order: int
+    is_default: bool
+    builtin: bool
+
+
+class GrsImageModelUpdateItem(BaseModel):
+    workflow_id: str = Field(min_length=1, max_length=160)
+    display_name: str = Field(min_length=1, max_length=80)
+    enabled: bool = False
+    sort_order: int = Field(default=100, ge=0, le=10000)
+    is_default: bool = False
+
+
+class GrsImageModelsUpdateRequest(BaseModel):
+    models: list[GrsImageModelUpdateItem] = Field(min_length=1)
+
+
+class GrsImageModelCreateRequest(BaseModel):
+    provider_model: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    display_name: str = Field(min_length=1, max_length=80)
+    profile: Literal["gpt_image_2", "gpt_image_2_vip", "nano_banana", "nano_banana_2"]
+    resolutions: list[str] | None = None
+    enabled: bool = True
+
+
+class GrsImageModelsResponse(BaseModel):
+    models: list[GrsImageModelResponse]
+    profiles: list[dict[str, str]]
 
 
 class GrsBalanceResponse(BaseModel):
@@ -352,6 +425,26 @@ class LlmProviderTestRequest(BaseModel):
     model: str | None = Field(default=None, max_length=128)
 
 
+class LlmModelCatalogRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=512)
+    free_only: bool = True
+
+
+class LlmCatalogModel(BaseModel):
+    id: str
+    label: str
+    free: bool | None = None
+    owned_by: str | None = None
+
+
+class LlmModelCatalogResponse(BaseModel):
+    models: list[LlmCatalogModel]
+    provider: str
+    free_only: bool
+    message: str | None = None
+
+
 class LlmProviderResponse(BaseModel):
     enabled: bool
     base_url: str
@@ -364,11 +457,14 @@ class LlmProviderResponse(BaseModel):
     last_test_status: str | None = None
     last_test_message: str | None = None
     last_test_at: str | None = None
+    supports_vision: bool = False
 
 
 class LlmStatusResponse(BaseModel):
     available: bool
     message: str | None = None
+    supports_vision: bool = False
+    model: str | None = None
 
 
 class PromptOptimizeRequest(BaseModel):
@@ -386,6 +482,12 @@ class PromptOptimizeResponse(BaseModel):
     skill_id: str | None = None
 
 
+class AnalyzeSubjectResponse(BaseModel):
+    description: str
+    kind: str | None = None
+    name: str | None = None
+
+
 class SkillItem(BaseModel):
     id: str
     name: str
@@ -396,3 +498,87 @@ class SkillItem(BaseModel):
 
 class SkillsListResponse(BaseModel):
     skills: list[SkillItem]
+
+
+class DirectorShotItem(BaseModel):
+    shot_number: int = Field(description="分镜序号")
+    title: str = Field(description="分镜简要标题或场景动作")
+    prompt: str = Field(description="结构化画面描述提示词")
+    scale: Literal["ELS", "WS", "MS", "CU", "ECU"] = Field(default="MS", description="景别：大远景/全景/中景/特写/大特写")
+    movement: Literal["zoom_in", "zoom_out", "pan_left", "pan_right", "tilt_up", "tilt_down", "orbit", "tracking", "static"] = Field(
+        default="zoom_in", description="运镜方式",
+    )
+    angle: Literal["eye_level", "low_angle", "high_angle", "dutch", "pov"] = Field(
+        default="eye_level", description="拍摄机位角度",
+    )
+    speed: Literal["smooth", "dynamic", "slow"] = Field(default="smooth", description="运镜节奏",)
+    lighting: Literal["cinematic_soft", "cyberpunk", "golden_hour", "dramatic_low_key", "studio"] = Field(
+        default="cinematic_soft", description="影调布光",
+    )
+    sfx: str = Field(default="", description="环境音效与拟音描述")
+
+
+class ScriptSplitRequest(BaseModel):
+    script: str = Field(min_length=1, max_length=10000, description="剧本大纲或故事文本")
+    shot_count: int | None = Field(default=4, ge=2, le=12, description="期望拆分的分镜头数量")
+    style_vibe: str | None = Field(default=None, max_length=64, description="整体风格基调，如电影级、赛博朋克等")
+    cast_names: list[str] = Field(default_factory=list, description="已知角色名称列表")
+
+
+class ScriptSplitResponse(BaseModel):
+    project_title: str = Field(description="提取或生成的项目标题")
+    summary: str = Field(description="剧本核心梗概")
+    shots: list[DirectorShotItem] = Field(description="拆解后的分镜头列表")
+
+
+DirectorGenerationStatus = Literal["pending", "partial", "complete"]
+
+
+class DirectorProjectCreateRequest(BaseModel):
+    id: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._-]+$", description="可选工程 ID；迁库时保留浏览器原 ID。")
+    title: str = Field(min_length=1, max_length=120, description="工程标题")
+    summary: str = Field(default="", max_length=2000, description="工程梗概")
+    source_script: str = Field(default="", max_length=20000, description="原始剧本文档，可空")
+    style_vibe: str | None = Field(default=None, max_length=64, description="拆分时使用的风格基调")
+    requested_shot_count: int | None = Field(default=None, ge=1, le=24, description="拆分时请求的镜数")
+    payload: dict[str, Any] = Field(default_factory=dict, description="时间轴 payload：shots、subjectSlots、画幅等；不含 data URL。")
+    created_at: str | None = Field(default=None, max_length=64, description="迁库时保留的创建时间")
+    updated_at: str | None = Field(default=None, max_length=64, description="迁库时保留的更新时间")
+
+
+class DirectorProjectUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    summary: str | None = Field(default=None, max_length=2000)
+    source_script: str | None = Field(default=None, max_length=20000)
+    style_vibe: str | None = Field(default=None, max_length=64)
+    requested_shot_count: int | None = Field(default=None, ge=1, le=24)
+    payload: dict[str, Any] | None = Field(default=None, description="完整替换时间轴 payload")
+
+
+class DirectorProjectListItem(BaseModel):
+    id: str
+    title: str
+    summary: str
+    has_source_script: bool
+    shot_count: int
+    generated_count: int
+    generation_status: DirectorGenerationStatus
+    style_vibe: str | None = None
+    requested_shot_count: int | None = None
+    created_at: str
+    updated_at: str
+
+
+class DirectorProjectResponse(DirectorProjectListItem):
+    source_script: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class DirectorProjectMigrateRequest(BaseModel):
+    projects: list[DirectorProjectCreateRequest] = Field(default_factory=list, max_length=200)
+
+
+class DirectorProjectMigrateResponse(BaseModel):
+    imported: int
+    skipped: int
+    projects: list[DirectorProjectListItem] = Field(default_factory=list)

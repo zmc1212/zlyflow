@@ -6,6 +6,7 @@ import asyncio
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -15,8 +16,10 @@ import local_video_studio as legacy
 from backend.app.auth import AuthStore, csrf_token, validate_password, verify_password
 from backend.app.config import Settings
 from backend.app.models import JobMode, JobStatus
-from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_username, current_user, login_failures, public_job
-from backend.app.comfy_service import ComfyQueuePrompt, ComfyService, ComfyUnavailable, resolve_reference_prompt
+from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_username, current_user, login_failures, output_response, public_job
+from backend.app.comfy_service import ComfyQueuePrompt, ComfyService, ComfyUnavailable, resolve_minimax_picture_prompt, resolve_reference_prompt
+from backend.app.minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
+from backend.app.minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from backend.app.minimax_h3_workflow import build_minimax_h3_workflow
 from backend.app.minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from backend.app.storage import JobStore
@@ -24,9 +27,12 @@ from backend.app.resource_storage import BrowserLocalStagingStorage, BrowserStre
 from backend.app.models import UserRole
 from backend.app.worker import JobWorker
 from backend.app.workflow_registry import (
-    h3_dimensions, normalize_options, validate_option_relationships, validate_references,
+    CATALOG_GROUP_CUSTOM, CATALOG_GROUP_DUAL_ACCEL, CATALOG_GROUP_LIGHTX2V, CATALOG_GROUP_OFFICIAL_H3,
+    DUAL_ACCEL_LORA_NAME, H3_FL2VA_FULL, H3_FL2VA_PRUNED, H3_REF2VA_FULL, H3_REF2VA_PRUNED, LIGHTX2V_FL2V_4STEP_LORA,
+    LIGHTX2V_FL2V_8STEP_LORA, LIGHTX2V_REF2V_4STEP_LORA, WORKFLOWS, generation_output_label,
+    generation_stage, h3_dimensions, h3_length, normalize_options, validate_option_relationships,
+    validate_references, workflow_for,
 )
-from backend.app.workflow_registry import WORKFLOWS, workflow_for
 
 
 class WorkflowTests(unittest.TestCase):
@@ -37,6 +43,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("参考图约束", prompt)
         with self.assertRaises(legacy.ComfyError):
             resolve_reference_prompt("使用 @图2", 1)
+
+    def test_minimax_picture_aliases_are_converted_and_missing_tags_are_injected(self) -> None:
+        prompt = resolve_minimax_picture_prompt("让 @图片2 走进 @图片1 的场景。", 2)
+        self.assertEqual(prompt, "让 <Picture 2> 走进 <Picture 1> 的场景。")
+        injected = resolve_minimax_picture_prompt("雨夜城市中一辆汽车驶过霓虹灯", 2)
+        self.assertIn("<Picture 1>", injected)
+        self.assertIn("<Picture 2>", injected)
+        self.assertNotIn("场景参考图", resolve_minimax_picture_prompt("@图片1 中的角色转身离开。", 1))
+        with self.assertRaises(legacy.ComfyError):
+            resolve_minimax_picture_prompt("使用 <Picture 3>", 1)
 
     def test_image_workflow_replaces_prompt_size_and_seed(self) -> None:
         workflow = legacy.build_text_to_image_workflow("测试提示词", "不要水印", "横版 1280 x 720")
@@ -88,6 +104,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["5"]["inputs"]["ref_images.ref_image_0"], ["20", 0])
         self.assertEqual(workflow["5"]["inputs"]["ref_images.ref_image_1"], ["21", 0])
         self.assertEqual(workflow["14"]["class_type"], "SaveVideo")
+        self.assertEqual(options["speed"], "balanced")
+        self.assertEqual(workflow["7"]["inputs"]["steps"], 8)
+        self.assertEqual(workflow["1"]["inputs"]["unet_name"], H3_REF2VA_FULL)
+        self.assertEqual(workflow["15"]["class_type"], "LoraLoaderBypassModelOnly")
+        self.assertEqual(workflow["6"]["inputs"]["model"], ["15", 0])
+        quality = normalize_options(JobMode.MINIMAX_H3_R2V, {"speed": "quality", "duration": 5})
+        quality_graph = build_minimax_h3_workflow(
+            JobMode.MINIMAX_H3_R2V, "Use <Picture 1>.", ["character.png"], quality, 42,
+        )
+        self.assertEqual(quality_graph["1"]["inputs"]["unet_name"], H3_REF2VA_PRUNED)
+        self.assertNotIn("15", quality_graph)
 
     def test_minimax_h3_accepts_arbitrary_positive_aspect_ratios(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "2:3", "quality": "0.98", "duration": 5})
@@ -135,6 +162,90 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_references(JobMode.MINIMAX_H3_R2V, [])
 
+    def test_h3_duration_two_seconds_maps_to_aligned_frames(self) -> None:
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {"duration": 2})
+        self.assertEqual(options["duration"], 2)
+        self.assertEqual(h3_length(options), 56)
+        workflow = build_minimax_h3_workflow(JobMode.MINIMAX_H3_T2V, "A short beat.", [], options, 42)
+        self.assertEqual(workflow["5"]["inputs"]["length"], 56)
+        t8_options = normalize_options(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, {"duration": 2})
+        t8 = build_minimax_h3_t8_workflow(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, "A short beat.", [], t8_options)
+        self.assertEqual(t8["3"]["inputs"]["length"], 56)
+        with self.assertRaisesRegex(ValueError, "时长必须在 2 到 15 秒"):
+            normalize_options(JobMode.MINIMAX_H3_T2V, {"duration": 1})
+        with self.assertRaisesRegex(ValueError, "不能小于 2"):
+            normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"duration": 1})
+
+    def test_h3_speed_preset_maps_to_turbo_lora_and_steps(self) -> None:
+        fast = normalize_options(JobMode.MINIMAX_H3_T2V, {"speed": "fast"})
+        self.assertEqual(fast["speed"], "fast")
+        self.assertEqual(fast["steps"], 4)
+        self.assertEqual(fast["lora_strength"], 1.0)
+        fast_graph = build_minimax_h3_workflow(JobMode.MINIMAX_H3_T2V, "A preview.", [], fast, 42)
+        self.assertEqual(fast_graph["7"]["inputs"]["steps"], 4)
+        self.assertEqual(fast_graph["1"]["inputs"]["unet_name"], "minimax_h3_fl2va_int8_convrot.safetensors")
+        self.assertEqual(fast_graph["15"]["class_type"], "LoraLoaderBypassModelOnly")
+        self.assertEqual(fast_graph["15"]["inputs"]["lora_name"], "minimax_h3_turbo_4STEPS_comfyui.safetensors")
+        self.assertEqual(fast_graph["15"]["inputs"]["strength_model"], 1.0)
+
+        quality = normalize_options(JobMode.MINIMAX_H3_T2V, {"speed": "quality"})
+        self.assertEqual(quality["steps"], 20)
+        self.assertEqual(quality["lora_strength"], 0.0)
+        quality_graph = build_minimax_h3_workflow(JobMode.MINIMAX_H3_T2V, "A final pass.", [], quality, 42)
+        self.assertEqual(quality_graph["7"]["inputs"]["steps"], 20)
+        self.assertNotIn("15", quality_graph)
+        self.assertEqual(quality_graph["6"]["inputs"]["model"], ["1", 0])
+
+        t8_fast = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "fast"})
+        self.assertEqual(t8_fast["video_steps"], 4)
+        self.assertEqual(t8_fast["audio_steps"], 4)
+        t8_fast_graph = build_minimax_h3_t8_workflow(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, "A preview.", [], t8_fast)
+        self.assertEqual(t8_fast_graph["8"]["inputs"]["video_steps"], 4)
+        self.assertEqual(t8_fast["unet_name"], "minimax_h3_fl2va_int8_convrot.safetensors")
+        self.assertEqual(t8_fast_graph["16"]["class_type"], "LoraLoaderBypassModelOnly")
+        self.assertEqual(t8_fast_graph["16"]["inputs"]["strength_model"], 1.0)
+
+        t8_quality = normalize_options(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, {"speed": "quality"})
+        self.assertEqual(t8_quality["steps"], 20)
+        self.assertEqual(t8_quality["lora_strength"], 0.0)
+        t8_quality_graph = build_minimax_h3_t8_workflow(
+            JobMode.MINIMAX_H3_T8_DUAL_CLOCK, "A final pass.", [], t8_quality,
+        )
+        self.assertNotIn("16", t8_quality_graph)
+        self.assertEqual(t8_quality_graph["8"]["inputs"]["model"], ["15", 0])
+
+        t8_quality_ref = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "quality"})
+        self.assertEqual(t8_quality_ref["video_steps"], 20)
+        self.assertEqual(t8_quality_ref["audio_steps"], 20)
+        self.assertEqual(t8_quality_ref["lora_strength"], 0.0)
+        t8_balanced = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "balanced"})
+        self.assertEqual(t8_balanced["video_steps"], 8)
+        self.assertEqual(t8_balanced["audio_steps"], 10)
+
+        t8_custom = normalize_options(
+            JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "custom", "custom_steps": 6},
+        )
+        self.assertEqual(t8_custom["video_steps"], 6)
+        self.assertEqual(t8_custom["audio_steps"], 6)
+        self.assertEqual(t8_custom["lora_strength"], 1.0)
+        t8_custom_graph = build_minimax_h3_t8_workflow(
+            JobMode.MINIMAX_H3_T8_ALL_REFERENCE, "A custom pass.", [], t8_custom,
+        )
+        self.assertEqual(t8_custom_graph["8"]["inputs"]["video_steps"], 6)
+        self.assertEqual(t8_custom_graph["8"]["inputs"]["audio_steps"], 6)
+
+        t8_custom_high = normalize_options(
+            JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "custom", "custom_steps": 12},
+        )
+        self.assertEqual(t8_custom_high["video_steps"], 12)
+        self.assertEqual(t8_custom_high["lora_strength"], 0.0)
+        with self.assertRaises(ValueError):
+            normalize_options(JobMode.MINIMAX_H3_T2V, {"speed": "turbo"})
+        with self.assertRaises(ValueError):
+            normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "custom", "custom_steps": 0})
+        with self.assertRaises(ValueError):
+            normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "custom", "custom_steps": 41})
+
     def test_t8_all_reference_builds_multirate_graph_and_grows_references(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"quality": "0.98"})
         workflow = build_minimax_h3_t8_workflow(
@@ -148,10 +259,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["8"]["inputs"]["audio_steps"], 10)
         self.assertEqual(workflow["7"]["inputs"]["megapixels"], 0.98)
         self.assertEqual(workflow["3"]["inputs"]["task_type"], "Ref2VA")
+        self.assertEqual(workflow["1"]["inputs"]["unet_name"], H3_REF2VA_FULL)
         self.assertEqual(workflow["3"]["inputs"]["ref_images.ref_image_0"], ["20", 0])
         self.assertEqual(workflow["3"]["inputs"]["ref_images.ref_image_1"], ["21", 0])
+        self.assertEqual(workflow["16"]["class_type"], "LoraLoaderBypassModelOnly")
+        self.assertEqual(workflow["8"]["inputs"]["model"], ["16", 0])
+        quality_ref = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "quality"})
+        quality_ref_graph = build_minimax_h3_t8_workflow(
+            JobMode.MINIMAX_H3_T8_ALL_REFERENCE,
+            "Use <Picture 1>.",
+            ["character.png"],
+            quality_ref,
+        )
+        self.assertEqual(quality_ref_graph["1"]["inputs"]["unet_name"], H3_REF2VA_PRUNED)
+        self.assertNotIn("16", quality_ref_graph)
         self.assertEqual(workflow["14"]["class_type"], "VHS_VideoCombine")
         self.assertTrue(workflow["14"]["inputs"]["save_output"])
+        empty = build_minimax_h3_t8_workflow(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, "Rain.", [], options)
+        self.assertEqual(empty["3"]["inputs"]["task_type"], "T2VA")
+        self.assertEqual(empty["1"]["inputs"]["unet_name"], H3_FL2VA_FULL)
+        self.assertEqual(empty["16"]["class_type"], "LoraLoaderBypassModelOnly")
 
     def test_t8_dual_clock_builds_source_sampler_contract(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, {"quality": "0.98"})
@@ -162,7 +289,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["8"]["inputs"]["steps"], 8)
         self.assertEqual(workflow["7"]["inputs"]["megapixels"], 0.98)
         self.assertEqual(workflow["3"]["inputs"]["task_type"], "T2VA")
+        self.assertEqual(workflow["1"]["inputs"]["unet_name"], "minimax_h3_fl2va_int8_convrot.safetensors")
         self.assertEqual(workflow["16"]["class_type"], "LoraLoaderBypassModelOnly")
+
+    def test_t8_dual_clock_single_reference_uses_i2va_first_frame(self) -> None:
+        options = normalize_options(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, {"speed": "fast"})
+        workflow = build_minimax_h3_t8_workflow(
+            JobMode.MINIMAX_H3_T8_DUAL_CLOCK, "A forest path.", ["start.png"], options,
+        )
+        self.assertEqual(workflow["3"]["inputs"]["task_type"], "I2VA")
+        self.assertEqual(workflow["3"]["inputs"]["first_frame"], ["20", 0])
+        self.assertNotIn("ref_images.ref_image_0", workflow["3"]["inputs"])
+        self.assertEqual(workflow["1"]["inputs"]["unet_name"], H3_FL2VA_FULL)
+        self.assertEqual(workflow["16"]["class_type"], "LoraLoaderBypassModelOnly")
+        self.assertEqual(workflow["8"]["inputs"]["steps"], 4)
+        options_without_task_type = dict(options)
+        options_without_task_type.pop("task_type", None)
+        recovered = build_minimax_h3_t8_workflow(
+            JobMode.MINIMAX_H3_T8_DUAL_CLOCK, "A forest path.", ["start.png"], options_without_task_type,
+        )
+        self.assertEqual(recovered["3"]["inputs"]["task_type"], "I2VA")
 
     def test_t8_options_validate_ranges_and_cross_field_rules(self) -> None:
         mode = JobMode.MINIMAX_H3_T8_ALL_REFERENCE
@@ -182,6 +328,17 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_option_relationships(mode, normalize_options(mode, {"task_type": "Ref2VA"}), 0)
 
+    def test_generation_stage_follows_workflow_family(self) -> None:
+        self.assertEqual(generation_stage(JobMode.MINIMAX_H3_LIGHTX2V_I2V), "LightX2V 正在生成视频")
+        self.assertEqual(generation_stage(JobMode.MINIMAX_H3_LIGHTX2V_T2V), "LightX2V 正在生成视频")
+        self.assertEqual(generation_stage(JobMode.MINIMAX_H3_LIGHTX2V_R2V), "LightX2V 正在生成视频")
+        self.assertEqual(generation_stage(JobMode.MINIMAX_H3_DUAL_ACCEL_T2V), "八步双加速 正在生成视频")
+        self.assertEqual(generation_stage(JobMode.MINIMAX_H3_I2V), "MiniMax H3 正在生成视频")
+        self.assertEqual(generation_stage(JobMode.MINIMAX_H3_T8_DUAL_CLOCK), "MiniMax H3 正在生成视频")
+        self.assertEqual(generation_output_label(JobMode.MINIMAX_H3_LIGHTX2V_I2V), "LightX2V 视频")
+        self.assertEqual(generation_output_label(JobMode.MINIMAX_H3_DUAL_ACCEL_I2V), "八步双加速 视频")
+        self.assertEqual(generation_output_label(JobMode.MINIMAX_H3_T2V), "MiniMax H3 视频")
+
 
 class ApiDocumentationTests(unittest.TestCase):
     def test_openapi_schema_contains_all_public_api_operations(self) -> None:
@@ -192,10 +349,12 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertIn("/api/jobs/{job_id}/references/{reference_index}", schema["paths"])
         self.assertIn("/api/auth/login", schema["paths"])
         self.assertIn("/api/admin/users", schema["paths"])
-        self.assertIn("/api/jobs/{job_id}/outputs/{output_index}/delivered", schema["paths"])
+        self.assertIn("/api/jobs/{job_id}/retry", schema["paths"])
+        self.assertIn("/api/jobs/{job_id}/cancel", schema["paths"])
         self.assertIn("/api/jobs/{job_id}/outputs/{output_index}/desktop-ticket", schema["paths"])
         self.assertIn("/api/modes/{mode_id}", schema["paths"])
         self.assertIn("/api/providers/grs/balance", schema["paths"])
+        self.assertIn("/api/admin/providers/comfy", schema["paths"])
         balance_route = next(route for route in app.routes if getattr(route, "path", None) == "/api/providers/grs/balance")
         self.assertIn(current_user, [dependency.call for dependency in balance_route.dependant.dependencies])
         self.assertIn("multipart/form-data", schema["paths"]["/api/jobs"]["post"]["requestBody"]["content"])
@@ -248,6 +407,7 @@ class ApiDocumentationTests(unittest.TestCase):
         parameters = {item["name"]: item for item in h3["parameters"]}
         self.assertEqual(parameters["mode"]["values"], ["minimax-h3-r2v"])
         self.assertEqual(parameters["references"]["max_items"], 9)
+        self.assertEqual(parameters["options"]["schema"]["properties"]["duration"]["minimum"], 2)
         self.assertEqual(parameters["options"]["schema"]["properties"]["duration"]["maximum"], 15)
         self.assertNotIn("enum", parameters["options"]["schema"]["properties"]["aspect_ratio"])
         self.assertIn("pattern", parameters["options"]["schema"]["properties"]["aspect_ratio"])
@@ -258,6 +418,12 @@ class ApiDocumentationTests(unittest.TestCase):
             ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.98", "1.0", "1.2", "1.5", "1.8", "2.0"],
         )
         self.assertEqual(parameters["options"]["schema"]["properties"]["duration"]["ui_control"], "duration-slider")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["ui_group"], "primary")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["enum"], ["fast", "balanced", "quality", "custom"])
+        self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["default"], "balanced")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["ui_visible_when"], {"speed": "custom"})
+        self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["unit"], "步")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["steps"]["ui_group"], "internal")
         self.assertEqual(
             parameters["options"]["schema"]["properties"]["aspect_ratio"]["ui_options"][0],
             {"value": "16:9", "label": "16:9 横屏"},
@@ -270,10 +436,12 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertIn("output_format", t8_options)
         self.assertTrue(all(option["ui_group"] in {"primary", "advanced", "internal"} for option in t8_options.values()))
         self.assertEqual(t8_options["aspect_ratio"]["ui_control"], "visual-settings")
+        self.assertEqual(t8_options["duration"]["minimum"], 2)
+        self.assertEqual(t8_options["duration"]["maximum"], 15)
         self.assertEqual(t8_options["duration"]["ui_control"], "duration-slider")
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "primary"},
-            {"aspect_ratio", "duration"},
+            {"aspect_ratio", "duration", "speed", "custom_steps"},
         )
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "advanced"},
@@ -287,7 +455,126 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(t8_options["seed"]["ui_group"], "internal")
         self.assertEqual(t8_options["task_type"]["ui_group"], "internal")
         self.assertEqual(t8_options["video_steps"]["ui_group"], "internal")
-        self.assertTrue(all(workflow.id.value.startswith(("minimax-h3-", "grs-gpt-image-")) for workflow in WORKFLOWS))
+        self.assertTrue(all(workflow.id.startswith("minimax-h3-") for workflow in WORKFLOWS))
+        groups = {workflow.catalog_group: workflow.payload() for workflow in WORKFLOWS}
+        self.assertEqual(workflow_for(JobMode.MINIMAX_H3_LIGHTX2V_T2V).catalog_group, CATALOG_GROUP_LIGHTX2V)
+        self.assertEqual(workflow_for(JobMode.MINIMAX_H3_DUAL_ACCEL_T2V).catalog_group, CATALOG_GROUP_DUAL_ACCEL)
+        self.assertEqual(workflow_for(JobMode.MINIMAX_H3_T2V).catalog_group, CATALOG_GROUP_OFFICIAL_H3)
+        self.assertEqual(workflow_for(JobMode.MINIMAX_H3_T8_DUAL_CLOCK).catalog_group, CATALOG_GROUP_CUSTOM)
+        self.assertEqual(groups[CATALOG_GROUP_LIGHTX2V]["catalog_group_label"], "LightX2V")
+        self.assertEqual(groups[CATALOG_GROUP_DUAL_ACCEL]["catalog_group_label"], "八步双加速")
+        self.assertEqual(groups[CATALOG_GROUP_OFFICIAL_H3]["catalog_group_label"], "官方 MiniMax H3")
+        self.assertEqual(groups[CATALOG_GROUP_CUSTOM]["catalog_group_label"], "自定义")
+        self.assertLess(groups[CATALOG_GROUP_LIGHTX2V]["catalog_group_order"], groups[CATALOG_GROUP_DUAL_ACCEL]["catalog_group_order"])
+        self.assertLess(groups[CATALOG_GROUP_DUAL_ACCEL]["catalog_group_order"], groups[CATALOG_GROUP_OFFICIAL_H3]["catalog_group_order"])
+        self.assertLess(groups[CATALOG_GROUP_OFFICIAL_H3]["catalog_group_order"], groups[CATALOG_GROUP_CUSTOM]["catalog_group_order"])
+
+    def test_lightx2v_t2v_uses_euler_sigma_shift_and_one_megapixel_defaults(self) -> None:
+        options = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {})
+        self.assertEqual(options["quality"], "1.0")
+        self.assertEqual(options["megapixels"], 1.0)
+        self.assertEqual(options["speed"], "fast")
+        self.assertEqual(options["steps"], 4)
+        self.assertEqual(options["lora_name"], LIGHTX2V_FL2V_4STEP_LORA)
+        self.assertEqual(options["lora_strength"], 0.75)
+        self.assertEqual(h3_dimensions(options), (1376, 768))
+        graph = build_minimax_h3_lightx2v_workflow(JobMode.MINIMAX_H3_LIGHTX2V_T2V, "A stadium strike.", [], options, 7)
+        self.assertEqual(graph["9"]["inputs"]["sampler_name"], "euler")
+        self.assertEqual(graph["15"]["class_type"], "LoraLoaderModelOnly")
+        self.assertEqual(graph["15"]["inputs"]["lora_name"], LIGHTX2V_FL2V_4STEP_LORA)
+        self.assertEqual(graph["16"]["class_type"], "MiniMaxH3MemoryEfficientSageAttentionPatch")
+        self.assertEqual(graph["17"]["class_type"], "MiniMaxH3SigmaShift")
+        self.assertEqual(graph["17"]["inputs"]["shift_video"], 12.0)
+        self.assertEqual(graph["7"]["inputs"]["steps"], 4)
+        self.assertEqual(graph["1"]["inputs"]["unet_name"], H3_FL2VA_FULL)
+        self.assertEqual(graph["14"]["class_type"], "SaveVideo")
+        official = build_minimax_h3_workflow(
+            JobMode.MINIMAX_H3_T2V, "A stadium strike.", [], normalize_options(JobMode.MINIMAX_H3_T2V, {"speed": "fast"}), 7,
+        )
+        self.assertEqual(official["9"]["inputs"]["sampler_name"], "res_multistep")
+        self.assertNotIn("17", official)
+
+    def test_lightx2v_r2v_loads_ref2v_lora_and_quality_skips_acceleration(self) -> None:
+        options = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_R2V, {"speed": "fast"})
+        self.assertEqual(options["lora_name"], LIGHTX2V_REF2V_4STEP_LORA)
+        graph = build_minimax_h3_lightx2v_workflow(
+            JobMode.MINIMAX_H3_LIGHTX2V_R2V, "Use <Picture 1>.", ["character.png"], options, 9,
+        )
+        self.assertEqual(graph["5"]["class_type"], "MiniMaxH3ReferenceToVideo")
+        self.assertEqual(graph["15"]["inputs"]["lora_name"], LIGHTX2V_REF2V_4STEP_LORA)
+        self.assertEqual(graph["1"]["inputs"]["unet_name"], H3_REF2VA_FULL)
+        balanced = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"speed": "balanced"})
+        self.assertEqual(balanced["steps"], 8)
+        self.assertEqual(balanced["lora_name"], LIGHTX2V_FL2V_8STEP_LORA)
+        quality = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"speed": "quality"})
+        quality_graph = build_minimax_h3_lightx2v_workflow(
+            JobMode.MINIMAX_H3_LIGHTX2V_T2V, "A final pass.", [], quality, 11,
+        )
+        self.assertEqual(quality["steps"], 20)
+        self.assertEqual(quality["lora_strength"], 0.0)
+        self.assertNotIn("15", quality_graph)
+        self.assertEqual(quality_graph["1"]["inputs"]["unet_name"], H3_FL2VA_PRUNED)
+
+    def test_dual_accel_t2v_chains_lora_kj_sage_and_h3_sage(self) -> None:
+        options = normalize_options(JobMode.MINIMAX_H3_DUAL_ACCEL_T2V, {})
+        self.assertEqual(options["quality"], "0.4")
+        self.assertEqual(options["megapixels"], 0.4)
+        self.assertEqual(options["speed"], "balanced")
+        self.assertEqual(options["steps"], 8)
+        self.assertEqual(options["lora_name"], DUAL_ACCEL_LORA_NAME)
+        self.assertEqual(options["lora_strength"], 1.0)
+        self.assertEqual(options["sampler_name"], "res_multistep")
+        self.assertEqual(h3_dimensions(options), (864, 480))
+        graph = build_minimax_h3_dual_accel_workflow(
+            JobMode.MINIMAX_H3_DUAL_ACCEL_T2V, "A stadium strike.", [], options, 7,
+        )
+        self.assertEqual(graph["9"]["inputs"]["sampler_name"], "res_multistep")
+        self.assertEqual(graph["15"]["class_type"], "LoraLoaderModelOnly")
+        self.assertEqual(graph["15"]["inputs"]["lora_name"], LIGHTX2V_FL2V_8STEP_LORA)
+        self.assertEqual(graph["15"]["inputs"]["strength_model"], 1.0)
+        self.assertEqual(graph["16"]["class_type"], "PathchSageAttentionKJ")
+        self.assertEqual(graph["16"]["inputs"]["sage_attention"], "auto")
+        self.assertFalse(graph["16"]["inputs"]["allow_compile"])
+        self.assertEqual(graph["17"]["class_type"], "MiniMaxH3MemoryEfficientSageAttentionPatch")
+        self.assertEqual(graph["17"]["inputs"]["model"], ["16", 0])
+        self.assertEqual(graph["18"]["class_type"], "MiniMaxH3SigmaShift")
+        self.assertEqual(graph["18"]["inputs"]["shift_video"], 12.0)
+        self.assertEqual(graph["7"]["inputs"]["steps"], 8)
+        self.assertEqual(graph["1"]["inputs"]["unet_name"], H3_FL2VA_FULL)
+        self.assertEqual(graph["5"]["class_type"], "MiniMaxH3ImageToVideo")
+        self.assertEqual(graph["14"]["class_type"], "SaveVideo")
+        payload = workflow_for(JobMode.MINIMAX_H3_DUAL_ACCEL_T2V).payload()
+        speed = {item["name"]: item for item in payload["parameters"]}["options"]["schema"]["properties"]["speed"]
+        self.assertEqual(speed["enum"], ["balanced", "quality", "custom"])
+        self.assertEqual(speed["default"], "balanced")
+        with self.assertRaisesRegex(ValueError, "生成速度"):
+            normalize_options(JobMode.MINIMAX_H3_DUAL_ACCEL_T2V, {"speed": "fast"})
+
+    def test_dual_accel_i2v_and_r2v_and_quality_skip_lora(self) -> None:
+        i2v = normalize_options(JobMode.MINIMAX_H3_DUAL_ACCEL_I2V, {})
+        i2v_graph = build_minimax_h3_dual_accel_workflow(
+            JobMode.MINIMAX_H3_DUAL_ACCEL_I2V, "Camera pulls back.", ["start.png", "end.png"], i2v, 3,
+        )
+        self.assertEqual(i2v_graph["5"]["class_type"], "MiniMaxH3ImageToVideo")
+        self.assertEqual(i2v_graph["5"]["inputs"]["first_frame"], ["20", 0])
+        self.assertEqual(i2v_graph["5"]["inputs"]["last_frame"], ["21", 0])
+        options = normalize_options(JobMode.MINIMAX_H3_DUAL_ACCEL_R2V, {})
+        self.assertEqual(options["lora_name"], DUAL_ACCEL_LORA_NAME)
+        graph = build_minimax_h3_dual_accel_workflow(
+            JobMode.MINIMAX_H3_DUAL_ACCEL_R2V, "Use <Picture 1>.", ["character.png"], options, 9,
+        )
+        self.assertEqual(graph["5"]["class_type"], "MiniMaxH3ReferenceToVideo")
+        self.assertEqual(graph["15"]["inputs"]["lora_name"], LIGHTX2V_FL2V_8STEP_LORA)
+        self.assertEqual(graph["1"]["inputs"]["unet_name"], H3_REF2VA_FULL)
+        quality = normalize_options(JobMode.MINIMAX_H3_DUAL_ACCEL_T2V, {"speed": "quality"})
+        quality_graph = build_minimax_h3_dual_accel_workflow(
+            JobMode.MINIMAX_H3_DUAL_ACCEL_T2V, "A final pass.", [], quality, 11,
+        )
+        self.assertEqual(quality["steps"], 20)
+        self.assertEqual(quality["lora_strength"], 0.0)
+        self.assertNotIn("15", quality_graph)
+        self.assertEqual(quality_graph["16"]["class_type"], "PathchSageAttentionKJ")
+        self.assertEqual(quality_graph["1"]["inputs"]["unet_name"], H3_FL2VA_PRUNED)
 
 
 class StoreTests(unittest.TestCase):
@@ -349,6 +636,77 @@ class StoreTests(unittest.TestCase):
         )
         self.assertNotIn("submitted_options", job)
 
+    def test_request_parameters_omit_inactive_visible_when_options(self) -> None:
+        fast = public_job({
+            "id": "job-fast",
+            "mode": JobMode.MINIMAX_H3_R2V,
+            "prompt": "A forest path.",
+            "negative_prompt": "",
+            "image_size": None,
+            "reference_count": 1,
+            "options": {
+                "aspect_ratio": "16:9",
+                "quality": "0.2",
+                "megapixels": 0.2,
+                "duration": 3,
+                "speed": "fast",
+                "custom_steps": 8,
+                "steps": 4,
+                "lora_strength": 1,
+            },
+            "outputs": [],
+        })
+        fast_names = [item["name"] for item in fast["request_parameters"]]
+        self.assertIn("options.speed", fast_names)
+        self.assertNotIn("options.custom_steps", fast_names)
+        self.assertIn("options.steps", fast_names)
+
+        custom = public_job({
+            "id": "job-custom",
+            "mode": JobMode.MINIMAX_H3_R2V,
+            "prompt": "A forest path.",
+            "negative_prompt": "",
+            "image_size": None,
+            "reference_count": 1,
+            "options": {
+                "aspect_ratio": "16:9",
+                "quality": "0.2",
+                "megapixels": 0.2,
+                "duration": 3,
+                "speed": "custom",
+                "custom_steps": 6,
+                "steps": 6,
+                "lora_strength": 1,
+            },
+            "outputs": [],
+        })
+        custom_names = [item["name"] for item in custom["request_parameters"]]
+        self.assertIn("options.custom_steps", custom_names)
+        self.assertEqual(
+            next(item["value"] for item in custom["request_parameters"] if item["name"] == "options.custom_steps"),
+            6,
+        )
+
+        preset_image = public_job({
+            "id": "job-image",
+            "mode": JobMode.GRS_GPT_IMAGE_2_VIP,
+            "prompt": "A still.",
+            "negative_prompt": "",
+            "image_size": None,
+            "reference_count": 0,
+            "options": {
+                "aspect_ratio": "16:9",
+                "resolution": "1K",
+                "count": 1,
+                "custom_width": 1024,
+                "custom_height": 1024,
+            },
+            "outputs": [],
+        })
+        image_names = [item["name"] for item in preset_image["request_parameters"]]
+        self.assertNotIn("options.custom_width", image_names)
+        self.assertNotIn("options.custom_height", image_names)
+
     def test_existing_database_adds_progress_column(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "legacy.db"
@@ -406,6 +764,36 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(worker_job["references"], [])
             self.assertNotIn("references", store.get("job-1"))
 
+    def test_job_elapsed_is_frozen_after_success_and_survives_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            created = store.create("job-1", JobMode.MINIMAX_H3_T2V, "提示词", "", None, [])
+            self.assertIsNone(created.get("finished_at"))
+            public_created = public_job(created)
+            self.assertIsNone(public_created["elapsed_ms"])
+            completed = store.update(
+                "job-1", status=JobStatus.SUCCEEDED, stage="生成完成", progress=100,
+                outputs=[{"kind": "video", "path": "a.mp4", "label": "MiniMax H3 视频"}],
+                execution_elapsed_ms=123000,
+            )
+            self.assertIsNotNone(completed["finished_at"])
+            self.assertEqual(completed["execution_elapsed_ms"], 123000)
+            public_completed = public_job(completed)
+            self.assertGreaterEqual(public_completed["elapsed_ms"], 0)
+            self.assertEqual(public_completed["execution_elapsed_ms"], 123000)
+            finished_at = completed["finished_at"]
+            store.mark_output_delivered("job-1", 0, "2026-08-26T00:00:00+00:00")
+            after_delivery = store.get("job-1")
+            self.assertEqual(after_delivery["finished_at"], finished_at)
+            self.assertEqual(after_delivery["execution_elapsed_ms"], 123000)
+            retried = store.retry_terminal("job-1")
+            self.assertIsNone(retried)
+            store.update("job-1", status=JobStatus.FAILED, stage="生成失败", error="失败", outputs=[])
+            retried = store.retry_terminal("job-1")
+            self.assertIsNotNone(retried)
+            self.assertIsNone(retried["finished_at"])
+            self.assertIsNone(retried["execution_elapsed_ms"])
+
     def test_jobs_are_filtered_by_owner_and_delivery_is_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = JobStore(Path(directory) / "test.db")
@@ -415,9 +803,11 @@ class StoreTests(unittest.TestCase):
                 "job-a", status=JobStatus.SUCCEEDED,
                 outputs=[{"kind": "image", "path": "a.png", "label": "生成图片"}],
             )
-            self.assertEqual([job["id"] for job in store.list_for_user("user-a")], ["job-a"])
-            delivered = store.mark_output_delivered("job-a", 0, "2026-08-11T00:00:00+00:00")
-            self.assertEqual(delivered["outputs"][0]["delivery_status"], "local")
+            self.assertEqual([job["id"] for job in store.list_jobs("user-a")], ["job-a"])
+            self.assertEqual([job["id"] for job in store.list_jobs("user-b")], ["job-b"])
+            store.mark_output_delivered("job-a", 0, "2024-01-01T00:00:00Z")
+            updated = store.get("job-a")
+            self.assertEqual(updated["outputs"][0]["delivery_status"], "local")
 
 
 class AuthenticationTests(unittest.TestCase):
@@ -555,7 +945,7 @@ class ResourceStorageTests(unittest.TestCase):
         })
         self.assertNotIn("_comfy_source", job["outputs"][0])
 
-    def test_public_job_prefers_the_persistent_storage_url(self) -> None:
+    def test_public_job_uses_fallback_url_for_structural_sharing(self) -> None:
         class CloudStorage:
             def download_url(self, key: str) -> str | None:
                 return f"https://media.example.com/{key}?signed=1"
@@ -569,10 +959,74 @@ class ResourceStorageTests(unittest.TestCase):
                 "options": {}, "submitted_options": {}, "options_submitted": False,
                 "outputs": [{"kind": "video", "path": "video/key.mp4", "label": "视频", "delivery_status": "cloud"}], "rounds": [],
             })
-            self.assertEqual(job["outputs"][0]["download_url"], "https://media.example.com/video/key.mp4?signed=1")
+            self.assertEqual(job["outputs"][0]["download_url"], "/api/jobs/cloud-job/outputs/0/download")
         finally:
             if previous_storage is None:
                 del app.state.resource_storage
+            else:
+                app.state.resource_storage = previous_storage
+
+    def test_public_job_exposes_download_when_failed_item_has_outputs(self) -> None:
+        job = public_job({
+            "id": "failed-with-image", "mode": JobMode.GRS_GPT_IMAGE_2, "status": "failed",
+            "prompt": "prompt", "negative_prompt": "", "image_size": None, "reference_count": 0,
+            "options": {}, "submitted_options": {}, "options_submitted": False,
+            "outputs": [{"kind": "image", "path": "kept.png", "label": "生成图片", "delivery_status": "pending"}],
+            "rounds": [{
+                "id": "round-1", "sequence": 1, "mode": JobMode.GRS_GPT_IMAGE_2, "media_type": "image",
+                "status": "failed", "prompt": "prompt", "negative_prompt": "", "image_size": None,
+                "reference_count": 0, "options": {}, "submitted_options": {}, "options_submitted": False,
+                "generation_items": [{
+                    "id": "item-1", "index": 1, "status": "failed",
+                    "outputs": [{"kind": "image", "path": "kept.png", "label": "生成图片", "delivery_status": "pending"}],
+                }],
+            }],
+        })
+        self.assertEqual(job["outputs"][0]["download_url"], "/api/jobs/failed-with-image/outputs/0/download")
+        self.assertEqual(
+            job["rounds"][0]["generation_items"][0]["outputs"][0]["download_url"],
+            "/api/jobs/failed-with-image/generations/item-1/outputs/0/download",
+        )
+
+    def test_cloud_output_download_streams_bytes_instead_of_redirecting(self) -> None:
+        class CloudStorage:
+            def resolve(self, key: str):
+                return None
+
+            def download_url(self, key: str, expires_in_seconds: int = 300) -> str | None:
+                return f"https://media.example.com/{key}?signed=1"
+
+        class FakeUpstream:
+            status_code = 200
+            headers = {"Content-Type": "video/mp4", "Content-Length": "4"}
+
+            def iter_content(self, chunk_size=1):
+                yield b"mp4!"
+
+            def close(self) -> None:
+                return None
+
+        previous_storage = getattr(app.state, "resource_storage", None)
+        app.state.resource_storage = CloudStorage()
+        try:
+            with patch("backend.app.main.requests.get", return_value=FakeUpstream()) as fetch:
+                response = output_response({"kind": "video", "path": "video/cloud-only.mp4", "label": "视频"})
+            fetch.assert_called_once()
+            self.assertEqual(fetch.call_args.args[0], "https://media.example.com/video/cloud-only.mp4?signed=1")
+            self.assertEqual(fetch.call_args.kwargs.get("allow_redirects"), True)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotEqual(response.status_code, 307)
+
+            async def collect() -> bytes:
+                chunks: list[bytes] = []
+                async for chunk in response.body_iterator:
+                    chunks.append(chunk)
+                return b"".join(chunks)
+
+            self.assertEqual(asyncio.run(collect()), b"mp4!")
+        finally:
+            if previous_storage is None:
+                delattr(app.state, "resource_storage")
             else:
                 app.state.resource_storage = previous_storage
 
@@ -592,11 +1046,34 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(ComfyService.progress_percent(message, "prompt-1"), 20)
         self.assertIsNone(ComfyService.progress_percent(message, "another-prompt"))
 
+    def test_comfy_history_messages_are_converted_to_execution_elapsed_ms(self) -> None:
+        record = {
+            "status": {
+                "status_str": "success",
+                "messages": [
+                    ["execution_start", {"prompt_id": "p1", "timestamp": 1_720_000_000.0}],
+                    ["execution_success", {"prompt_id": "p1", "timestamp": 1_720_000_123.4}],
+                ],
+            }
+        }
+        self.assertEqual(ComfyService.execution_elapsed_ms(record), 123400)
+        self.assertIsNone(ComfyService.execution_elapsed_ms({"status": {"messages": []}}))
+        millis = {
+            "status": {
+                "messages": [
+                    ["execution_start", {"timestamp": 1_720_000_000_000}],
+                    ["execution_success", {"timestamp": 1_720_000_045_000}],
+                ]
+            }
+        }
+        self.assertEqual(ComfyService.execution_elapsed_ms(millis), 45_000)
+
     def test_worker_keeps_reference_paths_internal(self) -> None:
         class FakeComfy:
             received_references: list[str] | None = None
+            last_execution_elapsed_ms = None
 
-            def run(self, mode, references, prompt, negative_prompt, image_size, options, update_stage, on_submitted, save_partial_outputs):
+            def run(self, mode, references, prompt, negative_prompt, image_size, options, update_stage, on_submitted, save_partial_outputs, is_cancelled=None):
                 self.received_references = references
                 return []
 
@@ -620,6 +1097,134 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(job["status"], JobStatus.INTERRUPTED)
             self.assertIsNone(job["comfy_prompt_id"])
             self.assertIn("ComfyUI", job["stage"])
+
+    def test_recover_auto_requeues_lost_comfy_job(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return []
+
+            def prompt_state(self, prompt_id, active_prompt_ids):
+                return "missing", None
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.set_comfy_execution("job-1", "lost-prompt", "client-1", "generation")
+            worker = JobWorker(store, FakeComfy())
+            recovered = worker.recover()
+            job = store.get("job-1")
+            self.assertEqual(recovered, ["job-1"])
+            self.assertEqual(job["status"], JobStatus.QUEUED)
+            self.assertIsNone(job["comfy_prompt_id"])
+            self.assertIn("自动重新提交", job["stage"])
+
+    def test_recover_resumes_interrupted_job_still_in_comfy_queue(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return [ComfyQueuePrompt("prompt-1", "client-1", "prompt", None)]
+
+            def prompt_state(self, prompt_id, active_prompt_ids):
+                return "active", None
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.set_comfy_execution("job-1", "prompt-1", "client-1", "generation")
+            store.update("job-1", status=JobStatus.INTERRUPTED, stage="ComfyUI 连接中断，恢复后将自动重新提交")
+            worker = JobWorker(store, FakeComfy())
+            recovered = worker.recover()
+            job = store.get("job-1")
+            self.assertEqual(recovered, ["job-1"])
+            self.assertEqual(job["status"], JobStatus.RUNNING)
+            self.assertEqual(job["comfy_prompt_id"], "prompt-1")
+
+    def test_recover_does_not_auto_requeue_when_comfy_is_unreachable(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return None
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.set_comfy_execution("job-1", "prompt-1", "client-1", "generation")
+            store.update("job-1", status=JobStatus.INTERRUPTED)
+            worker = JobWorker(store, FakeComfy())
+            self.assertEqual(worker.recover(), [])
+            job = store.get("job-1")
+            self.assertEqual(job["status"], JobStatus.INTERRUPTED)
+            self.assertEqual(job["comfy_prompt_id"], "prompt-1")
+
+    def test_recover_stops_auto_requeue_after_max_attempts(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return []
+
+            def prompt_state(self, prompt_id, active_prompt_ids):
+                return "missing", None
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            worker = JobWorker(store, FakeComfy())
+            for _ in range(JobWorker.MAX_AUTO_RETRIES):
+                store.set_comfy_execution("job-1", "lost-prompt", "client-1", "generation")
+                store.update("job-1", status=JobStatus.INTERRUPTED)
+                self.assertEqual(worker.recover(), ["job-1"])
+                self.assertEqual(store.get("job-1")["status"], JobStatus.QUEUED)
+            store.set_comfy_execution("job-1", "lost-prompt", "client-1", "generation")
+            store.update("job-1", status=JobStatus.INTERRUPTED)
+            self.assertEqual(worker.recover(), [])
+            job = store.get("job-1")
+            self.assertEqual(job["status"], JobStatus.INTERRUPTED)
+            self.assertIn("已自动重试", job["stage"])
+
+    def test_execute_resumes_interrupted_job_with_prompt_id(self) -> None:
+        class FakeComfy:
+            last_execution_elapsed_ms = None
+
+            def resume(self, *args, **kwargs):
+                return [{"kind": "video", "path": "recovered.mp4", "label": "视频"}]
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.set_comfy_execution("job-1", "prompt-1", "client-1", "generation")
+            store.update("job-1", status=JobStatus.INTERRUPTED)
+            asyncio.run(JobWorker(store, FakeComfy()).execute("job-1"))
+            job = store.get("job-1")
+            self.assertEqual(job["status"], JobStatus.SUCCEEDED)
+            self.assertIsNone(job["comfy_prompt_id"])
+
+    def test_recover_does_not_preempt_in_flight_submit_without_prompt_id(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return []
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.update("job-1", status=JobStatus.RUNNING, stage="正在准备任务")
+            worker = JobWorker(store, FakeComfy())
+            worker.queued_job_ids.add("job-1")
+            self.assertEqual(worker.recover(), [])
+            job = store.get("job-1")
+            self.assertEqual(job["status"], JobStatus.RUNNING)
+            self.assertIsNone(job["comfy_prompt_id"])
+
+    def test_recover_auto_requeues_stale_running_job_without_prompt_id(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return []
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.update("job-1", status=JobStatus.RUNNING, stage="正在准备任务")
+            worker = JobWorker(store, FakeComfy())
+            recovered = worker.recover()
+            job = store.get("job-1")
+            self.assertEqual(recovered, ["job-1"])
+            self.assertEqual(job["status"], JobStatus.QUEUED)
 
     def test_interrupted_job_can_be_requeued_after_comfy_recovers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -678,6 +1283,198 @@ class WorkerTests(unittest.TestCase):
             ])
             self.assertEqual(store.get("older")["comfy_prompt_id"], "finished")
             self.assertEqual(store.get("newer")["comfy_prompt_id"], "current")
+
+    def test_mark_cancelled_clears_prompt_and_blocks_auto_requeue(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return []
+
+            def prompt_state(self, prompt_id, active_prompt_ids):
+                return "missing", None
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.set_comfy_execution("job-1", "prompt-1", "client-1", "generation")
+            job, prompt_ids = store.mark_cancelled("job-1")
+            self.assertIsNotNone(job)
+            self.assertEqual(prompt_ids, ["prompt-1"])
+            self.assertEqual(job["status"], JobStatus.CANCELLED)
+            self.assertTrue(store.is_cancelled("job-1"))
+            self.assertIsNone(job["comfy_prompt_id"])
+            worker = JobWorker(store, FakeComfy())
+            self.assertEqual(worker.recover(), [])
+            self.assertEqual(store.get("job-1")["status"], JobStatus.CANCELLED)
+
+    def test_cancelled_job_can_be_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.mark_cancelled("job-1")
+            retried = store.retry_terminal("job-1")
+            self.assertEqual(retried["status"], JobStatus.QUEUED)
+            self.assertFalse(retried["rounds"][-1]["generation_items"][0]["cancel_requested"])
+
+    def test_execute_keeps_cancelled_when_comfy_reports_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+
+            class FakeComfy:
+                last_execution_elapsed_ms = None
+
+                def run(self, *args, **kwargs):
+                    store.mark_cancelled("job-1")
+                    raise RuntimeError("ComfyUI 推理失败: interrupted")
+
+            asyncio.run(JobWorker(store, FakeComfy()).execute("job-1"))
+            job = store.get("job-1")
+            self.assertEqual(job["status"], JobStatus.CANCELLED)
+            self.assertEqual(job["stage"], "已停止生成")
+
+    def test_stop_prompt_interrupts_running_and_deletes_pending(self) -> None:
+        class FakeResponse:
+            ok = True
+
+            def json(self):
+                return {
+                    "queue_running": [[0, "run-1", {}, {}, []]],
+                    "queue_pending": [[1, "pend-1", {}, {}, []]],
+                }
+
+        posts: list[tuple[str, dict]] = []
+
+        class FakeRequests:
+            @staticmethod
+            def get(url, **kwargs):
+                return FakeResponse()
+
+            @staticmethod
+            def post(url, **kwargs):
+                posts.append((url, kwargs.get("json") or {}))
+                return FakeResponse()
+
+        with patch("backend.app.comfy_service.requests", FakeRequests):
+            service = ComfyService(Settings())
+            service.stop_prompt("run-1")
+            service.stop_prompt("pend-1")
+        self.assertEqual(posts[0], ("http://127.0.0.1:8188/interrupt", {"prompt_id": "run-1"}))
+        self.assertEqual(posts[1], ("http://127.0.0.1:8188/queue", {"delete": ["pend-1"]}))
+
+    def test_free_resources_posts_unload_when_comfy_queue_is_empty(self) -> None:
+        class FakeResponse:
+            ok = True
+
+            def json(self):
+                return {"queue_running": [], "queue_pending": [], "prompt_id": "cleanup-1"}
+
+        posts: list[tuple[str, dict]] = []
+
+        class FakeRequests:
+            @staticmethod
+            def get(url, **kwargs):
+                return FakeResponse()
+
+            @staticmethod
+            def post(url, **kwargs):
+                posts.append((url, kwargs.get("json") or {}))
+                return FakeResponse()
+
+        with patch("backend.app.comfy_service.requests", FakeRequests):
+            self.assertTrue(ComfyService(Settings()).free_resources())
+        self.assertEqual(posts[0], ("http://127.0.0.1:8188/free", {"unload_models": True, "free_memory": True}))
+        self.assertEqual(posts[1][0], "http://127.0.0.1:8188/prompt")
+        self.assertEqual(posts[1][1]["prompt"]["1"]["class_type"], "VRAMCleanup")
+        self.assertEqual(posts[1][1]["prompt"]["2"]["class_type"], "RAMCleanup")
+        self.assertFalse(posts[1][1]["prompt"]["2"]["inputs"]["clean_processes"])
+
+    def test_free_resources_skips_when_comfy_still_has_prompts(self) -> None:
+        class FakeResponse:
+            ok = True
+
+            def json(self):
+                return {"queue_running": [[0, "run-1", {}, {}, []]], "queue_pending": []}
+
+        posts: list[tuple[str, dict]] = []
+
+        class FakeRequests:
+            @staticmethod
+            def get(url, **kwargs):
+                return FakeResponse()
+
+            @staticmethod
+            def post(url, **kwargs):
+                posts.append((url, kwargs.get("json") or {}))
+                return FakeResponse()
+
+        with patch("backend.app.comfy_service.requests", FakeRequests):
+            self.assertFalse(ComfyService(Settings()).free_resources())
+        self.assertEqual(posts, [])
+
+    def test_worker_releases_comfy_resources_after_last_job(self) -> None:
+        class FakeComfy:
+            freed = False
+            last_execution_elapsed_ms = None
+
+            def run(self, *args, **kwargs):
+                return []
+
+            def free_resources(self):
+                self.freed = True
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            comfy = FakeComfy()
+            worker = JobWorker(store, comfy)
+            asyncio.run(worker.execute("job-1"))
+            asyncio.run(worker.release_comfy_resources_if_idle())
+            self.assertEqual(store.get("job-1")["status"], JobStatus.SUCCEEDED)
+            self.assertTrue(comfy.freed)
+
+    def test_worker_keeps_models_loaded_when_more_jobs_are_queued(self) -> None:
+        class FakeComfy:
+            freed = False
+            last_execution_elapsed_ms = None
+
+            def run(self, *args, **kwargs):
+                return []
+
+            def free_resources(self):
+                self.freed = True
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            store.create("job-2", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            comfy = FakeComfy()
+            worker = JobWorker(store, comfy)
+            asyncio.run(worker.execute("job-1"))
+            asyncio.run(worker.release_comfy_resources_if_idle())
+            self.assertFalse(comfy.freed)
+
+    def test_worker_releases_comfy_resources_on_idle_start(self) -> None:
+        class FakeComfy:
+            freed = False
+
+            def active_prompts(self):
+                return []
+
+            def free_resources(self):
+                self.freed = True
+                return True
+
+        async def start_and_stop(worker: JobWorker) -> None:
+            await worker.start()
+            await worker.stop()
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            comfy = FakeComfy()
+            asyncio.run(start_and_stop(JobWorker(store, comfy)))
+            self.assertTrue(comfy.freed)
 
 
 if __name__ == "__main__":

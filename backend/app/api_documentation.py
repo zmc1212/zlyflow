@@ -20,6 +20,9 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "available": ("当前可用", "当前配置及连通性是否允许使用该能力。"),
     "base_url": ("服务地址", "上游服务的 API 根地址，必须包含协议。"),
     "bucket": ("存储桶", "七牛云中用于保存交付文件的 Bucket 名称。"),
+    "catalog_group": ("工作流分组 ID", "创作页工作流下拉的分组标识，例如 lightx2v、dual_accel、official_h3、custom。"),
+    "catalog_group_label": ("工作流分组名称", "创作页工作流下拉展示的分组标题。"),
+    "catalog_group_order": ("工作流分组顺序", "分组在下拉菜单中的排序，数值越小越靠前。"),
     "category": ("技能分类", "提示词技能所属的业务分类。"),
     "comfy": ("ComfyUI 健康状态", "固定 ComfyUI 实例的连接检测结果。"),
     "configured": ("已配置", "是否已填写该供应商所需的基础配置。"),
@@ -40,13 +43,18 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "domain": ("访问域名", "七牛云 Bucket 绑定的访问域名，须包含协议且可被员工浏览器访问。"),
     "download_url": ("临时下载地址", "当前用户或桌面客户端下载指定输出的临时地址；过期后须重新签发。"),
     "enabled": ("已启用", "是否启用该供应商或存储能力。"),
+    "elapsed_ms": ("等待耗时（毫秒）", "从任务发起到进入终态的墙上时钟毫秒数；排队或生成中为 null，由前端按 created_at 实时计时。"),
     "error": ("错误信息", "生成项、轮次或任务失败时的错误摘要；成功时为 null。"),
+    "execution_elapsed_ms": ("ComfyUI 推理耗时（毫秒）", "从 ComfyUI 历史记录 execution_start 到 execution_success 的推理耗时；没有历史时间戳时为 null。"),
     "executor": ("执行器", "实际执行任务的后端，例如 comfyui 或 grs。"),
+    "finished_at": ("结束时间", "任务进入完成、失败、中断或停止等终态时的 ISO 8601 时间；进行中为 null。交付或改名不会覆盖此值。"),
     "expires_in_seconds": ("有效期（秒）", "临时下载凭证或地址从签发起的有效秒数。"),
+    "free": ("是否免费", "该模型是否为免费项：来自上游 Free 标记、价格为 0，或硅基流动模型广场标价 0。"),
+    "free_only": ("仅免费模型", "为 true 时只返回免费模型。硅基流动会再对照模型广场价格为 0 / Free 的条目。"),
     "generation_item_id": ("生成项 ID", "轮次中某个独立生成项的唯一标识。"),
     "generation_items": ("生成项列表", "该轮次拆分出的独立生成项及其状态、输出。"),
-    "gpt_image_2_enabled": ("启用 GPT Image 2", "是否允许通过当前 GRS 配置使用 GPT Image 2。"),
-    "gpt_image_2_vip_enabled": ("启用 GPT Image 2 VIP", "是否允许通过当前 GRS 配置使用 GPT Image 2 VIP。"),
+    "gpt_image_2_enabled": ("启用 GPT Image 2", "目录中 GPT Image 2 是否启用；完整目录以 /api/admin/providers/grs/models 为准。"),
+    "gpt_image_2_vip_enabled": ("启用 GPT Image 2 VIP", "目录中 GPT Image 2 VIP 是否启用；完整目录以 /api/admin/providers/grs/models 为准。"),
     "grs": ("GRS 健康状态", "GRS 图片供应商的配置和可用性检测结果。"),
     "has_access_key": ("已配置 Access Key", "是否已保存七牛 Access Key；不会泄露具体内容。"),
     "has_api_key": ("已配置 API 密钥", "是否已保存供应商 API 密钥；不会泄露具体内容。"),
@@ -57,7 +65,8 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "image_sizes": ("可用图片尺寸", "当前图片模式允许使用的画布尺寸列表。"),
     "index": ("序号", "从 1 开始的业务序号；参考图序号同时决定其在提示词中的对应顺序。"),
     "input": ("收到的值", "未通过校验的原始输入值。"),
-    "is_active": ("账号启用状态", "false 时账号不能登录、不能继续使用既有下载凭证。"),
+    "builtin": ("内置模型", "是否来自工作台内置 GRS 文档目录；同步内置目录时不会覆盖已有项。"),
+    "is_default": ("默认模型", "创作页生图工作流下拉的默认项；同一时间只有一个默认模型。"),
     "job_id": ("任务 ID", "生成任务的唯一标识。"),
     "kind": ("媒体类型", "输出媒体类型，例如 image 或 video。"),
     "label": ("显示名称", "面向界面或调用方展示的字段或媒体名称。"),
@@ -75,6 +84,12 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "min_items": ("最少项目数", "数组字段必须提供的最少项目数量；null 表示未设置下限。"),
     "min_references": ("最少参考图数", "该工作流一次任务至少需要上传的参考图数量。"),
     "mode": ("工作流 ID", "本次生成使用的工作流标识；先通过 GET /api/modes 查询当前可用值和参数约束。"),
+    "profile": ("能力档", "生图模型的参数能力档，决定比例、分辨率和是否支持自定义尺寸。"),
+    "profiles": ("能力档列表", "管理后台可选择的 GRS 生图能力档及其显示名。"),
+    "provider_model": ("上游模型 ID", "提交给 GRS /v1/api/generate 的 model 字段。"),
+    "resolutions": ("分辨率列表", "该模型允许的分辨率档；为空时使用能力档默认值。"),
+    "sort_order": ("排序", "管理目录和创作页工作流列表中的显示顺序，数值越小越靠前。"),
+    "workflow_id": ("工作流 ID", "工作台内部生图工作流标识，出现在 GET /api/modes 与任务 mode 字段。"),
     "model": ("模型标识", "上游大模型服务使用的模型名称。"),
     "modes": ("工作流列表", "当前账号可见的生成工作流及其能力摘要。"),
     "msg": ("错误消息", "校验失败的人类可读原因。"),
@@ -107,7 +122,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "region": ("存储区域", "七牛云 Bucket 所在区域代码，例如 z0。"),
     "remote_task_id": ("上游任务 ID", "ComfyUI 或 GRS 等执行器返回的远端任务标识；尚未提交时为 null。"),
     "request_content_type": ("请求 Content-Type", "提交此工作流时必须使用的 HTTP Content-Type。"),
-    "request_parameters": ("有效参数快照", "本任务实际生效的参数、显示名称和可见层级，用于复现与排障。"),
+    "request_parameters": ("有效参数快照", "本任务实际生效的参数、显示名称和可见层级，用于复现与排障；未满足 ui_visible_when 的条件字段不回显。"),
     "required": ("是否必填", "该工作流字段是否必须在请求中提供。"),
     "role": ("账号角色", "super_admin 可管理全局配置和管理员；admin 可管理员工；employee 仅访问自己的任务和资源。"),
     "rounds": ("生成轮次", "同一任务下的历史生成轮次，按 sequence 递增。"),
@@ -122,7 +137,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "source_job_id": ("来源任务 ID", "图片转视频时被引用图片所在的图片任务 ID。"),
     "source_output_index": ("来源输出序号", "图片转视频时被引用图片在来源生成项输出数组中的从 0 开始索引。"),
     "stage": ("处理阶段", "任务当前所在的执行阶段，例如 queued、uploading、generating 或 completed。"),
-    "status": ("状态", "任务、轮次或生成项的状态：queued 排队中，running 处理中，succeeded 成功，failed 失败，interrupted 已中断，partial 部分成功。"),
+    "status": ("状态", "任务、轮次或生成项的状态：queued 排队中，running 处理中，succeeded 成功，failed 失败，interrupted 已中断，cancelled 用户已停止，partial 部分成功。"),
     "supports_h3_options": ("支持 H3 参数", "该工作流是否通过 options JSON 接收 MiniMax H3 参数。"),
     "temporary_server_staging": ("使用临时服务端暂存", "资源交付前是否先在服务端临时暂存；交付确认后可能被清理。"),
     "title": ("任务标题", "调用方为便于检索而设置的任务标题；最长 120 个字符，null 表示未设置。"),
@@ -140,6 +155,16 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "webui": ("工作台状态", "工作台后端状态；正常时为 ok。"),
     "workflow_id": ("工作流 ID", "当前选择的生成工作流标识。"),
     "workflow_name": ("工作流名称", "当前选择工作流的展示名称，用于帮助大模型理解创作目标。"),
+    "source_script": ("原始剧本", "导演工程保存的剧本文档原文；拆分后仍保留，不随弹窗关闭丢失。"),
+    "style_vibe": ("风格基调", "拆分剧本时使用的影视风格，例如电影级或赛博朋克。"),
+    "requested_shot_count": ("期望镜数", "拆分剧本时请求的分镜数量。"),
+    "has_source_script": ("是否有原文", "工程是否已保存非空剧本文档。"),
+    "shot_count": ("镜头数量", "时间轴中的分镜数量。"),
+    "generated_count": ("已生成镜数", "至少有一条成功 Take 或成片的分镜数量。"),
+    "generation_status": ("生成进度", "pending 待生成；partial 部分完成；complete 已完成。"),
+    "payload": ("时间轴载荷", "分镜、主体槽、画幅等 JSON；服务端会剥离 data URL，参考图走上传目录。"),
+    "imported": ("迁入数量", "本次迁库新写入的工程数量。"),
+    "skipped": ("跳过数量", "因 ID 已存在而未重复写入的工程数量。"),
 }
 
 
@@ -151,6 +176,7 @@ PATH_PARAMETER_DOCUMENTATION = {
     "reference_index": "参考图从 1 开始的上传顺序，顺序同时决定提示词中的图片对应关系。",
     "user_id": "员工账号的唯一标识。管理员只能修改其角色权限范围内的账号。",
     "mode_id": "工作流 ID；必须是 GET /api/modes 返回的 id 之一。",
+    "project_id": "导演工程的唯一标识。员工只能访问自己的工程；管理员按任务隔离规则可按 ID 读取。",
     "filename": "受控媒体文件名，不接受目录路径。",
     "limit": "返回的最大任务数，服务端会限制到 1 至 200，默认 100。",
     "desktop_ticket": "ZLYUN AI 桌面客户端临时下载凭证。使用该参数时可不携带浏览器 Cookie，凭证过期后须重新签发。",
@@ -175,11 +201,12 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/jobs"): "需要登录和 X-CSRF-Token。使用 multipart/form-data 创建任务，仅表示已入队（202）；随后轮询 GET /api/jobs/{job_id} 直至进入终态。references 可重复提交，上传顺序不能改变。options 是 JSON 对象字符串，例如 {\"aspect_ratio\":\"16:9\",\"duration\":5}。",
     ("post", "/api/jobs/{job_id}/rounds"): "需要登录和 X-CSRF-Token。为既有同媒介任务创建新的生成轮次，表单字段与创建任务相同；成功后返回更新后的任务。",
     ("post", "/api/jobs/{job_id}/rounds/{round_id}/retry-failed-items"): "需要登录和 X-CSRF-Token。仅重新入队该轮次中失败的生成项；没有失败项时返回 409。",
-    ("get", "/api/jobs"): "需要登录。只返回当前用户的最近任务，使用 limit 控制数量。",
+    ("get", "/api/jobs"): "需要登录。默认只返回当前用户的最近任务，使用 limit 控制数量。管理员和超级管理员可传 user_id 查看指定账号，或传 user_id=all 查看全部；员工传入该参数会被忽略。",
     ("get", "/api/jobs/{job_id}"): "需要登录。获取当前用户任务、轮次、生成项和输出的最新状态；推荐用于创建任务后的轮询。",
     ("patch", "/api/jobs/{job_id}"): "需要登录和 X-CSRF-Token。仅更新任务标题和置顶状态；未提供的字段保持不变。",
     ("delete", "/api/jobs/{job_id}"): "需要登录和 X-CSRF-Token。仅可删除已结束任务；排队中或运行中的任务返回 409。",
-    ("post", "/api/jobs/{job_id}/retry"): "需要登录和 X-CSRF-Token。仅重新提交符合条件的 MiniMax H3 失败或中断任务，接口成功时返回 202。",
+    ("post", "/api/jobs/{job_id}/retry"): "需要登录和 X-CSRF-Token。重新提交符合条件的 MiniMax H3 失败、中断或已停止任务；ComfyUI 恢复后中断视频也会自动重提，用户停止的任务不会自动重提。接口成功时返回 202。",
+    ("post", "/api/jobs/{job_id}/cancel"): "需要登录和 X-CSRF-Token。停止排队中、生成中或已中断的任务。视频任务会向固定 ComfyUI 发送 interrupt 或从队列删除对应 prompt_id，并禁止自动重提。图片任务停止本地等待，云端 GRS 可能仍会继续。成功时返回更新后的任务。",
     ("get", "/api/jobs/{job_id}/references/{reference_index}"): "需要登录。以图片二进制流预览任务的指定参考图；reference_index 从 1 开始。",
     ("get", "/api/jobs/{job_id}/rounds/{round_id}/references/{reference_index}"): "需要登录。以图片二进制流预览指定历史轮次的参考图；reference_index 从 1 开始。",
     ("get", "/api/library"): "需要登录。返回当前用户已成功生成的所有可访问媒体及其交付信息。",
@@ -192,6 +219,13 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("get", "/api/jobs/{job_id}/generations/{generation_item_id}/outputs/{output_index}/browser-direct"): "需要登录。返回指定生成项输出的同机 ComfyUI 直连地址；不支持时返回 409。",
     ("post", "/api/jobs/{job_id}/generations/{generation_item_id}/outputs/{output_index}/desktop-ticket"): "需要登录和 X-CSRF-Token。为指定生成项输出签发短时且范围受限的桌面下载凭证。",
     ("post", "/api/jobs/{job_id}/generations/{generation_item_id}/outputs/{output_index}/delivered"): "需要登录和 X-CSRF-Token。确认指定生成项输出已写入员工电脑，并按当前存储策略清理临时副本。",
+    ("get", "/api/director/projects"): "需要登录。只返回当前用户的导演工程摘要，不含剧本文档和时间轴 payload。",
+    ("post", "/api/director/projects"): "需要登录和 X-CSRF-Token。创建导演工程，可同时写入 source_script 与时间轴 payload。服务端剥离 data URL。",
+    ("post", "/api/director/projects/migrate"): "需要登录和 X-CSRF-Token。将浏览器 localStorage 中的导演工程一次性迁入 SQLite；相同 ID 跳过，避免重复。",
+    ("get", "/api/director/projects/{project_id}"): "需要登录。读取当前用户的完整工程，包括 source_script 与时间轴 payload。无权访问时按 404 处理。",
+    ("put", "/api/director/projects/{project_id}"): "需要登录和 X-CSRF-Token。更新标题、原文或时间轴；未提交的字段保持不变。拆分剧本后应把原文一并写入。",
+    ("delete", "/api/director/projects/{project_id}"): "需要登录和 X-CSRF-Token。删除当前用户的导演工程。",
+    ("post", "/api/director/projects/{project_id}/copy"): "需要登录和 X-CSRF-Token。复制工程到当前用户的项目库，生成新 ID 与「副本」标题。",
 }
 
 
@@ -205,6 +239,9 @@ SUMMARY_TRANSLATIONS = {
     "Test Grs Provider": "测试 GRS 图片供应商连接",
     "Query Grs Balance": "查询 GRS 账户余额",
     "Preview a task reference image": "预览任务参考图",
+    "Get Comfy Provider": "获取 ComfyUI 连接地址",
+    "Update Comfy Provider": "更新 ComfyUI 连接地址",
+    "Test Comfy Provider": "测试 ComfyUI 连接",
 }
 
 
@@ -214,6 +251,8 @@ def _provider_operation_detail(method: str, path: str) -> str | None:
             return "需要超级管理员权限。读取供应商配置的公开状态；任何密钥字段均经过脱敏或仅返回是否已配置。"
         if path.endswith("/test"):
             return "需要超级管理员权限和 X-CSRF-Token。使用提交值（如有）测试供应商连接，不必先保存配置；测试结果会写入最近测试状态。"
+        if path.endswith("/llm/models"):
+            return "需要超级管理员权限和 X-CSRF-Token。向上游拉取完整模型目录；硅基流动按名称或标记中的 Free 文字筛选免费模型。"
         if path.endswith("/balance"):
             return "需要超级管理员权限和 X-CSRF-Token。向上游查询当前 GRS 余额，并记录本次查询时间。"
         return "需要超级管理员权限和 X-CSRF-Token。保存供应商配置；敏感密钥会在服务端加密保存，响应不会返回原文。"
@@ -223,7 +262,11 @@ def _provider_operation_detail(method: str, path: str) -> str | None:
         if path.endswith("/skills"):
             return "需要登录。返回提示词优化可选择的 MiniMax H3 技能。"
         if path.endswith("/status"):
-            return "需要登录。查询大模型供应商是否已正确配置且当前可用。"
+            return "需要登录。查询大模型供应商是否已正确配置、当前是否可用，以及当前模型是否支持视觉输入。"
+        if path.endswith("/analyze-subject"):
+            return "需要登录和 X-CSRF-Token。上传主体参考图，由支持视觉的大模型提取外貌描述；当前模型无视觉能力时返回 422，不会退化为纯文本假装看图。"
+        if path.endswith("/split-script"):
+            return "需要登录和 X-CSRF-Token。将剧本或故事拆成结构化分镜头，不会创建生成任务。"
         return "需要登录和 X-CSRF-Token。按目标媒体、工作流和可选技能优化提示词；不会创建生成任务。"
     return None
 
@@ -250,7 +293,7 @@ def _document_enums(schema: dict[str, Any]) -> None:
     components = schema.get("components", {}).get("schemas", {})
     enum_descriptions = {
         "JobMode": "工作流 ID。当前实际可用工作流以 GET /api/modes 返回的 modes 为准；保留的历史值仅用于兼容旧任务。",
-        "JobStatus": "任务状态：queued 排队中；running 执行中；succeeded 成功；failed 失败；interrupted 因服务中断等原因停止；partial 部分生成项成功。",
+        "JobStatus": "任务状态：queued 排队中；running 执行中；succeeded 成功；failed 失败；interrupted 因服务中断等原因停止；cancelled 用户停止生成；partial 部分生成项成功。",
         "MediaType": "媒体类型：image 为图片，video 为视频。",
         "UserRole": "账号角色：super_admin 管理全局配置和管理员；admin 管理员工账号；employee 仅管理自己的创作任务和资源。",
     }

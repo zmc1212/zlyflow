@@ -13,6 +13,7 @@ const roleLabel: Record<UserRole, string> = {
 const PASSWORD_MIN_LENGTH = 6
 const App = lazy(() => import("./App"))
 const GrsProviderSettings = lazy(() => import("./admin/GrsProviderSettings"))
+const ComfyProviderSettings = lazy(() => import("./admin/ComfyProviderSettings"))
 const QiniuStorageSettings = lazy(() => import("./admin/QiniuStorageSettings"))
 const LlmProviderSettings = lazy(() => import("./admin/LlmProviderSettings"))
 
@@ -404,7 +405,10 @@ function AdminUsers({ user, csrfToken, onBack }: { user: User; csrfToken: string
     ) : (
       <Suspense fallback={<CenteredStatus label="正在加载设置" />}>
         {adminTab === "providers" ? (
-          <GrsProviderSettings csrfToken={csrfToken} />
+          <>
+            <ComfyProviderSettings csrfToken={csrfToken} />
+            <GrsProviderSettings csrfToken={csrfToken} />
+          </>
         ) : adminTab === "llm" ? (
           <LlmProviderSettings csrfToken={csrfToken} />
         ) : (

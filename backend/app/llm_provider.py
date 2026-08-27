@@ -12,9 +12,26 @@ from .storage import JobStore, now
 DEFAULT_MODELSCOPE_BASE_URL = "https://api-inference.modelscope.cn/v1"
 DEFAULT_MODELSCOPE_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
 
+VISION_MODEL_MARKERS = (
+    "vl", "vision", "gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "o4-mini",
+    "gemini", "claude-3", "claude-4", "claude-sonnet", "claude-opus", "claude-haiku",
+    "llava", "pixtral", "minimax-vl", "glm-4v", "glm-4.1v", "internvl",
+    "phi-4-multimodal", "phi-3.5-vision", "gemma-3", "minicpm-v", "step-1v",
+    "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen-vl",
+)
 
 
+def model_supports_vision(model: str | None) -> bool:
+    lowered = (model or "").strip().lower()
+    if not lowered:
+        return False
+    return any(marker in lowered for marker in VISION_MODEL_MARKERS)
 
+
+def is_local_base_url(base_url: str) -> bool:
+    parsed = urlparse(base_url)
+    hostname = (parsed.hostname or "").lower()
+    return hostname in {"127.0.0.1", "localhost", "0.0.0.0", "::1"}
 
 
 class LlmProviderService:
@@ -23,19 +40,25 @@ class LlmProviderService:
         self.credentials = CredentialManager(credential_key)
 
     def api_key(self) -> str | None:
-        return self.credentials.decrypt(self.store.get_llm_settings().get("api_key_encrypted"))
+        decrypted = self.credentials.decrypt(self.store.get_llm_settings().get("api_key_encrypted"))
+        if not decrypted:
+            config = self.store.get_llm_settings()
+            if is_local_base_url(config.get("base_url", "")):
+                return "ollama"  # 本地服务默认虚拟 key
+        return decrypted
 
     def availability(self) -> tuple[bool, str | None]:
         config = self.store.get_llm_settings()
         if not config["enabled"]:
             return False, "大模型服务尚未启用，请联系超级管理员配置。"
-        if not self.credentials.ready:
+        if not is_local_base_url(config.get("base_url", "")) and not self.credentials.ready:
             return False, self.credentials.error or "凭证主密钥不可用"
         if not self.api_key():
             return False, "大模型 API Key / Token 未配置或无法解密。"
         if not config.get("model"):
             return False, "未配置大模型名称 (Model Name)。"
         return True, None
+
 
     def public_config(self) -> dict[str, Any]:
         config = self.store.get_llm_settings()
@@ -60,6 +83,7 @@ class LlmProviderService:
             "last_test_at": config.get("last_test_at"),
             "available": available,
             "unavailable_reason": reason,
+            "supports_vision": model_supports_vision(config.get("model")),
         }
 
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -92,6 +116,8 @@ class LlmProviderService:
         base_url = (payload.get("base_url") if payload else None) or config["base_url"]
         model = (payload.get("model") if payload else None) or config["model"]
         api_key = payload.get("api_key") if payload and payload.get("api_key") is not None else self.api_key()
+        if not api_key and is_local_base_url(base_url or ""):
+            api_key = "ollama"
 
         if not api_key:
             raise ValueError("测试连接需要提供有效的 API Key / Token")
@@ -102,8 +128,9 @@ class LlmProviderService:
 
         client = OpenAICompatibleClient(base_url=base_url, api_key=api_key)
         test_time = now()
+        test_timeout = 90.0 if is_local_base_url(base_url or "") else 15.0
         try:
-            reply = client.test_connection(model=model)
+            reply = client.test_connection(model=model, timeout=test_timeout)
             test_status = "成功"
             test_message = f"连接成功，模型响应：{reply}"
         except Exception as exc:
@@ -119,6 +146,21 @@ class LlmProviderService:
 
             raise LlmError(f"大模型连接测试失败：{test_message}")
         return self.public_config()
+
+    def list_catalog(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        config = self.store.get_llm_settings()
+        base_url = (payload.get("base_url") if payload else None) or config["base_url"]
+        submitted_key = payload.get("api_key") if payload else None
+        api_key = submitted_key.strip() if isinstance(submitted_key, str) and submitted_key.strip() else self.api_key()
+        if not api_key and is_local_base_url(base_url or ""):
+            api_key = "ollama"
+        if not api_key:
+            raise LlmError("拉取模型目录需要提供有效的 API Key / Token")
+        if not base_url:
+            raise LlmError("Base URL 不能为空")
+        free_only = True if payload is None else bool(payload.get("free_only", True))
+        client = OpenAICompatibleClient(base_url=base_url, api_key=api_key)
+        return client.list_model_catalog(free_only=free_only)
 
     def optimize_prompt(
         self,
@@ -149,4 +191,55 @@ class LlmProviderService:
             workflow_id=workflow_id,
             model=config["model"],
         )
+
+    def analyze_subject(
+        self,
+        *,
+        image_data_url: str,
+        kind: str,
+        name: str,
+    ) -> str:
+        available, reason = self.availability()
+        if not available:
+            raise LlmError(reason or "大模型服务不可用")
+        config = self.store.get_llm_settings()
+        if not model_supports_vision(config.get("model")):
+            raise LlmError("当前大模型不支持视觉输入，无法根据参考图提取外貌。请在管理设置中改用带 VL/Vision 的模型。")
+        api_key = self.api_key()
+        if not api_key:
+            raise LlmError("大模型凭据未配置")
+        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
+        return client.analyze_subject(
+            image_data_url=image_data_url,
+            kind=kind,
+            name=name,
+            model=config["model"],
+        )
+
+    def split_script(
+        self,
+        script: str,
+        *,
+        shot_count: int = 4,
+        style_vibe: str | None = None,
+        cast_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        available, reason = self.availability()
+        if not available:
+            raise LlmError(reason or "大模型服务不可用")
+
+        config = self.store.get_llm_settings()
+        api_key = self.api_key()
+        if not api_key:
+            raise LlmError("大模型凭据未配置")
+
+        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
+        return client.split_script(
+            script,
+            shot_count=shot_count,
+            style_vibe=style_vibe,
+            cast_names=cast_names,
+            model=config["model"],
+        )
+
 

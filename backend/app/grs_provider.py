@@ -7,9 +7,11 @@ from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from .grs_catalog import GRS_PROFILE_GPT_IMAGE_2, GRS_PROFILE_GPT_IMAGE_2_VIP, PROFILE_LABELS
 from .grs_client import GrsClient, GrsError
 from .models import JobMode
 from .storage import JobStore, now
+from .workflow_registry import image_workflow_from_catalog, mode_key
 
 
 class CredentialManager:
@@ -52,7 +54,7 @@ class GrsProviderService:
     def api_key(self) -> str | None:
         return self.credentials.decrypt(self.store.get_grs_settings().get("api_key_encrypted"))
 
-    def availability(self, mode: JobMode | None = None) -> tuple[bool, str | None]:
+    def availability(self, mode: JobMode | str | None = None) -> tuple[bool, str | None]:
         config = self.store.get_grs_settings()
         if not config["enabled"]:
             return False, "GRS 图片供应商尚未启用，请联系超级管理员。"
@@ -60,11 +62,22 @@ class GrsProviderService:
             return False, self.credentials.error
         if not self.api_key():
             return False, "GRS API Key 未配置或无法使用当前主密钥解密。"
-        if mode is JobMode.GRS_GPT_IMAGE_2 and not config["gpt_image_2_enabled"]:
-            return False, "GPT Image 2 已被管理员停用。"
-        if mode is JobMode.GRS_GPT_IMAGE_2_VIP and not config["gpt_image_2_vip_enabled"]:
-            return False, "GPT Image 2 VIP 已被管理员停用。"
+        if mode is not None:
+            entry = self.store.get_grs_image_model(mode_key(mode))
+            if entry is None or not entry["enabled"]:
+                return False, "该生图模型已被管理员停用或不存在。"
         return True, None
+
+    def enabled_image_workflows(self):
+        models = [item for item in self.store.list_grs_image_models() if item["enabled"]]
+        models.sort(key=lambda item: (not item["is_default"], item["sort_order"], item["display_name"]))
+        return [image_workflow_from_catalog(item) for item in models]
+
+    def catalog_payload(self) -> dict[str, Any]:
+        return {
+            "models": self.store.list_grs_image_models(),
+            "profiles": [{"value": key, "label": label} for key, label in PROFILE_LABELS.items()],
+        }
 
     def public_config(self) -> dict[str, Any]:
         config = self.store.get_grs_settings()
@@ -73,14 +86,27 @@ class GrsProviderService:
         masked = None
         if api_key:
             masked = f"{api_key[:3]}{'*' * max(5, min(16, len(api_key) - 5))}{api_key[-2:]}" if len(api_key) > 5 else "*****"
+        models = self.store.list_grs_image_models()
+        gpt = next((item for item in models if item["workflow_id"] == "grs-gpt-image-2"), None)
+        vip = next((item for item in models if item["workflow_id"] == "grs-gpt-image-2-vip"), None)
+        enabled_standard = [
+            item["provider_model"] for item in models
+            if item["enabled"] and item["profile"] == GRS_PROFILE_GPT_IMAGE_2
+        ]
+        enabled_vip = [
+            item["provider_model"] for item in models
+            if item["enabled"] and item["profile"] == GRS_PROFILE_GPT_IMAGE_2_VIP
+        ]
         return {
             "enabled": config["enabled"],
             "base_url": config["base_url"],
             "api_key_masked": masked,
             "has_api_key": bool(config.get("api_key_encrypted")),
             "credential_ready": self.credentials.ready,
-            "gpt_image_2_enabled": config["gpt_image_2_enabled"],
-            "gpt_image_2_vip_enabled": config["gpt_image_2_vip_enabled"],
+            "gpt_image_2_enabled": bool(gpt and gpt["enabled"]),
+            "gpt_image_2_vip_enabled": bool(vip and vip["enabled"]),
+            "models": ",".join(enabled_standard) or "gpt-image-2",
+            "vip_models": ",".join(enabled_vip) or "gpt-image-2-vip",
             "last_test_status": config.get("last_test_status"),
             "last_test_message": config.get("last_test_message"),
             "last_test_at": config.get("last_test_at"),
@@ -91,7 +117,10 @@ class GrsProviderService:
         }
 
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
-        values = {key: value for key, value in payload.items() if key != "api_key"}
+        values = {
+            key: value for key, value in payload.items()
+            if key not in {"api_key"}
+        }
         parsed = urlparse(str(values.get("base_url", "")))
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("GRS Base URL 必须是无内嵌凭证的 HTTPS 地址")

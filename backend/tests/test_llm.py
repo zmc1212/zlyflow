@@ -9,11 +9,170 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from backend.app.auth import AuthStore
-from backend.app.llm_client import OpenAICompatibleClient, LlmError
+from backend.app.llm_client import (
+    OpenAICompatibleClient,
+    LlmError,
+    LlmTemporaryError,
+    parse_model_catalog,
+    parse_siliconflow_plaza_free_ids,
+)
 from backend.app.llm_provider import LlmProviderService
 from backend.app.main import app, session_cookie_scheme
 from backend.app.models import UserRole
 from backend.app.storage import JobStore
+
+
+class ChatCompletionThinkingTests(unittest.TestCase):
+    def _ok_response(self) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "收到"}}]
+        }
+        return mock_response
+
+    @patch("requests.Session.post")
+    def test_deepseek_v4_disables_thinking_in_payload(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient("https://api-inference.modelscope.cn/v1", "ms-token")
+        client.chat_completion(
+            [{"role": "user", "content": "hi"}],
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
+        )
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["thinking"], {"type": "disabled"})
+        self.assertFalse(payload["enable_thinking"])
+
+    @patch("requests.Session.post")
+    def test_qwen_does_not_send_deepseek_thinking_block(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient("https://api-inference.modelscope.cn/v1", "ms-token")
+        client.chat_completion(
+            [{"role": "user", "content": "hi"}],
+            "Qwen/Qwen2.5-7B-Instruct",
+        )
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertNotIn("thinking", payload)
+        self.assertFalse(payload["enable_thinking"])
+
+
+class ModelCatalogTests(unittest.TestCase):
+    def test_parse_siliconflow_free_only(self) -> None:
+        payload = {
+            "data": [
+                {"id": "Qwen/Qwen2.5-7B-Instruct", "name": "Qwen2.5-7B-Instruct (Free)"},
+                {"id": "Qwen/Qwen3-8B", "tags": ["chat", "Free"]},
+                {"id": "THUDM/glm-4-9b-chat", "price": "Free"},
+                {"id": "Pro/Qwen/Qwen2.5-7B-Instruct", "name": "Qwen2.5-7B-Instruct"},
+                {"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek-V3"},
+                {"id": "Qwen/Qwen2.5-72B-Instruct", "description": "supports Classifier-Free Guidance"},
+            ]
+        }
+        models = parse_model_catalog(payload, provider="siliconflow", free_only=True)
+        ids = [item["id"] for item in models]
+        self.assertEqual(ids, ["Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen3-8B", "THUDM/glm-4-9b-chat"])
+        self.assertTrue(all(item["free"] for item in models))
+
+    def test_openai_compatible_payload_without_free_label_is_empty(self) -> None:
+        payload = {
+            "data": [
+                {"id": "Qwen/Qwen2.5-7B-Instruct", "object": "model", "owned_by": "Qwen"},
+                {"id": "deepseek-ai/DeepSeek-V3", "object": "model", "owned_by": "deepseek-ai"},
+                {"id": "Pro/Qwen/Qwen2.5-7B-Instruct", "object": "model", "owned_by": "Qwen"},
+            ]
+        }
+        models = parse_model_catalog(payload, provider="siliconflow", free_only=True)
+        self.assertEqual(models, [])
+
+    def test_parse_siliconflow_plaza_price_zero(self) -> None:
+        html = r"""
+        self.__next_f.push([1,"x:{\"models\":[{\"modelName\":\"Qwen/Qwen2.5-7B-Instruct\",\"status\":\"enable\",\"pricing\":[{\"price\":\"0\",\"specification\":\"prompt\"},{\"price\":\"0\",\"specification\":\"completion\"}]},{\"modelName\":\"deepseek-ai/DeepSeek-V3\",\"status\":\"enable\",\"pricing\":[{\"price\":\"2\",\"specification\":\"prompt\"},{\"price\":\"8\",\"specification\":\"completion\"}]},{\"modelName\":\"Pro/Qwen/Qwen2.5-7B-Instruct\",\"status\":\"enable\",\"pricing\":[{\"price\":\"4\",\"specification\":\"prompt\"}]},{\"modelName\":\"Qwen/Qwen2-1.5B-Instruct\",\"status\":\"disable\",\"pricing\":[{\"price\":\"0\",\"specification\":\"prompt\"}]}]}"])
+        <div class="w-full truncate break-all align-top text-base">internlm/internlm2_5-7b-chat</div>
+        <span>Free</span>
+        """
+        ids = parse_siliconflow_plaza_free_ids(html)
+        self.assertIn("Qwen/Qwen2.5-7B-Instruct", ids)
+        self.assertIn("internlm/internlm2_5-7b-chat", ids)
+        self.assertNotIn("deepseek-ai/DeepSeek-V3", ids)
+        self.assertNotIn("Pro/Qwen/Qwen2.5-7B-Instruct", ids)
+        self.assertNotIn("Qwen/Qwen2-1.5B-Instruct", ids)
+        duplicate_paid = r'''
+        {"modelName":"Qwen/Qwen2.5-14B-Instruct","pricing":[{"price":"0"},{"price":"0"}]}
+        {"modelName":"Qwen/Qwen2.5-14B-Instruct","pricing":[{"price":"0.7"},{"price":"0.7"}]}
+        '''
+        self.assertNotIn("Qwen/Qwen2.5-14B-Instruct", parse_siliconflow_plaza_free_ids(duplicate_paid))
+
+    def test_parse_local_models_all_free(self) -> None:
+        payload = {"data": [{"id": "qwen2.5:7b-instruct"}, {"id": "qwen2.5:14b"}]}
+        models = parse_model_catalog(payload, provider="ollama", free_only=True)
+        self.assertEqual([item["id"] for item in models], ["qwen2.5:14b", "qwen2.5:7b-instruct"])
+        self.assertTrue(all(item["free"] for item in models))
+
+    @patch("requests.Session.get")
+    def test_list_model_catalog_requests_all_siliconflow_models(self, mock_get: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "Qwen/Qwen2.5-7B-Instruct", "name": "Qwen2.5-7B-Instruct Free"},
+                {"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek-V3"},
+            ]
+        }
+        mock_get.return_value = mock_response
+        client = OpenAICompatibleClient("https://api.siliconflow.cn/v1", "sk-test")
+        result = client.list_model_catalog(free_only=True)
+        self.assertEqual([item["id"] for item in result["models"]], ["Qwen/Qwen2.5-7B-Instruct"])
+        self.assertTrue(result["free_only"])
+        first_call = mock_get.call_args_list[0]
+        self.assertEqual(first_call.kwargs.get("params"), {"sub_type": "chat"})
+
+    @patch("requests.Session.get")
+    def test_list_model_catalog_uses_plaza_when_api_has_no_free_label(self, mock_get: MagicMock) -> None:
+        api_response = MagicMock()
+        api_response.status_code = 200
+        api_response.json.return_value = {
+            "data": [
+                {"id": "Qwen/Qwen2.5-7B-Instruct", "object": "model", "owned_by": "Qwen"},
+                {"id": "deepseek-ai/DeepSeek-V3", "object": "model", "owned_by": "deepseek-ai"},
+                {"id": "Pro/Qwen/Qwen2.5-7B-Instruct", "object": "model", "owned_by": "Qwen"},
+            ]
+        }
+        api_response.text = ""
+        plaza_response = MagicMock()
+        plaza_response.status_code = 200
+        plaza_response.text = r"""
+        {"modelName":"Qwen/Qwen2.5-7B-Instruct","status":"enable","pricing":[{"price":"0","specification":"prompt"},{"price":"0","specification":"completion"}]}
+        {"modelName":"deepseek-ai/DeepSeek-V3","status":"enable","pricing":[{"price":"2","specification":"prompt"}]}
+        """
+        plaza_response.json.return_value = {}
+        mock_get.side_effect = [api_response, plaza_response]
+        client = OpenAICompatibleClient("https://api.siliconflow.cn/v1", "sk-test")
+        result = client.list_model_catalog(free_only=True)
+        self.assertEqual([item["id"] for item in result["models"]], ["Qwen/Qwen2.5-7B-Instruct"])
+        self.assertTrue(result["models"][0]["free"])
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_get.call_args_list[0].kwargs.get("params"), {"sub_type": "chat"})
+        plaza_headers = mock_get.call_args_list[1].kwargs.get("headers") or {}
+        self.assertNotIn("Authorization", plaza_headers)
+        self.assertIn("cloud.siliconflow.cn/open/models", mock_get.call_args_list[1].args[0])
+
+    def test_llm_catalog_excludes_ocr_embedding_and_speech(self) -> None:
+        from backend.app.llm_client import is_llm_chat_model, filter_llm_catalog_models
+
+        self.assertTrue(is_llm_chat_model("Qwen/Qwen2.5-7B-Instruct"))
+        self.assertTrue(is_llm_chat_model("Qwen/Qwen3-8B"))
+        self.assertFalse(is_llm_chat_model("deepseek-ai/DeepSeek-OCR"))
+        self.assertFalse(is_llm_chat_model("BAAI/bge-m3"))
+        self.assertFalse(is_llm_chat_model("Qwen/Qwen3-ASR-1.7B"))
+        models = filter_llm_catalog_models(
+            [
+                {"id": "Qwen/Qwen2.5-7B-Instruct", "free": True},
+                {"id": "deepseek-ai/DeepSeek-OCR", "free": True},
+                {"id": "BAAI/bge-m3", "free": True},
+            ],
+            provider="siliconflow",
+        )
+        self.assertEqual([item["id"] for item in models], ["Qwen/Qwen2.5-7B-Instruct"])
 
 
 class StripThinkingTests(unittest.TestCase):
@@ -169,6 +328,35 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("base_url", res.json())
 
+    @patch("requests.Session.get")
+    def test_admin_lists_siliconflow_free_models(self, mock_get: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "Qwen/Qwen2.5-7B-Instruct", "name": "Qwen2.5-7B-Instruct (Free)"},
+                {"id": "Pro/Qwen/Qwen2.5-7B-Instruct", "name": "Qwen2.5-7B-Instruct"},
+                {"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek-V3"},
+            ]
+        }
+        mock_get.return_value = mock_response
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.siliconflow.cn/v1",
+            "api_key": "sk-siliconflow-test-key",
+            "model": "Qwen/Qwen2.5-7B-Instruct",
+        })
+        from backend.app.auth import csrf_token
+        self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
+        res = self.client.post(
+            "/api/admin/providers/llm/models",
+            json={"base_url": "https://api.siliconflow.cn/v1", "free_only": True},
+            headers={"X-CSRF-Token": csrf_token(self.admin_token)},
+        )
+        self.assertEqual(res.status_code, 200)
+        ids = [item["id"] for item in res.json()["models"]]
+        self.assertEqual(ids, ["Qwen/Qwen2.5-7B-Instruct"])
+
     def test_list_h3_skills_api(self) -> None:
         self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
         res = self.client.get("/api/llm/skills")
@@ -220,6 +408,67 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.assertEqual(data["original_prompt"], "航拍日落")
         self.assertEqual(data["skill_id"], "3d-animation-short")
         self.assertIn("integrated_multimodal_description", data["optimized_prompt"])
+
+
+class LLMConnectionTestTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "test.db"
+        self.credential_key = Fernet.generate_key().decode("ascii")
+        self.job_store = JobStore(self.db_path)
+        self.provider = LlmProviderService(self.job_store, self.credential_key)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    @patch.object(OpenAICompatibleClient, "list_models", return_value=["qwen2.5:7b-instruct"])
+    def test_connection_reports_missing_local_model(self, _mock_list: MagicMock) -> None:
+        client = OpenAICompatibleClient("http://127.0.0.1:11434/v1", "ollama")
+        with self.assertRaises(LlmError) as ctx:
+            client.test_connection("qwen2.5:7b")
+        self.assertIn("qwen2.5:7b-instruct", str(ctx.exception))
+        self.assertIn("未找到模型", str(ctx.exception))
+
+    @patch.object(OpenAICompatibleClient, "list_models", return_value=["qwen2.5:7b-instruct"])
+    @patch.object(OpenAICompatibleClient, "chat_completion", return_value="收到")
+    def test_connection_uses_caller_timeout(self, mock_chat: MagicMock, _mock_list: MagicMock) -> None:
+        client = OpenAICompatibleClient("http://127.0.0.1:11434/v1", "ollama")
+        self.assertEqual(client.test_connection("qwen2.5:7b-instruct", timeout=90.0), "收到")
+        self.assertEqual(mock_chat.call_args.kwargs["timeout"], 90.0)
+
+    @patch.object(OpenAICompatibleClient, "list_models", return_value=["qwen2.5:7b-instruct"])
+    @patch.object(
+        OpenAICompatibleClient,
+        "chat_completion",
+        side_effect=LlmTemporaryError("请求大模型服务超时（等待 90 秒仍无响应）：Read timed out"),
+    )
+    def test_connection_rewrites_local_timeout(self, _mock_chat: MagicMock, _mock_list: MagicMock) -> None:
+        client = OpenAICompatibleClient("http://127.0.0.1:11434/v1", "ollama")
+        with self.assertRaises(LlmTemporaryError) as ctx:
+            client.test_connection("qwen2.5:7b-instruct", timeout=90.0)
+        self.assertIn("首次加载", str(ctx.exception))
+
+    @patch.object(OpenAICompatibleClient, "test_connection", return_value="收到")
+    def test_provider_uses_longer_timeout_for_local_ollama(self, mock_test: MagicMock) -> None:
+        self.provider.update({
+            "enabled": True,
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen2.5:7b-instruct",
+        })
+        result = self.provider.test()
+        self.assertEqual(mock_test.call_args.kwargs["timeout"], 90.0)
+        self.assertEqual(result["last_test_status"], "成功")
+
+    @patch.object(OpenAICompatibleClient, "test_connection", return_value="ok")
+    def test_provider_keeps_short_timeout_for_cloud(self, mock_test: MagicMock) -> None:
+        self.provider.update({
+            "enabled": True,
+            "base_url": "https://api-inference.modelscope.cn/v1",
+            "api_key": "ms-secret-token-12345678",
+            "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        })
+        self.provider.test()
+        self.assertEqual(mock_test.call_args.kwargs["timeout"], 15.0)
 
 
 if __name__ == "__main__":

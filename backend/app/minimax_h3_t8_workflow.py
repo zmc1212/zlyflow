@@ -3,10 +3,32 @@ from __future__ import annotations
 from typing import Any
 
 from .models import JobMode
-from .workflow_registry import T8_WORKFLOWS, h3_length
+from .workflow_registry import (
+    T8_WORKFLOWS,
+    h3_diffusion_unet,
+    h3_length,
+    h3_lora_loader_class,
+    h3_turbo_lora_compatible,
+)
 
 
 OUTPUT_NODE = "14"
+
+
+def resolve_t8_task_type(mode: JobMode, options: dict[str, Any], references: list[str]) -> str:
+    """Always return a Combo value the T8 conditioning node accepts."""
+    requested = str(options.get("task_type") or "auto").strip() or "auto"
+    if requested != "auto":
+        return requested
+    if not references:
+        return "T2VA"
+    # Dual-clock is the turbo FL2VA path and only accepts 0–1 images. Official
+    # T8 dual-clock graphs wire a single image as first_frame / I2VA. Sending
+    # that image through Ref2VA autogrow both skips the first-frame contract
+    # and can leave `task_type` unset on the dual-clock branch.
+    if mode is JobMode.MINIMAX_H3_T8_DUAL_CLOCK:
+        return "I2VA"
+    return "Ref2VA"
 
 
 def build_minimax_h3_t8_workflow(
@@ -18,10 +40,16 @@ def build_minimax_h3_t8_workflow(
     if mode not in T8_WORKFLOWS:
         raise ValueError(f"Unsupported MiniMax H3 T8 workflow: {mode}")
 
+    task_type = resolve_t8_task_type(mode, options, references)
+    unet_name = (
+        h3_diffusion_unet(True, float(options["lora_strength"]))
+        if task_type == "Ref2VA"
+        else str(options["unet_name"])
+    )
     workflow: dict[str, dict[str, Any]] = {
         "1": {
             "class_type": "UNETLoader",
-            "inputs": {"unet_name": options["unet_name"], "weight_dtype": options["weight_dtype"]},
+            "inputs": {"unet_name": unet_name, "weight_dtype": options["weight_dtype"]},
         },
         "4": {
             "class_type": "CLIPLoader",
@@ -93,25 +121,26 @@ def build_minimax_h3_t8_workflow(
         }
         model_source = ["15", 0]
 
-    lora_class = (
-        "LoraLoaderModelOnly"
-        if mode is JobMode.MINIMAX_H3_T8_ALL_REFERENCE
-        else "LoraLoaderBypassModelOnly"
-    )
-    workflow["16"] = {
-        "class_type": lora_class,
-        "inputs": {
-            "model": model_source,
-            "lora_name": options["lora_name"],
-            "strength_model": options["lora_strength"],
-        },
-    }
+    lora_strength = float(options["lora_strength"])
+    if not h3_turbo_lora_compatible(unet_name):
+        lora_strength = 0.0
+    sampler_model = model_source
+    if lora_strength:
+        workflow["16"] = {
+            "class_type": h3_lora_loader_class(unet_name),
+            "inputs": {
+                "model": model_source,
+                "lora_name": options["lora_name"],
+                "strength_model": lora_strength,
+            },
+        }
+        sampler_model = ["16", 0]
 
     if mode is JobMode.MINIMAX_H3_T8_ALL_REFERENCE:
         workflow["8"] = {
             "class_type": "MiniMaxH3MultiRateSamplerEXPT8",
             "inputs": {
-                "model": ["16", 0],
+                "model": sampler_model,
                 "av_latent": ["3", 1],
                 "video_steps": options["video_steps"],
                 "audio_steps": options["audio_steps"],
@@ -123,7 +152,7 @@ def build_minimax_h3_t8_workflow(
         workflow["8"] = {
             "class_type": "MiniMaxH3DualClockSamplerT8",
             "inputs": {
-                "model": ["16", 0],
+                "model": sampler_model,
                 "av_latent": ["3", 1],
                 "steps": options["steps"],
                 "shift_video": options["shift_video"],
@@ -135,9 +164,6 @@ def build_minimax_h3_t8_workflow(
         "class_type": "BasicGuider",
         "inputs": {"model": ["8", 0], "conditioning": ["3", 0]},
     }
-    task_type = options["task_type"]
-    if task_type == "auto":
-        task_type = "Ref2VA" if references else "T2VA"
     conditioning_inputs: dict[str, Any] = {
         "clip": ["4", 0],
         "video_vae": ["5", 0],
@@ -158,6 +184,15 @@ def build_minimax_h3_t8_workflow(
     for index, filename in enumerate(references):
         node_id = str(20 + index)
         workflow[node_id] = {"class_type": "LoadImage", "inputs": {"image": filename}}
-        conditioning_inputs[f"ref_images.ref_image_{index}"] = [node_id, 0]
+        if task_type == "I2VA" and index == 0:
+            conditioning_inputs["first_frame"] = [node_id, 0]
+        elif task_type == "L2VA" and index == 0:
+            conditioning_inputs["last_frame"] = [node_id, 0]
+        elif task_type == "FL2VA" and index == 0:
+            conditioning_inputs["first_frame"] = [node_id, 0]
+        elif task_type == "FL2VA" and index == 1:
+            conditioning_inputs["last_frame"] = [node_id, 0]
+        else:
+            conditioning_inputs[f"ref_images.ref_image_{index}"] = [node_id, 0]
     workflow["3"] = {"class_type": "MiniMaxH3AudioConditioningT8", "inputs": conditioning_inputs}
     return workflow

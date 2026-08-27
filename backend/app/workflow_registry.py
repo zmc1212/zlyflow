@@ -4,14 +4,22 @@ import math
 import re
 import secrets
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Callable
 
+from .grs_catalog import (
+    GRS_PROFILE_GPT_IMAGE_2,
+    GRS_PROFILE_GPT_IMAGE_2_VIP,
+    GRS_PROFILE_NANO_BANANA,
+    GRS_PROFILE_NANO_BANANA_2,
+    PROFILE_DESCRIPTIONS,
+    builtin_entry,
+)
 from .models import JobMode
 
 
 @dataclass(frozen=True)
 class WorkflowDefinition:
-    id: JobMode
+    id: str
     name: str
     description: str
     reference_mode: str
@@ -24,18 +32,34 @@ class WorkflowDefinition:
     option_schema: dict[str, Any] | None = None
     media_type: str = "video"
     executor: str = "comfyui"
+    grs_profile: str | None = None
+    catalog_group: str = ""
 
     def payload(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("option_schema", None)
-        data["id"] = self.id.value
+        data.pop("grs_profile", None)
         data["reference_labels"] = list(self.reference_labels)
         data["parameters"] = parameter_payload(self)
+        group = CATALOG_GROUPS.get(self.catalog_group, {})
+        data["catalog_group_label"] = group.get("label", "")
+        data["catalog_group_order"] = int(group.get("order", 100))
         return data
+
+
+def mode_key(mode: JobMode | str) -> str:
+    return mode.value if isinstance(mode, JobMode) else str(mode)
 
 
 def option(label: str, value_type: str, default: Any, *, group: str = "internal", **constraints: Any) -> dict[str, Any]:
     return {"label": label, "type": value_type, "default": default, "ui_group": group, **constraints}
+
+
+def option_visible(definition: dict[str, Any], values: dict[str, Any]) -> bool:
+    condition = definition.get("ui_visible_when")
+    if not condition:
+        return True
+    return all(str(values.get(name)) == str(expected) for name, expected in condition.items())
 
 
 GRS_ASPECT_RATIOS = [
@@ -86,57 +110,109 @@ GRS_VIP_SIZES: dict[str, dict[str, str]] = {
     "1:2": {"1K": "768x1536", "2K": "1536x3072", "4K": "1920x3840"},
 }
 
-GRS_IMAGE_OPTION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "aspect_ratio": option(
-            "比例", "string", "1:1", group="primary", enum=GRS_ASPECT_RATIOS,
-            ui_control="visual-settings", ui_companion="resolution",
-            ui_companions=["resolution", "count"],
-            ui_options=GRS_ASPECT_RATIO_UI_OPTIONS,
-        ),
-        "resolution": option(
-            "分辨率", "string", "1K", group="primary", enum=["1K"], ui_control="select",
-        ),
-        "count": option(
-            "生成数量", "integer", 1, group="primary", minimum=1, maximum=4, step=1,
-            ui_control="input-number",
-        ),
-        "provider_model": option("远端模型", "string", "gpt-image-2", enum=["gpt-image-2"]),
-        "poll_interval_seconds": option("轮询间隔", "integer", 5, minimum=5, maximum=30),
-    },
-}
+NANO_BANANA_ASPECT_RATIOS = [
+    "auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "21:9",
+]
+NANO_BANANA_2_ASPECT_RATIOS = [*NANO_BANANA_ASPECT_RATIOS, "1:4", "4:1", "1:8", "8:1"]
+NANO_BANANA_ASPECT_RATIO_UI_OPTIONS = [
+    item for item in GRS_ASPECT_RATIO_UI_OPTIONS if item["value"] in NANO_BANANA_ASPECT_RATIOS
+]
+NANO_BANANA_2_ASPECT_RATIO_UI_OPTIONS = [
+    *NANO_BANANA_ASPECT_RATIO_UI_OPTIONS,
+    {"value": "1:4", "label": "1:4"},
+    {"value": "4:1", "label": "4:1"},
+    {"value": "1:8", "label": "1:8"},
+    {"value": "8:1", "label": "8:1"},
+]
 
-GRS_IMAGE_VIP_OPTION_SCHEMA = {
-    "type": "object",
-    "properties": {
+
+def grs_option_schema(
+    profile: str, provider_model: str, resolutions: list[str] | None = None,
+) -> dict[str, Any]:
+    if profile == GRS_PROFILE_GPT_IMAGE_2:
+        ratio_enum, ratio_ui = GRS_ASPECT_RATIOS, GRS_ASPECT_RATIO_UI_OPTIONS
+        resolution_enum = list(resolutions or ["1K"])
+        include_custom = False
+    elif profile == GRS_PROFILE_GPT_IMAGE_2_VIP:
+        ratio_enum, ratio_ui = GRS_VIP_ASPECT_RATIOS, GRS_VIP_ASPECT_RATIO_UI_OPTIONS
+        resolution_enum = list(resolutions or ["1K", "2K", "4K", "CUSTOM"])
+        include_custom = "CUSTOM" in resolution_enum
+    elif profile == GRS_PROFILE_NANO_BANANA:
+        ratio_enum, ratio_ui = NANO_BANANA_ASPECT_RATIOS, NANO_BANANA_ASPECT_RATIO_UI_OPTIONS
+        resolution_enum = list(resolutions or ["1K", "2K", "4K"])
+        include_custom = False
+    elif profile == GRS_PROFILE_NANO_BANANA_2:
+        ratio_enum, ratio_ui = NANO_BANANA_2_ASPECT_RATIOS, NANO_BANANA_2_ASPECT_RATIO_UI_OPTIONS
+        resolution_enum = list(resolutions or ["1K", "2K", "4K"])
+        include_custom = False
+    else:
+        raise ValueError(f"未知 GRS 生图能力档: {profile}")
+    companions = ["resolution", "count"]
+    if include_custom:
+        companions.extend(["custom_width", "custom_height"])
+    default_resolution = "1K" if "1K" in resolution_enum else resolution_enum[0]
+    properties: dict[str, Any] = {
         "aspect_ratio": option(
-            "比例", "string", "1:1", group="primary", enum=GRS_VIP_ASPECT_RATIOS,
+            "比例", "string", "1:1", group="primary", enum=ratio_enum,
             ui_control="visual-settings", ui_companion="resolution",
-            ui_companions=["resolution", "count", "custom_width", "custom_height"],
-            ui_options=GRS_VIP_ASPECT_RATIO_UI_OPTIONS,
+            ui_companions=companions, ui_options=ratio_ui,
         ),
         "resolution": option(
-            "分辨率", "string", "1K", group="primary", enum=["1K", "2K", "4K", "CUSTOM"],
+            "分辨率", "string", default_resolution, group="primary", enum=resolution_enum,
             ui_control="select",
         ),
         "count": option(
             "生成数量", "integer", 1, group="primary", minimum=1, maximum=4, step=1,
             ui_control="input-number",
         ),
-        "custom_width": option(
+        "provider_model": option("远端模型", "string", provider_model, group="internal"),
+        "poll_interval_seconds": option("轮询间隔", "integer", 5, minimum=5, maximum=30),
+    }
+    if include_custom:
+        properties["custom_width"] = option(
             "自定义宽度", "integer", 1024, group="advanced", minimum=16, maximum=3840, step=16,
             unit="px", ui_control="input-number", ui_visible_when={"resolution": "CUSTOM"},
-        ),
-        "custom_height": option(
+        )
+        properties["custom_height"] = option(
             "自定义高度", "integer", 1024, group="advanced", minimum=16, maximum=3840, step=16,
             unit="px", ui_control="input-number", ui_visible_when={"resolution": "CUSTOM"},
-        ),
-        "provider_model": option("远端模型", "string", "gpt-image-2-vip", enum=["gpt-image-2-vip"]),
-        "poll_interval_seconds": option("轮询间隔", "integer", 5, minimum=5, maximum=30),
-    },
-}
+        )
+    return {"type": "object", "properties": properties}
 
+
+def image_workflow_from_catalog(entry: dict[str, Any]) -> WorkflowDefinition:
+    profile = entry["profile"]
+    return WorkflowDefinition(
+        entry["workflow_id"],
+        entry["display_name"],
+        entry.get("description") or PROFILE_DESCRIPTIONS.get(profile, "使用 GRS 生成图片。"),
+        "collection",
+        0,
+        10,
+        option_schema=grs_option_schema(profile, entry["provider_model"], entry.get("resolutions")),
+        media_type="image",
+        executor="grs",
+        grs_profile=profile,
+        catalog_group=CATALOG_GROUP_IMAGE,
+    )
+
+
+GRS_IMAGE_OPTION_SCHEMA = grs_option_schema(GRS_PROFILE_GPT_IMAGE_2, "gpt-image-2")
+GRS_IMAGE_VIP_OPTION_SCHEMA = grs_option_schema(GRS_PROFILE_GPT_IMAGE_2_VIP, "gpt-image-2-vip")
+
+
+CATALOG_GROUP_IMAGE = "image"
+CATALOG_GROUP_LIGHTX2V = "lightx2v"
+CATALOG_GROUP_DUAL_ACCEL = "dual_accel"
+CATALOG_GROUP_OFFICIAL_H3 = "official_h3"
+CATALOG_GROUP_CUSTOM = "custom"
+CATALOG_GROUPS = {
+    CATALOG_GROUP_IMAGE: {"label": "图片生成", "order": 0},
+    CATALOG_GROUP_LIGHTX2V: {"label": "LightX2V", "order": 10},
+    CATALOG_GROUP_DUAL_ACCEL: {"label": "八步双加速", "order": 15},
+    CATALOG_GROUP_OFFICIAL_H3: {"label": "官方 MiniMax H3", "order": 20},
+    CATALOG_GROUP_CUSTOM: {"label": "自定义", "order": 30},
+}
 
 H3_STANDARD_RESOLUTION_PRESETS = {
     "0.2": 0.2,
@@ -168,6 +244,247 @@ H3_T8_RESOLUTION_PRESETS = {
 H3_LOCAL_RESOLUTION_PREVIEW = {
     "multiple": 32,
 }
+H3_DURATION_MIN_SEC = 2
+H3_DURATION_MAX_SEC = 15
+H3_FPS = 24
+H3_TURBO_LORA_NAME = "minimax_h3_turbo_4STEPS_comfyui.safetensors"
+LIGHTX2V_FL2V_4STEP_LORA = "minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors"
+LIGHTX2V_FL2V_8STEP_LORA = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+LIGHTX2V_REF2V_4STEP_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+LIGHTX2V_LORA_STRENGTH = 0.75
+DUAL_ACCEL_LORA_NAME = LIGHTX2V_FL2V_8STEP_LORA
+DUAL_ACCEL_LORA_STRENGTH = 1.0
+H3_FL2VA_PRUNED = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+H3_FL2VA_FULL = "minimax_h3_fl2va_int8_convrot.safetensors"
+H3_REF2VA_PRUNED = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+H3_REF2VA_FULL = "minimax_h3_ref2va_int8_convrot.safetensors"
+
+
+def h3_turbo_lora_compatible(unet_name: str) -> bool:
+    """Turbo LoRA AdaLN adapters are 2688-dim; pruned checkpoints use 8-dim AdaLN."""
+    return "pruned" not in str(unet_name).lower()
+
+
+def h3_lora_loader_class(unet_name: str) -> str:
+    """Bypass is required for full INT8; pruned AdaLN cannot take the bypass loader."""
+    return "LoraLoaderModelOnly" if "pruned" in unet_name else "LoraLoaderBypassModelOnly"
+
+
+def h3_diffusion_unet(is_reference: bool, lora_strength: float) -> str:
+    """Full INT8 for Turbo LoRA; pruned INT8 when acceleration is off."""
+    use_turbo = float(lora_strength) != 0.0
+    if is_reference:
+        return H3_REF2VA_FULL if use_turbo else H3_REF2VA_PRUNED
+    return H3_FL2VA_FULL if use_turbo else H3_FL2VA_PRUNED
+
+
+H3_SPEED_FAST = "fast"
+H3_SPEED_BALANCED = "balanced"
+H3_SPEED_QUALITY = "quality"
+H3_SPEED_CUSTOM = "custom"
+H3_CUSTOM_STEPS_MIN = 1
+H3_CUSTOM_STEPS_MAX = 40
+H3_TURBO_STEP_MAX = 8
+H3_SPEED_PRESETS = {
+    H3_SPEED_FAST: {"steps": 4, "video_steps": 4, "audio_steps": 4, "lora_strength": 1.0},
+    H3_SPEED_BALANCED: {"steps": 8, "video_steps": 8, "audio_steps": 10, "lora_strength": 1.0},
+    H3_SPEED_QUALITY: {"steps": 20, "video_steps": 20, "audio_steps": 20, "lora_strength": 0.0},
+}
+
+
+def h3_speed_option() -> dict[str, Any]:
+    return option(
+        "生成速度", "string", H3_SPEED_BALANCED, group="primary",
+        enum=[H3_SPEED_FAST, H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM],
+        ui_control="select",
+        ui_options=[
+            {"value": H3_SPEED_FAST, "label": "快速（4 步）"},
+            {"value": H3_SPEED_BALANCED, "label": "均衡（8 步）"},
+            {"value": H3_SPEED_QUALITY, "label": "高质量（20 步）"},
+            {"value": H3_SPEED_CUSTOM, "label": "自定义"},
+        ],
+        description="快速为 4 步加速，适合预览；均衡为 8 步加速，适合日常成片；高质量关闭加速、使用完整采样；自定义可填 1–40 步。",
+    )
+
+
+def h3_custom_steps_option() -> dict[str, Any]:
+    return option(
+        "自定义步数", "integer", 8, group="primary",
+        minimum=H3_CUSTOM_STEPS_MIN, maximum=H3_CUSTOM_STEPS_MAX, step=1,
+        unit="步",
+        ui_control="input-number",
+        ui_visible_when={"speed": H3_SPEED_CUSTOM},
+        description="4–8 步启用加速 LoRA；超过 8 步关闭加速，接近完整采样。全能参考会把视频和音频采样都设为该步数。",
+    )
+
+
+def _speed_mapping(speed: str, custom_steps: int) -> dict[str, Any]:
+    if speed == H3_SPEED_CUSTOM:
+        return {
+            "steps": custom_steps,
+            "video_steps": custom_steps,
+            "audio_steps": custom_steps,
+            "lora_strength": 1.0 if custom_steps <= H3_TURBO_STEP_MAX else 0.0,
+        }
+    return H3_SPEED_PRESETS[speed]
+
+
+def lightx2v_speed_option() -> dict[str, Any]:
+    return option(
+        "生成速度", "string", H3_SPEED_FAST, group="primary",
+        enum=[H3_SPEED_FAST, H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM],
+        ui_control="select",
+        ui_options=[
+            {"value": H3_SPEED_FAST, "label": "快速（4 步 LightX2V）"},
+            {"value": H3_SPEED_BALANCED, "label": "均衡（8 步 LightX2V）"},
+            {"value": H3_SPEED_QUALITY, "label": "高质量（20 步）"},
+            {"value": H3_SPEED_CUSTOM, "label": "自定义"},
+        ],
+        description="快速为 4 步 LightX2V 加速，默认 1.0 MP，适合日常成片；均衡为 8 步加速；高质量关闭加速、使用完整采样。",
+    )
+
+
+def _lightx2v_lora_for(speed: str, custom_steps: int, *, is_reference: bool) -> tuple[str, float]:
+    if speed == H3_SPEED_QUALITY:
+        return (LIGHTX2V_REF2V_4STEP_LORA if is_reference else LIGHTX2V_FL2V_4STEP_LORA), 0.0
+    if speed == H3_SPEED_BALANCED or (speed == H3_SPEED_CUSTOM and custom_steps > 4):
+        if speed == H3_SPEED_CUSTOM and custom_steps > H3_TURBO_STEP_MAX:
+            return (LIGHTX2V_REF2V_4STEP_LORA if is_reference else LIGHTX2V_FL2V_8STEP_LORA), 0.0
+        return (
+            (LIGHTX2V_REF2V_4STEP_LORA, LIGHTX2V_LORA_STRENGTH)
+            if is_reference
+            else (LIGHTX2V_FL2V_8STEP_LORA, LIGHTX2V_LORA_STRENGTH)
+        )
+    return (
+        (LIGHTX2V_REF2V_4STEP_LORA, LIGHTX2V_LORA_STRENGTH)
+        if is_reference
+        else (LIGHTX2V_FL2V_4STEP_LORA, LIGHTX2V_LORA_STRENGTH)
+    )
+
+
+def dual_accel_speed_option() -> dict[str, Any]:
+    return option(
+        "生成速度", "string", H3_SPEED_BALANCED, group="primary",
+        enum=[H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM],
+        ui_control="select",
+        ui_options=[
+            {"value": H3_SPEED_BALANCED, "label": "八步双加速"},
+            {"value": H3_SPEED_QUALITY, "label": "高质量（20 步）"},
+            {"value": H3_SPEED_CUSTOM, "label": "自定义"},
+        ],
+        description="默认 8 步 FL2V Turbo LoRA，并串联 KJ Sage 与 H3 显存高效 Sage；高质量关闭 LoRA、使用完整采样。",
+    )
+
+
+def apply_dual_accel_speed_preset(normalized: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    speed = normalized.get("speed", H3_SPEED_BALANCED)
+    if speed not in {H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM}:
+        raise ValueError("八步双加速请选择八步双加速、高质量或自定义。")
+    apply_h3_speed_preset(normalized, raw)
+    if "lora_name" not in raw:
+        normalized["lora_name"] = DUAL_ACCEL_LORA_NAME
+    if "lora_strength" not in raw and normalized["speed"] != H3_SPEED_QUALITY:
+        if not (normalized["speed"] == H3_SPEED_CUSTOM and int(normalized.get("custom_steps", 8)) > H3_TURBO_STEP_MAX):
+            normalized["lora_strength"] = DUAL_ACCEL_LORA_STRENGTH
+    normalized.setdefault("sampler_name", "res_multistep")
+    normalized.setdefault("shift_video", 12.0)
+    normalized.setdefault("shift_audio", 3.0)
+    normalized.setdefault("use_sage_attention", True)
+    normalized.setdefault("reference_image_size", "match")
+    return normalized
+
+
+def dual_accel_option_schema() -> dict[str, Any]:
+    properties = dict(H3_STANDARD_OPTION_SCHEMA["properties"])
+    properties["quality"] = option(
+        "分辨率", "string", "0.4", group="advanced", ui_control="select",
+        enum=list(H3_STANDARD_RESOLUTION_PRESETS),
+        ui_options=local_resolution_options(H3_STANDARD_RESOLUTION_PRESETS),
+        megapixels_by_quality=H3_STANDARD_RESOLUTION_PRESETS,
+        ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+        description="八步双加速默认 0.4 MP（16:9 约 864×480），与参考工作流画布一致。",
+    )
+    properties["megapixels"] = option(
+        "内部像素面积", "number", 0.4, group="internal", minimum=0.1, maximum=16.0, step=0.1, unit="MP",
+    )
+    properties["speed"] = dual_accel_speed_option()
+    properties["lora_name"] = option(
+        "加速 LoRA", "string", DUAL_ACCEL_LORA_NAME,
+        enum=[DUAL_ACCEL_LORA_NAME],
+    )
+    properties["lora_strength"] = option("LoRA 强度", "number", DUAL_ACCEL_LORA_STRENGTH, minimum=-100, maximum=100, step=0.01)
+    properties["sampler_name"] = option("采样器", "string", "res_multistep", enum=["res_multistep", "euler"])
+    properties["shift_video"] = option("视频 Shift", "number", 12, minimum=0.01, maximum=100, step=0.01)
+    properties["shift_audio"] = option("音频 Shift", "number", 3, minimum=0.01, maximum=100, step=0.01)
+    properties["use_sage_attention"] = option("SageAttention", "boolean", True)
+    return {"type": "object", "properties": properties}
+
+
+def apply_lightx2v_speed_preset(
+    normalized: dict[str, Any], raw: dict[str, Any], *, is_reference: bool,
+) -> dict[str, Any]:
+    apply_h3_speed_preset(normalized, raw)
+    lora_name, lora_strength = _lightx2v_lora_for(
+        normalized["speed"], int(normalized.get("custom_steps", 8)), is_reference=is_reference,
+    )
+    if "lora_name" not in raw:
+        normalized["lora_name"] = lora_name
+    if "lora_strength" not in raw:
+        normalized["lora_strength"] = lora_strength
+    normalized.setdefault("sampler_name", "euler")
+    normalized.setdefault("shift_video", 12.0)
+    normalized.setdefault("shift_audio", 3.0)
+    normalized.setdefault("use_sage_attention", True)
+    normalized.setdefault("reference_image_size", "match")
+    return normalized
+
+
+def lightx2v_option_schema() -> dict[str, Any]:
+    properties = dict(H3_STANDARD_OPTION_SCHEMA["properties"])
+    properties["quality"] = option(
+        "分辨率", "string", "1.0", group="advanced", ui_control="select",
+        enum=list(H3_STANDARD_RESOLUTION_PRESETS),
+        ui_options=local_resolution_options(H3_STANDARD_RESOLUTION_PRESETS),
+        megapixels_by_quality=H3_STANDARD_RESOLUTION_PRESETS,
+        ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+        description="LightX2V 默认 1.0 MP（16:9 约 1376×768）；尺寸会随画面比例变化。",
+    )
+    properties["megapixels"] = option(
+        "内部像素面积", "number", 1.0, group="internal", minimum=0.1, maximum=16.0, step=0.1, unit="MP",
+    )
+    properties["speed"] = lightx2v_speed_option()
+    properties["lora_name"] = option(
+        "加速 LoRA", "string", LIGHTX2V_FL2V_4STEP_LORA,
+        enum=[LIGHTX2V_FL2V_4STEP_LORA, LIGHTX2V_FL2V_8STEP_LORA, LIGHTX2V_REF2V_4STEP_LORA],
+    )
+    properties["lora_strength"] = option("LoRA 强度", "number", LIGHTX2V_LORA_STRENGTH, minimum=-100, maximum=100, step=0.01)
+    properties["sampler_name"] = option("采样器", "string", "euler", enum=["euler", "res_multistep"])
+    properties["shift_video"] = option("视频 Shift", "number", 12, minimum=0.01, maximum=100, step=0.01)
+    properties["shift_audio"] = option("音频 Shift", "number", 3, minimum=0.01, maximum=100, step=0.01)
+    properties["use_sage_attention"] = option("SageAttention", "boolean", True)
+    return {"type": "object", "properties": properties}
+
+
+def apply_h3_speed_preset(normalized: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    speed = normalized.get("speed", H3_SPEED_BALANCED)
+    if speed not in {H3_SPEED_FAST, H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM}:
+        raise ValueError("MiniMax H3 请选择快速、均衡、高质量或自定义。")
+    custom_steps = normalized.get("custom_steps", raw.get("custom_steps", 8))
+    if isinstance(custom_steps, bool) or not isinstance(custom_steps, (int, float)) or not float(custom_steps).is_integer():
+        raise ValueError("自定义步数必须为整数。")
+    custom_steps = int(custom_steps)
+    if not H3_CUSTOM_STEPS_MIN <= custom_steps <= H3_CUSTOM_STEPS_MAX:
+        raise ValueError(f"自定义步数必须在 {H3_CUSTOM_STEPS_MIN} 到 {H3_CUSTOM_STEPS_MAX} 之间。")
+    normalized["speed"] = speed
+    normalized["custom_steps"] = custom_steps
+    mapping = _speed_mapping(speed, custom_steps)
+    for key in ("steps", "video_steps", "audio_steps", "lora_strength"):
+        if key in normalized and key not in raw:
+            normalized[key] = mapping[key]
+        elif key not in normalized and key in {"steps", "lora_strength"}:
+            normalized[key] = mapping[key]
+    normalized.setdefault("lora_name", H3_TURBO_LORA_NAME)
+    return normalized
 
 
 def local_resolution_options(presets: dict[str, float]) -> list[dict[str, str]]:
@@ -206,9 +523,19 @@ H3_STANDARD_OPTION_SCHEMA = {
             "内部像素面积", "number", 0.2, group="internal", minimum=0.1, maximum=16.0, step=0.1, unit="MP",
         ),
         "duration": option(
-            "时长", "number", 5, group="primary", minimum=5, maximum=15, step=1, unit="秒",
+            "时长", "number", 5, group="primary",
+            minimum=H3_DURATION_MIN_SEC, maximum=H3_DURATION_MAX_SEC, step=1, unit="秒",
             ui_control="duration-slider",
+            description="按秒选择输出时长；实际帧数会对齐 MiniMax H3 的 24fps、17n+5 网格，2 秒约为 56 帧。",
         ),
+        "speed": h3_speed_option(),
+        "custom_steps": h3_custom_steps_option(),
+        "steps": option("采样步数", "integer", H3_SPEED_PRESETS[H3_SPEED_BALANCED]["steps"], minimum=1, maximum=1000, step=1),
+        "lora_name": option(
+            "加速 LoRA", "string", H3_TURBO_LORA_NAME,
+            enum=[H3_TURBO_LORA_NAME],
+        ),
+        "lora_strength": option("LoRA 强度", "number", 1, minimum=-100, maximum=100, step=0.01),
     },
 }
 
@@ -248,8 +575,12 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
         "multiple": option("尺寸对齐倍数", "integer", 32, minimum=8, maximum=128, step=4),
         "duration": option(
             "时长", "number", 8 if multirate else 5, group="primary",
-            minimum=2, maximum=15, step=1, unit="秒", ui_control="duration-slider",
+            minimum=H3_DURATION_MIN_SEC, maximum=H3_DURATION_MAX_SEC, step=1, unit="秒",
+            ui_control="duration-slider",
+            description="按秒选择输出时长；实际帧数会对齐 MiniMax H3 的 24fps、17n+5 网格，2 秒约为 56 帧。",
         ),
+        "speed": h3_speed_option(),
+        "custom_steps": h3_custom_steps_option(),
         "seed": option(
             "随机种子", "integer", 123456789,
             minimum=0, maximum=1125899906842624, step=1,
@@ -271,8 +602,8 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
         "shift_video": option("视频 Shift", "number", 12, minimum=0.01, maximum=100, step=0.01),
         "shift_audio": option("音频 Shift", "number", 3, minimum=0.01, maximum=100, step=0.01),
         "unet_name": option(
-            "扩散模型", "string", "minimax_h3_fl2va_int8_convrot.safetensors",
-            enum=["minimax_h3_fl2va_int8_convrot.safetensors"],
+            "扩散模型", "string", H3_FL2VA_FULL,
+            enum=[H3_FL2VA_FULL, H3_FL2VA_PRUNED, H3_REF2VA_FULL, H3_REF2VA_PRUNED],
         ),
         "weight_dtype": option(
             "模型权重类型", "string", "default",
@@ -292,8 +623,8 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
             enum=["minimax_h3_audio_vae_fp32.safetensors"],
         ),
         "lora_name": option(
-            "加速 LoRA", "string", "minimax_h3_turbo_4STEPS_comfyui.safetensors",
-            enum=["minimax_h3_turbo_4STEPS_comfyui.safetensors"],
+            "加速 LoRA", "string", H3_TURBO_LORA_NAME,
+            enum=[H3_TURBO_LORA_NAME],
         ),
         "lora_strength": option("LoRA 强度", "number", 1, minimum=-100, maximum=100, step=0.01),
         "use_sage_attention": option("启用 SageAttention", "boolean", True),
@@ -328,40 +659,90 @@ T8_MULTIRATE_OPTION_SCHEMA = t8_option_schema(sampler="multirate")
 T8_DUAL_CLOCK_OPTION_SCHEMA = t8_option_schema(sampler="dual-clock")
 
 
+LIGHTX2V_OPTION_SCHEMA = lightx2v_option_schema()
+DUAL_ACCEL_OPTION_SCHEMA = dual_accel_option_schema()
+
 WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
-        JobMode.GRS_GPT_IMAGE_2,
-        "GPT Image 2",
-        "使用 GRS 生成图片，支持 0–10 张有序参考图。",
-        "collection",
+        JobMode.MINIMAX_H3_LIGHTX2V_T2V.value,
+        "LightX2V 文生视频",
+        "使用 LightX2V 4/8 步加速 LoRA 的文生视频；默认 1.0 MP、euler 采样。",
+        "none",
         0,
-        10,
-        option_schema=GRS_IMAGE_OPTION_SCHEMA,
-        media_type="image",
-        executor="grs",
+        0,
+        supports_h3_options=True,
+        option_schema=LIGHTX2V_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_LIGHTX2V,
     ),
     WorkflowDefinition(
-        JobMode.GRS_GPT_IMAGE_2_VIP,
-        "GPT Image 2 VIP",
-        "使用 GRS 高画质图片能力，支持 1K/2K/4K 与自定义尺寸。",
-        "collection",
-        0,
-        10,
-        option_schema=GRS_IMAGE_VIP_OPTION_SCHEMA,
-        media_type="image",
-        executor="grs",
+        JobMode.MINIMAX_H3_LIGHTX2V_I2V.value,
+        "LightX2V 首尾帧视频",
+        "使用 LightX2V 加速 LoRA 的首尾帧视频；首帧必填，尾帧可选。",
+        "keyframes",
+        1,
+        2,
+        ("首帧", "尾帧（可选）"),
+        supports_h3_options=True,
+        option_schema=LIGHTX2V_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_LIGHTX2V,
     ),
     WorkflowDefinition(
-        JobMode.MINIMAX_H3_T2V,
+        JobMode.MINIMAX_H3_LIGHTX2V_R2V.value,
+        "LightX2V 多参考视频",
+        "使用 LightX2V Ref2V 加速 LoRA；按顺序添加参考并在提示词中引用 <Picture n>。",
+        "collection",
+        1,
+        9,
+        supports_h3_options=True,
+        option_schema=LIGHTX2V_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_LIGHTX2V,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_DUAL_ACCEL_T2V.value,
+        "八步双加速 文生视频",
+        "8 步 FL2V Turbo LoRA，串联 KJ Sage 与 H3 显存高效 Sage；默认 0.4 MP、res_multistep。",
+        "none",
+        0,
+        0,
+        supports_h3_options=True,
+        option_schema=DUAL_ACCEL_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_DUAL_ACCEL,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_DUAL_ACCEL_I2V.value,
+        "八步双加速 首尾帧视频",
+        "8 步双 Sage 加速的图生视频；首帧必填，尾帧可选。",
+        "keyframes",
+        1,
+        2,
+        ("首帧", "尾帧（可选）"),
+        supports_h3_options=True,
+        option_schema=DUAL_ACCEL_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_DUAL_ACCEL,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_DUAL_ACCEL_R2V.value,
+        "八步双加速 多参考视频",
+        "8 步双 Sage 加速的多参考视频；按顺序添加参考并在提示词中引用 <Picture n>。",
+        "collection",
+        1,
+        9,
+        supports_h3_options=True,
+        option_schema=DUAL_ACCEL_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_DUAL_ACCEL,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_T2V.value,
         "MiniMax H3 文生视频",
         "根据提示词生成带原生音频的视频。",
         "none",
         0,
         0,
         supports_h3_options=True,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
     ),
     WorkflowDefinition(
-        JobMode.MINIMAX_H3_I2V,
+        JobMode.MINIMAX_H3_I2V.value,
         "MiniMax H3 首尾帧视频",
         "首帧和尾帧是时间锚点；可以只使用首帧。",
         "keyframes",
@@ -369,18 +750,20 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         2,
         ("首帧", "尾帧（可选）"),
         supports_h3_options=True,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
     ),
     WorkflowDefinition(
-        JobMode.MINIMAX_H3_R2V,
+        JobMode.MINIMAX_H3_R2V.value,
         "MiniMax H3 多参考视频",
         "按顺序添加角色、场景或风格参考，并在提示词中引用 <Picture n>。",
         "collection",
         1,
         9,
         supports_h3_options=True,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
     ),
     WorkflowDefinition(
-        JobMode.MINIMAX_H3_T8_ALL_REFERENCE,
+        JobMode.MINIMAX_H3_T8_ALL_REFERENCE.value,
         "MiniMax H3 全能参考（多速率）",
         "支持 0-9 张有序参考图，自动匹配文生或参考图生成。",
         "collection",
@@ -388,33 +771,108 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         9,
         supports_h3_options=True,
         option_schema=T8_MULTIRATE_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_CUSTOM,
     ),
     WorkflowDefinition(
-        JobMode.MINIMAX_H3_T8_DUAL_CLOCK,
-        "MiniMax H3 双时钟 8 步",
-        "支持文生或单参考图生成，使用工作流推荐的双时钟采样配置。",
+        JobMode.MINIMAX_H3_T8_DUAL_CLOCK.value,
+        "MiniMax H3 双时钟加速",
+        "支持文生或单参考图生成，使用双时钟采样；可在快速 4 步、均衡 8 步与高质量 20 步之间切换。",
         "collection",
         0,
         1,
         supports_h3_options=True,
         option_schema=T8_DUAL_CLOCK_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_CUSTOM,
     ),
 )
 
 WORKFLOW_BY_ID = {definition.id: definition for definition in WORKFLOWS}
 T8_WORKFLOWS = {JobMode.MINIMAX_H3_T8_ALL_REFERENCE, JobMode.MINIMAX_H3_T8_DUAL_CLOCK}
-IMAGE_WORKFLOWS = {JobMode.GRS_GPT_IMAGE_2, JobMode.GRS_GPT_IMAGE_2_VIP}
+LIGHTX2V_WORKFLOWS = {
+    JobMode.MINIMAX_H3_LIGHTX2V_T2V,
+    JobMode.MINIMAX_H3_LIGHTX2V_I2V,
+    JobMode.MINIMAX_H3_LIGHTX2V_R2V,
+}
+DUAL_ACCEL_WORKFLOWS = {
+    JobMode.MINIMAX_H3_DUAL_ACCEL_T2V,
+    JobMode.MINIMAX_H3_DUAL_ACCEL_I2V,
+    JobMode.MINIMAX_H3_DUAL_ACCEL_R2V,
+}
 H3_WORKFLOWS = {
     JobMode.MINIMAX_H3_T2V,
     JobMode.MINIMAX_H3_I2V,
     JobMode.MINIMAX_H3_R2V,
+    *LIGHTX2V_WORKFLOWS,
+    *DUAL_ACCEL_WORKFLOWS,
     *T8_WORKFLOWS,
 }
+T8_WORKFLOW_IDS = {item.value for item in T8_WORKFLOWS}
+LIGHTX2V_WORKFLOW_IDS = {item.value for item in LIGHTX2V_WORKFLOWS}
+DUAL_ACCEL_WORKFLOW_IDS = {item.value for item in DUAL_ACCEL_WORKFLOWS}
+H3_WORKFLOW_IDS = {item.value for item in H3_WORKFLOWS}
+_catalog_lookup: Callable[[str], dict[str, Any] | None] | None = None
+
+
+def set_catalog_lookup(lookup: Callable[[str], dict[str, Any] | None] | None) -> None:
+    global _catalog_lookup
+    _catalog_lookup = lookup
+
+
+def is_h3_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in H3_WORKFLOW_IDS
+
+
+def is_t8_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in T8_WORKFLOW_IDS
+
+
+def is_lightx2v_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in LIGHTX2V_WORKFLOW_IDS
+
+
+def is_dual_accel_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in DUAL_ACCEL_WORKFLOW_IDS
+
+
+def generation_family_label(mode: JobMode | str) -> str:
+    if is_lightx2v_workflow(mode):
+        return "LightX2V"
+    if is_dual_accel_workflow(mode):
+        return "八步双加速"
+    if is_h3_workflow(mode):
+        return "MiniMax H3"
+    return ""
+
+
+def generation_stage(mode: JobMode | str) -> str:
+    family = generation_family_label(mode)
+    return f"{family} 正在生成视频" if family else "正在生成"
+
+
+def generation_output_label(mode: JobMode | str) -> str:
+    family = generation_family_label(mode)
+    return f"{family} 视频" if family else "生成视频"
+
+
+def is_image_workflow(mode: JobMode | str) -> bool:
+    key = mode_key(mode)
+    if key in WORKFLOW_BY_ID:
+        return WORKFLOW_BY_ID[key].media_type == "image"
+    if key == JobMode.IMAGE.value or key.startswith("grs-"):
+        return True
+    try:
+        return workflow_for(key).media_type == "image"
+    except KeyError:
+        return False
+
+
+# Historical GRS workflow IDs remain valid for job history and builtin fallback.
+IMAGE_WORKFLOWS = {JobMode.GRS_GPT_IMAGE_2, JobMode.GRS_GPT_IMAGE_2_VIP}
 
 H3_QUALITY_MEGAPIXELS = H3_STANDARD_OPTION_SCHEMA["properties"]["quality"]["megapixels_by_quality"]
 H3_LEGACY_QUALITY_MEGAPIXELS = {"1K": 0.2, "2K": 0.3, "4K": 0.5}
 H3_LEGACY_MEGAPIXELS = set(H3_QUALITY_MEGAPIXELS.values()) | {0.98}
-H3_OPTION_NAMES = {"aspect_ratio", "quality", "megapixels", "duration"}
+H3_OPTION_NAMES = {"aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps"}
 H3_ASPECT_RATIO_PART = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
 
 
@@ -435,8 +893,8 @@ def parameter_payload(definition: WorkflowDefinition) -> list[dict[str, Any]]:
     parameters: list[dict[str, Any]] = [
         {
             "name": "mode", "label": "工作流", "type": "string", "required": True,
-            "description": "固定为当前工作流 ID。", "default": definition.id.value,
-            "values": [definition.id.value],
+            "description": "固定为当前工作流 ID。", "default": definition.id,
+            "values": [definition.id],
         },
         {
             "name": "prompt", "label": "创作提示词", "type": "string", "required": True,
@@ -470,14 +928,33 @@ def parameter_payload(definition: WorkflowDefinition) -> list[dict[str, Any]]:
     return parameters
 
 
-def workflow_for(mode: JobMode) -> WorkflowDefinition:
-    return WORKFLOW_BY_ID[mode]
+def catalog_entry_for(mode: JobMode | str) -> dict[str, Any] | None:
+    key = mode_key(mode)
+    if _catalog_lookup is not None:
+        try:
+            found = _catalog_lookup(key)
+        except Exception:
+            found = None
+        if found is not None:
+            return found
+    return builtin_entry(workflow_id=key)
 
 
-def validate_references(mode: JobMode, references: list[object]) -> None:
-    definition = WORKFLOW_BY_ID.get(mode)
-    if definition is None:
-        raise ValueError(f"工作流 {mode.value} 已从当前工作台移除")
+def workflow_for(mode: JobMode | str) -> WorkflowDefinition:
+    key = mode_key(mode)
+    if key in WORKFLOW_BY_ID:
+        return WORKFLOW_BY_ID[key]
+    entry = catalog_entry_for(key)
+    if entry is not None:
+        return image_workflow_from_catalog(entry)
+    raise KeyError(key)
+
+
+def validate_references(mode: JobMode | str, references: list[object]) -> None:
+    try:
+        definition = workflow_for(mode)
+    except KeyError as error:
+        raise ValueError(f"工作流 {mode_key(mode)} 已从当前工作台移除") from error
     count = len(references)
     if not definition.min_references <= count <= definition.max_references:
         if definition.min_references == definition.max_references:
@@ -487,10 +964,14 @@ def validate_references(mode: JobMode, references: list[object]) -> None:
         )
 
 
-def normalize_options(mode: JobMode, raw: dict[str, Any] | None) -> dict[str, Any]:
-    if mode in IMAGE_WORKFLOWS:
-        normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw or {})
-        if mode is JobMode.GRS_GPT_IMAGE_2_VIP and normalized["resolution"] == "CUSTOM":
+def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[str, Any]:
+    if is_image_workflow(mode):
+        definition = workflow_for(mode)
+        normalized = _normalize_schema_options(definition.option_schema or {}, raw or {})
+        provider_default = (definition.option_schema or {}).get("properties", {}).get("provider_model", {}).get("default")
+        if provider_default:
+            normalized["provider_model"] = provider_default
+        if definition.grs_profile == GRS_PROFILE_GPT_IMAGE_2_VIP and normalized["resolution"] == "CUSTOM":
             width = normalized["custom_width"]
             height = normalized["custom_height"]
             if width % 16 or height % 16:
@@ -501,15 +982,23 @@ def normalize_options(mode: JobMode, raw: dict[str, Any] | None) -> dict[str, An
                 raise ValueError("VIP 自定义尺寸的长宽比不能超过 3:1。")
             if not 655_360 <= pixels <= 8_294_400:
                 raise ValueError("VIP 自定义尺寸总像素必须在 655360 到 8294400 之间。")
-        elif mode is JobMode.GRS_GPT_IMAGE_2_VIP and normalized["aspect_ratio"] != "auto":
+        elif definition.grs_profile == GRS_PROFILE_GPT_IMAGE_2_VIP and normalized["aspect_ratio"] != "auto":
             if normalized["resolution"] not in GRS_VIP_SIZES.get(normalized["aspect_ratio"], {}):
                 raise ValueError("当前画面比例不支持所选分辨率。")
         return normalized
-    if mode not in H3_WORKFLOWS:
+    if not is_h3_workflow(mode):
         return {}
     raw = raw or {}
-    if mode in T8_WORKFLOWS:
+    if is_t8_workflow(mode):
         return _normalize_schema_options(workflow_for(mode).option_schema or {}, raw)
+    if is_lightx2v_workflow(mode):
+        normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
+        return apply_lightx2v_speed_preset(
+            normalized, raw, is_reference=mode_key(mode) == JobMode.MINIMAX_H3_LIGHTX2V_R2V.value,
+        )
+    if is_dual_accel_workflow(mode):
+        normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
+        return apply_dual_accel_speed_preset(normalized, raw)
     unknown_options = set(raw) - H3_OPTION_NAMES
     if unknown_options:
         names = ", ".join(sorted(unknown_options))
@@ -529,18 +1018,24 @@ def normalize_options(mode: JobMode, raw: dict[str, Any] | None) -> dict[str, An
     duration = float(raw.get("duration", 5))
     if quality not in H3_QUALITY_MEGAPIXELS:
         raise ValueError("MiniMax H3 请选择当前工作流支持的分辨率。")
-    if not 5 <= duration <= 15:
-        raise ValueError("MiniMax H3 时长必须在 5 到 15 秒之间。")
-    return {
+    if not H3_DURATION_MIN_SEC <= duration <= H3_DURATION_MAX_SEC:
+        raise ValueError(f"MiniMax H3 时长必须在 {H3_DURATION_MIN_SEC} 到 {H3_DURATION_MAX_SEC} 秒之间。")
+    speed = raw.get("speed", H3_SPEED_BALANCED)
+    custom_steps = raw.get("custom_steps", 8)
+    return apply_h3_speed_preset({
         "aspect_ratio": aspect_ratio,
         "quality": quality,
         "megapixels": float(legacy_megapixels) if legacy_megapixels is not None and (raw.get("quality") is None or legacy_quality) else H3_QUALITY_MEGAPIXELS[quality],
         "duration": duration,
         "reference_image_size": "match",
-    }
+        "speed": speed,
+        "custom_steps": custom_steps,
+    }, raw)
 
 
-def _normalize_schema_options(schema: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+def _normalize_schema_options(
+    schema: dict[str, Any], raw: dict[str, Any], *, apply_speed: bool = True,
+) -> dict[str, Any]:
     definitions = schema.get("properties", {})
     unknown_options = set(raw) - set(definitions)
     if unknown_options:
@@ -582,6 +1077,8 @@ def _normalize_schema_options(schema: dict[str, Any], raw: dict[str, Any]) -> di
         quality_map = quality_definition.get("megapixels_by_quality", {})
         if "quality" in raw:
             normalized["megapixels"] = quality_map[normalized["quality"]]
+    if apply_speed and "speed" in definitions:
+        apply_h3_speed_preset(normalized, raw)
     if "audio_steps" in normalized and normalized["audio_steps"] < normalized["video_steps"]:
         raise ValueError("音频采样步数不能小于视频采样步数。")
     return normalized
@@ -596,16 +1093,17 @@ def quality_for_megapixels(schema: dict[str, Any], megapixels: Any) -> str | Non
     return min(quality_map, key=lambda quality: abs(quality_map[quality] - float(megapixels)))
 
 
-def validate_option_relationships(mode: JobMode, options: dict[str, Any], reference_count: int) -> None:
-    if mode in T8_WORKFLOWS and options.get("task_type") == "Ref2VA" and reference_count == 0:
+def validate_option_relationships(mode: JobMode | str, options: dict[str, Any], reference_count: int) -> None:
+    if is_t8_workflow(mode) and options.get("task_type") == "Ref2VA" and reference_count == 0:
         raise ValueError("Ref2VA 任务类型至少需要 1 张参考图。")
 
 
-def grs_request_size(mode: JobMode, options: dict[str, Any]) -> tuple[str, str | None]:
+def grs_request_size(mode: JobMode | str, options: dict[str, Any]) -> tuple[str, str | None]:
     """Map registry values to the GRS wire-level aspectRatio/imageSize fields."""
+    definition = workflow_for(mode)
     aspect_ratio = options["aspect_ratio"]
     resolution = options["resolution"]
-    if mode is JobMode.GRS_GPT_IMAGE_2:
+    if definition.grs_profile != GRS_PROFILE_GPT_IMAGE_2_VIP:
         return aspect_ratio, resolution
     if resolution == "CUSTOM":
         return f"{options['custom_width']}x{options['custom_height']}", None
@@ -628,5 +1126,5 @@ def h3_dimensions(options: dict[str, Any]) -> tuple[int, int]:
 
 
 def h3_length(options: dict[str, Any]) -> int:
-    frames = max(5, round(options["duration"] * 24))
-    return frames + (5 - frames % 17) % 17
+    frames = max(5, round(float(options["duration"]) * H3_FPS))
+    return frames + ((5 - frames) % 17)

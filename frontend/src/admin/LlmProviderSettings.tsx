@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, Button, Input, Select, Switch, Tag, message } from "antd"
-import { Bot, CheckCircle2, ExternalLink, KeyRound, Sparkles } from "lucide-react"
-import { useEffect, useState } from "react"
+import { Alert, AutoComplete, Button, Input, Select, Switch, message } from "antd"
+import { Bot, CheckCircle2, ExternalLink, KeyRound, RefreshCw, Sparkles } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
 
 type LlmConfig = {
@@ -18,16 +18,30 @@ type LlmConfig = {
   last_test_at?: string | null
 }
 
+type CatalogModel = {
+  id: string
+  label: string
+  free?: boolean | null
+  owned_by?: string | null
+}
+
+type CatalogResponse = {
+  models: CatalogModel[]
+  provider: string
+  free_only: boolean
+  message?: string | null
+}
+
 const PROVIDER_PRESETS = [
   {
-    label: "ModelScope 魔搭社区 (免费额度)",
+    label: "ModelScope 魔搭社区 (按魔粒计费)",
     value: "modelscope",
     baseUrl: "https://api-inference.modelscope.cn/v1",
     model: "deepseek-ai/DeepSeek-V4-Flash-0731",
     docUrl: "https://modelscope.cn/my/access/token",
     recommendedModels: [
-      { name: "DeepSeek-V4-Flash (推荐)", id: "deepseek-ai/DeepSeek-V4-Flash-0731" },
-      { name: "DeepSeek-V4-Pro", id: "deepseek-ai/DeepSeek-V4-Pro" },
+      { name: "DeepSeek-V4-Flash (约 2 魔粒/次)", id: "deepseek-ai/DeepSeek-V4-Flash-0731" },
+      { name: "DeepSeek-V4-Pro (更高消耗)", id: "deepseek-ai/DeepSeek-V4-Pro" },
       { name: "MiniMax-M1-80k", id: "MiniMax/MiniMax-M1-80k" },
       { name: "MiniMax-M3", id: "MiniMax/MiniMax-M3" },
       { name: "LongCat-Flash-Lite", id: "meituan-longcat/LongCat-Flash-Lite" },
@@ -73,6 +87,32 @@ const PROVIDER_PRESETS = [
   },
 
   {
+    label: "Ollama 本地离线千问/推理模型 (100% 本地运行，零云端消耗)",
+    value: "ollama",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    model: "qwen2.5:7b",
+    docUrl: "https://ollama.com/library/qwen2.5",
+    recommendedModels: [
+      { name: "qwen2.5:7b-instruct (本机常见已拉取名)", id: "qwen2.5:7b-instruct" },
+      { name: "qwen2.5:7b (推荐本地轻量，4GB显存)", id: "qwen2.5:7b" },
+      { name: "qwen2.5:14b (进阶电影导演分析)", id: "qwen2.5:14b" },
+      { name: "deepseek-r1:7b (本地推理模型)", id: "deepseek-r1:7b" },
+      { name: "deepseek-r1:14b (深度思维链分析)", id: "deepseek-r1:14b" },
+      { name: "qwen2.5-coder:7b", id: "qwen2.5-coder:7b" },
+    ],
+  },
+  {
+    label: "LM Studio 本地大模型",
+    value: "lmstudio",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    model: "qwen2.5-7b-instruct",
+    docUrl: "https://lmstudio.ai/",
+    recommendedModels: [
+      { name: "qwen2.5-7b-instruct", id: "qwen2.5-7b-instruct" },
+      { name: "deepseek-r1-distill-qwen-7b", id: "deepseek-r1-distill-qwen-7b" },
+    ],
+  },
+  {
     label: "自定义 OpenAI 兼容接口",
     value: "custom",
     baseUrl: "",
@@ -94,6 +134,8 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   const [model, setModel] = useState("Qwen/Qwen2.5-7B-Instruct")
   const [apiKey, setApiKey] = useState("")
   const [selectedPreset, setSelectedPreset] = useState("modelscope")
+  const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([])
+  const autoFetchedFor = useRef("")
 
   useEffect(() => {
     if (!query.data) return
@@ -118,6 +160,8 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
       setBaseUrl(found.baseUrl)
       setModel(found.model)
     }
+    setCatalogModels([])
+    autoFetchedFor.current = ""
   }
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["llm-provider"] })
@@ -156,8 +200,53 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
     },
   })
 
-  const error = save.error ?? test.error ?? query.error
+  const catalog = useMutation({
+    mutationFn: () =>
+      requestJson<CatalogResponse>(
+        "/api/admin/providers/llm/models",
+        jsonMutation(csrfToken, {
+          base_url: baseUrl,
+          api_key: apiKey || null,
+          free_only: selectedPreset === "siliconflow" || selectedPreset === "ollama" || selectedPreset === "lmstudio",
+        }),
+      ),
+    onSuccess: (data) => {
+      setCatalogModels(data.models)
+      if (data.models.length) {
+        message.success(`已拉取 ${data.models.length} 个${data.free_only ? "免费 " : ""}模型`)
+      } else {
+        message.warning(data.message || "未找到可用模型")
+      }
+    },
+  })
+
+  useEffect(() => {
+    const canFetchLocal = selectedPreset === "ollama" || selectedPreset === "lmstudio"
+    const canFetchCloud = selectedPreset === "siliconflow" && Boolean(query.data?.has_api_key || apiKey)
+    if (!canFetchLocal && !canFetchCloud) return
+    const key = `${selectedPreset}|${baseUrl}|${query.data?.has_api_key ? "saved" : "none"}`
+    if (autoFetchedFor.current === key) return
+    autoFetchedFor.current = key
+    catalog.mutate()
+  }, [selectedPreset, baseUrl, query.data?.has_api_key])
+
   const currentPreset = PROVIDER_PRESETS.find((p) => p.value === selectedPreset)
+  const modelOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const rows: { value: string; label: string }[] = []
+    const add = (id: string, label?: string, free?: boolean | null) => {
+      if (!id || seen.has(id)) return
+      seen.add(id)
+      const text = label || id
+      rows.push({ value: id, label: free ? `${text} · Free` : text })
+    }
+    for (const item of catalogModels) add(item.id, item.label, item.free)
+    add(model)
+    for (const rec of currentPreset?.recommendedModels ?? []) add(rec.id, rec.name)
+    return rows
+  }, [catalogModels, model, currentPreset])
+
+  const error = save.error ?? test.error ?? catalog.error ?? query.error
 
   return (
     <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
@@ -168,7 +257,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
         <div>
           <h2 className="text-base font-semibold text-[#111827]">LLM 大模型服务</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            通用 OpenAI 兼容协议，支持 ModelScope 魔搭社区免费额度模型、DeepSeek、SiliconFlow 等，用于创作提示词一键润色与优化。
+            通用 OpenAI 兼容协议，用于创作提示词一键润色。魔搭会扣除账户魔粒；不想扣费请用硅基流动免费 7B 或本机 Ollama。
           </p>
         </div>
       </div>
@@ -203,6 +292,15 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
             />
           </div>
 
+          {selectedPreset === "modelscope" ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="魔搭会扣除账户魔粒，不是独立免费次数"
+              description="魔搭 API-Inference 已改为按魔粒计费。绑定阿里云后每日会赠送少量魔粒；赠送用尽后会继续扣除账户里签到、任务或充值获得的魔粒。工作台无法把调用限制为「只花赠送、不碰余额」。DeepSeek-V4 约 2 魔粒/次。不想消耗魔粒时，请改用硅基流动免费 7B，或本机 Ollama。"
+            />
+          ) : null}
+
           <div>
             <div className="flex items-center justify-between">
               <label className="block text-xs font-medium text-[#4b5563]">Base URL (接口地址)</label>
@@ -213,7 +311,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                   rel="noreferrer"
                   className="flex items-center gap-1 text-xs font-medium text-[#7047f6] hover:underline"
                 >
-                  <span>获取访问 Token</span>
+                  <span>{selectedPreset === "ollama" || selectedPreset === "lmstudio" ? "查看模型文档" : "获取访问 Token"}</span>
                   <ExternalLink size={12} />
                 </a>
               )}
@@ -227,27 +325,40 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[#4b5563]">Model (模型名称)</label>
-            <Input
-              className="mt-1.5"
+            <div className="flex items-center justify-between gap-3">
+              <label className="block text-xs font-medium text-[#4b5563]">Model (模型名称)</label>
+              <Button
+                size="small"
+                loading={catalog.isPending}
+                onClick={() => catalog.mutate()}
+                icon={<RefreshCw size={13} />}
+              >
+                拉取官方列表
+              </Button>
+            </div>
+            <AutoComplete
+              className="mt-1.5 w-full"
               value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="例如 Qwen/Qwen2.5-7B-Instruct 或 deepseek-ai/DeepSeek-V3"
+              options={modelOptions}
+              onChange={(value) => setModel(value)}
+              placeholder={selectedPreset === "siliconflow" ? "从官方目录选择价格为 0 的免费模型" : "选择或输入模型名称"}
+              filterOption={(input, option) => {
+                const query = (input || "").trim().toLowerCase()
+                if (!query) return true
+                const isExactOption = modelOptions.some((row) => row.value.toLowerCase() === query)
+                if (isExactOption) return true
+                const haystack = `${option?.value ?? ""} ${option?.label ?? ""}`.toLowerCase()
+                return haystack.includes(query)
+              }}
+              listHeight={320}
             />
-            {currentPreset?.recommendedModels && currentPreset.recommendedModels.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] text-[#9ca3af]">推荐模型:</span>
-                {currentPreset.recommendedModels.map((m) => (
-                  <Tag
-                    key={m.id}
-                    className={`cursor-pointer transition ${model === m.id ? "border-[#7047f6] text-[#7047f6] font-medium" : "text-[#4b5563]"}`}
-                    onClick={() => setModel(m.id)}
-                  >
-                    {m.name}
-                  </Tag>
-                ))}
-              </div>
-            )}
+            <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
+              {selectedPreset === "siliconflow"
+                ? "展开下拉框会列出已拉取的全部免费对话模型；输入关键字才搜索。填写 Token 后点「拉取官方列表」。"
+                : selectedPreset === "ollama" || selectedPreset === "lmstudio"
+                  ? "展开下拉框可看到本机已安装模型，名称须与服务端完全一致。"
+                  : "展开下拉框可看到推荐或已拉取的模型，也可直接输入模型 ID。"}
+            </p>
           </div>
 
           <div>
@@ -257,8 +368,17 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
-              placeholder={query.data?.api_key_masked || "输入平台生成的 API Key / Token"}
+              placeholder={
+                selectedPreset === "ollama" || selectedPreset === "lmstudio"
+                  ? "本地服务可留空"
+                  : query.data?.api_key_masked || "输入平台生成的 API Key / Token"
+              }
             />
+            {selectedPreset === "ollama" ? (
+              <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
+                Ollama 不需要云端 Token。模型名必须与 <code>ollama list</code> 完全一致；首次测试会把 7B 模型加载进显存，可能需要几十秒，请等按钮转完。
+              </p>
+            ) : null}
           </div>
 
           {error ? <Alert type="error" showIcon message={error.message} /> : null}
@@ -308,10 +428,16 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
 
           <div className="mt-6 rounded-xl border border-[#7047f6]/20 bg-[#7047f6]/[0.04] p-4 text-xs leading-5 text-[#4b5563]">
             <span className="flex items-center gap-1.5 font-semibold text-[#7047f6]">
-              <Sparkles size={14} /> 魔搭社区免费额度说明
+              <Sparkles size={14} /> {selectedPreset === "ollama" ? "Ollama 本地连接说明" : selectedPreset === "modelscope" ? "魔搭魔粒说明" : selectedPreset === "siliconflow" ? "硅基流动免费说明" : "服务说明"}
             </span>
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
-              ModelScope Serverless API 为注册用户提供主流开源模型（如 Qwen2.5-7B/14B/32B、DeepSeek-V3 等）的每日免费调用额度。
+              {selectedPreset === "ollama"
+                ? "请确认 Ollama 已启动且 11434 端口可访问。连接测试会真实调用当前模型；冷启动加载进显存时常超过 15 秒，工作台会等待最多 90 秒。若 ComfyUI 正在占满显卡，请等其空闲后再测。"
+                : selectedPreset === "modelscope"
+                  ? "魔搭不再提供独立于账户余额的免费次数池。调用会扣魔粒；工作台已对 DeepSeek-V4 关闭思考模式以降低单次消耗，但无法阻止扣费。"
+                  : selectedPreset === "siliconflow"
+                    ? "会拉取硅基流动全部模型，再用名称或标记里的 Free 文字筛选免费项。Qwen2.5-7B-Instruct 等免费模型不扣魔搭魔粒。"
+                    : "请按所选平台的官方文档配置 Base URL、模型名和 API Key。"}
             </p>
           </div>
         </aside>

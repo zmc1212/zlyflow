@@ -2,6 +2,11 @@
 
 FROM node:22-bookworm-slim AS frontend-builder
 
+ARG NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+
+ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY} \
+    COREPACK_NPM_REGISTRY=${NPM_CONFIG_REGISTRY}
+
 WORKDIR /build
 RUN corepack enable
 
@@ -15,15 +20,22 @@ RUN pnpm --filter zly-ai-video-studio-webui build
 
 FROM python:3.11-slim-bookworm AS runtime
 
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_RETRIES=10 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
     ZLY_AI_VIDEO_STUDIO_WORKBENCH_PORT=18189 \
     ZLY_AI_VIDEO_STUDIO_DATA_DIR=/var/lib/zly-ai-video-studio
 
 WORKDIR /app
 
 COPY backend/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir --prefer-binary -r /tmp/requirements.txt \
     && addgroup --system zlyai \
     && adduser --system --ingroup zlyai --home /app zlyai \
     && mkdir -p /var/lib/zly-ai-video-studio /app/results \

@@ -22,14 +22,14 @@
 - 创建任务使用 `multipart/form-data`，不是 JSON；`references` 可重复提交多个图片文件，上传顺序有业务含义。
 - 单张参考图最大 50 MB，且 `Content-Type` 必须为 `image/*`。
 - 创建任务成功返回 `202 Accepted`，表示已入队，并不代表图片或视频已经生成完成。
-- 轮询间隔建议为 1-2 秒；任务终态为 `succeeded`、`failed` 或 `interrupted`。
+- 轮询间隔建议为 1-2 秒；任务终态为 `succeeded`、`partial`、`failed`、`interrupted` 或 `cancelled`。
 - 通用错误格式为 `{"detail": "错误说明"}`。参数校验错误状态码为 `422`，资源不存在为 `404`，单个文件超过限制为 `413`。
 
 ## 接口一览
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/health` | 检查工作台和固定 ComfyUI 实例可用性。 |
+| `GET` | `/api/health` | 检查工作台和当前配置的 ComfyUI 实例可用性。 |
 | `GET` | `/api/auth/status` | 获取首次初始化或当前登录状态。 |
 | `POST` | `/api/auth/setup` | 从工作站本机创建首位超级管理员。 |
 | `POST` | `/api/auth/login` | 登录并设置 HttpOnly 会话 Cookie。 |
@@ -38,12 +38,26 @@
 | `GET/POST` | `/api/admin/users` | 管理员读取或创建员工账号。 |
 | `PATCH` | `/api/admin/users/{user_id}` | 调整角色或启停账号。 |
 | `POST` | `/api/admin/users/{user_id}/reset-password` | 重置初始密码并撤销该用户会话。 |
+| `GET/PUT` | `/api/admin/providers/comfy` | 超级管理员读取或保存 ComfyUI 连接地址。 |
+| `POST` | `/api/admin/providers/comfy/test` | 超级管理员测试当前输入的 ComfyUI 地址，不必先保存。 |
 | `GET` | `/api/modes` | 获取工作流能力注册表、图片尺寸和提示词预设。 |
 | `GET` | `/api/modes/{mode_id}` | 获取一个工作流在 `POST /api/jobs` 中的完整参数契约。 |
 | `POST` | `/api/jobs` | 提交一个生成任务。 |
 | `GET` | `/api/jobs` | 按创建时间倒序读取任务列表。 |
 | `GET` | `/api/jobs/{job_id}` | 查询单个任务的进度、状态和输出。 |
+| `POST` | `/api/jobs/{job_id}/cancel` | 停止排队中、生成中或已中断的任务。 |
 | `GET` | `/api/library` | 列出当前用户已成功生成的资源元数据。 |
+| `POST` | `/api/admin/providers/llm/models` | 超级管理员向上游拉取模型目录；硅基流动对照模型广场价格 0 / Free 筛选免费模型。 |
+| `POST` | `/api/llm/optimize-prompt` | 按工作流/技能优化提示词，不创建生成任务。 |
+| `POST` | `/api/llm/analyze-subject` | 上传主体参考图，由视觉模型提取外貌描述。 |
+| `POST` | `/api/llm/split-script` | 将剧本拆成结构化分镜头脚本。 |
+| `GET` | `/api/director/projects` | 列出当前用户的导演工程摘要。 |
+| `POST` | `/api/director/projects` | 创建导演工程，可带 `source_script`。 |
+| `POST` | `/api/director/projects/migrate` | 将浏览器 localStorage 工程迁入 SQLite；相同 ID 跳过。 |
+| `GET` | `/api/director/projects/{project_id}` | 读取工程全文，含剧本原文与时间轴 payload。 |
+| `PUT` | `/api/director/projects/{project_id}` | 更新标题、原文或时间轴；`source_script` 可写空字符串清空。 |
+| `DELETE` | `/api/director/projects/{project_id}` | 删除当前用户的导演工程。 |
+| `POST` | `/api/director/projects/{project_id}/copy` | 复制工程到当前用户项目库。 |
 | `GET` | `/api/jobs/{job_id}/outputs/{output_index}/download` | 下载当前用户待交付的暂存资源。 |
 | `POST` | `/api/jobs/{job_id}/outputs/{output_index}/delivered` | 确认浏览器已落盘并删除服务器暂存。 |
 | `GET` | `/api/media/{filename}` | 兼容读取当前用户的旧版结果文件。 |
@@ -52,7 +66,7 @@
 
 ### `GET /api/health`
 
-用于启动检查。`webui` 为 `ok` 表示 API 进程可用；`comfy.reachable` 表示 `http://127.0.0.1:8188/system_stats` 是否可连接。
+用于启动检查。`webui` 为 `ok` 表示 API 进程可用；`comfy.reachable` 表示当前配置的 ComfyUI `/system_stats` 是否可连接。默认地址为 `http://127.0.0.1:8188`，超级管理员可在管理后台覆盖。
 
 ```json
 {
@@ -74,11 +88,19 @@
 | `image` | 0-1 | Flux2-Klein 文生图；支持 `negative_prompt` 和 `image_size`。 |
 | `ltx-video` | 固定 3 张 | 场景、主体、风格三图生成首帧后制作 LTX 视频。 |
 | `vace-video` | 固定 3 张 | 场景、主体、风格三图直接制作 Wan VACE 视频。 |
+| `minimax-h3-lightx2v-t2v` | 0 张 | LightX2V 文生；默认 1.0 MP、4 步 euler。 |
+| `minimax-h3-lightx2v-i2v` | 1-2 张 | LightX2V 首帧必填，尾帧可选。 |
+| `minimax-h3-lightx2v-r2v` | 1-9 张 | LightX2V 多参考；使用 Ref2V 4 步 LoRA，提示词 `<Picture n>`。 |
+| `minimax-h3-dual-accel-t2v` | 0 张 | 八步双加速文生；默认 0.4 MP、8 步 `res_multistep`，FL2V 8 步 LoRA + KJ Sage + H3 Sage。 |
+| `minimax-h3-dual-accel-i2v` | 1-2 张 | 八步双加速首尾帧；首帧必填，尾帧可选。 |
+| `minimax-h3-dual-accel-r2v` | 1-9 张 | 八步双加速多参考；提示词 `<Picture n>`。 |
 | `minimax-h3-t2v` | 0 张 | MiniMax H3 文生视频。 |
 | `minimax-h3-i2v` | 1-2 张 | MiniMax H3 首帧必填，尾帧可选。 |
 | `minimax-h3-r2v` | 1-9 张 | MiniMax H3 多参考视频；提示词以 `<Picture n>` 对应上传顺序。 |
-| `minimax-h3-t8-all-reference` | 0-9 张 | H3 全能参考多速率工作流；`auto` 按图片数量选择 `T2VA`/`Ref2VA`。 |
-| `minimax-h3-t8-dual-clock` | 0-1 张 | H3 双时钟采样工作流，默认 8 步。 |
+| `minimax-h3-t8-all-reference` | 0-9 张 | H3 全能参考多速率工作流；`auto` 按图片数量选择 `T2VA`+FL2VA / `Ref2VA`+Ref2VA。快速/均衡挂 Turbo LoRA（全量 INT8）；高质量用 pruned 且不挂 LoRA。提示词使用 `<Picture n>`，也接受 `@图片n`。 |
+| `minimax-h3-t8-dual-clock` | 0-1 张 | H3 双时钟采样工作流；无图文生，单图为首帧 I2VA，默认 8 步。 |
+
+每个 mode 还包含 `catalog_group`、`catalog_group_label`、`catalog_group_order`。视频工作流分组为 `lightx2v`（LightX2V）、`dual_accel`（八步双加速）、`official_h3`（官方 MiniMax H3）、`custom`（自定义 T8）。前端按下拉分组展示，不硬编码组名。
 
 ### `GET /api/modes/{mode_id}`
 
@@ -108,7 +130,7 @@ GET /api/modes/minimax-h3-r2v
         "properties": {
           "aspect_ratio": {"type": "string", "pattern": "^(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\s*:\\s*(?:\\d+(?:\\.\\d*)?|\\.\\d+)$", "default": "16:9"},
           "megapixels": {"enum": [0.2, 0.3, 0.4, 0.5], "default": 0.2},
-          "duration": {"minimum": 5, "maximum": 15, "default": 5}
+          "duration": {"minimum": 2, "maximum": 15, "default": 5}
         }
       }
     }
@@ -139,7 +161,7 @@ H3 的 `options` 形如：
 
 - `aspect_ratio`：任意有限正数的 `宽:高` 字符串，例如 `16:9`、`2:3`、`3:2` 或 `21:9`；必须放在 `options` JSON 字符串中，不是独立的 multipart 字段。
 - `megapixels`：`0.2`、`0.3`、`0.4`、`0.5`。
-- `duration`：5 到 15 秒。
+- `duration`：2 到 15 秒。实际输出帧数按 24fps、17n+5 网格向上对齐，因此 2 秒约为 56 帧（约 2.3 秒）。
 
 两个 T8 模式也通过 `options` 提交参数，但字段更多。调用方必须以对应的 `GET /api/modes/{mode_id}` schema 为准；schema 包含 `type`、`enum`、`minimum`、`maximum`、`step`、`default`、`ui_group` 和可选 `unit`。`ui_group` 的语义为：`primary` 是创建页必要参数，`advanced` 进入“更多设置”，`internal` 由系统托管且不进入创建表单。未识别或缺失的层级应按 `internal` 处理。参数分为：
 
@@ -159,8 +181,14 @@ H3 的 `options` 形如：
 | `minimax-h3-t2v` | `mode`、`prompt` | `options` | 不可上传参考图。 |
 | `minimax-h3-i2v` | `mode`、`prompt`、`references` | `options` | 1-2 张；第一张首帧必填，第二张为可选尾帧。 |
 | `minimax-h3-r2v` | `mode`、`prompt`、`references` | `options` | 1-9 张；`<Picture 1>` 对应第一张，依此类推。 |
+| `minimax-h3-lightx2v-t2v` | `mode`、`prompt` | `options` | 不可上传参考图。 |
+| `minimax-h3-lightx2v-i2v` | `mode`、`prompt`、`references` | `options` | 1-2 张；第一张首帧必填，第二张为可选尾帧。 |
+| `minimax-h3-lightx2v-r2v` | `mode`、`prompt`、`references` | `options` | 1-9 张；`<Picture 1>` 对应第一张，依此类推。 |
+| `minimax-h3-dual-accel-t2v` | `mode`、`prompt` | `options` | 不可上传参考图。 |
+| `minimax-h3-dual-accel-i2v` | `mode`、`prompt`、`references` | `options` | 1-2 张；第一张首帧必填，第二张为可选尾帧。 |
+| `minimax-h3-dual-accel-r2v` | `mode`、`prompt`、`references` | `options` | 1-9 张；`<Picture 1>` 对应第一张，依此类推。 |
 | `minimax-h3-t8-all-reference` | `mode`、`prompt` | `options`、`references` | 0-9 张；`task_type=Ref2VA` 时至少 1 张。 |
-| `minimax-h3-t8-dual-clock` | `mode`、`prompt` | `options`、`references` | 0-1 张；`task_type=Ref2VA` 时至少 1 张。 |
+| `minimax-h3-t8-dual-clock` | `mode`、`prompt` | `options`、`references` | 0-1 张；无图为 `T2VA`，单图为 `I2VA` 首帧。`task_type=Ref2VA` 时至少 1 张。 |
 
 非 H3 工作流无需提交 `options`。原有 H3 模式未传时使用 `16:9`、`0.2 MP`、`5 秒`；T8 模式使用各自源工作流默认值。`GET /api/modes/{mode_id}` 是参数取值和约束的唯一来源。
 
@@ -175,7 +203,7 @@ curl.exe -X POST http://127.0.0.1:7865/api/jobs `
   -F "references=@D:\素材\场景.png"
 ```
 
-成功响应为 `202`：
+成功响应为 `202`。返回体是入队后的当前任务快照：worker 尚未领取时 `status` 为 `queued`；若 ComfyUI worker 已经开始准备或提交，则可能直接为 `running`。
 
 ```json
 {
@@ -187,7 +215,7 @@ curl.exe -X POST http://127.0.0.1:7865/api/jobs `
   "prompt": "<Picture 1> 中的角色走进 <Picture 2> 的场景，镜头缓慢推进。",
   "negative_prompt": "",
   "image_size": null,
-  "options": {"aspect_ratio": "16:9", "megapixels": 0.2, "duration": 5, "reference_image_size": "match"},
+  "options": {"aspect_ratio": "16:9", "quality": "0.2", "megapixels": 0.2, "duration": 5, "speed": "balanced", "reference_image_size": "match"},
   "reference_count": 2,
   "references": [
     {"index": 1, "url": "/api/jobs/WvhSEuCWne1d/references/1"},
@@ -210,7 +238,7 @@ curl.exe -X POST http://127.0.0.1:7865/api/jobs `
 
 ### `GET /api/jobs` 和 `GET /api/jobs/{job_id}`
 
-列表接口支持可选查询参数 `limit`，范围会被限制为 1-200，默认 100。单任务接口返回与创建任务相同的对象。`request_parameters` 由工作流注册表生成，回显任务实际使用的标准化有效值；`visibility` 与 option 的 `ui_group` 一致，用于区分创作参数和内部运行参数。参考图通过 `references` 预览 URL 回显。出于隐私和路径安全，响应中不包含上传素材的本地路径。
+列表接口支持可选查询参数 `limit`，范围会被限制为 1-200，默认 100。管理员和超级管理员还可传 `user_id`：指定账号 ID 只返回该用户任务，`all` 返回全部用户任务；员工传入该参数会被忽略，始终只看到自己的任务。单任务接口返回与创建任务相同的对象。`request_parameters` 由工作流注册表生成，回显任务实际使用的标准化有效值；`visibility` 与 option 的 `ui_group` 一致，用于区分创作参数和内部运行参数。带 `ui_visible_when` 的字段仅在条件成立时出现，例如未选自定义速度时不回显 `custom_steps`。参考图通过 `references` 预览 URL 回显。出于隐私和路径安全，响应中不包含上传素材的本地路径。
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:7865/api/jobs/WvhSEuCWne1d
@@ -230,17 +258,33 @@ Invoke-RestMethod http://127.0.0.1:7865/api/jobs/WvhSEuCWne1d
 }
 ```
 
-任务失败时，`status` 为 `failed`，`error` 含后端或 ComfyUI 的错误摘要。
+任务失败时，`status` 为 `failed`，`error` 含后端或 ComfyUI 的错误摘要。用户停止生成时，`status` 为 `cancelled`，不会自动重新提交。
+
+### `POST /api/jobs/{job_id}/cancel`
+
+任务所有者或管理员可停止排队中、生成中或已中断的任务。视频任务会向当前配置的 ComfyUI 发送 `/interrupt`（仅当该 `prompt_id` 正在运行）或从 `/queue` 删除排队项，并将任务标为 `cancelled`，禁止自动重提。图片任务只停止工作台等待，云端 GRS 可能仍会继续。已完成或已失败任务返回 `409`。
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Headers @{"X-CSRF-Token" = "<login response csrf_token>"} `
+  http://127.0.0.1:7865/api/jobs/WvhSEuCWne1d/cancel
+```
 
 ### `POST /api/jobs/{job_id}/retry`
 
-当任务因 ComfyUI 或 FRP 连接中断而变为 `interrupted`，或已安全记录为 `failed` 时，确认 ComfyUI 已恢复后，可由任务所有者或管理员重新提交。接口只接受已清除 `prompt_id` 的终态任务，将其恢复为 `queued` 并重新加入单 worker 队列；仍在 ComfyUI 中执行的任务会返回 `409`，不会重复提交。
+当任务因 ComfyUI 或 FRP 连接中断而变为 `interrupted`，或已安全记录为 `failed` / `cancelled` 时，任务所有者或管理员可调用本接口立即重试。工作台仍会在 ComfyUI 恢复后自动接回或重新提交中断的 H3 视频任务，但用户停止的 `cancelled` 任务不会自动重提。接口只接受已清除 `prompt_id` 的终态任务，将其恢复为 `queued` 并重新加入单 worker 队列；仍在 ComfyUI 中执行的任务会返回 `409`，不会重复提交。
 
 ```powershell
 Invoke-RestMethod -Method Post `
   -Headers @{"X-CSRF-Token" = "<login response csrf_token>"} `
   http://127.0.0.1:7865/api/jobs/WvhSEuCWne1d/retry
 ```
+
+## 导演台工程
+
+导演工程与生成任务隔离，员工只能读写自己的记录。`POST /api/llm/split-script` 只即时返回分镜 JSON，不入库；前端把原文 `source_script` 与 shots 一并 `POST`/`PUT` 到 `/api/director/projects`。列表接口只返回 `has_source_script`，不回传全文。手改空文案后 `PUT source_script` 仍会落盘。
+
+导演台提交 `POST /api/jobs` 时：预览/成片各自读取工程 payload 的 `previewQuality`/`previewSpeed` 与 `finalQuality`/`finalSpeed`。默认预览 `quality=0.4`、`speed=fast`；默认成片 `quality=1.0`、`speed=balanced`。可选 MP 为 0.4 / 0.7 / 1.0 / 2.0，速度为 fast（4 步）/ balanced（8 步）/ quality（20 步）。旧工程无新字段时，成片 MP 仍跟 `canvasTier`。批量接龙与整段提交使用成片档。
 
 ## 作品库与媒体
 
@@ -275,7 +319,7 @@ POST /api/auth/setup
 
 登录和初始化响应包含 `user` 与 `csrf_token`，并通过 `Set-Cookie` 写入会话。非浏览器客户端必须同时维护 Cookie，并在 `POST/PATCH` 请求中发送 `X-CSRF-Token`。员工接口的任务列表、单任务、参考图、作品库和输出下载都会校验 `jobs.owner_user_id`；普通员工访问其他人的资源时按不存在处理。
 
-成功任务的每个 `outputs[]` 包含 `delivery_status`。当状态为 `pending` 时还会返回短路径 `download_url`；浏览器将响应体写入员工授权目录后调用：
+任务的每个 `outputs[]` 包含 `delivery_status`。只要输出尚未本地交付（`pending` 或 `cloud`），就会返回短路径 `download_url`，包括部分完成或失败但已落盘的图片；浏览器将响应体写入员工授权目录后调用：
 
 ```text
 POST /api/jobs/{job_id}/outputs/{output_index}/delivered

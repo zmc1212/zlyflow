@@ -1,11 +1,11 @@
 # ZLY AI Studio｜创作工作台
 
-工作台使用 React + TypeScript 前端和 FastAPI 后端，在同一界面提供 GRS 图片生成与本机 ComfyUI 视频生成。工作台提供员工账号、角色权限、任务隔离、多轮创作和浏览器本地资源交付；监听本机与局域网 IPv4 地址的 `7865` 端口，ComfyUI 仍只使用 `http://127.0.0.1:8188`，不会暴露到局域网或公网。数据库文件名、环境变量前缀与包名继续保留 `zly-ai-video-studio` 兼容标识。
+工作台使用 React + TypeScript 前端和 FastAPI 后端，在同一界面提供 GRS 图片生成与本机 ComfyUI 视频生成。工作台提供员工账号、角色权限、任务隔离、多轮创作和浏览器本地资源交付；监听本机与局域网 IPv4 地址的 `7865` 端口，ComfyUI 默认 `http://127.0.0.1:8188`，超级管理员可在「管理设置 → AI 供应商」修改连接地址，不会把 ComfyUI 暴露到局域网或公网。数据库文件名、环境变量前缀与包名继续保留 `zly-ai-video-studio` 兼容标识。
 
 ## 启动
 
-1. 启动固定目录 `D:\zlyun\ZLY AI Video Studio\整合包及模型\comfyui-integrate-v1.3\comfyui-integrate\Comfyui` 下的 ComfyUI，默认地址为 `http://127.0.0.1:8188`。
-2. 双击 `启动本地视频工作台.bat`。脚本会分别启动 FastAPI（`7865`）和 Vite 开发服务器（`5173`），并自动打开 `http://127.0.0.1:5173`；Vite 会显示在独立终端窗口，前端代码变更会自动热更新。首次使用前执行一次 `pnpm --dir frontend install`。
+1. 启动固定目录 `D:\zlyun\ZLY AI Video Studio\整合包及模型\comfyui-integrate-v1.3\comfyui-integrate\Comfyui` 下的 ComfyUI，默认地址为 `http://127.0.0.1:8188`。若端口或映射地址不同，以超级管理员在「管理设置 → AI 供应商」填写实际地址，或设置环境变量 `ZLY_AI_VIDEO_STUDIO_COMFY_URL`（首次启动写入数据库）。
+2. 双击 `启动本地视频工作台.bat`。脚本会分别启动 FastAPI（`7865`）和 Vite 开发服务器（`5173`），并自动打开 `http://127.0.0.1:5173`。Vite 会显示在独立终端窗口，前端代码变更会自动热更新；后端由 `backend/dev_reloader.py` 监督，修改 `backend/app` 下的 Python 文件或服务异常退出后会自动重启，不再使用 Windows 上会把整个进程组一起关掉的 uvicorn `--reload`。首次使用前执行一次 `pnpm --dir frontend install`。
 3. 首次打开时在工作站本机 `http://127.0.0.1:5173` 创建超级管理员，再由管理后台分配员工账号。
 4. 使用本机 `127.0.0.1` 或 HTTPS 浏览器交付时，员工首次登录并修改初始密码后需选择本机资源目录；最新版 Chrome/Edge 仅在这些安全上下文允许目录授权。通过局域网 IP 访问时不再阻塞目录选择，启用七牛云后直接使用结果中的七牛云短期签名地址播放或下载。
 5. 若 7865 已被其他程序占用，请先确认或关闭该程序，再启动工作台。
@@ -15,7 +15,7 @@
 1. 本地双击启动时，脚本会在首次运行自动创建 `data/credential.key` 并在后续启动中复用；该文件只用于加密数据库中的 GRS API Key，不得与数据库分开丢失。也可用环境变量 `ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY` 显式覆盖。
 2. Docker/服务器部署应生成 Fernet 主密钥并写入 `.env`：`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`。主密钥缺少或错误时应用仍可启动，视频与历史不受影响，图片提交会锁定。
 3. 以超级管理员进入“管理设置 → AI 供应商”，填写 GRS Base URL 与 API Key。连接测试会直接验证当前输入值，无需先保存；验证成功后仍需点击“保存配置”供图片任务使用。
-4. 生图支持 GPT Image 2 / GPT Image 2 VIP、0–10 张有序参考图、每轮 1–4 张结果；真实测试会产生上游消耗，应先获得费用批准。
+4. 生图模型由管理后台「GRS 图片供应商」目录配置；默认启用 GPT Image 2 / GPT Image 2 VIP，也可打开 Nano Banana 等 GRS 文档模型。支持 0–10 张有序参考图、每轮 1–4 张结果；真实测试会产生上游消耗，应先获得费用批准。参考图含真人时，上游可能判定内容违规；若实际已出图，工作台会显示为已完成或部分完成并保留结果，同时展示审核失败原因。
 
 本机开发入口为 `http://127.0.0.1:5173`，Vite 会将 `/api` 转发到 `7865`；`7865` 仍可作为 FastAPI 的生产静态资源和局域网访问地址。设置 `ZLY_AI_VIDEO_STUDIO_SSL_CERTFILE` 与 `ZLY_AI_VIDEO_STUDIO_SSL_KEYFILE` 后，Vite 与 FastAPI 会同时使用 HTTPS。即使已有账号认证，也不得把 `7865` 直接暴露到公网。
 
@@ -38,6 +38,8 @@ docker compose up -d
 docker compose ps
 curl http://127.0.0.1:18189/api/health
 ```
+
+镜像构建会先升级 pip，再按 `backend/requirements.txt` 安装二进制轮子；默认使用清华 PyPI 镜像和 npmmirror。若要改回官方源，在 `.env` 中设置 `PIP_INDEX_URL=https://pypi.org/simple` 与 `NPM_CONFIG_REGISTRY=https://registry.npmjs.org` 后重新执行 `docker compose build`。
 
 ### Nginx HTTPS 反向代理
 
@@ -89,18 +91,63 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 
 ## 功能
 
-- GRS 图片生成：GPT Image 2 与 VIP；支持参考图、比例、1K/2K/4K、VIP 自定义尺寸、单轮 1–4 个并发生成项、部分成功和失败项重试。
+- GRS 图片生成：管理后台维护可启用的模型目录（GPT Image 2 / VIP、Nano Banana 系列及自定义 ID）；每个启用模型作为独立工作流出现在创作页。支持参考图、比例、1K/2K/4K、VIP 自定义尺寸、单轮 1–4 个并发生成项、部分成功和失败项重试。
 - 图片与视频任务统一为“任务 → 轮次 → 生成项”；同任务不混合媒介，图片结果可创建有关联的新视频任务并预填首帧。
-- MiniMax H3 提示词技能体系与大模型智能优化：结合 MiniMax-H3 官方开源技能规范（三维运镜语法、多模态时序结构、环境音效与背景配乐），融合 OpenAI 兼容大模型（如 ModelScope 免费模型），提供电影级通用、极简电商广告、3D动画短片、立体纸艺定格、品牌宣传、音乐短片、双人游戏片头、纸拼贴与手绘发光实景等 9 大细分风格技能的一键智能优化。
-- MiniMax H3：文生视频、首尾帧视频，以及 1-9 张可排序参考图的视频生成；另接入“全能参考（多速率）”和“双时钟 8 步”工作流。新工作流的尺寸、时长、种子、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
+- MiniMax H3 提示词技能体系与大模型智能优化：结合 MiniMax-H3 官方开源技能规范（三维运镜语法、多模态时序结构、环境音效与背景配乐），融合 OpenAI 兼容大模型（魔搭按魔粒计费；硅基流动 7B / 本机 Ollama 可零云端消耗），提供电影级通用、极简电商广告、3D动画短片、立体纸艺定格、品牌宣传、音乐短片、双人游戏片头、纸拼贴与手绘发光实景等 9 大细分风格技能的一键智能优化。
+- MiniMax H3 Web AI 导演台（Director Studio）：进入导演台先到项目库，再打开时间轴。工程与剧本文档保存在 SQLite（员工隔离），不再只靠 localStorage。在现有 H3 T2V/I2V/R2V 上提供分镜编排、机位与运镜、主体参考图 `<Picture n>` 编号锁定、AI 剧本拆解、逐镜接龙批量渲染、成片串播与剪映草稿导出。Analyze 仅在大模型支持视觉时根据参考图提取外貌。镜头列表、中央预览与时间轴共用同一套任务状态：排队中 / 生成中。
+- MiniMax H3：官方文生 / 首尾帧 / 多参考，以及自定义「全能参考（多速率）」和「双时钟加速」。另接入 LightX2V 文生 / 首尾帧 / 多参考（默认 1.0 MP、4 步 euler），以及「八步双加速」文生 / 首尾帧 / 多参考（默认 0.4 MP、8 步，FL2V Turbo LoRA + KJ Sage + H3 Sage）。创作页工作流下拉按 LightX2V、八步双加速、官方 MiniMax H3、自定义分组。可选择生成速度：快速 4 步、均衡 8 步、高质量 20 步，或自定义 1–40 步（八步双加速默认即为 8 步档）。尺寸、时长、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
 
-- 串行任务队列、任务状态、SQLite 任务记录与本地作品库。
-- ComfyUI 或 FRP 短暂重启时，运行任务会在连续 30 秒无法通信后标记为“已中断”或安全失败，自动释放队列；恢复连接后可在任务详情点击“重新提交”，无需重启工作台镜像。
-- 超级管理员、管理员、员工三级角色；员工仅可读取自己的任务、参考图和资源。
+
+- 串行任务队列、任务状态、SQLite 任务记录与本地作品库。排队中或生成中的任务可在工作台点「停止生成」：视频会中断固定 ComfyUI 上的对应 prompt 并标记为「已停止」，不会自动重新提交；图片只停止本地等待。本地视频队列空闲后，工作台会通知 ComfyUI 卸载模型并释放显存/内存；若还有下一条视频在排队则保持加载。
+- ComfyUI 或 FRP 短暂重启时，运行任务会在连续 30 秒无法通信后标记为“已中断”并释放队列。工作台会继续侦听固定 ComfyUI；若原任务仍在队列或历史中则接回，若进程已重启导致任务丢失则按原参数自动重新提交（最多 3 次）。用户主动停止的任务不会自动重提。显存中未完成的推理无法续跑。仍可在任务详情手动点“重新提交”。
+- 超级管理员、管理员、员工三级角色；员工仅可读取自己的任务、参考图和资源。管理员可在生成页与资产页切换用户查看对应任务，切到他人时为只读查看，新建任务仍归属当前管理员。
 - 浏览器授权本地目录、生成完成后自动流式保存和交付回执。
 - `ZLYUN AI` Windows 桌面客户端：为企业员工提供受控的本地目录交付、可靠本地预览和安装包更新基础；Web 工作台继续保留。
 
 新作品写入员工授权目录的 `ZLY AI Studio/<YYYY-MM>`；既有 IndexedDB 记录和 `ZLY AI Video Studio` 目录继续只读兼容。GRS 图片成功 URL 会在后端校验 HTTPS、重定向、公网地址、MIME、文件签名和 50 MB 上限后暂存，浏览器/桌面端确认交付后立即清理。
+
+## 2026-08-27 ComfyUI 连接地址可配置
+
+- 原因：ComfyUI 地址原先只能靠启动环境变量，本机改端口或服务器 FRP 映射后必须改 `.env` 并重启，管理后台也看不到当前连接目标。
+- 用户可见行为：超级管理员在「管理设置 → AI 供应商」可填写并测试 ComfyUI 地址，保存后立即对后续视频任务生效。默认仍为 `http://127.0.0.1:8188`；Docker 首次启动继续用 `ZLY_AI_VIDEO_STUDIO_COMFY_URL` 写入数据库。宿主机浏览器直连交付仍固定访问本机 `127.0.0.1:8188/view`。
+- 受影响文件：`backend/app/comfy_provider.py`、`backend/app/comfy_service.py`、`backend/app/storage.py`、`backend/app/main.py`、`backend/app/models.py`、`frontend/src/admin/ComfyProviderSettings.tsx`、`frontend/src/Root.tsx`、测试与三份主文档。
+- 兼容性：不改 ComfyUI 节点、工作台 `7865`、任务协议。已有数据库自动增加 `comfy_provider_settings` 表，首次用当前环境变量或默认 8188 播种。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_comfy_provider.py"`、`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台；新表可保留。
+
+## 2026-08-26 导演台项目库与 SQLite 工程文档
+
+- 原因：导演台缺少可见的工程列表，剧本原文关闭弹窗即丢失，空工程还塞了 3 条演示分镜。
+- 用户可见行为：进入导演台先看到项目库，可新建空白工程、从剧本创建、打开/复制/删除。空库可用示例创建。打开工程后可返回项目库；刷新后工程和原文仍在。空白工程只有一条空分镜。
+- 受影响文件：`backend/app/storage.py`、`backend/app/models.py`、`backend/app/main.py`、`backend/tests/test_director.py`、`frontend/src/director/*` 和三份主文档。
+- 兼容性：不改 ComfyUI 节点/端口或生成任务协议。首次打开会把本机 localStorage 工程迁入 SQLite。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-26 导演台剧本文档与拆分确认
+
+- 原因：拆分结果仍会覆盖当前时间轴，原文关闭弹窗后不易回看；移动端旧「切换工程」入口曾绑到改标题。
+- 用户可见行为：项目库「从剧本创建」会新建工程并写入原文。已打开工程再拆时需确认「替换当前分镜」或「另存为新工程」，有已生成 Take 时默认另存。工作区内可打开剧本文档抽屉回看和手改，空文案也可保存。移动端返回项目库，标题不再作为切换入口。
+- 受影响文件：`frontend/src/director/DirectorStudioModule.tsx`、`frontend/src/director/components/ScriptDocumentDrawer.tsx`、`frontend/src/director/components/ScriptSplitModal.tsx`、`frontend/src/director/types.ts`、`backend/tests/test_director.py` 和三份主文档。
+- 兼容性：不改 ComfyUI 节点/端口或 `POST /api/jobs`。拆分仍走 `POST /api/llm/split-script`。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端。
+
+## 2026-08-26 生成页管理员切换用户查看任务
+
+- 原因：资产页已能按用户筛选任务，生成页任务栏没有入口，管理员无法在创作区查看指定员工的生成任务。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/media/ImageStudioModule.tsx`、`frontend/src/index.css`、`backend/tests/test_ai_studio.py`、`backend/app/api_documentation.py` 和三份主文档。
+- 兼容性：不改数据库、节点、端口或任务归属。`GET /api/jobs?user_id=` 仅管理员有效；员工传入会被忽略。查看他人时隐藏创作表单与继续生成操作，新建仍归属当前管理员。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端。
+
+## 2026-08-25 ComfyUI 重启后自动重提中断视频
+
+- 原因：本机 ComfyUI 卡死或关机后，内存队列会丢失；工作台原先把进行中任务停在“已中断”，必须手动重新提交。
+- 受影响文件：`backend/app/worker.py`、`backend/app/comfy_service.py`、`backend/tests/test_core.py`、`frontend/src/App.tsx` 和三份主文档。
+- 兼容性：不改数据库、节点、端口。ComfyUI 恢复且原任务已不在队列/历史时，按原参数自动重提最多 3 次；仍可手动点“重新提交”。显存半成品无法续跑。
+- 验证命令：`python -m unittest discover -s backend/tests -p test_core.py`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。
 
 ## 2026-08-13 生图/生视频统一创作工作台
 
@@ -138,6 +185,9 @@ pnpm --filter zly-ai-video-studio-webui build
 pnpm --dir desktop run build
 
 # 以开发方式运行 API（生产界面仍由 FastAPI 托管）
+# 本机开发请用监督器，保存 backend/app 后会重启；不要在 Windows 上使用 uvicorn --reload
+# 整合包 Python 使用 ._pth 隔离路径，必须直接运行脚本，不能 python -m backend.dev_reloader
+<ComfyUI Python> backend/dev_reloader.py --host 0.0.0.0 --port 7865
 <ComfyUI Python> -m uvicorn backend.app.main:app --host 0.0.0.0 --port 7865
 <ComfyUI Python> backend/tests/test_core.py
 ```
@@ -438,3 +488,261 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 
 - 验证：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
 - 回滚：恢复本次 `qiniu_storage.py`、测试和文档变更并重启工作台；无需删除已上传对象。
+
+## 2026-08-25 MiniMax H3 Web AI 导演台（Director Studio）系统
+
+- 原因：为用户提供对标开源社区成熟 Web 导演台（`NickPittas/DirectorsConsole`、`seesee75-Director`、`oh-my-minimaxh3-director` 与 `AIMixer`）的一站式影视级分镜编排、运镜调度、角色一致性绑定、镜头连续性接龙与成片串播系统。
+- 用户可见行为：
+  - 左侧全局导航新增 **【🎬 导演台】** 入口；
+  - 顶部提供导演分镜项目管理、画面比例选择、全局角色资产栏（`<Picture 1>`~`<Picture 9>`）、AI 剧本一键拆解分镜、成片连播预览与批量生成；
+  - 故事板以卡片流呈现各分镜头，可调整景别、运镜、视角与影调，支持首尾帧上传、接龙续拍、单镜头重拍与顺序微调；
+  - 提供 Master Sequence Player 成片连续串播播放器，支持全部分镜视频无缝连播与一键批量保存到员工本地授权目录。
+- 兼容性：完全向下兼容原有任务、数据库结构、ComfyUI 实例、节点 ID 或工作流协议；导演工程在前端持久化管理并与后端任务引擎无缝同步。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码和文档后重新构建前端；无需数据库迁移。
+
+## 2026-08-25 云端视频下载不再返回 HTTP 307
+
+启用七牛云后，下载接口改为由工作台同源代理云端字节流（HTTP 200），不再 307 跳转到七牛云签名地址。任务 JSON 中的 `download_url` 仍是稳定的 `/api/jobs/.../download`，浏览器播放与 Toonflow 等不跟随重定向的下载客户端都能直接拿到文件。
+
+- 验证：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚：恢复本次 `backend/app/main.py`、测试和文档变更并重启工作台；无需删除已上传对象。
+
+## 2026-08-25 GRS 生图模型可配置目录
+
+- 原因：创作页原先写死 GPT Image 2 / VIP 两个工作流，无法使用 GRS 文档中的 Nano Banana 等模型。
+- 用户可见行为：超级管理员在「AI 供应商 → GRS」维护生图模型目录（启用、显示名、默认、添加自定义 ID、同步内置目录）。启用的模型各自出现在创作页「选择工作流」；默认仍只打开 GPT Image 2 与 VIP。
+- 兼容性：历史任务 `grs-gpt-image-2` / `grs-gpt-image-2-vip` 继续可回显和重试；提交仍走 `POST /v1/api/generate`；SQLite 新增 `grs_image_models` 表。
+- 验证：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚：恢复本次代码与文档并重启工作台；已写入的目录表可保留，旧版本会忽略该表。
+
+## 2026-08-25 GRS 生图接回已出图结果与审核说明
+
+- 原因：参考图含真人时上游更容易返回 `violation` 或 HTTP 400；少数任务实际已出图并写入员工目录，但工作台仍标失败且不展示结果。
+- 用户可见行为：已落盘的图片仍可在任务详情中查看和保存。整轮只要有成功输出就不会被标成失败（改为部分完成）。审核失败会显示「内容未通过审核（可能含真人等受限内容）」及上游原文。
+- 兼容性：不改 SQLite schema、ComfyUI 端口/节点或创建任务接口。下载接口允许带输出的失败/部分完成任务。
+- 验证：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚：恢复本次代码与文档并重启工作台。
+
+## 2026-08-25 导演台按现有 H3 工作流正确提交
+
+- 原因：导演台生成路径此前未走编译结果，参考图编号与上传顺序不一致，批量任务没有镜头连续性。
+- 用户可见行为：
+  - 底部检视器显示即将提交的提示词；≤15s 可整段提交，超过则须逐镜接龙。
+  - 批量渲染会等上一镜成功、抽取尾帧作为下一镜首帧后再提交。
+  - 主体 Analyze 仅在大模型支持视觉时根据参考图提取外貌，否则按钮禁用并说明原因。
+  - 成片可直接导出剪映草稿。刷新后仍保留 `data:` 参考图预览；`File` 对象不会写入 localStorage。
+- 兼容性：不改 ComfyUI 实例、节点 ID、任务协议或数据库；仍使用 MiniMax H3 T2V/I2V/R2V。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码和文档后重新构建前端；无需数据库迁移。
+
+## 2026-08-25 Ollama 本地连接测试等待模型加载
+
+- 原因：本机 Ollama 已启动时，管理后台「测试连接」仍可能因 15 秒超时失败。7B 模型第一次装入显存经常超过这个时间。
+- 用户可见行为：本地 Ollama / LM Studio 测试最多等待 90 秒；模型名填错时会列出 `ollama list` 里已有的名称。Ollama 不需要云端 Token。
+- 兼容性：云端大模型测试仍为 15 秒；不改数据库、端口或 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_llm`、`pnpm --dir frontend build`。
+- 回滚方式：恢复对应文件并重启工作台。
+
+## 2026-08-25 魔搭 LLM 按魔粒计费说明
+
+- 原因：管理后台把魔搭标成「免费额度」，但魔搭 API-Inference 已改为扣除账户魔粒；DeepSeek-V4 默认开思考会额外消耗。
+- 用户可见行为：预设改为「按魔粒计费」并给出警告。不想扣魔粒请改用硅基流动免费 7B 或本机 Ollama。工作台对 DeepSeek-V4 请求显式关闭思考，降低单次消耗，但不能阻止扣费。
+- 兼容性：不改数据库、端口或 ComfyUI；已保存的魔搭 Token 与模型名不变。
+- 验证命令：`python -m unittest backend.tests.test_llm`、`pnpm --dir frontend build`。
+- 回滚方式：恢复对应文件并重启工作台。
+
+## 2026-08-25 LLM 后台拉取官方免费模型
+
+- 原因：管理后台模型名只靠几个推荐标签，无法从硅基流动官方目录选择当前免费模型。
+- 用户可见行为：超级管理员可「拉取官方列表」，硅基流动会拉取全部可调用模型，再对照模型广场里价格为 0 / Free 的条目，结果以下拉框选择。
+- 兼容性：不改数据库、端口或 ComfyUI；已保存的模型名仍可手动输入。
+- 验证命令：`python -m unittest backend.tests.test_llm`、`pnpm --dir frontend build`。
+- 回滚方式：恢复对应文件并重启工作台。
+
+## 2026-08-25 硅基流动免费模型对照模型广场价格
+
+- 原因：官方 `/v1/models` 没有 Free 字段，按文字筛选会提示目录里没有免费模型。
+- 用户可见行为：拉取官方列表时会对照硅基流动模型广场的价格 0 / Free 标记，例如 `Qwen/Qwen2.5-7B-Instruct`。
+- 兼容性：不改数据库、端口或 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_llm`、`pnpm --dir frontend build`。
+- 回滚方式：恢复对应文件并重启工作台。
+
+## 2026-08-25 导演台融合版界面冻结与实现
+
+- 原因：将导演台从分散的故事板、时间轴和检视器入口统一为可连续工作的导演工作台，并补齐移动端入口与单手操作布局。
+- 用户可见行为：桌面端提供镜头序列、中央预览/故事板切换、右侧镜头检视器和底部时间轴；移动端提供工作区导航、横向镜头条、连续性摘要和底部固定“生成本镜”操作。AI 拆分剧本、续接定格、成片预览和剪映导出继续复用既有能力。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/index.css`、`frontend/src/director/DirectorStudioModule.tsx`、`frontend/src/director/components/ScriptSplitModal.tsx`、`output/superdesign/director-ui-audit.md`。
+- 兼容性：不改 SQLite、API、ComfyUI `127.0.0.1:8188`、工作流节点 ID、`<Picture n>` 编译协议或任务队列；现有导演工程仍由浏览器 localStorage 保存。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`；已用 1440×900 与 390×844 视口完成浏览器回归。
+- 回滚方式：恢复上述前端文件并重新构建；无需数据库迁移或清理媒体。
+
+## 2026-08-26 工作台手动停止生成
+
+- 原因：ComfyUI 里删除执行中任务会被工作台当成丢失并自动重提；用户需要在工作台主动停止，且停止后不再自动重跑。
+- 用户可见行为：排队中、生成中或已中断的任务可点「停止生成」。视频任务向固定 ComfyUI `127.0.0.1:8188` 中断正在运行的对应 `prompt_id` 或从队列删除排队项，状态变为「已停止」，不会自动重新提交。图片任务停止本地等待，云端可能仍计费。之后可手动「重新提交」或删除记录。
+- 受影响文件：`backend/app/models.py`、`backend/app/storage.py`、`backend/app/comfy_service.py`、`backend/app/worker.py`、`backend/app/main.py`、`backend/app/api_documentation.py`、`backend/tests/test_core.py`、`backend/tests/test_ai_studio.py`、`frontend/src/App.tsx`、`frontend/src/index.css`、`frontend/src/director/*` 和三份主文档。
+- 兼容性：SQLite 为 `generation_items` 增加 `cancel_requested` 列，旧库启动时自动添加；不改 ComfyUI 节点、端口或创建任务接口。`interrupted` 仍表示可自动恢复的中断。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台；新增列可保留，不影响旧逻辑。
+
+## 2026-08-26 视频时长下限改为 2 秒
+
+- 原因：部分工作流界面已能选择 5 秒以下，但后端和导演台仍把短于 5 秒的值改回 5 秒，2 秒不会进入生成 graph。
+- 用户可见行为：文生 / 首尾帧 / 多参考以及两个 T8 工作流的时长均可选 2–15 秒。2 秒会生成约 56 帧（约 2.3 秒，对齐模型时间网格）。导演台单镜时长同样可设为 2 秒。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/director_compiler.py`、`frontend/src/director/*`、测试和三份主文档。
+- 兼容性：不改 ComfyUI 节点、端口或任务接口；默认时长仍为 5 秒。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-26 导演台生成状态左右对齐
+
+- 原因：镜头列表按任务 `queued` 显示「排队中」，中央预览却把排队中的镜头一律写成「生成中」；创建任务接口返回入队时的旧快照，导演台又只靠任务列表轮询，ComfyUI 已经开始跑时左侧仍停在排队。
+- 用户可见行为：左侧镜头、中央预览百分比条和时间轴使用同一套文案。worker 已领取或 ComfyUI 已在生成时，两侧都显示「生成中」；真正还在工作台队列里才显示「排队中」。
+- 受影响文件：`backend/app/main.py`、`backend/tests/test_director.py`、`frontend/src/director/DirectorStudioModule.tsx`、`frontend/src/director/director-submit.ts`、`frontend/src/director/components/TimelineTrackMain.tsx`、`frontend/src/director/prompt-compiler.contract.ts` 和三份主文档。
+- 兼容性：不改 ComfyUI 节点、端口、SQLite 或 `POST /api/jobs` 字段；创建任务仍返回 `202`，响应体改为入队后的当前快照。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-26 视频生成速度预设与自定义步数
+
+- 原因：日常视频固定 20 步太慢；需要在创建页选择 4 步 / 8 步 / 20 步，并允许自定义步数。
+- 用户可见行为：文生、首尾帧、多参考、全能参考、双时钟均可选「生成速度」：快速（4 步）、均衡（8 步，默认）、高质量（20 步）、自定义。选自定义后出现步数输入（1–40）。4–8 步启用加速 LoRA；超过 8 步关闭加速。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_workflow.py`、`backend/tests/test_core.py`、`frontend/src/App.tsx` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。新任务默认均衡 8 步。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-26 全能参考有图时切换 Ref2VA 权重
+
+- 原因：全能参考上传参考图后仍用 FL2VA 生成，画面几乎不跟参考图；源工作流里的 `@图片n` 还会被旧替换规则改坏。
+- 用户可见行为：全能参考 / 双时钟在有参考图时改走 Ref2VA 权重。提示词里的 `@图片n`、`@图n` 会转成 `<Picture n>`；只上传图、没写标签时，后端会自动补上引用。
+- 受影响文件：`backend/app/minimax_h3_t8_workflow.py`、`backend/app/comfy_service.py`、`backend/tests/test_core.py` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。无图任务仍走文生 FL2VA。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-26 双时钟单图改为 I2VA 首帧
+
+- 原因：双时钟加速上传 1 张图后按 Ref2VA autogrow 提交，T8 条件节点报 `name 'task_type' is not defined`；该路径也不能把 Turbo LoRA 用在 pruned Ref2VA 上。
+- 用户可见行为：双时钟无图仍为文生；单图按首帧 I2VA 生成，继续使用 FL2VA 与加速 LoRA。全能参考有图仍走 Ref2VA。
+- 受影响文件：`backend/app/minimax_h3_t8_workflow.py`、`backend/tests/test_core.py` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。显式指定 `task_type=Ref2VA` 时仍按参考图连接。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_core.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-26 pruned Ref2VA 不再加载加速 LoRA
+
+- 原因：全能参考上传参考图后走 pruned Ref2VA，仍加载 Turbo LoRA，ComfyUI 初始化时报 AdaLN 维度不匹配。
+- 用户可见行为：全能参考有参考图、以及标准多参考视频，不再挂加速 LoRA；快速 / 均衡仍按所选步数生成。无图全能参考、文生、首尾帧、双时钟继续使用加速 LoRA。若有图任务画面偏糊，可改选高质量（20 步）。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_t8_workflow.py`、`backend/app/minimax_h3_workflow.py`、`backend/tests/test_core.py` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-26 多参考加速改用全量 Ref2VA
+
+- 原因：全量 Ref2VA INT8 已就位；有图任务此前强制 pruned，加速 LoRA 无法加载。
+- 用户可见行为：多参考视频、全能参考有图、导演台绑角色参考时，快速/均衡会挂加速 LoRA。高质量仍用 pruned、20 步。不是 0.4 二采升 2.0。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_workflow.py`、`backend/app/minimax_h3_t8_workflow.py`、`backend/tests/test_core.py` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_core.py"`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-26 导演台预览/成片两档渲染
+
+- 原因：导演台需要先低成本打样再出成片，且旧 1K/2K/4K 没有提交真实 MP。
+- 用户可见行为：预览渲染默认 0.4 MP + 4 步 + 加速 LoRA。成片渲染默认 1.0 MP + 8 步 + LoRA。导演台设置条可分别改预览/成片的 MP（0.4 / 0.7 / 1.0 / 2.0）和步数（4 / 8 / 20）。批量接龙走成片。Take 会标记预览或成片。
+- 受影响文件：`frontend/src/director/*`、`frontend/src/index.css`、`backend/app/director_compiler.py`、`backend/tests/test_director.py` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-26 导演台预览/成片步数与 MP 可调
+
+- 原因：预览 4 步在标准 H3 上容易彩斑；成片步数此前不可改。
+- 用户可见行为：打开导演工程后，标题栏下方设置条可分别改预览渲染和成片渲染的 MP、步数。默认仍是预览 0.4 MP / 4 步、成片 1.0 MP / 8 步。
+- 受影响文件：`frontend/src/director/*`、`frontend/src/index.css`、`backend/app/director_compiler.py`、`backend/tests/test_director.py` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 未选自定义时不回显自定义步数
+
+- 原因：选「快速 / 均衡 / 高质量」后，任务详情仍显示默认「自定义步数 8」，容易和实际采样步数混淆。
+- 用户可见行为：只有生成速度为「自定义」时才显示自定义步数；已有任务刷新详情即可。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/main.py`、`backend/tests/test_core.py`、`frontend/src/App.tsx` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_core.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-27 本机 Windows 后端热更新与可关闭控制台
+
+- 原因：改 Python 后 uvicorn StatReload 把整个控制台一起关掉，服务挂掉且无法热更新；点 CMD 关闭时卡在应用关闭流程，窗口关不掉。
+- 用户可见行为：双击启动脚本后，保存 `backend/app` 会自动重启 FastAPI；服务异常退出也会自动拉起。关闭该 CMD 或 Ctrl+C 会立刻结束工作台。若旧进程占着 7865 但已无响应，再次启动会先清掉再拉起。前端仍由 Vite 热更新。
+- 受影响文件：`backend/dev_reloader.py`、`backend/app/worker.py`、`backend/tests/test_dev_reloader.py`、`backend/requirements.txt`、`启动本地视频工作台.bat` 和三份主文档。
+- 兼容性：不改节点、端口或数据库。Docker 仍直接运行 uvicorn。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_dev_reloader.py"`、`python -m unittest discover -s backend/tests -p "test*.py"`。
+- 回滚方式：恢复上述文件并改回 `uvicorn --reload`。
+
+## 2026-08-27 LightX2V 工作流接入与创作页分组
+
+- 原因：本机 LightX2V 加速 LoRA 需要独立工作流，工作流下拉需要按家族分组。
+- 用户可见行为：视频工作流下拉分为 LightX2V、官方 MiniMax H3、自定义。LightX2V 文生 / 首尾帧 / 多参考默认 1.0 MP、4 步 euler。官方三个 H3 与 T8 行为不变。改 `extra_model_paths.yaml` 后需重启 ComfyUI。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_lightx2v_workflow.py`、`backend/app/models.py`、`backend/app/comfy_service.py`、`frontend/src/App.tsx`、`frontend/src/index.css` 和三份主文档。
+- 兼容性：不改已有节点 ID、端口或数据库。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_core.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台与 ComfyUI。
+
+## 2026-08-27 LightX2V JSON 写入 ComfyUI 工作流库
+
+- 原因：ComfyUI 侧边栏「工作流」只列出 `user/default/workflows` 里的前端 JSON。
+- 用户可见行为：刷新后出现 LightX2V 分组，含「文生视频」「首尾帧视频」「多参考加速」。工作台下拉里的 LightX2V 仍然独立存在。
+- 兼容性：不改官方 MiniMax H3 JSON。LoRA 需重启 ComfyUI 后才能选到。
+- 回滚方式：删除 `Comfyui/user/default/workflows/LightX2V`。
+
+## 2026-08-27 LightX2V ComfyUI JSON 对齐本机模型名
+
+- 原因：ComfyUI 侧栏三份 LightX2V 工作流报模型找不到。
+- 用户可见行为：加载器改为本机已有的无前缀 INT8 UNET、nvfp4 CLIP、VAE 和 LightX2V LoRA；多参考改用 Ref2V LoRA。已打开的画布需重新从侧栏打开。
+- 兼容性：不改官方 MiniMax H3 JSON、工作台 API 或端口。
+- 回滚方式：从 `G:\ComfyUI-Models\lightx2v\工作流` 重新复制源 JSON。
+
+## 2026-08-27 LightX2V 去掉本机没有的 RAMCleanup
+
+- 原因：文生视频打开时报缺失节点包 `Comfyui-Memory_Cleanup`。
+- 用户可见行为：侧栏三份 LightX2V 不再依赖该包，也不再带未安装的 RTX 超分节点。从侧栏重新打开即可。
+- 兼容性：不改官方 MiniMax H3 JSON、工作台 API 或端口。
+- 回滚方式：从 `G:\ComfyUI-Models\lightx2v\工作流` 重新复制源 JSON。
+
+## 2026-08-27 安装缺失节点并恢复 LightX2V 原版 JSON
+
+- 原因：补齐文生视频报缺的 `Comfyui-Memory_Cleanup`，以及多参考图里的 RTX 超分节点。
+- 用户可见行为：侧栏三份 LightX2V 恢复源图结构（含内存清理与 RTX 超分节点）。模型控件使用本机无前缀 INT8 UNET、nvfp4 CLIP、VAE 和 LightX2V LoRA。重启 ComfyUI 后不再报缺失节点包。
+- 兼容性：不改官方 MiniMax H3 JSON、工作台 API 或端口。
+- 回滚方式：删除 `custom_nodes` 下这两个目录并卸载 `nvidia-vfx`。
+
+## 2026-08-27 LightX2V 模型路径改回本机无前缀文件
+
+- 原因：整份恢复源 JSON 后又出现 `MiniMax-H3\` 前缀等本机没有的模型名。
+- 用户可见行为：加载器改回本机文件；已打开的画布需从侧栏重新打开。
+- 兼容性：不改官方 MiniMax H3 JSON、工作台 API 或端口。
+- 回滚方式：仅模型控件可再拷源 JSON，但会重新找不到模型。
+
+## 2026-08-27 视频任务空闲后释放 ComfyUI 显存
+
+- 原因：工作台所有动态视频工作流结束后都不卸载模型，ComfyUI 会把权重留在显存和内存里。
+- 用户可见行为：没有排队或生成中的本地视频任务时，工作台会让固定 ComfyUI 卸载模型并清缓存（启动时若队列为空也会清一次）。连续排队的多条视频之间不卸载。下一次生成需要重新装模。
+- 受影响文件：`backend/app/comfy_service.py`、`backend/app/worker.py`、`backend/tests/test_core.py` 和三份主文档。
+- 兼容性：不改节点 ID、端口或数据库。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_core.py"`。
+- 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-27 八步双加速工作流分组
+
+- 原因：参考 ComfyUI 前端工作流「minimax_h3八部双加速」的加速链（8 步 FL2V Turbo LoRA + `PathchSageAttentionKJ` + H3 Mem Eff Sage）比官方 H3 和 LightX2V 的接法更完整，需要独立分组供创作页选用。
+- 用户可见行为：视频工作流下拉新增「八步双加速」分组，含文生 / 首尾帧 / 多参考。默认 0.4 MP、8 步、`res_multistep`。高质量为 20 步并关闭 LoRA。不改官方 H3、LightX2V、T8 与导演台。
+- 受影响文件：`backend/app/models.py`、`backend/app/workflow_registry.py`、`backend/app/minimax_h3_dual_accel_workflow.py`、`backend/app/comfy_service.py`、`backend/tests/test_core.py` 和三份主文档。
+- 兼容性：不改已有节点 ID、端口或数据库；新 mode 为增量 ID。LoRA 仍走既有 `extra_model_paths.yaml` 的 `loras: lightx2v`。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_core.py"`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重启工作台。

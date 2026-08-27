@@ -14,6 +14,10 @@ import requests
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 SUCCESS_STATUSES = {"success", "succeeded", "completed", "done"}
 FAILED_STATUSES = {"failed", "failure", "error", "violation", "cancelled", "canceled"}
+IMAGE_URL_KEYS = {
+    "url", "image", "image_url", "imageurl", "output", "result", "results",
+    "urls", "images", "file", "src", "href",
+}
 # GRS currently serves generated files through this CDN name, which resolves to
 # RFC 2544's benchmark range. Keep this exception narrowly scoped so result
 # URLs from other hosts cannot be used to reach non-public addresses.
@@ -47,17 +51,21 @@ class GrsClient:
     def _resolve_host(host: str) -> list[str]:
         return list({item[4][0] for item in socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)})
 
-    def _json(self, response: requests.Response, action: str) -> dict[str, Any]:
+    def _json(
+        self, response: requests.Response, action: str, *, allow_client_error: bool = False,
+    ) -> dict[str, Any]:
         if response.status_code >= 500 or response.status_code in {408, 425, 429}:
             raise GrsTemporaryError(f"GRS {action} 暂时不可用（HTTP {response.status_code}）")
-        if response.status_code >= 400:
-            raise GrsError(f"GRS {action} 失败（HTTP {response.status_code}）")
         try:
             payload = response.json()
         except ValueError as error:
+            if response.status_code >= 400:
+                raise GrsError(f"GRS {action} 失败（HTTP {response.status_code}）") from error
             raise GrsError(f"GRS {action} 返回了无效 JSON") from error
         if not isinstance(payload, dict):
             raise GrsError(f"GRS {action} 返回格式无效")
+        if response.status_code >= 400 and not allow_client_error:
+            raise GrsError(f"GRS {action} 失败（HTTP {response.status_code}）")
         return payload
 
     def submit(
@@ -87,14 +95,23 @@ class GrsClient:
             f"{self.base_url}/v1/api/result", headers=self.headers,
             params={"id": remote_task_id}, timeout=60,
         )
-        payload = self._json(response, "查询")
+        payload = self._json(response, "查询", allow_client_error=True)
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-        status = str(self._first(data, "status", "state") or self._first(payload, "status", "state") or "processing").lower()
-        urls = self._image_urls(data)
+        default_status = "failed" if response.status_code >= 400 else "processing"
+        status = str(
+            self._first(data, "status", "state") or self._first(payload, "status", "state") or default_status
+        ).lower()
+        urls = self._image_urls(data) or self._image_urls(payload)
         message = self._first(data, "error", "message", "msg") or self._first(payload, "error", "message", "msg")
-        if status in SUCCESS_STATUSES and not urls:
-            raise GrsError("GRS 报告成功但未返回图片 URL")
         return status, urls, str(message) if message else None
+
+    @staticmethod
+    def format_failure(status: str, message: str | None = None) -> str:
+        detail = (message or "").strip()
+        if status == "violation":
+            base = "内容未通过审核（可能含真人等受限内容）"
+            return f"{base}：{detail}" if detail else base
+        return detail or f"GRS 任务失败：{status}"
 
     def balance(self) -> float:
         response = self.session.post(
@@ -121,7 +138,7 @@ class GrsClient:
 
         def visit(value: Any, key: str = "") -> None:
             if isinstance(value, str) and value.startswith(("https://", "http://")):
-                if key.lower() in {"url", "image", "image_url", "imageurl", "output", "result"} or not key:
+                if key.lower() in IMAGE_URL_KEYS or not key:
                     found.append(value)
             elif isinstance(value, list):
                 for item in value:

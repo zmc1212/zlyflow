@@ -16,10 +16,17 @@ if Path("/app/backend").exists() and "/app" not in sys.path:
     sys.path.insert(0, "/app")
 
 from backend.app.config import settings
+from backend.app.storage import JobStore
 
 def main():
     db_path = settings.database_path
     comfy_url = settings.comfy_url
+    try:
+        stored = JobStore(db_path).get_comfy_settings().get("base_url")
+        if stored:
+            comfy_url = str(stored).rstrip("/")
+    except Exception:
+        pass
 
     print(f"[*] 数据库路径: {db_path}")
     print(f"[*] ComfyUI 地址: {comfy_url}")

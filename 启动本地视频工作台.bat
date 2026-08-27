@@ -9,11 +9,19 @@ for /d %%D in ("%ROOT%\*") do (
 )
 if not defined PYTHON_EXE goto :python_not_found
 
+"%PYTHON_EXE%" -c "import ctypes; k=ctypes.windll.kernel32; h=k.GetStdHandle(-10); m=ctypes.c_uint(); k.GetConsoleMode(h, ctypes.byref(m)); k.SetConsoleMode(h, (m.value|0x80)&~0x40)"
+
 "%PYTHON_EXE%" -c "import qiniu" >nul 2>nul
 if errorlevel 1 (
     echo Installing the Qiniu SDK required for cloud media storage...
     "%PYTHON_EXE%" -m pip install qiniu==7.16.0
     if errorlevel 1 goto :qiniu_install_error
+)
+
+"%PYTHON_EXE%" -c "import watchfiles" >nul 2>nul
+if errorlevel 1 (
+    echo Installing watchfiles for local backend reload...
+    "%PYTHON_EXE%" -m pip install "watchfiles>=0.21,<2"
 )
 
 if not defined ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY (
@@ -37,11 +45,19 @@ where pnpm >nul 2>nul || goto :pnpm_not_found
 set "WEBUI_PID="
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":7865 .*LISTENING"') do set "WEBUI_PID=%%P"
 if defined WEBUI_PID (
-    powershell -NoProfile -Command "$process = Get-CimInstance Win32_Process -Filter 'ProcessId=%WEBUI_PID%'; if ($process.CommandLine -match '(?i)backend\.app\.main:app') { exit 0 }; exit 1"
+    powershell -NoProfile -Command "$process = Get-CimInstance Win32_Process -Filter 'ProcessId=%WEBUI_PID%'; if ($process.CommandLine -match '(?i)(backend\.app\.main:app|backend\.dev_reloader)') { exit 0 }; exit 1"
     if not errorlevel 1 (
-        start "" "%WEBUI_SCHEME%://127.0.0.1:7865/"
-        echo ZLY AI Video Studio is already running on port 7865.
-        exit /b 0
+        powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 '%WEBUI_SCHEME%://127.0.0.1:7865/api/health'; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1"
+        if not errorlevel 1 (
+            start "" "%WEBUI_SCHEME%://127.0.0.1:7865/"
+            echo ZLY AI Video Studio is already running on port 7865.
+            exit /b 0
+        )
+        echo Existing workbench on port 7865 is not responding. Restarting it.
+        taskkill /F /T /PID %WEBUI_PID% >nul 2>nul
+        timeout /t 1 /nobreak >nul
+        set "WEBUI_PID="
+        goto :port_cleared
     )
     powershell -NoProfile -Command "$process = Get-CimInstance Win32_Process -Filter 'ProcessId=%WEBUI_PID%'; if ($process.CommandLine -match '(?i)local_video_studio\.py') { Stop-Process -Id %WEBUI_PID% -Force; exit 0 }; exit 1"
     if not errorlevel 1 (
@@ -54,6 +70,7 @@ if defined WEBUI_PID (
         exit /b 1
     )
 )
+:port_cleared
 
 powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1) { exit 1 }; exit 0"
 if errorlevel 1 goto :vite_port_in_use
@@ -65,8 +82,10 @@ if errorlevel 1 goto :vite_start_failed
 for /f %%P in ('powershell -NoProfile -Command "(Get-NetTCPConnection -LocalPort 5173 -State Listen | Select-Object -First 1 -ExpandProperty OwningProcess)"') do set "VITE_LISTENING_PID=%%P"
 
 :vite_ready
+title ZLY AI Video Studio
 start "" "%WEBUI_SCHEME%://127.0.0.1:5173/"
-"%PYTHON_EXE%" -m uvicorn backend.app.main:app --host 0.0.0.0 --port 7865 --reload --reload-dir "%CD%\backend" %SSL_ARGS%
+set "PYTHONUNBUFFERED=1"
+"%PYTHON_EXE%" "%CD%\backend\dev_reloader.py" --host 0.0.0.0 --port 7865 %SSL_ARGS%
 set "WEBUI_EXIT_CODE=%errorlevel%"
 if defined VITE_LISTENING_PID taskkill /pid %VITE_LISTENING_PID% /t /f >nul 2>nul
 

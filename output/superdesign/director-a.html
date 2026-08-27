@@ -1,0 +1,254 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+  <meta charset="UTF-8">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+    body {
+      font-family: 'Inter', 'Noto Sans SC', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      margin: 0;
+      padding: 0;
+    }
+    .border-subtle { border-color: rgba(15, 23, 42, 0.08); }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .light-table-grid { background: #f8f9fa; }
+  </style>
+</head>
+<body>
+  <div class="w-[1440px] h-[900px] overflow-hidden relative bg-[#f8f9fa] flex" data-sd-id="1">
+    
+    <!-- 76px Global Rail -->
+    <nav class="w-[76px] h-full bg-white border-r border-subtle flex flex-col items-center py-6 gap-8 z-40" data-sd-id="2">
+      <div class="w-10 h-10 bg-[#4d6bfe] rounded flex items-center justify-center text-white font-bold text-xl" data-sd-id="3">Z</div>
+      <div class="flex flex-col gap-6">
+        <a id="nav-generate" href="#" class="flex flex-col items-center gap-1 text-[#65707c] hover:text-[#4d6bfe]">
+          <iconify-icon icon="lucide:wand-2" class="text-2xl"></iconify-icon>
+          <span class="text-[10px] font-medium">生成</span>
+        </a>
+        <a id="nav-director" href="#" class="flex flex-col items-center gap-1 text-[#4d6bfe]">
+          <iconify-icon icon="lucide:monitor-play" class="text-2xl"></iconify-icon>
+          <span class="text-[10px] font-bold">导演台</span>
+        </a>
+        <a id="nav-assets" href="#" class="flex flex-col items-center gap-1 text-[#65707c] hover:text-[#4d6bfe]">
+          <iconify-icon icon="lucide:folder-kanban" class="text-2xl"></iconify-icon>
+          <span class="text-[10px] font-medium">资产</span>
+        </a>
+      </div>
+    </nav>
+
+    <!-- 216px Project and Shot Navigator -->
+    <aside class="w-[216px] h-full bg-white border-r border-subtle flex flex-col z-30" data-sd-id="4">
+      <div class="p-4 flex flex-col gap-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-[#171a1f]">雾港追踪</h2>
+          <button class="text-[#65707c] hover:text-[#171a1f]"><iconify-icon icon="lucide:more-horizontal"></iconify-icon></button>
+        </div>
+        <button id="btn-new-project" class="w-full h-9 border border-dashed border-slate-300 rounded text-xs text-[#65707c] font-medium hover:bg-slate-50">新建工程</button>
+      </div>
+      <div class="flex-1 overflow-y-auto px-2 space-y-1 scrollbar-hide">
+        <div class="p-3 rounded-lg bg-slate-50 border border-subtle group">
+          <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-bold text-[#171a1f]">01 雨夜入场</span>
+            <span class="text-[10px] text-emerald-600 font-bold">已完成</span>
+          </div>
+          <div class="text-[10px] text-[#65707c]">5秒</div>
+        </div>
+        <div class="p-3 rounded-lg bg-blue-50 border border-[#4d6bfe] group">
+          <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-bold text-[#4d6bfe]">02 巷道追踪</span>
+            <span class="text-[10px] text-[#4d6bfe] font-bold">68%</span>
+          </div>
+          <div class="text-[10px] text-[#4d6bfe]">5秒 生成中</div>
+        </div>
+        <div class="p-3 rounded-lg hover:bg-slate-50 transition-colors group">
+          <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-bold text-[#65707c]">03 天台对峙</span>
+            <span class="text-[10px] text-[#65707c] font-medium">待生成</span>
+          </div>
+          <div class="text-[10px] text-[#65707c]">5秒</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workbench Area -->
+    <div class="flex-1 grid grid-cols-[minmax(0,1fr)_340px] grid-rows-[56px_minmax(0,1fr)] overflow-hidden" data-sd-id="5">
+      
+      <!-- 56px Workbench Toolbar -->
+      <header class="col-span-2 h-14 bg-white border-b border-subtle flex items-center justify-between px-6 z-20" data-sd-id="6">
+        <div class="flex items-center gap-4">
+          <h1 class="text-sm font-bold text-[#171a1f]">导演台</h1>
+          <div class="h-4 w-px bg-slate-200"></div>
+          <span class="text-xs text-[#65707c] font-medium">16:9 · 24fps · 15秒</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btn-ai-split" class="h-9 px-3 text-xs font-medium text-[#171a1f] hover:bg-slate-50 rounded-md">AI 拆分剧本</button>
+          <button id="btn-preview" class="h-9 px-3 text-xs font-medium text-[#171a1f] hover:bg-slate-50 rounded-md">成片预览</button>
+          <button id="btn-export" class="h-9 px-3 text-xs font-medium text-[#171a1f] hover:bg-slate-50 rounded-md">导出剪映</button>
+          <button id="btn-batch-gen" class="h-9 px-4 bg-[#4d6bfe] text-xs font-bold text-white rounded-md shadow-sm">批量接龙生成</button>
+        </div>
+      </header>
+
+      <!-- Central Reviewer Light Table -->
+      <main class="min-w-0 relative overflow-hidden flex flex-col bg-[#f8f9fa] light-table-grid" data-sd-id="7">
+        <div class="flex-1 overflow-y-auto p-8 grid grid-cols-2 gap-4 content-start scrollbar-hide">
+          <!-- Shot 01 (Previous) -->
+          <div class="w-full opacity-55 order-2">
+             <div class="aspect-video bg-slate-200 rounded-lg overflow-hidden border border-subtle">
+                <img src="https://images.unsplash.com/photo-1545156521-77bd85671d30?q=80&w=800&auto=format&fit=crop" class="w-full h-full object-cover grayscale">
+             </div>
+             <div class="mt-3 flex justify-between items-center px-1">
+               <span class="text-[10px] font-bold text-[#65707c]">镜头 01</span>
+             </div>
+          </div>
+
+          <!-- Shot 02 (Selected) -->
+          <div class="w-full col-span-2 order-first flex flex-col gap-4">
+             <div class="relative aspect-video bg-white rounded-xl shadow-lg ring-2 ring-[#4d6bfe] overflow-hidden">
+                <img src="https://images.unsplash.com/photo-1514565131-fce0801e5785?q=80&w=1200&auto=format&fit=crop" class="w-full h-full object-cover">
+                <!-- Annotations Overlay -->
+                <div class="absolute inset-0 p-6 pointer-events-none">
+                  <div class="flex flex-wrap gap-2">
+                    <div class="px-2 py-1 bg-white/95 rounded shadow-sm text-[10px] font-bold text-[#4d6bfe] flex items-center gap-1 border border-[#4d6bfe]/20">
+                      <iconify-icon icon="lucide:image"></iconify-icon>首帧
+                    </div>
+                    <div class="px-2 py-1 bg-white/95 rounded shadow-sm text-[10px] font-bold text-[#4d6bfe] flex items-center gap-1 border border-[#4d6bfe]/20">
+                      <iconify-icon icon="lucide:user"></iconify-icon>主体引用
+                    </div>
+                    <div class="px-2 py-1 bg-white/95 rounded shadow-sm text-[10px] font-bold text-[#4d6bfe] flex items-center gap-1 border border-[#4d6bfe]/20">
+                      <iconify-icon icon="lucide:edit-3"></iconify-icon>提示词已编辑
+                    </div>
+                  </div>
+                </div>
+                <!-- Progress Bar Overlay -->
+                <div class="absolute bottom-0 left-0 w-full h-1 bg-slate-200">
+                  <div class="h-full bg-[#4d6bfe]" style="width: 68%"></div>
+                </div>
+             </div>
+             <div class="flex justify-between items-center px-2">
+               <div class="flex items-center gap-3">
+                 <span class="text-xs font-bold text-[#171a1f]">镜头 02 / 巷道追踪</span>
+                 <span class="px-2 py-0.5 bg-blue-50 text-[#4d6bfe] text-[10px] font-bold rounded">生成中 68%</span>
+               </div>
+               <div class="flex items-center gap-4">
+                 <button class="text-[#65707c] hover:text-[#171a1f]"><iconify-icon icon="lucide:message-square" class="text-lg"></iconify-icon></button>
+                 <button class="text-[#65707c] hover:text-[#171a1f]"><iconify-icon icon="lucide:maximize-2" class="text-lg"></iconify-icon></button>
+               </div>
+             </div>
+          </div>
+
+          <!-- Shot 03 (Next) -->
+          <div class="w-full opacity-45 order-3">
+             <div class="aspect-video bg-slate-100 rounded-lg overflow-hidden border border-dashed border-slate-300 flex items-center justify-center">
+                <iconify-icon icon="lucide:clapperboard" class="text-4xl text-slate-300"></iconify-icon>
+             </div>
+             <div class="mt-3 px-1 text-[10px] font-bold text-[#65707c]">镜头 03</div>
+          </div>
+        </div>
+
+        <!-- Draggable Sequence Strip -->
+        <div class="h-[72px] bg-white border-t border-subtle flex items-center px-6 gap-2 shrink-0 z-20" data-sd-id="8">
+          <div class="w-24 h-12 bg-slate-100 rounded border border-subtle opacity-50 shrink-0"></div>
+          <div class="w-32 h-12 bg-white rounded border-2 border-[#4d6bfe] shrink-0 flex items-center justify-center">
+            <div class="w-full h-1 bg-blue-100 rounded-full mx-2 overflow-hidden">
+              <div class="w-2/3 h-full bg-[#4d6bfe]"></div>
+            </div>
+          </div>
+          <div class="w-24 h-12 bg-slate-50 rounded border border-dashed border-slate-300 shrink-0"></div>
+          <div class="w-24 h-12 bg-slate-50 rounded border border-dashed border-slate-300 shrink-0"></div>
+          <div class="w-24 h-12 bg-slate-50 rounded border border-dashed border-slate-300 shrink-0"></div>
+          <div class="flex-1"></div>
+          <iconify-icon icon="lucide:grip-vertical" class="text-slate-300 cursor-grab"></iconify-icon>
+        </div>
+      </main>
+
+      <!-- 340px Right Inspector -->
+      <aside class="w-[340px] h-full bg-white border-l border-subtle flex flex-col z-30" data-sd-id="9">
+        <div class="p-4 border-b border-subtle">
+          <h2 class="text-sm font-bold text-[#171a1f]">镜头 02 · 巷道追踪</h2>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
+          <!-- Anchor Frames -->
+          <section>
+            <label class="text-[11px] font-bold text-[#65707c] uppercase mb-3 block">画面锚点</label>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="aspect-video bg-slate-50 rounded border border-subtle flex flex-col items-center justify-center relative">
+                <img src="https://images.unsplash.com/photo-1514565131-fce0801e5785?q=80&w=200&auto=format&fit=crop" class="absolute inset-0 w-full h-full object-cover rounded opacity-40">
+                <iconify-icon icon="lucide:image" class="text-lg text-slate-400 z-10"></iconify-icon>
+                <span class="text-[9px] text-slate-500 mt-1 z-10">首帧</span>
+              </div>
+              <div class="aspect-video bg-slate-50 rounded border border-dashed border-slate-300 flex flex-col items-center justify-center group hover:bg-slate-100 cursor-pointer">
+                <iconify-icon icon="lucide:plus" class="text-lg text-slate-400"></iconify-icon>
+                <span class="text-[9px] text-slate-500 mt-1">尾帧</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Subject Reference -->
+          <section>
+            <label class="text-[11px] font-bold text-[#65707c] uppercase mb-2 block">主体引用</label>
+            <div class="flex flex-wrap gap-2">
+              <div class="pl-1 pr-2 py-1 bg-slate-100 rounded-full flex items-center gap-1.5 text-[11px] font-medium text-[#171a1f]">
+                <div class="w-5 h-5 rounded-full bg-slate-300"></div>
+                @ref1 林默
+                <iconify-icon icon="lucide:x" class="text-[10px] text-slate-400"></iconify-icon>
+              </div>
+              <div class="pl-1 pr-2 py-1 bg-slate-100 rounded-full flex items-center gap-1.5 text-[11px] font-medium text-[#171a1f]">
+                <div class="w-5 h-5 rounded-full bg-slate-300"></div>
+                @ref2 黑色轿车
+                <iconify-icon icon="lucide:x" class="text-[10px] text-slate-400"></iconify-icon>
+              </div>
+              <button class="w-7 h-7 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-slate-400 hover:text-[#4d6bfe]">
+                <iconify-icon icon="lucide:plus" class="text-sm"></iconify-icon>
+              </button>
+            </div>
+          </section>
+
+          <!-- Prompt Textarea -->
+          <section>
+            <label class="text-[11px] font-bold text-[#65707c] uppercase mb-2 block">镜头提示词</label>
+            <textarea id="shot-prompt" class="w-full h-24 p-3 bg-slate-50 border border-subtle rounded-lg text-xs leading-relaxed text-[#171a1f] focus:outline-none focus:ring-1 focus:ring-[#4d6bfe] resize-none">林默冲出雨幕，黑色轿车从巷口急转，镜头低机位跟拍并缓慢前推。</textarea>
+          </section>
+
+          <!-- Camera Control -->
+          <section>
+            <label class="text-[11px] font-bold text-[#65707c] uppercase mb-2 block">机位与运镜</label>
+            <div class="flex flex-wrap gap-2">
+              <button class="px-2 py-1 bg-slate-50 border border-subtle rounded text-[10px] font-medium text-[#171a1f] hover:border-[#4d6bfe]">中景</button>
+              <button class="px-2 py-1 bg-[#4d6bfe] text-white rounded text-[10px] font-bold">跟拍</button>
+              <button class="px-2 py-1 bg-slate-50 border border-subtle rounded text-[10px] font-medium text-[#171a1f]">低机位</button>
+              <button class="px-2 py-1 bg-slate-50 border border-subtle rounded text-[10px] font-medium text-[#171a1f]">电影柔光</button>
+              <button class="px-2 py-1 border border-dashed border-slate-300 rounded text-[10px] text-slate-400"><iconify-icon icon="lucide:plus"></iconify-icon></button>
+            </div>
+          </section>
+
+          <!-- Compilation Preview (Collapsed style) -->
+          <section>
+            <div class="flex justify-between items-center mb-2">
+               <label class="text-[11px] font-bold text-[#65707c] uppercase">编译预览 · R2V</label>
+               <iconify-icon icon="lucide:chevron-down" class="text-slate-400"></iconify-icon>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div class="aspect-video bg-slate-100 rounded border border-subtle opacity-60"></div>
+              <div class="aspect-video bg-slate-100 rounded border border-subtle opacity-60"></div>
+              <div class="aspect-video bg-slate-100 rounded border border-subtle opacity-60"></div>
+            </div>
+          </section>
+
+          <div class="flex items-center justify-between text-[11px] font-bold">
+             <span class="text-[#65707c]">生成状态</span>
+             <span class="text-[#4d6bfe]">生成中 68%</span>
+          </div>
+        </div>
+
+        <!-- Inspector Footer -->
+        <div class="p-4 bg-white border-t border-subtle flex gap-3">
+          <button id="btn-save" class="flex-1 h-10 border border-subtle text-xs font-bold text-[#171a1f] rounded-md hover:bg-slate-50 transition-colors">保存修改</button>
+          <button id="btn-generate-shot" class="flex-1 h-10 bg-[#4d6bfe] text-xs font-bold text-white rounded-md shadow-sm">生成本镜</button>
+        </div>
+      </aside>
+    </div>
+
+  </div>
+</body>
+</html>

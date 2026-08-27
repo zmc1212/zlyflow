@@ -16,36 +16,43 @@ from urllib.parse import urlencode
 
 import requests
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, Security, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from fastapi.security import APIKeyCookie
 from fastapi.openapi.utils import get_openapi
 
 from .api_documentation import enrich_openapi_documentation
 from .auth import AuthStore, SESSION_HOURS, csrf_token
+from .comfy_provider import ComfyProviderError, ComfyProviderService
 from .comfy_service import ComfyService
 from .config import settings
 from .grs_provider import GrsProviderService
 from .llm_client import LlmError, LlmTemporaryError
 from .llm_provider import LlmProviderService
 from .models import (
-    AuthStatusResponse, BrowserDirectOutputResponse, ChangePasswordRequest, CreateUserRequest, HealthResponse, JobMode, JobResponse,
-    DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
+    AuthStatusResponse, BrowserDirectOutputResponse, ChangePasswordRequest, ComfyProviderResponse,
+    ComfyProviderTestRequest, ComfyProviderUpdateRequest, CreateUserRequest, HealthResponse, JobResponse,
+    DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsImageModelCreateRequest,
+    GrsImageModelsResponse, GrsImageModelsUpdateRequest, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
     LibraryItemResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest, SetupAdminRequest, JobStatus,
     QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateUserRequest, UserResponse, UserRole,
     JobMetadataUpdateRequest,
-    LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmStatusResponse,
-    PromptOptimizeRequest, PromptOptimizeResponse, SkillsListResponse,
+    LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
+    PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse,
+    ScriptSplitRequest, ScriptSplitResponse,
+    DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
+    DirectorProjectResponse, DirectorProjectMigrateRequest, DirectorProjectMigrateResponse,
 )
 
 from .qiniu_provider import QiniuProviderService
 
 from .resource_storage import create_resource_storage
-from .storage import JobStore
+from .storage import FINISHED_STATUSES, JobStore, elapsed_ms_between
 from .worker import JobWorker
 from .workflow_registry import (
-    H3_WORKFLOWS, IMAGE_WORKFLOWS, WORKFLOWS, WORKFLOW_BY_ID, normalize_options, quality_for_megapixels,
-    validate_option_relationships, validate_references, workflow_for,
+    WORKFLOWS, is_h3_workflow, is_image_workflow, normalize_options, option_visible,
+    quality_for_megapixels, set_catalog_lookup, validate_option_relationships, validate_references,
+    workflow_for,
 )
 
 
@@ -144,27 +151,59 @@ def streamed_output_response(output: dict) -> StreamingResponse:
     return StreamingResponse(stream_chunks(), media_type=media_type, headers=headers)
 
 
-def output_response(output: dict) -> Response:
+def streamed_remote_output_response(remote_url: str, request: Request | None = None) -> StreamingResponse:
+    """Proxy object-storage bytes so download clients receive HTTP 200, not a 307 they may not follow."""
+    upstream_headers = {}
+    if request is not None and (range_header := request.headers.get("range")):
+        upstream_headers["Range"] = range_header
+    try:
+        upstream = requests.get(
+            remote_url, stream=True, timeout=(10, 600), headers=upstream_headers, allow_redirects=True,
+        )
+    except requests.RequestException as error:
+        raise HTTPException(status_code=502, detail=f"云端媒体暂时不可读取: {error}") from error
+    if upstream.status_code >= 400:
+        status = upstream.status_code
+        upstream.close()
+        raise HTTPException(status_code=502, detail=f"云端媒体读取失败（HTTP {status}）")
+
+    headers = {
+        name: value
+        for name in ("Content-Length", "Content-Disposition", "Content-Range", "Accept-Ranges")
+        if (value := upstream.headers.get(name)) is not None
+    }
+
+    def stream_chunks():
+        try:
+            yield from upstream.iter_content(chunk_size=1024 * 1024)
+        finally:
+            upstream.close()
+
+    media_type = upstream.headers.get("Content-Type", "application/octet-stream")
+    return StreamingResponse(
+        stream_chunks(), status_code=upstream.status_code, media_type=media_type, headers=headers,
+    )
+
+
+def output_response(output: dict, request: Request | None = None) -> Response:
     path = stored_output_path(output)
     if path is not None:
         return FileResponse(path)
     remote_url = app.state.resource_storage.download_url(output["path"])
     if remote_url:
-        return RedirectResponse(remote_url, status_code=307)
+        return streamed_remote_output_response(remote_url, request)
     if app.state.worker.comfy.can_stream_output(output.get("_comfy_source")):
         return streamed_output_response(output)
     raise HTTPException(status_code=410, detail="资源暂存已过期")
 
 
 def public_output_download_url(output: dict, fallback_url: str) -> str:
-    """Prefer a short-lived object-storage URL when the active provider has one."""
-    if output.get("delivery_status") != "cloud":
-        return fallback_url
-    storage = getattr(app.state, "resource_storage", None)
-    if storage is not None:
-        remote_url = storage.download_url(output["path"])
-        if remote_url:
-            return remote_url
+    """Keep a stable same-origin download path in job JSON.
+
+    Presigned object-storage URLs change on every poll and break frontend structural
+    sharing, which makes videos flicker. The download route streams the signed object
+    so clients that do not follow HTTP 307 still receive the file bytes.
+    """
     return fallback_url
 
 
@@ -174,6 +213,10 @@ def output_available(output: dict) -> bool:
         or app.state.worker.comfy.can_stream_output(output.get("_comfy_source"))
         or app.state.resource_storage.download_url(output["path"]) is not None
     )
+
+
+def output_exposes_download(output: dict) -> bool:
+    return output.get("delivery_status", "pending") not in {"local", "expired"}
 
 
 def browser_direct_view_url(source_info: dict) -> str:
@@ -296,6 +339,27 @@ def job_or_404(store: JobStore, job_id: str, user: dict, *, include_references: 
     return job
 
 
+def director_project_or_404(store: JobStore, project_id: str, user: dict) -> dict:
+    try:
+        project = store.get_director_project(project_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="工程不存在") from error
+    if project.get("owner_user_id") != user["id"] and user["role"] not in {
+        UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value,
+    }:
+        raise HTTPException(status_code=404, detail="工程不存在")
+    return project
+
+
+def public_director_project(record: dict, *, include_document: bool = True) -> dict:
+    data = dict(record)
+    data.pop("owner_user_id", None)
+    if not include_document:
+        data.pop("payload", None)
+        data.pop("source_script", None)
+    return data
+
+
 def generation_item_or_404(store: JobStore, job_id: str, generation_item_id: str, user: dict) -> tuple[dict, dict]:
     job = job_or_404(store, job_id, user)
     item = next((
@@ -307,11 +371,26 @@ def generation_item_or_404(store: JobStore, job_id: str, generation_item_id: str
     return job, item
 
 
+def attach_elapsed(record: dict) -> dict:
+    finished_at = record.get("finished_at")
+    if not finished_at and record.get("status") in FINISHED_STATUSES:
+        finished_at = record.get("updated_at")
+    record["finished_at"] = finished_at or None
+    record["elapsed_ms"] = elapsed_ms_between(record.get("created_at"), record.get("finished_at"))
+    raw_exec = record.get("execution_elapsed_ms")
+    try:
+        record["execution_elapsed_ms"] = int(raw_exec) if raw_exec is not None and raw_exec != "" else None
+    except (TypeError, ValueError):
+        record["execution_elapsed_ms"] = None
+    return record
+
+
 def public_job(job: dict) -> dict:
     data = dict(job)
     data["request_parameters"] = request_parameters(job)
     data.pop("submitted_options", None)
     data.pop("options_submitted", None)
+    attach_elapsed(data)
     data["references"] = [
         {"index": index, "url": public_api_path(f"jobs/{job['id']}/references/{index}")}
         for index in range(1, int(job.get("reference_count", 0)) + 1)
@@ -320,7 +399,7 @@ def public_job(job: dict) -> dict:
     for output_index, raw_output in enumerate(job.get("outputs", [])):
         output = dict(raw_output)
         output.pop("_comfy_source", None)
-        if job.get("status") in {"succeeded", "partial"} and output.get("delivery_status", "pending") != "local":
+        if output_exposes_download(output):
             output["download_url"] = public_output_download_url(
                 output, public_api_path(f"jobs/{job['id']}/outputs/{output_index}/download"),
             )
@@ -343,14 +422,16 @@ def public_job(job: dict) -> dict:
         public_items: list[dict] = []
         for item in round_data.get("generation_items", []):
             public_item = dict(item)
+            attach_elapsed(public_item)
             public_item.pop("comfy_prompt_id", None)
             public_item.pop("comfy_client_id", None)
             public_item.pop("comfy_phase", None)
+            public_item.pop("cancel_requested", None)
             public_outputs: list[dict] = []
             for output_index, raw_output in enumerate(item.get("outputs", [])):
                 output = dict(raw_output)
                 output.pop("_comfy_source", None)
-                if item.get("status") == "succeeded" and output.get("delivery_status", "pending") != "local":
+                if output_exposes_download(output):
                     output["download_url"] = public_output_download_url(
                         output,
                         public_api_path(f"jobs/{job['id']}/generations/{item['id']}/outputs/{output_index}/download"),
@@ -361,6 +442,7 @@ def public_job(job: dict) -> dict:
             public_item["outputs"] = public_outputs
             public_items.append(public_item)
         public_round["generation_items"] = public_items
+        attach_elapsed(public_round)
         public_rounds.append(public_round)
     data["rounds"] = public_rounds
     data.pop("owner_user_id", None)
@@ -368,8 +450,10 @@ def public_job(job: dict) -> dict:
 
 
 def request_parameters(job: dict) -> list[dict]:
-    definition = WORKFLOW_BY_ID.get(JobMode(job["mode"]))
-    if definition is None:
+    try:
+        definition = workflow_for(job["mode"])
+    except KeyError:
+        definition = None
         parameters = [
             {"name": "mode", "label": "工作流", "value": job["mode"], "visibility": "internal"},
             {"name": "prompt", "label": "创作提示词", "value": job["prompt"], "visibility": "primary"},
@@ -395,10 +479,13 @@ def request_parameters(job: dict) -> list[dict]:
 
     option_schema = definitions.get("options", {}).get("schema", {})
     option_definitions = option_schema.get("properties", {})
+    options = job.get("options") or {}
     for name in option_definitions:
-        value = job.get("options", {}).get(name)
+        if not option_visible(option_definitions[name], options):
+            continue
+        value = options.get(name)
         if name == "quality" and value is None:
-            value = quality_for_megapixels(option_schema, job.get("options", {}).get("megapixels"))
+            value = quality_for_megapixels(option_schema, options.get("megapixels"))
         if value is not None:
             parameter = {
                 "name": f"options.{name}",
@@ -439,18 +526,23 @@ async def lifespan(app: FastAPI):
     qiniu_provider = QiniuProviderService(store, settings.credential_key)
     resource_storage = qiniu_provider.enabled_storage() or create_resource_storage(settings.resource_provider, settings.staging_dir)
     grs_provider = GrsProviderService(store, settings.credential_key)
+    set_catalog_lookup(store.get_grs_image_model)
     llm_provider = LlmProviderService(store, settings.credential_key)
-    worker = JobWorker(store, ComfyService(settings, resource_storage), grs_provider, resource_storage)
+    comfy_provider = ComfyProviderService(store, settings.comfy_url)
+    comfy = ComfyService(settings, resource_storage, url_resolver=comfy_provider.current_url)
+    worker = JobWorker(store, comfy, grs_provider, resource_storage)
     app.state.auth_store = auth_store
     app.state.store = store
     app.state.resource_storage = resource_storage
     app.state.grs_provider = grs_provider
     app.state.qiniu_provider = qiniu_provider
     app.state.llm_provider = llm_provider
+    app.state.comfy_provider = comfy_provider
     app.state.worker = worker
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
     await worker.start()
     yield
+    set_catalog_lookup(None)
     await worker.stop()
 
 
@@ -476,6 +568,7 @@ app = FastAPI(
         {"name": "作品库", "description": "已生成媒体的列表与文件访问。"},
         {"name": "创作台", "description": "创作页面需要的供应商状态与余额快照。"},
         {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
+        {"name": "导演台", "description": "员工隔离的导演工程库、剧本文档与时间轴 payload。"},
     ],
     lifespan=lifespan,
 )
@@ -684,9 +777,11 @@ def storage_capability(_: Annotated[dict, Depends(current_user)]) -> dict:
 def health() -> dict:
     provider = app.state.grs_provider
     config = provider.public_config()
+    comfy_provider = getattr(app.state, "comfy_provider", None)
+    url_resolver = comfy_provider.current_url if comfy_provider is not None else None
     return {
         "webui": "ok",
-        "comfy": ComfyService(settings).health(),
+        "comfy": ComfyService(settings, url_resolver=url_resolver).health(),
         "grs": {
             "configured": config["has_api_key"],
             "enabled": config["enabled"],
@@ -701,16 +796,23 @@ def health() -> dict:
 
 def mode_payload(definition) -> dict:
     payload = definition.payload()
-    if definition.id in IMAGE_WORKFLOWS:
+    if is_image_workflow(definition.id):
         available, reason = app.state.grs_provider.availability(definition.id)
         payload["available"] = available
         payload["unavailable_reason"] = reason
     return payload
 
 
+def listed_workflows():
+    image_workflows = []
+    if hasattr(app.state, "grs_provider"):
+        image_workflows = app.state.grs_provider.enabled_image_workflows()
+    return [*image_workflows, *WORKFLOWS]
+
+
 @app.get("/api/modes", response_model=ModesResponse, tags=["工作流"], summary="获取工作流注册表")
 def modes(_: Annotated[dict, Depends(current_user)]) -> dict:
-    return {"modes": [mode_payload(item) for item in WORKFLOWS], "image_sizes": [], "presets": PRESETS}
+    return {"modes": [mode_payload(item) for item in listed_workflows()], "image_sizes": [], "presets": PRESETS}
 
 
 @app.get(
@@ -720,7 +822,7 @@ def modes(_: Annotated[dict, Depends(current_user)]) -> dict:
     summary="获取指定工作流的参数定义",
     description="返回 `POST /api/jobs` 中该工作流可提交的 multipart 字段、参考图约束与 H3 options schema。",
 )
-def mode_detail(mode_id: JobMode, _: Annotated[dict, Depends(current_user)]) -> dict:
+def mode_detail(mode_id: str, _: Annotated[dict, Depends(current_user)]) -> dict:
     try:
         return mode_payload(workflow_for(mode_id))
     except KeyError as error:
@@ -730,6 +832,49 @@ def mode_detail(mode_id: JobMode, _: Annotated[dict, Depends(current_user)]) -> 
 @app.get("/api/admin/providers/grs", response_model=GrsProviderResponse, tags=["管理后台"])
 def get_grs_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
     return app.state.grs_provider.public_config()
+
+
+@app.get("/api/admin/providers/comfy", response_model=ComfyProviderResponse, tags=["管理后台"], summary="获取 ComfyUI 连接地址")
+def get_comfy_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.comfy_provider.public_config()
+
+
+@app.put("/api/admin/providers/comfy", response_model=ComfyProviderResponse, tags=["管理后台"], summary="更新 ComfyUI 连接地址")
+def update_comfy_provider(
+    payload: ComfyProviderUpdateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        result = app.state.comfy_provider.update(payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_comfy_provider", "provider", actor_user_id=user["id"], target_id="comfy",
+        detail=f"base_url={result['base_url']}", ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post("/api/admin/providers/comfy/test", response_model=ComfyProviderResponse, tags=["管理后台"], summary="测试 ComfyUI 连接")
+async def test_comfy_provider(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: ComfyProviderTestRequest | None = None,
+) -> dict:
+    try:
+        arguments = None if payload is None else payload.model_dump()
+        result = await asyncio.to_thread(app.state.comfy_provider.test, arguments)
+    except (ValueError, ComfyProviderError) as error:
+        app.state.auth_store.audit(
+            "test_comfy_provider_failed", "provider", actor_user_id=user["id"], target_id="comfy",
+            detail=type(error).__name__, ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "test_comfy_provider", "provider", actor_user_id=user["id"], target_id="comfy",
+        detail="success", ip_address=client_ip(request),
+    )
+    return result
 
 
 @app.get("/api/providers/grs/balance", response_model=GrsBalanceSnapshotResponse, tags=["创作台"])
@@ -842,6 +987,55 @@ async def query_grs_balance(
     return {"credits": credits, "queried_at": queried_at}
 
 
+@app.get("/api/admin/providers/grs/models", response_model=GrsImageModelsResponse, tags=["管理后台"], summary="获取 GRS 生图模型目录")
+def list_grs_image_models(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.grs_provider.catalog_payload()
+
+
+@app.put("/api/admin/providers/grs/models", response_model=GrsImageModelsResponse, tags=["管理后台"], summary="更新 GRS 生图模型目录")
+def update_grs_image_models(
+    payload: GrsImageModelsUpdateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        app.state.store.update_grs_image_models([item.model_dump() for item in payload.models])
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_grs_image_models", "provider", actor_user_id=user["id"], target_id="grs",
+        detail=f"updated {len(payload.models)} image models", ip_address=client_ip(request),
+    )
+    return app.state.grs_provider.catalog_payload()
+
+
+@app.post("/api/admin/providers/grs/models", response_model=GrsImageModelsResponse, tags=["管理后台"], summary="添加 GRS 生图模型")
+def add_grs_image_model(
+    payload: GrsImageModelCreateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        created = app.state.store.add_grs_image_model(payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "add_grs_image_model", "provider", actor_user_id=user["id"], target_id="grs",
+        detail=created["workflow_id"], ip_address=client_ip(request),
+    )
+    return app.state.grs_provider.catalog_payload()
+
+
+@app.post("/api/admin/providers/grs/models/sync", response_model=GrsImageModelsResponse, tags=["管理后台"], summary="同步 GRS 内置生图模型目录")
+def sync_grs_image_models(
+    request: Request, user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    app.state.store.sync_builtin_grs_image_models()
+    app.state.auth_store.audit(
+        "sync_grs_image_models", "provider", actor_user_id=user["id"], target_id="grs",
+        detail="synced builtin image model catalog", ip_address=client_ip(request),
+    )
+    return app.state.grs_provider.catalog_payload()
+
+
 @app.get("/api/admin/providers/llm", response_model=LlmProviderResponse, tags=["管理后台"], summary="获取 LLM 大模型配置")
 def get_llm_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
     return app.state.llm_provider.public_config()
@@ -885,6 +1079,24 @@ async def test_llm_provider(
     return result
 
 
+@app.post("/api/admin/providers/llm/models", response_model=LlmModelCatalogResponse, tags=["管理后台"], summary="拉取上游 LLM 模型目录")
+async def list_llm_models(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: LlmModelCatalogRequest | None = None,
+) -> dict:
+    try:
+        arguments = None if payload is None else payload.model_dump()
+        result = await asyncio.to_thread(app.state.llm_provider.list_catalog, arguments)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "list_llm_models", "provider", actor_user_id=user["id"], target_id="llm",
+        detail=f"count={len(result.get('models') or [])}", ip_address=client_ip(request),
+    )
+    return result
+
+
 @app.get("/api/llm/skills", response_model=SkillsListResponse, tags=["大模型"], summary="获取 MiniMax H3 官方提示词技能列表")
 def get_llm_skills(_: Annotated[dict, Depends(current_user)]) -> dict:
     from .llm_minimax_skills import list_h3_skills_payload
@@ -894,7 +1106,13 @@ def get_llm_skills(_: Annotated[dict, Depends(current_user)]) -> dict:
 @app.get("/api/llm/status", response_model=LlmStatusResponse, tags=["大模型"], summary="查询大模型服务可用状态")
 def get_llm_status(_: Annotated[dict, Depends(current_user)]) -> dict:
     available, reason = app.state.llm_provider.availability()
-    return {"available": available, "message": reason}
+    config = app.state.llm_provider.public_config()
+    return {
+        "available": available,
+        "message": reason,
+        "supports_vision": bool(config.get("supports_vision")),
+        "model": config.get("model"),
+    }
 
 
 @app.post("/api/llm/optimize-prompt", response_model=PromptOptimizeResponse, tags=["大模型"], summary="优化视频或图片生成提示词")
@@ -937,6 +1155,261 @@ async def optimize_prompt_endpoint(
     }
 
 
+def _image_upload_to_data_url(upload: UploadFile, content: bytes) -> str:
+    import base64
+
+    mime = upload.content_type or "image/png"
+    if not mime.startswith("image/"):
+        mime = "image/png"
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+@app.post("/api/llm/analyze-subject", response_model=AnalyzeSubjectResponse, tags=["大模型"], summary="根据参考图提取主体外貌描述")
+async def analyze_subject_endpoint(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    image: Annotated[UploadFile, File(description="主体参考图")],
+    kind: Annotated[str, Form()] = "character",
+    name: Annotated[str, Form()] = "主体",
+) -> dict:
+    available, reason = app.state.llm_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+    content = await image.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="请上传主体参考图后再提取外貌")
+    if len(content) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="参考图超过 8MB，请压缩后再试")
+    if image.content_type and not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail="主体分析仅接受图片文件")
+
+    try:
+        description = await asyncio.to_thread(
+            app.state.llm_provider.analyze_subject,
+            image_data_url=_image_upload_to_data_url(image, content),
+            kind=kind,
+            name=name,
+        )
+    except (LlmTemporaryError, requests.exceptions.RequestException) as error:
+        raise HTTPException(status_code=502, detail=f"大模型响应超时或网络异常：{error}") from error
+    except LlmError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"主体特征提取异常：{error}") from error
+
+    app.state.auth_store.audit(
+        "analyze_subject", "llm", actor_user_id=user["id"], target_id="director",
+        detail=f"kind={kind}; name={name}",
+        ip_address=client_ip(request),
+    )
+    return {"description": description, "kind": kind, "name": name}
+
+
+@app.post("/api/llm/split-script", response_model=ScriptSplitResponse, tags=["大模型"], summary="AI 剧本智能拆解为分镜头脚本")
+async def split_script_endpoint(
+    payload: ScriptSplitRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    available, reason = app.state.llm_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+
+    try:
+        split_result = await asyncio.to_thread(
+            app.state.llm_provider.split_script,
+            payload.script,
+            shot_count=payload.shot_count or 4,
+            style_vibe=payload.style_vibe,
+            cast_names=payload.cast_names,
+        )
+    except (LlmTemporaryError, requests.exceptions.RequestException) as error:
+        raise HTTPException(status_code=502, detail=f"大模型响应超时或网络异常：{error}") from error
+    except LlmError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"剧本拆解异常：{error}") from error
+
+    app.state.auth_store.audit(
+        "split_script", "llm", actor_user_id=user["id"], target_id="director",
+        detail=f"shot_count={payload.shot_count or 4}; style={payload.style_vibe or 'default'}",
+        ip_address=client_ip(request),
+    )
+    return split_result
+
+
+@app.get(
+    "/api/director/projects",
+    response_model=list[DirectorProjectListItem],
+    tags=["导演台"],
+    summary="列出当前用户的导演工程",
+)
+def list_director_projects(user: Annotated[dict, Depends(current_user)]) -> list[dict]:
+    return [
+        public_director_project(item, include_document=False)
+        for item in app.state.store.list_director_projects(user["id"])
+    ]
+
+
+@app.post(
+    "/api/director/projects",
+    response_model=DirectorProjectResponse,
+    status_code=201,
+    tags=["导演台"],
+    summary="创建导演工程",
+)
+def create_director_project(
+    payload: DirectorProjectCreateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="请填写工程标题")
+    try:
+        created = app.state.store.create_director_project(
+            user["id"],
+            title,
+            project_id=payload.id,
+            summary=payload.summary,
+            source_script=payload.source_script,
+            style_vibe=payload.style_vibe,
+            requested_shot_count=payload.requested_shot_count,
+            payload=payload.payload,
+            created_at=payload.created_at,
+            updated_at=payload.updated_at,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "create_director_project", "director", actor_user_id=user["id"], target_id=created["id"],
+        detail=f"title={title}",
+        ip_address=client_ip(request),
+    )
+    return public_director_project(created)
+
+
+@app.post(
+    "/api/director/projects/migrate",
+    response_model=DirectorProjectMigrateResponse,
+    tags=["导演台"],
+    summary="将浏览器 localStorage 导演工程迁入 SQLite",
+)
+def migrate_director_projects(
+    payload: DirectorProjectMigrateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    items = []
+    for project in payload.projects:
+        title = project.title.strip() or "未命名分镜工程"
+        items.append({
+            "id": project.id,
+            "title": title,
+            "summary": project.summary,
+            "source_script": project.source_script,
+            "style_vibe": project.style_vibe,
+            "requested_shot_count": project.requested_shot_count,
+            "payload": project.payload,
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+        })
+    result = app.state.store.import_director_projects(user["id"], items)
+    app.state.auth_store.audit(
+        "migrate_director_projects", "director", actor_user_id=user["id"], target_id="library",
+        detail=f"imported={result['imported']}; skipped={result['skipped']}",
+        ip_address=client_ip(request),
+    )
+    return {
+        "imported": result["imported"],
+        "skipped": result["skipped"],
+        "projects": [public_director_project(item, include_document=False) for item in result["projects"]],
+    }
+
+
+@app.get(
+    "/api/director/projects/{project_id}",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="读取导演工程（含原文与时间轴）",
+)
+def get_director_project(project_id: str, user: Annotated[dict, Depends(current_user)]) -> dict:
+    return public_director_project(director_project_or_404(app.state.store, project_id, user))
+
+
+@app.put(
+    "/api/director/projects/{project_id}",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="更新导演工程",
+)
+def update_director_project(
+    project_id: str,
+    payload: DirectorProjectUpdateRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    director_project_or_404(app.state.store, project_id, user)
+    title = payload.title.strip() if payload.title is not None else None
+    if title is not None and not title:
+        raise HTTPException(status_code=422, detail="请填写工程标题")
+    updated = app.state.store.update_director_project(
+        project_id,
+        title=title,
+        summary=payload.summary,
+        source_script=payload.source_script,
+        style_vibe=payload.style_vibe,
+        requested_shot_count=payload.requested_shot_count,
+        payload=payload.payload,
+        update_style_vibe="style_vibe" in payload.model_fields_set,
+        update_requested_shot_count="requested_shot_count" in payload.model_fields_set,
+    )
+    return public_director_project(updated)
+
+
+@app.delete(
+    "/api/director/projects/{project_id}",
+    status_code=204,
+    tags=["导演台"],
+    summary="删除导演工程",
+)
+def delete_director_project(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> Response:
+    director_project_or_404(app.state.store, project_id, user)
+    try:
+        app.state.store.delete_director_project(project_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="工程不存在") from error
+    app.state.auth_store.audit(
+        "delete_director_project", "director", actor_user_id=user["id"], target_id=project_id,
+        ip_address=client_ip(request),
+    )
+    return Response(status_code=204)
+
+
+@app.post(
+    "/api/director/projects/{project_id}/copy",
+    response_model=DirectorProjectResponse,
+    status_code=201,
+    tags=["导演台"],
+    summary="复制导演工程",
+)
+def copy_director_project(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    director_project_or_404(app.state.store, project_id, user)
+    copied = app.state.store.copy_director_project(project_id, user["id"])
+    app.state.auth_store.audit(
+        "copy_director_project", "director", actor_user_id=user["id"], target_id=copied["id"],
+        detail=f"source={project_id}",
+        ip_address=client_ip(request),
+    )
+    return public_director_project(copied)
 
 
 @app.post(
@@ -945,11 +1418,11 @@ async def optimize_prompt_endpoint(
     response_model=JobResponse,
     tags=["任务"],
     summary="创建生成任务",
-    description="请求成功只表示任务已入队。轮询 `GET /api/jobs/{job_id}` 直到任务进入终态。",
+    description="请求成功只表示任务已入队。返回体是入队后的当前任务快照：worker 尚未领取时为 queued，若已开始准备或已提交 ComfyUI 则为 running。轮询 `GET /api/jobs/{job_id}` 直到任务进入终态。",
 )
 async def create_job(
     user: Annotated[dict, Depends(mutating_user)],
-    mode: Annotated[JobMode, Form(description="生成模式；具体能力由 GET /api/modes 返回。")],
+    mode: Annotated[str, Form(description="生成模式；具体能力由 GET /api/modes 返回。")],
     prompt: Annotated[str, Form(description="创作提示词，去除首尾空白后不能为空。")],
     negative_prompt: Annotated[str, Form(description="仅 image 模式生效。")]= "",
     image_size: Annotated[str | None, Form(description="仅 image 模式必填，值来自 image_sizes。")]= None,
@@ -964,6 +1437,10 @@ async def create_job(
     if not prompt:
         raise HTTPException(status_code=422, detail="请填写创作提示词")
     try:
+        workflow_for(mode)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="工作流不存在") from error
+    try:
         raw_options = json.loads(options) if options is not None else {}
         if not isinstance(raw_options, dict):
             raise ValueError("生成参数必须为对象。")
@@ -973,7 +1450,7 @@ async def create_job(
     except (ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
-    if mode in IMAGE_WORKFLOWS:
+    if is_image_workflow(mode):
         available, reason = app.state.grs_provider.availability(mode)
         if not available:
             raise HTTPException(status_code=409, detail=reason or "GRS 图片能力不可用")
@@ -1020,7 +1497,7 @@ async def create_job(
         source=source,
     )
     await app.state.worker.enqueue(job_id)
-    return public_job(job)
+    return public_job(store.get(job_id))
 
 
 @app.post(
@@ -1039,7 +1516,7 @@ async def create_job_round(
     existing = job_or_404(app.state.store, job_id, user, include_references=True)
     if existing.get("legacy_read_only"):
         raise HTTPException(status_code=409, detail="旧版图片结果仅支持查看，不能再次生成")
-    mode = JobMode(existing["mode"])
+    mode = existing["mode"]
     prompt = prompt.strip()
     if not prompt:
         raise HTTPException(status_code=422, detail="请填写创作提示词")
@@ -1053,7 +1530,7 @@ async def create_job_round(
         validate_option_relationships(mode, generation_options, len(references or reused_references))
     except (ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    if mode in IMAGE_WORKFLOWS:
+    if is_image_workflow(mode):
         available, reason = app.state.grs_provider.availability(mode)
         if not available:
             raise HTTPException(status_code=409, detail=reason or "GRS 图片能力不可用")
@@ -1074,7 +1551,7 @@ async def create_job_round(
         submitted_options=raw_options if options is not None else None,
     )
     await app.state.worker.enqueue(job_id)
-    return public_job(job)
+    return public_job(app.state.store.get(job_id))
 
 
 @app.post(
@@ -1097,8 +1574,12 @@ async def retry_failed_generation_items(
 
 
 @app.get("/api/jobs", response_model=list[JobResponse], tags=["任务"], summary="列出最近任务")
-def list_jobs(user: Annotated[dict, Depends(current_user)], limit: int = 100) -> list[dict]:
-    jobs = app.state.store.list_for_user(user["id"], max(1, min(limit, 200)))
+def list_jobs(user: Annotated[dict, Depends(current_user)], limit: int = 100, user_id: str | None = None) -> list[dict]:
+    if user["role"] in {"admin", "super_admin"} and user_id is not None:
+        target_user_id = None if user_id == "all" else user_id
+    else:
+        target_user_id = user["id"]
+    jobs = app.state.store.list_jobs(target_user_id, max(1, min(limit, 200)))
     return [public_job(job) for job in jobs]
 
 
@@ -1143,13 +1624,29 @@ def delete_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> di
 )
 async def retry_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
     existing = job_or_404(app.state.store, job_id, user, include_references=True)
-    if JobMode(existing["mode"]) not in H3_WORKFLOWS:
+    if not is_h3_workflow(existing["mode"]):
         raise HTTPException(status_code=409, detail="当前工作流不支持重新提交")
     job = app.state.store.retry_terminal(job_id)
     if job is None:
-        raise HTTPException(status_code=409, detail="仅已中断或失败且未在 ComfyUI 执行的任务可以重新提交")
+        raise HTTPException(status_code=409, detail="仅已中断、已停止或失败且未在 ComfyUI 执行的任务可以重新提交")
     await app.state.worker.enqueue(job_id)
     return public_job(job)
+
+
+@app.post(
+    "/api/jobs/{job_id}/cancel",
+    response_model=JobResponse,
+    tags=["任务"],
+    summary="停止生成任务",
+)
+async def cancel_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+    job_or_404(app.state.store, job_id, user)
+    job, prompt_ids = app.state.store.mark_cancelled(job_id)
+    if job is None:
+        raise HTTPException(status_code=409, detail="仅排队中、生成中或已中断的任务可以停止")
+    for prompt_id in prompt_ids:
+        await asyncio.to_thread(app.state.worker.comfy.stop_prompt, prompt_id)
+    return public_job(app.state.store.get(job_id, include_references=True))
 
 
 @app.get(
@@ -1195,7 +1692,11 @@ def round_reference(
 
 
 @app.get("/api/library", response_model=list[LibraryItemResponse], tags=["作品库"], summary="列出作品库媒体")
-def library(user: Annotated[dict, Depends(current_user)]) -> list[dict]:
+def library(user: Annotated[dict, Depends(current_user)], user_id: str | None = None) -> list[dict]:
+    if user["role"] in {"admin", "super_admin"} and user_id is not None:
+        target_user_id = None if user_id == "all" else user_id
+    else:
+        target_user_id = user["id"]
     return [
         {
             **output,
@@ -1208,10 +1709,10 @@ def library(user: Annotated[dict, Depends(current_user)]) -> list[dict]:
             "output_index": output_index,
             "created_at": round_data["created_at"],
         }
-        for job in app.state.store.list_for_user(user["id"], 500)
+        for job in app.state.store.list_jobs(target_user_id, 500)
         for round_data in job.get("rounds", [])
         for item in round_data.get("generation_items", [])
-        if item["status"] == "succeeded"
+        if item.get("outputs")
         for output_index, output in enumerate(item["outputs"])
     ]
 
@@ -1222,10 +1723,11 @@ def library(user: Annotated[dict, Depends(current_user)]) -> list[dict]:
     summary="下载或预览生成媒体",
     responses={200: {"content": {"image/*": {}, "video/*": {}, "application/octet-stream": {}}}},
 )
-def media(filename: str, user: Annotated[dict, Depends(current_user)]) -> Response:
+def media(filename: str, request: Request, user: Annotated[dict, Depends(current_user)]) -> Response:
+    target_user_id = None if user["role"] in {"admin", "super_admin"} else user["id"]
     output = next((
         output
-        for job in app.state.store.list_for_user(user["id"], 500)
+        for job in app.state.store.list_jobs(target_user_id, 1000)
         for output in job["outputs"]
         if output["path"] == filename
     ), None)
@@ -1233,7 +1735,7 @@ def media(filename: str, user: Annotated[dict, Depends(current_user)]) -> Respon
         raise HTTPException(status_code=404, detail="媒体文件不存在")
     if output.get("delivery_status") == "local":
         raise HTTPException(status_code=410, detail="资源已经保存到员工电脑，请从本地资源目录查看")
-    return output_response(output)
+    return output_response(output, request)
 
 
 @app.get(
@@ -1243,6 +1745,7 @@ def media(filename: str, user: Annotated[dict, Depends(current_user)]) -> Respon
 def download_output(
     job_id: str,
     output_index: int,
+    request: Request,
     desktop_ticket: str | None = None,
     user: Annotated[dict | None, Depends(optional_current_user)] = None,
 ) -> Response:
@@ -1259,12 +1762,12 @@ def download_output(
     if user is None:
         raise HTTPException(status_code=401, detail="请先登录")
     job = job_or_404(app.state.store, job_id, user)
-    if job["status"] not in {"succeeded", "partial"} or output_index < 0 or output_index >= len(job["outputs"]):
+    if output_index < 0 or output_index >= len(job["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")
     output = job["outputs"][output_index]
     if output.get("delivery_status") == "local":
         raise HTTPException(status_code=410, detail="资源已经保存到员工电脑并清理服务器暂存")
-    return output_response(output)
+    return output_response(output, request)
 
 
 @app.get(
@@ -1278,7 +1781,7 @@ def browser_direct_output(
     user: Annotated[dict, Depends(current_user)],
 ) -> dict:
     job = job_or_404(app.state.store, job_id, user)
-    if job["status"] not in {"succeeded", "partial"} or output_index < 0 or output_index >= len(job["outputs"]):
+    if output_index < 0 or output_index >= len(job["outputs"]):
         raise HTTPException(status_code=404, detail="Resource not found")
     output = job["outputs"][output_index]
     if output.get("delivery_status") == "local":
@@ -1300,7 +1803,7 @@ def issue_desktop_delivery_ticket(
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
     job = job_or_404(app.state.store, job_id, user)
-    if job["status"] not in {"succeeded", "partial"} or output_index < 0 or output_index >= len(job["outputs"]):
+    if output_index < 0 or output_index >= len(job["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")
     output = job["outputs"][output_index]
     if output.get("delivery_status") == "local":
@@ -1327,7 +1830,7 @@ def confirm_output_delivered(
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
     job = job_or_404(app.state.store, job_id, user)
-    if job["status"] not in {"succeeded", "partial"} or output_index < 0 or output_index >= len(job["outputs"]):
+    if output_index < 0 or output_index >= len(job["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")
     output = job["outputs"][output_index]
     if output.get("delivery_status") == "local":
@@ -1360,7 +1863,7 @@ def confirm_output_delivered(
     tags=["资源"], summary="下载指定生成项的待交付资源",
 )
 def download_generation_output(
-    job_id: str, generation_item_id: str, output_index: int,
+    job_id: str, generation_item_id: str, output_index: int, request: Request,
     desktop_ticket: str | None = None,
     user: Annotated[dict | None, Depends(optional_current_user)] = None,
 ) -> Response:
@@ -1379,12 +1882,12 @@ def download_generation_output(
     if user is None:
         raise HTTPException(status_code=401, detail="请先登录")
     _, item = generation_item_or_404(app.state.store, job_id, generation_item_id, user)
-    if item["status"] != "succeeded" or output_index < 0 or output_index >= len(item["outputs"]):
+    if output_index < 0 or output_index >= len(item["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")
     output = item["outputs"][output_index]
     if output.get("delivery_status") == "local":
         raise HTTPException(status_code=410, detail="资源已经保存到员工电脑并清理服务器暂存")
-    return output_response(output)
+    return output_response(output, request)
 
 
 @app.get(
@@ -1396,7 +1899,7 @@ def browser_direct_generation_output(
     user: Annotated[dict, Depends(current_user)],
 ) -> dict:
     _, item = generation_item_or_404(app.state.store, job_id, generation_item_id, user)
-    if item["status"] != "succeeded" or output_index < 0 or output_index >= len(item["outputs"]):
+    if output_index < 0 or output_index >= len(item["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")
     output = item["outputs"][output_index]
     if not app.state.worker.comfy.can_stream_output(output.get("_comfy_source")):
@@ -1413,7 +1916,7 @@ def issue_generation_desktop_ticket(
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
     _, item = generation_item_or_404(app.state.store, job_id, generation_item_id, user)
-    if item["status"] != "succeeded" or output_index < 0 or output_index >= len(item["outputs"]):
+    if output_index < 0 or output_index >= len(item["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")
     output = item["outputs"][output_index]
     if output.get("delivery_status") == "local" or not output_available(output):
@@ -1438,7 +1941,7 @@ def confirm_generation_output_delivered(
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
     job, item = generation_item_or_404(app.state.store, job_id, generation_item_id, user)
-    if item["status"] != "succeeded" or output_index < 0 or output_index >= len(item["outputs"]):
+    if output_index < 0 or output_index >= len(item["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")
     output = item["outputs"][output_index]
     if output.get("delivery_status") == "local":

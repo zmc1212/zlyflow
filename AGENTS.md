@@ -10,9 +10,9 @@
 
 - 工作台前端由 `frontend` 构建，FastAPI 后端位于 `backend/app`。
 - 工作台地址固定为 `http://127.0.0.1:7865`。
-- ComfyUI 只使用固定实例：`http://127.0.0.1:8188`。
+- ComfyUI 默认实例为 `http://127.0.0.1:8188`，可通过管理设置或 `ZLY_AI_VIDEO_STUDIO_COMFY_URL` 配置；工作台同一时间只连接一个实例。
 - ComfyUI 根目录固定为工作台目录父级下的 `整合包及模型\comfyui-integrate-v1.3\comfyui-integrate\Comfyui`。
-- 禁止为工作台另部署第二套 ComfyUI，禁止擅自改用 8189 等端口。
+- 禁止为工作台另部署第二套 ComfyUI。
 - VACE 自定义节点只能位于固定 ComfyUI 的既有 VACE 多参考图节点目录，不得重命名或迁移。
 
 ## 当前核心架构

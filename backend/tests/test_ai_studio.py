@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,7 +19,7 @@ from backend.app.qiniu_provider import QiniuProviderService
 from backend.app.qiniu_storage import QiniuStorage, qiniu_upload_host
 from backend.app.storage import JobStore
 from backend.app.workflow_registry import (
-    IMAGE_WORKFLOWS, grs_request_size, normalize_options, validate_references, workflow_for,
+    IMAGE_WORKFLOWS, grs_request_size, is_image_workflow, normalize_options, validate_references, workflow_for,
 )
 
 
@@ -66,6 +67,19 @@ class RegistryTests(unittest.TestCase):
         vip_properties = workflow_for(JobMode.GRS_GPT_IMAGE_2_VIP).option_schema["properties"]
         self.assertEqual(vip_properties["aspect_ratio"]["ui_companions"], ["resolution", "count", "custom_width", "custom_height"])
         self.assertEqual(properties["provider_model"]["ui_group"], "internal")
+        self.assertEqual(properties["provider_model"]["default"], "gpt-image-2")
+
+    def test_nano_banana_profiles_use_direct_size_mapping(self) -> None:
+        banana = workflow_for("grs-nano-banana-2")
+        ratios = banana.option_schema["properties"]["aspect_ratio"]["enum"]
+        self.assertIn("1:8", ratios)
+        self.assertEqual(banana.option_schema["properties"]["resolution"]["enum"], ["1K", "2K", "4K"])
+        options = normalize_options("grs-nano-banana-2", {"aspect_ratio": "1:8", "resolution": "2K"})
+        self.assertEqual(options["provider_model"], "nano-banana-2")
+        self.assertEqual(grs_request_size("grs-nano-banana-2", options), ("1:8", "2K"))
+        locked = workflow_for("grs-nano-banana-2-2k-cl")
+        self.assertEqual(locked.option_schema["properties"]["resolution"]["enum"], ["2K"])
+        self.assertTrue(is_image_workflow("grs-nano-banana-pro"))
 
     def test_standard_and_vip_option_matrix(self) -> None:
         standard = normalize_options(JobMode.GRS_GPT_IMAGE_2, {"aspect_ratio": "16:9", "count": 4})
@@ -87,6 +101,80 @@ class RegistryTests(unittest.TestCase):
         validate_references(JobMode.GRS_GPT_IMAGE_2, [object()] * 10)
         with self.assertRaises(ValueError):
             validate_references(JobMode.GRS_GPT_IMAGE_2, [object()] * 11)
+
+
+class GrsCatalogTests(unittest.TestCase):
+    def test_store_seeds_builtin_catalog_with_legacy_models_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            models = {item["provider_model"]: item for item in store.list_grs_image_models()}
+            self.assertEqual(models["gpt-image-2"]["workflow_id"], "grs-gpt-image-2")
+            self.assertTrue(models["gpt-image-2"]["enabled"])
+            self.assertTrue(models["gpt-image-2-vip"]["enabled"])
+            self.assertTrue(models["gpt-image-2"]["is_default"])
+            self.assertFalse(models["nano-banana-2"]["enabled"])
+            self.assertEqual(models["nano-banana-2-2k-cl"]["resolutions"], ["2K"])
+            enabled_ids = [item.id for item in GrsProviderService(store, Fernet.generate_key().decode()).enabled_image_workflows()]
+            self.assertEqual(enabled_ids[0], "grs-gpt-image-2")
+            self.assertIn("grs-gpt-image-2-vip", enabled_ids)
+            self.assertNotIn("grs-nano-banana-2", enabled_ids)
+
+    def test_store_migrates_extra_comma_separated_models(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.db"
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+                connection.execute(
+                    """CREATE TABLE grs_provider_settings (
+                        id INTEGER PRIMARY KEY CHECK(id = 1),
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        base_url TEXT NOT NULL,
+                        api_key_encrypted TEXT,
+                        gpt_image_2_enabled INTEGER NOT NULL DEFAULT 1,
+                        gpt_image_2_vip_enabled INTEGER NOT NULL DEFAULT 1,
+                        models TEXT NOT NULL DEFAULT 'gpt-image-2',
+                        vip_models TEXT NOT NULL DEFAULT 'gpt-image-2-vip',
+                        last_test_status TEXT, last_test_message TEXT, last_test_at TEXT,
+                        last_balance REAL, last_balance_at TEXT, updated_at TEXT NOT NULL
+                    )"""
+                )
+                connection.execute(
+                    """INSERT INTO grs_provider_settings
+                    (id, enabled, base_url, gpt_image_2_enabled, gpt_image_2_vip_enabled, models, vip_models, updated_at)
+                    VALUES (1, 1, 'https://grsai.dakka.com.cn', 1, 1, 'gpt-image-2,nano-banana-2', 'gpt-image-2-vip,custom-vip', ?)""",
+                    ("2026-08-25T00:00:00+00:00",),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            store = JobStore(path)
+            models = {item["provider_model"]: item for item in store.list_grs_image_models()}
+            self.assertTrue(models["nano-banana-2"]["enabled"])
+            self.assertEqual(models["nano-banana-2"]["profile"], "nano_banana_2")
+            self.assertTrue(models["custom-vip"]["enabled"])
+            self.assertEqual(models["custom-vip"]["profile"], "gpt_image_2_vip")
+            self.assertFalse(models["custom-vip"]["builtin"])
+
+    def test_catalog_add_and_disable_controls_enabled_workflows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            added = store.add_grs_image_model({
+                "provider_model": "my-custom-model",
+                "display_name": "自定义模型",
+                "profile": "nano_banana",
+                "enabled": True,
+            })
+            self.assertEqual(added["workflow_id"], "grs-my-custom-model")
+            items = store.list_grs_image_models()
+            for item in items:
+                item["enabled"] = item["workflow_id"] in {"grs-gpt-image-2", "grs-my-custom-model"}
+                item["is_default"] = item["workflow_id"] == "grs-my-custom-model"
+            store.update_grs_image_models(items)
+            enabled_ids = [item.id for item in GrsProviderService(store, Fernet.generate_key().decode()).enabled_image_workflows()]
+            self.assertEqual(enabled_ids[0], "grs-my-custom-model")
+            self.assertIn("grs-gpt-image-2", enabled_ids)
+            self.assertNotIn("grs-gpt-image-2-vip", enabled_ids)
 
 
 class GrsClientTests(unittest.TestCase):
@@ -114,6 +202,63 @@ class GrsClientTests(unittest.TestCase):
         self.assertEqual(status, "succeeded")
         self.assertEqual(urls, ["https://file1.aitohumanize.com/a.png"])
         self.assertIsNone(message)
+
+    def test_result_parses_http_400_violation_and_keeps_urls(self) -> None:
+        session = FakeSession([
+            FakeResponse(
+                {
+                    "id": "remote-1",
+                    "status": "violation",
+                    "error": "contains a photorealistic person",
+                    "results": [{"url": "https://file1.aitohumanize.com/kept.png"}],
+                },
+                status_code=400,
+            ),
+        ])
+        client = GrsClient("https://grs.example.com", "secret", session=session)
+
+        status, urls, message = client.result("remote-1")
+
+        self.assertEqual(status, "violation")
+        self.assertEqual(urls, ["https://file1.aitohumanize.com/kept.png"])
+        self.assertEqual(message, "contains a photorealistic person")
+        self.assertIn("真人", client.format_failure(status, message))
+
+    def test_result_http_400_without_urls_uses_body_error(self) -> None:
+        session = FakeSession([
+            FakeResponse({"status": "failed", "error": "generate failed"}, status_code=400),
+        ])
+        client = GrsClient("https://grs.example.com", "secret", session=session)
+
+        status, urls, message = client.result("remote-1")
+
+        self.assertEqual(status, "failed")
+        self.assertEqual(urls, [])
+        self.assertEqual(message, "generate failed")
+
+    def test_result_succeeded_without_urls_keeps_polling(self) -> None:
+        session = FakeSession([FakeResponse({"status": "succeeded", "results": []})])
+        client = GrsClient("https://grs.example.com", "secret", session=session)
+
+        status, urls, message = client.result("remote-1")
+
+        self.assertEqual(status, "succeeded")
+        self.assertEqual(urls, [])
+        self.assertIsNone(message)
+
+    def test_result_accepts_results_string_and_images_list(self) -> None:
+        session = FakeSession([
+            FakeResponse({"status": "succeeded", "results": "https://cdn.example.com/direct.png"}),
+            FakeResponse({"status": "completed", "images": ["https://cdn.example.com/list.png"]}),
+        ])
+        client = GrsClient("https://grs.example.com", "secret", session=session)
+
+        status, urls, _ = client.result("remote-1")
+        self.assertEqual(status, "succeeded")
+        self.assertEqual(urls, ["https://cdn.example.com/direct.png"])
+        status, urls, _ = client.result("remote-2")
+        self.assertEqual(status, "completed")
+        self.assertEqual(urls, ["https://cdn.example.com/list.png"])
 
     def test_download_rejects_http_private_and_invalid_signature(self) -> None:
         client = GrsClient("https://grs.example.com", "secret", session=FakeSession([]), resolver=lambda _host: ["8.8.8.8"])
@@ -245,6 +390,125 @@ class JobEndpointTests(unittest.TestCase):
                 main_module.settings = original_settings
                 main_module.JobWorker = original_worker
 
+    def test_cancel_queued_job_marks_cancelled_and_rejects_terminal_cancel(self) -> None:
+        class WorkerStub:
+            def __init__(self, store, comfy, *_args) -> None:
+                self.store = store
+                self.comfy = comfy
+                self.comfy.stopped = []
+                def capture(prompt_id: str) -> None:
+                    self.comfy.stopped.append(prompt_id)
+
+                self.comfy.stop_prompt = capture
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            try:
+                with TestClient(main_module.app) as client:
+                    user = main_module.app.state.auth_store.create_user(
+                        "cancel-test", "停止测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
+                    )
+                    token, _ = main_module.app.state.auth_store.create_session(user["id"])
+                    headers = {"X-CSRF-Token": csrf_token(token)}
+                    cookies = {"zly_ai_video_studio_session": token}
+                    main_module.app.state.store.create(
+                        "cancel-queued", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [], owner_user_id=user["id"],
+                    )
+                    main_module.app.state.store.create(
+                        "cancel-running", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [], owner_user_id=user["id"],
+                    )
+                    main_module.app.state.store.set_comfy_execution("cancel-running", "prompt-9", "client-9", "generation")
+                    main_module.app.state.store.create(
+                        "cancel-done", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [], owner_user_id=user["id"],
+                    )
+                    main_module.app.state.store.update("cancel-done", status=JobStatus.SUCCEEDED)
+
+                    queued = client.post("/api/jobs/cancel-queued/cancel", headers=headers, cookies=cookies)
+                    self.assertEqual(queued.status_code, 200)
+                    self.assertEqual(queued.json()["status"], "cancelled")
+                    self.assertEqual(queued.json()["stage"], "已停止生成")
+
+                    running = client.post("/api/jobs/cancel-running/cancel", headers=headers, cookies=cookies)
+                    self.assertEqual(running.status_code, 200)
+                    self.assertEqual(running.json()["status"], "cancelled")
+                    self.assertIn("prompt-9", main_module.app.state.worker.comfy.stopped)
+
+                    done = client.post("/api/jobs/cancel-done/cancel", headers=headers, cookies=cookies)
+                    self.assertEqual(done.status_code, 409)
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
+
+    def test_admin_can_filter_jobs_by_user_id_and_employee_cannot(self) -> None:
+        class WorkerStub:
+            def __init__(self, *_args) -> None:
+                pass
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            try:
+                with TestClient(main_module.app) as client:
+                    admin = main_module.app.state.auth_store.create_user(
+                        "filter-admin", "筛选管理员", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
+                    )
+                    employee = main_module.app.state.auth_store.create_user(
+                        "filter-staff", "筛选员工", "secure-pass-123", UserRole.EMPLOYEE, must_change_password=False,
+                    )
+                    admin_token, _ = main_module.app.state.auth_store.create_session(admin["id"])
+                    employee_token, _ = main_module.app.state.auth_store.create_session(employee["id"])
+                    store = main_module.app.state.store
+                    store.create(
+                        "admin-job", JobMode.MINIMAX_H3_T2V, "admin prompt", "", None, [], owner_user_id=admin["id"],
+                    )
+                    store.create(
+                        "staff-job", JobMode.MINIMAX_H3_T2V, "staff prompt", "", None, [], owner_user_id=employee["id"],
+                    )
+                    admin_cookies = {"zly_ai_video_studio_session": admin_token}
+                    employee_cookies = {"zly_ai_video_studio_session": employee_token}
+
+                    own = client.get("/api/jobs", cookies=admin_cookies)
+                    self.assertEqual(own.status_code, 200)
+                    self.assertEqual([job["id"] for job in own.json()], ["admin-job"])
+
+                    staff = client.get(f"/api/jobs?user_id={employee['id']}", cookies=admin_cookies)
+                    self.assertEqual(staff.status_code, 200)
+                    self.assertEqual([job["id"] for job in staff.json()], ["staff-job"])
+
+                    everyone = client.get("/api/jobs?user_id=all", cookies=admin_cookies)
+                    self.assertEqual(everyone.status_code, 200)
+                    self.assertEqual({job["id"] for job in everyone.json()}, {"admin-job", "staff-job"})
+
+                    ignored = client.get(f"/api/jobs?user_id={admin['id']}", cookies=employee_cookies)
+                    self.assertEqual(ignored.status_code, 200)
+                    self.assertEqual([job["id"] for job in ignored.json()], ["staff-job"])
+
+                    ignored_all = client.get("/api/jobs?user_id=all", cookies=employee_cookies)
+                    self.assertEqual(ignored_all.status_code, 200)
+                    self.assertEqual([job["id"] for job in ignored_all.json()], ["staff-job"])
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
+
 
 class StorageAndCredentialTests(unittest.TestCase):
     def test_job_metadata_can_be_pinned_renamed_and_deleted(self) -> None:
@@ -255,7 +519,7 @@ class StorageAndCredentialTests(unittest.TestCase):
             updated = store.update_metadata("metadata-job", title="自定义标题", pinned=True, update_title=True)
             self.assertEqual(updated["title"], "自定义标题")
             self.assertTrue(updated["pinned"])
-            self.assertEqual(store.list_for_user("user-a")[0]["id"], "metadata-job")
+            self.assertEqual(store.list_jobs("user-a")[0]["id"], "metadata-job")
 
             self.assertTrue(store.delete("metadata-job"))
             with self.assertRaises(KeyError):
@@ -294,6 +558,19 @@ class StorageAndCredentialTests(unittest.TestCase):
             updated = store.get("image-job")
             self.assertEqual(updated["status"], JobStatus.PARTIAL.value)
             self.assertEqual(len(updated["outputs"]), 1)
+
+    def test_image_round_failed_item_with_outputs_is_partial(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            job = store.create("image-job", JobMode.GRS_GPT_IMAGE_2, "prompt", "", None, [])
+            item = job["rounds"][0]["generation_items"][0]
+            store.update_generation(
+                item["id"], status=JobStatus.FAILED, error="later overwrite",
+                outputs=[{"kind": "image", "path": "kept.png", "label": "生成图片"}],
+            )
+            updated = store.get("image-job")
+            self.assertEqual(updated["status"], JobStatus.PARTIAL.value)
+            self.assertEqual(updated["outputs"][0]["path"], "kept.png")
 
     def test_credentials_are_encrypted_masked_and_wrong_key_degrades(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

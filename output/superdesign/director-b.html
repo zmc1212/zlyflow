@@ -1,0 +1,332 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1440, height=900">
+    <title>ZLY AI Studio 导演台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', 'Noto Sans SC', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.1);
+            border-radius: 2px;
+        }
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+    <div class="w-[1440px] h-[900px] overflow-hidden relative bg-[#f8f9fa] flex text-[#171a1f] select-none" data-sd-id="1">
+        
+        <!-- Global Sidebar (76px) -->
+        <aside class="w-[76px] h-full bg-white border-r border-[rgba(15,23,42,.08)] flex flex-col items-center py-6 flex-shrink-0 z-50" data-sd-id="2">
+            <div class="w-10 h-10 bg-[#4d6bfe] rounded-lg mb-8 flex items-center justify-center text-white font-bold text-xl" data-sd-id="3">Z</div>
+            <div class="flex flex-col gap-6" data-sd-id="4">
+                <div class="flex flex-col items-center gap-1 opacity-40" data-sd-id="5">
+                    <div class="w-6 h-6 flex items-center justify-center" data-sd-id="6"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-sd-id="7"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg></div>
+                    <span class="text-[10px] scale-90" data-sd-id="8">生成</span>
+                </div>
+                <div class="flex flex-col items-center gap-1 text-[#4d6bfe]" data-sd-id="9">
+                    <div class="w-10 h-10 bg-[#4d6bfe]/10 rounded-xl flex items-center justify-center font-semibold text-lg" data-sd-id="10"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-sd-id="11"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg></div>
+                    <span class="text-[10px] scale-90 font-medium" data-sd-id="12">导演台</span>
+                </div>
+                <div class="flex flex-col items-center gap-1 opacity-40" data-sd-id="13">
+                    <div class="w-6 h-6 flex items-center justify-center" data-sd-id="14"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-sd-id="15"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg></div>
+                    <span class="text-[10px] scale-90" data-sd-id="16">资产</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="flex-1 flex flex-col min-w-0" data-sd-id="17">
+            
+            <!-- Project Top Bar (56px) -->
+            <header class="h-[56px] w-full bg-white border-b border-[rgba(15,23,42,.08)] flex items-center justify-between px-6 z-40" data-sd-id="18">
+                <div class="flex items-center gap-4" data-sd-id="19">
+                    <h1 class="font-semibold text-[15px]" data-sd-id="20">雾港追踪</h1>
+                    <div class="h-4 w-[1px] bg-[rgba(15,23,42,.08)]" data-sd-id="21"></div>
+                    <div class="text-[#65707c] text-xs font-mono tracking-wide" data-sd-id="22">16:9 · 24fps · 15秒</div>
+                </div>
+                <div class="flex items-center gap-3" data-sd-id="23">
+                    <button class="px-3 py-1.5 text-xs font-medium border border-[rgba(15,23,42,.1)] rounded hover:bg-gray-50" data-sd-id="24">AI 拆分剧本</button>
+                    <button class="px-3 py-1.5 text-xs font-medium border border-[rgba(15,23,42,.1)] rounded hover:bg-gray-50" data-sd-id="25">成片预览</button>
+                    <button class="px-3 py-1.5 text-xs font-medium border border-[rgba(15,23,42,.1)] rounded hover:bg-gray-50" data-sd-id="26">导出剪映</button>
+                    <button class="px-4 py-1.5 text-xs font-medium bg-[#4d6bfe] text-white rounded shadow-sm hover:bg-[#3d59e8]" data-sd-id="27">批量接龙生成</button>
+                </div>
+            </header>
+
+            <div class="flex-1 flex overflow-hidden" data-sd-id="28">
+                
+                <!-- Left Shot Bin (208px) -->
+                <nav class="w-[208px] h-full bg-white border-r border-[rgba(15,23,42,.08)] flex flex-col" data-sd-id="29">
+                    <div class="p-3 border-b border-[rgba(15,23,42,.04)]" data-sd-id="30">
+                        <div class="relative" data-sd-id="31">
+                            <input type="text" placeholder="搜索镜头..." class="w-full bg-[#f8f9fa] border-none rounded text-xs py-2 pl-8 outline-none focus:ring-1 ring-[#4d6bfe]/30" data-sd-id="32">
+                            <svg class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#65707c]" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-sd-id="33"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-y-auto custom-scrollbar" data-sd-id="34">
+                        <div class="p-2 flex flex-col gap-1" data-sd-id="35">
+                            <!-- Completed Shot -->
+                            <div class="p-2 rounded-lg group cursor-pointer" data-sd-id="36">
+                                <div class="flex items-center justify-between mb-1.5" data-sd-id="37">
+                                    <span class="text-[11px] font-mono text-[#65707c]" data-sd-id="38">01</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600" data-sd-id="39">已完成</span>
+                                </div>
+                                <div class="w-full aspect-video bg-gray-100 rounded mb-2 overflow-hidden border border-[rgba(15,23,42,.08)]" data-sd-id="40">
+                                    <img src="https://images.unsplash.com/photo-1515462277126-2dd0c162007a?auto=format&amp;fit=crop&amp;q=80&amp;w=200" class="w-full h-full object-cover" alt="Scene 1" data-sd-id="41">
+                                </div>
+                                <div class="text-xs font-medium truncate" data-sd-id="42">雨夜入场</div>
+                            </div>
+                            <!-- Active Shot -->
+                            <div class="p-2 rounded-lg bg-[#4d6bfe]/5 border border-[#4d6bfe]/20 cursor-pointer" data-sd-id="43">
+                                <div class="flex items-center justify-between mb-1.5" data-sd-id="44">
+                                    <span class="text-[11px] font-mono text-[#4d6bfe]" data-sd-id="45">02</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-[#4d6bfe] text-white" data-sd-id="46">生成中 68%</span>
+                                </div>
+                                <div class="w-full aspect-video bg-gray-200 rounded mb-2 overflow-hidden border border-[#4d6bfe]/30 relative" data-sd-id="47">
+                                    <img src="https://images.unsplash.com/photo-1496661415325-ef852f9e8e7c?auto=format&amp;fit=crop&amp;q=80&amp;w=200" class="w-full h-full object-cover blur-[1px] opacity-70" alt="Scene 2" data-sd-id="48">
+                                    <div class="absolute inset-0 flex items-center justify-center" data-sd-id="49">
+                                        <div class="w-8 h-8 rounded-full border-2 border-white border-t-transparent animate-spin" data-sd-id="50"></div>
+                                    </div>
+                                </div>
+                                <div class="text-xs font-semibold text-[#4d6bfe] truncate" data-sd-id="51">巷道追踪</div>
+                            </div>
+                            <!-- Pending Shot -->
+                            <div class="p-2 rounded-lg opacity-60 hover:opacity-100 cursor-pointer transition-opacity" data-sd-id="52">
+                                <div class="flex items-center justify-between mb-1.5" data-sd-id="53">
+                                    <span class="text-[11px] font-mono text-[#65707c]" data-sd-id="54">03</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-[#65707c]" data-sd-id="55">待生成</span>
+                                </div>
+                                <div class="w-full aspect-video bg-gray-50 border border-dashed border-gray-300 rounded mb-2 flex items-center justify-center text-gray-300" data-sd-id="56">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-sd-id="57"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                </div>
+                                <div class="text-xs font-medium truncate" data-sd-id="58">天台对峙</div>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+
+                <!-- Center Preview Area -->
+                <div class="flex-1 flex flex-col bg-[#f8f9fa] overflow-hidden" data-sd-id="59">
+                    <div class="flex-1 p-6 flex flex-col min-h-0" data-sd-id="60">
+                        <div class="flex items-center justify-between mb-4" data-sd-id="61">
+                            <div class="flex items-center gap-2" data-sd-id="62">
+                                <div class="w-2 h-2 rounded-full bg-[#4d6bfe] animate-pulse" data-sd-id="63"></div>
+                                <h2 class="text-sm font-semibold tracking-tight" data-sd-id="64">镜头 02 · 巷道追踪 <span class="text-[#65707c] font-normal ml-2" data-sd-id="65">Take 2</span></h2>
+                            </div>
+                            <div class="flex gap-2" data-sd-id="66">
+                                <button class="w-8 h-8 flex items-center justify-center rounded border border-[rgba(15,23,42,.08)] bg-white text-[#65707c]" data-sd-id="67"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-sd-id="68"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg></button>
+                                <button class="w-8 h-8 flex items-center justify-center rounded border border-[rgba(15,23,42,.08)] bg-white text-[#65707c]" data-sd-id="69"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-sd-id="70"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></button>
+                            </div>
+                        </div>
+
+                        <!-- Cinematic Preview -->
+                        <div class="flex-1 bg-white border border-[rgba(15,23,42,.08)] rounded-xl relative overflow-hidden shadow-lg group" data-sd-id="71">
+                            <img src="https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&amp;fit=crop&amp;q=80&amp;w=1200" class="w-full h-full object-cover opacity-90" alt="雨夜城市巷道" data-sd-id="72">
+                            
+                            <!-- Playback Overlay -->
+                            <div class="absolute bottom-3 left-3 right-3 flex flex-col p-3 bg-white/95 border border-[rgba(15,23,42,.08)] rounded-lg shadow-sm" data-sd-id="73">
+                                <div class="flex items-center justify-between text-[#171a1f] text-[13px] font-mono mb-3" data-sd-id="74">
+                                    <span data-sd-id="75">00:06.8 / 00:10.0</span>
+                                    <span class="text-[#4d6bfe] font-semibold" data-sd-id="76">生成中 68%</span>
+                                </div>
+                                <div class="h-1 w-full bg-slate-200 rounded-full overflow-hidden mb-2" data-sd-id="77">
+                                    <div class="h-full bg-[#56a7ff] w-[68%]" data-sd-id="78"></div>
+                                </div>
+                                <div class="flex items-center justify-center gap-6 text-[#171a1f]" data-sd-id="79">
+                                    <svg class="w-6 h-6 opacity-60" fill="currentColor" viewBox="0 0 24 24" data-sd-id="80"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+                                    <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24" data-sd-id="81"><path d="M8 5v14l11-7z"></path></svg>
+                                    <svg class="w-6 h-6 opacity-60" fill="currentColor" viewBox="0 0 24 24" data-sd-id="82"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"></path></svg>
+                                </div>
+                            </div>
+
+                            <!-- Generation Progress Overlay -->
+                            <div class="absolute top-4 right-4 flex items-center gap-2 bg-white/95 border border-[rgba(15,23,42,.08)] rounded-md px-3 py-2 shadow-sm" data-sd-id="83">
+                                <div class="text-sm font-mono font-bold text-[#4d6bfe]" data-sd-id="84">68<span class="text-xs" data-sd-id="85">%</span></div>
+                                <div class="text-[#65707c] text-[10px]" data-sd-id="86">生成中</div>
+                            </div>
+                        </div>
+
+                        <!-- Context Actions -->
+                        <div class="flex items-center justify-center gap-3 mt-6" data-sd-id="87">
+                            <button class="px-4 py-2 bg-white border border-[rgba(15,23,42,.08)] rounded text-xs font-medium text-[#65707c] hover:bg-gray-50 flex items-center gap-2" data-sd-id="88">
+                                <div class="w-3 h-3 border border-current" data-sd-id="89"></div> 首帧
+                            </button>
+                            <button class="px-4 py-2 bg-white border border-[rgba(15,23,42,.08)] rounded text-xs font-medium text-[#65707c] hover:bg-gray-50 flex items-center gap-2" data-sd-id="90">
+                                <div class="w-3 h-3 border border-current border-t-4" data-sd-id="91"></div> 尾帧
+                            </button>
+                            <div class="h-4 w-[1px] bg-[rgba(15,23,42,.1)] mx-2" data-sd-id="92"></div>
+                            <button class="px-4 py-2 bg-white border border-[rgba(15,23,42,.08)] rounded text-xs font-medium text-[#65707c] hover:bg-gray-50" data-sd-id="93">续接上一镜</button>
+                            <button class="px-4 py-2 bg-white border border-[rgba(15,23,42,.08)] rounded text-xs font-medium text-[#65707c] hover:bg-gray-50" data-sd-id="94">重新生成</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Inspector (336px) -->
+                <aside class="w-[336px] h-full bg-white border-l border-[rgba(15,23,42,.08)] flex flex-col" data-sd-id="95">
+                    <!-- Tabs -->
+                    <div class="flex border-b border-[rgba(15,23,42,.08)]" data-sd-id="96">
+                        <button class="flex-1 py-3 text-xs font-semibold border-b-2 border-[#4d6bfe] text-[#4d6bfe]" data-sd-id="97">镜头</button>
+                        <button class="flex-1 py-3 text-xs font-medium text-[#65707c] opacity-60" data-sd-id="98">主体</button>
+                        <button class="flex-1 py-3 text-xs font-medium text-[#65707c] opacity-60" data-sd-id="99">运行</button>
+                    </div>
+                    
+                    <div class="flex-1 overflow-y-auto custom-scrollbar p-5 flex flex-col gap-6" data-sd-id="100">
+                        <!-- Duration -->
+                        <section data-sd-id="101">
+                            <label class="text-[10px] font-bold text-[#65707c] mb-2 block tracking-wider" data-sd-id="102">镜头时长</label>
+                            <div class="flex items-center gap-2" data-sd-id="103">
+                                <input type="text" value="5" class="w-16 bg-[#f8f9fa] border-none rounded text-sm py-2 px-3 text-center font-mono focus:ring-1 ring-[#4d6bfe]/30" data-sd-id="104">
+                                <span class="text-xs text-[#65707c]" data-sd-id="105">秒（124 帧）</span>
+                            </div>
+                        </section>
+
+                        <!-- Prompt -->
+                        <section data-sd-id="106">
+                            <label class="text-[10px] font-bold text-[#65707c] mb-2 block tracking-wider" data-sd-id="107">镜头提示词</label>
+                            <div class="bg-[#f8f9fa] rounded-lg p-3 text-sm leading-relaxed border border-[rgba(15,23,42,.04)]" data-sd-id="108">
+                                林默冲出雨幕，黑色轿车从巷口急转，镜头低机位跟拍并缓慢前推。
+                                <div class="mt-3 flex flex-wrap gap-2" data-sd-id="109">
+                                    <span class="px-2 py-0.5 bg-[#4d6bfe]/10 text-[#4d6bfe] text-[11px] rounded border border-[#4d6bfe]/20" data-sd-id="110">@ref1 林默</span>
+                                    <span class="px-2 py-0.5 bg-[#4d6bfe]/10 text-[#4d6bfe] text-[11px] rounded border border-[#4d6bfe]/20" data-sd-id="111">@ref2 黑色轿车</span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Camera Settings -->
+                        <section data-sd-id="112">
+                            <label class="text-[10px] font-bold text-[#65707c] uppercase mb-2 block tracking-wider" data-sd-id="113">摄影机参数</label>
+                            <div class="flex flex-wrap gap-2" data-sd-id="114">
+                                <span class="px-2 py-1 bg-gray-100 text-[#171a1f] text-[11px] rounded" data-sd-id="115">中景</span>
+                                <span class="px-2 py-1 bg-gray-100 text-[#171a1f] text-[11px] rounded" data-sd-id="116">跟拍</span>
+                                <span class="px-2 py-1 bg-gray-100 text-[#171a1f] text-[11px] rounded" data-sd-id="117">低机位</span>
+                                <span class="px-2 py-1 bg-gray-100 text-[#171a1f] text-[11px] rounded" data-sd-id="118">电影柔光</span>
+                            </div>
+                        </section>
+
+                        <!-- Compile Status -->
+                        <section class="mt-auto" data-sd-id="119">
+                            <div class="bg-emerald-50 border border-emerald-100 rounded-lg p-3 mb-4 flex items-center justify-between" data-sd-id="120">
+                                <div class="flex items-center gap-2" data-sd-id="121">
+                                    <span class="text-[10px] font-mono font-bold text-emerald-600" data-sd-id="122">R2V · &lt;Picture 1–3&gt;</span>
+                                    <div class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" data-sd-id="123"></div>
+                                    <span class="text-[11px] text-emerald-800" data-sd-id="124">镜头校验通过</span>
+                                </div>
+                                <span class="text-[10px] text-emerald-600" data-sd-id="125">无错误</span>
+                            </div>
+                            <button class="w-full py-3.5 bg-[#4d6bfe] text-white rounded-xl font-semibold shadow-lg shadow-[#4d6bfe]/20 flex items-center justify-center gap-2 hover:bg-[#3d59e8] transition-all" data-sd-id="126">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" data-sd-id="127"><path d="M8 5v14l11-7z"></path></svg>
+                                生成本镜
+                            </button>
+                        </section>
+                    </div>
+                </aside>
+            </div>
+
+            <!-- Timeline (285px) -->
+            <section class="h-[285px] w-full bg-white border-t border-[rgba(15,23,42,.08)] flex flex-col" data-sd-id="128">
+                <!-- Timeline Ruler -->
+                <div class="h-8 border-b border-[rgba(15,23,42,.04)] relative" data-sd-id="129">
+                    <div class="absolute inset-0 flex px-[208px]" data-sd-id="130">
+                         <div class="flex-1 relative" data-sd-id="131">
+                            <!-- Ruler Marks -->
+                            <div class="absolute top-0 left-0 w-full h-full flex justify-between px-2" data-sd-id="132">
+                                <div class="flex flex-col items-center" data-sd-id="133"><div class="w-[1px] h-2 bg-gray-300" data-sd-id="134"></div><span class="text-[9px] font-mono text-[#65707c] mt-0.5" data-sd-id="135">0s</span></div>
+                                <div class="flex flex-col items-center" data-sd-id="136"><div class="w-[1px] h-2 bg-gray-300" data-sd-id="137"></div><span class="text-[9px] font-mono text-[#65707c] mt-0.5" data-sd-id="138">5s</span></div>
+                                <div class="flex flex-col items-center" data-sd-id="139"><div class="w-[1px] h-2 bg-gray-300" data-sd-id="140"></div><span class="text-[9px] font-mono text-[#65707c] mt-0.5" data-sd-id="141">10s</span></div>
+                                <div class="flex flex-col items-center" data-sd-id="142"><div class="w-[1px] h-2 bg-gray-300" data-sd-id="143"></div><span class="text-[9px] font-mono text-[#65707c] mt-0.5" data-sd-id="144">15s</span></div>
+                            </div>
+                            <!-- Playhead -->
+                            <div class="absolute top-0 bottom-0 left-[45.3%] w-[2px] bg-red-500 z-30" data-sd-id="145">
+                                <div class="absolute -top-1.5 -left-[5px] w-3 h-3 bg-red-500 rounded-full border-2 border-white" data-sd-id="146"></div>
+                            </div>
+                         </div>
+                    </div>
+                    <div class="absolute right-6 top-1.5 flex items-center gap-4" data-sd-id="147">
+                        <div class="flex items-center gap-2 bg-[#f8f9fa] px-2 py-0.5 rounded text-[10px] text-[#65707c] border border-[rgba(15,23,42,.04)]" data-sd-id="148">
+                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" data-sd-id="149"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"></path><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"></path></svg>
+                            吸附开启
+                        </div>
+                        <div class="flex items-center gap-1 opacity-60" data-sd-id="150">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-sd-id="151"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            <input type="range" class="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer" data-sd-id="152">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timeline Tracks -->
+                <div class="flex-1 overflow-y-auto custom-scrollbar flex" data-sd-id="153">
+                    <!-- Track Labels -->
+                    <div class="w-[208px] bg-white border-r border-[rgba(15,23,42,.04)] flex flex-col" data-sd-id="154">
+                        <div class="h-12 flex items-center px-4 text-[10px] font-bold text-[#65707c] uppercase tracking-tighter" data-sd-id="155">视频镜头</div>
+                        <div class="h-10 flex items-center px-4 text-[10px] font-bold text-[#65707c] uppercase tracking-tighter" data-sd-id="156">主体参考</div>
+                        <div class="h-10 flex items-center px-4 text-[10px] font-bold text-[#65707c] uppercase tracking-tighter" data-sd-id="157">首尾帧</div>
+                        <div class="h-10 flex items-center px-4 text-[10px] font-bold text-[#65707c] uppercase tracking-tighter" data-sd-id="158">生成状态</div>
+                    </div>
+                    
+                    <!-- Track Data Area -->
+                    <div class="flex-1 relative" data-sd-id="159">
+                        <!-- Clip Container -->
+                        <div class="flex p-2 gap-0 relative" data-sd-id="160">
+                            <!-- Clip 01 -->
+                            <div class="w-1/3 h-[180px] pr-0.5" data-sd-id="161">
+                                <div class="h-8 bg-emerald-500/10 border border-emerald-500/20 rounded flex items-center px-2 mb-2" data-sd-id="162">
+                                    <span class="text-[10px] text-emerald-700 font-medium truncate" data-sd-id="163">镜头 01 · 角色入场</span>
+                                </div>
+                                <div class="h-6 bg-[#4d6bfe]/10 border-x border-[#4d6bfe]/30 mx-4 mb-4 flex items-center justify-center" data-sd-id="164">
+                                    <span class="text-[9px] text-[#4d6bfe] font-bold" data-sd-id="165">@ref1 林默</span>
+                                </div>
+                                <div class="h-6 flex justify-between px-4 mb-4" data-sd-id="166">
+                                    <div class="w-5 h-5 bg-white border border-[rgba(15,23,42,.1)] rounded rotate-45" data-sd-id="167"></div>
+                                    <div class="w-5 h-5 bg-white border border-[rgba(15,23,42,.1)] rounded rotate-45" data-sd-id="168"></div>
+                                </div>
+                                <div class="h-6 bg-emerald-50 border border-emerald-100 rounded text-[9px] flex items-center justify-center text-emerald-600 font-mono" data-sd-id="169">已完成 100%</div>
+                            </div>
+                            <!-- Clip 02 -->
+                            <div class="w-1/3 h-[180px] pr-0.5" data-sd-id="170">
+                                <div class="h-8 bg-[#4d6bfe] border border-[#4d6bfe] rounded flex items-center px-2 mb-2 shadow-inner" data-sd-id="171">
+                                    <span class="text-[10px] text-white font-medium truncate" data-sd-id="172">镜头 02 · 巷道追踪</span>
+                                </div>
+                                <div class="h-6 bg-[#4d6bfe]/20 border-x border-[#4d6bfe]/50 mx-4 mb-4 flex items-center justify-center" data-sd-id="173">
+                                    <span class="text-[9px] text-[#4d6bfe] font-bold" data-sd-id="174">@ref1 林默 + @ref2 黑色轿车</span>
+                                </div>
+                                <div class="h-6 flex justify-between px-4 mb-4" data-sd-id="175">
+                                    <div class="w-5 h-5 bg-[#4d6bfe] border border-white rounded rotate-45 flex items-center justify-center" data-sd-id="176"><div class="w-1 h-1 bg-white rounded-full" data-sd-id="177"></div></div>
+                                    <div class="w-5 h-5 bg-white border border-[rgba(15,23,42,.1)] rounded rotate-45" data-sd-id="178"></div>
+                                </div>
+                                <div class="h-6 bg-[#4d6bfe]/10 border border-[#4d6bfe]/30 rounded overflow-hidden" data-sd-id="179">
+                                    <div class="h-full bg-[#4d6bfe] w-[68%] flex items-center justify-center" data-sd-id="180">
+                                        <span class="text-[9px] text-white font-mono whitespace-nowrap" data-sd-id="181">生成中 68%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Clip 03 -->
+                            <div class="w-1/3 h-[180px] opacity-40" data-sd-id="182">
+                                <div class="h-8 bg-gray-100 border border-dashed border-gray-300 rounded flex items-center px-2 mb-2" data-sd-id="183">
+                                    <span class="text-[10px] text-gray-500 font-medium truncate" data-sd-id="184">镜头 03 · 天台对峙</span>
+                                </div>
+                                <div class="h-6 bg-gray-50 border-x border-gray-200 mx-4 mb-4" data-sd-id="185"></div>
+                                <div class="h-6 flex justify-between px-4 mb-4" data-sd-id="186">
+                                    <div class="w-5 h-5 bg-gray-50 border border-gray-200 rounded rotate-45" data-sd-id="187"></div>
+                                    <div class="w-5 h-5 bg-gray-50 border border-gray-200 rounded rotate-45" data-sd-id="188"></div>
+                                </div>
+                                <div class="h-6 bg-gray-50 border border-gray-200 rounded text-[9px] flex items-center justify-center text-gray-400 font-mono" data-sd-id="189">排队中</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+</body></html>
