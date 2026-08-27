@@ -26,6 +26,15 @@ from .auth import AuthStore, SESSION_HOURS, csrf_token
 from .comfy_provider import ComfyProviderError, ComfyProviderService
 from .comfy_service import ComfyService
 from .config import settings
+from .director_catalog import art_style_catalog_payload, art_style_ref_for_recipe, find_art_style
+from .director_jobs import (
+    generate_recipe_assets, render_batch_items, render_recipe_shots,
+    sync_batch_items, sync_recipe_asset_images,
+)
+from .director_recipe import (
+    DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_RECIPE, empty_batch_payload,
+    empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload, payload_kind,
+)
 from .grs_provider import GrsProviderService
 from .llm_client import LlmError, LlmTemporaryError
 from .llm_provider import LlmProviderService
@@ -42,6 +51,8 @@ from .models import (
     ScriptSplitRequest, ScriptSplitResponse,
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
     DirectorProjectResponse, DirectorProjectMigrateRequest, DirectorProjectMigrateResponse,
+    DirectorArtStyleCatalogResponse, DirectorRecipeRunRequest, DirectorRecipeStepRequest,
+    DirectorGenerateAssetsRequest, DirectorRenderShotsRequest, DirectorBatchCreateRequest,
 )
 
 from .qiniu_provider import QiniuProviderService
@@ -568,7 +579,7 @@ app = FastAPI(
         {"name": "作品库", "description": "已生成媒体的列表与文件访问。"},
         {"name": "创作台", "description": "创作页面需要的供应商状态与余额快照。"},
         {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
-        {"name": "导演台", "description": "员工隔离的导演工程库、剧本文档与时间轴 payload。"},
+        {"name": "导演台", "description": "员工隔离的导演工程库：Recipe 双引擎、画风目录、9 Agent 流水线与批量短视频。"},
     ],
     lifespan=lifespan,
 )
@@ -1240,6 +1251,17 @@ async def split_script_endpoint(
 
 
 @app.get(
+    "/api/director/art-styles",
+    response_model=DirectorArtStyleCatalogResponse,
+    tags=["导演台"],
+    summary="读取 34 条画风目录",
+)
+def list_director_art_styles(user: Annotated[dict, Depends(current_user)]) -> dict:
+    del user
+    return art_style_catalog_payload()
+
+
+@app.get(
     "/api/director/projects",
     response_model=list[DirectorProjectListItem],
     tags=["导演台"],
@@ -1280,6 +1302,8 @@ def create_director_project(
             created_at=payload.created_at,
             updated_at=payload.updated_at,
         )
+    except DirectorPayloadError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     app.state.auth_store.audit(
@@ -1335,7 +1359,15 @@ def migrate_director_projects(
     summary="读取导演工程（含原文与时间轴）",
 )
 def get_director_project(project_id: str, user: Annotated[dict, Depends(current_user)]) -> dict:
-    return public_director_project(director_project_or_404(app.state.store, project_id, user))
+    record = director_project_or_404(app.state.store, project_id, user)
+    kind = payload_kind(record.get("payload"))
+    if kind == PAYLOAD_KIND_RECIPE:
+        record = dict(record)
+        record["payload"] = sync_recipe_asset_images(app.state.store, record["payload"])
+    elif kind == PAYLOAD_KIND_BATCH:
+        record = dict(record)
+        record["payload"] = sync_batch_items(app.state.store, record["payload"])
+    return public_director_project(record)
 
 
 @app.put(
@@ -1353,17 +1385,20 @@ def update_director_project(
     title = payload.title.strip() if payload.title is not None else None
     if title is not None and not title:
         raise HTTPException(status_code=422, detail="请填写工程标题")
-    updated = app.state.store.update_director_project(
-        project_id,
-        title=title,
-        summary=payload.summary,
-        source_script=payload.source_script,
-        style_vibe=payload.style_vibe,
-        requested_shot_count=payload.requested_shot_count,
-        payload=payload.payload,
-        update_style_vibe="style_vibe" in payload.model_fields_set,
-        update_requested_shot_count="requested_shot_count" in payload.model_fields_set,
-    )
+    try:
+        updated = app.state.store.update_director_project(
+            project_id,
+            title=title,
+            summary=payload.summary,
+            source_script=payload.source_script,
+            style_vibe=payload.style_vibe,
+            requested_shot_count=payload.requested_shot_count,
+            payload=payload.payload,
+            update_style_vibe="style_vibe" in payload.model_fields_set,
+            update_requested_shot_count="requested_shot_count" in payload.model_fields_set,
+        )
+    except DirectorPayloadError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return public_director_project(updated)
 
 
@@ -1410,6 +1445,300 @@ def copy_director_project(
         ip_address=client_ip(request),
     )
     return public_director_project(copied)
+
+
+@app.post(
+    "/api/director/projects/{project_id}/convert-to-recipe",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="将旧时间轴工程转为 Recipe",
+)
+def convert_director_project_to_recipe(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    director_project_or_404(app.state.store, project_id, user)
+    try:
+        converted = app.state.store.convert_director_project_to_recipe(project_id)
+    except DirectorPayloadError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "convert_director_project_to_recipe", "director", actor_user_id=user["id"], target_id=project_id,
+        ip_address=client_ip(request),
+    )
+    return public_director_project(converted)
+
+
+def _persist_director_recipe(project_id: str, recipe: dict[str, Any], *, source_script: str | None = None) -> dict:
+    title = (recipe.get("script") or {}).get("title") or None
+    summary = (recipe.get("script") or {}).get("summary") or None
+    return app.state.store.update_director_project(
+        project_id,
+        title=title,
+        summary=summary,
+        source_script=source_script,
+        payload=recipe,
+    )
+
+
+async def _enqueue_job_ids(job_ids: list[str]) -> None:
+    for job_id in job_ids:
+        await app.state.worker.enqueue(job_id)
+
+
+@app.post(
+    "/api/director/recipes/run",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="启动导演 9 Agent 流水线",
+)
+async def run_director_recipe(
+    payload: DirectorRecipeRunRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    available, reason = app.state.llm_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+    goal = payload.goal.strip()
+    if payload.art_style_id and find_art_style(payload.art_style_id) is None:
+        raise HTTPException(status_code=422, detail="画风必须选自目录")
+    if payload.project_id:
+        record = director_project_or_404(app.state.store, payload.project_id, user)
+        if payload_kind(record.get("payload")) == PAYLOAD_KIND_BATCH:
+            raise HTTPException(status_code=422, detail="批量工程不能跑导演流水线")
+        recipe = record.get("payload") or empty_recipe_payload()
+        if payload_kind(recipe) != PAYLOAD_KIND_RECIPE:
+            recipe = empty_recipe_payload(title=payload.title or record["title"], full_story=goal)
+        project_id = record["id"]
+    else:
+        title = (payload.title or goal[:24] or "未命名导演工程").strip()
+        created = app.state.store.create_director_project(
+            user["id"],
+            title,
+            summary="",
+            source_script=goal,
+            payload=empty_recipe_payload(title=title, full_story=goal),
+        )
+        recipe = created["payload"]
+        project_id = created["id"]
+
+    def persist(current: dict) -> None:
+        _persist_director_recipe(project_id, current, source_script=goal)
+
+    persist(recipe)
+    try:
+        updated = await asyncio.to_thread(
+            app.state.llm_provider.run_director_recipe,
+            recipe,
+            goal=goal,
+            art_style_id=payload.art_style_id,
+            skip_research=payload.skip_research,
+            on_progress=persist,
+        )
+    except LlmError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except DirectorPayloadError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    saved = _persist_director_recipe(project_id, updated, source_script=goal)
+    app.state.auth_store.audit(
+        "run_director_recipe", "director", actor_user_id=user["id"], target_id=project_id,
+        ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/step",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="重跑单个导演 Agent",
+)
+async def run_director_recipe_step(
+    project_id: str,
+    payload: DirectorRecipeStepRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以单步重跑")
+    available, reason = app.state.llm_provider.availability()
+    if not available and payload.agent_id != "media":
+        raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+    goal = (payload.goal or record.get("source_script") or (record.get("payload") or {}).get("script", {}).get("fullStory") or record["title"]).strip()
+    try:
+        if payload.agent_id == "media":
+            from .director_agents import run_agent
+            updated = run_agent("media", record["payload"], goal=goal, chat_fn=None, art_style_id=payload.art_style_id)
+        else:
+            updated = await asyncio.to_thread(
+                app.state.llm_provider.run_director_agent_step,
+                record["payload"],
+                goal=goal,
+                agent_id=payload.agent_id,
+                art_style_id=payload.art_style_id,
+                skip_research=payload.skip_research,
+            )
+    except LlmError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except (DirectorPayloadError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    saved = _persist_director_recipe(project_id, updated, source_script=record.get("source_script"))
+    app.state.auth_store.audit(
+        "run_director_recipe_step", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=payload.agent_id, ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/generate-assets",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="为角色与场景提交 GRS 定妆图",
+)
+async def generate_director_recipe_assets(
+    project_id: str,
+    payload: DirectorGenerateAssetsRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以生成定妆")
+    try:
+        recipe, job_ids = generate_recipe_assets(
+            app.state.store,
+            app.state.grs_provider,
+            owner_user_id=user["id"],
+            recipe=record["payload"],
+            character_ids=payload.character_ids,
+            location_ids=payload.location_ids,
+            force=payload.force,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    saved = _persist_director_recipe(project_id, recipe)
+    await _enqueue_job_ids(job_ids)
+    app.state.auth_store.audit(
+        "generate_director_assets", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"jobs={len(job_ids)}", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/render-shots",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="按镜提交 MiniMax H3 视频任务",
+)
+async def render_director_recipe_shots(
+    project_id: str,
+    payload: DirectorRenderShotsRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以提交分镜")
+    try:
+        recipe, job_ids = render_recipe_shots(
+            app.state.store,
+            owner_user_id=user["id"],
+            recipe=record["payload"],
+            shot_ids=payload.shot_ids,
+            render_pass=payload.render_pass,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    saved = _persist_director_recipe(project_id, recipe)
+    await _enqueue_job_ids(job_ids)
+    app.state.auth_store.audit(
+        "render_director_shots", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"jobs={len(job_ids)}", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/batches",
+    response_model=DirectorProjectResponse,
+    status_code=201,
+    tags=["导演台"],
+    summary="短视频批量：主题裂变并排队 H3 文生",
+)
+async def create_director_batch(
+    payload: DirectorBatchCreateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    available, reason = app.state.llm_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+    art_style = None
+    if payload.art_style_id:
+        found = find_art_style(payload.art_style_id)
+        if found is None:
+            raise HTTPException(status_code=422, detail="画风必须选自目录")
+        art_style = art_style_ref_for_recipe(found)
+    try:
+        scripts = await asyncio.to_thread(
+            app.state.llm_provider.fission_batch_scripts,
+            theme=payload.theme.strip(),
+            count=payload.count,
+            duration_sec=payload.duration_sec,
+            aspect_ratio=payload.aspect_ratio,
+            art_style=art_style,
+        )
+    except LlmError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    batch = empty_batch_payload(
+        theme=payload.theme.strip(),
+        count=payload.count,
+        aspect_ratio=payload.aspect_ratio,
+        duration_sec=payload.duration_sec,
+    )
+    batch["artStyle"] = art_style
+    batch["items"] = [
+        {"title": item["title"], "script": item["script"], "status": "idle"}
+        for item in scripts
+    ]
+    title = (payload.title or payload.theme.strip()[:24] or "批量短视频").strip()
+    if payload.project_id:
+        record = director_project_or_404(app.state.store, payload.project_id, user)
+        saved = app.state.store.update_director_project(
+            record["id"],
+            title=title,
+            summary=payload.theme.strip(),
+            source_script=payload.theme.strip(),
+            payload=batch,
+        )
+    else:
+        saved = app.state.store.create_director_project(
+            user["id"],
+            title,
+            summary=payload.theme.strip(),
+            source_script=payload.theme.strip(),
+            payload=batch,
+        )
+    try:
+        updated_payload, job_ids = render_batch_items(
+            app.state.store,
+            owner_user_id=user["id"],
+            payload=saved["payload"],
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    saved = app.state.store.update_director_project(saved["id"], payload=updated_payload)
+    await _enqueue_job_ids(job_ids)
+    app.state.auth_store.audit(
+        "create_director_batch", "director", actor_user_id=user["id"], target_id=saved["id"],
+        detail=f"count={payload.count}", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
 
 
 @app.post(

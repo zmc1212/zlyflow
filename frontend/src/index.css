@@ -1036,3 +1036,116 @@
 @media (prefers-reduced-motion: reduce) {
   .studio-light *, .studio-light *::before, .studio-light *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+.director-engine-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 20px 24px 8px;
+}
+.director-engine-card {
+  display: grid;
+  gap: 8px;
+  min-height: 148px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 16px;
+  background: #fff;
+  padding: 20px 22px;
+  text-align: left;
+  color: #111827;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  cursor: pointer;
+}
+.director-engine-card:hover { border-color: rgba(77, 107, 254, .35); box-shadow: 0 8px 24px rgba(77, 107, 254, .08); }
+.director-engine-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 12px;
+  background: #eef1ff;
+  color: #4d6bfe;
+}
+.director-engine-icon.is-batch { background: #f3e8ff; color: #7c3aed; }
+.director-engine-card strong { font-size: 18px; font-weight: 650; }
+.director-engine-card span { color: #4b5563; font-size: 13px; line-height: 1.55; }
+.director-recipe-shell {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  flex-direction: column;
+  background: #f8f9fa;
+  color: #111827;
+}
+.director-recipe-layout, .director-batch-layout {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 0;
+}
+.director-recipe-rail {
+  overflow: auto;
+  border-right: 1px solid rgba(15, 23, 42, .08);
+  background: #fff;
+  padding: 16px 18px 24px;
+}
+.director-recipe-rail h5 { color: #111827; }
+.director-agent-progress { margin: 14px 0 8px; color: #4b5563; font-size: 12px; }
+.director-agent-list { margin: 0; padding: 0; list-style: none; }
+.director-agent-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(15, 23, 42, .06);
+  padding: 4px 0;
+}
+.director-recipe-main { overflow: auto; padding: 12px 20px 28px; }
+.director-recipe-form, .director-asset-section, .director-shot-section { display: grid; gap: 12px; }
+.director-section-head { display: flex; align-items: center; justify-content: space-between; }
+.director-section-head h5 { margin: 0; color: #111827; }
+.director-style-grid, .director-asset-grid, .director-shot-wall, .director-batch-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.director-style-card {
+  display: grid;
+  gap: 4px;
+  min-height: 108px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  text-align: left;
+  color: #111827;
+  cursor: pointer;
+}
+.director-style-card.is-active, .director-style-card:hover { border-color: #4d6bfe; }
+.director-style-card span, .director-style-card em { color: #6b7280; font-size: 12px; font-style: normal; }
+.director-asset-card .ant-card-body, .director-shot-card .ant-card-body { display: grid; gap: 8px; }
+.director-asset-cover, .director-shot-video { width: 100%; height: 140px; object-fit: cover; background: #f3f4f6; }
+.director-asset-placeholder {
+  display: grid;
+  height: 140px;
+  place-items: center;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 13px;
+}
+.director-shot-desc, .director-shot-dialogue { margin: 0; color: #374151; font-size: 13px; line-height: 1.5; }
+.director-shot-dialogue { color: #111827; }
+.director-shot-meta { display: flex; flex-wrap: wrap; gap: 8px; color: #6b7280; font-size: 12px; }
+.director-batch-form { margin: 16px; }
+.director-batch-form .ant-card-body { display: grid; gap: 12px; }
+.director-batch-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.director-batch-fields label { display: grid; gap: 6px; color: #1f2937; font-size: 13px; }
+.director-batch-list { padding: 16px 16px 28px 0; }
+
+@media (max-width: 900px) {
+  .director-engine-grid, .director-recipe-layout, .director-batch-layout, .director-batch-fields {
+    grid-template-columns: 1fr;
+  }
+  .director-recipe-rail { border-right: 0; border-bottom: 1px solid rgba(15, 23, 42, .08); }
+}

@@ -400,3 +400,137 @@ def resolve_clip_submission(project: dict[str, Any], render_pass: str = "final")
         "errors": list(compiled.get("errors") or []),
         "warnings": list(compiled.get("warnings") or []),
     }
+
+
+def iter_recipe_shots(recipe: dict[str, Any] | None):
+    raw = recipe if isinstance(recipe, dict) else {}
+    for scene in raw.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        nested = scene.get("shots")
+        if isinstance(nested, list) and nested:
+            for shot in nested:
+                if isinstance(shot, dict):
+                    yield scene, shot
+        else:
+            yield scene, scene
+
+
+def recipe_style_prefix(recipe: dict[str, Any] | None) -> str:
+    art = _get(recipe, "artStyle", "art_style", default={}) if recipe else {}
+    if not isinstance(art, dict):
+        return ""
+    return str(art.get("promptPrefix") or art.get("prompt_prefix") or "").strip()
+
+
+def _asset_has_plate(asset: dict[str, Any] | None) -> bool:
+    if not isinstance(asset, dict):
+        return False
+    return bool(
+        _get(asset, "imageUrl", "image_url")
+        or _get(asset, "imageJobId", "image_job_id")
+        or _get(asset, "previewUrl", "preview_url")
+        or _get(asset, "file", "hasImage")
+    )
+
+
+def recipe_assets_as_slots(recipe: dict[str, Any], shot: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Pack character/location plates used by a shot into ≤9 H3 subject slots."""
+    recipe = recipe if isinstance(recipe, dict) else {}
+    shot = shot if isinstance(shot, dict) else {}
+    characters = [item for item in (recipe.get("characters") or []) if isinstance(item, dict)]
+    locations = [item for item in (recipe.get("locations") or []) if isinstance(item, dict)]
+    named = {str(name).strip() for name in (shot.get("characterNames") or shot.get("character_names") or []) if str(name).strip()}
+    location_name = str(_get(shot, "locationName", "location_name", default="") or "").strip()
+
+    selected_chars = [item for item in characters if _asset_has_plate(item)]
+    if named:
+        selected_chars = [
+            item for item in selected_chars
+            if str(item.get("name") or "").strip() in named
+        ]
+        if not selected_chars:
+            selected_chars = [item for item in characters if str(item.get("name") or "").strip() in named and _asset_has_plate(item)]
+
+    selected_locs: list[dict[str, Any]] = []
+    if location_name:
+        selected_locs = [
+            item for item in locations
+            if str(item.get("name") or "").strip() == location_name and _asset_has_plate(item)
+        ]
+    if not selected_locs:
+        selected_locs = [item for item in locations if _asset_has_plate(item)]
+
+    combined = selected_chars + selected_locs
+    if not combined:
+        combined = [item for item in characters + locations if _asset_has_plate(item)]
+
+    slots: list[dict[str, Any]] = []
+    for index, asset in enumerate(combined[:H3_MAX_REFERENCE_IMAGES]):
+        is_location = asset in locations or str(asset.get("type") or "") in {"location", "scene"}
+        slots.append({
+            "id": f"@ref{index + 1}",
+            "slotIndex": index + 1,
+            "name": str(asset.get("name") or f"主体 {index + 1}"),
+            "kind": "scene" if is_location else ("prop" if str(asset.get("type") or "") == "object" else "character"),
+            "retention": "fully_preserved",
+            "description": str(asset.get("promptText") or asset.get("prompt_text") or asset.get("description") or "").strip(),
+            "previewUrl": _get(asset, "imageUrl", "image_url", "previewUrl"),
+            "imageJobId": _get(asset, "imageJobId", "image_job_id"),
+            "hasImage": True,
+            "file": True,
+        })
+    return slots
+
+
+def recipe_shot_as_timeline_shot(recipe: dict[str, Any], shot: dict[str, Any]) -> dict[str, Any]:
+    prefix = recipe_style_prefix(recipe)
+    description = str(_get(shot, "description", "prompt", default="") or "").strip()
+    visual = f"{prefix}. {description}".strip(". ").strip() if prefix else description
+    timeline_shot = {
+        "id": shot.get("id"),
+        "title": shot.get("title"),
+        "prompt": visual or description,
+        "dialogue": _get(shot, "dialogue", default="") or "",
+        "durationSec": snap_h3_duration_sec(_get(shot, "durationSec", "duration_sec", default=5)),
+        "soundscape": _get(shot, "soundscape", default="") or _get(recipe, "globalSoundscape", "global_soundscape", default=""),
+        "camera": _get(shot, "camera", default={}) or {},
+    }
+    return timeline_shot
+
+
+def recipe_as_timeline_project(recipe: dict[str, Any], shot: dict[str, Any]) -> dict[str, Any]:
+    slots = recipe_assets_as_slots(recipe, shot)
+    timeline_shot = recipe_shot_as_timeline_shot(recipe, shot)
+    return {
+        "aspectRatio": _get(recipe, "aspectRatio", "aspect_ratio", default="16:9") or "16:9",
+        "canvasTier": _get(recipe, "canvasTier", "canvas_tier", default="native"),
+        "previewQuality": _get(recipe, "previewQuality", "preview_quality"),
+        "previewSpeed": _get(recipe, "previewSpeed", "preview_speed"),
+        "finalQuality": _get(recipe, "finalQuality", "final_quality"),
+        "finalSpeed": _get(recipe, "finalSpeed", "final_speed"),
+        "refsMode": "refs_on" if slots else "refs_off",
+        "subjectSlots": slots,
+        "shots": [timeline_shot],
+        "globalSoundscape": _get(recipe, "globalSoundscape", "global_soundscape", default=""),
+        "globalMusic": _get(recipe, "globalMusic", "global_music", default=""),
+        "manualPromptOverrideEnabled": _get(recipe, "manualPromptOverrideEnabled", "manual_prompt_override_enabled"),
+        "manualPromptOverrideText": _get(recipe, "manualPromptOverrideText", "manual_prompt_override_text", default=""),
+    }
+
+
+def resolve_recipe_shot_submission(
+    recipe: dict[str, Any],
+    shot: dict[str, Any],
+    render_pass: str = "final",
+) -> dict[str, Any]:
+    project = recipe_as_timeline_project(recipe, shot)
+    return resolve_shot_submission(project, project["shots"][0], render_pass)
+
+
+def compile_recipe_media(recipe: dict[str, Any]) -> dict[str, Any]:
+    """Write compiled H3 prompts onto each shot. Used by the media agent."""
+    for _scene, shot in iter_recipe_shots(recipe):
+        submission = resolve_recipe_shot_submission(recipe, shot)
+        shot["compiledPrompt"] = submission.get("prompt") or ""
+    return recipe

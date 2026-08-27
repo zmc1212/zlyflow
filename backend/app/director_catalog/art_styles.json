@@ -1,0 +1,322 @@
+{
+  "source": "seme-org/open-director prisma/migrations/20260503000000_init/migration.sql",
+  "categories": [
+    {"id": "cinematic", "name_zh": "电影感", "name_en": "Cinematic"},
+    {"id": "commercial", "name_zh": "商业", "name_en": "Commercial"},
+    {"id": "futuristic", "name_zh": "未来感", "name_en": "Futuristic"},
+    {"id": "retro", "name_zh": "复古", "name_en": "Retro"},
+    {"id": "anime", "name_zh": "动漫", "name_en": "Anime"},
+    {"id": "3d", "name_zh": "3D", "name_en": "3D"},
+    {"id": "illustration", "name_zh": "插画", "name_en": "Illustration"},
+    {"id": "realistic", "name_zh": "写实", "name_en": "Realistic"},
+    {"id": "experimental", "name_zh": "实验性", "name_en": "Experimental"}
+  ],
+  "styles": [
+    {
+      "id": "as_1001",
+      "name_zh": "史诗叙事电影",
+      "name_en": "Epic Narrative Cinema",
+      "category": "cinematic",
+      "description": "宏大电影视觉，戏剧光影与情感叙事。",
+      "promptPrefix": "epic cinematic scene, dramatic lighting, rich atmosphere, film-grade composition, emotional visual storytelling",
+      "keywords": ["cinematic", "epic", "film", "dramatic"]
+    },
+    {
+      "id": "as_1002",
+      "name_zh": "奢侈产品视觉",
+      "name_en": "Luxury Product Visual",
+      "category": "commercial",
+      "description": "精致影棚光下的高端产品摄影。",
+      "promptPrefix": "luxury product photography, premium studio lighting, elegant composition, high-end commercial look, clean background",
+      "keywords": ["luxury", "product", "studio", "premium"]
+    },
+    {
+      "id": "as_1003",
+      "name_zh": "未来霓虹黑色",
+      "name_en": "Futuristic Neon Noir",
+      "category": "futuristic",
+      "description": "霓虹与赛博氛围的暗色未来都市。",
+      "promptPrefix": "futuristic neon noir, glowing city lights, cyber atmosphere, dark cinematic shadows, high contrast",
+      "keywords": ["neon", "future", "cyber", "noir"]
+    },
+    {
+      "id": "as_1004",
+      "name_zh": "胶片记忆画幅",
+      "name_en": "Analog Memory Frame",
+      "category": "retro",
+      "description": "温暖怀旧胶片质感与模拟色调。",
+      "promptPrefix": "analog film aesthetic, warm vintage tones, subtle grain, nostalgic memory-like atmosphere, soft imperfections",
+      "keywords": ["analog", "vintage", "film", "nostalgia"]
+    },
+    {
+      "id": "as_1005",
+      "name_zh": "单色张力",
+      "name_en": "Monochrome Tension",
+      "category": "cinematic",
+      "description": "高反差黑白与戏剧性阴影。",
+      "promptPrefix": "monochrome cinematic style, black and white, sharp contrast, dramatic shadows, tense atmosphere",
+      "keywords": ["black-white", "contrast", "shadow", "moody"]
+    },
+    {
+      "id": "as_1006",
+      "name_zh": "复古信号失真",
+      "name_en": "Retro Signal Distortion",
+      "category": "retro",
+      "description": "旧录像带噪点与低保真信号感。",
+      "promptPrefix": "retro video signal, tape distortion, scan lines, lo-fi camcorder texture, imperfect analog footage",
+      "keywords": ["vhs", "lofi", "retro", "distortion"]
+    },
+    {
+      "id": "as_1007",
+      "name_zh": "超写实漫画融合",
+      "name_en": "Hyperreal Manga Fusion",
+      "category": "anime",
+      "description": "写实场景与漫画式表现力结合。",
+      "promptPrefix": "hyperreal manga fusion, realistic world with stylized anime energy, expressive faces, clean dramatic lighting",
+      "keywords": ["manga", "anime", "hyperreal", "stylized"]
+    },
+    {
+      "id": "as_1008",
+      "name_zh": "温暖角色动画",
+      "name_en": "Warm Character Animation",
+      "category": "3d",
+      "description": "柔和光照的亲切三维角色动画。",
+      "promptPrefix": "warm 3D character animation, friendly proportions, soft lighting, colorful world, expressive emotions",
+      "keywords": ["3d", "animation", "character", "warm"]
+    },
+    {
+      "id": "as_1009",
+      "name_zh": "奇幻三维渲染",
+      "name_en": "Enchanted Fantasy Render",
+      "category": "3d",
+      "description": "发光细节与柔和氛围的魔法三维世界。",
+      "promptPrefix": "enchanted fantasy 3D render, magical atmosphere, glowing details, rich textures, whimsical lighting",
+      "keywords": ["fantasy", "3d", "magic", "render"]
+    },
+    {
+      "id": "as_1010",
+      "name_zh": "表现力冒险CG",
+      "name_en": "Expressive Adventure CG",
+      "category": "3d",
+      "description": "大胆造型与冒险气质的动画 CG。",
+      "promptPrefix": "expressive adventure CG, bold character design, vibrant colors, dynamic camera angle, animated storytelling",
+      "keywords": ["cg", "adventure", "expressive", "animation"]
+    },
+    {
+      "id": "as_1011",
+      "name_zh": "梦境水彩动画",
+      "name_en": "Dreamscape Watercolor Anime",
+      "category": "anime",
+      "description": "手绘水彩般的柔和动画氛围。",
+      "promptPrefix": "dreamscape watercolor anime, soft painted backgrounds, gentle colors, poetic atmosphere, hand-crafted feel",
+      "keywords": ["anime", "watercolor", "dreamy", "soft"]
+    },
+    {
+      "id": "as_1012",
+      "name_zh": "数字街机复古",
+      "name_en": "Digital Arcade Retro",
+      "category": "retro",
+      "description": "像素灵感与经典街机能量。",
+      "promptPrefix": "digital arcade retro, pixel-inspired visuals, 8-bit game atmosphere, limited color palette, nostalgic gaming feel",
+      "keywords": ["pixel", "arcade", "retro", "game"]
+    },
+    {
+      "id": "as_1013",
+      "name_zh": "竖屏故事插画",
+      "name_en": "Vertical Story Illustration",
+      "category": "illustration",
+      "description": "清晰竖屏漫画叙事与表情角色。",
+      "promptPrefix": "vertical story illustration, clean line art, expressive characters, modern comic panel composition, vibrant colors",
+      "keywords": ["webcomic", "story", "illustration", "vertical"]
+    },
+    {
+      "id": "as_1014",
+      "name_zh": "绘本奇境",
+      "name_en": "Storybook Wonder",
+      "category": "illustration",
+      "description": "温暖亲切的绘本插画气质。",
+      "promptPrefix": "storybook illustration, warm colors, charming characters, soft texture, friendly magical atmosphere",
+      "keywords": ["storybook", "children", "warm", "cute"]
+    },
+    {
+      "id": "as_1015",
+      "name_zh": "高端特效写实",
+      "name_en": "Premium VFX Realism",
+      "category": "3d",
+      "description": "电影级细节的高端写实 CGI。",
+      "promptPrefix": "premium VFX realism, photoreal 3D rendering, cinematic lighting, detailed textures, high-end visual effects",
+      "keywords": ["vfx", "cgi", "realistic", "premium"]
+    },
+    {
+      "id": "as_1016",
+      "name_zh": "层叠手工维度",
+      "name_en": "Layered Craft Dimension",
+      "category": "illustration",
+      "description": "分层剪纸般的手工立体感。",
+      "promptPrefix": "layered craft dimension, cut paper look, handmade texture, soft shadows, tactile composition",
+      "keywords": ["paper", "craft", "layered", "handmade"]
+    },
+    {
+      "id": "as_1017",
+      "name_zh": "手工定格动画",
+      "name_en": "Handmade Stop-Motion",
+      "category": "3d",
+      "description": "可触材质的微缩定格动画感。",
+      "promptPrefix": "handmade stop-motion style, tactile clay texture, miniature set design, imperfect handcrafted animation feel",
+      "keywords": ["stop-motion", "handmade", "clay", "miniature"]
+    },
+    {
+      "id": "as_1018",
+      "name_zh": "现代极简矢量",
+      "name_en": "Modern Vector Minimal",
+      "category": "illustration",
+      "description": "干净几何形状的现代扁平插画。",
+      "promptPrefix": "modern vector minimal, clean shapes, flat colors, geometric layout, simple elegant illustration",
+      "keywords": ["vector", "minimal", "flat", "modern"]
+    },
+    {
+      "id": "as_1019",
+      "name_zh": "流动颜料艺术",
+      "name_en": "Fluid Pigment Art",
+      "category": "illustration",
+      "description": "柔和流动的水彩与颜料肌理。",
+      "promptPrefix": "fluid pigment art, watercolor texture, soft gradients, organic brush flow, artistic hand-painted mood",
+      "keywords": ["watercolor", "pigment", "artistic", "soft"]
+    },
+    {
+      "id": "as_1020",
+      "name_zh": "图形英雄分格",
+      "name_en": "Graphic Hero Panel",
+      "category": "illustration",
+      "description": "粗墨线与动态构图的漫画动作格。",
+      "promptPrefix": "graphic hero panel, bold ink outlines, dynamic action pose, halftone texture, dramatic comic composition",
+      "keywords": ["comic", "hero", "graphic", "action"]
+    },
+    {
+      "id": "as_1021",
+      "name_zh": "时尚大片影像",
+      "name_en": "Editorial Fashion Film",
+      "category": "commercial",
+      "description": "杂志级时尚电影的优雅光影。",
+      "promptPrefix": "editorial fashion film, luxury magazine lighting, elegant pose, refined color grading, premium visual direction",
+      "keywords": ["fashion", "editorial", "luxury", "cinematic"]
+    },
+    {
+      "id": "as_1022",
+      "name_zh": "纪录片写实",
+      "name_en": "Documentary Realism",
+      "category": "realistic",
+      "description": "自然光下的真实纪实气质。",
+      "promptPrefix": "documentary realism, natural light, authentic human moment, subtle camera movement, grounded realistic atmosphere",
+      "keywords": ["documentary", "realistic", "natural", "authentic"]
+    },
+    {
+      "id": "as_1023",
+      "name_zh": "都市机能风",
+      "name_en": "Urban Techwear Mood",
+      "category": "futuristic",
+      "description": "暗色都市街头与机能服饰氛围。",
+      "promptPrefix": "urban techwear mood, dark city street, functional fashion, futuristic accessories, cinematic urban lighting",
+      "keywords": ["techwear", "urban", "fashion", "dark"]
+    },
+    {
+      "id": "as_1024",
+      "name_zh": "高点击广告创意",
+      "name_en": "High CTR Ad Creative",
+      "category": "commercial",
+      "description": "高注意力、主体清晰的广告视觉。",
+      "promptPrefix": "high CTR ad creative, bold subject, clean readable composition, vibrant lighting, strong focal point",
+      "keywords": ["ad", "marketing", "bright", "attention"]
+    },
+    {
+      "id": "as_1025",
+      "name_zh": "创业产品宣传",
+      "name_en": "Startup Promo Visual",
+      "category": "commercial",
+      "description": "干净现代的科技产品宣传气质。",
+      "promptPrefix": "startup promo visual, modern tech branding, clean composition, confident lighting, polished SaaS commercial style",
+      "keywords": ["startup", "saas", "promo", "clean"]
+    },
+    {
+      "id": "as_1026",
+      "name_zh": "创始人个人品牌",
+      "name_en": "Founder Personal Brand",
+      "category": "commercial",
+      "description": "专业而亲近的创始人形象肖像。",
+      "promptPrefix": "founder personal brand portrait, confident expression, modern workspace, premium natural lighting, professional but approachable",
+      "keywords": ["founder", "portrait", "brand", "professional"]
+    },
+    {
+      "id": "as_1027",
+      "name_zh": "奢侈电商静物",
+      "name_en": "Luxury Ecommerce Shot",
+      "category": "commercial",
+      "description": "干净奢华的电商产品陈列。",
+      "promptPrefix": "luxury ecommerce shot, elegant product placement, soft studio shadow, premium lifestyle background, commercial polish",
+      "keywords": ["ecommerce", "luxury", "product", "clean"]
+    },
+    {
+      "id": "as_1028",
+      "name_zh": "音乐录影带气质",
+      "name_en": "Music Video Mood",
+      "category": "cinematic",
+      "description": "风格化灯光与运动的 MV 视觉。",
+      "promptPrefix": "music video mood, expressive lighting, rhythmic composition, stylish camera angle, cinematic performance atmosphere",
+      "keywords": ["music", "video", "stylish", "cinematic"]
+    },
+    {
+      "id": "as_1029",
+      "name_zh": "超现实美术",
+      "name_en": "Surreal Fine Art",
+      "category": "experimental",
+      "description": "梦境象征与美术馆级构图。",
+      "promptPrefix": "surreal fine art, dreamlike symbolism, impossible scene, painterly composition, museum-quality atmosphere",
+      "keywords": ["surreal", "fine-art", "dream", "symbolic"]
+    },
+    {
+      "id": "as_1030",
+      "name_zh": "建筑可视化",
+      "name_en": "Architectural Visualization",
+      "category": "realistic",
+      "description": "干净空间与材质的建筑渲染。",
+      "promptPrefix": "architectural visualization, realistic interior or exterior render, natural lighting, clean materials, premium spatial composition",
+      "keywords": ["architecture", "interior", "render", "space"]
+    },
+    {
+      "id": "as_1031",
+      "name_zh": "北欧室内氛围",
+      "name_en": "Scandinavian Interior Mood",
+      "category": "realistic",
+      "description": "柔和日光与克制北欧室内。",
+      "promptPrefix": "scandinavian interior mood, natural wood, soft daylight, minimal decor, calm neutral palette, cozy elegant space",
+      "keywords": ["interior", "scandinavian", "minimal", "cozy"]
+    },
+    {
+      "id": "as_1032",
+      "name_zh": "超跑展示",
+      "name_en": "Hypercar Showcase",
+      "category": "commercial",
+      "description": "强烈反光与动势的高端汽车视觉。",
+      "promptPrefix": "hypercar showcase, glossy reflections, dramatic studio or street lighting, premium automotive photography, powerful composition",
+      "keywords": ["car", "automotive", "luxury", "motion"]
+    },
+    {
+      "id": "as_1033",
+      "name_zh": "赛博时尚大片",
+      "name_en": "Cyber Editorial",
+      "category": "futuristic",
+      "description": "未来时装杂志感与赛博能量。",
+      "promptPrefix": "cyber editorial, futuristic fashion, neon accents, magazine composition, high contrast tech aesthetic",
+      "keywords": ["cyber", "editorial", "fashion", "future"]
+    },
+    {
+      "id": "as_1034",
+      "name_zh": "AI概念设计",
+      "name_en": "AI Concept Design",
+      "category": "experimental",
+      "description": "未来产品、世界与角色的概念设定。",
+      "promptPrefix": "AI concept design, futuristic concept art, detailed design language, imaginative object or environment, polished visual exploration",
+      "keywords": ["concept", "design", "future", "creative"]
+    }
+  ]
+}

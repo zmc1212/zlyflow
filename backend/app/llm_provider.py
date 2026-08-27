@@ -242,4 +242,79 @@ class LlmProviderService:
             model=config["model"],
         )
 
+    def _chat_client(self) -> tuple[Any, str]:
+        available, reason = self.availability()
+        if not available:
+            raise LlmError(reason or "大模型服务不可用")
+        config = self.store.get_llm_settings()
+        api_key = self.api_key()
+        if not api_key:
+            raise LlmError("大模型凭据未配置")
+        return OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key), config["model"]
+
+    def run_director_recipe(
+        self,
+        recipe: dict[str, Any] | None,
+        *,
+        goal: str,
+        art_style_id: str | None = None,
+        agents: list[str] | None = None,
+        skip_research: bool | None = None,
+        on_progress: Any = None,
+    ) -> dict[str, Any]:
+        from .director_agents import default_chat_fn, run_recipe_pipeline
+
+        client, model = self._chat_client()
+        return run_recipe_pipeline(
+            recipe,
+            goal=goal,
+            chat_fn=default_chat_fn(client, model),
+            art_style_id=art_style_id,
+            agents=agents,
+            skip_research=skip_research,
+            on_progress=on_progress,
+        )
+
+    def run_director_agent_step(
+        self,
+        recipe: dict[str, Any] | None,
+        *,
+        goal: str,
+        agent_id: str,
+        art_style_id: str | None = None,
+        skip_research: bool | None = None,
+    ) -> dict[str, Any]:
+        from .director_agents import default_chat_fn, run_agent
+
+        client, model = self._chat_client()
+        return run_agent(
+            agent_id,
+            recipe or {},
+            goal=goal,
+            chat_fn=default_chat_fn(client, model),
+            art_style_id=art_style_id,
+            skip_research=skip_research,
+        )
+
+    def fission_batch_scripts(
+        self,
+        *,
+        theme: str,
+        count: int,
+        duration_sec: int,
+        aspect_ratio: str,
+        art_style: dict[str, Any] | None = None,
+    ) -> list[dict[str, str]]:
+        from .director_agents import default_chat_fn, fission_batch_scripts
+
+        client, model = self._chat_client()
+        return fission_batch_scripts(
+            theme=theme,
+            count=count,
+            duration_sec=duration_sec,
+            aspect_ratio=aspect_ratio,
+            art_style=art_style,
+            chat_fn=default_chat_fn(client, model),
+        )
+
 

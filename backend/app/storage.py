@@ -1187,16 +1187,19 @@ class JobStore:
 
     @staticmethod
     def sanitize_director_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+        from .director_recipe import normalize_director_payload
+
         raw = payload if isinstance(payload, dict) else {}
         cleaned = JobStore._strip_director_data_urls(raw)
-        return cleaned if isinstance(cleaned, dict) else {}
+        if not isinstance(cleaned, dict):
+            cleaned = {}
+        return normalize_director_payload(cleaned)
 
     @staticmethod
     def _payload_shots(payload: dict[str, Any]) -> list[dict[str, Any]]:
-        shots = payload.get("shots")
-        if not isinstance(shots, list):
-            return []
-        return [shot for shot in shots if isinstance(shot, dict)]
+        from .director_recipe import flatten_recipe_shots
+
+        return flatten_recipe_shots(payload if isinstance(payload, dict) else {})
 
     @staticmethod
     def _shot_is_generated(shot: dict[str, Any]) -> bool:
@@ -1232,6 +1235,8 @@ class JobStore:
             payload = {}
         generation_status, generated_count, shot_count = self.director_generation_progress(payload)
         source_script = row["source_script"] or ""
+        from .director_recipe import payload_kind
+
         record: dict[str, Any] = {
             "id": row["id"],
             "owner_user_id": row["owner_user_id"],
@@ -1241,6 +1246,7 @@ class JobStore:
             "style_vibe": row["style_vibe"],
             "requested_shot_count": row["requested_shot_count"],
             "has_source_script": bool(source_script.strip()),
+            "kind": payload_kind(payload),
             "shot_count": shot_count,
             "generated_count": generated_count,
             "generation_status": generation_status,
@@ -1399,5 +1405,19 @@ class JobStore:
             imported.append(created)
         listed = self.list_director_projects(owner_user_id)
         return {"imported": len(imported), "skipped": skipped, "projects": listed}
+
+    def convert_director_project_to_recipe(self, project_id: str) -> dict[str, Any]:
+        from .director_recipe import PAYLOAD_KIND_RECIPE, payload_kind, timeline_to_recipe
+
+        current = self.get_director_project(project_id)
+        if payload_kind(current.get("payload")) == PAYLOAD_KIND_RECIPE:
+            return current
+        recipe = timeline_to_recipe(
+            current.get("payload"),
+            title=current.get("title") or "",
+            summary=current.get("summary") or "",
+            source_script=current.get("source_script") or "",
+        )
+        return self.update_director_project(project_id, payload=recipe)
 
 

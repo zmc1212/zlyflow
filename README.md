@@ -94,7 +94,7 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - GRS 图片生成：管理后台维护可启用的模型目录（GPT Image 2 / VIP、Nano Banana 系列及自定义 ID）；每个启用模型作为独立工作流出现在创作页。支持参考图、比例、1K/2K/4K、VIP 自定义尺寸、单轮 1–4 个并发生成项、部分成功和失败项重试。
 - 图片与视频任务统一为“任务 → 轮次 → 生成项”；同任务不混合媒介，图片结果可创建有关联的新视频任务并预填首帧。
 - MiniMax H3 提示词技能体系与大模型智能优化：结合 MiniMax-H3 官方开源技能规范（三维运镜语法、多模态时序结构、环境音效与背景配乐），融合 OpenAI 兼容大模型（魔搭按魔粒计费；硅基流动 7B / 本机 Ollama 可零云端消耗），提供电影级通用、极简电商广告、3D动画短片、立体纸艺定格、品牌宣传、音乐短片、双人游戏片头、纸拼贴与手绘发光实景等 9 大细分风格技能的一键智能优化。
-- MiniMax H3 Web AI 导演台（Director Studio）：进入导演台先到项目库，再打开时间轴。工程与剧本文档保存在 SQLite（员工隔离），不再只靠 localStorage。在现有 H3 T2V/I2V/R2V 上提供分镜编排、机位与运镜、主体参考图 `<Picture n>` 编号锁定、AI 剧本拆解、逐镜接龙批量渲染、成片串播与剪映草稿导出。Analyze 仅在大模型支持视觉时根据参考图提取外貌。镜头列表、中央预览与时间轴共用同一套任务状态：排队中 / 生成中。
+- MiniMax H3 Web AI 导演台（Director Studio）：进入导演台先选导演创作或短视频批量。导演创作用 9 Agent 生成可编辑 Recipe（故事/画风/人物/场景/分镜），定妆走 GRS，分镜视频走本机 MiniMax H3；参考图在提交时自动装箱最多 9 张。短视频批量按主题裂变多条脚本并行文生。工程保存在 SQLite（员工隔离）。旧时间轴工程打开时转为 Recipe。Analyze 仅在大模型支持视觉时根据参考图提取外貌。成片可串播并导出剪映草稿。
 - MiniMax H3：官方文生 / 首尾帧 / 多参考，以及自定义「全能参考（多速率）」和「双时钟加速」。另接入 LightX2V 文生 / 首尾帧 / 多参考（默认 1.0 MP、4 步 euler），以及「八步双加速」文生 / 首尾帧 / 多参考（默认 0.4 MP、8 步，FL2V Turbo LoRA + KJ Sage + H3 Sage）。创作页工作流下拉按 LightX2V、八步双加速、官方 MiniMax H3、自定义分组。可选择生成速度：快速 4 步、均衡 8 步、高质量 20 步，或自定义 1–40 步（八步双加速默认即为 8 步档）。尺寸、时长、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
 
 
@@ -114,6 +114,24 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - 兼容性：不改 ComfyUI 节点、工作台 `7865`、任务协议。已有数据库自动增加 `comfy_provider_settings` 表，首次用当前环境变量或默认 8188 播种。
 - 验证命令：`python -m unittest discover -s backend/tests -p "test_comfy_provider.py"`、`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
 - 回滚方式：恢复上述文件并重启工作台；新表可保留。
+
+## 2026-08-27 导演台双引擎（Recipe + 短视频批量）
+
+- 原因：导演台不再以时间轴和 9 槽参考图为主操作面，需要对标对话导演出片，同时继续使用现有 GRS 与 MiniMax H3。
+- 用户可见行为：导演台首页为导演创作 / 短视频批量。一句话可跑 9 步流水线，编辑故事和画风，在人物/场景卡生成定妆图，在分镜卡片墙提交视频。批量模式输入主题、条数、比例和时长后并行排队文生视频。旧时间轴工程打开时转为 Recipe。
+- 受影响文件：`backend/app/director_agents.py`、`director_jobs.py`、`main.py`、导演台前端模块、测试与三份主文档。
+- 兼容性：不改 ComfyUI 节点、端口或 `POST /api/jobs`。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 导演台画风目录与 Recipe payload
+
+- 原因：导演工程只有时间轴 JSON，无法保存剧本/画风/人物/场景方案；画风名称也不能让模型随意发明。
+- 用户可见行为：登录后可读取 34 条画风目录。导演工程 payload 支持 Recipe（剧本、画风、人物、场景、分镜）与旧时间轴并存；旧工程可一键转为 Recipe。画风只能从目录选择。当前导演台界面仍可打开旧时间轴工程。
+- 受影响文件：`backend/app/director_catalog/`、`backend/app/director_recipe.py`、`backend/app/storage.py`、`backend/app/main.py`、`frontend/src/director/types.ts`、`frontend/src/director/director-api.ts`、测试与三份主文档。
+- 兼容性：不改 ComfyUI 节点/端口或 `POST /api/jobs`。旧时间轴不自动转换。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
 
 ## 2026-08-26 导演台项目库与 SQLite 工程文档
 

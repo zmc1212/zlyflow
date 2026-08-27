@@ -366,3 +366,246 @@ export interface CompiledPromptInfo {
   isWithinTargetWordCount: boolean
 }
 
+export type DirectorPayloadKind = "timeline" | "director_recipe" | "batch_run"
+export type RecipeAgentId =
+  | "research"
+  | "script"
+  | "art_style"
+  | "storyboard"
+  | "characters"
+  | "locations"
+  | "voice"
+  | "music"
+  | "media"
+export type RecipeAgentRunStatus = "pending" | "running" | "completed" | "failed"
+export type RecipeCharacterType = "character" | "object"
+export type RecipeGender = "" | "male" | "female" | "nonbinary" | "unspecified"
+
+export interface RecipeScript {
+  title: string
+  summary: string
+  fullStory: string
+}
+
+export interface RecipeArtStyle {
+  id: string
+  name: string
+  name_en?: string
+  promptPrefix: string
+}
+
+export interface RecipeCharacter {
+  id: string
+  name: string
+  description: string
+  promptText: string
+  gender: RecipeGender
+  type: RecipeCharacterType
+  imageJobId?: string | null
+  imageUrl?: string | null
+}
+
+export interface RecipeLocation {
+  id: string
+  name: string
+  description: string
+  promptText: string
+  imageJobId?: string | null
+  imageUrl?: string | null
+}
+
+export interface RecipeShot {
+  id: string
+  shotNumber: number
+  title: string
+  description: string
+  dialogue: string
+  characterNames: string[]
+  locationName: string
+  durationSec: number
+  compiledPrompt: string
+  jobId?: string | null
+  status: DirectorShot["status"]
+  outputVideoUrl?: string | null
+  progress?: number
+  takes: ShotTake[]
+  camera?: CameraDirection
+  soundscape?: string
+}
+
+export interface RecipeScene {
+  id: string
+  sceneNumber: number
+  title: string
+  description: string
+  locationName: string
+  shots: RecipeShot[]
+}
+
+export interface RecipeAgentStatus {
+  id: RecipeAgentId
+  status: RecipeAgentRunStatus
+  error?: string | null
+}
+
+export interface RecipeProject {
+  kind: "director_recipe"
+  script: RecipeScript
+  artStyle: RecipeArtStyle | null
+  characters: RecipeCharacter[]
+  locations: RecipeLocation[]
+  scenes: RecipeScene[]
+  agentStatus: RecipeAgentStatus[]
+  globalMusic: string
+  globalSoundscape: string
+  aspectRatio: string
+  canvasTier: CanvasTier
+  previewQuality: DirectorQuality
+  previewSpeed: DirectorSpeed
+  finalQuality: DirectorQuality
+  finalSpeed: DirectorSpeed
+  width: number
+  height: number
+  fps: number
+  refsMode: "refs_off" | "refs_on"
+  manualPromptOverrideEnabled: boolean
+  manualPromptOverrideText: string
+}
+
+export interface BatchRunItem {
+  id: string
+  title: string
+  script: string
+  jobId?: string | null
+  status: DirectorShot["status"]
+  outputVideoUrl?: string | null
+}
+
+export interface BatchRunPayload {
+  kind: "batch_run"
+  theme: string
+  count: number
+  aspectRatio: string
+  durationSec: number
+  artStyle: RecipeArtStyle | null
+  items: BatchRunItem[]
+  agentStatus?: RecipeAgentStatus[]
+}
+
+export interface DirectorArtStyleCategory {
+  id: string
+  name_zh: string
+  name_en: string
+}
+
+export interface DirectorArtStyle {
+  id: string
+  name_zh: string
+  name_en: string
+  category: string
+  category_name_zh: string
+  category_name_en: string
+  description: string
+  promptPrefix: string
+  keywords: string[]
+}
+
+export interface DirectorArtStyleCatalog {
+  categories: DirectorArtStyleCategory[]
+  styles: DirectorArtStyle[]
+  count: number
+}
+
+export function isRecipePayload(payload: unknown): payload is RecipeProject {
+  return Boolean(payload && typeof payload === "object" && (payload as { kind?: string }).kind === "director_recipe")
+}
+
+export function isBatchRunPayload(payload: unknown): payload is BatchRunPayload {
+  return Boolean(payload && typeof payload === "object" && (payload as { kind?: string }).kind === "batch_run")
+}
+
+export function flattenRecipeShots(recipe: RecipeProject): RecipeShot[] {
+  return (recipe.scenes || []).flatMap((scene) => scene.shots || [])
+}
+
+export const RECIPE_AGENT_LABELS: Record<RecipeAgentId, string> = {
+  research: "研究",
+  script: "脚本",
+  art_style: "美术风格",
+  storyboard: "分镜",
+  characters: "角色",
+  locations: "场景",
+  voice: "配音",
+  music: "配乐",
+  media: "媒体",
+}
+
+export function createEmptyBatch(theme: string = ""): BatchRunPayload {
+  return {
+    kind: "batch_run",
+    theme,
+    count: 3,
+    aspectRatio: "9:16",
+    durationSec: 8,
+    artStyle: null,
+    items: [],
+  }
+}
+
+export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
+  return shots.map((shot, index) => ({
+    id: shot.id,
+    shotNumber: shot.shotNumber || index + 1,
+    title: shot.title,
+    startSec: 0,
+    durationSec: shot.durationSec,
+    prompt: shot.compiledPrompt || shot.description,
+    dialogue: shot.dialogue,
+    camera: defaultCameraDirection(),
+    referencedSubjectIds: [],
+    takes: [],
+    activeTakeIndex: 0,
+    jobId: shot.jobId || undefined,
+    status: shot.status,
+    progress: shot.progress || 0,
+    outputVideoUrl: shot.outputVideoUrl || undefined,
+    retakeCount: 0,
+  }))
+}
+
+export function createEmptyRecipe(title: string = ""): RecipeProject {
+  return {
+    kind: "director_recipe",
+    script: { title, summary: "", fullStory: "" },
+    artStyle: null,
+    characters: [],
+    locations: [],
+    scenes: [],
+    agentStatus: [
+      { id: "research", status: "pending", error: null },
+      { id: "script", status: "pending", error: null },
+      { id: "art_style", status: "pending", error: null },
+      { id: "storyboard", status: "pending", error: null },
+      { id: "characters", status: "pending", error: null },
+      { id: "locations", status: "pending", error: null },
+      { id: "voice", status: "pending", error: null },
+      { id: "music", status: "pending", error: null },
+      { id: "media", status: "pending", error: null },
+    ],
+    globalMusic: "",
+    globalSoundscape: "电影级空间环境声",
+    aspectRatio: "16:9",
+    canvasTier: "native",
+    previewQuality: "0.4",
+    previewSpeed: "fast",
+    finalQuality: "1.0",
+    finalSpeed: "balanced",
+    width: 1344,
+    height: 768,
+    fps: 24,
+    refsMode: "refs_on",
+    manualPromptOverrideEnabled: false,
+    manualPromptOverrideText: "",
+  }
+}
+

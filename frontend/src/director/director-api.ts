@@ -1,14 +1,25 @@
 import { apiErrorMessage, jsonMutation, requestJson } from "../api"
 import { persistableTimelineProject } from "./director-storage"
-import { createEmptyProject, createInitialSubjectSlots, TimelineProject } from "./types"
+import {
+  BatchRunPayload,
+  createEmptyProject,
+  createInitialSubjectSlots,
+  DirectorArtStyleCatalog,
+  isBatchRunPayload,
+  isRecipePayload,
+  RecipeProject,
+  TimelineProject,
+} from "./types"
 
 export type DirectorGenerationStatus = "pending" | "partial" | "complete"
+export type DirectorPayloadKind = "timeline" | "director_recipe" | "batch_run"
 
 export type DirectorProjectListItem = {
   id: string
   title: string
   summary: string
   has_source_script: boolean
+  kind: DirectorPayloadKind
   shot_count: number
   generated_count: number
   generation_status: DirectorGenerationStatus
@@ -120,6 +131,18 @@ export function listDirectorProjects() {
   return requestJson<DirectorProjectListItem[]>("/api/director/projects")
 }
 
+export function listDirectorArtStyles() {
+  return requestJson<DirectorArtStyleCatalog>("/api/director/art-styles")
+}
+
+export function recipePayloadFromApi(row: DirectorProjectResponse): RecipeProject | null {
+  return isRecipePayload(row.payload) ? row.payload : null
+}
+
+export function batchPayloadFromApi(row: DirectorProjectResponse): BatchRunPayload | null {
+  return isBatchRunPayload(row.payload) ? row.payload : null
+}
+
 export function getDirectorProject(projectId: string) {
   return requestJson<DirectorProjectResponse>(`/api/director/projects/${encodeURIComponent(projectId)}`)
 }
@@ -128,10 +151,38 @@ export function createDirectorProject(project: TimelineProject, csrfToken: strin
   return requestJson<DirectorProjectResponse>("/api/director/projects", jsonMutation(csrfToken, directorProjectToCreateBody(project)))
 }
 
+export function createDirectorProjectRecord(
+  body: {
+    title: string
+    summary?: string
+    source_script?: string
+    payload: RecipeProject | BatchRunPayload | Record<string, unknown>
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>("/api/director/projects", jsonMutation(csrfToken, body))
+}
+
 export function updateDirectorProject(project: TimelineProject, csrfToken: string) {
   return requestJson<DirectorProjectResponse>(
     `/api/director/projects/${encodeURIComponent(project.id)}`,
     jsonMutation(csrfToken, directorProjectToUpdateBody(project), "PUT"),
+  )
+}
+
+export function updateDirectorProjectRecord(
+  projectId: string,
+  body: {
+    title?: string
+    summary?: string
+    source_script?: string
+    payload?: RecipeProject | BatchRunPayload | Record<string, unknown>
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/projects/${encodeURIComponent(projectId)}`,
+    jsonMutation(csrfToken, body, "PUT"),
   )
 }
 
@@ -156,9 +207,71 @@ export function copyDirectorProject(projectId: string, csrfToken: string) {
   )
 }
 
+export function convertDirectorProjectToRecipe(projectId: string, csrfToken: string) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/projects/${encodeURIComponent(projectId)}/convert-to-recipe`,
+    jsonMutation(csrfToken, {}),
+  )
+}
+
 export function migrateDirectorProjects(projects: TimelineProject[], csrfToken: string) {
   return requestJson<DirectorProjectMigrateResponse>(
     "/api/director/projects/migrate",
     jsonMutation(csrfToken, { projects: projects.map((project) => directorProjectToCreateBody(project, true)) }),
   )
+}
+
+export function runDirectorRecipe(
+  body: { goal: string; project_id?: string; title?: string; art_style_id?: string; skip_research?: boolean },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>("/api/director/recipes/run", jsonMutation(csrfToken, body))
+}
+
+export function runDirectorRecipeStep(
+  projectId: string,
+  body: { agent_id: string; goal?: string; art_style_id?: string },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/step`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export function generateDirectorAssets(
+  projectId: string,
+  body: { character_ids?: string[]; location_ids?: string[]; force?: boolean },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/generate-assets`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export function renderDirectorShots(
+  projectId: string,
+  body: { shot_ids?: string[]; render_pass?: "preview" | "final" },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/render-shots`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export function createDirectorBatch(
+  body: {
+    theme: string
+    count: number
+    aspect_ratio: string
+    duration_sec: number
+    art_style_id?: string
+    title?: string
+    project_id?: string
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>("/api/director/batches", jsonMutation(csrfToken, body))
 }

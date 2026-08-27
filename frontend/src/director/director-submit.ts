@@ -108,6 +108,12 @@ export function jobVideoUrl(job: DirectorJobSnapshot | null | undefined): string
   return output.download_url || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : undefined)
 }
 
+export function jobImageUrl(job: DirectorJobSnapshot | null | undefined): string | undefined {
+  const output = job?.outputs?.find((item) => item.kind === "image") || job?.outputs?.[0]
+  if (!output) return undefined
+  return output.download_url || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : undefined)
+}
+
 export function shotStatusFromJob(job: DirectorJobSnapshot | null | undefined): DirectorJobStatus {
   const status = job?.status
   if (status === "partial") return jobVideoUrl(job) ? "succeeded" : "running"

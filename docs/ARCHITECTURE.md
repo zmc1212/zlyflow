@@ -38,6 +38,11 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/minimax_h3_t8_workflow.py` | 生成全能参考多速率与双时钟 T8 API graph |
 | `backend/app/comfy_provider.py` | 超级管理员可配置的 ComfyUI 连接地址、连接测试与运行时解析 |
 | `backend/app/comfy_service.py` | 上传素材、提交 ComfyUI prompt、轮询、下载结果；队列空闲时 `POST /free` 卸载模型 |
+| `backend/app/director_compiler.py` | 导演台 H3 提示词编译、Recipe 参考图装箱与 T2V/I2V/R2V 路由 |
+| `backend/app/director_catalog/` | 9 类 34 条画风 JSON 种子与查询 |
+| `backend/app/director_recipe.py` | Recipe / 批量 payload 规范化、画风目录校验、旧时间轴转 Recipe |
+| `backend/app/director_agents.py` | 9 Agent 顺序调度，复用现有 LLM Provider |
+| `backend/app/director_jobs.py` | Recipe 定妆 GRS 入队、分镜 H3 入队、批量 T2V |
 | `backend/app/storage.py` | SQLite 任务、owner、交付状态与导演工程元数据 |
 | `backend/app/worker.py` | 单任务串行执行，避免显存并发；最后一条视频任务结束后请求 ComfyUI 释放显存 |
 | `frontend/dist/` | FastAPI 生产环境托管的前端构建产物 |
@@ -933,3 +938,21 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改节点 ID、工作台 `7865`、`POST /api/jobs` 或浏览器直连协议。已有数据库启动时自动建表播种。
 - 验证命令：`python -m unittest discover -s backend/tests -p "test_comfy_provider.py"`、`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`。
 - 回滚方式：恢复上述文件并重启工作台；新表可保留。
+
+## 2026-08-27 导演台画风目录与 Recipe payload
+
+- 原因：导演台要对标对话导演 → Recipe 方案，时间轴 payload 无法表达剧本/画风/人物/场景；画风不能由模型随意发明名称。
+- 当前基线：JSON 种子 `backend/app/director_catalog/art_styles.json` 提供 9 类 34 条画风（电影感/商业/未来感/复古/动漫/3D/插画/写实/实验性），`id`/`name_en`/`promptPrefix`/`keywords` 对齐 OpenDirector 的 `art_styles` 种子（`as_1001`–`as_1034`）。`GET /api/director/art-styles` 登录后返回目录。`director_projects.payload_json` 以 `kind` 区分：缺省为旧时间轴；`director_recipe` 含 `script` / `artStyle` / `characters` / `locations` / `scenes`（场内 `shots`）/ `agentStatus`；`batch_run` 为批量裂变。Recipe 的 `artStyle` 必须选自目录，保存时覆盖名称与 `promptPrefix`。旧工程可只读打开，或 `POST /api/director/projects/{id}/convert-to-recipe` 把时间轴 shots 映射为 scenes、主体槽映射为人物/场景。生成进度统计 Recipe 场内镜头。不改表结构、节点 ID 或 `POST /api/jobs`。
+- 受影响文件：`backend/app/director_catalog/`、`backend/app/director_recipe.py`、`backend/app/storage.py`、`backend/app/models.py`、`backend/app/main.py`、`backend/app/api_documentation.py`、`backend/tests/test_director.py`、`frontend/src/director/types.ts`、`frontend/src/director/director-api.ts`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：旧时间轴 payload 无 `kind` 时仍按时间轴读写；不自动转换。不改 ComfyUI 端口/节点。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；已写入的 Recipe payload 回滚后旧前端可忽略未知字段。
+
+## 2026-08-27 导演台双引擎（Recipe + 短视频批量）
+
+- 原因：时间轴与 9 槽参考图不适合人物/场景定妆和批量短视频；要对标对话导演 → Recipe → 出片，同时媒体层继续走 GRS 与固定 `127.0.0.1:8188` MiniMax H3。
+- 当前基线：导演台首页为「导演创作 / 短视频批量」双卡片。导演创作：一句话经 Python 9 Agent（研究可跳过、脚本、画风、分镜、角色、场景、配音、配乐、媒体编译）写入 Recipe；人物/场景卡提交 GRS 定妆；分镜卡片墙提交 H3，参考图在编译时自动装箱 ≤9 张 `<Picture n>`，无图 T2V、有图 R2V。短视频批量：主题裂变多脚本并并行 `minimax-h3-t2v`。不引入 LangGraph / WaveSpeed / Pexels / Edge TTS。旧时间轴工程打开时转为 Recipe。`POST /api/llm/split-script` 仍保留。
+- 受影响文件：`backend/app/director_agents.py`、`backend/app/director_jobs.py`、`backend/app/director_compiler.py`、`backend/app/director_recipe.py`、`backend/app/llm_provider.py`、`backend/app/main.py`、`backend/app/models.py`、`backend/tests/test_director.py`、`frontend/src/director/DirectorStudioModule.tsx`、`DirectorHome.tsx`、`DirectorRecipeStudio.tsx`、`DirectorBatchStudio.tsx`、`director-api.ts`、`types.ts`、`frontend/src/index.css`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改 ComfyUI 节点 ID、端口 7865/8188、`POST /api/jobs` 字段或员工隔离。旧时间轴 payload 仍可读，打开时转换。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；已生成的 GRS/H3 任务记录可保留。

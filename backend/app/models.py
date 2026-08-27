@@ -532,6 +532,31 @@ class ScriptSplitResponse(BaseModel):
 
 
 DirectorGenerationStatus = Literal["pending", "partial", "complete"]
+DirectorPayloadKind = Literal["timeline", "director_recipe", "batch_run"]
+
+
+class DirectorArtStyleCategory(BaseModel):
+    id: str
+    name_zh: str
+    name_en: str
+
+
+class DirectorArtStyle(BaseModel):
+    id: str
+    name_zh: str
+    name_en: str
+    category: str
+    category_name_zh: str = ""
+    category_name_en: str = ""
+    description: str = ""
+    promptPrefix: str
+    keywords: list[str] = Field(default_factory=list)
+
+
+class DirectorArtStyleCatalogResponse(BaseModel):
+    categories: list[DirectorArtStyleCategory]
+    styles: list[DirectorArtStyle]
+    count: int
 
 
 class DirectorProjectCreateRequest(BaseModel):
@@ -541,7 +566,10 @@ class DirectorProjectCreateRequest(BaseModel):
     source_script: str = Field(default="", max_length=20000, description="原始剧本文档，可空")
     style_vibe: str | None = Field(default=None, max_length=64, description="拆分时使用的风格基调")
     requested_shot_count: int | None = Field(default=None, ge=1, le=24, description="拆分时请求的镜数")
-    payload: dict[str, Any] = Field(default_factory=dict, description="时间轴 payload：shots、subjectSlots、画幅等；不含 data URL。")
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="工程 payload。kind=director_recipe 为 Recipe（script/artStyle/characters/locations/scenes）；kind=batch_run 为批量；缺省 kind 为旧时间轴。不含 data URL。",
+    )
     created_at: str | None = Field(default=None, max_length=64, description="迁库时保留的创建时间")
     updated_at: str | None = Field(default=None, max_length=64, description="迁库时保留的更新时间")
 
@@ -552,7 +580,7 @@ class DirectorProjectUpdateRequest(BaseModel):
     source_script: str | None = Field(default=None, max_length=20000)
     style_vibe: str | None = Field(default=None, max_length=64)
     requested_shot_count: int | None = Field(default=None, ge=1, le=24)
-    payload: dict[str, Any] | None = Field(default=None, description="完整替换时间轴 payload")
+    payload: dict[str, Any] | None = Field(default=None, description="完整替换工程 payload（时间轴或 Recipe）")
 
 
 class DirectorProjectListItem(BaseModel):
@@ -560,6 +588,7 @@ class DirectorProjectListItem(BaseModel):
     title: str
     summary: str
     has_source_script: bool
+    kind: DirectorPayloadKind = "timeline"
     shot_count: int
     generated_count: int
     generation_status: DirectorGenerationStatus
@@ -582,3 +611,42 @@ class DirectorProjectMigrateResponse(BaseModel):
     imported: int
     skipped: int
     projects: list[DirectorProjectListItem] = Field(default_factory=list)
+
+
+class DirectorRecipeRunRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=8000, description="一句话创意或故事")
+    project_id: str | None = Field(default=None, max_length=80)
+    title: str | None = Field(default=None, max_length=120)
+    art_style_id: str | None = Field(default=None, max_length=32, description="画风目录 id，例如 as_1001")
+    skip_research: bool | None = Field(default=None, description="为 true 时跳过研究 Agent")
+
+
+class DirectorRecipeStepRequest(BaseModel):
+    agent_id: Literal[
+        "research", "script", "art_style", "storyboard", "characters",
+        "locations", "voice", "music", "media",
+    ]
+    goal: str | None = Field(default=None, max_length=8000)
+    art_style_id: str | None = Field(default=None, max_length=32)
+    skip_research: bool | None = None
+
+
+class DirectorGenerateAssetsRequest(BaseModel):
+    character_ids: list[str] = Field(default_factory=list)
+    location_ids: list[str] = Field(default_factory=list)
+    force: bool = False
+
+
+class DirectorRenderShotsRequest(BaseModel):
+    shot_ids: list[str] = Field(default_factory=list)
+    render_pass: Literal["preview", "final"] = "final"
+
+
+class DirectorBatchCreateRequest(BaseModel):
+    theme: str = Field(min_length=1, max_length=2000)
+    count: int = Field(default=3, ge=1, le=8)
+    aspect_ratio: str = Field(default="9:16", max_length=16)
+    duration_sec: int = Field(default=8, ge=2, le=15)
+    art_style_id: str | None = Field(default=None, max_length=32)
+    title: str | None = Field(default=None, max_length=120)
+    project_id: str | None = Field(default=None, max_length=80)
