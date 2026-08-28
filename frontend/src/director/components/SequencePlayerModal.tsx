@@ -1,12 +1,14 @@
-import { Button, Modal, Progress, Tag, Tooltip } from "antd"
-import { Download, Film, Maximize2, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react"
+import { Button, Modal, Tag } from "antd"
+import { Download, Film, Pause, Play, Volume2, VolumeX } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { DirectorShot } from "../types"
+import { DirectorShot, RecipeAudioMix, RecipeSubtitleStyle, defaultRecipeAudio, defaultRecipeSubtitles } from "../types"
 
 interface SequencePlayerModalProps {
   open: boolean
   projectTitle: string
   shots: DirectorShot[]
+  subtitleStyle?: RecipeSubtitleStyle
+  audio?: RecipeAudioMix
   onClose: () => void
   onBatchDeliver?: () => void
 }
@@ -15,6 +17,8 @@ export default function SequencePlayerModal({
   open,
   projectTitle,
   shots,
+  subtitleStyle,
+  audio,
   onClose,
   onBatchDeliver,
 }: SequencePlayerModalProps) {
@@ -25,10 +29,13 @@ export default function SequencePlayerModal({
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const bgmRef = useRef<HTMLAudioElement>(null)
+  const style = { ...defaultRecipeSubtitles(), ...subtitleStyle }
+  const mix = { ...defaultRecipeAudio(), ...audio }
 
   const activeShot = completedShots[currentIndex]
+  const dialogue = activeShot?.dialogue?.trim() || ""
 
-  // 当分镜切换时，自动从头播放
   useEffect(() => {
     if (!open || !activeShot) return
     setCurrentTime(0)
@@ -39,6 +46,21 @@ export default function SequencePlayerModal({
       }
     }
   }, [currentIndex, open, activeShot?.id])
+
+  useEffect(() => {
+    const bgm = bgmRef.current
+    if (!bgm) return
+    bgm.volume = Math.min(1, Math.max(0, mix.bgmVolume))
+    if (!open || !mix.bgmUrl) {
+      bgm.pause()
+      return
+    }
+    if (isPlaying && !isMuted) {
+      bgm.play().catch(() => {})
+    } else {
+      bgm.pause()
+    }
+  }, [open, isPlaying, isMuted, mix.bgmUrl, mix.bgmVolume, currentIndex])
 
   const handleEnded = () => {
     if (currentIndex < completedShots.length - 1) {
@@ -121,6 +143,7 @@ export default function SequencePlayerModal({
       <div className="space-y-4 py-2">
         {/* 视频主播放窗口 */}
         <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black shadow-inner">
+          {mix.bgmUrl ? <audio ref={bgmRef} src={mix.bgmUrl} loop preload="auto" /> : null}
           {activeShot?.outputVideoUrl ? (
             <video
               ref={videoRef}
@@ -138,6 +161,20 @@ export default function SequencePlayerModal({
               onEnded={handleEnded}
               onClick={togglePlay}
             />
+          ) : null}
+          {style.enabled && dialogue ? (
+            <p
+              className={`director-sequence-subtitle is-${style.position}`}
+              style={{
+                fontSize: `${style.fontSize}px`,
+                color: style.textColor,
+                WebkitTextStroke: `${style.strokeWidth}px ${style.strokeColor}`,
+                paintOrder: "stroke fill",
+                textShadow: `0 0 ${Math.max(2, style.strokeWidth)}px ${style.strokeColor}`,
+              }}
+            >
+              {dialogue}
+            </p>
           ) : null}
 
           {/* 浮动控制覆盖层 */}

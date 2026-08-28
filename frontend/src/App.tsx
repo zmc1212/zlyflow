@@ -19,6 +19,8 @@ import type { VideoResult } from "./media/VideoStudioModule"
 import JianyingExportModal from "./media/JianyingExportModal"
 import type { JianyingMediaItem } from "./media/jianying-draft-builder"
 import { createLocalId } from "./lib/utils"
+import MediaPreviewModal, { type PreviewMediaKind } from "./components/MediaPreviewModal"
+import JobErrorNotice from "./director/components/JobErrorNotice"
 
 /*
  * THESIS: A conversation-first AI studio, not a dashboard of cards.
@@ -30,6 +32,7 @@ import { createLocalId } from "./lib/utils"
 const ImageStudioModule = lazy(() => import("./media/ImageStudioModule"))
 const VideoStudioModule = lazy(() => import("./media/VideoStudioModule"))
 const DirectorStudioModule = lazy(() => import("./director/DirectorStudioModule"))
+const DirectorAssetLibrary = lazy(() => import("./director/DirectorAssetLibrary"))
 
 type Status = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
 type Output = {
@@ -91,7 +94,14 @@ type ModesPayload = { modes: Workflow[]; image_sizes: string[]; presets: Record<
 type GrsBalanceSnapshot = { credits: number | null; queried_at: string | null; refresh_error?: string | null }
 type StorageCapability = { provider: string; requires_local_directory: boolean }
 type ReferenceAsset = { id: string; file: File; preview: string }
-type ImagePreview = { src: string; alt: string }
+type MediaPreview = {
+  kind: PreviewMediaKind
+  src: string
+  title: string
+  description?: string
+  job?: Job
+  aspectRatio?: string
+}
 type DirectoryState = "checking" | "unsupported" | "missing" | "prompt" | "granted"
 type MediaDraft = {
   workflowId: string; prompt: string; negativePrompt: string; references: ReferenceAsset[]
@@ -234,6 +244,13 @@ function defaultOptionValues(workflow?: Workflow): Record<string, OptionInputVal
 function optionVisible(definition: OptionDefinition, values: Record<string, OptionInputValue>) {
   if (!definition.ui_visible_when) return true
   return Object.entries(definition.ui_visible_when).every(([name, expected]) => String(values[name]) === String(expected))
+}
+
+function mediaAspectHint(source?: { options?: Record<string, unknown>; request_parameters?: RequestParameter[] }) {
+  const fromOptions = source?.options?.aspect_ratio
+  if (typeof fromOptions === "string" && fromOptions.trim()) return fromOptions.trim()
+  const param = source?.request_parameters?.find((item) => item.name === "aspect_ratio")
+  return typeof param?.value === "string" ? param.value : undefined
 }
 
 function generatedResolutionLabel(definition: OptionDefinition, quality: string, aspectRatio: string) {
@@ -467,7 +484,7 @@ export default function App({
   const liveDraftRef = useRef<MediaDraft | null>(null)
   const prevMediaTypeRef = useRef<GenerateMediaType | null>(null)
   const [isSelectedPromptExpanded, setIsSelectedPromptExpanded] = useState(false)
-  const [previewImage, setPreviewImage] = useState<ImagePreview | null>(null)
+  const [previewMedia, setPreviewMedia] = useState<MediaPreview | null>(null)
   const [referencePreviewIndex, setReferencePreviewIndex] = useState<number | null>(null)
   const [referencePreviewZoom, setReferencePreviewZoom] = useState(1)
   const [referencePreviewRotation, setReferencePreviewRotation] = useState(0)
@@ -1581,7 +1598,7 @@ export default function App({
             </Suspense>
           ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
 
-            {isBatchMode && (
+            {isBatchMode && assetSection === "history" && (
               <div className="studio-asset-batch-bar mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#4d6bfe]/30 bg-[#eff4ff] px-4 py-2.5">
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-medium text-[#1e40af]">
@@ -1638,6 +1655,7 @@ export default function App({
                 onChange={(key) => setAssetSection(key as "history" | "subject" | "canvas")}
                 items={[{ key: "history", label: "生成历史" }, { key: "subject", label: "主体" }, { key: "canvas", label: "画布" }]}
               />
+              {assetSection === "history" ? (
               <div className="studio-asset-actions">
                 {isAdminViewer && (
                   <AdminUserFilterSelect value={adminUserFilter} options={adminUserOptions} onChange={changeAdminUserFilter} className="w-32" />
@@ -1658,7 +1676,14 @@ export default function App({
                   去剪映剪辑 <ExternalLink size={14} />
                 </button>
               </div>
+              ) : null}
             </div>
+            {assetSection === "subject" ? (
+              <Suspense fallback={<div className="py-16 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载资产库...</div>}>
+                <DirectorAssetLibrary csrfToken={csrfToken} />
+              </Suspense>
+            ) : (
+            <>
             <div className="studio-asset-filter-bar">
               <div className="studio-asset-type-filters">
                 {[{ key: "all", label: "全部" }, { key: "image", label: "图片" }, { key: "video", label: "视频" }, { key: "audio", label: "音频" }, { key: "document", label: "文档" }].map((filter) => <button key={filter.key} type="button" onClick={() => setAssetMediaFilter(filter.key as AssetMediaFilter)} className={`studio-asset-filter ${assetMediaFilter === filter.key ? "studio-asset-filter-active" : ""}`}>{filter.label}</button>)}
@@ -1754,14 +1779,14 @@ export default function App({
                               if (isBatchMode) {
                                 handleToggleSelectAsset(id)
                               } else {
-                                if (output.kind === "image") {
-                                  setPreviewImage({
-                                    src: localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path),
-                                    alt: output.label,
-                                  })
-                                } else {
-                                  openGenerateJob(job)
-                                }
+                                setPreviewMedia({
+                                  kind: output.kind,
+                                  src: localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path),
+                                  title: output.label,
+                                  description: job.title || job.prompt,
+                                  job,
+                                  aspectRatio: mediaAspectHint(job),
+                                })
                               }
                             }}
                             onKeyDown={(e) => {
@@ -1810,11 +1835,11 @@ export default function App({
                     ? activeFilterCount > 0 || timeFilter !== "all" || assetSearch
                       ? "没有找到符合当前筛选条件的资产"
                       : "暂无生成历史资产"
-                    : assetSection === "subject"
-                      ? "暂无主体资产"
-                      : "暂无画布资产"}
+                    : "暂无画布资产"}
                 </p>
               </div>
+            )}
+            </>
             )}
           </section> : <>
           {!selectedJob && <div className="relative z-10 mb-[112px] pt-12 text-center xl:mb-[130px]">{isInspectingOtherUser ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在查看 {inspectedUserLabel} 的任务</h2><p className="mt-3 text-base text-[#65707c]">从左侧选择一条生成任务查看详情</p></> : <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">今天想创作什么？</h2><p className="mt-3 text-base text-[#65707c]">输入想法，AI 帮你实现创意</p></>}</div>}
@@ -1851,7 +1876,7 @@ export default function App({
                       <span>第 {round.sequence} 轮 · {statusText[round.status]} · {round.stage}</span>
                       {wait.text ? <span title={wait.title || wait.text} className="studio-round-elapsed tabular-nums">{wait.text}</span> : null}
                     </p>
-                    {round.error ? <p className="studio-round-error mt-1 text-xs leading-5">{round.error}</p> : null}
+                    {round.error ? <div className="studio-round-error mt-1"><JobErrorNotice error={round.error} hideSummary /></div> : null}
                   </div>
                 </header>
 
@@ -1863,7 +1888,7 @@ export default function App({
                   </dl>
                 </details>}
 
-                {round.references.length > 0 && <div className="studio-round-references">{round.references.map((reference) => <button key={reference.index} type="button" onClick={() => setPreviewImage({ src: reference.url, alt: `参考图 ${reference.index}` })} className="group relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border border-black/[0.08] bg-[#f2f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/40">
+                {round.references.length > 0 && <div className="studio-round-references">{round.references.map((reference) => <button key={reference.index} type="button" onClick={() => setPreviewMedia({ kind: "image", src: reference.url, title: `参考图 ${reference.index}` })} className="group relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border border-black/[0.08] bg-[#f2f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/40">
                   <img src={reference.url} alt={`参考图 ${reference.index}`} className="h-full w-full object-cover transition duration-200 group-hover:scale-105" />
                   <span className="studio-reference-thumb-label absolute inset-x-0 bottom-0 px-1.5 py-1 text-left text-[10px]">参考图 {reference.index}</span>
                 </button>)}</div>}
@@ -1874,12 +1899,15 @@ export default function App({
                 </div>}
 
                 {roundResults.length > 0 && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
-                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewImage({ src: result.src, alt: result.output.label })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} onSave={(result) => directoryState === "granted" ? void deliverOutput(selectedJob, result.generationItemId, result.outputIndex, result.output) : void connectDirectory()} />}
+                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onSave={(result) => directoryState === "granted" ? void deliverOutput(selectedJob, result.generationItemId, result.outputIndex, result.output) : void connectDirectory()} />}
                 </Suspense>}
 
-                {failedItems.length > 0 && <ul className="mt-3 space-y-1 text-xs leading-5 text-red-600">
+                {failedItems.length > 0 && mediaType === "image" && <ul className="mt-3 space-y-2 text-xs leading-5 text-red-600">
                   {failedItems.map((item) => (
-                    <li key={item.id}>第 {item.index} 张：{item.error || item.stage || "生成失败"}</li>
+                    <li key={item.id}>
+                      <span>第 {item.index} 张生成失败</span>
+                      {item.error && item.error !== round.error ? <JobErrorNotice error={item.error} hideSummary /> : null}
+                    </li>
                   ))}
                 </ul>}
 
@@ -2084,12 +2112,21 @@ export default function App({
         </main>
         <aside className="fixed bottom-0 right-0 top-14 z-20 hidden w-14 flex-col items-center border-l border-white/[0.06] bg-[#111218] pt-4 xl:hidden"><button type="button" onClick={() => setHistoryOpen(true)} title="任务记录" className="grid size-10 place-items-center rounded-lg bg-white/[0.06] text-[#c5c5ca] hover:bg-white/10 hover:text-white"><ListChecks size={19} /></button><History className="mt-6 text-[#d7d7dc]" size={16} /><span className="mt-2 text-sm leading-5 text-white [writing-mode:vertical-rl]">任务记录</span><span className="mt-3 size-2 rounded-full bg-[#7047ff]" /></aside>
       </div>
-      {previewImage && <div role="dialog" aria-modal="true" aria-label={previewImage.alt} onMouseDown={() => setPreviewImage(null)} className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0b0c10]/85 p-4 backdrop-blur-sm">
-        <div onMouseDown={(event) => event.stopPropagation()} className="relative flex max-h-[min(88vh,900px)] w-full max-w-5xl items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-[#15161b] p-3 shadow-[0_28px_90px_rgba(0,0,0,0.55)]">
-          <img src={previewImage.src} alt={previewImage.alt} className="max-h-[calc(88vh-24px)] max-w-full rounded-xl object-contain" />
-          <button type="button" onClick={() => setPreviewImage(null)} title="关闭预览" className="absolute right-5 top-5 grid size-9 place-items-center rounded-full border border-white/10 bg-black/65 text-white transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b6cff]"><X size={17} /></button>
-        </div>
-      </div>}
+      {previewMedia && <MediaPreviewModal
+        open
+        kind={previewMedia.kind}
+        src={previewMedia.src}
+        title={previewMedia.title}
+        description={previewMedia.description}
+        aspectRatio={previewMedia.aspectRatio}
+        onClose={() => setPreviewMedia(null)}
+        actions={previewMedia.job ? [{
+          key: "open-job",
+          label: "打开关联任务",
+          icon: <ExternalLink size={15} />,
+          onClick: () => { openGenerateJob(previewMedia.job!); setPreviewMedia(null) },
+        }] : []}
+      />}
       {previewReference && referencePreviewIndex !== null && <div role="dialog" aria-modal="true" aria-label="参考图预览" onMouseDown={closeReferencePreview} className={`fixed inset-0 z-[110] flex items-center justify-center bg-[#090a0e]/90 p-3 backdrop-blur-sm sm:p-5 ${referencePreviewFullscreen ? "p-0" : ""}`}>
         <section onMouseDown={(event) => event.stopPropagation()} className={`grid w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 border border-white/10 bg-[#111216] p-3 text-white shadow-[0_28px_90px_rgba(0,0,0,0.55)] sm:rounded-xl sm:p-4 ${referencePreviewFullscreen ? "h-full max-w-none rounded-none border-0" : "h-[90vh] max-w-[92vw]"}`}>
           <header className="flex items-center justify-between gap-3"><div><h2 className="text-base font-medium">图片预览</h2><p className="mt-0.5 text-xs text-[#9898a3]">参考图 {referencePreviewIndex + 1} / {references.length}</p></div><button type="button" aria-label="关闭图片预览" title="关闭预览" onClick={closeReferencePreview} className="grid size-9 place-items-center rounded-full bg-white/[0.07] text-[#d7d7dc] transition hover:bg-white/[0.14] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b6cff]"><X size={17} /></button></header>

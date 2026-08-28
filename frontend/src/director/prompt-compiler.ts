@@ -2,10 +2,18 @@ import {
   buildFormattedShotPrompt,
   CanvasTier,
   CompiledPromptInfo,
+  createEmptyProject,
+  createEmptyShot,
+  defaultCameraDirection,
   DIRECTOR_SPEED_OPTIONS,
   DirectorQuality,
   DirectorShot,
   DirectorSpeed,
+  DirectorWeightProfile,
+  RecipeCharacter,
+  RecipeLocation,
+  RecipeProject,
+  RecipeShot,
   SubjectSlot,
   TimelineProject,
 } from "./types"
@@ -33,8 +41,10 @@ export const DIRECTOR_PREVIEW_QUALITY: RegistryQuality = "0.4"
 export const DIRECTOR_PREVIEW_SPEED: DirectorSpeed = "fast"
 export const DIRECTOR_FINAL_QUALITY: RegistryQuality = "1.0"
 export const DIRECTOR_FINAL_SPEED: DirectorSpeed = "balanced"
+export const DIRECTOR_WEIGHT_PROFILE: DirectorWeightProfile = "full"
 export const DIRECTOR_QUALITIES: RegistryQuality[] = ["0.4", "0.7", "1.0", "2.0"]
 export const DIRECTOR_SPEEDS: DirectorSpeed[] = ["fast", "balanced", "quality"]
+export const DIRECTOR_WEIGHT_PROFILES: DirectorWeightProfile[] = ["full", "pruned"]
 
 export interface ReferencePlanItem {
   pictureIndex: number
@@ -60,6 +70,7 @@ export interface ShotSubmission {
   aspectRatio: string
   quality: RegistryQuality
   speed: DirectorSpeed
+  weightProfile: DirectorWeightProfile
   renderPass: DirectorRenderPass
   plan: ReferencePlan
   wordCount: number
@@ -101,10 +112,14 @@ export function directorSpeedSteps(speed: DirectorSpeed | string | undefined): n
 }
 
 export function directorSpeedLabel(speed: DirectorSpeed | string | undefined): string {
-  return DIRECTOR_SPEED_OPTIONS.find((item) => item.value === speed)?.label || "8 步 + LoRA"
+  return DIRECTOR_SPEED_OPTIONS.find((item) => item.value === speed)?.label || "均衡（8 步）"
 }
 
-type DirectorJobSource = Pick<TimelineProject, "canvasTier" | "previewQuality" | "previewSpeed" | "finalQuality" | "finalSpeed" | "videoWorkflowFamily">
+export function normalizeDirectorWeightProfile(value: string | undefined, fallback: DirectorWeightProfile = DIRECTOR_WEIGHT_PROFILE): DirectorWeightProfile {
+  return DIRECTOR_WEIGHT_PROFILES.includes(value as DirectorWeightProfile) ? (value as DirectorWeightProfile) : fallback
+}
+
+type DirectorJobSource = Pick<TimelineProject, "canvasTier" | "previewQuality" | "previewSpeed" | "finalQuality" | "finalSpeed" | "weightProfile" | "videoWorkflowFamily">
 
 function isDirectorJobSource(value: unknown): value is DirectorJobSource {
   return Boolean(value && typeof value === "object")
@@ -113,20 +128,23 @@ function isDirectorJobSource(value: unknown): value is DirectorJobSource {
 export function directorJobOptions(
   pass: DirectorRenderPass | string | undefined,
   canvasOrProject?: CanvasTier | string | DirectorJobSource,
-): { quality: RegistryQuality; speed: DirectorSpeed; renderPass: DirectorRenderPass } {
+): { quality: RegistryQuality; speed: DirectorSpeed; weightProfile: DirectorWeightProfile; renderPass: DirectorRenderPass } {
   const project = isDirectorJobSource(canvasOrProject) ? canvasOrProject : undefined
   const canvasTier = project?.canvasTier || (typeof canvasOrProject === "string" ? canvasOrProject : undefined)
   const renderPass: DirectorRenderPass = pass === "preview" ? "preview" : "final"
+  const weightProfile = normalizeDirectorWeightProfile(project?.weightProfile)
   if (renderPass === "preview") {
     return {
       quality: normalizeDirectorQuality(project?.previewQuality, DIRECTOR_PREVIEW_QUALITY),
       speed: normalizeDirectorSpeed(project?.previewSpeed, DIRECTOR_PREVIEW_SPEED),
+      weightProfile,
       renderPass,
     }
   }
   return {
     quality: normalizeDirectorQuality(project?.finalQuality, registryQualityForCanvas(canvasTier)),
     speed: normalizeDirectorSpeed(project?.finalSpeed, DIRECTOR_FINAL_SPEED),
+    weightProfile,
     renderPass,
   }
 }
@@ -480,6 +498,7 @@ function submissionFromPrompt(
     aspectRatio: project.aspectRatio || "16:9",
     quality: job.quality,
     speed: job.speed,
+    weightProfile: job.weightProfile,
     renderPass: job.renderPass,
     plan,
     wordCount,
@@ -509,6 +528,122 @@ export function resolveShotSubmission(
     clipAllowed: clip.allowed,
     renderPass,
   })
+}
+
+const LEADING_SHOT_TAG_RE = /^\s*\[Shot\s+\d+\]\s*/i
+const LEADING_GLOBAL_TIMECODE_RE = /^\s*At\s+\d{1,2}:\d{2}(?:\.\d{1,3})?\s*,?\s*/i
+const LEADING_CUT_RE = /^\s*the\s+camera\s+cuts\s+to\s+/i
+
+function containsCjk(text: string): boolean {
+  return /[\u4e00-\u9fff]/.test(text)
+}
+
+function englishAudioText(candidates: Array<string | null | undefined>, fallback: string): string {
+  for (const raw of candidates) {
+    const value = (raw || "").trim()
+    if (!value) continue
+    if (value.toLowerCase() === "n/a") return "N/A"
+    if (!containsCjk(value)) return value
+  }
+  return fallback
+}
+
+export function normalizeIndependentShotPrompt(text: string): string {
+  const normalized = (text || "").trim().replace(LEADING_SHOT_TAG_RE, "")
+  const withoutTimecode = normalized.replace(LEADING_GLOBAL_TIMECODE_RE, "")
+  if (withoutTimecode === normalized) return withoutTimecode.trim()
+  return withoutTimecode.replace(LEADING_CUT_RE, "").trim()
+}
+
+function recipeAssetHasPlate(asset: RecipeCharacter | RecipeLocation): boolean {
+  return Boolean(asset.imageUrl || asset.imageJobId)
+}
+
+export function applyRecipeContinuity(shot: RecipeShot, previousShot?: RecipeShot | null): RecipeShot {
+  if (!shot.usePreviousEndFrame || !previousShot) return shot
+  const inherited = previousShot.endFrameUrl || previousShot.stillUrl
+  if (!inherited) return shot
+  return { ...shot, firstFrameUrl: inherited }
+}
+
+function recipeAssetsAsSlots(recipe: RecipeProject, shot: RecipeShot, reserve = 0): SubjectSlot[] {
+  const named = new Set((shot.characterNames || []).map((name) => name.trim()).filter(Boolean))
+  let characters = recipe.characters.filter(recipeAssetHasPlate)
+  if (named.size) characters = characters.filter((item) => named.has(item.name))
+  let locations = recipe.locations.filter(recipeAssetHasPlate)
+  if (shot.locationName.trim()) {
+    const matched = locations.filter((item) => item.name === shot.locationName)
+    if (matched.length) locations = matched
+  }
+  const packed: Array<{ asset: RecipeCharacter | RecipeLocation; kind: SubjectSlot["kind"] }> = [
+    ...characters.map((asset) => ({
+      asset,
+      kind: (asset.type === "object" ? "prop" : "character") as SubjectSlot["kind"],
+    })),
+    ...locations.map((asset) => ({ asset, kind: "scene" as const })),
+  ]
+  const limit = Math.max(0, H3_MAX_REFERENCE_IMAGES - Math.max(0, reserve))
+  return packed.slice(0, limit).map((item, index) => ({
+    id: `@ref${index + 1}`,
+    slotIndex: index + 1,
+    name: item.asset.name || `主体 ${index + 1}`,
+    kind: item.kind,
+    retention: "fully_preserved",
+    description: (item.asset.promptText || item.asset.description || "").trim(),
+    previewUrl: item.asset.imageUrl || (item.asset.imageJobId ? `job:${item.asset.imageJobId}` : undefined),
+  }))
+}
+
+export function workflowRouteLabel(workflowId: string, route?: string): string {
+  if (isDirectorR2V(workflowId, route)) return "R2V 参考图"
+  if (route === "i2v" || workflowId.endsWith("-i2v")) return "I2V 首尾帧"
+  return "T2V 文生"
+}
+
+export function compileRecipeShotPreview(
+  recipe: RecipeProject,
+  shot: RecipeShot,
+  previousShot?: RecipeShot | null,
+): ShotSubmission {
+  const resolved = applyRecipeContinuity(shot, previousShot)
+  const hasFirst = Boolean(resolved.firstFrameUrl)
+  const slots = recipeAssetsAsSlots(recipe, resolved, hasFirst ? 1 : 0)
+  const prefix = (recipe.artStyle?.promptPrefix || "").trim()
+  let body = (resolved.promptText || resolved.description || "").trim()
+  body = normalizeIndependentShotPrompt(body)
+  const visual = prefix ? `${prefix.replace(/[. ]+$/, "")}. ${body}`.trim() : body
+  const timelineShot: DirectorShot = {
+    ...createEmptyShot(resolved.shotNumber || 1, 0, snapH3DurationSec(resolved.durationSec || 5)),
+    id: resolved.id,
+    title: resolved.title,
+    prompt: visual,
+    dialogue: resolved.dialogue,
+    durationSec: snapH3DurationSec(resolved.durationSec || 5),
+    soundscape: englishAudioText([resolved.soundscapeEn, resolved.soundscape], ""),
+    camera: resolved.camera || defaultCameraDirection(),
+    firstFrameUrl: resolved.firstFrameUrl || undefined,
+    endFrameUrl: resolved.endFrameUrl || undefined,
+    usePreviousEndFrame: resolved.usePreviousEndFrame,
+  }
+  const project: TimelineProject = {
+    ...createEmptyProject(),
+    aspectRatio: recipe.aspectRatio,
+    canvasTier: recipe.canvasTier,
+    previewQuality: recipe.previewQuality,
+    previewSpeed: recipe.previewSpeed,
+    finalQuality: recipe.finalQuality,
+    finalSpeed: recipe.finalSpeed,
+    weightProfile: recipe.weightProfile,
+    videoWorkflowFamily: recipe.videoWorkflowFamily,
+    refsMode: slots.length ? "refs_on" : "refs_off",
+    subjectSlots: slots,
+    shots: [timelineShot],
+    globalSoundscape: englishAudioText([resolved.soundscapeEn, resolved.soundscape, recipe.globalSoundscape], ""),
+    globalMusic: englishAudioText([recipe.globalMusic], "N/A"),
+    manualPromptOverrideEnabled: recipe.manualPromptOverrideEnabled,
+    manualPromptOverrideText: recipe.manualPromptOverrideText,
+  }
+  return resolveShotSubmission(project, timelineShot, "final")
 }
 
 export function resolveClipSubmission(

@@ -3,6 +3,8 @@ from __future__ import annotations
 import secrets
 import shutil
 import urllib.request
+from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -10,13 +12,17 @@ from urllib.error import URLError
 from .config import settings
 from .director_compiler import (
     H3_MAX_REFERENCE_IMAGES,
+    apply_recipe_continuity,
+    h3_prompt_mode,
     recipe_assets_as_slots,
     recipe_style_prefix,
     resolve_recipe_shot_submission,
+    validate_h3_polished_prompt,
 )
 from .workflow_registry import resolve_director_workflow
 from .director_recipe import (
     PAYLOAD_KIND_RECIPE,
+    find_recipe_shot,
     flatten_recipe_shots,
     normalize_recipe_payload,
     payload_kind,
@@ -140,6 +146,17 @@ def bind_director_asset_image(
             if asset.get("imageUrl") != image_url:
                 asset["imageUrl"] = image_url
                 changed = True
+        for shot in flatten_recipe_shots(recipe):
+            if shot.get("stillJobId") == job_id and shot.get("stillUrl") != image_url:
+                shot["stillUrl"] = image_url
+                shot["stillStatus"] = "succeeded"
+                changed = True
+            if shot.get("firstFrameJobId") == job_id and shot.get("firstFrameUrl") != image_url:
+                shot["firstFrameUrl"] = image_url
+                changed = True
+            if shot.get("endFrameJobId") == job_id and shot.get("endFrameUrl") != image_url:
+                shot["endFrameUrl"] = image_url
+                changed = True
         if changed:
             store.update_director_project(project["id"], payload=recipe)
             bound += 1
@@ -208,7 +225,62 @@ def sync_recipe_asset_images(
         if url:
             asset["imageUrl"] = url
     for shot in flatten_recipe_shots(recipe):
-        job_id = shot.get("jobId")
+        still_job_id = shot.get("stillJobId")
+        if still_job_id:
+            try:
+                still_job = store.get(still_job_id)
+            except KeyError:
+                still_job = None
+            if still_job:
+                still_status = still_job.get("status")
+                still_url = job_asset_image_url(still_job, kind="image", resource_storage=resource_storage) or job_public_output_url(still_job, kind="image")
+                if still_status:
+                    shot["stillStatus"] = "succeeded" if still_status == JobStatus.PARTIAL.value and still_url else still_status
+                if still_url:
+                    shot["stillUrl"] = still_url
+        takes = [take for take in (shot.get("takes") or []) if isinstance(take, dict)]
+        if not takes and shot.get("jobId"):
+            takes.append({
+                "id": shot.get("jobId"),
+                "takeNumber": 1,
+                "jobId": shot.get("jobId"),
+                "status": shot.get("status") or "idle",
+                "progress": shot.get("progress") or 0,
+                "videoUrl": shot.get("outputVideoUrl"),
+                "createdAt": "",
+                "promptSnapshot": shot.get("compiledPrompt") or "",
+            })
+            shot["activeTakeIndex"] = 0
+        for take in takes:
+            take_job_id = take.get("jobId") or take.get("id")
+            if not take_job_id:
+                continue
+            try:
+                take_job = store.get(take_job_id)
+            except KeyError:
+                continue
+            take_status = take_job.get("status")
+            if take_status == JobStatus.PARTIAL.value and job_public_output_url(take_job, kind="video"):
+                take["status"] = "succeeded"
+            elif take_status:
+                take["status"] = take_status
+            video_url = job_public_output_url(take_job, kind="video")
+            if video_url:
+                take["videoUrl"] = video_url
+            if isinstance(take_job.get("progress"), (int, float)):
+                take["progress"] = take_job["progress"]
+            error = str(take_job.get("error") or "").strip()
+            if take.get("status") in {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}:
+                take["error"] = error or take.get("error")
+            elif take.get("status") == JobStatus.SUCCEEDED.value:
+                take["error"] = None
+        shot["takes"] = takes
+        approved = str(shot.get("approvedTakeId") or "")
+        approved_take = next((take for take in takes if str(take.get("id") or take.get("jobId") or "") == approved), None)
+        active_index = shot.get("activeTakeIndex") if isinstance(shot.get("activeTakeIndex"), int) else len(takes) - 1
+        active_take = takes[active_index] if takes and 0 <= active_index < len(takes) else (takes[-1] if takes else None)
+        chosen = approved_take or active_take
+        job_id = (chosen or {}).get("jobId") or shot.get("jobId")
         if not job_id:
             continue
         try:
@@ -218,12 +290,13 @@ def sync_recipe_asset_images(
         status = job.get("status")
         if status in {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value, JobStatus.INTERRUPTED.value, JobStatus.RUNNING.value, JobStatus.QUEUED.value}:
             shot["status"] = "succeeded" if status == JobStatus.PARTIAL.value and job_public_output_url(job, kind="video") else status
-        url = job_public_output_url(job, kind="video")
+        url = job_public_output_url(job, kind="video") or (chosen or {}).get("videoUrl")
         if url:
             shot["outputVideoUrl"] = url
             shot["progress"] = 100 if shot.get("status") == "succeeded" else shot.get("progress") or job.get("progress") or 0
         elif isinstance(job.get("progress"), (int, float)):
             shot["progress"] = job["progress"]
+        shot["jobId"] = job_id
     return recipe
 
 
@@ -348,6 +421,232 @@ def generate_recipe_assets(
     return recipe, job_ids
 
 
+def _still_prompt(shot: dict[str, Any], recipe: dict[str, Any]) -> str:
+    prefix = recipe_style_prefix(recipe)
+    body = (
+        shot.get("promptText")
+        or shot.get("description")
+        or shot.get("title")
+        or ""
+    ).strip()
+    names = [str(name).strip() for name in (shot.get("characterNames") or []) if str(name).strip()]
+    location = str(shot.get("locationName") or "").strip()
+    extras = []
+    if names:
+        extras.append("characters: " + ", ".join(names))
+    if location:
+        extras.append(f"location: {location}")
+    instruction = "cinematic still frame, single keyframe, no motion, storyboard composition"
+    parts = [prefix, instruction, body, *extras]
+    return ". ".join(part for part in parts if part)
+
+
+def generate_recipe_stills(
+    store: JobStore,
+    grs_provider: Any,
+    *,
+    owner_user_id: str,
+    recipe: dict[str, Any],
+    shot_ids: list[str] | None = None,
+    force: bool = False,
+    resource_storage: Any | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    available, reason = grs_provider.availability()
+    if not available:
+        raise ValueError(reason or "GRS 图片能力不可用")
+    workflow_id = default_image_workflow_id(grs_provider)
+    if not is_image_workflow(workflow_id):
+        raise ValueError("当前默认工作流不是图片生成")
+    recipe = sync_recipe_asset_images(store, recipe, resource_storage=resource_storage)
+    wanted = {item for item in (shot_ids or []) if item}
+    aspect = recipe.get("aspectRatio") or "16:9"
+    options = {
+        "aspect_ratio": aspect if aspect in {"1:1", "16:9", "9:16", "4:3", "3:4"} else "16:9",
+        "resolution": "1K",
+        "count": 1,
+    }
+    job_ids: list[str] = []
+    for _scene, shot in _iter_shots(recipe):
+        if wanted and shot.get("id") not in wanted:
+            continue
+        if not force and shot.get("stillUrl"):
+            continue
+        refs = _plate_paths_for_shot(store, recipe, shot, resource_storage=resource_storage)
+        job = create_queued_job(
+            store,
+            owner_user_id=owner_user_id,
+            mode=workflow_id,
+            prompt=_still_prompt(shot, recipe),
+            options=options,
+            references=refs,
+            title=f"静帧 · {shot.get('title') or '分镜'}",
+        )
+        shot["stillJobId"] = job["id"]
+        shot["stillUrl"] = None
+        shot["stillStatus"] = "queued"
+        job_ids.append(job["id"])
+    return recipe, job_ids
+
+
+def _job_id_from_media_url(url: str | None) -> str | None:
+    text = str(url or "").strip()
+    marker = "/api/jobs/"
+    if marker not in text:
+        return None
+    rest = text.split(marker, 1)[1]
+    job_id = rest.split("/", 1)[0].strip()
+    return job_id or None
+
+
+def _materialize_frame_file(
+    store: JobStore,
+    shot: dict[str, Any],
+    *,
+    role: str,
+    resource_storage: Any | None = None,
+) -> Path | None:
+    if role == "end":
+        job_id = shot.get("endFrameJobId")
+        path = shot.get("endFramePath")
+        url = shot.get("endFrameUrl")
+    else:
+        job_id = shot.get("firstFrameJobId")
+        path = shot.get("firstFramePath")
+        url = shot.get("firstFrameUrl")
+    if path:
+        candidate = Path(str(path))
+        if candidate.is_file():
+            return candidate
+    resolved_job = str(job_id or "").strip() or _job_id_from_media_url(str(url or ""))
+    if resolved_job:
+        try:
+            job = store.get(resolved_job)
+        except KeyError:
+            job = None
+        if job:
+            file_path = materialize_job_output_file(job, resource_storage=resource_storage, kind="image")
+            if file_path is not None:
+                return file_path
+    return None
+
+
+def recipe_frame_file(
+    *,
+    owner_user_id: str,
+    project_id: str,
+    shot_id: str,
+    slot: str,
+    suffix: str = ".png",
+) -> Path:
+    safe_suffix = suffix if suffix.startswith(".") else f".{suffix}"
+    return settings.uploads_dir / owner_user_id / project_id / f"{shot_id}_{slot}{safe_suffix}"
+
+
+def find_recipe_frame_file(
+    *,
+    owner_user_id: str,
+    project_id: str,
+    shot_id: str,
+    slot: str,
+) -> Path | None:
+    directory = settings.uploads_dir / owner_user_id / project_id
+    if not directory.is_dir():
+        return None
+    matches = sorted(path for path in directory.glob(f"{shot_id}_{slot}.*") if path.is_file())
+    return matches[0] if matches else None
+
+
+def save_recipe_shot_frame(
+    recipe: dict[str, Any],
+    *,
+    owner_user_id: str,
+    project_id: str,
+    shot_id: str,
+    slot: str,
+    source: Path,
+) -> dict[str, Any]:
+    shot = find_recipe_shot(recipe, shot_id)
+    if shot is None:
+        raise ValueError("分镜不存在")
+    if slot not in {"first", "end"}:
+        raise ValueError("槽位必须是 first 或 end")
+    dest = recipe_frame_file(
+        owner_user_id=owner_user_id,
+        project_id=project_id,
+        shot_id=shot_id,
+        slot=slot,
+        suffix=source.suffix or ".png",
+    )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    for leftover in dest.parent.glob(f"{shot_id}_{slot}.*"):
+        leftover.unlink(missing_ok=True)
+    shutil.copy2(source, dest)
+    public_url = f"/api/director/recipes/{project_id}/frames/{shot_id}/{slot}"
+    if slot == "first":
+        shot["firstFramePath"] = str(dest)
+        shot["firstFrameUrl"] = public_url
+        shot["firstFrameJobId"] = None
+        shot["usePreviousEndFrame"] = False
+    else:
+        shot["endFramePath"] = str(dest)
+        shot["endFrameUrl"] = public_url
+        shot["endFrameJobId"] = None
+    return recipe
+
+
+def _plate_file_for_slot(
+    store: JobStore,
+    slot: dict[str, Any],
+    *,
+    resource_storage: Any | None = None,
+) -> Path | None:
+    job_id = slot.get("imageJobId") or slot.get("image_job_id")
+    if job_id:
+        try:
+            job = store.get(str(job_id))
+        except KeyError:
+            job = None
+        if job:
+            file_path = materialize_job_output_file(job, resource_storage=resource_storage, kind="image")
+            if file_path is not None:
+                return file_path
+    library_id = str(slot.get("libraryAssetId") or slot.get("library_asset_id") or "").strip()
+    from .director_library import find_library_asset_file, parse_library_asset_id_from_url
+
+    if not library_id:
+        library_id = parse_library_asset_id_from_url(slot.get("previewUrl") or slot.get("imageUrl")) or ""
+    if library_id:
+        try:
+            asset = store.get_director_library_asset(library_id)
+        except KeyError:
+            asset = None
+        if asset:
+            path = find_library_asset_file(
+                str(asset.get("owner_user_id") or ""),
+                library_id,
+                asset.get("image_path") if isinstance(asset.get("image_path"), str) else None,
+            )
+            if path is not None:
+                return path
+    return None
+
+
+def _plate_paths_for_shot(
+    store: JobStore,
+    recipe: dict[str, Any],
+    shot: dict[str, Any],
+    *,
+    resource_storage: Any | None = None,
+    reserve: int = 0,
+) -> list[str]:
+    paths: list[str] = []
+    for slot in recipe_assets_as_slots(recipe, shot, reserve=reserve):
+        file_path = _plate_file_for_slot(store, slot, resource_storage=resource_storage)
+        if file_path is not None:
+            paths.append(str(file_path))
+    return paths[: max(0, H3_MAX_REFERENCE_IMAGES - max(0, reserve))]
+
+
 def _reference_paths_for_shot(
     store: JobStore,
     recipe: dict[str, Any],
@@ -355,18 +654,23 @@ def _reference_paths_for_shot(
     *,
     resource_storage: Any | None = None,
 ) -> list[str]:
+    resolved = apply_recipe_continuity(recipe, shot)
     paths: list[str] = []
-    for slot in recipe_assets_as_slots(recipe, shot):
-        job_id = slot.get("imageJobId")
-        if not job_id:
-            continue
-        try:
-            job = store.get(job_id)
-        except KeyError:
-            continue
-        file_path = materialize_job_output_file(job, resource_storage=resource_storage, kind="image")
-        if file_path is not None:
-            paths.append(str(file_path))
+    first = _materialize_frame_file(store, resolved, role="first", resource_storage=resource_storage)
+    if first is not None:
+        paths.append(str(first))
+    plates = _plate_paths_for_shot(
+        store,
+        recipe,
+        resolved,
+        resource_storage=resource_storage,
+        reserve=1 if first is not None else 0,
+    )
+    if not plates:
+        last = _materialize_frame_file(store, resolved, role="end", resource_storage=resource_storage)
+        if last is not None:
+            paths.append(str(last))
+    paths.extend(plates)
     return paths[:H3_MAX_REFERENCE_IMAGES]
 
 
@@ -378,6 +682,7 @@ def render_recipe_shots(
     shot_ids: list[str] | None = None,
     render_pass: str = "final",
     resource_storage: Any | None = None,
+    h3_prompt_refiner: Callable[[str, str], str] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     recipe = sync_recipe_asset_images(store, recipe, resource_storage=resource_storage)
     wanted = {item for item in (shot_ids or []) if item}
@@ -385,18 +690,47 @@ def render_recipe_shots(
     for _scene, shot in _iter_shots(recipe):
         if wanted and shot.get("id") not in wanted:
             continue
-        submission = resolve_recipe_shot_submission(recipe, shot, render_pass)
+        resolved = apply_recipe_continuity(recipe, shot)
+        submission = resolve_recipe_shot_submission(recipe, resolved, render_pass)
         errors = list(submission.get("errors") or [])
         if errors:
             shot["status"] = "failed"
+            shot["error"] = "；".join(str(item) for item in errors if item)
             continue
-        refs = _reference_paths_for_shot(store, recipe, shot, resource_storage=resource_storage)
+        shot["error"] = None
+        refs = _reference_paths_for_shot(store, recipe, resolved, resource_storage=resource_storage)
+        plan_items = list((submission.get("plan") or {}).get("items") or [])
+        needs_first = any(item.get("role") == "first_frame" for item in plan_items)
+        if needs_first and not refs:
+            shot["status"] = "failed"
+            shot["error"] = "缺少可提交的首帧文件"
+            continue
         workflow_id = submission["workflowId"]
         if not refs:
             workflow_id = resolve_director_workflow(
                 recipe.get("videoWorkflowFamily") or recipe.get("video_workflow_family"),
                 "t2v",
             )
+        if h3_prompt_refiner is not None and (refs or not plan_items):
+            try:
+                prompt_mode = h3_prompt_mode(submission.get("plan") or {})
+                polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode)
+                polish_errors = validate_h3_polished_prompt(polished_prompt, submission.get("plan") or {})
+                if polish_errors:
+                    revision_request = (
+                        f"{polished_prompt}\n\n"
+                        "Validation feedback: " + "; ".join(polish_errors)
+                        + f"\nRewrite the complete final {prompt_mode} prompt and fix every validation issue."
+                    )
+                    polished_prompt = h3_prompt_refiner(revision_request, prompt_mode)
+                    polish_errors = validate_h3_polished_prompt(polished_prompt, submission.get("plan") or {})
+                if polish_errors:
+                    raise ValueError("；".join(polish_errors))
+                submission["prompt"] = polished_prompt
+            except Exception as error:
+                shot["status"] = "failed"
+                shot["error"] = f"H3 提示词润色失败：{error}"
+                continue
         job = create_queued_job(
             store,
             owner_user_id=owner_user_id,
@@ -406,6 +740,7 @@ def render_recipe_shots(
                 "aspect_ratio": submission.get("aspectRatio") or recipe.get("aspectRatio") or "16:9",
                 "quality": submission.get("quality") or "1.0",
                 "speed": submission.get("speed") or "balanced",
+                "weight_profile": submission.get("weight_profile") or recipe.get("weightProfile") or "full",
                 "duration": submission.get("durationSec") or 5,
             },
             references=refs,
@@ -415,6 +750,20 @@ def render_recipe_shots(
         shot["compiledPrompt"] = submission["prompt"]
         shot["status"] = "queued"
         shot["progress"] = 0
+        pass_name = "preview" if render_pass == "preview" else "final"
+        takes = [take for take in (shot.get("takes") or []) if isinstance(take, dict)]
+        takes.append({
+            "id": job["id"],
+            "takeNumber": len(takes) + 1,
+            "jobId": job["id"],
+            "status": "queued",
+            "progress": 0,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "promptSnapshot": submission.get("prompt") or "",
+            "renderPass": pass_name,
+        })
+        shot["takes"] = takes
+        shot["activeTakeIndex"] = len(takes) - 1
         job_ids.append(job["id"])
     return recipe, job_ids
 
@@ -464,6 +813,7 @@ def render_batch_items(
                 "aspect_ratio": aspect,
                 "quality": payload.get("finalQuality") or "1.0",
                 "speed": payload.get("finalSpeed") or "balanced",
+                "weight_profile": payload.get("weightProfile") or payload.get("weight_profile") or "full",
                 "duration": duration,
             },
             title=str(item.get("title") or payload.get("theme") or "批量短视频"),

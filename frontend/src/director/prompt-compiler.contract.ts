@@ -4,12 +4,13 @@ import { directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
 import {
   buildReferencePlan,
   compileClipPrompt,
+  compileRecipeShotPreview,
   compileShotPrompt,
   h3AlignedFrames,
   resolveShotSubmission,
   snapH3DurationSec,
 } from "./prompt-compiler"
-import { applyRecipeOutputSettings, createEmptyRecipe, createEmptyShot, createInitialSubjectSlots, defaultCameraDirection, TimelineProject } from "./types"
+import { applyRecipeOutputSettings, createEmptyRecipe, createEmptyShot, createInitialSubjectSlots, defaultCameraDirection, RecipeShot, TimelineProject } from "./types"
 
 function sampleProject(overrides?: Partial<TimelineProject>): TimelineProject {
   const slots = createInitialSubjectSlots()
@@ -148,11 +149,11 @@ export function assertPromptCompilerContract(): void {
     throw new Error("manual override must replace the submitted shot prompt")
   }
   const preview = resolveShotSubmission(project, project.shots[0], "preview")
-  if (preview.quality !== "0.4" || preview.speed !== "fast" || preview.renderPass !== "preview") {
+  if (preview.quality !== "0.4" || preview.speed !== "fast" || preview.weightProfile !== "full" || preview.renderPass !== "preview") {
     throw new Error("preview pass must be 0.4 MP / 4-step turbo")
   }
   const hero = resolveShotSubmission(project, project.shots[0], "final")
-  if (hero.quality !== "1.0" || hero.speed !== "balanced" || hero.renderPass !== "final") {
+  if (hero.quality !== "1.0" || hero.speed !== "balanced" || hero.weightProfile !== "full" || hero.renderPass !== "final") {
     throw new Error("final pass must be canvas 1.0 MP / 8-step turbo")
   }
   const hq = resolveShotSubmission(sampleProject({ finalQuality: "2.0" }), project.shots[0], "final")
@@ -170,9 +171,79 @@ export function assertPromptCompilerContract(): void {
   if (customFinal.quality !== "0.4" || customFinal.speed !== "quality") {
     throw new Error("final pass must honor project finalQuality/finalSpeed")
   }
+  const pruned = resolveShotSubmission(sampleProject({ weightProfile: "pruned" }), project.shots[0], "final")
+  if (pruned.weightProfile !== "pruned" || pruned.speed !== "balanced") {
+    throw new Error("final pass must honor project weightProfile without changing speed")
+  }
   const recipeOutput = applyRecipeOutputSettings(createEmptyRecipe(), { finalQuality: "0.4", aspectRatio: "16:9" })
   if (recipeOutput.canvasTier !== "fast" || recipeOutput.finalQuality !== "0.4" || recipeOutput.width !== 864 || recipeOutput.height !== 480) {
     throw new Error("recipe 0.4 MP 16:9 must map to 864×480")
+  }
+
+  const recipePreview = createEmptyRecipe("契约")
+  recipePreview.artStyle = {
+    id: "as_comic",
+    name: "漫画墨线",
+    promptPrefix: "Bold comic-book ink style, heavy linework, red and blue-black palette, night city",
+  }
+  recipePreview.characters = [{
+    id: "c1",
+    name: "小超人",
+    description: "红披风小男孩",
+    promptText: "little boy superhero with red cape",
+    gender: "male",
+    type: "character",
+    imageUrl: "data:image/png;base64,boy",
+  }]
+  recipePreview.locations = [{
+    id: "l1",
+    name: "夜城屋顶",
+    description: "夜城屋顶",
+    promptText: "night city rooftop",
+    imageUrl: "data:image/png;base64,roof",
+  }]
+  const recipeShot: RecipeShot = {
+    id: "shot-1",
+    shotNumber: 1,
+    title: "屋顶宣言",
+    description: "小超人在屋顶宣告",
+    promptText: "A top-down view of the little boy superhero on the rooftop, red cape fluttering. The camera slowly descends toward him as he looks straight up.",
+    dialogue: "GET READY TO MEET YOUR MAKER",
+    characterNames: ["小超人"],
+    locationName: "夜城屋顶",
+    durationSec: 8,
+    compiledPrompt: "",
+    status: "idle",
+    takes: [],
+    firstFrameUrl: "data:image/png;base64,first",
+    camera: defaultCameraDirection(),
+  }
+  recipePreview.scenes = [{ id: "sc1", sceneNumber: 1, title: "屋顶", description: "", locationName: "夜城屋顶", shots: [recipeShot] }]
+  const recipeCompiled = compileRecipeShotPreview(recipePreview, recipeShot)
+  if (recipeCompiled.plan.route !== "r2v") throw new Error("recipe first frame + plates must route R2V")
+  if (!recipeCompiled.prompt.includes("subject_definitions:") || !recipeCompiled.prompt.includes("detailed_description:")) {
+    throw new Error("recipe R2V must follow official Ref2VA six-section format, not CUT 1 prose")
+  }
+  if (!recipeCompiled.prompt.includes("<Picture 1>") || !recipeCompiled.prompt.includes("<Picture 2>")) {
+    throw new Error("recipe compile must number packed plates as Picture tags")
+  }
+  if (recipeCompiled.prompt.includes("CUT 1:") || recipeCompiled.prompt.includes("<Audio 1>")) {
+    throw new Error("director compile must not emit Hailuo CUT/Audio 1 prose")
+  }
+  if (!recipeCompiled.prompt.includes("Bold comic-book ink style")) {
+    throw new Error("art-style prefix must lead the compiled shot body")
+  }
+  const t2vRecipe = createEmptyRecipe()
+  const t2vShot: RecipeShot = {
+    ...recipeShot,
+    characterNames: [],
+    locationName: "",
+    firstFrameUrl: null,
+    promptText: "Live-action, cinematic, a medium shot frames a baker opening shutters.",
+  }
+  const t2vCompiled = compileRecipeShotPreview(t2vRecipe, t2vShot)
+  if (t2vCompiled.plan.route !== "t2v" || !t2vCompiled.prompt.includes("integrated_multimodal_description:")) {
+    throw new Error("recipe without plates must compile T2VA three-section prompt")
   }
 
   const persisted = persistableDirectorProjects([{
@@ -285,9 +356,17 @@ export function assertPromptCompilerContract(): void {
   if (comfy.summary !== "ComfyUI 推理失败。可查看详情排查。" || comfy.detail === comfy.summary) {
     throw new Error("Comfy dumps must keep detail behind the card summary")
   }
+  const traceback = summarizeJobError("Traceback (most recent call last):\n  File \"D:\\\\Comfyui\\\\execution.py\", line 1\nValueError: " + "x".repeat(400))
+  if (traceback.summary !== "生成失败，可查看详情排查。" || !traceback.detail.includes("Traceback")) {
+    throw new Error("raw tracebacks must not appear as the on-page summary")
+  }
   const shortErr = summarizeJobError("参考图缺失")
   if (shortErr.summary !== "参考图缺失" || shortErr.detail !== "参考图缺失") {
     throw new Error("short job errors must stay as-is")
+  }
+  const billing = summarizeJobError("脚本：大模型上游余额不足或欠费（HTTP 403），请到供应商控制台充值后再试。上游返回：account balance is insufficient")
+  if (billing.summary !== "大模型上游余额不足，请充值后再试。" || !billing.detail.includes("account balance is insufficient")) {
+    throw new Error("LLM billing errors must keep the upstream log behind a short summary")
   }
   const statusCopy: Record<string, string> = {
     queued: "排队中",

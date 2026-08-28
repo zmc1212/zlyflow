@@ -103,6 +103,7 @@ function migrateLegacyProject(raw: Record<string, unknown>): TimelineProject {
       raw.canvasTier === "past_native" ? "2.0" : raw.canvasTier === "fast" ? "0.4" : base.finalQuality
     ),
     finalSpeed: (raw.finalSpeed as TimelineProject["finalSpeed"]) || base.finalSpeed,
+    weightProfile: raw.weightProfile === "pruned" ? "pruned" : "full",
     fps: typeof raw.fps === "number" ? raw.fps : 24,
     refsMode: (raw.refsMode as TimelineProject["refsMode"]) || "refs_on",
     shots,

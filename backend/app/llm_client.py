@@ -14,6 +14,137 @@ class LlmTemporaryError(LlmError):
     pass
 
 
+class LlmBillingError(LlmError):
+    """Upstream refused the call because of quota, arrears, or insufficient balance."""
+
+
+class LlmAuthError(LlmError):
+    """Upstream refused the call because the API key is missing, invalid, or forbidden."""
+
+
+_BILLING_HINTS = (
+    "余额不足", "余额不够", "账户余额", "额度不足", "配额不足", "欠费", "欠费停用",
+    "魔粒不足", "预付费", "费用不足", "请充值", "请先充值",
+    "insufficient_quota", "insufficient quota", "insufficient balance",
+    "account balance", "arrear", "arrearage", "overdue",
+    "payment required", "please recharge", "please top up",
+    "not enough fund", "exceeded your current quota", "quota exceeded",
+)
+_AUTH_HINTS = (
+    "invalid api key", "incorrect api key", "invalid_api_key", "invalid token",
+    "unauthorized", "authentication", "authentication_error",
+    "api key 无效", "token 无效", "权限不足", "凭据无效",
+)
+_MODEL_HINTS = (
+    "model_not_found", "model not found", "does not exist", "unknown model",
+    "has no provider supported", "model not exist", "无可用渠道", "未找到模型",
+)
+_FILTER_HINTS = (
+    "content_filter", "content management", "content_policy", "moderation",
+    "responsibleai", "unsafe content", "违规", "敏感内容",
+)
+
+
+def looks_like_llm_billing(text: str | None) -> bool:
+    return _hint_in(text, _BILLING_HINTS)
+
+
+def looks_like_llm_auth(text: str | None) -> bool:
+    return _hint_in(text, _AUTH_HINTS)
+
+
+def _hint_in(text: str | None, hints: tuple[str, ...]) -> bool:
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    return any(hint.lower() in lowered for hint in hints)
+
+
+def looks_like_llm_model_missing(text: str | None) -> bool:
+    return _hint_in(text, _MODEL_HINTS)
+
+
+def looks_like_llm_content_filter(text: str | None) -> bool:
+    return _hint_in(text, _FILTER_HINTS)
+
+
+def append_upstream_log(summary: str, upstream: str | None) -> str:
+    snippet = (upstream or "").strip()[:400]
+    if not snippet:
+        return summary
+    if snippet in summary:
+        return summary
+    return f"{summary}上游返回：{snippet}"
+
+
+def format_llm_billing_error(*, upstream: str, status: int | None = None, action: str = "对话推理") -> str:
+    del action
+    http = f"（HTTP {status}）" if status else ""
+    return append_upstream_log(
+        f"大模型上游余额不足或欠费{http}，请到供应商控制台充值后再试。",
+        upstream,
+    )
+
+
+def is_upstream_llm_failure(error: BaseException | str) -> bool:
+    if isinstance(error, (LlmBillingError, LlmTemporaryError, LlmAuthError)):
+        return True
+    text = str(error)
+    return (
+        looks_like_llm_billing(text)
+        or looks_like_llm_auth(text)
+        or looks_like_llm_model_missing(text)
+        or looks_like_llm_content_filter(text)
+        or "上游返回" in text
+    )
+
+
+def raise_llm_http_error(*, action: str, status: int, upstream: str) -> None:
+    msg = (upstream or "").strip()[:400] or f"HTTP {status}"
+    if status == 402 or looks_like_llm_billing(msg):
+        raise LlmBillingError(format_llm_billing_error(upstream=msg, status=status, action=action))
+    if looks_like_llm_content_filter(msg):
+        raise LlmError(append_upstream_log(f"大模型拒绝了本次内容（HTTP {status}），请修改后再试。", msg))
+    if status in {401, 403} or looks_like_llm_auth(msg):
+        raise LlmAuthError(append_upstream_log(
+            f"大模型鉴权失败（HTTP {status}），请检查管理设置中的 API Key。", msg,
+        ))
+    if status == 404 or looks_like_llm_model_missing(msg):
+        raise LlmError(append_upstream_log(f"大模型服务未找到指定模型（HTTP {status}）。", msg))
+    if status in {408, 425, 429} or status >= 500:
+        raise LlmTemporaryError(append_upstream_log(
+            f"大模型服务{action}暂时不可用（HTTP {status}）。", msg,
+        ))
+    raise LlmError(append_upstream_log(f"大模型服务{action}失败（HTTP {status}）。", msg))
+
+
+def _payload_error_text(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("error", "errors", "error_message", "message", "Message", "err_msg", "msg", "detail"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            for inner_key in ("message", "msg", "detail", "code", "type"):
+                inner = value.get(inner_key)
+                if inner and str(inner).strip() and str(inner).lower() not in {"success", "ok"}:
+                    return str(inner).strip()
+        if isinstance(value, list) and value:
+            first = value[0]
+            if isinstance(first, dict):
+                nested = _payload_error_text(first)
+                if nested:
+                    return nested
+            if isinstance(first, str) and first.strip():
+                return first.strip()
+        if isinstance(value, str) and value.strip() and value.lower() not in {"success", "ok", "true"}:
+            return value.strip()
+    code = payload.get("code")
+    if code not in (None, 0, "0", 200, "200", "ok", "OK"):
+        return str(code).strip()
+    return ""
+
+
 _FREE_WORD = re.compile(r"(?<![a-z])free(?![a-z])", re.I)
 _SKIP_FREE_TEXT_KEYS = {
     "description", "intro", "content", "about", "readme", "summary", "detail", "about_the_model",
@@ -284,15 +415,15 @@ class OpenAICompatibleClient:
         }
 
     def _json(self, response: requests.Response, action: str) -> dict[str, Any]:
-        if response.status_code in {408, 425, 429} or response.status_code >= 500:
-            raise LlmTemporaryError(f"大模型服务 {action} 暂时不可用（HTTP {response.status_code}）：{response.text[:200]}")
         if response.status_code >= 400:
+            payload: dict[str, Any] | None = None
             try:
-                err_payload = response.json()
-                msg = err_payload.get("error", {}).get("message") or err_payload.get("message") or response.text[:200]
+                parsed = response.json()
+                payload = parsed if isinstance(parsed, dict) else None
             except Exception:
-                msg = response.text[:200]
-            raise LlmError(f"大模型服务 {action} 失败（HTTP {response.status_code}）：{msg}")
+                payload = None
+            msg = _payload_error_text(payload) or (response.text or "").strip()[:400] or f"HTTP {response.status_code}"
+            raise_llm_http_error(action=action, status=response.status_code, upstream=msg)
         try:
             payload = response.json()
         except ValueError as error:
@@ -321,10 +452,15 @@ class OpenAICompatibleClient:
             response = self.session.get(url, headers=self.headers, params=params, timeout=timeout)
         except requests.exceptions.RequestException as exc:
             raise LlmTemporaryError(f"无法拉取模型目录：{exc}") from exc
-        if response.status_code in {401, 403}:
-            raise LlmError("拉取模型目录失败：API Key / Token 无效或权限不足。")
         if response.status_code >= 400:
-            raise LlmError(f"拉取模型目录失败（HTTP {response.status_code}）：{response.text[:200]}")
+            payload: dict[str, Any] | None = None
+            try:
+                parsed = response.json()
+                payload = parsed if isinstance(parsed, dict) else None
+            except Exception:
+                payload = None
+            msg = _payload_error_text(payload) or (response.text or "").strip()[:400] or f"HTTP {response.status_code}"
+            raise_llm_http_error(action="拉取模型目录", status=response.status_code, upstream=msg)
         try:
             payload = response.json()
         except ValueError as error:
@@ -468,6 +604,10 @@ class OpenAICompatibleClient:
         return cleaned.strip()
 
     def _extract_response_content(self, data: dict[str, Any]) -> str:
+        embedded_error = _payload_error_text(data)
+        if looks_like_llm_billing(embedded_error):
+            raise LlmBillingError(format_llm_billing_error(upstream=embedded_error, action="对话推理"))
+
         # 1. 标准 OpenAI 格式: data["choices"][0]["message"]["content"]
         choices = data.get("choices")
         if isinstance(choices, list) and choices:
@@ -508,12 +648,12 @@ class OpenAICompatibleClient:
                 return val.strip()
 
         # 4. 如果上游在 HTTP 200 中返回了错误对象
-        for err_key in ("error", "error_message", "message", "Message", "err_msg", "msg"):
-            err_val = data.get(err_key)
-            if isinstance(err_val, dict) and "message" in err_val:
-                raise LlmError(f"大模型返回错误：{err_val['message']}")
-            if isinstance(err_val, str) and err_val.strip() and err_val.lower() not in {"success", "ok"}:
-                raise LlmError(f"大模型返回提示：{err_val.strip()}")
+        if embedded_error:
+            if looks_like_llm_billing(embedded_error):
+                raise LlmBillingError(format_llm_billing_error(upstream=embedded_error, action="对话推理"))
+            if looks_like_llm_auth(embedded_error):
+                raise LlmAuthError(append_upstream_log("大模型鉴权失败，请检查管理设置中的 API Key。", embedded_error))
+            raise LlmError(append_upstream_log("大模型返回错误。", embedded_error))
 
         # 5. 若无法解析，输出清晰响应摘要以便排查
         data_preview = str(data)[:300]
@@ -544,7 +684,43 @@ class OpenAICompatibleClient:
                 ) from error
             raise
 
-
+    def speech(
+        self,
+        *,
+        text: str,
+        model: str,
+        voice: str,
+        response_format: str = "mp3",
+        timeout: float = 60.0,
+    ) -> bytes:
+        url = f"{self.base_url}/audio/speech"
+        payload = {
+            "model": model,
+            "input": text,
+            "voice": voice,
+            "response_format": response_format,
+        }
+        try:
+            response = self.session.post(url, headers=self.headers, json=payload, timeout=timeout)
+        except requests.exceptions.Timeout as exc:
+            raise LlmTemporaryError(f"语音合成超时（等待 {timeout:.0f} 秒仍无响应）：{exc}") from exc
+        except requests.exceptions.ConnectionError as exc:
+            raise LlmTemporaryError(f"无法连接语音合成服务 {self.base_url}：{exc}") from exc
+        except requests.exceptions.RequestException as exc:
+            raise LlmTemporaryError(f"请求语音合成服务异常：{exc}") from exc
+        if response.status_code >= 400:
+            payload: dict[str, Any] | None = None
+            try:
+                parsed = response.json()
+                payload = parsed if isinstance(parsed, dict) else None
+            except Exception:
+                payload = None
+            msg = _payload_error_text(payload) or (response.text or "").strip()[:400] or f"HTTP {response.status_code}"
+            raise_llm_http_error(action="语音合成", status=response.status_code, upstream=msg)
+        body = response.content or b""
+        if not body:
+            raise LlmError("语音合成返回了空音频")
+        return body
 
     def optimize_prompt(
         self,

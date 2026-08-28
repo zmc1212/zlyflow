@@ -1,4 +1,5 @@
-import { Button, Drawer, Dropdown, Input, InputNumber, Progress, Select, Slider, Tag, Tooltip, message } from "antd"
+import { Button, Drawer, Input, InputNumber, Tag, Tooltip, message } from "antd"
+import ShotCameraFields from "./ShotCameraFields"
 import {
   Camera, Check, CheckCircle2, CircleStop, Clapperboard, Copy, Film, History, ImagePlus, Link,
   RefreshCw, Sparkles, Star, Trash2, Video, Volume2, X,
@@ -7,8 +8,6 @@ import React, { useRef, useState } from "react"
 import { fileToDataUrl } from "../director-submit"
 import { H3_MAX_DURATION_SEC, H3_MIN_DURATION_SEC, DirectorRenderPass, directorRenderPassLabel, snapH3DurationSec } from "../prompt-compiler"
 import {
-  CAMERA_ANGLE_LABELS, CAMERA_LIGHTING_LABELS, CAMERA_MOVEMENT_LABELS, CAMERA_SCALE_LABELS,
-  CAMERA_SPEED_LABELS, CameraAngle, CameraDirection, CameraLighting, CameraMovement, CameraScale, CameraSpeed,
   DirectorShot, ShotTake, SubjectSlot,
 } from "../types"
 
@@ -297,59 +296,10 @@ export default function ShotInspectorDrawer({
             <span>机位与运镜</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="text-[10px] text-[#6b7280] mb-0.5 block">景别 (Scale)</label>
-              <Select
-                size="small"
-                value={shot.camera.scale}
-                onChange={(val: CameraScale) =>
-                  onUpdateShot({ ...shot, camera: { ...shot.camera, scale: val } })
-                }
-                options={Object.entries(CAMERA_SCALE_LABELS).map(([k, v]) => ({ value: k, label: v.label }))}
-                className="w-full text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] text-[#6b7280] mb-0.5 block">运镜动作 (Movement)</label>
-              <Select
-                size="small"
-                value={shot.camera.movement}
-                onChange={(val: CameraMovement) =>
-                  onUpdateShot({ ...shot, camera: { ...shot.camera, movement: val } })
-                }
-                options={Object.entries(CAMERA_MOVEMENT_LABELS).map(([k, v]) => ({ value: k, label: v.label }))}
-                className="w-full text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] text-[#6b7280] mb-0.5 block">视角角度 (Angle)</label>
-              <Select
-                size="small"
-                value={shot.camera.angle}
-                onChange={(val: CameraAngle) =>
-                  onUpdateShot({ ...shot, camera: { ...shot.camera, angle: val } })
-                }
-                options={Object.entries(CAMERA_ANGLE_LABELS).map(([k, v]) => ({ value: k, label: v.label }))}
-                className="w-full text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] text-[#6b7280] mb-0.5 block">影调布光 (Lighting)</label>
-              <Select
-                size="small"
-                value={shot.camera.lighting}
-                onChange={(val: CameraLighting) =>
-                  onUpdateShot({ ...shot, camera: { ...shot.camera, lighting: val } })
-                }
-                options={Object.entries(CAMERA_LIGHTING_LABELS).map(([k, v]) => ({ value: k, label: v.label }))}
-                className="w-full text-xs"
-              />
-            </div>
-          </div>
+          <ShotCameraFields
+            camera={shot.camera}
+            onChange={(camera) => onUpdateShot({ ...shot, camera })}
+          />
         </section>
 
         {/* 首尾帧锚点 */}

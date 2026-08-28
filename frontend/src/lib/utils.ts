@@ -20,3 +20,23 @@ export function createLocalId(): string {
   }
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
+
+export type MediaAspectSize = { width: number; height: number }
+
+/** Parse `9:16`, `9 / 16` or `768x1344` into numeric width/height. */
+export function parseMediaAspect(value?: string | number | boolean | null): MediaAspectSize | undefined {
+  const match = String(value ?? "").match(/(\d+(?:\.\d+)?)\s*[:/x×]\s*(\d+(?:\.\d+)?)/i)
+  if (!match) return undefined
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return undefined
+  return { width, height }
+}
+
+export function mediaAspectVars(aspect?: MediaAspectSize): Record<"--media-aspect-w" | "--media-aspect-h", string> | undefined {
+  if (!aspect) return undefined
+  return {
+    "--media-aspect-w": String(aspect.width),
+    "--media-aspect-h": String(aspect.height),
+  }
+}

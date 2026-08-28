@@ -5,6 +5,7 @@ from typing import Any
 
 from .director_catalog import art_style_ref_for_recipe, find_art_style
 from .director_compiler import snap_h3_duration_sec
+from .tts_provider import voice_for_gender
 from .workflow_registry import DEFAULT_DIRECTOR_WORKFLOW_FAMILY
 
 
@@ -25,8 +26,40 @@ AGENT_IDS = (
     "media",
 )
 AGENT_STATUSES = ("pending", "running", "completed", "failed")
+AGENT_RUNNING_MESSAGES = {
+    "research": "正在核对故事设定",
+    "script": "正在根据创意写剧本",
+    "art_style": "正在选择美术风格",
+    "storyboard": "正在读剧本",
+    "characters": "正在从分镜抽出人物",
+    "locations": "正在从分镜抽出场景",
+    "voice": "正在配置配音",
+    "music": "正在配置配乐",
+    "media": "正在编译出片参数",
+}
+AGENT_DONE_MESSAGES = {
+    "research": "研究完成",
+    "script": "剧本已写好",
+    "art_style": "画风已选定",
+    "storyboard": "分镜已完成",
+    "characters": "人物已抽出",
+    "locations": "场景已抽出",
+    "voice": "配音已配置",
+    "music": "配乐已配置",
+    "media": "媒体参数已编译",
+}
 CHARACTER_TYPES = ("character", "object")
 GENDERS = ("", "male", "female", "nonbinary", "unspecified")
+CAMERA_SCALES = {"ELS", "WS", "MS", "CU", "ECU"}
+CAMERA_MOVEMENTS = {
+    "zoom_in", "zoom_out", "pan_left", "pan_right", "tilt_up", "tilt_down",
+    "orbit", "tracking", "static",
+}
+CAMERA_ANGLES = {"eye_level", "low_angle", "high_angle", "dutch", "pov"}
+CAMERA_SPEEDS = {"smooth", "dynamic", "slow"}
+CAMERA_LIGHTING = {
+    "cinematic_soft", "cyberpunk", "golden_hour", "dramatic_low_key", "studio",
+}
 
 _RENDER_KEYS = (
     "aspectRatio",
@@ -35,6 +68,7 @@ _RENDER_KEYS = (
     "previewSpeed",
     "finalQuality",
     "finalSpeed",
+    "weightProfile",
     "videoWorkflowFamily",
     "width",
     "height",
@@ -71,6 +105,117 @@ def _text(value: Any, fallback: Any = "") -> str:
     if fallback is None:
         return ""
     return str(fallback).strip()
+
+
+def default_audio_mix() -> dict[str, Any]:
+    return {
+        "bgmUrl": None,
+        "bgmPath": None,
+        "bgmVolume": 0.25,
+        "bgmFadeInSec": 1.0,
+        "bgmFadeOutSec": 2.0,
+    }
+
+
+def default_subtitle_style() -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "position": "bottom",
+        "fontSize": 28,
+        "strokeWidth": 2,
+        "textColor": "#ffffff",
+        "strokeColor": "#000000",
+    }
+
+
+def empty_export_state() -> dict[str, Any]:
+    return {
+        "muxStatus": "idle",
+        "muxUrl": None,
+        "muxPath": None,
+        "muxDurationSec": None,
+        "muxError": None,
+        "muxAt": None,
+        "burnSubtitles": False,
+    }
+
+
+def _audio_float(value: Any, default: float, *, minimum: float = 0.0, maximum: float = 100.0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, number))
+
+
+def _audio_int(value: Any, default: int, *, minimum: int = 0, maximum: int = 200) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, number))
+
+
+def normalize_voice_id(value: Any, *, gender: str = "") -> str:
+    voice = _text(value)
+    if voice:
+        return voice
+    return voice_for_gender(gender)
+
+
+def normalize_audio_mix(raw: Any) -> dict[str, Any]:
+    item = raw if isinstance(raw, dict) else {}
+    base = default_audio_mix()
+    bgm_url = _text(item.get("bgmUrl") or item.get("bgm_url"))
+    bgm_path = _text(item.get("bgmPath") or item.get("bgm_path"))
+    return {
+        "bgmUrl": bgm_url or None,
+        "bgmPath": bgm_path or None,
+        "bgmVolume": _audio_float(item.get("bgmVolume", item.get("bgm_volume", base["bgmVolume"])), 0.25, maximum=1.0),
+        "bgmFadeInSec": _audio_float(item.get("bgmFadeInSec", item.get("bgm_fade_in_sec", base["bgmFadeInSec"])), 1.0, maximum=15.0),
+        "bgmFadeOutSec": _audio_float(item.get("bgmFadeOutSec", item.get("bgm_fade_out_sec", base["bgmFadeOutSec"])), 2.0, maximum=15.0),
+    }
+
+
+def normalize_subtitle_style(raw: Any) -> dict[str, Any]:
+    item = raw if isinstance(raw, dict) else {}
+    base = default_subtitle_style()
+    position = _text(item.get("position"), base["position"]).lower()
+    if position not in {"top", "center", "bottom"}:
+        position = "bottom"
+    enabled = item.get("enabled")
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+    return {
+        "enabled": bool(enabled) if enabled is not None else False,
+        "position": position,
+        "fontSize": _audio_int(item.get("fontSize", item.get("font_size", base["fontSize"])), 28, minimum=12, maximum=72),
+        "strokeWidth": _audio_int(item.get("strokeWidth", item.get("stroke_width", base["strokeWidth"])), 2, minimum=0, maximum=8),
+        "textColor": _text(item.get("textColor") or item.get("text_color"), base["textColor"]) or "#ffffff",
+        "strokeColor": _text(item.get("strokeColor") or item.get("stroke_color"), base["strokeColor"]) or "#000000",
+    }
+
+
+def normalize_export_state(raw: Any) -> dict[str, Any]:
+    item = raw if isinstance(raw, dict) else {}
+    base = empty_export_state()
+    status = _text(item.get("muxStatus") or item.get("mux_status"), base["muxStatus"]) or "idle"
+    if status not in {"idle", "queued", "running", "succeeded", "failed"}:
+        status = "idle"
+    duration = item.get("muxDurationSec", item.get("mux_duration_sec"))
+    try:
+        duration_sec = float(duration) if duration not in (None, "") else None
+    except (TypeError, ValueError):
+        duration_sec = None
+    return {
+        "muxStatus": status,
+        "muxUrl": _text(item.get("muxUrl") or item.get("mux_url")) or None,
+        "muxPath": _text(item.get("muxPath") or item.get("mux_path")) or None,
+        "muxDurationSec": duration_sec,
+        "muxError": _text(item.get("muxError") or item.get("mux_error")) or None,
+        "muxAt": _text(item.get("muxAt") or item.get("mux_at")) or None,
+        "burnSubtitles": bool(item.get("burnSubtitles", item.get("burn_subtitles", False))),
+    }
 
 
 def contains_cjk(text: str) -> bool:
@@ -110,7 +255,11 @@ def payload_kind(payload: dict[str, Any] | None) -> str:
 
 
 def empty_agent_status() -> list[dict[str, Any]]:
-    return [{"id": agent_id, "status": "pending", "error": None} for agent_id in AGENT_IDS]
+    return [{"id": agent_id, "status": "pending", "error": None, "message": None} for agent_id in AGENT_IDS]
+
+
+def empty_pipeline_run() -> dict[str, Any]:
+    return {"agents": [], "active": False}
 
 
 def empty_recipe_payload(
@@ -131,6 +280,7 @@ def empty_recipe_payload(
         "locations": [],
         "scenes": [],
         "agentStatus": empty_agent_status(),
+        "pipelineRun": empty_pipeline_run(),
         "globalMusic": "",
         "globalSoundscape": "电影级空间环境声",
         "aspectRatio": "16:9",
@@ -139,6 +289,7 @@ def empty_recipe_payload(
         "previewSpeed": "fast",
         "finalQuality": "1.0",
         "finalSpeed": "balanced",
+        "weightProfile": "full",
         "videoWorkflowFamily": DEFAULT_DIRECTOR_WORKFLOW_FAMILY,
         "width": 1344,
         "height": 768,
@@ -146,6 +297,9 @@ def empty_recipe_payload(
         "refsMode": "refs_on",
         "manualPromptOverrideEnabled": False,
         "manualPromptOverrideText": "",
+        "audio": default_audio_mix(),
+        "subtitles": default_subtitle_style(),
+        "export": empty_export_state(),
     }
 
 
@@ -172,15 +326,34 @@ def _normalize_agent_status(value: Any) -> list[dict[str, Any]]:
         if status not in AGENT_STATUSES:
             status = "pending"
         error = item.get("error")
+        message = _text(item.get("message")) or None
         by_id[agent_id] = {
             "id": agent_id,
             "status": status,
             "error": None if error in (None, "") else str(error),
+            "message": message,
         }
     return [
-        by_id.get(agent_id, {"id": agent_id, "status": "pending", "error": None})
+        by_id.get(agent_id, {"id": agent_id, "status": "pending", "error": None, "message": None})
         for agent_id in AGENT_IDS
     ]
+
+
+def _normalize_pipeline_run(value: Any) -> dict[str, Any]:
+    raw = _as_dict(value)
+    agents: list[str] = []
+    for item in _as_list(raw.get("agents")):
+        agent_id = _text(item)
+        if agent_id in AGENT_IDS and agent_id not in agents:
+            agents.append(agent_id)
+    return {"agents": agents, "active": bool(raw.get("active")) and bool(agents)}
+
+
+def agent_done_message(agent_id: str, recipe: dict[str, Any] | None = None) -> str:
+    if agent_id == "storyboard":
+        count = len(flatten_recipe_shots(recipe)) if recipe else 0
+        return f"已写出 {count} 个镜头" if count else AGENT_DONE_MESSAGES[agent_id]
+    return AGENT_DONE_MESSAGES.get(agent_id, "已完成")
 
 
 def _normalize_character(raw: Any, index: int) -> dict[str, Any]:
@@ -207,6 +380,55 @@ def _normalize_character(raw: Any, index: int) -> dict[str, Any]:
         "type": char_type,
         "imageJobId": _text(item.get("imageJobId"), item.get("image_job_id") or "") or None,
         "imageUrl": _text(item.get("imageUrl"), item.get("image_url") or "") or None,
+        "libraryAssetId": _text(item.get("libraryAssetId"), item.get("library_asset_id") or "") or None,
+        "voiceId": normalize_voice_id(item.get("voiceId") or item.get("voice_id"), gender=gender),
+        "voicePreviewUrl": _text(item.get("voicePreviewUrl"), item.get("voice_preview_url") or "") or None,
+    }
+
+
+def default_camera_direction() -> dict[str, str]:
+    return {
+        "scale": "MS",
+        "movement": "zoom_in",
+        "angle": "eye_level",
+        "speed": "smooth",
+        "lighting": "cinematic_soft",
+        "sfx": "",
+    }
+
+
+def _persistable_media_url(value: Any) -> str | None:
+    text = _text(value)
+    if not text or text.startswith("data:"):
+        return None
+    return text
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_camera(raw: Any) -> dict[str, str]:
+    item = raw if isinstance(raw, dict) else {}
+    base = default_camera_direction()
+    scale = _text(item.get("scale"), base["scale"])
+    movement = _text(item.get("movement"), base["movement"])
+    angle = _text(item.get("angle"), base["angle"])
+    speed = _text(item.get("speed"), base["speed"])
+    lighting = _text(item.get("lighting"), base["lighting"])
+    return {
+        "scale": scale if scale in CAMERA_SCALES else base["scale"],
+        "movement": movement if movement in CAMERA_MOVEMENTS else base["movement"],
+        "angle": angle if angle in CAMERA_ANGLES else base["angle"],
+        "speed": speed if speed in CAMERA_SPEEDS else base["speed"],
+        "lighting": lighting if lighting in CAMERA_LIGHTING else base["lighting"],
+        "sfx": _text(item.get("sfx")),
     }
 
 
@@ -226,6 +448,7 @@ def _normalize_location(raw: Any, index: int) -> dict[str, Any]:
         "promptText": prompt_text or _text(item.get("promptText"), item.get("prompt_text") or item.get("description") or ""),
         "imageJobId": _text(item.get("imageJobId"), item.get("image_job_id") or "") or None,
         "imageUrl": _text(item.get("imageUrl"), item.get("image_url") or "") or None,
+        "libraryAssetId": _text(item.get("libraryAssetId"), item.get("library_asset_id") or "") or None,
     }
 
 
@@ -246,6 +469,10 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
         prompt_text=_text(item.get("promptText"), item.get("prompt_text") or item.get("prompt") or ""),
         fallback_zh=title,
     )
+    try:
+        active_take = int(item.get("activeTakeIndex") if item.get("activeTakeIndex") is not None else item.get("active_take_index") or 0)
+    except (TypeError, ValueError):
+        active_take = 0
     shot: dict[str, Any] = {
         "id": _text(item.get("id")) or _new_id("shot"),
         "shotNumber": int(item.get("shotNumber") or item.get("shot_number") or index + 1),
@@ -259,16 +486,36 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
         "compiledPrompt": compiled,
         "jobId": _text(item.get("jobId"), item.get("job_id") or "") or None,
         "status": status,
-        "outputVideoUrl": _text(item.get("outputVideoUrl"), item.get("output_video_url") or "") or None,
+        "outputVideoUrl": _persistable_media_url(item.get("outputVideoUrl") or item.get("output_video_url")),
         "progress": item.get("progress") if isinstance(item.get("progress"), (int, float)) else 0,
         "takes": [take for take in _as_list(item.get("takes")) if isinstance(take, dict)],
+        "camera": _normalize_camera(item.get("camera")),
+        "error": _text(item.get("error")) or None,
+        "firstFrameUrl": _persistable_media_url(item.get("firstFrameUrl") or item.get("first_frame_url")),
+        "firstFramePath": _text(item.get("firstFramePath"), item.get("first_frame_path") or "") or None,
+        "firstFrameJobId": _text(item.get("firstFrameJobId"), item.get("first_frame_job_id") or "") or None,
+        "endFrameUrl": _persistable_media_url(item.get("endFrameUrl") or item.get("end_frame_url")),
+        "endFramePath": _text(item.get("endFramePath"), item.get("end_frame_path") or "") or None,
+        "endFrameJobId": _text(item.get("endFrameJobId"), item.get("end_frame_job_id") or "") or None,
+        "stillUrl": _persistable_media_url(item.get("stillUrl") or item.get("still_url")),
+        "stillJobId": _text(item.get("stillJobId"), item.get("still_job_id") or "") or None,
+        "stillStatus": _text(item.get("stillStatus"), item.get("still_status") or "") or None,
+        "usePreviousEndFrame": _as_bool(item.get("usePreviousEndFrame", item.get("use_previous_end_frame"))),
+        "approvedTakeId": _text(item.get("approvedTakeId"), item.get("approved_take_id") or "") or None,
+        "activeTakeIndex": max(0, active_take),
+        "speakerName": _text(item.get("speakerName"), item.get("speaker_name") or "") or None,
+        "voiceId": _text(item.get("voiceId"), item.get("voice_id") or "") or None,
+        "ttsStatus": _text(item.get("ttsStatus"), item.get("tts_status") or "idle") or "idle",
+        "ttsUrl": _persistable_media_url(item.get("ttsUrl") or item.get("tts_url")),
+        "ttsPath": _text(item.get("ttsPath"), item.get("tts_path") or "") or None,
+        "ttsError": _text(item.get("ttsError"), item.get("tts_error") or "") or None,
     }
-    camera = item.get("camera")
-    if isinstance(camera, dict):
-        shot["camera"] = camera
     soundscape = _text(item.get("soundscape"))
     if soundscape:
         shot["soundscape"] = soundscape
+    soundscape_en = _text(item.get("soundscapeEn"), item.get("soundscape_en") or "")
+    if soundscape_en:
+        shot["soundscapeEn"] = soundscape_en
     return shot
 
 
@@ -304,6 +551,8 @@ def _copy_render_settings(source: dict[str, Any], target: dict[str, Any]) -> Non
     family = _text(source.get("videoWorkflowFamily"), source.get("video_workflow_family") or "")
     if family:
         target["videoWorkflowFamily"] = family
+    profile = _text(target.get("weightProfile"), source.get("weight_profile") or "")
+    target["weightProfile"] = profile if profile in {"full", "pruned"} else "full"
 
 
 def flatten_recipe_shots(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -358,6 +607,10 @@ def normalize_recipe_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
             if isinstance(shot, dict)
         ]
     normalized["agentStatus"] = _normalize_agent_status(raw.get("agentStatus") or raw.get("agent_status"))
+    normalized["pipelineRun"] = _normalize_pipeline_run(raw.get("pipelineRun") or raw.get("pipeline_run"))
+    normalized["audio"] = normalize_audio_mix(raw.get("audio"))
+    normalized["subtitles"] = normalize_subtitle_style(raw.get("subtitles"))
+    normalized["export"] = normalize_export_state(raw.get("export"))
     return normalized
 
 
@@ -611,12 +864,24 @@ def set_agent_status(
     agent_id: str,
     status: str,
     error: str | None = None,
+    *,
+    message: str | None = None,
 ) -> dict[str, Any]:
     statuses = _normalize_agent_status(recipe.get("agentStatus"))
+    resolved = status if status in AGENT_STATUSES else "pending"
     for item in statuses:
-        if item["id"] == agent_id:
-            item["status"] = status if status in AGENT_STATUSES else "pending"
-            item["error"] = None if not error else str(error)
+        if item["id"] != agent_id:
+            continue
+        item["status"] = resolved
+        item["error"] = None if not error else str(error)
+        if message is not None:
+            item["message"] = str(message).strip() or None
+        elif resolved == "pending":
+            item["message"] = None
+        elif resolved == "running":
+            item["message"] = AGENT_RUNNING_MESSAGES.get(agent_id)
+        elif resolved == "completed":
+            item["message"] = agent_done_message(agent_id, recipe)
     recipe["agentStatus"] = statuses
     return recipe
 

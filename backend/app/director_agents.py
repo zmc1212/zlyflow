@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
@@ -9,12 +10,21 @@ from .director_catalog import art_style_ref_for_recipe, find_art_style, list_art
 from .director_compiler import compile_recipe_media, snap_h3_duration_sec
 from .director_recipe import (
     AGENT_IDS,
+    default_audio_mix,
     empty_recipe_payload,
     normalize_recipe_payload,
+    normalize_voice_id,
     set_agent_status,
     split_display_and_prompt,
 )
-from .llm_client import LlmError, OpenAICompatibleClient
+from .llm_client import (
+    LlmBillingError,
+    LlmError,
+    LlmTemporaryError,
+    OpenAICompatibleClient,
+    is_upstream_llm_failure,
+    looks_like_llm_billing,
+)
 from .llm_minimax_skills import build_h3_batch_fission_prompt, build_h3_storyboard_agent_prompt
 
 
@@ -48,23 +58,88 @@ AGENT_LABELS = {
 }
 
 
-def parse_json_object(raw: str) -> dict[str, Any] | None:
+def _repair_truncated_json(snippet: str) -> str:
+    in_string = False
+    escape = False
+    stack: list[str] = []
+    for character in snippet:
+        if in_string:
+            if escape:
+                escape = False
+            elif character == "\\":
+                escape = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+            continue
+        if character == "{":
+            stack.append("}")
+        elif character == "[":
+            stack.append("]")
+        elif character in "}]":
+            if stack and stack[-1] == character:
+                stack.pop()
+    repaired = snippet.rstrip()
+    if in_string:
+        repaired += '"'
+    repaired = repaired.rstrip().rstrip(",")
+    while stack:
+        repaired += stack.pop()
+    return repaired
+
+
+def _strip_json_fences(raw: str) -> str:
     clean_text = (raw or "").strip()
-    if not clean_text:
-        return None
     if "```json" in clean_text:
         clean_text = clean_text.split("```json", 1)[1].split("```", 1)[0].strip()
     elif "```" in clean_text:
         clean_text = clean_text.split("```", 1)[1].split("```", 1)[0].strip()
-    first_brace = clean_text.find("{")
-    last_brace = clean_text.rfind("}")
-    if first_brace == -1 or last_brace <= first_brace:
+    return clean_text
+
+
+def _loads_json_fragment(snippet: str) -> Any | None:
+    last_close = max(snippet.rfind("}"), snippet.rfind("]"))
+    candidates = []
+    if last_close > 0:
+        candidates.append(snippet[: last_close + 1])
+    candidates.append(_repair_truncated_json(snippet))
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def parse_json_payload(raw: str) -> dict[str, Any] | list[Any] | None:
+    clean_text = _strip_json_fences(raw)
+    if not clean_text:
         return None
-    try:
-        parsed = json.loads(clean_text[first_brace:last_brace + 1])
-    except json.JSONDecodeError:
+    brace = clean_text.find("{")
+    bracket = clean_text.find("[")
+    starts = [index for index in (brace, bracket) if index >= 0]
+    if not starts:
         return None
-    return parsed if isinstance(parsed, dict) else None
+    parsed = _loads_json_fragment(clean_text[min(starts):])
+    if isinstance(parsed, (dict, list)):
+        return parsed
+    return None
+
+
+def parse_json_object(raw: str) -> dict[str, Any] | None:
+    parsed = parse_json_payload(raw)
+    if isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed, list):
+        coerced = coerce_storyboard_data(parsed)
+        return coerced if coerced else None
+    return None
 
 
 def should_run_research(goal: str) -> bool:
@@ -108,7 +183,7 @@ def default_chat_fn(client: OpenAICompatibleClient, model: str) -> ChatFn:
             model=model,
             temperature=0.6,
             max_tokens=8192,
-            timeout=120.0,
+            timeout=180.0,
         )
     return _chat
 
@@ -124,20 +199,42 @@ def _list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _chat_text(chat_fn: ChatFn, messages: list[dict[str, Any]], *, retries: int = 1) -> str:
+    last_error: Exception | None = None
+    for _ in range(retries + 1):
+        try:
+            raw = chat_fn(messages)
+        except LlmTemporaryError as error:
+            last_error = error
+            continue
+        except LlmError:
+            raise
+        if (raw or "").strip():
+            return raw
+        last_error = ValueError("大模型未返回内容")
+    if isinstance(last_error, LlmError):
+        raise last_error
+    return ""
+
+
 def _chat_json(chat_fn: ChatFn, messages: list[dict[str, Any]], *, retries: int = 1) -> dict[str, Any] | None:
     last_error: Exception | None = None
     for _ in range(retries + 1):
         try:
             raw = chat_fn(messages)
-        except LlmError as error:
+        except LlmTemporaryError as error:
             last_error = error
             continue
-        parsed = parse_json_object(raw)
-        if parsed is not None:
+        except LlmError:
+            raise
+        parsed = parse_json_payload(raw)
+        if isinstance(parsed, list):
+            parsed = coerce_storyboard_data(parsed)
+        if isinstance(parsed, dict):
             return parsed
         last_error = ValueError("大模型未返回合法 JSON")
-    if last_error:
-        return None
+    if isinstance(last_error, LlmError):
+        raise last_error
     return None
 
 
@@ -162,6 +259,18 @@ def _camera(raw: Any) -> dict[str, str]:
     }
 
 
+STORYBOARD_MAX_SCENES = 16
+STORYBOARD_MAX_SHOTS_PER_SCENE = 8
+STORYBOARD_MAX_TOTAL_SHOTS = 32
+STORYBOARD_RETRY_SYSTEM = (
+    "只输出一个 JSON 对象或镜头数组。把用户故事一次性拆成可独立提交 MiniMax H3 的全部镜头。"
+    "每镜 title/description/soundscape 用中文；soundscapeEn 与 promptText 用英文，只写一个从 00:00 开始的 [Shot 1] 片段。"
+    "<d> 仅用于实际可听见的台词或歌词；屏幕/招牌/手机上的可见文字必须以英文叙述描述，禁止包进 <d>。"
+    "覆盖全部剧情，通常 8–24 镜。禁止只输出 1 个主镜头，禁止输出 integrated_multimodal_description 顶层格式。"
+    '优先输出 {"scenes":[{"title":"","locationName":"","shots":[{"title":"","description":"","promptText":"","dialogue":"","characterNames":[],"locationName":"","durationSec":5,"camera":{},"soundscape":"","soundscapeEn":""}]}]}'
+)
+
+
 def _apply_script(recipe: dict[str, Any], data: dict[str, Any], goal: str) -> None:
     script = recipe.setdefault("script", {})
     script["title"] = _text(data.get("title"), script.get("title") or goal[:24] or "未命名短片")
@@ -169,41 +278,170 @@ def _apply_script(recipe: dict[str, Any], data: dict[str, Any], goal: str) -> No
     script["fullStory"] = _text(data.get("fullStory") or data.get("full_story"), script.get("fullStory") or goal)
 
 
+def _looks_like_shot(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return bool(
+        item.get("title") or item.get("description") or item.get("promptText")
+        or item.get("prompt_text") or item.get("prompt") or item.get("dialogue")
+        or item.get("shots")
+    )
+
+
+def _collect_storyboard_scenes(data: dict[str, Any]) -> list[Any]:
+    for key in ("scenes", "storyboard", "shot_list", "shotList", "clips", "shots", "items", "镜头", "分镜"):
+        value = data.get(key)
+        if not isinstance(value, list) or not value:
+            continue
+        dict_items = [item for item in value if isinstance(item, dict)]
+        if not dict_items:
+            continue
+        if key == "scenes" or all(isinstance(item.get("shots"), list) for item in dict_items):
+            return dict_items
+        if any(_looks_like_shot(item) for item in dict_items):
+            return [{"title": "第一场", "shots": dict_items}]
+    return []
+
+
+def coerce_storyboard_data(value: Any, *, depth: int = 0) -> dict[str, Any]:
+    if depth > 5:
+        return {}
+    if isinstance(value, list) and value:
+        dict_items = [item for item in value if isinstance(item, dict)]
+        if dict_items and all(isinstance(item.get("shots"), list) for item in dict_items):
+            return {"scenes": dict_items}
+        if dict_items and any(_looks_like_shot(item) for item in dict_items):
+            return {"shots": dict_items}
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    if _collect_storyboard_scenes(value):
+        return value
+    for key in ("data", "result", "payload", "output", "recipe", "content", "json", "storyboard"):
+        inner = value.get(key)
+        if inner is None:
+            continue
+        coerced = coerce_storyboard_data(inner, depth=depth + 1)
+        if _collect_storyboard_scenes(coerced):
+            return coerced
+    if _looks_like_shot(value) and not isinstance(value.get("shots"), list):
+        return {"shots": [value]}
+    return value
+
+
+def _storyboard_shot_count(data: dict[str, Any] | None) -> int:
+    if not isinstance(data, dict):
+        return 0
+    count = 0
+    for scene in _collect_storyboard_scenes(data):
+        scene_item = scene if isinstance(scene, dict) else {}
+        shots_raw = scene_item.get("shots")
+        if not isinstance(shots_raw, list) or not shots_raw:
+            shots_raw = [scene_item] if scene_item else []
+        count += sum(1 for item in shots_raw if isinstance(item, dict))
+    return count
+
+
+def _is_collapsed_storyboard(data: dict[str, Any] | None, goal: str) -> bool:
+    if not isinstance(data, dict):
+        return True
+    data = coerce_storyboard_data(data)
+    scenes = _collect_storyboard_scenes(data)
+    shots: list[dict[str, Any]] = []
+    for scene in scenes:
+        scene_item = scene if isinstance(scene, dict) else {}
+        shots_raw = scene_item.get("shots")
+        if not isinstance(shots_raw, list) or not shots_raw:
+            shots_raw = [scene_item] if scene_item else []
+        shots.extend(item for item in shots_raw if isinstance(item, dict))
+    if len(shots) >= 2:
+        return False
+    if not shots:
+        return True
+    shot = shots[0]
+    title = _text(shot.get("title"))
+    description = _text(shot.get("description") or shot.get("promptText") or shot.get("prompt"))
+    goal_text = _text(goal)
+    dummy_title = title in {"", "主镜头", "开场", "分镜 1", "分镜1"}
+    dummy_body = (not description) or description == goal_text
+    return dummy_title and dummy_body
+
+
+def _shots_from_prose(raw: str, goal: str) -> list[dict[str, Any]]:
+    text = (raw or "").strip()
+    if not text:
+        return []
+    chunks = re.split(r"\[Shot\s*\d+\]", text, flags=re.IGNORECASE)
+    bodies = [chunk.strip().strip("-•* ").strip() for chunk in chunks[1:] if chunk.strip()]
+    if len(bodies) < 2:
+        numbered = re.split(r"(?:^|\n)\s*(?:镜头|分镜)\s*\d+[:.、.]\s*", text)
+        bodies = [chunk.strip() for chunk in numbered[1:] if chunk.strip()]
+    if len(bodies) < 2:
+        return []
+    shots: list[dict[str, Any]] = []
+    for index, body in enumerate(bodies[:STORYBOARD_MAX_TOTAL_SHOTS], start=1):
+        excerpt = body.split("\n")[0][:80]
+        description, prompt_text = split_display_and_prompt(
+            title=f"分镜 {index}",
+            description=excerpt if any("\u4e00" <= ch <= "\u9fff" for ch in excerpt) else "",
+            prompt_text=body[:1800],
+            fallback_zh=excerpt or f"分镜 {index}",
+        )
+        shots.append({
+            "title": f"分镜 {index}",
+            "description": description,
+            "promptText": prompt_text,
+            "dialogue": "",
+            "characterNames": [],
+            "locationName": "",
+            "durationSec": 5,
+        })
+    return shots
+
+
+def _parse_storyboard_reply(raw: str, goal: str) -> dict[str, Any]:
+    parsed = parse_json_payload(raw)
+    data = coerce_storyboard_data(parsed) if parsed is not None else {}
+    if not _is_collapsed_storyboard(data, goal):
+        return data
+    prose_shots = _shots_from_prose(raw, goal)
+    if len(prose_shots) >= 2:
+        return {"shots": prose_shots}
+    return data
+
+
+def _recipe_shot_count(recipe: dict[str, Any]) -> int:
+    count = 0
+    for scene in recipe.get("scenes") or []:
+        if isinstance(scene, dict):
+            count += sum(1 for shot in scene.get("shots") or [] if isinstance(shot, dict))
+    return count
+
+
 def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -> None:
-    scenes_raw = data.get("scenes")
-    if not isinstance(scenes_raw, list) or not scenes_raw:
-        shots_raw = data.get("shots")
-        if isinstance(shots_raw, list) and shots_raw:
-            scenes_raw = [{"title": "第一场", "shots": shots_raw}]
-        else:
-            scenes_raw = [{
-                "title": "开场",
-                "locationName": "",
-                "shots": [{
-                    "title": "主镜头",
-                    "description": goal,
-                    "dialogue": "",
-                    "characterNames": [],
-                    "durationSec": 8,
-                }],
-            }]
+    data = coerce_storyboard_data(data)
+    scenes_raw = _collect_storyboard_scenes(data)
     scenes: list[dict[str, Any]] = []
     shot_number = 1
-    for scene_index, scene_raw in enumerate(scenes_raw[:8]):
+    for scene_index, scene_raw in enumerate(scenes_raw[:STORYBOARD_MAX_SCENES]):
+        if shot_number > STORYBOARD_MAX_TOTAL_SHOTS:
+            break
         scene_item = scene_raw if isinstance(scene_raw, dict) else {}
         shots_raw = scene_item.get("shots")
         if not isinstance(shots_raw, list) or not shots_raw:
-            shots_raw = [scene_item]
+            shots_raw = [scene_item] if _text(scene_item.get("title") or scene_item.get("description") or scene_item.get("promptText")) else []
         shots: list[dict[str, Any]] = []
-        for shot_raw in shots_raw[:6]:
+        for shot_raw in shots_raw[:STORYBOARD_MAX_SHOTS_PER_SCENE]:
+            if shot_number > STORYBOARD_MAX_TOTAL_SHOTS:
+                break
             item = shot_raw if isinstance(shot_raw, dict) else {}
             names = item.get("characterNames") or item.get("character_names") or []
             title = _text(item.get("title"), f"分镜 {shot_number}")
             description, prompt_text = split_display_and_prompt(
                 title=title,
-                description=_text(item.get("description"), goal),
+                description=_text(item.get("description"), goal if not _text(item.get("promptText") or item.get("prompt")) else ""),
                 prompt_text=_text(item.get("promptText") or item.get("prompt_text") or item.get("prompt")),
-                fallback_zh=goal,
+                fallback_zh=title,
             )
             shots.append({
                 "title": title,
@@ -215,10 +453,13 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
                 "durationSec": snap_h3_duration_sec(item.get("durationSec") or item.get("duration_sec") or 5),
                 "camera": _camera(item.get("camera")),
                 "soundscape": _text(item.get("soundscape") or item.get("sfx")),
+                "soundscapeEn": _text(item.get("soundscapeEn") or item.get("soundscape_en")),
                 "status": "idle",
                 "shotNumber": shot_number,
             })
             shot_number += 1
+        if not shots:
+            continue
         scenes.append({
             "title": _text(scene_item.get("title"), f"场 {scene_index + 1}"),
             "description": _text(scene_item.get("description")),
@@ -263,6 +504,7 @@ def _apply_characters(recipe: dict[str, Any], data: dict[str, Any]) -> None:
             "promptText": prompt_text or _text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
             "gender": _text(raw.get("gender"), "unspecified") or "unspecified",
             "type": char_type,
+            "voiceId": normalize_voice_id(raw.get("voiceId") or raw.get("voice_id"), gender=_text(raw.get("gender"), "unspecified")),
         }
     ordered_names = names_from_board or list(by_name.keys())
     characters: list[dict[str, Any]] = []
@@ -328,17 +570,39 @@ def _apply_locations(recipe: dict[str, Any], data: dict[str, Any]) -> None:
 
 
 def _apply_voice(recipe: dict[str, Any], data: dict[str, Any]) -> None:
-    mapping: dict[str, str] = {}
+    char_voices: dict[str, str] = {}
+    for item in _list(data.get("characters")):
+        if not isinstance(item, dict):
+            continue
+        name = _text(item.get("name"))
+        voice = _text(item.get("voiceId") or item.get("voice_id"))
+        if name and voice:
+            char_voices[name] = voice
+    for character in recipe.get("characters") or []:
+        if not isinstance(character, dict):
+            continue
+        name = _text(character.get("name"))
+        if name in char_voices:
+            character["voiceId"] = char_voices[name]
+        else:
+            character["voiceId"] = normalize_voice_id(
+                character.get("voiceId"), gender=_text(character.get("gender")),
+            )
+
+    mapping: dict[str, dict[str, str]] = {}
     for item in _list(data.get("shots")):
         if not isinstance(item, dict):
             continue
-        dialogue = _text(item.get("dialogue"))
+        meta = {
+            "dialogue": _text(item.get("dialogue")),
+            "speakerName": _text(item.get("speakerName") or item.get("speaker_name")),
+        }
         key = _text(item.get("id") or item.get("title") or item.get("shotNumber") or item.get("shot_number"))
         if key:
-            mapping[key] = dialogue
+            mapping[key] = meta
         number = item.get("shotNumber") or item.get("shot_number")
         if number is not None:
-            mapping[str(number)] = dialogue
+            mapping[str(number)] = meta
     for scene in recipe.get("scenes") or []:
         if not isinstance(scene, dict):
             continue
@@ -348,12 +612,15 @@ def _apply_voice(recipe: dict[str, Any], data: dict[str, Any]) -> None:
             key_id = _text(shot.get("id"))
             key_title = _text(shot.get("title"))
             key_number = str(shot.get("shotNumber") or "")
-            if key_id in mapping:
-                shot["dialogue"] = mapping[key_id]
-            elif key_number in mapping:
-                shot["dialogue"] = mapping[key_number]
-            elif key_title in mapping:
-                shot["dialogue"] = mapping[key_title]
+            meta = mapping.get(key_id) or mapping.get(key_number) or mapping.get(key_title)
+            if not meta:
+                continue
+            shot["dialogue"] = meta["dialogue"]
+            if meta["speakerName"]:
+                shot["speakerName"] = meta["speakerName"]
+            speaker = _text(shot.get("speakerName"))
+            if speaker and speaker in char_voices:
+                shot["voiceId"] = char_voices[speaker]
 
 
 def _apply_music(recipe: dict[str, Any], data: dict[str, Any]) -> None:
@@ -361,6 +628,23 @@ def _apply_music(recipe: dict[str, Any], data: dict[str, Any]) -> None:
     soundscape = _text(data.get("globalSoundscape") or data.get("global_soundscape"))
     if soundscape:
         recipe["globalSoundscape"] = soundscape
+    audio = recipe.get("audio") if isinstance(recipe.get("audio"), dict) else default_audio_mix()
+    if data.get("bgmVolume") is not None or data.get("bgm_volume") is not None:
+        try:
+            audio["bgmVolume"] = max(0.0, min(1.0, float(data.get("bgmVolume", data.get("bgm_volume")))))
+        except (TypeError, ValueError):
+            pass
+    if data.get("bgmFadeInSec") is not None or data.get("bgm_fade_in_sec") is not None:
+        try:
+            audio["bgmFadeInSec"] = max(0.0, min(15.0, float(data.get("bgmFadeInSec", data.get("bgm_fade_in_sec")))))
+        except (TypeError, ValueError):
+            pass
+    if data.get("bgmFadeOutSec") is not None or data.get("bgm_fade_out_sec") is not None:
+        try:
+            audio["bgmFadeOutSec"] = max(0.0, min(15.0, float(data.get("bgmFadeOutSec", data.get("bgm_fade_out_sec")))))
+        except (TypeError, ValueError):
+            pass
+    recipe["audio"] = audio
     sfx_map: dict[str, str] = {}
     for item in _list(data.get("shotSfx") or data.get("shot_sfx")):
         if not isinstance(item, dict):
@@ -411,17 +695,25 @@ def run_agent(
     chat_fn: ChatFn | None = None,
     art_style_id: str | None = None,
     skip_research: bool | None = None,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     if agent_id not in AGENT_IDS:
         raise ValueError(f"未知 Agent：{agent_id}")
     recipe = normalize_recipe_payload(deepcopy(recipe) if recipe else empty_recipe_payload())
     set_agent_status(recipe, agent_id, "running")
+    if on_progress:
+        on_progress(recipe)
+
+    def emit() -> None:
+        if on_progress:
+            on_progress(recipe)
+
     try:
         if agent_id == "research":
             skip = should_run_research(goal) is False if skip_research is None else bool(skip_research)
             if skip or chat_fn is None:
                 recipe["researchNotes"] = ""
-                set_agent_status(recipe, agent_id, "completed")
+                set_agent_status(recipe, agent_id, "completed", message="无事实核查需求，已跳过")
                 return recipe
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(agent_id, "根据常识摘要用户故事里需要核实的设定。不要编造网址。输出 {\"notes\":\"...\",\"skipped\":false}。无事实需求时 notes 为空、skipped 为 true。")},
@@ -433,7 +725,12 @@ def run_agent(
 
         if agent_id == "script":
             parsed = _chat_json(chat_fn, [
-                {"role": "system", "content": _system(agent_id, "把一句话扩成短片脚本。输出 {\"title\":\"\",\"summary\":\"\",\"fullStory\":\"\"}。fullStory 400-800 字中文，含人物与地点。")},
+                {"role": "system", "content": _system(
+                    agent_id,
+                    "把一句话扩成可拍的短片/短剧脚本。输出 {\"title\":\"\",\"summary\":\"\",\"fullStory\":\"\"}。"
+                    "fullStory 800-1500 字中文，必须分场：每场写地点、人物、动作和对白，便于后续一次性拆成全部镜头。"
+                    "禁止只写一段摘要。",
+                )},
                 {"role": "user", "content": goal},
             ]) if chat_fn else None
             _apply_script(recipe, parsed or {}, goal)
@@ -459,11 +756,36 @@ def run_agent(
             return recipe
 
         if agent_id == "storyboard":
-            parsed = _chat_json(chat_fn, [
-                {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
-                {"role": "user", "content": _story_context(recipe, goal)},
-            ]) if chat_fn else None
+            user_content = (
+                _story_context(recipe, goal)
+                + "\n请根据上面的完整故事一次性输出全部镜头，不要只写开场或主镜头。"
+            )
+            parsed: dict[str, Any] = {}
+            if chat_fn:
+                set_agent_status(recipe, agent_id, "running", message="正在读剧本")
+                emit()
+                raw = _chat_text(chat_fn, [
+                    {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
+                    {"role": "user", "content": user_content},
+                ], retries=1)
+                set_agent_status(recipe, agent_id, "running", message="正在整理镜头")
+                emit()
+                parsed = _parse_storyboard_reply(raw, goal)
+                if _is_collapsed_storyboard(parsed, goal):
+                    set_agent_status(recipe, agent_id, "running", message="镜头不完整，正在重拆")
+                    emit()
+                    raw = _chat_text(chat_fn, [
+                        {"role": "system", "content": _system(agent_id, STORYBOARD_RETRY_SYSTEM)},
+                        {"role": "user", "content": user_content},
+                    ], retries=1)
+                    set_agent_status(recipe, agent_id, "running", message="正在整理镜头")
+                    emit()
+                    parsed = _parse_storyboard_reply(raw, goal)
             _apply_storyboard(recipe, parsed or {}, goal)
+            if _recipe_shot_count(recipe) == 0:
+                recipe["scenes"] = []
+                set_agent_status(recipe, agent_id, "failed", "分镜未按剧本拆出镜头，请重试生成分镜")
+                return recipe
             set_agent_status(recipe, agent_id, "completed")
             return recipe
 
@@ -498,11 +820,17 @@ def run_agent(
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
-                    "把对白整理进各镜，供 MiniMax H3 联合音轨使用，不要生成独立音频文件。"
-                    "台词保留原文，不要翻译；编译器会包成 (S1) says: <d>[Chinese] ...</d>。"
-                    "输出 {\"shots\":[{\"shotNumber\":1,\"dialogue\":\"\"}]}。无对白的镜头 dialogue 为空字符串。",
+                    "输出可播放配音元数据，不要生成音频文件。TTS 由工作台稍后调用 OpenAI 兼容 /audio/speech。"
+                    "为每个角色选 voiceId：alloy/echo/fable/onyx/nova/shimmer；男声优先 onyx，女声优先 nova。"
+                    "台词保留原文，不要翻译；为每镜写 speakerName（角色名）。"
+                    "输出 {\"characters\":[{\"name\":\"\",\"voiceId\":\"onyx\"}],"
+                    "\"shots\":[{\"shotNumber\":1,\"dialogue\":\"\",\"speakerName\":\"\"}]}。"
+                    "无对白的镜头 dialogue 为空字符串。",
                 )},
-                {"role": "user", "content": json.dumps(recipe.get("scenes") or [], ensure_ascii=False)[:6000]},
+                {"role": "user", "content": json.dumps({
+                    "characters": recipe.get("characters") or [],
+                    "scenes": recipe.get("scenes") or [],
+                }, ensure_ascii=False)[:7000]},
             ]) if chat_fn else None
             _apply_voice(recipe, parsed or {})
             set_agent_status(recipe, agent_id, "completed")
@@ -512,10 +840,12 @@ def run_agent(
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
-                    "按 MiniMax H3 官方 skill 写声音，不生成音频文件。"
+                    "输出可播放配乐元数据，不要生成音频文件。用户稍后上传 BGM；本步只写音量/淡化与 H3 声音提示词。"
                     "globalMusic 即 non_diegetic_music：英文写乐器、速度、力度变化，禁止空洞情绪词；无配乐写 N/A。"
                     "globalSoundscape 即 overall_soundscape：英文写环境声与物理交互声，不重复台词。"
-                    "输出 {\"globalMusic\":\"\",\"globalSoundscape\":\"\",\"shotSfx\":[{\"shotNumber\":1,\"sfx\":\"\"}]}",
+                    "bgmVolume 为 0-1 小数，bgmFadeInSec / bgmFadeOutSec 为秒。"
+                    "输出 {\"globalMusic\":\"\",\"globalSoundscape\":\"\",\"bgmVolume\":0.25,"
+                    "\"bgmFadeInSec\":1.2,\"bgmFadeOutSec\":2.0,\"shotSfx\":[{\"shotNumber\":1,\"sfx\":\"\"}]}",
                 )},
                 {"role": "user", "content": _story_context(recipe, goal)},
             ]) if chat_fn else None
@@ -545,28 +875,43 @@ def run_recipe_pipeline(
     if not _text((current.get("script") or {}).get("fullStory")):
         current["script"]["fullStory"] = goal
     order = list(agents or AGENT_IDS)
+    current["pipelineRun"] = {"agents": order, "active": True}
     for agent_id in order:
         set_agent_status(current, agent_id, "pending")
     if on_progress:
         on_progress(current)
-    for agent_id in order:
-        set_agent_status(current, agent_id, "running")
+    try:
+        for agent_id in order:
+            set_agent_status(current, agent_id, "running")
+            if on_progress:
+                on_progress(current)
+            current = run_agent(
+                agent_id,
+                current,
+                goal=goal,
+                chat_fn=chat_fn,
+                art_style_id=art_style_id,
+                skip_research=skip_research,
+                on_progress=on_progress,
+            )
+            if on_progress:
+                on_progress(current)
+            status = next((item for item in current.get("agentStatus") or [] if item.get("id") == agent_id), None)
+            if status and status.get("status") == "failed":
+                error_text = _text(status.get("error"))
+                if is_upstream_llm_failure(error_text):
+                    raise LlmBillingError(error_text) if looks_like_llm_billing(error_text) else LlmError(error_text)
+                remaining = order[order.index(agent_id) + 1 :]
+                if remaining and remaining[0] == "storyboard":
+                    continue
+                break
+        current["pipelineRun"] = {"agents": order, "active": False}
+        return normalize_recipe_payload(current)
+    except Exception:
+        current["pipelineRun"] = {"agents": order, "active": False}
         if on_progress:
             on_progress(current)
-        current = run_agent(
-            agent_id,
-            current,
-            goal=goal,
-            chat_fn=chat_fn,
-            art_style_id=art_style_id,
-            skip_research=skip_research,
-        )
-        if on_progress:
-            on_progress(current)
-        status = next((item for item in current.get("agentStatus") or [] if item.get("id") == agent_id), None)
-        if status and status.get("status") == "failed":
-            break
-    return normalize_recipe_payload(current)
+        raise
 
 
 def fission_batch_scripts(

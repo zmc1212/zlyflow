@@ -66,6 +66,7 @@ class JobStore:
     MIGRATION_NAME = "2026-08-13-ai-studio-rounds-v1"
     GRS_CATALOG_MIGRATION = "2026-08-25-grs-image-models-v1"
     DIRECTOR_PROJECTS_MIGRATION = "2026-08-26-director-projects-v1"
+    DIRECTOR_LIBRARY_MIGRATION = "2026-08-28-director-library-assets-v1"
 
     def __init__(self, database_path: Path) -> None:
         database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -244,6 +245,20 @@ class JobStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS tts_provider_settings (
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    use_llm_credentials INTEGER NOT NULL DEFAULT 1,
+                    base_url TEXT NOT NULL DEFAULT '',
+                    api_key_encrypted TEXT,
+                    model TEXT NOT NULL DEFAULT 'tts-1',
+                    voice TEXT NOT NULL DEFAULT 'alloy',
+                    last_test_status TEXT,
+                    last_test_message TEXT,
+                    last_test_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
 
 
                 CREATE TABLE IF NOT EXISTS director_projects (
@@ -265,6 +280,24 @@ class JobStore:
                 CREATE INDEX IF NOT EXISTS idx_items_remote_task ON generation_items(remote_task_id);
                 CREATE INDEX IF NOT EXISTS idx_director_projects_owner_updated
                     ON director_projects(owner_user_id, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS director_library_assets (
+                    id TEXT PRIMARY KEY,
+                    owner_user_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    prompt_text TEXT NOT NULL DEFAULT '',
+                    gender TEXT NOT NULL DEFAULT '',
+                    image_url TEXT,
+                    image_job_id TEXT,
+                    image_path TEXT,
+                    source_project_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_director_library_assets_owner_kind
+                    ON director_library_assets(owner_user_id, kind, updated_at DESC);
                 """
             )
             self._ensure_column(connection, "generation_items", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")
@@ -297,6 +330,12 @@ class JobStore:
                 VALUES (1, ?, ?)""",
                 (settings.comfy_url, now()),
             )
+            connection.execute(
+                """INSERT OR IGNORE INTO tts_provider_settings
+                (id, enabled, use_llm_credentials, base_url, model, voice, updated_at)
+                VALUES (1, 0, 1, '', 'tts-1', 'alloy', ?)""",
+                (now(),),
+            )
             self._migrate_legacy_jobs(connection)
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
@@ -305,6 +344,10 @@ class JobStore:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
                 (self.DIRECTOR_PROJECTS_MIGRATION, now()),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+                (self.DIRECTOR_LIBRARY_MIGRATION, now()),
             )
             self._ensure_grs_image_models(connection)
 
@@ -1045,6 +1088,32 @@ class JobStore:
             connection.execute(f"UPDATE llm_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
         return self.get_llm_settings()
 
+    def get_tts_settings(self) -> dict:
+        with self.connection() as connection:
+            row = connection.execute("SELECT * FROM tts_provider_settings WHERE id = 1").fetchone()
+        data = dict(row)
+        data["enabled"] = bool(data["enabled"])
+        data["use_llm_credentials"] = bool(data.get("use_llm_credentials", 1))
+        return data
+
+    def update_tts_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
+        allowed = {
+            "enabled", "use_llm_credentials", "base_url", "api_key_encrypted", "model", "voice",
+            "last_test_status", "last_test_message", "last_test_at",
+        }
+        merged = dict(values) if isinstance(values, dict) else {}
+        merged.update(kwargs)
+        updates = {key: value for key, value in merged.items() if key in allowed}
+        if "enabled" in updates:
+            updates["enabled"] = int(bool(updates["enabled"]))
+        if "use_llm_credentials" in updates:
+            updates["use_llm_credentials"] = int(bool(updates["use_llm_credentials"]))
+        updates["updated_at"] = now()
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        with self.connection() as connection:
+            connection.execute(f"UPDATE tts_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
+        return self.get_tts_settings()
+
     def get_comfy_settings(self) -> dict:
         with self.connection() as connection:
             row = connection.execute("SELECT * FROM comfy_provider_settings WHERE id = 1").fetchone()
@@ -1419,5 +1488,136 @@ class JobStore:
             source_script=current.get("source_script") or "",
         )
         return self.update_director_project(project_id, payload=recipe)
+
+    @staticmethod
+    def _new_director_library_asset_id() -> str:
+        from .director_library import new_library_asset_id
+
+        return new_library_asset_id()
+
+    def _library_asset_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "owner_user_id": row["owner_user_id"],
+            "kind": row["kind"],
+            "name": row["name"],
+            "description": row["description"] or "",
+            "prompt_text": row["prompt_text"] or "",
+            "gender": row["gender"] or "",
+            "image_url": row["image_url"],
+            "image_job_id": row["image_job_id"],
+            "image_path": row["image_path"],
+            "source_project_id": row["source_project_id"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def list_director_library_assets(
+        self,
+        owner_user_id: str,
+        *,
+        kind: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = """SELECT * FROM director_library_assets
+            WHERE owner_user_id = ?"""
+        params: list[Any] = [owner_user_id]
+        if kind:
+            query += " AND kind = ?"
+            params.append(kind)
+        query += " ORDER BY updated_at DESC"
+        with self.connection() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [self._library_asset_row_to_dict(row) for row in rows]
+
+    def get_director_library_asset(self, asset_id: str) -> dict[str, Any]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM director_library_assets WHERE id = ?", (asset_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(asset_id)
+        return self._library_asset_row_to_dict(row)
+
+    def create_director_library_asset(
+        self,
+        owner_user_id: str,
+        *,
+        kind: str,
+        name: str,
+        description: str = "",
+        prompt_text: str = "",
+        gender: str = "",
+        image_url: str | None = None,
+        image_job_id: str | None = None,
+        image_path: str | None = None,
+        source_project_id: str | None = None,
+        asset_id: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = now()
+        new_id = (asset_id or "").strip() or self._new_director_library_asset_id()
+        with self.connection() as connection:
+            connection.execute(
+                """INSERT INTO director_library_assets (
+                    id, owner_user_id, kind, name, description, prompt_text, gender,
+                    image_url, image_job_id, image_path, source_project_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    new_id, owner_user_id, kind, name.strip(), description or "", prompt_text or "",
+                    gender or "", image_url, image_job_id, image_path, source_project_id,
+                    timestamp, timestamp,
+                ),
+            )
+        return self.get_director_library_asset(new_id)
+
+    def update_director_library_asset(
+        self,
+        asset_id: str,
+        *,
+        kind: str | None = None,
+        name: str | None = None,
+        description: str | None = None,
+        prompt_text: str | None = None,
+        gender: str | None = None,
+        image_url: str | None = None,
+        image_job_id: str | None = None,
+        image_path: str | None = None,
+        source_project_id: str | None = None,
+        update_image_url: bool = False,
+        update_image_job_id: bool = False,
+        update_image_path: bool = False,
+        update_source_project_id: bool = False,
+    ) -> dict[str, Any]:
+        current = self.get_director_library_asset(asset_id)
+        next_kind = current["kind"] if kind is None else kind
+        next_name = current["name"] if name is None else name.strip()
+        next_description = current["description"] if description is None else description
+        next_prompt = current["prompt_text"] if prompt_text is None else prompt_text
+        next_gender = current["gender"] if gender is None else gender
+        next_image_url = current["image_url"] if not update_image_url else image_url
+        next_image_job = current["image_job_id"] if not update_image_job_id else image_job_id
+        next_image_path = current["image_path"] if not update_image_path else image_path
+        next_source = current["source_project_id"] if not update_source_project_id else source_project_id
+        timestamp = now()
+        with self.connection() as connection:
+            connection.execute(
+                """UPDATE director_library_assets
+                SET kind = ?, name = ?, description = ?, prompt_text = ?, gender = ?,
+                    image_url = ?, image_job_id = ?, image_path = ?, source_project_id = ?,
+                    updated_at = ?
+                WHERE id = ?""",
+                (
+                    next_kind, next_name, next_description or "", next_prompt or "", next_gender or "",
+                    next_image_url, next_image_job, next_image_path, next_source, timestamp, asset_id,
+                ),
+            )
+        return self.get_director_library_asset(asset_id)
+
+    def delete_director_library_asset(self, asset_id: str) -> dict[str, Any]:
+        current = self.get_director_library_asset(asset_id)
+        with self.connection() as connection:
+            cursor = connection.execute("DELETE FROM director_library_assets WHERE id = ?", (asset_id,))
+        if cursor.rowcount == 0:
+            raise KeyError(asset_id)
+        return current
 
 

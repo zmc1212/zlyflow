@@ -1,16 +1,18 @@
 # ZLY AI Video Studio 架构快照
 
-更新时间：2026-08-27
+更新时间：2026-08-28
 
 ## 组件关系
 
 ```text
 React/Vite frontend
         -> FastAPI session + CSRF + RBAC
-        -> SQLite users/sessions/audit_logs/jobs/director_projects
+        -> SQLite users/sessions/audit_logs/jobs/director_projects/director_library_assets/tts_provider_settings
         -> 单任务 Worker
         -> ComfyUI API（默认 http://127.0.0.1:8188，管理后台可改）
-        -> 保存 ComfyUI 输出文件引用
+        -> OpenAI 兼容 TTS（/v1/audio/speech，可复用 LLM 凭据或独立配置）
+        -> 本机 ffmpeg/ffprobe（成片 concat / 混音 / 可选烧字幕）
+        -> 保存 ComfyUI 输出文件引用与导演成片 MP4
         -> 浏览器 File System Access API -> 员工授权目录
         -> ZLYUN AI Tauri 客户端 -> 受限 Rust 写盘命令 -> 员工授权目录
         -> POST delivered 回执 -> 标记本机交付完成
@@ -45,7 +47,10 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/director_compiler.py` | 导演台按 MiniMax H3 官方 skill 编译提示词、Recipe 参考图装箱，按所选工作流族自动路由 T2V/I2V/R2V |
 | `backend/app/director_catalog/` | 9 类 34 条画风 JSON 种子与查询 |
 | `backend/app/director_recipe.py` | Recipe / 批量 payload 规范化、画风目录校验、旧时间轴转 Recipe |
-| `backend/app/director_agents.py` | 9 Agent 顺序调度；分镜 Agent 读取官方 h3-prompt-writing 原文生成 |
+| `backend/app/director_library.py` | 员工级人物/场景/道具资产库规范化、从 Recipe 快照、插入工程 |
+| `backend/app/tts_provider.py` | 独立 TTS 供应商（OpenAI 兼容 `/audio/speech`）；可复用 LLM 凭据；不绑定 Edge TTS |
+| `backend/app/director_export.py` | 逐镜 TTS、BGM、ffmpeg 成片、FCPXML/EDL；失败镜头不进入成片 |
+| `backend/app/director_agents.py` | 9 Agent 顺序调度；分镜 Agent 读取官方 h3-prompt-writing 原文生成；配音/配乐写可播放媒体元数据 |
 | `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能与官方 prompt-writing 加载器，供生成页优化和导演台分镜共用 |
 | `backend/app/h3_prompt_writing/` | MiniMax 官方 `h3-prompt-writing` skill 原文（SKILL.md、T2VA/Ref2VA 参考） |
 | `backend/app/director_jobs.py` | Recipe 定妆 GRS 入队、七牛地址回写、分镜/批量按所选工作流族入队 |
@@ -76,7 +81,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 - 官方 MiniMax H3：`minimax-h3-t2v`、`minimax-h3-i2v`、`minimax-h3-r2v`。动态 API graph 在既有节点 1–15 之后接入 `ReservedVRAMSetter`（预留 3 GB 并在采样前清缓存）与 `MiniMaxH3MemoryEfficientSageAttentionPatch`，避免 16GB 显卡在 `SamplerCustomAdvanced` 的 INT8 QKV 上 OOM。既有节点 ID 不变。
 - 自定义：`minimax-h3-t8-all-reference`（0-9 张；无图 `T2VA`+FL2VA，有图 `Ref2VA`+Ref2VA，`MiniMaxH3MultiRateSamplerEXPT8`）、`minimax-h3-t8-dual-clock`（0-1 张；无图 `T2VA`，单图 `I2VA` 首帧，`MiniMaxH3DualClockSamplerT8`）。
 
-H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`，以及自定义时的 `custom_steps`。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
+H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`、`weight_profile`，以及自定义时的 `custom_steps`。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。`weight_profile` 为 `full`（默认，约 32 GB 全量 INT8，可挂加速 LoRA）或 `pruned`（约 20 GB 精简 INT8，强制关闭加速 LoRA，步数仍由 `speed` 决定）。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
 
 两个 T8 模式的 options schema 同样由 `workflow_registry.py` 提供，覆盖任务类型、比例、画质预设、内部像素、对齐倍数、时长、种子、音频策略、采样步数、video/audio shift、模型、LoRA、SageAttention、显存策略和 H.264 编码参数。每项使用 `ui_group=primary|advanced|internal` 声明产品可见性；前端只生成主参数与“更多设置”，内部参数由后端默认值托管。随机种子每次由后端自动生成，不接受用户指定。SQLite 保存标准化 options 与显式提交字段；`request_parameters` 返回当前生效的有效值和 `visibility`，并遵守 `ui_visible_when`（例如未选自定义时不回显 `custom_steps`），前端将内部值折叠到“运行参数”。输出文件前缀、`save_output=true` 与 graph 连线属于集成协议，不允许调用方覆盖。
 
@@ -1142,3 +1147,101 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改节点、端口或 `POST /api/jobs`。JSON 字段不变。
 - 验证命令：`python -m unittest backend.tests.test_director.DirectorRecipeModelTests.test_official_h3_prompt_writing_skill_is_vendored backend.tests.test_director.DirectorAgentPipelineTests.test_storyboard_agent_follows_h3_official_skill backend.tests.test_llm.LLMProviderTests.test_optimize_prompt_video`。
 - 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-27 Recipe 分镜 Inspector、预览默认与画风渐进披露
+
+- 原因：分镜还是卡片墙，改不了机位/对白/时长；出片写死终稿；画风一次摊开 34 张；保存没有状态。
+- 当前基线：分镜 Tab 桌面为左镜头列表 + 右 Inspector，手机为横向镜头条 + Drawer。可编辑标题、描述/提示词、对白、时长（2–15 秒吸附）、角色、场景、景别/运镜/机位/布光；参考图只读展示本镜将装箱的定妆。`_normalize_shot` 始终保留 `camera`（缺省中景前推）和 `error`。出片默认预览档，顶栏与分镜区可切预览/终稿；Take 标记 `renderPass`。标题旁显示保存中/已保存/保存失败（约 800ms 防抖 PUT，一句话创意同步落盘）。画风默认 6 张推荐，其余进「浏览全部」。9 Agent 收进折叠的「AI 运行详情」。不改端口、节点或 `POST /api/jobs`。成片交付仍是串播 + 剪映。
+- 受影响文件：`director_recipe.py`、`director_compiler.py`、`director_jobs.py`、`backend/tests/test_director.py`、`DirectorRecipeStudio.tsx`、`RecipeShotInspector.tsx`、`ShotCameraFields.tsx`、`types.ts`、`index.css`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：旧分镜无 `camera` 时补默认机位；已有 camera 转换后不丢。API 默认 `render_pass` 仍为 `final`，界面默认发 `preview`。
+- 验证命令：`python -m unittest backend.tests.test_director`（49 项通过，含 `_normalize_shot` 补默认 camera、已有 camera 转换不丢、`render_pass=preview` 入队 0.4 MP / fast）、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后 1440×900 与 390×844：返回工程库、运行导演流水线、生成这一镜 / 全部预览、标题旁保存中/已保存、画风默认 6 卡、工程卡可聚焦打开；手机头栏 44×44、底栏主按钮、分镜 Drawer。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 Recipe 首尾帧承接、静帧分镜与 Take A/B
+
+- 原因：Recipe 规范化丢掉首尾帧，出片无法走 I2V 承接；分镜没有静帧预览和 Take 对比，失败项只能逐个点。
+- 当前基线：`RecipeShot` 保留 `firstFrameUrl`/`endFrameUrl`/`usePreviousEndFrame`/`stillUrl`/`takes`/`approvedTakeId`。打开旧时间轴时保留首尾帧与承接开关。编译时勾选「用上一镜尾帧」把上一镜尾帧（或静帧）接到本镜首帧，提交走已有 I2V/R2V。分镜可先走 GRS 静帧（与定妆同一图片通道），再设为首帧出视频。工作面区分静帧 / 视频预览 / 终稿。每次视频渲染写入 `takes[]`，Inspector 可切换、批准，桌面支持 A/B 并排。镜头列表可多选：生成选中、仅重试失败、取消选中（`POST /api/jobs/{id}/cancel`）。不改端口、节点或 `POST /api/jobs` 契约。成片交付仍是串播 + 剪映。
+- 受影响文件：`director_recipe.py`、`director_compiler.py`、`director_jobs.py`、`main.py`、`models.py`、`backend/tests/test_director.py`、导演台 Recipe 工作面、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：旧分镜无连续性字段时视为未勾选、无静帧；已有 camera/takes 不丢。新增静帧与帧上传接口，旧客户端可忽略。
+- 验证命令：`python -m unittest backend.tests.test_director`（56 项通过，含首尾帧规范化、上一镜尾帧/静帧承接编译为 I2V、静帧任务回写）、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后 1440×900 与 390×844：分镜可切静帧/预览/终稿、勾选上一镜承接、Take 切换与批准、多选生成/取消。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 员工级人物/场景/道具资产库
+
+- 原因：定妆只存在单个 Recipe 工程里，跨工程无法复用人物、场景和道具；计划明确不做系列分集树。
+- 当前基线：SQLite 表 `director_library_assets` 按员工隔离，保存 kind（character/scene/prop）、名称、说明、提示词和参考图。`GET/POST /api/director/library-assets` 管理库；`POST .../from-recipe` 把当前工程人物/场景/道具快照写入库（道具对应 Recipe `type=object`）；`POST .../insert-library-assets` 复制进工程并写 `libraryAssetId`。创作台 `/assets` 的「主体」Tab 管理库；Recipe 定妆区可「从库插入」「存入资产库」。继续用工程 + `scenes[].shots[]`，不建系列/分集。出片时库内上传图可作为定妆参考。不改端口、节点或 `POST /api/jobs`。
+- 受影响文件：`director_library.py`、`storage.py`、`main.py`、`models.py`、`director_recipe.py`、`director_jobs.py`、`director_compiler.py`、导演台前端、`App.tsx`、测试与三份主文档。
+- 兼容性：旧工程无 `libraryAssetId` 时行为不变。新增表与接口，旧客户端可忽略。
+- 验证命令：`python -m unittest backend.tests.test_director`（含资产库 CRUD、员工隔离、from-recipe 道具映射、插入 Recipe、库图作为定妆参考）、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后 1440×900 与 390×844：`/assets` 主体新建人物、Recipe 定妆从库插入、存入资产库。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；新表可保留，不影响旧工程。
+
+## 2026-08-28 Recipe 资产别名解析与独立镜头时间基准
+
+- 原因：9 Agent 顺序中 storyboard 早于 characters / locations；大模型可能把 `李明`、`公司办公室` 写成 `Li Ming`、`Tech company office`。原编译器只做完全相等匹配，匹配失败后又装入全部场景图，造成角色定妆缺失和无关场景污染。Storyboard 还可能把整片累计时间码写进逐镜提交的 `promptText`，例如 7 秒任务从 `00:11` 开始。
+- 当前基线：`recipe_assets_as_slots()` 先做大小写/标点无关的精确匹配，再在历史工程全部未匹配项与剩余资产数量一一对应时按首次出现顺序建立只读别名；每镜只装入命中的人物与一个命中场景，显式名称未命中时不再任意回退场景。`normalize_independent_shot_prompt()` 只清理单镜正文开头的 `[Shot n]`、累计 `At HH:MM.mmm` 和紧随其后的 cut 连接语，正文内部的局部时间事件不动；编译器随后统一写 `[Shot 1]`。Director adapter 同时要求保留剧本专名原文并使用从 `00:00` 开始的局部时间线。
+- 受影响文件：`backend/app/director_compiler.py`、`backend/app/llm_minimax_skills.py`、`backend/tests/test_director.py`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改端口、API、数据库、工作流 ID、ComfyUI graph 节点或参考图上限。旧 Recipe 无需写回迁移，下一次预览/终稿提交即按新编译规则运行；已生成的历史任务提示词与视频保持不变。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorCompilerTests backend.tests.test_director.DirectorAgentPipelineTests`、`python -m unittest discover -s backend/tests -p "test*.py"`、`pnpm --dir frontend build`；使用《代码与咖啡》快照复核五镜分别装箱正确人物与单一场景，且无 `00:06/11/18/24` 累计时间码。
+- 回滚方式：恢复上述三个代码/测试文件并重启工作台；文档记录可随代码一起回退，SQLite 与媒体无需处理。
+
+## 2026-08-28 导演台第三版：真实声音层与工作台内成片
+
+- 原因：前两版成片交付仍是串播 + 剪映；配音/配乐 Agent 只写文案；仓库内没有 ffmpeg；架构写明不引入 Edge TTS。第三版是新产品线：可播放的 TTS/BGM/字幕、本机 ffmpeg 合成 MP4、FCPXML/EDL，剪映草稿并行保留。
+- 当前基线：
+  - TTS 走 OpenAI 兼容 `POST {base}/audio/speech`（独立 `tts_provider_settings`，可勾选复用 LLM 凭据）。不绑定 Edge TTS，不把 ComfyUI 暴露到新端口。
+  - Recipe 保存角色 `voiceId`、逐镜 `speakerName`/`ttsStatus`/`ttsUrl`、工程级 `audio`（BGM 地址、音量、淡入淡出）与 `subtitles`（开关、位置、字号、描边）。Voice/Music Agent 输出这些可播放媒体元数据，不直接生成音频文件。
+  - `POST /api/director/recipes/{id}/tts` 按对白调用上游 TTS，落盘 `data/uploads/{user}/{project}/tts/`。角色试听写入 `voicePreviewUrl`。
+  - `POST /api/director/recipes/{id}/bgm` 上传配乐。串播预览叠字幕样式；成片可选烧字幕。
+  - `POST /api/director/recipes/{id}/mux` 用本机 `ffmpeg`/`ffprobe` 按镜头顺序 concat 已批准（或成功）视频，混 TTS 与 BGM。失败、中断、停止镜头不进入成片。成片写入 `data/staging/director-mux/`，`export.muxDurationSec` 来自 ffprobe。未安装 ffmpeg 时返回 503。
+  - `GET .../export.fcpxml` 与 `GET .../export.edl` 由镜头入出点、对白、音频轨生成。剪映草稿与串播保留为并行导出。
+  - 不改 ComfyUI 节点 ID、工作台 `7865`、ComfyUI `8188` 或 `POST /api/jobs` 外部字段。
+- 依赖：本机 PATH 或常见安装路径中的 `ffmpeg` 与 `ffprobe`。Docker/服务器镜像不内置 ffmpeg 时，mux 接口会明确提示。
+- 受影响文件：`tts_provider.py`、`director_export.py`、`director_recipe.py`、`director_agents.py`、`llm_client.py`、`storage.py`、`models.py`、`main.py`、`api_documentation.py`、导演台前端、管理后台 LLM 页、测试与三份主文档。
+- 兼容性：旧 Recipe 无音频字段时视为未配 TTS/BGM、字幕默认关闭。新增 TTS 表与接口，旧客户端可忽略。剪映导出不变。
+- 验证命令：`python -m unittest backend.tests.test_director`（含 TTS 任务状态、mux 输出时长、FCPXML 镜头数）、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后走导演台「导出成片」。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；新表可保留。成片文件可删 `data/staging/director-mux/`。
+
+## 2026-08-28 点击分镜按剧本一次生成全部镜头
+
+- 原因：分镜 Tab 不触发生成；Agent 在 JSON 失败或官方 skill 顶层格式冲突时回退成单条「主镜头」，用户看不到按剧本拆出的镜头列表。
+- 当前基线：分镜 Agent 以 JSON 合约为优先输出，官方 `h3-prompt-writing` 只约束每镜 `promptText`。一次覆盖完整剧本，通常 8–24 个独立镜头，上限 32。截断 JSON 会补全括号；模型若只吐 `[Shot n]` 散文也会拆成镜头。空结果或「主镜头」占位则标 failed，不写假镜头。`script`+`storyboard` 子集中脚本失败仍继续拆镜。`POST /api/director/recipes/run` 可选 `agents`；前端点「分镜」时先落盘再跑，生成中不会用旧稿覆盖镜头。
+- 受影响文件：`director_agents.py`、`llm_minimax_skills.py`、`models.py`、`main.py`、`api_documentation.py`、导演台 Recipe 工作面、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。不传 `agents` 仍跑完整 9 步。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorAgentPipelineTests backend.tests.test_director.DirectorDualEngineApiTests.test_recipes_run_accepts_script_and_storyboard_subset`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后点「分镜」，应列出按剧本拆出的多条镜头。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 大模型余额不足返回上游错误日志
+
+- 原因：上游 LLM 欠费/余额不足时，分镜生成把错误吞成空列表，用户看不到供应商原文。
+- 当前基线：`LlmBillingError` 识别 402 与余额/quota/欠费文案（含 HTTP 429 额度耗尽）。错误信息包含 HTTP 状态和上游返回正文。导演 `POST /api/director/recipes/run` 对此返回 502；分镜页展示摘要，详情可查看上游日志。余额不足不再重试、不再继续拆镜。
+- 受影响文件：`llm_client.py`、`director_agents.py`、导演台 Recipe 工作面、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`python -m unittest backend.tests.test_llm.LlmBillingErrorTests backend.tests.test_director.DirectorAgentPipelineTests.test_pipeline_raises_billing_error_with_upstream_log`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 分镜生成展示阶段与镜头占位，不展示思考原文
+
+- 原因：分镜等待只有空状态；子集运行仍按 9 步显示「脚本 7/9」；主画布流式打模型原文不符合短剧生产台。
+- 当前基线：`payload.pipelineRun` 记录本次 `agents`。`agentStatus[].message` 为人话阶段（读剧本 / 整理镜头 / 已写出 N 个镜头），思考模式保持关闭，不把 token 推到前端。前端进度按本次步骤计数；分镜 Tab 生成中显示占位镜头卡。「AI 运行详情」折叠展示阶段与最近一次分镜摘要。
+- 受影响文件：`director_recipe.py`、`director_agents.py`、`llm_provider.py`、`main.py`、导演台 Recipe 工作面、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。旧 payload 缺字段时行为与原先一致。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorRecipeModelTests.test_normalize_keeps_agent_stage_and_pipeline_run backend.tests.test_director.DirectorAgentPipelineTests.test_pipeline_subset_tracks_active_run_and_stage_messages`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 视频工作流可切换精简 UNET
+
+- 原因：32 GB 内存加载全量 MiniMax H3 INT8 UNET（约 32 GB）时 Windows 报 1455。原先只有高质量/自定义超过 8 步才会改走 pruned。
+- 当前基线：所有 H3 视频工作流（官方、LightX2V、八步双加速、T8）增加 primary `weight_profile`：`full`（默认）或 `pruned`。`pruned` 关闭加速 LoRA 并加载精简 UNET，不改变所选步数。创建栏与导演台分镜栏直接显示，不放进「更多设置」。导演 Recipe / 批量 payload 增加 `weightProfile`，提交任务时写入 `options.weight_profile`。T8 文生也按 `lora_strength` 选择 FL2VA pruned/full，不再在高质量时误用全量 `unet_name`。
+- 受影响文件：`workflow_registry.py`、`minimax_h3_t8_workflow.py`、导演编译/入队/Recipe、导演台界面、测试与三份主文档。
+- 兼容性：不改节点 ID、端口。缺省 `weight_profile` 仍为完整权重。
+- 验证命令：`python -m unittest backend.tests.test_core.WorkflowTests.test_weight_profile_pruned_keeps_steps_and_skips_turbo_lora backend.tests.test_director.DirectorCompilerTests.test_canvas_quality_maps_to_registry`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 导演台 H3 最终提示词润色分层
+
+- 原因：`Recipe` 的分镜 Agent 必须输出可编辑的独立 `promptText`，而实际首帧、尾帧和角色/场景定妆的上传顺序只有在提交前的参考图装箱阶段才确定；因此不能由早期 Agent 固化最终的 H3 参考标签。
+- 当前基线：`director_compiler.h3_prompt_mode()` 根据提交计划选择官方 H3 写作模式：T2VA、I2VA、FL2VA、L2VA 或 Ref2VA。`LlmProviderService.polish_director_h3_prompt()` 在图像装箱完成后读取内置官方 `h3-prompt-writing` 的对应 guide，以最终 draft 和真实标签调用配置的大模型。对 Ref2VA，编译器只验证六段格式、标签编号和 `<Subject N>` 在定义/摘要/保留分析/正文中的存在性；不进行角色名到标签的机械替换。对基础模式，校验三核心字段及必要的图像对齐首行。润色结果通过才入队；无可用 LLM 时，直接沿用既有编译产物。
+- 受影响文件：`llm_minimax_skills.py`、`llm_provider.py`、`director_compiler.py`、`director_jobs.py`、`main.py`、`director_agents.py`、`director_recipe.py`、前端导演编译器与类型、测试及主文档。
+- 兼容性：不改 ComfyUI graph、节点 ID、工作流模式 API、端口或数据库迁移。原有的 T2V/I2V/R2V 产品路由仍由 `workflow_registry.py` 决定；H3 写作模式仅描述最终提示词的参考关系。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复本节列出的文件、重新构建前端并重启服务；历史任务的提示词快照和媒体文件无需迁移或清理。

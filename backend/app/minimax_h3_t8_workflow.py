@@ -41,11 +41,10 @@ def build_minimax_h3_t8_workflow(
         raise ValueError(f"Unsupported MiniMax H3 T8 workflow: {mode}")
 
     task_type = resolve_t8_task_type(mode, options, references)
-    unet_name = (
-        h3_diffusion_unet(True, float(options["lora_strength"]))
-        if task_type == "Ref2VA"
-        else str(options["unet_name"])
-    )
+    lora_strength = float(options["lora_strength"])
+    unet_name = h3_diffusion_unet(task_type == "Ref2VA", lora_strength)
+    if not h3_turbo_lora_compatible(unet_name):
+        lora_strength = 0.0
     workflow: dict[str, dict[str, Any]] = {
         "1": {
             "class_type": "UNETLoader",
@@ -121,9 +120,6 @@ def build_minimax_h3_t8_workflow(
         }
         model_source = ["15", 0]
 
-    lora_strength = float(options["lora_strength"])
-    if not h3_turbo_lora_compatible(unet_name):
-        lora_strength = 0.0
     sampler_model = model_source
     if lora_strength:
         workflow["16"] = {

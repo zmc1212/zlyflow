@@ -94,8 +94,8 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - GRS 图片生成：管理后台维护可启用的模型目录（GPT Image 2 / VIP、Nano Banana 系列及自定义 ID）；每个启用模型作为独立工作流出现在创作页。支持参考图、比例、1K/2K/4K、VIP 自定义尺寸、单轮 1–4 个并发生成项、部分成功和失败项重试。
 - 图片与视频任务统一为“任务 → 轮次 → 生成项”；同任务不混合媒介，图片结果可创建有关联的新视频任务并预填首帧。
 - MiniMax H3 提示词技能体系与大模型智能优化：结合 MiniMax-H3 官方开源技能规范（三维运镜语法、多模态时序结构、环境音效与背景配乐），融合 OpenAI 兼容大模型（魔搭按魔粒计费；硅基流动 7B / 本机 Ollama 可零云端消耗），提供电影级通用、极简电商广告、3D动画短片、立体纸艺定格、品牌宣传、音乐短片、双人游戏片头、纸拼贴与手绘发光实景等 9 大细分风格技能的一键智能优化。
-- MiniMax H3 Web AI 导演台（Director Studio）：进入导演台先选导演创作或短视频批量。导演创作用 9 Agent 生成可编辑 Recipe（故事/画风/人物/场景/分镜）。自动生成分镜时按 MiniMax H3 官方 `h3-prompt-writing` skill 写镜头正文、运镜和对白；提交时编译为 T2VA 三段式或 Ref2VA 六段式提示词。定妆走 GRS，分镜视频走本机所选工作流。分镜页可改工作流（LightX2V / 八步双加速 / 官方 MiniMax H3 等）、画面比例、分辨率（0.4 / 1.0 / 2.0 MP）和生成速度；文生、首尾帧、多参考仍按镜头素材自动匹配。16GB 显卡建议 0.4 MP。参考图在提交时自动装箱最多 9 张。短视频批量按主题裂变多条脚本，并按所选工作流并行文生。手机上 Recipe/批量有返回工程库的头栏和底部主按钮；镜头与批量条目显示中文状态，失败可就地重试。工程保存在 SQLite（员工隔离）。旧时间轴工程打开时转为 Recipe。Analyze 仅在大模型支持视觉时根据参考图提取外貌。成片可串播并导出剪映草稿。
-- MiniMax H3：官方文生 / 首尾帧 / 多参考（采样前预留 3 GB 显存并启用 H3 显存高效 Sage），以及自定义「全能参考（多速率）」和「双时钟加速」。另接入 LightX2V 文生 / 首尾帧 / 多参考（默认 1.0 MP、4 步 euler），以及「八步双加速」文生 / 首尾帧 / 多参考（默认 0.4 MP、8 步，FL2V Turbo LoRA + KJ Sage + H3 Sage）。创作页工作流下拉按 LightX2V、八步双加速、官方 MiniMax H3、自定义分组。可选择生成速度：快速 4 步、均衡 8 步、高质量 20 步，或自定义 1–40 步（八步双加速默认即为 8 步档）。尺寸、时长、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
+- MiniMax H3 Web AI 导演台（Director Studio）：进入导演台先选导演创作或短视频批量。导演创作用 9 Agent 生成可编辑 Recipe（故事/画风/人物/场景/分镜）。点击「分镜」会按当前剧本一次性生成全部镜头（没有完整故事时先写脚本再拆镜），不再回退成单条「主镜头」；生成中主区显示镜头占位卡和人话阶段（读剧本/整理镜头），进度按本次实际步骤计数，不把大模型原文或思考过程打到画布上。自动分镜按 MiniMax H3 官方 `h3-prompt-writing` skill 写镜头正文、运镜和对白；提交时编译为 T2VA 三段式或 Ref2VA 六段式提示词。定妆走 GRS，分镜视频走本机所选工作流。员工级资产库保存人物/场景/道具（图 + 提示词），可在不同工程插入；不建系列分集。分镜页为左镜头列表 + 右 Inspector（手机为横向条 + 抽屉），可改标题、描述、对白、时长、角色、场景和机位；默认预览档，可切终稿。画风默认 6 张推荐。保存约 800ms 防抖并显示状态。9 Agent 在「AI 运行详情」中折叠，详情里可看最近一次分镜摘要。分镜页可改工作流（LightX2V / 八步双加速 / 官方 MiniMax H3 等）、画面比例、分辨率（0.4 / 1.0 / 2.0 MP）和生成速度；文生、首尾帧、多参考仍按镜头素材自动匹配。16GB 显卡建议 0.4 MP。参考图在提交时自动装箱最多 9 张。短视频批量按主题裂变多条脚本，并按所选工作流并行文生。手机上 Recipe/批量有返回工程库的头栏和底部主按钮；镜头与批量条目显示中文状态，失败可就地重试。工程保存在 SQLite（员工隔离）。旧时间轴工程打开时转为 Recipe。Analyze 仅在大模型支持视觉时根据参考图提取外貌。成片可串播、导出剪映草稿，也可在「出片」页用本机 ffmpeg 合成 MP4 并下载 FCPXML/EDL。配音走 OpenAI 兼容 TTS（可复用大模型凭据，不使用 Edge TTS）；本机需安装 ffmpeg/ffprobe 才能导出工作台内成片。
+- MiniMax H3：官方文生 / 首尾帧 / 多参考（采样前预留 3 GB 显存并启用 H3 显存高效 Sage），以及自定义「全能参考（多速率）」和「双时钟加速」。另接入 LightX2V 文生 / 首尾帧 / 多参考（默认 1.0 MP、4 步 euler），以及「八步双加速」文生 / 首尾帧 / 多参考（默认 0.4 MP、8 步，FL2V Turbo LoRA + KJ Sage + H3 Sage）。创作页工作流下拉按 LightX2V、八步双加速、官方 MiniMax H3、自定义分组。可选择生成速度：快速 4 步、均衡 8 步、高质量 20 步，或自定义 1–40 步（八步双加速默认即为 8 步档）。创建栏可切换模型体积：完整（32 GB，可挂加速 LoRA）或精简（20 GB，关闭加速 LoRA，适合 32 GB 内存）。尺寸、时长、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
 
 
 - 串行任务队列、任务状态、SQLite 任务记录与本地作品库。排队中或生成中的任务可在工作台点「停止生成」：视频会中断固定 ComfyUI 上的对应 prompt 并标记为「已停止」，不会自动重新提交；图片只停止本地等待。本地视频队列空闲后，工作台会通知 ComfyUI 卸载模型并释放显存/内存；若还有下一条视频在排队则保持加载。
@@ -106,6 +106,43 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 
 新作品写入员工授权目录的 `ZLY AI Studio/<YYYY-MM>`；既有 IndexedDB 记录和 `ZLY AI Video Studio` 目录继续只读兼容。GRS 图片成功 URL 会在后端校验 HTTPS、重定向、公网地址、MIME、文件签名和 50 MB 上限后暂存，浏览器/桌面端确认交付后立即清理。
 
+## 2026-08-28 视频工作流可切换精简 UNET
+
+- 原因：32 GB 内存机在快速/均衡档会加载约 32 GB 全量 INT8 UNET，Windows 报 1455 页面文件不足。原先只能靠「高质量」或自定义超过 8 步才能走 pruned。
+- 用户可见行为：所有 MiniMax H3 视频工作流的创建栏增加「模型体积」：完整（32 GB）或精简（20 GB）。精简保持所选步数，但关闭加速 LoRA 并加载约 20 GB pruned UNET。导演台分镜与短视频批量同步该选项。默认仍为完整，旧任务不变。
+- 受影响文件：`workflow_registry.py`、H3/T8 graph 构建、导演编译与入队、导演台界面、测试与三份主文档。
+- 兼容性：不改节点 ID、端口。未传 `weight_profile` 时仍为完整权重。Turbo LoRA 不能挂在 pruned 上。
+- 验证命令：`python -m unittest backend.tests.test_core.WorkflowTests.test_weight_profile_pruned_keeps_steps_and_skips_turbo_lora backend.tests.test_director.DirectorCompilerTests.test_canvas_quality_maps_to_registry`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 分镜生成展示阶段与镜头占位，不展示思考原文
+
+- 原因：分镜等待态只有空 Empty，进度在子集运行时仍按 9 步计算，看起来像卡在「脚本 7/9」；把模型思考流到主画布也不符合短剧生产台。
+- 用户可见行为：生成分镜时主区长出镜头占位卡，侧栏显示「正在运行：分镜 · 正在读剧本（0 / 2）」这类人话阶段。只跑 script+storyboard 时分母是本次步骤数。「AI 运行详情」可看最近一次「已写出 N 个镜头」。不展示大模型 token、JSON 或思考过程，思考模式保持关闭。
+- 受影响文件：`director_recipe.py`、`director_agents.py`、`llm_provider.py`、`main.py`、导演台 Recipe 工作面、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。旧 Recipe 无 `pipelineRun` / `message` 时按原 9 步进度处理。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorRecipeModelTests.test_normalize_keeps_agent_stage_and_pipeline_run backend.tests.test_director.DirectorAgentPipelineTests.test_pipeline_subset_tracks_active_run_and_stage_messages`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 导演台点击分镜按剧本一次生成全部镜头
+
+- 原因：分镜页只展示占位「主镜头」，大模型 JSON 失败时也会回退成一条创意原文，用户点击「分镜」看不到按剧本拆出的镜头列表。
+- 用户可见行为：点击「分镜」Tab 或「根据剧本生成分镜」会按当前故事一次生成全部镜头（没有完整剧本时先写脚本再拆镜）。分镜覆盖整份故事，通常 8–24 镜；不再静默变成单条「主镜头」。脚本步骤失败时仍会继续拆镜，避免空列表提示「分镜还没有镜头」。上游余额不足或欠费时会提示「大模型上游余额不足」，并可查看供应商返回的错误日志。
+- 受影响文件：分镜 Agent、`POST /api/director/recipes/run` 的可选 `agents`、导演台 Recipe 分镜页、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。完整 9 Agent 流水线仍可用。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorAgentPipelineTests backend.tests.test_director.DirectorDualEngineApiTests.test_recipes_run_accepts_script_and_storyboard_subset`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 导演台真实声音层与工作台内成片
+
+- 原因：前两版成片交付仍是串播 + 剪映；配音/配乐 Agent 只写文案；仓库内没有 ffmpeg。第三版提供可播放 TTS/BGM/字幕、本机 ffmpeg 合成 MP4、FCPXML/EDL，并保留剪映。
+- 用户可见行为：Recipe 增加「出片」页。可上传配乐、设置字幕样式、为角色选音色并试听、按对白生成配音。顶栏与手机底栏主按钮为「导出成片」。失败镜头不进入成片。串播预览可叠字幕；成片可选烧字幕。仍可串播和导出剪映草稿。超级管理员在「管理设置 → LLM」配置独立 TTS（默认可复用大模型凭据）。不使用 Edge TTS，不改 ComfyUI 端口。
+- 依赖：本机 PATH 或常见安装路径中的 `ffmpeg` 与 `ffprobe`。未安装时「导出成片」会提示不可用。Docker 镜像默认不内置 ffmpeg。
+- 受影响文件：TTS 供应商、导演导出、Recipe/Agent、管理后台 LLM 页、导演台前端、测试与三份主文档。
+- 兼容性：旧 Recipe 无音频字段时视为未配音；剪映导出不变。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器登录后走导演台「导出成片」。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台；新表可保留。成片文件可删 `data/staging/director-mux/`。
+
 ## 2026-08-27 导演分镜直接使用官方 h3-prompt-writing 原文
 
 - 原因：中文摘要喂给大模型，不如官方 skill 原文带示例。
@@ -114,6 +151,33 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - 兼容性：不改节点、端口或 `POST /api/jobs`。
 - 验证命令：`python -m unittest backend.tests.test_director.DirectorAgentPipelineTests.test_storyboard_agent_follows_h3_official_skill`。
 - 回滚方式：恢复上述文件并重启工作台。
+
+## 2026-08-27 Recipe 分镜 Inspector、预览默认与画风渐进披露
+
+- 原因：分镜只能看卡片，不能改导演参数；出片默认终稿成本高；34 张画风一次铺开。
+- 用户可见行为：分镜为左列表 + 右检视器（手机抽屉）。可改标题、描述、对白、时长、角色、场景和机位。默认预览，可切终稿。标题旁显示保存状态。画风先给 6 张推荐。Agent 列表默认折叠。成片仍走串播和剪映。
+- 受影响文件：导演台 Recipe 工作面、分镜规范化、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`python -m unittest backend.tests.test_director`（49 项通过，含 camera 规范化、`render_pass=preview`、转换保留已有 camera）、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后 1440×900 与 390×844：返回工程库、运行导演流水线、生成这一镜、标题旁保存状态、画风 6 卡、工程卡可聚焦打开。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-27 Recipe 首尾帧承接、静帧分镜与 Take A/B
+
+- 原因：Recipe 分镜改不了首尾帧，也无法先出静帧再出视频，Take 和多选重试也接不回。
+- 用户可见行为：Inspector 可上传首尾帧、勾选用上一镜尾帧、生成静帧并设为首帧。分镜档位为静帧 / 预览 / 终稿。可切换、批准 Take，桌面可 A/B 对比。镜头列表可多选生成、只重试失败项或取消。成片仍走串播和剪映。
+- 受影响文件：导演台 Recipe 工作面、分镜规范化与编译、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`python -m unittest backend.tests.test_director`（56 项通过，含首尾帧规范化、上一镜尾帧/静帧承接编译为 I2V、静帧任务回写）、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后 1440×900 与 390×844：分镜可切静帧/预览/终稿、勾选上一镜承接、Take 切换与批准、多选生成/取消。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 员工级人物/场景/道具资产库
+
+- 原因：人物和场景定妆只存在单个工程里，换一个 Recipe 就要重做；不做系列分集树。
+- 用户可见行为：`/assets` 的「主体」可新建/编辑/删除人物、场景、道具（图 + 提示词）。导演工程定妆区可「从库插入」和「存入资产库」。跨工程复用靠资产库，工程结构仍是 `scenes[].shots[]`。
+- 受影响文件：资产库后端与导演台前端、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
 
 ## 2026-08-27 导演分镜对用户显示中文、提交仍用英文
 
@@ -935,3 +999,21 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 - 兼容性：不改节点、端口或 `POST /api/jobs` 外部字段。未写 `videoWorkflowFamily` 的旧工程仍走官方 H3。
 - 验证命令：`python -m unittest backend.tests.test_core.WorkflowTests.test_resolve_director_workflow_uses_family_then_route backend.tests.test_director.DirectorCompilerTests.test_workflow_family_routes_lightx2v_and_dual_accel backend.tests.test_director.DirectorDualEngineApiTests.test_batches_enqueue_selected_workflow_family`、`pnpm --dir frontend build`。
 - 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 导演台定妆绑定与单镜时间线修复
+
+- 原因：分镜 Agent 可能把剧本中的中文人物/地点翻成英文，后续定妆仍保存中文名，导致出片误把无关场景图装进 R2V、漏掉人物定妆；单镜 `promptText` 还可能残留整片的 `[Shot 3] At 00:11.000` 等累计时间码。
+- 用户可见行为：出片会先按规范化名称匹配，旧工程在人物/地点数量一一对应时按稳定顺序恢复中英文别名；显式指定但无法匹配的资产不再用任意场景图兜底。每个单独提交的镜头会移除开头的旧镜号和累计时间码，再由编译器生成自己的 `[Shot 1]`。新分镜被要求保留剧本原名且时间从 `00:00` 开始。
+- 受影响文件：`backend/app/director_compiler.py`、`backend/app/llm_minimax_skills.py`、`backend/tests/test_director.py` 和三份主文档。
+- 兼容性：不改 API、SQLite、工作流 ID、ComfyUI 节点 ID 或媒体文件；历史 Recipe 无需迁移，重新生成镜头即可使用修复后的编译结果。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorCompilerTests backend.tests.test_director.DirectorAgentPipelineTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述三个代码/测试文件并重启工作台；已有工程和历史成片不需要回滚。
+
+## 2026-08-28 导演台按官方 H3 模式进行最终提示词润色
+
+- 原因：导演分镜先生成独立镜头正文，提交时才知道实际装箱的参考图顺序；旧编译器只能机械拼装提示词，无法按照 MiniMax H3 官方 `h3-prompt-writing` 的 T2VA / I2VA / FL2VA / L2VA / Ref2VA 分支，对最终镜头做有语义的润色。
+- 用户可见行为：提交分镜前，已配置的大模型会按实际参考关系重写最终 H3 提示词：无图为 T2VA，首帧为 I2VA，首尾帧为 FL2VA，仅尾帧为 L2VA，多参考主体为 Ref2VA。Ref2VA 由大模型自然地把 `<Subject N>` 写入镜头正文，工作台只校验官方字段、顺序和既有标签，不替换角色名称。大模型未启用时保留既有编译提示词并可正常出片。
+- 受影响文件：`backend/app/llm_minimax_skills.py`、`backend/app/llm_provider.py`、`backend/app/director_compiler.py`、`backend/app/director_jobs.py`、`backend/app/main.py`、`backend/app/director_agents.py`、`backend/app/director_recipe.py`、导演台类型/预览编译器、测试与三份主文档。
+- 兼容性：不改工作流 ID、ComfyUI 节点、端口、SQLite schema 或 `POST /api/jobs`。历史 Recipe 无需迁移；无大模型配置时保持原提交路径。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件后重新构建前端并重启工作台；已有任务与媒体不受影响。

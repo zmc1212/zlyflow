@@ -11,7 +11,7 @@ import {
 import { jobVideoUrl, mergeDirectorStatus, shotGenerationState, shotStatusFromJob } from "./director-submit"
 import { DEFAULT_DIRECTOR_WORKFLOW_FAMILY, directorWorkflowFamilies } from "./director-workflows"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
-import { BatchRunPayload, createEmptyBatch, artStylePreviewUrl, recipeArtStyleFromCatalog, userFacingCopy } from "./types"
+import { BatchRunPayload, createEmptyBatch, artStylePreviewUrl, recipeArtStyleFromCatalog, userFacingCopy, DIRECTOR_WEIGHT_OPTIONS, DirectorWeightProfile } from "./types"
 
 type JobLike = {
   id: string
@@ -193,6 +193,16 @@ export default function DirectorBatchStudio({
                 value={workflowFamilyId}
                 options={workflowFamilyOptions}
                 onChange={(value: string) => setPayload((current) => ({ ...current, videoWorkflowFamily: value }))}
+                popupMatchSelectWidth={false}
+              />
+            </label>
+            <label>
+              模型体积
+              <Select
+                aria-label="模型体积"
+                value={payload.weightProfile || "full"}
+                options={DIRECTOR_WEIGHT_OPTIONS}
+                onChange={(value: DirectorWeightProfile) => setPayload((current) => ({ ...current, weightProfile: value }))}
                 popupMatchSelectWidth={false}
               />
             </label>

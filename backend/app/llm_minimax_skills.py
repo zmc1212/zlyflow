@@ -131,9 +131,12 @@ DIRECTOR_STUDIO_ADAPTER = """Director Studio adapter (keep this even while follo
 - Each shot is submitted as its own MiniMax H3 job, usually T2VA. The compiler later adds I2VA/Ref2VA wrappers when keyframes or character stills exist.
 - promptText: English H3 shot prose from the official guide. Write one independent [Shot 1] clip covering style, composition, subjects, environment, action, camera (motion type + amplitude + speed), and dialogue. Do not wrap integrated_multimodal_description / overall_soundscape / non_diegetic_music in JSON; the compiler adds those fields.
 - title, description, soundscape: Chinese for the user-facing storyboard card. Never copy promptText into description.
+- soundscapeEn: a separate English H3 soundscape sentence covering ambience and physical action sounds; do not repeat dialogue. Keep soundscape as the Chinese card summary.
 - dialogue: keep the user's original words. Inside promptText use <d>[Chinese] ...</d> or the matching language tag.
+- Use <d> only for audible dialogue or lyrics. For a computer, phone, sign, or other visible written text, describe it as visible on-screen text in prose and do not wrap it in <d>.
 - durationSec: integer 2–15, prefer 4–8. One dominant action and one camera move per shot.
-- characterNames use real names; locationName uses place names.
+- characterNames and locationName must copy the exact proper nouns and original writing system used by the source script. Never translate or transliterate names (for example, keep 李明 instead of Li Ming).
+- Every promptText is a standalone clip whose local timeline starts at 00:00. Use [Shot 1] or no shot tag; never emit [Shot 2+], an accumulated film timecode, or phrases such as "At 00:11.000, the camera cuts to".
 """
 
 
@@ -146,16 +149,74 @@ def load_h3_prompt_writing_guide(*, mode: str = "base") -> str:
     return (_H3_PROMPT_WRITING_ROOT / "references" / name).read_text(encoding="utf-8").strip()
 
 
+STORYBOARD_JSON_CONTRACT = """OUTPUT CONTRACT (non-negotiable):
+- Return ONLY one JSON object. Do not return integrated_multimodal_description / overall_soundscape / non_diegetic_music as the top-level format; the compiler adds those later.
+- Split the ENTIRE script into scenes and shots in one pass. Typical 8–24 independently renderable shots; minimum 6 unless the story is a single beat.
+- Never collapse the whole story into one 主镜头 or one mega-clip. Each location change, action beat, and spoken line is its own shot.
+- title / description / soundscape: Chinese for the storyboard card. promptText: English H3 shot body for one [Shot 1] clip whose local timeline starts at 00:00.
+- Schema: {"scenes":[{"title":"","locationName":"","shots":[{"title":"","description":"","promptText":"","dialogue":"","characterNames":[],"locationName":"","durationSec":5,"camera":{},"soundscape":"","soundscapeEn":""}]}]}
+"""
+
+
+def load_h3_storyboard_writing_excerpt() -> str:
+    return "\n".join([
+        "# Video Prompt Writing Guide excerpt (for promptText only)",
+        "Write each promptText as one independent [Shot 1] clip. Do not reply with integrated_multimodal_description as the top-level format.",
+        "Camera motion examples:",
+        "The camera pushes in with small amplitude at slow speed toward the folded letter in her hands.",
+        "The camera pans right with large amplitude at fast speed, revealing the open doorway.",
+        "The camera holds a static shot as the runner exits the frame.",
+        "Dialogue inside promptText uses <d>[Chinese] ...</d> and keeps the original words.",
+    ])
+
+
 def build_h3_storyboard_agent_prompt() -> str:
     return "\n\n".join([
-        "Follow the official MiniMax H3 h3-prompt-writing skill below. Use its English examples as the writing standard for promptText.",
+        STORYBOARD_JSON_CONTRACT,
+        "Follow the official MiniMax H3 h3-prompt-writing skill below ONLY as the writing standard for each shot's promptText.",
         DIRECTOR_STUDIO_ADAPTER,
         load_h3_prompt_writing_skill(),
-        load_h3_prompt_writing_guide(mode="base"),
-        "Split the story into 3–8 scenes, 1–4 shots each, prefer 4–8 independently renderable shots in total.",
-        'description 必须是中文展示稿；promptText 必须是英文 H3 镜头正文。'
-        '输出 {"scenes":[{"title":"","locationName":"","shots":[{"title":"","description":"","promptText":"","dialogue":"","characterNames":[],"locationName":"","durationSec":5,"camera":{},"soundscape":""}]}]}',
+        load_h3_storyboard_writing_excerpt(),
+        STORYBOARD_JSON_CONTRACT,
     ])
+
+
+def build_h3_final_prompt_polish_prompt(mode: str) -> str:
+    """Final H3 editor prompt selected from the actual image/reference relationship."""
+    normalized_mode = str(mode or "T2VA").upper()
+    is_ref2va = normalized_mode == "REF2VA"
+    mode_instructions = {
+        "T2VA": "Use the T2VA three-field format; no image-alignment instruction is allowed.",
+        "I2VA": "Use the I2VA first-frame alignment instruction followed by the three core fields.",
+        "FL2VA": "Use the FL2VA first-and-last-frame alignment instruction and describe one continuous path between them.",
+        "L2VA": "Use the L2VA last-frame alignment instruction and describe how the video converges on it.",
+        "REF2VA": "Use the Ref2VA six-section format.",
+    }
+    shared = [
+        f"You are the final MiniMax H3 {normalized_mode} prompt editor. Rewrite the supplied draft into one complete, production-ready H3 prompt.",
+        "Return ONLY the final prompt. Do not return JSON, Markdown fences, analysis, or a preface.",
+        mode_instructions.get(normalized_mode, mode_instructions["T2VA"]),
+        "Keep the requested duration plausible. Do not pad with invented events. Use <d> only for audible dialogue or lyrics; describe visible screen, phone, and sign text in prose in its original language.",
+    ]
+    if is_ref2va:
+        shared.extend([
+            "The draft's <Subject N> and <Picture N> labels are the actual uploaded-reference mapping. Keep their numbering and meaning exactly; never invent, renumber, merge, or omit a supplied reference label.",
+            "Do the semantic writing yourself: use each relevant <Subject N> naturally at its first visible appearance in detailed_description, with its referenced visual characteristics, placement, and action. Do not mechanically replace character names with labels.",
+            "Use <Picture N> only according to the official guide. A picture used only to define a reusable subject belongs inside that subject's definition; do not turn it into an unrelated keyframe anchor.",
+            "Follow the official MiniMax H3 Ref2VA guide below exactly.",
+        ])
+    else:
+        shared.append("Follow the official MiniMax H3 base-mode guide below exactly.")
+    shared.extend([
+        load_h3_prompt_writing_skill(),
+        load_h3_prompt_writing_guide(mode="ref" if is_ref2va else "base"),
+    ])
+    return "\n\n".join(shared)
+
+
+def build_h3_ref2va_polish_prompt() -> str:
+    """Backward-compatible Ref2VA specialization."""
+    return build_h3_final_prompt_polish_prompt("REF2VA")
 
 
 def build_h3_split_script_prompt() -> str:

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import urlencode
 
 import requests
@@ -33,18 +33,44 @@ from .director_catalog import (
     ensure_art_style_preview,
     find_art_style,
 )
+from .director_export import (
+    DirectorExportError,
+    export_timeline_documents,
+    ffmpeg_available,
+    find_bgm_file,
+    find_mux_file,
+    find_tts_file,
+    find_voice_preview_file,
+    generate_recipe_tts,
+    mux_recipe_film,
+    save_recipe_bgm,
+)
 from .director_jobs import (
-    generate_recipe_assets, recipe_asset_image_index, render_batch_items, render_recipe_shots,
-    sync_batch_items, sync_recipe_asset_images,
+    find_recipe_frame_file, generate_recipe_assets, generate_recipe_stills,
+    recipe_asset_image_index, render_batch_items, render_recipe_shots,
+    save_recipe_shot_frame, sync_batch_items, sync_recipe_asset_images,
+)
+from .director_library import (
+    DirectorLibraryError,
+    delete_library_asset_files,
+    find_library_asset_file,
+    insert_library_assets_into_recipe,
+    library_image_url,
+    normalize_library_asset_fields,
+    normalize_library_kind,
+    public_library_asset,
+    recipe_items_for_library,
+    save_library_asset_image,
 )
 from .director_recipe import (
-    DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_RECIPE, empty_batch_payload,
+    AGENT_IDS, DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_RECIPE, empty_batch_payload,
     empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload, payload_kind,
     set_agent_status,
 )
 from .grs_provider import GrsProviderService
-from .llm_client import LlmError, LlmTemporaryError
+from .llm_client import LlmError, is_upstream_llm_failure
 from .llm_provider import LlmProviderService
+from .tts_provider import TtsProviderService
 from .models import (
     AuthStatusResponse, BrowserDirectOutputResponse, ChangePasswordRequest, ComfyProviderResponse,
     ComfyProviderTestRequest, ComfyProviderUpdateRequest, CreateUserRequest, HealthResponse, JobResponse,
@@ -59,7 +85,12 @@ from .models import (
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
     DirectorProjectResponse, DirectorProjectMigrateRequest, DirectorProjectMigrateResponse,
     DirectorArtStyleCatalogResponse, DirectorRecipeRunRequest, DirectorRecipeStepRequest,
-    DirectorGenerateAssetsRequest, DirectorRenderShotsRequest, DirectorRenderBatchRequest, DirectorBatchCreateRequest,
+    DirectorGenerateAssetsRequest, DirectorGenerateStillsRequest, DirectorRenderShotsRequest,
+    DirectorRenderBatchRequest, DirectorBatchCreateRequest,
+    DirectorLibraryAssetCreateRequest, DirectorLibraryAssetUpdateRequest, DirectorLibraryAssetResponse,
+    DirectorLibraryFromRecipeRequest, DirectorLibraryFromRecipeResponse, DirectorInsertLibraryAssetsRequest,
+    TtsProviderResponse, TtsProviderUpdateRequest, TtsProviderTestRequest,
+    DirectorTtsRequest, DirectorMuxRequest, DirectorExportCapabilitiesResponse,
 )
 
 from .qiniu_provider import QiniuProviderService
@@ -256,6 +287,16 @@ def browser_direct_view_url(source_info: dict) -> str:
     return f"{BROWSER_LOCAL_COMFY_VIEW_URL}?{urlencode(source)}"
 
 
+def raise_as_llm_http(error: BaseException) -> None:
+    """Map LLM client failures to HTTP errors, keeping the upstream log in detail."""
+    if isinstance(error, requests.exceptions.RequestException):
+        raise HTTPException(status_code=502, detail=f"大模型网络异常：{error}") from error
+    if isinstance(error, LlmError):
+        status = 502 if is_upstream_llm_failure(error) else 422
+        raise HTTPException(status_code=status, detail=str(error)) from error
+    raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 def current_user(
     request: Request,
     token: Annotated[str | None, Security(session_cookie_scheme)],
@@ -379,6 +420,18 @@ def director_project_or_404(store: JobStore, project_id: str, user: dict) -> dic
     }:
         raise HTTPException(status_code=404, detail="工程不存在")
     return project
+
+
+def director_library_asset_or_404(store: JobStore, asset_id: str, user: dict) -> dict:
+    try:
+        asset = store.get_director_library_asset(asset_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="资产不存在") from error
+    if asset.get("owner_user_id") != user["id"] and user["role"] not in {
+        UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value,
+    }:
+        raise HTTPException(status_code=404, detail="资产不存在")
+    return asset
 
 
 def public_director_project(record: dict, *, include_document: bool = True) -> dict:
@@ -560,6 +613,7 @@ async def lifespan(app: FastAPI):
     grs_provider = GrsProviderService(store, settings.credential_key)
     set_catalog_lookup(store.get_grs_image_model)
     llm_provider = LlmProviderService(store, settings.credential_key)
+    tts_provider = TtsProviderService(store, settings.credential_key)
     comfy_provider = ComfyProviderService(store, settings.comfy_url)
     comfy = ComfyService(settings, resource_storage, url_resolver=comfy_provider.current_url)
     worker = JobWorker(store, comfy, grs_provider, resource_storage)
@@ -569,6 +623,7 @@ async def lifespan(app: FastAPI):
     app.state.grs_provider = grs_provider
     app.state.qiniu_provider = qiniu_provider
     app.state.llm_provider = llm_provider
+    app.state.tts_provider = tts_provider
     app.state.comfy_provider = comfy_provider
     app.state.worker = worker
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
@@ -1129,6 +1184,50 @@ async def list_llm_models(
     return result
 
 
+@app.get("/api/admin/providers/tts", response_model=TtsProviderResponse, tags=["管理后台"], summary="获取独立 TTS 配置")
+def get_tts_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.tts_provider.public_config()
+
+
+@app.put("/api/admin/providers/tts", response_model=TtsProviderResponse, tags=["管理后台"], summary="更新独立 TTS 配置")
+def update_tts_provider(
+    payload: TtsProviderUpdateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        result = app.state.tts_provider.update(payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_tts_provider", "provider", actor_user_id=user["id"], target_id="tts",
+        ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post("/api/admin/providers/tts/test", response_model=TtsProviderResponse, tags=["管理后台"], summary="测试独立 TTS 连接")
+async def test_tts_provider(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: TtsProviderTestRequest | None = None,
+) -> dict:
+    arguments = None if payload is None else payload.model_dump(exclude_none=True)
+    try:
+        result = await asyncio.to_thread(app.state.tts_provider.test, arguments)
+    except Exception as error:
+        app.state.auth_store.audit(
+            "test_tts_provider_failed", "provider", actor_user_id=user["id"], target_id="tts",
+            detail=str(error)[:200], ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "test_tts_provider", "provider", actor_user_id=user["id"], target_id="tts",
+        ip_address=client_ip(request),
+    )
+    return result
+
+
 @app.get("/api/llm/skills", response_model=SkillsListResponse, tags=["大模型"], summary="获取 MiniMax H3 官方提示词技能列表")
 def get_llm_skills(_: Annotated[dict, Depends(current_user)]) -> dict:
     from .llm_minimax_skills import list_h3_skills_payload
@@ -1167,10 +1266,8 @@ async def optimize_prompt_endpoint(
             reference_count=payload.reference_count or 0,
             workflow_id=payload.workflow_id,
         )
-    except (LlmTemporaryError, requests.exceptions.RequestException) as error:
-        raise HTTPException(status_code=502, detail=f"大模型响应超时或网络异常：{error}") from error
-    except LlmError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (LlmError, requests.exceptions.RequestException) as error:
+        raise_as_llm_http(error)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"提示词优化异常：{error}") from error
 
@@ -1223,10 +1320,8 @@ async def analyze_subject_endpoint(
             kind=kind,
             name=name,
         )
-    except (LlmTemporaryError, requests.exceptions.RequestException) as error:
-        raise HTTPException(status_code=502, detail=f"大模型响应超时或网络异常：{error}") from error
-    except LlmError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (LlmError, requests.exceptions.RequestException) as error:
+        raise_as_llm_http(error)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"主体特征提取异常：{error}") from error
 
@@ -1256,10 +1351,8 @@ async def split_script_endpoint(
             style_vibe=payload.style_vibe,
             cast_names=payload.cast_names,
         )
-    except (LlmTemporaryError, requests.exceptions.RequestException) as error:
-        raise HTTPException(status_code=502, detail=f"大模型响应超时或网络异常：{error}") from error
-    except LlmError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (LlmError, requests.exceptions.RequestException) as error:
+        raise_as_llm_http(error)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"剧本拆解异常：{error}") from error
 
@@ -1519,6 +1612,229 @@ def convert_director_project_to_recipe(
     return public_director_project(converted)
 
 
+@app.get(
+    "/api/director/library-assets",
+    response_model=list[DirectorLibraryAssetResponse],
+    tags=["导演台"],
+    summary="列出当前用户的人物/场景/道具资产",
+)
+def list_director_library_assets(
+    user: Annotated[dict, Depends(current_user)],
+    kind: str | None = None,
+) -> list[dict]:
+    filter_kind = None
+    if kind:
+        try:
+            filter_kind = normalize_library_kind(kind)
+        except DirectorLibraryError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+    return [
+        public_library_asset(item)
+        for item in app.state.store.list_director_library_assets(user["id"], kind=filter_kind)
+    ]
+
+
+@app.post(
+    "/api/director/library-assets",
+    response_model=DirectorLibraryAssetResponse,
+    tags=["导演台"],
+    summary="新建员工级资产",
+)
+def create_director_library_asset(
+    payload: DirectorLibraryAssetCreateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        fields = normalize_library_asset_fields(payload.model_dump())
+    except DirectorLibraryError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    created = app.state.store.create_director_library_asset(
+        user["id"],
+        kind=fields["kind"],
+        name=fields["name"],
+        description=fields.get("description") or "",
+        prompt_text=fields.get("prompt_text") or "",
+        gender=fields.get("gender") or "",
+        image_url=fields.get("image_url"),
+        image_job_id=fields.get("image_job_id"),
+    )
+    app.state.auth_store.audit(
+        "create_director_library_asset", "director", actor_user_id=user["id"], target_id=created["id"],
+        detail=created["kind"], ip_address=client_ip(request),
+    )
+    return public_library_asset(created)
+
+
+@app.post(
+    "/api/director/library-assets/from-recipe",
+    response_model=DirectorLibraryFromRecipeResponse,
+    tags=["导演台"],
+    summary="把 Recipe 人物/场景/道具存入资产库",
+)
+def save_director_library_assets_from_recipe(
+    payload: DirectorLibraryFromRecipeRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, payload.project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以存入资产库")
+    try:
+        items = recipe_items_for_library(
+            record["payload"],
+            character_ids=payload.character_ids,
+            location_ids=payload.location_ids,
+        )
+    except DirectorLibraryError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    imported: list[dict] = []
+    for item in items:
+        created = app.state.store.create_director_library_asset(
+            user["id"],
+            kind=item["kind"],
+            name=item["name"] or "未命名资产",
+            description=item.get("description") or "",
+            prompt_text=item.get("prompt_text") or "",
+            gender=item.get("gender") or "",
+            image_url=item.get("image_url"),
+            image_job_id=item.get("image_job_id"),
+            source_project_id=payload.project_id,
+        )
+        imported.append(public_library_asset(created))
+    app.state.auth_store.audit(
+        "save_director_library_from_recipe", "director", actor_user_id=user["id"],
+        target_id=payload.project_id, detail=f"imported={len(imported)}", ip_address=client_ip(request),
+    )
+    return {"imported": len(imported), "assets": imported}
+
+
+@app.put(
+    "/api/director/library-assets/{asset_id}",
+    response_model=DirectorLibraryAssetResponse,
+    tags=["导演台"],
+    summary="更新员工级资产",
+)
+def update_director_library_asset(
+    asset_id: str,
+    payload: DirectorLibraryAssetUpdateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    director_library_asset_or_404(app.state.store, asset_id, user)
+    raw = payload.model_dump(exclude_unset=True)
+    try:
+        fields = normalize_library_asset_fields(raw, partial=True) if raw else {}
+    except DirectorLibraryError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    updated = app.state.store.update_director_library_asset(
+        asset_id,
+        kind=fields.get("kind"),
+        name=fields.get("name"),
+        description=fields.get("description"),
+        prompt_text=fields.get("prompt_text"),
+        gender=fields.get("gender"),
+        image_url=fields.get("image_url"),
+        image_job_id=fields.get("image_job_id"),
+        update_image_url="image_url" in fields,
+        update_image_job_id="image_job_id" in fields,
+    )
+    app.state.auth_store.audit(
+        "update_director_library_asset", "director", actor_user_id=user["id"], target_id=asset_id,
+        ip_address=client_ip(request),
+    )
+    return public_library_asset(updated)
+
+
+@app.delete(
+    "/api/director/library-assets/{asset_id}",
+    status_code=204,
+    tags=["导演台"],
+    summary="删除员工级资产",
+)
+def delete_director_library_asset(
+    asset_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> Response:
+    current = director_library_asset_or_404(app.state.store, asset_id, user)
+    app.state.store.delete_director_library_asset(asset_id)
+    delete_library_asset_files(str(current.get("owner_user_id") or user["id"]), asset_id)
+    app.state.auth_store.audit(
+        "delete_director_library_asset", "director", actor_user_id=user["id"], target_id=asset_id,
+        ip_address=client_ip(request),
+    )
+    return Response(status_code=204)
+
+
+@app.post(
+    "/api/director/library-assets/{asset_id}/image",
+    response_model=DirectorLibraryAssetResponse,
+    tags=["导演台"],
+    summary="上传资产参考图",
+)
+async def upload_director_library_asset_image(
+    asset_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    file: Annotated[UploadFile, File(description="人物/场景/道具参考图")],
+) -> dict:
+    current = director_library_asset_or_404(app.state.store, asset_id, user)
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail="资产图必须为图片")
+    suffix = Path(file.filename or "image.png").suffix or ".png"
+    staging = settings.staging_dir / f"director-library-{secrets.token_urlsafe(6)}{suffix}"
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    await save_upload(file, staging)
+    try:
+        dest = save_library_asset_image(
+            owner_user_id=str(current.get("owner_user_id") or user["id"]),
+            asset_id=asset_id,
+            source=staging,
+        )
+    finally:
+        staging.unlink(missing_ok=True)
+    updated = app.state.store.update_director_library_asset(
+        asset_id,
+        image_url=library_image_url(asset_id),
+        image_path=str(dest),
+        update_image_url=True,
+        update_image_path=True,
+    )
+    app.state.auth_store.audit(
+        "upload_director_library_image", "director", actor_user_id=user["id"], target_id=asset_id,
+        ip_address=client_ip(request),
+    )
+    return public_library_asset(updated)
+
+
+@app.get(
+    "/api/director/library-assets/{asset_id}/image",
+    tags=["导演台"],
+    summary="读取资产参考图",
+)
+def download_director_library_asset_image(
+    asset_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    current = director_library_asset_or_404(app.state.store, asset_id, user)
+    path = find_library_asset_file(
+        str(current.get("owner_user_id") or user["id"]),
+        asset_id,
+        current.get("image_path") if isinstance(current.get("image_path"), str) else None,
+    )
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="资产图不存在")
+    media = "image/png"
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        media = "image/jpeg"
+    elif path.suffix.lower() == ".webp":
+        media = "image/webp"
+    elif path.suffix.lower() == ".gif":
+        media = "image/gif"
+    return FileResponse(path, media_type=media)
+
+
 def _persist_director_recipe(project_id: str, recipe: dict[str, Any], *, source_script: str | None = None) -> dict:
     title = (recipe.get("script") or {}).get("title") or None
     summary = (recipe.get("script") or {}).get("summary") or None
@@ -1553,6 +1869,14 @@ async def run_director_recipe(
     goal = payload.goal.strip()
     if payload.art_style_id and find_art_style(payload.art_style_id) is None:
         raise HTTPException(status_code=422, detail="画风必须选自目录")
+    agents = None
+    if payload.agents:
+        unknown = [agent_id for agent_id in payload.agents if agent_id not in AGENT_IDS]
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"未知 Agent：{', '.join(unknown)}")
+        agents = [agent_id for agent_id in payload.agents if agent_id in AGENT_IDS]
+        if not agents:
+            raise HTTPException(status_code=422, detail="agents 不能为空")
     if payload.project_id:
         record = director_project_or_404(app.state.store, payload.project_id, user)
         if payload_kind(record.get("payload")) == PAYLOAD_KIND_BATCH:
@@ -1583,11 +1907,12 @@ async def run_director_recipe(
             recipe,
             goal=goal,
             art_style_id=payload.art_style_id,
+            agents=agents,
             skip_research=payload.skip_research,
             on_progress=persist,
         )
     except LlmError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+        raise_as_llm_http(error)
     except DirectorPayloadError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     saved = _persist_director_recipe(project_id, updated, source_script=goal)
@@ -1618,30 +1943,47 @@ async def run_director_recipe_step(
         raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
     goal = (payload.goal or record.get("source_script") or (record.get("payload") or {}).get("script", {}).get("fullStory") or record["title"]).strip()
     running_recipe = normalize_recipe_payload(record.get("payload") or empty_recipe_payload())
+    running_recipe["pipelineRun"] = {"agents": [payload.agent_id], "active": True}
     set_agent_status(running_recipe, payload.agent_id, "running")
-    _persist_director_recipe(project_id, running_recipe, source_script=record.get("source_script"))
+    source_script = record.get("source_script")
+
+    def persist_step(current: dict) -> None:
+        _persist_director_recipe(project_id, current, source_script=source_script)
+
+    persist_step(running_recipe)
     try:
         if payload.agent_id == "media":
             from .director_agents import run_agent
-            updated = run_agent("media", record["payload"], goal=goal, chat_fn=None, art_style_id=payload.art_style_id)
+            updated = run_agent(
+                "media",
+                running_recipe,
+                goal=goal,
+                chat_fn=None,
+                art_style_id=payload.art_style_id,
+                on_progress=persist_step,
+            )
         else:
             updated = await asyncio.to_thread(
                 app.state.llm_provider.run_director_agent_step,
-                record["payload"],
+                running_recipe,
                 goal=goal,
                 agent_id=payload.agent_id,
                 art_style_id=payload.art_style_id,
                 skip_research=payload.skip_research,
+                on_progress=persist_step,
             )
     except LlmError as error:
         set_agent_status(running_recipe, payload.agent_id, "failed", str(error))
-        _persist_director_recipe(project_id, running_recipe, source_script=record.get("source_script"))
-        raise HTTPException(status_code=502, detail=str(error)) from error
+        running_recipe["pipelineRun"] = {"agents": [payload.agent_id], "active": False}
+        persist_step(running_recipe)
+        raise_as_llm_http(error)
     except (DirectorPayloadError, ValueError) as error:
         set_agent_status(running_recipe, payload.agent_id, "failed", str(error))
-        _persist_director_recipe(project_id, running_recipe, source_script=record.get("source_script"))
+        running_recipe["pipelineRun"] = {"agents": [payload.agent_id], "active": False}
+        persist_step(running_recipe)
         raise HTTPException(status_code=422, detail=str(error)) from error
-    saved = _persist_director_recipe(project_id, updated, source_script=record.get("source_script"))
+    updated["pipelineRun"] = {"agents": [payload.agent_id], "active": False}
+    saved = _persist_director_recipe(project_id, updated, source_script=source_script)
     app.state.auth_store.audit(
         "run_director_recipe_step", "director", actor_user_id=user["id"], target_id=project_id,
         detail=payload.agent_id, ip_address=client_ip(request),
@@ -1687,6 +2029,155 @@ async def generate_director_recipe_assets(
 
 
 @app.post(
+    "/api/director/recipes/{project_id}/insert-library-assets",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="从员工资产库插入人物/场景/道具",
+)
+def insert_director_library_assets(
+    project_id: str,
+    payload: DirectorInsertLibraryAssetsRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以从资产库插入")
+    if not payload.asset_ids:
+        raise HTTPException(status_code=422, detail="请选择要插入的资产")
+    assets = []
+    for asset_id in payload.asset_ids:
+        asset = director_library_asset_or_404(app.state.store, asset_id, user)
+        if asset.get("owner_user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="资产不存在")
+        assets.append(asset)
+    try:
+        recipe = insert_library_assets_into_recipe(record["payload"], assets)
+    except DirectorLibraryError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    saved = _persist_director_recipe(project_id, recipe, source_script=record.get("source_script"))
+    app.state.auth_store.audit(
+        "insert_director_library_assets", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"count={len(assets)}", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/generate-stills",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="为分镜提交 GRS 静帧",
+)
+async def generate_director_recipe_stills(
+    project_id: str,
+    payload: DirectorGenerateStillsRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以生成静帧")
+    try:
+        recipe, job_ids = generate_recipe_stills(
+            app.state.store,
+            app.state.grs_provider,
+            owner_user_id=user["id"],
+            recipe=record["payload"],
+            shot_ids=payload.shot_ids,
+            force=payload.force,
+            resource_storage=getattr(app.state, "resource_storage", None),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    saved = _persist_director_recipe(project_id, recipe)
+    await _enqueue_job_ids(job_ids)
+    app.state.auth_store.audit(
+        "generate_director_stills", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"jobs={len(job_ids)}", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/frames",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="上传分镜首帧或尾帧",
+)
+async def upload_director_recipe_frame(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    shot_id: Annotated[str, Form(description="分镜 ID")],
+    slot: Annotated[str, Form(description="first 或 end")],
+    file: Annotated[UploadFile, File(description="帧图片")],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以上传分镜帧")
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail="首尾帧必须为图片")
+    suffix = Path(file.filename or "frame.png").suffix or ".png"
+    staging = settings.staging_dir / f"director-frame-{secrets.token_urlsafe(6)}{suffix}"
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    await save_upload(file, staging)
+    try:
+        recipe = save_recipe_shot_frame(
+            normalize_recipe_payload(record["payload"]),
+            owner_user_id=user["id"],
+            project_id=project_id,
+            shot_id=shot_id,
+            slot=slot,
+            source=staging,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        staging.unlink(missing_ok=True)
+    saved = _persist_director_recipe(project_id, recipe)
+    app.state.auth_store.audit(
+        "upload_director_frame", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"{shot_id}:{slot}", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.get(
+    "/api/director/recipes/{project_id}/frames/{shot_id}/{slot}",
+    tags=["导演台"],
+    summary="读取分镜首帧或尾帧",
+)
+def download_director_recipe_frame(
+    project_id: str,
+    shot_id: str,
+    slot: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=404, detail="分镜帧不存在")
+    if slot not in {"first", "end"}:
+        raise HTTPException(status_code=404, detail="分镜帧不存在")
+    path = find_recipe_frame_file(
+        owner_user_id=user["id"],
+        project_id=project_id,
+        shot_id=shot_id,
+        slot=slot,
+    )
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="分镜帧不存在")
+    media = "image/png"
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        media = "image/jpeg"
+    elif path.suffix.lower() == ".webp":
+        media = "image/webp"
+    elif path.suffix.lower() == ".gif":
+        media = "image/gif"
+    return FileResponse(path, media_type=media)
+
+
+@app.post(
     "/api/director/recipes/{project_id}/render-shots",
     response_model=DirectorProjectResponse,
     tags=["导演台"],
@@ -1701,14 +2192,17 @@ async def render_director_recipe_shots(
     record = director_project_or_404(app.state.store, project_id, user)
     if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
         raise HTTPException(status_code=422, detail="只有 Recipe 工程可以提交分镜")
+    llm_available, _ = app.state.llm_provider.availability()
     try:
-        recipe, job_ids = render_recipe_shots(
+        recipe, job_ids = await asyncio.to_thread(
+            render_recipe_shots,
             app.state.store,
             owner_user_id=user["id"],
             recipe=record["payload"],
             shot_ids=payload.shot_ids,
             render_pass=payload.render_pass,
             resource_storage=getattr(app.state, "resource_storage", None),
+            h3_prompt_refiner=app.state.llm_provider.polish_director_h3_prompt if llm_available else None,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -1719,6 +2213,291 @@ async def render_director_recipe_shots(
         detail=f"jobs={len(job_ids)}", ip_address=client_ip(request),
     )
     return public_director_project(saved)
+
+
+def _audio_media_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    return {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".aac": "audio/aac",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+        ".mp4": "video/mp4",
+    }.get(suffix, "application/octet-stream")
+
+
+def _safe_export_filename(title: str, suffix: str) -> str:
+    stem = "".join(
+        ch if ch.isascii() and (ch.isalnum() or ch in {"-", "_"}) else "_"
+        for ch in (title or "director")[:40]
+    ).strip("_") or "director"
+    return f"{stem}{suffix}"
+
+
+@app.get(
+    "/api/director/export-capabilities",
+    response_model=DirectorExportCapabilitiesResponse,
+    tags=["导演台"],
+    summary="查询 TTS 与 ffmpeg 成片能力",
+)
+def get_director_export_capabilities(_: Annotated[dict, Depends(current_user)]) -> dict:
+    ffmpeg = ffmpeg_available()
+    tts = app.state.tts_provider.public_config()
+    available, reason = app.state.tts_provider.availability()
+    return {
+        **ffmpeg,
+        "tts_available": available,
+        "tts_reason": reason,
+        "voices": tts.get("voices") or [],
+    }
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/tts",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="为分镜或角色生成 TTS 配音",
+)
+async def generate_director_recipe_tts(
+    project_id: str,
+    payload: DirectorTtsRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以生成配音")
+    try:
+        recipe = await asyncio.to_thread(
+            generate_recipe_tts,
+            normalize_recipe_payload(record["payload"]),
+            app.state.tts_provider,
+            owner_user_id=user["id"],
+            project_id=project_id,
+            shot_ids=payload.shot_ids,
+            character_id=payload.character_id,
+            text=payload.text,
+        )
+    except DirectorExportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except LlmError as error:
+        raise_as_llm_http(error)
+    saved = _persist_director_recipe(project_id, recipe)
+    app.state.auth_store.audit(
+        "generate_director_tts", "director", actor_user_id=user["id"], target_id=project_id,
+        ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.get(
+    "/api/director/recipes/{project_id}/tts/{shot_id}",
+    tags=["导演台"],
+    summary="读取分镜 TTS 音频",
+)
+def download_director_shot_tts(
+    project_id: str,
+    shot_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    director_project_or_404(app.state.store, project_id, user)
+    path = find_tts_file(user["id"], project_id, shot_id)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="配音不存在")
+    return FileResponse(path, media_type=_audio_media_type(path))
+
+
+@app.get(
+    "/api/director/recipes/{project_id}/voices/{character_id}",
+    tags=["导演台"],
+    summary="读取角色 TTS 试听",
+)
+def download_director_character_voice(
+    project_id: str,
+    character_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    director_project_or_404(app.state.store, project_id, user)
+    path = find_voice_preview_file(user["id"], project_id, character_id)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="试听不存在")
+    return FileResponse(path, media_type=_audio_media_type(path))
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/bgm",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="上传导演工程配乐",
+)
+async def upload_director_recipe_bgm(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    file: Annotated[UploadFile, File(description="配乐音频")],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以上传配乐")
+    if file.content_type and not (
+        file.content_type.startswith("audio/") or file.content_type in {"application/octet-stream", "video/mp4"}
+    ):
+        raise HTTPException(status_code=422, detail="配乐必须为音频文件")
+    suffix = Path(file.filename or "bgm.mp3").suffix or ".mp3"
+    staging = settings.staging_dir / f"director-bgm-{secrets.token_urlsafe(6)}{suffix}"
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    await save_upload(file, staging)
+    try:
+        recipe = save_recipe_bgm(
+            normalize_recipe_payload(record["payload"]),
+            owner_user_id=user["id"],
+            project_id=project_id,
+            source=staging,
+        )
+    except DirectorExportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        staging.unlink(missing_ok=True)
+    saved = _persist_director_recipe(project_id, recipe)
+    app.state.auth_store.audit(
+        "upload_director_bgm", "director", actor_user_id=user["id"], target_id=project_id,
+        ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.get(
+    "/api/director/recipes/{project_id}/bgm",
+    tags=["导演台"],
+    summary="读取导演工程配乐",
+)
+def download_director_recipe_bgm(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    director_project_or_404(app.state.store, project_id, user)
+    path = find_bgm_file(user["id"], project_id)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="配乐不存在")
+    return FileResponse(path, media_type=_audio_media_type(path))
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/mux",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="用 ffmpeg 合成工作台内成片 MP4",
+)
+async def mux_director_recipe_film(
+    project_id: str,
+    payload: DirectorMuxRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以导出成片")
+    try:
+        recipe = await asyncio.to_thread(
+            mux_recipe_film,
+            normalize_recipe_payload(record["payload"]),
+            app.state.store,
+            owner_user_id=user["id"],
+            project_id=project_id,
+            burn_subtitles=payload.burn_subtitles,
+            resource_storage=getattr(app.state, "resource_storage", None),
+            runner=getattr(app.state, "ffmpeg_runner", None),
+        )
+    except DirectorExportError as error:
+        message = str(error)
+        status = 503 if "ffmpeg" in message.lower() else 422
+        raise HTTPException(status_code=status, detail=message) from error
+    saved = _persist_director_recipe(project_id, recipe)
+    app.state.auth_store.audit(
+        "mux_director_film", "director", actor_user_id=user["id"], target_id=project_id,
+        ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.get(
+    "/api/director/recipes/{project_id}/mux",
+    tags=["导演台"],
+    summary="下载工作台内成片 MP4",
+)
+def download_director_recipe_mux(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    record = director_project_or_404(app.state.store, project_id, user)
+    path = find_mux_file(project_id, record.get("payload"))
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="成片不存在")
+    return FileResponse(path, media_type="video/mp4", filename=_safe_export_filename(record.get("title") or "film", ".mp4"))
+
+
+@app.get(
+    "/api/director/recipes/{project_id}/export.fcpxml",
+    tags=["导演台"],
+    summary="下载 FCPXML 时间线",
+)
+def download_director_fcpxml(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> Response:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以导出 FCPXML")
+    try:
+        _clips, xml, _edl = export_timeline_documents(
+            normalize_recipe_payload(record["payload"]),
+            app.state.store,
+            owner_user_id=user["id"],
+            project_id=project_id,
+            title=record.get("title") or "导演成片",
+            resource_storage=getattr(app.state, "resource_storage", None),
+        )
+    except DirectorExportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    filename = _safe_export_filename(record.get("title") or "director", ".fcpxml")
+    return Response(
+        content=xml.encode("utf-8"),
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get(
+    "/api/director/recipes/{project_id}/export.edl",
+    tags=["导演台"],
+    summary="下载 EDL 时间线",
+)
+def download_director_edl(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> Response:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以导出 EDL")
+    try:
+        _clips, _xml, edl = export_timeline_documents(
+            normalize_recipe_payload(record["payload"]),
+            app.state.store,
+            owner_user_id=user["id"],
+            project_id=project_id,
+            title=record.get("title") or "导演成片",
+            resource_storage=getattr(app.state, "resource_storage", None),
+        )
+    except DirectorExportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    filename = _safe_export_filename(record.get("title") or "director", ".edl")
+    return Response(
+        content=edl.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post(
@@ -1752,7 +2531,7 @@ async def create_director_batch(
             art_style=art_style,
         )
     except LlmError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+        raise_as_llm_http(error)
     batch = empty_batch_payload(
         theme=payload.theme.strip(),
         count=payload.count,

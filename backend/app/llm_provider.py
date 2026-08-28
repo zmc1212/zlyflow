@@ -283,6 +283,7 @@ class LlmProviderService:
         agent_id: str,
         art_style_id: str | None = None,
         skip_research: bool | None = None,
+        on_progress: Any = None,
     ) -> dict[str, Any]:
         from .director_agents import default_chat_fn, run_agent
 
@@ -294,7 +295,31 @@ class LlmProviderService:
             chat_fn=default_chat_fn(client, model),
             art_style_id=art_style_id,
             skip_research=skip_research,
+            on_progress=on_progress,
         )
+
+    def polish_director_h3_prompt(self, draft_prompt: str, mode: str) -> str:
+        """Use the configured LLM after the final H3 input mode and reference order are known."""
+        from .llm_minimax_skills import build_h3_final_prompt_polish_prompt
+
+        draft = str(draft_prompt or "").strip()
+        if not draft:
+            raise LlmError("没有可润色的 H3 提示词")
+        client, model = self._chat_client()
+        return client.chat_completion(
+            [
+                {"role": "system", "content": build_h3_final_prompt_polish_prompt(mode)},
+                {"role": "user", "content": f"Requested final prompt:\n\n{draft}"},
+            ],
+            model=model,
+            temperature=0.35,
+            max_tokens=8192,
+            timeout=180.0,
+        ).strip()
+
+    def polish_director_ref2va_prompt(self, draft_prompt: str) -> str:
+        """Backward-compatible entry point for callers that explicitly request Ref2VA."""
+        return self.polish_director_h3_prompt(draft_prompt, "REF2VA")
 
     def fission_batch_scripts(
         self,
@@ -316,5 +341,3 @@ class LlmProviderService:
             art_style=art_style,
             chat_fn=default_chat_fn(client, model),
         )
-
-

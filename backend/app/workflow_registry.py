@@ -258,6 +258,8 @@ H3_FL2VA_PRUNED = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
 H3_FL2VA_FULL = "minimax_h3_fl2va_int8_convrot.safetensors"
 H3_REF2VA_PRUNED = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 H3_REF2VA_FULL = "minimax_h3_ref2va_int8_convrot.safetensors"
+H3_WEIGHT_FULL = "full"
+H3_WEIGHT_PRUNED = "pruned"
 
 
 def h3_turbo_lora_compatible(unet_name: str) -> bool:
@@ -276,6 +278,31 @@ def h3_diffusion_unet(is_reference: bool, lora_strength: float) -> str:
     if is_reference:
         return H3_REF2VA_FULL if use_turbo else H3_REF2VA_PRUNED
     return H3_FL2VA_FULL if use_turbo else H3_FL2VA_PRUNED
+
+
+def h3_weight_profile_option() -> dict[str, Any]:
+    return option(
+        "模型体积", "string", H3_WEIGHT_FULL, group="primary",
+        enum=[H3_WEIGHT_FULL, H3_WEIGHT_PRUNED],
+        ui_control="select",
+        ui_options=[
+            {"value": H3_WEIGHT_FULL, "label": "完整（32 GB）"},
+            {"value": H3_WEIGHT_PRUNED, "label": "精简（20 GB）"},
+        ],
+        description="完整权重可挂加速 LoRA。精简权重关闭加速 LoRA，适合 32 GB 内存，避免加载时页面文件不足。",
+    )
+
+
+def apply_h3_weight_profile(normalized: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    profile = normalized.get("weight_profile", raw.get("weight_profile", H3_WEIGHT_FULL))
+    if profile not in {H3_WEIGHT_FULL, H3_WEIGHT_PRUNED}:
+        raise ValueError("模型体积请选择完整或精简。")
+    normalized["weight_profile"] = profile
+    if profile == H3_WEIGHT_PRUNED:
+        normalized["lora_strength"] = 0.0
+    if "unet_name" in normalized and "unet_name" not in raw:
+        normalized["unet_name"] = h3_diffusion_unet(False, float(normalized.get("lora_strength", 0)))
+    return normalized
 
 
 H3_SPEED_FAST = "fast"
@@ -314,7 +341,7 @@ def h3_custom_steps_option() -> dict[str, Any]:
         unit="步",
         ui_control="input-number",
         ui_visible_when={"speed": H3_SPEED_CUSTOM},
-        description="4–8 步启用加速 LoRA；超过 8 步关闭加速，接近完整采样。全能参考会把视频和音频采样都设为该步数。",
+        description="4–8 步在完整权重下启用加速 LoRA；超过 8 步或选择精简权重时关闭加速。全能参考会把视频和音频采样都设为该步数。",
     )
 
 
@@ -386,6 +413,7 @@ def apply_dual_accel_speed_preset(normalized: dict[str, Any], raw: dict[str, Any
     if "lora_strength" not in raw and normalized["speed"] != H3_SPEED_QUALITY:
         if not (normalized["speed"] == H3_SPEED_CUSTOM and int(normalized.get("custom_steps", 8)) > H3_TURBO_STEP_MAX):
             normalized["lora_strength"] = DUAL_ACCEL_LORA_STRENGTH
+    apply_h3_weight_profile(normalized, raw)
     normalized.setdefault("sampler_name", "res_multistep")
     normalized.setdefault("shift_video", 12.0)
     normalized.setdefault("shift_audio", 3.0)
@@ -431,6 +459,7 @@ def apply_lightx2v_speed_preset(
         normalized["lora_name"] = lora_name
     if "lora_strength" not in raw:
         normalized["lora_strength"] = lora_strength
+    apply_h3_weight_profile(normalized, raw)
     normalized.setdefault("sampler_name", "euler")
     normalized.setdefault("shift_video", 12.0)
     normalized.setdefault("shift_audio", 3.0)
@@ -485,7 +514,7 @@ def apply_h3_speed_preset(normalized: dict[str, Any], raw: dict[str, Any]) -> di
             normalized[key] = mapping[key]
     normalized.setdefault("lora_name", H3_TURBO_LORA_NAME)
     normalized.setdefault("use_sage_attention", True)
-    return normalized
+    return apply_h3_weight_profile(normalized, raw)
 
 
 def local_resolution_options(presets: dict[str, float]) -> list[dict[str, str]]:
@@ -531,6 +560,7 @@ H3_STANDARD_OPTION_SCHEMA = {
         ),
         "speed": h3_speed_option(),
         "custom_steps": h3_custom_steps_option(),
+        "weight_profile": h3_weight_profile_option(),
         "steps": option("采样步数", "integer", H3_SPEED_PRESETS[H3_SPEED_BALANCED]["steps"], minimum=1, maximum=1000, step=1),
         "lora_name": option(
             "加速 LoRA", "string", H3_TURBO_LORA_NAME,
@@ -583,6 +613,7 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
         ),
         "speed": h3_speed_option(),
         "custom_steps": h3_custom_steps_option(),
+        "weight_profile": h3_weight_profile_option(),
         "seed": option(
             "随机种子", "integer", 123456789,
             minimum=0, maximum=1125899906842624, step=1,
@@ -927,7 +958,7 @@ IMAGE_WORKFLOWS = {JobMode.GRS_GPT_IMAGE_2, JobMode.GRS_GPT_IMAGE_2_VIP}
 H3_QUALITY_MEGAPIXELS = H3_STANDARD_OPTION_SCHEMA["properties"]["quality"]["megapixels_by_quality"]
 H3_LEGACY_QUALITY_MEGAPIXELS = {"1K": 0.2, "2K": 0.3, "4K": 0.5}
 H3_LEGACY_MEGAPIXELS = set(H3_QUALITY_MEGAPIXELS.values()) | {0.98}
-H3_OPTION_NAMES = {"aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps", "use_sage_attention"}
+H3_OPTION_NAMES = {"aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps", "weight_profile", "use_sage_attention"}
 H3_ASPECT_RATIO_PART = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
 
 
@@ -1088,6 +1119,7 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         "reference_image_size": "match",
         "speed": speed,
         "custom_steps": custom_steps,
+        "weight_profile": raw.get("weight_profile", H3_WEIGHT_FULL),
         "use_sage_attention": use_sage,
     }, raw)
 

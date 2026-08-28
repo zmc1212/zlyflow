@@ -234,6 +234,7 @@ class WorkflowTests(unittest.TestCase):
             JobMode.MINIMAX_H3_T8_DUAL_CLOCK, "A final pass.", [], t8_quality,
         )
         self.assertNotIn("16", t8_quality_graph)
+        self.assertEqual(t8_quality_graph["1"]["inputs"]["unet_name"], H3_FL2VA_PRUNED)
         self.assertEqual(t8_quality_graph["8"]["inputs"]["model"], ["15", 0])
 
         t8_quality_ref = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "quality"})
@@ -267,6 +268,39 @@ class WorkflowTests(unittest.TestCase):
             normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "custom", "custom_steps": 0})
         with self.assertRaises(ValueError):
             normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "custom", "custom_steps": 41})
+
+    def test_weight_profile_pruned_keeps_steps_and_skips_turbo_lora(self) -> None:
+        cases = [
+            (JobMode.MINIMAX_H3_T2V, {"speed": "fast", "weight_profile": "pruned"}, build_minimax_h3_workflow, H3_FL2VA_PRUNED, 4),
+            (JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"speed": "fast", "weight_profile": "pruned"}, build_minimax_h3_lightx2v_workflow, H3_FL2VA_PRUNED, 4),
+            (JobMode.MINIMAX_H3_DUAL_ACCEL_T2V, {"speed": "balanced", "weight_profile": "pruned"}, build_minimax_h3_dual_accel_workflow, H3_FL2VA_PRUNED, 8),
+        ]
+        for mode, raw, builder, unet, steps in cases:
+            options = normalize_options(mode, raw)
+            self.assertEqual(options["weight_profile"], "pruned")
+            self.assertEqual(options["steps"], steps)
+            self.assertEqual(options["lora_strength"], 0.0)
+            graph = builder(mode, "A memory-safe pass.", [], options, 11)
+            self.assertEqual(graph["1"]["inputs"]["unet_name"], unet)
+            self.assertNotIn("15", graph)
+
+        t8 = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "fast", "weight_profile": "pruned"})
+        self.assertEqual(t8["video_steps"], 4)
+        self.assertEqual(t8["lora_strength"], 0.0)
+        self.assertEqual(t8["unet_name"], H3_FL2VA_PRUNED)
+        t8_graph = build_minimax_h3_t8_workflow(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, "A memory-safe pass.", [], t8)
+        self.assertEqual(t8_graph["1"]["inputs"]["unet_name"], H3_FL2VA_PRUNED)
+        self.assertNotIn("16", t8_graph)
+        t8_ref = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"speed": "balanced", "weight_profile": "pruned"})
+        t8_ref_graph = build_minimax_h3_t8_workflow(
+            JobMode.MINIMAX_H3_T8_ALL_REFERENCE, "Use <Picture 1>.", ["character.png"], t8_ref,
+        )
+        self.assertEqual(t8_ref_graph["1"]["inputs"]["unet_name"], H3_REF2VA_PRUNED)
+        self.assertNotIn("16", t8_ref_graph)
+        official = normalize_options(JobMode.MINIMAX_H3_T2V, {"speed": "fast"})
+        self.assertEqual(official["weight_profile"], "full")
+        with self.assertRaisesRegex(ValueError, "模型体积"):
+            normalize_options(JobMode.MINIMAX_H3_T2V, {"weight_profile": "tiny"})
 
     def test_t8_all_reference_builds_multirate_graph_and_grows_references(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"quality": "0.98"})
@@ -454,6 +488,8 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["default"], "balanced")
         self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["ui_visible_when"], {"speed": "custom"})
         self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["unit"], "步")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["ui_group"], "primary")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["enum"], ["full", "pruned"])
         self.assertEqual(parameters["options"]["schema"]["properties"]["steps"]["ui_group"], "internal")
         self.assertEqual(
             parameters["options"]["schema"]["properties"]["aspect_ratio"]["ui_options"][0],
@@ -472,7 +508,7 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(t8_options["duration"]["ui_control"], "duration-slider")
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "primary"},
-            {"aspect_ratio", "duration", "speed", "custom_steps"},
+            {"aspect_ratio", "duration", "speed", "custom_steps", "weight_profile"},
         )
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "advanced"},

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 from backend.app.auth import AuthStore
 from backend.app.llm_client import (
     OpenAICompatibleClient,
+    LlmBillingError,
     LlmError,
     LlmTemporaryError,
     parse_model_catalog,
@@ -54,6 +56,46 @@ class ChatCompletionThinkingTests(unittest.TestCase):
         payload = mock_post.call_args.kwargs["json"]
         self.assertNotIn("thinking", payload)
         self.assertFalse(payload["enable_thinking"])
+
+
+class LlmBillingErrorTests(unittest.TestCase):
+    def _client(self) -> OpenAICompatibleClient:
+        return OpenAICompatibleClient("https://api-inference.modelscope.cn/v1", "ms-token")
+
+    def _response(self, status: int, payload: dict) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = status
+        mock_response.json.return_value = payload
+        mock_response.text = json.dumps(payload, ensure_ascii=False)
+        return mock_response
+
+    @patch("requests.Session.post")
+    def test_http_403_balance_returns_upstream_log(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._response(403, {"message": "account balance is insufficient"})
+        with self.assertRaises(LlmBillingError) as ctx:
+            self._client().chat_completion([{"role": "user", "content": "hi"}], "Qwen/Qwen2.5-7B-Instruct")
+        text = str(ctx.exception)
+        self.assertIn("余额不足", text)
+        self.assertIn("HTTP 403", text)
+        self.assertIn("account balance is insufficient", text)
+
+    @patch("requests.Session.post")
+    def test_http_429_quota_is_billing_not_temporary(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._response(429, {
+            "error": {"message": "You have exceeded your current quota", "type": "insufficient_quota"},
+        })
+        with self.assertRaises(LlmBillingError) as ctx:
+            self._client().chat_completion([{"role": "user", "content": "hi"}], "Qwen/Qwen2.5-7B-Instruct")
+        self.assertNotIsInstance(ctx.exception, LlmTemporaryError)
+        self.assertIn("exceeded your current quota", str(ctx.exception))
+
+    @patch("requests.Session.post")
+    def test_http_200_embedded_balance_error(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._response(200, {"code": 403, "message": "余额不足"})
+        with self.assertRaises(LlmBillingError) as ctx:
+            self._client().chat_completion([{"role": "user", "content": "hi"}], "Qwen/Qwen2.5-7B-Instruct")
+        self.assertIn("余额不足", str(ctx.exception))
+        self.assertIn("上游返回", str(ctx.exception))
 
 
 class ModelCatalogTests(unittest.TestCase):

@@ -621,6 +621,10 @@ class DirectorRecipeRunRequest(BaseModel):
     title: str | None = Field(default=None, max_length=120)
     art_style_id: str | None = Field(default=None, max_length=32, description="画风目录 id，例如 as_1001")
     skip_research: bool | None = Field(default=None, description="为 true 时跳过研究 Agent")
+    agents: list[str] | None = Field(
+        default=None,
+        description="可选。只跑指定 Agent，例如 [\"script\",\"storyboard\"] 按剧本一次生成全部分镜；缺省跑完整 9 步。",
+    )
 
 
 class DirectorRecipeStepRequest(BaseModel):
@@ -637,6 +641,11 @@ class DirectorGenerateAssetsRequest(BaseModel):
     character_ids: list[str] = Field(default_factory=list)
     location_ids: list[str] = Field(default_factory=list)
     force: bool = False
+
+
+class DirectorGenerateStillsRequest(BaseModel):
+    shot_ids: list[str] = Field(default_factory=list)
+    force: bool = True
 
 
 class DirectorRenderShotsRequest(BaseModel):
@@ -657,3 +666,115 @@ class DirectorBatchCreateRequest(BaseModel):
     art_style_id: str | None = Field(default=None, max_length=32)
     title: str | None = Field(default=None, max_length=120)
     project_id: str | None = Field(default=None, max_length=80)
+
+
+DirectorLibraryKind = Literal["character", "scene", "prop"]
+
+
+class DirectorLibraryAssetCreateRequest(BaseModel):
+    kind: DirectorLibraryKind = Field(description="人物、场景或道具")
+    name: str = Field(min_length=1, max_length=80, description="资产名称")
+    description: str = Field(default="", max_length=2000, description="中文说明")
+    promptText: str = Field(default="", max_length=4000, description="定妆/参考提示词")
+    gender: str = Field(default="", max_length=32)
+    imageUrl: str | None = Field(default=None, max_length=2000)
+    imageJobId: str | None = Field(default=None, max_length=80)
+
+
+class DirectorLibraryAssetUpdateRequest(BaseModel):
+    kind: DirectorLibraryKind | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=2000)
+    promptText: str | None = Field(default=None, max_length=4000)
+    gender: str | None = Field(default=None, max_length=32)
+    imageUrl: str | None = Field(default=None, max_length=2000)
+    imageJobId: str | None = Field(default=None, max_length=80)
+
+
+class DirectorLibraryAssetResponse(BaseModel):
+    id: str
+    kind: DirectorLibraryKind
+    name: str
+    description: str = ""
+    promptText: str = ""
+    gender: str = ""
+    imageUrl: str | None = None
+    imageJobId: str | None = None
+    sourceProjectId: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class DirectorLibraryFromRecipeRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=80)
+    character_ids: list[str] = Field(default_factory=list)
+    location_ids: list[str] = Field(default_factory=list)
+
+
+class DirectorLibraryFromRecipeResponse(BaseModel):
+    imported: int
+    assets: list[DirectorLibraryAssetResponse] = Field(default_factory=list)
+
+
+class DirectorInsertLibraryAssetsRequest(BaseModel):
+    asset_ids: list[str] = Field(default_factory=list, max_length=40)
+
+
+class TtsVoiceItem(BaseModel):
+    id: str
+    label: str
+    gender: str = ""
+
+
+class TtsProviderUpdateRequest(BaseModel):
+    enabled: bool = False
+    use_llm_credentials: bool = True
+    base_url: str = Field(default="", max_length=500)
+    api_key: str | None = Field(default=None, max_length=512)
+    model: str = Field(default="tts-1", max_length=128)
+    voice: str = Field(default="alloy", max_length=64)
+
+
+class TtsProviderTestRequest(BaseModel):
+    enabled: bool | None = None
+    use_llm_credentials: bool | None = None
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=512)
+    model: str | None = Field(default=None, max_length=128)
+    voice: str | None = Field(default=None, max_length=64)
+
+
+class TtsProviderResponse(BaseModel):
+    enabled: bool
+    use_llm_credentials: bool = True
+    base_url: str = ""
+    model: str
+    voice: str
+    api_key_masked: str | None = None
+    has_api_key: bool
+    credential_ready: bool
+    available: bool
+    unavailable_reason: str | None = None
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    last_test_at: str | None = None
+    voices: list[TtsVoiceItem] = Field(default_factory=list)
+
+
+class DirectorTtsRequest(BaseModel):
+    shot_ids: list[str] = Field(default_factory=list)
+    character_id: str | None = Field(default=None, max_length=80)
+    text: str | None = Field(default=None, max_length=200, description="角色试听文案；缺省用角色名")
+
+
+class DirectorMuxRequest(BaseModel):
+    burn_subtitles: bool = False
+
+
+class DirectorExportCapabilitiesResponse(BaseModel):
+    ffmpeg: bool
+    ffmpeg_path: str | None = None
+    ffprobe_path: str | None = None
+    tts_available: bool
+    tts_reason: str | None = None
+    voices: list[TtsVoiceItem] = Field(default_factory=list)

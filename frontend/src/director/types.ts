@@ -93,6 +93,7 @@ export interface DirectorShot {
 export type CanvasTier = "native" | "fast" | "past_native" | "custom_mp"
 export type DirectorQuality = "0.4" | "0.7" | "1.0" | "2.0"
 export type DirectorSpeed = "fast" | "balanced" | "quality"
+export type DirectorWeightProfile = "full" | "pruned"
 
 export interface CanvasPreset {
   ratio: string
@@ -116,6 +117,7 @@ export interface TimelineProject {
   previewSpeed: DirectorSpeed
   finalQuality: DirectorQuality
   finalSpeed: DirectorSpeed
+  weightProfile?: DirectorWeightProfile
   videoWorkflowFamily?: string
   width: number
   height: number
@@ -222,9 +224,14 @@ export const DIRECTOR_QUALITY_OPTIONS: Array<{ value: DirectorQuality; label: st
 ]
 
 export const DIRECTOR_SPEED_OPTIONS: Array<{ value: DirectorSpeed; label: string; steps: number }> = [
-  { value: "fast", label: "4 步 + LoRA", steps: 4 },
-  { value: "balanced", label: "8 步 + LoRA", steps: 8 },
-  { value: "quality", label: "20 步", steps: 20 },
+  { value: "fast", label: "快速（4 步）", steps: 4 },
+  { value: "balanced", label: "均衡（8 步）", steps: 8 },
+  { value: "quality", label: "高质量（20 步）", steps: 20 },
+]
+
+export const DIRECTOR_WEIGHT_OPTIONS: Array<{ value: DirectorWeightProfile; label: string }> = [
+  { value: "full", label: "完整（32 GB）" },
+  { value: "pruned", label: "精简（20 GB）" },
 ]
 
 export function canvasTierForQuality(quality: DirectorQuality | string | undefined): CanvasTier {
@@ -255,7 +262,7 @@ export function recipeCanvasPreset(
 
 export function applyRecipeOutputSettings(
   recipe: RecipeProject,
-  patch: Partial<Pick<RecipeProject, "aspectRatio" | "finalQuality" | "finalSpeed" | "videoWorkflowFamily">>,
+  patch: Partial<Pick<RecipeProject, "aspectRatio" | "finalQuality" | "finalSpeed" | "weightProfile" | "videoWorkflowFamily">>,
 ): RecipeProject {
   const next = { ...recipe, ...patch }
   const tier = canvasTierForQuality(next.finalQuality)
@@ -324,6 +331,7 @@ export function createEmptyProject(title: string = "未命名分镜工程"): Tim
     previewSpeed: "fast",
     finalQuality: "1.0",
     finalSpeed: "balanced",
+    weightProfile: "full",
     videoWorkflowFamily: "official_h3",
     width: 1344,
     height: 768,
@@ -487,6 +495,9 @@ export interface RecipeCharacter {
   type: RecipeCharacterType
   imageJobId?: string | null
   imageUrl?: string | null
+  libraryAssetId?: string | null
+  voiceId?: string | null
+  voicePreviewUrl?: string | null
 }
 
 export interface RecipeLocation {
@@ -496,6 +507,7 @@ export interface RecipeLocation {
   promptText: string
   imageJobId?: string | null
   imageUrl?: string | null
+  libraryAssetId?: string | null
 }
 
 export interface RecipeShot {
@@ -516,6 +528,23 @@ export interface RecipeShot {
   takes: ShotTake[]
   camera?: CameraDirection
   soundscape?: string
+  soundscapeEn?: string
+  error?: string | null
+  firstFrameUrl?: string | null
+  firstFrameJobId?: string | null
+  endFrameUrl?: string | null
+  endFrameJobId?: string | null
+  stillUrl?: string | null
+  stillJobId?: string | null
+  stillStatus?: DirectorShot["status"] | null
+  usePreviousEndFrame?: boolean
+  approvedTakeId?: string | null
+  activeTakeIndex?: number
+  speakerName?: string | null
+  voiceId?: string | null
+  ttsStatus?: DirectorShot["status"] | "idle"
+  ttsUrl?: string | null
+  ttsError?: string | null
 }
 
 export interface RecipeScene {
@@ -531,6 +560,91 @@ export interface RecipeAgentStatus {
   id: RecipeAgentId
   status: RecipeAgentRunStatus
   error?: string | null
+  message?: string | null
+}
+
+export interface RecipePipelineRun {
+  agents: RecipeAgentId[]
+  active: boolean
+}
+
+export interface RecipeAudioMix {
+  bgmUrl?: string | null
+  bgmVolume: number
+  bgmFadeInSec: number
+  bgmFadeOutSec: number
+}
+
+export interface RecipeSubtitleStyle {
+  enabled: boolean
+  position: "top" | "center" | "bottom"
+  fontSize: number
+  strokeWidth: number
+  textColor: string
+  strokeColor: string
+}
+
+export interface RecipeExportState {
+  muxStatus: "idle" | "queued" | "running" | "succeeded" | "failed"
+  muxUrl?: string | null
+  muxDurationSec?: number | null
+  muxError?: string | null
+  muxAt?: string | null
+  burnSubtitles?: boolean
+}
+
+export const TTS_VOICE_OPTIONS = [
+  { id: "alloy", label: "Alloy（中性）" },
+  { id: "echo", label: "Echo（男声）" },
+  { id: "fable", label: "Fable（叙事）" },
+  { id: "onyx", label: "Onyx（低沉男声）" },
+  { id: "nova", label: "Nova（女声）" },
+  { id: "shimmer", label: "Shimmer（柔和女声）" },
+] as const
+
+export function defaultRecipeAudio(): RecipeAudioMix {
+  return { bgmUrl: null, bgmVolume: 0.25, bgmFadeInSec: 1, bgmFadeOutSec: 2 }
+}
+
+export function defaultRecipeSubtitles(): RecipeSubtitleStyle {
+  return {
+    enabled: false,
+    position: "bottom",
+    fontSize: 28,
+    strokeWidth: 2,
+    textColor: "#ffffff",
+    strokeColor: "#000000",
+  }
+}
+
+export function defaultRecipeExport(): RecipeExportState {
+  return { muxStatus: "idle", muxUrl: null, muxDurationSec: null, muxError: null, muxAt: null, burnSubtitles: false }
+}
+
+export function recipeAudio(recipe: RecipeProject): RecipeAudioMix {
+  return { ...defaultRecipeAudio(), ...recipe.audio }
+}
+
+export function recipeSubtitles(recipe: RecipeProject): RecipeSubtitleStyle {
+  return { ...defaultRecipeSubtitles(), ...recipe.subtitles }
+}
+
+export function recipeExportState(recipe: RecipeProject): RecipeExportState {
+  return { ...defaultRecipeExport(), ...recipe.export }
+}
+
+const MUX_FAILED_STATUSES = new Set(["failed", "interrupted", "cancelled", "stopped"])
+
+export function shotIsMuxable(shot: RecipeShot): boolean {
+  if (MUX_FAILED_STATUSES.has(shot.status)) return false
+  const takes = shot.takes || []
+  const approved = takes.find((take) => (take.id || take.jobId) === shot.approvedTakeId)
+  const take = approved || takes[shot.activeTakeIndex || 0] || takes[takes.length - 1]
+  if (take) {
+    if (MUX_FAILED_STATUSES.has(take.status)) return false
+    return Boolean(take.videoUrl) || take.status === "succeeded"
+  }
+  return shot.status === "succeeded" && Boolean(shot.outputVideoUrl || shot.jobId)
 }
 
 export interface RecipeProject {
@@ -541,6 +655,7 @@ export interface RecipeProject {
   locations: RecipeLocation[]
   scenes: RecipeScene[]
   agentStatus: RecipeAgentStatus[]
+  pipelineRun?: RecipePipelineRun
   globalMusic: string
   globalSoundscape: string
   aspectRatio: string
@@ -549,6 +664,7 @@ export interface RecipeProject {
   previewSpeed: DirectorSpeed
   finalQuality: DirectorQuality
   finalSpeed: DirectorSpeed
+  weightProfile: DirectorWeightProfile
   videoWorkflowFamily: string
   width: number
   height: number
@@ -556,6 +672,9 @@ export interface RecipeProject {
   refsMode: "refs_off" | "refs_on"
   manualPromptOverrideEnabled: boolean
   manualPromptOverrideText: string
+  audio?: RecipeAudioMix
+  subtitles?: RecipeSubtitleStyle
+  export?: RecipeExportState
 }
 
 export interface BatchRunItem {
@@ -579,6 +698,7 @@ export interface BatchRunPayload {
   items: BatchRunItem[]
   agentStatus?: RecipeAgentStatus[]
   videoWorkflowFamily?: string
+  weightProfile?: DirectorWeightProfile
 }
 
 export interface DirectorArtStyleCategory {
@@ -636,6 +756,54 @@ export function flattenRecipeShots(recipe: RecipeProject): RecipeShot[] {
   return (recipe.scenes || []).flatMap((scene) => scene.shots || [])
 }
 
+export function isPlaceholderRecipeBoard(shots: RecipeShot[], goal: string, fullStory: string): boolean {
+  if (!shots.length) return true
+  if (shots.length > 1) return false
+  const shot = shots[0]
+  const description = (shot.description || "").trim()
+  const prompt = (shot.promptText || "").trim()
+  const idea = goal.trim()
+  const story = fullStory.trim()
+  const titleIsDummy = !shot.title || shot.title === "主镜头" || shot.title === "开场"
+  const descriptionIsIdea = !description || description === idea || description === story
+  const noPrompt = !prompt || prompt === description || prompt === idea
+  return titleIsDummy && descriptionIsIdea && noPrompt
+}
+
+export const FEATURED_ART_STYLE_CATEGORIES = [
+  "cinematic", "commercial", "anime", "3d", "illustration", "realistic",
+] as const
+
+export function featuredArtStyles(styles: DirectorArtStyle[]): DirectorArtStyle[] {
+  const picked: DirectorArtStyle[] = []
+  for (const category of FEATURED_ART_STYLE_CATEGORIES) {
+    const first = styles.find((item) => item.category === category)
+    if (first) picked.push(first)
+  }
+  return picked
+}
+
+export function recipePackedPlates(recipe: RecipeProject, shot: RecipeShot): Array<{
+  name: string
+  kind: "character" | "location"
+  imageUrl?: string | null
+}> {
+  const named = new Set((shot.characterNames || []).map((name) => name.trim()).filter(Boolean))
+  let characters = recipe.characters.filter((item) => item.imageUrl || item.imageJobId)
+  if (named.size) {
+    characters = characters.filter((item) => named.has(item.name))
+  }
+  let locations = recipe.locations.filter((item) => item.imageUrl || item.imageJobId)
+  if (shot.locationName.trim()) {
+    const matched = locations.filter((item) => item.name === shot.locationName)
+    if (matched.length) locations = matched
+  }
+  return [
+    ...characters.map((item) => ({ name: item.name, kind: "character" as const, imageUrl: item.imageUrl })),
+    ...locations.map((item) => ({ name: item.name, kind: "location" as const, imageUrl: item.imageUrl })),
+  ].slice(0, 9)
+}
+
 export const RECIPE_AGENT_LABELS: Record<RecipeAgentId, string> = {
   research: "研究",
   script: "脚本",
@@ -648,6 +816,61 @@ export const RECIPE_AGENT_LABELS: Record<RecipeAgentId, string> = {
   media: "媒体",
 }
 
+export const RECIPE_AGENT_ORDER: RecipeAgentId[] = [
+  "research", "script", "art_style", "storyboard", "characters", "locations", "voice", "music", "media",
+]
+
+export const RECIPE_AGENT_RUNNING_MESSAGES: Record<RecipeAgentId, string> = {
+  research: "正在核对故事设定",
+  script: "正在根据创意写剧本",
+  art_style: "正在选择美术风格",
+  storyboard: "正在读剧本",
+  characters: "正在从分镜抽出人物",
+  locations: "正在从分镜抽出场景",
+  voice: "正在配置配音",
+  music: "正在配置配乐",
+  media: "正在编译出片参数",
+}
+
+export function estimateStoryboardSkeletonCount(story: string, goal: string = ""): number {
+  const text = (story || goal || "").trim()
+  const sceneMarks = text.match(/第[一二三四五六七八九十百\d]+场/g)
+  if (sceneMarks?.length) {
+    return Math.min(24, Math.max(8, sceneMarks.length * 2))
+  }
+  if (text.length < 80) return 8
+  return Math.min(24, Math.max(8, Math.round(text.length / 90)))
+}
+
+export function recipePipelineProgress(
+  agentStatus: RecipeAgentStatus[],
+  pipelineRun: RecipePipelineRun | undefined,
+  agentOrder: RecipeAgentId[] = RECIPE_AGENT_ORDER,
+): {
+  percent: number
+  runningId: RecipeAgentId | null
+  completed: number
+  total: number
+  stage: string | null
+  subset: boolean
+} {
+  const runAgents = pipelineRun?.active && pipelineRun.agents.length ? pipelineRun.agents : agentOrder
+  const subset = Boolean(pipelineRun?.active && pipelineRun.agents.length && pipelineRun.agents.length < agentOrder.length)
+  const statuses = runAgents.map((id) => agentStatus.find((item) => item.id === id))
+  const completed = statuses.filter((item) => item?.status === "completed").length
+  const running = statuses.find((item) => item?.status === "running")
+  const total = runAgents.length || agentOrder.length
+  const runningId = running?.id || null
+  return {
+    percent: Math.round(((completed + (runningId ? 0.5 : 0)) / total) * 100),
+    runningId,
+    completed: pipelineRun?.active ? completed : agentStatus.filter((item) => item.status === "completed").length,
+    total: pipelineRun?.active ? total : agentOrder.length,
+    stage: running?.message || null,
+    subset,
+  }
+}
+
 export function createEmptyBatch(theme: string = ""): BatchRunPayload {
   return {
     kind: "batch_run",
@@ -658,6 +881,7 @@ export function createEmptyBatch(theme: string = ""): BatchRunPayload {
     artStyle: null,
     items: [],
     videoWorkflowFamily: "official_h3",
+    weightProfile: "full",
   }
 }
 
@@ -670,16 +894,39 @@ export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
     durationSec: shot.durationSec,
     prompt: userFacingCopy(shot.description, shot.title),
     dialogue: shot.dialogue,
-    camera: defaultCameraDirection(),
+    camera: shot.camera || defaultCameraDirection(),
     referencedSubjectIds: [],
-    takes: [],
-    activeTakeIndex: 0,
+    takes: shot.takes || [],
+    activeTakeIndex: shot.activeTakeIndex || 0,
     jobId: shot.jobId || undefined,
     status: shot.status,
     progress: shot.progress || 0,
     outputVideoUrl: shot.outputVideoUrl || undefined,
-    retakeCount: 0,
+    firstFrameUrl: shot.firstFrameUrl || undefined,
+    endFrameUrl: shot.endFrameUrl || undefined,
+    usePreviousEndFrame: shot.usePreviousEndFrame,
+    retakeCount: shot.takes?.length || 0,
   }))
+}
+
+export interface DirectorLibraryAsset {
+  id: string
+  kind: "character" | "scene" | "prop"
+  name: string
+  description: string
+  promptText: string
+  gender: string
+  imageUrl?: string | null
+  imageJobId?: string | null
+  sourceProjectId?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export const DIRECTOR_LIBRARY_KIND_LABELS: Record<DirectorLibraryAsset["kind"], string> = {
+  character: "人物",
+  scene: "场景",
+  prop: "道具",
 }
 
 export function createEmptyRecipe(title: string = ""): RecipeProject {
@@ -691,16 +938,17 @@ export function createEmptyRecipe(title: string = ""): RecipeProject {
     locations: [],
     scenes: [],
     agentStatus: [
-      { id: "research", status: "pending", error: null },
-      { id: "script", status: "pending", error: null },
-      { id: "art_style", status: "pending", error: null },
-      { id: "storyboard", status: "pending", error: null },
-      { id: "characters", status: "pending", error: null },
-      { id: "locations", status: "pending", error: null },
-      { id: "voice", status: "pending", error: null },
-      { id: "music", status: "pending", error: null },
-      { id: "media", status: "pending", error: null },
+      { id: "research", status: "pending", error: null, message: null },
+      { id: "script", status: "pending", error: null, message: null },
+      { id: "art_style", status: "pending", error: null, message: null },
+      { id: "storyboard", status: "pending", error: null, message: null },
+      { id: "characters", status: "pending", error: null, message: null },
+      { id: "locations", status: "pending", error: null, message: null },
+      { id: "voice", status: "pending", error: null, message: null },
+      { id: "music", status: "pending", error: null, message: null },
+      { id: "media", status: "pending", error: null, message: null },
     ],
+    pipelineRun: { agents: [], active: false },
     globalMusic: "",
     globalSoundscape: "电影级空间环境声",
     aspectRatio: "16:9",
@@ -709,6 +957,7 @@ export function createEmptyRecipe(title: string = ""): RecipeProject {
     previewSpeed: "fast",
     finalQuality: "1.0",
     finalSpeed: "balanced",
+    weightProfile: "full",
     videoWorkflowFamily: "official_h3",
     width: 1344,
     height: 768,
@@ -716,6 +965,8 @@ export function createEmptyRecipe(title: string = ""): RecipeProject {
     refsMode: "refs_on",
     manualPromptOverrideEnabled: false,
     manualPromptOverrideText: "",
+    audio: defaultRecipeAudio(),
+    subtitles: defaultRecipeSubtitles(),
+    export: defaultRecipeExport(),
   }
 }
-

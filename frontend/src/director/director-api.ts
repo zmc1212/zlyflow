@@ -7,9 +7,28 @@ import {
   DirectorArtStyleCatalog,
   isBatchRunPayload,
   isRecipePayload,
+  defaultRecipeAudio,
+  defaultRecipeExport,
+  defaultRecipeSubtitles,
   RecipeProject,
   TimelineProject,
+  DirectorLibraryAsset,
 } from "./types"
+
+export type TtsVoiceItem = {
+  id: string
+  label: string
+  gender?: string
+}
+
+export type DirectorExportCapabilities = {
+  ffmpeg: boolean
+  ffmpeg_path?: string | null
+  ffprobe_path?: string | null
+  tts_available: boolean
+  tts_reason?: string | null
+  voices: TtsVoiceItem[]
+}
 
 export type DirectorGenerationStatus = "pending" | "partial" | "complete"
 export type DirectorPayloadKind = "timeline" | "director_recipe" | "batch_run"
@@ -49,6 +68,7 @@ function timelinePayload(project: TimelineProject): Record<string, unknown> {
     previewSpeed: persistable.previewSpeed,
     finalQuality: persistable.finalQuality,
     finalSpeed: persistable.finalSpeed,
+    weightProfile: persistable.weightProfile,
     videoWorkflowFamily: persistable.videoWorkflowFamily,
     width: persistable.width,
     height: persistable.height,
@@ -111,6 +131,7 @@ export function timelineProjectFromApi(row: DirectorProjectResponse): TimelinePr
       payload.canvasTier === "past_native" ? "2.0" : payload.canvasTier === "fast" ? "0.4" : base.finalQuality
     ),
     finalSpeed: (payload.finalSpeed as TimelineProject["finalSpeed"]) || base.finalSpeed,
+    weightProfile: payload.weightProfile === "pruned" ? "pruned" : "full",
     videoWorkflowFamily: typeof payload.videoWorkflowFamily === "string" ? payload.videoWorkflowFamily : base.videoWorkflowFamily,
     width: typeof payload.width === "number" ? payload.width : base.width,
     height: typeof payload.height === "number" ? payload.height : base.height,
@@ -156,6 +177,10 @@ export function recipePayloadFromApi(row: DirectorProjectResponse): RecipeProjec
   return {
     ...row.payload,
     videoWorkflowFamily: row.payload.videoWorkflowFamily || "official_h3",
+    weightProfile: row.payload.weightProfile === "pruned" ? "pruned" : "full",
+    audio: { ...defaultRecipeAudio(), ...row.payload.audio },
+    subtitles: { ...defaultRecipeSubtitles(), ...row.payload.subtitles },
+    export: { ...defaultRecipeExport(), ...row.payload.export },
   }
 }
 
@@ -164,6 +189,7 @@ export function batchPayloadFromApi(row: DirectorProjectResponse): BatchRunPaylo
   return {
     ...row.payload,
     videoWorkflowFamily: row.payload.videoWorkflowFamily || "official_h3",
+    weightProfile: row.payload.weightProfile === "pruned" ? "pruned" : "full",
   }
 }
 
@@ -246,7 +272,14 @@ export function migrateDirectorProjects(projects: TimelineProject[], csrfToken: 
 }
 
 export function runDirectorRecipe(
-  body: { goal: string; project_id?: string; title?: string; art_style_id?: string; skip_research?: boolean },
+  body: {
+    goal: string
+    project_id?: string
+    title?: string
+    art_style_id?: string
+    skip_research?: boolean
+    agents?: string[]
+  },
   csrfToken: string,
 ) {
   return requestJson<DirectorProjectResponse>("/api/director/recipes/run", jsonMutation(csrfToken, body))
@@ -285,6 +318,44 @@ export function renderDirectorShots(
   )
 }
 
+export function generateDirectorStills(
+  projectId: string,
+  body: { shot_ids?: string[]; force?: boolean },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/generate-stills`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export async function uploadDirectorShotFrame(
+  projectId: string,
+  body: { shot_id: string; slot: "first" | "end"; file: File },
+  csrfToken: string,
+) {
+  const form = new FormData()
+  form.set("shot_id", body.shot_id)
+  form.set("slot", body.slot)
+  form.set("file", body.file)
+  const response = await fetch(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/frames`,
+    { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
+  )
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    throw new Error(apiErrorMessage(payload, "上传分镜帧失败"))
+  }
+  return response.json() as Promise<DirectorProjectResponse>
+}
+
+export function cancelDirectorJob(jobId: string, csrfToken: string) {
+  return requestJson<Record<string, unknown>>(
+    `/api/jobs/${encodeURIComponent(jobId)}/cancel`,
+    jsonMutation(csrfToken, {}),
+  )
+}
+
 export function renderDirectorBatchItems(
   projectId: string,
   body: { item_ids?: string[] },
@@ -310,4 +381,160 @@ export function createDirectorBatch(
   csrfToken: string,
 ) {
   return requestJson<DirectorProjectResponse>("/api/director/batches", jsonMutation(csrfToken, body))
+}
+
+export function listDirectorLibraryAssets(kind?: "character" | "scene" | "prop") {
+  const query = kind ? `?kind=${encodeURIComponent(kind)}` : ""
+  return requestJson<DirectorLibraryAsset[]>(`/api/director/library-assets${query}`)
+}
+
+export function createDirectorLibraryAsset(
+  body: {
+    kind: "character" | "scene" | "prop"
+    name: string
+    description?: string
+    promptText?: string
+    gender?: string
+    imageUrl?: string | null
+    imageJobId?: string | null
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorLibraryAsset>("/api/director/library-assets", jsonMutation(csrfToken, body))
+}
+
+export function updateDirectorLibraryAsset(
+  assetId: string,
+  body: {
+    kind?: "character" | "scene" | "prop"
+    name?: string
+    description?: string
+    promptText?: string
+    gender?: string
+    imageUrl?: string | null
+    imageJobId?: string | null
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorLibraryAsset>(
+    `/api/director/library-assets/${encodeURIComponent(assetId)}`,
+    jsonMutation(csrfToken, body, "PUT"),
+  )
+}
+
+export async function deleteDirectorLibraryAsset(assetId: string, csrfToken: string): Promise<void> {
+  const response = await fetch(
+    `/api/director/library-assets/${encodeURIComponent(assetId)}`,
+    jsonMutation(csrfToken, undefined, "DELETE"),
+  )
+  if (response.status === 204 || response.ok) return
+  const contentType = response.headers.get("content-type") ?? ""
+  if (contentType.includes("application/json")) {
+    const body = await response.json().catch(() => null)
+    throw new Error(apiErrorMessage(body, "删除资产失败"))
+  }
+  throw new Error(`删除资产失败（HTTP ${response.status}）`)
+}
+
+export async function uploadDirectorLibraryAssetImage(assetId: string, file: File, csrfToken: string) {
+  const form = new FormData()
+  form.set("file", file)
+  const response = await fetch(
+    `/api/director/library-assets/${encodeURIComponent(assetId)}/image`,
+    { method: "POST", headers: { "X-CSRF-Token": csrfToken }, body: form },
+  )
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? ""
+    if (contentType.includes("application/json")) {
+      const body = await response.json().catch(() => null)
+      throw new Error(apiErrorMessage(body, "上传资产图失败"))
+    }
+    throw new Error(`上传资产图失败（HTTP ${response.status}）`)
+  }
+  return response.json() as Promise<DirectorLibraryAsset>
+}
+
+export function saveRecipeAssetsToLibrary(
+  body: { project_id: string; character_ids?: string[]; location_ids?: string[] },
+  csrfToken: string,
+) {
+  return requestJson<{ imported: number; assets: DirectorLibraryAsset[] }>(
+    "/api/director/library-assets/from-recipe",
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export function insertDirectorLibraryAssets(projectId: string, assetIds: string[], csrfToken: string) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/insert-library-assets`,
+    jsonMutation(csrfToken, { asset_ids: assetIds }),
+  )
+}
+
+export function getDirectorExportCapabilities() {
+  return requestJson<DirectorExportCapabilities>("/api/director/export-capabilities")
+}
+
+export function generateDirectorTts(
+  projectId: string,
+  body: { shot_ids?: string[]; character_id?: string | null; text?: string | null },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/tts`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export async function uploadDirectorBgm(projectId: string, file: File, csrfToken: string) {
+  const form = new FormData()
+  form.set("file", file)
+  const response = await fetch(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/bgm`,
+    { method: "POST", headers: { "X-CSRF-Token": csrfToken }, body: form },
+  )
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    throw new Error(apiErrorMessage(payload, "上传配乐失败"))
+  }
+  return response.json() as Promise<DirectorProjectResponse>
+}
+
+export function muxDirectorFilm(
+  projectId: string,
+  body: { burn_subtitles?: boolean },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/mux`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export async function downloadDirectorExport(
+  projectId: string,
+  kind: "mux" | "fcpxml" | "edl",
+  filename: string,
+) {
+  const path = kind === "mux"
+    ? `/api/director/recipes/${encodeURIComponent(projectId)}/mux`
+    : `/api/director/recipes/${encodeURIComponent(projectId)}/export.${kind}`
+  const response = await fetch(path, { credentials: "include" })
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? ""
+    if (contentType.includes("application/json")) {
+      const body = await response.json().catch(() => null)
+      throw new Error(apiErrorMessage(body, "下载导出文件失败"))
+    }
+    throw new Error(`下载导出文件失败（HTTP ${response.status}）`)
+  }
+  const blob = await response.blob()
+  const href = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = href
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(href)
 }

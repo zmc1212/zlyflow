@@ -114,11 +114,32 @@ export function jobImageUrl(job: DirectorJobSnapshot | null | undefined): string
   return output.download_url || output.cloud_url || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : undefined)
 }
 
+function looksLikeTechnicalJobError(text: string): boolean {
+  const lower = text.toLowerCase()
+  return (
+    lower.includes("traceback")
+    || lower.includes("exception_type")
+    || lower.includes("exception_message")
+    || lower.includes("execution_error")
+    || text.includes("node_type")
+    || /\.py[:\"'\s,]/.test(text)
+    || /(?:[A-Za-z]:\\|\/comfyui\/)/i.test(text)
+    || (text.includes("{") && text.includes("}") && text.length > 160)
+  )
+}
+
 export function summarizeJobError(raw: string | null | undefined): { summary: string; detail: string } {
   const detail = String(raw || "").trim()
   if (!detail) return { summary: "", detail: "" }
   const compact = detail.replace(/\s+/g, " ")
   const lower = compact.toLowerCase()
+  if (
+    compact.includes("余额不足") || compact.includes("欠费") || compact.includes("额度不足") || compact.includes("魔粒不足")
+    || lower.includes("insufficient") && (lower.includes("balance") || lower.includes("quota") || lower.includes("credit"))
+    || lower.includes("arrear") || lower.includes("payment required") || lower.includes("exceeded your current quota")
+  ) {
+    return { summary: "大模型上游余额不足，请充值后再试。", detail }
+  }
   if (
     lower.includes("outofmemory")
     || lower.includes("out of memory")
@@ -126,8 +147,11 @@ export function summarizeJobError(raw: string | null | undefined): { summary: st
   ) {
     return { summary: "显存不足。请把分辨率改到 0.4 MP 后再生成。", detail }
   }
-  if (compact.includes("ComfyUI 推理失败") || lower.includes("execution_error")) {
+  if (compact.includes("ComfyUI 推理失败") || compact.includes("ComfyUI 报错") || lower.includes("execution_error")) {
     return { summary: "ComfyUI 推理失败。可查看详情排查。", detail }
+  }
+  if (looksLikeTechnicalJobError(compact)) {
+    return { summary: "生成失败，可查看详情排查。", detail }
   }
   const firstLine = detail.split(/\r?\n/, 1)[0].trim()
   if (detail.length <= 120) return { summary: firstLine, detail }

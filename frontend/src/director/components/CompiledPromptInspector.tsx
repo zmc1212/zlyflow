@@ -2,15 +2,8 @@ import { Alert, Button, Input, Radio, Switch, Tag, message } from "antd"
 import {
   Copy, FileText,
 } from "lucide-react"
-import { ShotSubmission, directorSpeedLabel } from "../prompt-compiler"
-import { isDirectorR2V } from "../director-workflows"
+import { ShotSubmission, directorSpeedLabel, workflowRouteLabel } from "../prompt-compiler"
 import { TimelineProject } from "../types"
-
-function workflowRouteLabel(workflowId: string, route?: string): string {
-  if (isDirectorR2V(workflowId, route)) return "R2V 参考图"
-  if (route === "i2v" || workflowId.endsWith("-i2v")) return "I2V 首尾帧"
-  return "T2V 文生"
-}
 
 interface CompiledPromptInspectorProps {
   project: TimelineProject
