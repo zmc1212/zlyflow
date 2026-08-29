@@ -11,7 +11,7 @@ import {
   snapH3DurationSec,
   workflowRouteLabel,
 } from "../prompt-compiler"
-import { extractVideoFrame, shotGenerationState } from "../director-submit"
+import { extractVideoFrame, overlaySubmittingState, shotGenerationState } from "../director-submit"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "../status-labels"
 import {
   CameraDirection, RecipeProject, RecipeShot, ShotTake, TTS_VOICE_OPTIONS, defaultCameraDirection, recipePackedPlates,
@@ -62,6 +62,8 @@ export default function RecipeShotInspector({
   onExtractEndFrame,
   onGenerateTts,
   ttsBusy = false,
+  submitting = false,
+  submittingStill = false,
 }: {
   shot: RecipeShot
   recipe: RecipeProject
@@ -76,19 +78,29 @@ export default function RecipeShotInspector({
   onExtractEndFrame?: (file: File) => Promise<void>
   onGenerateTts?: () => void
   ttsBusy?: boolean
+  submitting?: boolean
+  submittingStill?: boolean
 }) {
   const firstInputRef = useRef<HTMLInputElement>(null)
   const endInputRef = useRef<HTMLInputElement>(null)
   const [compareTakeId, setCompareTakeId] = useState<string | null>(null)
   const [extracting, setExtracting] = useState(false)
-  const state = shotGenerationState(job, shot.outputVideoUrl, shot.jobId, {
-    status: shot.status,
-    progress: shot.progress,
-  })
-  const stillState = shotGenerationState(stillJob, shot.stillUrl, shot.stillJobId, {
-    status: shot.stillStatus || "idle",
-    progress: 0,
-  })
+  const state = overlaySubmittingState(
+    shotGenerationState(job, shot.outputVideoUrl, shot.jobId, {
+      status: shot.status,
+      progress: shot.progress,
+    }),
+    submitting,
+    "正在润色提示词并提交…",
+  )
+  const stillState = overlaySubmittingState(
+    shotGenerationState(stillJob, shot.stillUrl, shot.stillJobId, {
+      status: shot.stillStatus || "idle",
+      progress: 0,
+    }),
+    submittingStill,
+    "正在提交静帧…",
+  )
   const displayStatus = state.generating ? state.status : (state.status !== "idle" ? state.status : shot.status)
   const failed = !state.generating && isDirectorFailedStatus(displayStatus)
   const takes = shot.takes || []
@@ -460,7 +472,7 @@ export default function RecipeShotInspector({
 
       <JobErrorNotice error={state.error || shot.error} />
       <Button type="primary" loading={state.generating} onClick={onRender}>
-        {failed ? "重试这一项" : "生成这一镜"}
+        {state.generating ? state.label : failed ? "重试这一项" : "生成这一镜"}
       </Button>
       </div>
     </div>

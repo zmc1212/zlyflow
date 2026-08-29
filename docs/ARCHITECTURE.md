@@ -1,6 +1,6 @@
 # ZLY AI Video Studio 架构快照
 
-更新时间：2026-08-28
+更新时间：2026-08-30
 
 ## 组件关系
 
@@ -32,6 +32,10 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `frontend/src/auth/AuthScreens.tsx` | 登录、首次超级管理员初始化与强制改密界面 |
 | `frontend/src/admin/AdminSettings.tsx` | 管理设置（账号 / AI 供应商 / LLM / 媒体存储） |
 | `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成/导演台/资产、图/视频与选中任务；工作流、参考图草稿仍在组件 state |
+| `frontend/src/director/DirectorRecipeStudio.tsx` | 导演创作工作面：方案/剪辑双视图共用同一份 `director_recipe`；`?stage=` 与桌面 `?view=` |
+| `frontend/src/director/components/DirectorStageNav.tsx` | 方案视图左栏四组任务导航（方案 / 镜头制作 / 声音 / 交付）与 readiness 徽标 |
+| `frontend/src/director/components/DirectorTimelineView.tsx` | 桌面剪辑视图：素材栏 + 预览/串播 + 镜头轨 + Inspector |
+| `frontend/src/director/types.ts` | Recipe 类型、`recipeReadiness` 派生、`?view=` / `?stage=` 解析 |
 | `frontend/src/local-resource-store.ts` | 目录句柄/资源索引 IndexedDB 持久化及本地文件读写 |
 | `desktop/client/` | ZLYUN AI 客户端本地启动页与品牌图标 |
 | `desktop/src-tauri/` | Tauri Windows 壳、可信 origin capability 与受限本地资源命令 |
@@ -50,7 +54,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/director_library.py` | 员工级人物/场景/道具资产库规范化、从 Recipe 快照、插入工程 |
 | `backend/app/tts_provider.py` | 独立 TTS 供应商（OpenAI 兼容 `/audio/speech`）；可复用 LLM 凭据；不绑定 Edge TTS |
 | `backend/app/director_export.py` | 逐镜 TTS、BGM、ffmpeg 成片、FCPXML/EDL；失败镜头不进入成片 |
-| `backend/app/director_agents.py` | 9 Agent 顺序调度；分镜 Agent 读取官方 h3-prompt-writing 原文生成；配音/配乐写可播放媒体元数据 |
+| `backend/app/director_agents.py` | 9 Agent 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；分镜 Agent 读取官方 h3-prompt-writing 原文生成；配音/配乐写可播放媒体元数据 |
 | `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能与官方 prompt-writing 加载器，供生成页优化和导演台分镜共用 |
 | `backend/app/h3_prompt_writing/` | MiniMax 官方 `h3-prompt-writing` skill 原文（SKILL.md、T2VA/Ref2VA 参考） |
 | `backend/app/director_jobs.py` | Recipe 定妆 GRS 入队、七牛地址回写、分镜/批量按所选工作流族入队 |
@@ -1245,3 +1249,75 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改 ComfyUI graph、节点 ID、工作流模式 API、端口或数据库迁移。原有的 T2V/I2V/R2V 产品路由仍由 `workflow_registry.py` 决定；H3 写作模式仅描述最终提示词的参考关系。
 - 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
 - 回滚方式：恢复本节列出的文件、重新构建前端并重启服务；历史任务的提示词快照和媒体文件无需迁移或清理。
+
+## 2026-08-28 分镜读剧本不再因 180 秒整段超时失败
+
+- 原因：分镜 Agent 一次要生成全部镜头 JSON（最多 8192 token）。旧客户端用非流式 POST、整段 180 秒超时；模型还在写就会报「等待 180 秒仍无响应」，超时还会再打一遍同样的请求。
+- 当前基线：导演对话与 H3 最终润色改为 SSE 流式读取，按 UTF-8 解码（避免 `text/event-stream` 默认 Latin-1 把中文解成乱码）。连接超时 20 秒；读超时是分块空闲 300 秒。分镜生成中 `agentStatus.message` 会更新为「正在写分镜（已收到 N 字）」。读取已保存的 Recipe 时会尝试修复这类乱码；对话字段会去掉误写入的 `<d>` 标签。
+- 受影响文件：`llm_client.py`、`director_agents.py`、`llm_provider.py`、`api_documentation.py`、测试与三份主文档。
+- 兼容性：不改节点、端口、`POST /api/jobs` 或数据库。短对话（连接测试、提示词优化）仍为非流式。
+- 验证命令：`python -m unittest backend.tests.test_llm.ChatCompletionTimeoutAndStreamTests backend.tests.test_director.DirectorAgentPipelineTests.test_chat_text_does_not_retry_timeout backend.tests.test_director.DirectorAgentPipelineTests.test_chat_text_retries_connection_error`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 生成这一镜在润色提示词期间立即显示提交中
+
+- 原因：`POST .../render-shots` 会先调用大模型润色最终 H3 提示词，接口可能几十秒到几分钟才返回；按钮 loading 只看已有 `jobId`，点击后页面看起来完全没反应。
+- 当前基线：点击后立即显示「正在润色提示词并提交…」，并轮询工程。润色开始前把该镜标为 `queued` 并落盘。找不到指定镜头时返回 422，不再空成功。
+- 受影响文件：`director_jobs.py`、`main.py`、导演台 Recipe 工作面、测试与三份主文档。
+- 兼容性：不改节点、端口、`POST /api/jobs`。无 LLM 时仍直接入队。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorDualEngineApiTests.test_recipes_run_and_render_shots_enqueue_t2v`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-30 导演台方案/剪辑双视图 URL
+
+- 原因：一份 `director_recipe` 要同时服务方案任务区和桌面剪辑台，视图状态必须写在 URL，且手机不能进入剪辑台。
+- 当前基线：`/director/:projectId?view=plan|timeline`，默认 `plan`。桌面顶栏 `Segmented`「方案 | 剪辑」写入查询参数；切到剪辑时带上 `stage=shots`。左栏「镜头生成」在桌面进入剪辑视图。「分镜设计」仍留在方案视图。`?stage=` 仍只表示方案视图当前任务。手机 `useIsMobile` 把视图锁定为方案，并把 `view=timeline` 从地址栏替换掉。不新增 payload kind 或后端字段。
+- 受影响文件：`frontend/src/director/types.ts`、`DirectorRecipeStudio.tsx`、`director-recipe-view.contract.ts`、`frontend/src/index.css`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：旧工程无损打开；无 `?view=` 时仍是方案视图。路由仍是 `/director/:projectId`。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后导演工程桌面 1440：顶栏切换、`?view=` / `?stage=` 刷新恢复；手机 390×844：无剪辑开关、时间轴不出现。
+- 回滚方式：恢复上述前端与文档并重新构建前端。
+
+## 2026-08-30 导演台生成创作方案与重资源动作语义
+
+- 原因：用户把 9 Agent 流水线当成一键出片；`agentStatus=completed` 对 voice/music/media 也不等于拿到音频或成片。
+- 当前基线：顶栏主操作为「生成创作方案」，只跑 LLM 写出剧本/画风/分镜/人物场景/声音方案，不提交 GRS、H3、TTS 或 mux。各任务区保留「全部定妆 / 全部出片 / 生成全部配音 / 导出成片」，按钮显示数量，提交前 `Modal.confirm` 写明 N 个定妆、N 镜和预计消耗。单镜、单角色、试听不确认。手机 `DirectorMobileBottomBar` 仍按当前 `?stage=` 切换主按钮，不做九步横条。`AGENT_DONE_MESSAGES` 改为不撒谎（如 voice：「配音方案已写好，音频待生成」）。`AGENT_IDS`、`agentStatus` 结构和所有 API 不变。
+- 受影响文件：`backend/app/director_recipe.py`、`backend/tests/test_director.py`、`frontend/src/director/action-copy.ts`、`action-copy.contract.ts`、`DirectorRecipeStudio.tsx`、`components/DirectorExportPanel.tsx`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：旧工程零迁移。历史 `agentStatus.message` 原样保留，重新跑对应 Agent 后换成新文案。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后导演工程桌面 1440 与手机 390×844：生成创作方案提示、四组导航、重资源确认、`?stage=` 刷新/后退。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-30 导演台方案视图任务导航与 readiness 派生
+
+- 原因：方案视图把 9 Agent 执行日志和用户任务（剧本/定妆/出片/成片）混在同一层级，`agentStatus=completed` 不等于用户拿得到产物。
+- 当前基线：`recipeReadiness(recipe)` 纯前端从 payload 现有字段派生 `empty | draft | partial | ready`（`script.fullStory`、`artStyle`、非占位分镜、定妆 `imageUrl`、`shotIsMuxable`、对白 `ttsStatus`、`audio.bgmUrl`/`globalMusic`、`export.muxStatus`），不新增后端字段、不迁移数据。左栏改为四组折叠导航（方案 / 镜头制作 / 声音 / 交付），右侧只渲染当前任务；`?stage=` 写入当前任务，路由仍是 `/director/:projectId`。9 Agent（含 `research`/`media`）只出现在「AI 运行详情」。人物/场景拆成两个工作区；分镜拆成「分镜设计」和「镜头生成」入口（桌面「镜头生成」进入剪辑视图）。
+- 受影响文件：`frontend/src/director/types.ts`、`DirectorRecipeStudio.tsx`、`components/DirectorStageNav.tsx`、`components/DirectorExportPanel.tsx`、`recipe-readiness.contract.ts`、`frontend/src/index.css`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改 API、`agentStatus` 结构或旧 Recipe；无 `?stage=` 时默认剧本任务。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后导演工程桌面 1440 与手机 390×844：四组导航、`?stage=` 刷新/后退、AI 运行详情仍含 9 Agent。
+- 回滚方式：恢复上述前端与文档并重新构建前端。
+
+## 2026-08-30 导演台剪辑视图时间轴
+
+- 原因：方案视图能写剧本和定妆，但不能按时间轴选镜、装箱、串播已生成 Takes。剪辑台必须读写同一份 `director_recipe`，不能另起一套引擎。
+- 当前基线：桌面 `?view=timeline` 渲染 `DirectorTimelineView`：左栏已定妆角色/场景一点加入本镜 `characterNames`/`locationName`（装箱仍走 `recipePackedPlates`，超过 9 张拒绝）；中上预览当前镜 Take/静帧，串播用 `recipePlayableShots` 把 playhead 扫过已生成镜头；中下 `TimelineRuler` + `TimelineTrackMain` 直接吃 `RecipeShot[]`（`recipeTrackLayout` / `recipeRulerTicks` 按 `durationSec` 铺开），中文状态、拖选、右键复制/删除，时长拖动仍 `snapH3DurationSec`（2–15 秒）；右侧直接复用 `RecipeShotInspector`。出片/静帧/TTS/mux 仍走现有接口。手机继续锁定方案视图。
+- 受影响文件：`frontend/src/director/types.ts`、`DirectorRecipeStudio.tsx`、`components/DirectorTimelineView.tsx`、`TimelineTrackMain.tsx`、`TimelineRuler.tsx`、`director-timeline.contract.ts`、`frontend/src/index.css`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改 API、`agentStatus`、payload kind 或旧 Recipe。无 `?view=` 仍是方案视图；旧工程无损打开。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后导演工程桌面 1440：`?view=timeline` 刷新恢复、轨道点选/拖选、素材加入本镜、串播扫 playhead、Inspector 生成这一镜；手机 390×844 无剪辑台。
+- 回滚方式：恢复上述前端与文档并重新构建前端。
+
+## 2026-08-30 剪辑轨适配 RecipeShot
+
+- 原因：镜头轨仍按旧 `DirectorShot` 排版，剪辑视图要先 `recipeShotsToPlayer` 转一层，角色/场景和首尾帧对不上 Recipe 字段。
+- 当前基线：`TimelineTrackMain` / `TimelineRuler` 直接读写 `RecipeShot[]`。轨道用 `recipeTrackLayout` 按 `durationSec` 铺开，拖选返回镜头 id，状态/角色场景/首尾帧读本镜字段（`stillUrl` 算首帧已设）。刻度用 `recipeRulerTicks`，镜头边界用 `recipeRulerShotEdges`，点击吸附 `recipeRulerSeekSec`。`recipeShotsToPlayer` 只留给串播/预览弹层。不新增 payload kind 或后端字段。
+- 受影响文件：`frontend/src/director/types.ts`、`TimelineTrackMain.tsx`、`TimelineRuler.tsx`、`DirectorTimelineView.tsx`、`director-timeline.contract.ts`、`frontend/src/index.css`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改 API、`agentStatus`、payload kind 或旧 Recipe。旧时间轴 payload 不复活。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后导演工程桌面 1440：`?view=timeline` 轨道按时长铺开、点选/拖选、右键复制删除、刻度与 playhead；手机 390×844 无剪辑台。
+- 回滚方式：恢复上述前端与文档并重新构建前端。
+
+## 2026-08-30 导演台双模式二期验证
+
+- 原因：方案任务导航与桌面剪辑时间轴已落地，需要按 AGENTS.md 把二期基线写入三份主文档，并完成测试构建与桌面/移动回归。
+- 当前基线：一份 `director_recipe` payload、两套视图。方案视图左栏四组任务（方案 / 镜头制作 / 声音 / 交付），右侧只渲染当前任务，`?stage=` 刷新/后退保持位置；任务徽标由前端 `recipeReadiness()` 从现有产物字段派生，不看 `agentStatus`。桌面顶栏 `Segmented`「方案 | 剪辑」写入 `?view=plan|timeline`（默认方案）；剪辑视图是素材栏 + 预览/串播 + `TimelineRuler`/`TimelineTrackMain` + `RecipeShotInspector`，直接读写同一 Recipe。出片/静帧/TTS/mux 仍走现有接口。手机锁定方案视图（镜头横条 + 抽屉），`view=timeline` 会被清掉。9 Agent 只在折叠的「AI 运行详情」。不新增 payload kind、后端字段或九步向导。
+- 受影响文件：`frontend/src/director/types.ts`、`DirectorRecipeStudio.tsx`、`director-recipe-view.contract.ts`、`director-timeline.contract.ts`、`recipe-readiness.contract.ts`、`components/DirectorStageNav.tsx`、`DirectorTimelineView.tsx`、`TimelineTrackMain.tsx`、`TimelineRuler.tsx`、`RecipeShotInspector.tsx`、`frontend/src/index.css`、`docs/API.md`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 兼容性：不改 API、`AGENT_IDS`、`agentStatus` 结构、SQLite schema 或旧 Recipe。带旧 `agentStatus` 的工程无损打开；无 `?view=` 仍是方案视图，无 `?stage=` 默认剧本。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后导演工程：桌面 1440 检查四组导航、`?stage=`/`?view=` 刷新恢复、剪辑轨道点选与 Inspector；手机 390×844 只保留方案视图。
+- 回滚方式：恢复上述前端与文档并重新构建前端；无需回滚数据库或媒体。

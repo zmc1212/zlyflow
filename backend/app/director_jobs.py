@@ -683,13 +683,16 @@ def render_recipe_shots(
     render_pass: str = "final",
     resource_storage: Any | None = None,
     h3_prompt_refiner: Callable[[str, str], str] | None = None,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     recipe = sync_recipe_asset_images(store, recipe, resource_storage=resource_storage)
     wanted = {item for item in (shot_ids or []) if item}
     job_ids: list[str] = []
+    matched = 0
     for _scene, shot in _iter_shots(recipe):
         if wanted and shot.get("id") not in wanted:
             continue
+        matched += 1
         resolved = apply_recipe_continuity(recipe, shot)
         submission = resolve_recipe_shot_submission(recipe, resolved, render_pass)
         errors = list(submission.get("errors") or [])
@@ -711,6 +714,10 @@ def render_recipe_shots(
                 recipe.get("videoWorkflowFamily") or recipe.get("video_workflow_family"),
                 "t2v",
             )
+        shot["status"] = "queued"
+        shot["progress"] = 4
+        if on_progress is not None:
+            on_progress(recipe)
         if h3_prompt_refiner is not None and (refs or not plan_items):
             try:
                 prompt_mode = h3_prompt_mode(submission.get("plan") or {})
@@ -730,6 +737,8 @@ def render_recipe_shots(
             except Exception as error:
                 shot["status"] = "failed"
                 shot["error"] = f"H3 提示词润色失败：{error}"
+                if on_progress is not None:
+                    on_progress(recipe)
                 continue
         job = create_queued_job(
             store,
@@ -765,6 +774,8 @@ def render_recipe_shots(
         shot["takes"] = takes
         shot["activeTakeIndex"] = len(takes) - 1
         job_ids.append(job["id"])
+    if wanted and matched == 0:
+        raise ValueError("没有找到要生成的镜头，请先保存后再试")
     return recipe, job_ids
 
 

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import json
 import re
+import time
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 import requests
+
+LLM_CONNECT_TIMEOUT_SECONDS = 20.0
+LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
 
 
 class LlmError(RuntimeError):
@@ -73,7 +79,7 @@ def append_upstream_log(summary: str, upstream: str | None) -> str:
     snippet = (upstream or "").strip()[:400]
     if not snippet:
         return summary
-    if snippet in summary:
+    if "上游返回" in summary:
         return summary
     return f"{summary}上游返回：{snippet}"
 
@@ -85,6 +91,43 @@ def format_llm_billing_error(*, upstream: str, status: int | None = None, action
         f"大模型上游余额不足或欠费{http}，请到供应商控制台充值后再试。",
         upstream,
     )
+
+
+def repair_utf8_mojibake(text: str) -> str:
+    """Fix UTF-8 Chinese that was decoded as Latin-1 (classic SSE/text/* default)."""
+    raw = text or ""
+    if not raw or any("\u3400" <= ch <= "\u9fff" for ch in raw):
+        return raw
+    try:
+        repaired = raw.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return raw
+    if any("\u3400" <= ch <= "\u9fff" for ch in repaired):
+        return repaired
+    return raw
+
+
+def _decode_sse_line(raw_line: Any) -> str:
+    if raw_line is None:
+        return ""
+    if isinstance(raw_line, bytes):
+        try:
+            return raw_line.decode("utf-8")
+        except UnicodeDecodeError:
+            return repair_utf8_mojibake(raw_line.decode("latin-1", errors="replace"))
+    return repair_utf8_mojibake(str(raw_line))
+
+
+def is_llm_timeout_error(error: BaseException | str) -> bool:
+    text = str(error)
+    lowered = text.lower()
+    return "超时" in text or "timed out" in lowered or "read timeout" in lowered
+
+
+def normalize_http_timeout(timeout: float | tuple[float, float]) -> tuple[float, float]:
+    if isinstance(timeout, (tuple, list)) and len(timeout) >= 2:
+        return (float(timeout[0]), float(timeout[1]))
+    return (LLM_CONNECT_TIMEOUT_SECONDS, float(timeout))
 
 
 def is_upstream_llm_failure(error: BaseException | str) -> bool:
@@ -518,9 +561,12 @@ class OpenAICompatibleClient:
         *,
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        timeout: float = 60.0,
+        timeout: float | tuple[float, float] = 60.0,
+        stream: bool = False,
+        on_chunk: Callable[[str], None] | None = None,
     ) -> str:
         url = f"{self.base_url}/chat/completions"
+        connect_timeout, read_timeout = normalize_http_timeout(timeout)
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -531,17 +577,36 @@ class OpenAICompatibleClient:
             "enable_thinking": False,
             **self._thinking_control_fields(model),
         }
+        if stream:
+            payload["stream"] = True
         try:
-            response = self.session.post(url, headers=self.headers, json=payload, timeout=timeout)
+            response = self.session.post(
+                url,
+                headers=self.headers,
+                json=payload,
+                timeout=(connect_timeout, read_timeout),
+                stream=stream,
+            )
+        except requests.exceptions.ConnectTimeout as exc:
+            raise LlmTemporaryError(
+                f"无法在 {connect_timeout:.0f} 秒内连上大模型服务 {self.base_url}。"
+            ) from exc
         except requests.exceptions.Timeout as exc:
-            raise LlmTemporaryError(f"请求大模型服务超时（等待 {timeout:.0f} 秒仍无响应）：{exc}") from exc
+            raise LlmTemporaryError(
+                f"请求大模型服务超时（等待 {read_timeout:.0f} 秒仍无响应）。"
+                "模型可能仍在生成或首次装入显存，请稍后重试。"
+            ) from exc
         except requests.exceptions.ConnectionError as exc:
             raise LlmTemporaryError(f"无法连接大模型服务 {self.base_url}：{exc}") from exc
         except requests.exceptions.RequestException as exc:
             raise LlmTemporaryError(f"请求大模型服务异常：{exc}") from exc
 
         try:
-            data = self._json(response, "对话推理")
+            if stream:
+                raw = self._read_chat_completion_body(response, stream=True, on_chunk=on_chunk)
+            else:
+                data = self._json(response, "对话推理")
+                raw = self._extract_response_content(data)
         except LlmError as error:
             err_text = str(error)
             if "has no provider supported" in err_text or "not found" in err_text.lower():
@@ -553,11 +618,122 @@ class OpenAICompatibleClient:
                     ) from error
             raise
 
-        raw = self._extract_response_content(data)
         content = self._strip_thinking(raw)
         if not content:
             raise LlmError("大模型返回的内容为空")
         return content
+
+    def _read_chat_completion_body(
+        self,
+        response: requests.Response,
+        *,
+        stream: bool,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        if response.status_code >= 400:
+            data = self._json(response, "对话推理")
+            return self._extract_response_content(data)
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if stream and "json" in content_type and "event-stream" not in content_type:
+            data = self._json(response, "对话推理")
+            return self._extract_response_content(data)
+        if stream:
+            try:
+                response.encoding = "utf-8"
+                return self._read_sse_chat(response, on_chunk=on_chunk)
+            except requests.exceptions.Timeout as exc:
+                raise LlmTemporaryError(
+                    "请求大模型服务超时（等待过程中上游停止返回）。"
+                    "模型可能仍在生成或首次装入显存，请稍后重试。"
+                ) from exc
+            finally:
+                response.close()
+        data = self._json(response, "对话推理")
+        return self._extract_response_content(data)
+
+    def _read_sse_chat(
+        self,
+        response: requests.Response,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        pieces: list[str] = []
+        last_emit = 0.0
+        last_n = 0
+
+        def notify(force: bool = False) -> None:
+            nonlocal last_emit, last_n
+            if not on_chunk or not pieces:
+                return
+            text = "".join(pieces)
+            n = len(text)
+            now = time.monotonic()
+            if not force and last_n > 0 and now - last_emit < 1.5 and n - last_n < 400:
+                return
+            last_emit = now
+            last_n = n
+            on_chunk(text)
+
+        for raw_line in response.iter_lines(decode_unicode=False):
+            if raw_line is None:
+                continue
+            line = _decode_sse_line(raw_line)
+            text = line.strip()
+            if not text or text.startswith(":"):
+                continue
+            if text.startswith("event:"):
+                continue
+            payload_text = text[5:].strip() if text.startswith("data:") else text
+            if payload_text == "[DONE]":
+                break
+            if not payload_text.startswith("{") and not payload_text.startswith("["):
+                continue
+            try:
+                data = json.loads(payload_text)
+            except ValueError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            self._raise_if_embedded_stream_error(data)
+            delta = self._stream_delta_text(data)
+            if delta:
+                pieces.append(delta)
+                notify()
+        if not pieces:
+            raise LlmError("大模型返回的内容为空")
+        notify(force=True)
+        return "".join(pieces)
+
+    def _raise_if_embedded_stream_error(self, data: dict[str, Any]) -> None:
+        embedded_error = _payload_error_text(data)
+        if not embedded_error:
+            return
+        if looks_like_llm_billing(embedded_error):
+            raise LlmBillingError(format_llm_billing_error(upstream=embedded_error, action="对话推理"))
+        if looks_like_llm_auth(embedded_error):
+            raise LlmAuthError(append_upstream_log("大模型鉴权失败，请检查管理设置中的 API Key。", embedded_error))
+        if looks_like_llm_content_filter(embedded_error):
+            raise LlmError(append_upstream_log("大模型拒绝了本次内容，请修改后再试。", embedded_error))
+        raise LlmError(append_upstream_log("大模型返回错误。", embedded_error))
+
+    @staticmethod
+    def _stream_delta_text(data: dict[str, Any]) -> str:
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+        first = choices[0]
+        if not isinstance(first, dict):
+            return ""
+        delta = first.get("delta")
+        if isinstance(delta, dict):
+            content = delta.get("content")
+            if content:
+                return str(content)
+        message = first.get("message")
+        if isinstance(message, dict) and message.get("content"):
+            return str(message["content"])
+        if first.get("text"):
+            return str(first["text"])
+        return ""
 
     @staticmethod
     def _thinking_control_fields(model: str) -> dict[str, Any]:
@@ -675,10 +851,9 @@ class OpenAICompatibleClient:
                 messages, model=model, temperature=0.1, max_tokens=8, timeout=timeout,
             )
         except LlmTemporaryError as error:
-            text = str(error).lower()
-            if "timeout" in text or "timed out" in text:
+            if is_llm_timeout_error(error):
                 raise LlmTemporaryError(
-                    f"大模型在 {int(timeout)} 秒内没有返回。"
+                    f"大模型在 {int(timeout if not isinstance(timeout, tuple) else timeout[-1])} 秒内没有返回。"
                     "若使用 Ollama，通常是模型正在首次加载进显存；请等 `ollama ps` 显示模型已占用 GPU/内存后再点一次测试。"
                     "若 ComfyUI 正在占满显卡，可先等其空闲。"
                 ) from error

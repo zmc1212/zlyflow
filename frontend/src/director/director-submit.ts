@@ -297,6 +297,20 @@ export function shotGenerationState(
   return mediaGenerationState(job, outputVideoUrl, jobId, "出片", "出片中", fallback)
 }
 
+export function overlaySubmittingState(
+  state: AssetGenerationState,
+  submitting: boolean,
+  label: string,
+): AssetGenerationState {
+  if (!submitting) return state
+  return {
+    status: "queued",
+    progress: Math.max(state.progress, 6),
+    generating: true,
+    label,
+  }
+}
+
 export async function waitForJobTerminal(
   jobId: string,
   options?: {

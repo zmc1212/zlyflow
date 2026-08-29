@@ -6,7 +6,7 @@
 
 1. 启动固定目录 `D:\zlyun\ZLY AI Video Studio\整合包及模型\comfyui-integrate-v1.3\comfyui-integrate\Comfyui` 下的 ComfyUI，默认地址为 `http://127.0.0.1:8188`。若端口或映射地址不同，以超级管理员在「管理设置 → AI 供应商」填写实际地址，或设置环境变量 `ZLY_AI_VIDEO_STUDIO_COMFY_URL`（首次启动写入数据库）。
 2. 双击 `启动本地视频工作台.bat`。脚本会分别启动 FastAPI（`7865`）和 Vite 开发服务器（`5173`），并始终自动打开 `http://127.0.0.1:5173`。若 FastAPI 已在运行，重复双击仍打开 5173（必要时补启 Vite），不会打开 7865 上的 `frontend/dist` 静态页。Vite 会显示在独立终端窗口，前端代码变更会自动热更新；后端由 `backend/dev_reloader.py` 监督，修改 `backend/app` 下的 Python 文件或服务异常退出后会自动重启，不再使用 Windows 上会把整个进程组一起关掉的 uvicorn `--reload`。首次使用前执行一次 `pnpm --dir frontend install`。要停止本机工作台时，双击 `关闭本地视频工作台.bat`：脚本会结束 `5173`（Vite）和 `7865`（FastAPI / 监督器）上的工作台进程及对应控制台窗口，不会关闭 ComfyUI（`8188`）。若端口被其他无关程序占用，脚本会提示而不强制结束。
-3. 首次打开时在工作站本机 `http://127.0.0.1:5173/setup` 创建超级管理员，再由管理后台分配员工账号。之后登录地址为 `/login`，登录成功默认进入 `/generate/video`。图/视频任务为 `/generate/image/:jobId` 与 `/generate/video/:jobId`，导演工程为 `/director/:projectId` 或 `/director/batch/:projectId`，资产库为 `/assets`。管理设置可通过 `/admin/accounts`、`/admin/providers`、`/admin/llm`、`/admin/storage` 直达；员工打开 `/admin` 会被送回创作台。刷新或浏览器进退会停留在对应 URL。未登录打开这些链接会先登录，成功后再回到原路径。
+3. 首次打开时在工作站本机 `http://127.0.0.1:5173/setup` 创建超级管理员，再由管理后台分配员工账号。之后登录地址为 `/login`，登录成功默认进入 `/generate/video`。图/视频任务为 `/generate/image/:jobId` 与 `/generate/video/:jobId`，导演工程为 `/director/:projectId`（可选 `?stage=` 与桌面 `?view=plan|timeline`）或 `/director/batch/:projectId`，资产库为 `/assets`。管理设置可通过 `/admin/accounts`、`/admin/providers`、`/admin/llm`、`/admin/storage` 直达；员工打开 `/admin` 会被送回创作台。刷新或浏览器进退会停留在对应 URL。未登录打开这些链接会先登录，成功后再回到原路径。
 4. 使用本机 `127.0.0.1` 或 HTTPS 浏览器交付时，员工首次登录并修改初始密码后需选择本机资源目录；最新版 Chrome/Edge 仅在这些安全上下文允许目录授权。通过局域网 IP 访问时不再阻塞目录选择，启用七牛云后直接使用结果中的七牛云短期签名地址播放或下载。
 5. 若 7865 已被其他程序占用，请先确认或关闭该程序，再启动工作台。
 
@@ -94,7 +94,7 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - GRS 图片生成：管理后台维护可启用的模型目录（GPT Image 2 / VIP、Nano Banana 系列及自定义 ID）；每个启用模型作为独立工作流出现在创作页。支持参考图、比例、1K/2K/4K、VIP 自定义尺寸、单轮 1–4 个并发生成项、部分成功和失败项重试。
 - 图片与视频任务统一为“任务 → 轮次 → 生成项”；同任务不混合媒介，图片结果可创建有关联的新视频任务并预填首帧。
 - MiniMax H3 提示词技能体系与大模型智能优化：结合 MiniMax-H3 官方开源技能规范（三维运镜语法、多模态时序结构、环境音效与背景配乐），融合 OpenAI 兼容大模型（魔搭按魔粒计费；硅基流动 7B / 本机 Ollama 可零云端消耗），提供电影级通用、极简电商广告、3D动画短片、立体纸艺定格、品牌宣传、音乐短片、双人游戏片头、纸拼贴与手绘发光实景等 9 大细分风格技能的一键智能优化。
-- MiniMax H3 Web AI 导演台（Director Studio）：进入导演台先选导演创作或短视频批量。导演创作用 9 Agent 生成可编辑 Recipe（故事/画风/人物/场景/分镜）。点击「分镜」会按当前剧本一次性生成全部镜头（没有完整故事时先写脚本再拆镜），不再回退成单条「主镜头」；生成中主区显示镜头占位卡和人话阶段（读剧本/整理镜头），进度按本次实际步骤计数，不把大模型原文或思考过程打到画布上。自动分镜按 MiniMax H3 官方 `h3-prompt-writing` skill 写镜头正文、运镜和对白；提交时编译为 T2VA 三段式或 Ref2VA 六段式提示词。定妆走 GRS，分镜视频走本机所选工作流。员工级资产库保存人物/场景/道具（图 + 提示词），可在不同工程插入；不建系列分集。分镜页为左镜头列表 + 右 Inspector（手机为横向条 + 抽屉），可改标题、描述、对白、时长、角色、场景和机位；默认预览档，可切终稿。画风默认 6 张推荐。保存约 800ms 防抖并显示状态。9 Agent 在「AI 运行详情」中折叠，详情里可看最近一次分镜摘要。分镜页可改工作流（LightX2V / 八步双加速 / 官方 MiniMax H3 等）、画面比例、分辨率（0.4 / 1.0 / 2.0 MP）和生成速度；文生、首尾帧、多参考仍按镜头素材自动匹配。16GB 显卡建议 0.4 MP。参考图在提交时自动装箱最多 9 张。短视频批量按主题裂变多条脚本，并按所选工作流并行文生。手机上 Recipe/批量有返回工程库的头栏和底部主按钮；镜头与批量条目显示中文状态，失败可就地重试。工程保存在 SQLite（员工隔离）。旧时间轴工程打开时转为 Recipe。Analyze 仅在大模型支持视觉时根据参考图提取外貌。成片可串播、导出剪映草稿，也可在「出片」页用本机 ffmpeg 合成 MP4 并下载 FCPXML/EDL。配音走 OpenAI 兼容 TTS（可复用大模型凭据，不使用 Edge TTS）；本机需安装 ffmpeg/ffprobe 才能导出工作台内成片。
+- MiniMax H3 Web AI 导演台（Director Studio）：进入导演台先选导演创作或短视频批量。导演创作用 9 Agent 生成可编辑 Recipe。方案视图左栏是四组任务（方案 / 镜头制作 / 声音 / 交付），右侧只显示当前任务；当前任务写在 `/director/:projectId?stage=`，刷新和后退保持位置。桌面顶栏可切「方案 | 剪辑」（`?view=plan|timeline`，默认方案）；手机只保留方案视图（镜头横条 + 抽屉）。任务徽标由前端从 payload 派生（剧本、画风、分镜、定妆图、Takes、ttsUrl、muxStatus），不看 `agentStatus`。顶栏「生成创作方案」只写剧本/画风/分镜/人物场景/声音方案，不会生成视频或配音音频；全部定妆、全部出片、生成全部配音、导出成片仍在各任务区，提交前弹出数量与预计消耗。9 Agent（含研究/媒体）只在折叠的「AI 运行详情」里。点击「分镜设计」或「镜头生成」会按当前剧本一次性生成全部镜头（没有完整故事时先写脚本再拆镜），不再回退成单条「主镜头」；生成中主区显示镜头占位卡和人话阶段（读剧本/整理镜头），进度按本次实际步骤计数，不把大模型原文或思考过程打到画布上。自动分镜按 MiniMax H3 官方 `h3-prompt-writing` skill 写镜头正文、运镜和对白；提交时编译为 T2VA 三段式或 Ref2VA 六段式提示词。定妆走 GRS，分镜视频走本机所选工作流。员工级资产库保存人物/场景/道具（图 + 提示词），可在不同工程插入；不建系列分集。分镜设计页为左镜头列表 + 右 Inspector（手机为横向条 + 抽屉）。桌面「剪辑」视图是同一份 Recipe 的素材栏 + 预览/串播 + 镜头轨 + Inspector，可改标题、描述、对白、时长、角色、场景和机位；默认预览档，可切终稿。画风默认 6 张推荐。保存约 800ms 防抖并显示状态。分镜页可改工作流（LightX2V / 八步双加速 / 官方 MiniMax H3 等）、画面比例、分辨率（0.4 / 1.0 / 2.0 MP）和生成速度；文生、首尾帧、多参考仍按镜头素材自动匹配。16GB 显卡建议 0.4 MP。参考图在提交时自动装箱最多 9 张。短视频批量按主题裂变多条脚本，并按所选工作流并行文生。手机上 Recipe/批量有返回工程库的头栏和底部主按钮（随当前任务切换）；镜头与批量条目显示中文状态，失败可就地重试。工程保存在 SQLite（员工隔离）。旧时间轴工程打开时转为 Recipe。Analyze 仅在大模型支持视觉时根据参考图提取外貌。成片可串播、导出剪映草稿，也可在「成片」任务里用本机 ffmpeg 合成 MP4 并下载 FCPXML/EDL。配音走 OpenAI 兼容 TTS（可复用大模型凭据，不使用 Edge TTS）；本机需安装 ffmpeg/ffprobe 才能导出工作台内成片。
 - MiniMax H3：官方文生 / 首尾帧 / 多参考（采样前预留 3 GB 显存并启用 H3 显存高效 Sage），以及自定义「全能参考（多速率）」和「双时钟加速」。另接入 LightX2V 文生 / 首尾帧 / 多参考（默认 1.0 MP、4 步 euler），以及「八步双加速」文生 / 首尾帧 / 多参考（默认 0.4 MP、8 步，FL2V Turbo LoRA + KJ Sage + H3 Sage）。创作页工作流下拉按 LightX2V、八步双加速、官方 MiniMax H3、自定义分组。可选择生成速度：快速 4 步、均衡 8 步、高质量 20 步，或自定义 1–40 步（八步双加速默认即为 8 步档）。创建栏可切换模型体积：完整（32 GB，可挂加速 LoRA）或精简（20 GB，关闭加速 LoRA，适合 32 GB 内存）。尺寸、时长、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
 
 
@@ -105,6 +105,77 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - `ZLYUN AI` Windows 桌面客户端：为企业员工提供受控的本地目录交付、可靠本地预览和安装包更新基础；Web 工作台继续保留。
 
 新作品写入员工授权目录的 `ZLY AI Studio/<YYYY-MM>`；既有 IndexedDB 记录和 `ZLY AI Video Studio` 目录继续只读兼容。GRS 图片成功 URL 会在后端校验 HTTPS、重定向、公网地址、MIME、文件签名和 50 MB 上限后暂存，浏览器/桌面端确认交付后立即清理。
+
+## 2026-08-30 导演台方案/剪辑视图切换
+
+- 原因：方案任务导航和剪辑时间轴要共用同一份 Recipe，不能做成第二套引擎；剪辑台是桌面场景。
+- 用户可见行为：导演工程地址为 `/director/:projectId?view=plan|timeline`，默认方案。桌面顶栏增加「方案 | 剪辑」分段开关，刷新和后退保持视图。左栏「镜头生成」在桌面进入剪辑视图。手机锁定方案视图，忽略或清掉 `view=timeline`。
+- 受影响文件：`frontend/src/director/types.ts`、`DirectorRecipeStudio.tsx`、`director-recipe-view.contract.ts`、`index.css` 与三份主文档。
+- 兼容性：不改 API、`agentStatus` 或旧 Recipe。无 `?view=` 时仍是方案视图；`?stage=` 行为不变。
+- 验证命令：`pnpm --dir frontend build`。浏览器登录后导演工程桌面 1440 切换方案/剪辑并刷新恢复；手机 390×844 只显示方案视图。
+- 回滚方式：恢复上述前端文件并重新构建。
+
+## 2026-08-30 导演台剪辑视图时间轴
+
+- 原因：方案写完后要在桌面按时间轴选镜、装箱和串播，但不能另做一套 payload。
+- 用户可见行为：桌面切到「剪辑」后出现素材栏、预览/串播、镜头轨和右侧分镜检查器，读写同一份导演工程。点已定妆角色/场景加入当前镜；串播会扫过已生成镜头；右键可复制/删除镜头；时长仍限制在 2–15 秒。手机继续只显示方案视图。
+- 受影响文件：`DirectorTimelineView.tsx`、`TimelineTrackMain.tsx`、`DirectorRecipeStudio.tsx`、`types.ts`、`index.css` 与三份主文档。
+- 兼容性：不改 API 或旧 Recipe。无 `?view=` 仍是方案视图。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器登录后导演工程桌面 1440 检查剪辑轨与 Inspector；手机 390×844 无剪辑台。
+- 回滚方式：恢复上述前端文件并重新构建。
+
+## 2026-08-30 剪辑轨适配 RecipeShot
+
+- 原因：镜头轨原先吃旧 `DirectorShot`，剪辑视图还要先转一层才能铺开。
+- 用户可见行为：时间轴直接按本镜 `durationSec` 铺开，角色/场景名、首尾帧和中文状态来自 Recipe 镜头；刻度带镜头边界，吸附 playhead。手机仍无剪辑台。
+- 受影响文件：`types.ts`、`TimelineTrackMain.tsx`、`TimelineRuler.tsx`、`DirectorTimelineView.tsx`、`director-timeline.contract.ts`、`index.css` 与三份主文档。
+- 兼容性：不改 API 或旧 Recipe。`recipeShotsToPlayer` 仍只给串播弹层用。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述前端文件并重新构建。
+
+## 2026-08-30 导演台双模式二期验证
+
+- 原因：方案任务导航与桌面剪辑时间轴已落地，需要按 AGENTS.md 把二期基线写入三份主文档，并完成测试构建与桌面/移动回归。
+- 用户可见行为：导演工程仍是 `/director/:projectId`。方案视图四组任务导航 + readiness 徽标，当前任务写在 `?stage=`。桌面可切「方案 | 剪辑」（`?view=plan|timeline`）；剪辑视图是同一份 Recipe 的素材栏、预览/串播、镜头轨和 Inspector。手机只保留方案视图。旧 `agentStatus` 工程可直接打开。
+- 受影响文件：`types.ts`、`DirectorRecipeStudio.tsx`、`DirectorStageNav.tsx`、`DirectorTimelineView.tsx`、`TimelineTrackMain.tsx`、`TimelineRuler.tsx`、契约文件、`index.css` 与三份主文档。
+- 兼容性：不改 API、`agentStatus` 结构或旧 Recipe。无 `?view=` 仍是方案视图。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器登录后导演工程桌面 1440：四组导航、`?stage=`/`?view=` 刷新恢复、剪辑轨道与 Inspector；手机 390×844 只保留方案视图。
+- 回滚方式：恢复上述前端与文档并重新构建。
+
+## 2026-08-30 导演台生成创作方案与重资源确认
+
+- 原因：顶栏「运行导演流水线」被理解成会出视频；voice/music/media Agent「已完成」也不等于用户拿到音频或成片。
+- 用户可见行为：顶栏改为「生成创作方案」，并写明只产出剧本/画风/分镜/人物场景/声音方案。全部定妆、全部出片、生成全部配音、导出成片仍在各任务区，按钮带数量，提交前确认预计消耗。单镜/单角色生成不弹确认。手机底栏主按钮随当前任务切换。Agent 完成文案改为「方案已写好，媒体待生成」。
+- 受影响文件：`director_recipe.py`、`DirectorRecipeStudio.tsx`、`DirectorExportPanel.tsx`、`action-copy.ts`、`action-copy.contract.ts`、测试与三份主文档。
+- 兼容性：不改 API、`agentStatus` 结构或旧 Recipe。已落盘的旧完成文案保持原样，重新跑 Agent 后才会换成新文案。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器登录后导演工程桌面 1440 与手机 390×844：四组导航、`?stage=` 刷新/后退、生成创作方案提示、重资源确认数量。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-30 导演台方案视图四组任务导航
+
+- 原因：左栏 9 个 Agent 与右栏 5 个 Tab 同层级且状态语义矛盾（voice/music/media 显示已完成但没有音频/成片）。
+- 用户可见行为：导演创作工程改为四组任务导航（方案、镜头制作、声音、交付），每项显示未开始/草稿/部分完成/已就绪。右侧只显示当前任务。地址为 `/director/:projectId?stage=`，刷新和浏览器后退保持位置。9 Agent 原始状态移入「AI 运行详情」。旧工程无需迁移。
+- 受影响文件：`frontend/src/director/types.ts`、`DirectorRecipeStudio.tsx`、`DirectorStageNav.tsx`、`DirectorExportPanel.tsx`、`recipe-readiness.contract.ts`、`index.css` 与三份主文档。
+- 验证命令：`pnpm --dir frontend build`。浏览器登录后打开导演工程，检查四组导航、`?stage=` 刷新恢复、桌面 1440 与手机 390×844。
+- 回滚方式：恢复上述前端文件并重新构建。
+
+## 2026-08-28 分镜读剧本不再因 180 秒整段超时失败
+
+- 原因：点击「分镜」后卡在「正在读剧本」，约 3 分钟后报「请求大模型服务超时（等待 180 秒仍无响应）」。一次生成全部镜头 JSON 经常超过 180 秒，非流式请求会把还在写的响应直接掐掉。
+- 用户可见行为：分镜/导演 Agent 改为流式读取大模型。只要模型持续输出，完整分镜可以超过 3 分钟；进度会从「正在读剧本」变成「正在写分镜（已收到 N 字）」，并显示已等待时间。超时文案不再带 urllib3 原文。超时不会自动再打一遍同样的长请求。连接失败仍会重试一次。
+- 受影响文件：`llm_client.py`、`director_agents.py`、`llm_provider.py`、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`python -m unittest backend.tests.test_llm.ChatCompletionTimeoutAndStreamTests backend.tests.test_director.DirectorAgentPipelineTests.test_chat_text_does_not_retry_timeout`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
+
+## 2026-08-28 生成这一镜在润色提示词期间立即显示提交中
+
+- 原因：点「生成这一镜」后要先等大模型润色提示词，接口几分钟才返回；按钮没有转圈，页面像没反应。
+- 用户可见行为：点击后立刻出现「正在润色提示词并提交这一镜…」，镜头状态变为提交中。润色完成才会真正排队出片。分镜还在写时会提示先等写完。
+- 受影响文件：`director_jobs.py`、`main.py`、导演台 Recipe 工作面、测试与三份主文档。
+- 兼容性：不改节点、端口或 `POST /api/jobs`。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorDualEngineApiTests.test_recipes_run_and_render_shots_enqueue_t2v`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端、重启工作台。
 
 ## 2026-08-28 视频工作流可切换精简 UNET
 

@@ -1,5 +1,5 @@
 import { persistableDirectorProjects } from "./director-storage"
-import { assetGenerationState, assetPreviewUrl, jobProgressFromJob, jobStoredImageUrl, mergeDirectorStatus, shotGenerationState, shotStatusFromJob, summarizeJobError } from "./director-submit"
+import { assetGenerationState, assetPreviewUrl, jobProgressFromJob, jobStoredImageUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotStatusFromJob, summarizeJobError } from "./director-submit"
 import { directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
 import {
   buildReferencePlan,
@@ -326,6 +326,14 @@ export function assertPromptCompilerContract(): void {
   )
   if (!regeneratingShot.generating || regeneratingShot.status !== "queued") {
     throw new Error("re-rendering a finished shot must keep showing live progress")
+  }
+  const submittingShot = overlaySubmittingState(
+    regeneratingShot,
+    true,
+    "正在润色提示词并提交…",
+  )
+  if (!submittingShot.generating || submittingShot.label !== "正在润色提示词并提交…") {
+    throw new Error("clicking generate must show submitting state before render-shots returns")
   }
   const storedImage = jobStoredImageUrl({
     outputs: [{

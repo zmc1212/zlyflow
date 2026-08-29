@@ -10,7 +10,11 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from backend.app.auth import AuthStore
+import requests
+
 from backend.app.llm_client import (
+    LLM_CONNECT_TIMEOUT_SECONDS,
+    LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
     OpenAICompatibleClient,
     LlmBillingError,
     LlmError,
@@ -56,6 +60,147 @@ class ChatCompletionThinkingTests(unittest.TestCase):
         payload = mock_post.call_args.kwargs["json"]
         self.assertNotIn("thinking", payload)
         self.assertFalse(payload["enable_thinking"])
+
+
+class ChatCompletionTimeoutAndStreamTests(unittest.TestCase):
+    def _client(self) -> OpenAICompatibleClient:
+        return OpenAICompatibleClient("https://api-inference.modelscope.cn/v1", "ms-token")
+
+    def _ok_response(self) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "收到"}}]
+        }
+        return mock_response
+
+    @patch("requests.Session.post")
+    def test_uses_connect_and_read_timeout(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        self._client().chat_completion([{"role": "user", "content": "hi"}], "Qwen/Qwen2.5-7B-Instruct")
+        self.assertEqual(
+            mock_post.call_args.kwargs["timeout"],
+            (LLM_CONNECT_TIMEOUT_SECONDS, 60.0),
+        )
+        self.assertFalse(mock_post.call_args.kwargs["json"].get("stream"))
+
+    @patch("requests.Session.post")
+    def test_read_timeout_omits_urllib3_dump(self, mock_post: MagicMock) -> None:
+        mock_post.side_effect = requests.exceptions.ReadTimeout("Read timed out. (read timeout=180)")
+        with self.assertRaises(LlmTemporaryError) as ctx:
+            self._client().chat_completion(
+                [{"role": "user", "content": "hi"}],
+                "Qwen/Qwen2.5-7B-Instruct",
+                timeout=300.0,
+            )
+        text = str(ctx.exception)
+        self.assertIn("等待 300 秒仍无响应", text)
+        self.assertNotIn("Read timed out", text)
+        self.assertNotIn("HTTPSConnectionPool", text)
+
+    @patch("requests.Session.post")
+    def test_stream_accumulates_sse_deltas(self, mock_post: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "text/event-stream"}
+        mock_response.iter_lines.return_value = [
+            "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"title\\\"\"}}]}",
+            "data: {\"choices\":[{\"delta\":{\"content\":\":\\\"巷口\\\"}\"}}]}",
+            "data: [DONE]",
+        ]
+        mock_post.return_value = mock_response
+        text = self._client().chat_completion(
+            [{"role": "user", "content": "hi"}],
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
+            timeout=300.0,
+            stream=True,
+        )
+        self.assertEqual(text, '{"title":"巷口"}')
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertTrue(payload["stream"])
+        self.assertEqual(payload["thinking"], {"type": "disabled"})
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], (LLM_CONNECT_TIMEOUT_SECONDS, 300.0))
+        self.assertTrue(mock_post.call_args.kwargs["stream"])
+
+    @patch("requests.Session.post")
+    def test_stream_ignores_reasoning_deltas(self, mock_post: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "text/event-stream"}
+        mock_response.iter_lines.return_value = [
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"思考中\"}}]}",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"完成\"}}]}",
+            "data: [DONE]",
+        ]
+        mock_post.return_value = mock_response
+        text = self._client().chat_completion(
+            [{"role": "user", "content": "hi"}],
+            "Qwen/Qwen2.5-7B-Instruct",
+            stream=True,
+        )
+        self.assertEqual(text, "完成")
+
+    @patch("requests.Session.post")
+    def test_stream_reports_on_chunk(self, mock_post: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "text/event-stream"}
+        mock_response.iter_lines.return_value = [
+            "data: {\"choices\":[{\"delta\":{\"content\":\"镜\"}}]}",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"头\"}}]}",
+            "data: [DONE]",
+        ]
+        mock_post.return_value = mock_response
+        chunks: list[str] = []
+        text = self._client().chat_completion(
+            [{"role": "user", "content": "hi"}],
+            "Qwen/Qwen2.5-7B-Instruct",
+            stream=True,
+            on_chunk=chunks.append,
+        )
+        self.assertEqual(text, "镜头")
+        self.assertGreaterEqual(len(chunks), 1)
+        self.assertEqual(chunks[-1], "镜头")
+
+    @patch("requests.Session.post")
+    def test_stream_decodes_utf8_chinese_from_bytes(self, mock_post: MagicMock) -> None:
+        payload = json.dumps(
+            {"choices": [{"delta": {"content": '{"title":"巷口"}'}}]},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "text/event-stream"}
+        mock_response.encoding = "ISO-8859-1"
+        mock_response.iter_lines.return_value = [b"data: " + payload, b"data: [DONE]"]
+        mock_post.return_value = mock_response
+        text = self._client().chat_completion(
+            [{"role": "user", "content": "hi"}],
+            "Qwen/Qwen2.5-7B-Instruct",
+            stream=True,
+        )
+        self.assertEqual(text, '{"title":"巷口"}')
+
+    def test_repairs_utf8_mojibake(self) -> None:
+        from backend.app.llm_client import repair_utf8_mojibake
+
+        garbled = "巷口".encode("utf-8").decode("latin-1")
+        self.assertNotEqual(garbled, "巷口")
+        self.assertEqual(repair_utf8_mojibake(garbled), "巷口")
+        self.assertEqual(repair_utf8_mojibake("Ada sent a message"), "Ada sent a message")
+
+    def test_director_chat_fn_streams_with_long_idle_timeout(self) -> None:
+        from backend.app.director_agents import default_chat_fn
+
+        client = MagicMock()
+        client.chat_completion.return_value = "ok"
+        default_chat_fn(client, "deepseek-ai/DeepSeek-V4-Flash-0731")([{"role": "user", "content": "x"}])
+        kwargs = client.chat_completion.call_args.kwargs
+        self.assertTrue(kwargs["stream"])
+        self.assertEqual(kwargs["timeout"], LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS)
+        self.assertEqual(kwargs["max_tokens"], 8192)
+        self.assertIn("on_chunk", kwargs)
 
 
 class LlmBillingErrorTests(unittest.TestCase):

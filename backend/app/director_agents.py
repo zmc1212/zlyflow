@@ -12,23 +12,48 @@ from .director_recipe import (
     AGENT_IDS,
     default_audio_mix,
     empty_recipe_payload,
+    normalize_dialogue,
     normalize_recipe_payload,
     normalize_voice_id,
     set_agent_status,
     split_display_and_prompt,
 )
 from .llm_client import (
+    LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
     LlmBillingError,
     LlmError,
     LlmTemporaryError,
     OpenAICompatibleClient,
+    is_llm_timeout_error,
     is_upstream_llm_failure,
     looks_like_llm_billing,
+    repair_utf8_mojibake,
 )
 from .llm_minimax_skills import build_h3_batch_fission_prompt, build_h3_storyboard_agent_prompt
 
 
 ChatFn = Callable[[list[dict[str, Any]]], str]
+
+
+class DirectorChatFn:
+    """Callable chat wrapper that can report streamed bytes without changing ChatFn tests."""
+
+    def __init__(self, client: OpenAICompatibleClient, model: str) -> None:
+        self._client = client
+        self._model = model
+        self.on_chunk: Callable[[str], None] | None = None
+
+    def __call__(self, messages: list[dict[str, Any]]) -> str:
+        return self._client.chat_completion(
+            messages,
+            model=self._model,
+            temperature=0.6,
+            max_tokens=8192,
+            timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
+            stream=True,
+            on_chunk=self.on_chunk,
+        )
+
 
 RESEARCH_HINTS = (
     "品牌", "公司", "真实事件", "历史", "纪录片", "据实", "史实", "知名",
@@ -177,21 +202,13 @@ def pick_art_style_from_catalog(goal: str, preferred: Any = None) -> dict[str, s
 
 
 def default_chat_fn(client: OpenAICompatibleClient, model: str) -> ChatFn:
-    def _chat(messages: list[dict[str, Any]]) -> str:
-        return client.chat_completion(
-            messages,
-            model=model,
-            temperature=0.6,
-            max_tokens=8192,
-            timeout=180.0,
-        )
-    return _chat
+    return DirectorChatFn(client, model)
 
 
 def _text(value: Any, fallback: str = "") -> str:
     if value is None:
         return fallback
-    text = str(value).strip()
+    text = repair_utf8_mojibake(str(value).strip())
     return text or fallback
 
 
@@ -201,11 +218,13 @@ def _list(value: Any) -> list[Any]:
 
 def _chat_text(chat_fn: ChatFn, messages: list[dict[str, Any]], *, retries: int = 1) -> str:
     last_error: Exception | None = None
-    for _ in range(retries + 1):
+    for attempt in range(retries + 1):
         try:
             raw = chat_fn(messages)
         except LlmTemporaryError as error:
             last_error = error
+            if is_llm_timeout_error(error) or attempt >= retries:
+                break
             continue
         except LlmError:
             raise
@@ -219,11 +238,13 @@ def _chat_text(chat_fn: ChatFn, messages: list[dict[str, Any]], *, retries: int 
 
 def _chat_json(chat_fn: ChatFn, messages: list[dict[str, Any]], *, retries: int = 1) -> dict[str, Any] | None:
     last_error: Exception | None = None
-    for _ in range(retries + 1):
+    for attempt in range(retries + 1):
         try:
             raw = chat_fn(messages)
         except LlmTemporaryError as error:
             last_error = error
+            if is_llm_timeout_error(error) or attempt >= retries:
+                break
             continue
         except LlmError:
             raise
@@ -447,8 +468,8 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
                 "title": title,
                 "description": description,
                 "promptText": prompt_text,
-                "dialogue": _text(item.get("dialogue")),
-                "characterNames": [str(name).strip() for name in _list(names) if str(name).strip()],
+                "dialogue": normalize_dialogue(item.get("dialogue")),
+                "characterNames": [_text(name) for name in _list(names) if _text(name)],
                 "locationName": _text(item.get("locationName") or item.get("location_name") or scene_item.get("locationName")),
                 "durationSec": snap_h3_duration_sec(item.get("durationSec") or item.get("duration_sec") or 5),
                 "camera": _camera(item.get("camera")),
@@ -762,25 +783,43 @@ def run_agent(
             )
             parsed: dict[str, Any] = {}
             if chat_fn:
+                previous_chunk = getattr(chat_fn, "on_chunk", None)
+
+                def report_chunk(accumulated: str) -> None:
+                    n = len(accumulated or "")
+                    if n <= 0:
+                        return
+                    set_agent_status(recipe, agent_id, "running", message=f"正在写分镜（已收到 {n} 字）")
+                    try:
+                        emit()
+                    except Exception:
+                        return
+
+                if hasattr(chat_fn, "on_chunk"):
+                    chat_fn.on_chunk = report_chunk
                 set_agent_status(recipe, agent_id, "running", message="正在读剧本")
                 emit()
-                raw = _chat_text(chat_fn, [
-                    {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
-                    {"role": "user", "content": user_content},
-                ], retries=1)
-                set_agent_status(recipe, agent_id, "running", message="正在整理镜头")
-                emit()
-                parsed = _parse_storyboard_reply(raw, goal)
-                if _is_collapsed_storyboard(parsed, goal):
-                    set_agent_status(recipe, agent_id, "running", message="镜头不完整，正在重拆")
-                    emit()
+                try:
                     raw = _chat_text(chat_fn, [
-                        {"role": "system", "content": _system(agent_id, STORYBOARD_RETRY_SYSTEM)},
+                        {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
                         {"role": "user", "content": user_content},
                     ], retries=1)
                     set_agent_status(recipe, agent_id, "running", message="正在整理镜头")
                     emit()
                     parsed = _parse_storyboard_reply(raw, goal)
+                    if _is_collapsed_storyboard(parsed, goal):
+                        set_agent_status(recipe, agent_id, "running", message="镜头不完整，正在重拆")
+                        emit()
+                        raw = _chat_text(chat_fn, [
+                            {"role": "system", "content": _system(agent_id, STORYBOARD_RETRY_SYSTEM)},
+                            {"role": "user", "content": user_content},
+                        ], retries=1)
+                        set_agent_status(recipe, agent_id, "running", message="正在整理镜头")
+                        emit()
+                        parsed = _parse_storyboard_reply(raw, goal)
+                finally:
+                    if hasattr(chat_fn, "on_chunk"):
+                        chat_fn.on_chunk = previous_chunk
             _apply_storyboard(recipe, parsed or {}, goal)
             if _recipe_shot_count(recipe) == 0:
                 recipe["scenes"] = []

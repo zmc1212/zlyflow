@@ -211,28 +211,30 @@ export default function DirectorAssetLibrary({
                 <Typography.Paragraph ellipsis={{ rows: 2 }} className="director-library-prompt">
                   {userFacingCopy(asset.description, asset.promptText) || "未填写提示词"}
                 </Typography.Paragraph>
-                <Space wrap>
-                  {mode === "picker" ? (
-                    <Button size="small" type={selected ? "primary" : "default"} onClick={(event) => {
+                <div className="director-asset-card-actions">
+                  <Space wrap>
+                    {mode === "picker" ? (
+                      <Button size="small" type={selected ? "primary" : "default"} onClick={(event) => {
+                        event.stopPropagation()
+                        toggleSelect(asset.id)
+                      }}>
+                        {selected ? "已选" : "选择"}
+                      </Button>
+                    ) : null}
+                    <Button size="small" onClick={(event) => {
                       event.stopPropagation()
-                      toggleSelect(asset.id)
+                      openEdit(asset)
                     }}>
-                      {selected ? "已选" : "选择"}
+                      编辑
                     </Button>
-                  ) : null}
-                  <Button size="small" onClick={(event) => {
-                    event.stopPropagation()
-                    openEdit(asset)
-                  }}>
-                    编辑
-                  </Button>
-                  <Button size="small" danger icon={<Trash2 size={12} />} onClick={(event) => {
-                    event.stopPropagation()
-                    handleDelete(asset)
-                  }}>
-                    删除
-                  </Button>
-                </Space>
+                    <Button size="small" danger icon={<Trash2 size={12} />} onClick={(event) => {
+                      event.stopPropagation()
+                      handleDelete(asset)
+                    }}>
+                      删除
+                    </Button>
+                  </Space>
+                </div>
               </Card>
             )
           })}

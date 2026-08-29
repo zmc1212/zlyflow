@@ -637,9 +637,7 @@ const MUX_FAILED_STATUSES = new Set(["failed", "interrupted", "cancelled", "stop
 
 export function shotIsMuxable(shot: RecipeShot): boolean {
   if (MUX_FAILED_STATUSES.has(shot.status)) return false
-  const takes = shot.takes || []
-  const approved = takes.find((take) => (take.id || take.jobId) === shot.approvedTakeId)
-  const take = approved || takes[shot.activeTakeIndex || 0] || takes[takes.length - 1]
+  const take = recipeShotActiveTake(shot)
   if (take) {
     if (MUX_FAILED_STATUSES.has(take.status)) return false
     return Boolean(take.videoUrl) || take.status === "succeeded"
@@ -770,6 +768,180 @@ export function isPlaceholderRecipeBoard(shots: RecipeShot[], goal: string, full
   return titleIsDummy && descriptionIsIdea && noPrompt
 }
 
+export const RECIPE_STAGE_IDS = [
+  "script",
+  "art_style",
+  "storyboard",
+  "characters",
+  "locations",
+  "shots",
+  "voice",
+  "music",
+  "export",
+] as const
+
+export type RecipeStageId = (typeof RECIPE_STAGE_IDS)[number]
+export type RecipeReadinessLevel = "empty" | "draft" | "partial" | "ready"
+
+export interface RecipeReadinessItem {
+  level: RecipeReadinessLevel
+  done: number
+  total: number
+}
+
+export type RecipeReadiness = Record<RecipeStageId, RecipeReadinessItem>
+
+export const RECIPE_STAGE_LABELS: Record<RecipeStageId, string> = {
+  script: "剧本",
+  art_style: "画风",
+  storyboard: "分镜设计",
+  characters: "角色定妆",
+  locations: "场景定妆",
+  shots: "镜头生成",
+  voice: "配音",
+  music: "配乐",
+  export: "成片",
+}
+
+export const RECIPE_STAGE_GROUPS = [
+  { id: "plan", label: "方案", stages: ["script", "art_style"] },
+  { id: "production", label: "镜头制作", stages: ["storyboard", "characters", "locations", "shots"] },
+  { id: "sound", label: "声音", stages: ["voice", "music"] },
+  { id: "delivery", label: "交付", stages: ["export"] },
+] as const
+
+export const RECIPE_READINESS_LABELS: Record<RecipeReadinessLevel, string> = {
+  empty: "未开始",
+  draft: "草稿",
+  partial: "部分完成",
+  ready: "已就绪",
+}
+
+export const RECIPE_READINESS_TAG_COLOR: Record<RecipeReadinessLevel, string> = {
+  empty: "default",
+  draft: "processing",
+  partial: "warning",
+  ready: "success",
+}
+
+const LEGACY_RECIPE_STAGES: Record<string, RecipeStageId> = {
+  story: "script",
+  style: "art_style",
+  assets: "characters",
+  board: "storyboard",
+}
+
+export function parseRecipeStage(value: string | null | undefined): RecipeStageId | null {
+  const key = (value || "").trim()
+  if (RECIPE_STAGE_IDS.includes(key as RecipeStageId)) return key as RecipeStageId
+  return LEGACY_RECIPE_STAGES[key] || null
+}
+
+export const DIRECTOR_RECIPE_VIEWS = ["plan", "timeline"] as const
+export type DirectorRecipeView = (typeof DIRECTOR_RECIPE_VIEWS)[number]
+
+export const DIRECTOR_RECIPE_VIEW_LABELS: Record<DirectorRecipeView, string> = {
+  plan: "方案",
+  timeline: "剪辑",
+}
+
+export function parseDirectorRecipeView(value: string | null | undefined): DirectorRecipeView {
+  return (value || "").trim().toLowerCase() === "timeline" ? "timeline" : "plan"
+}
+
+export function resolveDirectorRecipeView(
+  value: string | null | undefined,
+  options?: { mobile?: boolean },
+): DirectorRecipeView {
+  if (options?.mobile) return "plan"
+  return parseDirectorRecipeView(value)
+}
+
+function readinessItem(level: RecipeReadinessLevel, done: number, total: number): RecipeReadinessItem {
+  return { level, done, total }
+}
+
+function ratioReadiness(done: number, total: number): RecipeReadinessItem {
+  if (total <= 0) return readinessItem("empty", 0, 0)
+  if (done <= 0) return readinessItem("draft", 0, total)
+  if (done >= total) return readinessItem("ready", total, total)
+  return readinessItem("partial", done, total)
+}
+
+/** 纯前端派生：只读 payload 现有字段，不看 agentStatus。 */
+export function recipeReadiness(recipe: RecipeProject, goal: string = ""): RecipeReadiness {
+  const story = (recipe.script.fullStory || "").trim()
+  const title = (recipe.script.title || "").trim()
+  const summary = (recipe.script.summary || "").trim()
+  const script = story
+    ? readinessItem("ready", 1, 1)
+    : title || summary
+      ? readinessItem("draft", 0, 1)
+      : readinessItem("empty", 0, 1)
+
+  const artStyle = recipe.artStyle && (recipe.artStyle.id || recipe.artStyle.name)
+    ? readinessItem("ready", 1, 1)
+    : readinessItem("empty", 0, 1)
+
+  const shots = flattenRecipeShots(recipe)
+  const placeholder = isPlaceholderRecipeBoard(shots, goal, story)
+  const designedShots = placeholder ? [] : shots
+  const storyboard = designedShots.length
+    ? readinessItem("ready", designedShots.length, designedShots.length)
+    : readinessItem("empty", 0, 0)
+
+  const characters = ratioReadiness(
+    recipe.characters.filter((item) => Boolean(item.imageUrl)).length,
+    recipe.characters.length,
+  )
+  const locations = ratioReadiness(
+    recipe.locations.filter((item) => Boolean(item.imageUrl)).length,
+    recipe.locations.length,
+  )
+  const shotRenders = ratioReadiness(
+    designedShots.filter(shotIsMuxable).length,
+    designedShots.length,
+  )
+
+  const dialogueShots = designedShots.filter((shot) => (shot.dialogue || "").trim())
+  const voicedShots = dialogueShots.filter((shot) => shot.ttsStatus === "succeeded")
+  const voiceAssigned = recipe.characters.some((item) => Boolean(item.voiceId))
+  const voice = dialogueShots.length
+    ? ratioReadiness(voicedShots.length, dialogueShots.length)
+    : voiceAssigned
+      ? readinessItem("draft", 0, 0)
+      : readinessItem("empty", 0, 0)
+
+  const bgmUrl = (recipeAudio(recipe).bgmUrl || "").trim()
+  const musicHint = (recipe.globalMusic || "").trim()
+  const music = bgmUrl
+    ? readinessItem("ready", 1, 1)
+    : musicHint
+      ? readinessItem("draft", 0, 1)
+      : readinessItem("empty", 0, 1)
+
+  const muxStatus = recipeExportState(recipe).muxStatus
+  const exported = muxStatus === "succeeded"
+    ? readinessItem("ready", 1, 1)
+    : muxStatus === "queued" || muxStatus === "running"
+      ? readinessItem("draft", 0, 1)
+      : muxStatus === "failed"
+        ? readinessItem("partial", 0, 1)
+        : readinessItem("empty", 0, 1)
+
+  return {
+    script,
+    art_style: artStyle,
+    storyboard,
+    characters,
+    locations,
+    shots: shotRenders,
+    voice,
+    music,
+    export: exported,
+  }
+}
+
 export const FEATURED_ART_STYLE_CATEGORIES = [
   "cinematic", "commercial", "anime", "3d", "illustration", "realistic",
 ] as const
@@ -783,7 +955,7 @@ export function featuredArtStyles(styles: DirectorArtStyle[]): DirectorArtStyle[
   return picked
 }
 
-export function recipePackedPlates(recipe: RecipeProject, shot: RecipeShot): Array<{
+export function recipePackedPlateCandidates(recipe: RecipeProject, shot: RecipeShot): Array<{
   name: string
   kind: "character" | "location"
   imageUrl?: string | null
@@ -801,7 +973,21 @@ export function recipePackedPlates(recipe: RecipeProject, shot: RecipeShot): Arr
   return [
     ...characters.map((item) => ({ name: item.name, kind: "character" as const, imageUrl: item.imageUrl })),
     ...locations.map((item) => ({ name: item.name, kind: "location" as const, imageUrl: item.imageUrl })),
-  ].slice(0, 9)
+  ]
+}
+
+export function recipePackedPlates(recipe: RecipeProject, shot: RecipeShot): Array<{
+  name: string
+  kind: "character" | "location"
+  imageUrl?: string | null
+}> {
+  return recipePackedPlateCandidates(recipe, shot).slice(0, 9)
+}
+
+export function recipeShotActiveTake(shot: RecipeShot): ShotTake | undefined {
+  const takes = shot.takes || []
+  const approved = takes.find((take) => (take.id || take.jobId) === shot.approvedTakeId)
+  return approved || takes[shot.activeTakeIndex || 0] || takes[takes.length - 1]
 }
 
 export const RECIPE_AGENT_LABELS: Record<RecipeAgentId, string> = {
@@ -886,27 +1072,302 @@ export function createEmptyBatch(theme: string = ""): BatchRunPayload {
 }
 
 export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
-  return shots.map((shot, index) => ({
-    id: shot.id,
-    shotNumber: shot.shotNumber || index + 1,
-    title: shot.title,
-    startSec: 0,
-    durationSec: shot.durationSec,
-    prompt: userFacingCopy(shot.description, shot.title),
-    dialogue: shot.dialogue,
-    camera: shot.camera || defaultCameraDirection(),
-    referencedSubjectIds: [],
-    takes: shot.takes || [],
-    activeTakeIndex: shot.activeTakeIndex || 0,
-    jobId: shot.jobId || undefined,
-    status: shot.status,
-    progress: shot.progress || 0,
-    outputVideoUrl: shot.outputVideoUrl || undefined,
-    firstFrameUrl: shot.firstFrameUrl || undefined,
-    endFrameUrl: shot.endFrameUrl || undefined,
-    usePreviousEndFrame: shot.usePreviousEndFrame,
-    retakeCount: shot.takes?.length || 0,
+  let startSec = 0
+  return shots.map((shot, index) => {
+    const durationSec = shot.durationSec
+    const mapped: DirectorShot = {
+      id: shot.id,
+      shotNumber: shot.shotNumber || index + 1,
+      title: shot.title,
+      startSec,
+      durationSec,
+      prompt: userFacingCopy(shot.description, shot.title),
+      dialogue: shot.dialogue,
+      camera: shot.camera || defaultCameraDirection(),
+      referencedSubjectIds: [
+        ...(shot.characterNames || []).map((name) => name.trim()).filter(Boolean),
+        shot.locationName.trim(),
+      ].filter(Boolean),
+      takes: shot.takes || [],
+      activeTakeIndex: shot.activeTakeIndex || 0,
+      jobId: shot.jobId || undefined,
+      status: shot.status,
+      progress: shot.progress || 0,
+      outputVideoUrl: recipeShotVideoUrl(shot) || undefined,
+      firstFrameUrl: shot.firstFrameUrl || shot.stillUrl || undefined,
+      endFrameUrl: shot.endFrameUrl || undefined,
+      usePreviousEndFrame: shot.usePreviousEndFrame,
+      retakeCount: shot.takes?.length || 0,
+    }
+    startSec += durationSec
+    return mapped
+  })
+}
+
+function newRecipeEntityId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+export function createEmptyRecipeShot(shotNumber: number, durationSec: number = 5): RecipeShot {
+  return {
+    id: newRecipeEntityId("shot"),
+    shotNumber,
+    title: `镜头 ${shotNumber}`,
+    description: "",
+    promptText: "",
+    dialogue: "",
+    characterNames: [],
+    locationName: "",
+    durationSec,
+    compiledPrompt: "",
+    status: "idle",
+    takes: [],
+    camera: defaultCameraDirection(),
+    progress: 0,
+  }
+}
+
+export interface RecipeShotLayoutItem {
+  shot: RecipeShot
+  startSec: number
+  endSec: number
+}
+
+export function recipeShotLayout(shots: RecipeShot[]): RecipeShotLayoutItem[] {
+  let startSec = 0
+  return shots.map((shot) => {
+    const duration = Math.max(0, Number(shot.durationSec) || 0)
+    const item = { shot, startSec, endSec: startSec + duration }
+    startSec += duration
+    return item
+  })
+}
+
+export function recipeShotAtPlayhead(shots: RecipeShot[], timeSec: number): RecipeShotLayoutItem | null {
+  const layout = recipeShotLayout(shots)
+  if (!layout.length) return null
+  const t = Number.isFinite(timeSec) ? Math.max(0, timeSec) : 0
+  return layout.find((item) => t >= item.startSec && t < item.endSec) || layout[layout.length - 1]
+}
+
+export const RECIPE_TRACK_MIN_CLIP_PX = 72
+export const RECIPE_RULER_TICK_SEC = 5
+
+export interface RecipeTrackClip extends RecipeShotLayoutItem {
+  left: number
+  width: number
+}
+
+export function recipeShotSubjectLabels(shot: RecipeShot): string[] {
+  return [
+    ...(shot.characterNames || []).map((name) => name.trim()).filter(Boolean),
+    (shot.locationName || "").trim(),
+  ].filter(Boolean)
+}
+
+export function recipeShotHasFirstFrame(shot: RecipeShot): boolean {
+  return Boolean(shot.firstFrameUrl || shot.stillUrl)
+}
+
+export function recipeShotHasEndFrame(shot: RecipeShot): boolean {
+  return Boolean(shot.endFrameUrl)
+}
+
+export function recipeTrackLayout(shots: RecipeShot[], pixelsPerSecond: number): RecipeTrackClip[] {
+  const pps = Math.max(1, Number(pixelsPerSecond) || 0)
+  return recipeShotLayout(shots).map((item) => ({
+    ...item,
+    left: item.startSec * pps,
+    width: Math.max(RECIPE_TRACK_MIN_CLIP_PX, (item.endSec - item.startSec) * pps),
   }))
+}
+
+export function recipeTrackCanvasWidth(shots: RecipeShot[], pixelsPerSecond: number, trailingPx = 88): number {
+  const layout = recipeShotLayout(shots)
+  const total = layout.length ? layout[layout.length - 1].endSec : 0
+  return Math.max(total * Math.max(1, Number(pixelsPerSecond) || 0) + trailingPx, 640)
+}
+
+export function recipeTrackClipIdsInRange(clips: RecipeTrackClip[], left: number, right: number): string[] {
+  const lo = Math.min(left, right)
+  const hi = Math.max(left, right)
+  return clips
+    .filter((item) => item.left + item.width > lo && item.left < hi)
+    .map((item) => item.shot.id)
+}
+
+export function recipeRulerTicks(totalDurationSec: number, stepSec: number = RECIPE_RULER_TICK_SEC): number[] {
+  const step = stepSec > 0 ? stepSec : RECIPE_RULER_TICK_SEC
+  const maxSec = Math.max(totalDurationSec, 15)
+  const ticks: number[] = []
+  for (let second = 0; second <= maxSec; second += step) ticks.push(second)
+  return ticks
+}
+
+export function recipeRulerShotEdges(shots: RecipeShot[]): number[] {
+  const edges = new Set<number>()
+  for (const item of recipeShotLayout(shots)) {
+    edges.add(item.startSec)
+    edges.add(item.endSec)
+  }
+  return Array.from(edges).sort((a, b) => a - b)
+}
+
+export function recipeRulerSeekSec(
+  offsetPx: number,
+  pixelsPerSecond: number,
+  totalDurationSec: number,
+  options?: { snap?: boolean; shots?: RecipeShot[] },
+): number {
+  const maxSec = Math.max(0, Number(totalDurationSec) || 0)
+  const pps = Math.max(1, Number(pixelsPerSecond) || 0)
+  const raw = Math.min(maxSec, Math.max(0, offsetPx / pps))
+  if (!options?.snap) return raw
+  let nearest = Math.round(raw)
+  let best = Math.abs(nearest - raw)
+  for (const edge of recipeRulerShotEdges(options.shots || [])) {
+    const distance = Math.abs(edge - raw)
+    if (distance < best) {
+      best = distance
+      nearest = edge
+    }
+  }
+  return Math.min(maxSec, Math.max(0, nearest))
+}
+
+export function recipeShotVideoUrl(shot: RecipeShot): string {
+  return recipeShotActiveTake(shot)?.videoUrl || shot.outputVideoUrl || ""
+}
+
+export function recipeShotStillUrl(shot: RecipeShot): string {
+  return shot.stillUrl || shot.firstFrameUrl || ""
+}
+
+export function recipePlayableShots(shots: RecipeShot[]): RecipeShot[] {
+  return shots.filter((shot) => Boolean(recipeShotVideoUrl(shot)) && shotIsMuxable(shot))
+}
+
+export function assignRecipeShotPlate(
+  recipe: RecipeProject,
+  shot: RecipeShot,
+  plate: { name: string; kind: "character" | "location" },
+): { shot: RecipeShot; rejected: boolean } {
+  const name = plate.name.trim()
+  if (!name) return { shot, rejected: true }
+  const next: RecipeShot = plate.kind === "location"
+    ? { ...shot, locationName: shot.locationName === name ? "" : name }
+    : {
+      ...shot,
+      characterNames: (shot.characterNames || []).includes(name)
+        ? (shot.characterNames || []).filter((item) => item !== name)
+        : [...(shot.characterNames || []), name],
+    }
+  if (recipePackedPlateCandidates(recipe, next).length > 9) {
+    return { shot, rejected: true }
+  }
+  return { shot: next, rejected: false }
+}
+
+export function dressedRecipePlates(recipe: RecipeProject): Array<{
+  id: string
+  name: string
+  kind: "character" | "location"
+  imageUrl: string
+}> {
+  return [
+    ...recipe.characters
+      .filter((item) => Boolean(item.imageUrl))
+      .map((item) => ({ id: item.id, name: item.name, kind: "character" as const, imageUrl: item.imageUrl || "" })),
+    ...recipe.locations
+      .filter((item) => Boolean(item.imageUrl))
+      .map((item) => ({ id: item.id, name: item.name, kind: "location" as const, imageUrl: item.imageUrl || "" })),
+  ]
+}
+
+function renumberRecipeShots(scenes: RecipeScene[]): RecipeScene[] {
+  let shotNumber = 1
+  return scenes.map((scene, index) => ({
+    ...scene,
+    sceneNumber: index + 1,
+    shots: scene.shots.map((shot) => ({ ...shot, shotNumber: shotNumber++ })),
+  }))
+}
+
+export function insertRecipeShotAfter(recipe: RecipeProject, afterShotId?: string | null): { recipe: RecipeProject; shot: RecipeShot } {
+  const created = createEmptyRecipeShot(flattenRecipeShots(recipe).length + 1)
+  if (!recipe.scenes.length) {
+    const next = {
+      ...recipe,
+      scenes: [{
+        id: newRecipeEntityId("scene"),
+        sceneNumber: 1,
+        title: "主场景",
+        description: "",
+        locationName: "",
+        shots: [created],
+      }],
+    }
+    return { recipe: next, shot: created }
+  }
+  let inserted = false
+  const scenes = recipe.scenes.map((scene) => {
+    if (inserted || !afterShotId) return scene
+    const index = scene.shots.findIndex((shot) => shot.id === afterShotId)
+    if (index < 0) return scene
+    inserted = true
+    return { ...scene, shots: [...scene.shots.slice(0, index + 1), created, ...scene.shots.slice(index + 1)] }
+  })
+  if (!inserted) {
+    const last = scenes[scenes.length - 1]
+    scenes[scenes.length - 1] = { ...last, shots: [...last.shots, created] }
+  }
+  const next = { ...recipe, scenes: renumberRecipeShots(scenes) }
+  const shot = flattenRecipeShots(next).find((item) => item.id === created.id) || created
+  return { recipe: next, shot }
+}
+
+export function removeRecipeShot(recipe: RecipeProject, shotId: string): RecipeProject {
+  const shots = flattenRecipeShots(recipe)
+  if (shots.length <= 1 || !shots.some((shot) => shot.id === shotId)) return recipe
+  return {
+    ...recipe,
+    scenes: renumberRecipeShots(recipe.scenes.map((scene) => ({
+      ...scene,
+      shots: scene.shots.filter((shot) => shot.id !== shotId),
+    }))),
+  }
+}
+
+export function duplicateRecipeShot(recipe: RecipeProject, shotId: string): { recipe: RecipeProject; shot: RecipeShot } | null {
+  let createdId: string | null = null
+  const scenes = recipe.scenes.map((scene) => ({
+    ...scene,
+    shots: scene.shots.flatMap((shot) => {
+      if (shot.id !== shotId) return [shot]
+      createdId = newRecipeEntityId("shot")
+      return [shot, {
+        ...shot,
+        id: createdId,
+        title: `${shot.title} 副本`,
+        jobId: null,
+        status: "idle" as const,
+        outputVideoUrl: null,
+        progress: 0,
+        takes: [],
+        approvedTakeId: null,
+        activeTakeIndex: 0,
+        stillJobId: null,
+        stillStatus: "idle" as const,
+        ttsStatus: "idle" as const,
+        ttsUrl: null,
+        ttsError: null,
+      }]
+    }),
+  }))
+  if (!createdId) return null
+  const next = { ...recipe, scenes: renumberRecipeShots(scenes) }
+  const shot = flattenRecipeShots(next).find((item) => item.id === createdId)
+  return shot ? { recipe: next, shot } : null
 }
 
 export interface DirectorLibraryAsset {

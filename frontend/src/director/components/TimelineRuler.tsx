@@ -1,14 +1,17 @@
 import { Slider } from "antd"
 import { Eye, ZoomIn } from "lucide-react"
 import React, { useRef } from "react"
+import { RecipeShot, recipeRulerSeekSec, recipeRulerShotEdges, recipeRulerTicks } from "../types"
 
 interface TimelineRulerProps {
+  shots?: RecipeShot[]
   totalDurationSec: number
   currentTimeSec: number
   pixelsPerSecond: number
   unit: "seconds" | "frames"
   fps?: number
   snapEnabled?: boolean
+  scrollLeft?: number
   onSeek: (timeSec: number) => void
   onUnitToggle: () => void
   onZoomChange: (pxPerSec: number) => void
@@ -16,42 +19,50 @@ interface TimelineRulerProps {
 }
 
 export default function TimelineRuler({
+  shots = [],
   totalDurationSec,
   currentTimeSec,
   pixelsPerSecond,
   unit,
   fps = 24,
   snapEnabled = true,
+  scrollLeft = 0,
   onSeek,
   onUnitToggle,
   onZoomChange,
   onSnapChange,
 }: TimelineRulerProps) {
   const rulerRef = useRef<HTMLDivElement>(null)
-  const maxSec = Math.max(totalDurationSec, 15)
-  const ticks: number[] = []
-  for (let s = 0; s <= maxSec; s += 5) ticks.push(s)
+  const ticks = recipeRulerTicks(totalDurationSec)
+  const shotEdges = recipeRulerShotEdges(shots).filter((second) => second > 0 && !ticks.includes(second))
 
   const handleRulerClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!rulerRef.current) return
     const rect = rulerRef.current.getBoundingClientRect()
-    const offsetX = Math.max(0, e.clientX - rect.left)
-    const raw = offsetX / pixelsPerSecond
-    const snapped = snapEnabled ? Math.round(raw) : raw
-    onSeek(Math.min(maxSec, Math.max(0, snapped)))
+    const offsetX = Math.max(0, e.clientX - rect.left) + scrollLeft
+    onSeek(recipeRulerSeekSec(offsetX, pixelsPerSecond, totalDurationSec, { snap: snapEnabled, shots }))
   }
 
   return (
     <div className="director-ruler">
       <div className="director-ruler-gutter" />
       <div ref={rulerRef} className="director-ruler-scale" onClick={handleRulerClick}>
-        {ticks.map((s) => (
-          <div key={s} className="director-ruler-tick" style={{ left: `${s * pixelsPerSecond}px` }}>
+        {shotEdges.map((second) => (
+          <div
+            key={`shot-${second}`}
+            className="director-ruler-tick is-shot"
+            style={{ left: `${second * pixelsPerSecond - scrollLeft}px` }}
+          >
             <i />
-            <span>{unit === "seconds" ? `${s}s` : `${s * fps}f`}</span>
           </div>
         ))}
-        <div className="director-playhead" style={{ left: `${currentTimeSec * pixelsPerSecond}px` }} />
+        {ticks.map((second) => (
+          <div key={second} className="director-ruler-tick" style={{ left: `${second * pixelsPerSecond - scrollLeft}px` }}>
+            <i />
+            <span>{unit === "seconds" ? `${second}s` : `${second * fps}f`}</span>
+          </div>
+        ))}
+        <div className="director-playhead" style={{ left: `${currentTimeSec * pixelsPerSecond - scrollLeft}px` }} />
       </div>
       <div className="director-ruler-tools">
         <button type="button" className="director-snap-chip" onClick={() => onSnapChange?.(!snapEnabled)}>

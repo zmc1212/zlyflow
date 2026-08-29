@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .grs_provider import CredentialManager
-from .llm_client import OpenAICompatibleClient, LlmError
+from .llm_client import LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS, OpenAICompatibleClient, LlmError
 from .storage import JobStore, now
 
 
@@ -314,7 +314,8 @@ class LlmProviderService:
             model=model,
             temperature=0.35,
             max_tokens=8192,
-            timeout=180.0,
+            timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
+            stream=True,
         ).strip()
 
     def polish_director_ref2va_prompt(self, draft_prompt: str) -> str:

@@ -23,8 +23,10 @@ from backend.app.director_catalog import (
     source_preview_url,
 )
 from backend.app.director_recipe import (
+    AGENT_DONE_MESSAGES,
     DirectorPayloadError,
     PAYLOAD_KIND_RECIPE,
+    agent_done_message,
     flatten_recipe_shots,
     normalize_recipe_payload,
     timeline_to_recipe,
@@ -298,6 +300,62 @@ class DirectorRecipeModelTests(unittest.TestCase):
         empty = normalize_recipe_payload({"kind": PAYLOAD_KIND_RECIPE})
         self.assertEqual(empty["pipelineRun"], {"agents": [], "active": False})
         self.assertIsNone(empty["agentStatus"][3]["message"])
+
+    def test_agent_done_messages_do_not_claim_media_ready(self) -> None:
+        self.assertEqual(AGENT_DONE_MESSAGES["voice"], "配音方案已写好，音频待生成")
+        self.assertEqual(AGENT_DONE_MESSAGES["music"], "配乐方案已写好，音频待上传")
+        self.assertEqual(AGENT_DONE_MESSAGES["media"], "出片参数已编译，视频待生成")
+        self.assertIn("定妆图待生成", AGENT_DONE_MESSAGES["characters"])
+        self.assertIn("定妆图待生成", AGENT_DONE_MESSAGES["locations"])
+        self.assertEqual(AGENT_DONE_MESSAGES["storyboard"], "分镜方案已写好")
+        self.assertEqual(agent_done_message("voice"), AGENT_DONE_MESSAGES["voice"])
+        self.assertEqual(agent_done_message("storyboard"), "分镜方案已写好")
+        self.assertEqual(
+            agent_done_message("storyboard", {
+                "kind": PAYLOAD_KIND_RECIPE,
+                "scenes": [{"shots": [{"title": "A"}, {"title": "B"}]}],
+            }),
+            "已写出 2 个镜头",
+        )
+
+    def test_normalize_repairs_mojibake_title_and_strips_dialogue_tag(self) -> None:
+        garbled_title = "巷口".encode("utf-8").decode("latin-1")
+        garbled_line = "你过来。".encode("utf-8").decode("latin-1")
+        payload = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "scenes": [{
+                "shots": [{
+                    "title": garbled_title,
+                    "description": garbled_title,
+                    "promptText": "Close-up on the monitor.",
+                    "dialogue": f"<d>[Chinese] {garbled_line}</d>",
+                }],
+            }],
+        })
+        shot = payload["scenes"][0]["shots"][0]
+        self.assertEqual(shot["title"], "巷口")
+        self.assertEqual(shot["description"], "巷口")
+        self.assertEqual(shot["dialogue"], "你过来。")
+
+    def test_interrupt_stale_pipeline_marks_running_storyboard_failed(self) -> None:
+        from backend.app.director_recipe import STALE_PIPELINE_INTERRUPT, interrupt_stale_pipeline
+
+        payload = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "agentStatus": [
+                {"id": "script", "status": "completed"},
+                {"id": "storyboard", "status": "running", "message": "正在读剧本"},
+            ],
+            "pipelineRun": {"agents": ["storyboard"], "active": True},
+        })
+        updated = interrupt_stale_pipeline(payload)
+        self.assertIsNotNone(updated)
+        storyboard = next(item for item in updated["agentStatus"] if item["id"] == "storyboard")
+        self.assertEqual(storyboard["status"], "failed")
+        self.assertEqual(storyboard["error"], STALE_PIPELINE_INTERRUPT)
+        self.assertIsNone(storyboard["message"])
+        self.assertFalse(updated["pipelineRun"]["active"])
+        self.assertIsNone(interrupt_stale_pipeline(updated))
 
     def test_normalize_shot_keeps_continuity_and_still_fields(self) -> None:
         payload = normalize_recipe_payload({
@@ -1706,6 +1764,12 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertEqual(statuses["research"], "completed")
         self.assertEqual(statuses["media"], "completed")
         self.assertTrue(all(status == "completed" for status in statuses.values()))
+        messages = {item["id"]: item["message"] for item in recipe["agentStatus"]}
+        self.assertEqual(messages["voice"], "配音方案已写好，音频待生成")
+        self.assertEqual(messages["music"], "配乐方案已写好，音频待上传")
+        self.assertEqual(messages["media"], "出片参数已编译，视频待生成")
+        self.assertEqual(messages["characters"], "人物方案已抽出，定妆图待生成")
+        self.assertEqual(messages["locations"], "场景方案已抽出，定妆图待生成")
 
     def test_storyboard_agent_follows_h3_official_skill(self) -> None:
         from backend.app.director_agents import run_agent
@@ -1948,6 +2012,35 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertEqual(recipe["agentStatus"][3]["status"], "completed")
         self.assertTrue(all(shot["title"] != "主镜头" for shot in shots))
 
+    def test_chat_text_does_not_retry_timeout(self) -> None:
+        from backend.app.director_agents import _chat_text
+        from backend.app.llm_client import LlmTemporaryError
+
+        calls = {"n": 0}
+
+        def chat(_messages: list[dict]) -> str:
+            calls["n"] += 1
+            raise LlmTemporaryError("请求大模型服务超时（等待 300 秒仍无响应）。模型可能仍在生成或首次装入显存，请稍后重试。")
+
+        with self.assertRaises(LlmTemporaryError):
+            _chat_text(chat, [{"role": "user", "content": "x"}])
+        self.assertEqual(calls["n"], 1)
+
+    def test_chat_text_retries_connection_error(self) -> None:
+        from backend.app.director_agents import _chat_text
+        from backend.app.llm_client import LlmTemporaryError
+
+        calls = {"n": 0}
+
+        def chat(_messages: list[dict]) -> str:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise LlmTemporaryError("无法连接大模型服务 http://127.0.0.1:11434/v1")
+            return "ok"
+
+        self.assertEqual(_chat_text(chat, [{"role": "user", "content": "x"}]), "ok")
+        self.assertEqual(calls["n"], 2)
+
     def test_pipeline_continues_to_storyboard_when_script_fails(self) -> None:
         from backend.app.director_agents import run_recipe_pipeline
         from backend.app.llm_client import LlmError
@@ -2076,6 +2169,40 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertIn("正在读剧本", storyboard_messages)
         self.assertIn("正在整理镜头", storyboard_messages)
 
+    def test_storyboard_reports_streamed_character_count(self) -> None:
+        from backend.app.director_agents import DirectorChatFn, run_agent
+
+        class FakeClient:
+            def chat_completion(self, _messages, **kwargs):
+                body = json.dumps({
+                    "shots": [
+                        {"title": "进门", "description": "推开门", "promptText": "He opens the door."},
+                        {"title": "工位", "description": "坐下", "promptText": "He sits down."},
+                    ],
+                }, ensure_ascii=False)
+                on_chunk = kwargs.get("on_chunk")
+                if on_chunk:
+                    on_chunk(body[:8])
+                    on_chunk(body)
+                return body
+
+        snapshots: list[str] = []
+
+        def on_progress(recipe: dict) -> None:
+            status = next(item for item in recipe["agentStatus"] if item["id"] == "storyboard")
+            if status.get("message"):
+                snapshots.append(status["message"])
+
+        recipe = run_agent(
+            "storyboard",
+            {"kind": "director_recipe", "script": {"title": "都市程序员", "fullStory": "林舟赶到公司开会。"}},
+            goal="都市程序员短剧",
+            chat_fn=DirectorChatFn(FakeClient(), "demo-model"),
+            on_progress=on_progress,
+        )
+        self.assertTrue(any(item.startswith("正在写分镜（已收到 ") for item in snapshots))
+        self.assertEqual(len([shot for scene in recipe["scenes"] for shot in scene["shots"]]), 2)
+
     def test_recipe_r2v_packs_at_most_nine_references(self) -> None:
         from backend.app.director_compiler import recipe_assets_as_slots, resolve_recipe_shot_submission
 
@@ -2192,7 +2319,22 @@ class DirectorDualEngineApiTests(unittest.TestCase):
         self.assertEqual(project["kind"], "director_recipe")
         self.assertEqual(project["payload"]["script"]["title"], "雨夜")
         shot_id = project["payload"]["scenes"][0]["shots"][0]["id"]
-        with patch.object(self.llm_provider, "polish_director_h3_prompt", side_effect=lambda draft, mode: draft) as polish:
+        missing = self.client.post(
+            f"/api/director/recipes/{project['id']}/render-shots",
+            headers=self._headers(),
+            json={"shot_ids": ["missing-shot"], "render_pass": "final"},
+        )
+        self.assertEqual(missing.status_code, 422, missing.text)
+        self.assertIn("没有找到", missing.json()["detail"])
+
+        def polish_after_queue(draft, mode):
+            current = self.job_store.get_director_project(project["id"])
+            queued = current["payload"]["scenes"][0]["shots"][0]
+            self.assertEqual(queued.get("status"), "queued")
+            self.assertFalse(queued.get("jobId"))
+            return draft
+
+        with patch.object(self.llm_provider, "polish_director_h3_prompt", side_effect=polish_after_queue) as polish:
             rendered = self.client.post(
                 f"/api/director/recipes/{project['id']}/render-shots",
                 headers=self._headers(),

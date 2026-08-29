@@ -1417,6 +1417,24 @@ class JobStore:
             )
         return self.get_director_project(project_id)
 
+    def interrupt_stale_director_pipelines(self) -> int:
+        from .director_recipe import interrupt_stale_pipeline
+
+        with self.connection() as connection:
+            rows = connection.execute("SELECT id, payload_json FROM director_projects").fetchall()
+        count = 0
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"] or "{}")
+            except json.JSONDecodeError:
+                continue
+            updated = interrupt_stale_pipeline(payload)
+            if updated is None:
+                continue
+            self.update_director_project(row["id"], payload=updated)
+            count += 1
+        return count
+
     def delete_director_project(self, project_id: str) -> None:
         with self.connection() as connection:
             cursor = connection.execute("DELETE FROM director_projects WHERE id = ?", (project_id,))

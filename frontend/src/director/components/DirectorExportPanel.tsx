@@ -3,6 +3,7 @@ import { Alert, Button, ColorPicker, InputNumber, Select, Slider, Space, Switch,
 import { Clapperboard, Download, Film, Play } from "lucide-react"
 import { getDirectorExportCapabilities } from "../director-api"
 import { directorStatusColor, directorStatusLabel } from "../status-labels"
+import { muxBatchLabel, ttsBatchLabel } from "../action-copy"
 import {
   RecipeCharacter,
   RecipeProject,
@@ -14,11 +15,18 @@ import {
   shotIsMuxable,
 } from "../types"
 
+export type DirectorExportSection = "ffmpegAlert" | "ttsAlert" | "music" | "subtitles" | "voice" | "film"
+
+const ALL_EXPORT_SECTIONS: DirectorExportSection[] = [
+  "ffmpegAlert", "ttsAlert", "music", "subtitles", "voice", "film",
+]
+
 export default function DirectorExportPanel({
   recipe,
   ttsBusy,
   muxBusy,
   previewingCharacterId,
+  visibleSections = ALL_EXPORT_SECTIONS,
   onChangeRecipe,
   onGenerateAllTts,
   onPreviewCharacter,
@@ -33,6 +41,7 @@ export default function DirectorExportPanel({
   ttsBusy: boolean
   muxBusy: boolean
   previewingCharacterId?: string | null
+  visibleSections?: DirectorExportSection[]
   onChangeRecipe: (patch: Partial<RecipeProject>) => void
   onGenerateAllTts: () => void
   onPreviewCharacter: (character: RecipeCharacter) => void
@@ -43,6 +52,7 @@ export default function DirectorExportPanel({
   onPlaySequence: () => void
   onJianying: () => void
 }) {
+  const show = (section: DirectorExportSection) => visibleSections.includes(section)
   const capabilities = useQuery({
     queryKey: ["director-export-capabilities"],
     queryFn: getDirectorExportCapabilities,
@@ -64,6 +74,7 @@ export default function DirectorExportPanel({
 
   return (
     <div className="director-export-section">
+      {show("ffmpegAlert") ? (
       <Alert
         type={ffmpegReady ? "success" : "warning"}
         showIcon
@@ -74,6 +85,8 @@ export default function DirectorExportPanel({
             : "请把 ffmpeg 和 ffprobe 加入系统 PATH，或安装到常见目录后刷新本页。未安装时导出成片会返回不可用。ComfyUI 端口不变。"
         }
       />
+      ) : null}
+      {show("ttsAlert") ? (
       <Alert
         type={ttsReady ? "success" : "warning"}
         showIcon
@@ -84,7 +97,9 @@ export default function DirectorExportPanel({
             : capabilities.data?.tts_reason || "请联系超级管理员在「管理设置 → LLM」启用独立 TTS。"
         }
       />
+      ) : null}
 
+      {show("music") ? (
       <section className="director-export-card">
         <div className="director-section-head">
           <Typography.Title level={5}>配乐</Typography.Title>
@@ -139,7 +154,9 @@ export default function DirectorExportPanel({
           </label>
         </div>
       </section>
+      ) : null}
 
+      {show("subtitles") ? (
       <section className="director-export-card">
         <div className="director-section-head">
           <Typography.Title level={5}>字幕</Typography.Title>
@@ -205,12 +222,14 @@ export default function DirectorExportPanel({
           </label>
         </div>
       </section>
+      ) : null}
 
+      {show("voice") ? (
       <section className="director-export-card">
         <div className="director-section-head">
           <Typography.Title level={5}>角色音色</Typography.Title>
           <Button size="small" loading={ttsBusy} disabled={!ttsReady || !dialogueCount} onClick={onGenerateAllTts}>
-            全部配音
+            {ttsBatchLabel(dialogueCount)}
           </Button>
         </div>
         <p className="director-output-hint">
@@ -240,10 +259,12 @@ export default function DirectorExportPanel({
               ) : null}
             </div>
           ))}
-          {!recipe.characters.length ? <p className="director-output-hint">运行流水线后会出现角色音色。</p> : null}
+          {!recipe.characters.length ? <p className="director-output-hint">生成创作方案后会出现角色音色。</p> : null}
         </div>
       </section>
+      ) : null}
 
+      {show("film") ? (
       <section className="director-export-card">
         <div className="director-section-head">
           <Typography.Title level={5}>工作台内成片</Typography.Title>
@@ -271,7 +292,7 @@ export default function DirectorExportPanel({
             disabled={!ffmpegReady || !muxableCount}
             onClick={onMux}
           >
-            导出成片
+            {muxBatchLabel(muxableCount)}
           </Button>
           <Button icon={<Download size={14} />} disabled={!muxUrl} onClick={() => onDownload("mux")}>下载 MP4</Button>
           <Button disabled={!muxableCount} onClick={() => onDownload("fcpxml")}>FCPXML</Button>
@@ -280,6 +301,7 @@ export default function DirectorExportPanel({
           <Button icon={<Clapperboard size={14} />} disabled={!muxableCount} onClick={onJianying}>剪映草稿</Button>
         </Space>
       </section>
+      ) : null}
     </div>
   )
 }

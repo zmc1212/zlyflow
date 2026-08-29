@@ -6,6 +6,7 @@ from typing import Any
 from .director_catalog import art_style_ref_for_recipe, find_art_style
 from .director_compiler import snap_h3_duration_sec
 from .tts_provider import voice_for_gender
+from .llm_client import repair_utf8_mojibake
 from .workflow_registry import DEFAULT_DIRECTOR_WORKFLOW_FAMILY
 
 
@@ -41,12 +42,12 @@ AGENT_DONE_MESSAGES = {
     "research": "研究完成",
     "script": "剧本已写好",
     "art_style": "画风已选定",
-    "storyboard": "分镜已完成",
-    "characters": "人物已抽出",
-    "locations": "场景已抽出",
-    "voice": "配音已配置",
-    "music": "配乐已配置",
-    "media": "媒体参数已编译",
+    "storyboard": "分镜方案已写好",
+    "characters": "人物方案已抽出，定妆图待生成",
+    "locations": "场景方案已抽出，定妆图待生成",
+    "voice": "配音方案已写好，音频待生成",
+    "music": "配乐方案已写好，音频待上传",
+    "media": "出片参数已编译，视频待生成",
 }
 CHARACTER_TYPES = ("character", "object")
 GENDERS = ("", "male", "female", "nonbinary", "unspecified")
@@ -99,12 +100,23 @@ def _as_list(value: Any) -> list[Any]:
 
 def _text(value: Any, fallback: Any = "") -> str:
     if value is not None:
-        text = str(value).strip()
+        text = repair_utf8_mojibake(str(value).strip())
         if text:
             return text
     if fallback is None:
         return ""
-    return str(fallback).strip()
+    return repair_utf8_mojibake(str(fallback).strip())
+
+
+def normalize_dialogue(value: Any) -> str:
+    text = _text(value)
+    lowered = text.lower()
+    if lowered.startswith("<d>") and lowered.endswith("</d>"):
+        inner = text[3:-4].strip()
+        if inner.startswith("[") and "]" in inner[:32]:
+            inner = inner.split("]", 1)[1].strip()
+        return inner
+    return text
 
 
 def default_audio_mix() -> dict[str, Any]:
@@ -457,7 +469,7 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
     names = item.get("characterNames")
     if names is None:
         names = item.get("character_names")
-    character_names = [str(name).strip() for name in _as_list(names) if str(name).strip()]
+    character_names = [repair_utf8_mojibake(str(name).strip()) for name in _as_list(names) if str(name).strip()]
     compiled = _text(item.get("compiledPrompt"), item.get("compiled_prompt") or "")
     status = _text(item.get("status"), "idle") or "idle"
     duration = snap_h3_duration_sec(item.get("durationSec", item.get("duration_sec", 5)))
@@ -479,7 +491,7 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
         "title": title,
         "description": description,
         "promptText": prompt_text,
-        "dialogue": _text(item.get("dialogue")),
+        "dialogue": normalize_dialogue(item.get("dialogue")),
         "characterNames": character_names,
         "locationName": location_name,
         "durationSec": duration,
@@ -883,6 +895,24 @@ def set_agent_status(
         elif resolved == "completed":
             item["message"] = agent_done_message(agent_id, recipe)
     recipe["agentStatus"] = statuses
+    return recipe
+
+
+STALE_PIPELINE_INTERRUPT = "服务已重启，生成中断。请重新点生成。"
+
+
+def interrupt_stale_pipeline(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Clear a Recipe left `running` after the process died mid-request."""
+    if not isinstance(payload, dict) or payload_kind(payload) != PAYLOAD_KIND_RECIPE:
+        return None
+    recipe = normalize_recipe_payload(payload)
+    run = recipe.get("pipelineRun") if isinstance(recipe.get("pipelineRun"), dict) else {}
+    running_ids = [item["id"] for item in recipe.get("agentStatus") or [] if item.get("status") == "running"]
+    if not run.get("active") and not running_ids:
+        return None
+    for agent_id in running_ids:
+        set_agent_status(recipe, agent_id, "failed", STALE_PIPELINE_INTERRUPT, message="")
+    recipe["pipelineRun"] = {"agents": list(run.get("agents") or []), "active": False}
     return recipe
 
 

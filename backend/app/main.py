@@ -627,6 +627,7 @@ async def lifespan(app: FastAPI):
     app.state.comfy_provider = comfy_provider
     app.state.worker = worker
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
+    store.interrupt_stale_director_pipelines()
     await worker.start()
     yield
     set_catalog_lookup(None)
@@ -2193,6 +2194,9 @@ async def render_director_recipe_shots(
     if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
         raise HTTPException(status_code=422, detail="只有 Recipe 工程可以提交分镜")
     llm_available, _ = app.state.llm_provider.availability()
+    def persist_progress(current: dict) -> None:
+        _persist_director_recipe(project_id, current)
+
     try:
         recipe, job_ids = await asyncio.to_thread(
             render_recipe_shots,
@@ -2203,6 +2207,7 @@ async def render_director_recipe_shots(
             render_pass=payload.render_pass,
             resource_storage=getattr(app.state, "resource_storage", None),
             h3_prompt_refiner=app.state.llm_provider.polish_director_h3_prompt if llm_available else None,
+            on_progress=persist_progress,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
