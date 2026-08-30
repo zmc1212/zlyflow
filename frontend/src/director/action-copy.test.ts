@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest"
 import {
   PLAN_GENERATION_FAILURE,
   PLAN_GENERATION_HINT,
@@ -58,4 +59,8 @@ export function assertActionCopyContract(): void {
   }
 }
 
-assertActionCopyContract()
+describe("director action copy", () => {
+  it("keeps labels and cost confirmations aligned", () => {
+    expect(() => assertActionCopyContract()).not.toThrow()
+  })
+})

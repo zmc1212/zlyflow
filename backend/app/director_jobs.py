@@ -37,6 +37,7 @@ from .workflow_registry import (
     validate_references,
     workflow_for,
 )
+from .llm_client import LlmError
 
 
 def new_job_id() -> str:
@@ -700,6 +701,18 @@ def render_recipe_shots(
             shot["status"] = "failed"
             shot["error"] = "；".join(str(item) for item in errors if item)
             continue
+        previous_render_state = {
+            "jobId": shot.get("jobId"),
+            "status": shot.get("status") or "idle",
+            "progress": shot.get("progress") or 0,
+            "outputVideoUrl": shot.get("outputVideoUrl"),
+            "outputPath": shot.get("outputPath"),
+        }
+        previous_takes = [take for take in (shot.get("takes") or []) if isinstance(take, dict)]
+        has_usable_previous_take = any(
+            take.get("status") == "succeeded" or bool(take.get("videoUrl"))
+            for take in previous_takes
+        ) or bool(shot.get("outputVideoUrl"))
         shot["error"] = None
         refs = _reference_paths_for_shot(store, recipe, resolved, resource_storage=resource_storage)
         plan_items = list((submission.get("plan") or {}).get("items") or [])
@@ -714,6 +727,7 @@ def render_recipe_shots(
                 recipe.get("videoWorkflowFamily") or recipe.get("video_workflow_family"),
                 "t2v",
             )
+        shot["jobId"] = None
         shot["status"] = "queued"
         shot["progress"] = 4
         if on_progress is not None:
@@ -735,10 +749,17 @@ def render_recipe_shots(
                     raise ValueError("；".join(polish_errors))
                 submission["prompt"] = polished_prompt
             except Exception as error:
-                shot["status"] = "failed"
+                if has_usable_previous_take:
+                    shot.update(previous_render_state)
+                else:
+                    shot["jobId"] = None
+                    shot["status"] = "failed"
+                    shot["progress"] = 0
                 shot["error"] = f"H3 提示词润色失败：{error}"
                 if on_progress is not None:
                     on_progress(recipe)
+                if isinstance(error, LlmError):
+                    raise
                 continue
         job = create_queued_job(
             store,

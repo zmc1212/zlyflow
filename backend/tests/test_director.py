@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
@@ -1328,6 +1329,45 @@ class DirectorProjectApiTests(unittest.TestCase):
         self.assertEqual(still.status_code, 200)
         self.assertEqual(still.json()["title"], "员工甲的工程")
 
+    def test_content_revision_conflict_returns_latest_snapshot(self) -> None:
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={"title": "并发工程", "payload": self._empty_payload()},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        project = created.json()
+        self.assertEqual(project["revision"], 1)
+        self.assertEqual(project["content_revision"], 1)
+
+        first = self.client.put(
+            f"/api/director/projects/{project['id']}",
+            headers=self._headers(),
+            json={"title": "窗口 A", "expected_content_revision": 1},
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["content_revision"], 2)
+
+        conflict = self.client.put(
+            f"/api/director/projects/{project['id']}",
+            headers=self._headers(),
+            json={"title": "窗口 B", "expected_content_revision": 1},
+        )
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+        detail = conflict.json()["detail"]
+        self.assertEqual(detail["code"], "DIRECTOR_CONTENT_CONFLICT")
+        self.assertEqual(detail["current_revision"], 2)
+        self.assertEqual(detail["current_project"]["title"], "窗口 A")
+
+        forced = self.client.put(
+            f"/api/director/projects/{project['id']}",
+            headers=self._headers(),
+            json={"title": "窗口 B", "expected_content_revision": 1, "force": True},
+        )
+        self.assertEqual(forced.status_code, 200, forced.text)
+        self.assertEqual(forced.json()["title"], "窗口 B")
+        self.assertEqual(forced.json()["content_revision"], 3)
+
     def test_migrate_localstorage_payload_is_idempotent_and_strips_data_urls(self) -> None:
         local_id = "proj-local-rain-01"
         first = self.client.post(
@@ -2041,14 +2081,13 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertEqual(_chat_text(chat, [{"role": "user", "content": "x"}]), "ok")
         self.assertEqual(calls["n"], 2)
 
-    def test_pipeline_continues_to_storyboard_when_script_fails(self) -> None:
+    def test_pipeline_continues_to_storyboard_when_local_script_step_fails(self) -> None:
         from backend.app.director_agents import run_recipe_pipeline
-        from backend.app.llm_client import LlmError
 
         def chat(messages: list[dict]) -> str:
             system = messages[0]["content"]
             if "AGENT_ID: script" in system:
-                raise LlmError("脚本超时")
+                raise ValueError("本地解析失败")
             return json.dumps({
                 "shots": [
                     {"title": "进门", "description": "推开门", "promptText": "He opens the door."},
@@ -2068,6 +2107,29 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertEqual(statuses["storyboard"], "completed")
         shots = [shot for scene in recipe["scenes"] for shot in scene["shots"]]
         self.assertEqual(len(shots), 2)
+
+    def test_pipeline_persists_failed_state_then_rethrows_llm_error(self) -> None:
+        from backend.app.director_agents import run_recipe_pipeline
+        from backend.app.llm_client import LlmError
+
+        snapshots: list[dict] = []
+
+        with self.assertRaises(LlmError):
+            run_recipe_pipeline(
+                {},
+                goal="都市程序员短剧",
+                chat_fn=lambda _messages: (_ for _ in ()).throw(LlmError("上游对话失败")),
+                skip_research=True,
+                agents=["script", "storyboard"],
+                on_progress=lambda recipe: snapshots.append(deepcopy(recipe)),
+            )
+
+        self.assertTrue(snapshots)
+        latest = snapshots[-1]
+        script = next(item for item in latest["agentStatus"] if item["id"] == "script")
+        self.assertEqual(script["status"], "failed")
+        self.assertEqual(script["error"], "上游对话失败")
+        self.assertFalse(latest["pipelineRun"]["active"])
 
     def test_pipeline_raises_billing_error_with_upstream_log(self) -> None:
         from backend.app.director_agents import run_recipe_pipeline
@@ -2429,6 +2491,60 @@ class DirectorDualEngineApiTests(unittest.TestCase):
             json={"goal": "测试", "agents": ["not-an-agent"]},
         )
         self.assertEqual(bad.status_code, 422)
+
+    def test_durable_operation_create_read_cancel_and_exclusive_guard(self) -> None:
+        from backend.app.director_recipe import empty_recipe_payload
+
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={"title": "持久化操作", "payload": empty_recipe_payload(title="持久化操作")},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        project_id = created.json()["id"]
+        started: list[str] = []
+
+        class OperationStarterStub:
+            @staticmethod
+            def start(operation_id: str) -> None:
+                started.append(operation_id)
+
+        original = getattr(app.state, "director_operations", None)
+        app.state.director_operations = OperationStarterStub()
+        try:
+            response = self.client.post(
+                f"/api/director/recipes/{project_id}/operations",
+                headers=self._headers(),
+                json={"kind": "shot_render_prepare", "shot_ids": ["shot-1"], "render_pass": "preview"},
+            )
+            self.assertEqual(response.status_code, 202, response.text)
+            operation = response.json()
+            self.assertEqual(operation["status"], "queued")
+            self.assertEqual(started, [operation["id"]])
+            self.assertNotIn("owner_user_id", operation)
+
+            duplicate = self.client.post(
+                f"/api/director/recipes/{project_id}/operations",
+                headers=self._headers(),
+                json={"kind": "shot_render_prepare"},
+            )
+            self.assertEqual(duplicate.status_code, 409, duplicate.text)
+
+            fetched = self.client.get(f"/api/director/operations/{operation['id']}")
+            self.assertEqual(fetched.status_code, 200, fetched.text)
+            self.assertEqual(fetched.json()["request"]["shot_ids"], ["shot-1"])
+
+            cancelled = self.client.post(
+                f"/api/director/operations/{operation['id']}/cancel",
+                headers=self._headers(),
+            )
+            self.assertEqual(cancelled.status_code, 200, cancelled.text)
+            self.assertTrue(cancelled.json()["cancel_requested"])
+        finally:
+            if original is None:
+                delattr(app.state, "director_operations")
+            else:
+                app.state.director_operations = original
 
     def test_render_shots_with_first_frame_enqueues_i2v(self) -> None:
         from backend.app.director_recipe import empty_recipe_payload

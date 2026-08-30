@@ -3,15 +3,15 @@ import { Copy, Plus, Trash2 } from "lucide-react"
 import { PointerEvent, UIEvent, useRef, useState } from "react"
 import { snapH3DurationSec } from "../prompt-compiler"
 import { directorStatusLabel } from "../status-labels"
+import type { RecipeShot } from "../recipe-model"
 import {
-  RecipeShot,
   recipeShotHasEndFrame,
   recipeShotHasFirstFrame,
   recipeShotSubjectLabels,
   recipeTrackCanvasWidth,
   recipeTrackClipIdsInRange,
   recipeTrackLayout,
-} from "../types"
+} from "../recipe-timeline"
 
 interface TimelineTrackMainProps {
   shots: RecipeShot[]
@@ -164,7 +164,7 @@ export default function TimelineTrackMain({
                   <button
                     type="button"
                     className={`director-clip ${clipTone(shot, selected, checked)}`}
-                    style={{ left: `${left}px`, width: `${width - 4}px` }}
+                    style={{ left: `${left}px`, width: `${width}px` }}
                     onClick={(event) => onSelectShot(shot, event.shiftKey)}
                   >
                     镜头 {String(shot.shotNumber).padStart(2, "0")} · {shot.title}
@@ -210,7 +210,7 @@ export default function TimelineTrackMain({
                 <div
                   key={shot.id}
                   className={`director-status-bar ${running ? "is-running" : ""} ${done ? "is-success" : ""}`}
-                  style={{ left: `${left}px`, width: `${width - 4}px` }}
+                  style={{ left: `${left}px`, width: `${width}px` }}
                 >
                   {running ? <i style={{ width: `${Math.max(8, shot.progress || 8)}%` }} /> : null}
                   <b>{statusCopy(shot)}</b>

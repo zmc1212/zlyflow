@@ -1,3 +1,5 @@
+import { describe, expect, it } from "vitest"
+
 import {
   createEmptyRecipe,
   parseRecipeStage,
@@ -172,4 +174,8 @@ export function assertRecipeReadinessContract(): void {
   }
 }
 
-assertRecipeReadinessContract()
+describe("director recipe readiness", () => {
+  it("keeps task readiness and stage contracts", () => {
+    expect(() => assertRecipeReadinessContract()).not.toThrow()
+  })
+})

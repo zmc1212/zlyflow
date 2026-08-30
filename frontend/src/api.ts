@@ -71,16 +71,28 @@ export function apiErrorMessage(body: unknown, fallback = "请求失败"): strin
   return fallback
 }
 
+export class ApiRequestError extends Error {
+  status: number
+  body: unknown
+
+  constructor(status: number, body: unknown, fallback = "请求失败") {
+    super(apiErrorMessage(body, fallback))
+    this.name = "ApiRequestError"
+    this.status = status
+    this.body = body
+  }
+}
+
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? ""
     if (contentType.includes("application/json")) {
       const body = await response.json().catch(() => null)
-      throw new Error(apiErrorMessage(body))
+      throw new ApiRequestError(response.status, body)
     }
     const text = await response.text().catch(() => "")
-    throw new Error(text.trim() || `请求失败（HTTP ${response.status}）`)
+    throw new ApiRequestError(response.status, text.trim() || `请求失败（HTTP ${response.status}）`)
   }
   if (!(response.headers.get("content-type") ?? "").includes("application/json")) {
     throw new Error("服务端返回了非 JSON 响应，请确认工作台后端已启动")

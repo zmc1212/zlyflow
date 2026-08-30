@@ -583,6 +583,12 @@ class DirectorProjectUpdateRequest(BaseModel):
     style_vibe: str | None = Field(default=None, max_length=64)
     requested_shot_count: int | None = Field(default=None, ge=1, le=24)
     payload: dict[str, Any] | None = Field(default=None, description="完整替换工程 payload（时间轴或 Recipe）")
+    expected_content_revision: int | None = Field(
+        default=None,
+        ge=1,
+        description="客户端最后读取的创作内容版本；不匹配时返回 409。旧客户端可不传。",
+    )
+    force: bool = Field(default=False, description="确认内容冲突后显式覆盖创作字段；执行状态仍由服务端保留。")
 
 
 class DirectorProjectListItem(BaseModel):
@@ -594,6 +600,8 @@ class DirectorProjectListItem(BaseModel):
     shot_count: int
     generated_count: int
     generation_status: DirectorGenerationStatus
+    revision: int = Field(default=1, ge=1, description="工程任意内容或执行状态的单调递增版本。")
+    content_revision: int = Field(default=1, ge=1, description="仅创作内容变更时递增的版本。")
     style_vibe: str | None = None
     requested_shot_count: int | None = None
     created_at: str
@@ -651,6 +659,30 @@ class DirectorGenerateStillsRequest(BaseModel):
 class DirectorRenderShotsRequest(BaseModel):
     shot_ids: list[str] = Field(default_factory=list)
     render_pass: Literal["preview", "final"] = "final"
+
+
+class DirectorOperationCreateRequest(BaseModel):
+    kind: Literal["plan_pipeline", "shot_render_prepare"]
+    goal: str | None = Field(default=None, max_length=8000)
+    agents: list[str] | None = Field(default=None)
+    art_style_id: str | None = Field(default=None, max_length=32)
+    skip_research: bool | None = None
+    shot_ids: list[str] = Field(default_factory=list)
+    render_pass: Literal["preview", "final"] = "final"
+
+
+class DirectorOperationResponse(BaseModel):
+    id: str
+    project_id: str
+    kind: Literal["plan_pipeline", "shot_render_prepare"]
+    status: Literal["queued", "running", "succeeded", "failed", "interrupted", "cancelled"]
+    progress: int = Field(ge=0, le=100)
+    request: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    cancel_requested: bool = False
+    created_at: str
+    updated_at: str
 
 
 class DirectorRenderBatchRequest(BaseModel):

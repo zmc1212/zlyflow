@@ -1,19 +1,18 @@
-import { Button, Empty, Progress, Space, Tag, Typography, message } from "antd"
-import { Clapperboard, Pause, Play } from "lucide-react"
+import { Button, Dropdown, Empty, Progress, Space, Tag, Typography, message } from "antd"
+import { Clapperboard, MoreHorizontal, Pause, Play } from "lucide-react"
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { directorStatusColor, directorStatusLabel } from "../status-labels"
 import { snapH3DurationSec } from "../prompt-compiler"
+import type { RecipeProject, RecipeShot } from "../recipe-model"
 import {
-  RecipeProject,
-  RecipeShot,
   assignRecipeShotPlate,
   dressedRecipePlates,
   recipePlayableShots,
-  recipeShotAtPlayhead,
   recipeShotLayout,
   recipeShotStillUrl,
+  recipeTimelineMinimumPixelsPerSecond,
   recipeShotVideoUrl,
-} from "../types"
+} from "../recipe-timeline"
 import RecipeShotInspector from "./RecipeShotInspector"
 import TimelineRuler from "./TimelineRuler"
 import TimelineTrackMain from "./TimelineTrackMain"
@@ -107,6 +106,10 @@ export default function DirectorTimelineView({
   const plates = useMemo(() => dressedRecipePlates(recipe), [recipe])
   const playable = useMemo(() => recipePlayableShots(shots), [shots])
   const layout = useMemo(() => recipeShotLayout(shots), [shots])
+  const playableLayout = useMemo(
+    () => layout.filter((item) => playable.some((shot) => shot.id === item.shot.id)),
+    [layout, playable],
+  )
   const totalDurationSec = layout[layout.length - 1]?.endSec || 0
   const [playheadSec, setPlayheadSec] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -115,10 +118,20 @@ export default function DirectorTimelineView({
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [scrollLeft, setScrollLeft] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const playheadShot = recipeShotAtPlayhead(playing ? playable : shots, playheadSec)
-  const previewShot = playing ? playable.find((shot) => shot.id === playheadShot?.shot.id) || selectedShot : selectedShot
+  const minPixelsPerSecond = useMemo(() => recipeTimelineMinimumPixelsPerSecond(shots), [shots])
+  const playheadShot = playing
+    ? playableLayout.find((item) => playheadSec >= item.startSec && playheadSec < item.endSec)
+      || playableLayout.find((item) => item.startSec >= playheadSec)
+      || playableLayout[playableLayout.length - 1]
+    : layout.find((item) => playheadSec >= item.startSec && playheadSec < item.endSec)
+      || layout[layout.length - 1]
+  const previewShot = playing ? playheadShot?.shot || selectedShot : selectedShot
   const previewVideo = previewShot ? recipeShotVideoUrl(previewShot) : ""
   const previewStill = previewShot ? recipeShotStillUrl(previewShot) : ""
+
+  useEffect(() => {
+    if (pixelsPerSecond < minPixelsPerSecond) setPixelsPerSecond(minPixelsPerSecond)
+  }, [minPixelsPerSecond, pixelsPerSecond])
 
   useEffect(() => {
     if (playing || !selectedShot) return
@@ -143,7 +156,8 @@ export default function DirectorTimelineView({
   function seekTo(timeSec: number) {
     const next = Math.min(Math.max(0, timeSec), Math.max(totalDurationSec, 0))
     setPlayheadSec(next)
-    const hit = recipeShotAtPlayhead(shots, next)
+    const hit = layout.find((item) => next >= item.startSec && next < item.endSec)
+      || layout[layout.length - 1]
     if (hit) onSelectShot(hit.shot.id)
   }
 
@@ -171,15 +185,14 @@ export default function DirectorTimelineView({
       setPlaying(false)
       return
     }
-    const index = playable.findIndex((shot) => shot.id === previewShot.id)
-    const next = playable[index + 1]
+    const index = playableLayout.findIndex((item) => item.shot.id === previewShot.id)
+    const next = playableLayout[index + 1]
     if (!next) {
       setPlaying(false)
       return
     }
-    const item = layout.find((entry) => entry.shot.id === next.id)
-    setPlayheadSec(item?.startSec || 0)
-    onSelectShot(next.id)
+    setPlayheadSec(next.startSec)
+    onSelectShot(next.shot.id)
   }
 
   function handleAssignPlate(plate: { name: string; kind: "character" | "location" }) {
@@ -248,13 +261,23 @@ export default function DirectorTimelineView({
               >
                 {playing ? "暂停串播" : "串播"}
               </Button>
-              <Button disabled={!checkedShotIds.length || running} onClick={onGenerateSelected}>
-                生成选中（{checkedShotIds.length}）
-              </Button>
-              <Button disabled={!failedShotCount || running} onClick={onRetryFailed}>
-                仅重试失败项（{failedShotCount}）
-              </Button>
-              <Button disabled={!checkedShotIds.length} onClick={onCancelSelected}>取消选中</Button>
+              <Dropdown
+                trigger={["click"]}
+                menu={{
+                  items: [
+                    { key: "selected", label: `生成选中（${checkedShotIds.length}）`, disabled: !checkedShotIds.length || running },
+                    { key: "retry", label: `仅重试失败项（${failedShotCount}）`, disabled: !failedShotCount || running },
+                    { key: "cancel", label: "取消选中任务", disabled: !checkedShotIds.length },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "selected") onGenerateSelected()
+                    if (key === "retry") onRetryFailed()
+                    if (key === "cancel") onCancelSelected()
+                  },
+                }}
+              >
+                <Button icon={<MoreHorizontal size={14} />}>批量操作{checkedShotIds.length ? ` · ${checkedShotIds.length}` : ""}</Button>
+              </Dropdown>
               <Button type="primary" icon={<Clapperboard size={14} />} loading={boardBusy} disabled={!shots.length || running} onClick={onGenerateBoard}>
                 {boardActionLabel}
               </Button>
@@ -296,6 +319,7 @@ export default function DirectorTimelineView({
                 totalDurationSec={totalDurationSec}
                 currentTimeSec={playheadSec}
                 pixelsPerSecond={pixelsPerSecond}
+                minPixelsPerSecond={minPixelsPerSecond}
                 unit={unit}
                 snapEnabled={snapEnabled}
                 scrollLeft={scrollLeft}

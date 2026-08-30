@@ -4,6 +4,8 @@ import json
 import shutil
 import sqlite3
 import uuid
+from copy import deepcopy
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,14 @@ ACTIVE_STATUSES = {
 }
 
 
+class DirectorProjectConflictError(RuntimeError):
+    """Raised when a creative update targets an obsolete content revision."""
+
+    def __init__(self, current_project: dict[str, Any]) -> None:
+        super().__init__("导演工程已在其他窗口更新")
+        self.current_project = current_project
+
+
 def elapsed_ms_between(created_at: str | None, finished_at: str | None) -> int | None:
     if not created_at or not finished_at:
         return None
@@ -67,6 +77,8 @@ class JobStore:
     GRS_CATALOG_MIGRATION = "2026-08-25-grs-image-models-v1"
     DIRECTOR_PROJECTS_MIGRATION = "2026-08-26-director-projects-v1"
     DIRECTOR_LIBRARY_MIGRATION = "2026-08-28-director-library-assets-v1"
+    DIRECTOR_CONCURRENCY_MIGRATION = "2026-08-30-director-concurrency-v2"
+    DIRECTOR_OPERATIONS_MIGRATION = "2026-08-30-director-operations-v1"
 
     def __init__(self, database_path: Path) -> None:
         database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,6 +92,11 @@ class JobStore:
         backup = self.database_path.with_name(f"{self.database_path.name}.pre-ai-studio-migration.bak")
         if not backup.exists():
             shutil.copy2(self.database_path, backup)
+        concurrency_backup = self.database_path.with_name(
+            f"{self.database_path.name}.pre-director-concurrency-v2.bak"
+        )
+        if not concurrency_backup.exists():
+            shutil.copy2(self.database_path, concurrency_backup)
 
     def connection(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=30)
@@ -270,6 +287,8 @@ class JobStore:
                     style_vibe TEXT,
                     requested_shot_count INTEGER,
                     payload_json TEXT NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 1,
+                    content_revision INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -298,8 +317,29 @@ class JobStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_director_library_assets_owner_kind
                     ON director_library_assets(owner_user_id, kind, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS director_operations (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL REFERENCES director_projects(id) ON DELETE CASCADE,
+                    owner_user_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    request_json TEXT NOT NULL DEFAULT '{}',
+                    result_json TEXT NOT NULL DEFAULT '{}',
+                    error TEXT,
+                    cancel_requested INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_director_operations_project_updated
+                    ON director_operations(project_id, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_director_operations_owner_status
+                    ON director_operations(owner_user_id, status, updated_at DESC);
                 """
             )
+            self._ensure_column(connection, "director_projects", "revision", "INTEGER NOT NULL DEFAULT 1")
+            self._ensure_column(connection, "director_projects", "content_revision", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(connection, "generation_items", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")
             for table in ("jobs", "job_rounds", "generation_items"):
                 self._ensure_column(connection, table, "finished_at", "TEXT")
@@ -348,6 +388,14 @@ class JobStore:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
                 (self.DIRECTOR_LIBRARY_MIGRATION, now()),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+                (self.DIRECTOR_CONCURRENCY_MIGRATION, now()),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+                (self.DIRECTOR_OPERATIONS_MIGRATION, now()),
             )
             self._ensure_grs_image_models(connection)
 
@@ -1319,6 +1367,8 @@ class JobStore:
             "shot_count": shot_count,
             "generated_count": generated_count,
             "generation_status": generation_status,
+            "revision": int(row["revision"] or 1),
+            "content_revision": int(row["content_revision"] or 1),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -1395,27 +1445,223 @@ class JobStore:
         payload: dict[str, Any] | None = None,
         update_style_vibe: bool = False,
         update_requested_shot_count: bool = False,
+        expected_content_revision: int | None = None,
+        force: bool = False,
+        content_update: bool = True,
+        payload_merger: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        current = self.get_director_project(project_id)
-        next_title = current["title"] if title is None else title.strip()
-        next_summary = current["summary"] if summary is None else summary
-        next_script = current["source_script"] if source_script is None else source_script
-        next_vibe = current["style_vibe"] if not update_style_vibe else style_vibe
-        next_count = current["requested_shot_count"] if not update_requested_shot_count else requested_shot_count
-        next_payload = current["payload"] if payload is None else self.sanitize_director_payload(payload)
-        timestamp = now()
         with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM director_projects WHERE id = ?", (project_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(project_id)
+            current = self._director_row_to_dict(row, include_payload=True)
+            if (
+                expected_content_revision is not None
+                and not force
+                and current["content_revision"] != expected_content_revision
+            ):
+                raise DirectorProjectConflictError(current)
+            next_title = current["title"] if title is None else title.strip()
+            next_summary = current["summary"] if summary is None else summary
+            next_script = current["source_script"] if source_script is None else source_script
+            next_vibe = current["style_vibe"] if not update_style_vibe else style_vibe
+            next_count = current["requested_shot_count"] if not update_requested_shot_count else requested_shot_count
+            if payload is None:
+                next_payload = current["payload"]
+            elif payload_merger is not None:
+                next_payload = self.sanitize_director_payload(payload_merger(current["payload"], payload))
+            else:
+                next_payload = self.sanitize_director_payload(payload)
+            next_revision = current["revision"] + 1
+            next_content_revision = current["content_revision"] + (1 if content_update else 0)
+            timestamp = now()
             connection.execute(
                 """UPDATE director_projects
                 SET title = ?, summary = ?, source_script = ?, style_vibe = ?,
-                    requested_shot_count = ?, payload_json = ?, updated_at = ?
+                    requested_shot_count = ?, payload_json = ?, revision = ?,
+                    content_revision = ?, updated_at = ?
                 WHERE id = ?""",
                 (
                     next_title, next_summary or "", next_script or "", next_vibe, next_count,
-                    json.dumps(next_payload, ensure_ascii=False), timestamp, project_id,
+                    json.dumps(next_payload, ensure_ascii=False), next_revision,
+                    next_content_revision, timestamp, project_id,
                 ),
             )
         return self.get_director_project(project_id)
+
+    def mutate_director_project_payload(
+        self,
+        project_id: str,
+        mutator: Callable[[dict[str, Any]], dict[str, Any] | None],
+        *,
+        content_update: bool = False,
+        expected_content_revision: int | None = None,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Apply a payload patch against the latest row in one short transaction."""
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM director_projects WHERE id = ?", (project_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(project_id)
+            current = self._director_row_to_dict(row, include_payload=True)
+            if (
+                expected_content_revision is not None
+                and not force
+                and current["content_revision"] != expected_content_revision
+            ):
+                raise DirectorProjectConflictError(current)
+            working = deepcopy(current["payload"])
+            mutated = mutator(working)
+            next_payload = self.sanitize_director_payload(mutated if isinstance(mutated, dict) else working)
+            timestamp = now()
+            connection.execute(
+                """UPDATE director_projects
+                SET payload_json = ?, revision = ?, content_revision = ?, updated_at = ?
+                WHERE id = ?""",
+                (
+                    json.dumps(next_payload, ensure_ascii=False),
+                    current["revision"] + 1,
+                    current["content_revision"] + (1 if content_update else 0),
+                    timestamp,
+                    project_id,
+                ),
+            )
+        return self.get_director_project(project_id)
+
+    @staticmethod
+    def _director_operation_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+        def decode(name: str) -> dict[str, Any]:
+            try:
+                value = json.loads(row[name] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                value = {}
+            return value if isinstance(value, dict) else {}
+
+        return {
+            "id": row["id"],
+            "project_id": row["project_id"],
+            "owner_user_id": row["owner_user_id"],
+            "kind": row["kind"],
+            "status": row["status"],
+            "progress": int(row["progress"] or 0),
+            "request": decode("request_json"),
+            "result": decode("result_json"),
+            "error": row["error"],
+            "cancel_requested": bool(row["cancel_requested"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def create_director_operation(
+        self,
+        *,
+        project_id: str,
+        owner_user_id: str,
+        kind: str,
+        request: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        operation_id = f"director-op-{uuid.uuid4().hex}"
+        timestamp = now()
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            active = connection.execute(
+                """SELECT id FROM director_operations
+                WHERE project_id = ? AND status IN ('queued', 'running')
+                LIMIT 1""",
+                (project_id,),
+            ).fetchone()
+            if active is not None:
+                raise ValueError(f"工程已有未完成的导演操作：{active['id']}")
+            connection.execute(
+                """INSERT INTO director_operations (
+                    id, project_id, owner_user_id, kind, status, progress,
+                    request_json, result_json, error, cancel_requested, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'queued', 0, ?, '{}', NULL, 0, ?, ?)""",
+                (
+                    operation_id,
+                    project_id,
+                    owner_user_id,
+                    kind,
+                    json.dumps(request or {}, ensure_ascii=False),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        return self.get_director_operation(operation_id)
+
+    def get_director_operation(self, operation_id: str) -> dict[str, Any]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM director_operations WHERE id = ?", (operation_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(operation_id)
+        return self._director_operation_row_to_dict(row)
+
+    def update_director_operation(
+        self,
+        operation_id: str,
+        *,
+        status: str | None = None,
+        progress: int | None = None,
+        result: dict[str, Any] | None = None,
+        error: str | None = None,
+        update_error: bool = False,
+        cancel_requested: bool | None = None,
+    ) -> dict[str, Any]:
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM director_operations WHERE id = ?", (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(operation_id)
+            next_status = row["status"] if status is None else status
+            next_progress = int(row["progress"] or 0) if progress is None else max(0, min(100, int(progress)))
+            next_result = row["result_json"] if result is None else json.dumps(result, ensure_ascii=False)
+            next_error = row["error"] if not update_error else error
+            next_cancel = int(row["cancel_requested"] or 0) if cancel_requested is None else int(cancel_requested)
+            connection.execute(
+                """UPDATE director_operations
+                SET status = ?, progress = ?, result_json = ?, error = ?,
+                    cancel_requested = ?, updated_at = ?
+                WHERE id = ?""",
+                (
+                    next_status,
+                    next_progress,
+                    next_result,
+                    next_error,
+                    next_cancel,
+                    now(),
+                    operation_id,
+                ),
+            )
+        return self.get_director_operation(operation_id)
+
+    def request_director_operation_cancel(self, operation_id: str) -> dict[str, Any]:
+        operation = self.get_director_operation(operation_id)
+        if operation["status"] in {"succeeded", "failed", "interrupted", "cancelled"}:
+            return operation
+        return self.update_director_operation(operation_id, cancel_requested=True)
+
+    def interrupt_stale_director_operations(self) -> int:
+        timestamp = now()
+        with self.connection() as connection:
+            cursor = connection.execute(
+                """UPDATE director_operations
+                SET status = 'interrupted', progress = CASE WHEN progress > 99 THEN 99 ELSE progress END,
+                    error = COALESCE(error, '服务重启，操作已中断；不会自动重试，以避免重复计费，请手动重试。'),
+                    updated_at = ?
+                WHERE status IN ('queued', 'running')""",
+                (timestamp,),
+            )
+        return max(0, cursor.rowcount)
 
     def interrupt_stale_director_pipelines(self) -> int:
         from .director_recipe import interrupt_stale_pipeline
@@ -1637,5 +1883,3 @@ class JobStore:
         if cursor.rowcount == 0:
             raise KeyError(asset_id)
         return current
-
-

@@ -603,7 +603,12 @@ class OpenAICompatibleClient:
 
         try:
             if stream:
-                raw = self._read_chat_completion_body(response, stream=True, on_chunk=on_chunk)
+                raw = self._read_chat_completion_body(
+                    response,
+                    stream=True,
+                    on_chunk=on_chunk,
+                    read_timeout=read_timeout,
+                )
             else:
                 data = self._json(response, "对话推理")
                 raw = self._extract_response_content(data)
@@ -629,6 +634,7 @@ class OpenAICompatibleClient:
         *,
         stream: bool,
         on_chunk: Callable[[str], None] | None = None,
+        read_timeout: float | None = None,
     ) -> str:
         if response.status_code >= 400:
             data = self._json(response, "对话推理")
@@ -641,11 +647,20 @@ class OpenAICompatibleClient:
             try:
                 response.encoding = "utf-8"
                 return self._read_sse_chat(response, on_chunk=on_chunk)
-            except requests.exceptions.Timeout as exc:
-                raise LlmTemporaryError(
-                    "请求大模型服务超时（等待过程中上游停止返回）。"
-                    "模型可能仍在生成或首次装入显存，请稍后重试。"
-                ) from exc
+            except requests.exceptions.RequestException as exc:
+                # urllib3 wraps a streaming ReadTimeoutError in ConnectionError
+                # after the response headers have already been received.  Treat
+                # that shape exactly like a normal requests Timeout instead of
+                # leaking it past the LLM error boundary.
+                if isinstance(exc, requests.exceptions.Timeout) or is_llm_timeout_error(exc):
+                    raise LlmTemporaryError(
+                        (
+                            f"请求大模型服务超时（等待 {read_timeout:.0f} 秒仍无响应）。"
+                            if read_timeout is not None
+                            else "请求大模型服务超时（等待过程中上游停止返回）。"
+                        ) + "模型可能仍在生成或首次装入显存，请稍后重试。"
+                    ) from exc
+                raise LlmTemporaryError(f"读取大模型流式响应失败：{exc}") from exc
             finally:
                 response.close()
         data = self._json(response, "对话推理")
@@ -1118,4 +1133,3 @@ class OpenAICompatibleClient:
             "lighting": lighting_map.get(lighting_raw, "cinematic_soft"),
             "sfx": str(shot.get("sfx") or "").strip(),
         }
-

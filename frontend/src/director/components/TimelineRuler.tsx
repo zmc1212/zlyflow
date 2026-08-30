@@ -1,7 +1,8 @@
 import { Slider } from "antd"
 import { Eye, ZoomIn } from "lucide-react"
 import React, { useRef } from "react"
-import { RecipeShot, recipeRulerSeekSec, recipeRulerShotEdges, recipeRulerTicks } from "../types"
+import type { RecipeShot } from "../recipe-model"
+import { recipeRulerSeekSec, recipeRulerShotEdges, recipeRulerTicks } from "../recipe-timeline"
 
 interface TimelineRulerProps {
   shots?: RecipeShot[]
@@ -12,6 +13,7 @@ interface TimelineRulerProps {
   fps?: number
   snapEnabled?: boolean
   scrollLeft?: number
+  minPixelsPerSecond?: number
   onSeek: (timeSec: number) => void
   onUnitToggle: () => void
   onZoomChange: (pxPerSec: number) => void
@@ -27,6 +29,7 @@ export default function TimelineRuler({
   fps = 24,
   snapEnabled = true,
   scrollLeft = 0,
+  minPixelsPerSecond = 24,
   onSeek,
   onUnitToggle,
   onZoomChange,
@@ -71,7 +74,7 @@ export default function TimelineRuler({
         </button>
         <button type="button" className="director-snap-chip" onClick={onUnitToggle}>{unit === "seconds" ? "秒" : "帧"}</button>
         <ZoomIn size={14} className="text-[#98a2ad]" />
-        <Slider min={24} max={120} value={pixelsPerSecond} onChange={onZoomChange} tooltip={{ open: false }} />
+        <Slider min={minPixelsPerSecond} max={120} value={pixelsPerSecond} onChange={onZoomChange} tooltip={{ open: false }} />
       </div>
     </div>
   )

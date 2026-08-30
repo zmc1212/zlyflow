@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest"
 import { persistableDirectorProjects } from "./director-storage"
 import { assetGenerationState, assetPreviewUrl, jobProgressFromJob, jobStoredImageUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotStatusFromJob, summarizeJobError } from "./director-submit"
 import { directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
@@ -395,4 +396,8 @@ export function assertPromptCompilerContract(): void {
   }
 }
 
-assertPromptCompilerContract()
+describe("director prompt compiler", () => {
+  it("keeps prompt, status and submission contracts", () => {
+    expect(() => assertPromptCompilerContract()).not.toThrow()
+  })
+})

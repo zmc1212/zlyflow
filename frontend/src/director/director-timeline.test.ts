@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest"
 import { snapH3DurationSec } from "./prompt-compiler"
 import {
   RECIPE_TRACK_MIN_CLIP_PX,
@@ -18,6 +19,7 @@ import {
   recipeShotSubjectLabels,
   recipeShotsToPlayer,
   recipeShotVideoUrl,
+  recipeTimelineMinimumPixelsPerSecond,
   recipeTrackCanvasWidth,
   recipeTrackClipIdsInRange,
   recipeTrackLayout,
@@ -99,9 +101,14 @@ export function assertDirectorTimelineContract(): void {
   if (clips[1].left !== 200 || clips[1].width !== 320) {
     throw new Error("second clip must start after the first durationSec")
   }
-  const short = recipeTrackLayout([sampleShot({ id: "tiny", durationSec: 1 })], 24)
-  if (short[0].width !== RECIPE_TRACK_MIN_CLIP_PX) {
-    throw new Error("very short clips must keep a readable min width")
+  const tiny = sampleShot({ id: "tiny", durationSec: 1 })
+  const short = recipeTrackLayout([tiny], 24)
+  if (short[0].width !== 24) {
+    throw new Error("clip width must remain exactly duration * pixelsPerSecond")
+  }
+  const minimumZoom = recipeTimelineMinimumPixelsPerSecond([tiny])
+  if (minimumZoom !== RECIPE_TRACK_MIN_CLIP_PX || recipeTrackLayout([tiny], minimumZoom)[0].width !== RECIPE_TRACK_MIN_CLIP_PX) {
+    throw new Error("minimum zoom must make the shortest clip readable without distorting its duration")
   }
   if (recipeTrackClipIdsInRange(clips, 180, 220).join(",") !== "a,b") {
     throw new Error("marquee must select RecipeShot ids that overlap the drag range")
@@ -123,6 +130,21 @@ export function assertDirectorTimelineContract(): void {
   }
   if (recipeRulerSeekSec(90, 40, 13, { snap: false }) !== 2.25) {
     throw new Error("ruler without snap must keep the raw RecipeShot time")
+  }
+
+  const missing = sampleShot({ id: "missing", durationSec: 3, status: "idle", outputVideoUrl: null })
+  const playableAfterGap = sampleShot({
+    id: "playable-after-gap",
+    durationSec: 4,
+    status: "succeeded",
+    outputVideoUrl: "/after-gap.mp4",
+  })
+  const gappedLayout = recipeShotLayout([missing, playableAfterGap])
+  if (recipePlayableShots([missing, playableAfterGap]).map((shot) => shot.id).join(",") !== "playable-after-gap") {
+    throw new Error("playable filtering must exclude missing video")
+  }
+  if (gappedLayout[1].startSec !== 3 || gappedLayout[1].endSec !== 7) {
+    throw new Error("a missing first clip must retain its full timeline gap")
   }
 
   const recipe = withShots([a])
@@ -203,4 +225,8 @@ export function assertDirectorTimelineContract(): void {
   }
 }
 
-assertDirectorTimelineContract()
+describe("director timeline", () => {
+  it("keeps timeline editing and playback contracts", () => {
+    expect(() => assertDirectorTimelineContract()).not.toThrow()
+  })
+})

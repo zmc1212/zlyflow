@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest"
 import {
   parseDirectorRecipeView,
   resolveDirectorRecipeView,
@@ -35,4 +36,8 @@ export function assertDirectorRecipeViewContract(): void {
   }
 }
 
-assertDirectorRecipeViewContract()
+describe("director recipe view", () => {
+  it("resolves desktop and mobile views", () => {
+    expect(() => assertDirectorRecipeViewContract()).not.toThrow()
+  })
+})

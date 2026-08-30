@@ -124,6 +124,27 @@ class ChatCompletionTimeoutAndStreamTests(unittest.TestCase):
         self.assertTrue(mock_post.call_args.kwargs["stream"])
 
     @patch("requests.Session.post")
+    def test_stream_connection_error_wrapping_timeout_is_temporary(self, mock_post: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "text/event-stream"}
+        mock_response.iter_lines.side_effect = requests.exceptions.ConnectionError(
+            "HTTPSConnectionPool: Read timed out. (read timeout=300)",
+        )
+        mock_post.return_value = mock_response
+
+        with self.assertRaises(LlmTemporaryError) as ctx:
+            self._client().chat_completion(
+                [{"role": "user", "content": "hi"}],
+                "Qwen/Qwen2.5-7B-Instruct",
+                timeout=300.0,
+                stream=True,
+            )
+
+        self.assertIn("等待 300 秒仍无响应", str(ctx.exception))
+        self.assertNotIn("HTTPSConnectionPool", str(ctx.exception))
+
+    @patch("requests.Session.post")
     def test_stream_ignores_reasoning_deltas(self, mock_post: MagicMock) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -660,4 +681,3 @@ class LLMConnectionTestTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

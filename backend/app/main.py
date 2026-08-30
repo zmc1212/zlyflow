@@ -67,6 +67,8 @@ from .director_recipe import (
     empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload, payload_kind,
     set_agent_status,
 )
+from .director_project_service import merge_recipe_creative, persist_recipe_execution
+from .director_operations import DirectorOperationService
 from .grs_provider import GrsProviderService
 from .llm_client import LlmError, is_upstream_llm_failure
 from .llm_provider import LlmProviderService
@@ -86,6 +88,7 @@ from .models import (
     DirectorProjectResponse, DirectorProjectMigrateRequest, DirectorProjectMigrateResponse,
     DirectorArtStyleCatalogResponse, DirectorRecipeRunRequest, DirectorRecipeStepRequest,
     DirectorGenerateAssetsRequest, DirectorGenerateStillsRequest, DirectorRenderShotsRequest,
+    DirectorOperationCreateRequest, DirectorOperationResponse,
     DirectorRenderBatchRequest, DirectorBatchCreateRequest,
     DirectorLibraryAssetCreateRequest, DirectorLibraryAssetUpdateRequest, DirectorLibraryAssetResponse,
     DirectorLibraryFromRecipeRequest, DirectorLibraryFromRecipeResponse, DirectorInsertLibraryAssetsRequest,
@@ -96,7 +99,7 @@ from .models import (
 from .qiniu_provider import QiniuProviderService
 
 from .resource_storage import create_resource_storage, resource_object_url
-from .storage import FINISHED_STATUSES, JobStore, elapsed_ms_between
+from .storage import DirectorProjectConflictError, FINISHED_STATUSES, JobStore, elapsed_ms_between
 from .worker import JobWorker
 from .workflow_registry import (
     WORKFLOWS, is_h3_workflow, is_image_workflow, normalize_options, option_visible,
@@ -443,6 +446,24 @@ def public_director_project(record: dict, *, include_document: bool = True) -> d
     return data
 
 
+def director_operation_or_404(store: JobStore, operation_id: str, user: dict) -> dict:
+    try:
+        operation = store.get_director_operation(operation_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="导演操作不存在") from error
+    if operation.get("owner_user_id") != user["id"] and user["role"] not in {
+        UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value,
+    }:
+        raise HTTPException(status_code=404, detail="导演操作不存在")
+    return operation
+
+
+def public_director_operation(operation: dict) -> dict:
+    data = dict(operation)
+    data.pop("owner_user_id", None)
+    return data
+
+
 def generation_item_or_404(store: JobStore, job_id: str, generation_item_id: str, user: dict) -> tuple[dict, dict]:
     job = job_or_404(store, job_id, user)
     item = next((
@@ -626,11 +647,20 @@ async def lifespan(app: FastAPI):
     app.state.tts_provider = tts_provider
     app.state.comfy_provider = comfy_provider
     app.state.worker = worker
+    director_operations = DirectorOperationService(
+        store,
+        llm_provider=llm_provider,
+        worker=worker,
+        resource_storage=resource_storage,
+    )
+    app.state.director_operations = director_operations
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
     store.interrupt_stale_director_pipelines()
+    store.interrupt_stale_director_operations()
     await worker.start()
     yield
     set_catalog_lookup(None)
+    await director_operations.stop()
     await worker.stop()
 
 
@@ -1524,7 +1554,7 @@ def update_director_project(
     payload: DirectorProjectUpdateRequest,
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
-    director_project_or_404(app.state.store, project_id, user)
+    current = director_project_or_404(app.state.store, project_id, user)
     title = payload.title.strip() if payload.title is not None else None
     if title is not None and not title:
         raise HTTPException(status_code=422, detail="请填写工程标题")
@@ -1539,7 +1569,27 @@ def update_director_project(
             payload=payload.payload,
             update_style_vibe="style_vibe" in payload.model_fields_set,
             update_requested_shot_count="requested_shot_count" in payload.model_fields_set,
+            expected_content_revision=payload.expected_content_revision,
+            force=payload.force,
+            content_update=True,
+            payload_merger=(
+                merge_recipe_creative
+                if payload.payload is not None
+                and payload_kind(current.get("payload")) == PAYLOAD_KIND_RECIPE
+                and payload_kind(payload.payload) == PAYLOAD_KIND_RECIPE
+                else None
+            ),
         )
+    except DirectorProjectConflictError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DIRECTOR_CONTENT_CONFLICT",
+                "message": "工程已在其他窗口更新，请选择加载云端版本或明确覆盖。",
+                "current_revision": error.current_project["content_revision"],
+                "current_project": public_director_project(error.current_project),
+            },
+        ) from error
     except DirectorPayloadError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return public_director_project(updated)
@@ -1854,10 +1904,96 @@ async def _enqueue_job_ids(job_ids: list[str]) -> None:
 
 
 @app.post(
+    "/api/director/recipes/{project_id}/operations",
+    response_model=DirectorOperationResponse,
+    status_code=202,
+    tags=["导演台"],
+    summary="创建导演长操作",
+)
+async def create_director_operation(
+    project_id: str,
+    payload: DirectorOperationCreateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以创建导演操作")
+    if payload.kind == "plan_pipeline":
+        available, reason = app.state.llm_provider.availability()
+        if not available:
+            raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+        requested_agents = payload.agents or []
+        unknown = [agent_id for agent_id in requested_agents if agent_id not in AGENT_IDS]
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"未知 Agent：{', '.join(unknown)}")
+        if payload.art_style_id and find_art_style(payload.art_style_id) is None:
+            raise HTTPException(status_code=422, detail="画风必须选自目录")
+    body = payload.model_dump(exclude_none=True)
+    try:
+        operation = app.state.store.create_director_operation(
+            project_id=project_id,
+            owner_user_id=user["id"],
+            kind=payload.kind,
+            request=body,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.director_operations.start(operation["id"])
+    app.state.auth_store.audit(
+        "create_director_operation",
+        "director",
+        actor_user_id=user["id"],
+        target_id=project_id,
+        detail=f"{payload.kind}:{operation['id']}",
+        ip_address=client_ip(request),
+    )
+    return public_director_operation(operation)
+
+
+@app.get(
+    "/api/director/operations/{operation_id}",
+    response_model=DirectorOperationResponse,
+    tags=["导演台"],
+    summary="读取导演长操作",
+)
+def get_director_operation(
+    operation_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    return public_director_operation(director_operation_or_404(app.state.store, operation_id, user))
+
+
+@app.post(
+    "/api/director/operations/{operation_id}/cancel",
+    response_model=DirectorOperationResponse,
+    tags=["导演台"],
+    summary="取消导演长操作",
+)
+def cancel_director_operation(
+    operation_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    operation = director_operation_or_404(app.state.store, operation_id, user)
+    updated = app.state.store.request_director_operation_cancel(operation["id"])
+    app.state.auth_store.audit(
+        "cancel_director_operation",
+        "director",
+        actor_user_id=user["id"],
+        target_id=operation["project_id"],
+        detail=operation_id,
+        ip_address=client_ip(request),
+    )
+    return public_director_operation(updated)
+
+
+@app.post(
     "/api/director/recipes/run",
     response_model=DirectorProjectResponse,
     tags=["导演台"],
     summary="启动导演 9 Agent 流水线",
+    deprecated=True,
 )
 async def run_director_recipe(
     payload: DirectorRecipeRunRequest,
@@ -2020,7 +2156,7 @@ async def generate_director_recipe_assets(
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    saved = _persist_director_recipe(project_id, recipe)
+    saved = persist_recipe_execution(app.state.store, project_id, recipe, scope="assets")
     await _enqueue_job_ids(job_ids)
     app.state.auth_store.audit(
         "generate_director_assets", "director", actor_user_id=user["id"], target_id=project_id,
@@ -2091,7 +2227,9 @@ async def generate_director_recipe_stills(
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    saved = _persist_director_recipe(project_id, recipe)
+    saved = persist_recipe_execution(
+        app.state.store, project_id, recipe, scope="still", shot_ids=payload.shot_ids,
+    )
     await _enqueue_job_ids(job_ids)
     app.state.auth_store.audit(
         "generate_director_stills", "director", actor_user_id=user["id"], target_id=project_id,
@@ -2136,7 +2274,9 @@ async def upload_director_recipe_frame(
         raise HTTPException(status_code=422, detail=str(error)) from error
     finally:
         staging.unlink(missing_ok=True)
-    saved = _persist_director_recipe(project_id, recipe)
+    saved = persist_recipe_execution(
+        app.state.store, project_id, recipe, scope="frame", shot_ids=[shot_id],
+    )
     app.state.auth_store.audit(
         "upload_director_frame", "director", actor_user_id=user["id"], target_id=project_id,
         detail=f"{shot_id}:{slot}", ip_address=client_ip(request),
@@ -2183,6 +2323,7 @@ def download_director_recipe_frame(
     response_model=DirectorProjectResponse,
     tags=["导演台"],
     summary="按镜提交 MiniMax H3 视频任务",
+    deprecated=True,
 )
 async def render_director_recipe_shots(
     project_id: str,
@@ -2195,7 +2336,9 @@ async def render_director_recipe_shots(
         raise HTTPException(status_code=422, detail="只有 Recipe 工程可以提交分镜")
     llm_available, _ = app.state.llm_provider.availability()
     def persist_progress(current: dict) -> None:
-        _persist_director_recipe(project_id, current)
+        persist_recipe_execution(
+            app.state.store, project_id, current, scope="render", shot_ids=payload.shot_ids,
+        )
 
     try:
         recipe, job_ids = await asyncio.to_thread(
@@ -2211,7 +2354,11 @@ async def render_director_recipe_shots(
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    saved = _persist_director_recipe(project_id, recipe)
+    except LlmError as error:
+        raise_as_llm_http(error)
+    saved = persist_recipe_execution(
+        app.state.store, project_id, recipe, scope="render", shot_ids=payload.shot_ids,
+    )
     await _enqueue_job_ids(job_ids)
     app.state.auth_store.audit(
         "render_director_shots", "director", actor_user_id=user["id"], target_id=project_id,
@@ -2289,7 +2436,14 @@ async def generate_director_recipe_tts(
         raise HTTPException(status_code=422, detail=str(error)) from error
     except LlmError as error:
         raise_as_llm_http(error)
-    saved = _persist_director_recipe(project_id, recipe)
+    saved = persist_recipe_execution(
+        app.state.store,
+        project_id,
+        recipe,
+        scope="tts",
+        shot_ids=payload.shot_ids,
+        character_id=payload.character_id,
+    )
     app.state.auth_store.audit(
         "generate_director_tts", "director", actor_user_id=user["id"], target_id=project_id,
         ip_address=client_ip(request),
@@ -2365,7 +2519,7 @@ async def upload_director_recipe_bgm(
         raise HTTPException(status_code=422, detail=str(error)) from error
     finally:
         staging.unlink(missing_ok=True)
-    saved = _persist_director_recipe(project_id, recipe)
+    saved = persist_recipe_execution(app.state.store, project_id, recipe, scope="audio")
     app.state.auth_store.audit(
         "upload_director_bgm", "director", actor_user_id=user["id"], target_id=project_id,
         ip_address=client_ip(request),
@@ -2419,7 +2573,7 @@ async def mux_director_recipe_film(
         message = str(error)
         status = 503 if "ffmpeg" in message.lower() else 422
         raise HTTPException(status_code=status, detail=message) from error
-    saved = _persist_director_recipe(project_id, recipe)
+    saved = persist_recipe_execution(app.state.store, project_id, recipe, scope="mux")
     app.state.auth_store.audit(
         "mux_director_film", "director", actor_user_id=user["id"], target_id=project_id,
         ip_address=client_ip(request),

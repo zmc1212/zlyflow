@@ -895,6 +895,11 @@ def run_agent(
         compile_recipe_media(recipe)
         set_agent_status(recipe, agent_id, "completed")
         return recipe
+    except LlmError as error:
+        set_agent_status(recipe, agent_id, "failed", str(error))
+        if on_progress:
+            on_progress(recipe)
+        raise
     except Exception as error:
         set_agent_status(recipe, agent_id, "failed", str(error))
         return recipe
@@ -946,6 +951,13 @@ def run_recipe_pipeline(
                 break
         current["pipelineRun"] = {"agents": order, "active": False}
         return normalize_recipe_payload(current)
+    except LlmError as error:
+        current["pipelineRun"] = {"agents": order, "active": False}
+        if "agent_id" in locals():
+            set_agent_status(current, agent_id, "failed", str(error))
+        if on_progress:
+            on_progress(current)
+        raise
     except Exception:
         current["pipelineRun"] = {"agents": order, "active": False}
         if on_progress:

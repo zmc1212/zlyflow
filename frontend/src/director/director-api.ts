@@ -1,19 +1,16 @@
 import { apiErrorMessage, jsonMutation, requestJson } from "../api"
 import { persistableTimelineProject } from "./director-storage"
 import {
-  BatchRunPayload,
   createEmptyProject,
   createInitialSubjectSlots,
-  DirectorArtStyleCatalog,
-  isBatchRunPayload,
-  isRecipePayload,
-  defaultRecipeAudio,
-  defaultRecipeExport,
-  defaultRecipeSubtitles,
-  RecipeProject,
   TimelineProject,
   DirectorLibraryAsset,
 } from "./types"
+import {
+  defaultRecipeAudio, defaultRecipeExport, defaultRecipeSubtitles,
+  isBatchRunPayload, isRecipePayload,
+  type BatchRunPayload, type DirectorArtStyleCatalog, type RecipeProject,
+} from "./recipe-model"
 
 export type TtsVoiceItem = {
   id: string
@@ -42,6 +39,8 @@ export type DirectorProjectListItem = {
   shot_count: number
   generated_count: number
   generation_status: DirectorGenerationStatus
+  revision: number
+  content_revision: number
   style_vibe?: string | null
   requested_shot_count?: number | null
   created_at: string
@@ -51,6 +50,35 @@ export type DirectorProjectListItem = {
 export type DirectorProjectResponse = DirectorProjectListItem & {
   source_script: string
   payload: Record<string, unknown>
+}
+
+export type DirectorOperationKind = "plan_pipeline" | "shot_render_prepare"
+export type DirectorOperationStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled"
+
+export type DirectorOperationResponse = {
+  id: string
+  project_id: string
+  kind: DirectorOperationKind
+  status: DirectorOperationStatus
+  progress: number
+  request: {
+    goal?: string
+    agents?: string[]
+    art_style_id?: string
+    skip_research?: boolean
+    shot_ids?: string[]
+    render_pass?: "preview" | "final"
+  }
+  result: {
+    job_ids?: string[]
+    failed_agents?: string[]
+    project_revision?: number
+    content_revision?: number
+  }
+  error?: string | null
+  cancel_requested: boolean
+  created_at: string
+  updated_at: string
 }
 
 export type DirectorProjectMigrateResponse = {
@@ -227,12 +255,46 @@ export function updateDirectorProjectRecord(
     summary?: string
     source_script?: string
     payload?: RecipeProject | BatchRunPayload | Record<string, unknown>
+    expected_content_revision?: number
+    force?: boolean
   },
   csrfToken: string,
 ) {
   return requestJson<DirectorProjectResponse>(
     `/api/director/projects/${encodeURIComponent(projectId)}`,
     jsonMutation(csrfToken, body, "PUT"),
+  )
+}
+
+export function createDirectorOperation(
+  projectId: string,
+  body: {
+    kind: DirectorOperationKind
+    goal?: string
+    agents?: string[]
+    art_style_id?: string
+    skip_research?: boolean
+    shot_ids?: string[]
+    render_pass?: "preview" | "final"
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorOperationResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/operations`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export function getDirectorOperation(operationId: string) {
+  return requestJson<DirectorOperationResponse>(
+    `/api/director/operations/${encodeURIComponent(operationId)}`,
+  )
+}
+
+export function cancelDirectorOperation(operationId: string, csrfToken: string) {
+  return requestJson<DirectorOperationResponse>(
+    `/api/director/operations/${encodeURIComponent(operationId)}/cancel`,
+    jsonMutation(csrfToken, {}),
   )
 }
 
