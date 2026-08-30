@@ -1088,3 +1088,34 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 - 兼容性：不改工作流 ID、ComfyUI 节点、端口、SQLite schema 或 `POST /api/jobs`。历史 Recipe 无需迁移；无大模型配置时保持原提交路径。
 - 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
 - 回滚方式：恢复上述文件后重新构建前端并重启工作台；已有任务与媒体不受影响。
+
+## 2026-08-30 导演生成一致性与持久化操作两阶段修复
+
+- 原因：生成进度曾用旧 Recipe 整体回写，可能覆盖生成期间的文案、时长、参考素材和 Take 选择；流式 LLM 的包装超时可能被降级为成功；旧 Take/旧任务状态可能遮蔽新提交；剪辑串播过滤缺片后会重新累计时间，造成片段、刻度和播放头错位。同步 LLM 请求也无法跨后端重启恢复明确状态。
+- 第一阶段用户可见行为：H3、静帧和 TTS 只原子合并服务端执行字段并追加 Take，自动保存前会先落盘，轮询不再覆盖本地创作字段。LLM 读超时统一返回现有规范的 502。新任务失败但存在旧可用 Take 时保留旧片预览/合成并显示本次错误；无旧片才进入 `failed`。时间轴保留缺片镜头的真实空档，播放自动跳到下一条可播镜头的原始起点；缩放下限由最短镜头动态计算，删除镜头同步清理选中集合。
+- 第二阶段用户可见行为：工程响应增加 `revision` / `content_revision`，创作保存携带 `expected_content_revision`；跨窗口冲突返回 409，前端 Modal 只允许加载云端或明确覆盖。方案流水线和分镜提交准备改为持久化操作：`POST /api/director/recipes/{project_id}/operations` 返回 202，随后通过 `GET /api/director/operations/{operation_id}` 轮询，并可 `POST .../cancel`。重启后未完成操作标为 `interrupted`，不会自动重试或重复计费。
+- 字段与模块边界：创作字段和执行字段由 `director_project_service.py` 白名单合并；Take 追加保存，`approvedTakeId` 是持久化创作选择，预览 Take 只留在组件局部状态。前端拆出工程/冲突控制器、长操作控制器、Recipe 模型、readiness、时间轴和执行状态模块，`types.ts` 暂时 re-export 兼容旧导入。
+- 受影响文件：`backend/app/llm_client.py`、`director_agents.py`、`director_jobs.py`、`director_project_service.py`、`director_takes.py`、`director_operations.py`、`storage.py`、`models.py`、`main.py`、`api_documentation.py`，`frontend/src/director/DirectorRecipeStudio.tsx`、`director-api.ts`、`director-project-controller.ts`、`director-operation-controller.ts`、`recipe-model.ts`、`recipe-readiness.ts`、`recipe-timeline.ts`、`recipe-execution.ts`、时间轴/Inspector 组件、Vitest 配置与对应测试，以及三份主文档。
+- 兼容性：第一阶段不改数据库或工作流协议，唯一有意行为变化是错误的超时 200 改为 502。第二阶段启动前自动备份 SQLite 为 `<数据库文件>.pre-director-concurrency-v2.bak`；新增列、表和响应字段均为增量，旧客户端可暂不传内容版本。`/api/director/recipes/run` 与 `/render-shots` 保留一个版本并标记 deprecated。未修改工作流注册表、ComfyUI graph、节点 ID、模型路径或端口。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。桌面 1440×900 与手机 390×844 检查生成期间编辑、超时提示、缺片跳播、时间轴几何、删除选择清理与冲突 Modal。
+- 回滚方式：第一阶段可恢复对应应用文件并重新构建前端。回滚第二阶段前先停止工作台并另存当前数据库；可恢复迁移前的 `.pre-director-concurrency-v2.bak`（会放弃迁移后的工程修改和操作记录），或仅恢复代码并保留新增列/表。历史媒体和 ComfyUI 工作流不需要回滚。
+
+## 2026-08-30 导演台时间轴移植 OpenCut classic 交互内核
+
+- 原因：原时间轴只有刻度点击和窄幅右侧拉伸，播放头不可拖动；拉伸时每次指针移动都会改整份 Recipe 并触发自动保存，播放又依赖低频 `timeupdate`，操作存在明显卡顿和跳动。
+- 当前基线：以 MIT 许可的 OpenCut classic `cf5e79e919144200294fb9fed22a222592a0aeea` 为固定上游，源码映射见 `frontend/src/director/opencut-timeline/UPSTREAM.md`。移植 `PlayheadController`、`ResizeController`、`ElementInteractionController`、`ZoomController`、`useCommittedRef` 与边缘自动滚动，保留其显式 Session、全局手势捕获、5px 拖动阈值、preview/commit 分离和订阅式局部刷新。
+- 用户可见行为：播放头和刻度均可按帧拖动；镜头块可换序；拉时长只在松手后保存一次；镜头边界/播放头吸附可关闭，按住 Shift 临时绕过；Ctrl/Command+滚轮以播放头为锚点缩放；拖到轨道边缘自动滚动；空白区可拖播放头，Shift 拖框选，空格或中键拖动画布。播放期间用 `requestVideoFrameCallback` 直接更新 playhead transform。
+- 受影响文件：`frontend/src/director/opencut-timeline/*`、`director-timeline-engine.ts`、`types.ts`、`DirectorRecipeStudio.tsx`、三个时间轴组件、`director-timeline.test.ts`、`index.css` 和三份主文档。
+- 兼容性：只替换前端交互内核；不改 API、SQLite、Recipe 字段、工作流注册表、ComfyUI graph、节点 ID、模型路径或 7865/8188 端口。OpenCut 的任意多轨/WASM 模型收敛为本项目 24fps 的连续 `RecipeShot` 主轨，H3 提交时长仍限制为 2–15 秒整数。
+- 验证命令：`pnpm --dir frontend test`、`pnpm --dir frontend build`、`python -m unittest backend.tests.test_director`。浏览器桌面 1440×900 检查全部时间轴手势；手机 390×844 确认仍锁定方案视图。
+- 回滚方式：恢复上述前端文件和三份文档后重新构建前端；无需迁移或回滚数据库、Recipe、媒体与 ComfyUI 资产。
+
+## 2026-08-30 导演台播放器复刻 OpenCut 五键运输控制
+
+- 原因：剪辑视图的中间播放器仍使用浏览器原生控制条，缺少 OpenCut 的首尾跳转和逐帧检查，视觉与交互没有跟上已移植的时间轴。
+- 用户可见行为：播放器下方改为 OpenCut 同款五键运输控制：跳到开头、后退一帧、播放/暂停、前进一帧、跳到结尾；左侧显示 `HH:MM:SS:FF` 时间码，右侧 SAFE 可显示/隐藏 action-safe 与 title-safe 参考框。Home/End、左右方向键、Space 同步可用，Shift+左右键步进 10 帧。
+- 源码基线：五键结构与整数帧语义固定参考 MIT 许可的 `S07K/OpenCut` commit `e9c6cc06b549d7fa857bb8f43f02c47a39368e33`，映射见 `frontend/src/director/opencut-timeline/UPSTREAM.md`。
+- 受影响文件：`frontend/src/director/components/DirectorTimelineView.tsx`、`PlayerTransport.tsx`、`opencut-timeline/transport.ts`、`director-timeline.test.ts`、`index.css` 和三份主文档。
+- 兼容性：只增加前端播放器控制，不改 API、SQLite、Recipe schema、工作流、ComfyUI graph、节点 ID、媒体与端口；旧工程直接使用。
+- 验证命令：`pnpm --dir frontend test`、`pnpm --dir frontend build`、`python -m unittest backend.tests.test_director`；桌面 1440×900 检查五键、逐帧时间码、播放续播/结尾回放与 SAFE，手机 390×844 确认仍锁定方案视图。
+- 回滚方式：恢复上述前端文件与文档并重新构建；数据库、Recipe、媒体和 ComfyUI 无需回滚。

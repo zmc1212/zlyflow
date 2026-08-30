@@ -269,17 +269,24 @@ export function recipeExportState(recipe: RecipeProject): RecipeExportState {
   return { ...defaultRecipeExport(), ...recipe.export }
 }
 
-function activeTake(shot: RecipeShot) {
+export const FAILED_RECIPE_TAKE_STATUSES = new Set(["failed", "interrupted", "cancelled", "stopped"])
+
+export function recipeShotTakeIsUsable(take: ShotTake | undefined): boolean {
+  if (!take || FAILED_RECIPE_TAKE_STATUSES.has(take.status)) return false
+  return Boolean(take.videoUrl || take.outputPath) || take.status === "succeeded"
+}
+
+export function recipeShotPreferredTake(shot: RecipeShot): ShotTake | undefined {
   const takes = shot.takes || []
   const approved = takes.find((take) => (take.id || take.jobId) === shot.approvedTakeId)
-  return approved || takes[shot.activeTakeIndex || 0] || takes[takes.length - 1]
+  if (recipeShotTakeIsUsable(approved)) return approved
+  return [...takes].reverse().find(recipeShotTakeIsUsable)
 }
 
 export function shotIsMuxable(shot: RecipeShot): boolean {
-  const failed = new Set(["failed", "interrupted", "cancelled", "stopped"])
-  if (failed.has(shot.status)) return false
-  const take = activeTake(shot)
-  if (take) return !failed.has(take.status) && (Boolean(take.videoUrl) || take.status === "succeeded")
+  const take = recipeShotPreferredTake(shot)
+  if (take) return true
+  if (FAILED_RECIPE_TAKE_STATUSES.has(shot.status)) return false
   return shot.status === "succeeded" && Boolean(shot.outputVideoUrl || shot.jobId)
 }
 

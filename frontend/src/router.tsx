@@ -92,7 +92,7 @@ export function AppRoutes({
         }
       >
         {STUDIO_ROUTE_PATHS.map((path) => (
-          <Route key={path} path={path} />
+          <Route key={path} path={path} element={<></>} />
         ))}
       </Route>
       <Route path="*" element={<Navigate to={PATHS.generateVideo} replace />} />

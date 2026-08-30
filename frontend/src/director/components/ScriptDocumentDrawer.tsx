@@ -32,7 +32,7 @@ export default function ScriptDocumentDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      width={460}
+      size={460}
       className="director-script-drawer"
       title={
         <div className="director-script-drawer-title">

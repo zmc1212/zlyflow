@@ -1,6 +1,6 @@
 import { Button, Checkbox, Input, InputNumber, Progress, Select, Space, Tag, message } from "antd"
 import { Clapperboard, Copy, ImagePlus, Star } from "lucide-react"
-import { CSSProperties, ReactNode, useMemo, useRef, useState } from "react"
+import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import JobErrorNotice from "./JobErrorNotice"
 import ShotCameraFields from "./ShotCameraFields"
 import {
@@ -14,7 +14,8 @@ import {
 import { extractVideoFrame, overlaySubmittingState, shotGenerationState } from "../director-submit"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "../status-labels"
 import {
-  CameraDirection, RecipeProject, RecipeShot, ShotTake, TTS_VOICE_OPTIONS, defaultCameraDirection, recipePackedPlates,
+  CameraDirection, RecipeProject, RecipeShot, ShotTake, TTS_VOICE_OPTIONS, defaultCameraDirection,
+  recipePackedPlates, recipeShotPreferredTake,
 } from "../types"
 
 type JobLike = {
@@ -27,6 +28,10 @@ type JobLike = {
 
 function takeVideoUrl(take: ShotTake | undefined) {
   return take?.videoUrl || ""
+}
+
+function takeId(take: ShotTake | undefined) {
+  return take?.id || take?.jobId || ""
 }
 
 function recipeAspectVars(ratio: string): CSSProperties {
@@ -85,6 +90,7 @@ export default function RecipeShotInspector({
   const endInputRef = useRef<HTMLInputElement>(null)
   const [compareTakeId, setCompareTakeId] = useState<string | null>(null)
   const [extracting, setExtracting] = useState(false)
+  const [messageApi, messageContextHolder] = message.useMessage()
   const state = overlaySubmittingState(
     shotGenerationState(job, shot.outputVideoUrl, shot.jobId, {
       status: shot.status,
@@ -104,9 +110,24 @@ export default function RecipeShotInspector({
   const displayStatus = state.generating ? state.status : (state.status !== "idle" ? state.status : shot.status)
   const failed = !state.generating && isDirectorFailedStatus(displayStatus)
   const takes = shot.takes || []
-  const activeIndex = Math.min(Math.max(shot.activeTakeIndex || 0, 0), Math.max(takes.length - 1, 0))
-  const activeTake = takes[activeIndex]
   const approvedId = shot.approvedTakeId || ""
+  const preferredTake = recipeShotPreferredTake(shot)
+  const defaultTakeId = takeId(preferredTake) || takeId(takes[takes.length - 1])
+  const [previewTakeId, setPreviewTakeId] = useState(defaultTakeId)
+  const previewShotIdRef = useRef(shot.id)
+  useEffect(() => {
+    if (previewShotIdRef.current !== shot.id) {
+      previewShotIdRef.current = shot.id
+      setPreviewTakeId(defaultTakeId)
+      return
+    }
+    setPreviewTakeId((current) => (
+      takes.some((take) => takeId(take) === current) ? current : defaultTakeId
+    ))
+  }, [defaultTakeId, shot.id, takes])
+  const foundActiveIndex = takes.findIndex((take) => takeId(take) === previewTakeId)
+  const activeIndex = foundActiveIndex >= 0 ? foundActiveIndex : Math.max(0, takes.length - 1)
+  const activeTake = takes[activeIndex]
   const videoUrl = takeVideoUrl(activeTake) || shot.outputVideoUrl || ""
   const showVideo = Boolean(videoUrl) && !state.generating
   const inheritedFirst = shot.usePreviousEndFrame
@@ -115,7 +136,7 @@ export default function RecipeShotInspector({
   const firstPreview = inheritedFirst || shot.firstFrameUrl || shot.stillUrl || ""
   const plates = recipePackedPlates(recipe, shot)
   const camera = shot.camera || defaultCameraDirection()
-  const compareTake = takes.find((item) => item.id === compareTakeId && item.id !== activeTake?.id)
+  const compareTake = takes.find((item) => takeId(item) === compareTakeId && takeId(item) !== takeId(activeTake))
   const previousHasEnd = Boolean(previousShot?.endFrameUrl || previousShot?.stillUrl)
   const submission = useMemo(
     () => compileRecipeShotPreview(recipe, shot, previousShot),
@@ -138,13 +159,7 @@ export default function RecipeShotInspector({
   function selectTake(index: number) {
     const take = takes[index]
     if (!take) return
-    onChange({
-      activeTakeIndex: index,
-      jobId: take.jobId || take.id,
-      outputVideoUrl: take.videoUrl || shot.outputVideoUrl,
-      status: take.status,
-      progress: take.progress,
-    })
+    setPreviewTakeId(take.id || take.jobId || "")
   }
 
   const comparing = Boolean(compareDesktop && showVideo && compareTake?.videoUrl)
@@ -152,6 +167,7 @@ export default function RecipeShotInspector({
 
   return (
     <div className="director-recipe-inspector" style={recipeAspectVars(recipe.aspectRatio)}>
+      {messageContextHolder}
       <div className="director-inspector-picture">
         <div className={`director-inspector-stage${comparing ? " is-compare" : ""}`}>
           {comparing && compareTake?.videoUrl ? (
@@ -385,21 +401,19 @@ export default function RecipeShotInspector({
                       size="small"
                       icon={<Star size={12} />}
                       disabled={!take.videoUrl}
-                      onClick={() => onChange({
-                        approvedTakeId: take.id || take.jobId || null,
-                        activeTakeIndex: index,
-                        outputVideoUrl: take.videoUrl || shot.outputVideoUrl,
-                        jobId: take.jobId || take.id,
-                      })}
+                      onClick={() => {
+                        setPreviewTakeId(take.id || take.jobId || "")
+                        onChange({ approvedTakeId: take.id || take.jobId || null })
+                      }}
                     >
                       批准
                     </Button>
-                    {compareDesktop && take.videoUrl && take.id !== activeTake?.id ? (
+                    {compareDesktop && take.videoUrl && takeId(take) !== takeId(activeTake) ? (
                       <Button
                         size="small"
-                        onClick={() => setCompareTakeId(compareTakeId === take.id ? null : (take.id || null))}
+                        onClick={() => setCompareTakeId(compareTakeId === takeId(take) ? null : (takeId(take) || null))}
                       >
-                        {compareTakeId === take.id ? "关闭对比" : "A/B"}
+                        {compareTakeId === takeId(take) ? "关闭对比" : "A/B"}
                       </Button>
                     ) : null}
                   </Space>
@@ -446,7 +460,7 @@ export default function RecipeShotInspector({
             icon={<Copy size={12} />}
             onClick={() => {
               void navigator.clipboard.writeText(submission.prompt)
-              message.success("已复制即将提交的提示词")
+              messageApi.success("已复制即将提交的提示词")
             }}
           >
             复制

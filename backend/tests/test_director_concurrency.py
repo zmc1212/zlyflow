@@ -7,7 +7,7 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 
-from backend.app.director_project_service import merge_recipe_creative, persist_recipe_execution
+from backend.app.director_project_service import merge_recipe_creative, merge_recipe_execution, persist_recipe_execution
 from backend.app.director_recipe import flatten_recipe_shots, normalize_recipe_payload
 from backend.app.storage import DirectorProjectConflictError, JobStore
 
@@ -46,6 +46,67 @@ def sample_recipe() -> dict:
 
 
 class DirectorConcurrencyStorageTests(unittest.TestCase):
+    def test_tts_execution_merge_does_not_overwrite_user_voice_choices(self) -> None:
+        latest = sample_recipe()
+        latest_shot = flatten_recipe_shots(latest)[0]
+        latest_shot["voiceId"] = "voice-local"
+        latest["characters"] = [{
+            "id": "character-1",
+            "name": "侦探",
+            "voiceId": "voice-character-local",
+        }]
+        incoming = deepcopy(latest)
+        incoming_shot = flatten_recipe_shots(incoming)[0]
+        incoming_shot.update({
+            "voiceId": "voice-stale",
+            "ttsStatus": "succeeded",
+            "ttsUrl": "/tts.mp3",
+        })
+        incoming["characters"][0].update({
+            "voiceId": "voice-character-stale",
+            "voicePreviewUrl": "/preview.mp3",
+        })
+
+        merged = merge_recipe_execution(
+            latest,
+            incoming,
+            scope="tts",
+            shot_ids=["shot-1"],
+            character_id="character-1",
+        )
+
+        shot = flatten_recipe_shots(merged)[0]
+        self.assertEqual(shot["voiceId"], "voice-local")
+        self.assertEqual(shot["ttsStatus"], "succeeded")
+        self.assertEqual(shot["ttsUrl"], "/tts.mp3")
+        self.assertEqual(merged["characters"][0]["voiceId"], "voice-character-local")
+        self.assertEqual(merged["characters"][0]["voicePreviewUrl"], "/preview.mp3")
+
+    def test_creative_merge_accepts_reference_frame_edits(self) -> None:
+        latest = sample_recipe()
+        latest_shot = flatten_recipe_shots(latest)[0]
+        latest_shot.update({
+            "firstFrameUrl": "/old-frame.png",
+            "firstFrameJobId": "old-frame-job",
+            "status": "succeeded",
+            "outputVideoUrl": "/old.mp4",
+        })
+        incoming = deepcopy(latest)
+        incoming_shot = flatten_recipe_shots(incoming)[0]
+        incoming_shot.update({
+            "firstFrameUrl": "/new-frame.png",
+            "firstFrameJobId": "new-frame-job",
+            "status": "idle",
+            "outputVideoUrl": None,
+        })
+
+        merged = merge_recipe_creative(latest, incoming)
+        shot = flatten_recipe_shots(merged)[0]
+        self.assertEqual(shot["firstFrameUrl"], "/new-frame.png")
+        self.assertEqual(shot["firstFrameJobId"], "new-frame-job")
+        self.assertEqual(shot["status"], "succeeded")
+        self.assertEqual(shot["outputVideoUrl"], "/old.mp4")
+
     def test_migrates_legacy_projects_and_creates_backup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "legacy.db"

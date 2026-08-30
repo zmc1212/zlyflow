@@ -14,7 +14,7 @@ RENDER_SHOT_FIELDS = (
     "outputVideoUrl", "outputPath",
 )
 STILL_SHOT_FIELDS = ("stillUrl", "stillJobId", "stillStatus")
-TTS_SHOT_FIELDS = ("ttsStatus", "ttsUrl", "ttsPath", "ttsError", "voiceId")
+TTS_SHOT_FIELDS = ("ttsStatus", "ttsUrl", "ttsPath", "ttsError")
 FRAME_SHOT_FIELDS = (
     "firstFrameUrl", "firstFramePath", "firstFrameJobId",
     "endFrameUrl", "endFramePath", "endFrameJobId",
@@ -64,16 +64,6 @@ def _merge_shot_execution(
         target_takes = [item for item in (target.get("takes") or []) if isinstance(item, dict)]
         merged_takes = merge_take_execution(target_takes, source_takes)
         target["takes"] = merged_takes
-        source_index = source.get("activeTakeIndex")
-        if isinstance(source_index, int) and 0 <= source_index < len(source_takes):
-            active_id = _take_id(source_takes[source_index])
-            if active_id:
-                merged_index = next(
-                    (index for index, take in enumerate(merged_takes) if _take_id(take) == active_id),
-                    None,
-                )
-                if merged_index is not None:
-                    target["activeTakeIndex"] = merged_index
     if scope in {"still", "all"}:
         _copy_fields(target, source, STILL_SHOT_FIELDS)
     if scope in {"tts", "all"}:
@@ -130,7 +120,7 @@ def merge_recipe_execution(
         if source_character is not None:
             for character in target.get("characters") or []:
                 if isinstance(character, dict) and str(character.get("id") or "") == character_id:
-                    _copy_fields(character, source_character, ("voiceId", "voicePreviewUrl"))
+                    _copy_fields(character, source_character, ("voicePreviewUrl",))
                     break
     if scope in {"audio", "all"}:
         target_audio = target.get("audio") if isinstance(target.get("audio"), dict) else {}
@@ -153,6 +143,8 @@ def persist_recipe_execution(
     scope: ExecutionScope,
     shot_ids: list[str] | set[str] | None = None,
     character_id: str | None = None,
+    expected_content_revision: int | None = None,
+    content_update: bool = False,
 ) -> dict[str, Any]:
     return store.mutate_director_project_payload(
         project_id,
@@ -163,7 +155,8 @@ def persist_recipe_execution(
             shot_ids=shot_ids,
             character_id=character_id,
         ),
-        content_update=False,
+        content_update=content_update,
+        expected_content_revision=expected_content_revision,
     )
 
 
@@ -178,8 +171,11 @@ def merge_recipe_creative(latest: dict[str, Any], incoming: dict[str, Any]) -> d
     for shot in flatten_recipe_shots(target):
         current_shot = current_shots.get(str(shot.get("id") or ""))
         if current_shot is not None:
-            _merge_shot_execution(shot, current_shot, "all")
-            _copy_fields(shot, current_shot, FRAME_SHOT_FIELDS)
+            # Reference frames are user-authored content.  Preserve execution
+            # state, but allow the incoming creative payload to change frames.
+            _merge_shot_execution(shot, current_shot, "render")
+            _merge_shot_execution(shot, current_shot, "still")
+            _merge_shot_execution(shot, current_shot, "tts")
 
     for collection, fields in (
         ("characters", CHARACTER_EXECUTION_FIELDS),

@@ -1,9 +1,13 @@
-import type { RecipeProject, RecipeShot, ShotTake } from "./types"
+import { recipeShotPreferredTake, type RecipeProject, type RecipeShot } from "./recipe-model"
+import type { ShotTake } from "./types"
 
 const SHOT_EXECUTION_FIELDS = [
   "jobId", "status", "progress", "error", "compiledPrompt", "outputVideoUrl", "outputPath",
   "stillUrl", "stillJobId", "stillStatus",
-  "ttsStatus", "ttsUrl", "ttsPath", "ttsError", "voiceId",
+  "ttsStatus", "ttsUrl", "ttsPath", "ttsError",
+] as const
+
+const SHOT_FRAME_FIELDS = [
   "firstFrameUrl", "firstFramePath", "firstFrameJobId",
   "endFrameUrl", "endFramePath", "endFrameJobId",
 ] as const
@@ -48,12 +52,6 @@ function copyFields<T extends object>(
 function mergeShotExecution(current: RecipeShot, incoming: RecipeShot): RecipeShot {
   const next = copyFields(current, incoming, SHOT_EXECUTION_FIELDS)
   next.takes = mergeRecipeTakeExecution(current.takes || [], incoming.takes || [])
-  const incomingIndex = incoming.activeTakeIndex
-  if (typeof incomingIndex === "number" && incomingIndex >= 0 && incomingIndex < (incoming.takes || []).length) {
-    const activeKey = takeKey(incoming.takes[incomingIndex])
-    const mergedIndex = activeKey ? next.takes.findIndex((take) => takeKey(take) === activeKey) : -1
-    if (mergedIndex >= 0) next.activeTakeIndex = mergedIndex
-  }
   // Approval is a creative decision. Polling execution state must never move it.
   next.approvedTakeId = current.approvedTakeId
   return next
@@ -110,10 +108,61 @@ export function mergeRecipeExecutionState(current: RecipeProject, incoming: Reci
   }
 }
 
+/** Apply the server result of an explicit user frame upload to one shot only. */
+export function mergeRecipeShotFrameState(
+  current: RecipeProject,
+  incoming: RecipeProject,
+  shotId: string,
+): RecipeProject {
+  const incomingShot = incoming.scenes.flatMap((scene) => scene.shots).find((shot) => shot.id === shotId)
+  if (!incomingShot) return current
+  return {
+    ...current,
+    scenes: current.scenes.map((scene) => ({
+      ...scene,
+      shots: scene.shots.map((shot) => (
+        shot.id === shotId ? copyFields(shot, incomingShot, SHOT_FRAME_FIELDS) : shot
+      )),
+    })),
+  }
+}
+
 export function hasLatestShotSubmissionFailure(shot: RecipeShot, mode: "still" | "video"): boolean {
   if (mode === "still") {
     return ["failed", "interrupted", "cancelled"].includes(shot.stillStatus || "idle")
   }
   if (["failed", "interrupted", "cancelled"].includes(shot.status)) return true
   return Boolean(shot.error) && !["queued", "running"].includes(shot.status)
+}
+
+export function reconcileShotJobExecution(
+  shot: RecipeShot,
+  update: {
+    status: RecipeShot["status"]
+    progress: number
+    videoUrl?: string
+    error?: string | null
+  },
+): RecipeShot {
+  const failed = ["failed", "interrupted", "cancelled"].includes(update.status)
+  const fallbackTake = recipeShotPreferredTake(shot)
+  const fallbackUrl = fallbackTake?.videoUrl || shot.outputVideoUrl || undefined
+  if (failed && (fallbackTake || fallbackUrl)) {
+    return {
+      ...shot,
+      status: "succeeded",
+      progress: 100,
+      outputVideoUrl: fallbackUrl,
+      error: update.error || shot.error || "生成失败",
+    }
+  }
+  return {
+    ...shot,
+    status: update.status,
+    progress: update.status === "succeeded" ? 100 : update.progress,
+    outputVideoUrl: update.videoUrl || shot.outputVideoUrl,
+    error: update.status === "succeeded" || update.status === "queued" || update.status === "running"
+      ? null
+      : (update.error || shot.error),
+  }
 }

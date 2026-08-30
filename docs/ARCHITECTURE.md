@@ -1321,3 +1321,42 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改 API、`AGENT_IDS`、`agentStatus` 结构、SQLite schema 或旧 Recipe。带旧 `agentStatus` 的工程无损打开；无 `?view=` 仍是方案视图，无 `?stage=` 默认剧本。
 - 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173` 登录后导演工程：桌面 1440 检查四组导航、`?stage=`/`?view=` 刷新恢复、剪辑轨道点选与 Inspector；手机 390×844 只保留方案视图。
 - 回滚方式：恢复上述前端与文档并重新构建前端；无需回滚数据库或媒体。
+
+## 2026-08-30 导演工程一致性与持久化操作基线
+
+- 原因：原实现让用户创作内容与生成执行状态共享整份 Recipe 覆盖写入，无法正确处理生成期间编辑、跨窗口保存和长 LLM 请求；旧 Take/旧 job 状态还会影响新提交、串播和合成判定。
+- 写入模型：`director_projects.revision` 在任何创作或执行更新时递增；`content_revision` 只在创作更新时递增。客户端创作保存提交 `expected_content_revision`，服务端在同一 SQLite 短事务中读取最新记录、校验版本并调用 `merge_recipe_creative()`；不匹配返回 `409 DIRECTOR_CONTENT_CONFLICT`，响应携带 `current_revision` 与 `current_project`。服务端进度通过 `persist_recipe_execution()` 重新读取最新 payload，只合并白名单执行字段，因此不会与用户输入争用 `content_revision`。
+- 字段所有权：创作侧拥有工程元数据、剧本/画风、场景镜头顺序、标题/描述/提示词/对白/时长、角色与地点引用、首尾帧意图和 `approvedTakeId`。执行侧拥有 Agent 状态、`jobId/status/progress/error/compiledPrompt`、定妆/静帧/TTS/视频 URL 与路径、mux 状态及 Take 的执行快照。Take 集合按稳定 key 追加合并；批准 Take 是持久化创作决策，活动预览 Take 是前端局部状态。业务入口禁止再直接用旧 Recipe 整体覆盖当前 Recipe。
+- Take 状态规则：当前 `shot.jobId` 是最新提交的唯一执行状态源，批准的旧 Take 不参与当前任务轮询。当前任务失败/中断/取消且存在旧可用 Take 时，镜头恢复为可合成状态但保留最新 `error` 和 job ID供重试/诊断；预览和 mux 按“有效批准 Take，否则最近可用 Take”选择。没有旧可用媒体时才保留失败状态。
+- LLM 错误边界：流式读取把原生 `Timeout` 与 `ConnectionError` 中包装的超时统一转换为 `LlmTemporaryError`。`run_agent` 先写 `agentStatus=failed` 再重新抛出 `LlmError`；HTTP 层统一返回 502。仅本地 JSON 解析/内容修复保留降级，传输与供应商错误不得伪装成成功 200。
+- 长操作：`director_operations` 持久化 `plan_pipeline` 与 `shot_render_prepare` 的 `request_json/result_json/status/progress/error/cancel_requested/created_at/updated_at`。`POST /api/director/recipes/{project_id}/operations` 返回 202，`GET /api/director/operations/{operation_id}` 查询，`POST /api/director/operations/{operation_id}/cancel` 请求取消。进程重启时遗留 queued/running 操作统一标记 `interrupted`，不自动重放 LLM；操作准备出的 ComfyUI job 继续复用原 JobStore/worker。每个工程同一时间只允许一个活动导演操作。旧同步 `/api/director/recipes/run` 与 `/api/director/recipes/{project_id}/render-shots` 保留一个版本并标记 deprecated。
+- 前端状态边界：自动保存先 flush 待保存内容，再创建操作；工程轮询只调用 `mergeRecipeExecutionState()` 合并执行字段。409 时停止自动保存，`director-project-controller.ts` 驱动 Ant Design Modal 的“加载云端/明确覆盖”。`director-operation-controller.ts` 负责活动状态、恢复 key、目标镜头过滤和失败 Agent 判定。Recipe 类型按模型、readiness、时间轴、执行状态拆分，`types.ts` 暂时 re-export。
+- 时间轴坐标：`recipeShotLayout()` 始终对完整镜头序列累计真实 `startSec/endSec`；可播列表只过滤媒体，不重新累计。播放器在缺片区间跳到下一可播镜头的真实开始时间。轨道 clip 的 `left=startSec×pps`、`width=durationSec×pps`；最小 pps 为 `max(24, ceil(72/minDurationSec))`（上限 120），确保最短片段不小于 72 px。删除镜头后通过 controller 同步校正勾选和当前选中 ID。
+- 数据库迁移：首次打开既有 SQLite 前创建 `<数据库文件>.pre-director-concurrency-v2.bak`，再增加 `revision`、`content_revision` 和 `director_operations`。迁移不改 jobs、工作流协议或媒体路径。回滚 schema 前必须停止服务、另存当前库，再恢复该备份；恢复备份会放弃迁移后的工程与操作变更。
+- 测试门禁：前端契约改为 Vitest `.test.ts`，生产入口无断言副作用；`pnpm --dir frontend build` 先跑测试再执行 `tsc -b` / Vite。后端覆盖超时/502/失败持久化、原子并发编辑、Take 追加/回退、迁移/409/重启中断；前端覆盖执行合并、操作/工程控制器、完整时间轴与最小缩放。OpenAPI 全量测试包含所有路径参数说明。
+- 受影响文件：`backend/app/{llm_client,director_agents,director_jobs,director_project_service,director_takes,director_operations,storage,models,main,api_documentation}.py`，`frontend/src/director/DirectorRecipeStudio.tsx`、`director-api.ts`、两个 controller、`recipe-{model,readiness,timeline,execution}.ts`、时间轴/Inspector 组件、Vitest 配置与测试，以及三份主文档。
+- 兼容性：第一阶段不迁移数据库，超时的错误成功 200 改为规范 502。第二阶段 schema、响应字段和 API 均为增量；旧客户端可暂时不传内容版本。未修改 `/api/modes` 注册表、ComfyUI graph、任何既有节点 ID、模型路径、工作台 7865 或 ComfyUI 8188。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend test`、`pnpm --dir frontend build`；桌面 1440×900 与手机 390×844 验证生成期间编辑、异常提示、缺片跳播、时间轴几何、删除选择、冲突 Modal 与响应式布局。
+- 回滚方式：第一阶段恢复应用文件即可。第二阶段先停服务并保留当前库；需要完全回退时用 `.pre-director-concurrency-v2.bak` 替换数据库后启动旧代码。历史媒体、工作流 JSON 和 ComfyUI 节点不需要回滚。
+
+## 2026-08-30 导演台时间轴移植 OpenCut classic 交互内核
+
+- 原因：旧轨道由 React 事件直接修改 Recipe，缺少独立交互 Session、预览/提交边界和可拖播放头；高频 pointer/timeupdate 更新会扩大到导演台状态与自动保存。
+- 架构基线：`frontend/src/director/opencut-timeline/` 固定映射 OpenCut classic commit `cf5e79e919144200294fb9fed22a222592a0aeea`（MIT，许可证随目录保留）。控制器层移植 Playhead、Resize、ElementInteraction、Zoom 与 edge-auto-scroll；`director-timeline-engine.ts` 适配上游 media tick/pixel math 到 24fps `RecipeShot` 连续主轨；React 组件只订阅控制器 view 并在 gesture commit 时写 Recipe。
+- 状态边界：拖动采用 `idle/pending/dragging` 或 `idle/active` Session；5px 后才认定换序；resize draft 存在控制器中，mouseup 才把 2–15 秒整数写回；playhead scrub 逐帧 preview、mouseup commit；播放热路径由 `requestVideoFrameCallback` 直接写两个 playhead DOM transform，`timeupdate` 仅负责低频业务状态与跨镜头串播。
+- 交互基线：镜头换序、跨场景插入、边界/播放头吸附、Shift 绕过吸附、Ctrl/Command+滚轮播放头锚定缩放、拖动边缘自动滚动、空白 scrub、Shift 框选、空格/中键平移。Ruler 与轨道共享 `scrollLeft`，Recipe 仍是唯一持久化事实源。
+- 受影响文件：`frontend/src/director/opencut-timeline/*`、`director-timeline-engine.ts`、`types.ts`、`DirectorRecipeStudio.tsx`、三个时间轴组件、时间轴测试、`index.css` 和三份主文档。
+- 兼容性：无后端、API、SQLite、Recipe schema、ComfyUI 工作流或端口变化；旧工程直接使用。未移植 OpenCut 的任意多轨、组、transition 与 WASM 媒体模型，因为导演 Recipe 当前只有一条连续镜头主轨。
+- 验证命令：`pnpm --dir frontend test`、`pnpm --dir frontend build`、`python -m unittest backend.tests.test_director`；桌面 1440×900 和手机 390×844 浏览器回归。
+- 回滚方式：恢复上述前端文件和三份文档并重新构建；数据库、Recipe、媒体和 ComfyUI 无需回滚。
+
+## 2026-08-30 导演台播放器五键运输层
+
+- 原因：时间轴已采用 OpenCut 控制器，但预览播放器仍暴露浏览器原生 controls，无法按工程 fps 前后逐帧，也缺少首尾跳转与专业时间码。
+- 当前基线：`PlayerTransport.tsx` 复刻 `S07K/OpenCut` commit `e9c6cc06b549d7fa857bb8f43f02c47a39368e33` 的 `PreviewPanel.tsx` 五键布局；`opencut-timeline/transport.ts` 适配其 `timeline-engine/time.ts` 与 `playback-engine/transport.ts` 的整数帧 clamp、step、结尾回放和 `HH:MM:SS:FF` 格式化。具体上游文件映射见 `UPSTREAM.md`。
+- 状态边界：Recipe 秒数仍是持久化事实源，运输层只在交互边界以 `recipe.fps` 转换整数帧。暂停逐帧会同步当前 video source offset；播放从当前帧继续，若位于结尾则回到开头；缺片区会前进到下一条可播放镜头而不压缩原时间轴空档。视频帧回调同时直接刷新时间码和播放头 DOM。
+- 交互基线：五键、Home/End、左右键、Space；Shift+左右键为 10 帧。SAFE 是局部显示状态，不写 Recipe。浏览器原生 controls 已移除，避免与统一运输层重复。
+- 受影响文件：`DirectorTimelineView.tsx`、`PlayerTransport.tsx`、`opencut-timeline/transport.ts`、时间轴测试、`index.css` 和三份主文档。
+- 兼容性：无后端、API、SQLite、Recipe schema、ComfyUI 工作流、节点或端口变化。
+- 验证命令：`pnpm --dir frontend test`、`pnpm --dir frontend build`、`python -m unittest backend.tests.test_director`；桌面与移动端浏览器回归。
+- 回滚方式：恢复上述前端文件和文档并重新构建；无需处理持久化数据或媒体。

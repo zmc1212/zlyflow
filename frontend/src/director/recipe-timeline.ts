@@ -1,4 +1,4 @@
-import type { RecipeProject, RecipeShot } from "./types"
+import { recipeShotPreferredTake, shotIsMuxable, type RecipeProject, type RecipeShot } from "./recipe-model"
 
 export interface RecipeShotLayoutItem {
   shot: RecipeShot
@@ -13,20 +13,6 @@ export interface RecipeTrackClip extends RecipeShotLayoutItem {
 
 export const RECIPE_TRACK_MIN_CLIP_PX = 72
 export const RECIPE_RULER_TICK_SEC = 5
-
-function activeTake(shot: RecipeShot) {
-  const takes = shot.takes || []
-  const approved = takes.find((take) => (take.id || take.jobId) === shot.approvedTakeId)
-  return approved || takes[shot.activeTakeIndex || 0] || takes[takes.length - 1]
-}
-
-function muxable(shot: RecipeShot): boolean {
-  const failed = new Set(["failed", "interrupted", "cancelled", "stopped"])
-  if (failed.has(shot.status)) return false
-  const take = activeTake(shot)
-  if (take) return !failed.has(take.status) && (Boolean(take.videoUrl) || take.status === "succeeded")
-  return shot.status === "succeeded" && Boolean(shot.outputVideoUrl || shot.jobId)
-}
 
 function packedPlateCount(recipe: RecipeProject, shot: RecipeShot): number {
   const names = new Set((shot.characterNames || []).map((name) => name.trim()).filter(Boolean))
@@ -143,7 +129,7 @@ export function recipeRulerSeekSec(
 }
 
 export function recipeShotVideoUrl(shot: RecipeShot): string {
-  return activeTake(shot)?.videoUrl || shot.outputVideoUrl || ""
+  return recipeShotPreferredTake(shot)?.videoUrl || shot.outputVideoUrl || ""
 }
 
 export function recipeShotStillUrl(shot: RecipeShot): string {
@@ -151,7 +137,7 @@ export function recipeShotStillUrl(shot: RecipeShot): string {
 }
 
 export function recipePlayableShots(shots: RecipeShot[]): RecipeShot[] {
-  return shots.filter((shot) => Boolean(recipeShotVideoUrl(shot)) && muxable(shot))
+  return shots.filter((shot) => Boolean(recipeShotVideoUrl(shot)) && shotIsMuxable(shot))
 }
 
 export function assignRecipeShotPlate(

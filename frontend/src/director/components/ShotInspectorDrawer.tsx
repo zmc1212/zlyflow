@@ -103,7 +103,7 @@ export default function ShotInspectorDrawer({
         </div>
       }
       onClose={onClose}
-      width={460}
+      size={460}
       className="studio-shot-inspector-drawer"
     >
       <div className="flex flex-col gap-5 pb-8">

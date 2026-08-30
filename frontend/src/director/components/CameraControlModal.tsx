@@ -59,7 +59,7 @@ export default function CameraControlModal({
       cancelText="取消"
       width={720}
       className="director-camera-modal"
-      destroyOnClose
+      destroyOnHidden
     >
       <div className="space-y-6 py-3">
         {/* 1. 景别选择器 */}

@@ -39,9 +39,9 @@ import {
   insertDirectorLibraryAssets, listDirectorArtStyles, listWorkflowModes, muxDirectorFilm, recipePayloadFromApi,
   saveRecipeAssetsToLibrary, downloadDirectorExport,
   updateDirectorProjectRecord, uploadDirectorBgm, uploadDirectorShotFrame,
-  DirectorOperationResponse, DirectorProjectResponse,
+  DirectorOperationResponse,
 } from "./director-api"
-import { assetGenerationState, assetPreviewUrl, jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotStatusFromJob, summarizeJobError } from "./director-submit"
+import { assetGenerationState, assetPreviewUrl, jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotStatusFromJob } from "./director-submit"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
 import { directorRenderPassLabel } from "./prompt-compiler"
 import {
@@ -50,7 +50,7 @@ import {
   DIRECTOR_FINAL_CANVAS_OPTIONS, DIRECTOR_SPEED_OPTIONS, DIRECTOR_WEIGHT_OPTIONS, H3_CANVAS_PRESETS, applyRecipeOutputSettings,
   recipeCanvasPreset, DirectorQuality, DirectorSpeed, DirectorWeightProfile, userFacingCopy,
   estimateStoryboardSkeletonCount, recipePipelineProgress,
-  insertRecipeShotAfter, removeRecipeShot, duplicateRecipeShot,
+  insertRecipeShotAfter, removeRecipeShot, duplicateRecipeShot, moveRecipeShotToIndex,
 } from "./types"
 import {
   artStylePreviewUrl, flattenRecipeShots, isPlaceholderRecipeBoard, recipeArtStyleFromCatalog,
@@ -63,7 +63,20 @@ import {
   resolveDirectorRecipeView, type DirectorRecipeView, type RecipeStageId,
 } from "./recipe-readiness"
 import { DEFAULT_DIRECTOR_WORKFLOW_FAMILY, directorWorkflowFamilies } from "./director-workflows"
-import { hasLatestShotSubmissionFailure, mergeRecipeExecutionState } from "./recipe-execution"
+import {
+  hasLatestShotSubmissionFailure,
+  mergeRecipeExecutionState,
+  mergeRecipeShotFrameState,
+  reconcileShotJobExecution,
+} from "./recipe-execution"
+import {
+  directorFailureMessage, readDirectorContentConflict, reconcileDirectorShotSelection,
+  mergeInsertedDirectorAssets, shouldPreserveLocalDirectorContent, type DirectorContentConflict,
+} from "./director-project-controller"
+import {
+  directorOperationFailedAgents, directorOperationIsActive, directorOperationStorageKey,
+  directorOperationTargetShotIds,
+} from "./director-operation-controller"
 
 type JobLike = {
   id: string
@@ -77,26 +90,6 @@ type JobLike = {
 type SaveStatus = "idle" | "saving" | "saved" | "failed"
 type RenderPass = "preview" | "final"
 type BoardMode = "still" | RenderPass
-type ContentConflict = { remote: DirectorProjectResponse }
-
-function conflictProject(error: unknown): DirectorProjectResponse | null {
-  if (!(error instanceof ApiRequestError) || error.status !== 409) return null
-  const detail = error.body && typeof error.body === "object"
-    ? (error.body as { detail?: unknown }).detail
-    : null
-  if (!detail || typeof detail !== "object") return null
-  const record = detail as { code?: unknown; current_project?: unknown }
-  if (record.code !== "DIRECTOR_CONTENT_CONFLICT" || !record.current_project || typeof record.current_project !== "object") {
-    return null
-  }
-  return record.current_project as DirectorProjectResponse
-}
-
-function notifyFailure(error: unknown, fallback: string) {
-  const raw = error instanceof Error ? error.message : typeof error === "string" ? error : ""
-  message.error(summarizeJobError(raw).summary || fallback)
-}
-
 function failedAgentLog(recipe: RecipeProject): string {
   return recipe.agentStatus
     .filter((item) => item.status === "failed" && item.error)
@@ -231,7 +224,11 @@ export default function DirectorRecipeStudio({
   projectId, csrfToken, allJobs, onBack, onExitDirector,
 }: DirectorRecipeStudioProps) {
   const queryClient = useQueryClient()
-  const operationStorageKey = `director-operation:${projectId}`
+  const [messageApi, messageContextHolder] = message.useMessage()
+  const notifyFailure = (error: unknown, fallback: string) => {
+    messageApi.error(directorFailureMessage(error, fallback))
+  }
+  const operationStorageKey = directorOperationStorageKey(projectId)
   const [searchParams, setSearchParams] = useSearchParams()
   const [goal, setGoal] = useState("")
   const [recipe, setRecipe] = useState<RecipeProject>(() => createEmptyRecipe())
@@ -258,7 +255,7 @@ export default function DirectorRecipeStudio({
   const [activeOperationId, setActiveOperationId] = useState<string | null>(() => (
     typeof window === "undefined" ? null : window.localStorage.getItem(operationStorageKey)
   ))
-  const [contentConflict, setContentConflict] = useState<ContentConflict | null>(null)
+  const [contentConflict, setContentConflict] = useState<DirectorContentConflict | null>(null)
   const runStartedAtRef = useRef(0)
   const recipeRef = useRef(recipe)
   const goalRef = useRef(goal)
@@ -269,7 +266,7 @@ export default function DirectorRecipeStudio({
   const editVersionRef = useRef(0)
   const savedEditVersionRef = useRef(0)
   const saveInFlightRef = useRef<Promise<boolean> | null>(null)
-  const conflictRef = useRef<ContentConflict | null>(null)
+  const conflictRef = useRef<DirectorContentConflict | null>(null)
   const handledOperationIdsRef = useRef(new Set<string>())
   const operationToastKeysRef = useRef(new Map<string, string>())
   const isMobile = useIsMobile()
@@ -311,7 +308,13 @@ export default function DirectorRecipeStudio({
       const executionOnly = submittingShotIds.length > 0
         || submittingStillIds.length > 0
         || operationQuery.data?.kind === "shot_render_prepare"
-      const preserveLocalContent = contentRevisionRef.current > 0 && (dirty || executionOnly || Boolean(contentConflict)) && !running
+      const preserveLocalContent = shouldPreserveLocalDirectorContent({
+        contentRevision: contentRevisionRef.current,
+        dirty,
+        executionOnly,
+        hasConflict: Boolean(contentConflict),
+        runningPlan: running,
+      })
       if (preserveLocalContent) {
         setRecipe((current) => mergeRecipeExecutionState(current, payload))
       } else {
@@ -327,13 +330,12 @@ export default function DirectorRecipeStudio({
     const operation = operationQuery.data
     if (!operation) return
     if (typeof window !== "undefined") window.localStorage.setItem(operationStorageKey, operation.id)
-    if (operation.status === "queued" || operation.status === "running") {
+    if (directorOperationIsActive(operation)) {
       if (operation.kind === "plan_pipeline") {
         if (!runStartedAtRef.current) runStartedAtRef.current = Date.parse(operation.created_at) || Date.now()
         setRunning(true)
       } else {
-        const requested = operation.request.shot_ids || []
-        const targets = requested.length ? requested : flattenRecipeShots(recipeRef.current).map((shot) => shot.id)
+        const targets = directorOperationTargetShotIds(operation, flattenRecipeShots(recipeRef.current))
         setSubmittingShotIds((current) => Array.from(new Set([...current, ...targets])))
       }
       return
@@ -356,40 +358,36 @@ export default function DirectorRecipeStudio({
             const nextShots = flattenRecipeShots(payload)
             if (nextShots.length) setSelectedShotId(nextShots[0].id)
           }
-          const failedAgents = operation.result.failed_agents || payload?.agentStatus
-            .filter((item) => item.status === "failed")
-            .map((item) => item.id) || []
+          const failedAgents = directorOperationFailedAgents(operation, payload)
           if (operation.status === "succeeded" && failedAgents.length === 0) {
             const agents = operation.request.agents || []
             if (agents.includes("storyboard") && agents.length <= 2) {
               const count = payload ? flattenRecipeShots(payload).length : 0
-              message.success(count ? `已根据剧本生成 ${count} 个镜头` : "分镜已生成")
+              messageApi.success(count ? `已根据剧本生成 ${count} 个镜头` : "分镜已生成")
               setActiveStage("storyboard")
             } else {
-              message.success(PLAN_GENERATION_SUCCESS)
+              messageApi.success(PLAN_GENERATION_SUCCESS)
               setActiveStage("storyboard")
             }
           } else if (operation.status === "succeeded") {
-            message.error(`生成未完整完成：${failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id).join("、")}`)
+            messageApi.error(`生成未完整完成：${failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id).join("、")}`)
           } else {
             notifyFailure(operation.error, operation.status === "cancelled" ? "生成已取消" : PLAN_GENERATION_FAILURE)
           }
         } else {
-          const targets = operation.request.shot_ids?.length
-            ? operation.request.shot_ids
-            : flattenRecipeShots(recipeRef.current).map((shot) => shot.id)
+          const targets = directorOperationTargetShotIds(operation, flattenRecipeShots(recipeRef.current))
           if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
           if (operation.status === "succeeded") {
             const submitted = operation.result.job_ids?.length || 0
             const rendered = payload ? flattenRecipeShots(payload).filter((shot) => targets.includes(shot.id)) : []
             const failed = rendered.filter((shot) => shot.error && !shot.jobId)
             if (!submitted) {
-              message.warning(failed[0]?.error || "没有提交成功的镜头，请检查镜头素材后重试")
+              messageApi.warning(failed[0]?.error || "没有提交成功的镜头，请检查镜头素材后重试")
             } else if (failed.length) {
-              message.warning(`已提交 ${submitted} 镜，${failed.length} 镜失败`)
+              messageApi.warning(`已提交 ${submitted} 镜，${failed.length} 镜失败`)
             } else {
               const previewing = operation.request.render_pass === "preview"
-              message.success(targets.length === 1
+              messageApi.success(targets.length === 1
                 ? (previewing ? "已提交预览" : "已提交这一镜")
                 : (previewing ? "已提交全部预览" : "已提交分镜视频"))
             }
@@ -402,7 +400,7 @@ export default function DirectorRecipeStudio({
         await queryClient.invalidateQueries({ queryKey: ["director-projects"] })
       } finally {
         const toastKey = operationToastKeysRef.current.get(operation.id)
-        if (toastKey) message.destroy(toastKey)
+        if (toastKey) messageApi.destroy(toastKey)
         operationToastKeysRef.current.delete(operation.id)
         if (operation.kind === "plan_pipeline") {
           runStartedAtRef.current = 0
@@ -466,9 +464,10 @@ export default function DirectorRecipeStudio({
             const status = mergeDirectorStatus(take.status, shotStatusFromJob(takeJob))
             const url = jobVideoUrl(takeJob)
             const progress = jobProgressFromJob(takeJob, take.progress || 0)
-            if (status !== take.status || url !== take.videoUrl || progress !== take.progress) {
+            const error = isDirectorFailedStatus(status) ? (takeJob.error || take.error) : undefined
+            if (status !== take.status || (url && url !== take.videoUrl) || progress !== take.progress || error !== take.error) {
               changed = true
-              return { ...take, status, videoUrl: url || take.videoUrl, progress }
+              return { ...take, status, videoUrl: url || take.videoUrl, progress, error }
             }
             return take
           })
@@ -478,9 +477,20 @@ export default function DirectorRecipeStudio({
           const status = mergeDirectorStatus(next.status, shotStatusFromJob(job))
           const url = jobVideoUrl(job)
           const progress = jobProgressFromJob(job, next.progress || 0)
-          if (status !== next.status || url !== next.outputVideoUrl || progress !== next.progress) {
+          const reconciled = reconcileShotJobExecution(next, {
+            status,
+            progress,
+            videoUrl: url,
+            error: job.error,
+          })
+          if (
+            reconciled.status !== next.status
+            || reconciled.outputVideoUrl !== next.outputVideoUrl
+            || reconciled.progress !== next.progress
+            || reconciled.error !== next.error
+          ) {
             changed = true
-            return { ...next, status, outputVideoUrl: url || next.outputVideoUrl, progress }
+            return reconciled
           }
           return next
         }),
@@ -547,22 +557,13 @@ export default function DirectorRecipeStudio({
   const checkedShots = visibleShots.filter((shot) => checkedShotIds.includes(shot.id))
 
   useEffect(() => {
-    if (!visibleShots.length) {
-      setSelectedShotId(null)
-      return
-    }
-    if (!selectedShotId || !visibleShots.some((shot) => shot.id === selectedShotId)) {
-      setSelectedShotId(visibleShots[0].id)
-    }
-  }, [visibleShots, selectedShotId])
-
-  useEffect(() => {
-    const validIds = new Set(visibleShots.map((shot) => shot.id))
+    const reconciled = reconcileDirectorShotSelection(visibleShots, selectedShotId, checkedShotIds)
+    if (reconciled.selectedShotId !== selectedShotId) setSelectedShotId(reconciled.selectedShotId)
     setCheckedShotIds((current) => {
-      const next = current.filter((id) => validIds.has(id))
+      const next = reconcileDirectorShotSelection(visibleShots, selectedShotId, current).checkedShotIds
       return next.length === current.length ? current : next
     })
-  }, [visibleShots])
+  }, [checkedShotIds, selectedShotId, visibleShots])
 
   useEffect(() => () => {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
@@ -632,7 +633,7 @@ export default function DirectorRecipeStudio({
         setSaveStatus(editVersionRef.current === snapshotEditVersion ? "saved" : "idle")
         return true
       } catch (error) {
-        const remote = conflictProject(error)
+        const remote = readDirectorContentConflict(error)
         if (remote) {
           const conflict = { remote }
           conflictRef.current = conflict
@@ -710,7 +711,7 @@ export default function DirectorRecipeStudio({
       setContentConflict(null)
       setSaveStatus("saved")
       queryClient.setQueryData(["director-project", projectId], row)
-      message.success("已用当前窗口内容覆盖云端版本")
+      messageApi.success("已用当前窗口内容覆盖云端版本")
     } catch (error) {
       setSaveStatus("failed")
       notifyFailure(error, "覆盖保存失败")
@@ -757,7 +758,7 @@ export default function DirectorRecipeStudio({
     try {
       const operation = await cancelDirectorOperation(activeOperationId, csrfToken)
       queryClient.setQueryData(["director-operation", activeOperationId], operation)
-      message.info("已请求取消，当前步骤结束后会停止")
+      messageApi.info("已请求取消，当前步骤结束后会停止")
     } catch (error) {
       notifyFailure(error, "取消操作失败")
     }
@@ -766,11 +767,11 @@ export default function DirectorRecipeStudio({
   async function handleRun() {
     const text = goal.trim()
     if (!text) {
-      message.warning("请先写一句创意或故事")
+      messageApi.warning("请先写一句创意或故事")
       return
     }
     if (activeOperationId) {
-      message.warning("已有导演操作正在执行，请完成或取消后再试")
+      messageApi.warning("已有导演操作正在执行，请完成或取消后再试")
       return
     }
     const saved = await flushSave()
@@ -804,7 +805,7 @@ export default function DirectorRecipeStudio({
       return
     }
     if (activeOperationId) {
-      message.warning("已有导演操作正在执行，请完成或取消后再试")
+      messageApi.warning("已有导演操作正在执行，请完成或取消后再试")
       return
     }
     const saved = await flushSave()
@@ -835,14 +836,14 @@ export default function DirectorRecipeStudio({
     const story = current.script.fullStory.trim()
     const text = idea || story
     if (!text) {
-      message.warning("请先写一句创意，或在「剧本」页写完整剧本")
+      messageApi.warning("请先写一句创意，或在「剧本」页写完整剧本")
       return
     }
     if (!options?.force && !isPlaceholderRecipeBoard(currentShots, idea, story)) {
       return
     }
     if (activeOperationId) {
-      message.warning("已有导演操作正在执行，请完成或取消后再试")
+      messageApi.warning("已有导演操作正在执行，请完成或取消后再试")
       return
     }
     const hasRealScript = story.length >= 80 && story !== idea
@@ -913,7 +914,7 @@ export default function DirectorRecipeStudio({
       const payload = recipePayloadFromApi(row)
       if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
       await queryClient.invalidateQueries({ queryKey: ["jobs"] })
-      message.success("已提交定妆图任务")
+      messageApi.success("已提交定妆图任务")
     } catch (error) {
       notifyFailure(error, "定妆失败")
     }
@@ -929,7 +930,7 @@ export default function DirectorRecipeStudio({
         location_ids: locationIds,
       }, csrfToken)
       await queryClient.invalidateQueries({ queryKey: ["director-library-assets"] })
-      message.success(`已存入资产库 ${result.imported} 项`)
+      messageApi.success(`已存入资产库 ${result.imported} 项`)
     } catch (error) {
       notifyFailure(error, "存入资产库失败")
     }
@@ -939,13 +940,28 @@ export default function DirectorRecipeStudio({
     try {
       const saved = await flushSave()
       if (!saved) return
-      const row = await insertDirectorLibraryAssets(projectId, assetIds, csrfToken)
+      const row = await insertDirectorLibraryAssets(
+        projectId,
+        assetIds,
+        contentRevisionRef.current || undefined,
+        csrfToken,
+      )
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe(payload)
+      projectRevisionRef.current = row.revision
+      contentRevisionRef.current = row.content_revision
+      if (payload) setRecipe((current) => mergeInsertedDirectorAssets(current, payload, assetIds))
       await queryClient.invalidateQueries({ queryKey: ["director-project", projectId] })
       setLibraryDrawerOpen(false)
-      message.success(`已插入 ${assetIds.length} 项`)
+      messageApi.success(`已插入 ${assetIds.length} 项`)
     } catch (error) {
+      const remote = readDirectorContentConflict(error)
+      if (remote) {
+        const conflict = { remote }
+        conflictRef.current = conflict
+        setContentConflict(conflict)
+        setSaveStatus("failed")
+        return
+      }
       notifyFailure(error, "插入资产失败")
     }
   }
@@ -970,20 +986,20 @@ export default function DirectorRecipeStudio({
 
   async function handleRender(shotIds?: string[]) {
     if (running) {
-      message.warning("分镜还在生成，请等写完后再出片")
+      messageApi.warning("分镜还在生成，请等写完后再出片")
       return
     }
     const targets = submitTargets(shotIds)
     if (!targets.length) {
-      message.warning("没有可生成的镜头")
+      messageApi.warning("没有可生成的镜头")
       return
     }
     if (activeOperationId) {
-      message.warning("已有导演操作正在执行，请完成或取消后再试")
+      messageApi.warning("已有导演操作正在执行，请完成或取消后再试")
       return
     }
     const toastKey = `director-render-${targets.join("|")}`
-    message.loading({
+    messageApi.loading({
       content: targets.length === 1 ? "正在润色提示词并提交这一镜…" : "正在润色提示词并提交分镜…",
       key: toastKey,
       duration: 0,
@@ -992,7 +1008,7 @@ export default function DirectorRecipeStudio({
     try {
       const saved = await flushSave()
       if (!saved) {
-        message.destroy(toastKey)
+        messageApi.destroy(toastKey)
         setSubmittingShotIds((current) => current.filter((id) => !targets.includes(id)))
         return
       }
@@ -1004,23 +1020,23 @@ export default function DirectorRecipeStudio({
       rememberDirectorOperation(operation, toastKey)
     } catch (error) {
       notifyFailure(error, "提交失败")
-      message.destroy(toastKey)
+      messageApi.destroy(toastKey)
       setSubmittingShotIds((current) => current.filter((id) => !targets.includes(id)))
     }
   }
 
   async function handleStills(shotIds?: string[]) {
     if (running) {
-      message.warning("分镜还在生成，请等写完后再出片")
+      messageApi.warning("分镜还在生成，请等写完后再出片")
       return
     }
     const targets = submitTargets(shotIds)
     if (!targets.length) {
-      message.warning("没有可生成的镜头")
+      messageApi.warning("没有可生成的镜头")
       return
     }
     const toastKey = `director-still-${targets.join("|")}`
-    message.loading({
+    messageApi.loading({
       content: targets.length === 1 ? "正在提交本镜静帧…" : "正在提交静帧…",
       key: toastKey,
       duration: 0,
@@ -1033,11 +1049,11 @@ export default function DirectorRecipeStudio({
       const payload = recipePayloadFromApi(row)
       if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
       await queryClient.invalidateQueries({ queryKey: ["jobs"] })
-      message.success(targets.length === 1 ? "已提交本镜静帧" : "已提交静帧")
+      messageApi.success(targets.length === 1 ? "已提交本镜静帧" : "已提交静帧")
     } catch (error) {
       notifyFailure(error, "静帧失败")
     } finally {
-      message.destroy(toastKey)
+      messageApi.destroy(toastKey)
       setSubmittingStillIds((current) => current.filter((id) => !targets.includes(id)))
     }
   }
@@ -1054,11 +1070,26 @@ export default function DirectorRecipeStudio({
     try {
       const saved = await flushSave()
       if (!saved) return
-      const row = await uploadDirectorShotFrame(projectId, { shot_id: shotId, slot, file }, csrfToken)
+      const row = await uploadDirectorShotFrame(projectId, {
+        shot_id: shotId,
+        slot,
+        file,
+        expected_content_revision: contentRevisionRef.current || undefined,
+      }, csrfToken)
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
-      message.success(slot === "end" ? "已保存尾帧" : "已保存首帧")
+      projectRevisionRef.current = row.revision
+      contentRevisionRef.current = row.content_revision
+      if (payload) setRecipe((current) => mergeRecipeShotFrameState(current, payload, shotId))
+      messageApi.success(slot === "end" ? "已保存尾帧" : "已保存首帧")
     } catch (error) {
+      const remote = readDirectorContentConflict(error)
+      if (remote) {
+        const conflict = { remote }
+        conflictRef.current = conflict
+        setContentConflict(conflict)
+        setSaveStatus("failed")
+        return
+      }
       notifyFailure(error, "上传分镜帧失败")
     }
   }
@@ -1074,7 +1105,7 @@ export default function DirectorRecipeStudio({
       && (!requestedIds.length || requestedIds.some((id) => shotIds.includes(id))),
     )
     if (!jobIds.length && !cancelPreparingOperation) {
-      message.warning("选中的分镜没有正在生成的任务")
+      messageApi.warning("选中的分镜没有正在生成的任务")
       return
     }
     try {
@@ -1085,7 +1116,7 @@ export default function DirectorRecipeStudio({
           : []),
       ])
       await queryClient.invalidateQueries({ queryKey: ["jobs"] })
-      message.success(cancelPreparingOperation ? "已请求取消提交，正在收尾" : "已停止选中分镜")
+      messageApi.success(cancelPreparingOperation ? "已请求取消提交，正在收尾" : "已停止选中分镜")
     } catch (error) {
       notifyFailure(error, "停止失败")
     }
@@ -1103,7 +1134,7 @@ export default function DirectorRecipeStudio({
       }, csrfToken)
       const payload = recipePayloadFromApi(row)
       if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
-      message.success(characterId ? "已生成角色试听" : shotIds?.length === 1 ? "已生成本镜配音" : "已生成全部配音")
+      messageApi.success(characterId ? "已生成角色试听" : shotIds?.length === 1 ? "已生成本镜配音" : "已生成全部配音")
     } catch (error) {
       notifyFailure(error, "配音失败")
     } finally {
@@ -1124,7 +1155,7 @@ export default function DirectorRecipeStudio({
       const row = await uploadDirectorBgm(projectId, file, csrfToken)
       const payload = recipePayloadFromApi(row)
       if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
-      message.success("配乐已上传")
+      messageApi.success("配乐已上传")
     } catch (error) {
       notifyFailure(error, "上传配乐失败")
     }
@@ -1143,7 +1174,7 @@ export default function DirectorRecipeStudio({
       const payload = recipePayloadFromApi(row)
       if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
       if (payload?.export?.muxStatus === "succeeded") {
-        message.success("成片已导出")
+        messageApi.success("成片已导出")
       } else {
         notifyFailure(payload?.export?.muxError, "导出成片失败")
       }
@@ -1257,11 +1288,11 @@ export default function DirectorRecipeStudio({
 
   function handleDeleteShot(shotId: string) {
     if (visibleShots.length <= 1) {
-      message.warning("至少保留一镜")
+      messageApi.warning("至少保留一镜")
       return
     }
     if (submittingShotIds.includes(shotId) || submittingStillIds.includes(shotId)) {
-      message.warning("请先停止这一镜的生成任务")
+      messageApi.warning("请先停止这一镜的生成任务")
       return
     }
     const nextSelectedId = selectedShotId === shotId
@@ -1282,6 +1313,11 @@ export default function DirectorRecipeStudio({
       return next.recipe
     })
     if (createdId) setSelectedShotId(createdId)
+  }
+
+  function handleMoveShot(shotId: string, targetIndex: number) {
+    updateRecipe((current) => moveRecipeShotToIndex(current, shotId, targetIndex))
+    setSelectedShotId(shotId)
   }
 
   const jianyingItems: JianyingMediaItem[] = completedShots.map((shot) => ({
@@ -1371,6 +1407,7 @@ export default function DirectorRecipeStudio({
 
   return (
     <div className="director-recipe-shell !h-0 !min-h-0 flex-1 overflow-hidden" data-director-view={activeView}>
+      {messageContextHolder}
       <DirectorMobileHeader
         title={mobileTitle}
         onBack={onBack}
@@ -1643,7 +1680,7 @@ export default function DirectorRecipeStudio({
                       title="全部画风"
                       open={styleDrawerOpen}
                       onClose={() => setStyleDrawerOpen(false)}
-                      width={isMobile ? "100%" : 560}
+                      size={isMobile ? "100%" : 560}
                     >
                       <div className="director-style-filters">
                         <Select
@@ -1776,6 +1813,7 @@ export default function DirectorRecipeStudio({
               onAddShot={handleAddShot}
               onDeleteShot={handleDeleteShot}
               onDuplicateShot={handleDuplicateShot}
+              onMoveShot={handleMoveShot}
               onRenderShot={(shotId) => { void handleBoardGenerate([shotId]) }}
               onGenerateStill={(shotId) => { void handleStills([shotId]) }}
               onUploadFrame={handleUploadFrame}
@@ -2064,7 +2102,7 @@ export default function DirectorRecipeStudio({
         title="检测到其他窗口的修改"
         closable={false}
         keyboard={false}
-        maskClosable={false}
+        mask={{ closable: false }}
         footer={[
           <Button key="remote" type="primary" onClick={loadRemoteConflictVersion}>
             加载云端版本
@@ -2107,7 +2145,7 @@ export default function DirectorRecipeStudio({
         title={selectedShot ? `#${selectedShot.shotNumber} ${selectedShot.title}` : "分镜"}
         open={isMobile && inspectorOpen && Boolean(selectedShot)}
         onClose={() => setInspectorOpen(false)}
-        width="100%"
+        size="100%"
         destroyOnHidden
       >
         {selectedShot ? (
@@ -2134,7 +2172,7 @@ export default function DirectorRecipeStudio({
         title="从资产库插入"
         open={libraryDrawerOpen}
         onClose={() => setLibraryDrawerOpen(false)}
-        width={isMobile ? "100%" : 520}
+        size={isMobile ? "100%" : 520}
         destroyOnHidden
       >
         <DirectorAssetLibrary

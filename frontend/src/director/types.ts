@@ -3,6 +3,7 @@ import {
   defaultRecipeExport,
   defaultRecipeSubtitles,
   flattenRecipeShots,
+  recipeShotPreferredTake,
   type BatchRunPayload,
   type DirectorArtStyle,
   type RecipeAgentId,
@@ -522,9 +523,7 @@ export function recipePackedPlates(recipe: RecipeProject, shot: RecipeShot): Arr
 }
 
 export function recipeShotActiveTake(shot: RecipeShot): ShotTake | undefined {
-  const takes = shot.takes || []
-  const approved = takes.find((take) => (take.id || take.jobId) === shot.approvedTakeId)
-  return approved || takes[shot.activeTakeIndex || 0] || takes[takes.length - 1]
+  return recipeShotPreferredTake(shot)
 }
 
 export const RECIPE_AGENT_LABELS: Record<RecipeAgentId, string> = {
@@ -612,6 +611,8 @@ export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
   let startSec = 0
   return shots.map((shot, index) => {
     const durationSec = shot.durationSec
+    const selectedTake = recipeShotPreferredTake(shot)
+    const selectedTakeIndex = selectedTake ? shot.takes.findIndex((take) => take === selectedTake) : -1
     const mapped: DirectorShot = {
       id: shot.id,
       shotNumber: shot.shotNumber || index + 1,
@@ -626,7 +627,7 @@ export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
         shot.locationName.trim(),
       ].filter(Boolean),
       takes: shot.takes || [],
-      activeTakeIndex: shot.activeTakeIndex || 0,
+      activeTakeIndex: selectedTakeIndex >= 0 ? selectedTakeIndex : 0,
       jobId: shot.jobId || undefined,
       status: shot.status,
       progress: shot.progress || 0,
@@ -751,6 +752,51 @@ export function duplicateRecipeShot(recipe: RecipeProject, shotId: string): { re
   const next = { ...recipe, scenes: renumberRecipeShots(scenes) }
   const shot = flattenRecipeShots(next).find((item) => item.id === createdId)
   return shot ? { recipe: next, shot } : null
+}
+
+/**
+ * Move one flattened timeline shot to an insertion index while preserving the
+ * Recipe scene structure. Crossing a scene boundary moves the shot into the
+ * destination shot's scene; dropping at the end appends to the last scene.
+ */
+export function moveRecipeShotToIndex(recipe: RecipeProject, shotId: string, targetIndex: number): RecipeProject {
+  const flattened = flattenRecipeShots(recipe)
+  const sourceIndex = flattened.findIndex((shot) => shot.id === shotId)
+  if (sourceIndex < 0 || flattened.length <= 1) return recipe
+
+  const remaining = flattened.filter((shot) => shot.id !== shotId)
+  const insertionIndex = Math.min(remaining.length, Math.max(0, Math.round(targetIndex)))
+  if (insertionIndex === sourceIndex) return recipe
+  const moving = flattened[sourceIndex]
+  const targetShotId = remaining[insertionIndex]?.id || null
+
+  const scenes = recipe.scenes.map((scene) => ({
+    ...scene,
+    shots: scene.shots.filter((shot) => shot.id !== shotId),
+  }))
+  if (targetShotId) {
+    for (let sceneIndex = 0; sceneIndex < scenes.length; sceneIndex += 1) {
+      const targetShotIndex = scenes[sceneIndex].shots.findIndex((shot) => shot.id === targetShotId)
+      if (targetShotIndex < 0) continue
+      scenes[sceneIndex] = {
+        ...scenes[sceneIndex],
+        shots: [
+          ...scenes[sceneIndex].shots.slice(0, targetShotIndex),
+          moving,
+          ...scenes[sceneIndex].shots.slice(targetShotIndex),
+        ],
+      }
+      return { ...recipe, scenes: renumberRecipeShots(scenes.filter((scene) => scene.shots.length > 0)) }
+    }
+  }
+
+  const lastSceneIndex = scenes.length - 1
+  if (lastSceneIndex < 0) return recipe
+  scenes[lastSceneIndex] = {
+    ...scenes[lastSceneIndex],
+    shots: [...scenes[lastSceneIndex].shots, moving],
+  }
+  return { ...recipe, scenes: renumberRecipeShots(scenes.filter((scene) => scene.shots.length > 0)) }
 }
 
 export interface DirectorLibraryAsset {

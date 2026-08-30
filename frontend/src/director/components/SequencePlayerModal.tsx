@@ -138,7 +138,7 @@ export default function SequencePlayerModal({
           </div>
         </div>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       <div className="space-y-4 py-2">
         {/* 视频主播放窗口 */}

@@ -1,4 +1,4 @@
-import type { RecipeProject, RecipeShot } from "./types"
+import { recipeShotPreferredTake, type RecipeProject, type RecipeShot } from "./recipe-model"
 
 export const RECIPE_STAGE_IDS = [
   "script",
@@ -118,17 +118,11 @@ function placeholderBoard(items: RecipeShot[], goal: string, fullStory: string):
   return dummyTitle && descriptionIsIdea && noPrompt
 }
 
-function activeTake(shot: RecipeShot) {
-  const takes = shot.takes || []
-  const approved = takes.find((take) => (take.id || take.jobId) === shot.approvedTakeId)
-  return approved || takes[shot.activeTakeIndex || 0] || takes[takes.length - 1]
-}
-
 function isMuxable(shot: RecipeShot): boolean {
   const failed = new Set(["failed", "interrupted", "cancelled", "stopped"])
+  const take = recipeShotPreferredTake(shot)
+  if (take) return true
   if (failed.has(shot.status)) return false
-  const take = activeTake(shot)
-  if (take) return !failed.has(take.status) && (Boolean(take.videoUrl) || take.status === "succeeded")
   return shot.status === "succeeded" && Boolean(shot.outputVideoUrl || shot.jobId)
 }
 

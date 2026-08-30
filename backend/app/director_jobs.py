@@ -27,6 +27,7 @@ from .director_recipe import (
     normalize_recipe_payload,
     payload_kind,
 )
+from .director_takes import preferred_usable_take, take_key
 from .models import JobStatus
 from .resource_storage import resource_object_url
 from .storage import JobStore
@@ -107,15 +108,25 @@ def job_asset_image_url(
     return job_public_output_url(job, kind=kind)
 
 
-def recipe_asset_image_index(recipe: dict[str, Any] | None) -> dict[str, str | None]:
-    index: dict[str, str | None] = {}
-    if not isinstance(recipe, dict):
-        return index
+def _bind_recipe_job_image(recipe: dict[str, Any], job_id: str, image_url: str) -> tuple[dict[str, Any], bool]:
+    recipe = normalize_recipe_payload(recipe)
+    changed = False
     for asset in list(recipe.get("characters") or []) + list(recipe.get("locations") or []):
-        if not isinstance(asset, dict) or not asset.get("id"):
-            continue
-        index[str(asset["id"])] = asset.get("imageUrl")
-    return index
+        if asset.get("imageJobId") == job_id and asset.get("imageUrl") != image_url:
+            asset["imageUrl"] = image_url
+            changed = True
+    for shot in flatten_recipe_shots(recipe):
+        if shot.get("stillJobId") == job_id and shot.get("stillUrl") != image_url:
+            shot["stillUrl"] = image_url
+            shot["stillStatus"] = "succeeded"
+            changed = True
+        if shot.get("firstFrameJobId") == job_id and shot.get("firstFrameUrl") != image_url:
+            shot["firstFrameUrl"] = image_url
+            changed = True
+        if shot.get("endFrameJobId") == job_id and shot.get("endFrameUrl") != image_url:
+            shot["endFrameUrl"] = image_url
+            changed = True
+    return recipe, changed
 
 
 def bind_director_asset_image(
@@ -139,27 +150,13 @@ def bind_director_asset_image(
         payload = project.get("payload")
         if payload_kind(payload) != PAYLOAD_KIND_RECIPE:
             continue
-        recipe = normalize_recipe_payload(payload)
-        changed = False
-        for asset in list(recipe.get("characters") or []) + list(recipe.get("locations") or []):
-            if asset.get("imageJobId") != job_id:
-                continue
-            if asset.get("imageUrl") != image_url:
-                asset["imageUrl"] = image_url
-                changed = True
-        for shot in flatten_recipe_shots(recipe):
-            if shot.get("stillJobId") == job_id and shot.get("stillUrl") != image_url:
-                shot["stillUrl"] = image_url
-                shot["stillStatus"] = "succeeded"
-                changed = True
-            if shot.get("firstFrameJobId") == job_id and shot.get("firstFrameUrl") != image_url:
-                shot["firstFrameUrl"] = image_url
-                changed = True
-            if shot.get("endFrameJobId") == job_id and shot.get("endFrameUrl") != image_url:
-                shot["endFrameUrl"] = image_url
-                changed = True
+        _, changed = _bind_recipe_job_image(payload, job_id, image_url)
         if changed:
-            store.update_director_project(project["id"], payload=recipe)
+            store.mutate_director_project_payload(
+                project["id"],
+                lambda latest: _bind_recipe_job_image(latest, job_id, image_url)[0],
+                content_update=False,
+            )
             bound += 1
     return bound
 
@@ -251,7 +248,6 @@ def sync_recipe_asset_images(
                 "createdAt": "",
                 "promptSnapshot": shot.get("compiledPrompt") or "",
             })
-            shot["activeTakeIndex"] = 0
         for take in takes:
             take_job_id = take.get("jobId") or take.get("id")
             if not take_job_id:
@@ -276,22 +272,57 @@ def sync_recipe_asset_images(
             elif take.get("status") == JobStatus.SUCCEEDED.value:
                 take["error"] = None
         shot["takes"] = takes
-        approved = str(shot.get("approvedTakeId") or "")
-        approved_take = next((take for take in takes if str(take.get("id") or take.get("jobId") or "") == approved), None)
-        active_index = shot.get("activeTakeIndex") if isinstance(shot.get("activeTakeIndex"), int) else len(takes) - 1
-        active_take = takes[active_index] if takes and 0 <= active_index < len(takes) else (takes[-1] if takes else None)
-        chosen = approved_take or active_take
-        job_id = (chosen or {}).get("jobId") or shot.get("jobId")
+        # Execution state belongs to the current submission, never to the
+        # approved preview.  In particular, polling an approved old Take must
+        # not hide a newer queued/running/failed job.
+        job_id = str(shot.get("jobId") or "")
         if not job_id:
             continue
         try:
             job = store.get(job_id)
         except KeyError:
             continue
-        status = job.get("status")
-        if status in {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value, JobStatus.INTERRUPTED.value, JobStatus.RUNNING.value, JobStatus.QUEUED.value}:
-            shot["status"] = "succeeded" if status == JobStatus.PARTIAL.value and job_public_output_url(job, kind="video") else status
-        url = job_public_output_url(job, kind="video") or (chosen or {}).get("videoUrl")
+        status = str(job.get("status") or "")
+        current_take = next(
+            (take for take in takes if str(take.get("jobId") or take_key(take)) == job_id),
+            None,
+        )
+        current_url = job_public_output_url(job, kind="video")
+        normalized_status = (
+            "succeeded"
+            if status == JobStatus.PARTIAL.value and current_url
+            else status
+        )
+        failed_statuses = {
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+            JobStatus.INTERRUPTED.value,
+        }
+        fallback_take = preferred_usable_take(shot, takes)
+        previous_url = str((fallback_take or {}).get("videoUrl") or shot.get("outputVideoUrl") or "")
+        if status in failed_statuses and (fallback_take is not None or previous_url):
+            # Preserve the last good cut while retaining this submission's
+            # failure for the retry affordance and diagnostics.
+            shot["status"] = JobStatus.SUCCEEDED.value
+            shot["progress"] = 100
+            shot["error"] = str(job.get("error") or (current_take or {}).get("error") or "生成失败")
+            if previous_url:
+                shot["outputVideoUrl"] = previous_url
+        else:
+            if normalized_status in {
+                JobStatus.SUCCEEDED.value,
+                JobStatus.FAILED.value,
+                JobStatus.CANCELLED.value,
+                JobStatus.INTERRUPTED.value,
+                JobStatus.RUNNING.value,
+                JobStatus.QUEUED.value,
+            }:
+                shot["status"] = normalized_status
+            if normalized_status == JobStatus.SUCCEEDED.value:
+                shot["error"] = None
+            elif status in failed_statuses:
+                shot["error"] = str(job.get("error") or (current_take or {}).get("error") or "生成失败")
+        url = current_url
         if url:
             shot["outputVideoUrl"] = url
             shot["progress"] = 100 if shot.get("status") == "succeeded" else shot.get("progress") or job.get("progress") or 0
@@ -579,9 +610,15 @@ def save_recipe_shot_frame(
         suffix=source.suffix or ".png",
     )
     dest.parent.mkdir(parents=True, exist_ok=True)
+    pending = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        shutil.copy2(source, pending)
+        pending.replace(dest)
+    finally:
+        pending.unlink(missing_ok=True)
     for leftover in dest.parent.glob(f"{shot_id}_{slot}.*"):
-        leftover.unlink(missing_ok=True)
-    shutil.copy2(source, dest)
+        if leftover != dest:
+            leftover.unlink(missing_ok=True)
     public_url = f"/api/director/recipes/{project_id}/frames/{shot_id}/{slot}"
     if slot == "first":
         shot["firstFramePath"] = str(dest)
@@ -793,7 +830,6 @@ def render_recipe_shots(
             "renderPass": pass_name,
         })
         shot["takes"] = takes
-        shot["activeTakeIndex"] = len(takes) - 1
         job_ids.append(job["id"])
     if wanted and matched == 0:
         raise ValueError("没有找到要生成的镜头，请先保存后再试")

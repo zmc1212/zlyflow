@@ -47,7 +47,7 @@ from .director_export import (
 )
 from .director_jobs import (
     find_recipe_frame_file, generate_recipe_assets, generate_recipe_stills,
-    recipe_asset_image_index, render_batch_items, render_recipe_shots,
+    render_batch_items, render_recipe_shots,
     save_recipe_shot_frame, sync_batch_items, sync_recipe_asset_images,
 )
 from .director_library import (
@@ -67,7 +67,7 @@ from .director_recipe import (
     empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload, payload_kind,
     set_agent_status,
 )
-from .director_project_service import merge_recipe_creative, persist_recipe_execution
+from .director_project_service import merge_recipe_creative, merge_recipe_execution, persist_recipe_execution
 from .director_operations import DirectorOperationService
 from .grs_provider import GrsProviderService
 from .llm_client import LlmError, is_upstream_llm_failure
@@ -462,6 +462,18 @@ def public_director_operation(operation: dict) -> dict:
     data = dict(operation)
     data.pop("owner_user_id", None)
     return data
+
+
+def director_content_conflict_http(error: DirectorProjectConflictError) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "DIRECTOR_CONTENT_CONFLICT",
+            "message": "工程已在其他窗口更新，请选择加载云端版本或明确覆盖。",
+            "current_revision": error.current_project["content_revision"],
+            "current_project": public_director_project(error.current_project),
+        },
+    )
 
 
 def generation_item_or_404(store: JobStore, job_id: str, generation_item_id: str, user: dict) -> tuple[dict, dict]:
@@ -1532,9 +1544,11 @@ def get_director_project(project_id: str, user: Annotated[dict, Depends(current_
     if kind == PAYLOAD_KIND_RECIPE:
         record = dict(record)
         storage = getattr(app.state, "resource_storage", None)
-        recipe = sync_recipe_asset_images(app.state.store, record["payload"], resource_storage=storage)
-        if recipe_asset_image_index(recipe) != recipe_asset_image_index(record.get("payload")):
-            record = _persist_director_recipe(project_id, recipe, source_script=record.get("source_script"))
+        latest_recipe = normalize_recipe_payload(record["payload"])
+        recipe = sync_recipe_asset_images(app.state.store, latest_recipe, resource_storage=storage)
+        merged_execution = merge_recipe_execution(latest_recipe, recipe, scope="all")
+        if merged_execution != latest_recipe:
+            record = persist_recipe_execution(app.state.store, project_id, recipe, scope="all")
         else:
             record["payload"] = recipe
     elif kind == PAYLOAD_KIND_BATCH:
@@ -1581,15 +1595,7 @@ def update_director_project(
             ),
         )
     except DirectorProjectConflictError as error:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "DIRECTOR_CONTENT_CONFLICT",
-                "message": "工程已在其他窗口更新，请选择加载云端版本或明确覆盖。",
-                "current_revision": error.current_project["content_revision"],
-                "current_project": public_director_project(error.current_project),
-            },
-        ) from error
+        raise director_content_conflict_http(error) from error
     except DirectorPayloadError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return public_director_project(updated)
@@ -2192,7 +2198,16 @@ def insert_director_library_assets(
         recipe = insert_library_assets_into_recipe(record["payload"], assets)
     except DirectorLibraryError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    saved = _persist_director_recipe(project_id, recipe, source_script=record.get("source_script"))
+    try:
+        saved = app.state.store.update_director_project(
+            project_id,
+            payload=recipe,
+            expected_content_revision=payload.expected_content_revision,
+            content_update=True,
+            payload_merger=merge_recipe_creative,
+        )
+    except DirectorProjectConflictError as error:
+        raise director_content_conflict_http(error) from error
     app.state.auth_store.audit(
         "insert_director_library_assets", "director", actor_user_id=user["id"], target_id=project_id,
         detail=f"count={len(assets)}", ip_address=client_ip(request),
@@ -2251,6 +2266,10 @@ async def upload_director_recipe_frame(
     shot_id: Annotated[str, Form(description="分镜 ID")],
     slot: Annotated[str, Form(description="first 或 end")],
     file: Annotated[UploadFile, File(description="帧图片")],
+    expected_content_revision: Annotated[
+        int | None,
+        Form(ge=1, description="客户端最后读取的创作内容版本；不匹配时返回 409。"),
+    ] = None,
 ) -> dict:
     record = director_project_or_404(app.state.store, project_id, user)
     if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
@@ -2262,21 +2281,25 @@ async def upload_director_recipe_frame(
     staging.parent.mkdir(parents=True, exist_ok=True)
     await save_upload(file, staging)
     try:
-        recipe = save_recipe_shot_frame(
-            normalize_recipe_payload(record["payload"]),
-            owner_user_id=user["id"],
-            project_id=project_id,
-            shot_id=shot_id,
-            slot=slot,
-            source=staging,
+        saved = app.state.store.mutate_director_project_payload(
+            project_id,
+            lambda latest: save_recipe_shot_frame(
+                normalize_recipe_payload(latest),
+                owner_user_id=user["id"],
+                project_id=project_id,
+                shot_id=shot_id,
+                slot=slot,
+                source=staging,
+            ),
+            content_update=True,
+            expected_content_revision=expected_content_revision,
         )
+    except DirectorProjectConflictError as error:
+        raise director_content_conflict_http(error) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     finally:
         staging.unlink(missing_ok=True)
-    saved = persist_recipe_execution(
-        app.state.store, project_id, recipe, scope="frame", shot_ids=[shot_id],
-    )
     app.state.auth_store.audit(
         "upload_director_frame", "director", actor_user_id=user["id"], target_id=project_id,
         detail=f"{shot_id}:{slot}", ip_address=client_ip(request),

@@ -46,6 +46,7 @@ export default function JianyingExportModal({
   const [aspectRatio, setAspectRatio] = useState<JianyingDraftOptions["aspectRatio"]>(defaultAspectRatio)
   const [exportingZip, setExportingZip] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [messageApi, messageContextHolder] = message.useMessage()
 
   useEffect(() => {
     setAspectRatio(defaultAspectRatio)
@@ -64,7 +65,7 @@ export default function JianyingExportModal({
 
   const handleExportZip = async () => {
     if (!selectedItems.length) {
-      message.warning("请至少保留一个素材以导出草稿")
+      messageApi.warning("请至少保留一个素材以导出草稿")
       return
     }
     setExportingZip(true)
@@ -73,10 +74,10 @@ export default function JianyingExportModal({
         draftName: draftName.trim() || "ZLY_Studio_草稿",
         aspectRatio,
       })
-      message.success("已生成并下载剪映草稿包 (.zip)")
+      messageApi.success("已生成并下载剪映草稿包 (.zip)")
     } catch (err) {
       const msg = err instanceof Error ? err.message : "导出失败"
-      message.error(`导出草稿失败: ${msg}`)
+      messageApi.error(`导出草稿失败: ${msg}`)
     } finally {
       setExportingZip(false)
     }
@@ -84,7 +85,7 @@ export default function JianyingExportModal({
 
   const handleDownloadJson = () => {
     if (!selectedItems.length) {
-      message.warning("请至少保留一个素材以导出草稿")
+      messageApi.warning("请至少保留一个素材以导出草稿")
       return
     }
     try {
@@ -92,16 +93,16 @@ export default function JianyingExportModal({
         draftName: draftName.trim() || "ZLY_Studio_草稿",
         aspectRatio,
       })
-      message.success("已下载 draft_content.json 与 draft_meta_info.json")
+      messageApi.success("已下载 draft_content.json 与 draft_meta_info.json")
     } catch (err) {
       const msg = err instanceof Error ? err.message : "下载失败"
-      message.error(`下载草稿文件失败: ${msg}`)
+      messageApi.error(`下载草稿文件失败: ${msg}`)
     }
   }
 
   const handleDownloadAllMedia = () => {
     if (!selectedItems.length) {
-      message.warning("无可下载素材")
+      messageApi.warning("无可下载素材")
       return
     }
     selectedItems.forEach((item, index) => {
@@ -114,23 +115,23 @@ export default function JianyingExportModal({
         document.body.removeChild(a)
       }, index * 200)
     })
-    message.success(`已触发 ${selectedItems.length} 个素材文件的下载`)
+    messageApi.success(`已触发 ${selectedItems.length} 个素材文件的下载`)
   }
 
   const handleCopyPath = async () => {
     try {
       await navigator.clipboard.writeText(JIANYING_WINDOWS_DRAFT_PATH)
       setCopied(true)
-      message.success("已复制剪映草稿路径到剪贴板")
+      messageApi.success("已复制剪映草稿路径到剪贴板")
       setTimeout(() => setCopied(false), 2500)
     } catch {
-      message.info(`剪映草稿路径: ${JIANYING_WINDOWS_DRAFT_PATH}`)
+      messageApi.info(`剪映草稿路径: ${JIANYING_WINDOWS_DRAFT_PATH}`)
     }
   }
 
   const handleLaunchJianyingApp = () => {
     window.location.href = "jianying://"
-    message.info("正在尝试唤起剪映电脑版客户端...")
+    messageApi.info("正在尝试唤起剪映电脑版客户端...")
   }
 
   const handleOpenJianyingWeb = () => {
@@ -151,10 +152,11 @@ export default function JianyingExportModal({
       }
       width={680}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
       centered
       className="jianying-export-modal"
     >
+      {messageContextHolder}
       <div className="mt-4 space-y-5 text-sm text-[#374151]">
         {/* 草稿参数配置 */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

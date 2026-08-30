@@ -750,6 +750,7 @@ class DirectorLibraryFromRecipeResponse(BaseModel):
 
 class DirectorInsertLibraryAssetsRequest(BaseModel):
     asset_ids: list[str] = Field(default_factory=list, max_length=40)
+    expected_content_revision: int | None = Field(default=None, ge=1)
 
 
 class TtsVoiceItem(BaseModel):

@@ -2098,7 +2098,7 @@ export default function App({
             }}
             okText="应用筛选"
             cancelText="取消"
-            destroyOnClose
+            destroyOnHidden
             centered
           >
             <div className="py-4">

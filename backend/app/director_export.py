@@ -20,20 +20,14 @@ from .director_recipe import (
     normalize_recipe_payload,
     normalize_voice_id,
 )
+from .director_takes import FAILED_TAKE_STATUSES, preferred_usable_take
 from .llm_client import LlmError
 from .models import JobStatus
 from .storage import JobStore
 from .tts_provider import DEFAULT_TTS_VOICE
 
 
-FAILED_SHOT_STATUSES = {
-    JobStatus.FAILED.value,
-    JobStatus.INTERRUPTED.value,
-    JobStatus.CANCELLED.value,
-    "failed",
-    "interrupted",
-    "cancelled",
-}
+FAILED_SHOT_STATUSES = set(FAILED_TAKE_STATUSES)
 SUCCEEDED_SHOT_STATUSES = {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value, "succeeded", "partial"}
 ASS_ALIGN = {"top": 8, "center": 5, "bottom": 2}
 
@@ -181,34 +175,14 @@ def _shot_status(shot: dict[str, Any]) -> str:
 
 
 def _take_for_mux(shot: dict[str, Any]) -> dict[str, Any] | None:
-    takes = [item for item in (shot.get("takes") or []) if isinstance(item, dict)]
-    approved = _text(shot.get("approvedTakeId") or shot.get("approved_take_id"))
-    if approved:
-        for take in takes:
-            if _text(take.get("id") or take.get("jobId")) == approved:
-                return take
-        return None
-    if takes:
-        try:
-            index = int(shot.get("activeTakeIndex") or 0)
-        except (TypeError, ValueError):
-            index = 0
-        if 0 <= index < len(takes):
-            return takes[index]
-        return takes[-1]
-    return None
+    return preferred_usable_take(shot)
 
 
 def shot_is_muxable(shot: dict[str, Any]) -> bool:
-    if _shot_status(shot) in FAILED_SHOT_STATUSES:
-        return False
     take = _take_for_mux(shot)
     if take is not None:
-        take_status = _text(take.get("status"), "succeeded").lower()
-        if take_status in FAILED_SHOT_STATUSES:
-            return False
-        if take.get("videoUrl") or take.get("outputPath") or take.get("jobId") or take_status in SUCCEEDED_SHOT_STATUSES:
-            return True
+        return True
+    if _shot_status(shot) in FAILED_SHOT_STATUSES:
         return False
     if _shot_status(shot) in SUCCEEDED_SHOT_STATUSES and (shot.get("outputVideoUrl") or shot.get("jobId")):
         return True

@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest"
 import { snapH3DurationSec } from "./prompt-compiler"
 import {
+  directorFramesToSeconds,
+  directorSecondsToFrames,
+  directorTimelineFrameLayout,
+  directorTimelineMoveTargetIndex,
+  directorTimelineResizeDraftFrames,
+  directorTimelineSnapFrame,
+} from "./director-timeline-engine"
+import {
+  clampTransportFrame,
+  formatTransportTimecode,
+  playbackStartFrame,
+  stepTransportFrame,
+} from "./opencut-timeline/transport"
+import {
   RECIPE_TRACK_MIN_CLIP_PX,
   assignRecipeShotPlate,
   createEmptyRecipe,
@@ -8,6 +22,7 @@ import {
   duplicateRecipeShot,
   flattenRecipeShots,
   insertRecipeShotAfter,
+  moveRecipeShotToIndex,
   recipePlayableShots,
   recipeRulerSeekSec,
   recipeRulerShotEdges,
@@ -209,19 +224,79 @@ export function assertDirectorTimelineContract(): void {
       progress: 100,
       videoUrl: "/take.mp4",
       createdAt: "2026-08-30T00:00:00.000Z",
+    }, {
+      id: "t2",
+      takeNumber: 2,
+      status: "succeeded",
+      progress: 100,
+      videoUrl: "/take-latest.mp4",
+      createdAt: "2026-08-30T00:01:00.000Z",
+    }, {
+      id: "t3",
+      takeNumber: 3,
+      status: "failed",
+      progress: 0,
+      error: "new render failed",
+      createdAt: "2026-08-30T00:02:00.000Z",
     }],
+    activeTakeIndex: 0,
   })
-  if (recipeShotVideoUrl(playable) !== "/take.mp4") {
-    throw new Error("recipeShotVideoUrl must prefer the active take")
+  if (recipeShotVideoUrl(playable) !== "/take-latest.mp4") {
+    throw new Error("recipeShotVideoUrl must ignore legacy preview indexes and prefer the latest usable take")
   }
   if (recipePlayableShots([a, playable]).map((shot) => shot.id).join(",") !== "p1") {
     throw new Error("recipePlayableShots must only include muxable takes")
   }
-  if (recipeShotsToPlayer([playable])[0].outputVideoUrl !== "/take.mp4") {
+  if (recipeShotsToPlayer([playable])[0].outputVideoUrl !== "/take-latest.mp4") {
     throw new Error("player adapter must expose the take video for 串播")
   }
   if (snapH3DurationSec(1) !== 2 || snapH3DurationSec(16) !== 15) {
     throw new Error("timeline duration edits must still snap to H3 2–15s")
+  }
+
+  const frameLayout = directorTimelineFrameLayout([a, b])
+  if (frameLayout[0].durationFrames !== 120 || frameLayout[1].startFrame !== 120 || frameLayout[1].endFrame !== 312) {
+    throw new Error("OpenCut adapter must represent the contiguous director timeline at 24fps")
+  }
+  const resizeDraftFrames = directorTimelineResizeDraftFrames(a, 25, 100)
+  if (resizeDraftFrames !== 126 || directorFramesToSeconds(resizeDraftFrames) !== 5.25) {
+    throw new Error("resize preview must retain frame precision instead of committing each mouse move")
+  }
+  const snapped = directorTimelineSnapFrame(118, [a, b], 48, { enabled: true })
+  if (!snapped.snapped || snapped.frame !== directorSecondsToFrames(5)) {
+    throw new Error("OpenCut adapter must snap to neighboring clip boundaries")
+  }
+  if (directorTimelineMoveTargetIndex([a, b], "a", 999) !== 1) {
+    throw new Error("drag resolver must append a clip when dropped beyond the remaining track")
+  }
+  if (formatTransportTimecode(3 * 24 + 8, 24) !== "00:00:03:08") {
+    throw new Error("player timecode must retain OpenCut's HH:MM:SS:FF format")
+  }
+  if (stepTransportFrame(0, -1, 240) !== 0 || stepTransportFrame(239, 1, 240) !== 240) {
+    throw new Error("transport stepping must clamp at the timeline boundaries")
+  }
+  if (clampTransportFrame(999, 240) !== 240 || playbackStartFrame(240, 240) !== 0) {
+    throw new Error("transport end must stay seekable and replay from frame zero")
+  }
+
+  const crossSceneRecipe = withShots([a])
+  crossSceneRecipe.scenes.push({
+    id: "sc2",
+    sceneNumber: 2,
+    title: "追逐",
+    description: "",
+    locationName: "暗巷",
+    shots: [b],
+  })
+  const movedAcrossScenes = moveRecipeShotToIndex(crossSceneRecipe, "b", 0)
+  if (flattenRecipeShots(movedAcrossScenes).map((shot) => shot.id).join(",") !== "b,a") {
+    throw new Error("timeline drag commit must reorder RecipeShot across scene boundaries")
+  }
+  if (flattenRecipeShots(movedAcrossScenes).map((shot) => shot.shotNumber).join(",") !== "1,2") {
+    throw new Error("timeline drag commit must renumber shots after moving")
+  }
+  if (movedAcrossScenes.scenes.length !== 1 || movedAcrossScenes.scenes.some((scene) => scene.shots.length === 0)) {
+    throw new Error("timeline drag commit must remove an emptied source scene before backend normalization")
   }
 }
 

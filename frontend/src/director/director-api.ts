@@ -1,4 +1,4 @@
-import { apiErrorMessage, jsonMutation, requestJson } from "../api"
+import { ApiRequestError, apiErrorMessage, jsonMutation, requestJson } from "../api"
 import { persistableTimelineProject } from "./director-storage"
 import {
   createEmptyProject,
@@ -393,20 +393,26 @@ export function generateDirectorStills(
 
 export async function uploadDirectorShotFrame(
   projectId: string,
-  body: { shot_id: string; slot: "first" | "end"; file: File },
+  body: { shot_id: string; slot: "first" | "end"; file: File; expected_content_revision?: number },
   csrfToken: string,
 ) {
   const form = new FormData()
   form.set("shot_id", body.shot_id)
   form.set("slot", body.slot)
   form.set("file", body.file)
+  if (body.expected_content_revision) {
+    form.set("expected_content_revision", String(body.expected_content_revision))
+  }
   const response = await fetch(
     `/api/director/recipes/${encodeURIComponent(projectId)}/frames`,
     { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
   )
   if (!response.ok) {
-    const payload = await response.json().catch(() => null)
-    throw new Error(apiErrorMessage(payload, "上传分镜帧失败"))
+    const contentType = response.headers.get("content-type") ?? ""
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => "")
+    throw new ApiRequestError(response.status, payload, "上传分镜帧失败")
   }
   return response.json() as Promise<DirectorProjectResponse>
 }
@@ -526,10 +532,18 @@ export function saveRecipeAssetsToLibrary(
   )
 }
 
-export function insertDirectorLibraryAssets(projectId: string, assetIds: string[], csrfToken: string) {
+export function insertDirectorLibraryAssets(
+  projectId: string,
+  assetIds: string[],
+  expectedContentRevision: number | undefined,
+  csrfToken: string,
+) {
   return requestJson<DirectorProjectResponse>(
     `/api/director/recipes/${encodeURIComponent(projectId)}/insert-library-assets`,
-    jsonMutation(csrfToken, { asset_ids: assetIds }),
+    jsonMutation(csrfToken, {
+      asset_ids: assetIds,
+      expected_content_revision: expectedContentRevision,
+    }),
   )
 }
 
