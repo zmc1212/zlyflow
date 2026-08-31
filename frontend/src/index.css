@@ -2,10 +2,72 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --studio-canvas: #f8f9fa;
+  --studio-chrome: #ffffff;
+  --studio-surface: #ffffff;
+  --studio-surface-raised: #f4f6f8;
+  --studio-field: #ffffff;
+  --studio-hover: rgba(15, 23, 42, .05);
+  --studio-border: rgba(15, 23, 42, .08);
+  --studio-border-strong: rgba(15, 23, 42, .16);
+  --studio-text: #171a1f;
+  --studio-text-secondary: #4b5563;
+  --studio-text-muted: #6b7280;
+  --studio-text-subtle: #7c8794;
+  --studio-primary: #435ce8;
+  --studio-primary-hover: #526bf2;
+  --studio-accent-text: #435ce8;
+  --studio-primary-soft: rgba(67, 92, 232, .10);
+  --studio-focus: rgba(67, 92, 232, .28);
+  --studio-success: #047857;
+  --studio-warning: #b45309;
+  --studio-danger: #b91c1c;
+  --studio-success-soft: rgba(5, 150, 105, .10);
+  --studio-warning-soft: rgba(245, 158, 11, .10);
+  --studio-danger-soft: rgba(220, 38, 38, .09);
+  --studio-media: #111827;
+  --studio-scrim: rgba(9, 12, 17, .72);
+  --studio-shadow: 0 16px 36px rgba(22, 31, 44, .12);
+  --studio-auth-brand: #f1f3ff;
+}
+
+:root[data-theme="dark"] {
+  --studio-canvas: #0f1115;
+  --studio-chrome: #13161b;
+  --studio-surface: #171a20;
+  --studio-surface-raised: #1e2229;
+  --studio-field: #20252d;
+  --studio-hover: rgba(255, 255, 255, .07);
+  --studio-border: rgba(255, 255, 255, .10);
+  --studio-border-strong: rgba(255, 255, 255, .18);
+  --studio-text: #f3f5f7;
+  --studio-text-secondary: #c0c7d0;
+  --studio-text-muted: #9ba5b1;
+  --studio-text-subtle: #929ca8;
+  --studio-primary: #5b65e6;
+  --studio-primary-hover: #6974ef;
+  --studio-accent-text: #9aa8ff;
+  --studio-primary-soft: rgba(127, 141, 246, .17);
+  --studio-focus: rgba(154, 168, 255, .34);
+  --studio-success: #6ee7b7;
+  --studio-warning: #fbbf24;
+  --studio-danger: #fda4af;
+  --studio-success-soft: rgba(16, 185, 129, .13);
+  --studio-warning-soft: rgba(245, 158, 11, .13);
+  --studio-danger-soft: rgba(244, 63, 94, .13);
+  --studio-media: #090b0f;
+  --studio-scrim: rgba(3, 5, 8, .82);
+  --studio-shadow: 0 18px 46px rgba(0, 0, 0, .42);
+  --studio-auth-brand: #11141a;
+}
+
 @layer base {
-  * { @apply border-slate-200; }
-  body { @apply m-0 min-w-[320px] bg-[#f8f9fa] font-sans text-slate-900 antialiased; }
+  * { border-color: var(--studio-border); }
+  html { background: var(--studio-canvas); }
+  body { @apply m-0 min-w-[320px] font-sans antialiased; background: var(--studio-canvas); color: var(--studio-text); }
   button, input, textarea, select { font: inherit; }
+  ::selection { background: var(--studio-primary-soft); color: var(--studio-text); }
 }
 
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -2856,3 +2918,544 @@
   .director-mobile-header { position: sticky; top: 0; z-index: 80; }
   .director-mobile-bottom-bar { backdrop-filter: none; }
 }
+
+/* Dual-theme foundation: shared controls, authentication surfaces and legacy utility colors. */
+.studio-theme-toggle.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--studio-text-secondary) !important;
+  box-shadow: none;
+}
+.studio-theme-toggle-icon.ant-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--studio-border);
+  border-radius: 9px;
+  background: transparent;
+}
+.studio-theme-toggle-icon.ant-btn:hover,
+.studio-theme-toggle-icon.ant-btn:focus-visible {
+  border-color: var(--studio-border-strong) !important;
+  background: var(--studio-hover) !important;
+  color: var(--studio-text) !important;
+}
+.studio-theme-toggle-icon.ant-btn:focus-visible,
+.studio-theme-toggle-menu.ant-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--studio-focus) !important;
+}
+.studio-theme-toggle-menu.ant-btn {
+  height: 36px;
+  justify-content: flex-start;
+  gap: 2px;
+  padding-inline: 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+.studio-theme-toggle-menu.ant-btn:hover { background: var(--studio-hover) !important; color: var(--studio-text) !important; }
+.studio-auth-theme-toggle.ant-btn { position: absolute; top: 18px; right: 18px; z-index: 5; }
+.studio-auth-screen { background: var(--studio-canvas); color: var(--studio-text); }
+.studio-auth-brand-panel { border-color: var(--studio-border); background: var(--studio-auth-brand); }
+.studio-auth-brand-mark { border-color: var(--studio-primary); color: var(--studio-accent-text); }
+.studio-auth-accent { color: var(--studio-accent-text); }
+.studio-auth-muted { color: var(--studio-text-muted); }
+.studio-auth-subtle { color: var(--studio-text-subtle); }
+.studio-auth-icon { background: var(--studio-primary-soft); color: var(--studio-accent-text); }
+.studio-auth-warning-icon { background: var(--studio-warning-soft); color: var(--studio-warning); }
+.studio-auth-warning-text { color: var(--studio-warning); }
+.studio-field-label { color: var(--studio-text-secondary); }
+.studio-plain-input {
+  border-color: var(--studio-border-strong);
+  background: var(--studio-field);
+  color: var(--studio-text);
+}
+.studio-plain-input::placeholder { color: var(--studio-text-subtle); }
+.studio-plain-input:hover { border-color: color-mix(in srgb, var(--studio-border-strong) 72%, var(--studio-accent-text)); }
+.studio-plain-input:focus { border-color: var(--studio-accent-text); box-shadow: 0 0 0 2px var(--studio-focus); }
+.studio-password-visibility { color: var(--studio-text-subtle); }
+.studio-password-visibility:hover { background: var(--studio-hover); color: var(--studio-text); }
+.studio-password-visibility:focus-visible { --tw-ring-color: var(--studio-focus); }
+.studio-primary-button { background: var(--studio-primary); color: #fff; }
+.studio-primary-button:hover:not(:disabled) { background: var(--studio-primary-hover); }
+.studio-primary-button:focus-visible { --tw-ring-color: var(--studio-focus); }
+.studio-auth-secondary { color: var(--studio-text-muted); }
+.studio-auth-secondary:hover { background: var(--studio-hover); color: var(--studio-text); }
+.studio-auth-error { background: var(--studio-danger-soft); color: var(--studio-danger); }
+.director-mobile-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+
+@media (max-width: 767px) {
+  .director-mobile-header { grid-template-columns: 44px minmax(0, 1fr) auto; }
+  .director-mobile-header-actions > button,
+  .director-mobile-header-actions .ant-dropdown-trigger,
+  .director-mobile-header-actions .studio-theme-toggle.ant-btn {
+    display: grid;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    place-items: center;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--studio-text-secondary) !important;
+  }
+  .director-mobile-header-actions > button:hover,
+  .director-mobile-header-actions .ant-dropdown-trigger:hover,
+  .director-mobile-header-actions .studio-theme-toggle.ant-btn:hover { background: var(--studio-hover) !important; color: var(--studio-text) !important; }
+  .studio-header-theme-toggle.ant-btn { display: none; }
+}
+
+:root[data-theme="dark"] [class~="bg-[#f8f9fa]"] { background-color: var(--studio-canvas) !important; }
+:root[data-theme="dark"] [class~="bg-white"] { background-color: var(--studio-surface) !important; }
+:root[data-theme="dark"] :is(
+  [class~="bg-[#f9fafb]"],
+  [class~="bg-[#f6f7f8]"],
+  [class~="bg-[#f5f7f9]"],
+  [class~="bg-[#f3f4f6]"],
+  [class~="bg-[#f2f4f6]"],
+  [class~="bg-[#eef1f4]"],
+  [class~="bg-[#e5e7eb]"]
+) { background-color: var(--studio-surface-raised) !important; }
+:root[data-theme="dark"] :is(
+  [class~="bg-[#eef1ff]"],
+  [class~="bg-[#eff4ff]"],
+  [class~="bg-[#eef2ff]"],
+  [class~="bg-[#edf1ff]"]
+) { background-color: var(--studio-primary-soft) !important; }
+:root[data-theme="dark"] :is(
+  [class~="text-[#111827]"],
+  [class~="text-[#171a1f]"],
+  [class~="text-[#1f2937]"],
+  [class~="text-[#27303a]"],
+  [class~="text-[#374151]"],
+  [class~="text-slate-900"]
+) { color: var(--studio-text) !important; }
+:root[data-theme="dark"] :is(
+  [class~="text-[#4b5563]"],
+  [class~="text-[#536471]"],
+  [class~="text-[#59636f]"],
+  [class~="text-[#65707c]"]
+) { color: var(--studio-text-secondary) !important; }
+:root[data-theme="dark"] :is(
+  [class~="text-[#6b7280]"],
+  [class~="text-[#7c8794]"],
+  [class~="text-[#85858f]"],
+  [class~="text-[#87929d]"],
+  [class~="text-[#9099a5]"],
+  [class~="text-[#94949e]"],
+  [class~="text-[#9898a2]"],
+  [class~="text-[#98a2ad]"],
+  [class~="text-[#9ca3af]"],
+  [class~="text-[#a0a8b2]"]
+) { color: var(--studio-text-muted) !important; }
+:root[data-theme="dark"] :is([class~="text-[#7047f6]"], [class~="text-[#4d6bfe]"]) { color: var(--studio-accent-text) !important; }
+:root[data-theme="dark"] :is([class~="bg-[#7047f6]"], [class~="bg-[#4d6bfe]"]) { background-color: var(--studio-primary) !important; }
+:root[data-theme="dark"] :is([class~="border-[#7047f6]"], [class~="border-[#4d6bfe]"]) { border-color: var(--studio-accent-text) !important; }
+:root[data-theme="dark"] :is(
+  [class~="border-black/[0.05]"],
+  [class~="border-black/[0.06]"],
+  [class~="border-black/[0.08]"],
+  [class~="border-black/[0.1]"],
+  [class~="border-black/[0.12]"],
+  [class~="border-black/[0.15]"],
+  [class~="border-black/10"],
+  [class~="border-black/15"],
+  [class~="border-black/20"],
+  [class~="border-slate-200"]
+) { border-color: var(--studio-border) !important; }
+:root[data-theme="dark"] [class~="divide-black/[0.06]"] > :not([hidden]) ~ :not([hidden]) { border-color: var(--studio-border) !important; }
+:root[data-theme="dark"] :is([class~="text-emerald-600"], [class~="text-emerald-300"]) { color: var(--studio-success) !important; }
+:root[data-theme="dark"] :is([class~="text-amber-600"], [class~="text-amber-300"], [class~="text-amber-200"]) { color: var(--studio-warning) !important; }
+:root[data-theme="dark"] :is([class~="text-red-600"], [class~="text-red-300"], [class~="text-red-200"]) { color: var(--studio-danger) !important; }
+:root[data-theme="dark"] [class~="hover:bg-[#f9fafb]"]:hover,
+:root[data-theme="dark"] [class~="hover:bg-[#f3f4f6]"]:hover,
+:root[data-theme="dark"] [class~="hover:bg-black/[0.04]"]:hover,
+:root[data-theme="dark"] [class~="hover:bg-black/[0.05]"]:hover,
+:root[data-theme="dark"] [class~="hover:bg-white"]:hover { background-color: var(--studio-hover) !important; }
+:root[data-theme="dark"] [class~="hover:text-[#111827]"]:hover,
+:root[data-theme="dark"] [class~="hover:text-[#171a1f]"]:hover { color: var(--studio-text) !important; }
+
+/* Studio surfaces that are authored in CSS rather than Tailwind utilities. */
+:root[data-theme="dark"] .studio-select-popup.ant-select-dropdown,
+:root[data-theme="dark"] .studio-parameter-popover .ant-popover-inner,
+:root[data-theme="dark"] .studio-parameter-popover .ant-popover-arrow::before { background: var(--studio-surface-raised) !important; }
+:root[data-theme="dark"] .studio-select-popup.ant-select-dropdown { border-color: var(--studio-border); box-shadow: var(--studio-shadow); }
+:root[data-theme="dark"] .studio-select-popup .ant-select-item { color: var(--studio-text-secondary); }
+:root[data-theme="dark"] .studio-select-popup .ant-select-item-group { color: var(--studio-text-muted); }
+:root[data-theme="dark"] .studio-select-popup .ant-select-item-option-active { background: var(--studio-hover) !important; }
+:root[data-theme="dark"] .studio-select-popup .ant-select-item-option-selected,
+:root[data-theme="dark"] .studio-select-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled) { background: var(--studio-primary-soft) !important; color: var(--studio-accent-text) !important; }
+.studio-dark .studio-composer-form { border-color: var(--studio-border); background: color-mix(in srgb, var(--studio-surface) 96%, transparent); box-shadow: var(--studio-shadow); }
+:root[data-theme="dark"] :is(
+  .studio-task-rail-reopen,
+  .studio-asset-tile,
+  .studio-asset-actions .ant-input-affix-wrapper,
+  .studio-asset-action-button,
+  .studio-asset-sort-button,
+  .studio-asset-batch-btn-download,
+  .studio-asset-batch-btn-delete,
+  .studio-mobile-nav,
+  .studio-mobile-nav a,
+  .studio-mobile-nav button
+) { border-color: var(--studio-border); background: var(--studio-surface); color: var(--studio-text-secondary); }
+:root[data-theme="dark"] :is(
+  .studio-global-nav-item:hover,
+  .studio-task-rail-reopen:hover,
+  .studio-asset-filter:hover,
+  .studio-asset-action-button:hover,
+  .studio-asset-sort-button:hover
+) { border-color: var(--studio-border-strong); background: var(--studio-hover); color: var(--studio-text); }
+:root[data-theme="dark"] :is(.studio-global-nav-item-active, .studio-asset-tabs .ant-tabs-tab-active) { background: var(--studio-primary-soft); color: var(--studio-accent-text); }
+:root[data-theme="dark"] :is(
+  .studio-global-nav-item,
+  .studio-task-rail-reopen,
+  .studio-asset-tabs .ant-tabs-tab,
+  .studio-asset-filter,
+  .studio-return-bottom,
+  .studio-mobile-nav a,
+  .studio-mobile-nav button
+) { color: var(--studio-text-muted); }
+:root[data-theme="dark"] :is(
+  .studio-asset-tabs .ant-tabs-tab-active .ant-tabs-tab-btn,
+  .studio-asset-filter-active,
+  .studio-asset-group h2,
+  .studio-asset-actions .ant-input,
+  .studio-asset-search-icon
+) { color: var(--studio-text) !important; }
+:root[data-theme="dark"] .studio-asset-actions .ant-input::placeholder,
+:root[data-theme="dark"] .studio-asset-empty { color: var(--studio-text-subtle); }
+:root[data-theme="dark"] .studio-asset-filter-bar { border-bottom-color: var(--studio-border); }
+:root[data-theme="dark"] .studio-asset-media-frame { background: var(--studio-surface-raised); }
+
+/* Director/editor dark skin: retain a near-black media monitor while panel surfaces remain distinct. */
+:root[data-theme="dark"] .director-shell {
+  --director-bg: var(--studio-canvas);
+  --director-surface: var(--studio-surface);
+  --director-border: var(--studio-border);
+  --director-text: var(--studio-text);
+  --director-muted: var(--studio-text-muted);
+  --director-primary: var(--studio-primary);
+  --director-primary-soft: var(--studio-primary-soft);
+  background: var(--director-bg);
+}
+:root[data-theme="dark"] :is(
+  .director-timeline-assets,
+  .director-timeline-asset,
+  .director-timeline-inspector,
+  .director-timeline-empty,
+  .director-library-card .ant-card-actions,
+  .director-top-actions .ant-btn,
+  .director-render-bar,
+  .director-shot-bin,
+  .director-add-shot,
+  .director-preview-stage,
+  .director-context-actions .ant-btn,
+  .director-inspector-panel,
+  .director-inspector-tabs button,
+  .director-storyboard-card,
+  .director-timeline-panel,
+  .director-track-labels,
+  .director-diamond,
+  .director-mobile-header,
+  .director-continuity-summary,
+  .director-mobile-bottom-bar button,
+  .director-mobile-bottom-bar .ant-btn,
+  .director-mobile-bottom-bar .director-mobile-preview,
+  .director-engine-card,
+  .director-recipe-rail,
+  .director-shot-workspace,
+  .director-recipe-inspector,
+  .director-compiled-prompt,
+  .director-frame-slot,
+  .director-take-item,
+  .director-style-card,
+  .director-shot-progress,
+  .director-export-card,
+  .director-brief-card,
+  .director-stage-collapse,
+  .director-stage-collapse .ant-collapse-content,
+  .director-script-sheet,
+  .director-shot-commandbar,
+  .director-mobile-brief-card,
+  .director-shot-workspace .director-shot-bin
+) { background: var(--studio-surface) !important; }
+:root[data-theme="dark"] :is(
+  .director-timeline-view,
+  .director-timeline-center,
+  .director-search,
+  .director-duration-row .ant-input-number,
+  .director-prompt-box,
+  .director-snap-chip,
+  .director-recipe-shell,
+  .director-inspector-frame.is-empty,
+  .director-inspector-camera,
+  .director-inspector-plates,
+  .director-inspector-frames,
+  .director-inspector-takes,
+  .director-inspector-tts,
+  .director-inspector-compiled,
+  .director-job-error-pre,
+  .director-recipe-layout,
+  .director-recipe-main
+) { background: var(--studio-canvas) !important; }
+:root[data-theme="dark"] :is(
+  .director-view-switch.ant-segmented,
+  .director-timeline-asset img,
+  .director-search:hover,
+  .director-search:focus-within,
+  .director-shot-thumb,
+  .director-clip-idle,
+  .director-compiled-prompt.is-snapshot,
+  .director-plate-row img,
+  .director-plate-empty,
+  .director-style-cover,
+  .director-style-option img,
+  .director-asset-cover,
+  .director-shot-video,
+  .director-asset-placeholder,
+  .director-asset-preview-trigger,
+  .director-brief-card .ant-input,
+  .director-script-field .ant-input,
+  .director-shot-list-item,
+  .director-anchor-slot
+) { background: var(--studio-surface-raised) !important; }
+:root[data-theme="dark"] :is(
+  .director-view-switch.ant-segmented,
+  .director-view-switch.ant-segmented .ant-segmented-item-selected,
+  .director-timeline-view,
+  .director-timeline-assets h5,
+  .director-timeline-assets section > strong,
+  .director-timeline-asset,
+  .director-timeline-preview-toolbar strong,
+  .director-timeline-asset span strong,
+  .director-timeline-preview-bar strong,
+  .director-library-header h1,
+  .director-library-empty-copy strong,
+  .director-library-card-title,
+  .director-script-drawer .ant-drawer-title,
+  .director-script-drawer-title,
+  .director-script-hint strong,
+  .director-script-body .ant-input,
+  .director-split-confirm-options .ant-radio-wrapper,
+  .director-mobile-header strong,
+  .director-mobile-bottom-bar .director-mobile-preview,
+  .director-engine-card,
+  .director-recipe-shell,
+  .director-recipe-rail h5,
+  .director-stage-collapse .ant-collapse-header,
+  .director-recipe-inspector .director-inspector-empty strong,
+  .director-inspector-camera strong,
+  .director-inspector-plates strong,
+  .director-inspector-frames strong,
+  .director-inspector-takes strong,
+  .director-inspector-tts strong,
+  .director-inspector-compiled strong,
+  .director-agent-collapse .ant-collapse-header,
+  .director-section-head h5,
+  .director-heavy-confirm p,
+  .director-style-card,
+  .director-shot-dialogue,
+  .director-library-form label,
+  .director-export-card h5,
+  .director-export-voice-row,
+  .director-task-copy h1,
+  .director-shot-command-copy h5,
+  .director-compiled-prompt,
+  .director-take-meta,
+  .director-job-error-pre,
+  .director-batch-fields label,
+  .director-library-picker-bar,
+  .director-library-form input[type="file"],
+  .director-brief-card .ant-input,
+  .director-script-field .ant-input,
+  .director-shot-list-title,
+  .director-continuity-summary > summary,
+  .director-prompt-input,
+  .director-brief-head > span,
+  .director-stage-group-label strong,
+  .director-stage-name,
+  .director-script-field > span,
+  .director-asset-placeholder,
+  .director-shot-desc
+) { color: var(--studio-text) !important; }
+:root[data-theme="dark"] :is(
+  .director-timeline-assets > p,
+  .director-timeline-assets section > strong,
+  .director-timeline-empty,
+  .director-library-header p,
+  .director-library-loading,
+  .director-library-empty,
+  .director-library-empty-copy,
+  .director-library-card-summary,
+  .director-script-hint,
+  .director-render-group > span,
+  .director-preview-empty strong,
+  .director-engine-card span,
+  .director-agent-progress,
+  .director-agent-stage,
+  .director-agent-summary,
+  .director-board-generating p,
+  .director-board-generating-mobile,
+  .director-inspector-field > span,
+  .director-camera-fields span,
+  .director-compiled-prompt.is-snapshot,
+  .director-frame-slot,
+  .director-style-toolbar p,
+  .director-output-hint,
+  .director-asset-status,
+  .director-library-hint,
+  .director-library-prompt,
+  .director-back-library,
+  .director-storyboard-card,
+  .director-mobile-header > button,
+  .director-mobile-header .ant-dropdown-trigger,
+  .director-mobile-bottom-bar button,
+  .director-mobile-bottom-bar .ant-btn,
+  .director-stage-group-icon,
+  .director-agent-collapse .ant-collapse-header,
+  .director-task-copy p,
+  .director-mobile-brief-card > span,
+  .director-project-subline,
+  .director-status-idle,
+  .director-brief-card > p,
+  .director-task-path,
+  .director-task-state,
+  .director-shot-command-copy .director-output-hint,
+  .director-setting-field > span,
+  .director-mobile-stage-picker > span
+) { color: var(--studio-text-secondary) !important; }
+:root[data-theme="dark"] :is(
+  .director-timeline-preview-toolbar span,
+  .director-timeline-asset span em,
+  .director-library-card-updated,
+  .director-script-meta,
+  .director-clip-idle,
+  .director-recipe-inspector .director-inspector-empty,
+  .director-inspector-heading,
+  .director-inspector-plates p,
+  .director-inspector-frames p,
+  .director-inspector-takes p,
+  .director-inspector-compiled p,
+  .director-inspector-field p,
+  .director-take-preview,
+  .director-plate-row figcaption,
+  .director-style-cover.is-empty,
+  .director-style-card span,
+  .director-style-card em,
+  .director-shot-meta,
+  .director-brief-head em,
+  .director-preview-empty,
+  .director-anchor-slot,
+  .director-stage-collapse .ant-collapse-expand-icon,
+  .director-stage-group-label em,
+  .director-script-field > span em,
+  .director-muted-copy,
+  .director-inspector-empty,
+  .director-status-bar,
+  .director-add-next,
+  .director-shot-list-title.is-skeleton-text
+) { color: var(--studio-text-muted) !important; }
+:root[data-theme="dark"] :is(
+  .director-project-title:hover,
+  .director-library-card-top,
+  .director-script-drawer-title svg,
+  .director-shot-list-item-selected .director-shot-list-meta span:first-child,
+  .director-shot-list-item-selected .director-shot-list-title,
+  .director-add-shot,
+  .director-preview-hud-meta strong,
+  .director-preview-progress b,
+  .director-continuity-summary > summary span:last-child,
+  .director-ref-chip,
+  .director-inspector-tabs button.is-active,
+  .director-inspector-heading button,
+  .director-anchor-slot:hover,
+  .director-storyboard-card.is-selected,
+  .director-subject-span,
+  .director-add-next:hover,
+  .director-brief-head svg
+) { color: var(--studio-accent-text) !important; }
+:root[data-theme="dark"] :is(
+  .director-primary-button,
+  .director-status-running,
+  .director-clip-running,
+  .director-clip-selected,
+  .director-mobile-bottom-bar .director-mobile-generate,
+  .director-mobile-bottom-bar .director-mobile-generate.ant-btn
+) { border-color: var(--studio-primary) !important; background: var(--studio-primary) !important; color: #fff !important; }
+:root[data-theme="dark"] :is(
+  .director-view-switch.ant-segmented,
+  .director-timeline-assets,
+  .director-timeline-asset,
+  .director-timeline-stage,
+  .director-timeline-inspector,
+  .director-timeline-monitor,
+  .director-player-transport,
+  .director-library-card.ant-card,
+  .director-library-card .ant-card-actions,
+  .director-script-drawer .ant-drawer-header,
+  .director-top-actions .ant-btn,
+  .director-continuity-ruler,
+  .director-anchor-slot,
+  .director-prompt-box,
+  .director-storyboard-card,
+  .director-ruler,
+  .director-ruler-gutter,
+  .director-snap-chip,
+  .director-track-labels,
+  .director-clip-idle,
+  .director-diamond,
+  .director-status-bar,
+  .director-add-next,
+  .director-mobile-bottom-bar button,
+  .director-mobile-bottom-bar .ant-btn,
+  .director-mobile-bottom-bar .director-mobile-preview,
+  .director-engine-card,
+  .director-recipe-rail,
+  .director-agent-list li,
+  .director-shot-workspace,
+  .director-inspector-frame.is-empty,
+  .director-inspector-camera,
+  .director-inspector-plates,
+  .director-inspector-frames,
+  .director-inspector-takes,
+  .director-inspector-tts,
+  .director-inspector-compiled,
+  .director-compiled-prompt,
+  .director-frame-slot,
+  .director-take-item,
+  .director-style-card,
+  .director-shot-progress,
+  .director-job-error-pre,
+  .director-library-picker-bar,
+  .director-export-card,
+  .director-brief-card,
+  .director-stage-collapse,
+  .director-stage-collapse > .ant-collapse-item,
+  .director-stage-collapse .ant-collapse-content,
+  .director-agent-collapse,
+  .director-task-context,
+  .director-script-sheet,
+  .director-script-field .ant-input,
+  .director-shot-commandbar,
+  .director-setting-field .ant-select-selector,
+  .director-section-head,
+  .director-asset-card.ant-card,
+  .director-mobile-brief-card,
+  .director-shot-workspace .director-shot-bin,
+  .director-shot-list-item
+) { border-color: var(--studio-border) !important; }
+:root[data-theme="dark"] .director-top-actions .ant-btn:hover,
+:root[data-theme="dark"] .director-context-actions .ant-btn:hover { border-color: var(--studio-border-strong) !important; background: var(--studio-hover) !important; color: var(--studio-text) !important; }
+:root[data-theme="dark"] .director-library-card.ant-card,
+:root[data-theme="dark"] .director-engine-card,
+:root[data-theme="dark"] .director-shot-workspace { box-shadow: 0 1px 2px rgba(0, 0, 0, .28); }
+:root[data-theme="dark"] .director-compile-card { border-color: rgba(52, 211, 153, .28); background: var(--studio-success-soft); }
+:root[data-theme="dark"] .director-compile-ok,
+:root[data-theme="dark"] .director-compile-copy { color: var(--studio-success); }
+:root[data-theme="dark"] .director-compile-card.is-error,
+:root[data-theme="dark"] .director-status-error { border-color: rgba(251, 191, 36, .30); background: var(--studio-warning-soft); }
+:root[data-theme="dark"] .director-compile-card.is-error .director-compile-ok,
+:root[data-theme="dark"] .director-compile-card.is-error .director-compile-copy { color: var(--studio-warning); }

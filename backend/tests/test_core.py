@@ -16,7 +16,7 @@ import local_video_studio as legacy
 from backend.app.auth import AuthStore, csrf_token, validate_password, verify_password
 from backend.app.config import Settings
 from backend.app.models import JobMode, JobStatus
-from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_username, current_user, login_failures, output_response, public_job
+from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_username, current_user, login_failures, output_response, public_job, _image_media_type
 from backend.app.comfy_service import ComfyQueuePrompt, ComfyService, ComfyUnavailable, interpret_comfy_progress, resolve_minimax_picture_prompt, resolve_reference_prompt
 from backend.app.minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from backend.app.minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
@@ -703,6 +703,15 @@ class StoreTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("submitted_options", job)
+
+    def test_image_media_type_sniffs_extensionless_png(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "1_upload"
+            path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+            self.assertEqual(_image_media_type(path), "image/png")
+            jpeg = Path(directory) / "2.jpg"
+            jpeg.write_bytes(b"\xff\xd8\xff" + b"\x00" * 8)
+            self.assertEqual(_image_media_type(jpeg), "image/jpeg")
 
     def test_request_parameters_omit_inactive_visible_when_options(self) -> None:
         fast = public_job({

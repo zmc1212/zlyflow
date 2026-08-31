@@ -1119,3 +1119,12 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 - 兼容性：只增加前端播放器控制，不改 API、SQLite、Recipe schema、工作流、ComfyUI graph、节点 ID、媒体与端口；旧工程直接使用。
 - 验证命令：`pnpm --dir frontend test`、`pnpm --dir frontend build`、`python -m unittest backend.tests.test_director`；桌面 1440×900 检查五键、逐帧时间码、播放续播/结尾回放与 SAFE，手机 390×844 确认仍锁定方案视图。
 - 回滚方式：恢复上述前端文件与文档并重新构建；数据库、Recipe、媒体和 ComfyUI 无需回滚。
+
+## 2026-08-30 全站浅色 / 暗色双主题
+
+- 原因：原工作台以浅色为主，导演台和部分旧组件仍含固定色值，无法给长时间创作用户提供一致的暗色使用环境。
+- 用户可见行为：首次访问仍为浅色；桌面顶栏可快捷切换，移动端可从账户菜单切换，导演台自有顶栏同步提供入口。选择保存在当前浏览器，刷新及登录前后继续生效。登录、创作工作台、素材库、导演台、管理员设置和 Ant Design 弹层均跟随主题。
+- 受影响文件：`frontend/index.html`、`frontend/src/theme.ts`、`ThemeProvider.tsx`、`components/ThemeToggle.tsx`、`main.tsx`、`App.tsx`、`auth/AuthScreens.tsx`、`admin/AdminSettings.tsx`、导演台页面、`index.css`、`theme.test.ts`、前端产品/设计规范和三份主文档。
+- 兼容性：仅新增前端显示状态和浏览器 `localStorage` 键 `zly-ai-video-studio.theme`；无 API、SQLite、任务、Recipe、工作流注册表、ComfyUI graph、节点 ID、模型路径或端口变化。旧浏览器记录缺失或非法时回退浅色。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。浏览器以 1440×900 和 390×844 检查两种主题、刷新记忆、账户菜单、导演台、管理后台与传送弹层。
+- 回滚方式：恢复上述前端主题相关文件和文档并重新构建前端；可选清除 `zly-ai-video-studio.theme`，无需迁移或回滚数据库、Recipe、媒体与 ComfyUI 资产。

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Tag, Tooltip, Typography, message,
+  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Tag, Tooltip, Typography, message,
 } from "antd"
 import { ArrowLeft, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, RefreshCw, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -14,9 +14,10 @@ import DirectorStageNav from "./components/DirectorStageNav"
 import DirectorTaskHeader from "./components/DirectorTaskHeader"
 import DirectorTimelineView from "./components/DirectorTimelineView"
 import RecipeShotInspector from "./components/RecipeShotInspector"
+import { CharacterAssetCard, SimpleRenditionAssetCard, type RecipeAssetTargetKind } from "./components/RecipeAssetWorkbench"
 import SequencePlayerModal from "./components/SequencePlayerModal"
 import DirectorAssetLibrary from "./DirectorAssetLibrary"
-import MediaPreviewModal from "../components/MediaPreviewModal"
+import ThemeToggle from "../components/ThemeToggle"
 import { DirectorMobileBottomBar, DirectorMobileHeader } from "./DirectorMobileChrome"
 import {
   PLAN_GENERATION_CONNECTING,
@@ -34,14 +35,14 @@ import {
   ttsBatchLabel,
 } from "./action-copy"
 import {
-  cancelDirectorJob, cancelDirectorOperation, createDirectorOperation, generateDirectorAssets, generateDirectorStills,
+  approveDirectorAssetVersion, cancelDirectorJob, cancelDirectorOperation, createDirectorOperation, generateDirectorAssets, generateDirectorStills,
   generateDirectorTts, getDirectorOperation, getDirectorProject,
   insertDirectorLibraryAssets, listDirectorArtStyles, listWorkflowModes, muxDirectorFilm, recipePayloadFromApi,
   saveRecipeAssetsToLibrary, downloadDirectorExport,
   updateDirectorProjectRecord, uploadDirectorBgm, uploadDirectorShotFrame,
   DirectorOperationResponse,
 } from "./director-api"
-import { assetGenerationState, assetPreviewUrl, jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotStatusFromJob } from "./director-submit"
+import { jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotStatusFromJob } from "./director-submit"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
 import { directorRenderPassLabel } from "./prompt-compiler"
 import {
@@ -55,7 +56,7 @@ import {
 import {
   artStylePreviewUrl, flattenRecipeShots, isPlaceholderRecipeBoard, recipeArtStyleFromCatalog,
   recipeAudio, recipeExportState, recipeSubtitles, shotIsMuxable,
-  type RecipeAgentId, type RecipeAgentRunStatus, type RecipeCharacter, type RecipeLocation,
+  type RecipeAgentId, type RecipeAgentRunStatus, type RecipeAssetRendition, type RecipeCharacter, type RecipeLocation, type RecipeProp,
   type RecipeProject, type RecipeShot,
 } from "./recipe-model"
 import {
@@ -90,6 +91,46 @@ type JobLike = {
 type SaveStatus = "idle" | "saving" | "saved" | "failed"
 type RenderPass = "preview" | "final"
 type BoardMode = "still" | RenderPass
+
+function recipeAssetRenditions(recipe: RecipeProject): RecipeAssetRendition[] {
+  return [
+    ...recipe.characters.flatMap((character) => [character.portrait, ...character.looks.map((look) => look.sheet)]),
+    ...recipe.locations.map((location) => location.plate),
+    ...recipe.props.map((prop) => prop.turnaround),
+  ]
+}
+
+function recipeHasActiveAssetJobs(recipe: RecipeProject): boolean {
+  return recipeAssetRenditions(recipe).some((rendition) => rendition.versions.some((version) => (
+    version.id === rendition.activeVersionId && (version.status === "queued" || version.status === "running")
+  )))
+}
+
+function syncAssetRenditionFromJobs(
+  rendition: RecipeAssetRendition,
+  jobs: JobLike[],
+): { rendition: RecipeAssetRendition; changed: boolean } {
+  let changed = false
+  const versions = rendition.versions.map((version) => {
+    if (!version.jobId) return version
+    const job = jobs.find((item) => item.id === version.jobId)
+    if (!job) return version
+    const imageUrl = jobStoredImageUrl(job) || version.imageUrl
+    const jobStatus = shotStatusFromJob(job)
+    const status = jobStatus === "partial"
+      ? (imageUrl ? "succeeded" : "running")
+      : jobStatus === "idle" ? version.status : jobStatus
+    if (status === version.status && imageUrl === version.imageUrl) return version
+    changed = true
+    return { ...version, status, imageUrl }
+  })
+  return { rendition: changed ? { ...rendition, versions } : rendition, changed }
+}
+
+function approvedAssetProjection(rendition: RecipeAssetRendition): { imageUrl?: string | null; jobId?: string | null } {
+  const version = rendition.versions.find((item) => item.id === rendition.approvedVersionId)
+  return { imageUrl: version?.imageUrl, jobId: version?.jobId }
+}
 function failedAgentLog(recipe: RecipeProject): string {
   return recipe.agentStatus
     .filter((item) => item.status === "failed" && item.error)
@@ -272,11 +313,12 @@ export default function DirectorRecipeStudio({
   const isMobile = useIsMobile()
   const activeView = resolveDirectorRecipeView(searchParams.get("view"), { mobile: isMobile })
   const isTimelineView = activeView === "timeline"
+  const assetGenerationActive = recipeHasActiveAssetJobs(recipe)
 
   const projectQuery = useQuery({
     queryKey: ["director-project", projectId],
     queryFn: () => getDirectorProject(projectId),
-    refetchInterval: running || submittingShotIds.length > 0 || submittingStillIds.length > 0 ? 1500 : false,
+    refetchInterval: running || assetGenerationActive || submittingShotIds.length > 0 || submittingStillIds.length > 0 ? 1500 : false,
   })
   const operationQuery = useQuery({
     queryKey: ["director-operation", activeOperationId],
@@ -426,24 +468,43 @@ export default function DirectorRecipeStudio({
     setRecipe((prev) => {
       let changed = false
       const characters = prev.characters.map((item) => {
-        if (!item.imageJobId) return item
-        const job = allJobs.find((entry) => entry.id === item.imageJobId)
-        const url = jobStoredImageUrl(job)
-        if (url && url !== item.imageUrl) {
-          changed = true
-          return { ...item, imageUrl: url }
+        const portraitResult = syncAssetRenditionFromJobs(item.portrait, allJobs)
+        const looks = item.looks.map((look) => {
+          const result = syncAssetRenditionFromJobs(look.sheet, allJobs)
+          if (result.changed) changed = true
+          return result.changed ? { ...look, sheet: result.rendition } : look
+        })
+        if (portraitResult.changed) changed = true
+        const firstLook = looks[0]
+        const projection = firstLook
+          ? approvedAssetProjection(firstLook.sheet)
+          : approvedAssetProjection(portraitResult.rendition)
+        const imageUrl = projection.imageUrl || approvedAssetProjection(portraitResult.rendition).imageUrl || null
+        const activeVersion = firstLook?.sheet.versions.find((version) => version.id === firstLook.sheet.activeVersionId)
+          || portraitResult.rendition.versions.find((version) => version.id === portraitResult.rendition.activeVersionId)
+        const imageJobId = activeVersion?.jobId || null
+        if (imageUrl !== item.imageUrl || imageJobId !== item.imageJobId) changed = true
+        return {
+          ...item,
+          portrait: portraitResult.rendition,
+          looks,
+          imageUrl,
+          imageJobId,
         }
-        return item
       })
       const locations = prev.locations.map((item) => {
-        if (!item.imageJobId) return item
-        const job = allJobs.find((entry) => entry.id === item.imageJobId)
-        const url = jobStoredImageUrl(job)
-        if (url && url !== item.imageUrl) {
-          changed = true
-          return { ...item, imageUrl: url }
-        }
-        return item
+        const result = syncAssetRenditionFromJobs(item.plate, allJobs)
+        const projection = approvedAssetProjection(result.rendition)
+        const active = result.rendition.versions.find((version) => version.id === result.rendition.activeVersionId)
+        if (result.changed || projection.imageUrl !== item.imageUrl || active?.jobId !== item.imageJobId) changed = true
+        return { ...item, plate: result.rendition, imageUrl: projection.imageUrl || null, imageJobId: active?.jobId || null }
+      })
+      const props = prev.props.map((item) => {
+        const result = syncAssetRenditionFromJobs(item.turnaround, allJobs)
+        const projection = approvedAssetProjection(result.rendition)
+        const active = result.rendition.versions.find((version) => version.id === result.rendition.activeVersionId)
+        if (result.changed || projection.imageUrl !== item.imageUrl || active?.jobId !== item.imageJobId) changed = true
+        return { ...item, turnaround: result.rendition, imageUrl: projection.imageUrl || null, imageJobId: active?.jobId || null }
       })
       const scenes = prev.scenes.map((scene) => ({
         ...scene,
@@ -495,7 +556,7 @@ export default function DirectorRecipeStudio({
           return next
         }),
       }))
-      return changed ? { ...prev, characters, locations, scenes } : prev
+      return changed ? { ...prev, characters, locations, props, scenes } : prev
     })
   }, [allJobs])
 
@@ -847,7 +908,12 @@ export default function DirectorRecipeStudio({
       return
     }
     const hasRealScript = story.length >= 80 && story !== idea
-    const agents = (hasRealScript ? ["storyboard"] : ["script", "storyboard"]) as RecipeAgentId[]
+    const agents = [
+      ...(!hasRealScript ? ["script" as const] : []),
+      ...(!current.characters.length ? ["characters" as const] : []),
+      ...(!current.locations.length ? ["locations" as const] : []),
+      "storyboard" as const,
+    ] as RecipeAgentId[]
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
@@ -1461,6 +1527,7 @@ export default function DirectorRecipeStudio({
           />
         )}
         <Space wrap className="director-top-actions">
+          <ThemeToggle />
           <Button icon={<Play size={14} />} disabled={!completedShots.length} onClick={() => setPlayerOpen(true)}>串播</Button>
           <Dropdown
             trigger={["click"]}

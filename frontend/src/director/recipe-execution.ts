@@ -1,4 +1,12 @@
-import { recipeShotPreferredTake, type RecipeProject, type RecipeShot } from "./recipe-model"
+import {
+  recipeShotPreferredTake,
+  type RecipeAssetRendition,
+  type RecipeCharacter,
+  type RecipeLocation,
+  type RecipeProject,
+  type RecipeProp,
+  type RecipeShot,
+} from "./recipe-model"
 import type { ShotTake } from "./types"
 
 const SHOT_EXECUTION_FIELDS = [
@@ -14,6 +22,7 @@ const SHOT_FRAME_FIELDS = [
 
 const CHARACTER_EXECUTION_FIELDS = ["imageJobId", "imageUrl", "voicePreviewUrl"] as const
 const LOCATION_EXECUTION_FIELDS = ["imageJobId", "imageUrl"] as const
+const PROP_EXECUTION_FIELDS = ["imageJobId", "imageUrl"] as const
 const EXPORT_EXECUTION_FIELDS = ["muxStatus", "muxUrl", "muxPath", "muxDurationSec", "muxError", "muxAt"] as const
 
 function takeKey(take: ShotTake): string {
@@ -57,15 +66,61 @@ function mergeShotExecution(current: RecipeShot, incoming: RecipeShot): RecipeSh
   return next
 }
 
-function mergeCollectionExecution<T extends { id: string }>(
-  current: T[],
-  incoming: T[],
-  fields: readonly string[],
-): T[] {
+function mergeRenditionExecution(
+  current: RecipeAssetRendition,
+  incoming: RecipeAssetRendition,
+): RecipeAssetRendition {
+  const versions = current.versions.map((version) => ({ ...version }))
+  const positions = new Map(versions.map((version, index) => [version.id, index] as const))
+  for (const version of incoming.versions || []) {
+    const position = positions.get(version.id)
+    if (position === undefined) {
+      positions.set(version.id, versions.length)
+      versions.push({ ...version })
+    } else {
+      versions[position] = { ...versions[position], ...version }
+    }
+  }
+  const incomingApproved = versions.find((version) => version.id === incoming.approvedVersionId)
+  return {
+    versions,
+    activeVersionId: incoming.activeVersionId || current.activeVersionId,
+    approvedVersionId: incomingApproved?.autoApprove
+      ? incoming.approvedVersionId
+      : current.approvedVersionId,
+  }
+}
+
+function mergeCharacterExecution(current: RecipeCharacter, incoming: RecipeCharacter): RecipeCharacter {
+  const next = copyFields(current, incoming, CHARACTER_EXECUTION_FIELDS)
+  next.portrait = mergeRenditionExecution(current.portrait, incoming.portrait)
+  const incomingLooks = new Map((incoming.looks || []).map((look) => [look.id, look]))
+  next.looks = (current.looks || []).map((look) => {
+    const updated = incomingLooks.get(look.id)
+    return updated ? { ...look, sheet: mergeRenditionExecution(look.sheet, updated.sheet) } : look
+  })
+  return next
+}
+
+function mergeLocationExecution(current: RecipeLocation, incoming: RecipeLocation): RecipeLocation {
+  return {
+    ...copyFields(current, incoming, LOCATION_EXECUTION_FIELDS),
+    plate: mergeRenditionExecution(current.plate, incoming.plate),
+  }
+}
+
+function mergePropExecution(current: RecipeProp, incoming: RecipeProp): RecipeProp {
+  return {
+    ...copyFields(current, incoming, PROP_EXECUTION_FIELDS),
+    turnaround: mergeRenditionExecution(current.turnaround, incoming.turnaround),
+  }
+}
+
+function mergeAssetsById<T extends { id: string }>(current: T[], incoming: T[], merge: (a: T, b: T) => T): T[] {
   const source = new Map(incoming.map((item) => [item.id, item]))
   return current.map((item) => {
     const updated = source.get(item.id)
-    return updated ? copyFields(item, updated, fields) : item
+    return updated ? merge(item, updated) : item
   })
 }
 
@@ -99,8 +154,9 @@ export function mergeRecipeExecutionState(current: RecipeProject, incoming: Reci
   return {
     ...current,
     scenes,
-    characters: mergeCollectionExecution(current.characters, incoming.characters, CHARACTER_EXECUTION_FIELDS),
-    locations: mergeCollectionExecution(current.locations, incoming.locations, LOCATION_EXECUTION_FIELDS),
+    characters: mergeAssetsById(current.characters, incoming.characters, mergeCharacterExecution),
+    locations: mergeAssetsById(current.locations, incoming.locations, mergeLocationExecution),
+    props: mergeAssetsById(current.props, incoming.props, mergePropExecution),
     agentStatus: incoming.agentStatus,
     pipelineRun: incoming.pipelineRun,
     audio: audio as RecipeProject["audio"],

@@ -3,7 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#111820" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8f9fa" />
+    <script>
+      (() => {
+        const storageKey = "zly-ai-video-studio.theme";
+        let mode = "light";
+        try {
+          mode = localStorage.getItem(storageKey) === "dark" ? "dark" : "light";
+        } catch (_) {
+          mode = "light";
+        }
+        document.documentElement.dataset.theme = mode;
+        document.documentElement.style.colorScheme = mode;
+        document.querySelector('meta[name="theme-color"]').content = mode === "dark" ? "#0f1115" : "#f8f9fa";
+      })();
+    </script>
     <title>ZLY AI 视频创作平台</title>
   </head>
   <body>

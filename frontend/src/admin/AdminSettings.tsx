@@ -5,6 +5,7 @@ import { lazy, Suspense, useState } from "react"
 import { Navigate, useNavigate, useParams } from "react-router-dom"
 import { jsonMutation, requestJson, User, UserRole } from "../api"
 import { CenteredStatus, PASSWORD_MIN_LENGTH, PasswordField } from "../auth/AuthScreens"
+import ThemeToggle from "../components/ThemeToggle"
 import { adminTabPath, canAccessAdminTab, isAdminTab, PATHS } from "../paths"
 
 const GrsProviderSettings = lazy(() => import("./GrsProviderSettings"))
@@ -47,7 +48,7 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
     return <Navigate to={PATHS.adminAccounts} replace />
   }
 
-  return <div className="min-h-screen bg-[#f8f9fa] text-[#1f2937]">
+  return <div className="studio-admin-shell min-h-screen bg-[#f8f9fa] text-[#1f2937]">
     <header className="flex h-[68px] items-center justify-between border-b border-black/[0.06] bg-white px-4 sm:px-6">
       <div className="flex items-center gap-3">
         <button type="button" onClick={() => navigate(PATHS.generateVideo)} title="返回创作台" className="grid size-9 place-items-center rounded-lg text-[#4b5563] transition hover:bg-black/[0.04] hover:text-[#111827]">
@@ -57,9 +58,12 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
         <Users size={18} className="text-[#7047f6]" />
         <h1 className="text-base font-semibold text-[#111827]">管理设置</h1>
       </div>
-      <div className="text-right">
-        <p className="text-sm font-medium text-[#111827]">{user.display_name}</p>
-        <p className="text-[11px] text-[#6b7280]">{roleLabel[user.role]}</p>
+      <div className="flex items-center gap-2">
+        <ThemeToggle />
+        <div className="text-right">
+          <p className="text-sm font-medium text-[#111827]">{user.display_name}</p>
+          <p className="text-[11px] text-[#6b7280]">{roleLabel[user.role]}</p>
+        </div>
       </div>
     </header>
     <div className="mx-auto max-w-[1180px] px-5 pt-4 lg:px-8">

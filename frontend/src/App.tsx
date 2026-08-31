@@ -19,8 +19,11 @@ import type { VideoResult } from "./media/VideoStudioModule"
 import JianyingExportModal from "./media/JianyingExportModal"
 import type { JianyingMediaItem } from "./media/jianying-draft-builder"
 import { createLocalId } from "./lib/utils"
+import { restoreReferenceFiles, roundReferenceSources } from "./reference-assets"
 import MediaPreviewModal, { type PreviewMediaKind } from "./components/MediaPreviewModal"
+import ThemeToggle from "./components/ThemeToggle"
 import JobErrorNotice from "./director/components/JobErrorNotice"
+import { useStudioTheme } from "./ThemeProvider"
 
 /*
  * THESIS: A conversation-first AI studio, not a dashboard of cards.
@@ -436,6 +439,7 @@ export default function App({
   const queryClient = useQueryClient()
   const location = useLocation()
   const navigate = useNavigate()
+  const { mode: themeMode } = useStudioTheme()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const workspaceView = studioWorkspaceFromPath(location.pathname)
@@ -1263,31 +1267,31 @@ export default function App({
       ...defaultOptionValues(targetWorkflow),
       ...Object.fromEntries(Object.entries(round.options ?? {}).map(([name, value]) => [name, typeof value === "boolean" ? value : String(value)])),
     }
+    restoringDraftRef.current = targetWorkflow.id !== workflowId
+    restoringComposerRef.current = true
+    setIsComposerCompact(false)
     setWorkflowId(targetWorkflow.id)
     setOptionValues(nextOptions)
     setPrompt(round.prompt)
     setNegativePrompt(job.negative_prompt)
     setSource(undefined)
     setAdvancedOptionsOpen(false)
+    const sources = roundReferenceSources(job, round)
     try {
-      const referenceFiles = await Promise.all(round.references.map(async (reference) => {
-        const response = await fetch(reference.url)
-        if (!response.ok) throw new Error(`参考图 ${reference.index} 无法读取`)
-        const blob = await response.blob()
-        return new File([blob], `参考图-${reference.index}`, { type: blob.type || "image/png" })
-      }))
+      const referenceFiles = await restoreReferenceFiles(sources)
       const nextReferences = newAssets(referenceFiles)
+      if (sources.length > 0 && nextReferences.length !== sources.length) {
+        throw new Error("参考图未能还原为可上传图片")
+      }
       setReferences((current) => { releaseAssets(current); return nextReferences })
     } catch {
       setReferences((current) => { releaseAssets(current); return [] })
       messageApi.warning("已带回提示词和参数；原参考图无法读取，请重新添加。")
     }
     setIsSelectedPromptExpanded(false)
-    if (location.pathname !== generateJobPath(mediaType)) navigate(generateJobPath(mediaType))
-    requestAnimationFrame(() => {
-      document.getElementById("studio-composer")?.scrollIntoView({ behavior: "smooth", block: "center" })
-      promptRef.current?.focus()
-    })
+    const nextPath = generateJobPath(job.media_type)
+    if (location.pathname !== nextPath) navigate(nextPath)
+    returnToComposer(true)
   }
 
   const handleToggleBatchMode = () => {
@@ -1480,7 +1484,7 @@ export default function App({
   ]
 
   return (
-    <div className="studio-light min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]">
+    <div className={`${themeMode === "light" ? "studio-light" : "studio-dark"} min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]`}>
       {messageContext}
       <header className={`studio-header fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-black/[0.05] bg-white px-3 sm:px-5 ${workspaceView === "director" ? "studio-header-director" : ""}`}>
         <div className="flex min-w-0 items-center gap-4">
@@ -1496,6 +1500,7 @@ export default function App({
           <Tooltip title={mediaType === "image" ? healthQuery.data?.grs?.message : undefined}>
             <span className="hidden h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs md:flex"><span className={`size-2 rounded-full ${(mediaType === "image" ? healthQuery.data?.grs?.available : healthQuery.data?.comfy.reachable) ? "bg-emerald-400" : "bg-amber-400"}`} />{mediaType === "image" ? "GRS" : "ComfyUI"}</span>
           </Tooltip>
+          <ThemeToggle className="studio-header-theme-toggle" />
           <button type="button" title="账号菜单" onClick={() => { setAccountOpen((open) => !open); setStorageOpen(false) }} className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] sm:w-auto sm:gap-2 sm:px-3"><UserRound size={16} /><span className="hidden max-w-24 truncate text-xs text-[#e1e1e6] sm:inline">{user.display_name}</span></button>
           {storageOpen ? <section className="absolute right-3 top-[60px] w-[min(360px,calc(100vw-24px))] rounded-xl border border-white/10 bg-[#1b1c22] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.45)] sm:right-16">
             <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#7655ff]/15 text-[#a691ff]"><HardDrive size={18} /></span><div><h2 className="text-sm font-medium text-white">员工电脑本地目录</h2><p className="mt-1 text-xs leading-5 text-[#93939d]">生成完成后自动写入授权目录，成功回执后清理服务器暂存。</p></div></div>
@@ -1505,6 +1510,7 @@ export default function App({
           </section> : null}
           {accountOpen ? <section className="absolute right-3 top-[60px] w-56 overflow-hidden rounded-xl border border-white/10 bg-[#1b1c22] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
             <div className="px-2 py-2"><p className="truncate text-sm font-medium text-white">{user.display_name}</p><p className="mt-0.5 truncate text-xs text-[#85858f]">{user.username}</p></div>
+            <ThemeToggle appearance="menu" />
             {onOpenAdmin ? <button type="button" onClick={() => { setAccountOpen(false); onOpenAdmin() }} className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[#d6d6dc] hover:bg-white/[0.06]"><Users size={16} />管理设置</button> : null}
             <button type="button" disabled={logoutPending} onClick={onLogout} className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[#d6d6dc] hover:bg-white/[0.06] disabled:opacity-40">{logoutPending ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />}退出登录</button>
           </section> : null}

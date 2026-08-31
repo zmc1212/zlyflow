@@ -9,6 +9,7 @@ import {
   type RecipeAgentId,
   type RecipeAgentStatus,
   type RecipeArtStyle,
+  type RecipeCharacter,
   type RecipePipelineRun,
   type RecipeProject,
   type RecipeScene,
@@ -495,31 +496,34 @@ export function featuredArtStyles(styles: DirectorArtStyle[]): DirectorArtStyle[
 
 export function recipePackedPlateCandidates(recipe: RecipeProject, shot: RecipeShot): Array<{
   name: string
-  kind: "character" | "location"
+  kind: "character" | "location" | "prop"
   imageUrl?: string | null
 }> {
+  const bindings = shot.characterBindings || []
   const named = new Set((shot.characterNames || []).map((name) => name.trim()).filter(Boolean))
-  let characters = recipe.characters.filter((item) => item.imageUrl || item.imageJobId)
-  if (named.size) {
-    characters = characters.filter((item) => named.has(item.name))
-  }
-  let locations = recipe.locations.filter((item) => item.imageUrl || item.imageJobId)
-  if (shot.locationName.trim()) {
-    const matched = locations.filter((item) => item.name === shot.locationName)
-    if (matched.length) locations = matched
-  }
+  let characters = bindings.length
+    ? bindings.map((binding) => recipe.characters.find((item) => item.id === binding.characterId)).filter(Boolean) as RecipeCharacter[]
+    : recipe.characters.filter((item) => !named.size || named.has(item.name))
+  characters = characters.filter((item) => item.imageUrl)
+  const location = (shot.locationId
+    ? recipe.locations.find((item) => item.id === shot.locationId)
+    : recipe.locations.find((item) => item.name === shot.locationName))
+  const props = (shot.propIds || [])
+    .map((id) => recipe.props.find((item) => item.id === id))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item?.imageUrl))
   return [
     ...characters.map((item) => ({ name: item.name, kind: "character" as const, imageUrl: item.imageUrl })),
-    ...locations.map((item) => ({ name: item.name, kind: "location" as const, imageUrl: item.imageUrl })),
+    ...(location?.imageUrl ? [{ name: location.name, kind: "location" as const, imageUrl: location.imageUrl }] : []),
+    ...props.map((item) => ({ name: item.name, kind: "prop" as const, imageUrl: item.imageUrl })),
   ]
 }
 
 export function recipePackedPlates(recipe: RecipeProject, shot: RecipeShot): Array<{
   name: string
-  kind: "character" | "location"
+  kind: "character" | "location" | "prop"
   imageUrl?: string | null
 }> {
-  return recipePackedPlateCandidates(recipe, shot).slice(0, 9)
+  return recipePackedPlateCandidates(recipe, shot)
 }
 
 export function recipeShotActiveTake(shot: RecipeShot): ShotTake | undefined {
@@ -539,16 +543,16 @@ export const RECIPE_AGENT_LABELS: Record<RecipeAgentId, string> = {
 }
 
 export const RECIPE_AGENT_ORDER: RecipeAgentId[] = [
-  "research", "script", "art_style", "storyboard", "characters", "locations", "voice", "music", "media",
+  "research", "script", "art_style", "characters", "locations", "storyboard", "voice", "music", "media",
 ]
 
 export const RECIPE_AGENT_RUNNING_MESSAGES: Record<RecipeAgentId, string> = {
   research: "正在核对故事设定",
   script: "正在根据创意写剧本",
   art_style: "正在选择美术风格",
-  storyboard: "正在读剧本",
-  characters: "正在从分镜抽出人物",
-  locations: "正在从分镜抽出场景",
+  storyboard: "正在按已确认资产拆分镜头",
+  characters: "正在建立角色与道具设定",
+  locations: "正在建立场景设定",
   voice: "正在配置配音",
   music: "正在配置配乐",
   media: "正在编译出片参数",
@@ -655,7 +659,11 @@ export function createEmptyRecipeShot(shotNumber: number, durationSec: number = 
     promptText: "",
     dialogue: "",
     characterNames: [],
+    characterBindings: [],
     locationName: "",
+    locationId: null,
+    propIds: [],
+    propNames: [],
     durationSec,
     compiledPrompt: "",
     status: "idle",
@@ -822,18 +830,20 @@ export const DIRECTOR_LIBRARY_KIND_LABELS: Record<DirectorLibraryAsset["kind"], 
 export function createEmptyRecipe(title: string = ""): RecipeProject {
   return {
     kind: "director_recipe",
+    assetSchemaVersion: 2,
     script: { title, summary: "", fullStory: "" },
     artStyle: null,
     characters: [],
+    props: [],
     locations: [],
     scenes: [],
     agentStatus: [
       { id: "research", status: "pending", error: null, message: null },
       { id: "script", status: "pending", error: null, message: null },
       { id: "art_style", status: "pending", error: null, message: null },
-      { id: "storyboard", status: "pending", error: null, message: null },
       { id: "characters", status: "pending", error: null, message: null },
       { id: "locations", status: "pending", error: null, message: null },
+      { id: "storyboard", status: "pending", error: null, message: null },
       { id: "voice", status: "pending", error: null, message: null },
       { id: "music", status: "pending", error: null, message: null },
       { id: "media", status: "pending", error: null, message: null },

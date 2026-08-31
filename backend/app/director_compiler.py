@@ -799,6 +799,54 @@ def _asset_has_plate(asset: dict[str, Any] | None) -> bool:
     )
 
 
+def _approved_rendition_version(rendition: Any) -> dict[str, Any] | None:
+    item = rendition if isinstance(rendition, dict) else {}
+    approved_id = str(item.get("approvedVersionId") or item.get("approved_version_id") or "").strip()
+    if not approved_id:
+        return None
+    return next(
+        (
+            version for version in (item.get("versions") or [])
+            if isinstance(version, dict) and str(version.get("id") or "") == approved_id
+        ),
+        None,
+    )
+
+
+def _character_reference_asset(character: dict[str, Any], look_id: str | None = None) -> dict[str, Any] | None:
+    looks = [item for item in (character.get("looks") or []) if isinstance(item, dict)]
+    look = next((item for item in looks if str(item.get("id") or "") == str(look_id or "")), None)
+    if look is None and looks:
+        look = looks[0]
+    version = _approved_rendition_version((look or {}).get("sheet"))
+    if version is None:
+        version = _approved_rendition_version(character.get("portrait"))
+    if version is None or not (version.get("imageUrl") or version.get("jobId")):
+        return None
+    return {
+        **character,
+        "imageJobId": version.get("jobId"),
+        "imageUrl": version.get("imageUrl"),
+        "lookId": (look or {}).get("id"),
+        "lookName": (look or {}).get("name"),
+        "promptText": (look or {}).get("promptText") or character.get("promptText"),
+    }
+
+
+def _rendition_reference_asset(
+    asset: dict[str, Any], rendition_key: str, *, reference_kind: str,
+) -> dict[str, Any] | None:
+    version = _approved_rendition_version(asset.get(rendition_key))
+    if version is None or not (version.get("imageUrl") or version.get("jobId")):
+        return None
+    return {
+        **asset,
+        "imageJobId": version.get("jobId"),
+        "imageUrl": version.get("imageUrl"),
+        "_referenceKind": reference_kind,
+    }
+
+
 def _name_key(value: Any) -> str:
     """Normalize harmless spelling differences without translating a proper noun."""
     return "".join(char for char in str(value or "").casefold() if char.isalnum())
@@ -911,43 +959,115 @@ def recipe_assets_as_slots(
     *,
     reserve: int = 0,
 ) -> list[dict[str, Any]]:
-    """Pack character/location plates used by a shot into ≤9 H3 subject slots."""
+    """Pack approved character/location/prop references using stable asset IDs."""
     recipe = recipe if isinstance(recipe, dict) else {}
     shot = shot if isinstance(shot, dict) else {}
     characters = [item for item in (recipe.get("characters") or []) if isinstance(item, dict)]
     locations = [item for item in (recipe.get("locations") or []) if isinstance(item, dict)]
+    props = [item for item in (recipe.get("props") or []) if isinstance(item, dict)]
+    characters_by_id = {str(item.get("id") or ""): item for item in characters if item.get("id")}
+    locations_by_id = {str(item.get("id") or ""): item for item in locations if item.get("id")}
+    props_by_id = {str(item.get("id") or ""): item for item in props if item.get("id")}
     named = [str(name).strip() for name in (shot.get("characterNames") or shot.get("character_names") or []) if str(name).strip()]
     location_name = str(_get(shot, "locationName", "location_name", default="") or "").strip()
     character_aliases = _asset_aliases(recipe, characters, "characterNames")
     location_aliases = _asset_aliases(recipe, locations, "locationName")
 
     selected_chars: list[dict[str, Any]] = []
-    if named:
-        selected_chars = [character_aliases[name] for name in named if name in character_aliases]
+    bindings = [item for item in (shot.get("characterBindings") or shot.get("character_bindings") or []) if isinstance(item, dict)]
+    if bindings:
+        for binding in bindings:
+            character = characters_by_id.get(str(binding.get("characterId") or binding.get("character_id") or ""))
+            if character is None:
+                continue
+            reference = _character_reference_asset(
+                character,
+                str(binding.get("lookId") or binding.get("look_id") or "") or None,
+            )
+            if reference is not None:
+                selected_chars.append(reference)
+    elif named:
+        selected_chars = [
+            reference
+            for name in named
+            if name in character_aliases
+            for reference in [_character_reference_asset(character_aliases[name])]
+            if reference is not None
+        ]
     else:
-        selected_chars = [item for item in characters if _asset_has_plate(item)]
+        selected_chars = [
+            reference for item in characters
+            for reference in [_character_reference_asset(item)]
+            if reference is not None
+        ]
 
     selected_locs: list[dict[str, Any]] = []
-    if location_name:
+    location_id = str(_get(shot, "locationId", "location_id", default="") or "").strip()
+    if location_id:
+        matched_location = locations_by_id.get(location_id)
+        reference = _rendition_reference_asset(matched_location, "plate", reference_kind="scene") if matched_location else None
+        if reference is not None:
+            selected_locs = [reference]
+    elif location_name:
         matched_location = location_aliases.get(location_name)
         if matched_location is not None:
-            selected_locs = [matched_location]
+            reference = _rendition_reference_asset(matched_location, "plate", reference_kind="scene")
+            if reference is not None:
+                selected_locs = [reference]
     else:
-        selected_locs = [item for item in locations if _asset_has_plate(item)]
+        selected_locs = [
+            reference for item in locations
+            for reference in [_rendition_reference_asset(item, "plate", reference_kind="scene")]
+            if reference is not None
+        ]
 
-    combined = selected_chars + selected_locs
-    if not combined and not named and not location_name:
-        combined = [item for item in characters + locations if _asset_has_plate(item)]
+    selected_props: list[dict[str, Any]] = []
+    prop_ids = [str(item).strip() for item in (shot.get("propIds") or shot.get("prop_ids") or []) if str(item).strip()]
+    prop_names = [str(item).strip() for item in (shot.get("propNames") or shot.get("prop_names") or []) if str(item).strip()]
+    props_by_name = {_name_key(item.get("name")): item for item in props if _name_key(item.get("name"))}
+    if prop_ids:
+        selected_prop_assets = [props_by_id[item] for item in prop_ids if item in props_by_id]
+    elif prop_names:
+        selected_prop_assets = [props_by_name[_name_key(item)] for item in prop_names if _name_key(item) in props_by_name]
+    else:
+        selected_prop_assets = []
+    selected_props = [
+        reference for item in selected_prop_assets
+        for reference in [_rendition_reference_asset(item, "turnaround", reference_kind="prop")]
+        if reference is not None
+    ]
+
+    combined = selected_chars + selected_locs + selected_props
+    if not combined and not bindings and not named and not location_id and not location_name and not prop_ids and not prop_names:
+        combined = [
+            reference for item in characters
+            for reference in [_character_reference_asset(item)]
+            if reference is not None
+        ] + [
+            reference for item in locations
+            for reference in [_rendition_reference_asset(item, "plate", reference_kind="scene")]
+            if reference is not None
+        ]
 
     limit = max(0, H3_MAX_REFERENCE_IMAGES - max(0, int(reserve or 0)))
+    if len(combined) > limit:
+        labels = "、".join(str(item.get("name") or item.get("id") or "未命名资产") for item in combined)
+        raise ValueError(
+            f"当前镜头需要 {len(combined)} 张资产参考图，但留给资产的上限是 {limit} 张。"
+            f"请拆分镜头或减少出镜资产：{labels}"
+        )
     slots: list[dict[str, Any]] = []
-    for index, asset in enumerate(combined[:limit]):
-        is_location = asset in locations or str(asset.get("type") or "") in {"location", "scene"}
+    for index, asset in enumerate(combined):
+        reference_kind = str(asset.get("_referenceKind") or "")
+        is_location = reference_kind == "scene" or str(asset.get("type") or "") in {"location", "scene"}
+        is_prop = reference_kind == "prop" or str(asset.get("type") or "") == "object"
         slots.append({
             "id": f"@ref{index + 1}",
             "slotIndex": index + 1,
             "name": str(asset.get("name") or f"主体 {index + 1}"),
-            "kind": "scene" if is_location else ("prop" if str(asset.get("type") or "") == "object" else "character"),
+            "assetId": asset.get("id"),
+            "lookId": asset.get("lookId"),
+            "kind": "scene" if is_location else ("prop" if is_prop else "character"),
             "retention": "fully_preserved",
             "description": str(asset.get("promptText") or asset.get("prompt_text") or asset.get("description") or "").strip(),
             "previewUrl": _get(asset, "imageUrl", "image_url", "previewUrl"),

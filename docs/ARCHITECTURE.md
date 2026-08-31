@@ -1360,3 +1360,14 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：无后端、API、SQLite、Recipe schema、ComfyUI 工作流、节点或端口变化。
 - 验证命令：`pnpm --dir frontend test`、`pnpm --dir frontend build`、`python -m unittest backend.tests.test_director`；桌面与移动端浏览器回归。
 - 回滚方式：恢复上述前端文件和文档并重新构建；无需处理持久化数据或媒体。
+
+## 2026-08-30 全站双主题状态基线
+
+- 原因：浅色工作台、导演台固定色与 Ant Design 弹层此前没有统一的主题事实源；局部暗色会产生页面、门户弹层和刷新首帧不一致。
+- 状态流：`frontend/index.html` 在应用启动前校验 `localStorage['zly-ai-video-studio.theme']` 并设置 `html[data-theme]`、`color-scheme` 与 `theme-color`；React 挂载后 `ThemeProvider.tsx` 接管 `ThemeMode`，向后代暴露读取/切换接口，同时选择 `theme.ts` 中的 Ant Design `defaultAlgorithm` 或 `darkAlgorithm`。`ConfigProvider.config({ holderRender })` 使静态 `message`、`Modal` 等门户复用当前配置，`index.css` 的 `--studio-*` 变量负责非 Ant Design 和旧页面适配。
+- 持久化边界：唯一键为 `zly-ai-video-studio.theme`，合法值仅 `light`、`dark`；首次访问、非法值和读取异常均回退 `light`。偏好只属于浏览器，不进入 React 业务任务状态，不写后端或用户账号，也不监听系统主题。
+- 覆盖边界：根级状态覆盖登录/初始化/密码状态页、图片与视频创作、素材库、导演首页/项目库/批量台/方案台、管理员设置及传送弹层。导演台隐藏全局头部时自行复用同一 `ThemeToggle`，不创建第二份状态。
+- 受影响文件：`frontend/index.html`、`frontend/src/theme.ts`、`ThemeProvider.tsx`、`components/ThemeToggle.tsx`、`main.tsx`、`App.tsx`、登录、后台和导演台页面、`index.css`、`theme.test.ts`、产品/设计规范、`AGENTS.md` 与三份主文档。
+- 兼容性：前端内部状态模型增加主题上下文和一个本地存储键；不改 HTTP API、SQLite、任务/Recipe schema、工作流注册表、ComfyUI graph、节点 ID、模型路径、媒体目录或 7865/8188 端口。删除偏好即可恢复默认浅色行为。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend test`、`pnpm --dir frontend build`；以 1440×900 和 390×844 验证双主题、持久化、登录、工作台、账户菜单、Ant Design Select、导演台与后台。
+- 回滚方式：恢复上述前端主题相关文件和文档后重新构建前端，并可删除 `zly-ai-video-studio.theme`；无需迁移或回滚数据库、任务、Recipe、媒体与 ComfyUI 资产。

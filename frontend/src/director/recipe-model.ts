@@ -22,6 +22,46 @@ export type RecipeAgentId =
 export type RecipeAgentRunStatus = "pending" | "running" | "completed" | "failed"
 export type RecipeCharacterType = "character" | "object"
 export type RecipeGender = "" | "male" | "female" | "nonbinary" | "unspecified"
+export type RecipeAssetVersionStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled"
+
+export interface RecipeAssetVersion {
+  id: string
+  jobId?: string | null
+  imageUrl?: string | null
+  status: RecipeAssetVersionStatus
+  promptSnapshot: string
+  workflowId?: string | null
+  options: Record<string, unknown>
+  createdAt: string
+  autoApprove?: boolean
+}
+
+export interface RecipeAssetRendition {
+  versions: RecipeAssetVersion[]
+  activeVersionId?: string | null
+  approvedVersionId?: string | null
+}
+
+export interface RecipeCharacterIdentitySpec {
+  ageRange: string
+  regionalAppearance: string
+  faceFeatures: string
+  hair: string
+  skinTone: string
+  bodyBuild: string
+  distinguishingMarks: string
+  immutableAccessories: string
+  avoidChanges: string
+}
+
+export interface RecipeCharacterLook {
+  id: string
+  name: string
+  appearanceDetails: string
+  promptText: string
+  status: "draft" | "approved"
+  sheet: RecipeAssetRendition
+}
 
 export interface RecipeScript {
   title: string
@@ -42,8 +82,14 @@ export interface RecipeCharacter {
   name: string
   description: string
   promptText: string
+  role: string
   gender: RecipeGender
   type: RecipeCharacterType
+  identitySpec: RecipeCharacterIdentitySpec
+  specStatus: "draft" | "approved"
+  aiAssumptions: string[]
+  portrait: RecipeAssetRendition
+  looks: RecipeCharacterLook[]
   imageJobId?: string | null
   imageUrl?: string | null
   libraryAssetId?: string | null
@@ -56,9 +102,26 @@ export interface RecipeLocation {
   name: string
   description: string
   promptText: string
+  plate: RecipeAssetRendition
   imageJobId?: string | null
   imageUrl?: string | null
   libraryAssetId?: string | null
+}
+
+export interface RecipeProp {
+  id: string
+  name: string
+  description: string
+  promptText: string
+  turnaround: RecipeAssetRendition
+  imageJobId?: string | null
+  imageUrl?: string | null
+  libraryAssetId?: string | null
+}
+
+export interface RecipeCharacterBinding {
+  characterId: string
+  lookId: string
 }
 
 export interface RecipeShot {
@@ -69,7 +132,11 @@ export interface RecipeShot {
   promptText?: string
   dialogue: string
   characterNames: string[]
+  characterBindings: RecipeCharacterBinding[]
   locationName: string
+  locationId?: string | null
+  propIds: string[]
+  propNames: string[]
   durationSec: number
   compiledPrompt: string
   jobId?: string | null
@@ -152,9 +219,11 @@ export interface RecipeExportState {
 
 export interface RecipeProject {
   kind: "director_recipe"
+  assetSchemaVersion: 2
   script: RecipeScript
   artStyle: RecipeArtStyle | null
   characters: RecipeCharacter[]
+  props: RecipeProp[]
   locations: RecipeLocation[]
   scenes: RecipeScene[]
   agentStatus: RecipeAgentStatus[]
@@ -178,6 +247,22 @@ export interface RecipeProject {
   audio?: RecipeAudioMix
   subtitles?: RecipeSubtitleStyle
   export?: RecipeExportState
+}
+
+export function recipeRenditionVersion(
+  rendition: RecipeAssetRendition | undefined,
+  versionId: string | null | undefined,
+): RecipeAssetVersion | undefined {
+  if (!versionId) return undefined
+  return rendition?.versions.find((version) => version.id === versionId)
+}
+
+export function recipeActiveAssetVersion(rendition: RecipeAssetRendition | undefined): RecipeAssetVersion | undefined {
+  return recipeRenditionVersion(rendition, rendition?.activeVersionId)
+}
+
+export function recipeApprovedAssetVersion(rendition: RecipeAssetRendition | undefined): RecipeAssetVersion | undefined {
+  return recipeRenditionVersion(rendition, rendition?.approvedVersionId)
 }
 
 export interface BatchRunItem {

@@ -645,10 +645,26 @@ class DirectorRecipeStepRequest(BaseModel):
     skip_research: bool | None = None
 
 
+class DirectorAssetGenerationTarget(BaseModel):
+    kind: Literal["character_portrait", "character_sheet", "location", "prop"]
+    asset_id: str = Field(min_length=1, max_length=80)
+    look_id: str | None = Field(default=None, max_length=80)
+
+
 class DirectorGenerateAssetsRequest(BaseModel):
     character_ids: list[str] = Field(default_factory=list)
     location_ids: list[str] = Field(default_factory=list)
+    prop_ids: list[str] = Field(default_factory=list)
+    targets: list[DirectorAssetGenerationTarget] = Field(default_factory=list, max_length=40)
     force: bool = False
+
+
+class DirectorApproveAssetVersionRequest(BaseModel):
+    kind: Literal["character_portrait", "character_sheet", "location", "prop"]
+    asset_id: str = Field(min_length=1, max_length=80)
+    version_id: str = Field(min_length=1, max_length=120)
+    look_id: str | None = Field(default=None, max_length=80)
+    content_revision: int | None = Field(default=None, ge=0)
 
 
 class DirectorGenerateStillsRequest(BaseModel):

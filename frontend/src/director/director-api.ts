@@ -360,11 +360,38 @@ export function runDirectorRecipeStep(
 
 export function generateDirectorAssets(
   projectId: string,
-  body: { character_ids?: string[]; location_ids?: string[]; force?: boolean },
+  body: {
+    character_ids?: string[]
+    location_ids?: string[]
+    prop_ids?: string[]
+    targets?: Array<{
+      kind: "character_portrait" | "character_sheet" | "location" | "prop"
+      asset_id: string
+      look_id?: string
+    }>
+    force?: boolean
+  },
   csrfToken: string,
 ) {
   return requestJson<DirectorProjectResponse>(
     `/api/director/recipes/${encodeURIComponent(projectId)}/generate-assets`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export function approveDirectorAssetVersion(
+  projectId: string,
+  body: {
+    kind: "character_portrait" | "character_sheet" | "location" | "prop"
+    asset_id: string
+    version_id: string
+    look_id?: string
+    content_revision?: number
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorProjectResponse>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/approve-asset-version`,
     jsonMutation(csrfToken, body),
   )
 }

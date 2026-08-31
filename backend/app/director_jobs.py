@@ -22,10 +22,15 @@ from .director_compiler import (
 from .workflow_registry import resolve_director_workflow
 from .director_recipe import (
     PAYLOAD_KIND_RECIPE,
+    active_rendition_version,
+    approved_rendition_version,
+    character_approved_portrait_version,
+    character_look,
     find_recipe_shot,
     flatten_recipe_shots,
     normalize_recipe_payload,
     payload_kind,
+    rendition_version,
 )
 from .director_takes import preferred_usable_take, take_key
 from .models import JobStatus
@@ -108,13 +113,59 @@ def job_asset_image_url(
     return job_public_output_url(job, kind=kind)
 
 
+def _iter_asset_renditions(recipe: dict[str, Any]):
+    for character in recipe.get("characters") or []:
+        if not isinstance(character, dict):
+            continue
+        portrait = character.get("portrait")
+        if isinstance(portrait, dict):
+            yield "character_portrait", character, None, portrait
+        for look in character.get("looks") or []:
+            if isinstance(look, dict) and isinstance(look.get("sheet"), dict):
+                yield "character_sheet", character, look, look["sheet"]
+    for location in recipe.get("locations") or []:
+        if isinstance(location, dict) and isinstance(location.get("plate"), dict):
+            yield "location", location, None, location["plate"]
+    for prop in recipe.get("props") or []:
+        if isinstance(prop, dict) and isinstance(prop.get("turnaround"), dict):
+            yield "prop", prop, None, prop["turnaround"]
+
+
+def _refresh_asset_projection(recipe: dict[str, Any]) -> None:
+    for character in recipe.get("characters") or []:
+        if not isinstance(character, dict):
+            continue
+        look = character_look(character)
+        sheet = look.get("sheet") if isinstance(look, dict) and isinstance(look.get("sheet"), dict) else {}
+        active = active_rendition_version(sheet) or active_rendition_version(character.get("portrait"))
+        approved = approved_rendition_version(sheet) or approved_rendition_version(character.get("portrait"))
+        character["imageJobId"] = str((active or {}).get("jobId") or "").strip() or None
+        character["imageUrl"] = str((approved or {}).get("imageUrl") or "").strip() or None
+    for collection, rendition_key in (("locations", "plate"), ("props", "turnaround")):
+        for asset in recipe.get(collection) or []:
+            if not isinstance(asset, dict):
+                continue
+            rendition = asset.get(rendition_key) if isinstance(asset.get(rendition_key), dict) else {}
+            active = active_rendition_version(rendition)
+            approved = approved_rendition_version(rendition)
+            asset["imageJobId"] = str((active or {}).get("jobId") or "").strip() or None
+            asset["imageUrl"] = str((approved or {}).get("imageUrl") or "").strip() or None
+
+
 def _bind_recipe_job_image(recipe: dict[str, Any], job_id: str, image_url: str) -> tuple[dict[str, Any], bool]:
     recipe = normalize_recipe_payload(recipe)
     changed = False
-    for asset in list(recipe.get("characters") or []) + list(recipe.get("locations") or []):
-        if asset.get("imageJobId") == job_id and asset.get("imageUrl") != image_url:
-            asset["imageUrl"] = image_url
-            changed = True
+    for _kind, _asset, _look, rendition in _iter_asset_renditions(recipe):
+        for version in rendition.get("versions") or []:
+            if not isinstance(version, dict) or version.get("jobId") != job_id:
+                continue
+            if version.get("imageUrl") != image_url or version.get("status") != "succeeded":
+                version["imageUrl"] = image_url
+                version["status"] = "succeeded"
+                changed = True
+            if version.get("autoApprove") and rendition.get("approvedVersionId") != version.get("id"):
+                rendition["approvedVersionId"] = version.get("id")
+                changed = True
     for shot in flatten_recipe_shots(recipe):
         if shot.get("stillJobId") == job_id and shot.get("stillUrl") != image_url:
             shot["stillUrl"] = image_url
@@ -126,6 +177,7 @@ def _bind_recipe_job_image(recipe: dict[str, Any], job_id: str, image_url: str) 
         if shot.get("endFrameJobId") == job_id and shot.get("endFrameUrl") != image_url:
             shot["endFrameUrl"] = image_url
             changed = True
+    _refresh_asset_projection(recipe)
     return recipe, changed
 
 
@@ -211,17 +263,28 @@ def sync_recipe_asset_images(
     resource_storage: Any | None = None,
 ) -> dict[str, Any]:
     recipe = normalize_recipe_payload(recipe)
-    for asset in list(recipe.get("characters") or []) + list(recipe.get("locations") or []):
-        job_id = asset.get("imageJobId")
-        if not job_id:
-            continue
-        try:
-            job = store.get(job_id)
-        except KeyError:
-            continue
-        url = job_asset_image_url(job, kind="image", resource_storage=resource_storage)
-        if url:
-            asset["imageUrl"] = url
+    for _kind, _asset, _look, rendition in _iter_asset_renditions(recipe):
+        for version in rendition.get("versions") or []:
+            if not isinstance(version, dict):
+                continue
+            job_id = str(version.get("jobId") or "").strip()
+            if not job_id:
+                continue
+            try:
+                job = store.get(job_id)
+            except KeyError:
+                continue
+            url = job_asset_image_url(job, kind="image", resource_storage=resource_storage)
+            status = str(job.get("status") or version.get("status") or "queued")
+            if status == JobStatus.PARTIAL.value and url:
+                status = JobStatus.SUCCEEDED.value
+            if status:
+                version["status"] = status
+            if url:
+                version["imageUrl"] = url
+            if version.get("autoApprove") and status == JobStatus.SUCCEEDED.value and url:
+                rendition["approvedVersionId"] = version.get("id")
+    _refresh_asset_projection(recipe)
     for shot in flatten_recipe_shots(recipe):
         still_job_id = shot.get("stillJobId")
         if still_job_id:
@@ -356,7 +419,7 @@ def create_queued_job(
         upload_dir = settings.uploads_dir / owner_user_id / job_id
         upload_dir.mkdir(parents=True, exist_ok=True)
         copied: list[str] = []
-        for index, source in enumerate(refs[:H3_MAX_REFERENCE_IMAGES], start=1):
+        for index, source in enumerate(refs, start=1):
             src = Path(source)
             dest = upload_dir / f"{index}_{src.name}"
             shutil.copy2(src, dest)
@@ -376,17 +439,197 @@ def create_queued_job(
     )
 
 
-def _plate_prompt(asset: dict[str, Any], recipe: dict[str, Any], *, kind: str) -> str:
+def _identity_spec_text(character: dict[str, Any]) -> str:
+    spec = character.get("identitySpec") if isinstance(character.get("identitySpec"), dict) else {}
+    labels = (
+        ("age", "ageRange"),
+        ("regional appearance", "regionalAppearance"),
+        ("face", "faceFeatures"),
+        ("hair", "hair"),
+        ("skin", "skinTone"),
+        ("build", "bodyBuild"),
+        ("distinguishing marks", "distinguishingMarks"),
+        ("immutable accessories", "immutableAccessories"),
+        ("never change", "avoidChanges"),
+    )
+    return "; ".join(
+        f"{label}: {str(spec.get(field) or '').strip()}"
+        for label, field in labels
+        if str(spec.get(field) or "").strip()
+    )
+
+
+def compile_character_portrait_prompt(character: dict[str, Any], recipe: dict[str, Any]) -> str:
     prefix = recipe_style_prefix(recipe)
-    body = (asset.get("promptText") or asset.get("description") or asset.get("name") or "").strip()
+    identity = _identity_spec_text(character)
+    body = str(character.get("promptText") or character.get("description") or character.get("name") or "").strip()
+    instruction = (
+        "single production identity portrait of one character, head and shoulders, front-facing with a slight three-quarter turn, "
+        "neutral expression, eyes clearly visible, even studio lighting, plain mid-gray background, centered, no text, no collage, "
+        "no duplicate person, no dramatic pose; prioritize stable facial geometry, hairline and immutable identity details"
+    )
+    return ". ".join(part for part in (prefix, instruction, identity, body) if part)
+
+
+def compile_character_sheet_prompt(
+    character: dict[str, Any], look: dict[str, Any], recipe: dict[str, Any],
+) -> str:
+    prefix = recipe_style_prefix(recipe)
+    identity = _identity_spec_text(character)
+    character_body = str(character.get("promptText") or character.get("description") or "").strip()
+    look_body = str(
+        look.get("promptText") or look.get("appearanceDetails") or look.get("name") or ""
+    ).strip()
+    instruction = (
+        "<Picture 1> is the approved identity portrait and is the sole source of facial identity. "
+        "Create one clean four-panel production character sheet: panel 1 facial close-up, panel 2 front full-body view, "
+        "panel 3 three-quarter full-body view, panel 4 back full-body view. Preserve the exact same face, apparent age, "
+        "hair, body proportions and immutable accessories in every panel. Neutral standing pose, hands visible, entire shoes visible, "
+        "consistent costume construction and colors, orthographic reference feel, plain light-gray background, even studio lighting, "
+        "no scenery, no captions, no labels, no extra characters, no cropped feet"
+    )
+    return ". ".join(part for part in (prefix, instruction, identity, character_body, look_body) if part)
+
+
+def compile_prop_turnaround_prompt(prop: dict[str, Any], recipe: dict[str, Any]) -> str:
+    prefix = recipe_style_prefix(recipe)
+    body = str(prop.get("promptText") or prop.get("description") or prop.get("name") or "").strip()
+    instruction = (
+        "single object production turnaround sheet with four aligned views: front, side, three-quarter and back; "
+        "identical shape, materials, scale cues and wear details in every view, centered, plain light-gray background, "
+        "even studio lighting, no person, no hands, no text, no labels"
+    )
+    return ". ".join(part for part in (prefix, instruction, body) if part)
+
+
+def compile_location_plate_prompt(location: dict[str, Any], recipe: dict[str, Any]) -> str:
+    prefix = recipe_style_prefix(recipe)
+    body = str(location.get("promptText") or location.get("description") or location.get("name") or "").strip()
+    instruction = (
+        "empty production environment master plate, wide establishing composition, clearly readable spatial layout and landmarks, "
+        "no people, no silhouettes, no faces, no text, no watermark; preserve architecture, season, time of day, weather and key lighting"
+    )
+    return ". ".join(part for part in (prefix, instruction, body) if part)
+
+
+def _plate_prompt(asset: dict[str, Any], recipe: dict[str, Any], *, kind: str) -> str:
     if kind == "location":
-        instruction = "empty establishing environment, no people, no faces, wide cinematic still"
-    elif str(asset.get("type") or "") == "object":
-        instruction = "product/object design sheet, centered, no people"
-    else:
-        instruction = "character design sheet, consistent face and costume, full body, plain backdrop"
-    parts = [prefix, instruction, body]
-    return ". ".join(part for part in parts if part)
+        return compile_location_plate_prompt(asset, recipe)
+    if kind in {"object", "prop"} or str(asset.get("type") or "") == "object":
+        return compile_prop_turnaround_prompt(asset, recipe)
+    look = character_look(asset) or {}
+    return compile_character_sheet_prompt(asset, look, recipe)
+
+
+def _append_asset_version(
+    rendition: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    prompt: str,
+    workflow_id: str,
+    options: dict[str, Any],
+    auto_approve: bool = False,
+) -> dict[str, Any]:
+    version = {
+        "id": f"assetv-{new_job_id()}",
+        "jobId": job["id"],
+        "imageUrl": None,
+        "status": "queued",
+        "promptSnapshot": prompt,
+        "workflowId": workflow_id,
+        "options": dict(options),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "autoApprove": auto_approve,
+    }
+    versions = [item for item in (rendition.get("versions") or []) if isinstance(item, dict)]
+    versions.append(version)
+    rendition["versions"] = versions
+    rendition["activeVersionId"] = version["id"]
+    return version
+
+
+def _rendition_ready_or_running(rendition: dict[str, Any]) -> bool:
+    active = active_rendition_version(rendition)
+    return bool(active and active.get("status") in {"queued", "running"})
+
+
+def _find_recipe_asset(recipe: dict[str, Any], collection: str, asset_id: str) -> dict[str, Any]:
+    asset = next(
+        (
+            item for item in recipe.get(collection) or []
+            if isinstance(item, dict) and str(item.get("id") or "") == asset_id
+        ),
+        None,
+    )
+    if asset is None:
+        raise ValueError(f"找不到资产 {asset_id}")
+    return asset
+
+
+def _target_rendition(
+    recipe: dict[str, Any], kind: str, asset_id: str, look_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any]]:
+    if kind in {"character_portrait", "character_sheet"}:
+        asset = _find_recipe_asset(recipe, "characters", asset_id)
+        if kind == "character_portrait":
+            return asset, None, asset["portrait"]
+        look = character_look(asset, look_id)
+        if look is None:
+            raise ValueError(f"角色 {asset.get('name') or asset_id} 找不到造型 {look_id or ''}")
+        return asset, look, look["sheet"]
+    if kind == "location":
+        asset = _find_recipe_asset(recipe, "locations", asset_id)
+        return asset, None, asset["plate"]
+    if kind == "prop":
+        asset = _find_recipe_asset(recipe, "props", asset_id)
+        return asset, None, asset["turnaround"]
+    raise ValueError(f"不支持的定妆类型：{kind}")
+
+
+def _approved_portrait_file(
+    store: JobStore,
+    character: dict[str, Any],
+    *,
+    resource_storage: Any | None = None,
+) -> Path:
+    version = character_approved_portrait_version(character)
+    if version is None or not version.get("imageUrl"):
+        raise ValueError(f"请先生成并批准「{character.get('name') or '角色'}」的身份肖像")
+    job_id = str(version.get("jobId") or "").strip()
+    job = None
+    if job_id:
+        try:
+            job = store.get(job_id)
+        except KeyError:
+            job = None
+    source = materialize_job_output_file(job, resource_storage=resource_storage, kind="image")
+    if source is None:
+        raise ValueError(f"「{character.get('name') or '角色'}」已批准肖像的源文件不可用，请重新生成肖像")
+    return source
+
+
+def approve_recipe_asset_version(
+    recipe: dict[str, Any],
+    *,
+    kind: str,
+    asset_id: str,
+    version_id: str,
+    look_id: str | None = None,
+) -> dict[str, Any]:
+    recipe = normalize_recipe_payload(recipe)
+    asset, look, rendition = _target_rendition(recipe, kind, asset_id, look_id)
+    version = rendition_version(rendition, version_id)
+    if version is None:
+        raise ValueError("找不到要批准的候选版本")
+    if version.get("status") != JobStatus.SUCCEEDED.value or not version.get("imageUrl"):
+        raise ValueError("只能批准已生成成功的候选图")
+    rendition["approvedVersionId"] = version_id
+    if kind == "character_portrait":
+        asset["specStatus"] = "approved"
+    elif kind == "character_sheet" and look is not None:
+        look["status"] = "approved"
+    _refresh_asset_projection(recipe)
+    return recipe
 
 
 def generate_recipe_assets(
@@ -397,6 +640,8 @@ def generate_recipe_assets(
     recipe: dict[str, Any],
     character_ids: list[str] | None = None,
     location_ids: list[str] | None = None,
+    prop_ids: list[str] | None = None,
+    targets: list[dict[str, Any]] | None = None,
     force: bool = False,
     resource_storage: Any | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
@@ -409,47 +654,82 @@ def generate_recipe_assets(
     recipe = sync_recipe_asset_images(store, recipe, resource_storage=resource_storage)
     wanted_chars = {item for item in (character_ids or []) if item}
     wanted_locs = {item for item in (location_ids or []) if item}
-    generate_all = not wanted_chars and not wanted_locs
-    aspect = recipe.get("aspectRatio") or "16:9"
-    options = {"aspect_ratio": aspect if aspect in {"1:1", "16:9", "9:16", "4:3", "3:4"} else "1:1", "resolution": "1K", "count": 1}
+    wanted_props = {item for item in (prop_ids or []) if item}
+    explicit_targets = [item for item in (targets or []) if isinstance(item, dict)]
+    plan: list[dict[str, Any]] = []
+    if explicit_targets:
+        plan = explicit_targets
+    else:
+        generate_all = not wanted_chars and not wanted_locs and not wanted_props
+        for character in recipe.get("characters") or []:
+            if not isinstance(character, dict):
+                continue
+            character_id = str(character.get("id") or "")
+            if generate_all or character_id in wanted_chars:
+                plan.append({
+                    "kind": "character_sheet" if character_approved_portrait_version(character) else "character_portrait",
+                    "asset_id": character_id,
+                    "look_id": str((character_look(character) or {}).get("id") or "look-default"),
+                })
+        for location in recipe.get("locations") or []:
+            if isinstance(location, dict) and (generate_all or location.get("id") in wanted_locs):
+                plan.append({"kind": "location", "asset_id": str(location.get("id") or "")})
+        for prop in recipe.get("props") or []:
+            if isinstance(prop, dict) and (generate_all or prop.get("id") in wanted_props):
+                plan.append({"kind": "prop", "asset_id": str(prop.get("id") or "")})
+
+    seen_targets: set[tuple[str, str, str]] = set()
     job_ids: list[str] = []
-
-    def _should_run(asset: dict[str, Any], wanted: set[str]) -> bool:
-        if not generate_all and asset.get("id") not in wanted:
-            return False
-        return force or not asset.get("imageUrl")
-
-    for character in recipe.get("characters") or []:
-        if not _should_run(character, wanted_chars):
+    for target in plan:
+        kind = str(target.get("kind") or "").strip()
+        asset_id = str(target.get("asset_id") or target.get("assetId") or "").strip()
+        look_id = str(target.get("look_id") or target.get("lookId") or "").strip() or None
+        target_key = (kind, asset_id, look_id or "")
+        if not asset_id or target_key in seen_targets:
             continue
+        seen_targets.add(target_key)
+        asset, look, rendition = _target_rendition(recipe, kind, asset_id, look_id)
+        if not force and (approved_rendition_version(rendition) or _rendition_ready_or_running(rendition)):
+            continue
+        references: list[str] = []
+        if kind == "character_portrait":
+            prompt = compile_character_portrait_prompt(asset, recipe)
+            options = {"aspect_ratio": "1:1", "resolution": "1K", "count": 1}
+            title = f"身份肖像 · {asset.get('name') or '角色'}"
+        elif kind == "character_sheet":
+            prompt = compile_character_sheet_prompt(asset, look or {}, recipe)
+            options = {"aspect_ratio": "4:3", "resolution": "1K", "count": 1}
+            references = [str(_approved_portrait_file(
+                store, asset, resource_storage=resource_storage,
+            ))]
+            title = f"定妆板 · {asset.get('name') or '角色'} · {(look or {}).get('name') or '基础造型'}"
+        elif kind == "prop":
+            prompt = compile_prop_turnaround_prompt(asset, recipe)
+            options = {"aspect_ratio": "4:3", "resolution": "1K", "count": 1}
+            title = f"道具转面 · {asset.get('name') or '道具'}"
+        else:
+            prompt = compile_location_plate_prompt(asset, recipe)
+            location_aspect = "16:9" if (recipe.get("aspectRatio") or "16:9") != "9:16" else "9:16"
+            options = {"aspect_ratio": location_aspect, "resolution": "1K", "count": 1}
+            title = f"场景母版 · {asset.get('name') or '地点'}"
         job = create_queued_job(
             store,
             owner_user_id=owner_user_id,
             mode=workflow_id,
-            prompt=_plate_prompt(character, recipe, kind="character"),
+            prompt=prompt,
             options=options,
-            title=f"定妆 · {character.get('name') or '角色'}",
+            references=references,
+            title=title,
         )
-        character["imageJobId"] = job["id"]
-        character["imageUrl"] = None
-        job_ids.append(job["id"])
-
-    location_aspect = "16:9" if (recipe.get("aspectRatio") or "16:9") != "9:16" else "9:16"
-    location_options = {**options, "aspect_ratio": location_aspect}
-    for location in recipe.get("locations") or []:
-        if not _should_run(location, wanted_locs):
-            continue
-        job = create_queued_job(
-            store,
-            owner_user_id=owner_user_id,
-            mode=workflow_id,
-            prompt=_plate_prompt(location, recipe, kind="location"),
-            options=location_options,
-            title=f"场景 · {location.get('name') or '地点'}",
+        _append_asset_version(
+            rendition,
+            job=job,
+            prompt=prompt,
+            workflow_id=workflow_id,
+            options=options,
         )
-        location["imageJobId"] = job["id"]
-        location["imageUrl"] = None
         job_ids.append(job["id"])
+    _refresh_asset_projection(recipe)
     return recipe, job_ids
 
 
@@ -682,7 +962,7 @@ def _plate_paths_for_shot(
         file_path = _plate_file_for_slot(store, slot, resource_storage=resource_storage)
         if file_path is not None:
             paths.append(str(file_path))
-    return paths[: max(0, H3_MAX_REFERENCE_IMAGES - max(0, reserve))]
+    return paths
 
 
 def _reference_paths_for_shot(

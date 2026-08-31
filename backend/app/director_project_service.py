@@ -21,6 +21,7 @@ FRAME_SHOT_FIELDS = (
 )
 CHARACTER_EXECUTION_FIELDS = ("imageJobId", "imageUrl", "voicePreviewUrl")
 LOCATION_EXECUTION_FIELDS = ("imageJobId", "imageUrl")
+PROP_EXECUTION_FIELDS = ("imageJobId", "imageUrl")
 EXPORT_EXECUTION_FIELDS = (
     "muxStatus", "muxUrl", "muxPath", "muxDurationSec", "muxError", "muxAt",
 )
@@ -53,6 +54,79 @@ def _copy_fields(target: dict[str, Any], source: dict[str, Any], fields: tuple[s
     for field in fields:
         if field in source:
             target[field] = deepcopy(source[field])
+
+
+def _merge_rendition_execution(target: dict[str, Any], source: dict[str, Any]) -> None:
+    target_versions = [deepcopy(item) for item in (target.get("versions") or []) if isinstance(item, dict)]
+    version_index = {str(item.get("id") or ""): index for index, item in enumerate(target_versions) if item.get("id")}
+    for version in source.get("versions") or []:
+        if not isinstance(version, dict):
+            continue
+        version_id = str(version.get("id") or "")
+        if version_id and version_id in version_index:
+            target_versions[version_index[version_id]].update(deepcopy(version))
+        else:
+            if version_id:
+                version_index[version_id] = len(target_versions)
+            target_versions.append(deepcopy(version))
+    target["versions"] = target_versions
+    source_active = str(source.get("activeVersionId") or "")
+    if source_active and source_active in version_index:
+        target["activeVersionId"] = source_active
+    source_approved = str(source.get("approvedVersionId") or "")
+    approved_version = next(
+        (item for item in target_versions if str(item.get("id") or "") == source_approved),
+        None,
+    )
+    if approved_version is not None and approved_version.get("autoApprove"):
+        target["approvedVersionId"] = source_approved
+
+
+def _merge_rendition_creative(
+    target: dict[str, Any], current: dict[str, Any], incoming: dict[str, Any],
+) -> None:
+    target["versions"] = deepcopy(current.get("versions") or [])
+    target["activeVersionId"] = current.get("activeVersionId")
+    version_ids = {
+        str(item.get("id") or "")
+        for item in target["versions"]
+        if isinstance(item, dict) and item.get("id")
+    }
+    incoming_approved = str(incoming.get("approvedVersionId") or "")
+    current_approved = str(current.get("approvedVersionId") or "")
+    target["approvedVersionId"] = (
+        incoming_approved if incoming_approved in version_ids
+        else current_approved if current_approved in version_ids
+        else None
+    )
+
+
+def _asset_renditions(asset: dict[str, Any], collection: str) -> list[dict[str, Any]]:
+    if collection == "characters":
+        renditions = [asset.get("portrait")]
+        renditions.extend(
+            look.get("sheet")
+            for look in asset.get("looks") or []
+            if isinstance(look, dict)
+        )
+        return [item for item in renditions if isinstance(item, dict)]
+    key = "plate" if collection == "locations" else "turnaround"
+    rendition = asset.get(key)
+    return [rendition] if isinstance(rendition, dict) else []
+
+
+def _merge_asset_execution(target: dict[str, Any], source: dict[str, Any], collection: str) -> None:
+    target_renditions = _asset_renditions(target, collection)
+    source_renditions = _asset_renditions(source, collection)
+    for target_rendition, source_rendition in zip(target_renditions, source_renditions, strict=False):
+        _merge_rendition_execution(target_rendition, source_rendition)
+
+
+def _merge_asset_creative(target: dict[str, Any], current: dict[str, Any], collection: str) -> None:
+    incoming_renditions = _asset_renditions(target, collection)
+    current_renditions = _asset_renditions(current, collection)
+    for incoming_rendition, current_rendition in zip(incoming_renditions, current_renditions, strict=False):
+        _merge_rendition_creative(incoming_rendition, current_rendition, incoming_rendition)
 
 
 def _merge_shot_execution(
@@ -97,6 +171,7 @@ def merge_recipe_execution(
         for collection, fields in (
             ("characters", CHARACTER_EXECUTION_FIELDS),
             ("locations", LOCATION_EXECUTION_FIELDS),
+            ("props", PROP_EXECUTION_FIELDS),
         ):
             source_items = {
                 str(item.get("id")): item
@@ -109,6 +184,7 @@ def merge_recipe_execution(
                 source_item = source_items.get(str(item.get("id") or ""))
                 if source_item is not None:
                     _copy_fields(item, source_item, fields)
+                    _merge_asset_execution(item, source_item, collection)
 
     if scope == "tts" and character_id:
         source_characters = {
@@ -180,6 +256,7 @@ def merge_recipe_creative(latest: dict[str, Any], incoming: dict[str, Any]) -> d
     for collection, fields in (
         ("characters", CHARACTER_EXECUTION_FIELDS),
         ("locations", LOCATION_EXECUTION_FIELDS),
+        ("props", PROP_EXECUTION_FIELDS),
     ):
         current_items = {
             str(item.get("id")): item
@@ -192,6 +269,7 @@ def merge_recipe_creative(latest: dict[str, Any], incoming: dict[str, Any]) -> d
             current_item = current_items.get(str(item.get("id") or ""))
             if current_item is not None:
                 _copy_fields(item, current_item, fields)
+                _merge_asset_creative(item, current_item, collection)
 
     target_audio = target.get("audio") if isinstance(target.get("audio"), dict) else {}
     current_audio = current.get("audio") if isinstance(current.get("audio"), dict) else {}

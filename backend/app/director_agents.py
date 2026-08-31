@@ -457,6 +457,9 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
                 break
             item = shot_raw if isinstance(shot_raw, dict) else {}
             names = item.get("characterNames") or item.get("character_names") or []
+            bindings = item.get("characterBindings") or item.get("character_bindings") or []
+            prop_ids = item.get("propIds") or item.get("prop_ids") or []
+            prop_names = item.get("propNames") or item.get("prop_names") or []
             title = _text(item.get("title"), f"分镜 {shot_number}")
             description, prompt_text = split_display_and_prompt(
                 title=title,
@@ -470,7 +473,11 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
                 "promptText": prompt_text,
                 "dialogue": normalize_dialogue(item.get("dialogue")),
                 "characterNames": [_text(name) for name in _list(names) if _text(name)],
+                "characterBindings": [binding for binding in _list(bindings) if isinstance(binding, dict)],
                 "locationName": _text(item.get("locationName") or item.get("location_name") or scene_item.get("locationName")),
+                "locationId": _text(item.get("locationId") or item.get("location_id")) or None,
+                "propIds": [_text(prop_id) for prop_id in _list(prop_ids) if _text(prop_id)],
+                "propNames": [_text(name) for name in _list(prop_names) if _text(name)],
                 "durationSec": snap_h3_duration_sec(item.get("durationSec") or item.get("duration_sec") or 5),
                 "camera": _camera(item.get("camera")),
                 "soundscape": _text(item.get("soundscape") or item.get("sfx")),
@@ -503,7 +510,13 @@ def _apply_characters(recipe: dict[str, Any], data: dict[str, Any]) -> None:
                         names_from_board.append(text)
     incoming = data.get("characters")
     items = incoming if isinstance(incoming, list) else []
+    existing_characters = {
+        _text(item.get("name")).casefold(): deepcopy(item)
+        for item in _list(recipe.get("characters"))
+        if isinstance(item, dict) and _text(item.get("name"))
+    }
     by_name: dict[str, dict[str, Any]] = {}
+    props_from_characters: list[dict[str, Any]] = []
     for raw in items:
         if not isinstance(raw, dict):
             continue
@@ -519,28 +532,93 @@ def _apply_characters(recipe: dict[str, Any], data: dict[str, Any]) -> None:
             prompt_text=_text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
             fallback_zh=name,
         )
-        by_name[name] = {
+        existing = existing_characters.get(name.casefold(), {})
+        incoming_looks = raw.get("looks") if isinstance(raw.get("looks"), list) else [{
+            "id": "look-default",
+            "name": "基础造型",
+            "appearanceDetails": _text(raw.get("appearanceDetails") or raw.get("appearance_details") or description),
+            "promptText": prompt_text,
+            "status": "draft",
+        }]
+        existing_looks = {
+            _text(look.get("id") or look.get("name")).casefold(): look
+            for look in _list(existing.get("looks"))
+            if isinstance(look, dict) and _text(look.get("id") or look.get("name"))
+        }
+        merged_looks = []
+        for look_index, look in enumerate(incoming_looks):
+            if not isinstance(look, dict):
+                continue
+            look_key = _text(look.get("id") or look.get("name") or ("look-default" if look_index == 0 else "")).casefold()
+            merged_looks.append({
+                **deepcopy(existing_looks.get(look_key, {})),
+                **look,
+                "id": _text(look.get("id"), "look-default" if look_index == 0 else ""),
+                "status": "draft",
+            })
+        target = {
+            **existing,
             "name": name,
             "description": description,
             "promptText": prompt_text or _text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
+            "role": _text(raw.get("role")),
             "gender": _text(raw.get("gender"), "unspecified") or "unspecified",
             "type": char_type,
+            "identitySpec": raw.get("identitySpec") or raw.get("identity_spec") or {},
+            "specStatus": "draft",
+            "aiAssumptions": raw.get("aiAssumptions") or raw.get("ai_assumptions") or [],
+            "looks": merged_looks,
             "voiceId": normalize_voice_id(raw.get("voiceId") or raw.get("voice_id"), gender=_text(raw.get("gender"), "unspecified")),
         }
-    ordered_names = names_from_board or list(by_name.keys())
+        if char_type == "object":
+            props_from_characters.append(target)
+            continue
+        by_name[name] = target
+    ordered_names = list(by_name.keys())
+    for name in names_from_board:
+        if name not in ordered_names:
+            ordered_names.append(name)
     characters: list[dict[str, Any]] = []
     for name in ordered_names:
         if name in by_name:
             characters.append(by_name[name])
         else:
-            characters.append({
+            preserved = existing_characters.get(name.casefold())
+            characters.append(preserved or {
                 "name": name,
                 "description": name,
-                "promptText": f"consistent character named {name}, detailed costume and face, full body design sheet",
+                "promptText": f"consistent character named {name}, identity portrait and production character sheet",
                 "gender": "unspecified",
                 "type": "character",
             })
-    recipe["characters"] = characters
+    if characters or items:
+        recipe["characters"] = characters
+
+    existing_props = {
+        _text(item.get("name")).casefold(): deepcopy(item)
+        for item in _list(recipe.get("props"))
+        if isinstance(item, dict) and _text(item.get("name"))
+    }
+    prop_items = [item for item in _list(data.get("props")) if isinstance(item, dict)] + props_from_characters
+    props: list[dict[str, Any]] = []
+    for raw in prop_items:
+        name = _text(raw.get("name"))
+        if not name:
+            continue
+        description, prompt_text = split_display_and_prompt(
+            title=name,
+            description=_text(raw.get("description")),
+            prompt_text=_text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
+            fallback_zh=name,
+        )
+        props.append({
+            **existing_props.get(name.casefold(), {}),
+            "name": name,
+            "description": description,
+            "promptText": prompt_text,
+        })
+    if prop_items:
+        recipe["props"] = props
 
 
 def _apply_locations(recipe: dict[str, Any], data: dict[str, Any]) -> None:
@@ -558,6 +636,11 @@ def _apply_locations(recipe: dict[str, Any], data: dict[str, Any]) -> None:
                     names.append(loc)
     incoming = data.get("locations")
     items = incoming if isinstance(incoming, list) else []
+    existing_locations = {
+        _text(item.get("name")).casefold(): deepcopy(item)
+        for item in _list(recipe.get("locations"))
+        if isinstance(item, dict) and _text(item.get("name"))
+    }
     by_name: dict[str, dict[str, Any]] = {}
     for raw in items:
         if not isinstance(raw, dict):
@@ -572,11 +655,15 @@ def _apply_locations(recipe: dict[str, Any], data: dict[str, Any]) -> None:
             fallback_zh=name,
         )
         by_name[name] = {
+            **existing_locations.get(name.casefold(), {}),
             "name": name,
             "description": description,
             "promptText": prompt_text or _text(raw.get("promptText") or raw.get("prompt_text") or raw.get("description")),
         }
-    ordered = names or list(by_name.keys())
+    ordered = list(by_name.keys())
+    for name in names:
+        if name not in ordered:
+            ordered.append(name)
     locations: list[dict[str, Any]] = []
     for name in ordered:
         if name in by_name:
@@ -587,7 +674,8 @@ def _apply_locations(recipe: dict[str, Any], data: dict[str, Any]) -> None:
                 "description": name,
                 "promptText": f"empty establishing shot of {name}, no people, cinematic environment",
             })
-    recipe["locations"] = locations
+    if locations or items:
+        recipe["locations"] = locations
 
 
 def _apply_voice(recipe: dict[str, Any], data: dict[str, Any]) -> None:
@@ -708,6 +796,34 @@ def _story_context(recipe: dict[str, Any], goal: str) -> str:
     )
 
 
+def _storyboard_asset_context(recipe: dict[str, Any]) -> str:
+    characters: list[dict[str, Any]] = []
+    for character in _list(recipe.get("characters")):
+        if not isinstance(character, dict):
+            continue
+        looks = [
+            {"id": _text(look.get("id")), "name": _text(look.get("name"))}
+            for look in _list(character.get("looks"))
+            if isinstance(look, dict) and _text(look.get("id"))
+        ]
+        characters.append({
+            "id": _text(character.get("id")),
+            "name": _text(character.get("name")),
+            "looks": looks,
+        })
+    locations = [
+        {"id": _text(item.get("id")), "name": _text(item.get("name"))}
+        for item in _list(recipe.get("locations"))
+        if isinstance(item, dict) and _text(item.get("id"))
+    ]
+    props = [
+        {"id": _text(item.get("id")), "name": _text(item.get("name"))}
+        for item in _list(recipe.get("props"))
+        if isinstance(item, dict) and _text(item.get("id"))
+    ]
+    return json.dumps({"characters": characters, "locations": locations, "props": props}, ensure_ascii=False)
+
+
 def run_agent(
     agent_id: str,
     recipe: dict[str, Any],
@@ -779,7 +895,10 @@ def run_agent(
         if agent_id == "storyboard":
             user_content = (
                 _story_context(recipe, goal)
+                + "\n已建立的资产目录：" + _storyboard_asset_context(recipe)
                 + "\n请根据上面的完整故事一次性输出全部镜头，不要只写开场或主镜头。"
+                + "每个镜头必须从目录选择 characterBindings:[{characterId,lookId}]、locationId 和 propIds；"
+                + "同时保留 characterNames/locationName/propNames 便于人阅读，禁止发明新 ID。"
             )
             parsed: dict[str, Any] = {}
             if chat_fn:
@@ -832,11 +951,18 @@ def run_agent(
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
-                    "只从分镜 characterNames 抽角色。道具 type=object。"
-                    "description 用中文外貌说明给用户看；promptText 为英文定妆描述，不含地点人名以外的剧情。"
-                    "输出 {\"characters\":[{\"name\":\"\",\"description\":\"\",\"promptText\":\"\",\"gender\":\"unspecified\",\"type\":\"character\"}]}",
+                    "你是影视角色设定师。从完整剧本中先建立可长期复用的身份锨点，再建立服装造型；角色与道具分开。"
+                    "description 用简体中文说清用户能看见的特征；promptText 用英文，只写视觉事实，不写性格、气质、镜头或场景。"
+                    "identitySpec 必须含 ageRange, regionalAppearance, faceFeatures, hair, skinTone, bodyBuild, "
+                    "distinguishingMarks, immutableAccessories, avoidChanges。未在剧本明说的外貌可谨慎补全，但必须逐条写入 aiAssumptions。"
+                    "looks 至少一个基础造型，appearanceDetails 用中文写服装、材质、色彩与鞋子，promptText 用英文。"
+                    "输出 JSON：{\"characters\":[{\"name\":\"\",\"role\":\"\",\"description\":\"\",\"promptText\":\"\","
+                    "\"gender\":\"unspecified\",\"identitySpec\":{\"ageRange\":\"\",\"regionalAppearance\":\"\",\"faceFeatures\":\"\","
+                    "\"hair\":\"\",\"skinTone\":\"\",\"bodyBuild\":\"\",\"distinguishingMarks\":\"\",\"immutableAccessories\":\"\",\"avoidChanges\":\"\"},"
+                    "\"aiAssumptions\":[],\"looks\":[{\"id\":\"look-default\",\"name\":\"基础造型\",\"appearanceDetails\":\"\",\"promptText\":\"\"}]}],"
+                    "\"props\":[{\"name\":\"\",\"description\":\"\",\"promptText\":\"\"}]}",
                 )},
-                {"role": "user", "content": _story_context(recipe, goal) + "\n分镜：" + json.dumps(recipe.get("scenes") or [], ensure_ascii=False)[:6000]},
+                {"role": "user", "content": _story_context(recipe, goal)},
             ]) if chat_fn else None
             _apply_characters(recipe, parsed or {})
             set_agent_status(recipe, agent_id, "completed")
@@ -846,10 +972,10 @@ def run_agent(
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
-                    "只抽故事里反复出现的地点。description 用中文空景说明给用户看；promptText 必须是空景、无人物的英文环境描述。"
+                    "从完整剧本中抽取所有会承载镜头的独立场景，合并同地点同时段的别名。description 用中文空景说明给用户看；promptText 必须是空景、无人物的英文环境描述。"
                     "输出 {\"locations\":[{\"name\":\"\",\"description\":\"\",\"promptText\":\"\"}]}",
                 )},
-                {"role": "user", "content": _story_context(recipe, goal) + "\n分镜：" + json.dumps(recipe.get("scenes") or [], ensure_ascii=False)[:4000]},
+                {"role": "user", "content": _story_context(recipe, goal)},
             ]) if chat_fn else None
             _apply_locations(recipe, parsed or {})
             set_agent_status(recipe, agent_id, "completed")

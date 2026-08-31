@@ -3,9 +3,9 @@ import { recipeShotPreferredTake, type RecipeProject, type RecipeShot } from "./
 export const RECIPE_STAGE_IDS = [
   "script",
   "art_style",
-  "storyboard",
   "characters",
   "locations",
+  "storyboard",
   "shots",
   "voice",
   "music",
@@ -37,7 +37,7 @@ export const RECIPE_STAGE_LABELS: Record<RecipeStageId, string> = {
 
 export const RECIPE_STAGE_GROUPS = [
   { id: "plan", label: "方案", stages: ["script", "art_style"] },
-  { id: "production", label: "镜头制作", stages: ["storyboard", "characters", "locations", "shots"] },
+  { id: "production", label: "视觉制作", stages: ["characters", "locations", "storyboard", "shots"] },
   { id: "sound", label: "声音", stages: ["voice", "music"] },
   { id: "delivery", label: "交付", stages: ["export"] },
 ] as const

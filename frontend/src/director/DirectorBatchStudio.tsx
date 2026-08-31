@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, Card, Input, InputNumber, Select, Space, Tag, Typography, message } from "antd"
 import { ArrowLeft, Layers } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
+import ThemeToggle from "../components/ThemeToggle"
 import JobErrorNotice from "./components/JobErrorNotice"
 import { DirectorMobileBottomBar, DirectorMobileHeader } from "./DirectorMobileChrome"
 import {
@@ -156,6 +157,7 @@ export default function DirectorBatchStudio({
           <Typography.Title level={4} style={{ margin: 0 }}>短视频批量</Typography.Title>
         </div>
         <Space>
+          <ThemeToggle />
           <Button onClick={onExitDirector}>创作工作台</Button>
           <Button type="primary" icon={<Layers size={14} />} loading={running} onClick={handleRun}>裂变并生成</Button>
         </Space>

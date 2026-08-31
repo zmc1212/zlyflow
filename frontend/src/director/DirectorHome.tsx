@@ -1,6 +1,7 @@
 import { useRef } from "react"
 import { Button, Card, Empty, Popconfirm, Space, Spin, Tag, Typography } from "antd"
 import { ArrowLeft, Clapperboard, Copy, Layers, Plus, Trash2, Wand2 } from "lucide-react"
+import ThemeToggle from "../components/ThemeToggle"
 import { DirectorProjectListItem, DirectorGenerationStatus, DirectorPayloadKind } from "./director-api"
 
 const CARD_OPEN_SUPPRESS_MS = 400
@@ -60,7 +61,10 @@ export default function DirectorHome({
       <header className="director-mobile-header">
         <button type="button" aria-label="返回创作工作台" onClick={onExitDirector}><ArrowLeft size={20} /></button>
         <strong>导演台</strong>
-        <button type="button" aria-label="新建导演创作" onClick={onCreateDirector}><Plus size={20} /></button>
+        <div className="director-mobile-header-actions">
+          <ThemeToggle />
+          <button type="button" aria-label="新建导演创作" onClick={onCreateDirector}><Plus size={20} /></button>
+        </div>
       </header>
 
       <header className="director-library-header">
@@ -68,6 +72,7 @@ export default function DirectorHome({
           <h1>导演台</h1>
           <p>一句话做完整短片，或按主题批量裂变多条 H3 文生视频。媒体仍走 GRS 定妆与本机 MiniMax H3。</p>
         </div>
+        <ThemeToggle />
       </header>
 
       <div className="director-engine-grid">

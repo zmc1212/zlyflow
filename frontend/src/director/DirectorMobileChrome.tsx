@@ -1,6 +1,7 @@
 import { Button, Dropdown } from "antd"
 import type { MenuProps } from "antd"
 import { ArrowLeft, MoreHorizontal } from "lucide-react"
+import ThemeToggle from "../components/ThemeToggle"
 
 export function DirectorMobileHeader({
   title,
@@ -17,11 +18,14 @@ export function DirectorMobileHeader({
         <ArrowLeft size={20} />
       </button>
       <strong>{title}</strong>
-      <Dropdown trigger={["click"]} menu={{ items: menuItems }}>
-        <button type="button" aria-label="更多操作">
-          <MoreHorizontal size={20} />
-        </button>
-      </Dropdown>
+      <div className="director-mobile-header-actions">
+        <ThemeToggle />
+        <Dropdown trigger={["click"]} menu={{ items: menuItems }}>
+          <button type="button" aria-label="更多操作">
+            <MoreHorizontal size={20} />
+          </button>
+        </Dropdown>
+      </div>
     </header>
   )
 }

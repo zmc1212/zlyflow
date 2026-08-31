@@ -1,5 +1,6 @@
 import { Button, Card, Dropdown, Empty, Popconfirm, Space, Spin, Tag, Typography } from "antd"
 import { ArrowLeft, Clapperboard, Copy, FolderPlus, Plus, Trash2, Wand2 } from "lucide-react"
+import ThemeToggle from "../components/ThemeToggle"
 import { DirectorProjectListItem, DirectorGenerationStatus } from "./director-api"
 
 function generationLabel(status: DirectorGenerationStatus): { text: string; color: string } {
@@ -42,17 +43,20 @@ export default function DirectorProjectLibrary({
       <header className="director-mobile-header">
         <button type="button" aria-label="返回创作工作台" onClick={onExitDirector}><ArrowLeft size={20} /></button>
         <strong>项目库</strong>
-        <Dropdown
-          trigger={["click"]}
-          menu={{
-            items: [
-              { key: "blank", label: "新建空白工程", icon: <Plus size={14} />, onClick: onCreateBlank },
-              { key: "script", label: "从剧本创建", icon: <Wand2 size={14} />, onClick: onCreateFromScript },
-            ],
-          }}
-        >
-          <button type="button" aria-label="新建工程"><Plus size={20} /></button>
-        </Dropdown>
+        <div className="director-mobile-header-actions">
+          <ThemeToggle />
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                { key: "blank", label: "新建空白工程", icon: <Plus size={14} />, onClick: onCreateBlank },
+                { key: "script", label: "从剧本创建", icon: <Wand2 size={14} />, onClick: onCreateFromScript },
+              ],
+            }}
+          >
+            <button type="button" aria-label="新建工程"><Plus size={20} /></button>
+          </Dropdown>
+        </div>
       </header>
 
       <header className="director-library-header">
@@ -61,6 +65,7 @@ export default function DirectorProjectLibrary({
           <p>先选择或创建工程，再进入时间轴。剧本原文会随工程一起保存。</p>
         </div>
         <Space wrap>
+          <ThemeToggle />
           <Button icon={<Wand2 size={15} />} onClick={onCreateFromScript}>从剧本创建</Button>
           <Button type="primary" icon={<Plus size={15} />} onClick={onCreateBlank} className="director-primary-button">
             新建空白工程

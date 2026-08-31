@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import re
 import secrets
 import shutil
@@ -46,7 +47,7 @@ from .director_export import (
     save_recipe_bgm,
 )
 from .director_jobs import (
-    find_recipe_frame_file, generate_recipe_assets, generate_recipe_stills,
+    approve_recipe_asset_version, find_recipe_frame_file, generate_recipe_assets, generate_recipe_stills,
     render_batch_items, render_recipe_shots,
     save_recipe_shot_frame, sync_batch_items, sync_recipe_asset_images,
 )
@@ -87,7 +88,7 @@ from .models import (
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
     DirectorProjectResponse, DirectorProjectMigrateRequest, DirectorProjectMigrateResponse,
     DirectorArtStyleCatalogResponse, DirectorRecipeRunRequest, DirectorRecipeStepRequest,
-    DirectorGenerateAssetsRequest, DirectorGenerateStillsRequest, DirectorRenderShotsRequest,
+    DirectorApproveAssetVersionRequest, DirectorGenerateAssetsRequest, DirectorGenerateStillsRequest, DirectorRenderShotsRequest,
     DirectorOperationCreateRequest, DirectorOperationResponse,
     DirectorRenderBatchRequest, DirectorBatchCreateRequest,
     DirectorLibraryAssetCreateRequest, DirectorLibraryAssetUpdateRequest, DirectorLibraryAssetResponse,
@@ -2157,6 +2158,8 @@ async def generate_director_recipe_assets(
             recipe=record["payload"],
             character_ids=payload.character_ids,
             location_ids=payload.location_ids,
+            prop_ids=payload.prop_ids,
+            targets=[item.model_dump() for item in payload.targets],
             force=payload.force,
             resource_storage=getattr(app.state, "resource_storage", None),
         )
@@ -2167,6 +2170,54 @@ async def generate_director_recipe_assets(
     app.state.auth_store.audit(
         "generate_director_assets", "director", actor_user_id=user["id"], target_id=project_id,
         detail=f"jobs={len(job_ids)}", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/approve-asset-version",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="批准角色、场景或道具的定妆候选版本",
+)
+def approve_director_recipe_asset_version(
+    project_id: str,
+    payload: DirectorApproveAssetVersionRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以批准定妆")
+
+    def approve_latest(latest: dict[str, Any]) -> dict[str, Any]:
+        synced = sync_recipe_asset_images(
+            app.state.store,
+            latest,
+            resource_storage=getattr(app.state, "resource_storage", None),
+        )
+        return approve_recipe_asset_version(
+            synced,
+            kind=payload.kind,
+            asset_id=payload.asset_id,
+            version_id=payload.version_id,
+            look_id=payload.look_id,
+        )
+
+    try:
+        saved = app.state.store.mutate_director_project_payload(
+            project_id,
+            approve_latest,
+            content_update=True,
+            expected_content_revision=payload.content_revision,
+        )
+    except DirectorProjectConflictError as error:
+        raise director_content_conflict_http(error) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "approve_director_asset", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"{payload.kind}:{payload.asset_id}:{payload.version_id}", ip_address=client_ip(request),
     )
     return public_director_project(saved)
 
@@ -2401,6 +2452,29 @@ def _audio_media_type(path: Path) -> str:
         ".flac": "audio/flac",
         ".mp4": "video/mp4",
     }.get(suffix, "application/octet-stream")
+
+
+def _image_media_type(path: Path) -> str:
+    guessed, _ = mimetypes.guess_type(path.name)
+    if guessed and guessed.startswith("image/"):
+        return guessed
+    try:
+        header = path.read_bytes()[:16]
+    except OSError:
+        return "image/png"
+    signatures = (
+        (b"\x89PNG\r\n\x1a\n", "image/png"),
+        (b"\xff\xd8\xff", "image/jpeg"),
+        (b"GIF87a", "image/gif"),
+        (b"GIF89a", "image/gif"),
+        (b"BM", "image/bmp"),
+    )
+    for signature, media in signatures:
+        if header.startswith(signature):
+            return media
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
 
 
 def _safe_export_filename(title: str, suffix: str) -> str:
@@ -3055,7 +3129,7 @@ def job_reference(job_id: str, reference_index: int, user: Annotated[dict, Depen
     path = Path(references[reference_index - 1]).resolve()
     if uploads_root not in path.parents or not path.is_file():
         raise HTTPException(status_code=404, detail="Reference image not found")
-    return FileResponse(path)
+    return FileResponse(path, media_type=_image_media_type(path))
 
 
 @app.get(
@@ -3077,7 +3151,7 @@ def round_reference(
     path = Path(references[reference_index - 1]).resolve()
     if uploads_root not in path.parents or not path.is_file():
         raise HTTPException(status_code=404, detail="参考图不存在")
-    return FileResponse(path)
+    return FileResponse(path, media_type=_image_media_type(path))
 
 
 @app.get("/api/library", response_model=list[LibraryItemResponse], tags=["作品库"], summary="列出作品库媒体")

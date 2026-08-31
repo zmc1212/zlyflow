@@ -589,6 +589,52 @@ class JobEndpointTests(unittest.TestCase):
                 main_module.settings = original_settings
                 main_module.JobWorker = original_worker
 
+    def test_round_reference_preview_uses_image_content_type_without_extension(self) -> None:
+        class WorkerStub:
+            def __init__(self, *_args) -> None:
+                pass
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            try:
+                with TestClient(main_module.app) as client:
+                    user = main_module.app.state.auth_store.create_user(
+                        "ref-preview", "参考图预览", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
+                    )
+                    token, _ = main_module.app.state.auth_store.create_session(user["id"])
+                    uploads = main_module.settings.uploads_dir / user["id"] / "ref-job"
+                    uploads.mkdir(parents=True, exist_ok=True)
+                    image_path = uploads / "1_upload"
+                    image_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+                    job = main_module.app.state.store.create(
+                        "ref-job", JobMode.MINIMAX_H3_I2V, "prompt", "", None, [str(image_path)], owner_user_id=user["id"],
+                    )
+                    round_id = job["rounds"][0]["id"]
+                    cookies = {"zly_ai_video_studio_session": token}
+
+                    listed = client.get("/api/jobs", cookies=cookies)
+                    self.assertEqual(listed.status_code, 200)
+                    payload = next(item for item in listed.json() if item["id"] == "ref-job")
+                    self.assertEqual(payload["rounds"][0]["references"][0]["url"], f"/api/jobs/ref-job/rounds/{round_id}/references/1")
+
+                    preview = client.get(payload["rounds"][0]["references"][0]["url"], cookies=cookies)
+                    self.assertEqual(preview.status_code, 200)
+                    self.assertIn("image/png", preview.headers.get("content-type", ""))
+                    self.assertTrue(preview.content.startswith(b"\x89PNG"))
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
+
 
 class StorageAndCredentialTests(unittest.TestCase):
     def test_job_metadata_can_be_pinned_renamed_and_deleted(self) -> None:
