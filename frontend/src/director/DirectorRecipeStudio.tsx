@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Tag, Tooltip, Typography, message,
 } from "antd"
-import { ArrowLeft, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, RefreshCw, Wand2 } from "lucide-react"
+import { ArrowLeft, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { ApiRequestError, User } from "../api"
@@ -49,14 +49,14 @@ import {
   createEmptyRecipe, featuredArtStyles, RECIPE_AGENT_LABELS, RECIPE_AGENT_ORDER, RECIPE_AGENT_RUNNING_MESSAGES,
   recipeShotsToPlayer,
   DIRECTOR_FINAL_CANVAS_OPTIONS, DIRECTOR_SPEED_OPTIONS, DIRECTOR_WEIGHT_OPTIONS, H3_CANVAS_PRESETS, applyRecipeOutputSettings,
-  recipeCanvasPreset, DirectorQuality, DirectorSpeed, DirectorWeightProfile, userFacingCopy,
+  recipeCanvasPreset, DirectorQuality, DirectorSpeed, DirectorWeightProfile,
   estimateStoryboardSkeletonCount, recipePipelineProgress,
   insertRecipeShotAfter, removeRecipeShot, duplicateRecipeShot, moveRecipeShotToIndex,
 } from "./types"
 import {
-  artStylePreviewUrl, flattenRecipeShots, isPlaceholderRecipeBoard, recipeArtStyleFromCatalog,
+  artStylePreviewUrl, ensureRecipeAssetRendition, flattenRecipeShots, isPlaceholderRecipeBoard, recipeArtStyleFromCatalog,
   recipeAudio, recipeExportState, recipeSubtitles, shotIsMuxable,
-  type RecipeAgentId, type RecipeAgentRunStatus, type RecipeAssetRendition, type RecipeCharacter, type RecipeLocation, type RecipeProp,
+  type RecipeAgentId, type RecipeAgentRunStatus, type RecipeAssetRendition, type RecipeCharacter,
   type RecipeProject, type RecipeShot,
 } from "./recipe-model"
 import {
@@ -66,6 +66,7 @@ import {
 import { DEFAULT_DIRECTOR_WORKFLOW_FAMILY, directorWorkflowFamilies } from "./director-workflows"
 import {
   hasLatestShotSubmissionFailure,
+  mergeRecipeApprovedAssetState,
   mergeRecipeExecutionState,
   mergeRecipeShotFrameState,
   reconcileShotJobExecution,
@@ -94,9 +95,12 @@ type BoardMode = "still" | RenderPass
 
 function recipeAssetRenditions(recipe: RecipeProject): RecipeAssetRendition[] {
   return [
-    ...recipe.characters.flatMap((character) => [character.portrait, ...character.looks.map((look) => look.sheet)]),
-    ...recipe.locations.map((location) => location.plate),
-    ...recipe.props.map((prop) => prop.turnaround),
+    ...recipe.characters.flatMap((character) => [
+      ensureRecipeAssetRendition(character.portrait),
+      ...(character.looks || []).map((look) => ensureRecipeAssetRendition(look.sheet)),
+    ]),
+    ...recipe.locations.map((location) => ensureRecipeAssetRendition(location.plate)),
+    ...recipe.props.map((prop) => ensureRecipeAssetRendition(prop.turnaround)),
   ]
 }
 
@@ -107,24 +111,23 @@ function recipeHasActiveAssetJobs(recipe: RecipeProject): boolean {
 }
 
 function syncAssetRenditionFromJobs(
-  rendition: RecipeAssetRendition,
+  rendition: RecipeAssetRendition | undefined,
   jobs: JobLike[],
 ): { rendition: RecipeAssetRendition; changed: boolean } {
-  let changed = false
-  const versions = rendition.versions.map((version) => {
+  const current = ensureRecipeAssetRendition(rendition)
+  let changed = current !== rendition
+  const versions = current.versions.map((version) => {
     if (!version.jobId) return version
     const job = jobs.find((item) => item.id === version.jobId)
     if (!job) return version
     const imageUrl = jobStoredImageUrl(job) || version.imageUrl
     const jobStatus = shotStatusFromJob(job)
-    const status = jobStatus === "partial"
-      ? (imageUrl ? "succeeded" : "running")
-      : jobStatus === "idle" ? version.status : jobStatus
+    const status = jobStatus
     if (status === version.status && imageUrl === version.imageUrl) return version
     changed = true
     return { ...version, status, imageUrl }
   })
-  return { rendition: changed ? { ...rendition, versions } : rendition, changed }
+  return { rendition: changed ? { ...current, versions } : current, changed }
 }
 
 function approvedAssetProjection(rendition: RecipeAssetRendition): { imageUrl?: string | null; jobId?: string | null } {
@@ -469,7 +472,7 @@ export default function DirectorRecipeStudio({
       let changed = false
       const characters = prev.characters.map((item) => {
         const portraitResult = syncAssetRenditionFromJobs(item.portrait, allJobs)
-        const looks = item.looks.map((look) => {
+        const looks = (item.looks || []).map((look) => {
           const result = syncAssetRenditionFromJobs(look.sheet, allJobs)
           if (result.changed) changed = true
           return result.changed ? { ...look, sheet: result.rendition } : look
@@ -968,13 +971,19 @@ export default function DirectorRecipeStudio({
     patchStudioSearch({ view: "plan" }, { replace: true })
   }, [isMobile, searchParams])
 
-  async function handleGenerateAssets(characterIds?: string[], locationIds?: string[], force = false) {
+  async function handleGenerateAssets(
+    characterIds?: string[],
+    locationIds?: string[],
+    force = false,
+    targets?: Array<{ kind: RecipeAssetTargetKind; asset_id: string; look_id?: string }>,
+  ) {
     try {
       const saved = await flushSave()
       if (!saved) return
       const row = await generateDirectorAssets(projectId, {
         character_ids: characterIds,
         location_ids: locationIds,
+        targets,
         force,
       }, csrfToken)
       const payload = recipePayloadFromApi(row)
@@ -986,7 +995,57 @@ export default function DirectorRecipeStudio({
     }
   }
 
-  async function handleSaveToLibrary(characterIds: string[] = [], locationIds: string[] = []) {
+  async function handleGenerateAssetTarget(kind: RecipeAssetTargetKind, assetId: string, lookId?: string) {
+    try {
+      const saved = await flushSave()
+      if (!saved) return
+      const row = await generateDirectorAssets(projectId, {
+        targets: [{ kind, asset_id: assetId, ...(lookId ? { look_id: lookId } : {}) }],
+        force: true,
+      }, csrfToken)
+      const payload = recipePayloadFromApi(row)
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      await queryClient.invalidateQueries({ queryKey: ["jobs"] })
+      messageApi.success(
+        kind === "location" ? "已提交场景任务"
+          : kind === "prop" ? "已提交道具任务"
+            : kind === "character_sheet" ? "已提交定妆板任务"
+              : "已提交身份肖像任务",
+      )
+    } catch (error) {
+      notifyFailure(error, "定妆失败")
+    }
+  }
+
+  async function handleApproveAssetVersion(kind: RecipeAssetTargetKind, assetId: string, versionId: string, lookId?: string) {
+    try {
+      const row = await approveDirectorAssetVersion(projectId, {
+        kind,
+        asset_id: assetId,
+        version_id: versionId,
+        look_id: lookId,
+        content_revision: contentRevisionRef.current || undefined,
+      }, csrfToken)
+      const payload = recipePayloadFromApi(row)
+      projectRevisionRef.current = row.revision
+      contentRevisionRef.current = row.content_revision
+      if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload))
+      await queryClient.invalidateQueries({ queryKey: ["director-project", projectId] })
+      messageApi.success("已批准这一版")
+    } catch (error) {
+      const remote = readDirectorContentConflict(error)
+      if (remote) {
+        const conflict = { remote }
+        conflictRef.current = conflict
+        setContentConflict(conflict)
+        setSaveStatus("failed")
+        return
+      }
+      notifyFailure(error, "批准失败")
+    }
+  }
+
+  async function handleSaveToLibrary(characterIds: string[] = [], locationIds: string[] = [], propIds: string[] = []) {
     try {
       const saved = await flushSave()
       if (!saved) return
@@ -994,11 +1053,26 @@ export default function DirectorRecipeStudio({
         project_id: projectId,
         character_ids: characterIds,
         location_ids: locationIds,
+        prop_ids: propIds,
       }, csrfToken)
       await queryClient.invalidateQueries({ queryKey: ["director-library-assets"] })
       messageApi.success(`已存入资产库 ${result.imported} 项`)
     } catch (error) {
       notifyFailure(error, "存入资产库失败")
+    }
+  }
+
+  async function handleGenerateProps(propIds?: string[], force = false) {
+    try {
+      const saved = await flushSave()
+      if (!saved) return
+      const row = await generateDirectorAssets(projectId, { prop_ids: propIds, force }, csrfToken)
+      const payload = recipePayloadFromApi(row)
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      await queryClient.invalidateQueries({ queryKey: ["jobs"] })
+      messageApi.success("已提交道具转面任务")
+    } catch (error) {
+      notifyFailure(error, "道具生成失败")
     }
   }
 
@@ -1397,6 +1471,7 @@ export default function DirectorRecipeStudio({
   const muxableCount = shots.filter(shotIsMuxable).length
   const pendingCharacterCount = recipe.characters.filter((item) => !item.imageUrl).length
   const pendingLocationCount = recipe.locations.filter((item) => !item.imageUrl).length
+  const pendingPropCount = recipe.props.filter((item) => !item.imageUrl).length
   const dialogueShotCount = shots.filter((shot) => shot.dialogue.trim()).length
   const planStagePrimary = activeStage === "script" || activeStage === "art_style"
   const characterActionLabel = plateBatchLabel("character", pendingCharacterCount || recipe.characters.length)
@@ -1803,24 +1878,48 @@ export default function DirectorRecipeStudio({
                     </div>
                     <div className="director-asset-grid">
                       {recipe.characters.map((character) => (
-                        <AssetCard
+                        <CharacterAssetCard
                           key={character.id}
-                          title={character.name}
-                          description={userFacingCopy(character.description, character.name)}
-                          imageUrl={character.imageUrl}
-                          imageJobId={character.imageJobId}
-                          kind="character"
-                          job={allJobs.find((entry) => entry.id === character.imageJobId)}
-                          onGenerate={() => handleGenerateAssets([character.id], [], true)}
-                          onSaveToLibrary={() => void handleSaveToLibrary([character.id], [])}
+                          character={character}
+                          jobs={allJobs}
                           onChange={(patch) => updateRecipe((current) => ({
                             ...current,
                             characters: current.characters.map((item) => item.id === character.id ? { ...item, ...patch } : item),
                           }))}
+                          onGenerate={(kind, lookId) => { void handleGenerateAssetTarget(kind, character.id, lookId) }}
+                          onApprove={(kind, versionId, lookId) => { void handleApproveAssetVersion(kind, character.id, versionId, lookId) }}
+                          onSaveToLibrary={() => void handleSaveToLibrary([character.id], [])}
                         />
                       ))}
                       {!recipe.characters.length && <Empty description="生成创作方案或从资产库插入人物、道具" />}
                     </div>
+                    {recipe.props.length ? (
+                      <div className="director-prop-section">
+                        <div className="director-section-head">
+                          <Typography.Title level={5}>道具转面 · {recipe.props.length}</Typography.Title>
+                          <Button type="primary" size="small" icon={<ImagePlus size={14} />} onClick={() => { void handleGenerateProps() }}>
+                            {pendingPropCount ? `生成 ${pendingPropCount} 件道具` : "重新生成道具"}
+                          </Button>
+                        </div>
+                        <div className="director-asset-grid">
+                          {recipe.props.map((prop) => (
+                            <SimpleRenditionAssetCard
+                              key={prop.id}
+                              asset={prop}
+                              kind="prop"
+                              jobs={allJobs}
+                              onChange={(patch) => updateRecipe((current) => ({
+                                ...current,
+                                props: current.props.map((item) => item.id === prop.id ? { ...item, ...patch } : item),
+                              }))}
+                              onGenerate={() => { void handleGenerateAssetTarget("prop", prop.id) }}
+                              onApprove={(versionId) => { void handleApproveAssetVersion("prop", prop.id, versionId) }}
+                              onSaveToLibrary={() => void handleSaveToLibrary([], [], [prop.id])}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
           ) : null}
           {!isTimelineView && activeStage === "locations" ? (
@@ -1835,20 +1934,18 @@ export default function DirectorRecipeStudio({
                     </div>
                     <div className="director-asset-grid">
                       {recipe.locations.map((location) => (
-                        <AssetCard
+                        <SimpleRenditionAssetCard
                           key={location.id}
-                          title={location.name}
-                          description={userFacingCopy(location.description, location.name)}
-                          imageUrl={location.imageUrl}
-                          imageJobId={location.imageJobId}
+                          asset={location}
                           kind="location"
-                          job={allJobs.find((entry) => entry.id === location.imageJobId)}
-                          onGenerate={() => handleGenerateAssets([], [location.id], true)}
-                          onSaveToLibrary={() => void handleSaveToLibrary([], [location.id])}
+                          jobs={allJobs}
                           onChange={(patch) => updateRecipe((current) => ({
                             ...current,
                             locations: current.locations.map((item) => item.id === location.id ? { ...item, ...patch } : item),
                           }))}
+                          onGenerate={() => { void handleGenerateAssetTarget("location", location.id) }}
+                          onApprove={(versionId) => { void handleApproveAssetVersion("location", location.id, versionId) }}
+                          onSaveToLibrary={() => void handleSaveToLibrary([], [location.id])}
                         />
                       ))}
                       {!recipe.locations.length && <Empty description="生成创作方案或从资产库插入场景" />}
@@ -2255,87 +2352,5 @@ export default function DirectorRecipeStudio({
         disabled={mobilePrimary.disabled}
       />
     </div>
-  )
-}
-
-function AssetCard({
-  title,
-  description,
-  imageUrl,
-  imageJobId,
-  kind,
-  job,
-  onGenerate,
-  onSaveToLibrary,
-  onChange,
-}: {
-  title: string
-  description: string
-  imageUrl?: string | null
-  imageJobId?: string | null
-  kind: "character" | "location"
-  job?: JobLike
-  onGenerate: () => void
-  onSaveToLibrary: () => void
-  onChange: (patch: Partial<RecipeCharacter & RecipeLocation>) => void
-}) {
-  const [previewOpen, setPreviewOpen] = useState(false)
-  const state = assetGenerationState(job, imageUrl, imageJobId, kind)
-  const previewUrl = assetPreviewUrl(job, imageUrl, imageJobId)
-  const showImage = Boolean(previewUrl) && !state.generating
-  return (
-    <Card
-      className="director-asset-card"
-      size="small"
-      cover={showImage ? (
-        <button type="button" className="director-asset-preview-trigger" onClick={() => setPreviewOpen(true)} aria-label={`放大查看${title}`}>
-          <img src={previewUrl || ""} alt={title} className="director-asset-cover" />
-          <span>放大查看</span>
-        </button>
-      ) : (
-        <div className="director-asset-placeholder">
-          {state.generating ? (
-            <>
-              <Progress percent={state.progress} size="small" status="active" showInfo={false} />
-              <span className="director-asset-status">{state.label}</span>
-            </>
-          ) : state.status === "failed" || state.status === "interrupted" || state.status === "cancelled" ? (
-            <span className="director-asset-error">{state.label}</span>
-          ) : (
-            kind === "location" ? "待生成场景" : "待定妆"
-          )}
-        </div>
-      )}
-    >
-      <Input value={title} onChange={(event) => onChange({ name: event.target.value })} />
-      <Input.TextArea
-        value={description}
-        autoSize={{ minRows: 2, maxRows: 4 }}
-        onChange={(event) => onChange({ description: event.target.value })}
-      />
-      <div className="director-asset-card-actions">
-        <JobErrorNotice error={state.error} />
-        <Button size="small" icon={<RefreshCw size={12} />} loading={state.generating} onClick={onGenerate}>
-          {isDirectorFailedStatus(state.status)
-            ? "重试这一项"
-            : showImage ? "重新定妆" : kind === "location" ? "生成场景" : "生成定妆"}
-        </Button>
-        <Button size="small" icon={<Library size={12} />} onClick={onSaveToLibrary}>
-          存入资产库
-        </Button>
-      </div>
-      {showImage && previewUrl ? <MediaPreviewModal
-        open={previewOpen}
-        kind="image"
-        src={previewUrl}
-        title={title}
-        description={description}
-        onClose={() => setPreviewOpen(false)}
-        actions={[
-          { key: "generate", label: kind === "location" ? "重新生成场景" : "重新生成定妆", icon: <RefreshCw size={15} />, type: "primary", onClick: () => { onGenerate(); setPreviewOpen(false) } },
-          { key: "save", label: "存入资产库", icon: <Library size={15} />, onClick: () => { onSaveToLibrary(); setPreviewOpen(false) } },
-        ]}
-      /> : null}
-    </Card>
   )
 }

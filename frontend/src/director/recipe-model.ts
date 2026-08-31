@@ -137,6 +137,7 @@ export interface RecipeShot {
   locationId?: string | null
   propIds: string[]
   propNames: string[]
+  assetBindingMode?: "legacy" | "stable"
   durationSec: number
   compiledPrompt: string
   jobId?: string | null
@@ -247,6 +248,100 @@ export interface RecipeProject {
   audio?: RecipeAudioMix
   subtitles?: RecipeSubtitleStyle
   export?: RecipeExportState
+}
+
+export function emptyRecipeAssetRendition(): RecipeAssetRendition {
+  return { versions: [] }
+}
+
+export function emptyRecipeIdentitySpec(): RecipeCharacterIdentitySpec {
+  return {
+    ageRange: "",
+    regionalAppearance: "",
+    faceFeatures: "",
+    hair: "",
+    skinTone: "",
+    bodyBuild: "",
+    distinguishingMarks: "",
+    immutableAccessories: "",
+    avoidChanges: "",
+  }
+}
+
+export function ensureRecipeAssetRendition(rendition: RecipeAssetRendition | undefined | null): RecipeAssetRendition {
+  return rendition && Array.isArray(rendition.versions) ? rendition : emptyRecipeAssetRendition()
+}
+
+function ensureCharacterLook(look: RecipeCharacterLook | undefined, index: number, character: RecipeCharacter): RecipeCharacterLook {
+  const item = look || {
+    id: index === 0 ? "look-default" : `look-${index + 1}`,
+    name: index === 0 ? "基础造型" : `造型 ${index + 1}`,
+    appearanceDetails: character.description || "",
+    promptText: character.promptText || "",
+    status: "draft" as const,
+    sheet: emptyRecipeAssetRendition(),
+  }
+  return { ...item, sheet: ensureRecipeAssetRendition(item.sheet) }
+}
+
+export function ensureRecipeCharacter(character: RecipeCharacter): RecipeCharacter {
+  const looks = character.looks?.length
+    ? character.looks.map((look, index) => ensureCharacterLook(look, index, character))
+    : [ensureCharacterLook(undefined, 0, character)]
+  return {
+    ...character,
+    identitySpec: { ...emptyRecipeIdentitySpec(), ...(character.identitySpec || {}) },
+    specStatus: character.specStatus === "approved" ? "approved" : "draft",
+    aiAssumptions: character.aiAssumptions || [],
+    portrait: ensureRecipeAssetRendition(character.portrait),
+    looks,
+  }
+}
+
+export function ensureRecipeLocation(location: RecipeLocation): RecipeLocation {
+  return { ...location, plate: ensureRecipeAssetRendition(location.plate) }
+}
+
+export function ensureRecipeProp(prop: RecipeProp): RecipeProp {
+  return { ...prop, turnaround: ensureRecipeAssetRendition(prop.turnaround) }
+}
+
+export function ensureRecipeAssetSchema(recipe: RecipeProject): RecipeProject {
+  return {
+    ...recipe,
+    characters: (recipe.characters || []).map(ensureRecipeCharacter),
+    locations: (recipe.locations || []).map(ensureRecipeLocation),
+    props: (recipe.props || []).map(ensureRecipeProp),
+  }
+}
+
+export function createEmptyRecipeCharacter(overrides: Partial<RecipeCharacter> = {}): RecipeCharacter {
+  return ensureRecipeCharacter({
+    id: "char-1",
+    name: "角色",
+    description: "",
+    promptText: "",
+    role: "",
+    gender: "unspecified",
+    type: "character",
+    identitySpec: emptyRecipeIdentitySpec(),
+    specStatus: "draft",
+    aiAssumptions: [],
+    portrait: emptyRecipeAssetRendition(),
+    looks: [],
+    ...overrides,
+  })
+}
+
+export function createEmptyRecipeLocation(overrides: Partial<RecipeLocation> = {}): RecipeLocation {
+  return ensureRecipeLocation({
+    id: "loc-1",
+    name: "场景",
+    description: "",
+    promptText: "",
+    plate: emptyRecipeAssetRendition(),
+    ...overrides,
+  })
 }
 
 export function recipeRenditionVersion(

@@ -148,28 +148,43 @@ def recipe_items_for_library(
     *,
     character_ids: list[str] | None = None,
     location_ids: list[str] | None = None,
+    prop_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     payload = normalize_recipe_payload(recipe)
     wanted_chars = {item for item in (character_ids or []) if item}
     wanted_locs = {item for item in (location_ids or []) if item}
-    take_all = not wanted_chars and not wanted_locs
+    wanted_props = {item for item in (prop_ids or []) if item}
+    take_all = not wanted_chars and not wanted_locs and not wanted_props
     items: list[dict[str, Any]] = []
     for character in payload.get("characters") or []:
         if not take_all and character.get("id") not in wanted_chars:
             continue
         kind = "prop" if str(character.get("type") or "") == "object" else "character"
+        approved_look = next((look for look in character.get("looks") or [] if isinstance(look, dict) and look.get("status") == "approved"), None)
+        approved_sheet = (approved_look or {}).get("sheet") if isinstance(approved_look, dict) else None
+        approved_version = next((version for version in (approved_sheet or {}).get("versions") or [] if isinstance(version, dict) and version.get("id") == (approved_sheet or {}).get("approvedVersionId")), None)
+        if approved_version is None:
+            portrait = character.get("portrait") if isinstance(character.get("portrait"), dict) else {}
+            approved_version = next((version for version in portrait.get("versions") or [] if isinstance(version, dict) and version.get("id") == portrait.get("approvedVersionId")), None)
+        image_url = approved_version.get("imageUrl") if approved_version else None
+        image_job_id = approved_version.get("jobId") if approved_version else None
+        if not image_url and not (str(character.get("type") or "") == "object" and not character.get("portrait", {}).get("versions")):
+            continue
         items.append({
             "kind": kind,
             "name": character.get("name") or "",
             "description": character.get("description") or "",
             "prompt_text": character.get("promptText") or character.get("prompt_text") or "",
             "gender": character.get("gender") or "",
-            "image_url": character.get("imageUrl") or character.get("image_url") or None,
-            "image_job_id": character.get("imageJobId") or character.get("image_job_id") or None,
+            "image_url": image_url,
+            "image_job_id": image_job_id,
             "source_project_id": None,
         })
     for location in payload.get("locations") or []:
         if not take_all and location.get("id") not in wanted_locs:
+            continue
+        plate = location.get("plate") if isinstance(location.get("plate"), dict) else {}
+        if not location.get("imageUrl") and plate.get("versions"):
             continue
         items.append({
             "kind": "scene",
@@ -179,6 +194,23 @@ def recipe_items_for_library(
             "gender": "",
             "image_url": location.get("imageUrl") or location.get("image_url") or None,
             "image_job_id": location.get("imageJobId") or location.get("image_job_id") or None,
+            "source_project_id": None,
+        })
+    for prop in payload.get("props") or []:
+        if not isinstance(prop, dict):
+            continue
+        if not take_all and prop.get("id") not in wanted_props:
+            continue
+        if not prop.get("imageUrl"):
+            continue
+        items.append({
+            "kind": "prop",
+            "name": prop.get("name") or "",
+            "description": prop.get("description") or "",
+            "prompt_text": prop.get("promptText") or prop.get("prompt_text") or "",
+            "gender": "",
+            "image_url": prop.get("imageUrl") or prop.get("image_url") or None,
+            "image_job_id": prop.get("imageJobId") or prop.get("image_job_id") or None,
             "source_project_id": None,
         })
     if not items:

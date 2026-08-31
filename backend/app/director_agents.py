@@ -10,6 +10,7 @@ from .director_catalog import art_style_ref_for_recipe, find_art_style, list_art
 from .director_compiler import compile_recipe_media, snap_h3_duration_sec
 from .director_recipe import (
     AGENT_IDS,
+    PIPELINE_AGENT_ORDER,
     default_audio_mix,
     empty_recipe_payload,
     normalize_dialogue,
@@ -556,6 +557,10 @@ def _apply_characters(recipe: dict[str, Any], data: dict[str, Any]) -> None:
                 "id": _text(look.get("id"), "look-default" if look_index == 0 else ""),
                 "status": "draft",
             })
+        raw_identity_spec = raw.get("identitySpec") or raw.get("identity_spec")
+        identity_spec = raw_identity_spec if isinstance(raw_identity_spec, dict) and raw_identity_spec else existing.get("identitySpec") or {}
+        raw_assumptions = raw.get("aiAssumptions") or raw.get("ai_assumptions")
+        ai_assumptions = raw_assumptions if isinstance(raw_assumptions, list) else existing.get("aiAssumptions") or []
         target = {
             **existing,
             "name": name,
@@ -564,9 +569,9 @@ def _apply_characters(recipe: dict[str, Any], data: dict[str, Any]) -> None:
             "role": _text(raw.get("role")),
             "gender": _text(raw.get("gender"), "unspecified") or "unspecified",
             "type": char_type,
-            "identitySpec": raw.get("identitySpec") or raw.get("identity_spec") or {},
-            "specStatus": "draft",
-            "aiAssumptions": raw.get("aiAssumptions") or raw.get("ai_assumptions") or [],
+            "identitySpec": identity_spec,
+            "specStatus": "draft" if raw_identity_spec else existing.get("specStatus") or "draft",
+            "aiAssumptions": ai_assumptions,
             "looks": merged_looks,
             "voiceId": normalize_voice_id(raw.get("voiceId") or raw.get("voice_id"), gender=_text(raw.get("gender"), "unspecified")),
         }
@@ -1044,7 +1049,7 @@ def run_recipe_pipeline(
     current = normalize_recipe_payload(recipe or empty_recipe_payload(title=_text(goal)[:24], full_story=goal))
     if not _text((current.get("script") or {}).get("fullStory")):
         current["script"]["fullStory"] = goal
-    order = list(agents or AGENT_IDS)
+    order = list(agents or PIPELINE_AGENT_ORDER)
     current["pipelineRun"] = {"agents": order, "active": True}
     for agent_id in order:
         set_agent_status(current, agent_id, "pending")

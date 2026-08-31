@@ -78,6 +78,17 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 
 ## 工作流协议
 
+## 2026-08-31 导演台结构化角色定妆与资产版本协议
+
+- 当前基线：导演 Recipe 使用 `assetSchemaVersion: 2`。角色由 `identitySpec`（年龄、脸型、发型、肤色、体态、不可变配饰等）+ `portrait` 身份肖像 + 一个或多个 `looks[].sheet` 四联定妆板组成；地点使用 `plate` 空场景母版，道具使用 `props[].turnaround` 四视图转面图。每个 rendition 保存 `versions[]`、`activeVersionId`、`approvedVersionId`、提示词快照、工作流和执行选项。
+- 生成协议：`POST /api/director/recipes/{project_id}/generate-assets` 先生成身份肖像；批准后，定妆板以批准肖像作为唯一 `<Picture 1>` 参考。地点、道具分别生成空场景母版和四视图转面图。生成候选不会自动批准，`POST /api/director/recipes/{project_id}/approve-asset-version` 才能将版本投入分镜参考图和资产库。
+- 绑定协议：分镜镜头优先写入稳定的 `characterBindings`、`locationId`、`propIds`，名称字段只作为旧工程兼容。编译器按资产 ID 装箱，并在 stable 绑定模式下超过 MiniMax H3 的 9 张参考图上限时返回可操作错误，不再静默截断；旧名称模式继续保留历史最多 9 张的兼容行为。
+- 调度顺序：创作方案默认按 `research -> script -> art_style -> characters -> locations -> storyboard -> voice -> music -> media` 执行，使分镜能读取已规范化的人物、场景和道具目录；公开的旧 `AGENT_IDS` 顺序和历史 `agentStatus` 仍兼容。
+- 兼容性：旧工程的 `imageUrl/imageJobId` 会投影成已批准的单一 rendition；旧时间轴和旧资产库字段无需迁移。新结构化资产必须先批准候选图才能导入资产库，旧无版本资产仍按历史规则可读。未修改端口、SQLite 表、ComfyUI 节点 ID、模型路径和工作流外部协议。
+- 受影响文件：`backend/app/director_recipe.py`、`director_jobs.py`、`director_compiler.py`、`director_agents.py`、`director_library.py`、`director_project_service.py`、`models.py`、`main.py`，`frontend/src/director/recipe-model.ts`、`recipe-execution.ts`、`director-api.ts`、`DirectorRecipeStudio.tsx`、`components/RecipeAssetWorkbench.tsx`、`index.css` 及对应测试。
+- 验证命令：`python -m pytest backend/tests -q`、`pnpm --dir frontend build`。浏览器检查导演台桌面 1440×900 与手机 390×844：身份肖像→定妆板、版本历史批准、资产库门禁、角色/地点/道具稳定绑定、超过 9 张参考图的提示和双主题弹层。
+- 回滚方式：恢复上述代码和前端构建产物后重启工作台；Recipe schema 2 为增量规范化，不需要数据库回滚。若需保留已生成候选图，可只回滚 UI/API 入口，历史 `imageUrl` 投影仍可读取。
+
 当前 `/api/modes` 注册以下视频工作流，并下发 `catalog_group` / `catalog_group_label` / `catalog_group_order` 供创作页分组：
 
 - LightX2V：`minimax-h3-lightx2v-t2v`（0 张）、`minimax-h3-lightx2v-i2v`（1-2 张首尾帧）、`minimax-h3-lightx2v-r2v`（1-9 张参考图）。默认 1.0 MP、快速 4 步、euler 采样，加载 `G:\ComfyUI-Models\lightx2v` 下的 LightX2V LoRA；官方 H3 三个模式的节点 ID 不改动。

@@ -1128,3 +1128,8 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 - 兼容性：仅新增前端显示状态和浏览器 `localStorage` 键 `zly-ai-video-studio.theme`；无 API、SQLite、任务、Recipe、工作流注册表、ComfyUI graph、节点 ID、模型路径或端口变化。旧浏览器记录缺失或非法时回退浅色。
 - 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。浏览器以 1440×900 和 390×844 检查两种主题、刷新记忆、账户菜单、导演台、管理后台与传送弹层。
 - 回滚方式：恢复上述前端主题相关文件和文档并重新构建前端；可选清除 `zly-ai-video-studio.theme`，无需迁移或回滚数据库、Recipe、媒体与 ComfyUI 资产。
+## 2026-08-31 导演台角色定妆与资产库
+
+导演台的角色定妆已升级为两阶段生产流程：先生成并批准身份肖像，再以肖像为唯一身份参考生成面部特写、正面全身、四分之三和背面四联定妆板。地点生成空场景母版，道具生成四视图转面图；每次候选都保留提示词和工作流快照，只有批准版本才会进入分镜参考图和员工资产库。
+
+分镜现在按稳定的角色/造型、地点和道具 ID 绑定参考资产，提交前会检查 MiniMax H3 最多 9 张参考图的限制并给出可操作提示。旧工程的 `imageUrl` / `imageJobId` 会自动兼容，不需要迁移。后端专项验证：`python -m pytest backend/tests -q`；前端验证：`pnpm --dir frontend build`。

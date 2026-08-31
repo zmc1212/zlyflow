@@ -8,7 +8,7 @@ import {
 } from "./types"
 import {
   defaultRecipeAudio, defaultRecipeExport, defaultRecipeSubtitles,
-  isBatchRunPayload, isRecipePayload,
+  ensureRecipeAssetSchema, isBatchRunPayload, isRecipePayload,
   type BatchRunPayload, type DirectorArtStyleCatalog, type RecipeProject,
 } from "./recipe-model"
 
@@ -202,14 +202,14 @@ export function listWorkflowModes() {
 
 export function recipePayloadFromApi(row: DirectorProjectResponse): RecipeProject | null {
   if (!isRecipePayload(row.payload)) return null
-  return {
+  return ensureRecipeAssetSchema({
     ...row.payload,
     videoWorkflowFamily: row.payload.videoWorkflowFamily || "official_h3",
     weightProfile: row.payload.weightProfile === "pruned" ? "pruned" : "full",
     audio: { ...defaultRecipeAudio(), ...row.payload.audio },
     subtitles: { ...defaultRecipeSubtitles(), ...row.payload.subtitles },
     export: { ...defaultRecipeExport(), ...row.payload.export },
-  }
+  })
 }
 
 export function batchPayloadFromApi(row: DirectorProjectResponse): BatchRunPayload | null {
@@ -550,7 +550,7 @@ export async function uploadDirectorLibraryAssetImage(assetId: string, file: Fil
 }
 
 export function saveRecipeAssetsToLibrary(
-  body: { project_id: string; character_ids?: string[]; location_ids?: string[] },
+  body: { project_id: string; character_ids?: string[]; location_ids?: string[]; prop_ids?: string[] },
   csrfToken: string,
 ) {
   return requestJson<{ imported: number; assets: DirectorLibraryAsset[] }>(

@@ -19,12 +19,15 @@ AGENT_IDS = (
     "research",
     "script",
     "art_style",
+    "storyboard",
     "characters",
     "locations",
-    "storyboard",
     "voice",
     "music",
     "media",
+)
+PIPELINE_AGENT_ORDER = (
+    "research", "script", "art_style", "characters", "locations", "storyboard", "voice", "music", "media",
 )
 AGENT_STATUSES = ("pending", "running", "completed", "failed")
 AGENT_RUNNING_MESSAGES = {
@@ -741,6 +744,9 @@ def _normalize_character_bindings(value: Any) -> list[dict[str, str]]:
 
 def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[str, Any]:
     item = _as_dict(raw)
+    explicit_bindings = item.get("characterBindings") is not None or item.get("character_bindings") is not None
+    explicit_location = item.get("locationId") is not None or item.get("location_id") is not None
+    explicit_props = item.get("propIds") is not None or item.get("prop_ids") is not None
     names = item.get("characterNames")
     if names is None:
         names = item.get("character_names")
@@ -774,6 +780,7 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
         "dialogue": normalize_dialogue(item.get("dialogue")),
         "characterNames": character_names,
         "characterBindings": bindings,
+        "assetBindingMode": "stable" if explicit_bindings or explicit_location or explicit_props else "legacy",
         "locationName": location_name,
         "locationId": _text(item.get("locationId"), item.get("location_id") or "") or None,
         "propIds": prop_ids,

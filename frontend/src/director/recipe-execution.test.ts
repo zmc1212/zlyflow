@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { createEmptyRecipe, createEmptyRecipeShot, type RecipeProject } from "./types"
+import { createEmptyRecipe, createEmptyRecipeCharacter, createEmptyRecipeShot, type RecipeProject } from "./types"
+import { ensureRecipeAssetSchema } from "./recipe-model"
 import {
   hasLatestShotSubmissionFailure,
+  mergeRecipeApprovedAssetState,
   mergeRecipeExecutionState,
   mergeRecipeShotFrameState,
   reconcileShotJobExecution,
@@ -126,5 +128,50 @@ describe("recipe execution merge", () => {
     const uploaded = mergeRecipeShotFrameState(current, incoming, "shot-1")
     expect(uploaded.scenes[0].shots[0].firstFrameUrl).toBe("/stale-frame.png")
     expect(uploaded.scenes[0].shots[0].title).toBe("本地镜头文案")
+  })
+
+  it("applies an explicit asset approval without dropping local character copy", () => {
+    const current = createEmptyRecipe("本地标题")
+    current.characters = [createEmptyRecipeCharacter({
+      id: "char-1",
+      name: "本地未保存名字",
+      description: "本地描述",
+      portrait: {
+        versions: [{
+          id: "ver-1", jobId: "job-1", imageUrl: "/p.png", status: "succeeded",
+          promptSnapshot: "", options: {}, createdAt: "2026-08-31T00:00:00Z",
+        }],
+        activeVersionId: "ver-1",
+        approvedVersionId: null,
+      },
+    })]
+    const incoming = JSON.parse(JSON.stringify(current)) as RecipeProject
+    incoming.characters[0].name = "服务端旧名字"
+    incoming.characters[0].portrait.approvedVersionId = "ver-1"
+    incoming.characters[0].imageUrl = "/p.png"
+    const merged = mergeRecipeApprovedAssetState(current, incoming)
+    expect(merged.characters[0].name).toBe("本地未保存名字")
+    expect(merged.characters[0].portrait.approvedVersionId).toBe("ver-1")
+    expect(merged.characters[0].imageUrl).toBe("/p.png")
+  })
+})
+
+describe("recipe asset schema", () => {
+  it("fills missing portrait and look renditions so character stage can render", () => {
+    const recipe = ensureRecipeAssetSchema({
+      ...createEmptyRecipe("空白角色"),
+      characters: [{
+        id: "char-1",
+        name: "侦探",
+        description: "风衣",
+        promptText: "detective",
+        gender: "male",
+        type: "character",
+      } as RecipeProject["characters"][number]],
+    })
+    expect(recipe.characters[0].portrait.versions).toEqual([])
+    expect(recipe.characters[0].looks[0].id).toBe("look-default")
+    expect(recipe.characters[0].looks[0].sheet.versions).toEqual([])
+    expect(recipe.characters[0].identitySpec.faceFeatures).toBe("")
   })
 })

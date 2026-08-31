@@ -1050,14 +1050,15 @@ def recipe_assets_as_slots(
         ]
 
     limit = max(0, H3_MAX_REFERENCE_IMAGES - max(0, int(reserve or 0)))
-    if len(combined) > limit:
+    has_stable_bindings = str(shot.get("assetBindingMode") or "") == "stable"
+    if len(combined) > limit and has_stable_bindings:
         labels = "、".join(str(item.get("name") or item.get("id") or "未命名资产") for item in combined)
         raise ValueError(
             f"当前镜头需要 {len(combined)} 张资产参考图，但留给资产的上限是 {limit} 张。"
             f"请拆分镜头或减少出镜资产：{labels}"
         )
     slots: list[dict[str, Any]] = []
-    for index, asset in enumerate(combined):
+    for index, asset in enumerate(combined[:limit]):
         reference_kind = str(asset.get("_referenceKind") or "")
         is_location = reference_kind == "scene" or str(asset.get("type") or "") in {"location", "scene"}
         is_prop = reference_kind == "prop" or str(asset.get("type") or "") == "object"

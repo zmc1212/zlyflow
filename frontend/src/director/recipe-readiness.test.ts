@@ -2,28 +2,27 @@ import { describe, expect, it } from "vitest"
 
 import {
   createEmptyRecipe,
+  createEmptyRecipeCharacter,
+  createEmptyRecipeLocation,
   parseRecipeStage,
   recipeReadiness,
   RECIPE_STAGE_GROUPS,
   RECIPE_STAGE_IDS,
   RecipeProject,
   RecipeShot,
+  createEmptyRecipeShot,
 } from "./types"
 
 function sampleShot(overrides?: Partial<RecipeShot>): RecipeShot {
   return {
+    ...createEmptyRecipeShot(1),
     id: "shot-1",
-    shotNumber: 1,
     title: "雨夜追车",
     description: "侦探穿过霓虹暗巷",
     promptText: "A medium shot of a detective walking through a neon alley.",
-    dialogue: "",
     characterNames: ["侦探"],
     locationName: "暗巷",
     durationSec: 5,
-    compiledPrompt: "",
-    status: "idle",
-    takes: [],
     ...overrides,
   }
 }
@@ -92,12 +91,12 @@ export function assertRecipeReadinessContract(): void {
     throw new Error("real shots without takes must be storyboard ready and shots draft")
   }
 
-  boarded.characters = [{
-    id: "c1", name: "侦探", description: "风衣", promptText: "detective", gender: "male", type: "character",
-  }]
-  boarded.locations = [{
+  boarded.characters = [createEmptyRecipeCharacter({
+    id: "c1", name: "侦探", description: "风衣", promptText: "detective", gender: "male",
+  })]
+  boarded.locations = [createEmptyRecipeLocation({
     id: "l1", name: "暗巷", description: "霓虹", promptText: "alley",
-  }]
+  })]
   const looksEmpty = recipeReadiness(boarded)
   if (looksEmpty.characters.level !== "draft" || looksEmpty.locations.level !== "draft") {
     throw new Error("named assets without imageUrl must be draft")
@@ -109,9 +108,9 @@ export function assertRecipeReadinessContract(): void {
     throw new Error("imageUrl must make character/location ready")
   }
 
-  boarded.characters.push({
-    id: "c2", name: "女人", description: "红伞", promptText: "woman", gender: "female", type: "character",
-  })
+  boarded.characters.push(createEmptyRecipeCharacter({
+    id: "c2", name: "女人", description: "红伞", promptText: "woman", gender: "female",
+  }))
   if (recipeReadiness(boarded).characters.level !== "partial") {
     throw new Error("some looks must be characters partial")
   }

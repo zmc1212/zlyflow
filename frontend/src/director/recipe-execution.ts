@@ -67,12 +67,12 @@ function mergeShotExecution(current: RecipeShot, incoming: RecipeShot): RecipeSh
 }
 
 function mergeRenditionExecution(
-  current: RecipeAssetRendition,
-  incoming: RecipeAssetRendition,
+  current: RecipeAssetRendition | undefined,
+  incoming: RecipeAssetRendition | undefined,
 ): RecipeAssetRendition {
-  const versions = current.versions.map((version) => ({ ...version }))
+  const versions = [...(current?.versions || [])].map((version) => ({ ...version }))
   const positions = new Map(versions.map((version, index) => [version.id, index] as const))
-  for (const version of incoming.versions || []) {
+  for (const version of incoming?.versions || []) {
     const position = positions.get(version.id)
     if (position === undefined) {
       positions.set(version.id, versions.length)
@@ -81,13 +81,13 @@ function mergeRenditionExecution(
       versions[position] = { ...versions[position], ...version }
     }
   }
-  const incomingApproved = versions.find((version) => version.id === incoming.approvedVersionId)
+  const incomingApproved = versions.find((version) => version.id === incoming?.approvedVersionId)
   return {
     versions,
-    activeVersionId: incoming.activeVersionId || current.activeVersionId,
+    activeVersionId: incoming?.activeVersionId || current?.activeVersionId,
     approvedVersionId: incomingApproved?.autoApprove
-      ? incoming.approvedVersionId
-      : current.approvedVersionId,
+      ? incoming?.approvedVersionId
+      : current?.approvedVersionId,
   }
 }
 
@@ -161,6 +161,53 @@ export function mergeRecipeExecutionState(current: RecipeProject, incoming: Reci
     pipelineRun: incoming.pipelineRun,
     audio: audio as RecipeProject["audio"],
     export: exportState as RecipeProject["export"],
+  }
+}
+
+/** Apply an explicit user approval without dropping unsaved creative edits. */
+export function mergeRecipeApprovedAssetState(current: RecipeProject, incoming: RecipeProject): RecipeProject {
+  const merged = mergeRecipeExecutionState(current, incoming)
+  const characters = new Map(incoming.characters.map((item) => [item.id, item]))
+  const locations = new Map(incoming.locations.map((item) => [item.id, item]))
+  const props = new Map(incoming.props.map((item) => [item.id, item]))
+  return {
+    ...merged,
+    characters: merged.characters.map((item) => {
+      const source = characters.get(item.id)
+      if (!source) return item
+      return {
+        ...item,
+        portrait: { ...item.portrait, approvedVersionId: source.portrait?.approvedVersionId ?? item.portrait?.approvedVersionId },
+        looks: (item.looks || []).map((look) => {
+          const sourceLook = source.looks?.find((entry) => entry.id === look.id)
+          return sourceLook
+            ? { ...look, sheet: { ...look.sheet, approvedVersionId: sourceLook.sheet?.approvedVersionId ?? look.sheet?.approvedVersionId } }
+            : look
+        }),
+        imageUrl: source.imageUrl ?? item.imageUrl,
+        imageJobId: source.imageJobId ?? item.imageJobId,
+      }
+    }),
+    locations: merged.locations.map((item) => {
+      const source = locations.get(item.id)
+      if (!source) return item
+      return {
+        ...item,
+        plate: { ...item.plate, approvedVersionId: source.plate?.approvedVersionId ?? item.plate?.approvedVersionId },
+        imageUrl: source.imageUrl ?? item.imageUrl,
+        imageJobId: source.imageJobId ?? item.imageJobId,
+      }
+    }),
+    props: merged.props.map((item) => {
+      const source = props.get(item.id)
+      if (!source) return item
+      return {
+        ...item,
+        turnaround: { ...item.turnaround, approvedVersionId: source.turnaround?.approvedVersionId ?? item.turnaround?.approvedVersionId },
+        imageUrl: source.imageUrl ?? item.imageUrl,
+        imageJobId: source.imageJobId ?? item.imageJobId,
+      }
+    }),
   }
 }
 

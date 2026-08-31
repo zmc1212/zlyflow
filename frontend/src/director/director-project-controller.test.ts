@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { ApiRequestError } from "../api"
-import { createEmptyRecipe, createEmptyRecipeShot } from "./types"
+import { createEmptyRecipe, createEmptyRecipeCharacter, createEmptyRecipeShot } from "./types"
 import {
   directorFailureMessage,
   mergeInsertedDirectorAssets,
@@ -38,27 +38,23 @@ describe("director project controller", () => {
 
   it("adds only requested library assets without replacing local edits", () => {
     const current = createEmptyRecipe("本地标题")
-    current.characters = [{
+    current.characters = [createEmptyRecipeCharacter({
       id: "local-character",
       name: "本地人物",
-      type: "character",
       description: "刚改的描述",
       promptText: "local",
-      gender: "",
       libraryAssetId: "library-local",
-    }]
+    })]
     const incoming = createEmptyRecipe("服务端旧标题")
     incoming.characters = [
       { ...current.characters[0], description: "服务端旧描述" },
-      {
+      createEmptyRecipeCharacter({
         id: "new-character",
         name: "资产人物",
-        type: "character",
         description: "资产库",
         promptText: "asset",
-        gender: "",
         libraryAssetId: "library-new",
-      },
+      }),
     ]
     const merged = mergeInsertedDirectorAssets(current, incoming, ["library-new"])
     expect(merged.script.title).toBe("本地标题")

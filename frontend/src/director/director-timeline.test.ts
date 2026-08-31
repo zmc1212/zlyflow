@@ -18,6 +18,8 @@ import {
   RECIPE_TRACK_MIN_CLIP_PX,
   assignRecipeShotPlate,
   createEmptyRecipe,
+  createEmptyRecipeCharacter,
+  createEmptyRecipeLocation,
   createEmptyRecipeShot,
   duplicateRecipeShot,
   flattenRecipeShots,
@@ -60,11 +62,11 @@ function withShots(shots: RecipeShot[]): RecipeProject {
   return {
     ...recipe,
     characters: [
-      { id: "c1", name: "侦探", description: "风衣", promptText: "detective", gender: "male", type: "character", imageUrl: "/c1.png" },
-      { id: "c2", name: "女人", description: "红伞", promptText: "woman", gender: "female", type: "character", imageUrl: "/c2.png" },
+      createEmptyRecipeCharacter({ id: "c1", name: "侦探", description: "风衣", promptText: "detective", gender: "male", imageUrl: "/c1.png" }),
+      createEmptyRecipeCharacter({ id: "c2", name: "女人", description: "红伞", promptText: "woman", gender: "female", imageUrl: "/c2.png" }),
     ],
     locations: [
-      { id: "l1", name: "暗巷", description: "霓虹", promptText: "alley", imageUrl: "/l1.png" },
+      createEmptyRecipeLocation({ id: "l1", name: "暗巷", description: "霓虹", promptText: "alley", imageUrl: "/l1.png" }),
     ],
     scenes: [{
       id: "sc1",
@@ -181,16 +183,12 @@ export function assertDirectorTimelineContract(): void {
     locationName: "暗巷",
   })
   const crowdedRecipe = createEmptyRecipe()
-  crowdedRecipe.characters = Array.from({ length: 9 }, (_, index) => ({
+  crowdedRecipe.characters = Array.from({ length: 9 }, (_, index) => createEmptyRecipeCharacter({
     id: `c${index + 1}`,
     name: String(index + 1),
-    description: "",
-    promptText: "",
-    gender: "unspecified" as const,
-    type: "character" as const,
     imageUrl: `/${index + 1}.png`,
   }))
-  crowdedRecipe.locations = [{ id: "l1", name: "暗巷", description: "", promptText: "", imageUrl: "/l1.png" }]
+  crowdedRecipe.locations = [createEmptyRecipeLocation({ id: "l1", name: "暗巷", imageUrl: "/l1.png" })]
   const overflow = assignRecipeShotPlate(crowdedRecipe, crowded, { name: "9", kind: "character" })
   if (!overflow.rejected || overflow.shot.characterNames.includes("9")) {
     throw new Error("assignRecipeShotPlate must reject a 10th packed plate")

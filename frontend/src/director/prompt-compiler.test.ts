@@ -11,7 +11,7 @@ import {
   resolveShotSubmission,
   snapH3DurationSec,
 } from "./prompt-compiler"
-import { applyRecipeOutputSettings, createEmptyRecipe, createEmptyShot, createInitialSubjectSlots, defaultCameraDirection, RecipeShot, TimelineProject } from "./types"
+import { applyRecipeOutputSettings, createEmptyRecipe, createEmptyRecipeCharacter, createEmptyRecipeLocation, createEmptyRecipeShot, createEmptyShot, createInitialSubjectSlots, defaultCameraDirection, RecipeShot, TimelineProject } from "./types"
 
 function sampleProject(overrides?: Partial<TimelineProject>): TimelineProject {
   const slots = createInitialSubjectSlots()
@@ -187,37 +187,31 @@ export function assertPromptCompilerContract(): void {
     name: "漫画墨线",
     promptPrefix: "Bold comic-book ink style, heavy linework, red and blue-black palette, night city",
   }
-  recipePreview.characters = [{
+  recipePreview.characters = [createEmptyRecipeCharacter({
     id: "c1",
     name: "小超人",
     description: "红披风小男孩",
     promptText: "little boy superhero with red cape",
     gender: "male",
-    type: "character",
     imageUrl: "data:image/png;base64,boy",
-  }]
-  recipePreview.locations = [{
+  })]
+  recipePreview.locations = [createEmptyRecipeLocation({
     id: "l1",
     name: "夜城屋顶",
     description: "夜城屋顶",
     promptText: "night city rooftop",
     imageUrl: "data:image/png;base64,roof",
-  }]
+  })]
   const recipeShot: RecipeShot = {
+    ...createEmptyRecipeShot(1, 8),
     id: "shot-1",
-    shotNumber: 1,
     title: "屋顶宣言",
     description: "小超人在屋顶宣告",
     promptText: "A top-down view of the little boy superhero on the rooftop, red cape fluttering. The camera slowly descends toward him as he looks straight up.",
     dialogue: "GET READY TO MEET YOUR MAKER",
     characterNames: ["小超人"],
     locationName: "夜城屋顶",
-    durationSec: 8,
-    compiledPrompt: "",
-    status: "idle",
-    takes: [],
     firstFrameUrl: "data:image/png;base64,first",
-    camera: defaultCameraDirection(),
   }
   recipePreview.scenes = [{ id: "sc1", sceneNumber: 1, title: "屋顶", description: "", locationName: "夜城屋顶", shots: [recipeShot] }]
   const recipeCompiled = compileRecipeShotPreview(recipePreview, recipeShot)

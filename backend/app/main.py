@@ -1743,6 +1743,7 @@ def save_director_library_assets_from_recipe(
             record["payload"],
             character_ids=payload.character_ids,
             location_ids=payload.location_ids,
+            prop_ids=payload.prop_ids,
         )
     except DirectorLibraryError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

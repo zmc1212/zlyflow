@@ -25,6 +25,7 @@ import {
 import { useMemo, useState } from "react"
 import MediaPreviewModal from "../../components/MediaPreviewModal"
 import {
+  emptyRecipeIdentitySpec,
   recipeActiveAssetVersion,
   recipeApprovedAssetVersion,
   type RecipeAssetRendition,
@@ -179,10 +180,12 @@ export function CharacterAssetCard({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const look = character.looks[0]
-  const portraitApproved = recipeApprovedAssetVersion(character.portrait)
+  const look = character.looks?.[0]
+  const portrait = character.portrait || { versions: [] }
+  const identitySpec = { ...emptyRecipeIdentitySpec(), ...(character.identitySpec || {}) }
+  const portraitApproved = recipeApprovedAssetVersion(portrait)
   const sheetApproved = recipeApprovedAssetVersion(look?.sheet)
-  const portraitState = renditionPreview(character.portrait, jobs)
+  const portraitState = renditionPreview(portrait, jobs)
   const sheetState = look ? renditionPreview(look.sheet, jobs) : { status: "idle", progress: 0 }
   const shown = sheetApproved
     ? versionImage(sheetApproved, jobs)
@@ -193,17 +196,17 @@ export function CharacterAssetCard({
   const nextLabel = portraitApproved
     ? sheetApproved ? "生成新定妆候选" : "生成四视角定妆板"
     : "生成身份肖像"
-  const totalVersions = character.portrait.versions.length + (look?.sheet.versions.length || 0)
+  const totalVersions = portrait.versions.length + (look?.sheet.versions.length || 0)
   const assumptions = character.aiAssumptions || []
 
   const historyItems = useMemo(() => [
     {
       key: "portrait",
-      label: `身份肖像 ${character.portrait.versions.length}`,
+      label: `身份肖像 ${portrait.versions.length}`,
       children: (
         <AssetVersionHistory
-          rendition={character.portrait}
-          approvedVersionId={character.portrait.approvedVersionId}
+          rendition={portrait}
+          approvedVersionId={portrait.approvedVersionId}
           jobs={jobs}
           approveLabel="批准为身份锚点"
           onApprove={(versionId) => onApprove("character_portrait", versionId)}
@@ -215,15 +218,15 @@ export function CharacterAssetCard({
       label: `定妆板 ${look?.sheet.versions.length || 0}`,
       children: look ? (
         <AssetVersionHistory
-          rendition={look.sheet}
-          approvedVersionId={look.sheet.approvedVersionId}
+          rendition={look.sheet || { versions: [] }}
+          approvedVersionId={look.sheet?.approvedVersionId}
           jobs={jobs}
           approveLabel="批准这版定妆"
           onApprove={(versionId) => onApprove("character_sheet", versionId, look.id)}
         />
       ) : <Empty description="还没有角色造型" />,
     },
-  ], [character.portrait, jobs, look, onApprove])
+  ], [portrait, jobs, look, onApprove])
 
   return (
     <Card className="director-asset-card director-character-card" size="small">
@@ -285,7 +288,7 @@ export function CharacterAssetCard({
         </Button>
       </div>
 
-      <Drawer title={`${character.name} · 角色规格`} open={detailsOpen} onClose={() => setDetailsOpen(false)} width={560}>
+      <Drawer className="director-asset-drawer" title={`${character.name} · 角色规格`} open={detailsOpen} onClose={() => setDetailsOpen(false)} width={560}>
         <div className="director-character-spec-form">
           <label><span>角色定位</span><Input value={character.role} onChange={(event) => onChange({ role: event.target.value })} /></label>
           <label><span>用户可读描述</span><Input.TextArea value={character.description} autoSize={{ minRows: 3, maxRows: 6 }} onChange={(event) => onChange({ description: event.target.value })} /></label>
@@ -295,11 +298,11 @@ export function CharacterAssetCard({
               <label key={field.key}>
                 <span>{field.label}</span>
                 <Input.TextArea
-                  value={character.identitySpec[field.key]}
+                  value={identitySpec[field.key]}
                   placeholder={field.placeholder}
                   autoSize={{ minRows: 2, maxRows: 4 }}
                   onChange={(event) => onChange({
-                    identitySpec: { ...character.identitySpec, [field.key]: event.target.value },
+                    identitySpec: { ...identitySpec, [field.key]: event.target.value },
                   })}
                 />
               </label>
@@ -320,10 +323,10 @@ export function CharacterAssetCard({
               children: (
                 <Space direction="vertical" size="middle" style={{ width: "100%" }}>
                   <Input value={look.name} onChange={(event) => onChange({
-                    looks: character.looks.map((item) => item.id === look.id ? { ...item, name: event.target.value } : item),
+                    looks: (character.looks || []).map((item) => item.id === look.id ? { ...item, name: event.target.value } : item),
                   })} />
                   <Input.TextArea value={look.appearanceDetails} autoSize={{ minRows: 4, maxRows: 8 }} onChange={(event) => onChange({
-                    looks: character.looks.map((item) => item.id === look.id ? { ...item, appearanceDetails: event.target.value } : item),
+                    looks: (character.looks || []).map((item) => item.id === look.id ? { ...item, appearanceDetails: event.target.value } : item),
                   })} />
                 </Space>
               ),
@@ -331,7 +334,7 @@ export function CharacterAssetCard({
           ) : null}
         </div>
       </Drawer>
-      <Drawer title={`${character.name} · 候选历史`} open={historyOpen} onClose={() => setHistoryOpen(false)} width={680}>
+      <Drawer className="director-asset-drawer" title={`${character.name} · 候选历史`} open={historyOpen} onClose={() => setHistoryOpen(false)} width={680}>
         <Tabs items={historyItems} />
       </Drawer>
       {shown ? (
@@ -362,7 +365,7 @@ export function SimpleRenditionAssetCard({
 }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const rendition = "plate" in asset ? asset.plate : asset.turnaround
+  const rendition = ("plate" in asset ? asset.plate : asset.turnaround) || { versions: [] }
   const approved = recipeApprovedAssetVersion(rendition)
   const state = renditionPreview(rendition, jobs)
   const imageUrl = versionImage(approved, jobs) || state.imageUrl
@@ -389,7 +392,7 @@ export function SimpleRenditionAssetCard({
       <Button type="text" icon={<Library size={14} />} disabled={!approved} onClick={onSaveToLibrary} className="director-asset-save">
         {approved ? "将已批准版本存入资产库" : "批准后可存入资产库"}
       </Button>
-      <Drawer title={`${asset.name} · 候选历史`} open={historyOpen} onClose={() => setHistoryOpen(false)} width={680}>
+      <Drawer className="director-asset-drawer" title={`${asset.name} · 候选历史`} open={historyOpen} onClose={() => setHistoryOpen(false)} width={680}>
         <AssetVersionHistory rendition={rendition} approvedVersionId={rendition.approvedVersionId} jobs={jobs} approveLabel={`批准这版${noun}`} onApprove={onApprove} />
       </Drawer>
       {imageUrl ? <MediaPreviewModal open={previewOpen} kind="image" src={imageUrl} title={asset.name} description={asset.description} onClose={() => setPreviewOpen(false)} /> : null}

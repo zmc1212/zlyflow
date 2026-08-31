@@ -112,6 +112,106 @@ class DirectorArtStyleCatalogTests(unittest.TestCase):
 
 
 class DirectorRecipeModelTests(unittest.TestCase):
+    def test_structured_assets_keep_identity_spec_and_stable_shot_bindings(self) -> None:
+        payload = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "characters": [{
+                "id": "char-ada",
+                "name": "艾达",
+                "type": "character",
+                "identitySpec": {
+                    "ageRange": "30-35",
+                    "faceFeatures": "sharp jaw and a small scar under the left eye",
+                    "immutableAccessories": "silver compass",
+                },
+                "looks": [{
+                    "id": "look-raincoat",
+                    "name": "雨夜风衣",
+                    "promptText": "dark waterproof trench coat",
+                }],
+            }],
+            "props": [{
+                "id": "prop-watch",
+                "name": "怀表",
+                "description": "金色机械怀表",
+            }],
+            "locations": [{"id": "loc-alley", "name": "雨巷", "promptText": "wet stone alley"}],
+            "scenes": [{"shots": [{
+                "id": "shot-1",
+                "characterBindings": [{"characterId": "char-ada", "lookId": "look-raincoat"}],
+                "locationId": "loc-alley",
+                "propIds": ["prop-watch"],
+            }]}],
+        })
+        character = payload["characters"][0]
+        shot = payload["scenes"][0]["shots"][0]
+        self.assertEqual(payload["assetSchemaVersion"], 2)
+        self.assertEqual(character["identitySpec"]["ageRange"], "30-35")
+        self.assertEqual(character["looks"][0]["id"], "look-raincoat")
+        self.assertEqual(payload["props"][0]["id"], "prop-watch")
+        self.assertEqual(shot["characterBindings"][0]["characterId"], "char-ada")
+        self.assertEqual(shot["locationId"], "loc-alley")
+        self.assertEqual(shot["propIds"], ["prop-watch"])
+        self.assertEqual(shot["assetBindingMode"], "stable")
+
+    def test_asset_prompts_require_identity_portrait_and_turnaround_views(self) -> None:
+        from backend.app.director_jobs import (
+            compile_character_portrait_prompt,
+            compile_character_sheet_prompt,
+            compile_location_plate_prompt,
+            compile_prop_turnaround_prompt,
+        )
+
+        recipe = normalize_recipe_payload({"kind": PAYLOAD_KIND_RECIPE, "artStyle": {"id": "as_1001"}})
+        character = {
+            "name": "艾达",
+            "promptText": "woman detective",
+            "identitySpec": {"faceFeatures": "sharp jaw", "avoidChanges": "do not change the scar"},
+        }
+        portrait = compile_character_portrait_prompt(character, recipe)
+        sheet = compile_character_sheet_prompt(character, {"name": "雨夜风衣", "promptText": "dark coat"}, recipe)
+        self.assertIn("stable facial geometry", portrait)
+        self.assertIn("<Picture 1>", sheet)
+        self.assertIn("four-panel production character sheet", sheet)
+        self.assertIn("back full-body view", sheet)
+        self.assertIn("single object production turnaround sheet", compile_prop_turnaround_prompt({"name": "怀表"}, recipe))
+        self.assertIn("empty production environment master plate", compile_location_plate_prompt({"name": "雨巷"}, recipe))
+
+    def test_approving_succeeded_asset_version_promotes_it_as_reference(self) -> None:
+        from backend.app.director_compiler import recipe_assets_as_slots
+        from backend.app.director_jobs import approve_recipe_asset_version
+
+        recipe = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "characters": [{
+                "id": "char-ada",
+                "name": "艾达",
+                "portrait": {"versions": [{
+                    "id": "portrait-v1",
+                    "jobId": "job-portrait",
+                    "status": "succeeded",
+                    "imageUrl": "/api/jobs/job-portrait/outputs/0/download",
+                }], "activeVersionId": "portrait-v1"},
+            }],
+            "scenes": [{"shots": [{
+                "characterBindings": [{"characterId": "char-ada"}],
+                "assetBindingMode": "stable",
+            }]}],
+        })
+        self.assertEqual(recipe_assets_as_slots(recipe, recipe["scenes"][0]["shots"][0]), [])
+        approved = approve_recipe_asset_version(
+            recipe,
+            kind="character_portrait",
+            asset_id="char-ada",
+            version_id="portrait-v1",
+        )
+        character = approved["characters"][0]
+        self.assertEqual(character["portrait"]["approvedVersionId"], "portrait-v1")
+        slots = recipe_assets_as_slots(approved, approved["scenes"][0]["shots"][0])
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]["assetId"], "char-ada")
+        self.assertEqual(slots[0]["previewUrl"], "/api/jobs/job-portrait/outputs/0/download")
+
     def test_recipe_art_style_must_come_from_catalog(self) -> None:
         with self.assertRaises(DirectorPayloadError):
             normalize_recipe_payload({
@@ -1726,6 +1826,23 @@ class DirectorJobCreateStatusTests(unittest.TestCase):
 
 
 class DirectorAgentPipelineTests(unittest.TestCase):
+    def test_character_agent_does_not_erase_user_identity_spec_on_sparse_output(self) -> None:
+        from backend.app.director_agents import _apply_characters
+
+        recipe = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "characters": [{
+                "id": "char-ada",
+                "name": "艾达",
+                "identitySpec": {"faceFeatures": "sharp jaw", "avoidChanges": "scar stays"},
+                "specStatus": "approved",
+            }],
+        })
+        _apply_characters(recipe, {"characters": [{"name": "艾达", "description": "女侦探"}]})
+        character = recipe["characters"][0]
+        self.assertEqual(character["identitySpec"]["faceFeatures"], "sharp jaw")
+        self.assertEqual(character["specStatus"], "approved")
+
     def test_art_style_agent_rejects_invented_catalog_id(self) -> None:
         from backend.app.director_agents import run_agent
 
