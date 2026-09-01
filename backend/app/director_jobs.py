@@ -256,6 +256,39 @@ def materialize_job_output_file(
     return None
 
 
+def revert_orphaned_shot_submissions(
+    recipe: dict[str, Any],
+    *,
+    shot_ids: list[str] | set[str] | None = None,
+) -> dict[str, Any]:
+    """Clear queued/running snapshots that never received a backend job.
+
+    Render preparation can persist an intermediate queued state before ComfyUI
+    submission; cancel or failure mid-flight leaves the shot stuck forever.
+    """
+    wanted = {item for item in (shot_ids or []) if item}
+    for shot in flatten_recipe_shots(recipe):
+        if wanted and shot.get("id") not in wanted:
+            continue
+        job_id = str(shot.get("jobId") or "").strip()
+        status = str(shot.get("status") or "idle")
+        if status not in {JobStatus.QUEUED.value, JobStatus.RUNNING.value} or job_id:
+            continue
+        takes = [take for take in (shot.get("takes") or []) if isinstance(take, dict)]
+        fallback_take = preferred_usable_take(shot, takes)
+        if fallback_take is not None or shot.get("outputVideoUrl"):
+            shot["status"] = JobStatus.SUCCEEDED.value
+            shot["progress"] = 100
+            if fallback_take is not None and fallback_take.get("videoUrl"):
+                shot["outputVideoUrl"] = fallback_take["videoUrl"]
+            shot["error"] = None
+        else:
+            shot["status"] = "idle"
+            shot["progress"] = 0
+            shot["error"] = None
+    return recipe
+
+
 def sync_recipe_asset_images(
     store: JobStore,
     recipe: dict[str, Any],
@@ -263,6 +296,7 @@ def sync_recipe_asset_images(
     resource_storage: Any | None = None,
 ) -> dict[str, Any]:
     recipe = normalize_recipe_payload(recipe)
+    revert_orphaned_shot_submissions(recipe)
     for _kind, _asset, _look, rendition in _iter_asset_renditions(recipe):
         for version in rendition.get("versions") or []:
             if not isinstance(version, dict):
@@ -1045,10 +1079,6 @@ def render_recipe_shots(
                 "t2v",
             )
         shot["jobId"] = None
-        shot["status"] = "queued"
-        shot["progress"] = 4
-        if on_progress is not None:
-            on_progress(recipe)
         if h3_prompt_refiner is not None and (refs or not plan_items):
             try:
                 prompt_mode = h3_prompt_mode(submission.get("plan") or {})

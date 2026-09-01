@@ -5,7 +5,7 @@ import {
   RefreshCw, Sparkles, Star, Trash2, Video, Volume2, X,
 } from "lucide-react"
 import React, { useRef, useState } from "react"
-import { fileToDataUrl } from "../director-submit"
+import { fileToDataUrl, shotHasActiveRender } from "../director-submit"
 import { H3_MAX_DURATION_SEC, H3_MIN_DURATION_SEC, DirectorRenderPass, directorRenderPassLabel, snapH3DurationSec } from "../prompt-compiler"
 import {
   DirectorShot, ShotTake, SubjectSlot,
@@ -88,7 +88,7 @@ export default function ShotInspectorDrawer({
     message.success(`已将 Take ${targetTake.takeNumber} 设为定版镜头`)
   }
 
-  const isRendering = shot.status === "queued" || shot.status === "running" || shot.status === "interrupted"
+  const isRendering = shotHasActiveRender(shot)
 
   return (
     <Drawer

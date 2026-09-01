@@ -13,6 +13,7 @@ import {
 } from "react"
 import type { RefObject } from "react"
 import { directorStatusLabel } from "../status-labels"
+import { shotHasActiveRender } from "../director-submit"
 import type { RecipeShot } from "../recipe-model"
 import {
   directorFramesToSeconds,
@@ -64,13 +65,16 @@ type BlankGesture =
   | { kind: "panning"; pointerId: number; originClientX: number; originScrollLeft: number }
 
 function statusCopy(shot: RecipeShot) {
+  if (!shotHasActiveRender(shot)) {
+    return directorStatusLabel(shot.status === "queued" ? "idle" : shot.status)
+  }
   if (shot.status === "running") return `生成中 ${shot.progress || 0}%`
   return directorStatusLabel(shot.status)
 }
 
 function clipTone(shot: RecipeShot, selected: boolean, checked: boolean) {
   if (selected) return "director-clip-selected"
-  if (shot.status === "running" || shot.status === "queued") return "director-clip-running"
+  if (shotHasActiveRender(shot)) return "director-clip-running"
   if (shot.status === "succeeded") return "director-clip-success"
   if (checked) return "director-clip-checked"
   return "director-clip-idle"
@@ -406,7 +410,7 @@ export default function TimelineTrackMain({
           </div>
           <div className="director-track-row director-track-row-status">
             {layout.map(({ shot, left, width }) => {
-              const running = shot.status === "running" || shot.status === "queued"
+              const running = shotHasActiveRender(shot)
               const done = shot.status === "succeeded"
               return (
                 <div key={shot.id} className={`director-status-bar ${running ? "is-running" : ""} ${done ? "is-success" : ""}`} style={{ left: `${left}px`, width: `${width}px` }}>

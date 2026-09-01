@@ -196,6 +196,16 @@ export function mergeDirectorStatus(current: DirectorJobStatus | "idle", incomin
   return incoming
 }
 
+export function shotHasActiveRender(shot: {
+  status?: string
+  jobId?: string | null
+  stillJobId?: string | null
+}): boolean {
+  if (shot.status === "running" || shot.status === "interrupted") return true
+  if (shot.status === "queued" && Boolean(shot.jobId || shot.stillJobId)) return true
+  return false
+}
+
 export function jobProgressFromJob(job: DirectorJobSnapshot | null | undefined, fallback = 0): number {
   if (shotStatusFromJob(job) === "succeeded") return 100
   const progress = job?.progress
@@ -221,8 +231,7 @@ function runningProgressLabel(
   progress: number,
 ): string {
   const stage = (job?.stage || "").trim()
-  if (!stage || stage === "等待排队") return `${runningLabel} ${progress}%`
-  if (isPrepareStage(stage)) return stage
+  if (!stage || stage === "等待排队" || isPrepareStage(stage)) return `${runningLabel} ${progress}%`
   return `${stage} ${progress}%`
 }
 
@@ -243,7 +252,8 @@ function mediaGenerationState(
     || fallbackStatus === "interrupted"
     || fallbackStatus === "cancelled"
   ) ? fallbackStatus : null
-  const jobStatus = fromJob || fromFallback || (jobId && !resultUrl ? "queued" : null)
+  const orphanedQueued = fromFallback === "queued" && !jobId && !resultUrl
+  const jobStatus = fromJob || (orphanedQueued ? null : fromFallback) || (jobId && !resultUrl ? "queued" : null)
   if (jobStatus === "failed" || jobStatus === "interrupted" || jobStatus === "cancelled") {
     const label = jobStatus === "failed" ? `${noun}失败` : jobStatus === "cancelled" ? "已取消" : "已中断"
     return {
@@ -294,7 +304,7 @@ export function shotGenerationState(
   jobId?: string | null,
   fallback?: { status?: string; progress?: number },
 ): AssetGenerationState {
-  return mediaGenerationState(job, outputVideoUrl, jobId, "出片", "出片中", fallback)
+  return mediaGenerationState(job, outputVideoUrl, jobId, "出片", "生成中", fallback)
 }
 
 export function overlaySubmittingState(

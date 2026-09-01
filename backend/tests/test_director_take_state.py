@@ -91,6 +91,56 @@ class DirectorTakeStateTests(unittest.TestCase):
         self.assertEqual(shot["takes"][-1]["status"], "failed")
         self.assertTrue(shot_is_muxable(shot))
 
+    def test_orphaned_queued_shot_without_job_is_reverted_to_idle(self) -> None:
+        recipe = normalize_recipe_payload({
+            "kind": "director_recipe",
+            "scenes": [{
+                "id": "scene-1",
+                "shots": [{
+                    "id": "shot-1",
+                    "title": "镜头",
+                    "description": "雨夜",
+                    "durationSec": 5,
+                    "status": "queued",
+                    "progress": 4,
+                    "jobId": None,
+                }],
+            }],
+        })
+        shot = flatten_recipe_shots(sync_recipe_asset_images(self.store, recipe))[0]
+        self.assertEqual(shot["status"], "idle")
+        self.assertEqual(shot["progress"], 0)
+        self.assertIsNone(shot.get("jobId"))
+
+    def test_orphaned_queued_shot_restores_previous_take(self) -> None:
+        recipe = normalize_recipe_payload({
+            "kind": "director_recipe",
+            "scenes": [{
+                "id": "scene-1",
+                "shots": [{
+                    "id": "shot-1",
+                    "title": "镜头",
+                    "description": "雨夜",
+                    "durationSec": 5,
+                    "status": "queued",
+                    "progress": 4,
+                    "jobId": None,
+                    "outputVideoUrl": "/old.mp4",
+                    "takes": [{
+                        "id": "take-old",
+                        "jobId": "job-old",
+                        "status": "succeeded",
+                        "progress": 100,
+                        "videoUrl": "/old.mp4",
+                        "createdAt": "2026-08-30T00:00:00Z",
+                    }],
+                }],
+            }],
+        })
+        shot = flatten_recipe_shots(sync_recipe_asset_images(self.store, recipe))[0]
+        self.assertEqual(shot["status"], "succeeded")
+        self.assertEqual(shot["outputVideoUrl"], "/old.mp4")
+
     def test_failed_current_job_without_old_take_stays_failed(self) -> None:
         self._create_job("job-new")
         self.store.update("job-new", status=JobStatus.FAILED, error="ComfyUI OOM")
