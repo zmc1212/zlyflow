@@ -149,6 +149,13 @@ export interface RecipeShot {
   camera?: CameraDirection
   soundscape?: string
   soundscapeEn?: string
+  timingNote?: string
+  /** English opening state compiled into the independent H3 clip. */
+  continuityIn?: string
+  /** English final-frame state compiled into the independent H3 clip. */
+  continuityOut?: string
+  /** Chinese cut note for the editor; not sent to H3. */
+  transitionNote?: string
   error?: string | null
   firstFrameUrl?: string | null
   firstFramePath?: string | null
@@ -358,6 +365,41 @@ export function recipeActiveAssetVersion(rendition: RecipeAssetRendition | undef
 
 export function recipeApprovedAssetVersion(rendition: RecipeAssetRendition | undefined): RecipeAssetVersion | undefined {
   return recipeRenditionVersion(rendition, rendition?.approvedVersionId)
+}
+
+export type RecipeAssetJobStatusSource = { id: string; status?: string }
+
+export function recipeAssetVersionRuntimeStatus(
+  version: RecipeAssetVersion | undefined,
+  jobs?: RecipeAssetJobStatusSource[],
+): string {
+  if (!version) return "idle"
+  const job = version.jobId ? jobs?.find((item) => item.id === version.jobId) : undefined
+  return job?.status || version.status || "idle"
+}
+
+/** Latest succeeded candidate that is not yet the approved version. */
+export function recipeApprovableAssetVersion(
+  rendition: RecipeAssetRendition | undefined,
+  jobs?: RecipeAssetJobStatusSource[],
+): RecipeAssetVersion | undefined {
+  if (!rendition?.versions?.length) return undefined
+
+  const pick = (version: RecipeAssetVersion | undefined): RecipeAssetVersion | undefined => {
+    if (!version || version.id === rendition.approvedVersionId) return undefined
+    const status = recipeAssetVersionRuntimeStatus(version, jobs)
+    if (status === "succeeded" && version.imageUrl) return version
+    return undefined
+  }
+
+  const activePick = pick(recipeActiveAssetVersion(rendition))
+  if (activePick) return activePick
+
+  for (let index = rendition.versions.length - 1; index >= 0; index -= 1) {
+    const candidate = pick(rendition.versions[index])
+    if (candidate) return candidate
+  }
+  return undefined
 }
 
 export interface BatchRunItem {

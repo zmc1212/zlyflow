@@ -283,24 +283,24 @@ export function assertPromptCompilerContract(): void {
     throw new Error("queued storyboard jobs must show 出片 progress")
   }
   const runningShotZero = shotGenerationState({ status: "running", progress: 0 }, null, "shot-job-0")
-  if (!runningShotZero.generating || runningShotZero.progress !== 8 || runningShotZero.label !== "出片中 8%") {
-    throw new Error("running storyboard jobs at 0% must still show a visible 出片 bar")
+  if (!runningShotZero.generating || runningShotZero.progress !== 8 || runningShotZero.label !== "生成中 8%") {
+    throw new Error("running storyboard jobs at 0% must still show a visible generation bar")
   }
   const switchingShot = shotGenerationState(
     { status: "running", stage: "正在切换工作流", progress: 5 },
     null,
     "shot-job-switch",
   )
-  if (!switchingShot.generating || switchingShot.label !== "正在切换工作流" || switchingShot.progress !== 5) {
-    throw new Error("storyboard must wait on workflow switch instead of showing 出片中")
+  if (!switchingShot.generating || switchingShot.label !== "生成中 5%" || switchingShot.progress !== 5) {
+    throw new Error("storyboard prepare stages must show 生成中 instead of backend workflow stage")
   }
   const preparingShot = shotGenerationState(
     { status: "running", stage: "正在准备任务", progress: 0 },
     null,
     "shot-job-prep",
   )
-  if (preparingShot.label !== "正在准备任务" || preparingShot.progress !== 0) {
-    throw new Error("preparing storyboard jobs must not fake 出片中 8%")
+  if (preparingShot.label !== "生成中 0%" || preparingShot.progress !== 0) {
+    throw new Error("preparing storyboard jobs must not fake 生成中 8%")
   }
   const samplingShot = shotGenerationState(
     { status: "running", stage: "MiniMax H3 正在生成视频", progress: 40 },
@@ -313,6 +313,10 @@ export function assertPromptCompilerContract(): void {
   const pendingShot = shotGenerationState(undefined, null, "shot-job-3", { status: "queued", progress: 0 })
   if (!pendingShot.generating || pendingShot.label !== "排队等待出片") {
     throw new Error("submitted storyboard jobs must show queued state before the job list catches up")
+  }
+  const orphanedShot = shotGenerationState(undefined, null, null, { status: "queued", progress: 4 })
+  if (orphanedShot.generating || orphanedShot.status !== "idle") {
+    throw new Error("queued snapshots without a backend job must not block generation UI")
   }
   const regeneratingShot = shotGenerationState(
     { status: "queued", progress: 0 },

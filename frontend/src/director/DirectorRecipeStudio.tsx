@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Tag, Tooltip, Typography, message,
 } from "antd"
-import { ArrowLeft, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { ApiRequestError, User } from "../api"
@@ -25,6 +25,8 @@ import {
   PLAN_GENERATION_HINT,
   PLAN_GENERATION_LABEL,
   PLAN_GENERATION_SUCCESS,
+  approveBatchConfirm,
+  approveBatchLabel,
   boardBatchConfirm,
   boardBatchLabel,
   muxBatchConfirm,
@@ -49,12 +51,12 @@ import {
   createEmptyRecipe, featuredArtStyles, RECIPE_AGENT_LABELS, RECIPE_AGENT_ORDER, RECIPE_AGENT_RUNNING_MESSAGES,
   recipeShotsToPlayer,
   DIRECTOR_FINAL_CANVAS_OPTIONS, DIRECTOR_SPEED_OPTIONS, DIRECTOR_WEIGHT_OPTIONS, H3_CANVAS_PRESETS, applyRecipeOutputSettings,
-  recipeCanvasPreset, DirectorQuality, DirectorSpeed, DirectorWeightProfile,
+  recipeCanvasPreset, DirectorQuality, DirectorSpeed, DirectorWeightProfile, ShotTake,
   estimateStoryboardSkeletonCount, recipePipelineProgress,
   insertRecipeShotAfter, removeRecipeShot, duplicateRecipeShot, moveRecipeShotToIndex,
 } from "./types"
 import {
-  artStylePreviewUrl, ensureRecipeAssetRendition, flattenRecipeShots, isPlaceholderRecipeBoard, recipeArtStyleFromCatalog,
+  artStylePreviewUrl, ensureRecipeAssetRendition, flattenRecipeShots, isPlaceholderRecipeBoard, recipeApprovableAssetVersion, recipeArtStyleFromCatalog,
   recipeAudio, recipeExportState, recipeSubtitles, shotIsMuxable,
   type RecipeAgentId, type RecipeAgentRunStatus, type RecipeAssetRendition, type RecipeCharacter,
   type RecipeProject, type RecipeShot,
@@ -86,6 +88,8 @@ type JobLike = {
   stage?: string
   progress?: number
   error?: string | null
+  mode?: string
+  options?: Record<string, unknown>
   outputs?: Array<{ kind?: string; download_url?: string; cloud_url?: string; path?: string }>
 }
 
@@ -529,9 +533,21 @@ export default function DirectorRecipeStudio({
             const url = jobVideoUrl(takeJob)
             const progress = jobProgressFromJob(takeJob, take.progress || 0)
             const error = isDirectorFailedStatus(status) ? (takeJob.error || take.error) : undefined
-            if (status !== take.status || (url && url !== take.videoUrl) || progress !== take.progress || error !== take.error) {
+            const hasStoredOptions = Boolean(take.options && Object.keys(take.options).length > 0)
+            const options = hasStoredOptions
+              ? take.options
+              : (takeJob.options && typeof takeJob.options === "object" ? takeJob.options as ShotTake["options"] : take.options)
+            const workflowId = take.workflowId || takeJob.mode || take.workflowId
+            if (
+              status !== take.status
+              || (url && url !== take.videoUrl)
+              || progress !== take.progress
+              || error !== take.error
+              || options !== take.options
+              || workflowId !== take.workflowId
+            ) {
               changed = true
-              return { ...take, status, videoUrl: url || take.videoUrl, progress, error }
+              return { ...take, status, videoUrl: url || take.videoUrl, progress, error, options, workflowId }
             }
             return take
           })
@@ -1045,6 +1061,80 @@ export default function DirectorRecipeStudio({
     }
   }
 
+  function collectApprovableSimpleAssets(
+    kind: "location" | "prop",
+    assetIds?: string[],
+  ): Array<{ assetId: string; versionId: string }> {
+    if (kind === "location") {
+      const items = assetIds?.length
+        ? recipe.locations.filter((item) => assetIds.includes(item.id))
+        : recipe.locations
+      return items.flatMap((item) => {
+        const version = recipeApprovableAssetVersion(ensureRecipeAssetRendition(item.plate), allJobs)
+        return version ? [{ assetId: item.id, versionId: version.id }] : []
+      })
+    }
+    const items = assetIds?.length
+      ? recipe.props.filter((item) => assetIds.includes(item.id))
+      : recipe.props
+    return items.flatMap((item) => {
+      const version = recipeApprovableAssetVersion(ensureRecipeAssetRendition(item.turnaround), allJobs)
+      return version ? [{ assetId: item.id, versionId: version.id }] : []
+    })
+  }
+
+  async function handleBatchApproveSimpleAssets(kind: "location" | "prop", assetIds?: string[]) {
+    const targets = collectApprovableSimpleAssets(kind, assetIds)
+    if (!targets.length) {
+      messageApi.info(kind === "location" ? "没有可批准的场景候选" : "没有可批准的道具候选")
+      return
+    }
+    try {
+      let revision = contentRevisionRef.current || undefined
+      for (const target of targets) {
+        const row = await approveDirectorAssetVersion(projectId, {
+          kind,
+          asset_id: target.assetId,
+          version_id: target.versionId,
+          content_revision: revision,
+        }, csrfToken)
+        revision = row.content_revision
+        projectRevisionRef.current = row.revision
+        contentRevisionRef.current = row.content_revision
+        const payload = recipePayloadFromApi(row)
+        if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload))
+      }
+      await queryClient.invalidateQueries({ queryKey: ["director-project", projectId] })
+      messageApi.success(`已批准 ${targets.length} 个${kind === "location" ? "场景" : "道具"}`)
+    } catch (error) {
+      const remote = readDirectorContentConflict(error)
+      if (remote) {
+        const conflict = { remote }
+        conflictRef.current = conflict
+        setContentConflict(conflict)
+        setSaveStatus("failed")
+        return
+      }
+      notifyFailure(error, "批量批准失败")
+    }
+  }
+
+  async function requestApproveSimpleAssets(kind: "location" | "prop", assetIds?: string[]) {
+    const targets = collectApprovableSimpleAssets(kind, assetIds)
+    if (!targets.length) {
+      messageApi.info(kind === "location" ? "没有可批准的场景候选" : "没有可批准的道具候选")
+      return
+    }
+    if (targets.length === 1 && assetIds?.length === 1) {
+      const target = targets[0]
+      await handleApproveAssetVersion(kind, target.assetId, target.versionId)
+      return
+    }
+    const ok = await confirmHeavyAction(approveBatchConfirm(kind, targets.length))
+    if (!ok) return
+    await handleBatchApproveSimpleAssets(kind, assetIds)
+  }
+
   async function handleSaveToLibrary(characterIds: string[] = [], locationIds: string[] = [], propIds: string[] = []) {
     try {
       const saved = await flushSave()
@@ -1472,10 +1562,18 @@ export default function DirectorRecipeStudio({
   const pendingCharacterCount = recipe.characters.filter((item) => !item.imageUrl).length
   const pendingLocationCount = recipe.locations.filter((item) => !item.imageUrl).length
   const pendingPropCount = recipe.props.filter((item) => !item.imageUrl).length
+  const approvableLocationCount = recipe.locations.filter((item) => (
+    Boolean(recipeApprovableAssetVersion(ensureRecipeAssetRendition(item.plate), allJobs))
+  )).length
+  const approvablePropCount = recipe.props.filter((item) => (
+    Boolean(recipeApprovableAssetVersion(ensureRecipeAssetRendition(item.turnaround), allJobs))
+  )).length
   const dialogueShotCount = shots.filter((shot) => shot.dialogue.trim()).length
   const planStagePrimary = activeStage === "script" || activeStage === "art_style"
   const characterActionLabel = plateBatchLabel("character", pendingCharacterCount || recipe.characters.length)
   const locationActionLabel = plateBatchLabel("location", pendingLocationCount || recipe.locations.length)
+  const locationApproveLabel = approveBatchLabel("location", approvableLocationCount)
+  const propApproveLabel = approveBatchLabel("prop", approvablePropCount)
   const boardActionLabel = boardBatchLabel(boardMode, visibleShots.length)
   const ttsActionLabel = ttsBatchLabel(dialogueShotCount)
   const muxActionLabel = muxBatchLabel(muxableCount)
@@ -1638,7 +1736,6 @@ export default function DirectorRecipeStudio({
       <div
         className={`director-recipe-layout${isTimelineView ? " is-timeline-view" : ""}`}
         aria-busy={running}
-        {...(running ? { inert: true } : {})}
         {...(isTimelineView ? { role: "region" as const, "aria-label": "剪辑视图" } : {})}
       >
         {isTimelineView ? null : (
@@ -1650,6 +1747,7 @@ export default function DirectorRecipeStudio({
             </div>
             <Input.TextArea
               value={goal}
+              readOnly={running}
               onChange={(event) => {
                 const value = event.target.value
                 setGoal(value)
@@ -1743,6 +1841,7 @@ export default function DirectorRecipeStudio({
                       <span>创意简报</span>
                       <Input.TextArea
                         value={goal}
+                        readOnly={running}
                         autoSize={{ minRows: 3, maxRows: 6 }}
                         placeholder="用一句话描述你想拍的故事"
                         onChange={(event) => {
@@ -1758,6 +1857,7 @@ export default function DirectorRecipeStudio({
                         <span>片名</span>
                         <Input
                           value={recipe.script.title}
+                          readOnly={running}
                           placeholder="未命名故事"
                           onChange={(event) => updateRecipe((current) => ({
                             ...current, script: { ...current.script, title: event.target.value },
@@ -1768,6 +1868,7 @@ export default function DirectorRecipeStudio({
                         <span>一句话梗概</span>
                         <Input.TextArea
                           value={recipe.script.summary}
+                          readOnly={running}
                           placeholder="用一句话说清主角、目标与冲突"
                           autoSize={{ minRows: 2, maxRows: 4 }}
                           onChange={(event) => updateRecipe((current) => ({
@@ -1779,6 +1880,7 @@ export default function DirectorRecipeStudio({
                         <span>完整故事 <em>{recipe.script.fullStory.trim().length} 字</em></span>
                         <Input.TextArea
                           value={recipe.script.fullStory}
+                          readOnly={running}
                           placeholder="完整写下故事进展、关键动作、对白与结尾。分镜会严格从这里拆解。"
                           autoSize={{ minRows: 12, maxRows: 22 }}
                           onChange={(event) => updateRecipe((current) => ({
@@ -1793,13 +1895,14 @@ export default function DirectorRecipeStudio({
                   <div className="director-recipe-form">
                     <div className="director-style-toolbar">
                       <p>推荐 6 种常用画风。其余可按分类搜索，或浏览全部 34 条。</p>
-                      <Button onClick={() => setStyleDrawerOpen(true)}>浏览全部</Button>
+                      <Button disabled={running} onClick={() => setStyleDrawerOpen(true)}>浏览全部</Button>
                     </div>
                     <div className="director-style-grid">
                       {recommendedStyles.map((style) => (
                         <button
                           key={style.id}
                           type="button"
+                          disabled={running}
                           className={`director-style-card${recipe.artStyle?.id === style.id ? " is-active" : ""}`}
                           onClick={() => updateRecipe((current) => ({
                             ...current,
@@ -1897,9 +2000,16 @@ export default function DirectorRecipeStudio({
                       <div className="director-prop-section">
                         <div className="director-section-head">
                           <Typography.Title level={5}>道具转面 · {recipe.props.length}</Typography.Title>
-                          <Button type="primary" size="small" icon={<ImagePlus size={14} />} onClick={() => { void handleGenerateProps() }}>
-                            {pendingPropCount ? `生成 ${pendingPropCount} 件道具` : "重新生成道具"}
-                          </Button>
+                          <Space wrap>
+                            {approvablePropCount ? (
+                              <Button size="small" icon={<CheckCircle2 size={14} />} onClick={() => { void requestApproveSimpleAssets("prop") }}>
+                                {propApproveLabel}
+                              </Button>
+                            ) : null}
+                            <Button type="primary" size="small" icon={<ImagePlus size={14} />} onClick={() => { void handleGenerateProps() }}>
+                              {pendingPropCount ? `生成 ${pendingPropCount} 件道具` : "重新生成道具"}
+                            </Button>
+                          </Space>
                         </div>
                         <div className="director-asset-grid">
                           {recipe.props.map((prop) => (
@@ -1928,6 +2038,11 @@ export default function DirectorRecipeStudio({
                       <Typography.Title level={5}>场景清单 · {recipe.locations.length}</Typography.Title>
                       <Space wrap>
                         <Button size="small" icon={<Library size={14} />} onClick={() => setLibraryDrawerOpen(true)}>从库插入</Button>
+                        {approvableLocationCount ? (
+                          <Button size="small" icon={<CheckCircle2 size={14} />} onClick={() => { void requestApproveSimpleAssets("location") }}>
+                            {locationApproveLabel}
+                          </Button>
+                        ) : null}
                         <Button size="small" icon={<Library size={14} />} onClick={() => void handleSaveToLibrary([], recipe.locations.map((item) => item.id))} disabled={!recipe.locations.length}>存入资产库</Button>
                         <Button type="primary" size="small" icon={<ImagePlus size={14} />} onClick={() => { void requestGenerateAssets([], recipe.locations.map((item) => item.id)) }}>{locationActionLabel}</Button>
                       </Space>
@@ -2154,11 +2269,13 @@ export default function DirectorRecipeStudio({
                         </aside>
                         {!isMobile && selectedShot ? (
                           <RecipeShotInspector
+                            key={selectedShot.id}
                             shot={selectedShot}
                             recipe={recipe}
                             previousShot={previousShot}
                             job={allJobs.find((entry) => entry.id === selectedShot.jobId)}
                             stillJob={allJobs.find((entry) => entry.id === selectedShot.stillJobId)}
+                            takeJobs={allJobs}
                             compareDesktop
                             onChange={(patch) => patchShot(selectedShot.id, patch)}
                             submitting={submittingShotIds.includes(selectedShot.id)}
@@ -2314,11 +2431,13 @@ export default function DirectorRecipeStudio({
       >
         {selectedShot ? (
           <RecipeShotInspector
+            key={selectedShot.id}
             shot={selectedShot}
             recipe={recipe}
             previousShot={previousShot}
             job={allJobs.find((entry) => entry.id === selectedShot.jobId)}
             stillJob={allJobs.find((entry) => entry.id === selectedShot.stillJobId)}
+            takeJobs={allJobs}
             compareDesktop={false}
             onChange={(patch) => patchShot(selectedShot.id, patch)}
             submitting={submittingShotIds.includes(selectedShot.id)}

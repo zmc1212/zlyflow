@@ -65,8 +65,9 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/director_library.py` | 员工级人物/场景/道具资产库规范化、从 Recipe 快照、插入工程 |
 | `backend/app/tts_provider.py` | 独立 TTS 供应商（OpenAI 兼容 `/audio/speech`）；可复用 LLM 凭据；不绑定 Edge TTS |
 | `backend/app/director_export.py` | 逐镜 TTS、BGM、ffmpeg 成片、FCPXML/EDL；失败镜头不进入成片 |
-| `backend/app/director_agents.py` | 9 Agent 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；分镜 Agent 读取官方 h3-prompt-writing 原文生成；配音/配乐写可播放媒体元数据 |
-| `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能与官方 prompt-writing 加载器，供生成页优化和导演台分镜共用 |
+| `backend/app/director_agents.py` | 9 Agent 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；分镜 Agent 读取官方 h3-prompt-writing，并依次做时长润色与 Seedance 风格衔接润色；配音/配乐写可播放媒体元数据 |
+| `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能、官方 prompt-writing、shot-timing 与 shot-continuity 加载器，供生成页优化和导演台分镜共用 |
+| `backend/app/shot_continuity_skill/` | Seedance 2.5 改编的 scene ledger / 相邻镜交接方法，供剧本与分镜 Agent 使用 |
 | `backend/app/h3_prompt_writing/` | MiniMax 官方 `h3-prompt-writing` skill 原文（SKILL.md、T2VA/Ref2VA 参考） |
 | `backend/app/director_jobs.py` | Recipe 定妆 GRS 入队、七牛地址回写、分镜/批量按所选工作流族入队 |
 | `backend/app/db.py` | MySQL 连接池与 SQLite 测试适配；连接信息读取 `docs/存储配置.md` |
@@ -1395,120 +1396,17 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend test`、`pnpm --dir frontend build`；以 1440×900 和 390×844 验证双主题、持久化、登录、工作台、账户菜单、Ant Design Select、导演台与后台。
 - 回滚方式：恢复上述前端主题相关文件和文档后重新构建前端，并可删除 `zly-ai-video-studio.theme`；无需迁移或回滚数据库、任务、Recipe、媒体与 ComfyUI 资产。
 
-## 2026-08-31 结构化数据迁 MySQL、媒体迁七牛云
+## 2026-09-01 分镜连续性提示词基线
 
-- 原因：本地 SQLite 无法与多工作站共享账号、任务和导演工程；生成与上传媒体需要统一对象存储。
-- 当前基线：运行时 `AuthStore`/`JobStore` 连接 `docs/存储配置.md` 中的 MySQL（`ai-media`，可用 `ZLY_MYSQL_*` 覆盖）。DDL 源为 `sql/` 下按文件名排序的全部 `.sql`（含 `001_init_mysql.sql`）。unittest 与 `data_dir_override` / `ZLY_AI_VIDEO_STUDIO_DB_BACKEND=sqlite` 仍用临时 SQLite。七牛云仍由管理设置保存 AK/SK；存量媒体已一次性上传并回写对象键，且已启用七牛。
-- 受影响文件：`backend/app/db.py`、`config.py`、`auth.py`、`storage.py`、`main.py`、`requirements.txt`、`sql/001_init_mysql.sql`、迁移脚本、`tools/recover_lost_comfyui_tasks.py`、测试与三份主文档。
-- 兼容性：HTTP API、工作流节点 ID、ComfyUI 端口不变。解密供应商密钥仍依赖本机 `data/credential.key`。Redis 配置已记录但未接入。
-- 验证命令：`python -m unittest discover -s backend/tests -p "test*.py"`。
-- 回滚方式：设置 `ZLY_AI_VIDEO_STUDIO_DB_BACKEND=sqlite` 并恢复代码；MySQL 中已导入的表可保留。
+- 当前流程：`storyboard` Agent 依次执行完整拆镜、对白/动作时长润色、连续性润色。剧本 Agent 与首次拆镜即注入 Seedance 风格 scene ledger；连续性润色以完整有序的 `scenes[].shots[]` 为输入，为相邻镜头生成 `continuityIn`、`continuityOut` 和 `transitionNote`；前两项是英文边界状态，后者是中文编辑说明。方法原文落在 `backend/app/shot_continuity_skill/`。
+- 编译边界：`director_compiler.recipe_shot_as_timeline_shot()` 与前端 `compileRecipeShotPreview()` 均把边界状态编入本地时间轴从 `00:00` 开始的 H3 单镜正文。它们不改 H3 的 T2VA / I2VA / Ref2VA 外层结构。若用户启用 `usePreviousEndFrame`，现有 `apply_recipe_continuity()` 仍把上一镜尾帧（或静帧）作为下一镜首帧，形成实际 I2V 视觉锚点。
+- 兼容与回滚：字段可选，`normalize_recipe_payload()` 对旧 Recipe 不填默认值，故不需要 SQLite 迁移。删除第三次 Agent pass、三个字段、`shot_continuity_skill/` 及边界文本拼接即可回滚；工作流协议、ComfyUI 节点 ID、模型路径、7865/8188 端口均未变更。
 
-## 2026-08-31 导台2 工作区与内容库
+## 2026-09-01 Seedance 剧本全流程衔接润色
 
-- 原因：要按 `docs/xiaji-modules.md` 独立重建「虾料」能力，并在侧栏提供与导演台并列的入口；其余四个模块先占位。
-- 当前基线：左侧全局导航增加 **导台2**（`/director2`）。内含五个 Ant Design Tabs。内容库界面按虾料 ingest 的导入卡片布局重建。粘贴或上传后先规则切章并落库，再调用管理设置中已配置的 LLM，按虾料角色/场景/道具/剧集规划提示词抽取结构化结果，写入 `xiaji_document_analyses`，页面底部展示分析结果与日志。能力含 TXT/Markdown/DOCX 与粘贴纯文本、人工校对和删除；资产库、剧集工坊、风格中心、制作助手为占位。数据在 MySQL `xiaji_documents` / `xiaji_chapters` / `xiaji_document_analyses`（员工隔离），DDL 为 `sql/002_xiaji_ingest.sql`、`sql/003_xiaji_analysis.sql`。API：`GET/POST /api/xiaji/documents`、`POST /api/xiaji/documents/paste`、`GET /api/xiaji/documents/{id}`、`PUT .../chapters`、`DELETE ...`。不复制 DramaClaw 源码，不接入 Cognee 图谱。
-- 受影响文件：`backend/app/xiaji_*.py`、`main.py`、`db.py`、`sql/002_xiaji_ingest.sql`、`frontend/src/xiaji/*`、`App.tsx`、`paths.ts`、`index.css`、测试与三份主文档。
-- 兼容性：不改 ComfyUI 节点、端口、既有导演台和工作流。unittest 仍走 SQLite。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。浏览器 `http://127.0.0.1:5173/director2` 检查上传、章节校对与四个占位 Tab；手机检查四项底部/顶部导航。
-- 回滚方式：恢复上述代码与前端构建；线上可 `DROP TABLE xiaji_chapters, xiaji_documents`。
-
-## 2026-09-01 导台2 粘贴导入依赖注入
-
-- 原因：粘贴接口 422，`user` 被当成 query 必填；正文 JSON 正常。
-- 当前基线：`xiaji_api` 闭包路由使用 `user: dict = Depends(...)`，登录仍只走 Cookie + CSRF。
-- 受影响文件：`backend/app/xiaji_api.py`、`backend/tests/test_xiaji.py`。
-- 兼容性：JSON 字段不变。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`。
-- 回滚方式：恢复 `xiaji_api.py`。
-
-## 2026-09-01 导台2 资产库
-
-- 原因：导入结果需要进入可复用资产，而不是只停在分析表。
-- 当前基线：导台2 资产库管理角色（肖像+造型+五档声线）、场景主图、道具参考图和解说声线。导入成功后写入 `xiaji_assets`。点击「生成参考图」调用 `POST /api/xiaji/assets/{id}/generate-image`（202 + `job_id`），用管理设置中已启用的 GRS 工作流入队（可选 `style`/`ethnicity`/`model`）。前端轮询 `GET /api/jobs/{job_id}`。声线定义走 LLM，试听走 TTS。DDL：`sql/004_xiaji_assets.sql`。
-- 受影响文件：`backend/app/xiaji_asset_*.py`、`frontend/src/xiaji/XiajiAssetsModule.tsx`、`sql/004_xiaji_assets.sql`。
-- 兼容性：不改导演台资产库和工作流节点。不做全景/3D。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复代码；可 `DROP TABLE xiaji_asset_media, xiaji_assets`。
-
-## 2026-09-01 导台2 资产库 GRS 生图参数
-
-- 原因：资产库点生成参考图没有真正提交生图；需要对齐虾塘生图入参（style / ethnicity / model）并走已启用 GRS。
-- 当前基线：`POST /api/xiaji/assets/{id}/generate-image` 返回 **202** `{ ok, job_id, status, asset }`；`user` 走 Depends 默认值；body 为 `look_id`、`style`、`ethnicity`、`model`。`model` 空则使用管理设置中第一个已启用 GRS 图片工作流。请求内只写任务并把资产标为 `generating`，由 FastAPI `BackgroundTasks` 调用 worker `enqueue_generation`；GRS submit/poll 不在该 HTTP 内执行。前端按 `job_id` 轮询 `GET /api/jobs/{job_id}`，终态后再刷新资产。族裔写入转入资产的 definition，并编进角色提示词。
-- 受影响文件：`xiaji_asset_api.py`、`xiaji_asset_prompts.py`、`xiaji_asset_store.py`、`XiajiAssetsModule.tsx`、`xiaji-api.ts`。
-- 兼容性：不改 ComfyUI 节点与 `POST /api/jobs` 协议；仍通过 `create_queued_job` 入队。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-01 导台2 资产生图按任务 ID 查询
-
-- 原因：`POST .../generate-image` 在请求协程里立刻 `create_task(execute_image)`，前端 mutation 一直等到这条 HTTP 结束，页面表现为卡住。
-- 当前基线：入队接口 202 + `job_id`；结果通过既有 `GET /api/jobs/{job_id}` 获取；资产 hydrate 仍写回 `image_url`。不引入 dramaclaw SSE。
-- 受影响文件：`xiaji_asset_api.py`、`XiajiAssetsModule.tsx`、`xiaji-api.ts`、`test_xiaji.py`。
-- 兼容性：不改 `POST /api/jobs` 字段；旧客户端若把 202 当失败需改为接受 202。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-01 导台2 项目
-
-- 原因：导台2 五个模块需要挂在同一个项目下，而不是全账号共用一套内容库/资产库。
-- 当前基线：`/director2` 为项目列表；`/director2/:projectId` 内为内容库、资产库、剧集工坊、风格中心、制作助手。`xiaji_projects` 表；`xiaji_documents` / `xiaji_assets` 增加 `project_id`。文档与资产 API 必填 `project_id`。启动时回填无项目数据到「默认项目」。剧集工坊/风格中心/制作助手仍为占位，但已绑定当前项目。
-- 受影响文件：`sql/005_xiaji_projects.sql`、`xiaji_project_store.py`、`xiaji_project_api.py`、`xiaji_store.py`、`xiaji_asset_store.py`、`xiaji_api.py`、`xiaji_asset_api.py`、`XiajiHome.tsx`、`XiajiStudioModule.tsx`、`paths.ts`。
-- 兼容性：旧文档/资产归入默认项目；列表/导入/同步客户端必须带 `project_id`。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复代码；可保留 `xiaji_projects` 表或手工清空 `project_id`。
-
-## 2026-09-01 导台2 场景三视角生图
-
-- 原因：场景正面、背面、360 全景共用同一条短提示词，背面/全景甚至把正面图复制过去，结果三张一样。
-- 当前基线：`scene_view=master|reverse|panorama` 分别按虾塘场景合同组提示词（正面 180° 源图、180° 背面、2:1 等距柱状全景）。背面/全景任务写在 `definition.scene_jobs`，不覆盖正面 `image_job_id`。前端三个按钮分别入队并轮询。
-- 受影响文件：`xiaji_asset_prompts.py`、`xiaji_asset_api.py`、`XiajiAssetsModule.tsx`、`xiaji-api.ts`。
-- 兼容性：不改 ComfyUI 节点；默认 `scene_view` 仍为正面 `master`。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-01 导台2 道具三视角生图
-
-- 原因：道具主视图、转面四视图、细节特写共用同一条转面提示词，转面/特写还把主图复制过去。
-- 当前基线：`prop_view=master|turnaround|detail` 分别按虾塘道具产品摄影合同组提示词（单张主视图、2x2 四视图、材质微距特写）。转面/特写任务写在 `definition.prop_jobs`，不覆盖主视图 `image_job_id`。
-- 受影响文件：`xiaji_asset_prompts.py`、`xiaji_asset_api.py`、`XiajiAssetsModule.tsx`、`xiaji-api.ts`。
-- 兼容性：不改 ComfyUI 节点；默认 `prop_view` 仍为主视图 `master`。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-01 导台2 剧集工坊
-
-- 原因：内容库已有剧集规划、资产库已有角色/场景/道具，需要独立重建虾镜的剧本与镜头草图。
-- 当前基线：项目内剧集工坊可从内容库 `analysis.episodes` 落库；单集含剧本（原文行、资产规划、LLM 生成 Beat）与镜头草图（复用已启用 GRS，**202** + `job_id`，轮询 `GET /api/jobs/{id}`）。合成页占位。DDL：`sql/006_xiaji_episodes.sql`。删除项目级联删除剧集。不复制 DramaClaw 源码，不做成片导出。
-- 受影响文件：`xiaji_episode_*.py`、`XiajiWorkshopModule.tsx`、`xiaji-api.ts`、`sql/006_xiaji_episodes.sql`、`xiaji_project_store.py`、`main.py`。
-- 兼容性：不改 ComfyUI 节点与导演台 Recipe。视觉风格继续用项目 `visual_style`。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件；可 `DROP TABLE xiaji_beats, xiaji_episode_links, xiaji_episodes`。
-
-## 2026-09-01 导台2 镜头工作台
-
-- 原因：镜头页只有扁平卡片，需要对齐虾镜工作台的左右分栏、文案绑定和场景/角色参考图，且不复制 DramaClaw 源码。
-- 当前基线：「镜头」为左 Beat 网格 + 可拖拽分割条 + 右 Inspector（文案、单帧、视频占位）。出场身份/道具/场景写入 Beat；生成草图时把场景正面或背面、角色肖像/造型、道具图作为 GRS 参考。可 PATCH 单条 Beat 和上传草图。视频生成仍占位。
-- 受影响文件：`xiaji_episode_api.py`、`XiajiShotsWorkbench.tsx`、`xiaji-api.ts`、`XiajiWorkshopModule.tsx`、`index.css`。
-- 兼容性：不改表结构、ComfyUI 节点与导演台 Recipe。`POST .../generate-sketch` 增加可选 `scene_view=front|reverse`。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-02 导台2 草图/渲染图/视频三级产线
-
-- 原因：镜头页把草图画成写实成片，渲染图和视频只是占位 toast，与 DramaClaw 虾镜语义不一致。
-- 当前基线：草图为白纸色块分镜草稿（场景弱参考，不含角色肖像）；渲染图以草图为 Image 1 上色写实并锁身份，生成后可 `force` 重新精绘；视频默认 LightX2V 多参考（`minimax-h3-lightx2v-r2v`），渲染图为 `<Picture 1>`，亦可选 I2V 仅首帧。时长 / MP / 分辨率 / 部署来自 `GET /api/modes` 的 option schema，写入 `create_queued_job` options。字段由 `XiajiEpisodeStore.initialize` `ensure_column` 补齐。不接入 NanoBanana/Seedance。
-- 受影响文件：`xiaji_episode_prompts.py`、`xiaji_episode_api.py`、`xiaji_episode_store.py`、`XiajiShotsWorkbench.tsx`、`xiaji-api.ts`、`sql/007_xiaji_beat_media.sql`。
-- 兼容性：不改 ComfyUI 节点 ID；旧草图仍可读 `sketch_url`，新任务走新提示词。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-02 导台2 渲染重生成与视频参数
-
-- 原因：渲染图生成后无法明显重跑；视频只暴露 I2V 与时长，与工作台 LightX2V 多参考条（时长 / MP / 分辨率 / 部署）不一致。
-- 当前基线：精绘成功后工具栏为「重新生成」并始终 `force`。视频模型列表含 I2V 与 R2V，默认 LightX2V 多参考；头部控件从所选工作流 option schema 读取；`POST generate-video` 传递 `duration`/`quality`/`speed`/`custom_steps`。
-- 受影响文件：`xiaji_episode_api.py`、`xiaji_episode_prompts.py`、`XiajiShotsWorkbench.tsx`、`xiaji-api.ts`。
-- 兼容性：不改 ComfyUI 节点与 `workflow_registry` 全局默认值（LightX2V schema 默认仍为 1.0 MP）；镜头页默认选 0.2 MP 与均衡 8 步。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件。
-
+- 原因：仅靠拆镜后的第三次衔接 pass，剧本阶段与首次拆镜仍可能缺少可继承的开场/收束状态；Seedance 2.5 skill 的 scene ledger / start-end state / adjacent-cut QA 需要进入整条生成链。
+- 当前基线：内置 `shot_continuity_skill`（改编自本地 Seedance 2.5 的 production-contract / prompt-patterns / narrative route）。`script` 按 scene ledger 写分场开场-节拍-收束；`storyboard` 首次拆镜即草拟 `continuityIn/Out`/`transitionNote`；时长 pass 后仍跑衔接润色，并做缺口提示。编译与可选尾帧 I2V 承接不变。不向 H3 发送 Seedance API 标签。
+- 受影响文件：`backend/app/shot_continuity_skill/**`、`llm_minimax_skills.py`、`director_agents.py`、`backend/tests/test_director.py`，以及三份主文档。
+- 兼容性：不改端口、SQLite schema、ComfyUI 节点、工作流协议或既有 Recipe 必填字段。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorRecipeModelTests.test_official_h3_prompt_writing_skill_is_vendored backend.tests.test_director.DirectorAgentPipelineTests.test_storyboard_runs_timing_and_continuity_passes backend.tests.test_director.DirectorAgentPipelineTests.test_script_agent_uses_scene_ledger_continuity_guidance backend.tests.test_director.DirectorCompilerTests -q`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述文件并移除 `shot_continuity_skill/`；历史工程无需迁移。

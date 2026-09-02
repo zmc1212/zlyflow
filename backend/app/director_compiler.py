@@ -716,6 +716,33 @@ def _override_text(project: dict[str, Any]) -> str:
     return str(_get(project, "manualPromptOverrideText", "manual_prompt_override_text", default="") or "").strip()
 
 
+def shot_take_generation_record(submission: dict[str, Any], project: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Persist generation parameters on a shot take for later comparison in the director UI."""
+    project = project or {}
+    duration = submission.get("durationSec", submission.get("duration_sec"))
+    try:
+        duration_value = snap_h3_duration_sec(duration if duration is not None else 5)
+    except (TypeError, ValueError):
+        duration_value = 5
+    return {
+        "workflowId": str(submission.get("workflowId") or "").strip() or None,
+        "videoWorkflowFamily": str(
+            _get(project, "videoWorkflowFamily", "video_workflow_family", default="") or "",
+        ).strip() or None,
+        "options": {
+            "aspect_ratio": str(
+                submission.get("aspectRatio")
+                or _get(project, "aspectRatio", "aspect_ratio", default="16:9")
+                or "16:9",
+            ),
+            "quality": str(submission.get("quality") or ""),
+            "speed": str(submission.get("speed") or ""),
+            "weight_profile": str(submission.get("weight_profile") or ""),
+            "duration": duration_value,
+        },
+    }
+
+
 def resolve_shot_submission(project: dict[str, Any], shot: dict[str, Any], render_pass: str = "final") -> dict[str, Any]:
     plan = build_reference_plan(project, shot)
     duration = snap_h3_duration_sec(_get(shot, "durationSec", "duration_sec", default=5))
@@ -953,6 +980,15 @@ def apply_recipe_continuity(recipe: dict[str, Any] | None, shot: dict[str, Any] 
     return resolved
 
 
+def continuity_boundary_prompt(shot: dict[str, Any] | None) -> tuple[str, str]:
+    """Return compact H3-safe opening and closing handoff text for one independent clip."""
+    incoming = str(_get(shot, "continuityIn", "continuity_in", default="") or "").strip()
+    outgoing = str(_get(shot, "continuityOut", "continuity_out", default="") or "").strip()
+    opening = f"Continuity at clip opening: {incoming}" if incoming else ""
+    closing = f"End this clip on: {outgoing}" if outgoing else ""
+    return opening, closing
+
+
 def recipe_assets_as_slots(
     recipe: dict[str, Any],
     shot: dict[str, Any] | None = None,
@@ -1088,7 +1124,9 @@ def recipe_shot_as_timeline_shot(recipe: dict[str, Any], shot: dict[str, Any]) -
         if h3_body:
             break
     h3_body = normalize_independent_shot_prompt(h3_body)
-    visual = f"{prefix}. {h3_body}".strip(". ").strip() if prefix else h3_body
+    continuity_in, continuity_out = continuity_boundary_prompt(shot)
+    body = ". ".join(part.rstrip(". ") for part in (continuity_in, h3_body, continuity_out) if part).strip()
+    visual = f"{prefix}. {body}".strip(". ").strip() if prefix else body
     camera = _get(shot, "camera", default={}) or {}
     if not isinstance(camera, dict) or not camera:
         camera = {

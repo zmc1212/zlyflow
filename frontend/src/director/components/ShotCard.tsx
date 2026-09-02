@@ -5,7 +5,7 @@ import {
   MoreHorizontal, RefreshCw, Sliders, Sparkles, Trash2, X,
 } from "lucide-react"
 import React, { useRef, useState } from "react"
-import { fileToDataUrl } from "../director-submit"
+import { fileToDataUrl, shotHasActiveRender } from "../director-submit"
 import {
   CAMERA_ANGLE_LABELS, CAMERA_LIGHTING_LABELS, CAMERA_MOVEMENT_LABELS, CAMERA_SCALE_LABELS,
   DirectorShot, SubjectSlot,
@@ -81,7 +81,7 @@ export default function ShotCard({
     }, 50)
   }
 
-  const isRendering = shot.status === "queued" || shot.status === "running" || shot.status === "interrupted"
+  const isRendering = shotHasActiveRender(shot)
   const isDone = shot.status === "succeeded" && Boolean(shot.outputVideoUrl)
 
   return (

@@ -1,7 +1,8 @@
-import { Button, Checkbox, Input, InputNumber, Progress, Select, Space, Tag, message } from "antd"
+import { Button, Checkbox, Collapse, Input, InputNumber, Progress, Select, Space, Tag, message } from "antd"
 import { Clapperboard, Copy, ImagePlus, Star } from "lucide-react"
 import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import JobErrorNotice from "./JobErrorNotice"
+import TakeGenerationParams from "./TakeGenerationParams"
 import ShotCameraFields from "./ShotCameraFields"
 import {
   H3_MAX_DURATION_SEC,
@@ -17,6 +18,7 @@ import {
   CameraDirection, RecipeProject, RecipeShot, ShotTake, TTS_VOICE_OPTIONS, defaultCameraDirection,
   recipePackedPlates, recipeShotPreferredTake,
 } from "../types"
+import { dialogueTimingWarning } from "../dialogue-timing"
 
 type JobLike = {
   id: string
@@ -24,6 +26,9 @@ type JobLike = {
   stage?: string
   progress?: number
   error?: string | null
+  mode?: string
+  options?: Record<string, unknown>
+  outputs?: Array<{ kind?: string; download_url?: string; cloud_url?: string; path?: string }>
 }
 
 function takeVideoUrl(take: ShotTake | undefined) {
@@ -59,6 +64,7 @@ export default function RecipeShotInspector({
   previousShot,
   job,
   stillJob,
+  takeJobs = [],
   compareDesktop = true,
   onChange,
   onRender,
@@ -75,6 +81,7 @@ export default function RecipeShotInspector({
   previousShot?: RecipeShot | null
   job?: JobLike
   stillJob?: JobLike
+  takeJobs?: JobLike[]
   compareDesktop?: boolean
   onChange: (patch: Partial<RecipeShot>) => void
   onRender: () => void
@@ -119,6 +126,7 @@ export default function RecipeShotInspector({
     if (previewShotIdRef.current !== shot.id) {
       previewShotIdRef.current = shot.id
       setPreviewTakeId(defaultTakeId)
+      setCompareTakeId(null)
       return
     }
     setPreviewTakeId((current) => (
@@ -129,7 +137,8 @@ export default function RecipeShotInspector({
   const activeIndex = foundActiveIndex >= 0 ? foundActiveIndex : Math.max(0, takes.length - 1)
   const activeTake = takes[activeIndex]
   const videoUrl = takeVideoUrl(activeTake) || shot.outputVideoUrl || ""
-  const showVideo = Boolean(videoUrl) && !state.generating
+  const showVideo = Boolean(videoUrl)
+  const showGenerationBadge = state.generating || stillState.generating
   const inheritedFirst = shot.usePreviousEndFrame
     ? (previousShot?.endFrameUrl || previousShot?.stillUrl || "")
     : ""
@@ -144,6 +153,15 @@ export default function RecipeShotInspector({
   )
   const submittedSnapshot = (activeTake?.promptSnapshot || shot.compiledPrompt || "").trim()
   const promptTextLooksChinese = /[\u4e00-\u9fff]/.test(shot.promptText || "") && !(shot.promptText || "").toLowerCase().includes("the camera")
+  const dialogueDurationHint = useMemo(
+    () => dialogueTimingWarning(shot.dialogue, shot.durationSec),
+    [shot.dialogue, shot.durationSec],
+  )
+
+  function jobForTake(take: ShotTake | undefined) {
+    if (!take?.jobId) return undefined
+    return takeJobs.find((entry) => entry.id === take.jobId)
+  }
 
   async function handleExtractEnd() {
     if (!videoUrl || !onExtractEndFrame) return
@@ -162,8 +180,15 @@ export default function RecipeShotInspector({
     setPreviewTakeId(take.id || take.jobId || "")
   }
 
+  function approveTake(take: ShotTake) {
+    const id = take.id || take.jobId || ""
+    if (!id) return
+    setPreviewTakeId(id)
+    onChange({ approvedTakeId: id })
+  }
+
   const comparing = Boolean(compareDesktop && showVideo && compareTake?.videoUrl)
-  const emptyPreview = !showVideo && !(firstPreview && !state.generating)
+  const emptyPreview = !showVideo && !firstPreview
 
   return (
     <div className="director-recipe-inspector" style={recipeAspectVars(recipe.aspectRatio)}>
@@ -172,18 +197,30 @@ export default function RecipeShotInspector({
         <div className={`director-inspector-stage${comparing ? " is-compare" : ""}`}>
           {comparing && compareTake?.videoUrl ? (
             <>
-              <ShotPreviewFrame>
-                <video src={videoUrl} controls playsInline />
-              </ShotPreviewFrame>
-              <ShotPreviewFrame>
-                <video src={compareTake.videoUrl} controls playsInline />
-              </ShotPreviewFrame>
+              <div className="director-take-compare-panel">
+                <ShotPreviewFrame>
+                  <video src={videoUrl} controls playsInline />
+                </ShotPreviewFrame>
+                <TakeGenerationParams take={activeTake} job={jobForTake(activeTake)} compact />
+              </div>
+              <div className="director-take-compare-panel">
+                <ShotPreviewFrame>
+                  <video src={compareTake.videoUrl} controls playsInline />
+                </ShotPreviewFrame>
+                <TakeGenerationParams
+                  take={compareTake}
+                  job={jobForTake(compareTake)}
+                  compareTake={activeTake}
+                  compareJob={jobForTake(activeTake)}
+                  compact
+                />
+              </div>
             </>
           ) : (
             <ShotPreviewFrame empty={emptyPreview}>
               {showVideo ? (
                 <video src={videoUrl} controls playsInline />
-              ) : firstPreview && !state.generating ? (
+              ) : firstPreview ? (
                 <img src={firstPreview} alt="分镜画面" />
               ) : (
                 <div className="director-inspector-empty">
@@ -204,12 +241,78 @@ export default function RecipeShotInspector({
             </ShotPreviewFrame>
           )}
         </div>
+        {showGenerationBadge && (showVideo || firstPreview) ? (
+          <div className="director-inspector-generation-bar">
+            <Progress
+              percent={state.generating ? state.progress : stillState.progress}
+              size="small"
+              status="active"
+              showInfo={false}
+            />
+            <span>{state.generating ? state.label : stillState.label || "静帧生成中"}</span>
+          </div>
+        ) : null}
         <div className="director-inspector-heading">
           <Tag color={directorStatusColor(displayStatus)}>{directorStatusLabel(displayStatus)}</Tag>
           {shot.stillUrl ? <Tag>静帧</Tag> : null}
           {activeTake?.renderPass ? <Tag>{directorRenderPassLabel(activeTake.renderPass)}</Tag> : null}
           <span>{shot.durationSec}s</span>
         </div>
+        {takes.length ? (
+          <section className="director-take-rail" aria-label="镜头版本切换">
+            <div className="director-take-rail-head">
+              <strong>Takes ({takes.length})</strong>
+              {approvedId ? <Tag color="success">已批准</Tag> : null}
+            </div>
+            <div className="director-take-rail-list">
+              {takes.map((take, index) => {
+                const selected = index === activeIndex
+                const approved = takeId(take) === approvedId
+                const id = takeId(take)
+                return (
+                  <div
+                    key={id || index}
+                    className={`director-take-rail-item${selected ? " is-active" : ""}${approved ? " is-approved" : ""}`}
+                  >
+                    <button type="button" className="director-take-rail-preview" onClick={() => selectTake(index)}>
+                      {take.videoUrl ? (
+                        <video src={take.videoUrl} muted playsInline />
+                      ) : (
+                        <span>Take {take.takeNumber}</span>
+                      )}
+                    </button>
+                    <div className="director-take-rail-body">
+                      <button type="button" className="director-take-rail-select" onClick={() => selectTake(index)}>
+                        <span>Take {take.takeNumber}</span>
+                        {take.renderPass ? <Tag className="!m-0">{directorRenderPassLabel(take.renderPass)}</Tag> : null}
+                        {approved ? <Tag color="success" className="!m-0">已批准</Tag> : null}
+                      </button>
+                      <div className="director-take-rail-actions">
+                        <Button
+                          size="small"
+                          type={approved ? "primary" : "default"}
+                          icon={<Star size={12} />}
+                          disabled={!take.videoUrl}
+                          onClick={() => approveTake(take)}
+                        >
+                          {approved ? "已批准" : "批准"}
+                        </Button>
+                        {compareDesktop && take.videoUrl && id !== takeId(activeTake) ? (
+                          <Button
+                            size="small"
+                            onClick={() => setCompareTakeId(compareTakeId === id ? null : id)}
+                          >
+                            {compareTakeId === id ? "关闭对比" : "A/B"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        ) : null}
       </div>
 
       <div className="director-inspector-copy">
@@ -246,7 +349,11 @@ export default function RecipeShotInspector({
           placeholder="角色说的话"
           onChange={(event) => onChange({ dialogue: event.target.value })}
         />
+        {dialogueDurationHint ? <p>{dialogueDurationHint}</p> : null}
       </label>
+      {shot.timingNote ? (
+        <p>时长分配：{shot.timingNote}</p>
+      ) : null}
       <div className="director-inspector-row">
         <label className="director-inspector-field">
           <span>说话人</span>
@@ -329,6 +436,37 @@ export default function RecipeShotInspector({
       </section>
 
       <section className="director-inspector-frames">
+        <strong>文案衔接</strong>
+        <p>AI 会把入镜、出镜状态编入本镜 H3 提示词；它与下面的尾帧视觉承接可配合使用。</p>
+        <label className="director-inspector-field">
+          <span>入镜状态（英文提示）</span>
+          <Input.TextArea
+            value={shot.continuityIn || ""}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            placeholder="上一镜切入时的人物、道具、视线、运动方向和声音状态"
+            onChange={(event) => onChange({ continuityIn: event.target.value })}
+          />
+        </label>
+        <label className="director-inspector-field">
+          <span>出镜状态（英文提示）</span>
+          <Input.TextArea
+            value={shot.continuityOut || ""}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            placeholder="留给下一镜继承的最终构图、动作、方向或声音"
+            onChange={(event) => onChange({ continuityOut: event.target.value })}
+          />
+        </label>
+        <label className="director-inspector-field">
+          <span>转场说明</span>
+          <Input
+            value={shot.transitionNote || ""}
+            placeholder="例如：动作匹配切，雨声不断"
+            onChange={(event) => onChange({ transitionNote: event.target.value })}
+          />
+        </label>
+      </section>
+
+      <section className="director-inspector-frames">
         <strong>连续性</strong>
         <Checkbox
           checked={Boolean(shot.usePreviousEndFrame)}
@@ -378,53 +516,46 @@ export default function RecipeShotInspector({
         </Space>
       </section>
 
-      <section className="director-inspector-takes">
-        <strong>Takes {takes.length ? `(${takes.length})` : ""}</strong>
-        {takes.length ? (
-          <div className="director-take-list">
-            {takes.map((take, index) => {
-              const selected = index === activeIndex
-              const approved = (take.id || take.jobId) === approvedId
-              return (
-                <div key={take.id || take.jobId || index} className={`director-take-item${selected ? " is-active" : ""}`}>
-                  <button type="button" className="director-take-preview" onClick={() => selectTake(index)}>
-                    {take.videoUrl ? <video src={take.videoUrl} muted playsInline /> : <span>Take {take.takeNumber}</span>}
-                  </button>
-                  <div className="director-take-meta">
-                    <span>Take {take.takeNumber}</span>
-                    {take.renderPass ? <Tag>{directorRenderPassLabel(take.renderPass)}</Tag> : null}
-                    {approved ? <Tag color="success">已批准</Tag> : null}
-                    <Tag color={directorStatusColor(take.status)}>{directorStatusLabel(take.status)}</Tag>
-                  </div>
-                  <Space size={4}>
-                    <Button
-                      size="small"
-                      icon={<Star size={12} />}
-                      disabled={!take.videoUrl}
-                      onClick={() => {
-                        setPreviewTakeId(take.id || take.jobId || "")
-                        onChange({ approvedTakeId: take.id || take.jobId || null })
-                      }}
-                    >
-                      批准
-                    </Button>
-                    {compareDesktop && take.videoUrl && takeId(take) !== takeId(activeTake) ? (
-                      <Button
-                        size="small"
-                        onClick={() => setCompareTakeId(compareTakeId === takeId(take) ? null : (takeId(take) || null))}
-                      >
-                        {compareTakeId === takeId(take) ? "关闭对比" : "A/B"}
-                      </Button>
-                    ) : null}
-                  </Space>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <p>还没有 Take。生成预览或终稿后会出现在这里。</p>
-        )}
-      </section>
+      {takes.length ? (
+        <Collapse
+          className="director-inspector-takes-collapse"
+          items={[{
+            key: "take-params",
+            label: `Take 生成参数（${takes.length}）`,
+            children: (
+              <div className="director-take-list">
+                {takes.map((take, index) => {
+                  const selected = index === activeIndex
+                  const takeJob = jobForTake(take)
+                  return (
+                    <div key={take.id || take.jobId || index} className={`director-take-item${selected ? " is-active" : ""}`}>
+                      <button type="button" className="director-take-preview" onClick={() => selectTake(index)}>
+                        {take.videoUrl ? <video src={take.videoUrl} muted playsInline /> : <span>Take {take.takeNumber}</span>}
+                      </button>
+                      <div className="director-take-body">
+                        <div className="director-take-meta">
+                          <span>Take {take.takeNumber}</span>
+                          {take.renderPass ? <Tag>{directorRenderPassLabel(take.renderPass)}</Tag> : null}
+                          {takeId(take) === approvedId ? <Tag color="success">已批准</Tag> : null}
+                          <Tag color={directorStatusColor(take.status)}>{directorStatusLabel(take.status)}</Tag>
+                        </div>
+                        <TakeGenerationParams
+                          take={take}
+                          job={takeJob}
+                          compareTake={selected ? undefined : activeTake}
+                          compareJob={selected ? undefined : jobForTake(activeTake)}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ),
+          }]}
+        />
+      ) : (
+        <p className="director-inspector-takes-empty">还没有 Take。生成预览或终稿后会出现在预览区下方。</p>
+      )}
 
       <section className="director-inspector-plates">
         <strong>本镜参考图</strong>

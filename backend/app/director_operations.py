@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from .director_catalog import find_art_style
-from .director_jobs import render_recipe_shots
+from .director_jobs import render_recipe_shots, revert_orphaned_shot_submissions
 from .director_project_service import persist_recipe_execution
 from .director_recipe import AGENT_IDS, PAYLOAD_KIND_RECIPE, normalize_recipe_payload, payload_kind
 from .llm_client import LlmError
@@ -58,6 +58,7 @@ class DirectorOperationService:
             raise DirectorOperationCancelled("操作已由用户取消")
 
     async def _run(self, operation_id: str) -> None:
+        operation: dict[str, Any] | None = None
         try:
             operation = self.store.update_director_operation(
                 operation_id, status="running", progress=1, error=None, update_error=True,
@@ -79,11 +80,15 @@ class DirectorOperationService:
                 update_error=True,
             )
         except DirectorOperationCancelled as error:
+            if operation is not None:
+                self._revert_orphaned_render_submissions(operation)
             self.store.update_director_operation(
                 operation_id, status="cancelled", error=str(error), update_error=True,
             )
         except asyncio.CancelledError:
             try:
+                if operation is not None:
+                    self._revert_orphaned_render_submissions(operation)
                 self.store.update_director_operation(
                     operation_id,
                     status="interrupted",
@@ -93,9 +98,26 @@ class DirectorOperationService:
             finally:
                 raise
         except Exception as error:
+            if operation is not None:
+                self._revert_orphaned_render_submissions(operation)
             self.store.update_director_operation(
                 operation_id, status="failed", error=str(error), update_error=True,
             )
+
+    def _revert_orphaned_render_submissions(self, operation: dict[str, Any]) -> None:
+        if operation.get("kind") != "shot_render_prepare":
+            return
+        request = operation.get("request") or {}
+        shot_ids = [str(item) for item in (request.get("shot_ids") or []) if str(item)]
+        record = self.store.get_director_project(operation["project_id"])
+        recipe = revert_orphaned_shot_submissions(record["payload"], shot_ids=shot_ids or None)
+        persist_recipe_execution(
+            self.store,
+            operation["project_id"],
+            recipe,
+            scope="render",
+            shot_ids=shot_ids or None,
+        )
 
     async def _run_plan(self, operation: dict[str, Any]) -> dict[str, Any]:
         operation_id = operation["id"]

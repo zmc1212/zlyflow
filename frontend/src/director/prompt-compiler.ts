@@ -548,6 +548,15 @@ function englishAudioText(candidates: Array<string | null | undefined>, fallback
   return fallback
 }
 
+function continuityBoundaryText(shot: RecipeShot): { opening: string; closing: string } {
+  const incoming = (shot.continuityIn || "").trim()
+  const outgoing = (shot.continuityOut || "").trim()
+  return {
+    opening: incoming ? `Continuity at clip opening: ${incoming}` : "",
+    closing: outgoing ? `End this clip on: ${outgoing}` : "",
+  }
+}
+
 export function normalizeIndependentShotPrompt(text: string): string {
   const normalized = (text || "").trim().replace(LEADING_SHOT_TAG_RE, "")
   const withoutTimecode = normalized.replace(LEADING_GLOBAL_TIMECODE_RE, "")
@@ -611,6 +620,8 @@ export function compileRecipeShotPreview(
   const prefix = (recipe.artStyle?.promptPrefix || "").trim()
   let body = (resolved.promptText || resolved.description || "").trim()
   body = normalizeIndependentShotPrompt(body)
+  const handoff = continuityBoundaryText(resolved)
+  body = [handoff.opening, body, handoff.closing].filter(Boolean).map((part) => part.replace(/[. ]+$/, "")).join(". ")
   const visual = prefix ? `${prefix.replace(/[. ]+$/, "")}. ${body}`.trim() : body
   const timelineShot: DirectorShot = {
     ...createEmptyShot(resolved.shotNumber || 1, 0, snapH3DurationSec(resolved.durationSec || 5)),

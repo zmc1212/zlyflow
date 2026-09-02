@@ -30,7 +30,20 @@ from .llm_client import (
     looks_like_llm_billing,
     repair_utf8_mojibake,
 )
-from .llm_minimax_skills import build_h3_batch_fission_prompt, build_h3_storyboard_agent_prompt
+from .dialogue_timing import (
+    assign_missing_script_dialogue,
+    enforce_recipe_shot_dialogue_timing,
+    enforce_shot_dialogue_timing,
+    is_dialogue_truncated,
+    script_dialogue_coverage_low,
+)
+from .llm_minimax_skills import (
+    build_h3_batch_fission_prompt,
+    build_h3_storyboard_agent_prompt,
+    build_script_agent_prompt,
+    build_shot_timing_polish_prompt,
+    build_storyboard_continuity_polish_prompt,
+)
 
 
 ChatFn = Callable[[list[dict[str, Any]]], str]
@@ -288,6 +301,7 @@ STORYBOARD_RETRY_SYSTEM = (
     "只输出一个 JSON 对象或镜头数组。把用户故事一次性拆成可独立提交 MiniMax H3 的全部镜头。"
     "每镜 title/description/soundscape 用中文；soundscapeEn 与 promptText 用英文，只写一个从 00:00 开始的 [Shot 1] 片段。"
     "<d> 仅用于实际可听见的台词或歌词；屏幕/招牌/手机上的可见文字必须以英文叙述描述，禁止包进 <d>。"
+    "剧本里每条对白（含自言自语、旁白）必须写入对应镜头的 dialogue，并与同时发生的动作放在同一镜，禁止无对白建立镜头。"
     "覆盖全部剧情，通常 8–24 镜。禁止只输出 1 个主镜头，禁止输出 integrated_multimodal_description 顶层格式。"
     '优先输出 {"scenes":[{"title":"","locationName":"","shots":[{"title":"","description":"","promptText":"","dialogue":"","characterNames":[],"locationName":"","durationSec":5,"camera":{},"soundscape":"","soundscapeEn":""}]}]}'
 )
@@ -440,6 +454,61 @@ def _recipe_shot_count(recipe: dict[str, Any]) -> int:
     return count
 
 
+def _flatten_recipe_shots(recipe: dict[str, Any]) -> list[dict[str, Any]]:
+    shots: list[dict[str, Any]] = []
+    for scene in recipe.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for shot in scene.get("shots") or []:
+            if isinstance(shot, dict):
+                shots.append(shot)
+    return shots
+
+
+def _continuity_coverage_gaps(recipe: dict[str, Any]) -> list[str]:
+    """Return human-readable gaps after the Seedance-inspired continuity pass."""
+    shots = _flatten_recipe_shots(recipe)
+    if len(shots) < 2:
+        return []
+    gaps: list[str] = []
+    for index, shot in enumerate(shots):
+        number = shot.get("shotNumber") or index + 1
+        if index > 0 and not _text(shot.get("continuityIn") or shot.get("continuity_in")):
+            gaps.append(f"第{number}镜缺少 continuityIn")
+        if index < len(shots) - 1 and not _text(shot.get("continuityOut") or shot.get("continuity_out")):
+            gaps.append(f"第{number}镜缺少 continuityOut")
+        if index < len(shots) - 1 and not _text(shot.get("transitionNote") or shot.get("transition_note")):
+            gaps.append(f"第{number}镜缺少 transitionNote")
+    return gaps
+
+
+def _recipe_assigned_dialogue_count(recipe: dict[str, Any]) -> int:
+    count = 0
+    for scene in recipe.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for shot in scene.get("shots") or []:
+            if isinstance(shot, dict) and normalize_dialogue(shot.get("dialogue")).strip():
+                count += 1
+    return count
+
+
+def _story_script_text(recipe: dict[str, Any], goal: str) -> str:
+    script = recipe.get("script") if isinstance(recipe.get("script"), dict) else {}
+    return _text(script.get("fullStory"), goal)
+
+
+def _storyboard_dialogue_coverage_low(recipe: dict[str, Any], goal: str) -> bool:
+    return script_dialogue_coverage_low(
+        _story_script_text(recipe, goal),
+        _recipe_assigned_dialogue_count(recipe),
+    )
+
+
+def _apply_script_dialogue_fallback(recipe: dict[str, Any], goal: str) -> int:
+    return assign_missing_script_dialogue(recipe, _story_script_text(recipe, goal))
+
+
 def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -> None:
     data = coerce_storyboard_data(data)
     scenes_raw = _collect_storyboard_scenes(data)
@@ -483,6 +552,10 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
                 "camera": _camera(item.get("camera")),
                 "soundscape": _text(item.get("soundscape") or item.get("sfx")),
                 "soundscapeEn": _text(item.get("soundscapeEn") or item.get("soundscape_en")),
+                "timingNote": _text(item.get("timingNote") or item.get("timing_note")),
+                "continuityIn": _text(item.get("continuityIn") or item.get("continuity_in")),
+                "continuityOut": _text(item.get("continuityOut") or item.get("continuity_out")),
+                "transitionNote": _text(item.get("transitionNote") or item.get("transition_note")),
                 "status": "idle",
                 "shotNumber": shot_number,
             })
@@ -496,6 +569,123 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
             "shots": shots,
         })
     recipe["scenes"] = scenes
+
+
+def _recipe_shots_timing_payload(recipe: dict[str, Any]) -> dict[str, Any]:
+    scenes: list[dict[str, Any]] = []
+    for scene in recipe.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        shots: list[dict[str, Any]] = []
+        for shot in scene.get("shots") or []:
+            if not isinstance(shot, dict):
+                continue
+            shots.append({
+                "shotNumber": shot.get("shotNumber"),
+                "title": _text(shot.get("title")),
+                "description": _text(shot.get("description")),
+                "promptText": _text(shot.get("promptText")),
+                "dialogue": normalize_dialogue(shot.get("dialogue")),
+                "characterNames": list(shot.get("characterNames") or []),
+                "characterBindings": list(shot.get("characterBindings") or []),
+                "locationName": _text(shot.get("locationName")),
+                "locationId": _text(shot.get("locationId")) or None,
+                "propIds": list(shot.get("propIds") or []),
+                "propNames": list(shot.get("propNames") or []),
+                "durationSec": snap_h3_duration_sec(shot.get("durationSec") or 5),
+                "camera": shot.get("camera") if isinstance(shot.get("camera"), dict) else {},
+                "soundscape": _text(shot.get("soundscape")),
+                "soundscapeEn": _text(shot.get("soundscapeEn")),
+                "timingNote": _text(shot.get("timingNote") or shot.get("timing_note")),
+                "continuityIn": _text(shot.get("continuityIn") or shot.get("continuity_in")),
+                "continuityOut": _text(shot.get("continuityOut") or shot.get("continuity_out")),
+                "transitionNote": _text(shot.get("transitionNote") or shot.get("transition_note")),
+            })
+        if not shots:
+            continue
+        scenes.append({
+            "title": _text(scene.get("title")),
+            "description": _text(scene.get("description")),
+            "locationName": _text(scene.get("locationName")),
+            "shots": shots,
+        })
+    return {"scenes": scenes}
+
+
+def _apply_shot_timing_polish(recipe: dict[str, Any], data: dict[str, Any]) -> None:
+    data = coerce_storyboard_data(data)
+    scenes_raw = _collect_storyboard_scenes(data)
+    if not scenes_raw:
+        return
+    updates_by_number: dict[int, dict[str, Any]] = {}
+    shot_number = 1
+    for scene_raw in scenes_raw:
+        if shot_number > STORYBOARD_MAX_TOTAL_SHOTS:
+            break
+        scene_item = scene_raw if isinstance(scene_raw, dict) else {}
+        shots_raw = scene_item.get("shots")
+        if not isinstance(shots_raw, list) or not shots_raw:
+            shots_raw = [scene_item] if _text(scene_item.get("title") or scene_item.get("description") or scene_item.get("promptText")) else []
+        for shot_raw in shots_raw:
+            if shot_number > STORYBOARD_MAX_TOTAL_SHOTS:
+                break
+            if isinstance(shot_raw, dict):
+                updates_by_number[shot_number] = shot_raw
+            shot_number += 1
+    for scene in recipe.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for shot in scene.get("shots") or []:
+            if not isinstance(shot, dict):
+                continue
+            try:
+                number = int(shot.get("shotNumber") or 0)
+            except (TypeError, ValueError):
+                continue
+            patch = updates_by_number.get(number)
+            if not patch:
+                continue
+            original_dialogue = normalize_dialogue(shot.get("dialogue")).strip()
+            if patch.get("durationSec") is not None:
+                shot["durationSec"] = snap_h3_duration_sec(patch.get("durationSec"))
+            if patch.get("dialogue") is not None:
+                patch_dialogue = normalize_dialogue(patch.get("dialogue"))
+                if original_dialogue and is_dialogue_truncated(patch_dialogue, original_dialogue):
+                    shot["dialogue"] = original_dialogue
+                else:
+                    shot["dialogue"] = patch_dialogue
+            prompt_text = _text(patch.get("promptText") or patch.get("prompt_text"))
+            description = _text(patch.get("description"))
+            if prompt_text or description:
+                display_text, normalized_prompt = split_display_and_prompt(
+                    title=_text(shot.get("title")),
+                    description=description,
+                    prompt_text=prompt_text,
+                    fallback_zh=_text(shot.get("description"), _text(shot.get("title"))),
+                )
+                if description:
+                    shot["description"] = display_text
+                if prompt_text or normalized_prompt:
+                    shot["promptText"] = normalized_prompt
+            soundscape = _text(patch.get("soundscape"))
+            if soundscape:
+                shot["soundscape"] = soundscape
+            soundscape_en = _text(patch.get("soundscapeEn") or patch.get("soundscape_en"))
+            if soundscape_en:
+                shot["soundscapeEn"] = soundscape_en
+            timing_note = _text(patch.get("timingNote") or patch.get("timing_note"))
+            if timing_note:
+                shot["timingNote"] = timing_note
+            continuity_in = _text(patch.get("continuityIn") or patch.get("continuity_in"))
+            if continuity_in:
+                shot["continuityIn"] = continuity_in
+            continuity_out = _text(patch.get("continuityOut") or patch.get("continuity_out"))
+            if continuity_out:
+                shot["continuityOut"] = continuity_out
+            transition_note = _text(patch.get("transitionNote") or patch.get("transition_note"))
+            if transition_note:
+                shot["transitionNote"] = transition_note
+            enforce_shot_dialogue_timing(shot, baseline_dialogue=original_dialogue or shot.get("dialogue"))
 
 
 def _apply_characters(recipe: dict[str, Any], data: dict[str, Any]) -> None:
@@ -867,12 +1057,7 @@ def run_agent(
 
         if agent_id == "script":
             parsed = _chat_json(chat_fn, [
-                {"role": "system", "content": _system(
-                    agent_id,
-                    "把一句话扩成可拍的短片/短剧脚本。输出 {\"title\":\"\",\"summary\":\"\",\"fullStory\":\"\"}。"
-                    "fullStory 800-1500 字中文，必须分场：每场写地点、人物、动作和对白，便于后续一次性拆成全部镜头。"
-                    "禁止只写一段摘要。",
-                )},
+                {"role": "system", "content": _system(agent_id, build_script_agent_prompt())},
                 {"role": "user", "content": goal},
             ]) if chat_fn else None
             _apply_script(recipe, parsed or {}, goal)
@@ -904,6 +1089,9 @@ def run_agent(
                 + "\n请根据上面的完整故事一次性输出全部镜头，不要只写开场或主镜头。"
                 + "每个镜头必须从目录选择 characterBindings:[{characterId,lookId}]、locationId 和 propIds；"
                 + "同时保留 characterNames/locationName/propNames 便于人阅读，禁止发明新 ID。"
+                + "剧本每条对白（含自言自语）必须写入对应镜头的 dialogue，与同时发生的动作放在同一镜。"
+                + "拆镜时按 scene ledger 草拟相邻镜的 continuityIn / continuityOut（英文）与 transitionNote（中文）；"
+                + "后续时长与衔接润色会再校准，但不要整表留空。"
             )
             parsed: dict[str, Any] = {}
             if chat_fn:
@@ -949,7 +1137,48 @@ def run_agent(
                 recipe["scenes"] = []
                 set_agent_status(recipe, agent_id, "failed", "分镜未按剧本拆出镜头，请重试生成分镜")
                 return recipe
-            set_agent_status(recipe, agent_id, "completed")
+            if _storyboard_dialogue_coverage_low(recipe, goal):
+                set_agent_status(recipe, agent_id, "running", message="正在从剧本补全对白")
+                emit()
+                assigned = _apply_script_dialogue_fallback(recipe, goal)
+                if assigned > 0:
+                    set_agent_status(
+                        recipe,
+                        agent_id,
+                        "running",
+                        message=f"已从剧本补全 {assigned} 条对白",
+                    )
+                    emit()
+            if chat_fn and _recipe_shot_count(recipe) > 0:
+                set_agent_status(recipe, agent_id, "running", message="正在按秒分配对白与动作")
+                emit()
+                timing_raw = _chat_text(chat_fn, [
+                    {"role": "system", "content": build_shot_timing_polish_prompt()},
+                    {"role": "user", "content": json.dumps(_recipe_shots_timing_payload(recipe), ensure_ascii=False)[:12000]},
+                ], retries=1)
+                timing_parsed = _parse_storyboard_reply(timing_raw, goal)
+                if _collect_storyboard_scenes(timing_parsed):
+                    _apply_shot_timing_polish(recipe, timing_parsed)
+                set_agent_status(recipe, agent_id, "running", message="正在校验镜头衔接")
+                emit()
+                continuity_raw = _chat_text(chat_fn, [
+                    {"role": "system", "content": build_storyboard_continuity_polish_prompt()},
+                    {"role": "user", "content": json.dumps(_recipe_shots_timing_payload(recipe), ensure_ascii=False)[:16000]},
+                ], retries=1)
+                continuity_parsed = _parse_storyboard_reply(continuity_raw, goal)
+                if _collect_storyboard_scenes(continuity_parsed):
+                    _apply_shot_timing_polish(recipe, continuity_parsed)
+                enforce_recipe_shot_dialogue_timing(recipe)
+            gaps = _continuity_coverage_gaps(recipe)
+            if gaps:
+                set_agent_status(
+                    recipe,
+                    agent_id,
+                    "completed",
+                    message=f"已写出 {_recipe_shot_count(recipe)} 个镜头；衔接待补 {min(len(gaps), 3)} 处",
+                )
+            else:
+                set_agent_status(recipe, agent_id, "completed")
             return recipe
 
         if agent_id == "characters":
