@@ -742,6 +742,40 @@ def _normalize_character_bindings(value: Any) -> list[dict[str, str]]:
     return bindings
 
 
+def _normalize_shot_take(raw: Any, index: int) -> dict[str, Any]:
+    item = _as_dict(raw)
+    status = _text(item.get("status"), "queued") or "queued"
+    if status not in {"idle", "queued", "running", "succeeded", "failed", "interrupted", "cancelled"}:
+        status = "queued"
+    options = item.get("options") if isinstance(item.get("options"), dict) else {}
+    render_pass = _text(item.get("renderPass"), item.get("render_pass") or "")
+    if render_pass not in {"preview", "final"}:
+        render_pass = None
+    try:
+        progress = int(item.get("progress") or 0)
+    except (TypeError, ValueError):
+        progress = 0
+    return {
+        "id": _text(item.get("id")) or _new_id("take"),
+        "takeNumber": int(item.get("takeNumber") or item.get("take_number") or index + 1),
+        "jobId": _text(item.get("jobId"), item.get("job_id") or "") or None,
+        "videoUrl": _persistable_media_url(item.get("videoUrl") or item.get("video_url")),
+        "coverUrl": _persistable_media_url(item.get("coverUrl") or item.get("cover_url")),
+        "outputPath": _text(item.get("outputPath"), item.get("output_path") or "") or None,
+        "status": status,
+        "progress": max(0, min(100, progress)),
+        "error": _text(item.get("error")) or None,
+        "createdAt": _text(item.get("createdAt"), item.get("created_at") or ""),
+        "promptSnapshot": _text(item.get("promptSnapshot"), item.get("prompt_snapshot") or ""),
+        "renderPass": render_pass,
+        "workflowId": _text(item.get("workflowId"), item.get("workflow_id") or "") or None,
+        "videoWorkflowFamily": _text(
+            item.get("videoWorkflowFamily"), item.get("video_workflow_family") or "",
+        ) or None,
+        "options": dict(options),
+    }
+
+
 def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[str, Any]:
     item = _as_dict(raw)
     explicit_bindings = item.get("characterBindings") is not None or item.get("character_bindings") is not None
@@ -791,7 +825,11 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
         "status": status,
         "outputVideoUrl": _persistable_media_url(item.get("outputVideoUrl") or item.get("output_video_url")),
         "progress": item.get("progress") if isinstance(item.get("progress"), (int, float)) else 0,
-        "takes": [take for take in _as_list(item.get("takes")) if isinstance(take, dict)],
+        "takes": [
+            _normalize_shot_take(take, take_index)
+            for take_index, take in enumerate(_as_list(item.get("takes")))
+            if isinstance(take, dict)
+        ],
         "camera": _normalize_camera(item.get("camera")),
         "error": _text(item.get("error")) or None,
         "firstFrameUrl": _persistable_media_url(item.get("firstFrameUrl") or item.get("first_frame_url")),
@@ -819,6 +857,18 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
     soundscape_en = _text(item.get("soundscapeEn"), item.get("soundscape_en") or "")
     if soundscape_en:
         shot["soundscapeEn"] = soundscape_en
+    timing_note = _text(item.get("timingNote"), item.get("timing_note") or "")
+    if timing_note:
+        shot["timingNote"] = timing_note
+    continuity_in = _text(item.get("continuityIn"), item.get("continuity_in") or "")
+    if continuity_in:
+        shot["continuityIn"] = continuity_in
+    continuity_out = _text(item.get("continuityOut"), item.get("continuity_out") or "")
+    if continuity_out:
+        shot["continuityOut"] = continuity_out
+    transition_note = _text(item.get("transitionNote"), item.get("transition_note") or "")
+    if transition_note:
+        shot["transitionNote"] = transition_note
     return shot
 
 

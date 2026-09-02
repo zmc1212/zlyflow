@@ -81,6 +81,15 @@ export interface ShotTake {
   createdAt: string
   promptSnapshot?: string
   renderPass?: "preview" | "final"
+  workflowId?: string
+  videoWorkflowFamily?: string
+  options?: {
+    aspect_ratio?: string
+    quality?: string
+    speed?: string
+    weight_profile?: string
+    duration?: number
+  }
 }
 
 export interface DirectorShot {

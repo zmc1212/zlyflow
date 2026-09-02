@@ -11,6 +11,24 @@ export function plateBatchLabel(kind: "character" | "location", count: number): 
   return count > 0 ? `${base}（${count}）` : base
 }
 
+export function approveBatchLabel(kind: "location" | "prop", count: number): string {
+  const base = kind === "location" ? "批准全部场景" : "批准全部道具"
+  return count > 0 ? `${base}（${count}）` : base
+}
+
+export function approveBatchConfirm(kind: "location" | "prop", count: number): {
+  title: string
+  countLabel: string
+  costLabel: string
+} {
+  const noun = kind === "location" ? "场景母版" : "道具转面"
+  return {
+    title: kind === "location" ? "批准全部场景" : "批准全部道具",
+    countLabel: `将批准 ${count} 个已生成成功的${noun}候选，每个取当前最新一版。`,
+    costLabel: "不消耗算力；已批准或尚无成功候选的项会跳过。",
+  }
+}
+
 export function plateBatchConfirm(kind: "character" | "location", total: number, pending: number): {
   title: string
   countLabel: string

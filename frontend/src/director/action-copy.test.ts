@@ -4,6 +4,8 @@ import {
   PLAN_GENERATION_HINT,
   PLAN_GENERATION_LABEL,
   PLAN_GENERATION_SUCCESS,
+  approveBatchConfirm,
+  approveBatchLabel,
   boardBatchConfirm,
   boardBatchLabel,
   muxBatchConfirm,
@@ -32,6 +34,13 @@ export function assertActionCopyContract(): void {
   }
   if (!plateBatchLabel("location", 2).includes("2")) {
     throw new Error("plate button must show quantity")
+  }
+  if (!approveBatchLabel("location", 3).includes("3")) {
+    throw new Error("approve batch button must show quantity")
+  }
+  const approve = approveBatchConfirm("location", 5)
+  if (!approve.countLabel.includes("5") || !approve.costLabel.includes("不消耗")) {
+    throw new Error("approve confirm must show count and no-cost hint")
   }
 
   const shots = boardBatchConfirm("final", 8)

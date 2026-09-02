@@ -27,7 +27,9 @@ import MediaPreviewModal from "../../components/MediaPreviewModal"
 import {
   emptyRecipeIdentitySpec,
   recipeActiveAssetVersion,
+  recipeApprovableAssetVersion,
   recipeApprovedAssetVersion,
+  recipeAssetVersionRuntimeStatus,
   type RecipeAssetRendition,
   type RecipeAssetVersion,
   type RecipeCharacter,
@@ -35,6 +37,11 @@ import {
   type RecipeProp,
 } from "../recipe-model"
 import { jobProgressFromJob, jobStoredImageUrl } from "../director-submit"
+import {
+  SIMPLE_ASSET_CARD_STATUS_LABELS,
+  simpleAssetCardTone,
+} from "../asset-stage-summary"
+import RecipeAssetActionRail from "./RecipeAssetActionRail"
 
 export type RecipeAssetTargetKind = "character_portrait" | "character_sheet" | "location" | "prop"
 
@@ -60,7 +67,7 @@ function versionJob(version: RecipeAssetVersion | undefined, jobs: JobLike[]): J
 }
 
 function versionStatus(version: RecipeAssetVersion, jobs: JobLike[]): string {
-  return versionJob(version, jobs)?.status || version.status
+  return recipeAssetVersionRuntimeStatus(version, jobs)
 }
 
 function versionImage(version: RecipeAssetVersion | undefined, jobs: JobLike[]): string | undefined {
@@ -196,8 +203,24 @@ export function CharacterAssetCard({
   const nextLabel = portraitApproved
     ? sheetApproved ? "生成新定妆候选" : "生成四视角定妆板"
     : "生成身份肖像"
-  const totalVersions = portrait.versions.length + (look?.sheet.versions.length || 0)
-  const assumptions = character.aiAssumptions || []
+  const portraitApprovable = recipeApprovableAssetVersion(portrait, jobs)
+  const sheetApprovable = look ? recipeApprovableAssetVersion(look.sheet, jobs) : undefined
+  const approvable = sheetApprovable || portraitApprovable
+  const approveKind: "character_portrait" | "character_sheet" | null = sheetApprovable
+    ? "character_sheet"
+    : portraitApprovable
+      ? "character_portrait"
+      : null
+  const cardTone = sheetApproved
+    ? "ready"
+    : generating
+      ? "running"
+      : approvable
+        ? "pending"
+        : portraitApproved
+          ? "idle"
+          : "idle"
+  const statusLabel = SIMPLE_ASSET_CARD_STATUS_LABELS[cardTone as keyof typeof SIMPLE_ASSET_CARD_STATUS_LABELS] || "待生成"
 
   const historyItems = useMemo(() => [
     {
@@ -252,7 +275,9 @@ export function CharacterAssetCard({
             )}
           </div>
         )}
-        {sheetApproved ? <span className="director-character-approved"><CheckCircle2 size={14} /> 已批准</span> : null}
+        {sheetApproved ? <span className="director-asset-status-chip is-ready">已批准</span> : (
+          <span className={`director-asset-status-chip is-${cardTone}`}>{statusLabel}</span>
+        )}
       </button>
       <div className="director-character-body">
         <div className="director-character-heading">
@@ -265,26 +290,59 @@ export function CharacterAssetCard({
           {statusTag("肖像", Boolean(portraitApproved), !portraitApproved && generating)}
           {statusTag("定妆板", Boolean(sheetApproved), Boolean(portraitApproved) && !sheetApproved)}
         </div>
-        <div className="director-asset-card-actions">
-          <Button
-            type="primary"
-            icon={portraitApproved ? <PanelsTopLeft size={14} /> : <ScanFace size={14} />}
-            loading={generating}
-            onClick={() => onGenerate(nextKind, look?.id)}
-          >
-            {nextLabel}
-          </Button>
-          <Button icon={<Settings2 size={14} />} onClick={() => setDetailsOpen(true)}>设定</Button>
-          <Button icon={<History size={14} />} onClick={() => setHistoryOpen(true)}>候选 {totalVersions}</Button>
-        </div>
-        <Button
-          type="text"
-          icon={<Library size={14} />}
-          disabled={!sheetApproved}
-          onClick={onSaveToLibrary}
-          className="director-asset-save"
-        >
-          {sheetApproved ? "将已批准定妆存入资产库" : "批准定妆后可存入资产库"}
+        <RecipeAssetActionRail
+          items={[
+            {
+              key: "approve",
+              label: "批准",
+              icon: <CheckCircle2 size={14} />,
+              emphasis: approvable ? "primary" : "default",
+              disabled: !approvable || !approveKind,
+              hint: sheetApprovable
+                ? "批准这版四视角定妆板"
+                : portraitApprovable
+                  ? "批准为身份锚点"
+                  : sheetApproved
+                    ? "定妆板已批准"
+                    : "请先生成可批准候选",
+              onClick: () => {
+                if (!approvable || !approveKind) return
+                onApprove(
+                  approveKind,
+                  approvable.id,
+                  approveKind === "character_sheet" ? look?.id : undefined,
+                )
+              },
+            },
+            {
+              key: "generate",
+              label: portraitApproved ? (sheetApproved ? "重生成" : "定妆板") : "肖像",
+              icon: portraitApproved ? <PanelsTopLeft size={14} /> : <ScanFace size={14} />,
+              emphasis: !approvable && !sheetApproved ? "primary" : "default",
+              loading: generating,
+              hint: generateHint,
+              onClick: () => onGenerate(nextKind, look?.id),
+            },
+            {
+              key: "history",
+              label: totalVersions ? `候选 ${totalVersions}` : "候选",
+              icon: <History size={14} />,
+              disabled: !totalVersions,
+              hint: "查看肖像与定妆板候选",
+              onClick: () => setHistoryOpen(true),
+            },
+            {
+              key: "library",
+              label: "入库",
+              icon: <Library size={14} />,
+              disabled: !sheetApproved,
+              hint: sheetApproved ? "将已批准定妆存入资产库" : "批准定妆板后可入库",
+              onClick: onSaveToLibrary,
+            },
+          ]}
+        />
+        <Button icon={<Settings2 size={14} />} onClick={() => setDetailsOpen(true)} className="director-asset-spec-link">
+          编辑角色设定
         </Button>
       </div>
 
@@ -367,10 +425,20 @@ export function SimpleRenditionAssetCard({
   const [previewOpen, setPreviewOpen] = useState(false)
   const rendition = ("plate" in asset ? asset.plate : asset.turnaround) || { versions: [] }
   const approved = recipeApprovedAssetVersion(rendition)
+  const approvable = recipeApprovableAssetVersion(rendition, jobs)
   const state = renditionPreview(rendition, jobs)
   const imageUrl = versionImage(approved, jobs) || state.imageUrl
   const generating = state.status === "queued" || state.status === "running"
   const noun = kind === "location" ? "场景母版" : "道具转面"
+  const hasPreview = Boolean(imageUrl)
+  const generateLabel = approved
+    ? "重新生成"
+    : hasPreview
+      ? "重新生成"
+      : "生成"
+  const cardTone = simpleAssetCardTone(Boolean(approved), Boolean(approvable), generating, state.status)
+  const statusLabel = SIMPLE_ASSET_CARD_STATUS_LABELS[cardTone]
+  const versionCount = rendition.versions.length
   return (
     <Card className="director-asset-card director-simple-asset-card" size="small">
       <button type="button" className="director-simple-asset-visual" onClick={() => imageUrl && setPreviewOpen(true)} disabled={!imageUrl}>
@@ -379,19 +447,58 @@ export function SimpleRenditionAssetCard({
         ) : (
           <div><ImagePlus size={24} /><span>待生成{noun}</span></div>
         )}
-        {approved ? <span className="director-character-approved"><CheckCircle2 size={14} /> 已批准</span> : null}
+        <span className={`director-asset-status-chip is-${cardTone}`}>{statusLabel}</span>
       </button>
-      <Input value={asset.name} aria-label={`${noun}名称`} onChange={(event) => onChange({ name: event.target.value })} />
-      <Input.TextArea value={asset.description} autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => onChange({ description: event.target.value })} />
-      <div className="director-asset-card-actions">
-        <Button type="primary" icon={<RefreshCw size={14} />} loading={generating} onClick={onGenerate}>
-          {approved ? `生成新${noun}候选` : `生成${noun}`}
-        </Button>
-        <Button icon={<History size={14} />} onClick={() => setHistoryOpen(true)}>候选 {rendition.versions.length}</Button>
+      <div className="director-simple-asset-meta">
+        <Input value={asset.name} aria-label={`${noun}名称`} onChange={(event) => onChange({ name: event.target.value })} />
+        <Typography.Text type="secondary" className="director-simple-asset-subline">
+          {versionCount ? `候选 ${versionCount}` : "尚无候选"} · {statusLabel}
+        </Typography.Text>
       </div>
-      <Button type="text" icon={<Library size={14} />} disabled={!approved} onClick={onSaveToLibrary} className="director-asset-save">
-        {approved ? "将已批准版本存入资产库" : "批准后可存入资产库"}
-      </Button>
+      <Input.TextArea
+        value={asset.description}
+        autoSize={{ minRows: 1, maxRows: 3 }}
+        placeholder="场景描述"
+        onChange={(event) => onChange({ description: event.target.value })}
+      />
+      <RecipeAssetActionRail
+        items={[
+          {
+            key: "approve",
+            label: "批准",
+            icon: <CheckCircle2 size={14} />,
+            emphasis: approvable ? "primary" : "default",
+            disabled: !approvable,
+            hint: approvable ? `批准当前${noun}候选` : approved ? "已批准当前版本" : "请先生成成功候选",
+            onClick: () => approvable && onApprove(approvable.id),
+          },
+          {
+            key: "generate",
+            label: generateLabel,
+            icon: <RefreshCw size={14} />,
+            emphasis: !approvable && !approved ? "primary" : "default",
+            loading: generating,
+            hint: approved ? `生成新的${noun}候选` : hasPreview ? `重新生成${noun}` : `生成${noun}`,
+            onClick: onGenerate,
+          },
+          {
+            key: "history",
+            label: versionCount ? `候选 ${versionCount}` : "候选",
+            icon: <History size={14} />,
+            disabled: !versionCount,
+            hint: versionCount ? "查看并切换历史候选" : "还没有候选版本",
+            onClick: () => setHistoryOpen(true),
+          },
+          {
+            key: "library",
+            label: "入库",
+            icon: <Library size={14} />,
+            disabled: !approved,
+            hint: approved ? "将已批准版本存入资产库" : "批准后才能存入资产库",
+            onClick: onSaveToLibrary,
+          },
+        ]}
+      />
       <Drawer className="director-asset-drawer" title={`${asset.name} · 候选历史`} open={historyOpen} onClose={() => setHistoryOpen(false)} width={680}>
         <AssetVersionHistory rendition={rendition} approvedVersionId={rendition.approvedVersionId} jobs={jobs} approveLabel={`批准这版${noun}`} onApprove={onApprove} />
       </Drawer>

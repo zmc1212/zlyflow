@@ -17,6 +17,7 @@ from .director_compiler import (
     recipe_assets_as_slots,
     recipe_style_prefix,
     resolve_recipe_shot_submission,
+    shot_take_generation_record,
     validate_h3_polished_prompt,
 )
 from .workflow_registry import resolve_director_workflow
@@ -1129,6 +1130,7 @@ def render_recipe_shots(
         shot["progress"] = 0
         pass_name = "preview" if render_pass == "preview" else "final"
         takes = [take for take in (shot.get("takes") or []) if isinstance(take, dict)]
+        generation = shot_take_generation_record(submission, recipe)
         takes.append({
             "id": job["id"],
             "takeNumber": len(takes) + 1,
@@ -1138,6 +1140,9 @@ def render_recipe_shots(
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "promptSnapshot": submission.get("prompt") or "",
             "renderPass": pass_name,
+            "workflowId": generation["workflowId"],
+            "videoWorkflowFamily": generation["videoWorkflowFamily"],
+            "options": generation["options"],
         })
         shot["takes"] = takes
         job_ids.append(job["id"])

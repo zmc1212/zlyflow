@@ -523,6 +523,7 @@ export default function DirectorTimelineView({
       <aside className="director-timeline-inspector">
         {selectedShot ? (
           <RecipeShotInspector
+            key={selectedShot.id}
             shot={selectedShot}
             recipe={recipe}
             previousShot={previousShot}

@@ -256,6 +256,8 @@ class DirectorRecipeModelTests(unittest.TestCase):
             build_h3_ref2va_polish_prompt,
             load_h3_prompt_writing_guide,
             load_h3_prompt_writing_skill,
+            load_shot_continuity_guide,
+            load_shot_continuity_skill,
         )
 
         skill = load_h3_prompt_writing_skill()
@@ -267,6 +269,12 @@ class DirectorRecipeModelTests(unittest.TestCase):
         self.assertIn("subject_definitions", ref)
         self.assertIn("<Subject 1>", ref)
         self.assertIn("Full-Reference Mode Rewrite Output Format Guide", build_h3_ref2va_polish_prompt())
+        continuity = load_shot_continuity_skill()
+        guide = load_shot_continuity_guide()
+        self.assertIn("name: shot-continuity-handoff", continuity)
+        self.assertIn("continuityIn", continuity)
+        self.assertIn("Scene ledger", guide)
+        self.assertIn("动作匹配切", guide)
 
     def test_timeline_payload_converts_shots_to_scenes(self) -> None:
         timeline = {
@@ -471,6 +479,9 @@ class DirectorRecipeModelTests(unittest.TestCase):
                     "stillUrl": "/api/jobs/still/outputs/0/download",
                     "stillJobId": "still-1",
                     "usePreviousEndFrame": True,
+                    "continuityIn": "The detective remains at the doorway, facing screen right as rain continues.",
+                    "continuityOut": "He pauses in a medium profile with his hand on the wet door handle.",
+                    "transitionNote": "动作匹配切，雨声不断。",
                     "approvedTakeId": "take-9",
                     "activeTakeIndex": 2,
                 }],
@@ -483,6 +494,9 @@ class DirectorRecipeModelTests(unittest.TestCase):
         self.assertEqual(shot["stillUrl"], "/api/jobs/still/outputs/0/download")
         self.assertEqual(shot["stillJobId"], "still-1")
         self.assertTrue(shot["usePreviousEndFrame"])
+        self.assertEqual(shot["continuityIn"], "The detective remains at the doorway, facing screen right as rain continues.")
+        self.assertEqual(shot["continuityOut"], "He pauses in a medium profile with his hand on the wet door handle.")
+        self.assertEqual(shot["transitionNote"], "动作匹配切，雨声不断。")
         self.assertEqual(shot["approvedTakeId"], "take-9")
         self.assertEqual(shot["activeTakeIndex"], 2)
         dropped = normalize_recipe_payload({
@@ -1005,6 +1019,26 @@ class DirectorCompilerTests(unittest.TestCase):
         self.assertEqual(pruned["weight_profile"], "pruned")
         self.assertEqual(pruned["speed"], "quality")
 
+    def test_shot_take_generation_record_persists_submission_options(self) -> None:
+        from backend.app.director_compiler import resolve_shot_submission, shot_take_generation_record
+
+        project = self._project([self._shot(1)])
+        project["videoWorkflowFamily"] = "official_h3"
+        project["finalQuality"] = "1.0"
+        project["finalSpeed"] = "quality"
+        submission = resolve_shot_submission(project, project["shots"][0], "final")
+        record = shot_take_generation_record(submission, project)
+        self.assertEqual(record["workflowId"], submission["workflowId"])
+        self.assertEqual(record["videoWorkflowFamily"], "official_h3")
+        self.assertEqual(record["options"]["quality"], "1.0")
+        self.assertEqual(record["options"]["speed"], "quality")
+        self.assertEqual(record["options"]["weight_profile"], "full")
+        self.assertEqual(record["options"]["aspect_ratio"], "16:9")
+        preview = resolve_shot_submission(project, project["shots"][0], "preview")
+        preview_record = shot_take_generation_record(preview, project)
+        self.assertEqual(preview_record["options"]["quality"], "0.4")
+        self.assertEqual(preview_record["options"]["speed"], "fast")
+
     def test_recipe_shot_keeps_camera_and_edited_description(self) -> None:
         from backend.app.director_compiler import recipe_shot_as_timeline_shot, resolve_recipe_shot_submission
 
@@ -1148,6 +1182,26 @@ class DirectorCompilerTests(unittest.TestCase):
         self.assertNotIn("[Shot 3]", submission["prompt"])
         self.assertNotIn("00:11.000", submission["prompt"])
         self.assertIn("a medium shot of Li Ming", submission["prompt"])
+
+    def test_recipe_shot_compiles_seedance_inspired_boundary_handoff(self) -> None:
+        from backend.app.director_compiler import recipe_shot_as_timeline_shot, resolve_recipe_shot_submission
+
+        recipe = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "scenes": [{"shots": [{
+                "title": "承接雨巷",
+                "promptText": "A medium tracking shot follows the detective into the alley.",
+                "continuityIn": "The detective enters from screen left, his coat already wet, with rain audible.",
+                "continuityOut": "He stops beneath the neon sign, still facing screen right as the rain continues.",
+            }]}],
+        })
+        shot = recipe["scenes"][0]["shots"][0]
+        timeline_shot = recipe_shot_as_timeline_shot(recipe, shot)
+        self.assertIn("Continuity at clip opening", timeline_shot["prompt"])
+        self.assertIn("End this clip on", timeline_shot["prompt"])
+        submission = resolve_recipe_shot_submission(recipe, shot)
+        self.assertIn("The detective enters from screen left", submission["prompt"])
+        self.assertIn("He stops beneath the neon sign", submission["prompt"])
 
     def test_recipe_previous_end_frame_compiles_as_i2v(self) -> None:
         from backend.app.director_compiler import apply_recipe_continuity, recipe_shot_as_timeline_shot, resolve_recipe_shot_submission
@@ -1965,6 +2019,12 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertIn("8–24", skill)
         self.assertIn("主镜头", skill)
         self.assertIn("ONLY one JSON object", skill)
+        self.assertIn("DIALOGUE ASSIGNMENT", skill)
+        self.assertIn("自言自语", skill)
+        self.assertIn("Dialogue: none", skill)
+        self.assertIn("continuityIn", skill)
+        self.assertIn("scene ledger", skill)
+        self.assertIn("Continuity handoff", skill)
 
         recipe = run_agent(
             "storyboard",
@@ -1978,6 +2038,145 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertNotIn("Live-action", recipe["scenes"][0]["shots"][0]["description"])
         self.assertIn("tracking shot", recipe["scenes"][0]["shots"][0]["promptText"])
         self.assertEqual(recipe["scenes"][0]["shots"][0]["soundscape"], "雨打石板和远处车声。")
+
+    def test_storyboard_runs_timing_and_continuity_passes(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        calls: list[str] = []
+
+        def chat(messages: list[dict]) -> str:
+            system = messages[0]["content"]
+            calls.append(system)
+            if "You are the continuity editor" in system:
+                return json.dumps({
+                    "scenes": [{
+                        "title": "巷口",
+                        "locationName": "暗巷",
+                        "shots": [
+                            {
+                                "title": "进巷",
+                                "description": "侦探走进雨巷。",
+                                "promptText": "[Shot 1] At 00:00.000, detective Kai enters the rainy alley.",
+                                "dialogue": "",
+                                "characterNames": ["阿凯"],
+                                "locationName": "暗巷",
+                                "durationSec": 5,
+                                "continuityOut": "Kai stands mid-frame facing screen right as rain continues.",
+                                "transitionNote": "动作匹配切，雨声不断。",
+                            },
+                            {
+                                "title": "喝止",
+                                "description": "侦探喝止对方。",
+                                "promptText": "[Shot 1] At 00:00.000, Kai raises a hand. At 00:01.200 he says <d>[Chinese] 别动。</d>",
+                                "dialogue": "别动。",
+                                "characterNames": ["阿凯"],
+                                "locationName": "暗巷",
+                                "durationSec": 4,
+                                "continuityIn": "Kai stands mid-frame facing screen right as rain continues.",
+                                "continuityOut": "Kai holds a ready stance under neon light.",
+                                "transitionNote": "视线匹配切。",
+                            },
+                        ],
+                    }],
+                }, ensure_ascii=False)
+            if "You are the Shot Timing Editor" in system:
+                return json.dumps({
+                    "scenes": [{
+                        "title": "巷口",
+                        "locationName": "暗巷",
+                        "shots": [
+                            {
+                                "title": "进巷",
+                                "description": "侦探走进雨巷。",
+                                "promptText": "[Shot 1] At 00:00.000, detective Kai enters the rainy alley.",
+                                "dialogue": "",
+                                "characterNames": ["阿凯"],
+                                "locationName": "暗巷",
+                                "durationSec": 5,
+                                "timingNote": "动作镜保持 5 秒。",
+                            },
+                            {
+                                "title": "喝止",
+                                "description": "侦探喝止对方。",
+                                "promptText": "[Shot 1] At 00:00.000, Kai raises a hand. At 00:01.200 he says <d>[Chinese] 别动。</d>",
+                                "dialogue": "别动。",
+                                "characterNames": ["阿凯"],
+                                "locationName": "暗巷",
+                                "durationSec": 4,
+                                "timingNote": "短对白压到 4 秒。",
+                            },
+                        ],
+                    }],
+                }, ensure_ascii=False)
+            return json.dumps({
+                "scenes": [{
+                    "title": "巷口",
+                    "locationName": "暗巷",
+                    "shots": [
+                        {
+                            "title": "进巷",
+                            "description": "侦探走进雨巷。",
+                            "promptText": "detective Kai enters the rainy alley",
+                            "dialogue": "",
+                            "characterNames": ["阿凯"],
+                            "locationName": "暗巷",
+                            "durationSec": 5,
+                        },
+                        {
+                            "title": "喝止",
+                            "description": "侦探喝止对方。",
+                            "promptText": "Kai says stop",
+                            "dialogue": "别动。",
+                            "characterNames": ["阿凯"],
+                            "locationName": "暗巷",
+                            "durationSec": 5,
+                        },
+                    ],
+                }],
+            }, ensure_ascii=False)
+
+        recipe = run_agent(
+            "storyboard",
+            {"kind": "director_recipe", "script": {"title": "雨夜", "summary": "侦探", "fullStory": "侦探走进雨巷。阿凯：别动。"}},
+            goal="雨夜里侦探穿过暗巷。",
+            chat_fn=chat,
+        )
+        self.assertGreaterEqual(len(calls), 3)
+        self.assertIn("h3-prompt-writing", calls[0])
+        self.assertIn("Continuity handoff", calls[0])
+        self.assertTrue(any("You are the Shot Timing Editor" in item for item in calls))
+        self.assertTrue(any("You are the continuity editor" in item for item in calls))
+        self.assertTrue(any("shot-continuity-handoff" in item for item in calls))
+        shots = recipe["scenes"][0]["shots"]
+        self.assertEqual(len(shots), 2)
+        self.assertEqual(shots[0]["continuityOut"], "Kai stands mid-frame facing screen right as rain continues.")
+        self.assertEqual(shots[0]["transitionNote"], "动作匹配切，雨声不断。")
+        self.assertEqual(shots[1]["continuityIn"], "Kai stands mid-frame facing screen right as rain continues.")
+        self.assertEqual(shots[1]["dialogue"], "别动。")
+
+    def test_script_agent_uses_scene_ledger_continuity_guidance(self) -> None:
+        from backend.app.director_agents import run_agent
+        from backend.app.llm_minimax_skills import build_script_agent_prompt
+
+        captured: list[str] = []
+
+        def chat(messages: list[dict]) -> str:
+            captured.append(messages[0]["content"])
+            return json.dumps({
+                "title": "雨夜",
+                "summary": "侦探追人",
+                "fullStory": "第一场 暗巷。开场：阿凯站在巷口。动作：他走进雨里。对白：别动。收束：他停在霓虹灯下。",
+            }, ensure_ascii=False)
+
+        prompt = build_script_agent_prompt()
+        self.assertIn("scene-ledger", prompt)
+        self.assertIn("opening visual state", prompt)
+        self.assertIn("continuityIn", prompt)
+
+        recipe = run_agent("script", {"kind": "director_recipe"}, goal="雨夜追人", chat_fn=chat)
+        self.assertTrue(captured)
+        self.assertIn("scene-ledger", captured[0])
+        self.assertIn("阿凯站在巷口", recipe["script"]["fullStory"])
 
     def test_storyboard_keeps_chinese_card_when_model_writes_english(self) -> None:
         from backend.app.director_agents import run_agent
@@ -2540,7 +2739,16 @@ class DirectorDualEngineApiTests(unittest.TestCase):
         preview_job = self.job_store.get(preview_shot["jobId"])
         self.assertEqual(preview_job["options"]["quality"], "0.4")
         self.assertEqual(preview_job["options"]["speed"], "fast")
-        self.assertEqual(preview_shot["takes"][-1]["renderPass"], "preview")
+        preview_take = preview_shot["takes"][-1]
+        self.assertEqual(preview_take["renderPass"], "preview")
+        self.assertEqual(preview_take["workflowId"], "minimax-h3-t2v")
+        self.assertEqual(preview_take["options"]["quality"], "0.4")
+        self.assertEqual(preview_take["options"]["speed"], "fast")
+        self.assertEqual(preview_take["options"]["weight_profile"], "full")
+        final_take = rendered.json()["payload"]["scenes"][0]["shots"][0]["takes"][-1]
+        self.assertEqual(final_take["renderPass"], "final")
+        self.assertEqual(final_take["options"]["quality"], "1.0")
+        self.assertEqual(final_take["options"]["speed"], "balanced")
 
     def test_recipes_run_accepts_script_and_storyboard_subset(self) -> None:
         self.llm_provider.update({

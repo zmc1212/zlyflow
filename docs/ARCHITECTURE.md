@@ -54,8 +54,9 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/director_library.py` | 员工级人物/场景/道具资产库规范化、从 Recipe 快照、插入工程 |
 | `backend/app/tts_provider.py` | 独立 TTS 供应商（OpenAI 兼容 `/audio/speech`）；可复用 LLM 凭据；不绑定 Edge TTS |
 | `backend/app/director_export.py` | 逐镜 TTS、BGM、ffmpeg 成片、FCPXML/EDL；失败镜头不进入成片 |
-| `backend/app/director_agents.py` | 9 Agent 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；分镜 Agent 读取官方 h3-prompt-writing 原文生成；配音/配乐写可播放媒体元数据 |
-| `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能与官方 prompt-writing 加载器，供生成页优化和导演台分镜共用 |
+| `backend/app/director_agents.py` | 9 Agent 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；分镜 Agent 读取官方 h3-prompt-writing，并依次做时长润色与 Seedance 风格衔接润色；配音/配乐写可播放媒体元数据 |
+| `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能、官方 prompt-writing、shot-timing 与 shot-continuity 加载器，供生成页优化和导演台分镜共用 |
+| `backend/app/shot_continuity_skill/` | Seedance 2.5 改编的 scene ledger / 相邻镜交接方法，供剧本与分镜 Agent 使用 |
 | `backend/app/h3_prompt_writing/` | MiniMax 官方 `h3-prompt-writing` skill 原文（SKILL.md、T2VA/Ref2VA 参考） |
 | `backend/app/director_jobs.py` | Recipe 定妆 GRS 入队、七牛地址回写、分镜/批量按所选工作流族入队 |
 | `backend/app/storage.py` | SQLite 任务、owner、交付状态与导演工程元数据 |
@@ -1382,3 +1383,18 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：前端内部状态模型增加主题上下文和一个本地存储键；不改 HTTP API、SQLite、任务/Recipe schema、工作流注册表、ComfyUI graph、节点 ID、模型路径、媒体目录或 7865/8188 端口。删除偏好即可恢复默认浅色行为。
 - 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend test`、`pnpm --dir frontend build`；以 1440×900 和 390×844 验证双主题、持久化、登录、工作台、账户菜单、Ant Design Select、导演台与后台。
 - 回滚方式：恢复上述前端主题相关文件和文档后重新构建前端，并可删除 `zly-ai-video-studio.theme`；无需迁移或回滚数据库、任务、Recipe、媒体与 ComfyUI 资产。
+
+## 2026-09-01 分镜连续性提示词基线
+
+- 当前流程：`storyboard` Agent 依次执行完整拆镜、对白/动作时长润色、连续性润色。剧本 Agent 与首次拆镜即注入 Seedance 风格 scene ledger；连续性润色以完整有序的 `scenes[].shots[]` 为输入，为相邻镜头生成 `continuityIn`、`continuityOut` 和 `transitionNote`；前两项是英文边界状态，后者是中文编辑说明。方法原文落在 `backend/app/shot_continuity_skill/`。
+- 编译边界：`director_compiler.recipe_shot_as_timeline_shot()` 与前端 `compileRecipeShotPreview()` 均把边界状态编入本地时间轴从 `00:00` 开始的 H3 单镜正文。它们不改 H3 的 T2VA / I2VA / Ref2VA 外层结构。若用户启用 `usePreviousEndFrame`，现有 `apply_recipe_continuity()` 仍把上一镜尾帧（或静帧）作为下一镜首帧，形成实际 I2V 视觉锚点。
+- 兼容与回滚：字段可选，`normalize_recipe_payload()` 对旧 Recipe 不填默认值，故不需要 SQLite 迁移。删除第三次 Agent pass、三个字段、`shot_continuity_skill/` 及边界文本拼接即可回滚；工作流协议、ComfyUI 节点 ID、模型路径、7865/8188 端口均未变更。
+
+## 2026-09-01 Seedance 剧本全流程衔接润色
+
+- 原因：仅靠拆镜后的第三次衔接 pass，剧本阶段与首次拆镜仍可能缺少可继承的开场/收束状态；Seedance 2.5 skill 的 scene ledger / start-end state / adjacent-cut QA 需要进入整条生成链。
+- 当前基线：内置 `shot_continuity_skill`（改编自本地 Seedance 2.5 的 production-contract / prompt-patterns / narrative route）。`script` 按 scene ledger 写分场开场-节拍-收束；`storyboard` 首次拆镜即草拟 `continuityIn/Out`/`transitionNote`；时长 pass 后仍跑衔接润色，并做缺口提示。编译与可选尾帧 I2V 承接不变。不向 H3 发送 Seedance API 标签。
+- 受影响文件：`backend/app/shot_continuity_skill/**`、`llm_minimax_skills.py`、`director_agents.py`、`backend/tests/test_director.py`，以及三份主文档。
+- 兼容性：不改端口、SQLite schema、ComfyUI 节点、工作流协议或既有 Recipe 必填字段。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorRecipeModelTests.test_official_h3_prompt_writing_skill_is_vendored backend.tests.test_director.DirectorAgentPipelineTests.test_storyboard_runs_timing_and_continuity_passes backend.tests.test_director.DirectorAgentPipelineTests.test_script_agent_uses_scene_ledger_continuity_guidance backend.tests.test_director.DirectorCompilerTests -q`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述文件并移除 `shot_continuity_skill/`；历史工程无需迁移。

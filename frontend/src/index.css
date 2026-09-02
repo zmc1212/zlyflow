@@ -1812,6 +1812,23 @@
   object-fit: contain;
   background: #111827;
 }
+.director-inspector-generation-bar {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid rgba(77, 107, 254, .18);
+  border-radius: 10px;
+  background: rgba(77, 107, 254, .06);
+  color: #1f2937;
+  font-size: 12px;
+}
+.director-inspector-generation-bar .ant-progress {
+  margin: 0;
+}
+.director-inspector-generation-bar .ant-progress-inner,
+.director-inspector-generation-bar .ant-progress-bg {
+  height: 4px !important;
+}
 .director-recipe-inspector .director-inspector-empty {
   position: absolute;
   inset: 0;
@@ -1956,17 +1973,145 @@
 .director-frame-slot img { width: 100%; height: 100%; object-fit: cover; }
 .director-frame-slot span { display: inline-flex; align-items: center; gap: 6px; }
 .director-take-list { display: grid; gap: 8px; }
+.director-take-rail {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 12px;
+  background: #f8f9fa;
+}
+.director-take-rail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: #111827;
+  font-size: 13px;
+}
+.director-take-rail-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.director-take-rail-item {
+  display: grid;
+  grid-template-columns: 64px minmax(120px, 1fr);
+  gap: 8px;
+  align-items: start;
+  flex: 0 0 auto;
+  width: min(100%, 220px);
+  padding: 8px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 10px;
+  background: #fff;
+}
+.director-take-rail-item.is-active { border-color: rgba(77, 107, 254, .35); }
+.director-take-rail-item.is-approved { box-shadow: inset 0 0 0 1px rgba(34, 197, 94, .25); }
+.director-take-rail-preview {
+  width: 64px;
+  height: 36px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: #e5e7eb;
+  color: #6b7280;
+  font-size: 11px;
+  cursor: pointer;
+}
+.director-take-rail-preview video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.director-take-rail-body { display: grid; gap: 6px; min-width: 0; }
+.director-take-rail-select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1f2937;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.director-take-rail-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.director-inspector-takes-collapse .ant-collapse-header { padding: 10px 12px !important; }
+.director-inspector-takes-collapse .ant-collapse-content-box { padding: 0 12px 12px !important; }
+.director-inspector-takes-empty {
+  margin: 0;
+  color: #6b7280;
+  font-size: 12px;
+}
 .director-take-item {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr) auto;
   gap: 8px;
-  align-items: center;
+  align-items: start;
   padding: 8px;
   border: 1px solid rgba(15, 23, 42, .08);
   border-radius: 10px;
   background: #fff;
 }
 .director-take-item.is-active { border-color: rgba(77, 107, 254, .35); }
+.director-take-body { display: grid; gap: 6px; min-width: 0; }
+.director-take-params { display: grid; gap: 6px; min-width: 0; }
+.director-take-params.is-compact { gap: 4px; }
+.director-take-params.is-empty { margin: 0; color: #9ca3af; font-size: 11px; }
+.director-take-params-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.director-take-params-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #4b5563;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.director-take-params-toggle { padding: 0; height: auto; font-size: 11px; }
+.director-take-params-details {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+.director-take-params-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 11px;
+}
+.director-take-params-row.is-diff dt,
+.director-take-params-row.is-diff dd { color: #b45309; }
+.director-take-params-row dt { margin: 0; color: #6b7280; }
+.director-take-params-row dd { margin: 0; color: #111827; word-break: break-word; }
+.director-take-params-prompt {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+.director-take-params-prompt dt { margin: 0; color: #6b7280; font-size: 11px; }
+.director-take-params-prompt dd { margin: 0; }
+.director-take-params-prompt pre {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.director-take-compare-panel { display: grid; gap: 6px; min-width: 0; }
 .director-take-preview {
   width: 72px;
   height: 40px;
@@ -2225,6 +2370,19 @@
   border-radius: 999px;
   background: var(--studio-success-soft);
   color: var(--studio-success);
+  font-size: 12px;
+}
+.director-character-pending {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--studio-warning-soft);
+  color: var(--studio-warning);
   font-size: 12px;
 }
 .director-character-heading { display: flex; flex-direction: column; gap: 4px; }
@@ -3288,6 +3446,8 @@
   .director-compiled-prompt,
   .director-frame-slot,
   .director-take-item,
+  .director-take-rail,
+  .director-take-rail-item,
   .director-style-card,
   .director-shot-progress,
   .director-export-card,
@@ -3313,6 +3473,7 @@
   .director-inspector-frames,
   .director-inspector-takes,
   .director-inspector-tts,
+  .director-inspector-generation-bar,
   .director-inspector-compiled,
   .director-job-error-pre,
   .director-recipe-layout,
@@ -3368,6 +3529,7 @@
   .director-inspector-plates strong,
   .director-inspector-frames strong,
   .director-inspector-takes strong,
+  .director-take-rail-head,
   .director-inspector-tts strong,
   .director-inspector-compiled strong,
   .director-agent-collapse .ant-collapse-header,
@@ -3452,12 +3614,16 @@
   .director-clip-idle,
   .director-recipe-inspector .director-inspector-empty,
   .director-inspector-heading,
+  .director-inspector-generation-bar,
   .director-inspector-plates p,
   .director-inspector-frames p,
   .director-inspector-takes p,
+  .director-inspector-takes-empty,
   .director-inspector-compiled p,
   .director-inspector-field p,
   .director-take-preview,
+  .director-take-rail-preview,
+  .director-take-rail-select,
   .director-plate-row figcaption,
   .director-style-cover.is-empty,
   .director-style-card span,
@@ -3539,10 +3705,13 @@
   .director-inspector-frames,
   .director-inspector-takes,
   .director-inspector-tts,
+  .director-inspector-generation-bar,
   .director-inspector-compiled,
   .director-compiled-prompt,
   .director-frame-slot,
   .director-take-item,
+  .director-take-rail,
+  .director-take-rail-item,
   .director-style-card,
   .director-shot-progress,
   .director-job-error-pre,
