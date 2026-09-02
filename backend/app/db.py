@@ -40,6 +40,62 @@ _PLACEHOLDER = re.compile(r"\?")
 _SQLITE_BEGIN = re.compile(r"^BEGIN(\s+(DEFERRED|IMMEDIATE|EXCLUSIVE))?$", re.IGNORECASE)
 
 
+def load_app_env(env_override: str | None = None) -> str:
+    """Load .env.dev or .env.prod (or .env) according to APP_ENV / ENVIRONMENT / ENV."""
+    raw_env = (
+        env_override
+        or os.getenv("APP_ENV")
+        or os.getenv("ENVIRONMENT")
+        or os.getenv("ENV")
+        or "dev"
+    ).strip().lower()
+
+    if raw_env in {"prod", "production"}:
+        env = "prod"
+    elif raw_env in {"dev", "development"}:
+        env = "dev"
+    else:
+        env = raw_env
+
+    backend_dir = Path(__file__).resolve().parents[1]
+    workspace_dir = Path(__file__).resolve().parents[2]
+
+    target_env_file = backend_dir / f".env.{env}"
+    if not target_env_file.is_file():
+        target_env_file = workspace_dir / f".env.{env}"
+
+    loaded_files: list[Path] = []
+    if target_env_file.is_file():
+        loaded_files.append(target_env_file)
+
+    for base_file in (backend_dir / ".env", workspace_dir / ".env"):
+        if base_file.is_file() and base_file not in loaded_files:
+            loaded_files.append(base_file)
+
+    for env_path in loaded_files:
+        try:
+            from dotenv import dotenv_values
+
+            values = dotenv_values(env_path)
+            for k, v in values.items():
+                if v is not None and k not in os.environ:
+                    os.environ[k] = v
+        except Exception:
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k, v = k.strip(), v.strip().strip("'\"")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    return env
+
+
+# Initialize environment on module load
+load_app_env()
+
+
 def parse_storage_config(path: Path | None = None) -> dict[str, Any]:
     """Read MySQL (and Redis) connection fields from docs/存储配置.md."""
     config_path = path or STORAGE_CONFIG_PATH
@@ -147,18 +203,47 @@ def connect_mysql_with_retry(
 
 
 def mysql_settings_from_env_or_docs() -> dict[str, Any]:
-    parsed = parse_storage_config()["mysql"]
-    host = os.getenv("ZLY_MYSQL_HOST", parsed["host"])
-    port_default = str(parsed["port"])
-    if ":" in host and os.getenv("ZLY_MYSQL_HOST") and os.getenv("ZLY_MYSQL_PORT") is None:
+    load_app_env()
+
+    parsed_mysql: dict[str, Any] = {}
+    if STORAGE_CONFIG_PATH.exists():
+        try:
+            parsed_mysql = parse_storage_config()["mysql"]
+        except Exception:
+            parsed_mysql = {}
+
+    host = (
+        os.getenv("ZLY_MYSQL_HOST")
+        or os.getenv("MYSQL_HOST")
+        or parsed_mysql.get("host", "127.0.0.1")
+    )
+    port_default = str(
+        os.getenv("MYSQL_PORT")
+        or parsed_mysql.get("port", "3306")
+    )
+    if ":" in host and (os.getenv("ZLY_MYSQL_HOST") or os.getenv("MYSQL_HOST")) and os.getenv("ZLY_MYSQL_PORT") is None and os.getenv("MYSQL_PORT") is None:
         host, _, port_in_host = host.partition(":")
         port_default = port_in_host or port_default
+
+    port_val = os.getenv("ZLY_MYSQL_PORT") or os.getenv("MYSQL_PORT") or port_default
     return {
         "host": host,
-        "port": int(os.getenv("ZLY_MYSQL_PORT", port_default)),
-        "database": os.getenv("ZLY_MYSQL_DATABASE", parsed["database"]),
-        "user": os.getenv("ZLY_MYSQL_USER", parsed["user"]),
-        "password": os.getenv("ZLY_MYSQL_PASSWORD", parsed["password"]),
+        "port": int(port_val),
+        "database": (
+            os.getenv("ZLY_MYSQL_DATABASE")
+            or os.getenv("MYSQL_DATABASE")
+            or parsed_mysql.get("database", "ai-media")
+        ),
+        "user": (
+            os.getenv("ZLY_MYSQL_USER")
+            or os.getenv("MYSQL_USER")
+            or parsed_mysql.get("user", "root")
+        ),
+        "password": (
+            os.getenv("ZLY_MYSQL_PASSWORD")
+            or os.getenv("MYSQL_PASSWORD")
+            or parsed_mysql.get("password", "")
+        ),
     }
 
 

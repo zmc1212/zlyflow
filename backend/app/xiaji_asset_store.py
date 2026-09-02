@@ -165,6 +165,34 @@ class XiajiAssetStore:
             )
         return slots
 
+    def _media_for_assets(self, connection: Any, asset_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        if not asset_ids:
+            return {}
+        placeholders = ", ".join(["?"] * len(asset_ids))
+        rows = connection.execute(
+            f"SELECT * FROM xiaji_asset_media WHERE asset_id IN ({placeholders}) ORDER BY created_at DESC",
+            tuple(asset_ids),
+        ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {aid: [] for aid in asset_ids}
+        for row in rows:
+            aid = row["asset_id"]
+            if aid in result:
+                result[aid].append(
+                    {
+                        "id": row["id"],
+                        "media_kind": row["media_kind"],
+                        "slot": row["slot"] or "",
+                        "job_id": row["job_id"],
+                        "object_key": row["object_key"],
+                        "url": row["url"],
+                        "prompt": row["prompt"],
+                        "model": row["model"],
+                        "is_official": bool(row["is_official"]),
+                        "created_at": row["created_at"],
+                    }
+                )
+        return result
+
     def list_assets(self, owner_user_id: str, project_id: str, kind: str | None = None) -> list[dict[str, Any]]:
         with self._db.connection() as connection:
             if kind:
@@ -179,11 +207,11 @@ class XiajiAssetStore:
                     ORDER BY kind, updated_at DESC""",
                     (owner_user_id, project_id),
                 ).fetchall()
-            items = []
-            for row in rows:
-                media = self._media_for(connection, row["id"])
-                items.append(self._from_row(dict(row), media))
-            return items
+            if not rows:
+                return []
+            asset_ids = [row["id"] for row in rows]
+            media_map = self._media_for_assets(connection, asset_ids)
+            return [self._from_row(dict(row), media_map.get(row["id"]) or []) for row in rows]
 
     def get_asset(self, asset_id: str, owner_user_id: str) -> dict[str, Any]:
         with self._db.connection() as connection:

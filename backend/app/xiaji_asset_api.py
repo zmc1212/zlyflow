@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
@@ -224,16 +225,50 @@ def _asset_or_404(store: XiajiAssetStore, asset_id: str, owner_user_id: str) -> 
         raise HTTPException(status_code=404, detail="资产不存在") from error
 
 
-def _hydrate_asset(app: Any, asset: dict[str, Any], owner_user_id: str) -> dict[str, Any]:
+def _fetch_jobs_batch(jobs_store: Any, job_ids: set[str]) -> dict[str, Any]:
+    if not job_ids:
+        return {}
+    results: dict[str, Any] = {}
+
+    def _fetch_one(jid: str):
+        try:
+            return jid, jobs_store.get(jid)
+        except Exception:
+            return jid, None
+
+    workers = min(len(job_ids), 16)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for jid, job in executor.map(_fetch_one, job_ids):
+            if job is not None:
+                results[jid] = job
+    return results
+
+
+def _hydrate_asset(
+    app: Any,
+    asset: dict[str, Any],
+    owner_user_id: str,
+    jobs_cache: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     store: XiajiAssetStore = app.state.xiaji_asset_store
     jobs = app.state.store
     changed = False
-    job_id = str(asset.get("image_job_id") or "").strip()
-    if job_id:
+
+    def _get_job(jid: str) -> dict[str, Any] | None:
+        if jobs_cache is not None:
+            return jobs_cache.get(jid)
         try:
-            job = jobs.get(job_id)
+            return jobs.get(jid)
         except KeyError:
-            job = None
+            return None
+
+    job_id = str(asset.get("image_job_id") or "").strip()
+    status_str = str(asset.get("status") or "")
+    has_image = bool(asset.get("image_url") or asset.get("image_object_key"))
+    need_job_check = bool(job_id and (status_str == "generating" or not has_image or status_str not in {"ready", "failed"}))
+
+    if need_job_check:
+        job = _get_job(job_id)
         if job:
             status = str(job.get("status") or "")
             url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
@@ -257,18 +292,20 @@ def _hydrate_asset(app: Any, asset: dict[str, Any], owner_user_id: str) -> dict[
             elif status in {JobStatus.QUEUED.value, JobStatus.RUNNING.value} and asset.get("status") != "generating":
                 asset = store.update_asset(asset["id"], owner_user_id, status="generating")
                 changed = True
+
     definition = dict(asset.get("definition") or {})
     looks = definition.get("looks") if isinstance(definition.get("looks"), list) else []
     look_changed = False
     for look in looks:
         if not isinstance(look, dict):
             continue
+        if look.get("image_url"):
+            continue
         look_job = str(look.get("job_id") or "").strip()
         if not look_job:
             continue
-        try:
-            job = jobs.get(look_job)
-        except KeyError:
+        job = _get_job(look_job)
+        if not job:
             continue
         url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
         status = str(job.get("status") or "")
@@ -278,6 +315,7 @@ def _hydrate_asset(app: Any, asset: dict[str, Any], owner_user_id: str) -> dict[
     if look_changed:
         asset = store.update_asset(asset["id"], owner_user_id, definition={"looks": looks})
         changed = True
+
     view_job_specs = (
         ("scene_jobs", {"reverse": "back_image_url", "panorama": "panorama_image_url"}),
         ("prop_jobs", {"turnaround": "turnaround_image_url", "detail": "detail_image_url"}),
@@ -288,17 +326,20 @@ def _hydrate_asset(app: Any, asset: dict[str, Any], owner_user_id: str) -> dict[
         extra_changed = False
         next_jobs = dict(extra_jobs)
         for view, view_job_id in list(extra_jobs.items()):
+            field = url_fields.get(str(view))
+            if field and definition.get(field):
+                next_jobs.pop(view, None)
+                extra_changed = True
+                continue
             job_key = str(view_job_id or "").strip()
             if not job_key:
                 continue
-            try:
-                job = jobs.get(job_key)
-            except KeyError:
+            job = _get_job(job_key)
+            if not job:
                 continue
             status = str(job.get("status") or "")
             url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
             if url and status in {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value}:
-                field = url_fields.get(str(view))
                 if field:
                     definition[field] = url
                 next_jobs.pop(view, None)
@@ -310,7 +351,7 @@ def _hydrate_asset(app: Any, asset: dict[str, Any], owner_user_id: str) -> dict[
             definition[jobs_key] = next_jobs
             asset = store.update_asset(asset["id"], owner_user_id, definition=definition)
             changed = True
-    return store.get_asset(asset["id"], owner_user_id) if changed else asset
+    return asset
 
 
 def _with_media_urls(asset: dict[str, Any]) -> dict[str, Any]:
@@ -344,8 +385,8 @@ async def _enqueue_queued_job(worker: Any, job: dict[str, Any]) -> None:
     await worker.enqueue(job_id)
 
 
-def _public_asset(app: Any, asset: dict[str, Any], owner_user_id: str) -> dict[str, Any]:
-    return _with_media_urls(_hydrate_asset(app, asset, owner_user_id))
+def _public_asset(app: Any, asset: dict[str, Any], owner_user_id: str, jobs_cache: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _with_media_urls(_hydrate_asset(app, asset, owner_user_id, jobs_cache))
 
 
 def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_user: Callable) -> None:
@@ -361,7 +402,34 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
         if kind and kind not in ASSET_KINDS:
             raise HTTPException(status_code=422, detail="资产类型无效")
         items = _assets(app).list_assets(user["id"], project_id, kind)
-        return [_public_asset(app, item, user["id"]) for item in items]
+        if not items:
+            return []
+
+        view_job_specs = (
+            ("scene_jobs", {"reverse": "back_image_url", "panorama": "panorama_image_url"}),
+            ("prop_jobs", {"turnaround": "turnaround_image_url", "detail": "detail_image_url"}),
+        )
+        job_ids_to_fetch: set[str] = set()
+        for asset in items:
+            job_id = str(asset.get("image_job_id") or "").strip()
+            status_str = str(asset.get("status") or "")
+            has_image = bool(asset.get("image_url") or asset.get("image_object_key"))
+            if job_id and (status_str == "generating" or not has_image or status_str not in {"ready", "failed"}):
+                job_ids_to_fetch.add(job_id)
+            definition = dict(asset.get("definition") or {})
+            for look in definition.get("looks") or []:
+                if isinstance(look, dict) and not look.get("image_url") and look.get("job_id"):
+                    job_ids_to_fetch.add(str(look["job_id"]).strip())
+            for jobs_key, url_fields in view_job_specs:
+                extra_jobs = definition.get(jobs_key) or {}
+                if isinstance(extra_jobs, dict):
+                    for view, view_job_id in extra_jobs.items():
+                        field = url_fields.get(str(view))
+                        if not (field and definition.get(field)) and view_job_id:
+                            job_ids_to_fetch.add(str(view_job_id).strip())
+
+        jobs_cache = _fetch_jobs_batch(app.state.store, job_ids_to_fetch) if job_ids_to_fetch else {}
+        return [_public_asset(app, item, user["id"], jobs_cache) for item in items]
 
     @router.post("/assets/sync", summary="把内容库角色/场景/道具转入资产库")
     def sync_assets(
