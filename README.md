@@ -1,14 +1,17 @@
 # ZLY AI Studio｜创作工作台
 
-工作台使用 React + TypeScript 前端和 FastAPI 后端，在同一界面提供 GRS 图片生成与本机 ComfyUI 视频生成。工作台提供员工账号、角色权限、任务隔离、多轮创作和浏览器本地资源交付；监听本机与局域网 IPv4 地址的 `7865` 端口，ComfyUI 默认 `http://127.0.0.1:8188`，超级管理员可在「管理设置 → AI 供应商」修改连接地址，不会把 ComfyUI 暴露到局域网或公网。数据库文件名、环境变量前缀与包名继续保留 `zly-ai-video-studio` 兼容标识。
+工作台使用 React + TypeScript 前端和 FastAPI 后端，在同一界面提供 GRS 图片生成与本机 ComfyUI 视频生成。工作台提供员工账号、角色权限、任务隔离、多轮创作和浏览器本地资源交付；监听本机与局域网 IPv4 地址的 `7865` 端口，ComfyUI 默认 `http://127.0.0.1:8188`，超级管理员可在「管理设置 → AI 供应商」修改连接地址，不会把 ComfyUI 暴露到局域网或公网。账号、任务和导演工程存储在 `docs/存储配置.md` 中的远程 MySQL；媒体默认使用管理设置中的七牛云。unittest 仍使用临时 SQLite。环境变量前缀与包名继续保留 `zly-ai-video-studio` 兼容标识。
 
 ## 启动
 
 1. 启动固定目录 `D:\zlyun\ZLY AI Video Studio\整合包及模型\comfyui-integrate-v1.3\comfyui-integrate\Comfyui` 下的 ComfyUI，默认地址为 `http://127.0.0.1:8188`。若端口或映射地址不同，以超级管理员在「管理设置 → AI 供应商」填写实际地址，或设置环境变量 `ZLY_AI_VIDEO_STUDIO_COMFY_URL`（首次启动写入数据库）。
 2. 双击 `启动本地视频工作台.bat`。脚本会分别启动 FastAPI（`7865`）和 Vite 开发服务器（`5173`），并始终自动打开 `http://127.0.0.1:5173`。若 FastAPI 已在运行，重复双击仍打开 5173（必要时补启 Vite），不会打开 7865 上的 `frontend/dist` 静态页。Vite 会显示在独立终端窗口，前端代码变更会自动热更新；后端由 `backend/dev_reloader.py` 监督，修改 `backend/app` 下的 Python 文件或服务异常退出后会自动重启，不再使用 Windows 上会把整个进程组一起关掉的 uvicorn `--reload`。首次使用前执行一次 `pnpm --dir frontend install`。要停止本机工作台时，双击 `关闭本地视频工作台.bat`：脚本会结束 `5173`（Vite）和 `7865`（FastAPI / 监督器）上的工作台进程及对应控制台窗口，不会关闭 ComfyUI（`8188`）。若端口被其他无关程序占用，脚本会提示而不强制结束。
-3. 首次打开时在工作站本机 `http://127.0.0.1:5173/setup` 创建超级管理员，再由管理后台分配员工账号。之后登录地址为 `/login`，登录成功默认进入 `/generate/video`。图/视频任务为 `/generate/image/:jobId` 与 `/generate/video/:jobId`，导演工程为 `/director/:projectId`（可选 `?stage=` 与桌面 `?view=plan|timeline`）或 `/director/batch/:projectId`，资产库为 `/assets`。管理设置可通过 `/admin/accounts`、`/admin/providers`、`/admin/llm`、`/admin/storage` 直达；员工打开 `/admin` 会被送回创作台。刷新或浏览器进退会停留在对应 URL。未登录打开这些链接会先登录，成功后再回到原路径。
+3. 首次打开时在工作站本机 `http://127.0.0.1:5173/setup` 创建超级管理员，再由管理后台分配员工账号。之后登录地址为 `/login`，登录成功默认进入 `/generate/video`。图/视频任务为 `/generate/image/:jobId` 与 `/generate/video/:jobId`，导演工程为 `/director/:projectId`（可选 `?stage=` 与桌面 `?view=plan|timeline`）或 `/director/batch/:projectId`，导台2 项目列表为 `/director2`、项目内五个模块为 `/director2/:projectId`，资产库为 `/assets`。管理设置可通过 `/admin/accounts`、`/admin/providers`、`/admin/llm`、`/admin/storage` 直达；员工打开 `/admin` 会被送回创作台。刷新或浏览器进退会停留在对应 URL。未登录打开这些链接会先登录，成功后再回到原路径。
 4. 使用本机 `127.0.0.1` 或 HTTPS 浏览器交付时，员工首次登录并修改初始密码后需选择本机资源目录；最新版 Chrome/Edge 仅在这些安全上下文允许目录授权。通过局域网 IP 访问时不再阻塞目录选择，启用七牛云后直接使用结果中的七牛云短期签名地址播放或下载。
 5. 若 7865 已被其他程序占用，请先确认或关闭该程序，再启动工作台。
+
+zlyadmin
+qlxing.1
 
 ### 启用 GRS 生图
 
@@ -105,6 +108,86 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - `ZLYUN AI` Windows 桌面客户端：为企业员工提供受控的本地目录交付、可靠本地预览和安装包更新基础；Web 工作台继续保留。
 
 新作品写入员工授权目录的 `ZLY AI Studio/<YYYY-MM>`；既有 IndexedDB 记录和 `ZLY AI Video Studio` 目录继续只读兼容。GRS 图片成功 URL 会在后端校验 HTTPS、重定向、公网地址、MIME、文件签名和 50 MB 上限后暂存，浏览器/桌面端确认交付后立即清理。
+
+## 2026-08-31 导台2 与内容库
+
+- 用户可见行为：左侧导航增加「导台2」（`/director2`）。内容库采用居中导入卡片：可上传 TXT/Markdown/Word 或粘贴正文，开始导入后会切章并调用已配置大模型分析，页面底部展示摘要、角色、场景、道具和剧集规划。资产库、剧集工坊、风格中心、制作助手为占位页。
+- 受影响文件：导台2 前后端、`sql/002_xiaji_ingest.sql` 与三份主文档。
+- 兼容性：不改既有导演台、工作流和 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复代码并重建前端；可选删除 MySQL 中的 `xiaji_*` 表。
+
+## 2026-09-01 导台2 粘贴导入登录校验
+
+- 用户可见行为：粘贴正文后点开始导入不再因缺少 `user` 查询参数而 422。
+- 受影响文件：`backend/app/xiaji_api.py`。
+- 兼容性：请求 JSON 不变。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`。
+- 回滚方式：恢复 `xiaji_api.py`。
+
+## 2026-09-01 导台2 资产库
+
+- 用户可见行为：导台2「资产库」可从内容库同步角色、场景、道具和解说声线；可编辑定义、生成/上传参考图，并为角色与解说生成声线定义、合成试听或上传参考音频。
+- 受影响文件：`sql/004_xiaji_assets.sql`、导台2 资产前后端。
+- 兼容性：不改导演台、工作流和 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复代码；可选删除 MySQL 中的 `xiaji_assets` / `xiaji_asset_media`。
+
+## 2026-09-01 资产库 GRS 生图
+
+- 用户可见行为：导台2 资产库点「生成参考图」会立刻提交任务并结束转圈；图片在后台用已启用 GRS 生成，完成后资产状态变为就绪。
+- 受影响文件：资产库前后端与三份主文档。
+- 兼容性：不改 ComfyUI 与导演台。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-01 场景正面/背面/360 分视角生图
+
+- 用户可见行为：导台2 资产库场景页的「重生源图」「重生背面」「生成 360」分别按不同提示词入队，不再复制同一张正面图。
+- 受影响文件：场景提示词、资产生图 API、场景编辑页与三份主文档。
+- 兼容性：不改 ComfyUI 与导演台。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-01 道具主视图/转面/特写分视角生图
+
+- 用户可见行为：导台2 资产库道具页的「重生主图」「重生转面」「生成特写」分别按不同提示词入队，不再复制同一张主视图。
+- 受影响文件：道具提示词、资产生图 API、道具编辑页与三份主文档。
+- 兼容性：不改 ComfyUI 与导演台。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-01 导台2 剧集工坊
+
+- 用户可见行为：导台2「剧集工坊」可从内容库规划生成剧集；单集可生成/预览脚本 Beat，并按镜头入队草图。合成页仍为占位。
+- 受影响文件：剧集工坊前后端、`sql/006_xiaji_episodes.sql` 与三份主文档。
+- 兼容性：不改导演台、工作流和 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复代码；可选删除 `xiaji_episodes` / `xiaji_episode_links` / `xiaji_beats`。
+
+## 2026-09-01 导台2 镜头工作台
+
+- 用户可见行为：剧集「镜头」页改为左右分栏。左侧点选 Beat，右侧可改台词/画面、勾选出场身份与道具、选择场景正面或背面作为背景参考，再生成或上传草图。视频生成仍为后续版本。
+- 受影响文件：镜头工作台前后端与三份主文档。
+- 兼容性：不改导演台、工作流和 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-02 导台2 草图/渲染图/视频
+
+- 用户可见行为：镜头页「生成草图」产出白纸色块分镜草稿；「精绘渲染」按草图上色写实，完成后可「重新生成」；「生成视频」默认 LightX2V 多参考，头部可选模型、时长、MP、分辨率、部署。未完成上一步时会提示先生成草图或渲染图。
+- 受影响文件：导台2 剧集工坊前后端、`sql/007_xiaji_beat_media.sql` 与三份主文档。
+- 兼容性：不改 ComfyUI 节点；不接入 DramaClaw 的 NanoBanana/Seedance。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-02 导台2 渲染重生成与视频参数
+
+- 用户可见行为：渲染图生成后可重新精绘。视频条展示 LightX2V 多参考等模型，以及时长、MP、分辨率、部署（均衡 8 步），提交时写入该工作流的 `options`。
+- 受影响文件：导台2 剧集工坊前后端与三份主文档。
+- 兼容性：不改 ComfyUI 节点；不改 LightX2V 全局默认 MP。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码。
 
 ## 2026-08-30 导演台方案/剪辑视图切换
 

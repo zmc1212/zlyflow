@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
@@ -65,6 +66,7 @@ class Settings:
 
     @property
     def database_path(self) -> Path:
+        """Local SQLite path kept for one-shot migration and unittest isolation."""
         data_dir = self.data_dir
         database_path = data_dir / DATABASE_FILENAME
         legacy_path = data_dir / LEGACY_DATABASE_FILENAME
@@ -75,6 +77,20 @@ class Settings:
             if source.exists():
                 source.replace(database_path.with_name(f"{database_path.name}{suffix}"))
         return database_path
+
+    @property
+    def mysql_config(self) -> dict[str, Any]:
+        from .db import mysql_settings_from_env_or_docs
+
+        return mysql_settings_from_env_or_docs()
+
+    def runtime_database(self):
+        from .db import MysqlDatabase, open_database
+
+        backend = os.getenv("ZLY_AI_VIDEO_STUDIO_DB_BACKEND", "mysql").strip().lower()
+        if backend == "sqlite" or self.data_dir_override:
+            return open_database(self.database_path)
+        return MysqlDatabase(self.mysql_config)
 
     @property
     def frontend_dist_dir(self) -> Path:

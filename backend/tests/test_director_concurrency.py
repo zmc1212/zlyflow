@@ -143,12 +143,10 @@ class DirectorConcurrencyStorageTests(unittest.TestCase):
             self.assertTrue(path.with_name("legacy.db.pre-director-concurrency-v2.bak").is_file())
             connection = store.connection()
             try:
-                operation_table = connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='director_operations'",
-                ).fetchone()
+                operation_table = store._db.table_exists(connection, "director_operations")
             finally:
                 connection.close()
-            self.assertIsNotNone(operation_table)
+            self.assertTrue(operation_table)
 
     def test_execution_merge_preserves_concurrent_edit_and_appends_takes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import sqlite3
 import uuid
 from copy import deepcopy
 from collections.abc import Callable
@@ -19,6 +18,7 @@ from .grs_catalog import (
     workflow_id_for,
 )
 from .config import settings
+from .db import Database, DbConnection, Row, open_database
 from .models import JobMode, JobStatus
 
 
@@ -67,10 +67,11 @@ def elapsed_ms_between(created_at: str | None, finished_at: str | None) -> int |
 
 
 class JobStore:
-    """SQLite persistence for task aggregates, rounds, generation items and providers.
+    """Persistence for task aggregates, rounds, generation items and providers.
 
     The original flat columns on ``jobs`` remain the compatibility mirror of the
     latest round. New code writes normalized rows first and refreshes the mirror.
+    Production uses MySQL; unittest isolation uses a local SQLite file.
     """
 
     MIGRATION_NAME = "2026-08-13-ai-studio-rounds-v1"
@@ -80,38 +81,35 @@ class JobStore:
     DIRECTOR_CONCURRENCY_MIGRATION = "2026-08-30-director-concurrency-v2"
     DIRECTOR_OPERATIONS_MIGRATION = "2026-08-30-director-operations-v1"
 
-    def __init__(self, database_path: Path) -> None:
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        self.database_path = database_path
+    def __init__(self, database: Database | Path) -> None:
+        self._db = open_database(database)
+        self.database_path = getattr(self._db, "path", None)
         self._backup_before_migration()
         self.initialize()
 
     def _backup_before_migration(self) -> None:
-        if not self.database_path.exists() or self.database_path.stat().st_size == 0:
+        path = self.database_path
+        if path is None or not path.exists() or path.stat().st_size == 0:
             return
-        backup = self.database_path.with_name(f"{self.database_path.name}.pre-ai-studio-migration.bak")
+        backup = path.with_name(f"{path.name}.pre-ai-studio-migration.bak")
         if not backup.exists():
-            shutil.copy2(self.database_path, backup)
-        concurrency_backup = self.database_path.with_name(
-            f"{self.database_path.name}.pre-director-concurrency-v2.bak"
-        )
+            shutil.copy2(path, backup)
+        concurrency_backup = path.with_name(f"{path.name}.pre-director-concurrency-v2.bak")
         if not concurrency_backup.exists():
-            shutil.copy2(self.database_path, concurrency_backup)
+            shutil.copy2(path, concurrency_backup)
 
-    def connection(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+    def connection(self) -> DbConnection:
+        return self._db.connection()
 
-    @staticmethod
-    def _ensure_column(connection: sqlite3.Connection, table: str, name: str, declaration: str) -> None:
-        columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
-        if name not in columns:
-            connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+    def _ensure_column(self, connection: DbConnection, table: str, name: str, declaration: str) -> None:
+        self._db.ensure_column(connection, table, name, declaration)
 
     def initialize(self) -> None:
         with self.connection() as connection:
+            if self._db.dialect == "mysql":
+                self._db.apply_mysql_schema(connection)
+                self._seed_runtime_defaults(connection, migrate_legacy=False)
+                return
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS jobs (
@@ -346,58 +344,62 @@ class JobStore:
                 self._ensure_column(connection, table, "execution_elapsed_ms", "INTEGER")
             self._ensure_column(connection, "grs_provider_settings", "models", "TEXT NOT NULL DEFAULT 'gpt-image-2'")
             self._ensure_column(connection, "grs_provider_settings", "vip_models", "TEXT NOT NULL DEFAULT 'gpt-image-2-vip'")
-            connection.execute(
-                """INSERT OR IGNORE INTO grs_provider_settings
-                (id, enabled, base_url, gpt_image_2_enabled, gpt_image_2_vip_enabled, models, vip_models, updated_at)
-                VALUES (1, 0, 'https://grsai.dakka.com.cn', 1, 1, 'gpt-image-2', 'gpt-image-2-vip', ?)""",
-                (now(),),
-            )
-            connection.execute(
-                """INSERT OR IGNORE INTO qiniu_provider_settings
-                (id, enabled, bucket, region, domain, object_prefix, updated_at)
-                VALUES (1, 0, '', 'z0', '', 'zly-ai-video-studio/', ?)""",
-                (now(),),
-            )
-            connection.execute(
-                """INSERT OR IGNORE INTO llm_provider_settings
-                (id, enabled, base_url, model, updated_at)
-                VALUES (1, 0, 'https://api-inference.modelscope.cn/v1', 'Qwen/Qwen2.5-72B-Instruct', ?)""",
-                (now(),),
-            )
-            connection.execute(
-                """INSERT OR IGNORE INTO comfy_provider_settings
-                (id, base_url, updated_at)
-                VALUES (1, ?, ?)""",
-                (settings.comfy_url, now()),
-            )
-            connection.execute(
-                """INSERT OR IGNORE INTO tts_provider_settings
-                (id, enabled, use_llm_credentials, base_url, model, voice, updated_at)
-                VALUES (1, 0, 1, '', 'tts-1', 'alloy', ?)""",
-                (now(),),
-            )
+            self._seed_runtime_defaults(connection, migrate_legacy=True)
+
+    def _seed_runtime_defaults(self, connection: DbConnection, *, migrate_legacy: bool) -> None:
+        connection.execute(
+            """INSERT OR IGNORE INTO grs_provider_settings
+            (id, enabled, base_url, gpt_image_2_enabled, gpt_image_2_vip_enabled, models, vip_models, updated_at)
+            VALUES (1, 0, 'https://grsai.dakka.com.cn', 1, 1, 'gpt-image-2', 'gpt-image-2-vip', ?)""",
+            (now(),),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO qiniu_provider_settings
+            (id, enabled, bucket, region, domain, object_prefix, updated_at)
+            VALUES (1, 0, '', 'z0', '', 'zly-ai-video-studio/', ?)""",
+            (now(),),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO llm_provider_settings
+            (id, enabled, base_url, model, updated_at)
+            VALUES (1, 0, 'https://api-inference.modelscope.cn/v1', 'Qwen/Qwen2.5-72B-Instruct', ?)""",
+            (now(),),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO comfy_provider_settings
+            (id, base_url, updated_at)
+            VALUES (1, ?, ?)""",
+            (settings.comfy_url, now()),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO tts_provider_settings
+            (id, enabled, use_llm_credentials, base_url, model, voice, updated_at)
+            VALUES (1, 0, 1, '', 'tts-1', 'alloy', ?)""",
+            (now(),),
+        )
+        if migrate_legacy:
             self._migrate_legacy_jobs(connection)
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
-                (self.MIGRATION_NAME, now()),
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
-                (self.DIRECTOR_PROJECTS_MIGRATION, now()),
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
-                (self.DIRECTOR_LIBRARY_MIGRATION, now()),
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
-                (self.DIRECTOR_CONCURRENCY_MIGRATION, now()),
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
-                (self.DIRECTOR_OPERATIONS_MIGRATION, now()),
-            )
-            self._ensure_grs_image_models(connection)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+            (self.MIGRATION_NAME, now()),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+            (self.DIRECTOR_PROJECTS_MIGRATION, now()),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+            (self.DIRECTOR_LIBRARY_MIGRATION, now()),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+            (self.DIRECTOR_CONCURRENCY_MIGRATION, now()),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+            (self.DIRECTOR_OPERATIONS_MIGRATION, now()),
+        )
+        self._ensure_grs_image_models(connection)
 
 
     @staticmethod
@@ -414,25 +416,26 @@ class JobStore:
     def _executor_for_mode(mode: str) -> str:
         return "grs" if mode.startswith("grs-") else "comfyui"
 
-    def _ensure_grs_image_models(self, connection: sqlite3.Connection) -> None:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS grs_image_models (
-                workflow_id TEXT PRIMARY KEY,
-                provider_model TEXT NOT NULL UNIQUE,
-                display_name TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                profile TEXT NOT NULL,
-                resolutions_json TEXT,
-                enabled INTEGER NOT NULL DEFAULT 0,
-                sort_order INTEGER NOT NULL DEFAULT 100,
-                is_default INTEGER NOT NULL DEFAULT 0,
-                builtin INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+    def _ensure_grs_image_models(self, connection: DbConnection) -> None:
+        if connection.dialect != "mysql":
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS grs_image_models (
+                    workflow_id TEXT PRIMARY KEY,
+                    provider_model TEXT NOT NULL UNIQUE,
+                    display_name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    profile TEXT NOT NULL,
+                    resolutions_json TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    is_default INTEGER NOT NULL DEFAULT 0,
+                    builtin INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
         applied = connection.execute(
             "SELECT 1 FROM schema_migrations WHERE name = ?", (self.GRS_CATALOG_MIGRATION,),
         ).fetchone()
@@ -498,7 +501,7 @@ class JobStore:
         )
 
     def _insert_grs_image_model(
-        self, connection: sqlite3.Connection, record: dict[str, Any], timestamp: str,
+        self, connection: DbConnection, record: dict[str, Any], timestamp: str,
     ) -> None:
         resolutions = record.get("resolutions")
         connection.execute(
@@ -516,7 +519,7 @@ class JobStore:
             ),
         )
 
-    def _migrate_legacy_jobs(self, connection: sqlite3.Connection) -> None:
+    def _migrate_legacy_jobs(self, connection: DbConnection) -> None:
         rows = connection.execute(
             "SELECT * FROM jobs WHERE id NOT IN (SELECT job_id FROM job_rounds) ORDER BY created_at"
         ).fetchall()
@@ -604,7 +607,7 @@ class JobStore:
         return self.get(job_id)
 
     def _insert_round(
-        self, connection: sqlite3.Connection, round_id: str, job_id: str, sequence: int,
+        self, connection: DbConnection, round_id: str, job_id: str, sequence: int,
         mode: JobMode | str, media_type: str, prompt: str, negative_prompt: str,
         image_size: str | None, references: list[str], options: dict,
         submitted_options: dict | None,
@@ -733,14 +736,14 @@ class JobStore:
         return self.get_generation(generation_item_id)
 
     @staticmethod
-    def _item_has_outputs(row: sqlite3.Row) -> bool:
+    def _item_has_outputs(row: Row) -> bool:
         try:
             outputs = json.loads(row["outputs_json"] or "[]")
         except (TypeError, ValueError):
             return False
         return bool(outputs)
 
-    def _refresh_round(self, connection: sqlite3.Connection, round_id: str) -> None:
+    def _refresh_round(self, connection: DbConnection, round_id: str) -> None:
         items = connection.execute("SELECT * FROM generation_items WHERE round_id = ? ORDER BY item_index", (round_id,)).fetchall()
         statuses = [row["status"] for row in items]
         successes = statuses.count(JobStatus.SUCCEEDED.value)
@@ -783,7 +786,7 @@ class JobStore:
             (status, stage, progress, error, finished_at, execution_elapsed_ms, now(), round_id),
         )
 
-    def _refresh_job(self, connection: sqlite3.Connection, job_id: str) -> None:
+    def _refresh_job(self, connection: DbConnection, job_id: str) -> None:
         row = connection.execute(
             "SELECT * FROM job_rounds WHERE job_id = ? ORDER BY sequence DESC LIMIT 1", (job_id,)
         ).fetchone()
@@ -905,26 +908,52 @@ class JobStore:
         return [self._decode_generation(row) for row in rows]
 
     @staticmethod
-    def _decode_outputs(value: str) -> list[dict]:
-        outputs = json.loads(value or "[]")
+    def _decode_outputs(value: Any) -> list[dict]:
+        if isinstance(value, list):
+            outputs = value
+        else:
+            outputs = json.loads(value or "[]")
         for output in outputs:
-            output.setdefault("delivery_status", "pending")
-            output.setdefault("delivered_at", None)
+            if isinstance(output, dict):
+                output.setdefault("delivery_status", "pending")
+                output.setdefault("delivered_at", None)
         return outputs
 
     @classmethod
-    def _decode_generation(cls, row: sqlite3.Row) -> dict:
+    def _decode_generation(cls, row: Row) -> dict:
         data = dict(row)
         data["index"] = data.pop("item_index")
         data["outputs"] = cls._decode_outputs(data.pop("outputs_json"))
         data["cancel_requested"] = bool(data.get("cancel_requested") or 0)
         return data
 
-    def _rounds_for_job(self, connection: sqlite3.Connection, job_id: str, include_references: bool) -> list[dict]:
-        rows = connection.execute("SELECT * FROM job_rounds WHERE job_id = ? ORDER BY sequence", (job_id,)).fetchall()
-        rounds: list[dict] = []
-        for row in rows:
+    def _rounds_for_job(self, connection: DbConnection, job_id: str, include_references: bool) -> list[dict]:
+        return self._rounds_for_jobs(connection, [job_id], include_references).get(job_id, [])
+
+    def _rounds_for_jobs(
+        self, connection: DbConnection, job_ids: list[str], include_references: bool,
+    ) -> dict[str, list[dict]]:
+        rounds_by_job = {job_id: [] for job_id in job_ids}
+        if not job_ids:
+            return rounds_by_job
+        placeholders = ",".join("?" * len(job_ids))
+        round_rows = connection.execute(
+            f"SELECT * FROM job_rounds WHERE job_id IN ({placeholders}) ORDER BY sequence",
+            tuple(job_ids),
+        ).fetchall()
+        round_ids = [str(row["id"]) for row in round_rows]
+        items_by_round: dict[str, list[dict]] = {round_id: [] for round_id in round_ids}
+        if round_ids:
+            item_placeholders = ",".join("?" * len(round_ids))
+            item_rows = connection.execute(
+                f"SELECT * FROM generation_items WHERE round_id IN ({item_placeholders}) ORDER BY item_index",
+                tuple(round_ids),
+            ).fetchall()
+            for item in item_rows:
+                items_by_round[str(item["round_id"])].append(self._decode_generation(item))
+        for row in round_rows:
             data = dict(row)
+            job_id = str(data["job_id"])
             refs = json.loads(data.pop("references_json") or "[]")
             data["options"] = json.loads(data.pop("options_json") or "{}")
             data["submitted_options"] = json.loads(data.pop("submitted_options_json") or "{}")
@@ -932,14 +961,34 @@ class JobStore:
             data["reference_count"] = len(refs)
             if include_references:
                 data["references"] = refs
-            items = connection.execute(
-                "SELECT * FROM generation_items WHERE round_id = ? ORDER BY item_index", (data["id"],)
-            ).fetchall()
-            data["generation_items"] = [self._decode_generation(item) for item in items]
-            rounds.append(data)
-        return rounds
+            data["generation_items"] = items_by_round.get(str(data["id"]), [])
+            rounds_by_job.setdefault(job_id, []).append(data)
+        return rounds_by_job
 
-    def decode(self, row: sqlite3.Row, *, include_references: bool = False, connection: sqlite3.Connection | None = None) -> dict:
+    def _hydrate_job_rows(
+        self, connection: DbConnection, rows: list[Row], *, include_references: bool = False,
+    ) -> list[dict]:
+        job_ids = [str(row["id"]) for row in rows]
+        rounds_by_job = self._rounds_for_jobs(connection, job_ids, include_references)
+        jobs: list[dict] = []
+        for row in rows:
+            job = self.decode(
+                row,
+                include_references=include_references,
+                connection=connection,
+                rounds=rounds_by_job.get(str(row["id"]), []),
+            )
+            jobs.append(job)
+        return jobs
+
+    def decode(
+        self,
+        row: Row,
+        *,
+        include_references: bool = False,
+        connection: DbConnection | None = None,
+        rounds: list[dict] | None = None,
+    ) -> dict:
         data = dict(row)
         refs = json.loads(data.pop("references_json") or "[]")
         data["options"] = json.loads(data.pop("options_json", "{}") or "{}")
@@ -954,7 +1003,10 @@ class JobStore:
         owns_connection = connection is None
         active = connection or self.connection()
         try:
-            data["rounds"] = self._rounds_for_job(active, data["id"], include_references)
+            if rounds is None:
+                data["rounds"] = self._rounds_for_job(active, data["id"], include_references)
+            else:
+                data["rounds"] = rounds
         finally:
             if owns_connection:
                 active.close()
@@ -1001,7 +1053,7 @@ class JobStore:
     def list(self, limit: int = 100) -> list[dict]:
         with self.connection() as connection:
             rows = connection.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
-            return [self.decode(row, connection=connection) for row in rows]
+            return self._hydrate_job_rows(connection, rows)
 
     def list_jobs(self, user_id: str | None = None, limit: int = 100) -> list[dict]:
         with self.connection() as connection:
@@ -1013,7 +1065,7 @@ class JobStore:
                 rows = connection.execute(
                     "SELECT * FROM jobs ORDER BY pinned DESC, created_at DESC LIMIT ?", (limit,)
                 ).fetchall()
-            return [self.decode(row, connection=connection) for row in rows]
+            return self._hydrate_job_rows(connection, rows)
 
     def update_metadata(
         self, job_id: str, *, title: str | None = None, pinned: bool | None = None, update_title: bool = False,
@@ -1179,7 +1231,7 @@ class JobStore:
         return self.get_comfy_settings()
 
     @staticmethod
-    def _grs_image_model_from_row(row: sqlite3.Row | dict) -> dict[str, Any]:
+    def _grs_image_model_from_row(row: Row | dict) -> dict[str, Any]:
         data = dict(row)
         data["enabled"] = bool(data["enabled"])
         data["is_default"] = bool(data["is_default"])
@@ -1343,7 +1395,7 @@ class JobStore:
             status = "partial"
         return status, generated, total
 
-    def _director_row_to_dict(self, row: sqlite3.Row, *, include_payload: bool = True) -> dict[str, Any]:
+    def _director_row_to_dict(self, row: Row, *, include_payload: bool = True) -> dict[str, Any]:
         try:
             payload = json.loads(row["payload_json"] or "{}")
         except json.JSONDecodeError:
@@ -1453,7 +1505,7 @@ class JobStore:
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM director_projects WHERE id = ?", (project_id,),
+                "SELECT * FROM director_projects WHERE id = ?", (project_id,), for_update=True,
             ).fetchone()
             if row is None:
                 raise KeyError(project_id)
@@ -1505,7 +1557,7 @@ class JobStore:
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM director_projects WHERE id = ?", (project_id,),
+                "SELECT * FROM director_projects WHERE id = ?", (project_id,), for_update=True,
             ).fetchone()
             if row is None:
                 raise KeyError(project_id)
@@ -1535,7 +1587,7 @@ class JobStore:
         return self.get_director_project(project_id)
 
     @staticmethod
-    def _director_operation_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    def _director_operation_row_to_dict(row: Row) -> dict[str, Any]:
         def decode(name: str) -> dict[str, Any]:
             try:
                 value = json.loads(row[name] or "{}")
@@ -1575,6 +1627,7 @@ class JobStore:
                 WHERE project_id = ? AND status IN ('queued', 'running')
                 LIMIT 1""",
                 (project_id,),
+                for_update=True,
             ).fetchone()
             if active is not None:
                 raise ValueError(f"工程已有未完成的导演操作：{active['id']}")
@@ -1618,7 +1671,7 @@ class JobStore:
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM director_operations WHERE id = ?", (operation_id,),
+                "SELECT * FROM director_operations WHERE id = ?", (operation_id,), for_update=True,
             ).fetchone()
             if row is None:
                 raise KeyError(operation_id)
@@ -1759,7 +1812,7 @@ class JobStore:
 
         return new_library_asset_id()
 
-    def _library_asset_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+    def _library_asset_row_to_dict(self, row: Row) -> dict[str, Any]:
         return {
             "id": row["id"],
             "owner_user_id": row["owner_user_id"],

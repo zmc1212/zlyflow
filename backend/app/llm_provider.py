@@ -342,3 +342,48 @@ class LlmProviderService:
             art_style=art_style,
             chat_fn=default_chat_fn(client, model),
         )
+
+    def analyze_xiaji_ingest(
+        self,
+        text: str,
+        *,
+        spine_template: str = "drama",
+        visual_style: str = "",
+        narration_style: str = "",
+        ethnicity: str = "",
+    ) -> dict[str, Any]:
+        from .xiaji_analyze import analyze_ingest_text
+
+        client, model = self._chat_client()
+        return analyze_ingest_text(
+            client,
+            model,
+            text,
+            spine_template=spine_template,
+            visual_style=visual_style,
+            narration_style=narration_style,
+            ethnicity=ethnicity,
+        )
+
+    def define_xiaji_voice(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from .xiaji_analyze import define_voice_profile
+
+        client, model = self._chat_client()
+        return define_voice_profile(client, model, payload)
+
+    def generate_xiaji_script(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        from .xiaji_episode_prompts import generate_script_beats
+
+        client, model = self._chat_client()
+        return generate_script_beats(
+            client,
+            model,
+            original_lines=list(payload.get("original_lines") or []),
+            characters=list(payload.get("characters") or []),
+            scenes=list(payload.get("scenes") or []),
+            props=list(payload.get("props") or []),
+            visual_style=str(payload.get("visual_style") or ""),
+            title=str(payload.get("title") or ""),
+            summary=str(payload.get("summary") or ""),
+            name_to_asset=payload.get("name_to_asset") or {},
+        )

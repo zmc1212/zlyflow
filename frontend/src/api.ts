@@ -35,21 +35,27 @@ const fieldLabels: Record<string, string> = {
   role: "角色",
   prompt: "提示词",
   references: "参考图",
+  text: "正文",
+  file: "小说文件",
 }
 
 function validationIssueMessage(issue: ValidationIssue): string {
+  const loc = Array.isArray(issue.loc) ? issue.loc.map(String).join(".") : ""
   const field = String(issue.loc?.[issue.loc.length - 1] ?? "")
-  const label = fieldLabels[field] ?? "提交内容"
+  const label = fieldLabels[field] ?? (field ? field : "提交内容")
   const limit = issue.ctx?.min_length ?? issue.ctx?.max_length
+  const where = loc ? `（${loc}）` : ""
 
-  if (issue.type === "missing") return `请填写${label}`
-  if (issue.type === "string_too_short") return `${label}至少需要 ${limit ?? "规定数量的"} 个字符`
-  if (issue.type === "string_too_long") return `${label}不能超过 ${limit ?? "规定数量的"} 个字符`
+  if (issue.type === "missing") return `请填写${label}${where}`
+  if (issue.type === "string_too_short") return `${label}至少需要 ${limit ?? "规定数量的"} 个字符${where}`
+  if (issue.type === "string_too_long") return `${label}不能超过 ${limit ?? "规定数量的"} 个字符${where}`
   if (issue.type === "string_pattern_mismatch" && field === "username") {
     return "账号只能包含字母、数字、点、下划线和连字符"
   }
-  if (typeof issue.msg === "string" && /[\u4e00-\u9fff]/.test(issue.msg)) return issue.msg
-  return `${label}格式不正确`
+  if (typeof issue.msg === "string" && /[\u4e00-\u9fff]/.test(issue.msg)) {
+    return loc ? `${issue.msg}${where}` : issue.msg
+  }
+  return `${label}格式不正确${where}`
 }
 
 export function apiErrorMessage(body: unknown, fallback = "请求失败"): string {

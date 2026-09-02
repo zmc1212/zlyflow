@@ -9,6 +9,7 @@ export const PATHS = {
   generateImage: "/generate/image",
   generateVideo: "/generate/video",
   director: "/director",
+  director2: "/director2",
   assets: "/assets",
   admin: "/admin",
   adminAccounts: "/admin/accounts",
@@ -22,6 +23,7 @@ export const ROUTE_PATTERNS = {
   generateVideoJob: "/generate/video/:jobId",
   directorProject: "/director/:projectId",
   directorBatch: "/director/batch/:projectId",
+  director2Project: "/director2/:projectId",
   adminTab: "/admin/:tab",
 } as const
 
@@ -39,6 +41,8 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.directorBatch,
   ROUTE_PATTERNS.directorProject,
   PATHS.director,
+  ROUTE_PATTERNS.director2Project,
+  PATHS.director2,
   PATHS.assets,
 ] as const
 
@@ -46,7 +50,7 @@ export type LoginRedirectState = {
   from?: Pick<Location, "pathname" | "search" | "hash">
 }
 
-export type StudioWorkspace = "generate" | "director" | "assets"
+export type StudioWorkspace = "generate" | "director" | "director2" | "assets"
 export type GenerateMediaType = "image" | "video"
 
 export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
@@ -56,6 +60,7 @@ export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
 
 export function studioWorkspaceFromPath(pathname: string): StudioWorkspace {
   if (pathname === PATHS.assets) return "assets"
+  if (pathname === PATHS.director2 || pathname.startsWith(`${PATHS.director2}/`)) return "director2"
   if (pathname === PATHS.director || pathname.startsWith(`${PATHS.director}/`)) return "director"
   return "generate"
 }
@@ -84,6 +89,23 @@ export function directorProjectPath(projectId: string) {
 
 export function directorBatchPath(projectId: string) {
   return `${PATHS.director}/batch/${encodeURIComponent(projectId)}`
+}
+
+export function director2ProjectPath(projectId: string) {
+  return `${PATHS.director2}/${encodeURIComponent(projectId)}`
+}
+
+export function parseXiajiProjectPath(pathname: string): string | undefined {
+  const prefix = `${PATHS.director2}/`
+  if (!pathname.startsWith(prefix)) return undefined
+  const rest = pathname.slice(prefix.length)
+  const id = rest.split("/").filter(Boolean)[0]
+  if (!id) return undefined
+  try {
+    return decodeURIComponent(id)
+  } catch {
+    return id
+  }
 }
 
 export function adminTabPath(tab: AdminTab) {

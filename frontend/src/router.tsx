@@ -15,6 +15,7 @@ export {
   canAccessAdminTab,
   directorBatchPath,
   directorProjectPath,
+  director2ProjectPath,
   generateJobPath,
   isAdminPath,
   isAdminTab,
@@ -22,6 +23,7 @@ export {
   loginRedirectFrom,
   locationFromState,
   parseGeneratePath,
+  parseXiajiProjectPath,
   resolveAuthRedirect,
   studioWorkspaceFromPath,
 } from "./paths"

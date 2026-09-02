@@ -22,7 +22,7 @@
 - MiniMax H3 使用 `minimax_h3_workflow.py` 动态生成 ComfyUI API graph。
 - H3 支持 T2V（0 张）、I2V（首帧必填、尾帧可选）和 R2V（1-9 张有序参考图）。
 - R2V 提示词使用 `<Picture n>` 与上传顺序对应，前端负责插入和排序。
-- 任务通过 SQLite 记录，媒体写入 `results`，上传素材写入 `data/uploads`。
+- 任务通过远程 MySQL（`docs/存储配置.md` 的 `ai-media`）记录；媒体走七牛云（管理设置中的 Bucket/域名/AKSK）。unittest 使用临时 SQLite。
 
 ## 工作流参数产品化标准
 

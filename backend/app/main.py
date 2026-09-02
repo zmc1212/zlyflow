@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 
 import requests
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, Security, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from fastapi.security import APIKeyCookie
@@ -97,7 +98,16 @@ from .models import (
     DirectorTtsRequest, DirectorMuxRequest, DirectorExportCapabilitiesResponse,
 )
 
+from .xiaji_api import register_xiaji_routes
+from .xiaji_asset_api import register_xiaji_asset_routes
+from .xiaji_asset_store import XiajiAssetStore
+from .xiaji_episode_api import register_xiaji_episode_routes
+from .xiaji_episode_store import XiajiEpisodeStore
+from .xiaji_project_api import register_xiaji_project_routes
+from .xiaji_project_store import XiajiProjectStore
+from .xiaji_store import XiajiIngestStore
 from .qiniu_provider import QiniuProviderService
+from .request_log import RequestLogMiddleware, write_request_log
 
 from .resource_storage import create_resource_storage, resource_object_url
 from .storage import DirectorProjectConflictError, FINISHED_STATUSES, JobStore, elapsed_ms_between
@@ -640,8 +650,13 @@ async def lifespan(app: FastAPI):
     settings.results_dir.mkdir(exist_ok=True)
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     settings.staging_dir.mkdir(parents=True, exist_ok=True)
-    auth_store = AuthStore(settings.database_path)
-    store = JobStore(settings.database_path)
+    database = settings.runtime_database()
+    auth_store = AuthStore(database)
+    store = JobStore(database)
+    xiaji_store = XiajiIngestStore(database)
+    xiaji_asset_store = XiajiAssetStore(database)
+    xiaji_episode_store = XiajiEpisodeStore(database)
+    xiaji_project_store = XiajiProjectStore(database)
     qiniu_provider = QiniuProviderService(store, settings.credential_key)
     resource_storage = qiniu_provider.enabled_storage() or create_resource_storage(settings.resource_provider, settings.staging_dir)
     grs_provider = GrsProviderService(store, settings.credential_key)
@@ -653,6 +668,10 @@ async def lifespan(app: FastAPI):
     worker = JobWorker(store, comfy, grs_provider, resource_storage)
     app.state.auth_store = auth_store
     app.state.store = store
+    app.state.xiaji_store = xiaji_store
+    app.state.xiaji_asset_store = xiaji_asset_store
+    app.state.xiaji_episode_store = xiaji_episode_store
+    app.state.xiaji_project_store = xiaji_project_store
     app.state.resource_storage = resource_storage
     app.state.grs_provider = grs_provider
     app.state.qiniu_provider = qiniu_provider
@@ -700,9 +719,30 @@ app = FastAPI(
         {"name": "创作台", "description": "创作页面需要的供应商状态与余额快照。"},
         {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
         {"name": "导演台", "description": "员工隔离的导演工程库：Recipe 双引擎、画风目录、9 Agent 流水线与批量短视频。"},
+        {"name": "导台2", "description": "按项目组织的内容库、资产库与剧集工坊（脚本 Beat 与镜头草图）。"},
     ],
     lifespan=lifespan,
 )
+
+register_xiaji_project_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_xiaji_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_xiaji_asset_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_xiaji_episode_routes(app, current_user=current_user, mutating_user=mutating_user)
+app.add_middleware(RequestLogMiddleware)
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_log(request: Request, exc: RequestValidationError) -> JSONResponse:
+    write_request_log(
+        "422",
+        {
+            "method": request.method,
+            "path": request.url.path,
+            "errors": exc.errors(),
+            "body": exc.body,
+        },
+    )
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 def public_openapi() -> dict:

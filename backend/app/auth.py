@@ -3,10 +3,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .db import Database, DbConnection, IntegrityError, Row, open_database
 from .models import UserRole
 
 
@@ -63,19 +63,19 @@ def csrf_token(session_token: str) -> str:
 
 
 class AuthStore:
-    def __init__(self, database_path: Path) -> None:
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        self.database_path = database_path
+    def __init__(self, database: Database | Path) -> None:
+        self._db = open_database(database)
+        self.database_path = getattr(self._db, "path", None)
         self.initialize()
 
-    def connection(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+    def connection(self) -> DbConnection:
+        return self._db.connection()
 
     def initialize(self) -> None:
         with self.connection() as connection:
+            if self._db.dialect == "mysql":
+                self._db.apply_mysql_schema(connection)
+                return
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS users (
@@ -112,7 +112,7 @@ class AuthStore:
             )
 
     @staticmethod
-    def public_user(row: sqlite3.Row | dict) -> dict:
+    def public_user(row: Row | dict) -> dict:
         data = dict(row)
         data.pop("password_hash", None)
         data["is_active"] = bool(data["is_active"])
@@ -145,7 +145,7 @@ class AuthStore:
                         int(must_change_password), timestamp, timestamp,
                     ),
                 )
-        except sqlite3.IntegrityError as error:
+        except IntegrityError as error:
             raise ValueError("该账号已存在") from error
         return self.get_user(user_id)
 
@@ -172,7 +172,7 @@ class AuthStore:
     def authenticate(self, username: str, password: str) -> dict | None:
         with self.connection() as connection:
             row = connection.execute(
-                "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (normalize_username(username),),
+                "SELECT * FROM users WHERE username = ?", (normalize_username(username),),
             ).fetchone()
             if row is None or not row["is_active"] or not verify_password(password, row["password_hash"]):
                 return None
