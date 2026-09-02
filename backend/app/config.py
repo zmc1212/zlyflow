@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any
 
 
+from .db import load_app_env
+
+load_app_env()
+
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
 DATABASE_FILENAME = "zly-ai-video-studio.db"
 LEGACY_DATABASE_FILENAME = "".join(("toon", "flow.db"))

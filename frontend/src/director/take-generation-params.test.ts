@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest"
 import {
   resolveTakeGenerationMeta,
   takeGenerationDiff,
@@ -43,26 +44,24 @@ const previewTake = sampleTake({
   },
 })
 
-if (workflowFamilyLabel("official_h3") !== "MiniMax H3") {
-  throw new Error("workflow family label mismatch")
-}
+describe("take generation params", () => {
+  it("resolves generation meta and diff", () => {
+    expect(workflowFamilyLabel("official_h3")).toBe("MiniMax H3")
 
-const finalMeta = resolveTakeGenerationMeta(sampleTake())
-if (!finalMeta.summary.includes("成片") || !finalMeta.summary.includes("1.0 MP")) {
-  throw new Error("final take summary must include pass and quality")
-}
+    const finalMeta = resolveTakeGenerationMeta(sampleTake())
+    expect(finalMeta.summary.includes("成片")).toBe(true)
+    expect(finalMeta.summary.includes("1.0 MP")).toBe(true)
 
-const backfilled = resolveTakeGenerationMeta(
-  sampleTake({ options: undefined, workflowId: undefined }),
-  { mode: "minimax-h3-t2v", options: { quality: "1.0", speed: "quality", weight_profile: "full", duration: 5 } },
-)
-if (backfilled.options.quality !== "1.0" || backfilled.workflowId !== "minimax-h3-t2v") {
-  throw new Error("job fallback must backfill take generation meta")
-}
+    const backfilled = resolveTakeGenerationMeta(
+      sampleTake({ options: undefined, workflowId: undefined }),
+      { mode: "minimax-h3-t2v", options: { quality: "1.0", speed: "quality", weight_profile: "full", duration: 5 } },
+    )
+    expect(backfilled.options.quality).toBe("1.0")
+    expect(backfilled.workflowId).toBe("minimax-h3-t2v")
 
-const diff = takeGenerationDiff(finalMeta, resolveTakeGenerationMeta(previewTake))
-if (!diff.includes("档位") || !diff.includes("分辨率") || !diff.includes("生成速度")) {
-  throw new Error("diff must highlight changed generation fields")
-}
-
-console.log("take-generation-params.test.ts passed")
+    const diff = takeGenerationDiff(finalMeta, resolveTakeGenerationMeta(previewTake))
+    expect(diff.includes("档位")).toBe(true)
+    expect(diff.includes("分辨率")).toBe(true)
+    expect(diff.includes("生成速度")).toBe(true)
+  })
+})

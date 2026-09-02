@@ -1619,7 +1619,7 @@ export default function App({
         <main className={workspaceView === "director"
           ? "director-workspace-main relative flex !h-screen !max-h-screen !min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "director2"
-          ? "xiaji-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden px-4 pb-6 pt-[60px] sm:px-6 xl:pt-6"
+          ? "xiaji-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""}`
         }>
           {workspaceView === "director" ? (

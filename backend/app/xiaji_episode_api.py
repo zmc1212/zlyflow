@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Literal
 from urllib.error import URLError
@@ -126,6 +127,33 @@ def _lookup_job(app: Any, job_id: str) -> dict[str, Any] | None:
         return None
 
 
+def _fetch_episode_jobs_batch(jobs_store: Any, job_ids: set[str]) -> dict[str, Any]:
+    if not job_ids or jobs_store is None:
+        return {}
+    results: dict[str, Any] = {}
+
+    def _fetch_one(jid: str):
+        try:
+            return jid, jobs_store.get(jid)
+        except Exception:
+            return jid, None
+
+    workers = min(len(job_ids), 16)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for jid, job in executor.map(_fetch_one, job_ids):
+            if job is not None:
+                results[jid] = job
+    return results
+
+
+def _lookup_job_cached(app: Any, job_id: str, jobs_cache: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if not job_id:
+        return None
+    if jobs_cache is not None:
+        return jobs_cache.get(job_id)
+    return _lookup_job(app, job_id)
+
+
 def _job_media_state(app: Any, job: dict[str, Any] | None, *, kind: str, failed_label: str) -> dict[str, str | None]:
     if not job:
         return {"status": None, "url": None, "error": None}
@@ -142,10 +170,16 @@ def _job_media_state(app: Any, job: dict[str, Any] | None, *, kind: str, failed_
     return {"status": None, "url": None, "error": None}
 
 
-def _hydrate_episode(app: Any, episode: dict[str, Any], owner_user_id: str) -> dict[str, Any]:
+def _hydrate_episode(
+    app: Any,
+    episode: dict[str, Any],
+    owner_user_id: str,
+    jobs_cache: dict[str, Any] | None = None,
+    assets_by_id: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     jobs = getattr(app.state, "store", None)
     if jobs is None:
-        return _with_assets(app, episode, owner_user_id)
+        return _with_assets(app, episode, owner_user_id, assets_by_id)
     store = _episodes(app)
     sketched = 0
     generating = 0
@@ -153,60 +187,83 @@ def _hydrate_episode(app: Any, episode: dict[str, Any], owner_user_id: str) -> d
     next_beats = []
     for beat in episode.get("beats") or []:
         current = dict(beat)
-        sketch_state = _job_media_state(
-            app,
-            _lookup_job(app, str(current.get("sketch_job_id") or "")),
-            kind="image",
-            failed_label="草图生成失败",
-        )
-        if sketch_state["status"] == "succeeded" and sketch_state["url"]:
-            if current.get("sketch_url") != sketch_state["url"] or current.get("status") != "succeeded":
-                store.update_beat(
-                    current["id"],
-                    owner_user_id,
-                    sketch_url=sketch_state["url"],
-                    status="succeeded",
-                    error=None,
-                )
-            current["sketch_url"] = sketch_state["url"]
-            current["status"] = "succeeded"
-            current["error"] = None
-        elif sketch_state["status"] == "failed":
-            store.update_beat(current["id"], owner_user_id, status="failed", error=sketch_state["error"])
-            current["status"] = "failed"
-            current["error"] = sketch_state["error"]
-        elif sketch_state["status"] in {"queued", "generating"}:
-            if current.get("status") != sketch_state["status"]:
-                store.update_beat(current["id"], owner_user_id, status=sketch_state["status"])
-            current["status"] = sketch_state["status"]
 
-        render_state = _job_media_state(
-            app,
-            _lookup_job(app, str(current.get("render_job_id") or "")),
-            kind="image",
-            failed_label="渲染图生成失败",
-        )
-        if render_state["status"] == "succeeded" and render_state["url"] and current.get("render_url") != render_state["url"]:
-            store.update_beat(current["id"], owner_user_id, render_url=render_state["url"])
-            current["render_url"] = render_state["url"]
-        elif render_state["url"]:
-            current["render_url"] = render_state["url"]
-        current["render_status"] = render_state["status"] or ("succeeded" if current.get("render_url") else "draft")
-        current["render_error"] = render_state["error"]
+        sketch_job_id = str(current.get("sketch_job_id") or "").strip()
+        has_sketch = bool(current.get("sketch_url"))
+        sketch_status = str(current.get("status") or "")
+        need_sketch_check = bool(sketch_job_id and (sketch_status in {"queued", "generating"} or not has_sketch))
 
-        video_state = _job_media_state(
-            app,
-            _lookup_job(app, str(current.get("video_job_id") or "")),
-            kind="video",
-            failed_label="视频生成失败",
-        )
-        if video_state["status"] == "succeeded" and video_state["url"] and current.get("video_url") != video_state["url"]:
-            store.update_beat(current["id"], owner_user_id, video_url=video_state["url"])
-            current["video_url"] = video_state["url"]
-        elif video_state["url"]:
-            current["video_url"] = video_state["url"]
-        current["video_status"] = video_state["status"] or ("succeeded" if current.get("video_url") else "draft")
-        current["video_error"] = video_state["error"]
+        if need_sketch_check:
+            sketch_state = _job_media_state(
+                app,
+                _lookup_job_cached(app, sketch_job_id, jobs_cache),
+                kind="image",
+                failed_label="草图生成失败",
+            )
+            if sketch_state["status"] == "succeeded" and sketch_state["url"]:
+                if current.get("sketch_url") != sketch_state["url"] or current.get("status") != "succeeded":
+                    store.update_beat(
+                        current["id"],
+                        owner_user_id,
+                        sketch_url=sketch_state["url"],
+                        status="succeeded",
+                        error=None,
+                    )
+                current["sketch_url"] = sketch_state["url"]
+                current["status"] = "succeeded"
+                current["error"] = None
+            elif sketch_state["status"] == "failed":
+                store.update_beat(current["id"], owner_user_id, status="failed", error=sketch_state["error"])
+                current["status"] = "failed"
+                current["error"] = sketch_state["error"]
+            elif sketch_state["status"] in {"queued", "generating"}:
+                if current.get("status") != sketch_state["status"]:
+                    store.update_beat(current["id"], owner_user_id, status=sketch_state["status"])
+                current["status"] = sketch_state["status"]
+
+        render_job_id = str(current.get("render_job_id") or "").strip()
+        has_render = bool(current.get("render_url"))
+        render_status = str(current.get("render_status") or "")
+        need_render_check = bool(render_job_id and (render_status in {"queued", "generating"} or not has_render))
+
+        if need_render_check:
+            render_state = _job_media_state(
+                app,
+                _lookup_job_cached(app, render_job_id, jobs_cache),
+                kind="image",
+                failed_label="渲染图生成失败",
+            )
+            if render_state["status"] == "succeeded" and render_state["url"] and current.get("render_url") != render_state["url"]:
+                store.update_beat(current["id"], owner_user_id, render_url=render_state["url"])
+                current["render_url"] = render_state["url"]
+            elif render_state["url"]:
+                current["render_url"] = render_state["url"]
+            current["render_status"] = render_state["status"] or ("succeeded" if current.get("render_url") else "draft")
+            current["render_error"] = render_state["error"]
+        else:
+            current["render_status"] = current.get("render_status") or ("succeeded" if current.get("render_url") else "draft")
+
+        video_job_id = str(current.get("video_job_id") or "").strip()
+        has_video = bool(current.get("video_url"))
+        video_status = str(current.get("video_status") or "")
+        need_video_check = bool(video_job_id and (video_status in {"queued", "generating"} or not has_video))
+
+        if need_video_check:
+            video_state = _job_media_state(
+                app,
+                _lookup_job_cached(app, video_job_id, jobs_cache),
+                kind="video",
+                failed_label="视频生成失败",
+            )
+            if video_state["status"] == "succeeded" and video_state["url"] and current.get("video_url") != video_state["url"]:
+                store.update_beat(current["id"], owner_user_id, video_url=video_state["url"])
+                current["video_url"] = video_state["url"]
+            elif video_state["url"]:
+                current["video_url"] = video_state["url"]
+            current["video_status"] = video_state["status"] or ("succeeded" if current.get("video_url") else "draft")
+            current["video_error"] = video_state["error"]
+        else:
+            current["video_status"] = current.get("video_status") or ("succeeded" if current.get("video_url") else "draft")
 
         if current.get("status") == "succeeded" and current.get("sketch_url"):
             sketched += 1
@@ -227,12 +284,20 @@ def _hydrate_episode(app: Any, episode: dict[str, Any], owner_user_id: str) -> d
             episode["beats"] = next_beats
     episode["sketch_ready"] = sketched
     episode["sketch_failed"] = failed
-    return _with_assets(app, episode, owner_user_id)
+    return _with_assets(app, episode, owner_user_id, assets_by_id)
 
 
-def _with_assets(app: Any, episode: dict[str, Any], owner_user_id: str) -> dict[str, Any]:
-    assets = app.state.xiaji_asset_store.list_assets(owner_user_id, episode["project_id"])
-    by_id = {item["id"]: item for item in assets}
+def _with_assets(
+    app: Any,
+    episode: dict[str, Any],
+    owner_user_id: str,
+    assets_by_id: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if assets_by_id is None:
+        assets = app.state.xiaji_asset_store.list_assets(owner_user_id, episode["project_id"])
+        by_id = {item["id"]: item for item in assets}
+    else:
+        by_id = assets_by_id
     linked = []
     for link in episode.get("links") or []:
         asset = by_id.get(link["asset_id"])
@@ -251,6 +316,27 @@ def _with_assets(app: Any, episode: dict[str, Any], owner_user_id: str) -> dict[
     public = dict(episode)
     public.pop("owner_user_id", None)
     return public
+
+
+def _hydrate_episode_single(app: Any, episode: dict[str, Any], owner_user_id: str) -> dict[str, Any]:
+    project_id = str(episode.get("project_id") or "")
+    assets = app.state.xiaji_asset_store.list_assets(owner_user_id, project_id) if project_id else []
+    assets_by_id = {item["id"]: item for item in assets}
+
+    job_ids_to_fetch: set[str] = set()
+    for beat in episode.get("beats") or []:
+        s_job = str(beat.get("sketch_job_id") or "").strip()
+        if s_job and (beat.get("status") in {"queued", "generating"} or not beat.get("sketch_url")):
+            job_ids_to_fetch.add(s_job)
+        r_job = str(beat.get("render_job_id") or "").strip()
+        if r_job and (beat.get("render_status") in {"queued", "generating"} or not beat.get("render_url")):
+            job_ids_to_fetch.add(r_job)
+        v_job = str(beat.get("video_job_id") or "").strip()
+        if v_job and (beat.get("video_status") in {"queued", "generating"} or not beat.get("video_url")):
+            job_ids_to_fetch.add(v_job)
+
+    jobs_cache = _fetch_episode_jobs_batch(getattr(app.state, "store", None), job_ids_to_fetch) if job_ids_to_fetch else {}
+    return _hydrate_episode(app, episode, owner_user_id, jobs_cache, assets_by_id)
 
 
 def _pick_document(app: Any, owner_user_id: str, project_id: str, document_id: str | None) -> dict[str, Any]:
@@ -734,7 +820,28 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         user: dict = Depends(current_user),
     ) -> list[dict]:
         require_xiaji_project(app, project_id, user["id"])
-        return [_hydrate_episode(app, item, user["id"]) for item in _episodes(app).list_episodes(user["id"], project_id)]
+        raw_episodes = _episodes(app).list_episodes(user["id"], project_id)
+        if not raw_episodes:
+            return []
+
+        assets = app.state.xiaji_asset_store.list_assets(user["id"], project_id)
+        assets_by_id = {item["id"]: item for item in assets}
+
+        job_ids_to_fetch: set[str] = set()
+        for ep in raw_episodes:
+            for beat in ep.get("beats") or []:
+                s_job = str(beat.get("sketch_job_id") or "").strip()
+                if s_job and (beat.get("status") in {"queued", "generating"} or not beat.get("sketch_url")):
+                    job_ids_to_fetch.add(s_job)
+                r_job = str(beat.get("render_job_id") or "").strip()
+                if r_job and (beat.get("render_status") in {"queued", "generating"} or not beat.get("render_url")):
+                    job_ids_to_fetch.add(r_job)
+                v_job = str(beat.get("video_job_id") or "").strip()
+                if v_job and (beat.get("video_status") in {"queued", "generating"} or not beat.get("video_url")):
+                    job_ids_to_fetch.add(v_job)
+
+        jobs_cache = _fetch_episode_jobs_batch(getattr(app.state, "store", None), job_ids_to_fetch) if job_ids_to_fetch else {}
+        return [_hydrate_episode(app, item, user["id"], jobs_cache, assets_by_id) for item in raw_episodes]
 
     @router.post("/episodes/from-analysis", summary="从内容库剧集规划落库")
     def from_analysis(
@@ -747,12 +854,12 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
 
     @router.get("/episodes/{episode_id}", summary="读取剧集脚本与镜头")
     def get_episode(episode_id: str, user: dict = Depends(current_user)) -> dict:
-        return _hydrate_episode(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
+        return _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
 
     @router.patch("/episodes/{episode_id}", summary="更新剧集标题")
     def patch_episode(episode_id: str, payload: EpisodePatch, user: dict = Depends(mutating_user)) -> dict:
         _episode_or_404(app, episode_id, user["id"])
-        return _hydrate_episode(
+        return _hydrate_episode_single(
             app,
             _episodes(app).update_episode(episode_id, user["id"], title=payload.title),
             user["id"],
@@ -770,7 +877,7 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         payload: ScriptGenerateRequest = Body(default_factory=ScriptGenerateRequest),
     ) -> dict:
         write_request_log("xiaji-generate-script", {"phase": "start", "episode_id": episode_id, "user_id": user["id"]})
-        episode = _hydrate_episode(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
+        episode = _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
         if not episode.get("original_lines"):
             raise HTTPException(status_code=422, detail="这一集还没有原文，请先从规划生成剧集")
         if episode.get("status") == "scripting" and not payload.force:
@@ -778,7 +885,7 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         _episodes(app).update_episode(episode_id, user["id"], status="scripting", clear_error=True)
         background_tasks.add_task(_run_script_generation, app, episode_id, user["id"])
         write_request_log("xiaji-generate-script", {"phase": "queued", "episode_id": episode_id})
-        fresh = _hydrate_episode(app, _episodes(app).get_episode(episode_id, user["id"]), user["id"])
+        fresh = _hydrate_episode_single(app, _episodes(app).get_episode(episode_id, user["id"]), user["id"])
         return {"ok": True, "status": "scripting", "episode": fresh, "reused": False}
 
     @router.put("/episodes/{episode_id}/beats", summary="保存人工校对后的 Beat")
@@ -786,7 +893,7 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         _episode_or_404(app, episode_id, user["id"])
         beats = [item.model_dump() for item in payload.beats]
         updated = _episodes(app).replace_beats(episode_id, user["id"], beats, status="script_ready")
-        return _hydrate_episode(app, updated, user["id"])
+        return _hydrate_episode_single(app, updated, user["id"])
 
     @router.patch("/episodes/{episode_id}/beats/{beat_id}", summary="更新单个 Beat 文案与参考资产")
     def patch_beat(episode_id: str, beat_id: str, payload: BeatPatch, user: dict = Depends(mutating_user)) -> dict:
@@ -798,7 +905,7 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         if "scene_id" in fields and not str(fields.get("scene_id") or "").strip():
             fields["scene_id"] = None
         updated = _episodes(app).update_beat(beat_id, user["id"], **fields)
-        return _hydrate_episode(app, updated, user["id"])
+        return _hydrate_episode_single(app, updated, user["id"])
 
     @router.post("/episodes/{episode_id}/beats/{beat_id}/upload-sketch", summary="上传镜头草图")
     async def upload_sketch(

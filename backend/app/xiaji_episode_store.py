@@ -276,6 +276,43 @@ class XiajiEpisodeStore:
         record["line_count"] = len(record["original_lines"])
         return record
 
+    def _links_for_episodes(self, connection: Any, episode_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        if not episode_ids:
+            return {}
+        placeholders = ", ".join(["?"] * len(episode_ids))
+        rows = connection.execute(
+            f"SELECT * FROM xiaji_episode_links WHERE episode_id IN ({placeholders}) ORDER BY kind, first_seen_line, id",
+            tuple(episode_ids),
+        ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {eid: [] for eid in episode_ids}
+        for row in rows:
+            eid = row["episode_id"]
+            if eid in result:
+                result[eid].append(
+                    {
+                        "id": row["id"],
+                        "asset_id": row["asset_id"],
+                        "kind": row["kind"],
+                        "first_seen_line": int(row["first_seen_line"] or 0),
+                    }
+                )
+        return result
+
+    def _beats_for_episodes(self, connection: Any, episode_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        if not episode_ids:
+            return {}
+        placeholders = ", ".join(["?"] * len(episode_ids))
+        rows = connection.execute(
+            f"SELECT * FROM xiaji_beats WHERE episode_id IN ({placeholders}) ORDER BY sequence",
+            tuple(episode_ids),
+        ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {eid: [] for eid in episode_ids}
+        for row in rows:
+            eid = row["episode_id"]
+            if eid in result:
+                result[eid].append(self._beat_from_row(row))
+        return result
+
     def list_episodes(self, owner_user_id: str, project_id: str) -> list[dict[str, Any]]:
         with self._db.connection() as connection:
             rows = connection.execute(
@@ -283,17 +320,19 @@ class XiajiEpisodeStore:
                 ORDER BY number""",
                 (owner_user_id, project_id),
             ).fetchall()
-            items = []
-            for row in rows:
-                episode_id = row["id"]
-                items.append(
-                    self._from_row(
-                        dict(row),
-                        links=self._links_for(connection, episode_id),
-                        beats=self._beats_for(connection, episode_id),
-                    )
+            if not rows:
+                return []
+            episode_ids = [row["id"] for row in rows]
+            links_map = self._links_for_episodes(connection, episode_ids)
+            beats_map = self._beats_for_episodes(connection, episode_ids)
+            return [
+                self._from_row(
+                    dict(row),
+                    links=links_map.get(row["id"]) or [],
+                    beats=beats_map.get(row["id"]) or [],
                 )
-            return items
+                for row in rows
+            ]
 
     def get_episode(self, episode_id: str, owner_user_id: str) -> dict[str, Any]:
         with self._db.connection() as connection:
