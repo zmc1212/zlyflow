@@ -2379,23 +2379,44 @@
   justify-content: flex-end;
 }
 .director-asset-grid--actions {
-  grid-template-columns: repeat(auto-fill, minmax(min(248px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
 }
 .director-asset-action-rail {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: auto;
+  flex: none;
 }
-.director-asset-action-rail-cell,
-.director-asset-action-rail-btn {
+.director-asset-action-rail-cell {
+  display: flex;
+  min-width: 0;
+}
+.director-asset-action-rail-tooltip {
+  display: flex;
+  width: 100%;
   min-width: 0;
 }
 .director-asset-action-rail-btn {
-  padding-inline: 4px !important;
+  width: 100%;
+  min-width: 0;
+  padding-inline: 8px !important;
   font-size: 12px;
 }
 .director-asset-action-rail-btn .ant-btn-icon {
-  margin-inline-end: 2px !important;
+  margin-inline-end: 4px !important;
+}
+.director-asset-action-rail-btn > span:not(.anticon):not(.ant-btn-icon) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.director-character-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .director-asset-status-chip {
   position: absolute;
@@ -2438,7 +2459,9 @@
 }
 .director-asset-spec-link {
   align-self: flex-start;
+  margin-top: 2px;
   padding-inline: 0 !important;
+  flex: none;
 }
 .director-output-settings {
   display: flex;
@@ -3156,7 +3179,8 @@
 .director-stage-nav .ant-menu-item-selected { background: #edf1ff !important; }
 .director-stage-item {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
+  grid-template-columns: 8px minmax(0, 1fr) minmax(0, max-content);
+  align-items: center;
   gap: 8px;
 }
 .director-stage-dot {
@@ -3172,9 +3196,14 @@
 .director-stage-item .ant-tag {
   border: 0;
   border-radius: 5px;
+  margin-inline-end: 0;
+  max-width: 76px;
+  overflow: hidden;
   padding-inline: 6px;
   font-size: 10px;
   line-height: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .director-agent-collapse {
   margin-top: 10px;
