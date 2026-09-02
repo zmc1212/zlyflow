@@ -1,4 +1,4 @@
-import { Select, Tag } from "antd"
+import { Select, Tag, Tooltip } from "antd"
 import {
   Clapperboard,
   FileText,
@@ -63,10 +63,12 @@ export default function DirectorTaskHeader({
   activeStage,
   readiness,
   onSelect,
+  compact = false,
 }: {
   activeStage: RecipeStageId
   readiness: RecipeReadiness
   onSelect: (stage: RecipeStageId) => void
+  compact?: boolean
 }) {
   const activeGroup = RECIPE_STAGE_GROUPS.find((group) => (
     (group.stages as readonly RecipeStageId[]).includes(activeStage)
@@ -90,14 +92,25 @@ export default function DirectorTaskHeader({
           }))}
         />
       </div>
-      <section className="director-task-context" aria-labelledby="director-active-task-title">
-        <div className="director-task-icon" aria-hidden="true"><Icon size={20} /></div>
+      <section
+        className={`director-task-context${compact ? " is-compact" : ""}`}
+        aria-labelledby="director-active-task-title"
+      >
+        <div className="director-task-icon" aria-hidden="true">
+          {compact ? (
+            <Tooltip title={detail.description}>
+              <span className="director-task-icon-hit"><Icon size={16} /></span>
+            </Tooltip>
+          ) : (
+            <Icon size={20} />
+          )}
+        </div>
         <div className="director-task-copy">
           <span className="director-task-path">
             {activeGroup.label} · {stagePosition} / {activeGroup.stages.length}
           </span>
           <h1 id="director-active-task-title">{RECIPE_STAGE_LABELS[activeStage]}</h1>
-          <p>{detail.description}</p>
+          {compact ? null : <p>{detail.description}</p>}
         </div>
         <div className="director-task-state">
           <Tag color={RECIPE_READINESS_TAG_COLOR[state.level]}>
