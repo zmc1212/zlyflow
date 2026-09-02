@@ -32,7 +32,11 @@ export default function RecipeAssetActionRail({ items }: { items: RecipeAssetAct
         )
         return (
           <div key={item.key} className="director-asset-action-rail-cell">
-            {item.hint ? <Tooltip title={item.hint}>{button}</Tooltip> : button}
+            {item.hint ? (
+              <Tooltip title={item.hint}>
+                <span className="director-asset-action-rail-tooltip">{button}</span>
+              </Tooltip>
+            ) : button}
           </div>
         )
       })}

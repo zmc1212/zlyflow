@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Tag, Tooltip, Typography, message,
+  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Spin, Tag, Tooltip, Typography, message,
 } from "antd"
 import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -915,6 +915,7 @@ export default function DirectorRecipeStudio({
   }
 
   async function handleGenerateStoryboard(options?: { force?: boolean }) {
+    if (!projectQuery.isFetched) return
     const current = recipeRef.current
     const currentShots = flattenRecipeShots(current)
     const idea = goalRef.current.trim()
@@ -971,7 +972,7 @@ export default function DirectorRecipeStudio({
     } else {
       patchStudioSearch({ stage, view: "plan" })
     }
-    if ((stage === "storyboard" || stage === "shots") && !boardAutoRunRef.current) {
+    if ((stage === "storyboard" || stage === "shots") && !boardAutoRunRef.current && projectQuery.isFetched) {
       boardAutoRunRef.current = true
       void handleGenerateStoryboard()
     }
@@ -980,9 +981,10 @@ export default function DirectorRecipeStudio({
   useEffect(() => {
     if (activeStage !== "storyboard" && activeStage !== "shots") return
     if (boardAutoRunRef.current) return
+    if (!projectQuery.isFetched || projectQuery.isError) return
     boardAutoRunRef.current = true
     void handleGenerateStoryboard()
-  }, [activeStage])
+  }, [activeStage, projectQuery.isError, projectQuery.isFetched])
 
   useEffect(() => {
     const raw = searchParams.get("view")
@@ -1765,6 +1767,14 @@ export default function DirectorRecipeStudio({
       void requestMux()
     }
     if (key === "jianying") setJianyingOpen(true)
+  }
+
+  if (projectQuery.isPending && !projectQuery.data) {
+    return (
+      <div className="director-recipe-shell !h-0 !min-h-0 flex-1 overflow-hidden">
+        <div className="director-library-loading"><Spin /><span>正在加载工程</span></div>
+      </div>
+    )
   }
 
   return (

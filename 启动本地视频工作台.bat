@@ -24,6 +24,13 @@ if errorlevel 1 (
     "%PYTHON_EXE%" -m pip install "watchfiles>=0.21,<2"
 )
 
+"%PYTHON_EXE%" -c "import pymysql" >nul 2>nul
+if errorlevel 1 (
+    echo Installing backend dependencies required for MySQL...
+    "%PYTHON_EXE%" -m pip install -r "%CD%\backend\requirements.txt"
+    if errorlevel 1 goto :requirements_install_error
+)
+
 if not defined ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY (
     "%PYTHON_EXE%" "%CD%\backend\app\local_credential_key.py" "%CD%\data\credential.key" >nul
     if errorlevel 1 goto :credential_key_error
@@ -138,5 +145,10 @@ exit /b 1
 
 :qiniu_install_error
 echo Qiniu SDK installation failed. Check the network or install qiniu==7.16.0 with the embedded Python, then retry.
+pause
+exit /b 1
+
+:requirements_install_error
+echo Backend dependency installation failed. Check the network or run: pip install -r backend\requirements.txt
 pause
 exit /b 1

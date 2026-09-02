@@ -10,8 +10,8 @@ export default defineConfig(() => {
   return {
     plugins: [react()],
     server: {
-      host: "0.0.0.0",
-      port: 5178,
+      host: "127.0.0.1",
+      port: 5173,
       strictPort: true,
       https: useHttps
         ? {
