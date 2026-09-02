@@ -42,7 +42,7 @@ type Status = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "c
 type Output = {
   kind: "image" | "video"; path: string; label: string
   delivery_status?: "pending" | "local" | "cloud" | "expired"
-  download_url?: string | null; delivered_at?: string | null
+  download_url?: string | null; cloud_url?: string | null; delivered_at?: string | null
 }
 type ParameterVisibility = "primary" | "advanced" | "internal"
 type RequestParameter = {
@@ -338,12 +338,19 @@ function groupedWorkflowOptions(workflows: Workflow[]) {
   return ungrouped.length ? [...grouped, ...ungrouped] : grouped
 }
 
-function MediaTile({ item, localUrl }: { item: Output; localUrl?: string }) {
-  const src = item.delivery_status === "local" ? localUrl : (item.download_url ?? mediaUrl(item.path))
-  if (!src) return <div className="grid h-full w-full place-items-center bg-[#27282e] text-[#898993]"><HardDrive size={18} /></div>
+function outputPreviewSrc(item: Output, localUrl?: string, allowSameOriginVideo = true): string | undefined {
+  if (item.delivery_status === "local") return localUrl
+  if (item.cloud_url) return item.cloud_url
+  if (item.kind === "video" && !allowSameOriginVideo) return undefined
+  return item.download_url ?? mediaUrl(item.path)
+}
+
+function MediaTile({ item, localUrl, allowSameOriginVideo = true }: { item: Output; localUrl?: string; allowSameOriginVideo?: boolean }) {
+  const src = outputPreviewSrc(item, localUrl, allowSameOriginVideo)
+  if (!src) return <div className="grid h-full w-full place-items-center bg-[#27282e] text-[#898993]">{item.kind === "video" ? <Video size={18} /> : <HardDrive size={18} />}</div>
   return item.kind === "video"
-    ? <video className="h-full w-full object-cover" muted playsInline preload="metadata" src={src} />
-    : <img className="h-full w-full object-cover" src={src} alt={item.label} />
+    ? <video className="h-full w-full object-cover" muted playsInline preload={item.cloud_url ? "metadata" : "none"} src={src} />
+    : <img className="h-full w-full object-cover" loading="lazy" src={src} alt={item.label} />
 }
 
 function TaskRail({
@@ -377,7 +384,7 @@ function TaskRail({
         className={`studio-task-card group mb-1 flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/30 ${selected ? "bg-[#eef1ff]" : "hover:bg-black/[0.035]"}`}
       >
         <div className="size-8 shrink-0 overflow-hidden rounded-md bg-[#eef1f4]">
-          {cover ? <MediaTile item={cover} localUrl={localMediaUrls[cover.path]} /> : reference ? <img src={reference.url} alt="任务封面" className="h-full w-full object-cover" /> : <div className="grid h-full w-full place-items-center text-[#a0a8b2]">{job.media_type === "image" ? <ImagePlus size={15} /> : <Video size={15} />}</div>}
+          {cover ? <MediaTile item={cover} localUrl={localMediaUrls[cover.path]} allowSameOriginVideo={false} /> : reference ? <img src={reference.url} alt="任务封面" className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full w-full place-items-center text-[#a0a8b2]">{job.media_type === "image" ? <ImagePlus size={15} /> : <Video size={15} />}</div>}
         </div>
         <span title={statusText[job.status]} className={`size-1.5 shrink-0 rounded-full ${job.status === "succeeded" ? "bg-emerald-500" : job.status === "failed" || job.status === "interrupted" || job.status === "cancelled" ? "bg-rose-500" : job.status === "running" ? "bg-[#4d6bfe]" : "bg-amber-400"}`} />
         <p className="min-w-0 flex-1 truncate text-sm leading-[21px] text-[#171a1f]">{job.title || job.prompt}</p>
@@ -535,10 +542,11 @@ export default function App({
     },
     refetchInterval: (query) => {
       if (workspaceView !== "generate") return false
+      if (query.state.fetchStatus === "fetching") return false
       const jobs = query.state.data as Job[] | undefined
-      if (!jobs) return 1600
+      if (!jobs) return 4000
       const hasActive = jobs.some((job) => job.status === "running" || job.status === "queued" || job.status === "interrupted")
-      return hasActive ? 1600 : 15000
+      return hasActive ? 4000 : 15000
     },
   })
   const storageQuery = useQuery({ queryKey: ["storage-capability"], queryFn: () => api<StorageCapability>("/api/storage") })
@@ -757,7 +765,7 @@ export default function App({
     generationItemId: item.id,
     outputIndex,
     output,
-    src: localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path),
+    src: outputPreviewSrc(output, localMediaUrls[output.path]),
   })))
 
   useEffect(() => {
@@ -881,8 +889,10 @@ export default function App({
       const url = await localResourceUrl(targetDirectory, user.id, output.path)
       if (url) setLocalMediaUrls((current) => ({ ...current, [output.path]: url }))
       setStorageError(undefined)
-      await queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
-      if (announce) messageApi.success("已保存到本地目录")
+      if (announce) {
+        await queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
+        messageApi.success("已保存到本地目录")
+      }
       return true
     } catch (error) {
       const detail = error instanceof Error ? error.message : "保存本地资源失败"
@@ -903,11 +913,26 @@ export default function App({
   }, [directoryHandle, directoryState, allJobs, loadLocalMedia])
   useEffect(() => {
     if (!directoryHandle || directoryState !== "granted") return
+    let cancelled = false
+    const pending: Array<{ job: Job; generationItemId: string; outputIndex: number; output: Output }> = []
     for (const job of allJobs) {
-      for (const round of job.rounds) for (const item of round.generation_items) item.outputs.forEach((output, outputIndex) => {
-        if (output.delivery_status !== "local" && output.download_url && !localMediaUrls[output.path]) void deliverOutput(job, item.id, outputIndex, output)
-      })
+      for (const round of job.rounds) {
+        for (const item of round.generation_items) {
+          item.outputs.forEach((output, outputIndex) => {
+            if (output.delivery_status !== "local" && output.download_url && !localMediaUrls[output.path]) {
+              pending.push({ job, generationItemId: item.id, outputIndex, output })
+            }
+          })
+        }
+      }
     }
+    void (async () => {
+      for (const item of pending) {
+        if (cancelled) return
+        await deliverOutput(item.job, item.generationItemId, item.outputIndex, item.output)
+      }
+    })()
+    return () => { cancelled = true }
   }, [deliverOutput, directoryHandle, directoryState, allJobs, localMediaUrls])
 
   const requiresDirectorySetup = localDirectoryRequired && directoryState !== "granted"
@@ -1797,7 +1822,7 @@ export default function App({
                               } else {
                                 setPreviewMedia({
                                   kind: output.kind,
-                                  src: localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path),
+                                  src: outputPreviewSrc(output, localMediaUrls[output.path]) ?? "",
                                   title: output.label,
                                   description: job.title || job.prompt,
                                   job,
@@ -1816,7 +1841,7 @@ export default function App({
                             }`}
                           >
                             <div className="studio-asset-media-frame relative">
-                              <MediaTile item={output} localUrl={localMediaUrls[output.path]} />
+                              <MediaTile item={output} localUrl={localMediaUrls[output.path]} allowSameOriginVideo={false} />
                               {output.kind === "video" ? (
                                 <span className="studio-asset-duration">{assetDuration(job, output.kind)}</span>
                               ) : null}
@@ -1881,7 +1906,7 @@ export default function App({
               return <article key={round.id} className="studio-round">
                 <header className="studio-round-header flex min-w-0 gap-3">
                   <div className="studio-round-cover grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-[#f2f4f6] text-[#7c8794]">
-                    {cover ? <MediaTile item={cover} localUrl={localMediaUrls[cover.path]} /> : round.references[0] ? <img src={round.references[0].url} alt="任务参考图" className="h-full w-full object-cover" /> : <Clapperboard size={18} />}
+                    {cover ? <MediaTile item={cover} localUrl={localMediaUrls[cover.path]} allowSameOriginVideo={false} /> : round.references[0] ? <img src={round.references[0].url} alt="任务参考图" className="h-full w-full object-cover" loading="lazy" /> : <Clapperboard size={18} />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-start gap-2">

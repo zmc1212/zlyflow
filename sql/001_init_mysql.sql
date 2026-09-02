@@ -68,7 +68,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     legacy_read_only TINYINT(1) NOT NULL DEFAULT 0,
     finished_at VARCHAR(64) NULL,
     execution_elapsed_ms INTEGER NULL,
-    KEY idx_jobs_owner_created (owner_user_id, created_at)
+    KEY idx_jobs_owner_created (owner_user_id, created_at),
+    KEY idx_jobs_pinned_created (pinned, created_at),
+    KEY idx_jobs_owner_pinned_created (owner_user_id, pinned, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS schema_migrations (

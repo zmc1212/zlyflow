@@ -10,7 +10,7 @@ export default defineConfig(() => {
   return {
     plugins: [react()],
     server: {
-      host: "127.0.0.1",
+      host: "0.0.0.0",
       port: 5178,
       strictPort: true,
       https: useHttps
@@ -24,8 +24,8 @@ export default defineConfig(() => {
           target: `${useHttps ? "https" : "http"}://127.0.0.1:7865`,
           changeOrigin: true,
           secure: false,
-          timeout: 600000,
-          proxyTimeout: 600000,
+          timeout: 120000,
+          proxyTimeout: 120000,
         },
       },
     },

@@ -3083,8 +3083,7 @@ def list_jobs(user: Annotated[dict, Depends(current_user)], limit: int = 100, us
         target_user_id = None if user_id == "all" else user_id
     else:
         target_user_id = user["id"]
-    jobs = app.state.store.list_jobs(target_user_id, max(1, min(limit, 200)))
-    return [public_job(job) for job in jobs]
+    return [public_job(job) for job in app.state.store.list_jobs(target_user_id, max(1, min(limit, 200)))]
 
 
 @app.get("/api/jobs/{job_id}", response_model=JobResponse, tags=["任务"], summary="查询任务状态")
@@ -3496,7 +3495,7 @@ def frontend(path: str) -> FileResponse:
     index = settings.frontend_dist_dir / "index.html"
     if not index.is_file():
         raise HTTPException(status_code=404, detail="前端未构建")
-    return FileResponse(index)
+    return FileResponse(index, headers={"Cache-Control": "no-store, max-age=0, must-revalidate"})
 
 
 if __name__ == "__main__":

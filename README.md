@@ -189,6 +189,14 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
 - 回滚方式：恢复上述代码。
 
+## 2026-09-02 管理员查看全部任务不再全表拉取
+
+- 用户可见行为：管理端任务栏「全部用户」对应的 `GET /api/jobs?user_id=all` 在远程 MySQL 上应回到秒级，而不再长时间转圈。列表条数和字段不变。
+- 受影响文件：任务存储层、MySQL 索引与三份主文档。
+- 兼容性：不改任务创建接口和工作流。
+- 验证命令：`python -m unittest backend.tests.test_core.StoreTests.test_jobs_are_filtered_by_owner_and_delivery_is_recorded`。
+- 回滚方式：恢复上述代码并重启工作台。
+
 ## 2026-08-30 导演台方案/剪辑视图切换
 
 - 原因：方案任务导航和剪辑时间轴要共用同一份 Recipe，不能做成第二套引擎；剪辑台是桌面场景。

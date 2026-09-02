@@ -60,11 +60,15 @@ class JobWorker:
             await self.enqueue(job_id)
         await self.release_comfy_resources_if_idle()
         if self.grs_provider is not None:
-            for item in self.store.recoverable_generation_items("grs"):
+            items = await asyncio.to_thread(self.store.recoverable_generation_items, "grs")
+            for item in items:
                 if item["status"] == JobStatus.RUNNING.value and not item.get("remote_task_id"):
-                    self.store.update_generation(
-                        item["id"], status=JobStatus.INTERRUPTED,
-                        stage="提交后中断，需显式重试", error="未持久化 GRS 远端任务 ID；为避免重复扣费不会自动重提。",
+                    await asyncio.to_thread(
+                        self.store.update_generation,
+                        item["id"],
+                        status=JobStatus.INTERRUPTED,
+                        stage="提交后中断，需显式重试",
+                        error="未持久化 GRS 远端任务 ID；为避免重复扣费不会自动重提。",
                     )
                     continue
                 self.enqueue_generation(item["id"])
@@ -82,7 +86,7 @@ class JobWorker:
             await asyncio.wait(image_tasks, timeout=self.STOP_TIMEOUT_SECONDS)
 
     async def enqueue(self, job_id: str) -> None:
-        job = self.store.get(job_id)
+        job = await asyncio.to_thread(self.store.get, job_id)
         items = job["rounds"][-1]["generation_items"]
         if items and items[0]["executor"] == "grs":
             for item in items:
@@ -98,9 +102,11 @@ class JobWorker:
         while True:
             await asyncio.sleep(self.WATCH_INTERVAL_SECONDS)
             try:
-                if not any(is_h3_workflow(job["mode"]) for job in self.store.with_statuses(
+                jobs = await asyncio.to_thread(
+                    self.store.with_statuses,
                     JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.INTERRUPTED,
-                )):
+                )
+                if not any(is_h3_workflow(job["mode"]) for job in jobs):
                     continue
                 recovered = await asyncio.to_thread(self.recover)
                 for job_id in recovered:
@@ -230,9 +236,8 @@ class JobWorker:
         """
         if not self.queue.empty() or self.queued_job_ids:
             return
-        if any(is_h3_workflow(job["mode"]) for job in self.store.with_statuses(
-            JobStatus.QUEUED, JobStatus.RUNNING,
-        )):
+        jobs = await asyncio.to_thread(self.store.with_statuses, JobStatus.QUEUED, JobStatus.RUNNING)
+        if any(is_h3_workflow(job["mode"]) for job in jobs):
             return
         free = getattr(self.comfy, "free_resources", None)
         if not callable(free):
@@ -243,15 +248,19 @@ class JobWorker:
             return
 
     async def execute(self, job_id: str) -> None:
-        job = self.store.get(job_id, include_references=True)
+        job = await asyncio.to_thread(self.store.get, job_id, include_references=True)
         if self.store.is_cancelled(job_id):
             return
         if job["status"] == JobStatus.QUEUED:
-            self.store.update(job_id, status=JobStatus.RUNNING, stage="正在准备任务", progress=0)
-            job = self.store.get(job_id, include_references=True)
+            await asyncio.to_thread(
+                self.store.update, job_id, status=JobStatus.RUNNING, stage="正在准备任务", progress=0,
+            )
+            job = await asyncio.to_thread(self.store.get, job_id, include_references=True)
         elif job["status"] == JobStatus.INTERRUPTED and job.get("comfy_prompt_id"):
-            self.store.update(job_id, status=JobStatus.RUNNING, stage="正在恢复 ComfyUI 任务同步")
-            job = self.store.get(job_id, include_references=True)
+            await asyncio.to_thread(
+                self.store.update, job_id, status=JobStatus.RUNNING, stage="正在恢复 ComfyUI 任务同步",
+            )
+            job = await asyncio.to_thread(self.store.get, job_id, include_references=True)
         if job["status"] != JobStatus.RUNNING:
             return
 

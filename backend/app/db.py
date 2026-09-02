@@ -319,6 +319,14 @@ class Database:
     def apply_mysql_schema(self, connection: DbConnection) -> None:
         return
 
+    def index_exists(self, connection: DbConnection, table: str, name: str) -> bool:
+        raise NotImplementedError
+
+    def ensure_index(self, connection: DbConnection, table: str, name: str, columns: str) -> None:
+        if self.index_exists(connection, table, name):
+            return
+        connection.execute(f"CREATE INDEX {name} ON {table} ({columns})")
+
     def column_names(self, connection: DbConnection, table: str) -> set[str]:
         raise NotImplementedError
 
@@ -350,6 +358,13 @@ class SqliteDatabase(Database):
         row = connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
             (table,),
+        ).fetchone()
+        return row is not None
+
+    def index_exists(self, connection: DbConnection, table: str, name: str) -> bool:
+        row = connection.execute(
+            "SELECT 1 AS ok FROM sqlite_master WHERE type = 'index' AND name = ?",
+            (name,),
         ).fetchone()
         return row is not None
 
@@ -429,6 +444,14 @@ class MysqlDatabase(Database):
             """SELECT 1 AS present FROM information_schema.TABLES
             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?""",
             (table,),
+        ).fetchone()
+        return row is not None
+
+    def index_exists(self, connection: DbConnection, table: str, name: str) -> bool:
+        row = connection.execute(
+            """SELECT 1 AS ok FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1""",
+            (table, name),
         ).fetchone()
         return row is not None
 

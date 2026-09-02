@@ -1,6 +1,6 @@
 # ZLY AI Video Studio 架构快照
 
-更新时间：2026-08-31
+更新时间：2026-09-02
 
 ## 组件关系
 
@@ -1410,3 +1410,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改端口、SQLite schema、ComfyUI 节点、工作流协议或既有 Recipe 必填字段。
 - 验证命令：`python -m unittest backend.tests.test_director.DirectorRecipeModelTests.test_official_h3_prompt_writing_skill_is_vendored backend.tests.test_director.DirectorAgentPipelineTests.test_storyboard_runs_timing_and_continuity_passes backend.tests.test_director.DirectorAgentPipelineTests.test_script_agent_uses_scene_ledger_continuity_guidance backend.tests.test_director.DirectorCompilerTests -q`、`pnpm --dir frontend exec tsc -b --pretty false`。
 - 回滚方式：恢复上述文件并移除 `shot_continuity_skill/`；历史工程无需迁移。
+
+## 2026-09-02 任务列表避免远程 MySQL 全表拉取 LONGTEXT
+
+- 原因：迁到远程 `ai-media` 后，管理员 `GET /api/jobs?user_id=all` 对 `jobs` 执行 `SELECT * ORDER BY pinned, created_at LIMIT 100`。没有匹配索引时 InnoDB 会先扫描全表并读出 `prompt` / `references_json` 等 LONGTEXT，再丢掉未入选行，列表接口会卡到数十秒。
+- 当前基线：先只查 `id` 再按 ID 回表组装任务与轮次；启动时补 `idx_jobs_pinned_created`、`idx_jobs_owner_pinned_created`。列表 JSON 字段不变，默认仍最多 100 条。
+- 受影响文件：`backend/app/storage.py`、`backend/app/db.py`、`sql/001_init_mysql.sql`、`backend/tests/test_core.py` 与三份主文档。
+- 兼容性：不改 `GET /api/jobs` 查询参数、响应模型和员工隔离；不改 ComfyUI 节点或端口。已有库启动时自动建索引。
+- 验证命令：`python -m unittest backend.tests.test_core.StoreTests.test_jobs_are_filtered_by_owner_and_delivery_is_recorded backend.tests.test_ai_studio.JobEndpointTests.test_admin_can_filter_jobs_by_user_id_and_employee_cannot`。
+- 回滚方式：恢复上述文件并重启工作台；可选 `DROP INDEX idx_jobs_pinned_created ON jobs`、`DROP INDEX idx_jobs_owner_pinned_created ON jobs`。

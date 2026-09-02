@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 import uuid
 from copy import deepcopy
 from collections.abc import Callable
@@ -86,6 +87,8 @@ class JobStore:
         self.database_path = getattr(self._db, "path", None)
         self._backup_before_migration()
         self.initialize()
+        self._grs_model_cache: dict[str, dict[str, Any] | None] = {}
+        self._comfy_settings_cache: dict[str, Any] | None = None
 
     def _backup_before_migration(self) -> None:
         path = self.database_path
@@ -108,6 +111,7 @@ class JobStore:
         with self.connection() as connection:
             if self._db.dialect == "mysql":
                 self._db.apply_mysql_schema(connection)
+                self._ensure_job_list_indexes(connection)
                 self._seed_runtime_defaults(connection, migrate_legacy=False)
                 return
             connection.execute(
@@ -292,6 +296,8 @@ class JobStore:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_jobs_owner_created ON jobs(owner_user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_jobs_pinned_created ON jobs(pinned, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_jobs_owner_pinned_created ON jobs(owner_user_id, pinned, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rounds_job_sequence ON job_rounds(job_id, sequence DESC);
                 CREATE INDEX IF NOT EXISTS idx_items_round_index ON generation_items(round_id, item_index);
                 CREATE INDEX IF NOT EXISTS idx_items_remote_task ON generation_items(remote_task_id);
@@ -344,6 +350,7 @@ class JobStore:
                 self._ensure_column(connection, table, "execution_elapsed_ms", "INTEGER")
             self._ensure_column(connection, "grs_provider_settings", "models", "TEXT NOT NULL DEFAULT 'gpt-image-2'")
             self._ensure_column(connection, "grs_provider_settings", "vip_models", "TEXT NOT NULL DEFAULT 'gpt-image-2-vip'")
+            self._ensure_job_list_indexes(connection)
             self._seed_runtime_defaults(connection, migrate_legacy=True)
 
     def _seed_runtime_defaults(self, connection: DbConnection, *, migrate_legacy: bool) -> None:
@@ -401,6 +408,11 @@ class JobStore:
         )
         self._ensure_grs_image_models(connection)
 
+    def _ensure_job_list_indexes(self, connection: DbConnection) -> None:
+        self._db.ensure_index(connection, "jobs", "idx_jobs_pinned_created", "pinned, created_at")
+        self._db.ensure_index(
+            connection, "jobs", "idx_jobs_owner_pinned_created", "owner_user_id, pinned, created_at",
+        )
 
     @staticmethod
     def _mode_value(mode: JobMode | str) -> str:
@@ -896,7 +908,7 @@ class JobStore:
                 f"SELECT * FROM jobs WHERE status IN ({placeholders}) ORDER BY created_at ASC",
                 tuple(status.value for status in statuses),
             ).fetchall()
-        return [self.decode(row, include_references=True) for row in rows]
+            return self._hydrate_job_rows(connection, rows, include_references=True)
 
     def recoverable_generation_items(self, executor: str) -> list[dict]:
         with self.connection() as connection:
@@ -1052,20 +1064,39 @@ class JobStore:
 
     def list(self, limit: int = 100) -> list[dict]:
         with self.connection() as connection:
-            rows = connection.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
-            return self._hydrate_job_rows(connection, rows)
+            id_rows = connection.execute(
+                "SELECT id FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,),
+            ).fetchall()
+            return self._hydrate_job_rows(connection, self._job_rows_by_ids(
+                connection, [str(row["id"]) for row in id_rows],
+            ))
 
     def list_jobs(self, user_id: str | None = None, limit: int = 100) -> list[dict]:
         with self.connection() as connection:
             if user_id is not None:
-                rows = connection.execute(
-                    "SELECT * FROM jobs WHERE owner_user_id = ? ORDER BY pinned DESC, created_at DESC LIMIT ?", (user_id, limit)
+                id_rows = connection.execute(
+                    """SELECT id FROM jobs WHERE owner_user_id = ?
+                    ORDER BY pinned DESC, created_at DESC LIMIT ?""",
+                    (user_id, limit),
                 ).fetchall()
             else:
-                rows = connection.execute(
-                    "SELECT * FROM jobs ORDER BY pinned DESC, created_at DESC LIMIT ?", (limit,)
+                id_rows = connection.execute(
+                    "SELECT id FROM jobs ORDER BY pinned DESC, created_at DESC LIMIT ?",
+                    (limit,),
                 ).fetchall()
-            return self._hydrate_job_rows(connection, rows)
+            job_ids = [str(row["id"]) for row in id_rows]
+            return self._hydrate_job_rows(connection, self._job_rows_by_ids(connection, job_ids))
+
+    def _job_rows_by_ids(self, connection: DbConnection, job_ids: list[str]) -> list[Row]:
+        if not job_ids:
+            return []
+        placeholders = ",".join("?" * len(job_ids))
+        rows = connection.execute(
+            f"SELECT * FROM jobs WHERE id IN ({placeholders})",
+            tuple(job_ids),
+        ).fetchall()
+        by_id = {str(row["id"]): row for row in rows}
+        return [by_id[job_id] for job_id in job_ids if job_id in by_id]
 
     def update_metadata(
         self, job_id: str, *, title: str | None = None, pinned: bool | None = None, update_title: bool = False,
@@ -1215,9 +1246,13 @@ class JobStore:
         return self.get_tts_settings()
 
     def get_comfy_settings(self) -> dict:
+        if self._comfy_settings_cache is not None:
+            return dict(self._comfy_settings_cache)
         with self.connection() as connection:
             row = connection.execute("SELECT * FROM comfy_provider_settings WHERE id = 1").fetchone()
-        return dict(row)
+        data = dict(row)
+        self._comfy_settings_cache = dict(data)
+        return data
 
     def update_comfy_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {"base_url", "last_test_status", "last_test_message", "last_test_at"}
@@ -1228,6 +1263,7 @@ class JobStore:
         assignment = ", ".join(f"{key} = ?" for key in updates)
         with self.connection() as connection:
             connection.execute(f"UPDATE comfy_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
+        self._comfy_settings_cache = None
         return self.get_comfy_settings()
 
     @staticmethod
@@ -1255,11 +1291,16 @@ class JobStore:
         return [self._grs_image_model_from_row(row) for row in rows]
 
     def get_grs_image_model(self, workflow_id: str) -> dict[str, Any] | None:
+        if workflow_id in self._grs_model_cache:
+            cached = self._grs_model_cache[workflow_id]
+            return dict(cached) if cached is not None else None
         with self.connection() as connection:
             row = connection.execute(
                 "SELECT * FROM grs_image_models WHERE workflow_id = ?", (workflow_id,),
             ).fetchone()
-        return self._grs_image_model_from_row(row) if row else None
+        value = self._grs_image_model_from_row(row) if row else None
+        self._grs_model_cache[workflow_id] = dict(value) if value is not None else None
+        return value
 
     def update_grs_image_models(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         timestamp = now()
@@ -1288,6 +1329,7 @@ class JobStore:
                         int(item["workflow_id"] == default_id), timestamp, item["workflow_id"],
                     ),
                 )
+        self._grs_model_cache.clear()
         return self.list_grs_image_models()
 
     def add_grs_image_model(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1316,6 +1358,7 @@ class JobStore:
             if record["is_default"]:
                 connection.execute("UPDATE grs_image_models SET is_default = 0")
             self._insert_grs_image_model(connection, record, timestamp)
+        self._grs_model_cache.pop(workflow_id, None)
         saved = self.get_grs_image_model(workflow_id)
         if saved is None:
             raise ValueError("添加生图模型失败")
@@ -1332,6 +1375,7 @@ class JobStore:
                 if spec["provider_model"] in existing:
                     continue
                 self._insert_grs_image_model(connection, {**spec, "enabled": False, "is_default": False}, timestamp)
+        self._grs_model_cache.clear()
         return self.list_grs_image_models()
 
     @staticmethod
@@ -1723,8 +1767,9 @@ class JobStore:
             rows = connection.execute("SELECT id, payload_json FROM director_projects").fetchall()
         count = 0
         for row in rows:
+            raw = row["payload_json"] or ""
             try:
-                payload = json.loads(row["payload_json"] or "{}")
+                payload = json.loads(raw or "{}")
             except json.JSONDecodeError:
                 continue
             updated = interrupt_stale_pipeline(payload)
