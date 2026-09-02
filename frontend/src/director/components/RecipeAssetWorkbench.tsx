@@ -102,7 +102,7 @@ function statusTag(label: string, done: boolean, active = false) {
   )
 }
 
-function AssetVersionHistory({
+export function AssetVersionHistory({
   rendition,
   approvedVersionId,
   jobs,
@@ -200,9 +200,6 @@ export function CharacterAssetCard({
   const activeState = sheetState.status !== "idle" ? sheetState : portraitState
   const generating = activeState.status === "queued" || activeState.status === "running"
   const nextKind = portraitApproved ? "character_sheet" : "character_portrait"
-  const nextLabel = portraitApproved
-    ? sheetApproved ? "生成新定妆候选" : "生成四视角定妆板"
-    : "生成身份肖像"
   const portraitApprovable = recipeApprovableAssetVersion(portrait, jobs)
   const sheetApprovable = look ? recipeApprovableAssetVersion(look.sheet, jobs) : undefined
   const approvable = sheetApprovable || portraitApprovable
@@ -221,6 +218,11 @@ export function CharacterAssetCard({
           ? "idle"
           : "idle"
   const statusLabel = SIMPLE_ASSET_CARD_STATUS_LABELS[cardTone as keyof typeof SIMPLE_ASSET_CARD_STATUS_LABELS] || "待生成"
+  const totalVersions = portrait.versions.length + (look?.sheet.versions.length || 0)
+  const assumptions = character.aiAssumptions || []
+  const generateHint = portraitApproved
+    ? sheetApproved ? "生成新的四视角定妆板候选" : "生成四视角定妆板"
+    : "生成身份肖像"
 
   const historyItems = useMemo(() => [
     {

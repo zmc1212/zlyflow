@@ -1712,7 +1712,7 @@
 .director-shot-workspace {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  min-height: 460px;
+  min-height: 480px;
   overflow: hidden;
   border: 1px solid rgba(15, 23, 42, .08);
   border-radius: 12px;
@@ -1720,8 +1720,86 @@
   container-type: inline-size;
   container-name: shot-workspace;
 }
+.director-recipe-main.is-shot-workspace {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.director-recipe-main.is-shot-workspace .director-task-context,
+.director-recipe-main.is-shot-workspace .director-shot-commandbar {
+  flex-shrink: 0;
+}
+.director-recipe-main.is-shot-workspace .director-task-context.is-compact {
+  width: min(100%, 1440px);
+  max-width: none;
+  margin: 0 auto;
+  padding: 10px 16px 8px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: #fff;
+}
+.director-recipe-main.is-shot-workspace .director-shot-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: 12px;
+  padding-top: 0;
+  padding-bottom: 16px;
+}
+.director-recipe-main.is-shot-workspace .director-shot-commandbar {
+  width: min(100%, 1440px);
+  margin: 0 auto;
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  padding-top: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.director-recipe-main.is-shot-workspace .director-shot-command-copy {
+  display: none;
+}
+.director-recipe-main.is-shot-workspace .director-output-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.director-recipe-main.is-shot-workspace .director-setting-field {
+  flex: 1 1 108px;
+  min-width: 108px;
+  max-width: 176px;
+}
+.director-recipe-main.is-shot-workspace .director-setting-field.is-workflow {
+  flex: 1.2 1 148px;
+  max-width: 196px;
+}
+.director-recipe-main.is-shot-workspace .director-setting-field.is-pass {
+  flex: 1.4 1 188px;
+  max-width: 220px;
+}
+.director-recipe-main.is-shot-workspace .director-shot-workspace {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.director-recipe-main.is-shot-workspace .director-recipe-scroll-end {
+  display: none;
+}
 .director-shot-workspace .director-shot-bin {
-  max-height: min(72vh, 760px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+.director-shot-workspace .director-shot-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .director-shot-list-item.is-skeleton {
   pointer-events: none;
@@ -1756,49 +1834,103 @@
 }
 .director-recipe-inspector {
   display: grid;
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 0;
   min-width: 0;
-  align-content: start;
-  overflow: auto;
-  padding: 16px;
+  height: 100%;
+  min-height: 0;
+  align-content: stretch;
+  overflow: hidden;
+  padding: 0;
   background: #fff;
   --shot-aspect: 16 / 9;
   --shot-aspect-w: 16;
   --shot-aspect-h: 9;
 }
-.director-inspector-picture,
-.director-inspector-copy {
-  display: grid;
+.director-recipe-inspector > .director-inspector-picture,
+.director-recipe-inspector > .director-inspector-sidebar {
+  min-height: 0;
+}
+.director-inspector-picture {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   min-width: 0;
-  align-content: start;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
+  border-right: 1px solid rgba(15, 23, 42, .08);
 }
-.director-inspector-copy {
-  max-width: 40rem;
+.director-inspector-sidebar {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
 }
-.director-inspector-copy > .ant-btn {
+.director-inspector-tab-switch {
+  flex: none;
+  margin: 10px 12px 0;
+}
+.director-inspector-tab-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.director-inspector-tab-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px 16px 24px;
+}
+.director-inspector-action-bar {
+  flex: none;
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(15, 23, 42, .08);
+  background: var(--studio-surface, #fff);
+}
+.director-inspector-action-buttons {
   width: 100%;
-  min-height: 40px;
+}
+.director-inspector-action-buttons .ant-btn-primary {
+  margin-left: auto;
 }
 .director-inspector-stage {
   display: flex;
+  flex: 1 1 0;
   justify-content: flex-start;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  min-height: 0;
+}
+.director-inspector-heading,
+.director-inspector-generation-bar,
+.director-take-rail {
+  flex-shrink: 0;
 }
 .director-inspector-frame {
   position: relative;
   box-sizing: border-box;
   flex: 0 1 auto;
-  width: min(100%, calc(min(46vh, 480px) * var(--shot-aspect-w) / var(--shot-aspect-h)));
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
   aspect-ratio: var(--shot-aspect);
   overflow: hidden;
   border-radius: 10px;
   background: #111827;
 }
 .director-inspector-stage.is-compare .director-inspector-frame {
-  width: min(calc((100% - 8px) / 2), calc(min(46vh, 480px) * var(--shot-aspect-w) / var(--shot-aspect-h)));
+  width: auto;
+  max-width: calc((100% - 8px) / 2);
+  max-height: 100%;
 }
 .director-inspector-frame.is-empty {
   background: #f8f9fa;
@@ -1858,15 +1990,7 @@
 }
 @container shot-workspace (min-width: 1120px) {
   .director-recipe-inspector:not(.director-board-generating) {
-    grid-template-columns: minmax(480px, 1fr) minmax(360px, 440px);
-    align-items: start;
-  }
-  .director-recipe-inspector:not(.director-board-generating) .director-inspector-picture {
-    position: sticky;
-    top: 0;
-  }
-  .director-recipe-inspector:not(.director-board-generating) .director-inspector-copy {
-    max-width: none;
+    grid-template-columns: minmax(420px, 1fr) minmax(340px, 400px);
   }
 }
 .director-inspector-heading {
@@ -2196,6 +2320,105 @@
   flex-wrap: wrap;
 }
 .director-section-head h5 { margin: 0; color: #111827; }
+.director-asset-stage-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 14px;
+  background: var(--studio-surface, #fff);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .04);
+}
+.director-asset-stage-toolbar-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.director-asset-stage-toolbar-copy strong {
+  color: var(--studio-text, #111827);
+  font-size: 14px;
+}
+.director-asset-stage-toolbar-copy span {
+  color: var(--studio-text-muted, #6b7280);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.director-asset-stage-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.director-asset-grid--actions {
+  grid-template-columns: repeat(auto-fill, minmax(min(248px, 100%), 1fr));
+}
+.director-asset-action-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.director-asset-action-rail-cell,
+.director-asset-action-rail-btn {
+  min-width: 0;
+}
+.director-asset-action-rail-btn {
+  padding-inline: 4px !important;
+  font-size: 12px;
+}
+.director-asset-action-rail-btn .ant-btn-icon {
+  margin-inline-end: 2px !important;
+}
+.director-asset-status-chip {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.director-asset-status-chip.is-ready {
+  background: var(--studio-success-soft);
+  color: var(--studio-success);
+}
+.director-asset-status-chip.is-pending {
+  background: var(--studio-warning-soft);
+  color: var(--studio-warning);
+}
+.director-asset-status-chip.is-running {
+  background: rgba(77, 107, 254, .12);
+  color: #4d6bfe;
+}
+.director-asset-status-chip.is-idle {
+  background: rgba(15, 23, 42, .06);
+  color: var(--studio-text-muted, #6b7280);
+}
+.director-asset-status-chip.is-failed {
+  background: rgba(239, 68, 68, .12);
+  color: #dc2626;
+}
+.director-simple-asset-meta {
+  display: grid;
+  gap: 4px;
+}
+.director-simple-asset-subline {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.director-asset-spec-link {
+  align-self: flex-start;
+  padding-inline: 0 !important;
+}
 .director-output-settings {
   display: flex;
   align-items: center;
@@ -2992,6 +3215,40 @@
   font-size: 11px;
 }
 .director-task-state .ant-tag { margin: 0; border: 0; border-radius: 6px; font-size: 11px; }
+.director-task-context.is-compact {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.director-task-context.is-compact .director-task-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.director-task-context.is-compact .director-task-icon-hit {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  cursor: help;
+}
+.director-task-context.is-compact .director-task-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+}
+.director-task-context.is-compact .director-task-path {
+  margin: 0;
+}
+.director-task-context.is-compact .director-task-copy h1 {
+  font-size: 15px;
+  line-height: 22px;
+}
+.director-task-context.is-compact .director-task-state {
+  padding-top: 0;
+  white-space: nowrap;
+}
 .director-mobile-stage-picker,
 .director-mobile-brief-card { display: none; }
 .director-recipe-form,
@@ -3075,7 +3332,6 @@
 .director-shot-actions > .ant-space { display: none; }
 .director-shot-actions > .ant-btn { height: 36px; border-radius: 8px; white-space: nowrap; }
 .director-shot-workspace {
-  min-height: 540px;
   border-color: rgba(15, 23, 42, .08);
   border-radius: 14px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
@@ -3126,6 +3382,22 @@
   .director-asset-drawer.ant-drawer-right .ant-drawer-content-wrapper {
     width: 100% !important;
     max-width: 100vw;
+  }
+  .director-recipe-main.is-shot-workspace {
+    display: block;
+    overflow: visible;
+  }
+  .director-recipe-main.is-shot-workspace .director-shot-section {
+    display: grid;
+    flex: none;
+    min-height: auto;
+  }
+  .director-recipe-main.is-shot-workspace .director-shot-workspace {
+    flex: none;
+    min-height: 0;
+  }
+  .director-recipe-main.is-shot-workspace .director-recipe-scroll-end {
+    display: block;
   }
   .director-recipe-layout,
   .director-recipe-layout.is-timeline-view { display: block; background: #f5f7f9; }

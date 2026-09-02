@@ -15,6 +15,7 @@ import DirectorTaskHeader from "./components/DirectorTaskHeader"
 import DirectorTimelineView from "./components/DirectorTimelineView"
 import RecipeShotInspector from "./components/RecipeShotInspector"
 import { CharacterAssetCard, SimpleRenditionAssetCard, type RecipeAssetTargetKind } from "./components/RecipeAssetWorkbench"
+import RecipeAssetStageToolbar from "./components/RecipeAssetStageToolbar"
 import SequencePlayerModal from "./components/SequencePlayerModal"
 import DirectorAssetLibrary from "./DirectorAssetLibrary"
 import ThemeToggle from "../components/ThemeToggle"
@@ -73,6 +74,10 @@ import {
   mergeRecipeShotFrameState,
   reconcileShotJobExecution,
 } from "./recipe-execution"
+import {
+  formatSimpleAssetStageSummary,
+  simpleAssetStageCounts,
+} from "./asset-stage-summary"
 import {
   directorFailureMessage, readDirectorContentConflict, reconcileDirectorShotSelection,
   mergeInsertedDirectorAssets, shouldPreserveLocalDirectorContent, type DirectorContentConflict,
@@ -1119,6 +1124,102 @@ export default function DirectorRecipeStudio({
     }
   }
 
+  function collectApprovableCharacterAssets(
+    characterIds?: string[],
+  ): Array<{
+    assetId: string
+    versionId: string
+    kind: "character_portrait" | "character_sheet"
+    lookId?: string
+  }> {
+    const items = characterIds?.length
+      ? recipe.characters.filter((item) => characterIds.includes(item.id))
+      : recipe.characters
+    const targets: Array<{
+      assetId: string
+      versionId: string
+      kind: "character_portrait" | "character_sheet"
+      lookId?: string
+    }> = []
+    for (const character of items) {
+      const look = character.looks?.[0]
+      const sheetApprovable = look
+        ? recipeApprovableAssetVersion(ensureRecipeAssetRendition(look.sheet), allJobs)
+        : undefined
+      if (sheetApprovable) {
+        targets.push({
+          assetId: character.id,
+          versionId: sheetApprovable.id,
+          kind: "character_sheet",
+          lookId: look?.id,
+        })
+        continue
+      }
+      const portraitApprovable = recipeApprovableAssetVersion(ensureRecipeAssetRendition(character.portrait), allJobs)
+      if (portraitApprovable) {
+        targets.push({
+          assetId: character.id,
+          versionId: portraitApprovable.id,
+          kind: "character_portrait",
+        })
+      }
+    }
+    return targets
+  }
+
+  async function handleBatchApproveCharacters(characterIds?: string[]) {
+    const targets = collectApprovableCharacterAssets(characterIds)
+    if (!targets.length) {
+      messageApi.info("没有可批准的角色候选")
+      return
+    }
+    try {
+      let revision = contentRevisionRef.current || undefined
+      for (const target of targets) {
+        const row = await approveDirectorAssetVersion(projectId, {
+          kind: target.kind,
+          asset_id: target.assetId,
+          version_id: target.versionId,
+          look_id: target.lookId,
+          content_revision: revision,
+        }, csrfToken)
+        revision = row.content_revision
+        projectRevisionRef.current = row.revision
+        contentRevisionRef.current = row.content_revision
+        const payload = recipePayloadFromApi(row)
+        if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload))
+      }
+      await queryClient.invalidateQueries({ queryKey: ["director-project", projectId] })
+      messageApi.success(`已批准 ${targets.length} 个角色候选`)
+    } catch (error) {
+      const remote = readDirectorContentConflict(error)
+      if (remote) {
+        const conflict = { remote }
+        conflictRef.current = conflict
+        setContentConflict(conflict)
+        setSaveStatus("failed")
+        return
+      }
+      notifyFailure(error, "批量批准失败")
+    }
+  }
+
+  async function requestApproveCharacters(characterIds?: string[]) {
+    const targets = collectApprovableCharacterAssets(characterIds)
+    if (!targets.length) {
+      messageApi.info("没有可批准的角色候选")
+      return
+    }
+    if (targets.length === 1 && characterIds?.length === 1) {
+      const target = targets[0]
+      await handleApproveAssetVersion(target.kind, target.assetId, target.versionId, target.lookId)
+      return
+    }
+    const ok = await confirmHeavyAction(approveBatchConfirm("character", targets.length))
+    if (!ok) return
+    await handleBatchApproveCharacters(characterIds)
+  }
+
   async function requestApproveSimpleAssets(kind: "location" | "prop", assetIds?: string[]) {
     const targets = collectApprovableSimpleAssets(kind, assetIds)
     if (!targets.length) {
@@ -1568,12 +1669,33 @@ export default function DirectorRecipeStudio({
   const approvablePropCount = recipe.props.filter((item) => (
     Boolean(recipeApprovableAssetVersion(ensureRecipeAssetRendition(item.turnaround), allJobs))
   )).length
+  const approvableCharacterCount = recipe.characters.filter((item) => {
+    const look = item.looks?.[0]
+    return Boolean(
+      recipeApprovableAssetVersion(ensureRecipeAssetRendition(item.portrait), allJobs)
+      || (look && recipeApprovableAssetVersion(ensureRecipeAssetRendition(look.sheet), allJobs)),
+    )
+  }).length
+  const locationStageCounts = useMemo(
+    () => simpleAssetStageCounts(recipe.locations, "plate", allJobs),
+    [allJobs, recipe.locations],
+  )
+  const propStageCounts = useMemo(
+    () => simpleAssetStageCounts(recipe.props, "turnaround", allJobs),
+    [allJobs, recipe.props],
+  )
+  const locationStageSummary = formatSimpleAssetStageSummary(locationStageCounts, "场景")
+  const propStageSummary = formatSimpleAssetStageSummary(propStageCounts, "道具")
+  const characterStageSummary = recipe.characters.length
+    ? `${recipe.characters.filter((item) => item.imageUrl).length} 已定妆 · ${approvableCharacterCount} 待批准`
+    : "暂无人物"
   const dialogueShotCount = shots.filter((shot) => shot.dialogue.trim()).length
   const planStagePrimary = activeStage === "script" || activeStage === "art_style"
   const characterActionLabel = plateBatchLabel("character", pendingCharacterCount || recipe.characters.length)
   const locationActionLabel = plateBatchLabel("location", pendingLocationCount || recipe.locations.length)
   const locationApproveLabel = approveBatchLabel("location", approvableLocationCount)
   const propApproveLabel = approveBatchLabel("prop", approvablePropCount)
+  const characterApproveLabel = approveBatchLabel("character", approvableCharacterCount)
   const boardActionLabel = boardBatchLabel(boardMode, visibleShots.length)
   const ttsActionLabel = ttsBatchLabel(dialogueShotCount)
   const muxActionLabel = muxBatchLabel(muxableCount)
@@ -1634,6 +1756,7 @@ export default function DirectorRecipeStudio({
   const projectMetaLabel = visibleShots.length
     ? `${visibleShots.length} 镜 · ${projectDurationSec} 秒 · ${recipe.aspectRatio}`
     : `${recipe.aspectRatio} · ${recipe.fps} fps`
+  const shotWorkspaceStage = !isTimelineView && (activeStage === "storyboard" || activeStage === "shots")
 
   function handleTopMenu(key: string) {
     if (key === "workspace") onExitDirector?.()
@@ -1827,12 +1950,13 @@ export default function DirectorRecipeStudio({
         </aside>
         )}
 
-        <section className="director-recipe-main">
+        <section className={`director-recipe-main${shotWorkspaceStage ? " is-shot-workspace" : ""}`}>
           {!isTimelineView ? (
             <DirectorTaskHeader
               activeStage={activeStage}
               readiness={readiness}
               onSelect={handleStageChange}
+              compact={shotWorkspaceStage}
             />
           ) : null}
           {!isTimelineView && activeStage === "script" ? (
@@ -1971,15 +2095,33 @@ export default function DirectorRecipeStudio({
           ) : null}
           {!isTimelineView && activeStage === "characters" ? (
                   <div className="director-asset-section">
-                    <div className="director-section-head">
-                      <Typography.Title level={5}>人物与道具 · {recipe.characters.length}</Typography.Title>
-                      <Space wrap>
-                        <Button size="small" icon={<Library size={14} />} onClick={() => setLibraryDrawerOpen(true)}>从库插入</Button>
-                        <Button size="small" icon={<Library size={14} />} onClick={() => void handleSaveToLibrary(recipe.characters.map((item) => item.id), [])} disabled={!recipe.characters.length}>存入资产库</Button>
-                        <Button type="primary" size="small" icon={<ImagePlus size={14} />} onClick={() => { void requestGenerateAssets(recipe.characters.map((item) => item.id), []) }}>{characterActionLabel}</Button>
-                      </Space>
-                    </div>
-                    <div className="director-asset-grid">
+                    <RecipeAssetStageToolbar
+                      title={`人物与道具 · ${recipe.characters.length}`}
+                      summary={characterStageSummary}
+                      primaryActions={(
+                        <Space wrap size={[8, 8]}>
+                          {approvableCharacterCount ? (
+                            <Button type="primary" size="small" icon={<CheckCircle2 size={14} />} onClick={() => { void requestApproveCharacters() }}>
+                              {characterApproveLabel}
+                            </Button>
+                          ) : null}
+                          <Button type={approvableCharacterCount ? "default" : "primary"} size="small" icon={<ImagePlus size={14} />} onClick={() => { void requestGenerateAssets(recipe.characters.map((item) => item.id), []) }}>
+                            {characterActionLabel}
+                          </Button>
+                        </Space>
+                      )}
+                      moreMenuItems={[
+                        { key: "insert", label: "从库插入", icon: <Library size={14} />, onClick: () => setLibraryDrawerOpen(true) },
+                        {
+                          key: "save",
+                          label: "存入资产库",
+                          icon: <Library size={14} />,
+                          disabled: !recipe.characters.length,
+                          onClick: () => { void handleSaveToLibrary(recipe.characters.map((item) => item.id), []) },
+                        },
+                      ]}
+                    />
+                    <div className="director-asset-grid director-asset-grid--actions">
                       {recipe.characters.map((character) => (
                         <CharacterAssetCard
                           key={character.id}
@@ -1998,20 +2140,23 @@ export default function DirectorRecipeStudio({
                     </div>
                     {recipe.props.length ? (
                       <div className="director-prop-section">
-                        <div className="director-section-head">
-                          <Typography.Title level={5}>道具转面 · {recipe.props.length}</Typography.Title>
-                          <Space wrap>
-                            {approvablePropCount ? (
-                              <Button size="small" icon={<CheckCircle2 size={14} />} onClick={() => { void requestApproveSimpleAssets("prop") }}>
-                                {propApproveLabel}
+                        <RecipeAssetStageToolbar
+                          title={`道具转面 · ${recipe.props.length}`}
+                          summary={propStageSummary}
+                          primaryActions={(
+                            <Space wrap size={[8, 8]}>
+                              {approvablePropCount ? (
+                                <Button type="primary" size="small" icon={<CheckCircle2 size={14} />} onClick={() => { void requestApproveSimpleAssets("prop") }}>
+                                  {propApproveLabel}
+                                </Button>
+                              ) : null}
+                              <Button type={approvablePropCount ? "default" : "primary"} size="small" icon={<ImagePlus size={14} />} onClick={() => { void handleGenerateProps() }}>
+                                {pendingPropCount ? `生成 ${pendingPropCount} 件道具` : "重新生成道具"}
                               </Button>
-                            ) : null}
-                            <Button type="primary" size="small" icon={<ImagePlus size={14} />} onClick={() => { void handleGenerateProps() }}>
-                              {pendingPropCount ? `生成 ${pendingPropCount} 件道具` : "重新生成道具"}
-                            </Button>
-                          </Space>
-                        </div>
-                        <div className="director-asset-grid">
+                            </Space>
+                          )}
+                        />
+                        <div className="director-asset-grid director-asset-grid--actions">
                           {recipe.props.map((prop) => (
                             <SimpleRenditionAssetCard
                               key={prop.id}
@@ -2034,20 +2179,33 @@ export default function DirectorRecipeStudio({
           ) : null}
           {!isTimelineView && activeStage === "locations" ? (
                   <div className="director-asset-section">
-                    <div className="director-section-head">
-                      <Typography.Title level={5}>场景清单 · {recipe.locations.length}</Typography.Title>
-                      <Space wrap>
-                        <Button size="small" icon={<Library size={14} />} onClick={() => setLibraryDrawerOpen(true)}>从库插入</Button>
-                        {approvableLocationCount ? (
-                          <Button size="small" icon={<CheckCircle2 size={14} />} onClick={() => { void requestApproveSimpleAssets("location") }}>
-                            {locationApproveLabel}
+                    <RecipeAssetStageToolbar
+                      title={`场景清单 · ${recipe.locations.length}`}
+                      summary={locationStageSummary}
+                      primaryActions={(
+                        <Space wrap size={[8, 8]}>
+                          {approvableLocationCount ? (
+                            <Button type="primary" size="small" icon={<CheckCircle2 size={14} />} onClick={() => { void requestApproveSimpleAssets("location") }}>
+                              {locationApproveLabel}
+                            </Button>
+                          ) : null}
+                          <Button type={approvableLocationCount ? "default" : "primary"} size="small" icon={<ImagePlus size={14} />} onClick={() => { void requestGenerateAssets([], recipe.locations.map((item) => item.id)) }}>
+                            {locationActionLabel}
                           </Button>
-                        ) : null}
-                        <Button size="small" icon={<Library size={14} />} onClick={() => void handleSaveToLibrary([], recipe.locations.map((item) => item.id))} disabled={!recipe.locations.length}>存入资产库</Button>
-                        <Button type="primary" size="small" icon={<ImagePlus size={14} />} onClick={() => { void requestGenerateAssets([], recipe.locations.map((item) => item.id)) }}>{locationActionLabel}</Button>
-                      </Space>
-                    </div>
-                    <div className="director-asset-grid">
+                        </Space>
+                      )}
+                      moreMenuItems={[
+                        { key: "insert", label: "从库插入", icon: <Library size={14} />, onClick: () => setLibraryDrawerOpen(true) },
+                        {
+                          key: "save",
+                          label: "存入资产库",
+                          icon: <Library size={14} />,
+                          disabled: !recipe.locations.length,
+                          onClick: () => { void handleSaveToLibrary([], recipe.locations.map((item) => item.id)) },
+                        },
+                      ]}
+                    />
+                    <div className="director-asset-grid director-asset-grid--actions">
                       {recipe.locations.map((location) => (
                         <SimpleRenditionAssetCard
                           key={location.id}
