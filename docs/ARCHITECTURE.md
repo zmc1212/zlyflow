@@ -1437,3 +1437,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改 `GET /api/jobs` 契约、数据库、工作流或 ComfyUI；仅恢复导演台侧轮询。
 - 验证命令：`pnpm --dir frontend exec tsc -b --pretty false`、`pnpm --dir frontend build`；导演台出片时确认进度条与按钮百分比随 `jobs.progress` 递增。
 - 回滚方式：恢复上述前端文件并重新构建。
+
+## 2026-09-03 共享数据库视频任务本地素材保护
+
+- 原因：本地工作站和服务器使用同一 MySQL，但 `data/uploads` 并非共享文件系统；旧 worker 会在任意实例恢复所有排队 H3 任务，使非创建端因绝对参考图不存在而在 ComfyUI 提交前失败。
+- 架构基线：`JobWorker.references_available_locally()` 是视频任务恢复与执行的本地性门禁。绝对参考图只要有一项无法在当前主机读取，该实例就跳过任务且不变更数据库状态；素材所在工作站仍按既有队列接管。`PureWindowsPath` 用于让 Linux 实例识别 Windows 盘符路径。
+- 受影响文件：`backend/app/worker.py`、`backend/tests/test_core.py` 与三份主文档。
+- 兼容性：不新增数据库字段，不改变 API、任务 JSON、工作流 graph、ComfyUI 节点或端口；无参考图 T2V 与相对路径旧任务行为保持不变。
+- 验证命令：`python -m unittest backend.tests.test_core.WorkerTests`、`pnpm --dir frontend build`。
+- 回滚方式：移除恢复/执行前的本地参考图门禁并恢复文档；无需数据库回滚。

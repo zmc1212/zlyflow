@@ -1214,6 +1214,34 @@ class WorkerTests(unittest.TestCase):
             asyncio.run(JobWorker(store, comfy).execute("job-1"))
             self.assertEqual(comfy.received_references, ["scene.png", "subject.png", "style.png"])
 
+    def test_worker_does_not_claim_absolute_references_missing_on_this_host(self) -> None:
+        class FakeComfy:
+            called = False
+
+            def active_prompts(self):
+                return []
+
+            def run(self, *args, **kwargs):
+                self.called = True
+                return []
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            missing = str(Path(directory) / "another-host" / "reference.png")
+            store.create("job-1", JobMode.MINIMAX_H3_R2V, "prompt", "", None, [missing])
+            comfy = FakeComfy()
+            worker = JobWorker(store, comfy)
+
+            self.assertEqual(worker.recover(), [])
+            asyncio.run(worker.execute("job-1"))
+
+            self.assertFalse(comfy.called)
+            self.assertEqual(store.get("job-1")["status"], JobStatus.QUEUED)
+
+    def test_linux_worker_recognizes_missing_windows_reference_as_host_local(self) -> None:
+        job = {"references": [r"D:\\zlyun\\workspace\\data\\uploads\\reference.png"]}
+        self.assertFalse(JobWorker.references_available_locally(job))
+
     def test_worker_releases_queue_when_comfy_connection_is_interrupted(self) -> None:
         class InterruptedComfy:
             def run(self, *args, **kwargs):

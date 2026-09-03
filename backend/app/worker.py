@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from .comfy_service import ComfyCancelled, ComfyQueuePrompt, ComfyService, ComfyUnavailable
 from .config import settings
@@ -122,6 +122,20 @@ class JobWorker:
         task.add_done_callback(self.image_tasks.discard)
 
     @staticmethod
+    def references_available_locally(job: dict) -> bool:
+        """Keep a shared-database worker from consuming another host's local files."""
+        for raw in job.get("references") or []:
+            value = str(raw or "").strip()
+            if not value:
+                continue
+            path = Path(value)
+            # PureWindowsPath also recognizes a D:\\... reference when this
+            # worker is running in the Linux server container.
+            if (path.is_absolute() or PureWindowsPath(value).is_absolute()) and not path.is_file():
+                return False
+        return True
+
+    @staticmethod
     def created_at(job: dict) -> datetime | None:
         try:
             return datetime.fromisoformat(job["created_at"]).astimezone(timezone.utc)
@@ -193,6 +207,11 @@ class JobWorker:
             job = self.store.get(snapshot["id"], include_references=True)
             if self.store.is_cancelled(job["id"]):
                 continue
+            if not self.references_available_locally(job):
+                # Production and local workstations share MySQL, while video
+                # reference snapshots remain on the host that created them.
+                # Leave the task untouched so that host can claim it.
+                continue
             if job["status"] == JobStatus.QUEUED:
                 recovered.append(job["id"])
                 continue
@@ -250,6 +269,8 @@ class JobWorker:
     async def execute(self, job_id: str) -> None:
         job = await asyncio.to_thread(self.store.get, job_id, include_references=True)
         if self.store.is_cancelled(job_id):
+            return
+        if not self.references_available_locally(job):
             return
         if job["status"] == JobStatus.QUEUED:
             await asyncio.to_thread(

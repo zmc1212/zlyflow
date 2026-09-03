@@ -205,6 +205,15 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - 验证命令：`pnpm --dir frontend build`。
 - 回滚方式：恢复上述前端文件并重新构建。
 
+## 2026-09-03 共享数据库视频任务本地素材保护
+
+- 原因：本机工作台与服务器共用远程 MySQL 时，各后端都会恢复排队中的 H3 任务；另一台主机可能先接管任务，却无法读取创建端 `data/uploads` 中的参考图，导致提交 ComfyUI 前报 `No such file or directory`。
+- 当前基线：视频 worker 在恢复或执行任务前检查绝对参考图路径；本机读不到时不改变任务状态、不提交 ComfyUI，保留给素材所在工作站接管。相对路径旧任务保持兼容。
+- 受影响文件：`backend/app/worker.py`、`backend/tests/test_core.py` 与三份主文档。
+- 兼容性：不改 API、数据库 schema、工作流、ComfyUI 节点、模型路径或端口；只收紧共享数据库下的视频任务接管条件。
+- 验证命令：`python -m unittest backend.tests.test_core.WorkerTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复 worker 的本地参考图检查及对应测试和文档；无需迁移数据库或媒体。
+
 ## 2026-08-30 导演台方案/剪辑视图切换
 
 - 原因：方案任务导航和剪辑时间轴要共用同一份 Recipe，不能做成第二套引擎；剪辑台是桌面场景。
