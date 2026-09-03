@@ -105,7 +105,7 @@ export type DirectorJobStatus = "queued" | "running" | "succeeded" | "failed" | 
 export function jobVideoUrl(job: DirectorJobSnapshot | null | undefined): string | undefined {
   const output = job?.outputs?.find((item) => item.kind === "video")
   if (!output) return undefined
-  return output.download_url || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : undefined)
+  return output.cloud_url || output.download_url || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : undefined)
 }
 
 export function jobImageUrl(job: DirectorJobSnapshot | null | undefined): string | undefined {

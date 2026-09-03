@@ -675,6 +675,10 @@ class DirectorGenerateStillsRequest(BaseModel):
 class DirectorRenderShotsRequest(BaseModel):
     shot_ids: list[str] = Field(default_factory=list)
     render_pass: Literal["preview", "final"] = "final"
+    polish_prompt: bool = Field(
+        default=True,
+        description="提交视频前是否调用大模型润色 H3 提示词；关闭后直接使用当前镜头提示词。",
+    )
 
 
 class DirectorOperationCreateRequest(BaseModel):
@@ -685,6 +689,10 @@ class DirectorOperationCreateRequest(BaseModel):
     skip_research: bool | None = None
     shot_ids: list[str] = Field(default_factory=list)
     render_pass: Literal["preview", "final"] = "final"
+    polish_prompt: bool = Field(
+        default=True,
+        description="提交视频前是否调用大模型润色 H3 提示词；关闭后直接使用当前镜头提示词。",
+    )
 
 
 class DirectorOperationResponse(BaseModel):

@@ -2464,7 +2464,11 @@ async def render_director_recipe_shots(
             shot_ids=payload.shot_ids,
             render_pass=payload.render_pass,
             resource_storage=getattr(app.state, "resource_storage", None),
-            h3_prompt_refiner=app.state.llm_provider.polish_director_h3_prompt if llm_available else None,
+            h3_prompt_refiner=(
+                app.state.llm_provider.polish_director_h3_prompt
+                if llm_available and payload.polish_prompt
+                else None
+            ),
             on_progress=persist_progress,
         )
     except ValueError as error:

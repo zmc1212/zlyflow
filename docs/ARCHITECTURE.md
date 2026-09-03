@@ -1419,3 +1419,21 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改 `GET /api/jobs` 查询参数、响应模型和员工隔离；不改 ComfyUI 节点或端口。已有库启动时自动建索引。
 - 验证命令：`python -m unittest backend.tests.test_core.StoreTests.test_jobs_are_filtered_by_owner_and_delivery_is_recorded backend.tests.test_ai_studio.JobEndpointTests.test_admin_can_filter_jobs_by_user_id_and_employee_cannot`。
 - 回滚方式：恢复上述文件并重启工作台；可选 `DROP INDEX idx_jobs_pinned_created ON jobs`、`DROP INDEX idx_jobs_owner_pinned_created ON jobs`。
+
+## 2026-09-03 导演台提示词润色开关
+
+- 原因：定妆资产已经固定时，手动生成视频应允许跳过云端 H3 提示词润色。
+- API：`DirectorOperationCreateRequest` 与兼容的 `DirectorRenderShotsRequest` 新增 `polish_prompt`，默认 `true`。导演操作服务和旧渲染接口仅在该值为真且 LLM 可用时传入 `polish_director_h3_prompt`；为假时直接将现有镜头提示词交给 `render_recipe_shots`，其余校验、参考图编译、任务入队和进度持久化不变。
+- 前端：`DirectorRecipeStudio` 在输出设置中使用 Ant Design `Switch`，按项目将偏好保存到浏览器 `localStorage`（默认开启，静帧模式禁用），并把值提交到导演操作请求。
+- 兼容性：仅增加可选请求字段和前端本地偏好，无数据库迁移、Recipe 必填字段、工作流协议、ComfyUI 节点或端口变化。
+- 验证：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚：恢复相关后端、前端和文档文件并重新构建；无需回滚已有项目、任务或媒体。
+
+## 2026-09-03 导演台镜头进度条恢复实时刷新
+
+- 原因：迁库后为减少远程 MySQL 压力，`GET /api/jobs` 轮询被限制为仅在「生成」工作区启用；导演台分镜/定妆进度条依赖同一 `allJobs` 列表，停在导演台时进度冻结。
+- 当前基线：`App.tsx` 在 `generate` 与 `director` 工作区启用任务列表轮询（资产页、导台2 仍关闭）。有排队/运行/中断任务时约 4 秒刷新，空闲约 15 秒。`DirectorRecipeStudio` 在镜头出片或静帧进行中也会 1.5 秒轮询工程，打开工程时后端 `sync_recipe_asset_images` 继续把 `jobs.progress` 写回 Recipe。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/director/DirectorRecipeStudio.tsx` 与三份主文档。
+- 兼容性：不改 `GET /api/jobs` 契约、数据库、工作流或 ComfyUI；仅恢复导演台侧轮询。
+- 验证命令：`pnpm --dir frontend exec tsc -b --pretty false`、`pnpm --dir frontend build`；导演台出片时确认进度条与按钮百分比随 `jobs.progress` 递增。
+- 回滚方式：恢复上述前端文件并重新构建。

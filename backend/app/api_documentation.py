@@ -252,7 +252,7 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/director/recipes/{project_id}/generate-stills"): "需要登录和 X-CSRF-Token。为分镜提交 GRS 静帧，提示词用本镜描述+画风，参考图复用人物/场景定妆。结果写入 stillJobId / stillUrl。",
     ("post", "/api/director/recipes/{project_id}/frames"): "需要登录和 X-CSRF-Token。multipart 上传分镜首帧或尾帧（shot_id、slot=first|end、file）。写入 firstFrameUrl / endFrameUrl。",
     ("get", "/api/director/recipes/{project_id}/frames/{shot_id}/{slot}"): "需要登录。读取当前用户工程内已上传的分镜首帧或尾帧。",
-    ("post", "/api/director/recipes/{project_id}/render-shots"): "需要登录和 X-CSRF-Token。按镜编译 ≤9 张参考图，并按 payload.videoWorkflowFamily 提交该族 T2V/I2V/R2V。有 LLM 时先把镜头标为 queued 再润色 H3 提示词，润色完成才入队；GET 工程可见排队。未知 shot_ids 返回 422。有首帧或勾选上一镜尾帧时走 I2V/R2V。无定妆图且无首帧时走该族 T2V。缺省族为官方 MiniMax H3。",
+    ("post", "/api/director/recipes/{project_id}/render-shots"): "需要登录和 X-CSRF-Token。按镜编译 ≤9 张参考图，并按 payload.videoWorkflowFamily 提交该族 T2V/I2V/R2V。有 LLM 且 polish_prompt=true（默认）时先把镜头标为 queued 再润色 H3 提示词；polish_prompt=false 时直接使用当前提示词，润色完成才入队；GET 工程可见排队。未知 shot_ids 返回 422。有首帧或勾选上一镜尾帧时走 I2V/R2V。无定妆图且无首帧时走该族 T2V。缺省族为官方 MiniMax H3。",
     ("get", "/api/director/export-capabilities"): "需要登录。返回本机是否找到 ffmpeg/ffprobe、TTS 是否可用，以及音色目录。不暴露密钥。",
     ("post", "/api/director/recipes/{project_id}/tts"): "需要登录和 X-CSRF-Token。按对白调用 OpenAI 兼容 /audio/speech 生成逐镜 TTS；character_id 时写角色试听。不使用 Edge TTS。",
     ("get", "/api/director/recipes/{project_id}/tts/{shot_id}"): "需要登录。读取当前用户工程内已生成的分镜 TTS 音频。",

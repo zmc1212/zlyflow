@@ -276,6 +276,7 @@ export function createDirectorOperation(
     skip_research?: boolean
     shot_ids?: string[]
     render_pass?: "preview" | "final"
+    polish_prompt?: boolean
   },
   csrfToken: string,
 ) {
@@ -398,7 +399,7 @@ export function approveDirectorAssetVersion(
 
 export function renderDirectorShots(
   projectId: string,
-  body: { shot_ids?: string[]; render_pass?: "preview" | "final" },
+  body: { shot_ids?: string[]; render_pass?: "preview" | "final"; polish_prompt?: boolean },
   csrfToken: string,
 ) {
   return requestJson<DirectorProjectResponse>(

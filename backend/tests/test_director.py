@@ -2652,6 +2652,50 @@ class DirectorDualEngineApiTests(unittest.TestCase):
     def _headers(self) -> dict[str, str]:
         return {"X-CSRF-Token": csrf_token(self.token)}
 
+    def test_render_shots_can_skip_prompt_polish(self) -> None:
+        from backend.app.director_recipe import empty_recipe_payload
+
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com/v1",
+            "model": "deepseek-chat",
+            "api_key": "sk-dummy",
+        })
+        payload = empty_recipe_payload(title="免润色测试")
+        payload["artStyle"] = {
+            "id": "as_1001",
+            "name": "史诗叙事电影",
+            "name_en": "Epic Narrative Cinema",
+            "promptPrefix": "epic cinematic scene, dramatic lighting, rich atmosphere, film-grade composition",
+        }
+        payload["scenes"] = [{
+            "title": "测试场",
+            "locationName": "测试场景",
+            "shots": [{
+                "id": "skip-polish-shot",
+                "title": "测试镜头",
+                "description": "人物站在场景中",
+                "durationSec": 5,
+                "status": "idle",
+            }],
+        }]
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={"title": "免润色测试", "payload": payload},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        project_id = created.json()["id"]
+        with patch.object(self.llm_provider, "polish_director_h3_prompt") as polish:
+            response = self.client.post(
+                f"/api/director/recipes/{project_id}/render-shots",
+                headers=self._headers(),
+                json={"shot_ids": ["skip-polish-shot"], "render_pass": "preview", "polish_prompt": False},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["payload"]["scenes"][0]["shots"][0]["jobId"])
+        polish.assert_not_called()
+
     def test_recipes_run_and_render_shots_enqueue_t2v(self) -> None:
         self.llm_provider.update({
             "enabled": True,
@@ -2750,6 +2794,19 @@ class DirectorDualEngineApiTests(unittest.TestCase):
         self.assertEqual(final_take["options"]["quality"], "1.0")
         self.assertEqual(final_take["options"]["speed"], "balanced")
 
+        with patch.object(
+            self.llm_provider,
+            "polish_director_h3_prompt",
+            side_effect=AssertionError("提示词润色已关闭，不应调用大模型"),
+        ) as polish:
+            direct_prompt = self.client.post(
+                f"/api/director/recipes/{project['id']}/render-shots",
+                headers=self._headers(),
+                json={"shot_ids": [shot_id], "render_pass": "preview", "polish_prompt": False},
+            )
+        self.assertEqual(direct_prompt.status_code, 200, direct_prompt.text)
+        polish.assert_not_called()
+
     def test_recipes_run_accepts_script_and_storyboard_subset(self) -> None:
         self.llm_provider.update({
             "enabled": True,
@@ -2840,7 +2897,12 @@ class DirectorDualEngineApiTests(unittest.TestCase):
             response = self.client.post(
                 f"/api/director/recipes/{project_id}/operations",
                 headers=self._headers(),
-                json={"kind": "shot_render_prepare", "shot_ids": ["shot-1"], "render_pass": "preview"},
+                json={
+                    "kind": "shot_render_prepare",
+                    "shot_ids": ["shot-1"],
+                    "render_pass": "preview",
+                    "polish_prompt": False,
+                },
             )
             self.assertEqual(response.status_code, 202, response.text)
             operation = response.json()
@@ -2858,6 +2920,7 @@ class DirectorDualEngineApiTests(unittest.TestCase):
             fetched = self.client.get(f"/api/director/operations/{operation['id']}")
             self.assertEqual(fetched.status_code, 200, fetched.text)
             self.assertEqual(fetched.json()["request"]["shot_ids"], ["shot-1"])
+            self.assertFalse(fetched.json()["request"]["polish_prompt"])
 
             cancelled = self.client.post(
                 f"/api/director/operations/{operation['id']}/cancel",
@@ -3058,7 +3121,18 @@ class DirectorAssetCloudTests(unittest.TestCase):
             }],
         }
         self.assertEqual(job_asset_image_url(job), "https://media.example.com/studio/a.png")
-        self.assertEqual(job_public_output_url(job, kind="image"), "/api/jobs/j1/outputs/0/download")
+        self.assertEqual(job_public_output_url(job, kind="image"), "https://media.example.com/studio/a.png")
+        self.assertEqual(
+            job_public_output_url({
+                "id": "j-video",
+                "outputs": [{
+                    "kind": "video",
+                    "path": "studio/a.mp4",
+                    "cloud_url": "https://media.example.com/studio/a.mp4",
+                }],
+            }, kind="video"),
+            "https://media.example.com/studio/a.mp4",
+        )
 
         class Storage:
             def object_url(self, key: str) -> str:

@@ -529,9 +529,12 @@ export default function App({
     queryFn: () => api<User[]>("/api/admin/users"),
     enabled: isAdminViewer,
   })
+  // Director shot/asset progress bars read `allJobs`; keep polling on generate + director.
+  // Assets / 导台2 do not consume this list and should not hit remote MySQL on idle tabs.
+  const jobsPollingEnabled = workspaceView === "generate" || workspaceView === "director"
   const jobsQuery = useQuery({
     queryKey: ["jobs", user.id, adminUserFilter],
-    enabled: workspaceView === "generate",
+    enabled: jobsPollingEnabled,
     queryFn: async () => {
       const search = new URLSearchParams()
       if (isAdminViewer && adminUserFilter !== user.id) {
@@ -541,7 +544,7 @@ export default function App({
       return (await api<Job[]>(`/api/jobs${qs ? `?${qs}` : ""}`)).map(normalizeJob)
     },
     refetchInterval: (query) => {
-      if (workspaceView !== "generate") return false
+      if (!jobsPollingEnabled) return false
       if (query.state.fetchStatus === "fetching") return false
       const jobs = query.state.data as Job[] | undefined
       if (!jobs) return 4000

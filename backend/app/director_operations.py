@@ -208,7 +208,8 @@ class DirectorOperationService:
             raise ValueError("只有 Recipe 工程可以提交分镜")
         shot_ids = [str(item) for item in (request.get("shot_ids") or []) if str(item)]
         render_pass = "preview" if request.get("render_pass") == "preview" else "final"
-        llm_available, _ = self.llm_provider.availability()
+        polish_prompt = request.get("polish_prompt", True) is not False
+        llm_available, _ = self.llm_provider.availability() if polish_prompt else (False, "已关闭提示词润色")
 
         def persist(current: dict[str, Any]) -> None:
             self._check_cancelled(operation_id)
@@ -233,7 +234,11 @@ class DirectorOperationService:
             shot_ids=shot_ids,
             render_pass=render_pass,
             resource_storage=self.resource_storage,
-            h3_prompt_refiner=self.llm_provider.polish_director_h3_prompt if llm_available else None,
+            h3_prompt_refiner=(
+                self.llm_provider.polish_director_h3_prompt
+                if polish_prompt and llm_available
+                else None
+            ),
             on_progress=persist,
         )
         saved = persist_recipe_execution(

@@ -197,6 +197,14 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - 验证命令：`python -m unittest backend.tests.test_core.StoreTests.test_jobs_are_filtered_by_owner_and_delivery_is_recorded`。
 - 回滚方式：恢复上述代码并重启工作台。
 
+## 2026-09-03 导演台镜头进度条恢复实时刷新
+
+- 用户可见行为：在导演台出片或定妆时，进度条与「生成中 xx%」会随任务进度继续更新，不再停在提交后的固定百分比。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/director/DirectorRecipeStudio.tsx` 与三份主文档。
+- 兼容性：不改 API、数据库或 ComfyUI；资产页与导台2 仍不轮询任务列表。
+- 验证命令：`pnpm --dir frontend build`。
+- 回滚方式：恢复上述前端文件并重新构建。
+
 ## 2026-08-30 导演台方案/剪辑视图切换
 
 - 原因：方案任务导航和剪辑时间轴要共用同一份 Recipe，不能做成第二套引擎；剪辑台是桌面场景。
@@ -1219,6 +1227,15 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 - 兼容性：仅新增前端显示状态和浏览器 `localStorage` 键 `zly-ai-video-studio.theme`；无 API、SQLite、任务、Recipe、工作流注册表、ComfyUI graph、节点 ID、模型路径或端口变化。旧浏览器记录缺失或非法时回退浅色。
 - 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。浏览器以 1440×900 和 390×844 检查两种主题、刷新记忆、账户菜单、导演台、管理后台与传送弹层。
 - 回滚方式：恢复上述前端主题相关文件和文档并重新构建前端；可选清除 `zly-ai-video-studio.theme`，无需迁移或回滚数据库、Recipe、媒体与 ComfyUI 资产。
+
+## 2026-09-03 导演台可选提示词润色
+
+- 原因：角色、场景和道具已完成定妆后，手动出片不一定需要再次调用云端大模型润色 H3 提示词。
+- 用户可见行为：导演台“输出设置”新增“提示词润色”开关。开启时保持原有润色流程；关闭时直接提交当前镜头提示词，不调用大模型。偏好按项目保存在浏览器本地，默认开启；静帧模式下开关禁用。
+- 受影响文件：`frontend/src/director/DirectorRecipeStudio.tsx`、`frontend/src/director/director-api.ts`、`backend/app/models.py`、`backend/app/director_operations.py`、`backend/app/main.py`、`backend/tests/test_director.py`。
+- 兼容性：新增请求字段 `polish_prompt`，默认 `true`，旧客户端和旧工程无需迁移；关闭仅跳过 H3 提示词润色，视频工作流、素材引用和任务队列不变。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件并重新构建前端；无需回滚数据库、Recipe、媒体或 ComfyUI 资产。
 ## 2026-08-31 导演台角色定妆与资产库
 
 导演台的角色定妆已升级为两阶段生产流程：先生成并批准身份肖像，再以肖像为唯一身份参考生成面部特写、正面全身、四分之三和背面四联定妆板。地点生成空场景母版，道具生成四视图转面图；每次候选都保留提示词和工作流快照，只有批准版本才会进入分镜参考图和员工资产库。

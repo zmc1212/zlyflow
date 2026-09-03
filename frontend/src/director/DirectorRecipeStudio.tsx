@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Spin, Tag, Tooltip, Typography, message,
+  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Spin, Switch, Tag, Tooltip, Typography, message,
 } from "antd"
 import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -45,7 +45,7 @@ import {
   updateDirectorProjectRecord, uploadDirectorBgm, uploadDirectorShotFrame,
   DirectorOperationResponse,
 } from "./director-api"
-import { jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotStatusFromJob } from "./director-submit"
+import { jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotHasActiveRender, shotStatusFromJob } from "./director-submit"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
 import { directorRenderPassLabel } from "./prompt-compiler"
 import {
@@ -117,6 +117,10 @@ function recipeHasActiveAssetJobs(recipe: RecipeProject): boolean {
   return recipeAssetRenditions(recipe).some((rendition) => rendition.versions.some((version) => (
     version.id === rendition.activeVersionId && (version.status === "queued" || version.status === "running")
   )))
+}
+
+function recipeHasActiveShotJobs(recipe: RecipeProject): boolean {
+  return flattenRecipeShots(recipe).some((shot) => shotHasActiveRender(shot))
 }
 
 function syncAssetRenditionFromJobs(
@@ -288,6 +292,11 @@ export default function DirectorRecipeStudio({
   const [running, setRunning] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
   const [boardMode, setBoardMode] = useState<BoardMode>("preview")
+  const promptPolishStorageKey = `director.prompt-polish:${projectId}`
+  const [polishPrompt, setPolishPrompt] = useState(() => {
+    if (typeof window === "undefined") return true
+    return window.localStorage.getItem(promptPolishStorageKey) !== "false"
+  })
   const [selectedShotId, setSelectedShotId] = useState<string | null>(null)
   const [checkedShotIds, setCheckedShotIds] = useState<string[]>([])
   const [inspectorOpen, setInspectorOpen] = useState(false)
@@ -326,11 +335,12 @@ export default function DirectorRecipeStudio({
   const activeView = resolveDirectorRecipeView(searchParams.get("view"), { mobile: isMobile })
   const isTimelineView = activeView === "timeline"
   const assetGenerationActive = recipeHasActiveAssetJobs(recipe)
+  const shotGenerationActive = recipeHasActiveShotJobs(recipe)
 
   const projectQuery = useQuery({
     queryKey: ["director-project", projectId],
     queryFn: () => getDirectorProject(projectId),
-    refetchInterval: running || assetGenerationActive || submittingShotIds.length > 0 || submittingStillIds.length > 0 ? 1500 : false,
+    refetchInterval: running || assetGenerationActive || shotGenerationActive || submittingShotIds.length > 0 || submittingStillIds.length > 0 ? 1500 : false,
   })
   const operationQuery = useQuery({
     queryKey: ["director-operation", activeOperationId],
@@ -351,6 +361,10 @@ export default function DirectorRecipeStudio({
   useEffect(() => {
     conflictRef.current = contentConflict
   }, [contentConflict])
+
+  useEffect(() => {
+    window.localStorage.setItem(promptPolishStorageKey, String(polishPrompt))
+  }, [polishPrompt, promptPolishStorageKey])
 
   useEffect(() => {
     const row = projectQuery.data
@@ -1313,7 +1327,7 @@ export default function DirectorRecipeStudio({
         progress: shot.progress,
       }),
       submitting,
-      "正在润色提示词并提交…",
+      polishPrompt ? "正在润色提示词并提交…" : "正在使用当前提示词提交…",
     )
   }
 
@@ -1333,7 +1347,9 @@ export default function DirectorRecipeStudio({
     }
     const toastKey = `director-render-${targets.join("|")}`
     messageApi.loading({
-      content: targets.length === 1 ? "正在润色提示词并提交这一镜…" : "正在润色提示词并提交分镜…",
+      content: polishPrompt
+        ? (targets.length === 1 ? "正在润色提示词并提交这一镜…" : "正在润色提示词并提交分镜…")
+        : (targets.length === 1 ? "正在使用当前提示词提交这一镜…" : "正在使用当前提示词提交分镜…"),
       key: toastKey,
       duration: 0,
     })
@@ -1349,6 +1365,7 @@ export default function DirectorRecipeStudio({
         kind: "shot_render_prepare",
         shot_ids: targets,
         render_pass: renderPass,
+        polish_prompt: polishPrompt,
       }, csrfToken)
       rememberDirectorOperation(operation, toastKey)
     } catch (error) {
@@ -2360,6 +2377,17 @@ export default function DirectorRecipeStudio({
                             onChange={(value: DirectorWeightProfile) => updateOutputSettings({ weightProfile: value })}
                             popupMatchSelectWidth={false}
                           />
+                        </label>
+                        <label className="director-setting-field">
+                          <span>提示词润色</span>
+                          <Tooltip title="开启：提交视频前调用大模型优化 H3 提示词；关闭：直接使用当前镜头提示词。">
+                            <Switch
+                              aria-label="生成前润色提示词"
+                              checked={polishPrompt}
+                              disabled={boardMode === "still"}
+                              onChange={setPolishPrompt}
+                            />
+                          </Tooltip>
                         </label>
                       </div>
                       <div className="director-shot-actions">
