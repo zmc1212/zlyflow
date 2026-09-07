@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { Button, Tag } from "antd"
 import type { ShotTake } from "../types"
+import { sanitizeDialogueTags } from "../types"
 import {
   resolveTakeGenerationMeta,
   takeGenerationDiff,
@@ -70,7 +71,7 @@ export default function TakeGenerationParams({
             <div className="director-take-params-prompt">
               <dt>提示词快照</dt>
               <dd>
-                <pre>{take.promptSnapshot}</pre>
+                <pre>{sanitizeDialogueTags(take.promptSnapshot)}</pre>
               </dd>
             </div>
           ) : null}

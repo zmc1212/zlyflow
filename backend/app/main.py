@@ -1639,7 +1639,9 @@ def update_director_project(
             force=payload.force,
             content_update=True,
             payload_merger=(
-                merge_recipe_creative
+                (lambda latest, incoming: merge_recipe_creative(
+                    latest, incoming, deleted_take_ids=payload.deleted_take_ids
+                ))
                 if payload.payload is not None
                 and payload_kind(current.get("payload")) == PAYLOAD_KIND_RECIPE
                 and payload_kind(payload.payload) == PAYLOAD_KIND_RECIPE

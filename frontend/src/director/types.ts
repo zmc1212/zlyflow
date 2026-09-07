@@ -453,8 +453,39 @@ export function h3CameraSentence(camera: CameraDirection): string {
   return `The camera ${action} ${amplitude} ${tempo}.`
 }
 
+/**
+ * 从对白字段提取纯台词文字。
+ * 对白允许写 `角色名（情绪）："台词"` 或 `角色名: "台词"` 格式，
+ * 此函数优先取引号内的内容，其次去掉冒号之前的角色描述，
+ * 若均无法匹配则返回原始字符串。
+ */
+export function extractSpokenWords(dialogue: string): string {
+  const text = (dialogue || "").trim()
+  // 优先匹配中文弯引号 "..." 或英文直引号 "..."
+  const quoteMatch = text.match(/[\u201c"](.*?)[\u201d"]\s*$/)
+  if (quoteMatch) return quoteMatch[1].trim()
+  // 次选：冒号后的内容（支持全角：和半角:），再去掉可能残留的引号
+  const colonMatch = text.match(/[\uff1a:]\s*(.+)$/)
+  if (colonMatch) return colonMatch[1].replace(/^[\u201c"\u2018']|[\u201d"\u2019']$/g, "").trim()
+  return text
+}
+
+/**
+ * 对已存储 promptText 里的 <d> 标签进行净化。
+ * 兼容 LLM 历史生成的格式：
+ *   <d>[Chinese] 陆沉舟（沉稳）："好，跟紧我。"</d>
+ * 净化为：
+ *   <d>[Chinese] 好，跟紧我。</d>
+ */
+export function sanitizeDialogueTags(text: string): string {
+  return text.replace(/<d>(\[(?:Chinese|English)\])\s*([\s\S]+?)<\/d>/g, (_, langTag: string, content: string) => {
+    const cleaned = extractSpokenWords(content.trim())
+    return `<d>${langTag} ${cleaned}</d>`
+  })
+}
+
 export function buildFormattedShotPrompt(shot: DirectorShot): string {
-  let visual = (shot.prompt || "").trim()
+  let visual = sanitizeDialogueTags((shot.prompt || "").trim())
   const camera = shot.camera || defaultCameraDirection()
   
   if (camera.enabled) {
@@ -472,8 +503,9 @@ export function buildFormattedShotPrompt(shot: DirectorShot): string {
 
   const dialogue = shot.dialogue?.trim()
   if (dialogue && !visual.includes("<d>")) {
-    const tag = hasCjk(dialogue) ? "Chinese" : "English"
-    visual = `${visual.replace(/[. ]+$/, "")}. the on-screen speaker (S1) says: <d>[${tag}] ${dialogue}</d>`
+    const spokenText = extractSpokenWords(dialogue)
+    const tag = hasCjk(spokenText) ? "Chinese" : "English"
+    visual = `${visual.replace(/[. ]+$/, "")}. the on-screen speaker (S1) says: <d>[${tag}] ${spokenText}</d>`
   }
   return visual.trim()
 }

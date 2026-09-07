@@ -182,7 +182,7 @@ def build_shot_timing_polish_prompt() -> str:
         "Return ONLY one JSON object with the SAME schema as the input. Include ALL shots; do not omit unchanged shots.",
         "You may adjust durationSec (2–15), description, promptText, soundscape, soundscapeEn. Do NOT shorten dialogue.",
         "Never truncate dialogue with ellipsis (... or …). If speech does not fit, increase durationSec up to 15s or split into another shot.",
-        "The dialogue field must contain the full original line; promptText <d> must match dialogue exactly.",
+        "Both the dialogue field and the <d> tag in promptText must contain ONLY the pure spoken words — never the character name or emotion label prefix. Extract just the words inside the quotation marks (e.g. script line \"陆沉舟（沉稳）：\\\"好，跟紧我。\\\"\" → dialogue field and <d> tag should both be \"好，跟紧我。\").",
         "Rewrite promptText with [Shot 1] and At 00:XX.XXX beats inside durationSec; put spoken lines in <d>[Language] ...</d>.",
         "When you change timing, add timingNote in Chinese explaining the adjustment (1 short sentence).",
         "Preserve shotNumber order, characterBindings, locationId, propIds, camera, continuity fields, and story meaning.",
@@ -239,7 +239,7 @@ STORYBOARD_DIALOGUE_CONTRACT = """DIALOGUE ASSIGNMENT (non-negotiable):
 - Count script lines such as 李元婴：（自言自语）台词 or 同门甲：台词. Each such line needs its own shot OR shares the shot where that action happens simultaneously.
 - Self-talk (自言自语), muttering, and voice-over count as dialogue — never treat them as silent action-only shots.
 - When a character speaks while walking, reacting, or holding a prop, put BOTH the visible action AND the spoken line in the SAME shot's dialogue; do not split into a silent establishing shot plus a later dialogue shot.
-- dialogue is the TTS/subtitle source of truth. promptText must echo the same line inside <d>[Chinese] ...</d> at the beat when speech starts.
+- dialogue is the TTS/subtitle source of truth. BOTH the dialogue field and the <d> tag in promptText must contain ONLY the pure spoken words. If the script line is formatted as "角色名（情绪）：\"台词\"", extract only the quoted text for both fields (e.g. script line "陆沉舟（沉稳）：\"好，跟紧我。\"" → dialogue field is "好，跟紧我。", and <d> tag is <d>[Chinese] 好，跟紧我。</d>).
 - Never write Dialogue: none, no dialogue, or leave dialogue empty when the script gives that beat spoken words.
 - Pure reaction shots with no script line may stay silent; do not invent dialogue.
 - Prefer one spoken line per shot; if two characters exchange lines in one beat, split into two shots unless the script explicitly groups them.
@@ -251,7 +251,7 @@ DIRECTOR_STUDIO_ADAPTER = """Director Studio adapter (keep this even while follo
 - promptText: English H3 shot prose from the official guide. Write one independent [Shot 1] clip covering style, composition, subjects, environment, action, camera (motion type + amplitude + speed), and dialogue. Do not wrap integrated_multimodal_description / overall_soundscape / non_diegetic_music in JSON; the compiler adds those fields.
 - title, description, soundscape: Chinese for the user-facing storyboard card. Never copy promptText into description.
 - soundscapeEn: a separate English H3 soundscape sentence covering ambience and physical action sounds; do not repeat dialogue. Keep soundscape as the Chinese card summary.
-- dialogue: keep the user's original words. Inside promptText use <d>[Chinese] ...</d> or the matching language tag. Every script spoken line must land here — including 自言自语 / 旁白 / 画外音.
+- dialogue: keep the user's original spoken words verbatim, but ALWAYS strip any leading character name or emotion label (e.g. strip the "陆沉舟（低语）：" prefix). Inside promptText use <d>[Chinese] SPOKEN_WORDS</d>. BOTH the dialogue field and the <d> tag must contain ONLY the actual words spoken. Every script spoken line must land here — including 自言自语 / 旁白 / 画外音.
 - If the script gives speech during an action, dialogue and that action belong in one shot; silent establishing shots are only for beats with zero script dialogue.
 - Use <d> only for audible dialogue or lyrics. For a computer, phone, sign, or other visible written text, describe it as visible on-screen text in prose and do not wrap it in <d>.
 - durationSec: integer 2–15. Budget speech + action using the shot-timing skill; default 5 only when the beat is truly short.

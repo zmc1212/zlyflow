@@ -255,6 +255,7 @@ export function updateDirectorProjectRecord(
     summary?: string
     source_script?: string
     payload?: RecipeProject | BatchRunPayload | Record<string, unknown>
+    deleted_take_ids?: string[]
     expected_content_revision?: number
     force?: boolean
   },

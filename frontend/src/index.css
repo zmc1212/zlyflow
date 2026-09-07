@@ -1788,25 +1788,7 @@
 .director-recipe-main.is-shot-workspace .director-shot-command-copy {
   display: none;
 }
-.director-recipe-main.is-shot-workspace .director-output-settings {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px;
-}
-.director-recipe-main.is-shot-workspace .director-setting-field {
-  flex: 1 1 108px;
-  min-width: 108px;
-  max-width: 176px;
-}
-.director-recipe-main.is-shot-workspace .director-setting-field.is-workflow {
-  flex: 1.2 1 148px;
-  max-width: 196px;
-}
-.director-recipe-main.is-shot-workspace .director-setting-field.is-pass {
-  flex: 1.4 1 188px;
-  max-width: 220px;
-}
+
 .director-recipe-main.is-shot-workspace .director-shot-workspace {
   flex: 1;
   min-height: 0;
@@ -3350,7 +3332,7 @@
 .director-script-field.is-story .ant-input { padding: 14px 16px; }
 .director-shot-commandbar {
   display: grid;
-  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) auto;
+  grid-template-columns: 1fr auto;
   align-items: end;
   gap: 16px;
   border: 1px solid rgba(15, 23, 42, .08);
@@ -3358,6 +3340,7 @@
   background: #fff;
   padding: 14px 16px;
 }
+.director-shot-command-copy { grid-column: 1 / -1; }
 .director-shot-command-copy h5 { margin: 0 !important; color: #111827 !important; font-size: 13px !important; }
 .director-shot-command-copy .director-output-hint { margin-top: 5px; color: #65707c; line-height: 1.5; }
 .director-output-settings {
@@ -3380,7 +3363,6 @@
 .director-setting-field.is-pass .ant-segmented-item { min-width: 54px; line-height: 29px; }
 .director-shot-actions {
   display: flex;
-  min-width: 0;
   align-items: flex-end;
   justify-content: flex-end;
   gap: 8px;
@@ -3435,9 +3417,7 @@
 .director-style-card:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(77, 107, 254, .18); }
 .director-style-cover { height: 150px; }
 
-@media (max-width: 1320px) {
-  .director-shot-commandbar { grid-template-columns: 1fr auto; }
-  .director-shot-command-copy { grid-column: 1 / -1; }
+@media (max-width: 1500px) {
   .director-output-settings { grid-template-columns: minmax(170px, 1.3fr) repeat(4, minmax(104px, 1fr)); }
   .director-setting-field.is-pass { grid-column: span 2; }
   .director-top-actions .ant-btn:not(.ant-btn-primary) span:not(.anticon) { display: none; }

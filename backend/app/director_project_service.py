@@ -32,15 +32,18 @@ def _take_id(take: dict[str, Any]) -> str:
 
 
 def merge_take_execution(
-    latest_takes: list[dict[str, Any]], incoming_takes: list[dict[str, Any]],
+    latest_takes: list[dict[str, Any]], incoming_takes: list[dict[str, Any]], *, deleted_take_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Merge append-only takes without dropping jobs added by another request."""
+    deleted = set(deleted_take_ids or [])
     merged = [deepcopy(item) for item in latest_takes if isinstance(item, dict)]
     index = {_take_id(item): position for position, item in enumerate(merged) if _take_id(item)}
     for incoming in incoming_takes:
         if not isinstance(incoming, dict):
             continue
         identity = _take_id(incoming)
+        if identity and identity in deleted:
+            continue
         if identity and identity in index:
             merged[index[identity]].update(deepcopy(incoming))
         else:
@@ -130,13 +133,13 @@ def _merge_asset_creative(target: dict[str, Any], current: dict[str, Any], colle
 
 
 def _merge_shot_execution(
-    target: dict[str, Any], source: dict[str, Any], scope: ExecutionScope,
+    target: dict[str, Any], source: dict[str, Any], scope: ExecutionScope, *, deleted_take_ids: list[str] | None = None,
 ) -> None:
     if scope in {"render", "all"}:
         _copy_fields(target, source, RENDER_SHOT_FIELDS)
         source_takes = [item for item in (source.get("takes") or []) if isinstance(item, dict)]
         target_takes = [item for item in (target.get("takes") or []) if isinstance(item, dict)]
-        merged_takes = merge_take_execution(target_takes, source_takes)
+        merged_takes = merge_take_execution(target_takes, source_takes, deleted_take_ids=deleted_take_ids)
         target["takes"] = merged_takes
     if scope in {"still", "all"}:
         _copy_fields(target, source, STILL_SHOT_FIELDS)
@@ -236,7 +239,9 @@ def persist_recipe_execution(
     )
 
 
-def merge_recipe_creative(latest: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+def merge_recipe_creative(
+    latest: dict[str, Any], incoming: dict[str, Any], *, deleted_take_ids: list[str] | None = None,
+) -> dict[str, Any]:
     """Apply user-authored content while preserving all current execution state."""
     target = normalize_recipe_payload(incoming)
     current = normalize_recipe_payload(latest)
@@ -249,9 +254,9 @@ def merge_recipe_creative(latest: dict[str, Any], incoming: dict[str, Any]) -> d
         if current_shot is not None:
             # Reference frames are user-authored content.  Preserve execution
             # state, but allow the incoming creative payload to change frames.
-            _merge_shot_execution(shot, current_shot, "render")
-            _merge_shot_execution(shot, current_shot, "still")
-            _merge_shot_execution(shot, current_shot, "tts")
+            _merge_shot_execution(shot, current_shot, "render", deleted_take_ids=deleted_take_ids)
+            _merge_shot_execution(shot, current_shot, "still", deleted_take_ids=deleted_take_ids)
+            _merge_shot_execution(shot, current_shot, "tts", deleted_take_ids=deleted_take_ids)
 
     for collection, fields in (
         ("characters", CHARACTER_EXECUTION_FIELDS),

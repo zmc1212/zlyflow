@@ -583,6 +583,7 @@ class DirectorProjectUpdateRequest(BaseModel):
     style_vibe: str | None = Field(default=None, max_length=64)
     requested_shot_count: int | None = Field(default=None, ge=1, le=24)
     payload: dict[str, Any] | None = Field(default=None, description="完整替换工程 payload（时间轴或 Recipe）")
+    deleted_take_ids: list[str] | None = Field(default=None, description="需要显式删除的 Take ID 列表")
     expected_content_revision: int | None = Field(
         default=None,
         ge=1,

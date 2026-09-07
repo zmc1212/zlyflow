@@ -21,7 +21,7 @@ function sampleProject(overrides?: Partial<TimelineProject>): TimelineProject {
     ...createEmptyShot(1, 0, 5),
     firstFrameUrl: "data:image/png;base64,first",
     prompt: "主角 @ref1 走过雨夜街道",
-    camera: { ...defaultCameraDirection(), scale: "MS" as const, movement: "zoom_in" as const },
+    camera: { ...defaultCameraDirection(), enabled: true, scale: "MS" as const, movement: "zoom_in" as const },
   }
   return {
     id: "contract-proj",

@@ -46,7 +46,7 @@ import {
   updateDirectorProjectRecord, uploadDirectorBgm, uploadDirectorShotFrame,
   DirectorOperationResponse,
 } from "./director-api"
-import { jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotHasActiveRender, shotStatusFromJob } from "./director-submit"
+import { extractVideoFrame, fileToDataUrl, jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus, overlaySubmittingState, shotGenerationState, shotHasActiveRender, shotStatusFromJob, summarizeJobError, waitForJobTerminal } from "./director-submit"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
 import { directorRenderPassLabel } from "./prompt-compiler"
 import {
@@ -101,7 +101,7 @@ type JobLike = {
 
 type SaveStatus = "idle" | "saving" | "saved" | "failed"
 type RenderPass = "preview" | "final"
-type BoardMode = "still" | RenderPass
+type BoardMode = "still" | RenderPass | "custom"
 
 function recipeAssetRenditions(recipe: RecipeProject): RecipeAssetRendition[] {
   return [
@@ -380,7 +380,14 @@ export default function DirectorRecipeStudio({
       const executionOnly = submittingShotIds.length > 0
         || submittingStillIds.length > 0
         || operationQuery.data?.kind === "shot_render_prepare"
-      const preserveLocalContent = shouldPreserveLocalDirectorContent({
+      // 如果轮询返回的 content_revision 低于本地已知版本，说明这条轮询数据在
+      // 最近一次保存之前就已发出（竞态），属于陈旧响应。此时强制走 merge 路径，
+      // 确保 deletedTakeIdsRef 中记录的已删 take 不会从旧 payload 里复活。
+      const incomingRevision = row.content_revision || 0
+      const staleRevision = contentRevisionRef.current > 0
+        && incomingRevision > 0
+        && incomingRevision < contentRevisionRef.current
+      const preserveLocalContent = staleRevision || shouldPreserveLocalDirectorContent({
         contentRevision: contentRevisionRef.current,
         dirty,
         executionOnly,
@@ -618,7 +625,7 @@ export default function DirectorRecipeStudio({
   const readiness = useMemo(() => recipeReadiness(recipe, goal), [goal, recipe])
   recipeRef.current = recipe
   goalRef.current = goal
-  const renderPass: RenderPass = boardMode === "final" ? "final" : "preview"
+  const renderPass: RenderPass = (boardMode === "final" || boardMode === "custom") ? "final" : "preview"
   const completedShots = shots.filter((shot) => shot.status === "succeeded" && shot.outputVideoUrl)
   const failedShotIds = shots.filter((shot) => {
     if (boardMode === "still") {
@@ -723,6 +730,7 @@ export default function DirectorRecipeStudio({
           summary: snapshot.script.summary,
           source_script: extra?.source_script ?? goalRef.current,
           payload: snapshot,
+          deleted_take_ids: Array.from(deletedTakeIdsRef.current),
           ...(contentRevisionRef.current > 0
             ? { expected_content_revision: contentRevisionRef.current }
             : {}),
@@ -801,6 +809,7 @@ export default function DirectorRecipeStudio({
         summary: snapshot.script.summary,
         source_script: goalRef.current,
         payload: snapshot,
+        deleted_take_ids: Array.from(deletedTakeIdsRef.current),
         expected_content_revision: contentConflict.remote.content_revision,
         force: true,
       }, csrfToken)
@@ -1488,9 +1497,12 @@ export default function DirectorRecipeStudio({
         let jobIds: string[] = []
         while (!opFinished) {
           await new Promise(r => setTimeout(r, 2000))
-          const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/director_operations/${encodeURIComponent(operation.id)}`)
-          if (!res.ok) continue
-          const op = await res.json()
+          let op
+          try {
+            op = await getDirectorOperation(operation.id)
+          } catch (err) {
+            continue
+          }
           if (op.status === "succeeded") {
             opFinished = true
             jobIds = op.result?.job_ids || []
@@ -2349,11 +2361,13 @@ export default function DirectorRecipeStudio({
                         <p className="director-output-hint">
                           {boardMode === "still"
                             ? "当前静帧：复用定妆同一 GRS 通道，出图后可设为首帧再出视频"
-                            : renderPass === "preview"
-                              ? `当前预览 ${recipe.previewQuality} MP · ${DIRECTOR_SPEED_OPTIONS.find((item) => item.value === recipe.previewSpeed)?.label || recipe.previewSpeed}`
-                              : outputPreset
-                                ? `当前终稿 ${outputPreset.width}×${outputPreset.height}`
-                                : `当前终稿 ${recipe.finalQuality} MP`}
+                            : boardMode === "preview"
+                              ? `当前预览：分辨率固定 0.4 MP、速度固定快速，用于快速检查镜头效果`
+                              : boardMode === "custom"
+                                ? "自定义模式：分辨率、速度、模型体积均可自由设置，按终稿通道提交"
+                                : outputPreset
+                                  ? `当前终稿 ${outputPreset.width}×${outputPreset.height}`
+                                  : `当前终稿 ${recipe.finalQuality} MP`}
                           {boardMode === "final" && recipe.finalQuality !== "0.4" ? " · 16GB 显卡请改 0.4 MP 后再出片" : ""}
                           {boardMode !== "still" ? " · 文生 / 首尾帧 / 多参考按镜头素材自动匹配" : ""}
                           {activeStage === "shots" ? " · 生成创作方案不会出视频，需在本区提交出片" : ""}
@@ -2390,35 +2404,46 @@ export default function DirectorRecipeStudio({
                               { label: "静帧", value: "still" },
                               { label: "预览", value: "preview" },
                               { label: "终稿", value: "final" },
+                              { label: "自定义", value: "custom" },
                             ]}
                             onChange={(value) => setBoardMode(value as BoardMode)}
                           />
                         </label>
                         <label className="director-setting-field">
                           <span>分辨率</span>
-                          <Select
-                            aria-label="分辨率"
-                            value={recipe.finalQuality}
-                            options={DIRECTOR_FINAL_CANVAS_OPTIONS.map((item) => ({
-                              value: item.quality,
-                              label: item.label,
-                            }))}
-                            onChange={(value: DirectorQuality) => updateOutputSettings({ finalQuality: value })}
-                            popupMatchSelectWidth={false}
-                          />
+                          <Tooltip
+                            title={boardMode === "preview" ? "预览模式固定 0.4 MP，切换至终稿或自定义后可调整" : undefined}
+                          >
+                            <Select
+                              aria-label="分辨率"
+                              value={recipe.finalQuality}
+                              disabled={boardMode === "preview"}
+                              options={DIRECTOR_FINAL_CANVAS_OPTIONS.map((item) => ({
+                                value: item.quality,
+                                label: item.label,
+                              }))}
+                              onChange={(value: DirectorQuality) => updateOutputSettings({ finalQuality: value })}
+                              popupMatchSelectWidth={false}
+                            />
+                          </Tooltip>
                         </label>
                         <label className="director-setting-field">
                           <span>生成速度</span>
-                          <Select
-                            aria-label="生成速度"
-                            value={recipe.finalSpeed}
-                            options={DIRECTOR_SPEED_OPTIONS.map((item) => ({
-                              value: item.value,
-                              label: item.label,
-                            }))}
-                            onChange={(value: DirectorSpeed) => updateOutputSettings({ finalSpeed: value })}
-                            popupMatchSelectWidth={false}
-                          />
+                          <Tooltip
+                            title={boardMode === "preview" ? "预览模式固定快速生成，切换至终稿或自定义后可调整" : undefined}
+                          >
+                            <Select
+                              aria-label="生成速度"
+                              value={recipe.finalSpeed}
+                              disabled={boardMode === "preview"}
+                              options={DIRECTOR_SPEED_OPTIONS.map((item) => ({
+                                value: item.value,
+                                label: item.label,
+                              }))}
+                              onChange={(value: DirectorSpeed) => updateOutputSettings({ finalSpeed: value })}
+                              popupMatchSelectWidth={false}
+                            />
+                          </Tooltip>
                         </label>
                         <label className="director-setting-field">
                           <span>模型体积</span>

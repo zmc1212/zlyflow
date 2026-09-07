@@ -12,7 +12,7 @@ import {
   snapH3DurationSec,
   workflowRouteLabel,
 } from "../prompt-compiler"
-import { extractVideoFrame, overlaySubmittingState, shotGenerationState } from "../director-submit"
+import { extractVideoFrame, overlaySubmittingState, shotGenerationState, shotStatusFromJob, jobProgressFromJob } from "../director-submit"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "../status-labels"
 import {
   CameraDirection, RecipeProject, RecipeShot, ShotTake, TTS_VOICE_OPTIONS, defaultCameraDirection,
@@ -156,7 +156,7 @@ export default function RecipeShotInspector({
     () => compileRecipeShotPreview(recipe, shot, previousShot),
     [recipe, shot, previousShot],
   )
-  const submittedSnapshot = (activeTake?.promptSnapshot || shot.compiledPrompt || "").trim()
+
   const promptTextLooksChinese = /[\u4e00-\u9fff]/.test(shot.promptText || "") && !(shot.promptText || "").toLowerCase().includes("the camera")
   const continuityInLooksChinese = /[\u4e00-\u9fff]/.test(shot.continuityIn || "")
   const continuityOutLooksChinese = /[\u4e00-\u9fff]/.test(shot.continuityOut || "")
@@ -193,6 +193,11 @@ export default function RecipeShotInspector({
     setPreviewTakeId(id)
     onChange({ approvedTakeId: id })
   }
+
+  const activeTakeJob = jobForTake(activeTake)
+  const activeTakeStatus = activeTakeJob ? shotStatusFromJob(activeTakeJob) : activeTake?.status
+  const activeTakeGenerating = activeTakeStatus === "running" || activeTakeStatus === "queued"
+  const activeTakeProgress = activeTakeJob ? jobProgressFromJob(activeTakeJob, activeTake?.progress) : (activeTake?.progress || 0)
 
   const comparing = Boolean(compareDesktop && showVideo && compareTake?.videoUrl)
   const emptyPreview = !showVideo && !firstPreview
@@ -231,11 +236,22 @@ export default function RecipeShotInspector({
                 <img src={firstPreview} alt="分镜画面" />
               ) : (
                 <div className="director-inspector-empty">
-                  {state.generating || stillState.generating ? (
-                    <>
-                      <Progress percent={state.generating ? state.progress : stillState.progress} size="small" status="active" showInfo={false} />
-                      <span>{state.generating ? state.label : "静帧生成中"}</span>
-                    </>
+                  {state.generating || stillState.generating || activeTakeGenerating ? (
+                    <div style={{ width: 200, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                      <Progress
+                        percent={activeTakeGenerating ? activeTakeProgress : state.generating ? state.progress : stillState.progress}
+                        size="small"
+                        status="active"
+                        showInfo={false}
+                      />
+                      <span>
+                        {activeTakeGenerating
+                          ? (activeTakeStatus === "queued" ? "排队中" : `生成中 ${Math.round(activeTakeProgress)}%`)
+                          : state.generating
+                            ? state.label
+                            : "静帧生成中"}
+                      </span>
+                    </div>
                   ) : (
                     <>
                       <Clapperboard size={22} />
@@ -276,6 +292,10 @@ export default function RecipeShotInspector({
                 const selected = index === activeIndex
                 const approved = takeId(take) === approvedId
                 const id = takeId(take)
+                const takeJob = jobForTake(take)
+                const takeStatus = takeJob ? shotStatusFromJob(takeJob) : take.status
+                const isRunning = takeStatus === "running" || takeStatus === "queued"
+                const progress = takeJob ? jobProgressFromJob(takeJob, take.progress) : (take.progress || 0)
                 return (
                   <div
                     key={id || index}
@@ -293,6 +313,7 @@ export default function RecipeShotInspector({
                         <span>Take {take.takeNumber}</span>
                         {take.renderPass ? <Tag className="!m-0">{directorRenderPassLabel(take.renderPass)}</Tag> : null}
                         {approved ? <Tag color="success" className="!m-0">已批准</Tag> : null}
+                        {isRunning ? <Tag color="processing" className="!m-0">{takeStatus === "queued" ? "排队中" : `生成中 ${Math.round(progress)}%`}</Tag> : takeStatus === "failed" ? <Tag color="error" className="!m-0">失败</Tag> : null}
                       </button>
                       <div className="director-take-rail-actions">
                         <Button
@@ -540,6 +561,8 @@ export default function RecipeShotInspector({
                             {takes.map((take, index) => {
                               const selected = index === activeIndex
                               const takeJob = jobForTake(take)
+                              const takeStatus = takeJob ? shotStatusFromJob(takeJob) : take.status
+                              const progress = takeJob ? jobProgressFromJob(takeJob, take.progress) : (take.progress || 0)
                               return (
                                 <div key={take.id || take.jobId || index} className={`director-take-item${selected ? " is-active" : ""}`}>
                                   <button type="button" className="director-take-preview" onClick={() => selectTake(index)}>
@@ -550,7 +573,7 @@ export default function RecipeShotInspector({
                                       <span>Take {take.takeNumber}</span>
                                       {take.renderPass ? <Tag>{directorRenderPassLabel(take.renderPass)}</Tag> : null}
                                       {takeId(take) === approvedId ? <Tag color="success">已批准</Tag> : null}
-                                      <Tag color={directorStatusColor(take.status)}>{directorStatusLabel(take.status)}</Tag>
+                                      <Tag color={directorStatusColor(takeStatus)}>{takeStatus === "running" ? `生成中 ${Math.round(progress)}%` : takeStatus === "queued" ? "排队中" : directorStatusLabel(takeStatus)}</Tag>
                                       <Button
                                         type="text"
                                         size="small"
@@ -636,12 +659,7 @@ export default function RecipeShotInspector({
                       <p>这一镜没有参考图，会走文生视频结构。</p>
                     )}
                     <pre className="director-compiled-prompt">{submission.prompt || "还没有可编译的镜头正文"}</pre>
-                    {submittedSnapshot && submittedSnapshot !== submission.prompt ? (
-                      <>
-                        <p>上次实际提交的提示词与当前预览不同（改过描述或参考图后会这样）。</p>
-                        <pre className="director-compiled-prompt is-snapshot">{submittedSnapshot}</pre>
-                      </>
-                    ) : null}
+
                   </section>
                 </div>
           ) : null}
