@@ -18,6 +18,7 @@ from .director_recipe import (
     normalize_voice_id,
     set_agent_status,
     split_display_and_prompt,
+    sync_dialogue_prompt,
 )
 from .llm_client import (
     LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
@@ -482,6 +483,244 @@ def _continuity_coverage_gaps(recipe: dict[str, Any]) -> list[str]:
     return gaps
 
 
+CONTINUITY_PATCH_FIELDS = (
+    "promptText",
+    "continuityIn",
+    "continuityOut",
+    "transitionNote",
+    "soundscape",
+    "soundscapeEn",
+)
+
+
+def _overlapping_continuity_windows(
+    shots: list[dict[str, Any]], *, size: int = 5, overlap: int = 1,
+) -> list[dict[str, Any]]:
+    """Build windows where every adjacent cut is visible in one LLM request.
+
+    The first shot of subsequent windows is read-only context. With a window
+    size of five and one-shot overlap, shots 5 and 6 are deliberately sent
+    together instead of being split at the old chunk boundary.
+    """
+    if not shots:
+        return []
+    size = max(2, int(size))
+    overlap = max(1, min(int(overlap), size - 1))
+    windows: list[dict[str, Any]] = []
+    start = 0
+    while start < len(shots):
+        end = min(len(shots), start + size)
+        context_count = 0 if start == 0 else overlap
+        context = shots[start:start + context_count]
+        editable = shots[start + context_count:end]
+        if not editable:
+            break
+        window_shots = context + editable
+        windows.append({
+            "shots": window_shots,
+            "contextShotNumbers": [int(item.get("shotNumber") or 0) for item in context],
+            "editableShotNumbers": [int(item.get("shotNumber") or 0) for item in editable],
+            "windowShotNumbers": [int(item.get("shotNumber") or 0) for item in window_shots],
+        })
+        if end >= len(shots):
+            break
+        start = end - overlap
+    return windows
+
+
+def _storyboard_shot_items(data: dict[str, Any] | None) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if not isinstance(data, dict):
+        return items
+    for scene in _collect_storyboard_scenes(coerce_storyboard_data(data)):
+        scene_item = scene if isinstance(scene, dict) else {}
+        shots_raw = scene_item.get("shots")
+        if not isinstance(shots_raw, list) or not shots_raw:
+            shots_raw = [scene_item] if scene_item else []
+        items.extend(item for item in shots_raw if isinstance(item, dict))
+    return items
+
+
+def _apply_continuity_patch(
+    recipe: dict[str, Any],
+    data: dict[str, Any],
+    *,
+    editable_shot_numbers: list[int],
+    window_shot_numbers: list[int],
+) -> tuple[bool, str]:
+    """Apply only continuity-owned fields after validating the model response."""
+    items = _storyboard_shot_items(data)
+    if not items:
+        return False, "连续性响应没有返回镜头"
+    allowed = set(window_shot_numbers)
+    editable = set(editable_shot_numbers)
+    seen: set[int] = set()
+    updates: dict[int, dict[str, Any]] = {}
+    errors: list[str] = []
+    for item in items:
+        raw_number = item.get("shotNumber") or item.get("shot_number")
+        try:
+            number = int(raw_number)
+        except (TypeError, ValueError):
+            errors.append("返回镜头缺少有效 shotNumber")
+            continue
+        if number in seen:
+            errors.append(f"第{number}镜重复返回")
+            continue
+        seen.add(number)
+        if number not in allowed:
+            errors.append(f"返回了窗口外的第{number}镜")
+            continue
+        updates[number] = item
+    missing = sorted(editable - seen)
+    if missing:
+        errors.append("缺少可编辑镜头：" + ", ".join(f"第{number}镜" for number in missing))
+    if errors:
+        return False, "；".join(errors)
+
+    recipe_by_number = {
+        int(shot.get("shotNumber") or 0): shot
+        for shot in _flatten_recipe_shots(recipe)
+        if isinstance(shot, dict)
+    }
+    for number in editable_shot_numbers:
+        shot = recipe_by_number.get(number)
+        patch = updates.get(number)
+        if not shot or not patch:
+            continue
+        for field in CONTINUITY_PATCH_FIELDS:
+            aliases = (field, re.sub(r"([A-Z])", lambda match: "_" + match.group(1).lower(), field))
+            source_key = next((key for key in aliases if key in patch), None)
+            if source_key is None:
+                continue
+            value = _text(patch.get(source_key))
+            if field == "promptText":
+                if value:
+                    # promptText is editable for visual continuity, but its
+                    # dialogue tag remains sourced from the locked dialogue
+                    # field so this pass cannot invent or rewrite speech.
+                    shot[field] = sync_dialogue_prompt(value, shot.get("dialogue"))
+            elif value:
+                shot[field] = value
+            else:
+                shot[field] = ""
+    return True, ""
+
+
+def _continuity_tokens(value: Any) -> set[str]:
+    text = _text(value).casefold()
+    tokens: set[str] = set(re.findall(r"[a-z][a-z0-9_-]{2,}", text))
+    for segment in re.findall(r"[\u4e00-\u9fff]+", text):
+        if len(segment) >= 2:
+            tokens.add(segment)
+            tokens.update(segment[index:index + 2] for index in range(len(segment) - 1))
+    return tokens - {
+        "the", "and", "with", "from", "into", "this", "that", "continues",
+        "continue", "雨声", "雨夜", "声音", "光线", "场景",
+    }
+
+
+def _continuity_prompt_opening(prompt: Any) -> str:
+    text = _text(prompt)
+    text = re.sub(r"^\s*\[Shot\s+\d+\]\s*", "", text, flags=re.IGNORECASE)
+    match = re.search(r"\bAt\s+00:00(?:\.\d{1,3})?\s*,?\s*", text, flags=re.IGNORECASE)
+    if match:
+        text = text[match.end():]
+    first_cut = re.search(r"\bAt\s+00:\d{2}(?:\.\d{1,3})?\s*,?\s*", text, flags=re.IGNORECASE)
+    if first_cut:
+        text = text[:first_cut.start()]
+    return text[:420]
+
+
+def _shot_field_tokens(shot: dict[str, Any], fields: tuple[str, ...]) -> set[str]:
+    tokens: set[str] = set()
+    for field in fields:
+        value = shot.get(field)
+        values = value if isinstance(value, list) else [value]
+        for item in values:
+            tokens.update(_continuity_tokens(item))
+    return tokens
+
+
+def _state_keywords(value: Any, keywords: tuple[str, ...]) -> set[str]:
+    text = _text(value).casefold()
+    return {keyword for keyword in keywords if keyword.casefold() in text}
+
+
+_CONTINUITY_STATE_KEYWORDS = {
+    "天气": ("rain", "rainy", "snow", "snowy", "fog", "mist", "wind", "storm", "雨", "雪", "雾", "风", "雷"),
+    "时间": ("dawn", "morning", "noon", "afternoon", "evening", "dusk", "night", "midnight", "黎明", "清晨", "白天", "午后", "傍晚", "黄昏", "夜", "深夜"),
+    "光线": ("sunlight", "moonlight", "daylight", "backlight", "neon", "candlelight", "明亮", "昏暗", "阳光", "月光", "霓虹", "烛光"),
+}
+
+
+def validate_continuity_pairs(recipe: dict[str, Any]) -> dict[str, Any]:
+    """Run a conservative, deterministic QA pass over adjacent shot handoffs."""
+    shots = _flatten_recipe_shots(recipe)
+    pairs: list[dict[str, Any]] = []
+    issues: list[str] = []
+    for index in range(max(0, len(shots) - 1)):
+        current = shots[index]
+        following = shots[index + 1]
+        from_number = int(current.get("shotNumber") or index + 1)
+        to_number = int(following.get("shotNumber") or index + 2)
+        pair_issues: list[str] = []
+        transition = _text(following.get("transitionNote") or current.get("transitionNote"))
+        hard_cut = bool(re.search(r"硬切|hard\s*cut|time\s*jump|location\s*jump", transition, re.I))
+        current_location = _text(current.get("locationName") or current.get("locationId"))
+        next_location = _text(following.get("locationName") or following.get("locationId"))
+        if not _text(current.get("continuityOut")):
+            pair_issues.append(f"第{from_number}镜缺少 continuityOut")
+        if not _text(following.get("continuityIn")):
+            pair_issues.append(f"第{to_number}镜缺少 continuityIn")
+        if not transition:
+            pair_issues.append(f"第{to_number}镜缺少 transitionNote")
+        if current_location and next_location and current_location != next_location and not hard_cut:
+            pair_issues.append(f"第{from_number}镜到第{to_number}镜场景变化未标记硬切")
+        if not hard_cut:
+            current_characters = _shot_field_tokens(current, ("characterNames", "characterBindings"))
+            next_characters = _shot_field_tokens(following, ("characterNames", "characterBindings"))
+            if current_characters and next_characters and not current_characters.intersection(next_characters):
+                pair_issues.append(f"第{from_number}镜到第{to_number}镜人物锚点明显跳变")
+            current_props = _shot_field_tokens(current, ("propNames", "propIds"))
+            next_props = _shot_field_tokens(following, ("propNames", "propIds"))
+            if current_props and next_props and not current_props.intersection(next_props):
+                pair_issues.append(f"第{from_number}镜到第{to_number}镜道具锚点明显跳变")
+            outgoing_state = _text(current.get("continuityOut"))
+            incoming_state = _text(following.get("continuityIn"))
+            opening_prompt = _continuity_prompt_opening(following.get("promptText"))
+            for state_name, keywords in _CONTINUITY_STATE_KEYWORDS.items():
+                outgoing_keywords = _state_keywords(outgoing_state, keywords)
+                incoming_keywords = _state_keywords(incoming_state or opening_prompt, keywords)
+                if outgoing_keywords and incoming_keywords and not outgoing_keywords.intersection(incoming_keywords):
+                    pair_issues.append(f"第{from_number}镜到第{to_number}镜{state_name}状态明显跳变")
+            outgoing_tokens = _continuity_tokens(current.get("continuityOut"))
+            incoming_tokens = _continuity_tokens(following.get("continuityIn"))
+            if outgoing_tokens and incoming_tokens and len(outgoing_tokens & incoming_tokens) == 0:
+                pair_issues.append(f"第{from_number}镜出镜状态与第{to_number}镜入镜状态没有共同锚点")
+            opening_tokens = _continuity_tokens(opening_prompt)
+            if incoming_tokens and opening_tokens and len(incoming_tokens & opening_tokens) == 0:
+                pair_issues.append(f"第{to_number}镜开场动作未体现入镜状态")
+            transition_lower = transition.casefold()
+            if re.search(r"动作匹配|action\s*match", transition_lower):
+                if outgoing_tokens and opening_tokens and not outgoing_tokens.intersection(opening_tokens):
+                    pair_issues.append(f"第{to_number}镜 transitionNote 标记动作匹配但实际动作不相连")
+            if re.search(r"声音桥接|sound\s*bridge", transition_lower):
+                outgoing_sound = _continuity_tokens(
+                    f"{_text(current.get('soundscape'))} {_text(current.get('soundscapeEn'))} {outgoing_state}"
+                )
+                incoming_sound = _continuity_tokens(
+                    f"{_text(following.get('soundscape'))} {_text(following.get('soundscapeEn'))} {incoming_state}"
+                )
+                if outgoing_sound and incoming_sound and not outgoing_sound.intersection(incoming_sound):
+                    pair_issues.append(f"第{to_number}镜标记声音桥接但前后声音状态不相连")
+        pair_status = "warning" if pair_issues else "passed"
+        reason = "；".join(pair_issues)
+        pairs.append({"fromShot": from_number, "toShot": to_number, "status": pair_status, "reason": reason})
+        issues.extend(pair_issues)
+    return {"status": "warning" if issues else "passed", "issues": issues, "pairs": pairs}
+
+
 def _recipe_assigned_dialogue_count(recipe: dict[str, Any]) -> int:
     count = 0
     for scene in recipe.get("scenes") or []:
@@ -541,7 +780,7 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
                 "title": title,
                 "description": description,
                 "promptText": prompt_text,
-                "dialogue": normalize_dialogue(item.get("dialogue")),
+                "dialogue": normalize_dialogue(item.get("dialogue"), speaker_names=[_text(name) for name in _list(names)]),
                 "characterNames": [_text(name) for name in _list(names) if _text(name)],
                 "characterBindings": [binding for binding in _list(bindings) if isinstance(binding, dict)],
                 "locationName": _text(item.get("locationName") or item.get("location_name") or scene_item.get("locationName")),
@@ -585,7 +824,13 @@ def _recipe_shots_timing_payload(recipe: dict[str, Any]) -> dict[str, Any]:
                 "title": _text(shot.get("title")),
                 "description": _text(shot.get("description")),
                 "promptText": _text(shot.get("promptText")),
-                "dialogue": normalize_dialogue(shot.get("dialogue")),
+                "dialogue": normalize_dialogue(
+                    shot.get("dialogue"),
+                    speaker_names=[
+                        *[_text(name) for name in _list(shot.get("characterNames"))],
+                        *([_text(shot.get("speakerName"))] if _text(shot.get("speakerName")) else []),
+                    ],
+                ),
                 "characterNames": list(shot.get("characterNames") or []),
                 "characterBindings": list(shot.get("characterBindings") or []),
                 "locationName": _text(shot.get("locationName")),
@@ -650,11 +895,12 @@ def _apply_shot_timing_polish(recipe: dict[str, Any], data: dict[str, Any]) -> N
             patch = updates_by_number.get(number)
             if not patch:
                 continue
-            original_dialogue = normalize_dialogue(shot.get("dialogue")).strip()
+            speaker_names = [_text(name) for name in _list(shot.get("characterNames"))]
+            original_dialogue = normalize_dialogue(shot.get("dialogue"), speaker_names=speaker_names).strip()
             if patch.get("durationSec") is not None:
                 shot["durationSec"] = snap_h3_duration_sec(patch.get("durationSec"))
             if patch.get("dialogue") is not None:
-                patch_dialogue = normalize_dialogue(patch.get("dialogue"))
+                patch_dialogue = normalize_dialogue(patch.get("dialogue"), speaker_names=speaker_names)
                 if original_dialogue and is_dialogue_truncated(patch_dialogue, original_dialogue):
                     shot["dialogue"] = original_dialogue
                 else:
@@ -691,6 +937,20 @@ def _apply_shot_timing_polish(recipe: dict[str, Any], data: dict[str, Any]) -> N
             if transition_note:
                 shot["transitionNote"] = transition_note
             enforce_shot_dialogue_timing(shot, baseline_dialogue=original_dialogue or shot.get("dialogue"))
+
+
+def _normalize_recipe_dialogue_fields(recipe: dict[str, Any]) -> None:
+    """Normalize model-added speaker labels and keep H3 dialogue tags in sync."""
+    for shot in _flatten_recipe_shots(recipe):
+        speaker_names = [_text(name) for name in _list(shot.get("characterNames"))]
+        speaker_name = _text(shot.get("speakerName") or shot.get("speaker_name"))
+        if speaker_name:
+            speaker_names.append(speaker_name)
+        dialogue = normalize_dialogue(shot.get("dialogue"), speaker_names=speaker_names).strip()
+        shot["dialogue"] = dialogue
+        prompt_base = shot.get("promptText") or shot.get("description")
+        shot["promptText"] = sync_dialogue_prompt(prompt_base, dialogue)
+        enforce_shot_dialogue_timing(shot, baseline_dialogue=dialogue)
 
 
 def _apply_characters(recipe: dict[str, Any], data: dict[str, Any]) -> None:
@@ -1177,6 +1437,7 @@ def run_agent(
                         chat_fn.on_chunk = previous_chunk
             
             _apply_storyboard(recipe, {"scenes": all_scenes}, goal)
+            _normalize_recipe_dialogue_fields(recipe)
             if _recipe_shot_count(recipe) == 0:
                 recipe["scenes"] = []
                 set_agent_status(recipe, agent_id, "failed", "分镜未按剧本拆出镜头，请重试生成分镜")
@@ -1195,6 +1456,7 @@ def run_agent(
                     emit()
             if chat_fn and _recipe_shot_count(recipe) > 0:
                 chunk_size = 5
+                continuity_window_warnings: list[str] = []
                 
                 # --- Timing Pass ---
                 timing_payload = _recipe_shots_timing_payload(recipe)
@@ -1228,41 +1490,86 @@ def run_agent(
                     # --- Continuity Pass ---
                     cont_payload = _recipe_shots_timing_payload(recipe)
                     all_shots = [shot for scene in (cont_payload.get("scenes") or []) for shot in (scene.get("shots") or [])]
-                    chunks = [all_shots[i:i + chunk_size] for i in range(0, len(all_shots), chunk_size)]
+                    continuity_windows = _overlapping_continuity_windows(
+                        all_shots,
+                        size=chunk_size,
+                        overlap=1,
+                    )
                     
-                    for i, chunk in enumerate(chunks):
-                        set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({i+1}/{len(chunks)})")
+                    for i, window in enumerate(continuity_windows):
+                        set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({i+1}/{len(continuity_windows)})")
                         emit()
                         
                         def cont_report(accumulated: str, idx=i) -> None:
                             n = len(accumulated or "")
                             if n > 0:
-                                set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({idx+1}/{len(chunks)}) - 已收 {n} 字")
+                                set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({idx+1}/{len(continuity_windows)}) - 已收 {n} 字")
                                 try: emit()
                                 except: pass
                         if hasattr(chat_fn, "on_chunk"):
                             chat_fn.on_chunk = cont_report
 
-                        chunk_payload = {"scenes": [{"shots": chunk}]}
-                        continuity_raw = _chat_text(chat_fn, [
-                            {"role": "system", "content": build_storyboard_continuity_polish_prompt()},
-                            {"role": "user", "content": json.dumps(chunk_payload, ensure_ascii=False)},
-                        ], retries=1)
-                        continuity_parsed = _parse_storyboard_reply(continuity_raw, goal)
-                        if _collect_storyboard_scenes(continuity_parsed):
-                            _apply_shot_timing_polish(recipe, continuity_parsed)
+                        window_payload = {
+                            "scenes": [{"shots": window["shots"]}],
+                            "contextShotNumbers": window["contextShotNumbers"],
+                            "editableShotNumbers": window["editableShotNumbers"],
+                        }
+                        user_content = json.dumps(window_payload, ensure_ascii=False)
+                        patch_applied = False
+                        patch_error = ""
+                        for attempt in range(2):
+                            if attempt:
+                                user_content = (
+                                    json.dumps(window_payload, ensure_ascii=False)
+                                    + "\n上一次响应无效："
+                                    + patch_error
+                                    + "。请只返回带有正确全局 shotNumber 的合法 JSON，并覆盖全部 editableShotNumbers。"
+                                )
+                            continuity_raw = _chat_text(chat_fn, [
+                                {"role": "system", "content": build_storyboard_continuity_polish_prompt()},
+                                {"role": "user", "content": user_content},
+                            ], retries=1)
+                            continuity_parsed = _parse_storyboard_reply(continuity_raw, goal)
+                            patch_applied, patch_error = _apply_continuity_patch(
+                                recipe,
+                                continuity_parsed,
+                                editable_shot_numbers=window["editableShotNumbers"],
+                                window_shot_numbers=window["windowShotNumbers"],
+                            )
+                            if patch_applied:
+                                break
+                        if not patch_applied:
+                            continuity_window_warnings.append(
+                                f"连续性窗口 {i + 1} 未应用：{patch_error or '返回格式无效'}"
+                            )
                 finally:
                     if chat_fn and hasattr(chat_fn, "on_chunk"):
                         chat_fn.on_chunk = previous_chunk
                         
                 enforce_recipe_shot_dialogue_timing(recipe)
+                _normalize_recipe_dialogue_fields(recipe)
+            else:
+                continuity_window_warnings = []
+            continuity_qa = validate_continuity_pairs(recipe)
+            if continuity_window_warnings:
+                continuity_qa["status"] = "warning"
+                continuity_qa["issues"] = list(continuity_qa.get("issues") or []) + continuity_window_warnings
+            recipe["continuityQa"] = continuity_qa
             gaps = _continuity_coverage_gaps(recipe)
-            if gaps:
+            if gaps or continuity_qa.get("issues"):
+                issue_count = max(len(gaps), len(continuity_qa.get("issues") or []))
+                risky_pairs = [
+                    f"第 {pair['fromShot']} 镜 → 第 {pair['toShot']} 镜"
+                    for pair in continuity_qa.get("pairs") or []
+                    if pair.get("status") == "warning"
+                ]
+                risk_count = min(len(risky_pairs), 3) if risky_pairs else min(issue_count, 3)
+                risk_suffix = f"：{'、'.join(risky_pairs[:3])}" if risky_pairs else ""
                 set_agent_status(
                     recipe,
                     agent_id,
                     "completed",
-                    message=f"已写出 {_recipe_shot_count(recipe)} 个镜头；衔接待补 {min(len(gaps), 3)} 处",
+                    message=f"已写出 {_recipe_shot_count(recipe)} 个镜头；发现 {risk_count} 处衔接风险{risk_suffix}",
                 )
             else:
                 set_agent_status(recipe, agent_id, "completed")

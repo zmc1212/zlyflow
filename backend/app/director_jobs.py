@@ -1084,6 +1084,10 @@ def render_recipe_shots(
                 "t2v",
             )
         shot["jobId"] = None
+        shot["status"] = "queued"
+        shot["progress"] = 0
+        if on_progress is not None:
+            on_progress(recipe)
         if h3_prompt_refiner is not None and (refs or not plan_items):
             try:
                 prompt_mode = h3_prompt_mode(submission.get("plan") or {})

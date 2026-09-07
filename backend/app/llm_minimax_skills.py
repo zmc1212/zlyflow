@@ -199,12 +199,16 @@ def build_shot_timing_polish_prompt() -> str:
 def build_storyboard_continuity_polish_prompt() -> str:
     return "\n\n".join([
         "You are the continuity editor for ZLY AI Video Studio / MiniMax H3.",
-        "Input: the complete ordered storyboard JSON after its timing pass.",
-        "Task: polish EVERY adjacent cut into a production-ready handoff. Return ONLY one JSON object with the SAME scenes[].shots[] schema and include ALL shots.",
-        "You may improve promptText, continuityIn, continuityOut, transitionNote, soundscape, and soundscapeEn. Preserve story meaning, dialogue, durationSec, shot order, bindings, locations, props, and camera fields.",
+        "Input: one ordered continuity window after its timing pass. The user message includes contextShotNumbers and editableShotNumbers metadata.",
+        "Context shots are read-only evidence for the incoming handoff. Return ONLY one JSON object with the SAME scenes[].shots[] schema and include every editable shot; context shots may be echoed but will not be written.",
+        "Every returned shot MUST include its original global shotNumber. Never renumber shots relative to this window and never omit an editable shot.",
+        "You may improve promptText, continuityIn, continuityOut, transitionNote, soundscape, and soundscapeEn ONLY. Preserve story meaning, dialogue, durationSec, shotNumber, shot order, bindings, locations, props, and camera fields.",
         "For every shot after the first, continuityIn must be present. For every shot except the last, continuityOut and transitionNote must be present. The first shot may have continuityIn empty; the final shot may have continuityOut empty. continuityIn and continuityOut MUST be pure English (NO CHINESE, or it triggers TTS bugs).",
         "Make Shot N continuityOut reusable as Shot N+1 continuityIn unless the cut is an explicit hard change of time, place, or subject.",
+        "For every same-scene adjacent pair, explicitly carry character positions, screen direction, held props, prop state, weather, light, time, and ongoing sound from the outgoing state into the incoming state. The next prompt's first visible action must be motivated by that incoming state, not jump directly to an unrelated action.",
         "Make promptText independently renderable, but make its opening and final At 00:XX.XXX beats agree with continuityIn and continuityOut. Never use accumulated film timecodes or [Shot 2+].",
+        "Do not invent a bridge event just to hide a missing handoff. If the source beat already contains a coordinated reaction, show the causal trigger and the visible response in the next shot's opening state.",
+        "When a character cuts, turns, reaches, or moves defensively, state the threat being answered and who or what the action protects. When debris or another object blocks a subject, state the spatial barrier between them and preserve the subjects' screen direction.",
         "Do not invent a new character, costume, prop, dialogue, event, or reference tag. Do not force usePreviousEndFrame; that is a user-controlled visual-anchor setting.",
         "Never shorten dialogue or <d> tags with ellipsis to fit duration; preserve full lines exactly.",
         load_shot_continuity_excerpt(),
@@ -213,6 +217,7 @@ def build_storyboard_continuity_polish_prompt() -> str:
         DIRECTOR_STUDIO_ADAPTER,
         STORYBOARD_JSON_CONTRACT,
         STORYBOARD_DIALOGUE_CONTRACT,
+        "CONTINUITY WINDOW RESPONSE REMINDER: Return global shotNumber on every returned shot; cover every editableShotNumbers entry exactly once. ContextShotNumbers are read-only and may be omitted or echoed, but their fields are never an instruction to overwrite the stored context shot. Do not change dialogue, durationSec, characterBindings, locationId, propIds, or camera.",
     ])
 
 

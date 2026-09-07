@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -111,15 +112,94 @@ def _text(value: Any, fallback: Any = "") -> str:
     return repair_utf8_mojibake(str(fallback).strip())
 
 
-def normalize_dialogue(value: Any) -> str:
-    text = _text(value)
+def _strip_dialogue_quotes(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 2 and ((text[0], text[-1]) in {
+        ("\"", "\""),
+        ("'", "'"),
+        ("“", "”"),
+        ("‘", "’"),
+    }):
+        return text[1:-1].strip()
+    return text
+
+
+def _strip_dialogue_speaker_prefix(text: str, speaker_names: list[str] | None = None) -> str:
+    """Remove model-added speaker/delivery labels without changing spoken words.
+
+    We only remove an unbracketed ``Speaker（delivery）：`` prefix when the
+    caller supplied the shot's known character names. Bracketed speaker labels
+    are safe to remove unconditionally because they are an H3 adapter artifact.
+    """
+    value = _strip_dialogue_quotes(text.strip())
+    bracketed = re.match(
+        r"^\s*\[([^\]]+)\]\s*(?:（[^）]*）|\([^)]*\))?\s*[：:]\s*(.+?)\s*$",
+        value,
+        flags=re.DOTALL,
+    )
+    if bracketed:
+        value = bracketed.group(2).strip()
+
+    known = [str(name).strip() for name in (speaker_names or []) if str(name).strip()]
+    for name in sorted(known, key=len, reverse=True):
+        escaped = re.escape(name)
+        match = re.match(
+            rf"^\s*(?:\[{escaped}\]|{escaped})\s*"
+            r"(?:（[^）]*）|\([^)]*\))?\s*[：:]\s*(.+?)\s*$",
+            value,
+            flags=re.DOTALL,
+        )
+        if match:
+            value = match.group(1).strip()
+            break
+    if value == text.strip() and not known:
+        generic = re.match(
+            r"^\s*([^：:\n]{1,20})\s*(?:（[^）]*）|\([^)]*\))\s*[：:]\s*(.+?)\s*$",
+            value,
+            flags=re.DOTALL,
+        )
+        if generic and re.search(r"[\u4e00-\u9fff]", generic.group(1)):
+            value = generic.group(2).strip()
+    return _strip_dialogue_quotes(value)
+
+
+def sync_dialogue_prompt(prompt_text: Any, dialogue: Any) -> str:
+    """Keep the H3 ``<d>`` block aligned with the canonical dialogue value."""
+    prompt = _text(prompt_text)
+    line = normalize_dialogue(dialogue)
+    if not line:
+        return re.sub(r"\s*<d>(?:\[[^\]]+\])?.*?</d>", "", prompt, flags=re.I | re.DOTALL).strip()
+    if not prompt:
+        return ""
+    language = "Chinese" if re.search(r"[\u4e00-\u9fff]", line) else "English"
+    tag = f"<d>[{language}] {line}</d>"
+    if re.search(r"<d>.*?</d>", prompt, flags=re.I | re.DOTALL):
+        return re.sub(
+            r"<d>(?:\[[^\]]+\])?.*?</d>",
+            tag,
+            prompt,
+            count=1,
+            flags=re.I | re.DOTALL,
+        )
+    return f"{prompt.rstrip()} {tag}".strip()
+
+
+def normalize_dialogue(value: Any, *, speaker_names: list[str] | None = None) -> str:
+    text = "" if value is None else str(value).strip()
     lowered = text.lower()
     if lowered.startswith("<d>") and lowered.endswith("</d>"):
         inner = text[3:-4].strip()
         if inner.startswith("[") and "]" in inner[:32]:
             inner = inner.split("]", 1)[1].strip()
-        return inner
-    return text
+        text = inner
+    text = re.sub(r"^\s*\[(?:Chinese|中文|English|英文)\]\s*", "", text, flags=re.I)
+    # Strip a speaker prefix before repairing mojibake: a model response can
+    # contain a correctly encoded Chinese name followed by Latin-1-encoded
+    # spoken text, which would otherwise hide the repair signal.
+    text = _strip_dialogue_speaker_prefix(text, speaker_names)
+    text = _text(text)
+    text = re.sub(r"^\s*\[(?:Chinese|中文|English|英文)\]\s*", "", text, flags=re.I)
+    return _strip_dialogue_speaker_prefix(text, speaker_names)
 
 
 def default_audio_mix() -> dict[str, Any]:
@@ -795,12 +875,25 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
     duration = snap_h3_duration_sec(item.get("durationSec", item.get("duration_sec", 5)))
     location_name = _text(item.get("locationName"), item.get("location_name") or "") or scene_location
     title = _text(item.get("title")) or f"分镜 {index + 1}"
+    speaker_name = _text(item.get("speakerName"), item.get("speaker_name") or "")
+    dialogue = normalize_dialogue(
+        item.get("dialogue"),
+        speaker_names=character_names + ([speaker_name] if speaker_name else []),
+    )
     description, prompt_text = split_display_and_prompt(
         title=title,
         description=_text(item.get("description")),
         prompt_text=_text(item.get("promptText"), item.get("prompt_text") or item.get("prompt") or ""),
         fallback_zh=title,
     )
+    prompt_base = prompt_text or description
+    if not dialogue:
+        dialogue_match = re.search(r"<d>.*?</d>", prompt_base, flags=re.I | re.DOTALL)
+        if dialogue_match:
+            dialogue = normalize_dialogue(
+                dialogue_match.group(0),
+                speaker_names=character_names + ([speaker_name] if speaker_name else []),
+            )
     try:
         active_take = int(item.get("activeTakeIndex") if item.get("activeTakeIndex") is not None else item.get("active_take_index") or 0)
     except (TypeError, ValueError):
@@ -810,8 +903,8 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
         "shotNumber": int(item.get("shotNumber") or item.get("shot_number") or index + 1),
         "title": title,
         "description": description,
-        "promptText": prompt_text,
-        "dialogue": normalize_dialogue(item.get("dialogue")),
+        "promptText": sync_dialogue_prompt(prompt_text, dialogue),
+        "dialogue": dialogue,
         "characterNames": character_names,
         "characterBindings": bindings,
         "assetBindingMode": "stable" if explicit_bindings or explicit_location or explicit_props else "legacy",
@@ -1035,6 +1128,37 @@ def normalize_recipe_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     _resolve_recipe_asset_bindings(normalized)
     normalized["agentStatus"] = _normalize_agent_status(raw.get("agentStatus") or raw.get("agent_status"))
     normalized["pipelineRun"] = _normalize_pipeline_run(raw.get("pipelineRun") or raw.get("pipeline_run"))
+    raw_continuity_qa = raw.get("continuityQa") or raw.get("continuity_qa")
+    if isinstance(raw_continuity_qa, dict):
+        status = _text(raw_continuity_qa.get("status"), "warning")
+        if status not in {"passed", "warning"}:
+            status = "warning"
+        issues = [
+            _text(item) for item in _as_list(raw_continuity_qa.get("issues")) if _text(item)
+        ]
+        pairs: list[dict[str, Any]] = []
+        for raw_pair in _as_list(raw_continuity_qa.get("pairs")):
+            if not isinstance(raw_pair, dict):
+                continue
+            try:
+                from_shot = int(raw_pair.get("fromShot") or raw_pair.get("from_shot"))
+                to_shot = int(raw_pair.get("toShot") or raw_pair.get("to_shot"))
+            except (TypeError, ValueError):
+                continue
+            pair_status = _text(raw_pair.get("status"), "warning")
+            if pair_status not in {"passed", "warning"}:
+                pair_status = "warning"
+            pairs.append({
+                "fromShot": from_shot,
+                "toShot": to_shot,
+                "status": pair_status,
+                "reason": _text(raw_pair.get("reason")),
+            })
+        normalized["continuityQa"] = {
+            "status": status,
+            "issues": issues,
+            "pairs": pairs,
+        }
     normalized["audio"] = normalize_audio_mix(raw.get("audio"))
     normalized["subtitles"] = normalize_subtitle_style(raw.get("subtitles"))
     normalized["export"] = normalize_export_state(raw.get("export"))

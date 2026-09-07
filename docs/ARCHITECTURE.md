@@ -1450,3 +1450,13 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不新增数据库字段，不改变 API、任务 JSON、工作流 graph、ComfyUI 节点或端口；无参考图 T2V 与相对路径旧任务行为保持不变。
 - 验证命令：`python -m unittest backend.tests.test_core.WorkerTests`、`pnpm --dir frontend build`。
 - 回滚方式：移除恢复/执行前的本地参考图门禁并恢复文档；无需数据库回滚。
+
+## 2026-09-08 分镜连续性窗口与 QA 修复
+
+- 原因：连续性润色沿用五镜头无重叠分块时，镜头 5 与镜头 6 会落在两个请求中，模型看不到跨块的动作、人物位置和道具状态，导致相邻镜头断裂。
+- 当前基线：时长润色仍按原五镜头分块；连续性润色改用五镜头窗口并重叠一个上下文镜头（1–5、5–9、9–13）。每个请求携带全局 `shotNumber`、`contextShotNumbers` 和 `editableShotNumbers`，重叠镜头只读，不会覆盖已确认结果。连续性响应只允许写入 `promptText`、`continuityIn`、`continuityOut`、`transitionNote`、`soundscape` 和 `soundscapeEn`；缺镜头、重复编号、窗口外编号或无效 JSON 会整块丢弃并重试，仍失败则保留原内容并记录风险。
+- QA 与对白：后端新增相邻镜头 `validate_continuity_pairs()`，检查边界字段、场景硬切标记、人物/道具/地点、天气/时间/光线、开场动作和转场说明，并把结构化结果写入可选 `Recipe.continuityQa`。对白字段统一去除 `<d>`、`[Chinese]` 和角色/情绪前缀，再同步 H3 `promptText` 的 `<d>` 标签；原始对白内容不翻译、不改写。高风险只在 Agent 状态中提示，不阻断流水线。
+- 受影响文件：`backend/app/director_agents.py`、`backend/app/director_recipe.py`、`backend/app/llm_minimax_skills.py`、`backend/app/director_jobs.py`、`backend/tests/test_director.py`。
+- 兼容性：不改 API 请求格式、数据库表、ComfyUI graph、节点 ID、模型路径或 7865/8188 端口；`continuityQa` 为可选字段，旧 Recipe 与旧客户端可继续读取。旧 Recipe 不自动重写，重新生成分镜时启用新逻辑。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。完整后端发现测试还需按当前实例环境配置 ComfyUI 地址和 LLM provider。
+- 回滚方式：恢复上述后端、测试和三份文档；无需迁移或回滚数据库、媒体和 ComfyUI 资产。
