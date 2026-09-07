@@ -1,5 +1,5 @@
-import { Button, Checkbox, Collapse, Input, InputNumber, Progress, Segmented, Select, Space, Tag, message } from "antd"
-import { Clapperboard, Copy, ImagePlus, Star } from "lucide-react"
+import { Button, Checkbox, Collapse, Input, InputNumber, Modal, Progress, Segmented, Select, Space, Tag, message } from "antd"
+import { Clapperboard, Copy, ImagePlus, Star, Trash2 } from "lucide-react"
 import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import JobErrorNotice from "./JobErrorNotice"
 import TakeGenerationParams from "./TakeGenerationParams"
@@ -156,6 +156,8 @@ export default function RecipeShotInspector({
   )
   const submittedSnapshot = (activeTake?.promptSnapshot || shot.compiledPrompt || "").trim()
   const promptTextLooksChinese = /[\u4e00-\u9fff]/.test(shot.promptText || "") && !(shot.promptText || "").toLowerCase().includes("the camera")
+  const continuityInLooksChinese = /[\u4e00-\u9fff]/.test(shot.continuityIn || "")
+  const continuityOutLooksChinese = /[\u4e00-\u9fff]/.test(shot.continuityOut || "")
   const dialogueDurationHint = useMemo(
     () => dialogueTimingWarning(shot.dialogue, shot.durationSec),
     [shot.dialogue, shot.durationSec],
@@ -425,6 +427,11 @@ export default function RecipeShotInspector({
                         placeholder="上一镜切入时的人物、道具、视线、运动方向和声音状态"
                         onChange={(event) => onChange({ continuityIn: event.target.value })}
                       />
+                      {continuityInLooksChinese ? (
+                        <p style={{ color: "var(--studio-warning, #faad14)", fontSize: 12, marginTop: 4 }}>
+                          当前状态是中文。MiniMax H3 要求非对白提示必须使用纯英文，否则可能会将其错误地作为旁白读出。
+                        </p>
+                      ) : null}
                     </label>
                     <label className="director-inspector-field">
                       <span>出镜状态（英文提示）</span>
@@ -434,6 +441,11 @@ export default function RecipeShotInspector({
                         placeholder="留给下一镜继承的最终构图、动作、方向或声音"
                         onChange={(event) => onChange({ continuityOut: event.target.value })}
                       />
+                      {continuityOutLooksChinese ? (
+                        <p style={{ color: "var(--studio-warning, #faad14)", fontSize: 12, marginTop: 4 }}>
+                          当前状态是中文。MiniMax H3 要求非对白提示必须使用纯英文，否则可能会将其错误地作为旁白读出。
+                        </p>
+                      ) : null}
                     </label>
                     <label className="director-inspector-field">
                       <span>转场说明</span>
@@ -537,6 +549,24 @@ export default function RecipeShotInspector({
                                       {take.renderPass ? <Tag>{directorRenderPassLabel(take.renderPass)}</Tag> : null}
                                       {takeId(take) === approvedId ? <Tag color="success">已批准</Tag> : null}
                                       <Tag color={directorStatusColor(take.status)}>{directorStatusLabel(take.status)}</Tag>
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        danger
+                                        icon={<Trash2 size={12} />}
+                                        title="删除这个 Take"
+                                        style={{ padding: 4, height: "auto", marginLeft: "auto" }}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          Modal.confirm({
+                                            title: "确认删除",
+                                            content: `确定要删除 Take ${take.takeNumber} 吗？`,
+                                            onOk: () => {
+                                              onChange({ takes: takes.filter((t) => t !== take) })
+                                            },
+                                          })
+                                        }}
+                                      />
                                     </div>
                                     <TakeGenerationParams
                                       take={take}

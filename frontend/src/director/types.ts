@@ -36,6 +36,7 @@ export type CameraSpeed = "smooth" | "dynamic" | "slow"
 export type CameraLighting = "cinematic_soft" | "cyberpunk" | "golden_hour" | "dramatic_low_key" | "studio"
 
 export interface CameraDirection {
+  enabled?: boolean
   scale: CameraScale
   movement: CameraMovement
   angle: CameraAngle
@@ -306,6 +307,7 @@ export function applyRecipeOutputSettings(
 
 export function defaultCameraDirection(): CameraDirection {
   return {
+    enabled: false,
     scale: "MS",
     movement: "zoom_in",
     angle: "eye_level",
@@ -454,16 +456,20 @@ export function h3CameraSentence(camera: CameraDirection): string {
 export function buildFormattedShotPrompt(shot: DirectorShot): string {
   let visual = (shot.prompt || "").trim()
   const camera = shot.camera || defaultCameraDirection()
-  if (visual && !hasScaleProse(visual)) {
-    visual = `${H3_SCALE_PHRASES[camera.scale] || H3_SCALE_PHRASES.MS} at ${H3_ANGLE_PHRASES[camera.angle] || H3_ANGLE_PHRASES.eye_level} frames the scene. ${visual}`.trim()
+  
+  if (camera.enabled !== false) {
+    if (visual && !hasScaleProse(visual)) {
+      visual = `${H3_SCALE_PHRASES[camera.scale] || H3_SCALE_PHRASES.MS} at ${H3_ANGLE_PHRASES[camera.angle] || H3_ANGLE_PHRASES.eye_level} frames the scene. ${visual}`.trim()
+    }
+    if (visual && !hasCameraProse(visual)) {
+      visual = `${visual.replace(/[. ]+$/, "")}. ${h3CameraSentence(camera)}`.trim()
+    }
+    const lighting = H3_LIGHTING_PHRASES[camera.lighting]
+    if (lighting && !visual.toLowerCase().includes(lighting.toLowerCase())) {
+      visual = `${visual.replace(/[. ]+$/, "")}. ${lighting.charAt(0).toUpperCase()}${lighting.slice(1)}.`
+    }
   }
-  if (visual && !hasCameraProse(visual)) {
-    visual = `${visual.replace(/[. ]+$/, "")}. ${h3CameraSentence(camera)}`.trim()
-  }
-  const lighting = H3_LIGHTING_PHRASES[camera.lighting]
-  if (lighting && !visual.toLowerCase().includes(lighting.toLowerCase())) {
-    visual = `${visual.replace(/[. ]+$/, "")}. ${lighting.charAt(0).toUpperCase()}${lighting.slice(1)}.`
-  }
+
   const dialogue = shot.dialogue?.trim()
   if (dialogue && !visual.includes("<d>")) {
     const tag = hasCjk(dialogue) ? "Chinese" : "English"

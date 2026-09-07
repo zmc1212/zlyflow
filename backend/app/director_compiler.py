@@ -963,10 +963,10 @@ def apply_recipe_continuity(recipe: dict[str, Any] | None, shot: dict[str, Any] 
     previous = previous_recipe_shot(recipe, resolved)
     if not isinstance(previous, dict):
         return resolved
-    if _shot_has_last_frame(previous) or previous.get("endFramePath") or previous.get("endFrameJobId"):
+    if _shot_has_last_frame(previous) or previous.get("endFramePath") or previous.get("endFrameJobId") or previous.get("jobId"):
         end_url = _get(previous, "endFrameUrl", "end_frame_url")
         end_path = _get(previous, "endFramePath", "end_frame_path")
-        end_job = _get(previous, "endFrameJobId", "end_frame_job_id")
+        end_job = _get(previous, "endFrameJobId", "end_frame_job_id") or previous.get("jobId")
     else:
         end_url = _get(previous, "stillUrl", "still_url")
         end_path = None

@@ -202,7 +202,7 @@ def build_storyboard_continuity_polish_prompt() -> str:
         "Input: the complete ordered storyboard JSON after its timing pass.",
         "Task: polish EVERY adjacent cut into a production-ready handoff. Return ONLY one JSON object with the SAME scenes[].shots[] schema and include ALL shots.",
         "You may improve promptText, continuityIn, continuityOut, transitionNote, soundscape, and soundscapeEn. Preserve story meaning, dialogue, durationSec, shot order, bindings, locations, props, and camera fields.",
-        "For every shot after the first, continuityIn must be present. For every shot except the last, continuityOut and transitionNote must be present. The first shot may have continuityIn empty; the final shot may have continuityOut empty.",
+        "For every shot after the first, continuityIn must be present. For every shot except the last, continuityOut and transitionNote must be present. The first shot may have continuityIn empty; the final shot may have continuityOut empty. continuityIn and continuityOut MUST be pure English (NO CHINESE, or it triggers TTS bugs).",
         "Make Shot N continuityOut reusable as Shot N+1 continuityIn unless the cut is an explicit hard change of time, place, or subject.",
         "Make promptText independently renderable, but make its opening and final At 00:XX.XXX beats agree with continuityIn and continuityOut. Never use accumulated film timecodes or [Shot 2+].",
         "Do not invent a new character, costume, prop, dialogue, event, or reference tag. Do not force usePreviousEndFrame; that is a user-controlled visual-anchor setting.",
@@ -250,7 +250,7 @@ DIRECTOR_STUDIO_ADAPTER = """Director Studio adapter (keep this even while follo
 - If the script gives speech during an action, dialogue and that action belong in one shot; silent establishing shots are only for beats with zero script dialogue.
 - Use <d> only for audible dialogue or lyrics. For a computer, phone, sign, or other visible written text, describe it as visible on-screen text in prose and do not wrap it in <d>.
 - durationSec: integer 2–15. Budget speech + action using the shot-timing skill; default 5 only when the beat is truly short.
-- continuityIn / continuityOut: concise English boundary states. They are not plot summaries: state composition, character/prop pose, motion direction, light/time and ongoing sound needed to connect the cut.
+- continuityIn / continuityOut: MUST BE PURE ENGLISH boundary states (NO CHINESE ALLOWED, or else it triggers TTS bugs). They are not plot summaries: state composition, character/prop pose, motion direction, light/time and ongoing sound needed to connect the cut.
 - transitionNote: concise Chinese editorial note for the incoming cut; name the bridge or the deliberate hard cut. Keep it user-facing and do not put it in promptText.
 - characterNames and locationName must copy the exact proper nouns and original writing system used by the source script. Never translate or transliterate names (for example, keep 李明 instead of Li Ming).
 - Every promptText is a standalone clip whose local timeline starts at 00:00. Use [Shot 1] or no shot tag; never emit [Shot 2+], an accumulated film timecode, or phrases such as "At 00:11.000, the camera cuts to".

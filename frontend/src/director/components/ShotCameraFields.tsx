@@ -1,4 +1,4 @@
-import { Select } from "antd"
+import { Select, Switch } from "antd"
 import {
   CAMERA_ANGLE_LABELS, CAMERA_LIGHTING_LABELS, CAMERA_MOVEMENT_LABELS, CAMERA_SCALE_LABELS,
   CameraAngle, CameraDirection, CameraLighting, CameraMovement, CameraScale, defaultCameraDirection,
@@ -12,14 +12,26 @@ export default function ShotCameraFields({
   onChange: (camera: CameraDirection) => void
 }) {
   const value = camera || defaultCameraDirection()
+  const enabled = value.enabled !== false
+
   return (
-    <div className="director-camera-fields">
+    <>
+      <div className="director-camera-toggle" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <span style={{ fontSize: 13, color: "var(--studio-text-secondary, #6b7280)" }}>启用辅助镜头参数（自动拼接到提示词）</span>
+        <Switch 
+          size="small" 
+          checked={enabled} 
+          onChange={(checked) => onChange({ ...value, enabled: checked })} 
+        />
+      </div>
+      <div className="director-camera-fields">
       <label>
         <span>景别</span>
         <Select
           aria-label="景别"
           className="w-full"
           value={value.scale}
+          disabled={!enabled}
           options={Object.entries(CAMERA_SCALE_LABELS).map(([key, item]) => ({ value: key, label: item.label }))}
           onChange={(scale: CameraScale) => onChange({ ...value, scale })}
         />
@@ -30,6 +42,7 @@ export default function ShotCameraFields({
           aria-label="运镜"
           className="w-full"
           value={value.movement}
+          disabled={!enabled}
           options={Object.entries(CAMERA_MOVEMENT_LABELS).map(([key, item]) => ({ value: key, label: item.label }))}
           onChange={(movement: CameraMovement) => onChange({ ...value, movement })}
         />
@@ -40,6 +53,7 @@ export default function ShotCameraFields({
           aria-label="机位"
           className="w-full"
           value={value.angle}
+          disabled={!enabled}
           options={Object.entries(CAMERA_ANGLE_LABELS).map(([key, item]) => ({ value: key, label: item.label }))}
           onChange={(angle: CameraAngle) => onChange({ ...value, angle })}
         />
@@ -50,10 +64,12 @@ export default function ShotCameraFields({
           aria-label="布光"
           className="w-full"
           value={value.lighting}
+          disabled={!enabled}
           options={Object.entries(CAMERA_LIGHTING_LABELS).map(([key, item]) => ({ value: key, label: item.label }))}
           onChange={(lighting: CameraLighting) => onChange({ ...value, lighting })}
         />
       </label>
     </div>
+    </>
   )
 }

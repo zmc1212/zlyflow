@@ -255,6 +255,34 @@ function confirmHeavyAction(options: {
   })
 }
 
+function confirmBoardBatch(options: {
+  title: string
+  countLabel: string
+  costLabel: string
+}): Promise<{ confirmed: boolean; chainShots: boolean }> {
+  return new Promise((resolve) => {
+    let chainShots = false
+    Modal.confirm({
+      title: options.title,
+      content: (
+        <div className="director-heavy-confirm">
+          <p>{options.countLabel}</p>
+          <p className="director-output-hint">{options.costLabel}</p>
+          <div style={{ marginTop: 16 }}>
+            <Checkbox onChange={(e) => { chainShots = e.target.checked }}>
+              开启镜头首尾相接连贯生成（将自动转为排队串行，耗时较长）
+            </Checkbox>
+          </div>
+        </div>
+      ),
+      okText: "提交",
+      cancelText: "取消",
+      onOk: () => resolve({ confirmed: true, chainShots }),
+      onCancel: () => resolve({ confirmed: false, chainShots: false }),
+    })
+  })
+}
+
 function startLocalPipelineRun(
   recipe: RecipeProject,
   agents: RecipeAgentId[],
@@ -1416,6 +1444,112 @@ export default function DirectorRecipeStudio({
     await handleRender(shotIds)
   }
 
+  async function handleChainedBoardGenerate(targets: string[]) {
+    if (boardMode === "still") {
+      messageApi.warning("连贯生成不支持静帧，将降级为常规生成")
+      await handleStills(targets)
+      return
+    }
+    if (running || activeOperationId) {
+      messageApi.warning("已有生成任务或操作正在执行，请完成后再试")
+      return
+    }
+    
+    const sortedTargets = targets.slice().sort((a, b) => {
+      const ia = shots.findIndex((s) => s.id === a)
+      const ib = shots.findIndex((s) => s.id === b)
+      return ia - ib
+    })
+
+    const toastKey = `chain-board-${Date.now()}`
+    messageApi.loading({
+      content: "开始首尾相接连贯生成...",
+      key: toastKey,
+      duration: 0,
+    })
+
+    setSubmittingShotIds((current) => Array.from(new Set([...current, ...sortedTargets])))
+
+    try {
+      for (let i = 0; i < sortedTargets.length; i++) {
+        const targetId = sortedTargets[i]
+        const shotIndex = shots.findIndex(s => s.id === targetId)
+        const prevShotId = shotIndex > 0 ? shots[shotIndex - 1].id : null
+        
+        const freshProject = queryClient.getQueryData<any>(["project", projectId])
+        const freshRecipe = freshProject?.payload || recipeRef.current
+        const freshShots = freshRecipe?.scenes.flatMap((s: any) => s.shots) || shots
+        const freshPrevShot = freshShots.find((s: any) => s.id === prevShotId)
+        
+        let videoUrl = freshPrevShot?.outputVideoUrl
+        if (!videoUrl && freshPrevShot?.jobId) {
+           const jobRes = await fetch(`/api/jobs/${encodeURIComponent(freshPrevShot.jobId)}`)
+           if (jobRes.ok) {
+             const job = await jobRes.json()
+             videoUrl = jobVideoUrl(job)
+           }
+        }
+
+        if (videoUrl) {
+          messageApi.loading({
+            content: `(${i + 1}/${sortedTargets.length}) 正在从上个镜头提取尾帧...`,
+            key: toastKey,
+            duration: 0,
+          })
+          try {
+            const { file } = await extractVideoFrame(videoUrl)
+            await handleUploadFrame(targetId, "first", file)
+          } catch (e) {
+            console.warn("Failed to extract frame:", e)
+          }
+        }
+
+        messageApi.loading({
+          content: `(${i + 1}/${sortedTargets.length}) 正在提交并等待本镜生成...`,
+          key: toastKey,
+          duration: 0,
+        })
+
+        const saved = await flushSave()
+        if (!saved) throw new Error("保存失败")
+        
+        const operation = await createDirectorOperation(projectId, {
+          kind: "shot_render_prepare",
+          shot_ids: [targetId],
+          render_pass: renderPass,
+          polish_prompt: polishPrompt,
+        }, csrfToken)
+        
+        let opFinished = false
+        let jobIds: string[] = []
+        while (!opFinished) {
+          await new Promise(r => setTimeout(r, 2000))
+          const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/director_operations/${encodeURIComponent(operation.id)}`)
+          if (!res.ok) continue
+          const op = await res.json()
+          if (op.status === "succeeded") {
+            opFinished = true
+            jobIds = op.result?.job_ids || []
+          } else if (op.status === "failed" || op.status === "cancelled") {
+            throw new Error(op.error || "提交操作失败")
+          }
+        }
+        
+        if (jobIds.length > 0) {
+          await waitForJobTerminal(jobIds[0])
+          await queryClient.invalidateQueries({ queryKey: ["project", projectId] })
+        }
+        
+        setSubmittingShotIds((current) => current.filter((id) => id !== targetId))
+      }
+      messageApi.success({ content: "连贯生成完成", key: toastKey, duration: 3 })
+    } catch (error) {
+      notifyFailure(error, "连贯生成中止")
+      messageApi.destroy(toastKey)
+      setSubmittingShotIds((current) => current.filter((id) => !sortedTargets.includes(id)))
+    }
+  }
+
   async function handleUploadFrame(shotId: string, slot: "first" | "end", file: File) {
     try {
       const saved = await flushSave()
@@ -1559,9 +1693,13 @@ export default function DirectorRecipeStudio({
       return
     }
     const targets = shotIds?.length ? shotIds : visibleShots.map((shot) => shot.id)
-    const ok = await confirmHeavyAction(boardBatchConfirm(boardMode, targets.length, title))
-    if (!ok) return
-    await handleBoardGenerate(shotIds)
+    const { confirmed, chainShots } = await confirmBoardBatch(boardBatchConfirm(boardMode, targets.length, title))
+    if (!confirmed) return
+    if (chainShots) {
+      await handleChainedBoardGenerate(targets)
+    } else {
+      await handleBoardGenerate(shotIds)
+    }
   }
 
   async function requestGenerateAllTts() {
@@ -2391,18 +2529,61 @@ export default function DirectorRecipeStudio({
                         </label>
                       </div>
                       <div className="director-shot-actions">
-                        <Space wrap>
-                        <Button
-                          loading={running}
-                          disabled={running}
-                          onClick={() => { void handleGenerateStoryboard({ force: true }) }}
+                        {checkedShots.length > 0 ? (
+                          <Button
+                            disabled={running || submittingShotIds.length > 0 || submittingStillIds.length > 0}
+                            onClick={() => { void requestBoardGenerate(checkedShotIds, "生成选中") }}
+                          >
+                            生成选中（{checkedShots.length}）
+                          </Button>
+                        ) : null}
+                        <Dropdown
+                          trigger={["click"]}
+                          menu={{
+                            items: [
+                              {
+                                key: "selected",
+                                label: `生成选中（${checkedShots.length}）`,
+                                disabled: !checkedShots.length || running,
+                              },
+                              {
+                                key: "retry",
+                                label: `仅重试失败项（${failedShotIds.length}）`,
+                                disabled: !failedShotIds.length || running,
+                              },
+                              {
+                                key: "stop",
+                                label: `停止选中项（${checkedShots.length}）`,
+                                disabled: !checkedShots.length,
+                                danger: true,
+                              },
+                              {
+                                key: "clear",
+                                label: `清空选中（${checkedShots.length}）`,
+                                disabled: !checkedShots.length,
+                              },
+                              {
+                                type: "divider",
+                              },
+                              {
+                                key: "rebuild",
+                                label: placeholderBoard || !visibleShots.length ? "根据剧本生成分镜" : "按剧本重新生成",
+                                disabled: running,
+                              },
+                            ],
+                            onClick: ({ key }) => {
+                              if (key === "selected") void requestBoardGenerate(checkedShotIds, "生成选中")
+                              if (key === "retry") void requestBoardGenerate(failedShotIds, "仅重试失败项")
+                              if (key === "stop") void handleCancelShots(checkedShotIds)
+                              if (key === "clear") setCheckedShotIds([])
+                              if (key === "rebuild") void handleGenerateStoryboard({ force: true })
+                            },
+                          }}
                         >
-                          {placeholderBoard || !visibleShots.length ? "根据剧本生成分镜" : "按剧本重新生成"}
-                        </Button>
-                        <Button disabled={!failedShotIds.length || running} onClick={() => { void requestBoardGenerate(failedShotIds, "仅重试失败项") }}>仅重试失败项（{failedShotIds.length}）</Button>
-                        <Button disabled={!checkedShots.length || running} onClick={() => { void requestBoardGenerate(checkedShotIds, "生成选中") }}>生成选中（{checkedShots.length}）</Button>
-                        <Button disabled={!checkedShots.length} onClick={() => { void handleCancelShots(checkedShotIds) }}>取消选中</Button>
-                        </Space>
+                          <Button icon={<MoreHorizontal size={14} />}>
+                            批量操作{checkedShots.length ? ` · ${checkedShots.length}` : ""}
+                          </Button>
+                        </Dropdown>
                         <Button
                           type="primary"
                           icon={<Clapperboard size={14} />}
@@ -2417,6 +2598,33 @@ export default function DirectorRecipeStudio({
                     {visibleShots.length ? (
                       <div className="director-shot-workspace">
                         <aside className="director-shot-bin">
+                          <div className="director-shot-bin-toolbar">
+                            <Checkbox
+                              checked={visibleShots.length > 0 && checkedShotIds.length === visibleShots.length}
+                              indeterminate={checkedShotIds.length > 0 && checkedShotIds.length < visibleShots.length}
+                              onChange={(event) => {
+                                if (event.target.checked) {
+                                  setCheckedShotIds(visibleShots.map((shot) => shot.id))
+                                } else {
+                                  setCheckedShotIds([])
+                                }
+                              }}
+                            >
+                              <span className="director-shot-bin-title">
+                                {checkedShotIds.length ? `已选 ${checkedShotIds.length} / ${visibleShots.length} 镜` : `全选（共 ${visibleShots.length} 镜）`}
+                              </span>
+                            </Checkbox>
+                            {checkedShotIds.length ? (
+                              <Button
+                                type="link"
+                                size="small"
+                                onClick={() => setCheckedShotIds([])}
+                                style={{ padding: 0, height: "auto", fontSize: 12 }}
+                              >
+                                清空
+                              </Button>
+                            ) : null}
+                          </div>
                           <div className="director-shot-list">
                             {visibleShots.map((shot) => {
                               const state = shotBoardState(shot)

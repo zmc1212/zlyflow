@@ -299,7 +299,7 @@ STORYBOARD_MAX_SHOTS_PER_SCENE = 8
 STORYBOARD_MAX_TOTAL_SHOTS = 32
 STORYBOARD_RETRY_SYSTEM = (
     "只输出一个 JSON 对象或镜头数组。把用户故事一次性拆成可独立提交 MiniMax H3 的全部镜头。"
-    "每镜 title/description/soundscape 用中文；soundscapeEn 与 promptText 用英文，只写一个从 00:00 开始的 [Shot 1] 片段。"
+    "每镜 title/description/soundscape 用中文；soundscapeEn, promptText, continuityIn 与 continuityOut 必须用纯英文，只写一个从 00:00 开始的 [Shot 1] 片段。"
     "<d> 仅用于实际可听见的台词或歌词；屏幕/招牌/手机上的可见文字必须以英文叙述描述，禁止包进 <d>。"
     "剧本里每条对白（含自言自语、旁白）必须写入对应镜头的 dialogue，并与同时发生的动作放在同一镜，禁止无对白建立镜头。"
     "覆盖全部剧情，通常 8–24 镜。禁止只输出 1 个主镜头，禁止输出 integrated_multimodal_description 顶层格式。"
