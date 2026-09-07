@@ -1424,193 +1424,29 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 验证命令：`python -m unittest backend.tests.test_core.StoreTests.test_jobs_are_filtered_by_owner_and_delivery_is_recorded backend.tests.test_ai_studio.JobEndpointTests.test_admin_can_filter_jobs_by_user_id_and_employee_cannot`。
 - 回滚方式：恢复上述文件并重启工作台；可选 `DROP INDEX idx_jobs_pinned_created ON jobs`、`DROP INDEX idx_jobs_owner_pinned_created ON jobs`。
 
-## 2026-09-02 导台2 资产生图按槽位独立回填
+## 2026-09-03 导演台提示词润色开关
 
-- 原因：角色肖像和造型并发入队时共用 `xiaji_assets.image_job_id`，`_hydrate_asset` 把后完成任务写进 `image_url`，两张图相同。
-- 当前基线：每个生图任务在 `xiaji_asset_media` 有独立 `job_id`；hydrate 按 `media_kind`/`slot` 写回。造型不覆盖肖像 job；上传造型不改 `image_url`。
-- 受影响文件：`xiaji_asset_store.py`、`xiaji_asset_api.py`、资产库前端、`test_xiaji.py` 与三份主文档。
-- 兼容性：不改表结构、端口、ComfyUI。历史造型 job 若曾写入 `image_job_id`，按 media kind=`look` 不再写肖像。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件并重启工作台。
+- 原因：定妆资产已经固定时，手动生成视频应允许跳过云端 H3 提示词润色。
+- API：`DirectorOperationCreateRequest` 与兼容的 `DirectorRenderShotsRequest` 新增 `polish_prompt`，默认 `true`。导演操作服务和旧渲染接口仅在该值为真且 LLM 可用时传入 `polish_director_h3_prompt`；为假时直接将现有镜头提示词交给 `render_recipe_shots`，其余校验、参考图编译、任务入队和进度持久化不变。
+- 前端：`DirectorRecipeStudio` 在输出设置中使用 Ant Design `Switch`，按项目将偏好保存到浏览器 `localStorage`（默认开启，静帧模式禁用），并把值提交到导演操作请求。
+- 兼容性：仅增加可选请求字段和前端本地偏好，无数据库迁移、Recipe 必填字段、工作流协议、ComfyUI 节点或端口变化。
+- 验证：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend build`。
+- 回滚：恢复相关后端、前端和文档文件并重新构建；无需回滚已有项目、任务或媒体。
 
-## 2026-09-03 导台2 项目任务列表
+## 2026-09-03 导演台镜头进度条恢复实时刷新
 
-- 原因：并发生图后需要按任务核对回调；界面可能仍把头像和造型显示成同一张。
-- 当前基线：`GET /api/xiaji/jobs?project_id=`；展示层以最新 media URL 区分肖像/造型。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`。
-- 回滚方式：恢复上述文件。
+- 原因：迁库后为减少远程 MySQL 压力，`GET /api/jobs` 轮询被限制为仅在「生成」工作区启用；导演台分镜/定妆进度条依赖同一 `allJobs` 列表，停在导演台时进度冻结。
+- 当前基线：`App.tsx` 在 `generate` 与 `director` 工作区启用任务列表轮询（资产页、导台2 仍关闭）。有排队/运行/中断任务时约 4 秒刷新，空闲约 15 秒。`DirectorRecipeStudio` 在镜头出片或静帧进行中也会 1.5 秒轮询工程，打开工程时后端 `sync_recipe_asset_images` 继续把 `jobs.progress` 写回 Recipe。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/director/DirectorRecipeStudio.tsx` 与三份主文档。
+- 兼容性：不改 `GET /api/jobs` 契约、数据库、工作流或 ComfyUI；仅恢复导演台侧轮询。
+- 验证命令：`pnpm --dir frontend exec tsc -b --pretty false`、`pnpm --dir frontend build`；导演台出片时确认进度条与按钮百分比随 `jobs.progress` 递增。
+- 回滚方式：恢复上述前端文件并重新构建。
 
-## 2026-09-03 场景背面/360 按 sourceXd 传入参考图
+## 2026-09-03 共享数据库视频任务本地素材保护
 
-- 原因：背面任务提示词写了 REFERENCE 1，但 `jobs.references_json` 为空，上游审核要求补正面图。
-- 当前基线：`scene_view=reverse` 把正面源图作为第 1 张参考图；无正面则 422。`panorama` 顺序为正面、已有背面。提示词按实际附图声明角色。
-- 受影响文件：`xiaji_asset_api.py`、`xiaji_asset_prompts.py`、`test_xiaji.py` 与三份主文档。
-- 兼容性：不改表结构、端口、ComfyUI。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 场景背面失败后不再卡在生成中
-
-- 原因：背面任务失败后 media 仍有 job_id 且无 URL，资产 status 仍是 ready，列表不轮询，按钮一直 loading。
-- 当前基线：媒体带回 `job_status`/`job_error`；失败视为终态，可重试。列表对分视角进行中任务也会轮询。
-- 受影响文件：`xiaji_asset_api.py`、资产库前端、`test_xiaji.py` 与三份主文档。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 导台2 任务详情展示全部入参
-
-- 原因：背面任务已传入正面图，任务详情只显示提示词，看不到参考图和 options。
-- 当前基线：`GET /api/xiaji/jobs` 返回 `references`、`parameters`、`options`；全部任务抽屉预览传入图并列出全部参数。参考图数量同时读取 job 与 round 的 `reference_count`。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_list_project_jobs_returns_slot_records backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_job_input_snapshot_counts_round_references`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 导台2 道具三槽位对齐 sourceXd 入参
-
-- 原因：主视图/转面/特写的提示词和画幅与 sourceXd `nanobanana_prop.py` 不一致（曾用 2x2 四视图、4:3/1:1）。
-- 当前基线：转面使用 1x3 三面板 FRONT/SIDE/BACK、16:9；主视图为单张正面产品照；特写为材质微距。三槽位 options 均为 `aspect_ratio=16:9, resolution=1K`（GRS 无 0.5K）。有主视图时转面/特写仍传入 REFERENCE 1。
-- 受影响文件：`xiaji_asset_prompts.py`、`xiaji_asset_api.py`、道具编辑页、`test_xiaji.py` 与三份主文档。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-04 导台2 用画风目录替换视觉风格
-
-- 原因：资产页改风格后点重新生成会回退；导台2 需要单独管理导演台同一套画分，并在角色/场景/道具生图时传入 `promptPrefix`。
-- 当前基线：`/director2/art-styles` 由工作台壳直接渲染画风页，不进入项目模块；`art-styles` 不得解析为项目 id。内容库/资产库画风用 Ant Design 下拉（选项内缩略图 + 选中旁预览），不再用右侧抽屉。角色生成头像时把画风 JPEG 预览作为 REFERENCE 1 传入 GRS，提示词要求色盘/色温与参考图对齐，不再使用灰底棚拍。页面浏览 34 条目录并保存用户默认画风（`xiaji_user_settings`）。内容库写入 `settings.art_style_id`。资产生图解析请求 → 资产 `art_style_id` → 项目设置，生成时写回资产以免轮询覆盖选择。
-- 受影响文件：画风目录复用、`xiaji_art_style.py`、项目/资产/导入 API、内容库与资产库前端、`sql/011_xiaji_user_settings.sql`、测试与三份主文档。
-- 兼容性：不改 ComfyUI、端口、节点 ID。旧 `visual_style` 粗粒度代码不再作为生图前缀。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`；前端 `tsc -b`。
-- 回滚方式：恢复上述文件；可选删除 `xiaji_user_settings`。
-
-## 2026-09-04 导台2 资产视觉风格跟随内容库
-
-- 原因：内容库选「动漫」写在项目 settings，部分角色 `definition.visual_style` 为空，资产库下拉不选中，生图也不带该风格。
-- 当前基线：风格解析为请求 `style` → 资产字段 → 项目 `settings.visual_style`。新建资产和空字段 sync 补项目/导入风格；已有非空风格不覆盖。角色编辑器用 `key={asset.id}` 并回退项目风格。
-- 受影响文件：`xiaji_asset_api.py`、`xiaji_asset_store.py`、`XiajiAssetsModule.tsx`、`test_xiaji.py` 与三份主文档。
-- 兼容性：不改表结构、端口、ComfyUI。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiAssetStoreTests.test_sync_fills_empty_visual_style_without_overwriting backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_generate_image_uses_project_visual_style_when_asset_empty backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_create_asset_inherits_project_visual_style`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-04 导台2 生成脚本改为逐行标注
-
-- 原因：整集一次改写成 8–40 条 Beat，推理模型容易 300 秒超时；且与 sourceXd 逐行保真不一致。
-- 当前基线：`POST .../generate-script` 按 `original_lines` 一行一个 Beat。场次头不调模型；内容行只补 `audio_type`/`speaker`/`visual_description`，不改写原行。单行超时用规则兜底，不让整集失败。Beat 仍写入既有 `kind/heading/speaker/dialogue/action` 字段。取消 8–40 条上限（仍受原文最多 400 行限制）。
-- 受影响文件：`xiaji_literal_script.py`、`xiaji_episode_prompts.py`、`xiaji_episode_api.py`、`llm_provider.py`、`xiaji_llm_jobs.py`、工坊前端、`test_xiaji.py` 与三份主文档。
-- 兼容性：接口路径不变。已有 Beat 不被自动改写，需重新生成脚本。不改表结构、ComfyUI、端口。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiLiteralScriptTests backend.tests.test_xiaji.XiajiLlmJobTests backend.tests.test_xiaji.XiajiEpisodeTests.test_normalize_script_beats_drops_unknown_speaker`、`pnpm --dir frontend exec tsc -b --pretty false`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-04 导台2 重新导入会清空项目内容
-
-- 原因：再次导入会叠加新文稿，旧资产/剧集仍留在项目里，和「换一份原文重来」不符。
-- 当前基线：项目已有文稿、资产或剧集时，「开始导入」先确认。确认后 `replace=true` 清空本项目内容库、资产库、剧集/Beat、大模型任务和自动生成编排，再导入新正文。项目名称和画风设置保留。取消则不改动。
-- 受影响文件：`xiaji_project_store.py`、`xiaji_api.py`、内容库前端、`xiaji-api.ts`、`test_xiaji.py` 与三份主文档。
-- 兼容性：不传 `replace` 仍可叠加导入。不改表结构、ComfyUI、端口。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiProjectIsolationTests`、`pnpm --dir frontend exec tsc -b --pretty false`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-04 导台2 造型图对齐 sourceXd 身份锁定
-
-- 原因：生成造型图不传肖像、画幅 4:3、提示词为短句拼接，与 sourceXd `generate_identity_with_reference` 不一致。
-- 当前基线：造型入队须已有可物化肖像，作为第 1 张参考图；options 为 `16:9` / `1K`；提示词为四面板 Identity Lock（动漫风格走动画 sheet）。无肖像或无外观描述 **422**。界面按钮禁用并提示。
-- 受影响文件：`xiaji_asset_prompts.py`、`xiaji_asset_api.py`、资产库前端、`test_xiaji.py` 与三份主文档。
-- 兼容性：不改表结构、端口、ComfyUI。需先有肖像才能生成造型。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_look_generate_keeps_portrait_job_and_media_slots backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_look_generate_requires_portrait`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 道具转面/特写与场景360须先有主图
-
-- 原因：道具附图可在无主视图时入队；360 在无正面时也可入队，与 sourceXd「先 master 再附图」不一致。
-- 当前基线：场景背面/360、道具转面/特写在无法物化主图时 **422**。界面按钮禁用并提示先生成或上传主图。
-- 受影响文件：`xiaji_asset_api.py`、`XiajiAssetsModule.tsx`、`test_xiaji.py` 与三份主文档。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 镜头视频双语提示词对齐 LightX2V R2V
-
-- 原因：本机多参考视频需要标明每张图职责；sourceXd 有「生成本 Beat 提示词」，导台2 原先只有英文模板。
-- 当前基线：`POST .../video-prompt`（并保留 `.../generate-video-prompt`）按装箱顺序声明 `<Picture n>`（精绘首帧、头像、造型、场景）。大模型返回中文 `video_prompt_zh` 与英文 `video_prompt`。生成视频把英文稿写入 Comfy 任务。本机不传 `<Audio n>`。
-- 受影响文件：`xiaji_episode_prompts.py`、`xiaji_episode_api.py`、`xiaji_episode_store.py`、镜头页前端、`test_xiaji.py` 与三份主文档。
-- 兼容性：启动补 `video_prompt_zh` 列；不改 ComfyUI 节点。无英文稿时仍回退模板。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 失败视频任务可重提交，提示词改走 video-prompt
-
-- 原因：任务如 `T5qSf6xMCZce` 已失败，但 beat 仍 `video_status=generating`（job 缺失或终态无成片时 hydrate 不改状态）。「生成本 Beat 提示词」POST `.../generate-video-prompt` 会被部分代理按 `generate-video` 前缀拦成 **405**。
-- 当前基线：hydrate 在视频/精绘槽位排队中若 job 失败、缺失、或部分完成但无成片，写 `failed` 并显示错误。镜头页可「重新生成视频」（`force: true`）。提示词主路径改为 `POST .../video-prompt`，旧路径仍接受 POST。
-- 受影响文件：`xiaji_episode_api.py`、镜头页前端、`test_xiaji.py` 与三份主文档。
-- 兼容性：不改表结构、端口、ComfyUI。需重启后端以加载新路由。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_failed_video_job_clears_generating_status backend.tests.test_xiaji.XiajiEpisodeTests.test_missing_video_job_clears_generating_status backend.tests.test_xiaji.XiajiEpisodeTests.test_video_prompt_accepts_post_not_get`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 生成本 Beat 提示词使用界面所选时长
-
-- 原因：任务 `1c571bde49a4470c` 在界面选了 10 秒，LLM 任务入参仍写 5 秒；工作流默认时长覆盖了选择。
-- 当前基线：`POST .../video-prompt` 以请求体 `duration` 为准，缺省才回退 Beat 已存 `video_duration`。生成提示词会把所选秒数写入任务参数、用户消息和 `xiaji_beats.video_duration`。镜头页切换时长不再被重置回 5 秒。
-- 受影响文件：`xiaji_episode_api.py`、`xiaji_episode_prompts.py`、镜头页前端、`test_xiaji.py` 与三份主文档。
-- 兼容性：不改表结构、端口、ComfyUI。需重启后端。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_video_prompt_uses_selected_duration backend.tests.test_xiaji.XiajiBeatPromptTests.test_video_motion_messages_use_requested_duration`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 视频提示词写清每张参考图素材并丰富本镜解说
-
-- 原因：任务 `6ygCQRYq4DFd` 使用 `fbf6a871aca84657` 的英文稿，只写 lock the hero face，没有说明 `<Picture n>` 是谁的头像、哪套造型、哪个场景；动作链也过短。
-- 当前基线：装箱清单带素材类型、专名、外貌/服装/场景细节。生成提示词必须用这些专名锁图，并按本镜动作写满时长的运镜与画面解说。本机仍不传 `<Audio n>`。
-- 受影响文件：`xiaji_episode_prompts.py`、`xiaji_episode_api.py`、镜头页、`test_xiaji.py` 与三份主文档。
-- 兼容性：不改表结构、端口、ComfyUI。需重启后端后重新生成提示词。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests.test_video_motion_messages_name_each_picture_material backend.tests.test_xiaji.XiajiBeatPromptTests.test_video_picture_slots_follow_r2v_order`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 镜头页回填最新视频提示词任务
-
-- 原因：任务 `20b8c366acce4c05` 已返回带齐静春/陈平安专名的中英稿，但 `/director2` 镜头 1 仍显示上一版「锁定英雄脸部」泛称文案。长请求超时或失焦保存会把旧稿留在 `video_prompt_zh`。
-- 当前基线：Beat 绑定 `video_prompt_job_id`。打开剧集时若有更新的成功 `video_prompt` 任务，把 `prompt_zh`/`prompt_en` 写回镜头。前端只在用户改过中文稿时才 PATCH，避免生成后被旧稿覆盖。
-- 受影响文件：`xiaji_episode_api.py`、`xiaji_episode_store.py`、镜头页、`test_xiaji.py` 与三份主文档。
-- 兼容性：启动补 `video_prompt_job_id` 列。需重启后端并刷新镜头页。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_hydrate_applies_latest_video_prompt_job`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 镜头精绘失败后不再卡在生成中
-
-- 原因：精绘 job 失败后 `waitForXiajiImageJob` 抛错不再刷新；轮询只看草图 status，界面一直「精绘中」（如 `ty2QwKPPsLQ`）。
-- 当前基线：等待失败也会 invalidate 镜头；轮询覆盖 render/video。hydrate 把 `render_status`/`render_error`（及视频对应字段）写入 `xiaji_beats`，失败为终态。界面显示失败并可重试。
-- 受影响文件：`xiaji_episode_api.py`、`xiaji_episode_store.py`、镜头页前端、`test_xiaji.py` 与三份主文档。
-- 兼容性：启动时 `ensure_column` 补列；不改端口、ComfyUI。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_failed_render_job_clears_generating_status`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 镜头精绘按槽位传头像再造型
-
-- 原因：历史角色把造型 job 写进 `image_job_id`，精绘把造型当头像传入，真正肖像未装箱（如任务 `ty2QwKPPsLQ` 林平之）。
-- 当前基线：对齐 sourceXd Render（草图后挂角色 face/sheet）。`_character_slot_sources` 头像优先 `media_kind=portrait`；造型 job/url 不回退为人脸。hydrate 纠正误写的肖像字段。草图阶段仍只传场景正面。
-- 受影响文件：`xiaji_asset_api.py`、`xiaji_episode_api.py`、`xiaji_episode_prompts.py`、`test_xiaji.py` 与三份主文档。
-- 兼容性：不改表结构、端口、ComfyUI。旧数据在列表/精绘时回填正确头像。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_hydrate_rewrites_portrait_when_image_job_id_is_look backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_render_character_refs_are_face_then_costume`。
-- 回滚方式：恢复上述文件。
-
-## 2026-09-03 导台2 大模型调用写入全部任务
-
-- 原因：内容导入、生成脚本、声线定义调用已配置 LLM，但不出现在项目「全部任务」，无法核对提示词与入参。
-- 当前基线：`xiaji_llm_jobs` 记录每次 LLM 调用的 messages、系统/用户提示词、模型、temperature、max_tokens、timeout、业务参数和模型输出。`GET /api/xiaji/jobs` 与生图任务合并列出。不进入 ComfyUI/`jobs` 队列。
-- 受影响文件：`sql/008_xiaji_llm_jobs.sql`、`xiaji_llm_jobs.py`、内容库/剧集/资产 API、全部任务前端与三份主文档。
-- 兼容性：不改 ComfyUI、工作流 ID、端口。生产库需执行 `sql/008_xiaji_llm_jobs.sql`（启动时 `CREATE TABLE IF NOT EXISTS` 也会补表）。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiLlmJobTests`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件；可选 `DROP TABLE xiaji_llm_jobs`。
-
-## 2026-09-03 导台2 相邻 Beat 视频尾帧衔接
-
-- 原因：每条 Beat 各自用本镜精绘做 I2V/R2V，拼接后像两张静帧分别转化，没有画面承接。
-- 当前基线：从第二条可出片 Beat 起必须先有上一镜 `video_url`。默认截取上一镜最后一帧作为本镜 `video_in_frame_url`（可 seek 后手动改截）。R2V 装箱 `<Picture 1>`=衔接帧、`<Picture 2>`=本镜精绘。提示词强制 0–1.5s 从截图过渡到精绘，之后按本镜动作写。无上一镜视频或无衔接帧时生成提示词/视频 **422**。I2V 只用衔接帧做首帧，精绘不当全片尾帧。
-- 受影响文件：`xiaji_episode_store.py`、`xiaji_episode_api.py`、`xiaji_episode_prompts.py`、`sql/009_xiaji_beat_bridge.sql`、镜头页、`test_xiaji.py` 与三份主文档。
-- 兼容性：启动补列。第一条镜头行为不变。不改 ComfyUI、端口。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_second_beat_video_requires_previous_clip_and_in_frame backend.tests.test_xiaji.XiajiBeatPromptTests.test_video_picture_slots_put_bridge_before_render backend.tests.test_xiaji.XiajiBeatPromptTests.test_bridge_prompt_requires_timing`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述文件。列可保留。
-
-## 2026-09-03 导台2 整集自动生成任务
-
-- 原因：镜头页「生成本集草图」会并行入队草图，不能按镜完成精绘、提示词和视频，也无法锁定整集视频参数。
-- 当前基线：按钮改为「添加自动生成任务」。`POST /api/xiaji/episodes/{id}/auto-run` 把界面视频参数写入 `xiaji_episode_runs` 后由 `XiajiAutoPipeline` 从 Beat 1 串行执行草图→精绘→ffmpeg 抽上一镜末帧→提示词→视频。上一步 URL/文案落库才入队下一步；上一镜 `video_url` 成功才开下一镜。同集同时只能一条 queued/running。进程重启把未完成 run 标 `interrupted`，不自动重放。子任务仍写入 `jobs` / `xiaji_llm_jobs`，「全部任务」另有一条编排记录。
-- 受影响文件：`sql/010_xiaji_episode_runs.sql`、`xiaji_episode_run_store.py`、`xiaji_auto_pipeline.py`、剧集/任务 API、镜头页、测试与三份主文档。
-- 兼容性：保留 `POST .../generate-sketches`。不改 ComfyUI、端口、工作流 ID。生产库需补表（启动时 `CREATE TABLE IF NOT EXISTS`）。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_auto_run_conflict_and_sketch_gate backend.tests.test_xiaji.XiajiEpisodeTests.test_auto_run_locks_video_params_and_skips_ready_sketch`、`pnpm --dir frontend exec tsc -b --pretty false`。
-- 回滚方式：恢复上述文件；可选 `DROP TABLE xiaji_episode_runs`。
+- 原因：本地工作站和服务器使用同一 MySQL，但 `data/uploads` 并非共享文件系统；旧 worker 会在任意实例恢复所有排队 H3 任务，使非创建端因绝对参考图不存在而在 ComfyUI 提交前失败。
+- 架构基线：`JobWorker.references_available_locally()` 是视频任务恢复与执行的本地性门禁。绝对参考图只要有一项无法在当前主机读取，该实例就跳过任务且不变更数据库状态；素材所在工作站仍按既有队列接管。`PureWindowsPath` 用于让 Linux 实例识别 Windows 盘符路径。
+- 受影响文件：`backend/app/worker.py`、`backend/tests/test_core.py` 与三份主文档。
+- 兼容性：不新增数据库字段，不改变 API、任务 JSON、工作流 graph、ComfyUI 节点或端口；无参考图 T2V 与相对路径旧任务行为保持不变。
+- 验证命令：`python -m unittest backend.tests.test_core.WorkerTests`、`pnpm --dir frontend build`。
+- 回滚方式：移除恢复/执行前的本地参考图门禁并恢复文档；无需数据库回滚。

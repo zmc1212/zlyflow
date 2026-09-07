@@ -88,6 +88,10 @@ def job_public_output_url(job: dict[str, Any] | None, *, kind: str | None = None
         outputs = matched or outputs
     if not outputs:
         return None
+    for output in outputs:
+        stored = str(output.get("cloud_url") or "").strip()
+        if stored:
+            return stored
     return f"/api/jobs/{job['id']}/outputs/0/download"
 
 
