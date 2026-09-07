@@ -12,7 +12,7 @@ export default function ShotCameraFields({
   onChange: (camera: CameraDirection) => void
 }) {
   const value = camera || defaultCameraDirection()
-  const enabled = value.enabled !== false
+  const enabled = Boolean(value.enabled)
 
   return (
     <>

@@ -29,11 +29,16 @@ function takeKey(take: ShotTake): string {
   return take.id || take.jobId || ""
 }
 
-export function mergeRecipeTakeExecution(current: ShotTake[], incoming: ShotTake[]): ShotTake[] {
+export function mergeRecipeTakeExecution(
+  current: ShotTake[],
+  incoming: ShotTake[],
+  deletedTakeIds?: Set<string>,
+): ShotTake[] {
   const merged = current.map((take) => ({ ...take }))
   const positions = new Map(merged.map((take, index) => [takeKey(take), index] as const).filter(([key]) => key))
   for (const take of incoming) {
     const key = takeKey(take)
+    if (key && deletedTakeIds?.has(key)) continue
     const position = key ? positions.get(key) : undefined
     if (position === undefined) {
       if (key) positions.set(key, merged.length)
@@ -58,9 +63,9 @@ function copyFields<T extends object>(
   return next as unknown as T
 }
 
-function mergeShotExecution(current: RecipeShot, incoming: RecipeShot): RecipeShot {
+function mergeShotExecution(current: RecipeShot, incoming: RecipeShot, deletedTakeIds?: Set<string>): RecipeShot {
   const next = copyFields(current, incoming, SHOT_EXECUTION_FIELDS)
-  next.takes = mergeRecipeTakeExecution(current.takes || [], incoming.takes || [])
+  next.takes = mergeRecipeTakeExecution(current.takes || [], incoming.takes || [], deletedTakeIds)
   // Approval is a creative decision. Polling execution state must never move it.
   next.approvedTakeId = current.approvedTakeId
   return next
@@ -128,7 +133,11 @@ function mergeAssetsById<T extends { id: string }>(current: T[], incoming: T[], 
  * Merge server-owned execution fields while retaining every unsaved creative
  * field and the current scene/shot ordering in the editor.
  */
-export function mergeRecipeExecutionState(current: RecipeProject, incoming: RecipeProject): RecipeProject {
+export function mergeRecipeExecutionState(
+  current: RecipeProject,
+  incoming: RecipeProject,
+  deletedTakeIds?: Set<string>
+): RecipeProject {
   const incomingShots = new Map(
     incoming.scenes.flatMap((scene) => scene.shots).map((shot) => [shot.id, shot] as const),
   )
@@ -136,7 +145,7 @@ export function mergeRecipeExecutionState(current: RecipeProject, incoming: Reci
     ...scene,
     shots: scene.shots.map((shot) => {
       const updated = incomingShots.get(shot.id)
-      return updated ? mergeShotExecution(shot, updated) : shot
+      return updated ? mergeShotExecution(shot, updated, deletedTakeIds) : shot
     }),
   }))
   const audio = {
@@ -165,8 +174,12 @@ export function mergeRecipeExecutionState(current: RecipeProject, incoming: Reci
 }
 
 /** Apply an explicit user approval without dropping unsaved creative edits. */
-export function mergeRecipeApprovedAssetState(current: RecipeProject, incoming: RecipeProject): RecipeProject {
-  const merged = mergeRecipeExecutionState(current, incoming)
+export function mergeRecipeApprovedAssetState(
+  current: RecipeProject,
+  incoming: RecipeProject,
+  deletedTakeIds?: Set<string>
+): RecipeProject {
+  const merged = mergeRecipeExecutionState(current, incoming, deletedTakeIds)
   const characters = new Map(incoming.characters.map((item) => [item.id, item]))
   const locations = new Map(incoming.locations.map((item) => [item.id, item]))
   const props = new Map(incoming.props.map((item) => [item.id, item]))

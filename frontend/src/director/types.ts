@@ -457,7 +457,7 @@ export function buildFormattedShotPrompt(shot: DirectorShot): string {
   let visual = (shot.prompt || "").trim()
   const camera = shot.camera || defaultCameraDirection()
   
-  if (camera.enabled !== false) {
+  if (camera.enabled) {
     if (visual && !hasScaleProse(visual)) {
       visual = `${H3_SCALE_PHRASES[camera.scale] || H3_SCALE_PHRASES.MS} at ${H3_ANGLE_PHRASES[camera.angle] || H3_ANGLE_PHRASES.eye_level} frames the scene. ${visual}`.trim()
     }

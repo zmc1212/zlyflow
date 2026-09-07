@@ -334,6 +334,7 @@ export default function DirectorRecipeStudio({
   const conflictRef = useRef<DirectorContentConflict | null>(null)
   const handledOperationIdsRef = useRef(new Set<string>())
   const operationToastKeysRef = useRef(new Map<string, string>())
+  const deletedTakeIdsRef = useRef(new Set<string>())
   const isMobile = useIsMobile()
   const activeView = resolveDirectorRecipeView(searchParams.get("view"), { mobile: isMobile })
   const isTimelineView = activeView === "timeline"
@@ -387,7 +388,7 @@ export default function DirectorRecipeStudio({
         runningPlan: running,
       })
       if (preserveLocalContent) {
-        setRecipe((current) => mergeRecipeExecutionState(current, payload))
+        setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
       } else {
         setRecipe(payload)
         contentRevisionRef.current = row.content_revision || contentRevisionRef.current
@@ -447,7 +448,7 @@ export default function DirectorRecipeStudio({
           }
         } else {
           const targets = directorOperationTargetShotIds(operation, flattenRecipeShots(recipeRef.current))
-          if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+          if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
           if (operation.status === "succeeded") {
             const submitted = operation.result.job_ids?.length || 0
             const rendered = payload ? flattenRecipeShots(payload).filter((shot) => targets.includes(shot.id)) : []
@@ -572,6 +573,13 @@ export default function DirectorRecipeStudio({
               return { ...take, status, videoUrl: url || take.videoUrl, progress, error, options, workflowId }
             }
             return take
+          }).filter(take => {
+            const key = take.id || take.jobId || ""
+            if (key && deletedTakeIdsRef.current.has(key)) {
+              changed = true
+              return false
+            }
+            return true
           })
           if (takes !== next.takes) next = { ...next, takes }
           const job = allJobs.find((entry) => entry.id === next.jobId)
@@ -1017,7 +1025,7 @@ export default function DirectorRecipeStudio({
         force,
       }, csrfToken)
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
       await queryClient.invalidateQueries({ queryKey: ["jobs"] })
       messageApi.success("已提交定妆图任务")
     } catch (error) {
@@ -1034,7 +1042,7 @@ export default function DirectorRecipeStudio({
         force: true,
       }, csrfToken)
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
       await queryClient.invalidateQueries({ queryKey: ["jobs"] })
       messageApi.success(
         kind === "location" ? "已提交场景任务"
@@ -1059,7 +1067,7 @@ export default function DirectorRecipeStudio({
       const payload = recipePayloadFromApi(row)
       projectRevisionRef.current = row.revision
       contentRevisionRef.current = row.content_revision
-      if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload))
+      if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload, deletedTakeIdsRef.current))
       await queryClient.invalidateQueries({ queryKey: ["director-project", projectId] })
       messageApi.success("已批准这一版")
     } catch (error) {
@@ -1116,7 +1124,7 @@ export default function DirectorRecipeStudio({
         projectRevisionRef.current = row.revision
         contentRevisionRef.current = row.content_revision
         const payload = recipePayloadFromApi(row)
-        if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload))
+        if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload, deletedTakeIdsRef.current))
       }
       await queryClient.invalidateQueries({ queryKey: ["director-project", projectId] })
       messageApi.success(`已批准 ${targets.length} 个${kind === "location" ? "场景" : "道具"}`)
@@ -1196,7 +1204,7 @@ export default function DirectorRecipeStudio({
         projectRevisionRef.current = row.revision
         contentRevisionRef.current = row.content_revision
         const payload = recipePayloadFromApi(row)
-        if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload))
+        if (payload) setRecipe((current) => mergeRecipeApprovedAssetState(current, payload, deletedTakeIdsRef.current))
       }
       await queryClient.invalidateQueries({ queryKey: ["director-project", projectId] })
       messageApi.success(`已批准 ${targets.length} 个角色候选`)
@@ -1268,7 +1276,7 @@ export default function DirectorRecipeStudio({
       if (!saved) return
       const row = await generateDirectorAssets(projectId, { prop_ids: propIds, force }, csrfToken)
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
       await queryClient.invalidateQueries({ queryKey: ["jobs"] })
       messageApi.success("已提交道具转面任务")
     } catch (error) {
@@ -1325,19 +1333,13 @@ export default function DirectorRecipeStudio({
   }
 
   async function handleRender(shotIds?: string[]) {
-    if (running) {
-      messageApi.warning("分镜还在生成，请等写完后再出片")
-      return
-    }
+
     const targets = submitTargets(shotIds)
     if (!targets.length) {
       messageApi.warning("没有可生成的镜头")
       return
     }
-    if (activeOperationId) {
-      messageApi.warning("已有导演操作正在执行，请完成或取消后再试")
-      return
-    }
+
     const toastKey = `director-render-${targets.join("|")}`
     messageApi.loading({
       content: polishPrompt
@@ -1369,10 +1371,7 @@ export default function DirectorRecipeStudio({
   }
 
   async function handleStills(shotIds?: string[]) {
-    if (running) {
-      messageApi.warning("分镜还在生成，请等写完后再出片")
-      return
-    }
+
     const targets = submitTargets(shotIds)
     if (!targets.length) {
       messageApi.warning("没有可生成的镜头")
@@ -1390,7 +1389,7 @@ export default function DirectorRecipeStudio({
       if (!saved) return
       const row = await generateDirectorStills(projectId, { shot_ids: targets, force: true }, csrfToken)
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
       await queryClient.invalidateQueries({ queryKey: ["jobs"] })
       messageApi.success(targets.length === 1 ? "已提交本镜静帧" : "已提交静帧")
     } catch (error) {
@@ -1415,7 +1414,7 @@ export default function DirectorRecipeStudio({
       await handleStills(targets)
       return
     }
-    if (running || activeOperationId) {
+    if (running) {
       messageApi.warning("已有生成任务或操作正在执行，请完成后再试")
       return
     }
@@ -1582,7 +1581,7 @@ export default function DirectorRecipeStudio({
         text,
       }, csrfToken)
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
       messageApi.success(characterId ? "已生成角色试听" : shotIds?.length === 1 ? "已生成本镜配音" : "已生成全部配音")
     } catch (error) {
       notifyFailure(error, "配音失败")
@@ -1603,7 +1602,7 @@ export default function DirectorRecipeStudio({
       if (!saved) return
       const row = await uploadDirectorBgm(projectId, file, csrfToken)
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
       messageApi.success("配乐已上传")
     } catch (error) {
       notifyFailure(error, "上传配乐失败")
@@ -1621,7 +1620,7 @@ export default function DirectorRecipeStudio({
         csrfToken,
       )
       const payload = recipePayloadFromApi(row)
-      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload))
+      if (payload) setRecipe((current) => mergeRecipeExecutionState(current, payload, deletedTakeIdsRef.current))
       if (payload?.export?.muxStatus === "succeeded") {
         messageApi.success("成片已导出")
       } else {
@@ -1715,13 +1714,28 @@ export default function DirectorRecipeStudio({
   }
 
   function patchShot(shotId: string, patch: Partial<RecipeShot>) {
-    updateRecipe((current) => ({
-      ...current,
-      scenes: current.scenes.map((scene) => ({
-        ...scene,
-        shots: scene.shots.map((shot) => shot.id === shotId ? { ...shot, ...patch } : shot),
-      })),
-    }))
+    updateRecipe((current) => {
+      let scenes = current.scenes
+      if (patch.takes) {
+        const shot = current.scenes.flatMap(s => s.shots).find(s => s.id === shotId)
+        if (shot) {
+          const newTakeKeys = new Set(patch.takes.map((t) => t.id || t.jobId || ""))
+          for (const t of shot.takes) {
+            const key = t.id || t.jobId || ""
+            if (key && !newTakeKeys.has(key)) {
+              deletedTakeIdsRef.current.add(key)
+            }
+          }
+        }
+      }
+      return {
+        ...current,
+        scenes: scenes.map((scene) => ({
+          ...scene,
+          shots: scene.shots.map((shot) => shot.id === shotId ? { ...shot, ...patch } : shot),
+        })),
+      }
+    })
   }
 
   function selectShot(shotId: string) {
@@ -2324,6 +2338,7 @@ export default function DirectorRecipeStudio({
               onGenerateSelected={() => { void requestBoardGenerate(checkedShotIds, "生成选中") }}
               onRetryFailed={() => { void requestBoardGenerate(failedShotIds, "仅重试失败项") }}
               onCancelSelected={() => { void handleCancelShots(checkedShotIds) }}
+              onCancelShot={(shotId) => { void handleCancelShots([shotId]) }}
             />
           ) : null}
           {!isTimelineView && (activeStage === "storyboard" || activeStage === "shots") ? (
@@ -2588,6 +2603,7 @@ export default function DirectorRecipeStudio({
                             onUploadFrame={(slot, file) => handleUploadFrame(selectedShot.id, slot, file)}
                             onExtractEndFrame={(file) => handleUploadFrame(selectedShot.id, "end", file)}
                             onGenerateTts={() => { void handleGenerateTts([selectedShot.id]) }}
+                            onCancelShot={() => { void handleCancelShots([selectedShot.id]) }}
                             ttsBusy={ttsBusy}
                           />
                         ) : null}
@@ -2750,6 +2766,7 @@ export default function DirectorRecipeStudio({
             onUploadFrame={(slot, file) => handleUploadFrame(selectedShot.id, slot, file)}
             onExtractEndFrame={(file) => handleUploadFrame(selectedShot.id, "end", file)}
             onGenerateTts={() => { void handleGenerateTts([selectedShot.id]) }}
+            onCancelShot={() => { void handleCancelShots([selectedShot.id]) }}
             ttsBusy={ttsBusy}
           />
         ) : null}

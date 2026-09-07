@@ -630,7 +630,12 @@ def _apply_shot_timing_polish(recipe: dict[str, Any], data: dict[str, Any]) -> N
             if shot_number > STORYBOARD_MAX_TOTAL_SHOTS:
                 break
             if isinstance(shot_raw, dict):
-                updates_by_number[shot_number] = shot_raw
+                actual_num = shot_raw.get("shotNumber") or shot_raw.get("shot_number")
+                try:
+                    key = int(actual_num) if actual_num is not None else shot_number
+                except (TypeError, ValueError):
+                    key = shot_number
+                updates_by_number[key] = shot_raw
             shot_number += 1
     for scene in recipe.get("scenes") or []:
         if not isinstance(scene, dict):
@@ -1019,6 +1024,24 @@ def _storyboard_asset_context(recipe: dict[str, Any]) -> str:
     return json.dumps({"characters": characters, "locations": locations, "props": props}, ensure_ascii=False)
 
 
+def _split_story_into_scene_texts(full_story: str) -> list[str]:
+    import re
+    parts = re.split(r"(?=【)", full_story)
+    scenes = []
+    current_scene = ""
+    for part in parts:
+        if part.strip().startswith("【"):
+            if current_scene.strip():
+                scenes.append(current_scene.strip())
+            current_scene = part
+        else:
+            current_scene += part
+    if current_scene.strip():
+        scenes.append(current_scene.strip())
+    return scenes if scenes else [full_story]
+
+
+
 def run_agent(
     agent_id: str,
     recipe: dict[str, Any],
@@ -1083,56 +1106,77 @@ def run_agent(
             return recipe
 
         if agent_id == "storyboard":
-            user_content = (
-                _story_context(recipe, goal)
-                + "\n已建立的资产目录：" + _storyboard_asset_context(recipe)
-                + "\n请根据上面的完整故事一次性输出全部镜头，不要只写开场或主镜头。"
-                + "每个镜头必须从目录选择 characterBindings:[{characterId,lookId}]、locationId 和 propIds；"
-                + "同时保留 characterNames/locationName/propNames 便于人阅读，禁止发明新 ID。"
-                + "剧本每条对白（含自言自语）必须写入对应镜头的 dialogue，与同时发生的动作放在同一镜。"
-                + "拆镜时按 scene ledger 草拟相邻镜的 continuityIn / continuityOut（英文）与 transitionNote（中文）；"
-                + "后续时长与衔接润色会再校准，但不要整表留空。"
-            )
-            parsed: dict[str, Any] = {}
+            script = recipe.get("script") or {}
+            full_story = script.get("fullStory") or script.get("content") or goal
+            scene_texts = _split_story_into_scene_texts(full_story)
+            all_scenes = []
+            
             if chat_fn:
                 previous_chunk = getattr(chat_fn, "on_chunk", None)
 
-                def report_chunk(accumulated: str) -> None:
-                    n = len(accumulated or "")
-                    if n <= 0:
-                        return
-                    set_agent_status(recipe, agent_id, "running", message=f"正在写分镜（已收到 {n} 字）")
-                    try:
-                        emit()
-                    except Exception:
-                        return
-
-                if hasattr(chat_fn, "on_chunk"):
-                    chat_fn.on_chunk = report_chunk
-                set_agent_status(recipe, agent_id, "running", message="正在读剧本")
-                emit()
                 try:
-                    raw = _chat_text(chat_fn, [
-                        {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
-                        {"role": "user", "content": user_content},
-                    ], retries=1)
-                    set_agent_status(recipe, agent_id, "running", message="正在整理镜头")
-                    emit()
-                    parsed = _parse_storyboard_reply(raw, goal)
-                    if _is_collapsed_storyboard(parsed, goal):
-                        set_agent_status(recipe, agent_id, "running", message="镜头不完整，正在重拆")
-                        emit()
+                    for idx, scene_text in enumerate(scene_texts):
+                        msg = f"正在读剧本并构思 ({idx+1}/{len(scene_texts)}) - 剧本较长，AI需阅读约1~2分钟..."
+                        set_agent_status(recipe, agent_id, "running", message=msg)
+                        try: emit()
+                        except: pass
+                        
+                        original_full = script.get("fullStory")
+                        script["fullStory"] = scene_text
+                        
+                        user_content = (
+                            _story_context(recipe, goal)
+                            + "\n已建立的资产目录：" + _storyboard_asset_context(recipe)
+                            + "\n请根据上面的剧本片段，一次性输出本片段的全部镜头。"
+                            + "每个镜头必须从目录选择 characterBindings:[{characterId,lookId}]、locationId 和 propIds；"
+                            + "同时保留 characterNames/locationName/propNames 便于人阅读，禁止发明新 ID。"
+                            + "剧本每条对白（含自言自语）必须写入对应镜头的 dialogue，与同时发生的动作放在同一镜。"
+                            + "拆镜时按 scene ledger 草拟相邻镜的 continuityIn / continuityOut（英文）与 transitionNote（中文）；"
+                            + "后续时长与衔接润色会再校准，但不要整表留空。"
+                        )
+                        
+                        if original_full is not None:
+                            script["fullStory"] = original_full
+                        else:
+                            script.pop("fullStory", None)
+                            
+                        def local_report(accumulated: str) -> None:
+                            n = len(accumulated or "")
+                            if n > 0:
+                                set_agent_status(recipe, agent_id, "running", message=f"正在写分镜 ({idx+1}/{len(scene_texts)}) - 已收 {n} 字")
+                                try: emit()
+                                except: pass
+                                
+                        if hasattr(chat_fn, "on_chunk"):
+                            chat_fn.on_chunk = local_report
+
                         raw = _chat_text(chat_fn, [
-                            {"role": "system", "content": _system(agent_id, STORYBOARD_RETRY_SYSTEM)},
+                            {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
                             {"role": "user", "content": user_content},
                         ], retries=1)
-                        set_agent_status(recipe, agent_id, "running", message="正在整理镜头")
-                        emit()
+                        
+                        set_agent_status(recipe, agent_id, "running", message=f"正在整理镜头 ({idx+1}/{len(scene_texts)})")
+                        try: emit()
+                        except: pass
                         parsed = _parse_storyboard_reply(raw, goal)
+                        
+                        if _is_collapsed_storyboard(parsed, goal):
+                            set_agent_status(recipe, agent_id, "running", message=f"镜头不完整，正在重拆 ({idx+1}/{len(scene_texts)})")
+                            try: emit()
+                            except: pass
+                            raw = _chat_text(chat_fn, [
+                                {"role": "system", "content": _system(agent_id, STORYBOARD_RETRY_SYSTEM)},
+                                {"role": "user", "content": user_content},
+                            ], retries=1)
+                            parsed = _parse_storyboard_reply(raw, goal)
+                            
+                        parsed_scenes = _collect_storyboard_scenes(parsed)
+                        all_scenes.extend(parsed_scenes)
                 finally:
                     if hasattr(chat_fn, "on_chunk"):
                         chat_fn.on_chunk = previous_chunk
-            _apply_storyboard(recipe, parsed or {}, goal)
+            
+            _apply_storyboard(recipe, {"scenes": all_scenes}, goal)
             if _recipe_shot_count(recipe) == 0:
                 recipe["scenes"] = []
                 set_agent_status(recipe, agent_id, "failed", "分镜未按剧本拆出镜头，请重试生成分镜")
@@ -1150,24 +1194,67 @@ def run_agent(
                     )
                     emit()
             if chat_fn and _recipe_shot_count(recipe) > 0:
-                set_agent_status(recipe, agent_id, "running", message="正在按秒分配对白与动作")
-                emit()
-                timing_raw = _chat_text(chat_fn, [
-                    {"role": "system", "content": build_shot_timing_polish_prompt()},
-                    {"role": "user", "content": json.dumps(_recipe_shots_timing_payload(recipe), ensure_ascii=False)[:12000]},
-                ], retries=1)
-                timing_parsed = _parse_storyboard_reply(timing_raw, goal)
-                if _collect_storyboard_scenes(timing_parsed):
-                    _apply_shot_timing_polish(recipe, timing_parsed)
-                set_agent_status(recipe, agent_id, "running", message="正在校验镜头衔接")
-                emit()
-                continuity_raw = _chat_text(chat_fn, [
-                    {"role": "system", "content": build_storyboard_continuity_polish_prompt()},
-                    {"role": "user", "content": json.dumps(_recipe_shots_timing_payload(recipe), ensure_ascii=False)[:16000]},
-                ], retries=1)
-                continuity_parsed = _parse_storyboard_reply(continuity_raw, goal)
-                if _collect_storyboard_scenes(continuity_parsed):
-                    _apply_shot_timing_polish(recipe, continuity_parsed)
+                chunk_size = 5
+                
+                # --- Timing Pass ---
+                timing_payload = _recipe_shots_timing_payload(recipe)
+                all_shots = [shot for scene in (timing_payload.get("scenes") or []) for shot in (scene.get("shots") or [])]
+                chunks = [all_shots[i:i + chunk_size] for i in range(0, len(all_shots), chunk_size)]
+                
+                previous_chunk = getattr(chat_fn, "on_chunk", None) if chat_fn else None
+                try:
+                    for i, chunk in enumerate(chunks):
+                        set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({i+1}/{len(chunks)})")
+                        emit()
+                        
+                        def timing_report(accumulated: str, idx=i) -> None:
+                            n = len(accumulated or "")
+                            if n > 0:
+                                set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({idx+1}/{len(chunks)}) - 已收 {n} 字")
+                                try: emit()
+                                except: pass
+                        if hasattr(chat_fn, "on_chunk"):
+                            chat_fn.on_chunk = timing_report
+
+                        chunk_payload = {"scenes": [{"shots": chunk}]}
+                        timing_raw = _chat_text(chat_fn, [
+                            {"role": "system", "content": build_shot_timing_polish_prompt()},
+                            {"role": "user", "content": json.dumps(chunk_payload, ensure_ascii=False)},
+                        ], retries=1)
+                        timing_parsed = _parse_storyboard_reply(timing_raw, goal)
+                        if _collect_storyboard_scenes(timing_parsed):
+                            _apply_shot_timing_polish(recipe, timing_parsed)
+                    
+                    # --- Continuity Pass ---
+                    cont_payload = _recipe_shots_timing_payload(recipe)
+                    all_shots = [shot for scene in (cont_payload.get("scenes") or []) for shot in (scene.get("shots") or [])]
+                    chunks = [all_shots[i:i + chunk_size] for i in range(0, len(all_shots), chunk_size)]
+                    
+                    for i, chunk in enumerate(chunks):
+                        set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({i+1}/{len(chunks)})")
+                        emit()
+                        
+                        def cont_report(accumulated: str, idx=i) -> None:
+                            n = len(accumulated or "")
+                            if n > 0:
+                                set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({idx+1}/{len(chunks)}) - 已收 {n} 字")
+                                try: emit()
+                                except: pass
+                        if hasattr(chat_fn, "on_chunk"):
+                            chat_fn.on_chunk = cont_report
+
+                        chunk_payload = {"scenes": [{"shots": chunk}]}
+                        continuity_raw = _chat_text(chat_fn, [
+                            {"role": "system", "content": build_storyboard_continuity_polish_prompt()},
+                            {"role": "user", "content": json.dumps(chunk_payload, ensure_ascii=False)},
+                        ], retries=1)
+                        continuity_parsed = _parse_storyboard_reply(continuity_raw, goal)
+                        if _collect_storyboard_scenes(continuity_parsed):
+                            _apply_shot_timing_polish(recipe, continuity_parsed)
+                finally:
+                    if chat_fn and hasattr(chat_fn, "on_chunk"):
+                        chat_fn.on_chunk = previous_chunk
+                        
                 enforce_recipe_shot_dialogue_timing(recipe)
             gaps = _continuity_coverage_gaps(recipe)
             if gaps:

@@ -74,6 +74,7 @@ export default function RecipeShotInspector({
   onUploadFrame,
   onExtractEndFrame,
   onGenerateTts,
+  onCancelShot,
   ttsBusy = false,
   submitting = false,
   submittingStill = false,
@@ -91,6 +92,7 @@ export default function RecipeShotInspector({
   onUploadFrame: (slot: "first" | "end", file: File) => Promise<void>
   onExtractEndFrame?: (file: File) => Promise<void>
   onGenerateTts?: () => void
+  onCancelShot?: () => void
   ttsBusy?: boolean
   submitting?: boolean
   submittingStill?: boolean
@@ -664,9 +666,13 @@ export default function RecipeShotInspector({
             <Button loading={ttsBusy} disabled={!shot.dialogue.trim() || !onGenerateTts} onClick={() => onGenerateTts?.()}>
               生成本镜配音
             </Button>
-            <Button type="primary" loading={state.generating} onClick={onRender}>
-              {state.generating ? state.label : failed ? "重试这一镜" : "生成这一镜"}
-            </Button>
+            {state.generating && onCancelShot ? (
+              <Button danger onClick={onCancelShot}>停止生成</Button>
+            ) : (
+              <Button type="primary" loading={state.generating} onClick={onRender}>
+                {state.generating ? state.label : failed ? "重试这一镜" : "生成这一镜"}
+              </Button>
+            )}
           </Space>
         </div>
       </div>

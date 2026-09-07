@@ -321,11 +321,11 @@ function shotSoundscape(project: TimelineProject, shots: DirectorShot[]): string
     const sfx = shot.camera?.sfx?.trim()
     if (sfx) return sfx
   }
-  return project.globalSoundscape?.trim() || "Natural room tone and physical action sounds matching the on-screen movement."
+  return "Natural room tone and physical action sounds matching the on-screen movement."
 }
 
 function nonDiegeticMusic(project: TimelineProject): string {
-  return project.globalMusic?.trim() || "N/A"
+  return "N/A"
 }
 
 function keyframeAlignment(plan: ReferencePlan, durationSec: number): string {

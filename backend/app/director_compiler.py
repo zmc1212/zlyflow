@@ -449,13 +449,11 @@ def _shot_soundscape(project: dict[str, Any], shots: list[dict[str, Any]]) -> st
         shot_texts.append(str(_get(shot, "soundscape", default="") or "").strip())
         camera = _get(shot, "camera", default={}) or {}
         shot_texts.append(str(_get(camera, "sfx", default="") or "").strip())
-    global_sound = str(_get(project, "globalSoundscape", "global_soundscape", default="") or "").strip()
-    return _english_audio_text(*shot_texts, global_sound, fallback="Natural room tone and physical action sounds matching the on-screen movement.")
+    return _english_audio_text(*shot_texts, fallback="Natural room tone and physical action sounds matching the on-screen movement.")
 
 
 def _non_diegetic_music(project: dict[str, Any]) -> str:
-    music = str(_get(project, "globalMusic", "global_music", default="") or "").strip()
-    return _english_audio_text(music, fallback="N/A")
+    return "N/A"
 
 
 def _is_r2v(plan: dict[str, Any]) -> bool:
