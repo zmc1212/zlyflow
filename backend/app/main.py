@@ -103,6 +103,9 @@ from .xiaji_asset_api import register_xiaji_asset_routes
 from .xiaji_asset_store import XiajiAssetStore
 from .xiaji_episode_api import register_xiaji_episode_routes
 from .xiaji_episode_store import XiajiEpisodeStore
+from .xiaji_auto_pipeline import XiajiAutoPipeline
+from .xiaji_episode_run_store import XiajiEpisodeRunStore
+from .xiaji_llm_jobs import XiajiLlmJobStore
 from .xiaji_project_api import register_xiaji_project_routes
 from .xiaji_project_store import XiajiProjectStore
 from .xiaji_store import XiajiIngestStore
@@ -657,6 +660,8 @@ async def lifespan(app: FastAPI):
     xiaji_asset_store = XiajiAssetStore(database)
     xiaji_episode_store = XiajiEpisodeStore(database)
     xiaji_project_store = XiajiProjectStore(database)
+    xiaji_llm_job_store = XiajiLlmJobStore(database)
+    xiaji_episode_run_store = XiajiEpisodeRunStore(database)
     qiniu_provider = QiniuProviderService(store, settings.credential_key)
     resource_storage = qiniu_provider.enabled_storage() or create_resource_storage(settings.resource_provider, settings.staging_dir)
     grs_provider = GrsProviderService(store, settings.credential_key)
@@ -672,6 +677,8 @@ async def lifespan(app: FastAPI):
     app.state.xiaji_asset_store = xiaji_asset_store
     app.state.xiaji_episode_store = xiaji_episode_store
     app.state.xiaji_project_store = xiaji_project_store
+    app.state.xiaji_llm_job_store = xiaji_llm_job_store
+    app.state.xiaji_episode_run_store = xiaji_episode_run_store
     app.state.resource_storage = resource_storage
     app.state.grs_provider = grs_provider
     app.state.qiniu_provider = qiniu_provider
@@ -686,13 +693,17 @@ async def lifespan(app: FastAPI):
         resource_storage=resource_storage,
     )
     app.state.director_operations = director_operations
+    xiaji_auto_pipeline = XiajiAutoPipeline(app)
+    app.state.xiaji_auto_pipeline = xiaji_auto_pipeline
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
     store.interrupt_stale_director_pipelines()
     store.interrupt_stale_director_operations()
+    xiaji_auto_pipeline.interrupt_stale()
     await worker.start()
     yield
     set_catalog_lookup(None)
     await director_operations.stop()
+    await xiaji_auto_pipeline.stop()
     await worker.stop()
 
 

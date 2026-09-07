@@ -8,7 +8,10 @@ from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
 
 from .llm_client import LlmError
-from .xiaji_parser import ALLOWED_EXTENSIONS, MAX_INGEST_BYTES, load_source_text
+from .xiaji_analyze import build_ingest_messages
+from .xiaji_art_style import art_style_hint, first_art_style_id
+from .xiaji_llm_jobs import finish_xiaji_llm_job, start_xiaji_llm_job
+from .xiaji_parser import ALLOWED_EXTENSIONS, MAX_INGEST_BYTES, estimated_episode_count, load_source_text
 from .xiaji_project_api import require_xiaji_project
 from .xiaji_store import XiajiIngestStore
 
@@ -18,8 +21,10 @@ class XiajiPasteRequest(BaseModel):
     title: str = Field(default="", max_length=255)
     spine_template: str = Field(default="drama", max_length=32)
     visual_style: str = Field(default="", max_length=64)
+    art_style_id: str = Field(default="", max_length=64)
     narration_style: str = Field(default="", max_length=64)
     ethnicity: str = Field(default="", max_length=32)
+    replace: bool = False
 
 
 class XiajiChapterWrite(BaseModel):
@@ -41,6 +46,19 @@ def _document_or_404(store: XiajiIngestStore, document_id: str, owner_user_id: s
         return store.get_document(document_id, owner_user_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="文档不存在") from error
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _replace_project_content(app: Any, owner_user_id: str, project_id: str) -> None:
+    store = getattr(app.state, "xiaji_project_store", None)
+    if store is None:
+        return
+    store.clear_project_content(project_id, owner_user_id)
 
 
 def _ingest_plain_text(
@@ -81,8 +99,53 @@ def _run_llm_analysis(
     visual_style: str,
     narration_style: str,
     ethnicity: str,
+    art_style_id: str = "",
 ) -> dict[str, Any]:
     store = _store(app)
+    original_text = str(document.get("original_text") or "")
+    target_episodes = estimated_episode_count(len(original_text))
+    resolved_style = first_art_style_id(art_style_id, visual_style)
+    style_hint = art_style_hint(resolved_style) or visual_style
+    ingest_settings = {
+        "spine_template": spine_template,
+        "art_style_id": resolved_style,
+        "visual_style": resolved_style or visual_style,
+        "narration_style": narration_style,
+        "ethnicity": ethnicity,
+    }
+    messages = build_ingest_messages(
+        original_text,
+        spine_template=spine_template,
+        visual_style=style_hint,
+        narration_style=narration_style,
+        ethnicity=ethnicity,
+        target_episodes=target_episodes,
+    )
+    job_id = start_xiaji_llm_job(
+        app,
+        owner_user_id=owner_user_id,
+        project_id=str(document.get("project_id") or ""),
+        kind="ingest",
+        target=str(document.get("title") or "内容导入"),
+        title=f"内容导入 · {document.get('title') or '未命名文稿'}",
+        messages=messages,
+        parameters={
+            "document_id": document["id"],
+            "filename": document.get("filename") or "",
+            "source_format": document.get("source_format") or "",
+            "char_count": document.get("char_count") or 0,
+            "chapter_count": document.get("chapter_count") or 0,
+            "target_episodes": target_episodes,
+            "spine_template": spine_template,
+            "art_style_id": resolved_style,
+            "visual_style": resolved_style or visual_style,
+            "narration_style": narration_style,
+            "ethnicity": ethnicity,
+            "original_text": original_text,
+        },
+        temperature=0.3,
+        max_tokens=4096,
+    )
     logs = [
         f"解析原文：{document['char_count']} 字",
         f"规则识别章节：{document['chapter_count']} 章",
@@ -92,12 +155,13 @@ def _run_llm_analysis(
         analysis = app.state.llm_provider.analyze_xiaji_ingest(
             document["original_text"],
             spine_template=spine_template,
-            visual_style=visual_style,
+            visual_style=style_hint,
             narration_style=narration_style,
             ethnicity=ethnicity,
         )
     except LlmError as error:
         logs.append(f"分析失败：{error}")
+        finish_xiaji_llm_job(app, job_id, status="failed", error=str(error))
         return store.save_analysis(
             document["id"],
             owner_user_id,
@@ -107,12 +171,7 @@ def _run_llm_analysis(
                 "scenes": [],
                 "props": [],
                 "episodes": [],
-                "ingest_settings": {
-                    "spine_template": spine_template,
-                    "visual_style": visual_style,
-                    "narration_style": narration_style,
-                    "ethnicity": ethnicity,
-                },
+                "ingest_settings": ingest_settings,
             },
             logs=logs,
             model="",
@@ -126,12 +185,7 @@ def _run_llm_analysis(
         f"{len(analysis.get('props') or [])} 个道具，"
         f"{len(analysis.get('episodes') or [])} 集规划"
     )
-    analysis["ingest_settings"] = {
-        "spine_template": spine_template,
-        "visual_style": visual_style,
-        "narration_style": narration_style,
-        "ethnicity": ethnicity,
-    }
+    analysis["ingest_settings"] = ingest_settings
     status = "review_required" if document["chapter_count"] <= 1 else "indexed"
     asset_store = getattr(app.state, "xiaji_asset_store", None)
     if asset_store is not None:
@@ -151,7 +205,7 @@ def _run_llm_analysis(
             )
         except Exception as error:
             logs.append(f"资产库转入未完成：{error}")
-    return store.save_analysis(
+    saved = store.save_analysis(
         document["id"],
         owner_user_id,
         analysis,
@@ -159,6 +213,8 @@ def _run_llm_analysis(
         model=str(analysis.get("model") or ""),
         status=status,
     )
+    finish_xiaji_llm_job(app, job_id, status="succeeded", response=analysis)
+    return saved
 
 
 def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Callable) -> None:
@@ -185,6 +241,8 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
         text = (payload.text or "").strip()
         if not text:
             raise HTTPException(status_code=422, detail="请先粘贴或输入正文")
+        if payload.replace:
+            _replace_project_content(app, user["id"], project_id)
         document = _ingest_plain_text(
             _store(app),
             user["id"],
@@ -200,6 +258,7 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
             user["id"],
             spine_template=payload.spine_template,
             visual_style=payload.visual_style,
+            art_style_id=payload.art_style_id,
             narration_style=payload.narration_style,
             ethnicity=payload.ethnicity,
         )
@@ -216,8 +275,10 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
         title: str | None = Form(None),
         spine_template: str = Form("drama"),
         visual_style: str = Form(""),
+        art_style_id: str = Form(""),
         narration_style: str = Form(""),
         ethnicity: str = Form(""),
+        replace: str = Form("false"),
     ) -> dict:
         require_xiaji_project(app, project_id, user["id"])
         filename = Path(file.filename or "untitled.txt").name
@@ -235,6 +296,8 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
             raise HTTPException(status_code=422, detail=str(error)) from error
         if not original_text.strip():
             raise HTTPException(status_code=422, detail="没有可解析的正文")
+        if _as_bool(replace):
+            _replace_project_content(app, user["id"], project_id)
         document = _ingest_plain_text(
             _store(app),
             user["id"],
@@ -250,6 +313,7 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
             user["id"],
             spine_template=spine_template,
             visual_style=visual_style,
+            art_style_id=art_style_id,
             narration_style=narration_style,
             ethnicity=ethnicity,
         )

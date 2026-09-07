@@ -43,6 +43,9 @@ import {
   Users,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { ArtStyleCompactField } from "../director/ArtStylePicker"
+import { listDirectorArtStyles } from "../director/director-api"
+import type { DirectorArtStyle, DirectorArtStyleCategory } from "../director/recipe-model"
 import {
   createXiajiAsset,
   defineXiajiVoice,
@@ -55,12 +58,18 @@ import {
   updateXiajiAsset,
   uploadXiajiAssetImage,
   uploadXiajiVoice,
+  getXiajiProject,
   type XiajiAsset,
   type XiajiAssetGenerateImagePayload,
   type XiajiAssetKind,
   type XiajiCharacterLook,
   type XiajiVoiceProfile,
+  xiajiAssetNeedsJobPoll,
+  xiajiMediaSlotError,
+  xiajiMediaSlotPending,
+  xiajiSlotImageUrl,
 } from "./xiaji-api"
+import { xiajiProjectJobsQueryKey } from "./XiajiJobsModule"
 
 const KIND_TABS: { key: XiajiAssetKind | "voice-board"; label: string; hint: string }[] = [
   { key: "character", label: "角色", hint: "肖像、造型与身份定义" },
@@ -102,15 +111,6 @@ const PROP_TYPE_OPTIONS = [
   { value: "object", label: "物件" },
 ]
 
-const VISUAL_STYLE_OPTIONS = [
-  { value: "chinese_period_drama", label: "写实古装剧" },
-  { value: "anime", label: "动漫" },
-  { value: "guoman_fantasy", label: "国漫奇幻" },
-  { value: "post_apocalyptic", label: "末世废土" },
-  { value: "realistic", label: "写实" },
-  { value: "republican_era_drama", label: "民国剧" },
-]
-
 const ETHNICITY_OPTIONS = [
   { value: "Chinese", label: "中国人" },
   { value: "Japanese", label: "日本人" },
@@ -129,6 +129,10 @@ const VOICE_SLOT_LABELS: Record<string, string> = {
 
 function isMainCharacter(asset: XiajiAsset) {
   return Boolean(asset.definition.is_main) || asset.definition.role === "主角"
+}
+
+function resolvedArtStyleId(asset: XiajiAsset, projectArtStyleId = "") {
+  return String(asset.definition.art_style_id || projectArtStyleId || "")
 }
 
 function compareAssets(a: XiajiAsset, b: XiajiAsset) {
@@ -184,9 +188,20 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
     queryFn: () => listXiajiAssets(projectId),
     refetchInterval: (query) => {
       const items = query.state.data ?? []
-      return items.some((item) => item.status === "generating") ? 4000 : false
+      return items.some((item) => xiajiAssetNeedsJobPoll(item)) ? 4000 : false
     },
   })
+  const projectQuery = useQuery({
+    queryKey: ["xiaji-project", projectId],
+    queryFn: () => getXiajiProject(projectId),
+  })
+  const stylesQuery = useQuery({
+    queryKey: ["director-art-styles"],
+    queryFn: listDirectorArtStyles,
+  })
+  const catalogStyles = stylesQuery.data?.styles || []
+  const catalogCategories = stylesQuery.data?.categories || []
+  const projectArtStyleId = String(projectQuery.data?.settings?.art_style_id || "")
 
   const autoTried = useRef(false)
   const allAssets = assetsQuery.data ?? []
@@ -206,7 +221,10 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
     voice: allAssets.filter((item) => item.kind === "voice" || item.kind === "character").length,
   }
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["xiaji-assets", projectId] })
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["xiaji-assets", projectId] })
+    void queryClient.invalidateQueries({ queryKey: xiajiProjectJobsQueryKey(projectId) })
+  }
 
   useEffect(() => {
     autoTried.current = false
@@ -241,7 +259,11 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
   const createMutation = useMutation({
     mutationFn: () => {
       const kind: XiajiAssetKind = kindTab === "voice-board" ? "voice" : kindTab
-      return createXiajiAsset(csrfToken, projectId, { kind, name: createName.trim() })
+      return createXiajiAsset(csrfToken, projectId, {
+        kind,
+        name: createName.trim(),
+        definition: projectArtStyleId ? { art_style_id: projectArtStyleId } : {},
+      })
     },
     onSuccess: (asset) => {
       message.success("已创建")
@@ -324,7 +346,6 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
   })
 
   const busy = defineVoiceMutation.isPending || ttsMutation.isPending || saveMutation.isPending
-  const imageGenerating = generateMutation.isPending || selected?.status === "generating"
 
   const [searchQuery, setSearchQuery] = useState("")
   const [sortOrder, setSortOrder] = useState<"name" | "usage">("name")
@@ -475,12 +496,14 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
             />
           ) : selected.kind === "scene" ? (
             <SceneEditor
+              key={selected.id}
               asset={selected}
+              projectArtStyleId={projectArtStyleId}
+              catalogStyles={catalogStyles}
+              catalogCategories={catalogCategories}
               busy={busy}
-              generating={imageGenerating}
-              enqueuePending={generateMutation.isPending}
               onSave={(name, definition) => saveMutation.mutate({ name, definition })}
-              onGenerate={(payload) => generateMutation.mutate({ assetId: selected.id, ...payload })}
+              onGenerate={(payload) => generateMutation.mutateAsync({ assetId: selected.id, ...payload })}
               onUpload={async (file, slot) => {
                 await uploadXiajiAssetImage(csrfToken, selected.id, file, undefined, slot)
                 message.success(slot === "panorama" ? "已上传360全景图" : slot === "reverse" ? "已上传背面图" : "已上传正面源图")
@@ -490,12 +513,14 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
             />
           ) : selected.kind === "prop" ? (
             <PropEditor
+              key={selected.id}
               asset={selected}
+              projectArtStyleId={projectArtStyleId}
+              catalogStyles={catalogStyles}
+              catalogCategories={catalogCategories}
               busy={busy}
-              generating={imageGenerating}
-              enqueuePending={generateMutation.isPending}
               onSave={(name, definition) => saveMutation.mutate({ name, definition })}
-              onGenerate={(payload) => generateMutation.mutate({ assetId: selected.id, ...payload })}
+              onGenerate={(payload) => generateMutation.mutateAsync({ assetId: selected.id, ...payload })}
               onUpload={async (file, slot) => {
                 await uploadXiajiAssetImage(csrfToken, selected.id, file, undefined, slot)
                 message.success(
@@ -507,12 +532,14 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
             />
           ) : (
             <AssetEditor
+              key={selected.id}
               asset={selected}
+              projectArtStyleId={projectArtStyleId}
+              catalogStyles={catalogStyles}
+              catalogCategories={catalogCategories}
               busy={busy}
-              generating={imageGenerating}
-              enqueuePending={generateMutation.isPending}
               onSave={(name, definition) => saveMutation.mutate({ name, definition })}
-              onGenerate={(payload) => generateMutation.mutate({ assetId: selected.id, ...payload })}
+              onGenerate={(payload) => generateMutation.mutateAsync({ assetId: selected.id, ...payload })}
               onToggleMain={() =>
                 saveMutation.mutate({
                   definition: { ...selected.definition, is_main: !selected.definition.is_main },
@@ -563,9 +590,10 @@ function iconFor(kind: XiajiAssetKind) {
 
 function AssetEditor({
   asset,
+  projectArtStyleId = "",
+  catalogStyles = [],
+  catalogCategories = [],
   busy,
-  generating,
-  enqueuePending,
   onSave,
   onGenerate,
   onToggleMain,
@@ -575,11 +603,12 @@ function AssetEditor({
   onDelete,
 }: {
   asset: XiajiAsset
+  projectArtStyleId?: string
+  catalogStyles?: DirectorArtStyle[]
+  catalogCategories?: DirectorArtStyleCategory[]
   busy: boolean
-  generating: boolean
-  enqueuePending: boolean
   onSave: (name: string, definition: Record<string, unknown>) => void
-  onGenerate: (payload: XiajiAssetGenerateImagePayload) => void
+  onGenerate: (payload: XiajiAssetGenerateImagePayload) => void | Promise<unknown>
   onToggleMain: () => void
   onTts: (slot: string) => void
   onUploadVoice: (file: File, slot: string) => Promise<void>
@@ -587,6 +616,11 @@ function AssetEditor({
   onDelete: () => void
 }) {
   const [form] = Form.useForm()
+  const [pendingSlots, setPendingSlots] = useState<string[]>([])
+  const [artStyleId, setArtStyleId] = useState(() => resolvedArtStyleId(asset, projectArtStyleId))
+  useEffect(() => {
+    setArtStyleId(resolvedArtStyleId(asset, projectArtStyleId))
+  }, [asset.id, projectArtStyleId])
   useEffect(() => {
     form.setFieldsValue({
       name: asset.name,
@@ -604,25 +638,51 @@ function AssetEditor({
       prop_type: asset.definition.prop_type,
       visual_prompt: asset.definition.visual_prompt,
       owner: asset.definition.owner,
-      visual_style: asset.definition.visual_style,
       ethnicity: asset.definition.ethnicity || "Chinese",
     })
-  }, [asset, form])
+  }, [asset.id, form])
 
-  const looksFromAsset = (asset.definition.looks || []) as XiajiCharacterLook[]
+  const looksFromAsset: XiajiCharacterLook[] = ((asset.definition.looks || []) as XiajiCharacterLook[]).map((look) => ({
+    ...look,
+    image_url: xiajiSlotImageUrl(asset, "look", look.id) || look.image_url,
+  }))
   const [looks, setLooks] = useState(looksFromAsset)
+  const lookImagesKey = looksFromAsset.map((item) => `${item.id}:${item.image_url || ""}`).join("|")
   useEffect(() => {
     setLooks(looksFromAsset)
-  }, [asset.id, asset.updated_at])
+  }, [asset.id, asset.updated_at, lookImagesKey])
 
+  const portraitUrl = xiajiSlotImageUrl(asset, "portrait", "portrait") || asset.image_url || ""
   const requestGenerate = (lookId?: string) => {
+    if (lookId) {
+      if (!portraitUrl) {
+        message.warning("请先生成或上传肖像")
+        return
+      }
+      const look = looks.find((item) => item.id === lookId)
+      if (!String(look?.appearance_details || "").trim()) {
+        message.warning("请先填写外观描述")
+        return
+      }
+    }
+    const key = lookId || "portrait"
+    setPendingSlots((current) => (current.includes(key) ? current : [...current, key]))
     const values = form.getFieldsValue()
-    onGenerate({
-      look_id: lookId || null,
-      style: String(values.visual_style || asset.definition.visual_style || ""),
-      ethnicity: String(values.ethnicity || asset.definition.ethnicity || "Chinese"),
+    void Promise.resolve(
+      onGenerate({
+        look_id: lookId || null,
+        style: artStyleId,
+        art_style_id: artStyleId,
+        ethnicity: String(values.ethnicity || asset.definition.ethnicity || "Chinese"),
+      }),
+    ).finally(() => {
+      setPendingSlots((current) => current.filter((item) => item !== key))
     })
   }
+  const portraitGenerating =
+    pendingSlots.includes("portrait") ||
+    xiajiMediaSlotPending(asset, "portrait", "portrait") ||
+    (asset.status === "generating" && Boolean(asset.image_job_id))
 
   const isCharacter = asset.kind === "character"
   const isMain = Boolean(asset.definition.is_main)
@@ -666,7 +726,7 @@ function AssetEditor({
             {statusTag(asset.status)}
           </div>
           <Space wrap>
-            <Button htmlType="button" icon={<Sparkles size={14} />} loading={generating} onClick={() => requestGenerate()}>
+            <Button htmlType="button" icon={<Sparkles size={14} />} loading={portraitGenerating} onClick={() => requestGenerate()}>
               生成参考图
             </Button>
             <Upload
@@ -708,20 +768,20 @@ function AssetEditor({
             definition.description = values.description
             definition.face_prompt = values.face_prompt
             definition.looks = looks
-            definition.visual_style = values.visual_style
+            definition.art_style_id = artStyleId || projectArtStyleId
             definition.ethnicity = values.ethnicity || "Chinese"
           } else if (asset.kind === "scene") {
             definition.scene_type = values.scene_type
             definition.time_of_day = values.time_of_day
             definition.description = values.description
             definition.environment_prompt = values.environment_prompt
-            definition.visual_style = values.visual_style
+            definition.art_style_id = artStyleId || projectArtStyleId
           } else {
             definition.prop_type = values.prop_type
             definition.visual_prompt = values.visual_prompt
             definition.owner = values.owner
             definition.description = values.description
-            definition.visual_style = values.visual_style
+            definition.art_style_id = artStyleId || projectArtStyleId
           }
           onSave(values.name, definition)
         }}
@@ -730,14 +790,14 @@ function AssetEditor({
           <div className="xiaji-char-hero">
             <div className="xiaji-char-portrait">
               <div className="xiaji-char-portrait-frame">
-                {asset.image_url ? (
-                  <Image src={asset.image_url} alt={asset.name} />
+                {portraitUrl ? (
+                  <Image src={portraitUrl} alt={asset.name} />
                 ) : (
                   <Empty description="暂无肖像" />
                 )}
               </div>
-              <Button htmlType="button" size="small" icon={<Sparkles size={12} />} loading={generating} onClick={() => requestGenerate()}>
-                {asset.image_url ? "重新生成" : "生成肖像"}
+              <Button htmlType="button" size="small" icon={<Sparkles size={12} />} loading={portraitGenerating} onClick={() => requestGenerate()}>
+                {portraitUrl ? "重新生成" : "生成肖像"}
               </Button>
               <Upload
                 accept="image/png,image/jpeg,image/webp,image/gif"
@@ -793,7 +853,7 @@ function AssetEditor({
               ) : (
                 <Empty
                   description={
-                    <Button htmlType="button" type="link" loading={generating} onClick={() => requestGenerate()}>
+                    <Button htmlType="button" type="link" loading={portraitGenerating} onClick={() => requestGenerate()}>
                       还没有参考图，点击生成
                     </Button>
                   }
@@ -806,8 +866,13 @@ function AssetEditor({
           </>
         )}
         <div className={isCharacter ? "xiaji-char-extra" : undefined}>
-          <Form.Item name="visual_style" label="视觉风格">
-            <Select allowClear options={VISUAL_STYLE_OPTIONS} placeholder="沿用导入时的画风" />
+          <Form.Item label="画风">
+            <ArtStyleCompactField
+              styles={catalogStyles}
+              categories={catalogCategories}
+              value={artStyleId}
+              onChange={setArtStyleId}
+            />
           </Form.Item>
           {isCharacter ? (
             <Form.Item name="ethnicity" label="族裔">
@@ -924,7 +989,12 @@ function AssetEditor({
                 look={look}
                 index={index}
                 asset={asset}
-                enqueuePending={enqueuePending}
+                hasPortrait={Boolean(portraitUrl)}
+                generating={
+                  pendingSlots.includes(look.id) ||
+                  Boolean(look.job_id) ||
+                  xiajiMediaSlotPending(asset, "look", look.id)
+                }
                 onUpdate={(patch) => {
                   setLooks(looks.map((item, i) => (i === index ? { ...item, ...patch } : item)))
                 }}
@@ -946,7 +1016,8 @@ function LookCardItem({
   look,
   index,
   asset,
-  enqueuePending,
+  hasPortrait,
+  generating,
   onUpdate,
   onRemove,
   onGenerate,
@@ -955,14 +1026,22 @@ function LookCardItem({
   look: XiajiCharacterLook
   index: number
   asset: XiajiAsset
-  enqueuePending: boolean
+  hasPortrait: boolean
+  generating: boolean
   onUpdate: (patch: Partial<XiajiCharacterLook>) => void
   onRemove: () => void
   onGenerate: () => void
   onUpload: (file: File) => void
 }) {
   const [editingName, setEditingName] = useState(false)
-  const isGenerating = enqueuePending || Boolean(look.job_id && !look.image_url)
+  const isGenerating = generating
+  const hasCostumeText = Boolean(String(look.appearance_details || "").trim())
+  const canGenerateLook = hasPortrait && hasCostumeText
+  const generateHint = !hasPortrait
+    ? "请先生成或上传肖像"
+    : !hasCostumeText
+      ? "请先填写外观描述"
+      : undefined
   const aliasDisplay = look.aliases || `${asset.name}_${look.name || `造型${index + 1}`}`
   const roleLabel = (asset.definition.is_main ? "主角" : (asset.definition.role as string)) || "主角"
 
@@ -1063,7 +1142,8 @@ function LookCardItem({
               size="small"
               icon={<Sparkles size={13} />}
               loading={isGenerating}
-              disabled={!look.id}
+              disabled={!look.id || !canGenerateLook}
+              title={generateHint}
               onClick={onGenerate}
             >
               {look.image_url ? "重新生成" : "生成造型图"}
@@ -1220,20 +1300,22 @@ function LookCardItem({
 
 function SceneEditor({
   asset,
+  projectArtStyleId = "",
+  catalogStyles = [],
+  catalogCategories = [],
   busy,
-  generating,
-  enqueuePending,
   onSave,
   onGenerate,
   onUpload,
   onDelete,
 }: {
   asset: XiajiAsset
+  projectArtStyleId?: string
+  catalogStyles?: DirectorArtStyle[]
+  catalogCategories?: DirectorArtStyleCategory[]
   busy: boolean
-  generating: boolean
-  enqueuePending: boolean
   onSave: (name: string, definition: Record<string, unknown>) => void
-  onGenerate: (payload: XiajiAssetGenerateImagePayload) => void
+  onGenerate: (payload: XiajiAssetGenerateImagePayload) => void | Promise<unknown>
   onUpload: (file: File, slot?: "reverse" | "panorama") => Promise<void>
   onDelete: () => void
 }) {
@@ -1242,11 +1324,16 @@ function SceneEditor({
   const [viewer360Open, setViewer360Open] = useState(false)
   const [directorModalOpen, setDirectorModalOpen] = useState(false)
   const [form] = Form.useForm()
-  const [pendingView, setPendingView] = useState<"master" | "reverse" | "panorama" | null>(null)
+  const [pendingViews, setPendingViews] = useState<string[]>([])
+  const [artStyleId, setArtStyleId] = useState(() => resolvedArtStyleId(asset, projectArtStyleId))
 
   const [descDraft, setDescDraft] = useState(
     asset.definition.environment_prompt || asset.definition.description || "",
   )
+
+  useEffect(() => {
+    setArtStyleId(resolvedArtStyleId(asset, projectArtStyleId))
+  }, [asset.id, projectArtStyleId])
 
   useEffect(() => {
     form.setFieldsValue({
@@ -1255,21 +1342,42 @@ function SceneEditor({
       time_of_day: asset.definition.time_of_day || "白天",
       environment_prompt: asset.definition.environment_prompt || "",
       description: asset.definition.description || "",
-      visual_style: asset.definition.visual_style || "",
     })
     setDescDraft(asset.definition.environment_prompt || asset.definition.description || "")
-  }, [asset, form])
+  }, [asset.id, form])
 
   const hasSource = Boolean(asset.image_url)
   const hasBack = Boolean(asset.definition.back_image_url)
   const hasPanorama = Boolean(asset.definition.panorama_image_url)
   const sceneJobs = asset.definition.scene_jobs || {}
-  const reverseGenerating = Boolean(sceneJobs.reverse) || (enqueuePending && pendingView === "reverse")
-  const panoramaGenerating = Boolean(sceneJobs.panorama) || (enqueuePending && pendingView === "panorama")
-  const masterGenerating = generating && pendingView !== "reverse" && pendingView !== "panorama"
+  const reverseGenerating =
+    pendingViews.includes("reverse") ||
+    Boolean(sceneJobs.reverse) ||
+    xiajiMediaSlotPending(asset, "reverse", "reverse")
+  const reverseError = xiajiMediaSlotError(asset, "reverse", "reverse")
+  const panoramaError = xiajiMediaSlotError(asset, "panorama", "panorama")
+  const panoramaGenerating =
+    pendingViews.includes("panorama") ||
+    Boolean(sceneJobs.panorama) ||
+    xiajiMediaSlotPending(asset, "panorama", "panorama")
+  const masterGenerating =
+    pendingViews.includes("master") ||
+    xiajiMediaSlotPending(asset, "master", "master") ||
+    (asset.status === "generating" && Boolean(asset.image_job_id))
+  const queueScene = (view: "master" | "reverse" | "panorama", payload: XiajiAssetGenerateImagePayload) => {
+    if (view !== "master" && !hasSource) {
+      message.warning("请先生成或上传正面源图")
+      return
+    }
+    setPendingViews((current) => (current.includes(view) ? current : [...current, view]))
+    void Promise.resolve(onGenerate(payload)).finally(() => {
+      setPendingViews((current) => current.filter((item) => item !== view))
+    })
+  }
   const shotCount = asset.definition.shot_count || 9
   const stylePayload = {
-    style: String(asset.definition.visual_style || ""),
+    style: artStyleId,
+    art_style_id: artStyleId,
     ethnicity: "Chinese",
   }
 
@@ -1332,6 +1440,13 @@ function SceneEditor({
           </div>
 
           <div className="xiaji-scene-card-tools">
+            <ArtStyleCompactField
+              size="small"
+              styles={catalogStyles}
+              categories={catalogCategories}
+              value={artStyleId}
+              onChange={setArtStyleId}
+            />
             <Button
               type="text"
               size="small"
@@ -1416,8 +1531,7 @@ function SceneEditor({
                 icon={<RotateCw size={12} />}
                 loading={masterGenerating}
                 onClick={() => {
-                  setPendingView("master")
-                  onGenerate({ ...stylePayload, scene_view: "master" })
+                  queueScene("master", { ...stylePayload, scene_view: "master" })
                 }}
               >
                 重生 源图
@@ -1457,14 +1571,16 @@ function SceneEditor({
                 size="small"
                 icon={<RotateCw size={12} />}
                 loading={reverseGenerating}
+                disabled={!hasSource}
+                title={hasSource ? undefined : "请先生成或上传正面源图"}
                 onClick={() => {
-                  setPendingView("reverse")
-                  onGenerate({ ...stylePayload, scene_view: "reverse" })
+                  queueScene("reverse", { ...stylePayload, scene_view: "reverse" })
                 }}
               >
                 重生 背面
               </Button>
             </div>
+            {reverseError ? <div className="xiaji-scene-view-error">{reverseError}</div> : null}
           </div>
 
           {/* 3. 360 全景 */}
@@ -1499,9 +1615,10 @@ function SceneEditor({
                 size="small"
                 icon={<Box size={12} />}
                 loading={panoramaGenerating}
+                disabled={!hasSource}
+                title={hasSource ? undefined : "请先生成或上传正面源图"}
                 onClick={() => {
-                  setPendingView("panorama")
-                  onGenerate({ ...stylePayload, scene_view: "panorama" })
+                  queueScene("panorama", { ...stylePayload, scene_view: "panorama" })
                 }}
               >
                 生成 360
@@ -1519,6 +1636,7 @@ function SceneEditor({
                 </Button>
               </Upload>
             </div>
+            {panoramaError ? <div className="xiaji-scene-view-error">{panoramaError}</div> : null}
 
             <Button
               type="link"
@@ -1530,76 +1648,7 @@ function SceneEditor({
               打开360查看器
             </Button>
           </div>
-        </div>
-
-        {/* 导演世界模块 */}
-        <div className="xiaji-director-world-block">
-          <div className="xiaji-director-world-title">
-            <Box size={16} />
-            <strong>导演世界</strong>
-          </div>
-
-          <div className="xiaji-director-world-actions">
-            <Upload
-              accept=".zip,.glb,.gltf,.json,.tar"
-              showUploadList={false}
-              beforeUpload={(file) => {
-                updateDef({ custom_bundle_name: file.name })
-                message.success(`已载入自定义包: ${file.name}`)
-                return false
-              }}
-            >
-              <Button size="small" icon={<UploadIcon size={12} />}>
-                上传/替换 自定义包
-              </Button>
-            </Upload>
-
-            <Button
-              size="small"
-              type="text"
-              icon={<Trash2 size={12} />}
-              disabled={!asset.definition.custom_bundle_name}
-              onClick={() => {
-                updateDef({ custom_bundle_name: "", custom_bundle_url: "" })
-                message.info("已移除自定义包")
-              }}
-            >
-              删除 自定义包
-            </Button>
-
-            <Button
-              size="small"
-              icon={<RotateCw size={12} />}
-              onClick={() => message.success("已将正面视角同步至导演世界")}
-            >
-              正面→导演世界
-            </Button>
-            <Button
-              size="small"
-              icon={<RotateCw size={12} />}
-              onClick={() => message.success("已将背面视角同步至导演世界")}
-            >
-              背面→导演世界
-            </Button>
-            <Button
-              size="small"
-              icon={<RotateCw size={12} />}
-              onClick={() => message.success("已将360全景同步至导演世界")}
-            >
-              360→导演世界
-            </Button>
-          </div>
-
-          <Button
-            type="link"
-            size="small"
-            className="xiaji-director-world-open-btn"
-            icon={<ExternalLink size={12} />}
-            onClick={() => setDirectorModalOpen(true)}
-          >
-            打开导演世界
-          </Button>
-        </div>
+        </div>  
       </div>
 
       {/* 360 全景查看器弹窗 */}
@@ -1653,7 +1702,7 @@ function SceneEditor({
               time_of_day: values.time_of_day,
               environment_prompt: values.environment_prompt,
               description: values.description,
-              visual_style: values.visual_style,
+              art_style_id: artStyleId,
             })
             setEditModalOpen(false)
             message.success("场景信息已更新")
@@ -1684,20 +1733,22 @@ function SceneEditor({
 
 function PropEditor({
   asset,
+  projectArtStyleId = "",
+  catalogStyles = [],
+  catalogCategories = [],
   busy,
-  generating,
-  enqueuePending,
   onSave,
   onGenerate,
   onUpload,
   onDelete,
 }: {
   asset: XiajiAsset
+  projectArtStyleId?: string
+  catalogStyles?: DirectorArtStyle[]
+  catalogCategories?: DirectorArtStyleCategory[]
   busy: boolean
-  generating: boolean
-  enqueuePending: boolean
   onSave: (name: string, definition: Record<string, unknown>) => void
-  onGenerate: (payload: XiajiAssetGenerateImagePayload) => void
+  onGenerate: (payload: XiajiAssetGenerateImagePayload) => void | Promise<unknown>
   onUpload: (file: File, slot?: "turnaround" | "detail") => Promise<void>
   onDelete: () => void
 }) {
@@ -1706,7 +1757,8 @@ function PropEditor({
   const [viewerDetailOpen, setViewerDetailOpen] = useState(false)
   const [directorModalOpen, setDirectorModalOpen] = useState(false)
   const [form] = Form.useForm()
-  const [pendingView, setPendingView] = useState<"master" | "turnaround" | "detail" | null>(null)
+  const [pendingViews, setPendingViews] = useState<string[]>([])
+  const [artStyleId, setArtStyleId] = useState(() => resolvedArtStyleId(asset, projectArtStyleId))
 
   const [descDraft, setDescDraft] = useState(
     asset.definition.visual_prompt ||
@@ -1715,31 +1767,54 @@ function PropEditor({
   )
 
   useEffect(() => {
+    setArtStyleId(resolvedArtStyleId(asset, projectArtStyleId))
+  }, [asset.id, projectArtStyleId])
+
+  useEffect(() => {
     form.setFieldsValue({
       name: asset.name,
       prop_type: asset.definition.prop_type || "关键道具",
       owner: asset.definition.owner || "",
       visual_prompt: asset.definition.visual_prompt || "",
       description: asset.definition.description || "",
-      visual_style: asset.definition.visual_style || "",
     })
     setDescDraft(
       asset.definition.visual_prompt ||
         asset.definition.description ||
         `道具主体结构紧凑，材质质感突出，边角有磨损使用痕迹，具备关键识别特征。`
     )
-  }, [asset, form])
+  }, [asset.id, form])
 
   const hasMain = Boolean(asset.image_url)
   const hasTurnaround = Boolean(asset.definition.turnaround_image_url)
   const hasDetail = Boolean(asset.definition.detail_image_url)
   const propJobs = asset.definition.prop_jobs || {}
-  const turnaroundGenerating = Boolean(propJobs.turnaround) || (enqueuePending && pendingView === "turnaround")
-  const detailGenerating = Boolean(propJobs.detail) || (enqueuePending && pendingView === "detail")
-  const masterGenerating = generating && pendingView !== "turnaround" && pendingView !== "detail"
+  const turnaroundGenerating =
+    pendingViews.includes("turnaround") ||
+    Boolean(propJobs.turnaround) ||
+    xiajiMediaSlotPending(asset, "turnaround", "turnaround")
+  const detailGenerating =
+    pendingViews.includes("detail") ||
+    Boolean(propJobs.detail) ||
+    xiajiMediaSlotPending(asset, "detail", "detail")
+  const masterGenerating =
+    pendingViews.includes("master") ||
+    xiajiMediaSlotPending(asset, "master", "master") ||
+    (asset.status === "generating" && Boolean(asset.image_job_id))
+  const queueProp = (view: "master" | "turnaround" | "detail", payload: XiajiAssetGenerateImagePayload) => {
+    if (view !== "master" && !hasMain) {
+      message.warning("请先生成或上传主视图")
+      return
+    }
+    setPendingViews((current) => (current.includes(view) ? current : [...current, view]))
+    void Promise.resolve(onGenerate(payload)).finally(() => {
+      setPendingViews((current) => current.filter((item) => item !== view))
+    })
+  }
   const shotCount = asset.definition.shot_count || 5
   const stylePayload = {
-    style: String(asset.definition.visual_style || ""),
+    style: artStyleId,
+    art_style_id: artStyleId,
     ethnicity: "Chinese",
   }
 
@@ -1805,6 +1880,13 @@ function PropEditor({
           </div>
 
           <div className="xiaji-scene-card-tools">
+            <ArtStyleCompactField
+              size="small"
+              styles={catalogStyles}
+              categories={catalogCategories}
+              value={artStyleId}
+              onChange={setArtStyleId}
+            />
             <Button
               type="text"
               size="small"
@@ -1889,8 +1971,7 @@ function PropEditor({
                 icon={<RotateCw size={12} />}
                 loading={masterGenerating}
                 onClick={() => {
-                  setPendingView("master")
-                  onGenerate({ ...stylePayload, prop_view: "master" })
+                  queueProp("master", { ...stylePayload, prop_view: "master" })
                 }}
               >
                 重生 主图
@@ -1898,10 +1979,10 @@ function PropEditor({
             </div>
           </div>
 
-          {/* 2. 转面图 / 四视图 */}
+          {/* 2. 转面图 / 三视图 */}
           <div className="xiaji-scene-view-card">
             <div className="xiaji-scene-view-head">
-              <span className="xiaji-scene-view-badge">转面图 (四视图)</span>
+              <span className="xiaji-scene-view-badge">转面图 (三视图)</span>
               {hasTurnaround ? (
                 <button
                   type="button"
@@ -1942,9 +2023,10 @@ function PropEditor({
                 size="small"
                 icon={<RotateCw size={12} />}
                 loading={turnaroundGenerating}
+                disabled={!hasMain}
+                title={hasMain ? undefined : "请先生成或上传主视图"}
                 onClick={() => {
-                  setPendingView("turnaround")
-                  onGenerate({ ...stylePayload, prop_view: "turnaround" })
+                  queueProp("turnaround", { ...stylePayload, prop_view: "turnaround" })
                 }}
               >
                 重生 转面
@@ -1984,9 +2066,10 @@ function PropEditor({
                 size="small"
                 icon={<Box size={12} />}
                 loading={detailGenerating}
+                disabled={!hasMain}
+                title={hasMain ? undefined : "请先生成或上传主视图"}
                 onClick={() => {
-                  setPendingView("detail")
-                  onGenerate({ ...stylePayload, prop_view: "detail" })
+                  queueProp("detail", { ...stylePayload, prop_view: "detail" })
                 }}
               >
                 生成特写
@@ -2017,74 +2100,7 @@ function PropEditor({
           </div>
         </div>
 
-        {/* 导演世界模块 */}
-        <div className="xiaji-director-world-block">
-          <div className="xiaji-director-world-title">
-            <Box size={16} />
-            <strong>导演世界</strong>
-          </div>
-
-          <div className="xiaji-director-world-actions">
-            <Upload
-              accept=".zip,.glb,.gltf,.json,.obj,.fbx"
-              showUploadList={false}
-              beforeUpload={(file) => {
-                updateDef({ custom_bundle_name: file.name })
-                message.success(`已载入3D资产包: ${file.name}`)
-                return false
-              }}
-            >
-              <Button size="small" icon={<UploadIcon size={12} />}>
-                上传/替换 自定义包
-              </Button>
-            </Upload>
-
-            <Button
-              size="small"
-              type="text"
-              icon={<Trash2 size={12} />}
-              disabled={!asset.definition.custom_bundle_name}
-              onClick={() => {
-                updateDef({ custom_bundle_name: "", custom_bundle_url: "" })
-                message.info("已移除自定义包")
-              }}
-            >
-              删除 自定义包
-            </Button>
-
-            <Button
-              size="small"
-              icon={<RotateCw size={12} />}
-              onClick={() => message.success("已将主视角同步至导演世界")}
-            >
-              主视图→导演世界
-            </Button>
-            <Button
-              size="small"
-              icon={<RotateCw size={12} />}
-              onClick={() => message.success("已将转面视角同步至导演世界")}
-            >
-              转面图→导演世界
-            </Button>
-            <Button
-              size="small"
-              icon={<RotateCw size={12} />}
-              onClick={() => message.success("已将特写视角同步至导演世界")}
-            >
-              细节图→导演世界
-            </Button>
-          </div>
-
-          <Button
-            type="link"
-            size="small"
-            className="xiaji-director-world-open-btn"
-            icon={<ExternalLink size={12} />}
-            onClick={() => setDirectorModalOpen(true)}
-          >
-            打开导演世界
-          </Button>
-        </div>
+     
       </div>
 
       {/* 特写查看器弹窗 */}
@@ -2120,7 +2136,7 @@ function PropEditor({
           <Box size={48} style={{ color: "#38bdf8", marginBottom: "12px" }} />
           <h3>已就绪当前道具空间坐标与物理绑定</h3>
           <p style={{ color: "var(--studio-text-muted)", marginTop: "8px" }}>
-            主视角、转面多角度与细节贴图已对齐道具骨骼与角色挂载槽位，支持直接在分镜中绑定调用。
+            主视图、1x3 三视图转面与细节特写对齐 sourceXd 道具产品摄影合同，支持在分镜中绑定调用。
           </p>
         </div>
       </Modal>
@@ -2138,7 +2154,7 @@ function PropEditor({
               owner: values.owner,
               visual_prompt: values.visual_prompt,
               description: values.description,
-              visual_style: values.visual_style,
+              art_style_id: artStyleId,
             })
             setEditModalOpen(false)
             message.success("道具信息已更新")

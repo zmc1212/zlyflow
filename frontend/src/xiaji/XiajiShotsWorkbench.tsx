@@ -32,6 +32,7 @@ import {
   MessageSquare,
   Pencil,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   Upload as UploadIcon,
   User,
@@ -42,13 +43,18 @@ import {
   generateXiajiBeatRender,
   generateXiajiBeatSketch,
   generateXiajiBeatVideo,
-  generateXiajiEpisodeSketches,
+  generateXiajiBeatVideoPrompt,
+  getXiajiEpisodeAutoRun,
+  startXiajiEpisodeAutoRun,
   listXiajiAssets,
   isXiajiShotVideoMode,
   listXiajiWorkflowModes,
   patchXiajiBeat,
+  uploadXiajiBeatInFrame,
   uploadXiajiBeatSketch,
   waitForXiajiImageJob,
+  xiajiBeatSlotBusy,
+  xiajiPreviousVideoBeat,
   DEFAULT_XIAJI_VIDEO_WORKFLOW,
   type XiajiAsset,
   type XiajiBeat,
@@ -57,6 +63,8 @@ import {
   type XiajiWorkflowMode,
 } from "./xiaji-api"
 
+import { extractVideoFrame } from "../director/director-submit"
+
 const SPLIT_KEY = "xiaji.shots.split-ratio"
 const TIME_OPTIONS = ["日", "夜", "晨", "黄昏"]
 const VIDEO_ASPECT_RATIO = "16:9"
@@ -64,6 +72,11 @@ const VIDEO_ASPECT_RATIO = "16:9"
 function videoOptionSchema(mode?: XiajiWorkflowMode | null): Record<string, XiajiOptionProperty> {
   const options = (mode?.parameters ?? []).find((item) => item.name === "options")
   return options?.schema?.properties ?? {}
+}
+
+function videoDurationSeconds(value: string | number | null | undefined) {
+  const duration = Number(value)
+  return Number.isFinite(duration) && duration > 0 ? duration : 5
 }
 
 function durationChoices(prop?: XiajiOptionProperty) {
@@ -189,31 +202,49 @@ function ActorPills({
   )
 }
 
+const AUTO_STEP_LABELS: Record<string, string> = {
+  sketch: "草图",
+  render: "精绘",
+  bridge: "衔接帧",
+  prompt: "提示词",
+  video: "视频",
+}
+
+function autoRunStepLabel(step?: string | null) {
+  const key = String(step || "").trim()
+  return AUTO_STEP_LABELS[key] || key
+}
+
 function BeatGridCard({
   beat,
   selected,
   showSketch,
   onSelect,
+  generatingLabel,
 }: {
   beat: XiajiBeat
   selected: boolean
   showSketch: boolean
   onSelect: () => void
+  generatingLabel?: string
 }) {
-  const pending = beat.status === "queued" || beat.status === "generating"
+  const pending = Boolean(generatingLabel) || beat.status === "queued" || beat.status === "generating"
   return (
     <button
       type="button"
       data-beat-id={beat.id}
-      className={`xiaji-shot-tile${selected ? " is-selected" : ""}`}
+      className={`xiaji-shot-tile${selected ? " is-selected" : ""}${generatingLabel ? " is-generating" : ""}`}
       onClick={onSelect}
     >
       <span className="xiaji-shot-tile-num">Beat {beat.sequence}</span>
       <div className="xiaji-shot-tile-media">
-        {showSketch && beat.sketch_url ? (
+        {showSketch && beat.sketch_url && !generatingLabel ? (
           <img src={beat.sketch_url} alt="" />
         ) : pending ? (
-          <Spin size="small" />
+          <div className="xiaji-shot-tile-busy">
+            <Spin size="small" />
+            <em>{generatingLabel || "正在生成中"}</em>
+          </div>
         ) : (
           <ImageIcon size={22} />
         )}
@@ -251,6 +282,17 @@ function Inspector({
   onSaved,
   generating,
   onGenerate,
+  autoStep,
+  videoFamily,
+  setVideoFamily,
+  videoDuration,
+  setVideoDuration,
+  videoQuality,
+  setVideoQuality,
+  videoSpeed,
+  setVideoSpeed,
+  videoCustomSteps,
+  setVideoCustomSteps,
 }: {
   csrfToken: string
   episode: XiajiEpisode
@@ -261,6 +303,17 @@ function Inspector({
   onSaved: () => Promise<unknown>
   generating: boolean
   onGenerate: (force: boolean) => void
+  autoStep?: string | null
+  videoFamily: string
+  setVideoFamily: (value: string | ((current: string) => string)) => void
+  videoDuration: string
+  setVideoDuration: (value: string | ((current: string) => string)) => void
+  videoQuality: string
+  setVideoQuality: (value: string | ((current: string) => string)) => void
+  videoSpeed: string
+  setVideoSpeed: (value: string | ((current: string) => string)) => void
+  videoCustomSteps: number
+  setVideoCustomSteps: (value: number | ((current: number) => number)) => void
 }) {
   const queryClient = useQueryClient()
   const [heading, setHeading] = useState(beat.heading)
@@ -270,6 +323,11 @@ function Inspector({
   const [sceneId, setSceneId] = useState(beat.scene_id || "")
   const [characterIds, setCharacterIds] = useState(beat.character_ids)
   const [propIds, setPropIds] = useState(beat.prop_ids)
+  const [promptZh, setPromptZh] = useState(beat.video_prompt_zh || "")
+  const promptDirtyRef = useRef(false)
+  const prevVideoRef = useRef<HTMLVideoElement | null>(null)
+  const autoCaptureKeyRef = useRef("")
+  const [capturingFrame, setCapturingFrame] = useState(false)
 
   useEffect(() => {
     setHeading(beat.heading)
@@ -279,13 +337,35 @@ function Inspector({
     setSceneId(beat.scene_id || "")
     setCharacterIds(beat.character_ids)
     setPropIds(beat.prop_ids)
+    if (!promptDirtyRef.current) setPromptZh(beat.video_prompt_zh || "")
   }, [beat])
 
   const characters = assets.filter((item) => item.kind === "character")
   const scenes = assets.filter((item) => item.kind === "scene")
   const props = assets.filter((item) => item.kind === "prop")
   const scene = scenes.find((item) => item.id === sceneId)
-  const pending = beat.status === "queued" || beat.status === "generating"
+  const autoSketch = autoStep === "sketch"
+  const autoRender = autoStep === "render"
+  const autoPrompt = autoStep === "prompt" || autoStep === "bridge"
+  const autoVideo = autoStep === "video"
+  const pending = autoSketch || beat.status === "queued" || beat.status === "generating"
+  const previousBeat = useMemo(() => xiajiPreviousVideoBeat(episode, beat), [episode, beat])
+  const needsBridge = Boolean(previousBeat)
+  const previousVideoReady = Boolean(previousBeat?.video_url)
+  const bridgeManual = beat.video_in_frame_manual === "1"
+  const bridgeStale =
+    Boolean(previousBeat?.video_job_id) &&
+    Boolean(beat.video_in_source_job_id) &&
+    previousBeat?.video_job_id !== beat.video_in_source_job_id
+  const needsAutoCapture = needsBridge && previousVideoReady && !bridgeManual && (!beat.video_in_frame_url || bridgeStale)
+  const bridgeBlocked = needsBridge && (!previousVideoReady || !beat.video_in_frame_url)
+  const bridgeHint = !needsBridge
+    ? ""
+    : !previousVideoReady
+      ? "请先生成上一镜视频，再为本镜截取衔接帧。"
+      : !beat.video_in_frame_url
+        ? "正在截取上一镜最后一帧，或请手动截取。"
+        : "0–1.5s 从上一镜截图过渡到本镜精绘，之后按本镜动作继续。"
 
   const saveMutation = useMutation({
     mutationFn: (payload: Parameters<typeof patchXiajiBeat>[3]) => patchXiajiBeat(csrfToken, episode.id, beat.id, payload),
@@ -308,16 +388,16 @@ function Inspector({
 
   const waitAndRefresh = async (jobId: string | null | undefined) => {
     if (!jobId) return
-    await waitForXiajiImageJob(jobId)
-    await queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
-    await onSaved()
+    try {
+      await waitForXiajiImageJob(jobId)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "生成任务失败")
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-project-jobs", episode.project_id] })
+      await onSaved()
+    }
   }
-
-  const [videoFamily, setVideoFamily] = useState(DEFAULT_XIAJI_VIDEO_WORKFLOW)
-  const [videoDuration, setVideoDuration] = useState("5")
-  const [videoQuality, setVideoQuality] = useState("0.2")
-  const [videoSpeed, setVideoSpeed] = useState("balanced")
-  const [videoCustomSteps, setVideoCustomSteps] = useState(8)
 
   const renderMutation = useMutation({
     mutationFn: (force: boolean) => generateXiajiBeatRender(csrfToken, episode.id, beat.id, force, sceneView),
@@ -329,16 +409,16 @@ function Inspector({
   })
 
   const videoMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (payload: { duration: number; family: string; scene_view: "front" | "reverse" }) =>
       generateXiajiBeatVideo(csrfToken, episode.id, beat.id, {
         force: true,
-        family: videoFamily,
-        duration: Number(videoDuration) || 5,
+        family: payload.family,
+        duration: payload.duration,
         quality: videoQuality,
         aspect_ratio: VIDEO_ASPECT_RATIO,
         speed: videoSpeed,
         custom_steps: videoSpeed === "custom" ? videoCustomSteps : undefined,
-        scene_view: sceneView,
+        scene_view: payload.scene_view,
       }),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
@@ -346,6 +426,65 @@ function Inspector({
     },
     onError: (error: Error) => message.error(error.message),
   })
+
+  const videoPromptMutation = useMutation({
+    mutationFn: (payload: { duration: number; family: string; scene_view: "front" | "reverse" }) =>
+      generateXiajiBeatVideoPrompt(csrfToken, episode.id, beat.id, payload),
+    onSuccess: async (result) => {
+      promptDirtyRef.current = false
+      setPromptZh(result.prompt_zh || "")
+      if (result.episode) {
+        queryClient.setQueryData(["xiaji-episode", episode.id], result.episode)
+      }
+      message.success("已生成本 Beat 视频提示词")
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-project-jobs", episode.project_id] })
+      await onSaved()
+    },
+    onError: (error: Error) => message.error(error.message),
+  })
+
+  const inFrameMutation = useMutation({
+    mutationFn: (payload: { file: File; sec?: number | null; manual?: boolean; sourceJobId?: string | null }) =>
+      uploadXiajiBeatInFrame(csrfToken, episode.id, beat.id, payload.file, payload),
+    onSuccess: async (updated) => {
+      queryClient.setQueryData(["xiaji-episode", episode.id], updated)
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
+      await onSaved()
+    },
+    onError: (error: Error) => message.error(error.message),
+  })
+
+  const capturePreviousFrame = async (manual: boolean, timeSec?: number) => {
+    if (!previousBeat?.video_url) {
+      message.error("请先生成上一镜视频")
+      return
+    }
+    setCapturingFrame(true)
+    try {
+      const captured = await extractVideoFrame(previousBeat.video_url, timeSec)
+      await inFrameMutation.mutateAsync({
+        file: captured.file,
+        sec: timeSec ?? null,
+        manual,
+        sourceJobId: previousBeat.video_job_id || null,
+      })
+      if (manual) message.success("已截取衔接帧")
+      else message.success("已重置为默认末帧")
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "截取衔接帧失败")
+    } finally {
+      setCapturingFrame(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!needsAutoCapture || !previousBeat?.video_url) return
+    const key = `${beat.id}:${previousBeat.video_job_id || previousBeat.video_url}`
+    if (autoCaptureKeyRef.current === key || capturingFrame || inFrameMutation.isPending) return
+    autoCaptureKeyRef.current = key
+    void capturePreviousFrame(false)
+  }, [needsAutoCapture, previousBeat?.video_url, previousBeat?.video_job_id, beat.id])
 
   const modesQuery = useQuery({
     queryKey: ["xiaji-workflow-modes"],
@@ -366,7 +505,7 @@ function Inspector({
   const speedChoices = selectChoices(speedProp)
   const showCustomSteps = Boolean(customStepsProp && videoSpeed === (customStepsProp.ui_visible_when?.speed || "custom"))
 
-  const persist = (override?: Partial<{ heading: string; speaker: string; dialogue: string; action: string; scene_id: string; character_ids: string[]; prop_ids: string[] }>) => {
+  const persist = (override?: Partial<{ heading: string; speaker: string; dialogue: string; action: string; scene_id: string; character_ids: string[]; prop_ids: string[]; video_prompt_zh: string; video_duration: string }>) => {
     void saveMutation.mutate({
       heading,
       speaker,
@@ -404,12 +543,26 @@ function Inspector({
 
   useEffect(() => {
     const schema = videoOptionSchema(selectedVideoMode)
-    setVideoDuration(preferredOptionValue(schema.duration, "5"))
-    setVideoQuality(preferredOptionValue(schema.quality, "0.2"))
-    setVideoSpeed(preferredOptionValue(schema.speed, "balanced"))
+    const durationAllowed = new Set(durationChoices(schema.duration).map((item) => item.value))
+    setVideoDuration((current) => {
+      if (durationAllowed.has(String(current))) return String(current)
+      const stored = String(beat.video_duration || "").trim()
+      if (stored && durationAllowed.has(stored)) return stored
+      return preferredOptionValue(schema.duration, "5")
+    })
+    setVideoQuality((current) => {
+      const allowed = new Set(selectChoices(schema.quality).map((item) => item.value))
+      if (allowed.size && allowed.has(current)) return current
+      return preferredOptionValue(schema.quality, "0.2")
+    })
+    setVideoSpeed((current) => {
+      const allowed = new Set(selectChoices(schema.speed).map((item) => item.value))
+      if (allowed.size && allowed.has(current)) return current
+      return preferredOptionValue(schema.speed, "balanced")
+    })
     const stepsDefault = schema.custom_steps?.default
     if (typeof stepsDefault === "number") setVideoCustomSteps(stepsDefault)
-  }, [selectedVideoMode?.id])
+  }, [beat.video_duration, selectedVideoMode?.id])
 
   const toggleSection = (key: string) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
@@ -597,7 +750,7 @@ function Inspector({
                   </button>
                   <span className="mr-3 inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[10px] font-normal border-primary/18 bg-primary/[0.09] text-primary/90">
                     <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
-                    {pending ? "生成中" : beat.sketch_url ? "已选中" : "未生成"}
+                    {pending ? "正在生成中" : beat.sketch_url ? "已选中" : "未生成"}
                   </span>
                 </div>
                 {openSections.sketch && (
@@ -616,7 +769,7 @@ function Inspector({
                           ) : pending ? (
                             <div className="xiaji-sketch-placeholder">
                               <Spin size="small" />
-                              <span>AI 绘制中...</span>
+                              <span>正在生成中</span>
                             </div>
                           ) : (
                             <div className="xiaji-sketch-placeholder" onClick={() => onGenerate(false)}>
@@ -645,7 +798,7 @@ function Inspector({
                           onClick={() => onGenerate(true)}
                         >
                           <RefreshCw size={12} className={generating || pending ? "animate-spin" : ""} />
-                          <span>重新生成</span>
+                          <span>{pending ? "正在生成中" : "重新生成"}</span>
                         </button>
 
                         <button
@@ -759,11 +912,13 @@ function Inspector({
                   </button>
                   <span className="mr-3 inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[10px] font-normal border-primary/18 bg-primary/[0.09] text-primary/90">
                     <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
-                    {beat.render_status === "queued" || beat.render_status === "generating" || renderMutation.isPending
-                      ? "生成中"
-                      : beat.render_url
-                        ? "已渲染"
-                        : "待渲染"}
+                    {xiajiBeatSlotBusy(beat.render_status) || renderMutation.isPending || autoRender
+                      ? "正在生成中"
+                      : beat.render_status === "failed"
+                        ? "失败"
+                        : beat.render_url
+                          ? "已渲染"
+                          : "待渲染"}
                   </span>
                 </div>
                 {openSections.render && (
@@ -778,10 +933,25 @@ function Inspector({
                         <div className="xiaji-sketch-main-card">
                           {beat.render_url ? (
                             <Image src={beat.render_url} alt={`Beat ${beat.sequence} 渲染图`} />
-                          ) : renderMutation.isPending || beat.render_status === "queued" || beat.render_status === "generating" ? (
+                          ) : renderMutation.isPending || xiajiBeatSlotBusy(beat.render_status) || autoRender ? (
                             <div className="xiaji-sketch-placeholder">
                               <Spin size="small" />
-                              <span>精绘中...</span>
+                              <span>正在生成中</span>
+                            </div>
+                          ) : beat.render_status === "failed" ? (
+                            <div
+                              className="xiaji-sketch-placeholder"
+                              onClick={() => {
+                                if (!beat.sketch_url) {
+                                  message.info("请先生成草图")
+                                  return
+                                }
+                                renderMutation.mutate(true)
+                              }}
+                            >
+                              <LucideImage size={28} strokeWidth={1.2} />
+                              <span>精绘失败</span>
+                              <span>{beat.render_error || "任务已失败，点击重试"}</span>
                             </div>
                           ) : (
                             <div
@@ -814,11 +984,11 @@ function Inspector({
                         <button
                           type="button"
                           className="xiaji-sketch-tool-btn"
-                          disabled={!beat.sketch_url || renderMutation.isPending}
+                          disabled={!beat.sketch_url || renderMutation.isPending || autoRender}
                           onClick={() => renderMutation.mutate(true)}
                         >
-                          <RefreshCw size={12} />
-                          <span>{beat.render_url ? "重新生成" : "精绘渲染"}</span>
+                          <RefreshCw size={12} className={renderMutation.isPending || autoRender ? "animate-spin" : ""} />
+                          <span>{renderMutation.isPending || autoRender ? "正在生成中" : beat.render_url ? "重新生成" : "精绘渲染"}</span>
                         </button>
 
                         <button
@@ -938,8 +1108,12 @@ function Inspector({
                       <span className="text-[10px] text-muted-foreground">时长</span>
                       <Select
                         size="small"
-                        value={videoDuration}
-                        onChange={(val) => setVideoDuration(val)}
+                        value={String(videoDuration)}
+                        onChange={(val) => {
+                          const next = String(val ?? "")
+                          setVideoDuration(next)
+                          persist({ video_duration: next })
+                        }}
                         className="xiaji-header-select w-[76px]"
                         options={durationChoices(durationProp)}
                       />
@@ -988,11 +1162,13 @@ function Inspector({
 
                   <span className="mr-3 inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[10px] font-normal border-primary/18 bg-primary/[0.09] text-primary/90">
                     <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
-                    {videoMutation.isPending || beat.video_status === "queued" || beat.video_status === "generating"
-                      ? "生成中"
-                      : beat.video_url
-                        ? "已生成"
-                        : "未生成"}
+                    {videoMutation.isPending || xiajiBeatSlotBusy(beat.video_status) || autoVideo
+                      ? "正在生成中"
+                      : beat.video_status === "failed"
+                        ? "失败"
+                        : beat.video_url
+                          ? "已生成"
+                          : "未生成"}
                   </span>
                 </div>
 
@@ -1008,18 +1184,224 @@ function Inspector({
                         </span>
                       </div>
 
+                      <div className="mb-3 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Typography.Text className="text-xs text-muted-foreground">本 Beat 视频提示词（界面中文，入队英文）</Typography.Text>
+                          <button
+                            type="button"
+                            className="xiaji-sketch-tool-btn"
+                            disabled={!beat.render_url || videoPromptMutation.isPending || autoPrompt}
+                            title={
+                              !beat.render_url
+                                ? "请先精绘"
+                                : needsBridge && !previousVideoReady
+                                  ? "可先写本镜提示词；生成视频仍需上一镜完成"
+                                  : undefined
+                            }
+                            onClick={() =>
+                              videoPromptMutation.mutate({
+                                family: videoFamily,
+                                duration: videoDurationSeconds(videoDuration),
+                                scene_view: sceneView,
+                              })
+                            }
+                          >
+                            <Sparkles size={12} className={videoPromptMutation.isPending || autoPrompt ? "animate-spin" : ""} />
+                            <span>
+                              {videoPromptMutation.isPending || autoPrompt
+                                ? "正在生成中"
+                                : beat.video_prompt_zh
+                                  ? "重新生成本 Beat 提示词"
+                                  : "生成本 Beat 提示词"}
+                            </span>
+                          </button>
+                        </div>
+                        {(beat.video_pictures || []).length ? (
+                          <div className="flex flex-wrap gap-1">
+                            {beat.video_pictures?.map((item) => (
+                              <Tag key={item.tag} className="m-0" title={item.detail_zh || item.label_zh}>
+                                {item.tag} {item.label_zh || item.name}
+                              </Tag>
+                            ))}
+                          </div>
+                        ) : null}
+                        <Input.TextArea
+                          value={promptZh}
+                          rows={10}
+                          placeholder="先精绘，再生成提示词。中文给创作者看；点生成视频时会把英文稿传给 LightX2V。"
+                          onChange={(event) => {
+                            promptDirtyRef.current = true
+                            setPromptZh(event.target.value)
+                          }}
+                          onBlur={(event) => {
+                            if (videoPromptMutation.isPending || !promptDirtyRef.current) return
+                            const next = event.target.value
+                            if (next !== (beat.video_prompt_zh || "")) {
+                              persist({ video_prompt_zh: next })
+                            }
+                            promptDirtyRef.current = false
+                          }}
+                        />
+                        {needsBridge ? (
+                          <Typography.Text className="block text-xs text-muted-foreground">{bridgeHint}</Typography.Text>
+                        ) : null}
+                        {beat.video_prompt ? (
+                          <Collapse
+                            ghost
+                            size="small"
+                            items={[
+                              {
+                                key: "en",
+                                label: "入队英文稿",
+                                children: (
+                                  <Typography.Paragraph className="mb-0 whitespace-pre-wrap text-xs text-muted-foreground">
+                                    {beat.video_prompt}
+                                  </Typography.Paragraph>
+                                ),
+                              },
+                            ]}
+                          />
+                        ) : null}
+                      </div>
+
+                      {needsBridge ? (
+                        <div className="xiaji-bridge-panel mb-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-black/[0.06] dark:border-white/[0.08]">
+                            <div className="flex items-center gap-2">
+                              <Typography.Text className="text-xs font-semibold text-foreground">上一镜衔接帧</Typography.Text>
+                              {previousBeat ? (
+                                <Tag className="m-0 text-[10px] px-1.5 py-0 leading-tight">Beat {previousBeat.sequence}</Tag>
+                              ) : null}
+                              {capturingFrame ? (
+                                <Tag color="processing" className="m-0 text-[10px] px-1.5 py-0 leading-tight">截帧中</Tag>
+                              ) : bridgeManual ? (
+                                <Tag color="blue" className="m-0 text-[10px] px-1.5 py-0 leading-tight">
+                                  已手动截取{beat.video_in_frame_sec ? ` · ${Number(beat.video_in_frame_sec).toFixed(1)}s` : ""}
+                                </Tag>
+                              ) : (
+                                <Tag className="m-0 text-[10px] px-1.5 py-0 leading-tight text-muted-foreground">默认上一镜末帧</Tag>
+                              )}
+                            </div>
+                            <Space size={6} wrap>
+                              {bridgeManual && previousVideoReady ? (
+                                <Button
+                                  size="small"
+                                  icon={<RotateCcw size={12} />}
+                                  disabled={capturingFrame || inFrameMutation.isPending}
+                                  onClick={() => void capturePreviousFrame(false)}
+                                >
+                                  恢复末帧
+                                </Button>
+                              ) : null}
+                              <Button
+                                type="primary"
+                                size="small"
+                                icon={<Crop size={12} />}
+                                disabled={!previousVideoReady || capturingFrame || inFrameMutation.isPending}
+                                loading={capturingFrame || autoStep === "bridge"}
+                                onClick={() => {
+                                  const current = prevVideoRef.current?.currentTime
+                                  void capturePreviousFrame(true, Number.isFinite(current) ? current : undefined)
+                                }}
+                              >
+                                {capturingFrame || autoStep === "bridge" ? "正在截取" : "截取当前帧"}
+                              </Button>
+                            </Space>
+                          </div>
+
+                          {previousVideoReady ? (
+                            <div className="xiaji-bridge-stage">
+                              <div className="xiaji-bridge-player-col">
+                                <div className="text-[11px] font-medium text-foreground/80 mb-1.5 flex items-center justify-between">
+                                  <span>上一镜视频回放（拖动进度条选帧）</span>
+                                </div>
+                                <div className="xiaji-bridge-player-wrapper">
+                                  <video
+                                    ref={prevVideoRef}
+                                    src={previousBeat?.video_url || undefined}
+                                    controls
+                                    playsInline
+                                    crossOrigin="anonymous"
+                                    className="xiaji-bridge-prev-player"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="xiaji-bridge-preview-col">
+                                <div className="text-[11px] font-medium text-foreground/80 mb-1.5 flex items-center justify-between">
+                                  <span>本镜采用衔接帧 (0s)</span>
+                                </div>
+                                <div className="xiaji-bridge-preview-wrapper">
+                                  {capturingFrame ? (
+                                    <div className="xiaji-bridge-preview-empty">
+                                      <Spin size="small" />
+                                      <span>正在截取画面...</span>
+                                    </div>
+                                  ) : beat.video_in_frame_url ? (
+                                    <>
+                                      <Image
+                                        src={beat.video_in_frame_url}
+                                        alt="衔接首帧"
+                                        className="xiaji-bridge-preview-img"
+                                      />
+                                      <div className="absolute bottom-1 right-1 z-10 pointer-events-none bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-xs font-mono">
+                                        {bridgeManual ? (beat.video_in_frame_sec ? `${Number(beat.video_in_frame_sec).toFixed(1)}s` : "手动帧") : "末尾帧"}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="xiaji-bridge-preview-empty">
+                                      <ImageIcon size={18} strokeWidth={1.4} />
+                                      <span>待截取衔接帧</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center py-5 px-4 text-center rounded-lg border border-dashed border-black/[0.08] dark:border-white/[0.12] bg-black/[0.02] dark:bg-white/[0.02]">
+                              <Video size={22} strokeWidth={1.3} className="text-muted-foreground/60 mb-1.5" />
+                              <Typography.Text className="text-xs font-medium text-foreground/85">上一镜视频未就绪</Typography.Text>
+                              <Typography.Text className="text-[11px] text-muted-foreground mt-0.5">
+                                请先在上一镜（Beat {previousBeat?.sequence}）生成视频后，即可在此截取过渡衔接帧
+                              </Typography.Text>
+                            </div>
+                          )}
+
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-2.5">
+                            <span className="size-1 rounded-full bg-primary/70 shrink-0" />
+                            <span>在播放器拖动选定画面后点击【截取当前帧】；生成视频时，前 1.5 秒将从该画格平滑过渡到本镜。</span>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="text-[11px] font-medium text-foreground/80 mb-1.5 flex items-center justify-between">
+                        <span>本镜视频成果</span>
+                        {beat.video_url ? <Tag color="success" className="m-0 text-[10px]">已就绪</Tag> : null}
+                      </div>
+
                       <div className="xiaji-sketch-cards-row">
                         <div className="xiaji-video-exact-card">
                           {beat.video_url ? (
                             <video src={beat.video_url} controls playsInline className="xiaji-video-player" />
-                          ) : videoMutation.isPending || beat.video_status === "queued" || beat.video_status === "generating" ? (
+                          ) : videoMutation.isPending || xiajiBeatSlotBusy(beat.video_status) || autoVideo ? (
                             <div className="xiaji-sketch-placeholder">
                               <Spin size="small" />
-                              <span>视频生成中...</span>
+                              <span>正在生成中</span>
+                            </div>
+                          ) : beat.video_status === "failed" ? (
+                            <div className="xiaji-sketch-placeholder">
+                              <Video size={28} strokeWidth={1.2} />
+                              <span>视频失败</span>
+                              <span>{beat.video_error || "任务已失败，请重新生成"}</span>
+                            </div>
+                          ) : needsBridge && beat.video_in_frame_url ? (
+                            <div className="xiaji-video-preview-wrapper">
+                              <Image src={beat.video_in_frame_url} alt="上一镜衔接帧" />
+                              <div className="xiaji-video-canvas-badge">0s 上一镜截图 · 1.5s 过渡到精绘</div>
                             </div>
                           ) : beat.render_url ? (
                             <div className="xiaji-video-preview-wrapper">
-                              <img src={beat.render_url} alt="视频首帧驱动" />
+                              <Image src={beat.render_url} alt="视频首帧驱动" />
                               <div className="xiaji-video-canvas-badge">基于渲染图首帧驱动</div>
                             </div>
                           ) : (
@@ -1030,13 +1412,24 @@ function Inspector({
                           )}
                         </div>
 
+                        {needsBridge ? (
+                          <div className="xiaji-sketch-thumb-card">
+                            {beat.video_in_frame_url ? (
+                              <Image src={beat.video_in_frame_url} alt="衔接帧" />
+                            ) : (
+                              <div className="xiaji-sketch-thumb-placeholder" />
+                            )}
+                            <span className="xiaji-sketch-version-badge">衔接</span>
+                          </div>
+                        ) : null}
+
                         <div className="xiaji-sketch-thumb-card">
                           {beat.render_url ? (
-                            <img src={beat.render_url} alt="" />
+                            <Image src={beat.render_url} alt="本镜精绘" />
                           ) : (
                             <div className="xiaji-sketch-thumb-placeholder" />
                           )}
-                          <span className="xiaji-sketch-version-badge">{videoDuration}s</span>
+                          <span className="xiaji-sketch-version-badge">{needsBridge ? "精绘" : `${videoDuration}s`}</span>
                         </div>
                       </div>
 
@@ -1044,11 +1437,23 @@ function Inspector({
                         <button
                           type="button"
                           className="xiaji-sketch-tool-btn is-primary"
-                          disabled={!beat.render_url || videoMutation.isPending}
-                          onClick={() => videoMutation.mutate()}
+                          disabled={!beat.render_url || Boolean(bridgeBlocked) || videoMutation.isPending || capturingFrame || autoVideo}
+                          onClick={() =>
+                            videoMutation.mutate({
+                              family: videoFamily,
+                              duration: videoDurationSeconds(videoDuration),
+                              scene_view: sceneView,
+                            })
+                          }
                         >
                           <Video size={12} />
-                          <span>生成视频</span>
+                          <span>
+                            {videoMutation.isPending || autoVideo
+                              ? "正在生成中"
+                              : beat.video_status === "failed" || beat.video_url
+                                ? "重新生成视频"
+                                : "生成视频"}
+                          </span>
                         </button>
 
                         <button
@@ -1158,6 +1563,11 @@ export default function XiajiShotsWorkbench({
   const [selectedId, setSelectedId] = useState(shots[0]?.id || "")
   const [showSketch, setShowSketch] = useState(true)
   const [sceneViews, setSceneViews] = useState<Record<string, "front" | "reverse">>({})
+  const [videoFamily, setVideoFamily] = useState(DEFAULT_XIAJI_VIDEO_WORKFLOW)
+  const [videoDuration, setVideoDuration] = useState(String(shots[0]?.video_duration || "5"))
+  const [videoQuality, setVideoQuality] = useState("0.2")
+  const [videoSpeed, setVideoSpeed] = useState("balanced")
+  const [videoCustomSteps, setVideoCustomSteps] = useState(8)
   const [splitPct, setSplitPct] = useState(() => {
     const saved = Number(window.localStorage.getItem(SPLIT_KEY))
     return Number.isFinite(saved) && saved >= 28 && saved <= 72 ? saved : 42
@@ -1185,10 +1595,16 @@ export default function XiajiShotsWorkbench({
 
   const runJob = async (jobId: string | null | undefined) => {
     if (!jobId) return
-    await waitForXiajiImageJob(jobId)
-    await queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
-    await queryClient.invalidateQueries({ queryKey: ["xiaji-episodes", episode.project_id] })
-    await onRefresh()
+    try {
+      await waitForXiajiImageJob(jobId)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "生成任务失败")
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-episodes", episode.project_id] })
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-project-jobs", episode.project_id] })
+      await onRefresh()
+    }
   }
 
   const oneMutation = useMutation({
@@ -1201,12 +1617,55 @@ export default function XiajiShotsWorkbench({
     onError: (error: Error) => message.error(error.message),
   })
 
-  const batchMutation = useMutation({
-    mutationFn: () => generateXiajiEpisodeSketches(csrfToken, episode.id, false),
-    onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
-      for (const jobId of result.job_ids || []) void runJob(jobId)
-      message.success(result.job_ids?.length ? `已入队 ${result.job_ids.length} 张草图` : "没有需要新生成的镜头")
+  const autoRunQuery = useQuery({
+    queryKey: ["xiaji-auto-run", episode.id],
+    queryFn: () => getXiajiEpisodeAutoRun(episode.id),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: (query) => {
+      const status = query.state.data?.run?.status
+      return status === "queued" || status === "running" ? 2000 : false
+    },
+  })
+  const autoRun = autoRunQuery.data?.run
+  const autoRunning = autoRun?.status === "queued" || autoRun?.status === "running"
+  const autoBeatId = autoRunning ? String(autoRun?.cursor?.beat_id || "") : ""
+  const autoStep = autoRunning ? String(autoRun?.cursor?.step || "") : ""
+  const autoRunSeenRef = useRef<{ episodeId: string; id: string; status: string } | null>(null)
+  useEffect(() => {
+    if (!autoRun?.id) return
+    const previous = autoRunSeenRef.current
+    autoRunSeenRef.current = { episodeId: episode.id, id: autoRun.id, status: autoRun.status }
+    if (!previous || previous.episodeId !== episode.id || previous.id !== autoRun.id) return
+    if (autoRun.status === "failed" && previous.status !== "failed" && autoRun.error) {
+      message.error(autoRun.error)
+    }
+  }, [autoRun, episode.id])
+  useEffect(() => {
+    if (!autoBeatId || !shots.some((item) => item.id === autoBeatId)) return
+    setSelectedId(autoBeatId)
+  }, [autoBeatId, shots])
+  useEffect(() => {
+    if (!autoRunning) return
+    void queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
+  }, [autoBeatId, autoStep, autoRunning, episode.id, queryClient])
+
+  const autoMutation = useMutation({
+    mutationFn: () =>
+      startXiajiEpisodeAutoRun(csrfToken, episode.id, {
+        family: videoFamily,
+        duration: videoDurationSeconds(videoDuration),
+        quality: videoQuality,
+        aspect_ratio: VIDEO_ASPECT_RATIO,
+        speed: videoSpeed,
+        custom_steps: videoSpeed === "custom" ? videoCustomSteps : undefined,
+        scene_view: sceneViews[selected?.id || ""] || "front",
+      }),
+    onSuccess: async (result) => {
+      message.success("已添加自动生成任务，将从第 1 镜串行生成")
+      queryClient.setQueryData(["xiaji-auto-run", episode.id], result)
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-episode", episode.id] })
+      await queryClient.invalidateQueries({ queryKey: ["xiaji-project-jobs", episode.project_id] })
     },
     onError: (error: Error) => message.error(error.message),
   })
@@ -1242,22 +1701,51 @@ export default function XiajiShotsWorkbench({
         <Typography.Text type="secondary">
           {sketched}/{shots.length} 张草图
         </Typography.Text>
-        <Button type="primary" icon={<Sparkles size={14} />} loading={batchMutation.isPending} onClick={() => batchMutation.mutate()}>
-          生成本集草图
+        <Button
+          type="primary"
+          icon={<Sparkles size={14} />}
+          loading={autoMutation.isPending || autoRunning}
+          onClick={() => autoMutation.mutate()}
+        >
+          添加自动生成任务
         </Button>
+        {autoRunning ? (
+          <Typography.Text type="secondary">
+            {autoRun?.message || "排队中"}
+            {(() => {
+              const currentBeat = shots.find((item) => item.id === autoBeatId)
+              const names = (currentBeat?.character_ids || [])
+                .map((id) => assets.find((item) => item.id === id)?.name)
+                .filter(Boolean)
+              return names.length ? ` · ${names.join("、")}` : ""
+            })()}{" "}
+            · {autoRun?.progress || 0}%
+          </Typography.Text>
+        ) : null}
       </div>
       <div ref={splitRef} className="xiaji-shots-split">
         <section className="xiaji-shots-grid-pane" style={{ width: `${splitPct}%` }}>
           <div className="xiaji-shot-tiles">
-            {shots.map((beat) => (
+            {shots.map((beat) => {
+              const current = autoBeatId === beat.id
+              const names = (beat.character_ids || [])
+                .map((id) => assets.find((item) => item.id === id)?.name)
+                .filter(Boolean)
+              const who = names.length ? names.join("、") : beat.speaker || `Beat ${beat.sequence}`
+              const generatingLabel = current
+                ? `${who} · ${autoRunStepLabel(autoStep) || "任务"} · 正在生成中`
+                : undefined
+              return (
               <BeatGridCard
                 key={beat.id}
                 beat={beat}
                 selected={selected?.id === beat.id}
                 showSketch={showSketch}
+                generatingLabel={generatingLabel}
                 onSelect={() => setSelectedId(beat.id)}
               />
-            ))}
+              )
+            })}
           </div>
         </section>
         <div
@@ -1278,7 +1766,21 @@ export default function XiajiShotsWorkbench({
               sceneView={sceneViews[selected.id] || "front"}
               onSceneView={(value) => setSceneViews((current) => ({ ...current, [selected.id]: value }))}
               onSaved={onRefresh}
-              generating={oneMutation.isPending && oneMutation.variables?.beatId === selected.id}
+              generating={
+                (oneMutation.isPending && oneMutation.variables?.beatId === selected.id) ||
+                (autoBeatId === selected.id && autoStep === "sketch")
+              }
+              autoStep={autoBeatId === selected.id ? autoStep : null}
+              videoFamily={videoFamily}
+              setVideoFamily={setVideoFamily}
+              videoDuration={videoDuration}
+              setVideoDuration={setVideoDuration}
+              videoQuality={videoQuality}
+              setVideoQuality={setVideoQuality}
+              videoSpeed={videoSpeed}
+              setVideoSpeed={setVideoSpeed}
+              videoCustomSteps={videoCustomSteps}
+              setVideoCustomSteps={setVideoCustomSteps}
               onGenerate={(force) =>
                 oneMutation.mutate({
                   beatId: selected.id,

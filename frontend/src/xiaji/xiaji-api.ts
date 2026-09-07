@@ -1,4 +1,4 @@
-import { jsonMutation, requestJson } from "../api"
+import { ApiRequestError, jsonMutation, requestJson } from "../api"
 
 export type XiajiDocumentStatus = "uploaded" | "parsing" | "indexed" | "review_required" | "ready" | "failed"
 
@@ -73,6 +73,7 @@ export type XiajiAnalysis = {
 
 export type XiajiIngestSettings = {
   spine_template?: string
+  art_style_id?: string
   visual_style?: string
   narration_style?: string
   ethnicity?: string
@@ -128,6 +129,22 @@ export function deleteXiajiProject(csrfToken: string, projectId: string) {
   )
 }
 
+export type XiajiUserArtStyle = {
+  art_style_id: string
+  art_style: { id: string; name: string; name_en?: string; promptPrefix?: string; imageUrl?: string | null } | null
+}
+
+export function getXiajiUserArtStyle() {
+  return requestJson<XiajiUserArtStyle>("/api/xiaji/art-style")
+}
+
+export function saveXiajiUserArtStyle(csrfToken: string, artStyleId: string) {
+  return requestJson<XiajiUserArtStyle>(
+    "/api/xiaji/art-style",
+    jsonMutation(csrfToken, { art_style_id: artStyleId }, "PUT"),
+  )
+}
+
 export function listXiajiDocuments(projectId: string) {
   return requestJson<XiajiDocumentSummary[]>(withProjectQuery("/api/xiaji/documents", projectId))
 }
@@ -142,14 +159,17 @@ export async function uploadXiajiDocument(
   file: File,
   title?: string,
   settings?: XiajiIngestSettings,
+  replace = false,
 ) {
   const body = new FormData()
   body.append("file", file)
   if (title?.trim()) body.append("title", title.trim())
   if (settings?.spine_template) body.append("spine_template", settings.spine_template)
+  if (settings?.art_style_id) body.append("art_style_id", settings.art_style_id)
   if (settings?.visual_style) body.append("visual_style", settings.visual_style)
   if (settings?.narration_style) body.append("narration_style", settings.narration_style)
   if (settings?.ethnicity) body.append("ethnicity", settings.ethnicity)
+  if (replace) body.append("replace", "true")
   return requestJson<XiajiDocumentDetail>(withProjectQuery("/api/xiaji/documents", projectId), {
     method: "POST",
     headers: { "X-CSRF-Token": csrfToken },
@@ -163,6 +183,7 @@ export function pasteXiajiDocument(
   text: string,
   title?: string,
   settings?: XiajiIngestSettings,
+  replace = false,
 ) {
   return requestJson<XiajiDocumentDetail>(
     withProjectQuery("/api/xiaji/documents/paste", projectId),
@@ -170,9 +191,11 @@ export function pasteXiajiDocument(
       text,
       title: title?.trim() || "",
       spine_template: settings?.spine_template || "drama",
+      art_style_id: settings?.art_style_id || "",
       visual_style: settings?.visual_style || "",
       narration_style: settings?.narration_style || "",
       ethnicity: settings?.ethnicity || "",
+      replace,
     }),
   )
 }
@@ -229,6 +252,16 @@ export type XiajiVoiceSlot = {
   media_id?: string
 }
 
+export type XiajiAssetMedia = {
+  id: string
+  media_kind: string
+  slot: string
+  job_id?: string | null
+  url?: string | null
+  job_status?: string | null
+  job_error?: string | null
+}
+
 export type XiajiAsset = {
   id: string
   kind: XiajiAssetKind
@@ -244,6 +277,7 @@ export type XiajiAsset = {
     description?: string
     face_prompt?: string
     visual_style?: string
+    art_style_id?: string
     ethnicity?: string
     looks?: XiajiCharacterLook[]
     voice_profile?: XiajiVoiceProfile
@@ -267,7 +301,77 @@ export type XiajiAsset = {
   image_job_id?: string | null
   error?: string | null
   voice_slots?: XiajiVoiceSlot[]
+  media?: XiajiAssetMedia[]
   updated_at: string
+}
+
+export function xiajiMediaSlotItem(asset: XiajiAsset, mediaKind: string, slot: string) {
+  return (asset.media || []).find(
+    (item) => item.media_kind === mediaKind && (item.slot || mediaKind) === slot,
+  )
+}
+
+const TERMINAL_JOB_STATUS = new Set(["succeeded", "partial", "failed", "interrupted", "cancelled"])
+
+export function xiajiMediaSlotPending(asset: XiajiAsset, mediaKind: string, slot: string) {
+  const match = xiajiMediaSlotItem(asset, mediaKind, slot)
+  if (!match?.job_id || match.url) return false
+  return !TERMINAL_JOB_STATUS.has(String(match.job_status || ""))
+}
+
+export function xiajiMediaSlotError(asset: XiajiAsset, mediaKind: string, slot: string) {
+  const match = xiajiMediaSlotItem(asset, mediaKind, slot)
+  if (match?.url) return ""
+  return String(match?.job_error || "").trim()
+}
+
+export function xiajiAssetNeedsJobPoll(asset: XiajiAsset) {
+  if (asset.status === "generating") return true
+  const extra = { ...(asset.definition.scene_jobs || {}), ...(asset.definition.prop_jobs || {}) }
+  if (Object.values(extra).some((id) => Boolean(id))) return true
+  return (asset.media || []).some(
+    (item) => Boolean(item.job_id && !item.url && !TERMINAL_JOB_STATUS.has(String(item.job_status || ""))),
+  )
+}
+
+export function xiajiSlotImageUrl(asset: XiajiAsset, mediaKind: string, slot: string) {
+  const match = (asset.media || []).find(
+    (item) => item.media_kind === mediaKind && (item.slot || mediaKind) === slot && Boolean(item.url),
+  )
+  return match?.url || ""
+}
+
+export type XiajiProjectJob = {
+  id: string
+  job_id: string
+  source: string
+  target: string
+  slot: string
+  slot_label: string
+  bound_url?: string
+  title: string
+  status: string
+  mode?: string | null
+  prompt: string
+  system_prompt?: string
+  error?: string | null
+  progress: number
+  preview_url?: string
+  outputs?: { kind?: string; cloud_url?: string | null; download_url?: string | null }[]
+  llm_output?: unknown
+  job_created_at?: string | null
+  job_updated_at?: string | null
+  missing?: boolean
+  reference_count?: number
+  references?: { index: number; url: string; label?: string }[]
+  options?: Record<string, unknown>
+  negative_prompt?: string
+  image_size?: string | null
+  parameters?: { name: string; label: string; value: unknown }[]
+}
+
+export function listXiajiProjectJobs(projectId: string) {
+  return requestJson<XiajiProjectJob[]>(withProjectQuery("/api/xiaji/jobs", projectId))
 }
 
 export function listXiajiAssets(projectId: string, kind?: XiajiAssetKind) {
@@ -312,6 +416,7 @@ export function deleteXiajiAsset(csrfToken: string, assetId: string) {
 export type XiajiAssetGenerateImagePayload = {
   look_id?: string | null
   style?: string
+  art_style_id?: string
   ethnicity?: string
   model?: string
   scene_view?: "master" | "reverse" | "panorama"
@@ -334,7 +439,8 @@ export function generateXiajiAssetImage(
     `/api/xiaji/assets/${encodeURIComponent(assetId)}/generate-image`,
     jsonMutation(csrfToken, {
       look_id: payload.look_id || null,
-      style: payload.style || "",
+      style: payload.art_style_id || payload.style || "",
+      art_style_id: payload.art_style_id || payload.style || "",
       ethnicity: payload.ethnicity || "",
       model: payload.model || "",
       scene_view: payload.scene_view || null,
@@ -346,12 +452,21 @@ export function generateXiajiAssetImage(
 export async function waitForXiajiImageJob(jobId: string) {
   const started = Date.now()
   const timeoutMs = 30 * 60 * 1000
+  const failed = new Set(["failed", "interrupted", "cancelled", "error", "failure", "timeout", "stopped", "canceled"])
   while (Date.now() - started < timeoutMs) {
-    const job = await requestJson<{ status: string; error?: string | null }>(
-      `/api/jobs/${encodeURIComponent(jobId)}`,
-    )
+    let job: { status: string; error?: string | null }
+    try {
+      job = await requestJson<{ status: string; error?: string | null }>(
+        `/api/jobs/${encodeURIComponent(jobId)}`,
+      )
+    } catch (error) {
+      if (error instanceof ApiRequestError && (error.status === 404 || error.status === 410)) {
+        throw new Error(error.message || "任务不存在或已失败")
+      }
+      throw error
+    }
     if (job.status === "succeeded" || job.status === "partial") return job
-    if (job.status === "failed" || job.status === "interrupted" || job.status === "cancelled") {
+    if (failed.has(job.status)) {
       throw new Error(job.error || "生成任务失败")
     }
     await new Promise((resolve) => window.setTimeout(resolve, 2000))
@@ -437,10 +552,27 @@ export type XiajiBeat = {
   video_job_id?: string | null
   video_url?: string | null
   video_prompt?: string | null
+  video_prompt_zh?: string | null
+  video_prompt_job_id?: string | null
+  video_pictures?: Array<{
+    index: number
+    tag: string
+    role: string
+    material?: string
+    name?: string
+    label_zh?: string
+    label_en?: string
+    detail_zh?: string
+    detail_en?: string
+  }>
   video_model?: string | null
   video_duration?: string | null
   video_status?: XiajiBeatStatus | "draft"
   video_error?: string | null
+  video_in_frame_url?: string | null
+  video_in_frame_sec?: string | null
+  video_in_source_job_id?: string | null
+  video_in_frame_manual?: string | null
   status: XiajiBeatStatus
   error?: string | null
 }
@@ -468,6 +600,35 @@ export type XiajiEpisode = {
   sketch_ready?: number
   sketch_failed?: number
   updated_at: string
+}
+
+export function xiajiBeatSlotBusy(status?: string | null) {
+  return status === "queued" || status === "generating"
+}
+
+export function xiajiBeatCanMakeVideo(beat?: XiajiBeat | null) {
+  if (!beat) return false
+  if (beat.kind === "scene_heading" && !beat.action && !beat.heading) return false
+  return true
+}
+
+export function xiajiPreviousVideoBeat(episode: XiajiEpisode | null | undefined, beat: XiajiBeat | null | undefined) {
+  if (!episode || !beat) return null
+  let previous: XiajiBeat | null = null
+  for (const item of episode.beats || []) {
+    if ((item.sequence || 0) >= (beat.sequence || 0)) break
+    if (xiajiBeatCanMakeVideo(item)) previous = item
+  }
+  return previous
+}
+
+export function xiajiEpisodeHasActiveJobs(episode?: XiajiEpisode | null) {
+  if (!episode) return false
+  if (episode.status === "scripting") return true
+  return (episode.beats || []).some(
+    (item) =>
+      xiajiBeatSlotBusy(item.status) || xiajiBeatSlotBusy(item.render_status) || xiajiBeatSlotBusy(item.video_status),
+  )
 }
 
 export function listXiajiEpisodes(projectId: string) {
@@ -535,6 +696,8 @@ export type XiajiBeatPatch = {
   character_ids?: string[]
   scene_id?: string | null
   prop_ids?: string[]
+  video_prompt_zh?: string
+  video_duration?: string
 }
 
 export function patchXiajiBeat(csrfToken: string, episodeId: string, beatId: string, payload: XiajiBeatPatch) {
@@ -549,6 +712,28 @@ export async function uploadXiajiBeatSketch(csrfToken: string, episodeId: string
   body.append("file", file)
   return requestJson<XiajiEpisode>(
     `/api/xiaji/episodes/${encodeURIComponent(episodeId)}/beats/${encodeURIComponent(beatId)}/upload-sketch`,
+    {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrfToken },
+      body,
+    },
+  )
+}
+
+export async function uploadXiajiBeatInFrame(
+  csrfToken: string,
+  episodeId: string,
+  beatId: string,
+  file: File,
+  payload: { sec?: number | null; manual?: boolean; sourceJobId?: string | null } = {},
+) {
+  const body = new FormData()
+  body.append("file", file)
+  if (payload.sec != null && Number.isFinite(payload.sec)) body.append("sec", String(payload.sec))
+  if (payload.manual) body.append("manual", "1")
+  if (payload.sourceJobId) body.append("source_job_id", payload.sourceJobId)
+  return requestJson<XiajiEpisode>(
+    `/api/xiaji/episodes/${encodeURIComponent(episodeId)}/beats/${encodeURIComponent(beatId)}/upload-in-frame`,
     {
       method: "POST",
       headers: { "X-CSRF-Token": csrfToken },
@@ -612,7 +797,7 @@ export function generateXiajiBeatVideo(
     jsonMutation(csrfToken, {
       force: payload.force || false,
       family: payload.family || "",
-      duration: payload.duration ?? null,
+      duration: payload.duration ?? 5,
       quality: payload.quality || "",
       aspect_ratio: payload.aspect_ratio || "",
       speed: payload.speed || "",
@@ -620,6 +805,61 @@ export function generateXiajiBeatVideo(
       scene_view: payload.scene_view || "front",
     }),
   )
+}
+
+export function generateXiajiBeatVideoPrompt(
+  csrfToken: string,
+  episodeId: string,
+  beatId: string,
+  payload: Pick<XiajiVideoGeneratePayload, "force" | "family" | "duration" | "scene_view"> = {},
+) {
+  return requestJson<{
+    ok: boolean
+    episode: XiajiEpisode
+    prompt_zh?: string | null
+    prompt_en?: string | null
+    pictures?: XiajiBeat["video_pictures"]
+  }>(
+    `/api/xiaji/episodes/${encodeURIComponent(episodeId)}/beats/${encodeURIComponent(beatId)}/video-prompt`,
+    jsonMutation(csrfToken, {
+      force: payload.force || false,
+      family: payload.family || "",
+      duration: payload.duration ?? 5,
+      scene_view: payload.scene_view || "front",
+    }),
+  )
+}
+
+export type XiajiAutoRun = {
+  id: string
+  status: string
+  progress: number
+  video_params?: Record<string, unknown>
+  cursor?: { beat_id?: string; sequence?: number; step?: string; index?: number; total?: number } | null
+  error?: string | null
+  step_label?: string
+  message?: string
+}
+
+export type XiajiAutoRunResult = { ok: boolean; run: XiajiAutoRun | null }
+
+export function startXiajiEpisodeAutoRun(csrfToken: string, episodeId: string, payload: XiajiVideoGeneratePayload = {}) {
+  return requestJson<XiajiAutoRunResult>(
+    `/api/xiaji/episodes/${encodeURIComponent(episodeId)}/auto-run`,
+    jsonMutation(csrfToken, {
+      family: payload.family || "",
+      duration: payload.duration ?? 5,
+      quality: payload.quality || "",
+      aspect_ratio: payload.aspect_ratio || "16:9",
+      speed: payload.speed || "",
+      custom_steps: payload.custom_steps ?? null,
+      scene_view: payload.scene_view || "front",
+    }),
+  )
+}
+
+export function getXiajiEpisodeAutoRun(episodeId: string) {
+  return requestJson<XiajiAutoRunResult>(`/api/xiaji/episodes/${encodeURIComponent(episodeId)}/auto-run`)
 }
 
 export type XiajiOptionProperty = {

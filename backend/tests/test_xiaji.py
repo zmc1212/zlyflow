@@ -13,15 +13,29 @@ from fastapi import FastAPI
 
 from backend.app.xiaji_api import register_xiaji_routes
 from backend.app.xiaji_asset_api import register_xiaji_asset_routes
-from backend.app.xiaji_asset_prompts import character_portrait_prompt, prop_view_prompt, scene_master_prompt, scene_view_prompt
+from backend.app.xiaji_asset_prompts import character_look_prompt, character_portrait_prompt, image_options_for_look, image_options_for_prop_view, prop_view_prompt, scene_master_prompt, scene_view_prompt
 from backend.app.xiaji_asset_store import XiajiAssetStore
 from backend.app.xiaji_episode_api import register_xiaji_episode_routes
 from backend.app.xiaji_episode_prompts import normalize_script_beats
+from backend.app.xiaji_literal_script import generate_script_beats, parse_scene_heading_line
 from backend.app.xiaji_episode_store import XiajiEpisodeStore, allocate_chapter_text, split_original_lines
 from backend.app.xiaji_parser import extract_docx_text, parse_chapters
 from backend.app.xiaji_project_store import XiajiProjectStore
+
 from backend.app.xiaji_store import XiajiIngestStore
-from backend.app.xiaji_analyze import define_voice_profile, normalize_analysis, parse_llm_json
+from backend.app.xiaji_analyze import (
+    CHARACTER_PROMPT,
+    build_ingest_messages,
+    define_voice_profile,
+    normalize_analysis,
+    parse_llm_json,
+)
+
+TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+    b"\x00\x01\x01\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 def _xiaji_workspace(raw: str, owner: str = "user-1"):
@@ -157,6 +171,25 @@ class XiajiAnalysisTests(unittest.TestCase):
         self.assertEqual(result["scenes"][0]["name"], "雨夜巷口")
         self.assertEqual(result["episodes"][0]["title"], "巷口")
 
+    def test_ingest_character_prompt_requires_description(self) -> None:
+        self.assertIn("description: 必填", CHARACTER_PROMPT)
+        self.assertIn("性格", CHARACTER_PROMPT)
+        self.assertIn("禁止空字符串", CHARACTER_PROMPT)
+        self.assertIn("不要写死造型/身份戏服", CHARACTER_PROMPT)
+        self.assertNotIn("不要提取身份/服装信息", CHARACTER_PROMPT)
+        messages = build_ingest_messages(
+            "陈平安护送少女李宝瓶南下求学。",
+            spine_template="drama",
+            visual_style="anime",
+            narration_style="first_person",
+            ethnicity="Chinese",
+            target_episodes=1,
+        )
+        system = messages[0]["content"]
+        self.assertIn("description: 必填", system)
+        self.assertIn("不要写死造型/身份戏服", system)
+        self.assertNotIn("不要提取身份/服装信息", system)
+
     def test_save_analysis_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             _projects, store, _assets, _episodes, project = _xiaji_workspace(raw)
@@ -189,6 +222,13 @@ class XiajiAnalysisTests(unittest.TestCase):
 
 
 class XiajiProjectIsolationTests(unittest.TestCase):
+    def test_create_project_inherits_user_art_style(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            projects, *_rest = _xiaji_workspace(raw)
+            projects.set_user_art_style_id("user-1", "as_1007")
+            created = projects.create_project("user-1", "新剧")
+            self.assertEqual(created["settings"]["art_style_id"], "as_1007")
+
     def test_documents_and_assets_are_scoped_to_project(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             projects, ingest, assets, _episodes, first = _xiaji_workspace(raw)
@@ -226,6 +266,105 @@ class XiajiProjectIsolationTests(unittest.TestCase):
             self.assertEqual(assets.list_assets("user-1", first["id"]), [])
             self.assertEqual(len(ingest.list_documents("user-1", second["id"])), 1)
 
+    def test_clear_project_content_keeps_project(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            projects, ingest, assets, episodes, first = _xiaji_workspace(raw)
+            second = projects.create_project("user-1", "第二部")
+            ingest.create_from_text(
+                "user-1",
+                project_id=first["id"],
+                filename="a.txt",
+                title="甲",
+                source_format="txt",
+                original_text="第一章 甲\n正文",
+            )
+            assets.sync_from_analysis(
+                "user-1",
+                {"characters": [{"name": "谢铮", "role": "主角", "is_main": True}], "scenes": [], "props": []},
+                project_id=first["id"],
+            )
+            ingest.create_from_text(
+                "user-1",
+                project_id=second["id"],
+                filename="b.txt",
+                title="乙",
+                source_format="txt",
+                original_text="第一章 乙\n正文",
+            )
+            episodes.upsert_episode(
+                "user-1",
+                project_id=first["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀。"],
+                overwrite_script=True,
+            )
+            projects.clear_project_content(first["id"], "user-1")
+            kept = projects.get_project(first["id"], "user-1")
+            self.assertEqual(kept["name"], "测试项目")
+            self.assertEqual(ingest.list_documents("user-1", first["id"]), [])
+            self.assertEqual(assets.list_assets("user-1", first["id"]), [])
+            self.assertEqual(episodes.list_episodes("user-1", first["id"]), [])
+            self.assertEqual([item["title"] for item in ingest.list_documents("user-1", second["id"])], ["乙"])
+
+    def test_paste_replace_clears_previous_ingest(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, ingest, assets, episodes, project = _xiaji_workspace(raw)
+            old = ingest.create_from_text(
+                "user-1",
+                project_id=project["id"],
+                filename="old.txt",
+                title="旧稿",
+                source_format="txt",
+                original_text="第一章 旧\n旧正文",
+            )
+            assets.sync_from_analysis(
+                "user-1",
+                {"characters": [{"name": "旧人", "role": "路人", "is_main": False}], "scenes": [], "props": []},
+                project_id=project["id"],
+            )
+
+            class Llm:
+                def analyze_xiaji_ingest(self, text, **kwargs):
+                    return {
+                        "summary": "新稿",
+                        "characters": [{"name": "谢铮", "is_main": True, "aliases": []}],
+                        "scenes": [],
+                        "props": [],
+                        "episodes": [],
+                        "model": "t",
+                    }
+
+            app = FastAPI()
+            app.state.xiaji_project_store = projects
+            app.state.xiaji_store = ingest
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_episode_store = episodes
+            app.state.store = DummyJobs()
+            app.state.resource_storage = None
+            app.state.llm_provider = Llm()
+            register_xiaji_routes(app, current_user=lambda: {"id": "user-1"}, mutating_user=lambda: {"id": "user-1"})
+            client = TestClient(app)
+            pasted = client.post(
+                "/api/xiaji/documents/paste",
+                params={"project_id": project["id"]},
+                json={"text": "第一章 新\n谢铮拔刀。", "replace": True},
+            )
+            self.assertEqual(pasted.status_code, 201, pasted.text)
+            docs = ingest.list_documents("user-1", project["id"])
+            self.assertEqual(len(docs), 1)
+            self.assertNotEqual(docs[0]["id"], old["id"])
+            names = [item["name"] for item in assets.list_assets("user-1", project["id"], "character")]
+            self.assertNotIn("旧人", names)
+            self.assertIn("谢铮", names)
+
 
 class XiajiRouteAuthTests(unittest.TestCase):
     def test_paste_does_not_require_query_user(self) -> None:
@@ -253,7 +392,7 @@ class XiajiAssetStoreTests(unittest.TestCase):
             result = store.sync_from_analysis(
                 "user-1",
                 {
-                    "ingest_settings": {"visual_style": "chinese_period_drama"},
+                    "ingest_settings": {"art_style_id": "as_1001"},
                     "characters": [
                         {
                             "name": "谢铮",
@@ -283,7 +422,7 @@ class XiajiAssetStoreTests(unittest.TestCase):
             self.assertEqual(kinds["prop"]["name"], "本命瓷")
             self.assertEqual(kinds["voice"]["name"], "解说")
             again = store.sync_from_analysis("user-1", {
-                "ingest_settings": {"visual_style": "chinese_period_drama", "ethnicity": "Chinese"},
+                "ingest_settings": {"art_style_id": "as_1001", "ethnicity": "Chinese"},
                 "characters": [{"name": "谢铮", "description": "泥瓶巷孤儿", "aliases": ["瓷孩儿"]}],
                 "scenes": [{"name": "泥瓶巷", "description": "窑火巷口"}],
                 "props": [{"name": "本命瓷", "visual_prompt": "碎瓷片"}],
@@ -295,27 +434,101 @@ class XiajiAssetStoreTests(unittest.TestCase):
             prompt = character_portrait_prompt(character)
             self.assertIn("谢铮", prompt)
             self.assertIn("Chinese", prompt)
-            self.assertIn("写实古装剧", prompt)
+            self.assertIn("epic cinematic scene", prompt)
+            self.assertIn("plain mid-gray background", prompt)
+            style_locked = character_portrait_prompt(character, has_style_reference=True)
+            self.assertIn("first attached image is REFERENCE 1", style_locked)
+            self.assertIn("color palette", style_locked)
+            self.assertNotIn("plain mid-gray background", style_locked)
+            look = character["definition"]["looks"][0]
+            sheet = character_look_prompt(character, {**look, "appearance_details": "青衫佩剑"})
+            self.assertIn("IDENTITY ANCHOR", sheet)
+            self.assertIn("4-panel character reference sheet", sheet)
+            self.assertIn("青衫佩剑", sheet)
+            self.assertIn("谢铮", sheet)
+            self.assertNotIn("Default ethnicity for people in this image", sheet)
+            self.assertEqual(image_options_for_look()["aspect_ratio"], "16:9")
+            self.assertEqual(image_options_for_look()["resolution"], "1K")
+            anime_sheet = character_look_prompt(
+                character,
+                {**look, "appearance_details": "校服"},
+                style="anime",
+            )
+            self.assertIn("animated character reference sheet", anime_sheet)
             self.assertIn("窑火", scene_master_prompt(kinds["scene"]))
             reverse = scene_view_prompt(kinds["scene"], "reverse")
             pano = scene_view_prompt(kinds["scene"], "panorama")
+            pano_with_refs = scene_view_prompt(
+                kinds["scene"], "panorama", has_master_reference=True, has_reverse_reference=True
+            )
             self.assertIn("FRONT-FACING", scene_master_prompt(kinds["scene"]))
             self.assertIn("yaw-rotate 180", reverse)
             self.assertIn("背面", reverse)
             self.assertNotEqual(scene_master_prompt(kinds["scene"]), reverse)
             self.assertIn("equirectangular", pano)
             self.assertIn("2:1", pano)
+            self.assertIn("PRIMARY VISUAL BIBLE", pano_with_refs)
+            self.assertIn("BACK-HALF VISUAL BIBLE", pano_with_refs)
+            self.assertIn("Reference image 2", pano_with_refs)
             master_prop = prop_view_prompt(kinds["prop"], "master")
             turnaround = prop_view_prompt(kinds["prop"], "turnaround")
             detail = prop_view_prompt(kinds["prop"], "detail")
             self.assertIn("本命瓷", master_prop)
-            self.assertIn("hero product photograph", master_prop)
-            self.assertNotIn("2x2", master_prop)
-            self.assertIn("2x2 four-panel", turnaround)
-            self.assertIn("BACK view", turnaround)
+            self.assertIn("FRONT product photograph", master_prop)
+            self.assertNotIn("LAYOUT (1x3", master_prop)
+            self.assertNotIn("3-PANEL product reference sheet", master_prop)
+            self.assertIn("3-PANEL product reference sheet", turnaround)
+            self.assertIn("LAYOUT (1x3, 16:9 overall)", turnaround)
+            self.assertIn("SIDE PROFILE", turnaround)
+            self.assertIn("BACK VIEW", turnaround)
             self.assertIn("extreme close-up", detail)
             self.assertNotEqual(master_prop, turnaround)
             self.assertNotEqual(turnaround, detail)
+            for view in ("master", "turnaround", "detail"):
+                self.assertEqual(image_options_for_prop_view(view)["aspect_ratio"], "16:9")
+                self.assertEqual(image_options_for_prop_view(view)["resolution"], "1K")
+
+    def test_sync_fills_empty_art_style_without_overwriting(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            _projects, _ingest, store, _episodes, project = _xiaji_workspace(raw)
+            store.create_asset(
+                "user-1",
+                project_id=project["id"],
+                kind="character",
+                name="空白角色",
+                definition={"face_prompt": "青年"},
+            )
+            store.sync_from_analysis(
+                "user-1",
+                {
+                    "ingest_settings": {"art_style_id": "as_1007"},
+                    "characters": [
+                        {"name": "空白角色", "description": "无风格"},
+                        {"name": "谢铮", "role": "主角", "description": "泥瓶巷孤儿"},
+                    ],
+                    "scenes": [{"name": "泥瓶巷", "description": "窑火巷口"}],
+                    "props": [],
+                },
+                project_id=project["id"],
+            )
+            blank = next(item for item in store.list_assets("user-1", project["id"], "character") if item["name"] == "空白角色")
+            created = next(item for item in store.list_assets("user-1", project["id"], "character") if item["name"] == "谢铮")
+            scene = store.list_assets("user-1", project["id"], "scene")[0]
+            self.assertEqual(blank["definition"]["art_style_id"], "as_1007")
+            self.assertEqual(created["definition"]["art_style_id"], "as_1007")
+            self.assertEqual(scene["definition"]["art_style_id"], "as_1007")
+            store.sync_from_analysis(
+                "user-1",
+                {
+                    "ingest_settings": {"art_style_id": "as_1001"},
+                    "characters": [{"name": "空白角色"}, {"name": "谢铮"}],
+                    "scenes": [{"name": "泥瓶巷"}],
+                    "props": [],
+                },
+                project_id=project["id"],
+            )
+            blank = next(item for item in store.list_assets("user-1", project["id"], "character") if item["name"] == "空白角色")
+            self.assertEqual(blank["definition"]["art_style_id"], "as_1007")
 
     def test_voice_json_fields(self) -> None:
         parsed = parse_llm_json(
@@ -414,6 +627,723 @@ class XiajiGenerateImageRouteTests(unittest.TestCase):
             self.assertEqual(worker.enqueued, [])
             queued.assert_called_once()
 
+    def test_generate_image_uses_project_visual_style_when_asset_empty(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from backend.app.models import JobStatus
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测", {"art_style_id": "as_1007"})
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年"},
+            )
+            self.assertFalse(created["definition"].get("art_style_id"))
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_project_store = projects
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            job = {
+                "id": "job-style-1",
+                "mode": "grs-gpt-image-2",
+                "rounds": [{"generation_items": [{"id": "gen-1", "executor": "grs", "status": JobStatus.QUEUED.value}]}],
+            }
+            style_file = Path(raw) / "as_1007.jpg"
+            style_file.write_bytes(TINY_PNG)
+            with (
+                patch("backend.app.xiaji_asset_api.ensure_art_style_preview", return_value=style_file),
+                patch("backend.app.xiaji_asset_api.create_queued_job", return_value=job) as queued,
+            ):
+                client = TestClient(app)
+                response = client.post(f"/api/xiaji/assets/{created['id']}/generate-image", json={})
+            self.assertEqual(response.status_code, 202)
+            prompt = queued.call_args.kwargs.get("prompt") or queued.call_args[1].get("prompt")
+            self.assertIn("hyperreal manga fusion", prompt)
+            self.assertIn("first attached image is REFERENCE 1", prompt)
+            self.assertIn("color palette", prompt)
+            refs = queued.call_args.kwargs.get("references") or queued.call_args[1].get("references") or []
+            self.assertEqual(refs, [str(style_file)])
+            refreshed = assets.get_asset(created["id"], "u1")
+            self.assertEqual(refreshed["definition"]["art_style_id"], "as_1007")
+
+    def test_create_asset_inherits_project_visual_style(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测", {"art_style_id": "as_1007"})
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_project_store = projects
+            app.state.store = object()
+            app.state.resource_storage = None
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.post(
+                "/api/xiaji/assets",
+                params={"project_id": project["id"]},
+                json={"kind": "character", "name": "宁姚", "definition": {}},
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+            self.assertEqual(response.json()["definition"]["art_style_id"], "as_1007")
+
+    def test_generate_image_persists_requested_art_style(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from backend.app.models import JobStatus
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测", {"art_style_id": "as_1001"})
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年", "art_style_id": "as_1001"},
+            )
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_project_store = projects
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            job = {
+                "id": "job-style-2",
+                "mode": "grs-gpt-image-2",
+                "rounds": [{"generation_items": [{"id": "gen-1", "executor": "grs", "status": JobStatus.QUEUED.value}]}],
+            }
+            style_file = Path(raw) / "as_1007.jpg"
+            style_file.write_bytes(TINY_PNG)
+            with (
+                patch("backend.app.xiaji_asset_api.ensure_art_style_preview", return_value=style_file),
+                patch("backend.app.xiaji_asset_api.create_queued_job", return_value=job) as queued,
+            ):
+                client = TestClient(app)
+                response = client.post(
+                    f"/api/xiaji/assets/{created['id']}/generate-image",
+                    json={"art_style_id": "as_1007"},
+                )
+            self.assertEqual(response.status_code, 202)
+            prompt = queued.call_args.kwargs.get("prompt") or queued.call_args[1].get("prompt")
+            self.assertIn("hyperreal manga fusion", prompt)
+            self.assertEqual(response.json()["asset"]["definition"]["art_style_id"], "as_1007")
+
+    def test_look_generate_keeps_portrait_job_and_media_slots(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from backend.app.models import JobStatus
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年"},
+            )
+            look_id = created["definition"]["looks"][0]["id"]
+            portrait_file = Path(raw) / "portrait.png"
+            portrait_file.write_bytes(TINY_PNG)
+            looks = list(created["definition"]["looks"])
+            looks[0]["appearance_details"] = "青衫佩剑"
+            assets.update_asset(
+                created["id"],
+                "u1",
+                definition={"looks": looks},
+                image_url=str(portrait_file),
+                status="ready",
+            )
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            jobs = [
+                {
+                    "id": "job-portrait-1",
+                    "mode": "grs-gpt-image-2",
+                    "rounds": [{"generation_items": [{"id": "gen-1", "executor": "grs", "status": JobStatus.QUEUED.value}]}],
+                },
+                {
+                    "id": "job-look-1",
+                    "mode": "grs-gpt-image-2",
+                    "rounds": [{"generation_items": [{"id": "gen-2", "executor": "grs", "status": JobStatus.QUEUED.value}]}],
+                },
+            ]
+            with patch("backend.app.xiaji_asset_api.create_queued_job", side_effect=jobs) as queued:
+                client = TestClient(app)
+                portrait = client.post(f"/api/xiaji/assets/{created['id']}/generate-image", json={})
+                look = client.post(
+                    f"/api/xiaji/assets/{created['id']}/generate-image",
+                    json={"look_id": look_id},
+                )
+            self.assertEqual(portrait.status_code, 202)
+            self.assertEqual(look.status_code, 202)
+            body = look.json()["asset"]
+            self.assertEqual(body["image_job_id"], "job-portrait-1")
+            self.assertEqual(body["status"], "generating")
+            looks = body["definition"]["looks"]
+            self.assertEqual(looks[0]["job_id"], "job-look-1")
+            kinds = {(item["media_kind"], item["slot"]): item["job_id"] for item in body["media"]}
+            self.assertEqual(kinds[("portrait", "portrait")], "job-portrait-1")
+            self.assertEqual(kinds[("look", look_id)], "job-look-1")
+            look_call = queued.call_args_list[1]
+            prompt = look_call.kwargs.get("prompt") or look_call[1].get("prompt")
+            options = look_call.kwargs.get("options") or {}
+            refs = look_call.kwargs.get("references") or []
+            self.assertEqual(refs, [str(portrait_file)])
+            self.assertEqual(options.get("aspect_ratio"), "16:9")
+            self.assertEqual(options.get("resolution"), "1K")
+            self.assertIn("IDENTITY ANCHOR", prompt)
+            self.assertIn("青衫佩剑", prompt)
+
+    def test_look_generate_requires_portrait(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年", "looks": [{"id": "look-1", "name": "基础", "appearance_details": "青衫"}]},
+            )
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = object()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.post(
+                f"/api/xiaji/assets/{created['id']}/generate-image",
+                json={"look_id": created["definition"]["looks"][0]["id"]},
+            )
+            self.assertEqual(response.status_code, 422)
+            self.assertIn("肖像", response.json()["detail"])
+
+    def test_look_generate_requires_appearance(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年"},
+            )
+            portrait_file = Path(raw) / "portrait.png"
+            portrait_file.write_bytes(TINY_PNG)
+            assets.update_asset(created["id"], "u1", image_url=str(portrait_file), status="ready")
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = object()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.post(
+                f"/api/xiaji/assets/{created['id']}/generate-image",
+                json={"look_id": created["definition"]["looks"][0]["id"]},
+            )
+            self.assertEqual(response.status_code, 422)
+            self.assertIn("外观描述", response.json()["detail"])
+
+    def test_hydrate_writes_portrait_and_look_from_separate_jobs(self) -> None:
+        from backend.app.models import JobStatus
+        from backend.app.xiaji_asset_api import _hydrate_asset
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年"},
+            )
+            look_id = created["definition"]["looks"][0]["id"]
+            assets.add_media(created["id"], "u1", media_kind="portrait", slot="portrait", job_id="job-portrait-1")
+            assets.add_media(created["id"], "u1", media_kind="look", slot=look_id, job_id="job-look-1")
+            looks = list(created["definition"]["looks"])
+            looks[0]["job_id"] = "job-look-1"
+            assets.update_asset(
+                created["id"],
+                "u1",
+                definition={"looks": looks},
+                status="generating",
+                image_job_id="job-portrait-1",
+            )
+
+            class Jobs:
+                def get(self, job_id):
+                    mapping = {
+                        "job-portrait-1": {
+                            "id": "job-portrait-1",
+                            "status": JobStatus.SUCCEEDED.value,
+                            "outputs": [{"kind": "image", "cloud_url": "https://cdn.example/portrait.png"}],
+                        },
+                        "job-look-1": {
+                            "id": "job-look-1",
+                            "status": JobStatus.SUCCEEDED.value,
+                            "outputs": [{"kind": "image", "cloud_url": "https://cdn.example/look.png"}],
+                        },
+                    }
+                    return mapping[job_id]
+
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            hydrated = _hydrate_asset(app, assets.get_asset(created["id"], "u1"), "u1")
+            self.assertEqual(hydrated["image_url"], "https://cdn.example/portrait.png")
+            self.assertEqual(hydrated["definition"]["looks"][0]["image_url"], "https://cdn.example/look.png")
+            self.assertNotEqual(hydrated["image_url"], hydrated["definition"]["looks"][0]["image_url"])
+            media_urls = {item["job_id"]: item["url"] for item in hydrated["media"]}
+            self.assertEqual(media_urls["job-portrait-1"], "https://cdn.example/portrait.png")
+            self.assertEqual(media_urls["job-look-1"], "https://cdn.example/look.png")
+
+    def test_upload_look_does_not_replace_portrait(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年"},
+            )
+            look_id = created["definition"]["looks"][0]["id"]
+            assets.update_asset(created["id"], "u1", image_url="https://cdn.example/portrait.png", status="ready")
+
+            class Stored:
+                key = "look-key"
+
+            class Storage:
+                def store_bytes(self, *_args, **_kwargs):
+                    return Stored()
+
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = object()
+            app.state.resource_storage = Storage()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.post(
+                f"/api/xiaji/assets/{created['id']}/upload-image",
+                files={"file": ("look.png", b"fake-bytes", "image/png")},
+                data={"look_id": look_id},
+            )
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["image_url"], "https://cdn.example/portrait.png")
+            self.assertTrue(body["definition"]["looks"][0]["image_url"])
+            self.assertNotEqual(body["definition"]["looks"][0]["image_url"], body["image_url"])
+
+    def test_latest_media_url_overrides_wrong_look_field(self) -> None:
+        from backend.app.xiaji_asset_api import _hydrate_asset, _with_media_urls
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年"},
+            )
+            look_id = created["definition"]["looks"][0]["id"]
+            looks = list(created["definition"]["looks"])
+            looks[0]["image_url"] = "https://cdn.example/portrait.png"
+            assets.update_asset(
+                created["id"],
+                "u1",
+                definition={"looks": looks},
+                image_url="https://cdn.example/portrait.png",
+                image_job_id="job-portrait-1",
+                status="ready",
+            )
+            assets.add_media(
+                created["id"], "u1", media_kind="portrait", slot="portrait",
+                job_id="job-portrait-1", url="https://cdn.example/portrait.png",
+            )
+            assets.add_media(
+                created["id"], "u1", media_kind="look", slot=look_id,
+                job_id="job-look-1", url="https://cdn.example/look.png",
+            )
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = DummyJobs()
+            app.state.resource_storage = None
+            public = _with_media_urls(_hydrate_asset(app, assets.get_asset(created["id"], "u1"), "u1"))
+            self.assertEqual(public["image_url"], "https://cdn.example/portrait.png")
+            self.assertEqual(public["definition"]["looks"][0]["image_url"], "https://cdn.example/look.png")
+
+    def test_hydrate_rewrites_portrait_when_image_job_id_is_look(self) -> None:
+        from backend.app.xiaji_asset_api import _character_slot_sources, _hydrate_asset
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="林平之",
+                definition={"face_prompt": "青年"},
+            )
+            look_id = created["definition"]["looks"][0]["id"]
+            looks = list(created["definition"]["looks"])
+            looks[0]["job_id"] = "job-look-1"
+            looks[0]["image_url"] = "https://cdn.example/look.png"
+            assets.update_asset(
+                created["id"],
+                "u1",
+                definition={"looks": looks},
+                image_url="https://cdn.example/look.png",
+                image_job_id="job-look-1",
+                status="ready",
+            )
+            assets.add_media(
+                created["id"], "u1", media_kind="portrait", slot="portrait",
+                job_id="job-portrait-1", url="https://cdn.example/portrait.png",
+            )
+            assets.add_media(
+                created["id"], "u1", media_kind="look", slot=look_id,
+                job_id="job-look-1", url="https://cdn.example/look.png",
+            )
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = DummyJobs()
+            app.state.resource_storage = None
+            hydrated = _hydrate_asset(app, assets.get_asset(created["id"], "u1"), "u1")
+            self.assertEqual(hydrated["image_url"], "https://cdn.example/portrait.png")
+            self.assertEqual(hydrated["image_job_id"], "job-portrait-1")
+            portrait_job, portrait_url, _key = _character_slot_sources(hydrated, "portrait")
+            look_job, look_url, _look_key = _character_slot_sources(hydrated, "look", look_id=look_id)
+            self.assertEqual(portrait_job, "job-portrait-1")
+            self.assertEqual(portrait_url, "https://cdn.example/portrait.png")
+            self.assertEqual(look_job, "job-look-1")
+            self.assertEqual(look_url, "https://cdn.example/look.png")
+
+    def test_render_character_refs_are_face_then_costume(self) -> None:
+        from unittest.mock import patch
+
+        from backend.app.xiaji_episode_api import _append_character_refs
+
+        look_id = "look-1"
+        asset = {
+            "id": "ast-lin",
+            "image_job_id": "job-look-1",
+            "image_url": "https://cdn.example/look.png",
+            "definition": {"looks": [{"id": look_id, "job_id": "job-look-1", "image_url": "https://cdn.example/look.png"}]},
+            "media": [
+                {"media_kind": "portrait", "slot": "portrait", "job_id": "job-portrait-1", "url": "https://cdn.example/portrait.png"},
+                {"media_kind": "look", "slot": look_id, "job_id": "job-look-1", "url": "https://cdn.example/look.png"},
+            ],
+        }
+        captured: list[dict] = []
+
+        def capture(_app, paths, seen, **kwargs):
+            captured.append(kwargs)
+            paths.append(kwargs["stem"])
+            seen.add(kwargs["stem"])
+
+        with patch("backend.app.xiaji_episode_api._append_ref_file", side_effect=capture):
+            _append_character_refs(object(), [], set(), {"character_ids": ["ast-lin"]}, {"ast-lin": asset})
+        self.assertEqual([item["stem"] for item in captured], ["ast-lin-portrait", f"ast-lin-look-{look_id}"])
+        self.assertEqual(captured[0]["job_id"], "job-portrait-1")
+        self.assertEqual(captured[1]["job_id"], "job-look-1")
+
+    def test_list_project_jobs_returns_slot_records(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from backend.app.models import JobStatus
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="character",
+                name="谢铮",
+                definition={"face_prompt": "青年"},
+            )
+            look_id = created["definition"]["looks"][0]["id"]
+            assets.add_media(created["id"], "u1", media_kind="portrait", slot="portrait", job_id="job-portrait-1")
+            assets.add_media(created["id"], "u1", media_kind="look", slot=look_id, job_id="job-look-1")
+            assets.update_asset(created["id"], "u1", image_job_id="job-portrait-1")
+
+            class Jobs:
+                def get(self, job_id, **_kwargs):
+                    return {
+                        "id": job_id,
+                        "title": f"导台2 {job_id}",
+                        "status": JobStatus.SUCCEEDED.value,
+                        "mode": "grs-gpt-image-2",
+                        "prompt": f"prompt-{job_id}",
+                        "progress": 100,
+                        "created_at": "2026-09-03T00:00:00",
+                        "updated_at": "2026-09-03T00:01:00",
+                        "reference_count": 1 if job_id == "job-portrait-1" else 0,
+                        "options": {"aspect_ratio": "4:3", "count": 1},
+                        "outputs": [{"kind": "image", "cloud_url": f"https://cdn.example/{job_id}.png"}],
+                    }
+
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_project_store = projects
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.get("/api/xiaji/jobs", params={"project_id": project["id"]})
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            slots = {item["slot"]: item for item in body}
+            self.assertIn("portrait", slots)
+            self.assertIn("look", slots)
+            self.assertEqual(slots["portrait"]["preview_url"], "https://cdn.example/job-portrait-1.png")
+            self.assertEqual(slots["look"]["preview_url"], "https://cdn.example/job-look-1.png")
+            self.assertNotEqual(slots["portrait"]["preview_url"], slots["look"]["preview_url"])
+            self.assertEqual(slots["portrait"]["reference_count"], 1)
+            self.assertEqual(slots["portrait"]["references"][0]["url"], "/api/jobs/job-portrait-1/references/1")
+            names = {item["name"] for item in slots["portrait"]["parameters"]}
+            self.assertIn("options.aspect_ratio", names)
+            self.assertIn("prompt", names)
+
+    def test_job_input_snapshot_counts_round_references(self) -> None:
+        from backend.app.xiaji_asset_api import _job_input_snapshot
+
+        snapshot = _job_input_snapshot(
+            {
+                "id": "yZsvmOlGDr7n",
+                "mode": "grs-gpt-image-2",
+                "title": "导台2 场景背面 · 落魄山",
+                "prompt": "REFERENCE 1",
+                "options": {"aspect_ratio": "16:9"},
+                "rounds": [{"id": "r1", "reference_count": 1}],
+            }
+        )
+        self.assertEqual(snapshot["reference_count"], 1)
+        self.assertEqual(snapshot["references"][0]["url"], "/api/jobs/yZsvmOlGDr7n/references/1")
+        self.assertIn("正面源图", snapshot["references"][0]["label"])
+
+    def test_scene_reverse_requires_master_image(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="scene",
+                name="泥瓶巷",
+                definition={"description": "正面：巷口石板。背面：窑火门洞。", "scene_type": "exterior"},
+            )
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.post(
+                f"/api/xiaji/assets/{created['id']}/generate-image",
+                json={"scene_view": "reverse"},
+            )
+            self.assertEqual(response.status_code, 422)
+            self.assertIn("正面源图", response.json()["detail"])
+
+    def test_scene_panorama_requires_master_image(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="scene",
+                name="泥瓶巷",
+                definition={"description": "巷口", "scene_type": "exterior"},
+            )
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.post(
+                f"/api/xiaji/assets/{created['id']}/generate-image",
+                json={"scene_view": "panorama"},
+            )
+            self.assertEqual(response.status_code, 422)
+            self.assertIn("正面源图", response.json()["detail"])
+
     def test_scene_reverse_uses_distinct_prompt_and_keeps_master_job(self) -> None:
         from unittest.mock import patch
 
@@ -432,6 +1362,9 @@ class XiajiGenerateImageRouteTests(unittest.TestCase):
                 name="泥瓶巷",
                 definition={"description": "正面：巷口石板。背面：窑火门洞。", "scene_type": "exterior"},
             )
+            front = Path(raw) / "front.png"
+            front.write_bytes(TINY_PNG)
+            assets.update_asset(created["id"], "u1", image_url=str(front), status="ready")
             app = FastAPI()
             app.state.xiaji_asset_store = assets
             app.state.store = object()
@@ -473,8 +1406,81 @@ class XiajiGenerateImageRouteTests(unittest.TestCase):
             self.assertNotEqual(body["asset"].get("image_job_id"), "job-reverse-1")
             self.assertEqual((body["asset"].get("definition") or {}).get("scene_jobs", {}).get("reverse"), "job-reverse-1")
             prompt = queued.call_args.kwargs.get("prompt") or queued.call_args[1].get("prompt")
+            refs = queued.call_args.kwargs.get("references") or []
             self.assertIn("yaw-rotate 180", prompt)
-            self.assertIn("背面", prompt)
+            self.assertIn("REFERENCE 1", prompt)
+            self.assertEqual(refs, [str(front)])
+
+    def test_scene_panorama_attaches_master_then_reverse(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from backend.app.models import JobStatus
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            front = Path(raw) / "front.png"
+            reverse = Path(raw) / "reverse.png"
+            front.write_bytes(TINY_PNG)
+            reverse.write_bytes(TINY_PNG)
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="scene",
+                name="泥瓶巷",
+                definition={
+                    "description": "正面：巷口石板。背面：窑火门洞。",
+                    "scene_type": "exterior",
+                    "back_image_url": str(reverse),
+                },
+            )
+            assets.update_asset(created["id"], "u1", image_url=str(front), status="ready")
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            job = {
+                "id": "job-pano-1",
+                "mode": "grs-gpt-image-2",
+                "rounds": [{"generation_items": [{"id": "gen-1", "executor": "grs", "status": JobStatus.QUEUED.value}]}],
+            }
+            with patch("backend.app.xiaji_asset_api.create_queued_job", return_value=job) as queued:
+                client = TestClient(app)
+                response = client.post(
+                    f"/api/xiaji/assets/{created['id']}/generate-image",
+                    json={"scene_view": "panorama"},
+                )
+            self.assertEqual(response.status_code, 202)
+            prompt = queued.call_args.kwargs.get("prompt") or queued.call_args[1].get("prompt")
+            refs = queued.call_args.kwargs.get("references") or []
+            self.assertEqual(refs, [str(front), str(reverse)])
+            self.assertIn("PRIMARY VISUAL BIBLE", prompt)
+            self.assertIn("BACK-HALF VISUAL BIBLE", prompt)
+            self.assertIn("equirectangular", prompt)
 
     def test_prop_turnaround_uses_distinct_prompt_and_keeps_master_job(self) -> None:
         from unittest.mock import patch
@@ -494,6 +1500,9 @@ class XiajiGenerateImageRouteTests(unittest.TestCase):
                 name="本命瓷",
                 definition={"visual_prompt": "碎瓷片镶金边", "description": "宁姚本命瓷"},
             )
+            master = Path(raw) / "prop-master.png"
+            master.write_bytes(TINY_PNG)
+            assets.update_asset(created["id"], "u1", image_url=str(master), status="ready")
             app = FastAPI()
             app.state.xiaji_asset_store = assets
             app.state.store = object()
@@ -535,8 +1544,113 @@ class XiajiGenerateImageRouteTests(unittest.TestCase):
             self.assertNotEqual(body["asset"].get("image_job_id"), "job-turn-1")
             self.assertEqual((body["asset"].get("definition") or {}).get("prop_jobs", {}).get("turnaround"), "job-turn-1")
             prompt = queued.call_args.kwargs.get("prompt") or queued.call_args[1].get("prompt")
-            self.assertIn("2x2 four-panel", prompt)
             self.assertIn("本命瓷", prompt)
+            self.assertIn("3-PANEL product reference sheet", prompt)
+            self.assertIn("LAYOUT (1x3, 16:9 overall)", prompt)
+            options = queued.call_args.kwargs.get("options") or {}
+            self.assertEqual(options.get("aspect_ratio"), "16:9")
+            self.assertEqual(options.get("resolution"), "1K")
+            refs = queued.call_args.kwargs.get("references") or []
+            self.assertEqual(refs, [str(master)])
+            self.assertIn("REFERENCE 1", prompt)
+
+    def test_prop_turnaround_requires_master_image(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="prop",
+                name="本命瓷",
+                definition={"visual_prompt": "碎瓷片"},
+            )
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.store = object()
+            app.state.resource_storage = None
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            for view in ("turnaround", "detail"):
+                response = client.post(
+                    f"/api/xiaji/assets/{created['id']}/generate-image",
+                    json={"prop_view": view},
+                )
+                self.assertEqual(response.status_code, 422, view)
+                self.assertIn("主视图", response.json()["detail"])
+
+    def test_failed_reverse_job_is_not_left_generating(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from backend.app.models import JobStatus
+
+        with tempfile.TemporaryDirectory() as raw:
+            assets = XiajiAssetStore(Path(raw) / "xiaji.db")
+            projects = XiajiProjectStore(Path(raw) / "xiaji.db")
+            project = projects.create_project("u1", "测")
+            created = assets.create_asset(
+                "u1",
+                project_id=project["id"],
+                kind="scene",
+                name="落魄山",
+                definition={"description": "正面山门。背面荒坡。", "scene_type": "exterior", "scene_jobs": {"reverse": "job-reverse-fail"}},
+            )
+            assets.update_asset(
+                created["id"],
+                "u1",
+                status="ready",
+                image_job_id="job-master-1",
+                image_url="https://cdn.example/front.png",
+            )
+            assets.add_media(created["id"], "u1", media_kind="reverse", slot="reverse", job_id="job-reverse-fail")
+
+            class Jobs:
+                def get(self, job_id):
+                    if job_id == "job-reverse-fail":
+                        return {
+                            "id": job_id,
+                            "status": JobStatus.FAILED.value,
+                            "error": "内容未通过审核：请上传 REFERENCE 1",
+                        }
+                    raise KeyError(job_id)
+
+            app = FastAPI()
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_project_store = projects
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.get(f"/api/xiaji/assets?project_id={project['id']}&kind=scene")
+            self.assertEqual(response.status_code, 200)
+            scene = response.json()[0]
+            self.assertNotEqual((scene.get("definition") or {}).get("scene_jobs", {}).get("reverse"), "job-reverse-fail")
+            reverse_media = next(item for item in scene["media"] if item["media_kind"] == "reverse")
+            self.assertEqual(reverse_media.get("job_status"), JobStatus.FAILED.value)
+            self.assertIn("REFERENCE 1", reverse_media.get("job_error") or "")
 
 
 class DummyJobs:
@@ -793,6 +1907,7 @@ class XiajiEpisodeTests(unittest.TestCase):
                 json={},
             )
             self.assertEqual(blocked_video.status_code, 422, blocked_video.text)
+            self.assertIn("渲染图", blocked_video.json()["detail"])
 
             episodes.update_beat(beat_id, "u1", render_url="https://cdn.example/render.png", render_job_id="job-render-1")
             video_job = {"id": "job-video-1", "mode": "minimax-h3-i2v"}
@@ -830,6 +1945,959 @@ class XiajiEpisodeTests(unittest.TestCase):
             self.assertEqual(queued_r2v.call_args.kwargs["options"]["speed"], "balanced")
             self.assertGreaterEqual(len(queued_r2v.call_args.kwargs["references"]), 1)
 
+    def test_failed_render_job_clears_generating_status(self) -> None:
+        from backend.app.models import JobStatus
+        from backend.app.xiaji_episode_api import _hydrate_episode
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, _ingest, _assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [{"kind": "action", "action": "谢铮拔刀"}],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            beat_id = episode["beats"][0]["id"]
+            episodes.update_beat(
+                beat_id,
+                "u1",
+                sketch_url="https://cdn.example/sketch.png",
+                sketch_job_id="job-sketch-ok",
+                status="succeeded",
+                render_job_id="ty2QwKPPsLQ",
+                render_status="generating",
+            )
+
+            class Jobs:
+                def get(self, job_id):
+                    if job_id != "ty2QwKPPsLQ":
+                        raise KeyError(job_id)
+                    return {
+                        "id": job_id,
+                        "status": JobStatus.FAILED.value,
+                        "error": "GRS 内容审核未通过",
+                        "outputs": [],
+                    }
+
+            app = FastAPI()
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = _assets
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            hydrated = _hydrate_episode(app, episodes.get_episode(created["id"], "u1"), "u1")
+            beat = hydrated["beats"][0]
+            self.assertEqual(beat["render_status"], "failed")
+            self.assertEqual(beat["render_error"], "GRS 内容审核未通过")
+            self.assertFalse(beat.get("render_url"))
+            stored = episodes.get_episode(created["id"], "u1")["beats"][0]
+            self.assertEqual(stored["render_status"], "failed")
+            self.assertNotIn(stored["render_status"], {"queued", "generating"})
+
+    def test_failed_video_job_clears_generating_status(self) -> None:
+        from backend.app.models import JobStatus
+        from backend.app.xiaji_episode_api import _hydrate_episode
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, _ingest, _assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [{"kind": "action", "action": "谢铮拔刀"}],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            beat_id = episode["beats"][0]["id"]
+            episodes.update_beat(
+                beat_id,
+                "u1",
+                sketch_url="https://cdn.example/sketch.png",
+                status="succeeded",
+                render_url="https://cdn.example/render.png",
+                render_status="succeeded",
+                video_job_id="T5qSf6xMCZce",
+                video_status="generating",
+            )
+
+            class Jobs:
+                def get(self, job_id):
+                    if job_id != "T5qSf6xMCZce":
+                        raise KeyError(job_id)
+                    return {
+                        "id": job_id,
+                        "status": JobStatus.FAILED.value,
+                        "error": "ComfyUI 已报告任务失败",
+                        "outputs": [],
+                    }
+
+            app = FastAPI()
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = _assets
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            hydrated = _hydrate_episode(app, episodes.get_episode(created["id"], "u1"), "u1")
+            beat = hydrated["beats"][0]
+            self.assertEqual(beat["video_status"], "failed")
+            self.assertEqual(beat["video_error"], "ComfyUI 已报告任务失败")
+            stored = episodes.get_episode(created["id"], "u1")["beats"][0]
+            self.assertEqual(stored["video_status"], "failed")
+            self.assertNotIn(stored["video_status"], {"queued", "generating"})
+
+    def test_missing_video_job_clears_generating_status(self) -> None:
+        from backend.app.xiaji_episode_api import _hydrate_episode
+
+        with tempfile.TemporaryDirectory() as raw:
+            _projects, _ingest, _assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [{"kind": "action", "action": "谢铮拔刀"}],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            beat_id = episode["beats"][0]["id"]
+            episodes.update_beat(
+                beat_id,
+                "u1",
+                render_url="https://cdn.example/render.png",
+                render_status="succeeded",
+                video_job_id="T5qSf6xMCZce",
+                video_status="generating",
+            )
+
+            class Jobs:
+                def get(self, job_id):
+                    raise KeyError(job_id)
+
+            app = FastAPI()
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = _assets
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            hydrated = _hydrate_episode(app, episodes.get_episode(created["id"], "u1"), "u1", jobs_cache={})
+            beat = hydrated["beats"][0]
+            self.assertEqual(beat["video_status"], "failed")
+            stored = episodes.get_episode(created["id"], "u1")["beats"][0]
+            self.assertEqual(stored["video_status"], "failed")
+
+    def test_video_prompt_accepts_post_not_get(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, _ingest, assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [{"kind": "action", "action": "谢铮拔刀"}],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            beat_id = episode["beats"][0]["id"]
+            episodes.update_beat(
+                beat_id,
+                "u1",
+                render_url="https://cdn.example/render.png",
+                render_status="succeeded",
+            )
+
+            class Llm:
+                def availability(self):
+                    return False, "大模型未配置"
+
+            class Jobs:
+                def get(self, job_id):
+                    raise KeyError(job_id)
+
+            app = FastAPI()
+            app.state.xiaji_project_store = projects
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = assets
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            app.state.llm_provider = Llm()
+            register_xiaji_episode_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            prefix = f"/api/xiaji/episodes/{created['id']}/beats/{beat_id}"
+            for path in (f"{prefix}/video-prompt", f"{prefix}/generate-video-prompt"):
+                get_resp = client.get(path)
+                self.assertEqual(get_resp.status_code, 405, get_resp.text)
+                post_resp = client.post(path, json={})
+                self.assertNotEqual(post_resp.status_code, 405, post_resp.text)
+                self.assertEqual(post_resp.status_code, 503, post_resp.text)
+
+    def test_video_prompt_uses_selected_duration(self) -> None:
+        from fastapi.testclient import TestClient
+        from backend.app.xiaji_llm_jobs import XiajiLlmJobStore
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, _ingest, assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            llm_jobs = XiajiLlmJobStore(Path(raw) / "xiaji.db")
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [{"kind": "action", "action": "天空裂缝"}],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            beat_id = episode["beats"][0]["id"]
+            episodes.update_beat(
+                beat_id,
+                "u1",
+                render_url="https://cdn.example/render.png",
+                render_status="succeeded",
+            )
+            captured: list[dict] = []
+
+            class Llm:
+                def availability(self):
+                    return True, None
+
+                def generate_xiaji_beat_video_prompt(self, payload):
+                    captured.append(payload)
+                    duration = payload.get("duration")
+                    return {
+                        "prompt_zh": f"持续 {duration:g} 秒",
+                        "prompt_en": f"<Picture 1> holds for {duration:g} seconds",
+                    }
+
+            class Jobs:
+                def get(self, job_id):
+                    raise KeyError(job_id)
+
+            app = FastAPI()
+            app.state.xiaji_project_store = projects
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_llm_job_store = llm_jobs
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            app.state.llm_provider = Llm()
+            register_xiaji_episode_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            path = f"/api/xiaji/episodes/{created['id']}/beats/{beat_id}/video-prompt"
+            response = client.post(path, json={"duration": 10, "family": "minimax-h3-lightx2v-r2v"})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(captured[0]["duration"], 10)
+            self.assertEqual(response.json()["episode"]["beats"][0]["video_duration"], "10")
+            job = next(item for item in llm_jobs.list_project_jobs("u1", project["id"]) if item["kind"] == "video_prompt")
+            self.assertEqual(job["options"]["duration"], 10)
+            self.assertIn("指定时长：10 秒", job["prompt"])
+            self.assertEqual(response.json()["episode"]["beats"][0].get("video_prompt_job_id"), job["id"])
+
+    def test_later_beat_video_prompt_does_not_require_previous_video(self) -> None:
+        from fastapi.testclient import TestClient
+        from backend.app.xiaji_llm_jobs import XiajiLlmJobStore
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, _ingest, assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            llm_jobs = XiajiLlmJobStore(Path(raw) / "xiaji.db")
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["第一镜", "第二镜"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [
+                    {"kind": "action", "action": "第一镜动作"},
+                    {"kind": "action", "action": "第二镜动作"},
+                ],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            first_id = episode["beats"][0]["id"]
+            second_id = episode["beats"][1]["id"]
+            episodes.update_beat(first_id, "u1", render_url="https://cdn.example/one.png", render_status="succeeded")
+            episodes.update_beat(second_id, "u1", render_url="https://cdn.example/two.png", render_status="succeeded")
+
+            class Llm:
+                def availability(self):
+                    return True, None
+
+                def generate_xiaji_beat_video_prompt(self, payload):
+                    return {"prompt_zh": "第二镜中文", "prompt_en": "<Picture 1> beat two"}
+
+            class Jobs:
+                def get(self, job_id):
+                    raise KeyError(job_id)
+
+            app = FastAPI()
+            app.state.xiaji_project_store = projects
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_llm_job_store = llm_jobs
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            app.state.llm_provider = Llm()
+            register_xiaji_episode_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            response = client.post(
+                f"/api/xiaji/episodes/{created['id']}/beats/{second_id}/generate-video-prompt",
+                json={"duration": 5, "family": "minimax-h3-lightx2v-r2v"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["prompt_zh"], "第二镜中文")
+
+    def test_hydrate_applies_latest_video_prompt_job(self) -> None:
+        from backend.app.xiaji_episode_api import _hydrate_episode
+        from backend.app.xiaji_llm_jobs import XiajiLlmJobStore, finish_xiaji_llm_job, start_xiaji_llm_job
+
+        with tempfile.TemporaryDirectory() as raw:
+            _projects, _ingest, _assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            llm_jobs = XiajiLlmJobStore(Path(raw) / "xiaji.db")
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [{"kind": "action", "action": "天空裂缝"}],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            beat_id = episode["beats"][0]["id"]
+            episodes.update_beat(
+                beat_id,
+                "u1",
+                video_prompt_zh="自然视觉风格，无漫画字效。锁定英雄脸部。",
+                video_prompt="Natural style. Lock the hero face.",
+            )
+
+            class Jobs:
+                def get(self, job_id):
+                    raise KeyError(job_id)
+
+            app = FastAPI()
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = _assets
+            app.state.xiaji_llm_job_store = llm_jobs
+            app.state.store = Jobs()
+            app.state.resource_storage = None
+            app.state.llm_provider = type("Llm", (), {})()
+            job_id = start_xiaji_llm_job(
+                app,
+                owner_user_id="u1",
+                project_id=project["id"],
+                kind="video_prompt",
+                target="镜头1",
+                title="镜头视频提示词",
+                messages=[{"role": "user", "content": "时长 10"}],
+                parameters={"beat_id": beat_id, "episode_id": created["id"]},
+                temperature=0.5,
+                max_tokens=256,
+            )
+            finish_xiaji_llm_job(
+                app,
+                job_id,
+                status="succeeded",
+                response={
+                    "prompt_zh": "Use <Picture 1> as 本镜精绘首帧。Use <Picture 2> as 齐静春 头像素材。",
+                    "prompt_en": "Use <Picture 1> as first frame. Use <Picture 2> as 齐静春 portrait.",
+                },
+            )
+            hydrated = _hydrate_episode(app, episodes.get_episode(created["id"], "u1"), "u1")
+            beat = hydrated["beats"][0]
+            self.assertIn("齐静春", beat["video_prompt_zh"])
+            self.assertNotIn("英雄", beat["video_prompt_zh"])
+            self.assertEqual(beat["video_prompt_job_id"], job_id)
+            stored = episodes.get_episode(created["id"], "u1")["beats"][0]
+            self.assertIn("齐静春", stored["video_prompt_zh"])
+
+    def test_second_beat_video_requires_previous_clip_and_in_frame(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, _ingest, assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀", "对峙"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [
+                    {"kind": "action", "action": "谢铮拔刀"},
+                    {"kind": "action", "action": "对峙"},
+                ],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            first_id = episode["beats"][0]["id"]
+            second_id = episode["beats"][1]["id"]
+            episodes.update_beat(
+                first_id,
+                "u1",
+                render_url="https://cdn.example/r1.png",
+                render_job_id="job-r1",
+                render_status="succeeded",
+            )
+            episodes.update_beat(
+                second_id,
+                "u1",
+                render_url="https://cdn.example/r2.png",
+                render_job_id="job-r2",
+                render_status="succeeded",
+            )
+
+            class Jobs:
+                def get(self, job_id):
+                    raise KeyError(job_id)
+
+            class Stored:
+                key = "in-frame-key"
+
+            class Storage:
+                def store_bytes(self, *_args, **_kwargs):
+                    return Stored()
+
+            class Worker:
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+            app = FastAPI()
+            app.state.xiaji_project_store = projects
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = assets
+            app.state.store = Jobs()
+            app.state.resource_storage = Storage()
+            app.state.worker = Worker()
+            register_xiaji_episode_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            prefix = f"/api/xiaji/episodes/{created['id']}/beats/{second_id}"
+            missing_prev = client.post(f"{prefix}/generate-video", json={"force": True})
+            self.assertEqual(missing_prev.status_code, 422, missing_prev.text)
+            self.assertIn("上一镜视频", missing_prev.json()["detail"])
+            missing_prompt = client.post(f"{prefix}/video-prompt", json={})
+            self.assertEqual(missing_prompt.status_code, 422, missing_prompt.text)
+            self.assertIn("上一镜视频", missing_prompt.json()["detail"])
+
+            episodes.update_beat(
+                first_id,
+                "u1",
+                video_url="https://cdn.example/v1.mp4",
+                video_job_id="job-v1",
+                video_status="succeeded",
+            )
+            missing_frame = client.post(f"{prefix}/generate-video", json={"force": True})
+            self.assertEqual(missing_frame.status_code, 422, missing_frame.text)
+            self.assertIn("衔接帧", missing_frame.json()["detail"])
+
+            with patch("backend.app.xiaji_episode_api.resource_object_url", return_value="https://cdn.example/in.png"):
+                uploaded = client.post(
+                    f"{prefix}/upload-in-frame",
+                    files={"file": ("in.png", TINY_PNG, "image/png")},
+                    data={"manual": "1", "source_job_id": "job-v1", "sec": "4.9"},
+                )
+            self.assertEqual(uploaded.status_code, 200, uploaded.text)
+            second = uploaded.json()["beats"][1]
+            self.assertEqual(second["video_in_frame_url"], "https://cdn.example/in.png")
+            self.assertEqual(second["video_in_frame_manual"], "1")
+            self.assertEqual(second["video_in_source_job_id"], "job-v1")
+
+            png = Path(raw) / "frame.png"
+            png.write_bytes(TINY_PNG)
+            video_job = {"id": "job-video-2", "mode": "minimax-h3-lightx2v-r2v"}
+            with patch(
+                "backend.app.xiaji_episode_api._append_ref_file",
+                side_effect=lambda app, paths, seen, **kwargs: paths.append(str(png)),
+            ):
+                with patch("backend.app.xiaji_episode_api.create_queued_job", return_value=video_job) as queued:
+                    generated = client.post(
+                        f"{prefix}/generate-video",
+                        json={"force": True, "family": "minimax-h3-lightx2v-r2v", "duration": 5},
+                    )
+            self.assertEqual(generated.status_code, 202, generated.text)
+            prompt = queued.call_args.kwargs["prompt"]
+            self.assertIn("0-1.5s", prompt)
+            self.assertIn("<Picture 1>", prompt)
+            self.assertIn("<Picture 2>", prompt)
+
+    def test_auto_run_conflict_and_sketch_gate(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from backend.app.models import JobStatus
+        from backend.app.xiaji_auto_pipeline import XiajiAutoPipeline
+        from backend.app.xiaji_episode_run_store import XiajiEpisodeRunStore
+        from backend.app.xiaji_llm_jobs import XiajiLlmJobStore
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, _ingest, assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            db_path = Path(raw) / "xiaji.db"
+            runs = XiajiEpisodeRunStore(db_path)
+            llm_jobs = XiajiLlmJobStore(db_path)
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [{"kind": "action", "action": "谢铮拔刀"}, {"kind": "action", "action": "对峙"}],
+                status="script_ready",
+            )
+
+            class MemoryJobs:
+                def __init__(self) -> None:
+                    self.jobs: dict[str, dict] = {}
+
+                def get(self, job_id):
+                    return self.jobs[job_id]
+
+            class Llm:
+                def availability(self):
+                    return True, None
+
+                def generate_xiaji_beat_video_prompt(self, payload):
+                    return {"prompt_zh": "中文稿", "prompt_en": "English prompt"}
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+            class Stored:
+                key = "in-frame-key"
+
+            class Storage:
+                def store_bytes(self, *_args, **_kwargs):
+                    return Stored()
+
+            jobs = MemoryJobs()
+            app = FastAPI()
+            app.state.xiaji_project_store = projects
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_episode_run_store = runs
+            app.state.xiaji_llm_job_store = llm_jobs
+            app.state.store = jobs
+            app.state.resource_storage = Storage()
+            app.state.llm_provider = Llm()
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            pipeline = XiajiAutoPipeline(app, poll_interval=0.01, wait_timeout=0.05)
+            app.state.xiaji_auto_pipeline = pipeline
+            register_xiaji_episode_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            seeded = runs.create(
+                owner_user_id="u1",
+                project_id=project["id"],
+                episode_id=created["id"],
+                video_params={"duration": 8},
+            )
+            runs.update(seeded["id"], status="running")
+            blocked = client.post(
+                f"/api/xiaji/episodes/{created['id']}/auto-run",
+                json={"duration": 5},
+            )
+            self.assertEqual(blocked.status_code, 409, blocked.text)
+            runs.update(seeded["id"], status="failed", error="stop", update_error=True)
+
+            png = Path(raw) / "plate.png"
+            png.write_bytes(TINY_PNG)
+            queued_calls: list[dict] = []
+
+            def fake_create(*_args, **kwargs):
+                queued_calls.append(kwargs)
+                job = {
+                    "id": f"job-{len(queued_calls)}",
+                    "status": JobStatus.QUEUED.value,
+                    "mode": kwargs.get("mode"),
+                    "options": kwargs.get("options"),
+                    "title": kwargs.get("title"),
+                    "outputs": [],
+                }
+                jobs.jobs[job["id"]] = job
+                return job
+
+            with patch.object(pipeline, "start"):
+                started = client.post(
+                    f"/api/xiaji/episodes/{created['id']}/auto-run",
+                    json={"duration": 8, "family": "minimax-h3-lightx2v-r2v"},
+                )
+            self.assertEqual(started.status_code, 202, started.text)
+            run_id = started.json()["run"]["id"]
+            with patch("backend.app.xiaji_episode_api.create_queued_job", side_effect=fake_create):
+                with patch("backend.app.xiaji_episode_api._reference_paths", return_value=[str(png)]):
+                    import asyncio
+
+                    asyncio.run(pipeline._run(run_id))
+            self.assertEqual(len(queued_calls), 1)
+            self.assertIn("草图", queued_calls[0]["title"])
+            failed = client.get(f"/api/xiaji/episodes/{created['id']}/auto-run").json()["run"]
+            self.assertEqual(failed["status"], "failed")
+            self.assertIn("草图", failed["error"])
+
+    def test_auto_run_locks_video_params_and_skips_ready_sketch(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from backend.app.models import JobStatus
+        from backend.app.xiaji_auto_pipeline import XiajiAutoPipeline
+        from backend.app.xiaji_episode_run_store import XiajiEpisodeRunStore
+        from backend.app.xiaji_llm_jobs import XiajiLlmJobStore
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, _ingest, assets, episodes, project = _xiaji_workspace(raw, owner="u1")
+            db_path = Path(raw) / "xiaji.db"
+            runs = XiajiEpisodeRunStore(db_path)
+            llm_jobs = XiajiLlmJobStore(db_path)
+            created = episodes.upsert_episode(
+                "u1",
+                project_id=project["id"],
+                number=1,
+                title="巷口",
+                source_document_id=None,
+                content_summary="",
+                main_conflict="",
+                cliffhanger="",
+                key_events=[],
+                original_lines=["谢铮拔刀"],
+                overwrite_script=True,
+            )
+            episodes.replace_beats(
+                created["id"],
+                "u1",
+                [{"kind": "action", "action": "谢铮拔刀"}, {"kind": "action", "action": "对峙"}],
+                status="script_ready",
+            )
+            episode = episodes.get_episode(created["id"], "u1")
+            first_id = episode["beats"][0]["id"]
+            episodes.update_beat(first_id, "u1", sketch_url="https://cdn.example/s1.png", sketch_job_id="job-s0", status="succeeded")
+
+            class MemoryJobs:
+                def __init__(self) -> None:
+                    self.jobs: dict[str, dict] = {}
+
+                def get(self, job_id):
+                    return self.jobs[job_id]
+
+            class Llm:
+                def availability(self):
+                    return True, None
+
+                def generate_xiaji_beat_video_prompt(self, payload):
+                    return {"prompt_zh": f"时长{payload.get('duration')}", "prompt_en": f"hold {payload.get('duration')}s"}
+
+            class Workflow:
+                id = "grs-gpt-image-2"
+
+            class Grs:
+                def enabled_image_workflows(self):
+                    return [Workflow()]
+
+                def availability(self, _mode):
+                    return True, None
+
+            class Worker:
+                async def enqueue(self, job_id: str) -> None:
+                    return None
+
+                def enqueue_generation(self, item_id: str) -> None:
+                    return None
+
+            class Stored:
+                key = "in-frame-key"
+
+            class Storage:
+                def store_bytes(self, *_args, **_kwargs):
+                    return Stored()
+
+            png = Path(raw) / "plate.png"
+            png.write_bytes(TINY_PNG)
+            clip = Path(raw) / "clip.mp4"
+            clip.write_bytes(b"fake-mp4")
+            jobs = MemoryJobs()
+            created_jobs: list[dict] = []
+
+            def fake_create(*_args, **kwargs):
+                created_jobs.append(kwargs)
+                kind = "video" if "视频" in str(kwargs.get("title") or "") else "image"
+                local = str(clip if kind == "video" else png)
+                job = {
+                    "id": f"job-{len(created_jobs)}",
+                    "status": JobStatus.SUCCEEDED.value,
+                    "mode": kwargs.get("mode"),
+                    "options": kwargs.get("options"),
+                    "title": kwargs.get("title"),
+                    "outputs": [{"kind": kind, "cloud_url": f"https://cdn.example/{kind}-{len(created_jobs)}.{'mp4' if kind == 'video' else 'png'}", "path": local}],
+                }
+                jobs.jobs[job["id"]] = job
+                return job
+
+            def fake_extract(_src, dest: Path) -> None:
+                dest.write_bytes(TINY_PNG)
+
+            png = Path(raw) / "plate.png"
+            png.write_bytes(TINY_PNG)
+            app = FastAPI()
+            app.state.xiaji_project_store = projects
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_episode_run_store = runs
+            app.state.xiaji_llm_job_store = llm_jobs
+            app.state.store = jobs
+            app.state.resource_storage = Storage()
+            app.state.llm_provider = Llm()
+            app.state.grs_provider = Grs()
+            app.state.worker = Worker()
+            pipeline = XiajiAutoPipeline(app, poll_interval=0.01, wait_timeout=2, extract_frame=fake_extract)
+            app.state.xiaji_auto_pipeline = pipeline
+            register_xiaji_episode_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "u1"}, mutating_user=lambda: {"id": "u1"})
+            client = TestClient(app)
+            with patch.object(pipeline, "start"):
+                started = client.post(
+                    f"/api/xiaji/episodes/{created['id']}/auto-run",
+                    json={
+                        "duration": 8,
+                        "family": "minimax-h3-lightx2v-r2v",
+                        "quality": "0.2",
+                        "aspect_ratio": "16:9",
+                        "speed": "balanced",
+                    },
+                )
+            self.assertEqual(started.status_code, 202, started.text)
+            run_id = started.json()["run"]["id"]
+            with patch("backend.app.xiaji_episode_api.create_queued_job", side_effect=fake_create):
+                with patch("backend.app.xiaji_episode_api._reference_paths", return_value=[str(png)]):
+                    with patch("backend.app.xiaji_episode_api._materialize_picture_slots", return_value=[str(png)]):
+                        with patch("backend.app.xiaji_episode_api.resource_object_url", return_value="https://cdn.example/in.png"):
+                            import asyncio
+
+                            asyncio.run(pipeline._run(run_id))
+            titles = [str(item.get("title") or "") for item in created_jobs]
+            self.assertIn("渲染", created_jobs[0]["title"])
+            self.assertTrue(any("草图" in title for title in titles[1:]))
+            video_jobs = [item for item in created_jobs if "视频" in str(item.get("title") or "")]
+            self.assertEqual(len(video_jobs), 2)
+            for item in video_jobs:
+                self.assertEqual((item.get("options") or {}).get("duration"), 8)
+            done = client.get(f"/api/xiaji/episodes/{created['id']}/auto-run").json()["run"]
+            self.assertEqual(done["status"], "succeeded")
+            loaded = client.get(f"/api/xiaji/episodes/{created['id']}").json()
+            self.assertTrue(loaded["beats"][0]["video_url"])
+            self.assertTrue(loaded["beats"][1]["video_url"])
+            self.assertTrue(loaded["beats"][1]["video_in_frame_url"])
+            listed = client.get("/api/xiaji/jobs", params={"project_id": project["id"]})
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertTrue(any(item.get("slot") == "auto_run" for item in listed.json()))
+
+
+class XiajiLiteralScriptTests(unittest.TestCase):
+    def test_parse_bracket_and_simple_headings(self) -> None:
+        bracket = parse_scene_heading_line("【外】巷口 夜")
+        self.assertEqual(bracket["location"], "巷口")
+        self.assertEqual(bracket["int_ext"], "外")
+        simple = parse_scene_heading_line("雨夜巷口 日 内")
+        self.assertEqual(simple["location"], "雨夜巷口")
+        self.assertEqual(simple["int_ext"], "内")
+        self.assertIsNone(parse_scene_heading_line("谢铮走进雨夜巷口，抽出瓷刀。"))
+
+    def test_literal_one_line_one_beat_skips_heading_llm(self) -> None:
+        calls: list[str] = []
+
+        class Client:
+            def chat_completion(self, messages, **_kwargs):
+                user = messages[-1]["content"]
+                calls.append(user)
+                if "当前行：谢铮：让开" in user:
+                    return '{"audio_type":"dialogue","speaker":"谢铮","visual_description":"{{谢铮}} 开口说话","scene_name":"","character_names":["谢铮"],"prop_names":["瓷刀"]}'
+                return '{"audio_type":"silence","speaker":"","visual_description":"{{谢铮}} 拔出 [[瓷刀]]","scene_name":"巷口","character_names":["谢铮"],"prop_names":["瓷刀"]}'
+
+        beats = generate_script_beats(
+            Client(),
+            "m",
+            original_lines=["【外】巷口 夜", "人物：谢铮", "谢铮拔刀。", "谢铮：让开"],
+            characters=["谢铮"],
+            scenes=["巷口"],
+            props=["瓷刀"],
+            visual_style="guoman_fantasy",
+            title="巷口",
+            summary="对峙",
+            name_to_asset={
+                ("character", "谢铮"): "a1",
+                ("scene", "巷口"): "s1",
+                ("prop", "瓷刀"): "p1",
+            },
+        )
+        self.assertEqual(len(beats), 3)
+        self.assertEqual(beats[0]["kind"], "scene_heading")
+        self.assertEqual(beats[0]["scene_id"], "s1")
+        self.assertEqual(beats[1]["kind"], "action")
+        self.assertIn("谢铮", beats[1]["action"])
+        self.assertEqual(beats[1]["character_ids"], ["a1"])
+        self.assertEqual(beats[1]["prop_ids"], ["p1"])
+        self.assertEqual(beats[1]["scene_id"], "s1")
+        self.assertEqual(beats[2]["kind"], "dialogue")
+        self.assertEqual(beats[2]["speaker"], "谢铮")
+        self.assertEqual(beats[2]["dialogue"], "让开")
+        self.assertEqual(len(calls), 2)
+
+    def test_literal_timeout_falls_back_without_failing_episode(self) -> None:
+        from backend.app.llm_client import LlmError
+
+        class Client:
+            def chat_completion(self, messages, **_kwargs):
+                raise LlmError("请求大模型服务超时（等待 90 秒仍无响应）。")
+
+        beats = generate_script_beats(
+            Client(),
+            "m",
+            original_lines=["谢铮：让开", "雨还在下。"],
+            characters=["谢铮"],
+            scenes=[],
+            props=[],
+            visual_style="",
+            title="巷口",
+            summary="",
+            name_to_asset={("character", "谢铮"): "a1"},
+        )
+        self.assertEqual(len(beats), 2)
+        self.assertEqual(beats[0]["kind"], "dialogue")
+        self.assertEqual(beats[0]["dialogue"], "让开")
+        self.assertEqual(beats[1]["kind"], "action")
+        self.assertIn("雨还在下", beats[1]["action"])
+
+    def test_unknown_dialogue_speaker_becomes_action(self) -> None:
+        class Client:
+            def chat_completion(self, messages, **_kwargs):
+                return '{"audio_type":"dialogue","speaker":"路人","visual_description":"有人拦路喊话","scene_name":"","character_names":[],"prop_names":[]}'
+
+        beats = generate_script_beats(
+            Client(),
+            "m",
+            original_lines=["路人：让开"],
+            characters=["谢铮"],
+            scenes=[],
+            props=[],
+            visual_style="",
+            title="巷口",
+            summary="",
+            name_to_asset={("character", "谢铮"): "a1"},
+        )
+        self.assertEqual(beats[0]["kind"], "action")
+        self.assertEqual(beats[0]["speaker"], "")
+        self.assertIn("有人拦路", beats[0]["action"])
+
 
 class XiajiBeatPromptTests(unittest.TestCase):
     def test_sketch_is_storyboard_not_photoreal(self) -> None:
@@ -857,7 +2925,9 @@ class XiajiBeatPromptTests(unittest.TestCase):
         self.assertNotIn("sharp jaw", sketch)
         render = beat_render_prompt(beat, assets=assets, visual_style="chinese_period_drama", ethnicity="Chinese")
         self.assertIn("Keep exact composition", render)
+        self.assertIn("FACE then COSTUME", render)
         self.assertIn("sharp jaw", render)
+        self.assertIn("photorealistic", render)
         video = beat_video_prompt(beat)
         self.assertIn("first-frame", video)
         self.assertIn("谢铮拔刀", video)
@@ -865,6 +2935,364 @@ class XiajiBeatPromptTests(unittest.TestCase):
         self.assertIn("<Picture 1>", r2v)
         self.assertIn("<Picture 3>", r2v)
         self.assertIn("谢铮拔刀", r2v)
+        pictured = beat_video_prompt(
+            beat,
+            route="r2v",
+            pictures=[
+                {"tag": "<Picture 1>", "label_en": "first-frame render"},
+                {"tag": "<Picture 2>", "label_en": "FACE lock"},
+            ],
+        )
+        self.assertIn("<Picture 2> = FACE lock", pictured)
+
+    def test_render_uses_protagonist_art_style_and_not_live_person(self) -> None:
+        from backend.app.xiaji_episode_prompts import beat_render_prompt
+
+        assets = [
+            {
+                "id": "c-side",
+                "name": "李宝瓶",
+                "kind": "character",
+                "definition": {"is_main": False, "art_style_id": "as_1001", "face_prompt": "女青年"},
+            },
+            {
+                "id": "c-main",
+                "name": "陈平安",
+                "kind": "character",
+                "definition": {
+                    "is_main": True,
+                    "art_style_id": "as_1008",
+                    "face_prompt": "男性，youth，黑色短发",
+                },
+            },
+        ]
+        beat = {
+            "kind": "action",
+            "action": "陈平安 和 李宝瓶 在搏杀黑白双蟒",
+            "character_ids": ["c-main", "c-side"],
+            "scene_id": "",
+            "prop_ids": [],
+        }
+        render = beat_render_prompt(beat, assets=assets, visual_style="", ethnicity="Chinese")
+        self.assertIn("NOT real people", render)
+        self.assertIn("陈平安", render)
+        self.assertIn("warm 3D character animation", render)
+        self.assertIn("温暖角色动画", render)
+        self.assertNotIn("photorealistic, 8k", render)
+        self.assertNotIn("epic cinematic scene", render)
+
+    def test_video_motion_messages_use_requested_duration(self) -> None:
+        from backend.app.xiaji_episode_prompts import build_video_motion_messages
+
+        messages = build_video_motion_messages(
+            beat={"action": "裂缝蔓延"},
+            pictures=[{"tag": "<Picture 1>", "label_zh": "首帧", "label_en": "first", "role": "first_frame", "name": "r"}],
+            duration=10,
+            visual_style="",
+            route="r2v",
+        )
+        user = messages[1]["content"]
+        self.assertIn("指定时长：10 秒", user)
+        self.assertNotIn("指定时长：5 秒", user)
+
+    def test_video_motion_messages_name_each_picture_material(self) -> None:
+        from backend.app.xiaji_episode_prompts import build_video_motion_messages, format_video_picture_catalog
+
+        pictures = [
+            {
+                "tag": "<Picture 1>",
+                "role": "first_frame",
+                "material": "shot_render",
+                "name": "本镜精绘首帧",
+                "label_zh": "本镜精绘首帧",
+                "label_en": "approved first-frame render",
+                "detail_zh": "动作=天空裂缝出现",
+            },
+            {
+                "tag": "<Picture 2>",
+                "role": "portrait",
+                "material": "character_portrait",
+                "name": "齐静春",
+                "label_zh": "齐静春 头像素材",
+                "label_en": "character portrait still of 齐静春",
+                "detail_zh": "外貌=白衣女修",
+                "detail_en": "APPEARANCE=white-robed woman",
+            },
+            {
+                "tag": "<Picture 3>",
+                "role": "look",
+                "material": "character_costume",
+                "name": "齐静春·基础造型",
+                "label_zh": "齐静春 造型素材「基础造型」",
+                "label_en": "costume still of 齐静春 named 基础造型",
+                "detail_zh": "服装=素白长裙",
+            },
+            {
+                "tag": "<Picture 6>",
+                "role": "scene",
+                "material": "scene_plate",
+                "name": "骊珠洞天",
+                "label_zh": "场景「骊珠洞天」正面",
+                "label_en": "front environment plate of 骊珠洞天",
+                "detail_zh": "环境=洞府山门",
+            },
+        ]
+        catalog = format_video_picture_catalog(pictures)
+        self.assertIn("齐静春", catalog)
+        self.assertIn("基础造型", catalog)
+        self.assertIn("骊珠洞天", catalog)
+        self.assertIn("character_portrait", catalog)
+        messages = build_video_motion_messages(
+            beat={"heading": "洞天", "action": "天空裂缝出现，地面震动", "dialogue": "", "speaker": ""},
+            pictures=pictures,
+            duration=10,
+            visual_style="as_1001",
+            route="r2v",
+        )
+        user = messages[1]["content"]
+        self.assertIn("齐静春", user)
+        self.assertIn("骊珠洞天", user)
+        self.assertIn("天空裂缝出现", user)
+        self.assertIn("史诗叙事电影", user)
+        self.assertIn("禁止改成 hero", user)
+        self.assertNotIn("rooftop", user.lower())
+        self.assertIn("No <Audio n>", user)
+
+    def test_video_motion_pair_requires_picture_tags(self) -> None:
+        from backend.app.xiaji_episode_prompts import _normalize_video_motion_pair
+        from backend.app.llm_client import LlmError
+
+        pictures = [{"tag": "<Picture 1>"}, {"tag": "<Picture 2>"}]
+        pair = _normalize_video_motion_pair(
+            {
+                "prompt_zh": "用 <Picture 1> 作首帧，<Picture 2> 锁脸。",
+                "prompt_en": "Use <Picture 1> as first frame and <Picture 2> to lock the face.",
+            },
+            pictures,
+        )
+        self.assertIn("<Picture 2>", pair["prompt_en"])
+        with self.assertRaises(LlmError):
+            _normalize_video_motion_pair({"prompt_zh": "中文", "prompt_en": "Use <Picture 1> only."}, pictures)
+
+    def test_video_picture_slots_follow_r2v_order(self) -> None:
+        from backend.app.xiaji_episode_api import _video_picture_slots
+
+        look_id = "look-1"
+        beat = {
+            "id": "beat-1",
+            "render_job_id": "job-render",
+            "render_url": "https://cdn.example/render.png",
+            "character_ids": ["c1"],
+            "scene_id": "s1",
+        }
+        by_id = {
+            "c1": {
+                "id": "c1",
+                "name": "谢铮",
+                "definition": {
+                    "gender": "男",
+                    "face_prompt": "sharp jaw",
+                    "looks": [{"id": look_id, "name": "夜行", "appearance_details": "黑衣佩刀", "job_id": "job-look", "image_url": "https://cdn.example/look.png"}],
+                },
+                "media": [
+                    {"media_kind": "portrait", "slot": "portrait", "job_id": "job-face", "url": "https://cdn.example/face.png"},
+                    {"media_kind": "look", "slot": look_id, "job_id": "job-look", "url": "https://cdn.example/look.png"},
+                ],
+            },
+            "s1": {
+                "id": "s1",
+                "name": "巷口",
+                "image_job_id": "job-scene",
+                "image_url": "https://cdn.example/scene.png",
+                "definition": {"description": "雨夜石板路", "scene_type": "exterior"},
+            },
+        }
+        slots = _video_picture_slots(beat, by_id, scene_view="front", route="r2v")
+        self.assertEqual([item["role"] for item in slots], ["first_frame", "portrait", "look", "scene"])
+        self.assertEqual(slots[0]["tag"], "<Picture 1>")
+        self.assertEqual(slots[1]["tag"], "<Picture 2>")
+        self.assertIn("头像", slots[1]["label_zh"])
+        self.assertIn("谢铮", slots[1]["label_en"])
+        self.assertIn("谢铮", slots[1]["detail_zh"])
+        self.assertIn("sharp jaw", slots[1]["detail_zh"])
+        self.assertIn("夜行", slots[2]["detail_zh"])
+        self.assertIn("黑衣佩刀", slots[2]["detail_zh"])
+        self.assertIn("巷口", slots[3]["detail_zh"])
+        self.assertIn("雨夜石板路", slots[3]["detail_zh"])
+        self.assertEqual(slots[1]["material"], "character_portrait")
+        self.assertEqual(slots[2]["material"], "character_costume")
+
+    def test_video_picture_slots_put_bridge_before_render(self) -> None:
+        from backend.app.xiaji_episode_api import _video_picture_slots, previous_video_beat
+
+        episode = {
+            "beats": [
+                {"id": "a", "sequence": 1, "kind": "scene_heading", "heading": "", "action": ""},
+                {"id": "b", "sequence": 2, "kind": "action", "action": "拔刀", "video_url": "https://cdn.example/v.mp4"},
+                {"id": "c", "sequence": 3, "kind": "action", "action": "对峙"},
+            ]
+        }
+        previous = previous_video_beat(episode, episode["beats"][2])
+        self.assertEqual(previous["id"], "b")
+        beat = {
+            "id": "c",
+            "render_job_id": "job-render",
+            "render_url": "https://cdn.example/render.png",
+            "video_in_frame_url": "https://cdn.example/in.png",
+            "character_ids": [],
+            "scene_id": None,
+        }
+        slots = _video_picture_slots(beat, {}, scene_view="front", route="r2v")
+        self.assertEqual([item["role"] for item in slots], ["bridge_in", "shot_render"])
+        self.assertEqual(slots[0]["url"], "https://cdn.example/in.png")
+        self.assertEqual(slots[1]["url"], "https://cdn.example/render.png")
+        i2v = _video_picture_slots(beat, {}, route="i2v")
+        self.assertEqual([item["role"] for item in i2v], ["bridge_in"])
+
+    def test_bridge_prompt_requires_timing(self) -> None:
+        from backend.app.xiaji_episode_prompts import (
+            _normalize_video_motion_pair,
+            beat_video_prompt,
+            build_video_motion_messages,
+        )
+        from backend.app.llm_client import LlmError
+
+        pictures = [
+            {"tag": "<Picture 1>", "role": "bridge_in", "name": "上一镜衔接帧", "label_en": "previous last frame"},
+            {"tag": "<Picture 2>", "role": "shot_render", "name": "本镜精绘", "label_en": "current render"},
+        ]
+        templated = beat_video_prompt({"action": "对峙"}, route="r2v", pictures=pictures)
+        self.assertIn("0-1.5s", templated)
+        self.assertIn("<Picture 2>", templated)
+        messages = build_video_motion_messages(
+            beat={"action": "对峙", "heading": "", "dialogue": "", "speaker": ""},
+            pictures=pictures,
+            duration=5,
+            visual_style="",
+            route="r2v",
+        )
+        self.assertIn("0-1.5s", messages[1]["content"])
+        pair = _normalize_video_motion_pair(
+            {
+                "prompt_zh": "0-1.5s 用 <Picture 1> 过渡到 <Picture 2>，之后对峙。",
+                "prompt_en": "From 0-1.5s transform <Picture 1> into <Picture 2>, then hold the standoff.",
+            },
+            pictures,
+        )
+        self.assertIn("0-1.5s", pair["prompt_en"])
+        with self.assertRaises(LlmError):
+            _normalize_video_motion_pair(
+                {
+                    "prompt_zh": "用 <Picture 1> 和 <Picture 2> 开拍。",
+                    "prompt_en": "Use <Picture 1> and <Picture 2> as the first frame.",
+                },
+                pictures,
+            )
+
+
+class XiajiLlmJobTests(unittest.TestCase):
+    def test_ingest_and_script_jobs_appear_in_project_list(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from backend.app.xiaji_llm_jobs import XiajiLlmJobStore
+
+        with tempfile.TemporaryDirectory() as raw:
+            projects, ingest, assets, episodes, project = _xiaji_workspace(raw)
+            llm_jobs = XiajiLlmJobStore(Path(raw) / "xiaji.db")
+
+            class Llm:
+                def analyze_xiaji_ingest(self, text, **kwargs):
+                    return {
+                        "summary": "雨夜对峙",
+                        "characters": [{"name": "谢铮", "is_main": True, "aliases": []}],
+                        "scenes": [{"name": "巷口"}],
+                        "props": [{"name": "瓷刀"}],
+                        "episodes": [{"number": 1, "title": "巷口", "content_summary": "对峙", "main_conflict": "身份", "cliffhanger": "跟踪", "key_events": ["拔刀"]}],
+                        "model": "test-model",
+                    }
+
+                def generate_xiaji_script(self, payload):
+                    self.last_payload = payload
+                    return [{
+                        "kind": "action",
+                        "heading": "",
+                        "speaker": "",
+                        "dialogue": "",
+                        "action": "谢铮拔刀",
+                        "character_ids": [],
+                        "scene_id": None,
+                        "prop_ids": [],
+                    }]
+
+                def define_xiaji_voice(self, payload):
+                    return {
+                        "language": "中文普通话",
+                        "timbre": "沉稳男中音",
+                        "pitch": "适中",
+                        "speaking_style": "克制",
+                        "sample_line": "我是谢铮。",
+                        "tts_voice": "onyx",
+                        "prompt": "沉稳克制",
+                    }
+
+            app = FastAPI()
+            app.state.xiaji_project_store = projects
+            app.state.xiaji_store = ingest
+            app.state.xiaji_asset_store = assets
+            app.state.xiaji_episode_store = episodes
+            app.state.xiaji_llm_job_store = llm_jobs
+            app.state.store = DummyJobs()
+            app.state.resource_storage = None
+            app.state.llm_provider = Llm()
+            register_xiaji_routes(app, current_user=lambda: {"id": "user-1"}, mutating_user=lambda: {"id": "user-1"})
+            register_xiaji_asset_routes(app, current_user=lambda: {"id": "user-1"}, mutating_user=lambda: {"id": "user-1"})
+            register_xiaji_episode_routes(app, current_user=lambda: {"id": "user-1"}, mutating_user=lambda: {"id": "user-1"})
+            client = TestClient(app)
+            pasted = client.post(
+                "/api/xiaji/documents/paste",
+                params={"project_id": project["id"]},
+                json={
+                    "text": "第一章 雨夜\n谢铮走进雨夜巷口，抽出瓷刀。",
+                    "spine_template": "drama",
+                    "visual_style": "chinese_period_drama",
+                    "ethnicity": "Chinese",
+                },
+            )
+            self.assertEqual(pasted.status_code, 201, pasted.text)
+            created_eps = client.post(f"/api/xiaji/episodes/from-analysis?project_id={project['id']}", json={}).json()
+            episode_id = created_eps[0]["id"]
+            script = client.post(f"/api/xiaji/episodes/{episode_id}/generate-script")
+            self.assertEqual(script.status_code, 202, script.text)
+            character = next(item for item in client.get("/api/xiaji/assets", params={"project_id": project["id"]}).json() if item["kind"] == "character")
+            voice = client.post(f"/api/xiaji/assets/{character['id']}/define-voice")
+            self.assertEqual(voice.status_code, 200, voice.text)
+            listed = client.get("/api/xiaji/jobs", params={"project_id": project["id"]})
+            self.assertEqual(listed.status_code, 200, listed.text)
+            body = listed.json()
+            by_slot = {item["slot"]: item for item in body}
+            self.assertIn("ingest", by_slot)
+            self.assertIn("script", by_slot)
+            self.assertIn("voice", by_slot)
+            ingest_job = by_slot["ingest"]
+            self.assertEqual(ingest_job["status"], "succeeded")
+            names = {item["name"] for item in ingest_job["parameters"]}
+            self.assertIn("system_prompt", names)
+            self.assertIn("messages", names)
+            self.assertIn("original_text", names)
+            self.assertIn("visual_style", names)
+            self.assertIn("temperature", names)
+            self.assertIn("response", names)
+            self.assertIn("你负责小说/剧本导入", ingest_job["system_prompt"])
+            self.assertIn("谢铮走进雨夜巷口", ingest_job["prompt"])
+            self.assertEqual(ingest_job["options"]["visual_style"], "chinese_period_drama")
+            script_job = by_slot["script"]
+            script_names = {item["name"] for item in script_job["parameters"]}
+            self.assertIn("original_lines", script_names)
+            self.assertIn("逐行分镜标注师", script_job["system_prompt"])
+            self.assertIn("谢铮拔刀", str(script_job["llm_output"]))
+            voice_job = by_slot["voice"]
+            self.assertIn("沉稳男中音", str(voice_job["llm_output"]))
+            self.assertIn("你是影视配音导演", voice_job["system_prompt"])
 
 
 if __name__ == "__main__":

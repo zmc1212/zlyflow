@@ -15,7 +15,7 @@ CHARACTER_PROMPT = """你是小说角色分析专家。请基于原文提取所�
 1. **只提取人类角色**（男性、女性角色）
 2. **不要提取**：动物、宠物、神兽、怪物、精灵、机器人等非人类实体
 3. 别名/称谓（如"陛下"→同一人物）应合并到同一角色
-4. **不要提取身份/服装信息** — 身份由后续流程单独规划
+4. **不要写死造型/身份戏服**：具体服装、官服、校服、战甲、某段剧情的打扮留给后续造型流程。description 里不要写完整套装清单
 5. **年龄变体是同一角色**：同一人物的幼年/少年/青年/中年/老年形态必须合并为一个角色，age_group 取角色在故事中**最主要的时期**对应的年龄段。例如：小说中出现"小谢铮"（幼年回忆）和"谢铮"（成年主线），应合并为一个角色"谢铮"，age_group="youth"，aliases 中包含"小谢铮"
 
 对于每个角色，生成：
@@ -25,8 +25,8 @@ CHARACTER_PROMPT = """你是小说角色分析专家。请基于原文提取所�
 4. is_main: 是否为解说主角/第一人称叙述者（整部小说只能有 1 个 is_main=True）
 5. gender: 性别（男/女）
 6. age_group: 年龄段分类，必须是以下四个值之一: child（儿童）/ youth（青年）/ middle（中年）/ elder（老年）
-7. body_type: 体型描述（如：纤细高挑、健壮魁梧、娇小玲珑）
-8. description: 外貌和性格特征
+7. body_type: 体型描述（如：纤细高挑、健壮魁梧、娇小玲珑）；原文没有时按年龄与身份做保守推测，禁止空字符串
+8. description: 必填。写性格 + 可从原文或设定合理推测的外貌要点（气质、体态、发型肤色等），40-120 字。禁止空字符串、禁止写「无」「未知」「没有填写」。不要写死某套戏服或身份服装
 9. face_prompt: 纯面部特征描述（不含服装）
    格式：[性别]，[年龄段]，[发型发色]，[眼睛特征]，[肤色]，[脸型/骨骼]
    示例："女性，二十多岁，黑色长发马尾，黑色杏眼，小麦肤色，瓜子脸"
@@ -35,7 +35,7 @@ CHARACTER_PROMPT = """你是小说角色分析专家。请基于原文提取所�
 - face_prompt 必须是纯面部特征，绝对不能包含服装描述
 - aliases 只保留原文里真实出现过、且能稳定指向该角色的称呼
 - 不要把过于泛化、依赖上下文才成立的称谓塞进 aliases，例如“男人 / 女人 / 老板 / 爸爸 / 女儿 / 店员”
-- 如果信息不足，只允许对 role / body_type / description 做保守推测；不要为 aliases 编造原文未出现的称呼"""
+- 原文外貌不足时，仍须根据性别、年龄段、角色定位和情节气质保守补全 description 与 body_type；不要为 aliases 编造原文未出现的称呼"""
 
 EPISODE_PROMPT = """你是一个专业的剧集规划师。将小说内容规划为指定集数。
 
@@ -227,7 +227,7 @@ def build_ingest_messages(
     )
     user = (
         f"项目类型：{spine_template or 'drama'}\n"
-        f"视觉风格：{visual_style or ''}\n"
+        f"画风：{visual_style or ''}\n"
         f"解说人称：{narration_style or ''}\n"
         f"人物族裔：{ethnicity or ''}\n\n"
         f"【原文】\n{excerpt}"
@@ -273,7 +273,7 @@ def analyze_ingest_text(
     return normalized
 
 
-def define_voice_profile(client: OpenAICompatibleClient, model: str, payload: dict[str, Any]) -> dict[str, Any]:
+def build_voice_define_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
     from .xiaji_asset_prompts import VOICE_DEFINE_PROMPT
 
     name = str(payload.get("name") or "角色").strip()
@@ -285,11 +285,16 @@ def define_voice_profile(client: OpenAICompatibleClient, model: str, payload: di
         f"外貌与性格：{payload.get('description') or ''}\n"
         f"用途：{payload.get('purpose') or '角色对白'}"
     )
+    return [
+        {"role": "system", "content": VOICE_DEFINE_PROMPT + "\n只输出 JSON。"},
+        {"role": "user", "content": user},
+    ]
+
+
+def define_voice_profile(client: OpenAICompatibleClient, model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    name = str(payload.get("name") or "角色").strip()
     raw = client.chat_completion(
-        [
-            {"role": "system", "content": VOICE_DEFINE_PROMPT + "\n只输出 JSON。"},
-            {"role": "user", "content": user},
-        ],
+        build_voice_define_messages(payload),
         model=model,
         temperature=0.4,
         max_tokens=800,

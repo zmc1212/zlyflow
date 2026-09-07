@@ -10,6 +10,7 @@ export const PATHS = {
   generateVideo: "/generate/video",
   director: "/director",
   director2: "/director2",
+  director2ArtStyles: "/director2/art-styles",
   assets: "/assets",
   admin: "/admin",
   adminAccounts: "/admin/accounts",
@@ -41,6 +42,7 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.directorBatch,
   ROUTE_PATTERNS.directorProject,
   PATHS.director,
+  PATHS.director2ArtStyles,
   ROUTE_PATTERNS.director2Project,
   PATHS.director2,
   PATHS.assets,
@@ -95,12 +97,19 @@ export function director2ProjectPath(projectId: string) {
   return `${PATHS.director2}/${encodeURIComponent(projectId)}`
 }
 
+const XIAJI_RESERVED_SEGMENTS = new Set(["art-styles"])
+
+export function isXiajiArtStylesPath(pathname: string) {
+  const normalized = pathname.replace(/\/+$/, "") || "/"
+  return normalized === PATHS.director2ArtStyles
+}
+
 export function parseXiajiProjectPath(pathname: string): string | undefined {
+  if (isXiajiArtStylesPath(pathname)) return undefined
   const prefix = `${PATHS.director2}/`
   if (!pathname.startsWith(prefix)) return undefined
-  const rest = pathname.slice(prefix.length)
-  const id = rest.split("/").filter(Boolean)[0]
-  if (!id) return undefined
+  const id = pathname.slice(prefix.length).split("/").filter(Boolean)[0]
+  if (!id || XIAJI_RESERVED_SEGMENTS.has(id)) return undefined
   try {
     return decodeURIComponent(id)
   } catch {

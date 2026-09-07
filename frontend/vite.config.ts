@@ -1,17 +1,24 @@
-import { defineConfig } from "vite"
+import { defineConfig, loadEnv } from "vite"
 import react from "@vitejs/plugin-react"
-import { readFileSync } from "node:fs"
+import { readFileSync, existsSync } from "node:fs"
 
-export default defineConfig(() => {
-  const certificatePath = process.env.ZLY_AI_VIDEO_STUDIO_SSL_CERTFILE
-  const keyPath = process.env.ZLY_AI_VIDEO_STUDIO_SSL_KEYFILE
-  const useHttps = Boolean(certificatePath && keyPath)
+export default defineConfig(({ mode }) => {
+  const env = {
+    ...loadEnv(mode, process.cwd(), ""),
+    ...loadEnv("dev", process.cwd(), ""),
+    ...process.env,
+  }
+
+  const certificatePath = env.ZLY_AI_VIDEO_STUDIO_SSL_CERTFILE
+  const keyPath = env.ZLY_AI_VIDEO_STUDIO_SSL_KEYFILE
+  const useHttps = Boolean(certificatePath && keyPath && existsSync(certificatePath) && existsSync(keyPath))
+  const port = Number(env.VITE_PORT || 5173)
 
   return {
     plugins: [react()],
     server: {
-      host: "127.0.0.1",
-      port: 5173,
+      host: env.HOST || "0.0.0.0",
+      port,
       strictPort: true,
       https: useHttps
         ? {

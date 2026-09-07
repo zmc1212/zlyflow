@@ -282,8 +282,8 @@
   display: flex;
   max-width: none !important;
   min-height: 0 !important;
-  max-height: calc(100vh - 56px) !important;
-  height: calc(100vh - 56px) !important;
+  max-height: 100% !important;
+  height: 100% !important;
   flex: 1 1 0%;
   flex-direction: column;
   overflow-y: auto !important;
@@ -1170,12 +1170,18 @@
   .studio-workspace:not(.studio-task-rail-collapsed) .studio-composer-form,
   .studio-workspace:not(.studio-task-rail-collapsed) .studio-return-bottom { left: calc(50% + 120px); }
   /* Extra bottom space so generation history can scroll above the fixed composer.
-     Director uses a viewport-locked pane; this rule must not apply to that main. */
-  .studio-light main:not(.director-workspace-main) { min-height: calc(100vh - 56px + 340px) !important; padding-bottom: 340px; }
+     Director and 导台2 use viewport-locked panes; this rule must not apply to those mains. */
+  .studio-light main:not(.director-workspace-main):not(.xiaji-workspace-main) { min-height: calc(100vh - 56px + 340px) !important; padding-bottom: 340px; }
   .studio-light .director-workspace-main {
     min-height: 0 !important;
     height: 100vh !important;
     max-height: 100vh !important;
+    padding-bottom: 0 !important;
+  }
+  .studio-light .xiaji-workspace-main {
+    min-height: 0 !important;
+    height: 100% !important;
+    max-height: 100% !important;
     padding-bottom: 0 !important;
   }
   .studio-light .studio-composer-form {
@@ -3586,6 +3592,7 @@
 @media (max-width: 767px) {
   .director-mobile-header { grid-template-columns: 44px minmax(0, 1fr) auto; }
   .director-mobile-header-actions > button,
+  .director-mobile-header-actions > a.xiaji-home-art-styles-link,
   .director-mobile-header-actions .ant-dropdown-trigger,
   .director-mobile-header-actions .studio-theme-toggle.ant-btn {
     display: grid;
@@ -3600,6 +3607,7 @@
     color: var(--studio-text-secondary) !important;
   }
   .director-mobile-header-actions > button:hover,
+  .director-mobile-header-actions > a.xiaji-home-art-styles-link:hover,
   .director-mobile-header-actions .ant-dropdown-trigger:hover,
   .director-mobile-header-actions .studio-theme-toggle.ant-btn:hover { background: var(--studio-hover) !important; color: var(--studio-text) !important; }
   .studio-header-theme-toggle.ant-btn { display: none; }
@@ -4074,11 +4082,11 @@
   flex: 1;
   flex-direction: column;
   color: var(--studio-text);
-  padding: 16px 24px 32px;
+  padding: 16px 24px 24px;
 }
 @media (max-width: 640px) {
   .xiaji-studio {
-    padding: 12px 16px 24px;
+    padding: 12px 16px 16px;
   }
 }
 .xiaji-project-bar {
@@ -4114,8 +4122,49 @@
 .xiaji-studio-tabs .ant-tabs-nav {
   margin-bottom: 0;
 }
+.xiaji-jobs-page {
+  color: var(--studio-text);
+}
+.xiaji-job-prompt {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--studio-canvas);
+  color: var(--studio-text);
+}
+.xiaji-job-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.xiaji-job-params {
+  margin-top: 8px;
+}
+.xiaji-job-param-value {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.xiaji-studio-tabs .ant-tabs,
+.xiaji-studio-tabs .ant-tabs-body-holder,
+.xiaji-studio-tabs .ant-tabs-body,
 .xiaji-studio-tabs .ant-tabs-content,
-.xiaji-studio-tabs .ant-tabs-tabpane {
+.xiaji-studio-tabs .ant-tabs-tabpane,
+.xiaji-episode .ant-tabs,
+.xiaji-episode .ant-tabs-body-holder,
+.xiaji-episode .ant-tabs-body,
+.xiaji-episode .ant-tabs-content,
+.xiaji-episode .ant-tabs-tabpane {
+  overflow: visible;
+  height: auto;
+  max-height: none;
   min-height: 0;
 }
 .xiaji-ingest-page {
@@ -4171,7 +4220,7 @@
 .xiaji-ingest-scroll {
   min-height: 0;
   flex: 1;
-  padding: 20px 8px 32px;
+  padding: 20px 8px 40px;
 }
 .xiaji-ingest-width {
   width: 100%;
@@ -4317,6 +4366,77 @@
 }
 .xiaji-ingest-toolbar .ant-select {
   min-width: 112px;
+}
+.xiaji-art-style-compact {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.xiaji-art-style-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.xiaji-art-style-select .ant-select-selector {
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+.xiaji-art-style-select.ant-select-sm .ant-select-selector {
+  height: 24px !important;
+}
+.xiaji-art-style-select .ant-select-selection-item,
+.xiaji-art-style-select .ant-select-selection-placeholder {
+  display: flex !important;
+  align-items: center;
+  line-height: 1 !important;
+}
+.xiaji-char-extra .ant-select {
+  width: 100%;
+}
+.xiaji-char-extra .ant-select .ant-select-selector {
+  height: 32px !important;
+}
+.xiaji-ingest-toolbar .xiaji-art-style-compact {
+  width: auto;
+  min-width: 188px;
+  max-width: 260px;
+}
+.xiaji-scene-card-tools .xiaji-art-style-compact {
+  width: auto;
+  min-width: 168px;
+  max-width: 220px;
+}
+.xiaji-art-style-thumb,
+.xiaji-art-style-thumb-sm {
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--studio-field);
+  flex: none;
+}
+.xiaji-art-style-select .director-style-option img.xiaji-art-style-thumb-sm {
+  width: 20px;
+  height: 20px;
+}
+.xiaji-art-style-select.ant-select-sm .director-style-option img.xiaji-art-style-thumb-sm {
+  width: 16px;
+  height: 16px;
+}
+.xiaji-art-style-dropdown .director-style-option img.xiaji-art-style-thumb {
+  width: 72px;
+  height: 46px;
+}
+.xiaji-art-style-select .director-style-option {
+  min-width: 0;
+}
+.xiaji-art-style-select .director-style-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xiaji-art-style-dropdown .ant-select-item-option-content {
+  white-space: nowrap;
 }
 .xiaji-format-link {
   display: inline-flex;
@@ -4502,10 +4622,23 @@
   margin-right: 8px;
   color: color-mix(in srgb, var(--studio-muted) 70%, transparent);
 }
+.xiaji-chapter-drawer .ant-drawer-header {
+  align-items: center;
+}
+.xiaji-chapter-drawer .ant-drawer-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .xiaji-chapter-editor {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.xiaji-chapter-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .xiaji-format-spec {
   padding: 12px 14px;
@@ -4549,7 +4682,7 @@
   gap: 16px;
   min-height: 0;
   flex: 1;
-  padding: 0 8px 32px;
+  padding: 0 8px 10px;
 }
 .xiaji-asset-list,
 .xiaji-asset-detail {
@@ -4745,9 +4878,13 @@
 }
 .xiaji-char-extra {
   display: grid;
-  grid-template-columns: minmax(140px, 220px) minmax(140px, 220px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px 20px;
   margin-top: 4px;
+}
+.xiaji-char-extra > .ant-form-item {
+  min-width: 0;
+  margin-bottom: 0;
 }
 .xiaji-voice-board {
   display: flex;
@@ -4846,6 +4983,7 @@
 .xiaji-looks-list {
   display: grid;
   gap: 16px;
+  padding-bottom: 20px;
 }
 .xiaji-look-card {
   display: grid;
@@ -5334,6 +5472,12 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.xiaji-scene-view-error {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--studio-danger, #c43c3c);
+}
 .xiaji-scene-open-viewer-btn {
   padding: 0;
   font-size: 12px;
@@ -5410,7 +5554,7 @@
   flex: 1;
   flex-direction: column;
   gap: 16px;
-  padding: 8px 4px 24px;
+  padding: 8px 4px 20px;
   color: var(--studio-text);
 }
 .xiaji-workshop-hero {
@@ -5604,6 +5748,7 @@
   display: flex;
   flex-direction: column;
   min-height: min(78vh, 920px);
+  padding-bottom: 20px;
 }
 .xiaji-shots-split {
   display: flex;
@@ -5618,7 +5763,7 @@
   min-width: 0;
   flex-shrink: 0;
   overflow: auto;
-  padding: 12px;
+  padding: 12px 12px 100px;
 }
 .xiaji-shot-tiles {
   display: grid;
@@ -5640,6 +5785,22 @@
 .xiaji-shot-tile.is-selected {
   border-color: var(--studio-accent, #1677ff);
   box-shadow: 0 0 0 1px var(--studio-accent, #1677ff);
+}
+.xiaji-shot-tile.is-generating {
+  border-color: var(--studio-accent, #1677ff);
+}
+.xiaji-shot-tile-busy {
+  display: grid;
+  gap: 8px;
+  place-items: center;
+  padding: 8px;
+  color: #f3f5f7;
+  font-size: 11px;
+  text-align: center;
+}
+.xiaji-shot-tile-busy em {
+  font-style: normal;
+  line-height: 1.35;
 }
 .xiaji-shot-tile-num {
   padding: 6px 8px 0;
@@ -5723,6 +5884,7 @@
 }
 .xiaji-pane-scroll-area {
   height: 100%;
+  /* padding-bottom: 20px; */
 }
 .xiaji-pane-section {
   border-bottom: 1px solid var(--studio-border, rgba(255, 255, 255, 0.08));
@@ -5788,6 +5950,83 @@
   border-radius: 50%;
   background: #a3e635;
 }
+.xiaji-bridge-panel {
+  border: 1px solid var(--studio-border, rgba(15, 23, 42, 0.08));
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--studio-surface-raised, #f9fafb);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+:root[data-theme="dark"] .xiaji-bridge-panel {
+  border-color: var(--studio-border, rgba(255, 255, 255, 0.1));
+  background: var(--studio-surface-raised, #1e2229);
+}
+.xiaji-bridge-stage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+.xiaji-bridge-player-col {
+  flex: 1 1 280px;
+  max-width: 440px;
+  min-width: 240px;
+}
+.xiaji-bridge-preview-col {
+  flex: 0 1 220px;
+  min-width: 170px;
+}
+.xiaji-bridge-player-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--studio-border, rgba(0, 0, 0, 0.1));
+}
+.xiaji-bridge-prev-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+.xiaji-bridge-preview-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--studio-border, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+:root[data-theme="dark"] .xiaji-bridge-preview-wrapper {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--studio-border, rgba(255, 255, 255, 0.12));
+}
+.xiaji-bridge-preview-wrapper .ant-image,
+.xiaji-bridge-preview-wrapper .ant-image-img,
+.xiaji-bridge-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+}
+.xiaji-bridge-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--studio-text-muted, #6b7280);
+  font-size: 11px;
+}
 .xiaji-video-player {
   width: 100%;
   height: 100%;
@@ -5820,18 +6059,24 @@
   object-fit: cover;
 }
 .xiaji-video-exact-card {
-  width: 240px;
-  height: 140px;
-  border-radius: 10px;
+  flex: 1 1 280px;
+  max-width: 440px;
+  min-width: 240px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
   overflow: hidden;
   background: #000000;
-  border: 1px solid var(--studio-border, rgba(255, 255, 255, 0.2));
+  border: 1px solid var(--studio-border, rgba(0, 0, 0, 0.1));
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   position: relative;
+}
+:root[data-theme="dark"] .xiaji-video-exact-card {
+  border-color: var(--studio-border, rgba(255, 255, 255, 0.12));
 }
 .xiaji-video-preview-wrapper {
   position: relative;
@@ -5841,10 +6086,13 @@
   align-items: center;
   justify-content: center;
 }
-.xiaji-video-preview-wrapper img {
+.xiaji-video-preview-wrapper img,
+.xiaji-video-preview-wrapper .ant-image,
+.xiaji-video-preview-wrapper .ant-image-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 .xiaji-sketch-placeholder {
   display: flex;
@@ -5860,26 +6108,37 @@
 }
 .xiaji-sketch-thumb-card {
   position: relative;
-  width: 42px;
-  height: 68px;
+  width: 44px;
+  height: 72px;
   border-radius: 6px;
   overflow: hidden;
   background: #ffffff;
-  border: 1px solid var(--studio-border, rgba(255, 255, 255, 0.2));
+  border: 1px solid var(--studio-border, rgba(0, 0, 0, 0.1));
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.xiaji-sketch-thumb-card img {
+:root[data-theme="dark"] .xiaji-sketch-thumb-card {
+  border-color: var(--studio-border, rgba(255, 255, 255, 0.12));
+  background: var(--studio-surface-raised, #1e2229);
+}
+.xiaji-sketch-thumb-card img,
+.xiaji-sketch-thumb-card .ant-image,
+.xiaji-sketch-thumb-card .ant-image-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+  cursor: pointer;
 }
 .xiaji-sketch-thumb-placeholder {
   width: 100%;
   height: 100%;
-  background: #e5e7eb;
+  background: rgba(0, 0, 0, 0.04);
+}
+:root[data-theme="dark"] .xiaji-sketch-thumb-placeholder {
+  background: rgba(255, 255, 255, 0.04);
 }
 .xiaji-sketch-version-badge {
   position: absolute;
@@ -5892,6 +6151,8 @@
   font-weight: 600;
   text-align: center;
   line-height: 14px;
+  pointer-events: none;
+  z-index: 10;
 }
 .xiaji-sketch-bottom-toolbar {
   display: flex;

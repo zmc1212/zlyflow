@@ -61,39 +61,47 @@
 | `DELETE` | `/api/director/projects/{project_id}` | 删除当前用户的导演工程。 |
 | `POST` | `/api/director/projects/{project_id}/copy` | 复制工程到当前用户项目库。 |
 | `POST` | `/api/director/projects/{project_id}/convert-to-recipe` | 将旧时间轴工程转为 Recipe。 |
+| `GET` | `/api/xiaji/art-style` | 读取当前用户导台2 默认画风。 |
+| `PUT` | `/api/xiaji/art-style` | 保存默认画风。JSON `art_style_id` 必须是画风目录 id，空字符串表示清除。 |
 | `GET` | `/api/xiaji/projects` | 列出当前用户的导台2 项目。 |
 | `POST` | `/api/xiaji/projects` | 新建导台2 项目。JSON 可选 `name`、`settings`。 |
 | `GET` | `/api/xiaji/projects/{project_id}` | 读取项目名称与导入设置。 |
 | `PATCH` | `/api/xiaji/projects/{project_id}` | 更新名称或 `settings`。 |
 | `DELETE` | `/api/xiaji/projects/{project_id}` | 删除项目及其内容库文档、资产和剧集。 |
 | `GET` | `/api/xiaji/documents` | 列出当前项目的内容库文档摘要。必填 query `project_id`。 |
-| `POST` | `/api/xiaji/documents` | 上传 TXT / Markdown / DOCX。必填 query `project_id`。 |
-| `POST` | `/api/xiaji/documents/paste` | 粘贴纯文本。必填 query `project_id`。 |
+| `POST` | `/api/xiaji/documents` | 上传 TXT / Markdown / DOCX。必填 query `project_id`。可选表单 `replace=true`：先清空本项目文稿/资产/剧集再导入。 |
+| `POST` | `/api/xiaji/documents/paste` | 粘贴纯文本。必填 query `project_id`。JSON 可选 `replace`。 |
 | `GET` | `/api/xiaji/documents/{document_id}` | 读取原文与章节。 |
 | `PUT` | `/api/xiaji/documents/{document_id}/chapters` | 保存人工校对后的章节列表。 |
 | `GET` | `/api/xiaji/assets` | 列出当前项目导台2 资产。必填 query `project_id`，可选 `kind`。 |
 | `POST` | `/api/xiaji/assets/sync` | 从当前项目内容库分析同步角色/场景/道具/解说。必填 query `project_id`。 |
-| `POST` | `/api/xiaji/assets` | 新建资产。必填 query `project_id`。 |
+| `POST` | `/api/xiaji/assets` | 新建资产。必填 query `project_id`。`definition.visual_style` 为空时写入项目 `settings.visual_style`。 |
 | `GET` | `/api/xiaji/assets/{asset_id}` | 读取资产定义与媒体。 |
 | `PUT` | `/api/xiaji/assets/{asset_id}` | 更新名称与定义。 |
 | `DELETE` | `/api/xiaji/assets/{asset_id}` | 删除资产。 |
-| `POST` | `/api/xiaji/assets/{asset_id}/generate-image` | 入队生成肖像、造型、场景正面/背面/360 或道具主视图/转面四视图/细节特写，立即 **202** 返回 `job_id`。JSON 可选 `look_id`、`style`、`ethnicity`、`model`、场景 `scene_view`（`master` / `reverse` / `panorama`）、道具 `prop_view`（`master` / `turnaround` / `detail`）。随后轮询 `GET /api/jobs/{job_id}`。 |
+| `POST` | `/api/xiaji/assets/{asset_id}/generate-image` | 入队生成肖像、造型、场景正面/背面/360 或道具主视图/转面三视图/细节特写，立即 **202** 返回 `job_id`。JSON 可选 `look_id`、`style`、`ethnicity`、`model`、场景 `scene_view`（`master` / `reverse` / `panorama`）、道具 `prop_view`（`master` / `turnaround` / `detail`）。角色肖像在已选画风时把画风 JPEG 预览作为 REFERENCE 1；无法加载预览时 **422**。`look_id` 造型图必须已有肖像，并把它作为身份锚点传入；画幅 16:9、1K、四面板 sheet；无肖像或无外观描述时 **422**。`scene_view=reverse` / `panorama` 必须已有正面源图，并把它作为第 1 张参考图传入；`panorama` 再按顺序附上已有背面。`prop_view=turnaround` / `detail` 必须已有主视图作为 REFERENCE 1。无正面/主视图时附图返回 **422**。随后轮询 `GET /api/jobs/{job_id}`。 |
 | `POST` | `/api/xiaji/assets/{asset_id}/upload-image` | 上传参考图。 |
 | `POST` | `/api/xiaji/assets/{asset_id}/define-voice` | 用大模型生成声线定义。 |
 | `POST` | `/api/xiaji/assets/{asset_id}/generate-voice` | 按定义合成试听音频。 |
 | `POST` | `/api/xiaji/assets/{asset_id}/upload-voice` | 上传声线参考音频。 |
+| `GET` | `/api/xiaji/jobs` | 列出当前项目生成任务。必填 `project_id`。每条含提示词、`options`、`parameters` 全量入参，以及 `references[].url`（`/api/jobs/{id}/references/{n}`）用于预览传入图。 |
 | `GET` | `/api/xiaji/episodes` | 列出当前项目剧集。必填 query `project_id`。 |
 | `POST` | `/api/xiaji/episodes/from-analysis` | 从内容库剧集规划落库。必填 `project_id`。JSON 可选 `document_id`、`force`。 |
 | `GET` | `/api/xiaji/episodes/{episode_id}` | 读取原文行、资产绑定、Beat 与草图。 |
 | `PATCH` | `/api/xiaji/episodes/{episode_id}` | 更新剧集标题。 |
-| `POST` | `/api/xiaji/episodes/{episode_id}/generate-script` | 入队生成 Beat 脚本，立即 **202** 返回 `{ ok, status, episode }`。JSON 可选 `force`。随后轮询 `GET /api/xiaji/episodes/{episode_id}`，`status` 变为 `script_ready` 或带回 `error`。 |
+| `POST` | `/api/xiaji/episodes/{episode_id}/generate-script` | 入队按原文**逐行标注** Beat（一行一个，不改写、不合并），立即 **202** 返回 `{ ok, status, episode }`。场次头直接落 `scene_heading`；内容行调大模型补画面/对白类型，单行失败则规则兜底。JSON 可选 `force`。随后轮询 `GET /api/xiaji/episodes/{episode_id}`，`status` 变为 `script_ready` 或带回 `error`。 |
 | `PUT` | `/api/xiaji/episodes/{episode_id}/beats` | 保存人工校对后的 Beat。 |
 | `PATCH` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}` | 更新单条 Beat 文案、出场身份、场景和道具。 |
 | `POST` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}/upload-sketch` | 上传镜头草图（multipart `file`）。 |
+| `POST` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}/upload-in-frame` | 上传本镜衔接帧（上一镜视频截图）。multipart `file`，可选表单 `sec`、`manual`（`1` 表示手动截取）、`source_job_id`。无上一镜视频 **422**。第一条可出片 Beat **422**。 |
 | `POST` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}/generate-sketch` | 为单个 Beat 入队**分镜草图**（白纸色块草稿，不是写实成片），**202** 返回 `job_id`。JSON 可选 `force`、`model`、`scene_view`（`front` / `reverse`）。参考图只带场景正反面弱参考。 |
 | `POST` | `/api/xiaji/episodes/{episode_id}/generate-sketches` | 批量入队本集草图（跳过已成功）。**202**。 |
-| `POST` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}/generate-render` | 把已有草图精绘为渲染图。无草图 **422**。参考图顺序：草图、角色身份图、场景主图。已有渲染图时传 `force: true` 重新入队。**202**。 |
-| `POST` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}/generate-video` | 用渲染图生成镜头视频。无渲染图 **422**。JSON 可选 `force`、`family`（工作流 ID 或导演台 family，默认 `lightx2v` → `minimax-h3-lightx2v-r2v`）、`duration`、`quality`、`aspect_ratio`、`speed`、`custom_steps`、`scene_view`。I2V 只传渲染图首帧；R2V 以渲染图为 `<Picture 1>` 并追加角色/场景参考。参数写入 `POST /api/jobs` 的 `options`，由 `workflow_registry` 校验。**202**。 |
+| `POST` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}/generate-render` | 把已有草图精绘为渲染图。无草图 **422**。参考图顺序：草图、每个角色的头像再造型、场景主图。头像取 `media_kind=portrait`，不得用造型 job 充当人脸。任务失败时 beat `render_status=failed` 并写 `render_error`，不再保持 generating。已有渲染图时传 `force: true` 重新入队。**202**。 |
+| `POST` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}/video-prompt` | 用已配置大模型生成本 Beat 的 LightX2V 多参考视频提示词。无渲染图 **422**。从第二条可出片 Beat 起，无上一镜 `video_url` 或本镜衔接帧 **422**。JSON `duration` 为界面所选秒数（缺省才回退 Beat `video_duration` 或 5）。有衔接时中英稿必须写清 0-1.5s 从 `<Picture 1>` 过渡到本镜精绘，之后按本镜动作写。界面保存 `video_prompt_zh`，入队使用 `video_prompt`。写入 `xiaji_llm_jobs`。本机不传 `<Audio n>`。**200** `{ ok, episode, prompt_zh, prompt_en, pictures }`。旧路径 `.../generate-video-prompt` 仍接受 POST。 |
+| `POST` | `/api/xiaji/episodes/{episode_id}/beats/{beat_id}/generate-video` | 用渲染图（及可选衔接帧）生成镜头视频。无渲染图 **422**。后续镜无上一镜视频或衔接帧 **422**。若已有英文 `video_prompt` 则原样入队，否则回退模板。JSON 可选 `force`、`family`（默认 LightX2V R2V）、`duration`、`quality`、`aspect_ratio`、`speed`、`custom_steps`、`scene_view`。R2V 有衔接时参考图顺序：上一镜截图、本镜精绘、角色头像、造型、场景；无衔接时仍以精绘为首张。I2V 有衔接时只把衔接帧当首帧，精绘不当全片尾帧。视频 job 失败或记录缺失时 `video_status=failed`，可再点生成重新入队。**202**。 |
+| `POST` | `/api/xiaji/episodes/{episode_id}/auto-run` | 添加本集自动生成任务。从 Beat 1 起串行：草图→精绘→（后续镜自动抽上一镜末帧）→提示词→视频。请求体锁定 `family/duration/quality/aspect_ratio/speed/custom_steps/scene_view`，后续镜全部使用。已有产物的步骤跳过。同集已有 queued/running **409**。无脚本或未配置 LLM/执行器 **422/503**。**202** `{ ok, run }`。 |
+| `GET` | `/api/xiaji/episodes/{episode_id}/auto-run` | 读取本集最近一次自动生成进度（`status/progress/cursor/message/error`）。 |
+| `POST` | `/api/xiaji/episodes/{episode_id}/auto-run/cancel` | 请求取消进行中的自动生成；在尚未入队下一步前退出。 |
 | `POST` | `/api/director/recipes/run` | 启动导演流水线，写入 Recipe。可选 `agents` 只跑指定步骤（如 script+storyboard 按剧本一次生成全部分镜）。 |
 | `POST` | `/api/director/recipes/{project_id}/step` | 重跑单个 Agent。 |
 | `GET` | `/api/director/library-assets` | 列出当前用户的人物/场景/道具资产。可选 `kind`。 |
@@ -350,9 +358,9 @@ Invoke-RestMethod -Method Post `
 
 ## 导台2 内容库与资产库
 
-导台2 以项目为容器。先 `POST /api/xiaji/projects` 再建内容库和资产。列表、上传、粘贴、同步、新建资产均需 query `project_id`，且项目必须属于当前登录用户。文稿与章节按项目隔离。`POST /api/xiaji/documents` 为 `multipart/form-data`（`file` 必填，可选 `title`）。`POST /api/xiaji/documents/paste` 为 JSON（`text` 必填，可选 `title`）。二者都同步规则切分章节、调用已配置 LLM 分析，并在成功后写入**同一项目**的资产库。无章节标题时整篇为一章且状态为 `review_required`，否则 `indexed`/`ready`。`PUT .../chapters` 整表替换章节顺序与正文。
+导台2 以项目为容器。先 `POST /api/xiaji/projects` 再建内容库和资产。列表、上传、粘贴、同步、新建资产均需 query `project_id`，且项目必须属于当前登录用户。文稿与章节按项目隔离。`POST /api/xiaji/documents` 为 `multipart/form-data`（`file` 必填，可选 `title`、`art_style_id`、`replace`）。`POST /api/xiaji/documents/paste` 为 JSON（`text` 必填，可选 `title`、`art_style_id`、`replace`）。`replace=true` 时先清空本项目内容库、资产、剧集和大模型任务，再写入新文稿。二者都同步规则切分章节、调用已配置 LLM 分析，并在成功后写入**同一项目**的资产库。无章节标题时整篇为一章且状态为 `review_required`，否则 `indexed`/`ready`。`PUT .../chapters` 整表替换章节顺序与正文。项目 `settings.art_style_id` 与内容库所选画风共用导演台 `GET /api/director/art-styles` 目录。新建项目会预填 `GET /api/xiaji/art-style` 的用户默认画风。
 
-资产库 `xiaji_assets` 按项目隔离（唯一约束 `project_id + kind + name`），类型为 `character` / `scene` / `prop` / `voice`。角色含面部提示词、造型列表和五档声线槽位；场景含环境提示词，并按 `scene_view=master|reverse|panorama` 分别生成正面源图、背面和 2:1 的 360 全景（提示词对齐虾塘场景合同，背面/全景不覆盖正面 `image_job_id`）。道具按 `prop_view=master|turnaround|detail` 分别生成主视图、2x2 转面四视图和细节特写（提示词对齐虾塘道具产品摄影合同，转面/特写不覆盖主视图 `image_job_id`）。`voice` 名称为「解说」表示旁白。`POST /api/xiaji/assets/{id}/generate-image` 校验已启用 GRS 工作流后写入 `jobs` 并返回 **202** `{ ok, job_id, status: "generating", asset }`（`model` 为空则取默认启用项；请求体可带 `style`、`ethnicity`、`look_id`、`scene_view`、`prop_view`）。请求内不提交、不等待 GRS；worker 在 `BackgroundTasks` 中 `enqueue_generation`。前端用 `GET /api/jobs/{job_id}` 查终态，再 GET 资产列表由 `_hydrate_asset` 写回图片。声线定义走 LLM；试听走独立 TTS。`POST /api/xiaji/assets/sync?project_id=` 可按该项目最近一次分析结果补齐缺失项，不覆盖已有参考图。删除项目会删除其文档与资产。
+资产库 `xiaji_assets` 按项目隔离（唯一约束 `project_id + kind + name`），类型为 `character` / `scene` / `prop` / `voice`。角色含面部提示词、造型列表和五档声线槽位；场景含环境提示词，并按 `scene_view=master|reverse|panorama` 分别生成正面源图、背面和 2:1 的 360 全景（提示词对齐虾塘场景合同，背面/全景不覆盖正面 `image_job_id`）。生成背面时把正面源图作为 `jobs.references` 第 1 张（REFERENCE 1）；生成 360 时按顺序传入正面、已有背面。无正面源图时背面和 360 入队均 **422**。道具按 `prop_view=master|turnaround|detail` 分别生成主视图、1x3 转面三视图和细节特写（提示词与画幅对齐 sourceXd `nanobanana_prop.py`：16:9、产品摄影白底、转面为 FRONT/SIDE/BACK 三面板；工作台 GRS 分辨率用 1K。转面/特写必须已有主视图，把它作为 REFERENCE 1，且不覆盖主视图 `image_job_id`；无主视图时 **422**）。`voice` 名称为「解说」表示旁白。`POST /api/xiaji/assets/{id}/generate-image` 校验已启用 GRS 工作流后写入 `jobs` 与 `xiaji_asset_media`（`media_kind` + `slot` + `job_id`）并返回 **202** `{ ok, job_id, status: "generating", asset }`（`model` 为空则取默认启用项；请求体可带 `style` / `art_style_id`、`ethnicity`、`look_id`、`scene_view`、`prop_view`）。画风解析为请求 `art_style_id`/`style` → 资产 `definition.art_style_id` → 项目 `settings.art_style_id`；命中目录后把 `promptPrefix` 写入生图提示词，并写回资产 `art_style_id`。角色肖像还会把画风 JPEG 预览作为 `jobs.references` 第 1 张；预览加载失败则 **422**。新建资产与内容库 sync 只给空的 `art_style_id` 写入导入/项目画风，不覆盖已保存画风。旧 `visual_style` 粗粒度代码不再作为生图前缀。角色造型对齐 sourceXd 身份图：必须已有肖像并作为第 1 张参考图（身份锚点），options 为 16:9 / 1K，提示词为四面板 Identity Lock；无肖像或无服装外观描述时 **422**。造型只更新该 look 的 `job_id` 和 media 行，不覆盖肖像 `image_job_id`。请求内不提交、不等待 GRS；worker 在 `BackgroundTasks` 中 `enqueue_generation`。前端用 `GET /api/jobs/{job_id}` 查终态，再 GET 资产列表由 `_hydrate_asset` 按 media 槽位写回：`portrait`/`master` → `image_url`，`look` → 对应造型 `image_url`，分视角写入 `back_image_url` 等字段。资产生图回填按 `xiaji_asset_media` 槽位进行。`GET /api/xiaji/jobs?project_id=` 列出该项目全部任务：资产生图（肖像/造型/分视角）、镜头草图/精绘/视频，以及大模型调用（内容导入分析、生成脚本、声线定义）。生图任务含状态、提示词、参考图、options 与回调 URL；LLM 任务含系统/用户提示词、完整 `messages`、模型与采样参数、业务入参和模型输出。删除项目时同时删除 `xiaji_llm_jobs`。
 
 ## 导演台工程
 
