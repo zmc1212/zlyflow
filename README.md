@@ -189,6 +189,164 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend build`。
 - 回滚方式：恢复上述代码。
 
+## 2026-09-02 导台2 头像与造型并发生图
+
+- 用户可见行为：资产库同一角色可同时生成肖像和造型图；完成后两张图各自回填，不再互相覆盖。场景分视角、道具分视角同样按槽位回填。
+- 受影响文件：导台2 资产库前后端与三份主文档。
+- 兼容性：不改 ComfyUI、表结构和导演台。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 生成本 Beat 视频提示词
+
+- 用户可见行为：镜头视频区可「生成本 Beat 提示词」。页面显示中文，并列出 `<Picture n>` 各图职责。点「生成视频」把对应英文稿传给本机 LightX2V。全部任务可看到这次大模型调用。
+- 受影响文件：导台2 剧集工坊前后端与三份主文档。
+- 兼容性：不改 ComfyUI。重启后端会补 `video_prompt_zh` 列。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 失败视频可重提交
+
+- 用户可见行为：视频任务失败后镜头不再一直「生成中」，显示失败原因，可点「重新生成视频」。生成本 Beat 提示词改为独立接口，避免 Method Not Allowed。
+- 受影响文件：导台2 剧集工坊前后端与三份主文档。
+- 兼容性：不改 ComfyUI。需重启后端。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_failed_video_job_clears_generating_status backend.tests.test_xiaji.XiajiEpisodeTests.test_video_prompt_accepts_post_not_get`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 提示词使用所选时长
+
+- 用户可见行为：镜头选 10 秒再「生成本 Beat 提示词」，全部任务里的时长入参是 10，不再固定 5 秒。
+- 受影响文件：导台2 剧集工坊前后端与三份主文档。
+- 兼容性：不改 ComfyUI。需重启后端。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_video_prompt_uses_selected_duration`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 提示词写清每张参考图
+
+- 用户可见行为：生成本 Beat 提示词会写明 `<Picture n>` 是哪张精绘、谁的头像、哪套造型、哪个场景，并按本镜动作写较完整的运镜解说。生成视频仍用这篇英文稿。
+- 受影响文件：导台2 剧集工坊前后端与三份主文档。
+- 兼容性：不改 ComfyUI。需重启后端，再点一次「重新生成本 Beat 提示词」。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests.test_video_motion_messages_name_each_picture_material`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 镜头页显示最新提示词
+
+- 用户可见行为：全部任务里已经成功的「生成本 Beat 提示词」会写回镜头中文/英文稿。刷新镜头 1 应看到齐静春、陈平安等专名，而不是「锁定英雄脸部」。
+- 受影响文件：导台2 剧集工坊前后端与三份主文档。
+- 兼容性：不改 ComfyUI。需重启后端并刷新页面。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_hydrate_applies_latest_video_prompt_job`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 精绘失败不再卡住
+
+- 用户可见行为：精绘或视频任务失败后，镜头页显示「失败」和错误原因，不再一直「精绘中」。可直接重新生成。
+- 受影响文件：导台2 剧集工坊前后端与三份主文档。
+- 兼容性：不改 ComfyUI。重启后端会给 `xiaji_beats` 补状态列。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_failed_render_job_clears_generating_status`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 精绘按头像再造型附图
+
+- 用户可见行为：镜头「精绘渲染」为每个出场角色先传入头像、再传入造型图，不再把造型图当成脸。已有角色若头像字段曾被造型任务覆盖，打开资产或重新精绘时会改回真正头像。
+- 受影响文件：导台2 剧集工坊与资产回填、三份主文档。
+- 兼容性：不改 ComfyUI。重新精绘即可按正确参考图入队。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_hydrate_rewrites_portrait_when_image_job_id_is_look backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_render_character_refs_are_face_then_costume`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 大模型任务进入全部任务
+
+- 用户可见行为：内容导入、生成脚本、用大模型生成声线定义都会在项目「全部任务」留下记录。点开可看到系统提示词、用户提示词、完整 messages、模型参数和模型输出。
+- 受影响文件：`sql/008_xiaji_llm_jobs.sql`、导台2 任务前后端与三份主文档。
+- 兼容性：不改 ComfyUI 与导演台。已有 MySQL 需补建 `xiaji_llm_jobs`（启动时也会 `CREATE TABLE IF NOT EXISTS`）。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiLlmJobTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码；可选删除 `xiaji_llm_jobs`。
+
+## 2026-09-03 导台2 整集自动生成任务
+
+- 用户可见行为：镜头页「生成本集草图」改为「添加自动生成任务」。提交时锁定当前视频工作流与时长等参数，从第 1 镜起依次生成草图、精绘、提示词和视频；上一镜成片后才开始下一镜。进度显示在按钮旁，全部任务里有一条整集编排记录。
+- 受影响文件：导台2 剧集工坊前后端、`sql/010_xiaji_episode_runs.sql` 与三份主文档。
+- 兼容性：不改 ComfyUI。旧「批量草图」API 仍可用。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiEpisodeTests.test_auto_run_conflict_and_sketch_gate backend.tests.test_xiaji.XiajiEpisodeTests.test_auto_run_locks_video_params_and_skips_ready_sketch`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码；可选删除 `xiaji_episode_runs`。
+
+## 2026-09-03 导台2 全部任务
+
+- 用户可见行为：项目 Tab「制作助手」后增加「全部任务」。生成中页面底部出现「生成任务」条，点开可看每个任务是否完成、槽位、提示词和回调图。
+- 受影响文件：导台2 资产库/任务列表前后端与三份主文档。
+- 兼容性：不改 ComfyUI 与导演台。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 场景背面/360 传入正面参考图
+
+- 用户可见行为：导台2 生成场景背面时会把已有正面源图作为 REFERENCE 1 传给生图接口；生成 360 时按顺序传入正面和已有背面。没有正面图时，背面生成会提示先上传或生成正面源图。
+- 受影响文件：`xiaji_asset_api.py`、`xiaji_asset_prompts.py`、测试与三份主文档。
+- 兼容性：不改 ComfyUI、表结构和导演台。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 场景背面失败后可重新生成
+
+- 用户可见行为：背面/360 生成失败后按钮不再一直转圈，会显示失败原因，可再次点击生成。本次会把正面图作为参考图传入。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 任务详情显示传入图和全部参数
+
+- 用户可见行为：全部任务里点开一条记录，可看到传入的参考图、提示词、options 和其他全部入参。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_list_project_jobs_returns_slot_records`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-04 导台2 重新导入会清空项目内容
+
+- 用户可见行为：项目里已有文稿、资产或剧集时，再点「开始导入」会先提示将清空现有内容。确认后旧内容库、资产库和剧集会删掉，再用这次导入重新分析。取消则保持原样。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiProjectIsolationTests`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-04 导台2 生成脚本改为逐行标注
+
+- 用户可见行为：「生成脚本」按原文一行一个 Beat，不再改写成 8–40 条。场次头直接成场景镜头；对白行保留原台词。某一行模型超时不会让整集失败。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiLiteralScriptTests backend.tests.test_xiaji.XiajiLlmJobTests`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-04 导台2 画风下拉预览与头像风格图
+
+- 用户可见行为：生成角色头像会把当前画风预览图作为参考图传入，并按该图对齐颜色。
+
+## 2026-09-04 导台2 家页画风入口
+
+- 用户可见行为：导台2 家页「画风」进入 `/director2/art-styles`，显示 34 条目录，不会瞬间回到项目列表。
+
+## 2026-09-04 导台2 用画风目录替换视觉风格
+
+- 用户可见行为：导台2 家页「新建项目」左侧可进画风页，点选后作为新项目默认。项目内容库用导演台画风替换原「视觉风格」六选项。资产库生成默认跟内容库，生成前可改；改完点重新生成不会弹回旧值。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-04 导台2 资产视觉风格跟随内容库
+
+- 用户可见行为：内容库选「动漫」后，资产库角色下拉会带上该风格（原先为空的角色）。新建角色同样继承项目画风。已单独改过画风的角色不会被覆盖。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiAssetStoreTests.test_sync_fills_empty_visual_style_without_overwriting backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_generate_image_uses_project_visual_style_when_asset_empty backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_create_asset_inherits_project_visual_style`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-04 导台2 造型图对齐 sourceXd 身份锁定
+
+- 用户可见行为：生成造型图会把已有肖像作为身份锚点传入，按 16:9 四面板出图。没有肖像或没填外观描述时不能生成，需先生成/上传头像并填写服装关键词。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_look_generate_keeps_portrait_job_and_media_slots backend.tests.test_xiaji.XiajiGenerateImageRouteTests.test_look_generate_requires_portrait`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 导台2 道具主视图/转面/特写对齐 sourceXd
+
+- 用户可见行为：道具「转面图」改为 1x3 三视图（正面/侧面/背面）；主视图、转面、特写均按 16:9 入队。已有主视图时，转面和特写会把主视图作为参考图传入。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-03 道具附图与场景360须先有主图
+
+- 用户可见行为：没有主视图时不能点「重生转面」「生成特写」；没有正面源图时不能点背面/360。请先生成或上传主图。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiGenerateImageRouteTests`。
+- 回滚方式：恢复上述代码。
+
 ## 2026-09-02 管理员查看全部任务不再全表拉取
 
 - 用户可见行为：管理端任务栏「全部用户」对应的 `GET /api/jobs?user_id=all` 在远程 MySQL 上应回到秒级，而不再长时间转圈。列表条数和字段不变。
@@ -1258,3 +1416,11 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 ## 2026-09-01 Seedance 剧本全流程润色
 
 剧本扩写按 scene ledger 写出每场开场/节拍/收束；分镜首次拆镜就会草拟文案衔接，再经时长与衔接两轮润色。方法来自本地 Seedance 2.5 skill，已适配 MiniMax H3 独立镜头协议，不会改成 Seedance API 格式。
+
+## 2026-09-03 导台2 相邻镜头尾帧衔接
+
+从第二条可出片 Beat 起，必须先生成上一镜视频。镜头页默认截取上一镜最后一帧作为本镜起点（可拖动上一镜进度条后手动截取）。生成提示词和视频时，0–1.5 秒从该截图过渡到本镜精绘，之后按本镜动作继续。没有上一镜成片时不能生成本镜视频。
+
+## 2026-09-03 导台2 整集自动生成
+
+镜头页可添加整集自动生成任务：提交时锁定视频参数，从 Beat 1 起依次完成草图、精绘、提示词和视频。上一镜成片后才进入下一镜。关闭页面不会打断后端编排。

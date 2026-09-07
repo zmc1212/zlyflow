@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
+from urllib.error import URLError
 
 from fastapi import BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
 
-from .director_jobs import create_queued_job, job_asset_image_url
+from .config import settings
+from .director_catalog import ArtStyleCatalogError, ensure_art_style_preview
+from .director_jobs import create_queued_job, job_asset_image_url, materialize_job_output_file
 from .llm_client import LlmError
 from .models import JobStatus
 from .request_log import write_request_log
@@ -21,18 +25,37 @@ from .xiaji_asset_prompts import (
     character_look_prompt,
     character_portrait_prompt,
     image_options_for_kind,
+    image_options_for_look,
     image_options_for_prop_view,
     image_options_for_scene_view,
+    look_costume_text,
     prop_view_prompt,
     scene_view_prompt,
 )
+from .xiaji_analyze import build_voice_define_messages
+from .xiaji_art_style import definition_art_style_id, first_art_style_id, settings_art_style_id
 from .xiaji_asset_store import ASSET_KINDS, XiajiAssetStore
+from .xiaji_episode_run_store import episode_runs_store
+from .xiaji_llm_jobs import finish_xiaji_llm_job, llm_jobs_store, start_xiaji_llm_job
 from .xiaji_project_api import require_xiaji_project
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".webm", ".ogg", ".aac"}
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_AUDIO_BYTES = 20 * 1024 * 1024
+PRIMARY_MEDIA_KINDS = {"portrait", "master"}
+VIEW_URL_FIELDS = {
+    "reverse": "back_image_url",
+    "panorama": "panorama_image_url",
+    "turnaround": "turnaround_image_url",
+    "detail": "detail_image_url",
+}
+VIEW_JOBS_KEY = {
+    "reverse": "scene_jobs",
+    "panorama": "scene_jobs",
+    "turnaround": "prop_jobs",
+    "detail": "prop_jobs",
+}
 
 
 class XiajiAssetWrite(BaseModel):
@@ -54,6 +77,7 @@ class XiajiAssetSyncRequest(BaseModel):
 class XiajiAssetGenerateRequest(BaseModel):
     look_id: str | None = None
     style: str | None = None
+    art_style_id: str | None = None
     ethnicity: str | None = None
     model: str | None = None
     scene_view: str | None = None
@@ -62,6 +86,33 @@ class XiajiAssetGenerateRequest(BaseModel):
 
 def _assets(app: Any) -> XiajiAssetStore:
     return app.state.xiaji_asset_store
+
+
+def _project_art_style_id(app: Any, owner_user_id: str, project_id: str) -> str:
+    project_id = (project_id or "").strip()
+    store = getattr(app.state, "xiaji_project_store", None)
+    if not project_id or store is None:
+        return ""
+    try:
+        project = store.get_project(project_id, owner_user_id)
+    except (KeyError, TypeError, AttributeError):
+        return ""
+    settings = project.get("settings") if isinstance(project.get("settings"), dict) else {}
+    return settings_art_style_id(settings)
+
+
+def _resolved_art_style_id(app: Any, asset: dict[str, Any], requested: str = "") -> str:
+    style = first_art_style_id(requested)
+    if style:
+        return style
+    stored = definition_art_style_id(asset.get("definition"))
+    if stored:
+        return stored
+    return _project_art_style_id(
+        app,
+        str(asset.get("owner_user_id") or ""),
+        str(asset.get("project_id") or ""),
+    )
 
 
 def _resolve_image_workflow(app: Any, requested: str | None) -> str:
@@ -92,6 +143,215 @@ def _resolve_image_workflow(app: Any, requested: str | None) -> str:
     return workflow_id
 
 
+def _download_image_url(url: str, dest: Path) -> Path | None:
+    if dest.is_file() and dest.stat().st_size > 0:
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with urllib.request.urlopen(str(url), timeout=30) as response:
+            dest.write_bytes(response.read())
+    except (OSError, URLError, TimeoutError, ValueError):
+        dest.unlink(missing_ok=True)
+        return None
+    if dest.is_file() and dest.stat().st_size > 0:
+        return dest
+    dest.unlink(missing_ok=True)
+    return None
+
+
+def _latest_media(asset: dict[str, Any], media_kind: str, slot: str) -> dict[str, Any]:
+    for item in asset.get("media") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("media_kind") or "") == media_kind and str(item.get("slot") or "") == slot:
+            return item
+    return {}
+
+
+def _materialize_image_ref(
+    app: Any,
+    *,
+    job_id: str,
+    url: str,
+    object_key: str,
+    stem: str,
+) -> str | None:
+    jobs = getattr(app.state, "store", None)
+    job_key = str(job_id or "").strip()
+    if job_key and jobs is not None and hasattr(jobs, "get"):
+        try:
+            job = jobs.get(job_key)
+        except Exception:
+            job = None
+        if job:
+            path = materialize_job_output_file(
+                job,
+                resource_storage=getattr(app.state, "resource_storage", None),
+                kind="image",
+            )
+            if path is not None:
+                return str(path)
+    object_key = str(object_key or "").strip()
+    storage = getattr(app.state, "resource_storage", None)
+    signed = ""
+    if object_key and storage is not None:
+        getter = getattr(storage, "download_url", None)
+        if callable(getter):
+            signed = str(getter(object_key) or "").strip()
+    candidate = signed or str(url or "").strip()
+    if candidate.startswith(("http://", "https://")):
+        dest = settings.staging_dir / "xiaji-refs" / f"{stem}.png"
+        path = _download_image_url(candidate, dest)
+        return str(path) if path is not None else None
+    local = Path(candidate) if candidate else None
+    if local is not None and local.is_file():
+        return str(local)
+    return None
+
+
+def _look_job_ids(asset: dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for item in asset.get("media") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("media_kind") or "") != "look":
+            continue
+        job_id = str(item.get("job_id") or "").strip()
+        if job_id:
+            ids.add(job_id)
+    for look in (asset.get("definition") or {}).get("looks") or []:
+        if not isinstance(look, dict):
+            continue
+        job_id = str(look.get("job_id") or "").strip()
+        if job_id:
+            ids.add(job_id)
+    return ids
+
+
+def _character_slot_sources(asset: dict[str, Any], slot: str, *, look_id: str = "") -> tuple[str, str, str]:
+    """Portrait and look refs from media slots; never treat a look job as the face."""
+    if slot == "look":
+        media = _latest_media(asset, "look", look_id) if look_id else {}
+        look = next(
+            (
+                item
+                for item in ((asset.get("definition") or {}).get("looks") or [])
+                if isinstance(item, dict) and str(item.get("id") or "") == look_id
+            ),
+            {},
+        )
+        return (
+            str(media.get("job_id") or look.get("job_id") or ""),
+            str(media.get("url") or look.get("image_url") or ""),
+            str(media.get("object_key") or ""),
+        )
+    media = _latest_media(asset, "portrait", "portrait")
+    look_jobs = _look_job_ids(asset)
+    fallback_job = str(asset.get("image_job_id") or "").strip()
+    if fallback_job in look_jobs:
+        fallback_job = ""
+    fallback_url = str(asset.get("image_url") or "").strip()
+    look_urls = {
+        str(item.get("url") or "").strip()
+        for item in (asset.get("media") or [])
+        if isinstance(item, dict) and str(item.get("media_kind") or "") == "look" and item.get("url")
+    }
+    for look in (asset.get("definition") or {}).get("looks") or []:
+        if isinstance(look, dict) and look.get("image_url"):
+            look_urls.add(str(look.get("image_url") or "").strip())
+    if fallback_url in look_urls:
+        fallback_url = ""
+    return (
+        str(media.get("job_id") or fallback_job or ""),
+        str(media.get("url") or fallback_url or ""),
+        str(media.get("object_key") or asset.get("image_object_key") or ""),
+    )
+
+
+def _scene_slot_sources(asset: dict[str, Any], slot: str) -> tuple[str, str, str]:
+    definition = asset.get("definition") if isinstance(asset.get("definition"), dict) else {}
+    jobs_map = definition.get("scene_jobs") if isinstance(definition.get("scene_jobs"), dict) else {}
+    if slot == "master":
+        media = _latest_media(asset, "master", "master")
+        return (
+            str(asset.get("image_job_id") or jobs_map.get("master") or media.get("job_id") or ""),
+            str(asset.get("image_url") or media.get("url") or ""),
+            str(asset.get("image_object_key") or media.get("object_key") or ""),
+        )
+    media = _latest_media(asset, slot, slot)
+    url_field = VIEW_URL_FIELDS.get(slot, "")
+    return (
+        str(jobs_map.get(slot) or media.get("job_id") or ""),
+        str(definition.get(url_field) or media.get("url") or ""),
+        str(media.get("object_key") or ""),
+    )
+
+
+def _scene_view_reference_paths(app: Any, asset: dict[str, Any], view: str) -> tuple[list[str], bool, bool]:
+    """Match sourceXd: reverse uses master only; 360 uses master then reverse."""
+    master_job, master_url, master_key = _scene_slot_sources(asset, "master")
+    master_path = _materialize_image_ref(
+        app,
+        job_id=master_job,
+        url=master_url,
+        object_key=master_key,
+        stem=f"{asset['id']}-front",
+    )
+    paths: list[str] = []
+    has_master = bool(master_path)
+    if master_path:
+        paths.append(master_path)
+    has_reverse = False
+    if view == "panorama":
+        reverse_job, reverse_url, reverse_key = _scene_slot_sources(asset, "reverse")
+        reverse_path = _materialize_image_ref(
+            app,
+            job_id=reverse_job,
+            url=reverse_url,
+            object_key=reverse_key,
+            stem=f"{asset['id']}-reverse",
+        )
+        if reverse_path:
+            paths.append(reverse_path)
+            has_reverse = True
+    return paths, has_master, has_reverse
+
+
+def _art_style_preview_reference_path(style_id: str) -> str | None:
+    needle = (style_id or "").strip()
+    if not needle:
+        return None
+    try:
+        path = ensure_art_style_preview(needle)
+    except (KeyError, ArtStyleCatalogError, OSError):
+        return None
+    if path.is_file() and path.stat().st_size > 0:
+        return str(path)
+    return None
+
+
+def _character_portrait_reference_path(app: Any, asset: dict[str, Any]) -> str | None:
+    job_id, url, object_key = _character_slot_sources(asset, "portrait")
+    return _materialize_image_ref(
+        app,
+        job_id=job_id,
+        url=url,
+        object_key=object_key,
+        stem=f"{asset['id']}-portrait",
+    )
+
+
+def _prop_master_reference_path(app: Any, asset: dict[str, Any]) -> str | None:
+    media = _latest_media(asset, "reference", "reference") or _latest_media(asset, "master", "master")
+    return _materialize_image_ref(
+        app,
+        job_id=str(asset.get("image_job_id") or media.get("job_id") or ""),
+        url=str(asset.get("image_url") or media.get("url") or ""),
+        object_key=str(asset.get("image_object_key") or media.get("object_key") or ""),
+        stem=f"{asset['id']}-prop-master",
+    )
+
+
 def _submit_asset_image_job(
     app: Any,
     owner_user_id: str,
@@ -103,22 +363,45 @@ def _submit_asset_image_job(
     if asset["kind"] == "voice":
         raise HTTPException(status_code=422, detail="声线请使用试听生成或上传参考音频")
     workflow_id = _resolve_image_workflow(app, payload.model)
-    style = (payload.style or "").strip()
+    style = _resolved_art_style_id(app, asset, payload.art_style_id or payload.style or "")
+    if style:
+        current_def = dict(asset.get("definition") or {})
+        if definition_art_style_id(current_def) != style:
+            asset = store.update_asset(asset_id, owner_user_id, definition={"art_style_id": style})
     ethnicity = (payload.ethnicity or "").strip()
     look_id = (payload.look_id or "").strip()
     look = None
+    references: list[str] = []
     if look_id:
         looks = asset.get("definition", {}).get("looks") or []
         look = next((item for item in looks if isinstance(item, dict) and item.get("id") == look_id), None)
         if look is None:
             raise HTTPException(status_code=422, detail="找不到该造型")
+        if not look_costume_text(look):
+            raise HTTPException(status_code=422, detail="请先填写外观描述，造型图需要服装关键词")
+        portrait_path = _character_portrait_reference_path(app, asset)
+        if not portrait_path:
+            raise HTTPException(
+                status_code=422,
+                detail="请先生成或上传肖像，造型图需要把它作为身份锚点传入",
+            )
+        references = [portrait_path]
         prompt = character_look_prompt(asset, look, style=style, ethnicity=ethnicity)
         title = f"导台2 造型 · {asset['name']} · {look.get('name') or '造型'}"
         media_kind = "look"
         slot = look_id
-        options = {"aspect_ratio": "4:3", "resolution": "1K", "count": 1}
+        options = image_options_for_look()
     elif asset["kind"] == "character":
-        prompt = character_portrait_prompt(asset, style=style, ethnicity=ethnicity)
+        style_path = _art_style_preview_reference_path(style)
+        if style and not style_path:
+            raise HTTPException(status_code=422, detail="无法加载画风预览图，生成头像需要把风格图作为参考图传入")
+        references = [style_path] if style_path else []
+        prompt = character_portrait_prompt(
+            asset,
+            style=style,
+            ethnicity=ethnicity,
+            has_style_reference=bool(style_path),
+        )
         title = f"导台2 肖像 · {asset['name']}"
         media_kind = "portrait"
         slot = "portrait"
@@ -127,8 +410,23 @@ def _submit_asset_image_job(
         view = (payload.scene_view or "master").strip() or "master"
         if view not in {"master", "reverse", "panorama"}:
             raise HTTPException(status_code=422, detail="场景视角无效，请使用 master、reverse 或 panorama")
-        has_master = bool(str(asset.get("image_url") or "").strip() or asset.get("image_object_key"))
-        prompt = scene_view_prompt(asset, view, style=style, has_master_reference=has_master and view != "master")
+        has_master = False
+        has_reverse = False
+        if view in {"reverse", "panorama"}:
+            references, has_master, has_reverse = _scene_view_reference_paths(app, asset, view)
+            if not has_master:
+                slot_name = "背面图" if view == "reverse" else "360全景"
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"请先生成或上传正面源图，{slot_name}需要把它作为 REFERENCE 1 传入",
+                )
+        prompt = scene_view_prompt(
+            asset,
+            view,
+            style=style,
+            has_master_reference=has_master and view != "master",
+            has_reverse_reference=has_reverse and view == "panorama",
+        )
         view_titles = {"master": "正面源图", "reverse": "背面", "panorama": "360全景"}
         title = f"导台2 场景{view_titles[view]} · {asset['name']}"
         media_kind = view
@@ -138,9 +436,19 @@ def _submit_asset_image_job(
         view = (payload.prop_view or "master").strip() or "master"
         if view not in {"master", "turnaround", "detail"}:
             raise HTTPException(status_code=422, detail="道具视角无效，请使用 master、turnaround 或 detail")
-        has_master = bool(str(asset.get("image_url") or "").strip() or asset.get("image_object_key"))
+        has_master = False
+        if view in {"turnaround", "detail"}:
+            master_path = _prop_master_reference_path(app, asset)
+            if not master_path:
+                slot_name = "转面三视图" if view == "turnaround" else "细节特写"
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"请先生成或上传主视图，{slot_name}需要把它作为 REFERENCE 1 传入",
+                )
+            references = [master_path]
+            has_master = True
         prompt = prop_view_prompt(asset, view, style=style, has_master_reference=has_master and view != "master")
-        view_titles = {"master": "主视图", "turnaround": "转面四视图", "detail": "细节特写"}
+        view_titles = {"master": "主视图", "turnaround": "转面三视图", "detail": "细节特写"}
         title = f"导台2 道具{view_titles[view]} · {asset['name']}"
         media_kind = view
         slot = view
@@ -153,6 +461,7 @@ def _submit_asset_image_job(
             prompt=prompt,
             options=options,
             title=title,
+            references=references,
         )
     except ValueError as error:
         if slot == "panorama":
@@ -164,6 +473,7 @@ def _submit_asset_image_job(
                     prompt=prompt,
                     options=image_options_for_kind("scene"),
                     title=title,
+                    references=references,
                 )
             except ValueError as inner:
                 raise HTTPException(status_code=422, detail=str(inner)) from inner
@@ -179,7 +489,8 @@ def _submit_asset_image_job(
         model=workflow_id,
     )
     if look is not None:
-        looks = list(asset.get("definition", {}).get("looks") or [])
+        current = store.get_asset(asset_id, owner_user_id)
+        looks = list(current.get("definition", {}).get("looks") or [])
         for item in looks:
             if isinstance(item, dict) and item.get("id") == look_id:
                 item["job_id"] = job["id"]
@@ -187,8 +498,6 @@ def _submit_asset_image_job(
             asset_id,
             owner_user_id,
             definition={"looks": looks},
-            status="generating",
-            image_job_id=job["id"],
             clear_error=True,
         )
     elif (asset["kind"] == "scene" and slot in {"reverse", "panorama"}) or (
@@ -232,7 +541,11 @@ def _fetch_jobs_batch(jobs_store: Any, job_ids: set[str]) -> dict[str, Any]:
 
     def _fetch_one(jid: str):
         try:
-            return jid, jobs_store.get(jid)
+            getter = jobs_store.get
+            try:
+                return jid, getter(jid, include_references=True)
+            except TypeError:
+                return jid, getter(jid)
         except Exception:
             return jid, None
 
@@ -252,7 +565,9 @@ def _hydrate_asset(
 ) -> dict[str, Any]:
     store: XiajiAssetStore = app.state.xiaji_asset_store
     jobs = app.state.store
-    changed = False
+    success_status = {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value}
+    failed_status = {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}
+    running_status = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
 
     def _get_job(jid: str) -> dict[str, Any] | None:
         if jobs_cache is not None:
@@ -262,105 +577,283 @@ def _hydrate_asset(
         except KeyError:
             return None
 
-    job_id = str(asset.get("image_job_id") or "").strip()
-    status_str = str(asset.get("status") or "")
-    has_image = bool(asset.get("image_url") or asset.get("image_object_key"))
-    need_job_check = bool(job_id and (status_str == "generating" or not has_image or status_str not in {"ready", "failed"}))
+    def _reload() -> dict[str, Any]:
+        return store.get_asset(asset["id"], owner_user_id)
 
-    if need_job_check:
+    def _apply_primary(url: str | None, status: str, job_id: str, error: str | None = None) -> None:
+        nonlocal asset
+        current = _reload()
+        current_job = str(current.get("image_job_id") or "").strip()
+        if current_job and current_job != job_id:
+            return
+        if status in success_status and url:
+            asset = store.update_asset(
+                current["id"],
+                owner_user_id,
+                status="ready",
+                image_url=url,
+                clear_error=True,
+            )
+        elif status in failed_status and current_job == job_id:
+            asset = store.update_asset(
+                current["id"],
+                owner_user_id,
+                status="failed",
+                error=error or "资产生成失败",
+            )
+        elif status in running_status and current.get("status") != "generating" and current_job == job_id:
+            asset = store.update_asset(current["id"], owner_user_id, status="generating")
+
+    def _apply_look(look_id: str, url: str | None, status: str, job_id: str) -> None:
+        nonlocal asset
+        if not look_id:
+            return
+        current = _reload()
+        looks = list((current.get("definition") or {}).get("looks") or [])
+        changed = False
+        for look in looks:
+            if not isinstance(look, dict) or str(look.get("id") or "") != look_id:
+                continue
+            if status in success_status and url:
+                if look.get("image_url") != url or look.get("job_id"):
+                    look["image_url"] = url
+                    look["job_id"] = ""
+                    changed = True
+            elif status in failed_status and str(look.get("job_id") or "") == job_id:
+                look["job_id"] = ""
+                changed = True
+        if changed:
+            asset = store.update_asset(current["id"], owner_user_id, definition={"looks": looks})
+
+    def _apply_view(view: str, url: str | None, status: str) -> None:
+        nonlocal asset
+        field = VIEW_URL_FIELDS.get(view)
+        jobs_key = VIEW_JOBS_KEY.get(view)
+        if not field or not jobs_key:
+            return
+        current = _reload()
+        definition = dict(current.get("definition") or {})
+        extra_jobs = dict(definition.get(jobs_key) or {}) if isinstance(definition.get(jobs_key), dict) else {}
+        extra_changed = False
+        if status in success_status and url:
+            if definition.get(field) != url:
+                definition[field] = url
+                extra_changed = True
+            if view in extra_jobs:
+                extra_jobs.pop(view, None)
+                extra_changed = True
+        elif status in failed_status and view in extra_jobs:
+            extra_jobs.pop(view, None)
+            extra_changed = True
+        if extra_changed:
+            definition[jobs_key] = extra_jobs
+            asset = store.update_asset(current["id"], owner_user_id, definition=definition)
+
+    applied_jobs: set[str] = set()
+    seen_slots: set[tuple[str, str]] = set()
+    for item in list(asset.get("media") or []):
+        if not isinstance(item, dict):
+            continue
+        job_id = str(item.get("job_id") or "").strip()
+        kind = str(item.get("media_kind") or "").strip()
+        slot = str(item.get("slot") or kind).strip()
+        slot_key = (kind, slot)
+        if slot_key in seen_slots:
+            continue
+        seen_slots.add(slot_key)
+        existing_url = str(item.get("url") or "").strip()
+        if existing_url:
+            if kind == "look" and slot:
+                _apply_look(slot, existing_url, JobStatus.SUCCEEDED.value, job_id)
+            elif kind in VIEW_URL_FIELDS:
+                _apply_view(kind, existing_url, JobStatus.SUCCEEDED.value)
+            elif kind in PRIMARY_MEDIA_KINDS and not (asset.get("image_url") or asset.get("image_object_key")):
+                _apply_primary(existing_url, JobStatus.SUCCEEDED.value, job_id)
+            if job_id:
+                applied_jobs.add(job_id)
+            continue
+        if not job_id:
+            continue
         job = _get_job(job_id)
-        if job:
-            status = str(job.get("status") or "")
-            url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
-            if status in {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value} and url:
-                asset = store.update_asset(
-                    asset["id"],
-                    owner_user_id,
-                    status="ready",
-                    image_url=url,
-                    clear_error=True,
-                )
-                changed = True
-            elif status in {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}:
-                asset = store.update_asset(
-                    asset["id"],
-                    owner_user_id,
-                    status="failed",
-                    error=str(job.get("error") or "资产生成失败"),
-                )
-                changed = True
-            elif status in {JobStatus.QUEUED.value, JobStatus.RUNNING.value} and asset.get("status") != "generating":
-                asset = store.update_asset(asset["id"], owner_user_id, status="generating")
-                changed = True
+        if not job:
+            continue
+        status = str(job.get("status") or "")
+        url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
+        if status in success_status and url:
+            store.complete_media_job(job_id, url=url)
+            applied_jobs.add(job_id)
+            if kind == "look":
+                _apply_look(slot, url, status, job_id)
+            elif kind in VIEW_URL_FIELDS:
+                _apply_view(kind, url, status)
+            elif kind in PRIMARY_MEDIA_KINDS:
+                _apply_primary(url, status, job_id)
+        elif status in failed_status:
+            applied_jobs.add(job_id)
+            if kind == "look":
+                _apply_look(slot, None, status, job_id)
+            elif kind in VIEW_URL_FIELDS:
+                _apply_view(kind, None, status)
+            elif kind in PRIMARY_MEDIA_KINDS:
+                _apply_primary(None, status, job_id, str(job.get("error") or "资产生成失败"))
+        elif status in running_status and kind in PRIMARY_MEDIA_KINDS:
+            _apply_primary(None, status, job_id)
 
-    definition = dict(asset.get("definition") or {})
-    looks = definition.get("looks") if isinstance(definition.get("looks"), list) else []
-    look_changed = False
-    for look in looks:
+    asset = _reload()
+    job_id = str(asset.get("image_job_id") or "").strip()
+    media_for_primary = next(
+        (
+            item
+            for item in (asset.get("media") or [])
+            if isinstance(item, dict) and str(item.get("job_id") or "") == job_id
+        ),
+        None,
+    )
+    primary_kind = str((media_for_primary or {}).get("media_kind") or "")
+    look_holds_primary = any(
+        isinstance(look, dict) and str(look.get("job_id") or "") == job_id
+        for look in ((asset.get("definition") or {}).get("looks") or [])
+    )
+    if (
+        job_id
+        and job_id not in applied_jobs
+        and primary_kind not in ({"look"} | set(VIEW_URL_FIELDS))
+        and not look_holds_primary
+    ):
+        status_str = str(asset.get("status") or "")
+        has_image = bool(asset.get("image_url") or asset.get("image_object_key"))
+        need_job_check = bool(
+            job_id and (status_str == "generating" or not has_image or status_str not in {"ready", "failed"})
+        )
+        if need_job_check:
+            job = _get_job(job_id)
+            if job:
+                status = str(job.get("status") or "")
+                url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
+                _apply_primary(url, status, job_id, str(job.get("error") or "资产生成失败"))
+                applied_jobs.add(job_id)
+
+    asset = _reload()
+    for look in list((asset.get("definition") or {}).get("looks") or []):
         if not isinstance(look, dict):
             continue
-        if look.get("image_url"):
-            continue
         look_job = str(look.get("job_id") or "").strip()
-        if not look_job:
+        if not look_job or look_job in applied_jobs:
             continue
         job = _get_job(look_job)
         if not job:
             continue
-        url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
         status = str(job.get("status") or "")
-        if url and status in {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value} and look.get("image_url") != url:
-            look["image_url"] = url
-            look_changed = True
-    if look_changed:
-        asset = store.update_asset(asset["id"], owner_user_id, definition={"looks": looks})
-        changed = True
+        url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
+        _apply_look(str(look.get("id") or ""), url, status, look_job)
 
     view_job_specs = (
         ("scene_jobs", {"reverse": "back_image_url", "panorama": "panorama_image_url"}),
         ("prop_jobs", {"turnaround": "turnaround_image_url", "detail": "detail_image_url"}),
     )
     for jobs_key, url_fields in view_job_specs:
-        definition = dict(asset.get("definition") or {})
+        definition = dict(_reload().get("definition") or {})
         extra_jobs = definition.get(jobs_key) if isinstance(definition.get(jobs_key), dict) else {}
-        extra_changed = False
-        next_jobs = dict(extra_jobs)
         for view, view_job_id in list(extra_jobs.items()):
+            job_key = str(view_job_id or "").strip()
+            if not job_key or job_key in applied_jobs:
+                continue
             field = url_fields.get(str(view))
             if field and definition.get(field):
-                next_jobs.pop(view, None)
-                extra_changed = True
-                continue
-            job_key = str(view_job_id or "").strip()
-            if not job_key:
+                _apply_view(str(view), str(definition.get(field)), JobStatus.SUCCEEDED.value)
                 continue
             job = _get_job(job_key)
             if not job:
                 continue
             status = str(job.get("status") or "")
             url = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage)
-            if url and status in {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value}:
-                if field:
-                    definition[field] = url
-                next_jobs.pop(view, None)
-                extra_changed = True
-            elif status in {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}:
-                next_jobs.pop(view, None)
-                extra_changed = True
-        if extra_changed:
-            definition[jobs_key] = next_jobs
-            asset = store.update_asset(asset["id"], owner_user_id, definition=definition)
-            changed = True
-    return asset
+            _apply_view(str(view), url, status)
+
+    asset = _reload()
+    latest_urls: dict[tuple[str, str], str] = {}
+    for item in list(asset.get("media") or []):
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("media_kind") or "").strip()
+        slot = str(item.get("slot") or kind).strip()
+        url = str(item.get("url") or "").strip()
+        if not url or (kind, slot) in latest_urls:
+            continue
+        latest_urls[(kind, slot)] = url
+    portrait_url = latest_urls.get(("portrait", "portrait")) or latest_urls.get(("master", "master"))
+    portrait_media = next(
+        (
+            item
+            for item in (asset.get("media") or [])
+            if isinstance(item, dict)
+            and str(item.get("media_kind") or "") in PRIMARY_MEDIA_KINDS
+            and str(item.get("url") or "") == portrait_url
+        ),
+        None,
+    )
+    portrait_job = str((portrait_media or {}).get("job_id") or "").strip()
+    look_jobs = {
+        str(item.get("job_id") or "").strip()
+        for item in (asset.get("media") or [])
+        if isinstance(item, dict) and str(item.get("media_kind") or "") == "look" and item.get("job_id")
+    }
+    current_job = str(asset.get("image_job_id") or "").strip()
+    if portrait_url and (
+        str(asset.get("image_url") or "") != portrait_url
+        or (portrait_job and current_job != portrait_job)
+        or current_job in look_jobs
+    ):
+        asset = store.update_asset(
+            asset["id"],
+            owner_user_id,
+            image_url=portrait_url,
+            image_job_id=portrait_job if portrait_job else ("" if current_job in look_jobs else None),
+            status="ready",
+            clear_error=True,
+        )
+    looks = list((asset.get("definition") or {}).get("looks") or [])
+    look_changed = False
+    for look in looks:
+        if not isinstance(look, dict):
+            continue
+        look_id = str(look.get("id") or "")
+        look_url = latest_urls.get(("look", look_id))
+        if look_url and look.get("image_url") != look_url:
+            look["image_url"] = look_url
+            look["job_id"] = ""
+            look_changed = True
+    if look_changed:
+        asset = store.update_asset(asset["id"], owner_user_id, definition={"looks": looks})
+    return _reload()
 
 
 def _with_media_urls(asset: dict[str, Any]) -> dict[str, Any]:
     asset_id = asset["id"]
-    if not asset.get("image_url"):
+    latest_urls: dict[tuple[str, str], str] = {}
+    for item in asset.get("media") or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("media_kind") or "").strip()
+        slot = str(item.get("slot") or kind).strip()
+        url = str(item.get("url") or "").strip()
+        if url and (kind, slot) not in latest_urls:
+            latest_urls[(kind, slot)] = url
+    portrait_url = latest_urls.get(("portrait", "portrait")) or latest_urls.get(("master", "master"))
+    if portrait_url:
+        asset["image_url"] = portrait_url
+    elif not asset.get("image_url"):
         if asset.get("image_object_key"):
             asset["image_url"] = f"/api/xiaji/assets/{asset_id}/image"
         elif asset.get("status") == "ready" and asset.get("image_job_id"):
             asset["image_url"] = f"/api/jobs/{asset['image_job_id']}/outputs/0/download"
+    looks = (asset.get("definition") or {}).get("looks")
+    if isinstance(looks, list):
+        for look in looks:
+            if not isinstance(look, dict):
+                continue
+            look_url = latest_urls.get(("look", str(look.get("id") or "")))
+            if look_url:
+                look["image_url"] = look_url
     for item in asset.get("media") or []:
         if item.get("url"):
             continue
@@ -385,8 +878,273 @@ async def _enqueue_queued_job(worker: Any, job: dict[str, Any]) -> None:
     await worker.enqueue(job_id)
 
 
+def _stamp_media_job_status(app: Any, asset: dict[str, Any], jobs_cache: dict[str, Any] | None = None) -> dict[str, Any]:
+    jobs = getattr(app.state, "store", None)
+    success_status = {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value}
+    failed_status = {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}
+    for item in asset.get("media") or []:
+        if not isinstance(item, dict):
+            continue
+        job_id = str(item.get("job_id") or "").strip()
+        if str(item.get("url") or "").strip():
+            item["job_status"] = JobStatus.SUCCEEDED.value
+            item.pop("job_error", None)
+            continue
+        if not job_id:
+            item["job_status"] = ""
+            item.pop("job_error", None)
+            continue
+        job = jobs_cache.get(job_id) if jobs_cache is not None else None
+        if job is None and jobs is not None and hasattr(jobs, "get"):
+            try:
+                job = jobs.get(job_id)
+            except Exception:
+                job = None
+        if not job:
+            item["job_status"] = "unknown"
+            continue
+        status = str(job.get("status") or "")
+        item["job_status"] = status
+        error = str(job.get("error") or "").strip()
+        if error and status in failed_status:
+            item["job_error"] = error
+        elif status in success_status:
+            item.pop("job_error", None)
+    return asset
+
+
 def _public_asset(app: Any, asset: dict[str, Any], owner_user_id: str, jobs_cache: dict[str, Any] | None = None) -> dict[str, Any]:
-    return _with_media_urls(_hydrate_asset(app, asset, owner_user_id, jobs_cache))
+    hydrated = _with_media_urls(_hydrate_asset(app, asset, owner_user_id, jobs_cache))
+    return _stamp_media_job_status(app, hydrated, jobs_cache)
+
+
+SLOT_LABELS = {
+    "portrait": "肖像",
+    "look": "造型",
+    "master": "主图",
+    "reverse": "背面",
+    "panorama": "360全景",
+    "turnaround": "转面",
+    "detail": "特写",
+    "sketch": "草图",
+    "render": "精绘",
+    "video": "视频",
+    "ingest": "内容导入",
+    "script": "生成脚本",
+    "voice": "声线定义",
+    "auto_run": "整集自动生成",
+}
+
+
+def _collect_project_job_refs(app: Any, owner_user_id: str, project_id: str) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _add(job_id: str, *, source: str, target: str, slot: str, bound_url: str = "", created_at: str = "") -> None:
+        key = str(job_id or "").strip()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        refs.append(
+            {
+                "job_id": key,
+                "source": source,
+                "target": target,
+                "slot": slot,
+                "slot_label": SLOT_LABELS.get(slot, slot or "任务"),
+                "bound_url": bound_url,
+                "created_at": created_at,
+            }
+        )
+
+    for asset in _assets(app).list_assets(owner_user_id, project_id):
+        name = str(asset.get("name") or "资产")
+        kind = str(asset.get("kind") or "")
+        created = str(asset.get("updated_at") or "")
+        for item in asset.get("media") or []:
+            if not isinstance(item, dict) or item.get("media_kind") == "voice_sample":
+                continue
+            _add(
+                str(item.get("job_id") or ""),
+                source="asset",
+                target=f"{kind} · {name}",
+                slot=str(item.get("media_kind") or item.get("slot") or ""),
+                bound_url=str(item.get("url") or ""),
+                created_at=str(item.get("created_at") or created),
+            )
+        _add(
+            str(asset.get("image_job_id") or ""),
+            source="asset",
+            target=f"{kind} · {name}",
+            slot="portrait" if kind == "character" else "master",
+            bound_url=str(asset.get("image_url") or ""),
+            created_at=created,
+        )
+        for look in (asset.get("definition") or {}).get("looks") or []:
+            if not isinstance(look, dict):
+                continue
+            _add(
+                str(look.get("job_id") or ""),
+                source="asset",
+                target=f"{kind} · {name} · {look.get('name') or '造型'}",
+                slot="look",
+                bound_url=str(look.get("image_url") or ""),
+                created_at=created,
+            )
+    episode_store = getattr(app.state, "xiaji_episode_store", None)
+    if episode_store is not None:
+        for episode in episode_store.list_episodes(owner_user_id, project_id):
+            ep_title = f"第{episode.get('number')}集 {episode.get('title') or ''}".strip()
+            for beat in episode.get("beats") or []:
+                if not isinstance(beat, dict):
+                    continue
+                heading = str(beat.get("heading") or f"镜头 {beat.get('sequence')}")
+                target = f"{ep_title} · {heading}"
+                for slot, job_key, url_key in (
+                    ("sketch", "sketch_job_id", "sketch_url"),
+                    ("render", "render_job_id", "render_url"),
+                    ("video", "video_job_id", "video_url"),
+                ):
+                    _add(
+                        str(beat.get(job_key) or ""),
+                        source="beat",
+                        target=target,
+                        slot=slot,
+                        bound_url=str(beat.get(url_key) or ""),
+                        created_at=str(episode.get("updated_at") or ""),
+                    )
+    llm_store = llm_jobs_store(app)
+    if llm_store is not None:
+        for item in llm_store.list_project_jobs(owner_user_id, project_id):
+            _add(
+                str(item["job_id"]),
+                source="llm",
+                target=str(item.get("target") or item.get("title") or "大模型"),
+                slot=str(item.get("kind") or "llm"),
+                bound_url="",
+                created_at=str(item.get("created_at") or ""),
+            )
+    run_store = episode_runs_store(app)
+    if run_store is not None:
+        for item in run_store.list_project_runs(owner_user_id, project_id):
+            _add(
+                str(item["id"]),
+                source="auto_run",
+                target=str((item.get("cursor") or {}).get("step") or "整集自动生成"),
+                slot="auto_run",
+                bound_url="",
+                created_at=str(item.get("created_at") or ""),
+            )
+    refs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return refs
+
+
+def _job_reference_count(job: dict[str, Any]) -> int:
+    """Count attached stills from the job row or its rounds."""
+    count = 0
+    refs = job.get("references")
+    if isinstance(refs, list):
+        count = max(count, len(refs))
+    try:
+        count = max(count, int(job.get("reference_count") or 0))
+    except (TypeError, ValueError):
+        pass
+    for rnd in job.get("rounds") or []:
+        if not isinstance(rnd, dict):
+            continue
+        rrefs = rnd.get("references")
+        if isinstance(rrefs, list):
+            count = max(count, len(rrefs))
+        try:
+            count = max(count, int(rnd.get("reference_count") or 0))
+        except (TypeError, ValueError):
+            pass
+    return count
+
+
+def _job_input_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    job_id = str(job.get("id") or "").strip()
+    count = _job_reference_count(job)
+    references = [
+        {
+            "index": index,
+            "url": f"/api/jobs/{job_id}/references/{index}",
+            "label": "REFERENCE 1（正面源图）" if index == 1 else f"参考图 {index}",
+        }
+        for index in range(1, count + 1)
+    ]
+    options = job.get("options") if isinstance(job.get("options"), dict) else {}
+    parameters: list[dict[str, Any]] = [
+        {"name": "mode", "label": "工作流", "value": job.get("mode") or ""},
+        {"name": "title", "label": "任务标题", "value": job.get("title") or ""},
+        {"name": "prompt", "label": "创作提示词", "value": job.get("prompt") or ""},
+    ]
+    if job.get("negative_prompt"):
+        parameters.append({"name": "negative_prompt", "label": "负面提示词", "value": job.get("negative_prompt")})
+    if job.get("image_size"):
+        parameters.append({"name": "image_size", "label": "图片尺寸", "value": job.get("image_size")})
+    if job.get("media_type"):
+        parameters.append({"name": "media_type", "label": "媒体类型", "value": job.get("media_type")})
+    if job.get("stage"):
+        parameters.append({"name": "stage", "label": "阶段", "value": job.get("stage")})
+    parameters.append({"name": "references", "label": "参考图数量", "value": count})
+    for name, value in options.items():
+        parameters.append({"name": f"options.{name}", "label": str(name), "value": value})
+    return {
+        "reference_count": count,
+        "references": references,
+        "options": options,
+        "negative_prompt": job.get("negative_prompt") or "",
+        "image_size": job.get("image_size"),
+        "parameters": parameters,
+    }
+
+
+def _job_list_item(app: Any, ref: dict[str, Any], job: dict[str, Any] | None) -> dict[str, Any]:
+    preview = ""
+    outputs: list[dict[str, Any]] = []
+    snapshot = {
+        "reference_count": 0,
+        "references": [],
+        "options": {},
+        "negative_prompt": "",
+        "image_size": None,
+        "parameters": [],
+    }
+    if job:
+        snapshot = _job_input_snapshot(job)
+        preview = job_asset_image_url(job, kind="image", resource_storage=app.state.resource_storage) or ""
+        if not preview:
+            preview = job_asset_image_url(job, kind="video", resource_storage=app.state.resource_storage) or ""
+        for output in job.get("outputs") or []:
+            if not isinstance(output, dict):
+                continue
+            outputs.append(
+                {
+                    "kind": output.get("kind"),
+                    "cloud_url": output.get("cloud_url"),
+                    "download_url": output.get("download_url") or (
+                        f"/api/jobs/{job['id']}/outputs/0/download" if job.get("id") else None
+                    ),
+                    "path": output.get("path"),
+                }
+            )
+    return {
+        **ref,
+        "id": ref["job_id"],
+        "title": (job or {}).get("title") or ref["target"],
+        "status": (job or {}).get("status") or "unknown",
+        "mode": (job or {}).get("mode"),
+        "prompt": (job or {}).get("prompt") or "",
+        "error": (job or {}).get("error"),
+        "progress": (job or {}).get("progress") or 0,
+        "preview_url": preview or ref.get("bound_url") or "",
+        "outputs": outputs,
+        "job_created_at": (job or {}).get("created_at"),
+        "job_updated_at": (job or {}).get("updated_at"),
+        "missing": job is None,
+        **snapshot,
+    }
 
 
 def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_user: Callable) -> None:
@@ -418,8 +1176,14 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
                 job_ids_to_fetch.add(job_id)
             definition = dict(asset.get("definition") or {})
             for look in definition.get("looks") or []:
-                if isinstance(look, dict) and not look.get("image_url") and look.get("job_id"):
+                if isinstance(look, dict) and look.get("job_id"):
                     job_ids_to_fetch.add(str(look["job_id"]).strip())
+            for item in asset.get("media") or []:
+                if not isinstance(item, dict):
+                    continue
+                media_job = str(item.get("job_id") or "").strip()
+                if media_job and not str(item.get("url") or "").strip():
+                    job_ids_to_fetch.add(media_job)
             for jobs_key, url_fields in view_job_specs:
                 extra_jobs = definition.get(jobs_key) or {}
                 if isinstance(extra_jobs, dict):
@@ -476,7 +1240,13 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
         project_id: str = Query(..., description="导台2 项目 ID"),
         user: dict = Depends(mutating_user),
     ) -> dict:
-        require_xiaji_project(app, project_id, user["id"])
+        project = require_xiaji_project(app, project_id, user["id"])
+        definition = dict(payload.definition or {})
+        if not definition_art_style_id(definition):
+            settings = project.get("settings") if isinstance(project.get("settings"), dict) else {}
+            inherited = settings_art_style_id(settings)
+            if inherited:
+                definition["art_style_id"] = inherited
         try:
             return _public_asset(
                 app,
@@ -485,7 +1255,7 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
                     project_id=project_id,
                     kind=payload.kind,
                     name=payload.name,
-                    definition=payload.definition,
+                    definition=definition,
                     source_document_id=payload.source_document_id,
                 ),
                 user["id"],
@@ -584,7 +1354,7 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
                     found = True
             if not found:
                 raise HTTPException(status_code=422, detail="找不到该造型")
-            store.update_asset(asset_id, user["id"], definition={"looks": looks}, status="ready", image_url=url, clear_error=True)
+            store.update_asset(asset_id, user["id"], definition={"looks": looks}, clear_error=True)
             store.add_media(asset_id, user["id"], media_kind="look", slot=look_id, object_key=stored.key, url=url)
         elif view_slot in {"reverse", "panorama", "turnaround", "detail"}:
             definition = dict(asset.get("definition") or {})
@@ -643,10 +1413,28 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
             "description": definition.get("description") or definition.get("prompt") or "",
             "purpose": "旁白解说" if asset["kind"] == "voice" else "角色对白",
         }
+        job_id = start_xiaji_llm_job(
+            app,
+            owner_user_id=user["id"],
+            project_id=str(asset.get("project_id") or ""),
+            kind="voice",
+            target=f"{asset['kind']} · {asset['name']}",
+            title=f"声线定义 · {asset['name']}",
+            messages=build_voice_define_messages(payload),
+            parameters={
+                "asset_id": asset_id,
+                "asset_kind": asset["kind"],
+                **payload,
+            },
+            temperature=0.4,
+            max_tokens=800,
+        )
         try:
             profile = app.state.llm_provider.define_xiaji_voice(payload)
         except LlmError as error:
+            finish_xiaji_llm_job(app, job_id, status="failed", error=str(error))
             raise HTTPException(status_code=422, detail=str(error)) from error
+        finish_xiaji_llm_job(app, job_id, status="succeeded", response=profile)
         store.update_asset(asset_id, user["id"], definition={"voice_profile": profile}, status=asset["status"] or "draft")
         return _public_asset(app, store.get_asset(asset_id, user["id"]), user["id"])
 
@@ -753,5 +1541,38 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
             from fastapi.responses import RedirectResponse
             return RedirectResponse(item["url"], status_code=307)
         raise HTTPException(status_code=404, detail="媒体不可用")
+
+    @router.get("/jobs", summary="列出当前导台2 项目的生成任务")
+    def list_project_jobs(
+        project_id: str = Query(..., description="导台2 项目 ID"),
+        user: dict = Depends(current_user),
+    ) -> list[dict]:
+        require_xiaji_project(app, project_id, user["id"])
+        refs = _collect_project_job_refs(app, user["id"], project_id)
+        job_ids = {str(item["job_id"]) for item in refs if item.get("source") not in {"llm", "auto_run"}}
+        cache = _fetch_jobs_batch(app.state.store, job_ids)
+        llm_cache = {}
+        llm_store = llm_jobs_store(app)
+        if llm_store is not None:
+            for item in llm_store.list_project_jobs(user["id"], project_id):
+                llm_cache[str(item["job_id"])] = item
+        run_cache = {}
+        run_store = episode_runs_store(app)
+        if run_store is not None:
+            for item in run_store.list_project_runs(user["id"], project_id):
+                run_cache[str(item["id"])] = run_store.to_job_list_item(item)
+        items = []
+        for ref in refs:
+            if ref.get("source") == "llm":
+                row = llm_cache.get(ref["job_id"])
+                items.append(row if row else {**ref, "id": ref["job_id"], "missing": True, "status": "unknown"})
+                continue
+            if ref.get("source") == "auto_run":
+                row = run_cache.get(ref["job_id"])
+                items.append(row if row else {**ref, "id": ref["job_id"], "missing": True, "status": "unknown"})
+                continue
+            items.append(_job_list_item(app, ref, cache.get(ref["job_id"])))
+        items.sort(key=lambda row: str(row.get("job_created_at") or row.get("created_at") or ""), reverse=True)
+        return items
 
     app.include_router(router)

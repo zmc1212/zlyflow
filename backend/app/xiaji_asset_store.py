@@ -7,6 +7,7 @@ from typing import Any
 
 from .db import Database, open_database
 from .storage import now
+from .xiaji_art_style import definition_art_style_id, first_art_style_id
 from .xiaji_asset_prompts import VOICE_SLOTS
 
 ASSET_KINDS = ("character", "scene", "prop", "voice")
@@ -389,6 +390,34 @@ class XiajiAssetStore:
             )
         return self.get_asset(asset_id, owner_user_id)
 
+    def complete_media_job(
+        self,
+        job_id: str,
+        *,
+        url: str | None = None,
+        object_key: str | None = None,
+    ) -> int:
+        job_key = str(job_id or "").strip()
+        if not job_key:
+            return 0
+        assignments: list[str] = []
+        values: list[Any] = []
+        if str(url or "").strip():
+            assignments.append("url = ?")
+            values.append(str(url).strip())
+        if str(object_key or "").strip():
+            assignments.append("object_key = ?")
+            values.append(str(object_key).strip())
+        if not assignments:
+            return 0
+        values.append(job_key)
+        with self._db.connection() as connection:
+            cursor = connection.execute(
+                f"UPDATE xiaji_asset_media SET {', '.join(assignments)} WHERE job_id = ? AND (url IS NULL OR url = '')",
+                tuple(values),
+            )
+            return int(cursor.rowcount or 0)
+
     def latest_analysis(self, owner_user_id: str, project_id: str, document_id: str | None = None) -> tuple[str | None, dict[str, Any] | None]:
         with self._db.connection() as connection:
             if document_id:
@@ -438,7 +467,11 @@ class XiajiAssetStore:
         if not (project_id or "").strip():
             raise ValueError("请选择项目")
         settings = analysis.get("ingest_settings") if isinstance(analysis.get("ingest_settings"), dict) else {}
-        visual_style = str(settings.get("visual_style") or "")
+        art_style_id = first_art_style_id(
+            settings.get("art_style_id"),
+            settings.get("art_style"),
+            settings.get("visual_style"),
+        )
         ethnicity = str(settings.get("ethnicity") or "Chinese")
         created = 0
         character_count = 0
@@ -447,7 +480,7 @@ class XiajiAssetStore:
         for item in analysis.get("characters") or []:
             if not isinstance(item, dict) or not str(item.get("name") or "").strip():
                 continue
-            created += self._upsert_character(owner_user_id, project_id, item, document_id, visual_style, ethnicity)
+            created += self._upsert_character(owner_user_id, project_id, item, document_id, art_style_id, ethnicity)
             character_count += 1
         for item in analysis.get("scenes") or []:
             if not isinstance(item, dict) or not str(item.get("name") or "").strip():
@@ -462,7 +495,7 @@ class XiajiAssetStore:
                     "description": str(item.get("description") or ""),
                     "environment_prompt": str(item.get("environment_prompt") or item.get("description") or ""),
                     "time_of_day": str(item.get("time_of_day") or ""),
-                    "visual_style": visual_style,
+                    "art_style_id": art_style_id,
                     "ethnicity": ethnicity,
                     "aliases": list(item.get("aliases") or []),
                 },
@@ -483,7 +516,7 @@ class XiajiAssetStore:
                     "visual_prompt": str(item.get("visual_prompt") or ""),
                     "description": str(item.get("description") or ""),
                     "owner": str(item.get("owner") or ""),
-                    "visual_style": visual_style,
+                    "art_style_id": art_style_id,
                     "ethnicity": ethnicity,
                 },
                 document_id,
@@ -496,7 +529,7 @@ class XiajiAssetStore:
             "解说",
             {
                 "role": "narrator",
-                "visual_style": visual_style,
+                "art_style_id": art_style_id,
                 "voice_profile": empty_voice_profile(),
             },
             document_id,
@@ -527,7 +560,7 @@ class XiajiAssetStore:
         project_id: str,
         item: dict[str, Any],
         document_id: str | None,
-        visual_style: str,
+        art_style_id: str,
         ethnicity: str = "Chinese",
     ) -> int:
         name = str(item["name"]).strip()
@@ -540,7 +573,7 @@ class XiajiAssetStore:
             "body_type": str(item.get("body_type") or ""),
             "description": str(item.get("description") or ""),
             "face_prompt": str(item.get("face_prompt") or ""),
-            "visual_style": visual_style,
+            "art_style_id": art_style_id,
             "ethnicity": ethnicity or "Chinese",
         }
         existing = self._find(project_id, "character", name)
@@ -560,9 +593,11 @@ class XiajiAssetStore:
             return 1
         merged = dict(existing["definition"])
         merged["aliases"] = list(dict.fromkeys([*incoming["aliases"], *(merged.get("aliases") or [])]))
-        for key in ("role", "gender", "age_group", "body_type", "description", "face_prompt", "visual_style", "ethnicity"):
+        for key in ("role", "gender", "age_group", "body_type", "description", "face_prompt", "ethnicity"):
             if incoming.get(key):
                 merged[key] = incoming[key]
+        if incoming.get("art_style_id") and not definition_art_style_id(merged):
+            merged["art_style_id"] = incoming["art_style_id"]
         merged["is_main"] = incoming["is_main"] or bool(merged.get("is_main"))
         if not merged.get("looks"):
             look = default_look()
@@ -601,6 +636,10 @@ class XiajiAssetStore:
             if key == "aliases":
                 continue
             if key == "voice_profile" and merged.get("voice_profile"):
+                continue
+            if key == "art_style_id":
+                if value and not definition_art_style_id(merged):
+                    merged[key] = value
                 continue
             if value:
                 merged[key] = value

@@ -20,12 +20,18 @@ import type { TextAreaRef } from "antd/es/input/TextArea"
 import { CheckCircle2, ChevronLeft, FileText, Info, Library, Play, Plus, RefreshCw, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { ArtStyleCompactField } from "../director/ArtStylePicker"
+import { listDirectorArtStyles } from "../director/director-api"
 import { PATHS } from "../paths"
 import {
   deleteXiajiDocument,
   getXiajiDocument,
   getXiajiProject,
+  getXiajiUserArtStyle,
+  listXiajiAssets,
   listXiajiDocuments,
+  listXiajiEpisodes,
+  listXiajiProjectJobs,
   pasteXiajiDocument,
   saveXiajiChapters,
   syncXiajiAssets,
@@ -38,6 +44,7 @@ import {
 } from "./xiaji-api"
 import XiajiAssetsModule from "./XiajiAssetsModule"
 import XiajiHome from "./XiajiHome"
+import XiajiJobsModule from "./XiajiJobsModule"
 import XiajiWorkshopModule from "./XiajiWorkshopModule"
 
 const STATUS_LABEL: Record<XiajiDocumentStatus, { color: string; text: string }> = {
@@ -61,15 +68,6 @@ const SPINE_OPTIONS = [
   { value: "narrated", label: "解说剧" },
 ] as const
 
-const VISUAL_STYLE_OPTIONS = [
-  { value: "chinese_period_drama", label: "写实古装剧" },
-  { value: "anime", label: "动漫" },
-  { value: "guoman_fantasy", label: "国漫奇幻" },
-  { value: "post_apocalyptic", label: "末世废土" },
-  { value: "realistic", label: "写实" },
-  { value: "republican_era_drama", label: "民国剧" },
-] as const
-
 const NARRATION_OPTIONS = [
   { value: "first_person", label: "第一人称" },
   { value: "third_person", label: "第三人称" },
@@ -88,14 +86,14 @@ type SpineTemplate = (typeof SPINE_OPTIONS)[number]["value"]
 
 type IngestSettings = {
   spine_template: SpineTemplate
-  visual_style: string
+  art_style_id: string
   narration_style: string
   ethnicity: string
 }
 
 const DEFAULT_SETTINGS: IngestSettings = {
   spine_template: "drama",
-  visual_style: "chinese_period_drama",
+  art_style_id: "",
   narration_style: "first_person",
   ethnicity: "Chinese",
 }
@@ -289,7 +287,11 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
   const [settings, setSettings] = useState<IngestSettings>(DEFAULT_SETTINGS)
   const [savedSettings, setSavedSettings] = useState<IngestSettings>(DEFAULT_SETTINGS)
   const listQuery = useQuery({ queryKey: ["xiaji-documents", projectId], queryFn: () => listXiajiDocuments(projectId) })
+  const assetsQuery = useQuery({ queryKey: ["xiaji-assets", projectId], queryFn: () => listXiajiAssets(projectId) })
+  const episodesQuery = useQuery({ queryKey: ["xiaji-episodes", projectId], queryFn: () => listXiajiEpisodes(projectId) })
   const projectQuery = useQuery({ queryKey: ["xiaji-project", projectId], queryFn: () => getXiajiProject(projectId) })
+  const userStyleQuery = useQuery({ queryKey: ["xiaji-user-art-style"], queryFn: getXiajiUserArtStyle })
+  const stylesQuery = useQuery({ queryKey: ["director-art-styles"], queryFn: listDirectorArtStyles })
   const detailQuery = useQuery({
     queryKey: ["xiaji-document", selectedId],
     queryFn: () => getXiajiDocument(selectedId!),
@@ -299,17 +301,19 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
   useEffect(() => {
     const loaded = loadSettings(projectId)
     const fromProject = projectQuery.data?.settings
+    const userDefault = userStyleQuery.data?.art_style_id || ""
     const merged = {
       ...DEFAULT_SETTINGS,
       ...loaded,
+      ...(userDefault ? { art_style_id: userDefault } : {}),
       ...(fromProject?.spine_template ? { spine_template: fromProject.spine_template as SpineTemplate } : {}),
-      ...(fromProject?.visual_style ? { visual_style: fromProject.visual_style } : {}),
+      ...(fromProject?.art_style_id ? { art_style_id: fromProject.art_style_id } : {}),
       ...(fromProject?.narration_style ? { narration_style: fromProject.narration_style } : {}),
       ...(fromProject?.ethnicity ? { ethnicity: fromProject.ethnicity } : {}),
     }
     setSettings(merged)
     setSavedSettings(merged)
-  }, [projectId, projectQuery.data])
+  }, [projectId, projectQuery.data, userStyleQuery.data])
 
   useEffect(() => {
     const documents = listQuery.data
@@ -331,6 +335,8 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
 
   const documents = listQuery.data ?? []
   const detail = detailQuery.data
+  const existingAssetCount = assetsQuery.data?.length ?? 0
+  const existingEpisodeCount = episodesQuery.data?.length ?? 0
   const activeChapter = useMemo(
     () => drafts.find((item) => item.id === activeChapterId) ?? drafts[0],
     [activeChapterId, drafts],
@@ -338,6 +344,7 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
   const settingsChanged = JSON.stringify(settings) !== JSON.stringify(savedSettings)
   const showNarration = settings.spine_template === "narrated"
   const hasImported = documents.length > 0
+  const hasExistingContent = hasImported || existingAssetCount > 0 || existingEpisodeCount > 0
   const showPreview = hasImported && !composing
 
   const readPastedText = () => {
@@ -349,6 +356,8 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
   const ingestSuccess = async (document: XiajiDocumentDetail) => {
     await queryClient.invalidateQueries({ queryKey: ["xiaji-documents", projectId] })
     await queryClient.invalidateQueries({ queryKey: ["xiaji-assets", projectId] })
+    await queryClient.invalidateQueries({ queryKey: ["xiaji-episodes", projectId] })
+    await queryClient.invalidateQueries({ queryKey: ["xiaji-project-jobs", projectId] })
     setSelectedId(document.id)
     setPendingFile(null)
     setPasteText("")
@@ -358,19 +367,21 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
 
   const ingestSettings = {
     spine_template: settings.spine_template,
-    visual_style: settings.visual_style,
+    art_style_id: settings.art_style_id,
     narration_style: settings.narration_style,
     ethnicity: settings.ethnicity,
   }
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => uploadXiajiDocument(csrfToken, projectId, file, undefined, ingestSettings),
+    mutationFn: ({ file, replace }: { file: File; replace: boolean }) =>
+      uploadXiajiDocument(csrfToken, projectId, file, undefined, ingestSettings, replace),
     onSuccess: (document) => void ingestSuccess(document),
     onError: (error) => message.error(error instanceof Error ? error.message : "上传失败"),
   })
 
   const pasteMutation = useMutation({
-    mutationFn: (text: string) => pasteXiajiDocument(csrfToken, projectId, text, undefined, ingestSettings),
+    mutationFn: ({ text, replace }: { text: string; replace: boolean }) =>
+      pasteXiajiDocument(csrfToken, projectId, text, undefined, ingestSettings, replace),
     onSuccess: (document) => void ingestSuccess(document),
     onError: (error) => message.error(error instanceof Error ? error.message : "导入失败"),
   })
@@ -401,7 +412,7 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
 
   const ingestBusy = uploadMutation.isPending || pasteMutation.isPending
 
-  const startIngest = () => {
+  const runIngest = (replace: boolean) => {
     const typed = readPastedText()
     if (inputMode === "paste" || (typed && !pendingFile)) {
       if (!typed) {
@@ -410,14 +421,41 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
       }
       setPasteText(typed)
       setInputMode("paste")
-      pasteMutation.mutate(typed)
+      pasteMutation.mutate({ text: typed, replace })
       return
     }
     if (!pendingFile) {
       message.warning("请先选择小说文件，或切换到「粘贴文本」")
       return
     }
-    uploadMutation.mutate(pendingFile)
+    uploadMutation.mutate({ file: pendingFile, replace })
+  }
+
+  const startIngest = () => {
+    const typed = readPastedText()
+    const willPaste = inputMode === "paste" || Boolean(typed && !pendingFile)
+    if (willPaste && !typed) {
+      message.warning("请先粘贴或输入正文")
+      return
+    }
+    if (!willPaste && !pendingFile) {
+      message.warning("请先选择小说文件，或切换到「粘贴文本」")
+      return
+    }
+    if (!hasExistingContent) {
+      runIngest(false)
+      return
+    }
+    Modal.confirm({
+      title: "重新导入将清空当前项目已有内容",
+      content: `会删除已导入文稿、资产库（含已生成的肖像/造型/场景图）、剧集脚本和镜头任务记录，然后用这次导入重新分析。项目名称和画风设置会保留。此操作不可恢复。`,
+      okText: "清空并导入",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      onOk: () => {
+        runIngest(true)
+      },
+    })
   }
 
   const updateActive = (patch: Partial<XiajiChapter>) => {
@@ -593,11 +631,12 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                   onChange={(value) => setSettings((current) => ({ ...current, spine_template: value }))}
                   options={[...SPINE_OPTIONS]}
                 />
-                <Select
+                <ArtStyleCompactField
                   size="small"
-                  value={settings.visual_style}
-                  onChange={(value) => setSettings((current) => ({ ...current, visual_style: value }))}
-                  options={[...VISUAL_STYLE_OPTIONS]}
+                  styles={stylesQuery.data?.styles || []}
+                  categories={stylesQuery.data?.categories || []}
+                  value={settings.art_style_id}
+                  onChange={(artStyleId) => setSettings((current) => ({ ...current, art_style_id: artStyleId }))}
                 />
                 {showNarration ? (
                   <Select
@@ -705,8 +744,12 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                     <p>{optionLabel(SPINE_OPTIONS, settings.spine_template)}</p>
                   </div>
                   <div>
-                    <small>视觉风格</small>
-                    <p>{optionLabel(VISUAL_STYLE_OPTIONS, settings.visual_style)}</p>
+                    <small>画风</small>
+                    <p>
+                      {(stylesQuery.data?.styles || []).find((item) => item.id === settings.art_style_id)?.name_zh
+                        || settings.art_style_id
+                        || "未选择"}
+                    </p>
                   </div>
                   {showNarration ? (
                     <div>
@@ -763,24 +806,25 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
       </div>
 
       <Drawer
-        title={activeChapter ? `校对 · ${activeChapter.title}` : "章节校对"}
+        className="xiaji-chapter-drawer"
+        title={activeChapter ? `校对第 ${activeIndex + 1} 章` : "章节校对"}
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
-        width={560}
-        extra={
-          <Space>
-            <Button disabled={activeIndex <= 0} onClick={() => moveChapter(activeIndex, -1)}>上移</Button>
-            <Button disabled={activeIndex < 0 || activeIndex >= drafts.length - 1} onClick={() => moveChapter(activeIndex, 1)}>下移</Button>
-            <Button disabled={activeIndex < 0 || activeIndex >= drafts.length - 1} onClick={() => mergeWithNext(activeIndex)}>合并下一章</Button>
-            <Button onClick={splitActive}>拆分当前章</Button>
-            <Button type="primary" loading={saveMutation.isPending} disabled={!selectedId || drafts.length === 0} onClick={() => saveMutation.mutate(drafts)}>
-              保存校对
-            </Button>
-          </Space>
-        }
+        width={640}
       >
         {activeChapter ? (
           <div className="xiaji-chapter-editor">
+            <div className="xiaji-chapter-editor-toolbar">
+              <Space wrap>
+                <Button disabled={activeIndex <= 0} onClick={() => moveChapter(activeIndex, -1)}>上移</Button>
+                <Button disabled={activeIndex < 0 || activeIndex >= drafts.length - 1} onClick={() => moveChapter(activeIndex, 1)}>下移</Button>
+                <Button disabled={activeIndex < 0 || activeIndex >= drafts.length - 1} onClick={() => mergeWithNext(activeIndex)}>合并下一章</Button>
+                <Button onClick={splitActive}>拆分当前章</Button>
+                <Button type="primary" loading={saveMutation.isPending} disabled={!selectedId || drafts.length === 0} onClick={() => saveMutation.mutate(drafts)}>
+                  保存校对
+                </Button>
+              </Space>
+            </div>
             <Input
               value={activeChapter.title}
               onChange={(event) => updateActive({ title: event.target.value })}
@@ -825,8 +869,21 @@ export default function XiajiStudioModule({ csrfToken, projectId }: { csrfToken:
   })
 
   useEffect(() => {
-    if (projectId && projectQuery.isError) navigate(PATHS.director2, { replace: true })
+    if (projectId && projectId !== "art-styles" && projectQuery.isError) {
+      navigate(PATHS.director2, { replace: true })
+    }
   }, [navigate, projectId, projectQuery.isError])
+
+  const jobsQuery = useQuery({
+    queryKey: ["xiaji-project-jobs", projectId],
+    queryFn: () => listXiajiProjectJobs(projectId!),
+    enabled: Boolean(projectId),
+    refetchInterval: (query) => {
+      const rows = query.state.data || []
+      return rows.some((item) => item.status === "queued" || item.status === "running") ? 2000 : false
+    },
+  })
+  const runningJobs = (jobsQuery.data || []).filter((item) => item.status === "queued" || item.status === "running").length
 
   if (!projectId) return <XiajiHome csrfToken={csrfToken} />
 
@@ -869,6 +926,11 @@ export default function XiajiStudioModule({ csrfToken, projectId }: { csrfToken:
               />
             ),
           })),
+          {
+            key: "jobs",
+            label: runningJobs ? `全部任务 (${runningJobs})` : "全部任务",
+            children: <XiajiJobsModule projectId={projectId} />,
+          },
         ]}
       />
     </div>

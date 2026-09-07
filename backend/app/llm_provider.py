@@ -375,6 +375,7 @@ class LlmProviderService:
         from .xiaji_episode_prompts import generate_script_beats
 
         client, model = self._chat_client()
+        on_progress = payload.get("on_progress")
         return generate_script_beats(
             client,
             model,
@@ -386,4 +387,19 @@ class LlmProviderService:
             title=str(payload.get("title") or ""),
             summary=str(payload.get("summary") or ""),
             name_to_asset=payload.get("name_to_asset") or {},
+            on_progress=on_progress if callable(on_progress) else None,
+        )
+
+    def generate_xiaji_beat_video_prompt(self, payload: dict[str, Any]) -> dict[str, str]:
+        from .xiaji_episode_prompts import generate_beat_video_motion_prompt
+
+        client, model = self._chat_client()
+        return generate_beat_video_motion_prompt(
+            client,
+            model,
+            beat=payload.get("beat") or {},
+            pictures=list(payload.get("pictures") or []),
+            duration=float(payload.get("duration") or 5),
+            visual_style=str(payload.get("visual_style") or ""),
+            route=str(payload.get("route") or "r2v"),
         )

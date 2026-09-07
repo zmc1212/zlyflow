@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, Card, Empty, Input, Modal, Popconfirm, Space, Spin, Typography, message } from "antd"
-import { ArrowLeft, FolderPlus, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, FolderPlus, Palette, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import ThemeToggle from "../components/ThemeToggle"
 import { director2ProjectPath, PATHS } from "../paths"
 import { createXiajiProject, deleteXiajiProject, listXiajiProjects, type XiajiProject } from "./xiaji-api"
@@ -49,6 +49,9 @@ export default function XiajiHome({ csrfToken }: { csrfToken: string }) {
         <strong>导台2</strong>
         <div className="director-mobile-header-actions">
           <ThemeToggle />
+          <Link to={PATHS.director2ArtStyles} className="xiaji-home-art-styles-link" aria-label="画风">
+            <Palette size={20} />
+          </Link>
           <button type="button" aria-label="新建项目" onClick={() => setCreateOpen(true)}>
             <Plus size={20} />
           </button>
@@ -62,6 +65,17 @@ export default function XiajiHome({ csrfToken }: { csrfToken: string }) {
         </div>
         <Space>
           <ThemeToggle />
+          <Button
+            icon={<Palette size={15} />}
+            href={PATHS.director2ArtStyles}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
+              event.preventDefault()
+              navigate(PATHS.director2ArtStyles)
+            }}
+          >
+            画风
+          </Button>
           <Button type="primary" icon={<FolderPlus size={15} />} onClick={() => setCreateOpen(true)}>
             新建项目
           </Button>

@@ -6,6 +6,8 @@ from fastapi import Depends, HTTPException
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
 
+from .director_catalog import find_art_style
+from .xiaji_art_style import art_style_public_ref, normalize_art_style_id
 from .xiaji_project_store import XiajiProjectStore
 
 
@@ -17,6 +19,10 @@ class XiajiProjectCreate(BaseModel):
 class XiajiProjectUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     settings: dict[str, Any] | None = None
+
+
+class XiajiUserArtStyleWrite(BaseModel):
+    art_style_id: str = Field(default="", max_length=64)
 
 
 def require_xiaji_project(app: Any, project_id: str, owner_user_id: str) -> dict[str, Any]:
@@ -33,6 +39,24 @@ def register_xiaji_project_routes(app: Any, *, current_user: Callable, mutating_
 
     def store() -> XiajiProjectStore:
         return app.state.xiaji_project_store
+
+    def _user_art_style_payload(owner_user_id: str) -> dict[str, Any]:
+        style_id = store().get_user_art_style_id(owner_user_id)
+        return {"art_style_id": style_id, "art_style": art_style_public_ref(style_id)}
+
+    @router.get("/art-style", summary="读取当前用户的导台2 默认画风")
+    def get_user_art_style(user: dict = Depends(current_user)) -> dict:
+        return _user_art_style_payload(user["id"])
+
+    @router.put("/art-style", summary="保存当前用户的导台2 默认画风")
+    def put_user_art_style(payload: XiajiUserArtStyleWrite, user: dict = Depends(mutating_user)) -> dict:
+        style_id = normalize_art_style_id(payload.art_style_id)
+        if payload.art_style_id.strip() and not style_id:
+            raise HTTPException(status_code=422, detail="画风不在目录中")
+        if payload.art_style_id.strip() and find_art_style(style_id) is None:
+            raise HTTPException(status_code=422, detail="画风不在目录中")
+        store().set_user_art_style_id(user["id"], style_id)
+        return _user_art_style_payload(user["id"])
 
     @router.get("/projects", summary="列出当前用户的导台2 项目")
     def list_projects(user: dict = Depends(current_user)) -> list[dict]:

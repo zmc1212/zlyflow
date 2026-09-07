@@ -24,6 +24,7 @@ export {
   locationFromState,
   parseGeneratePath,
   parseXiajiProjectPath,
+  isXiajiArtStylesPath,
   resolveAuthRedirect,
   studioWorkspaceFromPath,
 } from "./paths"

@@ -8,7 +8,7 @@ import {
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { jsonMutation, requestJson, User } from "./api"
-import { generateJobPath, parseGeneratePath, parseXiajiProjectPath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
+import { generateJobPath, isXiajiArtStylesPath, parseGeneratePath, parseXiajiProjectPath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import {
   chooseResourceDirectory, DirectoryHandleLike, directoryApiSupported, directoryPermission,
@@ -36,6 +36,7 @@ const ImageStudioModule = lazy(() => import("./media/ImageStudioModule"))
 const VideoStudioModule = lazy(() => import("./media/VideoStudioModule"))
 const DirectorStudioModule = lazy(() => import("./director/DirectorStudioModule"))
 const XiajiStudioModule = lazy(() => import("./xiaji/XiajiStudioModule"))
+const XiajiArtStylesPage = lazy(() => import("./xiaji/XiajiArtStylesPage"))
 const DirectorAssetLibrary = lazy(() => import("./director/DirectorAssetLibrary"))
 
 type Status = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
@@ -1638,7 +1639,11 @@ export default function App({
             </Suspense>
           ) : workspaceView === "director2" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载导台2...</div>}>
-              <XiajiStudioModule csrfToken={csrfToken} projectId={parseXiajiProjectPath(location.pathname)} />
+              {isXiajiArtStylesPath(location.pathname) ? (
+                <XiajiArtStylesPage csrfToken={csrfToken} />
+              ) : (
+                <XiajiStudioModule csrfToken={csrfToken} projectId={parseXiajiProjectPath(location.pathname)} />
+              )}
             </Suspense>
           ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
 

@@ -7,6 +7,7 @@ import {
   generateXiajiEpisodeScript,
   getXiajiEpisode,
   listXiajiEpisodes,
+  xiajiEpisodeHasActiveJobs,
   type XiajiBeat,
   type XiajiEpisode,
   type XiajiEpisodeLink,
@@ -74,6 +75,12 @@ function BeatCard({ beat }: { beat: XiajiBeat }) {
     <article className="xiaji-beat">
       <span>画面描述</span>
       <p>{beat.action}</p>
+      {beat.dialogue ? (
+        <div>
+          <span>旁白/解说</span>
+          <p>{beat.dialogue}</p>
+        </div>
+      ) : null}
     </article>
   )
 }
@@ -94,7 +101,7 @@ function ScriptPane({ episode }: { episode: XiajiEpisode }) {
         <section>
           <header>
             <h3>原文剧本</h3>
-            <em>编号后的内容将生成脚本，当前共 {episode.original_lines.length} 行</em>
+            <em>编号后的内容将逐行标注为 Beat，当前共 {episode.original_lines.length} 行</em>
           </header>
           <ol className="xiaji-original-lines">
             {episode.original_lines.map((line, index) => (
@@ -113,7 +120,7 @@ function ScriptPane({ episode }: { episode: XiajiEpisode }) {
             <em>{episode.beats.length} 个 Beat</em>
           </header>
           {episode.beats.length === 0 ? (
-            <Empty description="点「生成脚本」把原文改写成可拍摄的 Beat" />
+            <Empty description="点「生成脚本」按原文逐行标注 Beat，不改写、不合并" />
           ) : (
             <div className="xiaji-beat-list">
               {episode.beats.map((beat) => <BeatCard key={beat.id} beat={beat} />)}
@@ -140,9 +147,8 @@ function EpisodeWorkspace({
     queryFn: () => getXiajiEpisode(episodeId),
     refetchInterval: (query) => {
       const data = query.state.data
-      if (data?.status === "scripting") return 2000
-      const beats = data?.beats || []
-      return beats.some((item) => item.status === "queued" || item.status === "generating") ? 4000 : false
+      if (xiajiEpisodeHasActiveJobs(data)) return data?.status === "scripting" ? 2000 : 4000
+      return false
     },
   })
   const scriptMutation = useMutation({

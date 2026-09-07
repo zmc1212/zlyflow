@@ -18,6 +18,7 @@ import { CharacterAssetCard, SimpleRenditionAssetCard, type RecipeAssetTargetKin
 import RecipeAssetStageToolbar from "./components/RecipeAssetStageToolbar"
 import SequencePlayerModal from "./components/SequencePlayerModal"
 import DirectorAssetLibrary from "./DirectorAssetLibrary"
+import { ArtStyleCatalogPicker } from "./ArtStylePicker"
 import ThemeToggle from "../components/ThemeToggle"
 import { DirectorMobileBottomBar, DirectorMobileHeader } from "./DirectorMobileChrome"
 import {
@@ -49,7 +50,7 @@ import { jobProgressFromJob, jobStoredImageUrl, jobVideoUrl, mergeDirectorStatus
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
 import { directorRenderPassLabel } from "./prompt-compiler"
 import {
-  createEmptyRecipe, featuredArtStyles, RECIPE_AGENT_LABELS, RECIPE_AGENT_ORDER, RECIPE_AGENT_RUNNING_MESSAGES,
+  createEmptyRecipe, RECIPE_AGENT_LABELS, RECIPE_AGENT_ORDER, RECIPE_AGENT_RUNNING_MESSAGES,
   recipeShotsToPlayer,
   DIRECTOR_FINAL_CANVAS_OPTIONS, DIRECTOR_SPEED_OPTIONS, DIRECTOR_WEIGHT_OPTIONS, H3_CANVAS_PRESETS, applyRecipeOutputSettings,
   recipeCanvasPreset, DirectorQuality, DirectorSpeed, DirectorWeightProfile, ShotTake,
@@ -57,7 +58,7 @@ import {
   insertRecipeShotAfter, removeRecipeShot, duplicateRecipeShot, moveRecipeShotToIndex,
 } from "./types"
 import {
-  artStylePreviewUrl, ensureRecipeAssetRendition, flattenRecipeShots, isPlaceholderRecipeBoard, recipeApprovableAssetVersion, recipeArtStyleFromCatalog,
+  ensureRecipeAssetRendition, flattenRecipeShots, isPlaceholderRecipeBoard, recipeApprovableAssetVersion, recipeArtStyleFromCatalog,
   recipeAudio, recipeExportState, recipeSubtitles, shotIsMuxable,
   type RecipeAgentId, type RecipeAgentRunStatus, type RecipeAssetRendition, type RecipeCharacter,
   type RecipeProject, type RecipeShot,
@@ -177,29 +178,6 @@ interface DirectorRecipeStudioProps {
   allJobs: JobLike[]
   onBack: () => void
   onExitDirector?: () => void
-}
-
-function ArtStyleCover({
-  style,
-  className = "director-style-cover",
-  showPlaceholder = true,
-}: {
-  style: { id: string; name_zh?: string; imageUrl?: string | null }
-  className?: string
-  showPlaceholder?: boolean
-}) {
-  const [failed, setFailed] = useState(false)
-  if (failed) {
-    return showPlaceholder ? <div className={`${className} is-empty`.trim()}>无预览</div> : null
-  }
-  return (
-    <img
-      src={artStylePreviewUrl(style)}
-      alt={style.name_zh || ""}
-      className={className}
-      onError={() => setFailed(true)}
-    />
-  )
 }
 
 function setLocalAgentStatus(
@@ -328,10 +306,7 @@ export default function DirectorRecipeStudio({
   const [selectedShotId, setSelectedShotId] = useState<string | null>(null)
   const [checkedShotIds, setCheckedShotIds] = useState<string[]>([])
   const [inspectorOpen, setInspectorOpen] = useState(false)
-  const [styleDrawerOpen, setStyleDrawerOpen] = useState(false)
   const [libraryDrawerOpen, setLibraryDrawerOpen] = useState(false)
-  const [styleKeyword, setStyleKeyword] = useState("")
-  const [styleCategory, setStyleCategory] = useState<string | undefined>(undefined)
   const [playerOpen, setPlayerOpen] = useState(false)
   const [jianyingOpen, setJianyingOpen] = useState(false)
   const activeStage = parseRecipeStage(searchParams.get("stage")) ?? "script"
@@ -668,16 +643,6 @@ export default function DirectorRecipeStudio({
     }
     return options
   }, [workflowFamilies, workflowFamilyId])
-  const recommendedStyles = useMemo(() => featuredArtStyles(styles), [styles])
-  const filteredCatalogStyles = useMemo(() => {
-    const keyword = styleKeyword.trim().toLowerCase()
-    return styles.filter((style) => {
-      if (styleCategory && style.category !== styleCategory) return false
-      if (!keyword) return true
-      return [style.name_zh, style.name_en, style.description, style.category_name_zh]
-        .some((item) => (item || "").toLowerCase().includes(keyword))
-    })
-  }, [styles, styleCategory, styleKeyword])
   const selectedShot = visibleShots.find((shot) => shot.id === selectedShotId) || visibleShots[0] || null
   const selectedShotIndex = selectedShot ? visibleShots.findIndex((item) => item.id === selectedShot.id) : -1
   const previousShot = selectedShotIndex > 0 ? visibleShots[selectedShotIndex - 1] : null
@@ -2181,82 +2146,16 @@ export default function DirectorRecipeStudio({
                   </div>
           ) : null}
           {!isTimelineView && activeStage === "art_style" ? (
-                  <div className="director-recipe-form">
-                    <div className="director-style-toolbar">
-                      <p>推荐 6 种常用画风。其余可按分类搜索，或浏览全部 34 条。</p>
-                      <Button disabled={running} onClick={() => setStyleDrawerOpen(true)}>浏览全部</Button>
-                    </div>
-                    <div className="director-style-grid">
-                      {recommendedStyles.map((style) => (
-                        <button
-                          key={style.id}
-                          type="button"
-                          disabled={running}
-                          className={`director-style-card${recipe.artStyle?.id === style.id ? " is-active" : ""}`}
-                          onClick={() => updateRecipe((current) => ({
-                            ...current,
-                            artStyle: recipeArtStyleFromCatalog(style),
-                          }))}
-                        >
-                          <ArtStyleCover style={style} />
-                          <span className="director-style-copy">
-                            <strong>{style.name_zh}</strong>
-                            <span>{style.category_name_zh} · {style.name_en}</span>
-                            <em>{style.description}</em>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                    {recipe.artStyle && !recommendedStyles.some((item) => item.id === recipe.artStyle?.id) ? (
-                      <p className="director-output-hint">当前画风：{recipe.artStyle.name}</p>
-                    ) : null}
-                    <Drawer
-                      title="全部画风"
-                      open={styleDrawerOpen}
-                      onClose={() => setStyleDrawerOpen(false)}
-                      size={isMobile ? "100%" : 560}
-                    >
-                      <div className="director-style-filters">
-                        <Select
-                          allowClear
-                          placeholder="分类"
-                          value={styleCategory}
-                          options={categories.map((item) => ({ value: item.id, label: item.name_zh }))}
-                          onChange={(value?: string) => setStyleCategory(value)}
-                        />
-                        <Input
-                          allowClear
-                          placeholder="搜索画风"
-                          value={styleKeyword}
-                          onChange={(event) => setStyleKeyword(event.target.value)}
-                        />
-                      </div>
-                      <div className="director-style-grid">
-                        {filteredCatalogStyles.map((style) => (
-                          <button
-                            key={style.id}
-                            type="button"
-                            className={`director-style-card${recipe.artStyle?.id === style.id ? " is-active" : ""}`}
-                            onClick={() => {
-                              updateRecipe((current) => ({
-                                ...current,
-                                artStyle: recipeArtStyleFromCatalog(style),
-                              }))
-                              setStyleDrawerOpen(false)
-                            }}
-                          >
-                            <ArtStyleCover style={style} />
-                            <span className="director-style-copy">
-                              <strong>{style.name_zh}</strong>
-                              <span>{style.category_name_zh} · {style.name_en}</span>
-                              <em>{style.description}</em>
-                            </span>
-                          </button>
-                        ))}
-                        {!filteredCatalogStyles.length && <Empty description="没有匹配的画风" />}
-                      </div>
-                    </Drawer>
-                  </div>
+            <ArtStyleCatalogPicker
+              styles={styles}
+              categories={categories}
+              value={recipe.artStyle?.id}
+              disabled={running}
+              onChange={(style) => updateRecipe((current) => ({
+                ...current,
+                artStyle: recipeArtStyleFromCatalog(style),
+              }))}
+            />
           ) : null}
           {!isTimelineView && activeStage === "characters" ? (
                   <div className="director-asset-section">

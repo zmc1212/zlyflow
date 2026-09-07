@@ -1,6 +1,6 @@
 # ZLY AI Video Studio 架构快照
 
-更新时间：2026-09-02
+更新时间：2026-09-03
 
 ## 组件关系
 
@@ -51,7 +51,11 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/xiaji_project_store.py` | 导台2 项目 CRUD 与旧数据回填 |
 | `backend/app/xiaji_asset_store.py` | 导台2 资产库角色/场景/道具/声线与媒体版本 |
 | `backend/app/xiaji_episode_store.py` | 导台2 剧集、资产绑定与 Beat |
+| `backend/app/xiaji_episode_prompts.py` | 导台2 草图/精绘/视频提示词与人工 Beat 规范化 |
+| `backend/app/xiaji_literal_script.py` | 导台2 生成脚本：逐行标注，一行一个 Beat |
 | `backend/app/xiaji_episode_api.py` | 导台2 剧集工坊 API |
+| `backend/app/xiaji_episode_run_store.py` | 导台2 整集自动生成编排记录 |
+| `backend/app/xiaji_auto_pipeline.py` | 导台2 整集串行草图/精绘/提示词/视频 |
 | `backend/app/auth.py` | scrypt 密码、会话、用户、角色和审计数据访问 |
 | `backend/app/resource_storage.py` | 可替换资源 provider 契约、browser-stream 引用实现与旧版 browser-local 暂存兼容 |
 | `backend/app/workflow_registry.py` | 工作流能力、参考图上下限、H3 参数校验 |

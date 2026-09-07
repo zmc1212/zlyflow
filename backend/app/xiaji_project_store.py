@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS xiaji_projects (
 );
 CREATE INDEX IF NOT EXISTS idx_xiaji_projects_owner_updated
     ON xiaji_projects(owner_user_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS xiaji_user_settings (
+    owner_user_id TEXT PRIMARY KEY,
+    art_style_id TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+);
 """
 
 DEFAULT_PROJECT_NAME = "默认项目"
@@ -46,8 +51,29 @@ class XiajiProjectStore:
             else:
                 connection.executescript(SQLITE_PROJECT_SCHEMA)
             self._ensure_child_columns(connection)
+            self._ensure_user_settings(connection)
             self._backfill_orphans(connection)
             self._ensure_asset_unique(connection)
+
+    def _ensure_user_settings(self, connection: Any) -> None:
+        if self._db.table_exists(connection, "xiaji_user_settings"):
+            return
+        if self._db.dialect == "mysql":
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS xiaji_user_settings (
+                    owner_user_id VARCHAR(64) NOT NULL PRIMARY KEY,
+                    art_style_id VARCHAR(64) NOT NULL DEFAULT '',
+                    updated_at VARCHAR(64) NOT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"""
+            )
+            return
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS xiaji_user_settings (
+                owner_user_id TEXT PRIMARY KEY,
+                art_style_id TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )"""
+        )
 
     def _ensure_child_columns(self, connection: Any) -> None:
         declaration = "VARCHAR(64) NULL" if self._db.dialect == "mysql" else "TEXT"
@@ -201,6 +227,39 @@ class XiajiProjectStore:
             raise KeyError(project_id)
         return self._from_row(dict(row))
 
+    def get_user_art_style_id(self, owner_user_id: str) -> str:
+        with self._db.connection() as connection:
+            if not self._db.table_exists(connection, "xiaji_user_settings"):
+                return ""
+            row = connection.execute(
+                "SELECT art_style_id FROM xiaji_user_settings WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchone()
+        if row is None:
+            return ""
+        return str(row["art_style_id"] or "").strip()
+
+    def set_user_art_style_id(self, owner_user_id: str, art_style_id: str) -> str:
+        value = (art_style_id or "").strip()
+        timestamp = now()
+        with self._db.connection() as connection:
+            self._ensure_user_settings(connection)
+            existing = connection.execute(
+                "SELECT owner_user_id FROM xiaji_user_settings WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    "INSERT INTO xiaji_user_settings (owner_user_id, art_style_id, updated_at) VALUES (?, ?, ?)",
+                    (owner_user_id, value, timestamp),
+                )
+            else:
+                connection.execute(
+                    "UPDATE xiaji_user_settings SET art_style_id = ?, updated_at = ? WHERE owner_user_id = ?",
+                    (value, timestamp, owner_user_id),
+                )
+        return value
+
     def create_project(
         self,
         owner_user_id: str,
@@ -208,8 +267,13 @@ class XiajiProjectStore:
         settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         trimmed = (name or "").strip() or "未命名项目"
+        payload = dict(settings or {})
+        if not str(payload.get("art_style_id") or "").strip():
+            default_style = self.get_user_art_style_id(owner_user_id)
+            if default_style:
+                payload["art_style_id"] = default_style
         with self._db.connection() as connection:
-            project_id = self._insert_project(connection, owner_user_id, trimmed, dict(settings or {}))
+            project_id = self._insert_project(connection, owner_user_id, trimmed, payload)
         return self.get_project(project_id, owner_user_id)
 
     def update_project(
@@ -235,9 +299,21 @@ class XiajiProjectStore:
             )
         return self.get_project(project_id, owner_user_id)
 
+    def clear_project_content(self, project_id: str, owner_user_id: str) -> None:
+        self.get_project(project_id, owner_user_id)
+        with self._db.connection() as connection:
+            self._delete_project_content(connection, project_id, owner_user_id)
+
     def delete_project(self, project_id: str, owner_user_id: str) -> None:
         self.get_project(project_id, owner_user_id)
         with self._db.connection() as connection:
+            self._delete_project_content(connection, project_id, owner_user_id)
+            connection.execute(
+                "DELETE FROM xiaji_projects WHERE id = ? AND owner_user_id = ?",
+                (project_id, owner_user_id),
+            )
+
+    def _delete_project_content(self, connection: Any, project_id: str, owner_user_id: str) -> None:
             if self._db.table_exists(connection, "xiaji_episodes"):
                 episodes = connection.execute(
                     "SELECT id FROM xiaji_episodes WHERE project_id = ? AND owner_user_id = ?",
@@ -273,7 +349,13 @@ class XiajiProjectStore:
                     "DELETE FROM xiaji_documents WHERE project_id = ? AND owner_user_id = ?",
                     (project_id, owner_user_id),
                 )
-            connection.execute(
-                "DELETE FROM xiaji_projects WHERE id = ? AND owner_user_id = ?",
-                (project_id, owner_user_id),
-            )
+            if self._db.table_exists(connection, "xiaji_llm_jobs"):
+                connection.execute(
+                    "DELETE FROM xiaji_llm_jobs WHERE project_id = ? AND owner_user_id = ?",
+                    (project_id, owner_user_id),
+                )
+            if self._db.table_exists(connection, "xiaji_episode_runs"):
+                connection.execute(
+                    "DELETE FROM xiaji_episode_runs WHERE project_id = ? AND owner_user_id = ?",
+                    (project_id, owner_user_id),
+                )
