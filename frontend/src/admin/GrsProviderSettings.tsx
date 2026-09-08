@@ -52,11 +52,18 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
   const [newModelId, setNewModelId] = useState("")
   const [newDisplayName, setNewDisplayName] = useState("")
   const [newProfile, setNewProfile] = useState("nano_banana")
+  const formLoaded = useRef(false)
+
+  const applyConfig = (config: ProviderConfig) => {
+    formLoaded.current = true
+    setEnabled(config.enabled)
+    setBaseUrl(config.base_url)
+    queryClient.setQueryData(["grs-provider"], config)
+  }
 
   useEffect(() => {
-    if (!query.data) return
-    setEnabled(query.data.enabled)
-    setBaseUrl(query.data.base_url)
+    if (!query.data || formLoaded.current) return
+    applyConfig(query.data)
   }, [query.data])
 
   useEffect(() => {
@@ -76,8 +83,9 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
     mutationFn: () => requestJson<ProviderConfig>("/api/admin/providers/grs", jsonMutation(csrfToken, {
       enabled, base_url: baseUrl, api_key: apiKey || null,
     }, "PUT")),
-    onSuccess: () => {
+    onSuccess: (config) => {
       setApiKey("")
+      applyConfig(config)
       refresh()
       message.success("GRS 图片供应商配置已保存")
     },

@@ -3324,7 +3324,10 @@ def browser_direct_output(
     job_id: str,
     output_index: int,
     user: Annotated[dict, Depends(current_user)],
+    request: Request,
 ) -> dict:
+    if request.client and request.client.host not in {"127.0.0.1", "::1", "localhost"}:
+        raise HTTPException(status_code=409, detail="Only local clients support browser direct delivery")
     job = job_or_404(app.state.store, job_id, user)
     if output_index < 0 or output_index >= len(job["outputs"]):
         raise HTTPException(status_code=404, detail="Resource not found")
@@ -3442,7 +3445,10 @@ def download_generation_output(
 def browser_direct_generation_output(
     job_id: str, generation_item_id: str, output_index: int,
     user: Annotated[dict, Depends(current_user)],
+    request: Request,
 ) -> dict:
+    if request.client and request.client.host not in {"127.0.0.1", "::1", "localhost"}:
+        raise HTTPException(status_code=409, detail="Only local clients support browser direct delivery")
     _, item = generation_item_or_404(app.state.store, job_id, generation_item_id, user)
     if output_index < 0 or output_index >= len(item["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")

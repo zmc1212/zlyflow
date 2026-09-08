@@ -401,6 +401,15 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_option_relationships(mode, normalize_options(mode, {"task_type": "Ref2VA"}), 0)
 
+    def test_t8_random_seed_stays_within_the_registered_range(self) -> None:
+        mode = JobMode.MINIMAX_H3_T8_ALL_REFERENCE
+        seed_definition = workflow_for(mode).option_schema["properties"]["seed"]
+        expected_span = seed_definition["maximum"] - seed_definition["minimum"] + 1
+        with patch("backend.app.workflow_registry.secrets.randbelow", return_value=expected_span - 1) as randbelow:
+            normalized = normalize_options(mode, {"seed": seed_definition["maximum"] + 1})
+        randbelow.assert_called_once_with(expected_span)
+        self.assertEqual(normalized["seed"], seed_definition["maximum"])
+
     def test_generation_stage_follows_workflow_family(self) -> None:
         self.assertEqual(generation_stage(JobMode.MINIMAX_H3_LIGHTX2V_I2V), "LightX2V 正在生成视频")
         self.assertEqual(generation_stage(JobMode.MINIMAX_H3_LIGHTX2V_T2V), "LightX2V 正在生成视频")

@@ -1135,7 +1135,9 @@ def _normalize_schema_options(
     normalized: dict[str, Any] = {}
     for name, definition in definitions.items():
         if name == "seed":
-            normalized[name] = secrets.randbelow(2**63 - 1)
+            minimum = int(definition.get("minimum", 0))
+            maximum = int(definition.get("maximum", 2**63 - 2))
+            normalized[name] = minimum + secrets.randbelow(maximum - minimum + 1)
             continue
         value = raw.get(name, definition.get("default"))
         value_type = definition.get("type")
