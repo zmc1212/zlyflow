@@ -1478,3 +1478,7 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 ## 2026-09-08 局部连续性修复闭环
 
 新增 `POST /api/llm/repair-continuity`。后端仅接收当前 Recipe 与相邻镜头号，调用连续性修复模型并原子应用连续性字段，随后重新执行 QA。前端桌面、移动端和时间线检查器统一调用该接口，并只合并连续性字段，保留本地对白、时长、相机、素材和生成状态。验证：`python -m unittest backend.tests.test_director -q`、`pnpm --dir frontend build`。回滚：移除接口调用并保留旧 QA 展示。
+
+## 2026-09-08 H3 分辨率质量档位优先
+
+旧任务或导演草稿可能保留内部 `megapixels=0.4`，但用户可见的 `quality` 已选择 `0.9`。`h3_dimensions()` 现在以质量档位为权威值，只有缺少可识别 `quality` 时才回退到 legacy MP；不改 API、数据库、节点 ID、模型路径或端口。验证：`python -m unittest backend.tests.test_core.WorkflowTests.test_h3_dimensions_prioritize_quality_over_stale_internal_megapixels -q`、`pnpm --dir frontend build`。回滚：恢复相关后端与测试文件。

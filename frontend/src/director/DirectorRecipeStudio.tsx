@@ -86,7 +86,7 @@ import {
   mergeInsertedDirectorAssets, shouldPreserveLocalDirectorContent, type DirectorContentConflict,
 } from "./director-project-controller"
 import {
-  directorOperationFailedAgents, directorOperationIsActive, directorOperationStorageKey,
+  conflictingDirectorOperationId, directorOperationFailedAgents, directorOperationIsActive, directorOperationStorageKey,
   directorOperationTargetShotIds,
 } from "./director-operation-controller"
 
@@ -865,6 +865,19 @@ export default function DirectorRecipeStudio({
     setActiveOperationId(operation.id)
   }
 
+  async function resumeConflictingDirectorOperation(error: unknown): Promise<boolean> {
+    const operationId = conflictingDirectorOperationId(error)
+    if (!operationId) return false
+    try {
+      const operation = await getDirectorOperation(operationId)
+      rememberDirectorOperation(operation)
+      messageApi.info("已恢复正在执行的导演操作")
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function handleCancelActiveOperation() {
     if (!activeOperationId) return
     try {
@@ -987,6 +1000,7 @@ export default function DirectorRecipeStudio({
       }, csrfToken)
       rememberDirectorOperation(operation)
     } catch (error) {
+      if (await resumeConflictingDirectorOperation(error)) return
       notifyFailure(error, "分镜生成失败")
       runStartedAtRef.current = 0
       setRunning(false)

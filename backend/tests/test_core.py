@@ -146,6 +146,23 @@ class WorkflowTests(unittest.TestCase):
             options = normalize_options(JobMode.MINIMAX_H3_T2V, {"aspect_ratio": "16:9", "quality": quality})
             self.assertEqual(h3_dimensions(options), expected)
 
+    def test_h3_dimensions_prioritize_quality_over_stale_internal_megapixels(self) -> None:
+        options = normalize_options(
+            JobMode.MINIMAX_H3_LIGHTX2V_R2V,
+            {"aspect_ratio": "16:9", "quality": "0.9"},
+        )
+        options["megapixels"] = 0.4
+        self.assertEqual(h3_dimensions(options), (1280, 736))
+        workflow = build_minimax_h3_lightx2v_workflow(
+            JobMode.MINIMAX_H3_LIGHTX2V_R2V,
+            "Use <Picture 1>.",
+            ["reference.png"],
+            options,
+            42,
+        )
+        self.assertEqual(workflow["5"]["inputs"]["width"], 1280)
+        self.assertEqual(workflow["5"]["inputs"]["height"], 736)
+
     def test_minimax_h3_quality_presets_map_to_internal_megapixels_and_accept_legacy_mp(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_T2V, {"quality": "0.98"})
         self.assertEqual(options["quality"], "0.98")

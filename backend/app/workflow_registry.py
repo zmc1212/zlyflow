@@ -1208,7 +1208,13 @@ def h3_dimensions(options: dict[str, Any]) -> tuple[int, int]:
     # Keep the workbench calculation byte-for-byte compatible with ComfyUI's
     # ResolutionSelector: MP is based on 1024² and each side is rounded to the
     # configured 32-pixel alignment grid.
-    area = options["megapixels"] * 1024 * 1024
+    # `megapixels` is an internal compatibility field. Older saved drafts and
+    # director payloads can retain its default while the user-facing quality
+    # has already changed, so the quality preset must be authoritative.
+    quality = options.get("quality")
+    quality_megapixels = H3_STANDARD_RESOLUTION_PRESETS.get(str(quality)) if quality is not None else None
+    megapixels = quality_megapixels if quality_megapixels is not None else options["megapixels"]
+    area = megapixels * 1024 * 1024
     if not math.isfinite(area * ratio) or not math.isfinite(area / ratio):
         raise ValueError("MiniMax H3 aspect ratio is outside the supported numeric range")
     width = round(math.sqrt(area * ratio) / 32) * 32

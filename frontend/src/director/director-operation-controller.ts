@@ -1,4 +1,5 @@
 import type { DirectorOperationResponse } from "./director-api"
+import { ApiRequestError } from "../api"
 import type { RecipeProject, RecipeShot } from "./recipe-model"
 
 export function directorOperationStorageKey(projectId: string): string {
@@ -7,6 +8,12 @@ export function directorOperationStorageKey(projectId: string): string {
 
 export function directorOperationIsActive(operation: DirectorOperationResponse | undefined): boolean {
   return operation?.status === "queued" || operation?.status === "running"
+}
+
+export function conflictingDirectorOperationId(error: unknown): string | null {
+  if (!(error instanceof ApiRequestError) || error.status !== 409) return null
+  const match = error.message.match(/工程已有未完成的导演操作：(director-op-[a-f0-9]+)/i)
+  return match?.[1] || null
 }
 
 export function directorOperationTargetShotIds(
