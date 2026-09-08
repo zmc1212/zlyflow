@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, Button, Input, Modal, Select, Switch, Table, Tag, message } from "antd"
 import { CheckCircle2, Cloud, KeyRound, Plus, RefreshCw, WalletCards } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
 import { jsonMutation, requestJson } from "../api"
 
 type ProviderConfig = {
