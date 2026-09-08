@@ -620,6 +620,8 @@ export function compileRecipeShotPreview(
   const prefix = (recipe.artStyle?.promptPrefix || "").trim()
   let body = (resolved.promptText || resolved.description || "").trim()
   body = normalizeIndependentShotPrompt(body)
+  const action = resolved.description?.trim()
+  if (action && !body.includes(action)) body = `${action}\n${body}`.trim()
   const handoff = continuityBoundaryText(resolved)
   body = [handoff.opening, body, handoff.closing].filter(Boolean).map((part) => part.replace(/[. ]+$/, "")).join(". ")
   const visual = prefix ? `${prefix.replace(/[. ]+$/, "")}. ${body}`.trim() : body
@@ -629,6 +631,7 @@ export function compileRecipeShotPreview(
     title: resolved.title,
     prompt: visual,
     dialogue: resolved.dialogue,
+    dialogueLines: resolved.dialogueLines,
     durationSec: snapH3DurationSec(resolved.durationSec || 5),
     soundscape: englishAudioText([resolved.soundscapeEn, resolved.soundscape], ""),
     camera: resolved.camera || defaultCameraDirection(),

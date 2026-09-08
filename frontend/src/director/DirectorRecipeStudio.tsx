@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Spin, Switch, Tag, Tooltip, Typography, message,
+  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography, message,
 } from "antd"
 import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -12,6 +12,12 @@ import JobErrorNotice from "./components/JobErrorNotice"
 import DirectorExportPanel from "./components/DirectorExportPanel"
 import DirectorStageNav from "./components/DirectorStageNav"
 import DirectorTaskHeader from "./components/DirectorTaskHeader"
+import { useDirectorProjectSession } from "./useDirectorProjectSession"
+import { useDirectorOperation } from "./useDirectorOperation"
+import DirectorProductionSettings from "./components/DirectorProductionSettings"
+import { recipeShotFlow, recipeStageFlow } from "./recipe-flow"
+import { recipeShotVideoUrl } from "./recipe-timeline"
+import "./guided-flow.css"
 import DirectorTimelineView from "./components/DirectorTimelineView"
 import RecipeShotInspector from "./components/RecipeShotInspector"
 import { CharacterAssetCard, SimpleRenditionAssetCard, type RecipeAssetTargetKind } from "./components/RecipeAssetWorkbench"
@@ -65,7 +71,7 @@ import {
   type RecipeProject, type RecipeShot,
 } from "./recipe-model"
 import {
-  DIRECTOR_RECIPE_VIEW_LABELS, RECIPE_STAGE_GROUPS, parseRecipeStage, recipeReadiness,
+  DIRECTOR_RECIPE_VIEW_LABELS, RECIPE_STAGE_GROUPS, parseRecipeStage, recipeReadiness, recipeAssetIsAdopted,
   resolveDirectorRecipeView, type DirectorRecipeView, type RecipeStageId,
 } from "./recipe-readiness"
 import { DEFAULT_DIRECTOR_WORKFLOW_FAMILY, directorWorkflowFamilies } from "./director-workflows"
@@ -77,6 +83,8 @@ import {
   reconcileShotJobExecution,
 } from "./recipe-execution"
 import { mergeContinuityRepair } from "./recipe-continuity"
+import ManualStoryboardModal from "./components/ManualStoryboardModal"
+import { parseManualStoryboard } from "./manual-import"
 import {
   formatSimpleAssetStageSummary,
   simpleAssetStageCounts,
@@ -293,12 +301,11 @@ export default function DirectorRecipeStudio({
   const notifyFailure = (error: unknown, fallback: string) => {
     messageApi.error(directorFailureMessage(error, fallback))
   }
-  const operationStorageKey = directorOperationStorageKey(projectId)
+  const { operationStorageKey, activeOperationId, setActiveOperationId, handledOperationIdsRef, operationToastKeysRef, operationQuery } = useDirectorOperation(projectId)
   const [searchParams, setSearchParams] = useSearchParams()
   const [goal, setGoal] = useState("")
   const [recipe, setRecipe] = useState<RecipeProject>(() => createEmptyRecipe())
   const [running, setRunning] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
   const [boardMode, setBoardMode] = useState<BoardMode>("preview")
   const promptPolishStorageKey = `director.prompt-polish:${projectId}`
   const [polishPrompt, setPolishPrompt] = useState(() => {
@@ -309,6 +316,8 @@ export default function DirectorRecipeStudio({
   const [checkedShotIds, setCheckedShotIds] = useState<string[]>([])
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [libraryDrawerOpen, setLibraryDrawerOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
+  const [assetTab, setAssetTab] = useState("characters")
   const [playerOpen, setPlayerOpen] = useState(false)
   const [jianyingOpen, setJianyingOpen] = useState(false)
   const activeStage = parseRecipeStage(searchParams.get("stage")) ?? "script"
@@ -318,27 +327,19 @@ export default function DirectorRecipeStudio({
   const [previewingCharacterId, setPreviewingCharacterId] = useState<string | null>(null)
   const [submittingShotIds, setSubmittingShotIds] = useState<string[]>([])
   const [submittingStillIds, setSubmittingStillIds] = useState<string[]>([])
+  const [manualImportBusy, setManualImportBusy] = useState(false)
+  const [manualImportOpen, setManualImportOpen] = useState(false)
   const [skeletonCount, setSkeletonCount] = useState(0)
   const [elapsedSec, setElapsedSec] = useState(0)
-  const [activeOperationId, setActiveOperationId] = useState<string | null>(() => (
-    typeof window === "undefined" ? null : window.localStorage.getItem(operationStorageKey)
-  ))
-  const [contentConflict, setContentConflict] = useState<DirectorContentConflict | null>(null)
   const runStartedAtRef = useRef(0)
   const recipeRef = useRef(recipe)
   const goalRef = useRef(goal)
-  const saveTimerRef = useRef<number | null>(null)
-  const boardAutoRunRef = useRef(false)
-  const projectRevisionRef = useRef(0)
-  const contentRevisionRef = useRef(0)
-  const editVersionRef = useRef(0)
-  const savedEditVersionRef = useRef(0)
-  const saveInFlightRef = useRef<Promise<boolean> | null>(null)
-  const conflictRef = useRef<DirectorContentConflict | null>(null)
-  const handledOperationIdsRef = useRef(new Set<string>())
-  const operationToastKeysRef = useRef(new Map<string, string>())
   const deletedTakeIdsRef = useRef(new Set<string>())
+  const { saveStatus, setSaveStatus, contentConflict, setContentConflict, saveTimerRef, projectRevisionRef, contentRevisionRef, editVersionRef, savedEditVersionRef, conflictRef, persistNow, scheduleSave, flushSave } = useDirectorProjectSession({ projectId, csrfToken, recipeRef, goalRef, runStartedAtRef, deletedTakeIdsRef, notifyFailure })
   const isMobile = useIsMobile()
+  const compactInspector = useIsMobile("(max-width: 1199px)")
+  const returnStageRef = useRef<RecipeStageId | null>(null)
+  const returnScrollRef = useRef({ main: 0, shots: 0 })
   const activeView = resolveDirectorRecipeView(searchParams.get("view"), { mobile: isMobile })
   const isTimelineView = activeView === "timeline"
   const assetGenerationActive = recipeHasActiveAssetJobs(recipe)
@@ -348,13 +349,6 @@ export default function DirectorRecipeStudio({
     queryKey: ["director-project", projectId],
     queryFn: () => getDirectorProject(projectId),
     refetchInterval: running || assetGenerationActive || shotGenerationActive || submittingShotIds.length > 0 || submittingStillIds.length > 0 ? 1500 : false,
-  })
-  const operationQuery = useQuery({
-    queryKey: ["director-operation", activeOperationId],
-    queryFn: () => getDirectorOperation(activeOperationId as string),
-    enabled: Boolean(activeOperationId),
-    refetchInterval: activeOperationId ? 1200 : false,
-    retry: false,
   })
   const stylesQuery = useQuery({
     queryKey: ["director-art-styles"],
@@ -419,6 +413,15 @@ export default function DirectorRecipeStudio({
       } else {
         const targets = directorOperationTargetShotIds(operation, flattenRecipeShots(recipeRef.current))
         setSubmittingShotIds((current) => Array.from(new Set([...current, ...targets])))
+        const toastKey = operationToastKeysRef.current.get(operation.id)
+        if (toastKey && operation.result?.message) {
+          messageApi.open({
+            type: "loading",
+            content: operation.result.message as string,
+            key: toastKey,
+            duration: 0,
+          })
+        }
       }
       return
     }
@@ -629,7 +632,7 @@ export default function DirectorRecipeStudio({
   recipeRef.current = recipe
   goalRef.current = goal
   const renderPass: RenderPass = (boardMode === "final" || boardMode === "custom") ? "final" : "preview"
-  const completedShots = shots.filter((shot) => shot.status === "succeeded" && shot.outputVideoUrl)
+  const completedShots = shots.filter(shotIsMuxable).map((shot) => ({ ...shot, outputVideoUrl: recipeShotVideoUrl(shot) || undefined }))
   const failedShotIds = shots.filter((shot) => {
     if (boardMode === "still") {
       const stillJob = allJobs.find((entry) => entry.id === shot.stillJobId)
@@ -654,6 +657,8 @@ export default function DirectorRecipeStudio({
     [modesQuery.data],
   )
   const workflowFamilyId = recipe.videoWorkflowFamily || DEFAULT_DIRECTOR_WORKFLOW_FAMILY
+  const productionModeId = workflowFamilies.find((item) => item.id === workflowFamilyId)?.routes.t2v
+  const productionControls = modesQuery.data?.modes.find((item) => item.id === productionModeId)?.director_controls || []
   const workflowFamilyOptions = useMemo(() => {
     const options = workflowFamilies.map((item) => ({ value: item.id, label: item.label }))
     if (workflowFamilyId && !options.some((item) => item.value === workflowFamilyId)) {
@@ -674,10 +679,6 @@ export default function DirectorRecipeStudio({
       return next.length === current.length ? current : next
     })
   }, [checkedShotIds, selectedShotId, visibleShots])
-
-  useEffect(() => () => {
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
-  }, [])
 
   const completedAgents = recipe.agentStatus.filter((item) => item.status === "completed").length
   const pipeline = recipePipelineProgress(recipe.agentStatus, recipe.pipelineRun, AGENT_ORDER)
@@ -716,72 +717,6 @@ export default function DirectorRecipeStudio({
     return () => window.clearInterval(timer)
   }, [generatingBoard, skeletonTarget])
 
-  async function persistNow(_next = recipeRef.current, extra?: { title?: string; source_script?: string }) {
-    if (runStartedAtRef.current) return true
-    if (conflictRef.current) return false
-    if (saveInFlightRef.current) await saveInFlightRef.current
-    if (runStartedAtRef.current) return true
-    if (conflictRef.current) return false
-
-    const snapshot = recipeRef.current
-    const snapshotEditVersion = editVersionRef.current
-    const request = (async () => {
-      setSaveStatus("saving")
-      try {
-        const row = await updateDirectorProjectRecord(projectId, {
-          title: extra?.title?.trim() || snapshot.script.title.trim() || "未命名导演工程",
-          summary: snapshot.script.summary,
-          source_script: extra?.source_script ?? goalRef.current,
-          payload: snapshot,
-          deleted_take_ids: Array.from(deletedTakeIdsRef.current),
-          ...(contentRevisionRef.current > 0
-            ? { expected_content_revision: contentRevisionRef.current }
-            : {}),
-        }, csrfToken)
-        projectRevisionRef.current = row.revision
-        contentRevisionRef.current = row.content_revision
-        savedEditVersionRef.current = Math.max(savedEditVersionRef.current, snapshotEditVersion)
-        setSaveStatus(editVersionRef.current === snapshotEditVersion ? "saved" : "idle")
-        return true
-      } catch (error) {
-        const remote = readDirectorContentConflict(error)
-        if (remote) {
-          const conflict = { remote }
-          conflictRef.current = conflict
-          setContentConflict(conflict)
-          setSaveStatus("failed")
-          return false
-        }
-        setSaveStatus("failed")
-        notifyFailure(error, "保存失败")
-        return false
-      }
-    })()
-    saveInFlightRef.current = request
-    try {
-      return await request
-    } finally {
-      if (saveInFlightRef.current === request) saveInFlightRef.current = null
-    }
-  }
-
-  function scheduleSave() {
-    editVersionRef.current += 1
-    if (runStartedAtRef.current || conflictRef.current) return
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = window.setTimeout(() => {
-      saveTimerRef.current = null
-      void persistNow()
-    }, 800)
-  }
-
-  async function flushSave() {
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = null
-    }
-    return persistNow()
-  }
 
   function loadRemoteConflictVersion() {
     if (!contentConflict) return
@@ -851,11 +786,24 @@ export default function DirectorRecipeStudio({
   function setActiveView(view: DirectorRecipeView) {
     if (isMobile) return
     if (view === "timeline") {
-      patchStudioSearch({ view: "timeline", stage: "shots" })
+      returnStageRef.current = activeStage
+      returnScrollRef.current = { main: document.querySelector(".director-recipe-main")?.scrollTop || 0, shots: document.querySelector(".director-shot-list")?.scrollTop || 0 }
+      patchStudioSearch({ view: "timeline" })
       return
     }
-    patchStudioSearch({ view: "plan" })
+    patchStudioSearch({ view: "plan", stage: returnStageRef.current || activeStage })
   }
+
+  useEffect(() => {
+    if (isTimelineView || !returnStageRef.current) return
+    const frame = requestAnimationFrame(() => {
+      const main = document.querySelector(".director-recipe-main")
+      const shots = document.querySelector(".director-shot-list")
+      if (main) main.scrollTop = returnScrollRef.current.main
+      if (shots) shots.scrollTop = returnScrollRef.current.shots
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [isTimelineView])
 
   function rememberDirectorOperation(operation: DirectorOperationResponse, toastKey?: string) {
     handledOperationIdsRef.current.delete(operation.id)
@@ -901,7 +849,6 @@ export default function DirectorRecipeStudio({
     }
     const saved = await flushSave()
     if (!saved) return
-    boardAutoRunRef.current = true
     setRunning(true)
     runStartedAtRef.current = Date.now()
     setRecipe((current) => startLocalPipelineRun(
@@ -968,6 +915,10 @@ export default function DirectorRecipeStudio({
     if (!options?.force && !isPlaceholderRecipeBoard(currentShots, idea, story)) {
       return
     }
+    if (options?.force && !isPlaceholderRecipeBoard(currentShots, idea, story)) {
+      const confirmed = await confirmHeavyAction({ title: "重新生成分镜", countLabel: `将替换现有 ${currentShots.length} 个镜头的分镜结构。`, costLabel: "已有镜头的媒体关联可能失效；原任务媒体不会被删除。" })
+      if (!confirmed) return
+    }
     if (activeOperationId) {
       messageApi.warning("已有导演操作正在执行，请完成或取消后再试")
       return
@@ -985,7 +936,6 @@ export default function DirectorRecipeStudio({
     }
     const saved = await persistNow(current)
     if (!saved) return
-    boardAutoRunRef.current = true
     setActiveStage("storyboard")
     setRunning(true)
     runStartedAtRef.current = Date.now()
@@ -1008,24 +958,9 @@ export default function DirectorRecipeStudio({
   }
 
   function handleStageChange(stage: RecipeStageId) {
-    if (stage === "shots" && !isMobile) {
-      patchStudioSearch({ stage, view: "timeline" })
-    } else {
-      patchStudioSearch({ stage, view: "plan" })
-    }
-    if ((stage === "storyboard" || stage === "shots") && !boardAutoRunRef.current && projectQuery.isFetched) {
-      boardAutoRunRef.current = true
-      void handleGenerateStoryboard()
-    }
+    if (stage === "characters") setAssetTab("characters")
+    patchStudioSearch({ stage, view: "plan" })
   }
-
-  useEffect(() => {
-    if (activeStage !== "storyboard" && activeStage !== "shots") return
-    if (boardAutoRunRef.current) return
-    if (!projectQuery.isFetched || projectQuery.isError) return
-    boardAutoRunRef.current = true
-    void handleGenerateStoryboard()
-  }, [activeStage, projectQuery.isError, projectQuery.isFetched])
 
   useEffect(() => {
     const raw = searchParams.get("view")
@@ -1348,13 +1283,18 @@ export default function DirectorRecipeStudio({
 
   function shotBoardState(shot: RecipeShot) {
     const submitting = submittingShotIds.includes(shot.id)
+    const operation = operationQuery.data
+    const message = operation?.kind === "shot_render_prepare" && operation.result?.message
+      ? operation.result.message as string
+      : polishPrompt ? "正在润色提示词并提交…" : "正在使用当前提示词提交…"
+
     return overlaySubmittingState(
       shotGenerationState(allJobs.find((entry) => entry.id === shot.jobId), shot.outputVideoUrl, shot.jobId, {
         status: shot.status,
         progress: shot.progress,
       }),
       submitting,
-      polishPrompt ? "正在润色提示词并提交…" : "正在使用当前提示词提交…",
+      message,
     )
   }
 
@@ -1708,7 +1648,13 @@ export default function DirectorRecipeStudio({
 
   async function requestMux() {
     const count = shots.filter(shotIsMuxable).length
-    const ok = await confirmHeavyAction(muxBatchConfirm(count))
+    const excluded = shots.filter((shot) => !shotIsMuxable(shot))
+    const confirmation = muxBatchConfirm(count)
+    const ok = await confirmHeavyAction(excluded.length ? {
+      ...confirmation,
+      title: `仅导出可用镜头（${count}）`,
+      countLabel: `将导出 ${count} 镜；排除 ${excluded.map((shot) => `#${shot.shotNumber} ${shot.title}`).join("、")}。`,
+    } : confirmation)
     if (!ok) return
     await handleMux()
   }
@@ -1767,6 +1713,39 @@ export default function DirectorRecipeStudio({
     })
   }
 
+  async function importManualStoryboard(file: File) {
+    setManualImportBusy(true)
+    try {
+      const text = await file.text()
+      const result = parseManualStoryboard(text)
+      if (!result.scenes.length) { messageApi.warning(result.warnings[0] || "未识别到分镜"); return }
+      updateRecipe((current) => ({ ...current, scenes: result.scenes, agentStatus: current.agentStatus.map((item) => item.id === "storyboard" ? { ...item, status: "completed", message: "已手动导入分镜" } : item) }))
+      await persistNow()
+      messageApi.success(`已导入 ${result.scenes.reduce((n, scene) => n + scene.shots.length, 0)} 个手动镜头`)
+      if (result.warnings.length) messageApi.warning(result.warnings.slice(0, 2).join("；"))
+    } finally { setManualImportBusy(false) }
+  }
+
+  async function applyManualStoryboard(scenes: any[], mode: "replace" | "append") {
+    if (mode === "replace" && flattenRecipeShots(recipeRef.current).length) {
+      const confirmed = await confirmHeavyAction({ title: "替换现有分镜", countLabel: `将替换当前 ${flattenRecipeShots(recipeRef.current).length} 个镜头。`, costLabel: "当前镜头与已生成媒体的关联将被替换；需要保留时请选择追加导入。原任务媒体不会删除。" })
+      if (!confirmed) return
+    }
+    const merged = mode === "replace" || !recipeRef.current.scenes.length ? scenes : [...recipeRef.current.scenes, ...scenes]
+    let number = 1
+    const normalized = merged.map((scene: any, si: number) => ({ ...scene, sceneNumber: si + 1, shots: scene.shots.map((shot: any) => ({ ...shot, shotNumber: number++ })) }))
+    const next = { ...recipeRef.current, scenes: normalized }
+    recipeRef.current = next
+    setRecipe(next)
+    scheduleSave()
+    setManualImportOpen(false)
+    const saved = await flushSave()
+    if (!saved) return
+    const total = normalized.reduce((sum: number, scene: any) => sum + scene.shots.reduce((n: number, shot: any) => n + Number(shot.durationSec || 0), 0), 0)
+    messageApi.success(`手动分镜已导入，共 ${number - 1} 镜，${total} 秒`)
+    if (total !== 30) messageApi.warning(`当前总时长为 ${total} 秒，目标为 30 秒，请在时间线调整`)
+  }
+
   async function handleContinuityRepair(fromShot: number, toShot: number) {
     const key = `${fromShot}:${toShot}`
     if (continuityRepairKey) return
@@ -1794,7 +1773,7 @@ export default function DirectorRecipeStudio({
 
   function selectShot(shotId: string) {
     setSelectedShotId(shotId)
-    if (isMobile) setInspectorOpen(true)
+    if (compactInspector) setInspectorOpen(true)
   }
 
   function handleAddShot() {
@@ -1850,8 +1829,8 @@ export default function DirectorRecipeStudio({
     durationSeconds: shot.durationSec,
   }))
   const muxableCount = shots.filter(shotIsMuxable).length
-  const pendingCharacterCount = recipe.characters.filter((item) => !item.imageUrl).length
-  const pendingLocationCount = recipe.locations.filter((item) => !item.imageUrl).length
+  const pendingCharacterCount = recipe.characters.filter((item) => !recipeAssetIsAdopted(item.looks?.[0]?.sheet, item.imageUrl)).length
+  const pendingLocationCount = recipe.locations.filter((item) => !recipeAssetIsAdopted(item.plate, item.imageUrl)).length
   const pendingPropCount = recipe.props.filter((item) => !item.imageUrl).length
   const approvableLocationCount = recipe.locations.filter((item) => (
     Boolean(recipeApprovableAssetVersion(ensureRecipeAssetRendition(item.plate), allJobs))
@@ -1890,7 +1869,7 @@ export default function DirectorRecipeStudio({
   const ttsActionLabel = ttsBatchLabel(dialogueShotCount)
   const muxActionLabel = muxBatchLabel(muxableCount)
   const mobileTitle = recipe.script.title.trim() || "未命名导演工程"
-  const mobilePrimary = running && activeOperationId
+  const legacyPrimary = running && activeOperationId
     ? {
       label: operationQuery.data?.cancel_requested ? "正在取消…" : "取消生成",
       onClick: () => { void handleCancelActiveOperation() },
@@ -1942,6 +1921,30 @@ export default function DirectorRecipeStudio({
         loading: running,
         disabled: running,
       }
+  const stageFlow = recipeStageFlow(recipe, activeStage, goal)
+  const goToStage = (stage: RecipeStageId, label: string) => ({ label, onClick: () => handleStageChange(stage), loading: false, disabled: false })
+  const pendingProductionShots = boardMode === "still" ? visibleShots.filter((shot) => !shot.stillUrl && !["queued", "running"].includes(shot.stillStatus || "idle")) : stageFlow.pending
+  const productionTargets = checkedShotIds.length ? checkedShotIds : pendingProductionShots.map((shot) => shot.id)
+  const mobilePrimary = running && activeOperationId ? legacyPrimary
+    : (activeStage === "storyboard" || activeStage === "shots") && placeholderBoard && !goal.trim() && !recipe.script.fullStory.trim() ? goToStage("script", "先写创意，或在下方导入分镜")
+    : activeStage === "storyboard" && !placeholderBoard ? goToStage("characters", "前往视觉素材")
+    : activeStage === "shots" && !placeholderBoard && !productionTargets.length && !stageFlow.missing.length ? goToStage("voice", "前往声音与交付")
+    : activeStage === "shots" && !placeholderBoard ? {
+      label: checkedShotIds.length ? `生成选中（${productionTargets.length}）` : `生成待处理镜头（${productionTargets.length}）`,
+      onClick: () => { if (productionTargets.length) void requestBoardGenerate(productionTargets) },
+      loading: submittingShotIds.length > 0 || submittingStillIds.length > 0,
+      disabled: !productionTargets.length || running || submittingShotIds.length > 0 || submittingStillIds.length > 0,
+    }
+    : activeStage === "export" && stageFlow.missing.length ? goToStage("shots", "查看未完成镜头")
+    : activeStage === "export" && !shots.length ? goToStage("storyboard", "前往分镜设计")
+    : activeStage === "characters" && assetTab === "props" ? (approvablePropCount ? { label: `采用道具（${approvablePropCount}）`, onClick: () => { void requestApproveSimpleAssets("prop") }, loading: false, disabled: false } : pendingPropCount ? { label: `生成待处理道具（${pendingPropCount}）`, onClick: () => { void handleGenerateProps() }, loading: false, disabled: false } : goToStage("shots", "前往镜头制作"))
+    : activeStage === "characters" && approvableCharacterCount > 0 ? { label: `采用候选素材（${approvableCharacterCount}）`, onClick: () => { void requestApproveCharacters() }, loading: false, disabled: false }
+    : activeStage === "locations" && approvableLocationCount > 0 ? { label: `采用场景（${approvableLocationCount}）`, onClick: () => { void requestApproveSimpleAssets("location") }, loading: false, disabled: false }
+    : (activeStage === "characters" && !pendingCharacterCount && !pendingPropCount) || (activeStage === "locations" && !pendingLocationCount) ? goToStage("shots", "前往镜头制作")
+    : activeStage === "voice" && !dialogueShotCount ? goToStage("music", "无需配音，前往配乐")
+    : activeStage === "music" ? goToStage("export", "前往成片")
+    : planStagePrimary && readiness.script.level === "ready" ? goToStage("storyboard", "前往分镜设计")
+    : legacyPrimary
   const projectDurationSec = visibleShots.reduce((sum, shot) => sum + shot.durationSec, 0)
   const projectMetaLabel = visibleShots.length
     ? `${visibleShots.length} 镜 · ${projectDurationSec} 秒 · ${recipe.aspectRatio}`
@@ -1951,8 +1954,7 @@ export default function DirectorRecipeStudio({
   function handleTopMenu(key: string) {
     if (key === "workspace") onExitDirector?.()
     if (key === "export") {
-      setActiveStage("export")
-      void requestMux()
+      handleStageChange("export")
     }
     if (key === "jianying") setJianyingOpen(true)
   }
@@ -1968,129 +1970,8 @@ export default function DirectorRecipeStudio({
   return (
     <div className="director-recipe-shell !h-0 !min-h-0 flex-1 overflow-hidden" data-director-view={activeView}>
       {messageContextHolder}
-      <DirectorMobileHeader
-        title={mobileTitle}
-        onBack={onBack}
-        menuItems={[
-          { key: "studio", label: "创作工作台", onClick: onExitDirector },
-          { key: "play", label: "串播", disabled: !completedShots.length, onClick: () => setPlayerOpen(true) },
-          { key: "export", label: muxActionLabel, disabled: !muxableCount, onClick: () => { setActiveStage("export"); void requestMux() } },
-          { key: "jianying", label: "剪映", disabled: !completedShots.length, onClick: () => setJianyingOpen(true) },
-        ]}
-      />
-      <header className="director-topbar">
-        <div className="director-project-heading">
-          <button type="button" className="director-back-library" onClick={onBack}><ArrowLeft size={16} />工程库</button>
-          <div className="director-project-identity">
-            <Input
-              variant="borderless"
-              className="director-project-title"
-              disabled={running}
-              value={recipe.script.title}
-              placeholder="未命名导演工程"
-              onChange={(event) => updateRecipe((current) => ({
-                ...current,
-                script: { ...current.script, title: event.target.value },
-              }))}
-            />
-            <div className="director-project-subline">
-              <span>{projectMetaLabel}</span>
-              {saveStatus === "failed" ? (
-                <Tag className="director-project-meta" color="error" onClick={() => { void persistNow() }}>保存失败，重试</Tag>
-              ) : (
-                <Tag
-                  className="director-project-meta"
-                  color={saveStatus === "saving" ? "processing" : saveStatus === "saved" ? "success" : "default"}
-                >
-                  {saveStatus === "saving" ? "保存中" : saveStatus === "saved" ? "已保存" : "自动保存"}
-                </Tag>
-              )}
-            </div>
-          </div>
-        </div>
-        {!isMobile && (
-          <Segmented
-            className="director-view-switch"
-            aria-label="导演台视图"
-            value={activeView}
-            options={[
-              { label: DIRECTOR_RECIPE_VIEW_LABELS.plan, value: "plan" },
-              { label: DIRECTOR_RECIPE_VIEW_LABELS.timeline, value: "timeline" },
-            ]}
-            onChange={(value) => setActiveView(value as DirectorRecipeView)}
-          />
-        )}
-        <Space wrap className="director-top-actions">
-          <ThemeToggle />
-          <Button icon={<Play size={14} />} disabled={!completedShots.length} onClick={() => setPlayerOpen(true)}>串播</Button>
-          <Dropdown
-            trigger={["click"]}
-            menu={{
-              items: [
-                { key: "workspace", label: "返回创作工作台" },
-                { key: "export", label: muxActionLabel, disabled: muxBusy || !muxableCount, icon: <Film size={14} /> },
-                { key: "jianying", label: "剪映导出", disabled: !completedShots.length },
-              ],
-              onClick: ({ key }) => handleTopMenu(key),
-            }}
-          >
-            <Button icon={<MoreHorizontal size={15} />}>更多</Button>
-          </Dropdown>
-          <Tooltip title={PLAN_GENERATION_HINT}>
-            <Button type={planStagePrimary ? "primary" : "default"} icon={<Wand2 size={14} />} loading={running} onClick={handleRun}>
-              {PLAN_GENERATION_LABEL}
-            </Button>
-          </Tooltip>
-          {running && activeOperationId ? (
-            <Button
-              danger
-              loading={Boolean(operationQuery.data?.cancel_requested)}
-              disabled={Boolean(operationQuery.data?.cancel_requested)}
-              onClick={() => { void handleCancelActiveOperation() }}
-            >
-              {operationQuery.data?.cancel_requested ? "正在取消" : "取消生成"}
-            </Button>
-          ) : null}
-        </Space>
-      </header>
-
-      <div
-        className={`director-recipe-layout${isTimelineView ? " is-timeline-view" : ""}`}
-        aria-busy={running}
-        {...(isTimelineView ? { role: "region" as const, "aria-label": "剪辑视图" } : {})}
-      >
-        {isTimelineView ? null : (
-        <aside className="director-recipe-rail">
-          <section className="director-brief-card" aria-labelledby="director-brief-title">
-            <div className="director-brief-head">
-              <span><Wand2 size={15} /><strong id="director-brief-title">创意简报</strong></span>
-              <em>{goal.trim().length} 字</em>
-            </div>
-            <Input.TextArea
-              value={goal}
-              readOnly={running}
-              onChange={(event) => {
-                const value = event.target.value
-                setGoal(value)
-                goalRef.current = value
-                scheduleSave()
-              }}
-              autoSize={{ minRows: 4, maxRows: 8 }}
-              placeholder="例如：雨夜里侦探穿过霓虹暗巷，追上一个撑红伞的女人。"
-            />
-            <p>生成方案只整理创意，不会自动消耗定妆、视频或配音额度。</p>
-          </section>
-          <DirectorStageNav
-            activeStage={activeStage}
-            readiness={readiness}
-            defaultOpenGroups={
-              isMobile
-                ? [RECIPE_STAGE_GROUPS.find((group) => (group.stages as readonly RecipeStageId[]).includes(activeStage))?.id || "plan"]
-                : RECIPE_STAGE_GROUPS.map((group) => group.id)
-            }
-            onSelect={handleStageChange}
-          />
-          <Collapse
+<Drawer title="任务活动" open={activityOpen} onClose={() => setActivityOpen(false)} size={isMobile ? "100%" : 480}>          <Collapse
+            defaultActiveKey={["agents"]}
             ghost
             className="director-agent-collapse"
             items={[{
@@ -2144,6 +2025,131 @@ export default function DirectorRecipeStudio({
                 </>
               ),
             }]}
+          /></Drawer>
+      <ManualStoryboardModal open={manualImportOpen} onCancel={() => setManualImportOpen(false)} onImport={applyManualStoryboard} />
+      <DirectorMobileHeader
+        title={mobileTitle}
+        onBack={onBack}
+        menuItems={[
+          { key: "activity", label: "任务活动", onClick: () => setActivityOpen(true) },
+          { key: "studio", label: "创作工作台", onClick: onExitDirector },
+          { key: "play", label: "串播", disabled: !completedShots.length, onClick: () => setPlayerOpen(true) },
+          { key: "export", label: "查看成片与交付", onClick: () => handleStageChange("export") },
+          { key: "jianying", label: "剪映", disabled: !completedShots.length, onClick: () => setJianyingOpen(true) },
+        ]}
+      />
+      <header className="director-topbar">
+        <div className="director-project-heading">
+          <button type="button" className="director-back-library" onClick={onBack}><ArrowLeft size={16} />工程库</button>
+          <div className="director-project-identity">
+            <Input
+              variant="borderless"
+              className="director-project-title"
+              disabled={running}
+              value={recipe.script.title}
+              placeholder="未命名导演工程"
+              onChange={(event) => updateRecipe((current) => ({
+                ...current,
+                script: { ...current.script, title: event.target.value },
+              }))}
+            />
+            <div className="director-project-subline">
+              <span>{projectMetaLabel}</span>
+              {contentConflict ? <Tag color="error">存在冲突</Tag> : saveStatus === "failed" ? (
+                <Tag className="director-project-meta" color="error" onClick={() => { void persistNow() }}>保存失败，重试</Tag>
+              ) : (
+                <Tag
+                  className="director-project-meta"
+                  color={saveStatus === "saving" ? "processing" : saveStatus === "saved" ? "success" : "default"}
+                >
+                  {saveStatus === "saving" ? "保存中" : saveStatus === "saved" ? "已保存" : "自动保存"}
+                </Tag>
+              )}
+            </div>
+          </div>
+        </div>
+        {!isMobile && (isTimelineView || activeStage === "shots" || activeStage === "export") && (
+          <Segmented
+            className="director-view-switch"
+            aria-label="导演台视图"
+            value={activeView}
+            options={[
+              { label: DIRECTOR_RECIPE_VIEW_LABELS.plan, value: "plan" },
+              { label: DIRECTOR_RECIPE_VIEW_LABELS.timeline, value: "timeline" },
+            ]}
+            onChange={(value) => setActiveView(value as DirectorRecipeView)}
+          />
+        )}
+        <Space wrap className="director-top-actions">
+          <Button onClick={() => setActivityOpen(true)}>任务活动{running ? " · 进行中" : ""}</Button>
+          <ThemeToggle />
+          <Button icon={<Play size={14} />} disabled={!completedShots.length} onClick={() => setPlayerOpen(true)}>串播</Button>
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                { key: "workspace", label: "返回创作工作台" },
+                { key: "export", label: "查看成片与交付", icon: <Film size={14} /> },
+                { key: "jianying", label: "剪映导出", disabled: !completedShots.length },
+              ],
+              onClick: ({ key }) => handleTopMenu(key),
+            }}
+          >
+            <Button icon={<MoreHorizontal size={15} />}>更多</Button>
+          </Dropdown>
+          {planStagePrimary && <Tooltip title={PLAN_GENERATION_HINT}>
+            <Button type={planStagePrimary ? "primary" : "default"} icon={<Wand2 size={14} />} loading={running} onClick={handleRun}>
+              {PLAN_GENERATION_LABEL}
+            </Button>
+          </Tooltip>}
+          {running && activeOperationId ? (
+            <Button
+              danger
+              loading={Boolean(operationQuery.data?.cancel_requested)}
+              disabled={Boolean(operationQuery.data?.cancel_requested)}
+              onClick={() => { void handleCancelActiveOperation() }}
+            >
+              {operationQuery.data?.cancel_requested ? "正在取消" : "取消生成"}
+            </Button>
+          ) : null}
+        </Space>
+      </header>
+
+      <div
+        className={`director-recipe-layout${isTimelineView ? " is-timeline-view" : ""}`}
+        aria-busy={running}
+        {...(isTimelineView ? { role: "region" as const, "aria-label": "剪辑视图" } : {})}
+      >
+        {isTimelineView ? null : (
+        <aside className="director-recipe-rail">
+          {planStagePrimary && <section className="director-brief-card" aria-labelledby="director-brief-title">
+            <div className="director-brief-head">
+              <span><Wand2 size={15} /><strong id="director-brief-title">创意简报</strong></span>
+              <em>{goal.trim().length} 字</em>
+            </div>
+            <Input.TextArea
+              value={goal}
+              readOnly={running}
+              onChange={(event) => {
+                const value = event.target.value
+                setGoal(value)
+                goalRef.current = value
+                scheduleSave()
+              }}
+              autoSize={{ minRows: 4, maxRows: 8 }}
+              placeholder="例如：雨夜里侦探穿过霓虹暗巷，追上一个撑红伞的女人。"
+            />
+            <p>生成方案只整理创意，不会自动消耗定妆、视频或配音额度。</p>
+          </section>}
+          <DirectorStageNav
+            activeStage={activeStage}
+            readiness={readiness}
+            defaultOpenGroups={
+              isMobile
+                ? [RECIPE_STAGE_GROUPS.find((group) => (group.stages as readonly RecipeStageId[]).includes(activeStage))?.id || "plan"]
+                : RECIPE_STAGE_GROUPS.map((group) => group.id)
+            }
+            onSelect={handleStageChange}
           />
         </aside>
         )}
@@ -2155,8 +2161,18 @@ export default function DirectorRecipeStudio({
               readiness={readiness}
               onSelect={handleStageChange}
               compact={shotWorkspaceStage}
+              summary={stageFlow.summary}
+              primary={mobilePrimary}
+              nextStage={stageFlow.nextStage}
             />
           ) : null}
+          {!isTimelineView && activeStage === "script" ? (
+          <Tabs activeKey="script" items={[{ key: "script", label: "剧本" }, { key: "art_style", label: "画风" }]} onChange={(key) => handleStageChange(key as RecipeStageId)} />
+          ) : !isTimelineView && activeStage === "art_style" ? (
+          <Tabs activeKey="art_style" items={[{ key: "script", label: "剧本" }, { key: "art_style", label: "画风" }]} onChange={(key) => handleStageChange(key as RecipeStageId)} />
+          ) : null}
+          {!isTimelineView && (activeStage === "characters" || activeStage === "locations") ? <Tabs activeKey={activeStage === "locations" ? "locations" : assetTab} items={[{ key: "characters", label: "角色" }, { key: "locations", label: "场景" }, { key: "props", label: "道具" }]} onChange={(key) => { handleStageChange(key === "props" ? "characters" : key as RecipeStageId); setAssetTab(key) }} /> : null}
+          {!isTimelineView && ["voice", "music", "export"].includes(activeStage) ? <Tabs activeKey={activeStage} items={[{ key: "voice", label: "配音" }, { key: "music", label: "配乐" }, { key: "export", label: "成片" }]} onChange={(key) => handleStageChange(key as RecipeStageId)} /> : null}
           {!isTimelineView && activeStage === "script" ? (
                   <div className="director-recipe-form">
                     <div className="director-mobile-brief-card">
@@ -2227,6 +2243,7 @@ export default function DirectorRecipeStudio({
           ) : null}
           {!isTimelineView && activeStage === "characters" ? (
                   <div className="director-asset-section">
+                    <div hidden={assetTab === "props"}>
                     <RecipeAssetStageToolbar
                       title={`人物与道具 · ${recipe.characters.length}`}
                       summary={characterStageSummary}
@@ -2237,7 +2254,7 @@ export default function DirectorRecipeStudio({
                               {characterApproveLabel}
                             </Button>
                           ) : null}
-                          <Button type={approvableCharacterCount ? "default" : "primary"} size="small" icon={<ImagePlus size={14} />} onClick={() => { void requestGenerateAssets(recipe.characters.map((item) => item.id), []) }}>
+                          <Button type={!approvableCharacterCount && pendingCharacterCount > 0 ? "primary" : "default"} size="small" icon={<ImagePlus size={14} />} onClick={() => { void requestGenerateAssets(recipe.characters.map((item) => item.id), []) }}>
                             {characterActionLabel}
                           </Button>
                         </Space>
@@ -2270,7 +2287,8 @@ export default function DirectorRecipeStudio({
                       ))}
                       {!recipe.characters.length && <Empty description="生成创作方案或从资产库插入人物、道具" />}
                     </div>
-                    {recipe.props.length ? (
+                    </div>
+                    {assetTab === "props" ? (
                       <div className="director-prop-section">
                         <RecipeAssetStageToolbar
                           title={`道具转面 · ${recipe.props.length}`}
@@ -2289,6 +2307,7 @@ export default function DirectorRecipeStudio({
                           )}
                         />
                         <div className="director-asset-grid director-asset-grid--actions">
+                          {!recipe.props.length ? <Empty description="暂无道具，可从资产库插入或继续制作" ><Button onClick={() => setLibraryDrawerOpen(true)}>从资产库插入</Button></Empty> : null}
                           {recipe.props.map((prop) => (
                             <SimpleRenditionAssetCard
                               key={prop.id}
@@ -2399,189 +2418,25 @@ export default function DirectorRecipeStudio({
           ) : null}
           {!isTimelineView && (activeStage === "storyboard" || activeStage === "shots") ? (
                   <div className="director-shot-section">
-                    <div className="director-shot-commandbar">
-                      <div className="director-shot-command-copy">
-                        <Typography.Title level={5}>输出设置</Typography.Title>
-                        <p className="director-output-hint">
-                          {boardMode === "still"
-                            ? "当前静帧：复用定妆同一 GRS 通道，出图后可设为首帧再出视频"
-                            : boardMode === "preview"
-                              ? `当前预览：分辨率固定 0.4 MP、速度固定快速，用于快速检查镜头效果`
-                              : boardMode === "custom"
-                                ? "自定义模式：分辨率、速度、模型体积均可自由设置，按终稿通道提交"
-                                : outputPreset
-                                  ? `当前终稿 ${outputPreset.width}×${outputPreset.height}`
-                                  : `当前终稿 ${recipe.finalQuality} MP`}
-                          {boardMode === "final" && recipe.finalQuality !== "0.4" ? " · 16GB 显卡请改 0.4 MP 后再出片" : ""}
-                          {boardMode !== "still" ? " · 文生 / 首尾帧 / 多参考按镜头素材自动匹配" : ""}
-                          {activeStage === "shots" ? " · 生成创作方案不会出视频，需在本区提交出片" : ""}
-                        </p>
-                      </div>
-                      <div className="director-output-settings">
-                        <label className="director-setting-field is-workflow">
-                          <span>视频工作流</span>
-                          <Select
-                            aria-label="工作流"
-                            className="director-workflow-select"
-                            value={workflowFamilyId}
-                            options={workflowFamilyOptions}
-                            onChange={(value: string) => updateOutputSettings({ videoWorkflowFamily: value })}
-                            popupMatchSelectWidth={false}
-                          />
-                        </label>
-                        <label className="director-setting-field">
-                          <span>画面比例</span>
-                          <Select
-                            aria-label="画面比例"
-                            value={recipe.aspectRatio}
-                            options={aspectOptions}
-                            onChange={(value: string) => updateOutputSettings({ aspectRatio: value })}
-                            popupMatchSelectWidth={false}
-                          />
-                        </label>
-                        <label className="director-setting-field is-pass">
-                          <span>生成内容</span>
-                          <Segmented
-                            aria-label="渲染档位"
-                            value={boardMode}
-                            options={[
-                              { label: "静帧", value: "still" },
-                              { label: "预览", value: "preview" },
-                              { label: "终稿", value: "final" },
-                              { label: "自定义", value: "custom" },
-                            ]}
-                            onChange={(value) => setBoardMode(value as BoardMode)}
-                          />
-                        </label>
-                        <label className="director-setting-field">
-                          <span>分辨率</span>
-                          <Tooltip
-                            title={boardMode === "preview" ? "预览模式固定 0.4 MP，切换至终稿或自定义后可调整" : undefined}
-                          >
-                            <Select
-                              aria-label="分辨率"
-                              value={recipe.finalQuality}
-                              disabled={boardMode === "preview"}
-                              options={DIRECTOR_FINAL_CANVAS_OPTIONS.map((item) => ({
-                                value: item.quality,
-                                label: item.label,
-                              }))}
-                              onChange={(value: DirectorQuality) => updateOutputSettings({ finalQuality: value })}
-                              popupMatchSelectWidth={false}
-                            />
-                          </Tooltip>
-                        </label>
-                        <label className="director-setting-field">
-                          <span>生成速度</span>
-                          <Tooltip
-                            title={boardMode === "preview" ? "预览模式固定快速生成，切换至终稿或自定义后可调整" : undefined}
-                          >
-                            <Select
-                              aria-label="生成速度"
-                              value={recipe.finalSpeed}
-                              disabled={boardMode === "preview"}
-                              options={DIRECTOR_SPEED_OPTIONS.map((item) => ({
-                                value: item.value,
-                                label: item.label,
-                              }))}
-                              onChange={(value: DirectorSpeed) => updateOutputSettings({ finalSpeed: value })}
-                              popupMatchSelectWidth={false}
-                            />
-                          </Tooltip>
-                        </label>
-                        <label className="director-setting-field">
-                          <span>模型体积</span>
-                          <Select
-                            aria-label="模型体积"
-                            value={recipe.weightProfile || "full"}
-                            options={DIRECTOR_WEIGHT_OPTIONS}
-                            onChange={(value: DirectorWeightProfile) => updateOutputSettings({ weightProfile: value })}
-                            popupMatchSelectWidth={false}
-                          />
-                        </label>
-                        <label className="director-setting-field">
-                          <span>提示词润色</span>
-                          <Tooltip title="开启：提交视频前调用大模型优化 H3 提示词；关闭：直接使用当前镜头提示词。">
-                            <Switch
-                              aria-label="生成前润色提示词"
-                              checked={polishPrompt}
-                              disabled={boardMode === "still"}
-                              onChange={setPolishPrompt}
-                            />
-                          </Tooltip>
-                        </label>
-                      </div>
-                      <div className="director-shot-actions">
-                        {checkedShots.length > 0 ? (
-                          <Button
-                            disabled={running || submittingShotIds.length > 0 || submittingStillIds.length > 0}
-                            onClick={() => { void requestBoardGenerate(checkedShotIds, "生成选中") }}
-                          >
-                            生成选中（{checkedShots.length}）
-                          </Button>
-                        ) : null}
-                        <Dropdown
-                          trigger={["click"]}
-                          menu={{
-                            items: [
-                              {
-                                key: "selected",
-                                label: `生成选中（${checkedShots.length}）`,
-                                disabled: !checkedShots.length || running,
-                              },
-                              {
-                                key: "retry",
-                                label: `仅重试失败项（${failedShotIds.length}）`,
-                                disabled: !failedShotIds.length || running,
-                              },
-                              {
-                                key: "stop",
-                                label: `停止选中项（${checkedShots.length}）`,
-                                disabled: !checkedShots.length,
-                                danger: true,
-                              },
-                              {
-                                key: "clear",
-                                label: `清空选中（${checkedShots.length}）`,
-                                disabled: !checkedShots.length,
-                              },
-                              {
-                                type: "divider",
-                              },
-                              {
-                                key: "rebuild",
-                                label: placeholderBoard || !visibleShots.length ? "根据剧本生成分镜" : "按剧本重新生成",
-                                disabled: running,
-                              },
-                            ],
-                            onClick: ({ key }) => {
-                              if (key === "selected") void requestBoardGenerate(checkedShotIds, "生成选中")
-                              if (key === "retry") void requestBoardGenerate(failedShotIds, "仅重试失败项")
-                              if (key === "stop") void handleCancelShots(checkedShotIds)
-                              if (key === "clear") setCheckedShotIds([])
-                              if (key === "rebuild") void handleGenerateStoryboard({ force: true })
-                            },
-                          }}
-                        >
-                          <Button icon={<MoreHorizontal size={14} />}>
-                            批量操作{checkedShots.length ? ` · ${checkedShots.length}` : ""}
-                          </Button>
-                        </Dropdown>
-                        <Button
-                          type="primary"
-                          icon={<Clapperboard size={14} />}
-                          loading={submittingShotIds.length > 0 || submittingStillIds.length > 0}
-                          disabled={!visibleShots.length || running}
-                          onClick={() => { void requestBoardGenerate() }}
-                        >
-                          {boardActionLabel}
-                        </Button>
-                      </div>
-                    </div>
+                    {activeStage === "shots" && <DirectorProductionSettings recipe={recipe} controls={productionControls} families={workflowFamilyOptions} family={workflowFamilyId} mode={boardMode} mobile={isMobile} polish={polishPrompt} onMode={setBoardMode} onPolish={setPolishPrompt} onChange={updateOutputSettings} />}
                     {visibleShots.length ? (
+                      <>
+                      <Space wrap className="director-shot-selection-actions">
+                        <Button loading={manualImportBusy} onClick={() => setManualImportOpen(true)}>导入分镜</Button>
+                        {activeStage === "shots" && failedShotIds.length > 0 ? <Button disabled={running} onClick={() => { void requestBoardGenerate(failedShotIds, "仅重试失败项") }}>重试失败镜头（{failedShotIds.length}）</Button> : null}
+                        {checkedShotIds.length > 0 && activeStage === "shots" ? <>
+                          <Button disabled={running} onClick={() => { void requestBoardGenerate(checkedShotIds, "生成选中") }}>生成选中（{checkedShotIds.length}）</Button>
+                          <Button danger onClick={() => { void handleCancelShots(checkedShotIds) }}>停止选中</Button>
+                          <Button onClick={() => setCheckedShotIds([])}>清空选择</Button>
+                        </> : null}
+                        <Dropdown menu={{ items: [{ key: "rebuild", label: "按剧本重新生成分镜", disabled: running }, ...(activeStage === "shots" ? [{ key: "all", label: "重新生成全部镜头", disabled: running }] : [])], onClick: ({ key }) => { if (key === "rebuild") void handleGenerateStoryboard({ force: true }); if (key === "all") void requestBoardGenerate() } }}><Button>更多操作</Button></Dropdown>
+                      </Space>
                       <div className="director-shot-workspace">
                         <aside className="director-shot-bin">
                           <div className="director-shot-bin-toolbar">
+                            <Button size="small" loading={manualImportBusy} onClick={() => setManualImportOpen(true)}>
+                              重新导入分镜
+                            </Button>
                             <Checkbox
                               checked={visibleShots.length > 0 && checkedShotIds.length === visibleShots.length}
                               indeterminate={checkedShotIds.length > 0 && checkedShotIds.length < visibleShots.length}
@@ -2611,7 +2466,8 @@ export default function DirectorRecipeStudio({
                           <div className="director-shot-list">
                             {visibleShots.map((shot) => {
                               const state = shotBoardState(shot)
-                              const displayStatus = state.generating ? state.status : (state.status !== "idle" ? state.status : shot.status)
+                              const flow = recipeShotFlow(shot)
+                              const displayStatus = state.generating ? state.status : flow.status
                               const selected = selectedShot?.id === shot.id
                               const takes = shot.takes || []
                               const latestTake = takes[takes.length - 1]
@@ -2643,7 +2499,7 @@ export default function DirectorRecipeStudio({
                                     </div>
                                     <div className="director-shot-list-title">{shot.title}</div>
                                     <div className="director-shot-list-status">
-                                      <Tag color={directorStatusColor(displayStatus)}>{directorStatusLabel(displayStatus)}</Tag>
+                                      <Tag color={directorStatusColor(displayStatus)}>{flow.label}</Tag>
                                       {shot.stillUrl ? <Tag>静帧</Tag> : null}
                                       {latestTake?.renderPass ? <Tag>{directorRenderPassLabel(latestTake.renderPass)}</Tag> : null}
                                       {shot.approvedTakeId ? <Tag color="success">已批准</Tag> : null}
@@ -2654,7 +2510,7 @@ export default function DirectorRecipeStudio({
                             })}
                           </div>
                         </aside>
-                        {!isMobile && selectedShot ? (
+                        {!compactInspector && selectedShot ? (
                           <RecipeShotInspector
                             key={selectedShot.id}
                             shot={selectedShot}
@@ -2664,8 +2520,12 @@ export default function DirectorRecipeStudio({
                             stillJob={allJobs.find((entry) => entry.id === selectedShot.stillJobId)}
                             takeJobs={allJobs}
                             compareDesktop
+                            focus={activeStage === "storyboard" ? "design" : "production"}
+                            onGoToProduction={() => handleStageChange("shots")}
+                            onGoToVoice={() => handleStageChange("voice")}
                             onChange={(patch) => patchShot(selectedShot.id, patch)}
                             submitting={submittingShotIds.includes(selectedShot.id)}
+                            submittingMessage={operationQuery.data?.kind === "shot_render_prepare" && operationQuery.data.result?.message ? operationQuery.data.result.message as string : undefined}
                             submittingStill={submittingStillIds.includes(selectedShot.id)}
                             onRender={() => { void handleBoardGenerate([selectedShot.id]) }}
                             onGenerateStill={() => { void handleStills([selectedShot.id]) }}
@@ -2679,6 +2539,7 @@ export default function DirectorRecipeStudio({
                           />
                         ) : null}
                       </div>
+                      </>
                     ) : generatingBoard ? (
                       <div className="director-shot-workspace is-generating">
                         <aside className="director-shot-bin">
@@ -2721,7 +2582,7 @@ export default function DirectorRecipeStudio({
                       </div>
                     ) : (
                       <Empty
-                        description={pipelineError ? "分镜生成失败" : "点击分镜后会根据剧本一次性生成全部镜头"}
+                        description={pipelineError ? "分镜生成失败，可重试或导入已有分镜" : "生成或导入已有分镜，开始设计镜头"}
                       >
                         {pipelineError ? <JobErrorNotice error={pipelineError} /> : null}
                         <Button
@@ -2733,12 +2594,14 @@ export default function DirectorRecipeStudio({
                         >
                           根据剧本生成全部分镜
                         </Button>
+                        <Button loading={manualImportBusy} style={{ marginLeft: 8 }} onClick={() => setManualImportOpen(true)}>导入手动分镜（粘贴 Markdown）</Button>
                       </Empty>
                     )}
                   </div>
           ) : null}
           {!isTimelineView && (activeStage === "voice" || activeStage === "music" || activeStage === "export") ? (
                   <DirectorExportPanel
+                    onLocateShot={(id) => { setSelectedShotId(id); handleStageChange("shots") }}
                     recipe={recipe}
                     ttsBusy={ttsBusy}
                     muxBusy={muxBusy}
@@ -2814,9 +2677,9 @@ export default function DirectorRecipeStudio({
       />
       <Drawer
         title={selectedShot ? `#${selectedShot.shotNumber} ${selectedShot.title}` : "分镜"}
-        open={isMobile && inspectorOpen && Boolean(selectedShot)}
+        open={compactInspector && inspectorOpen && Boolean(selectedShot)}
         onClose={() => setInspectorOpen(false)}
-        size="100%"
+        size={isMobile ? "100%" : 640}
         destroyOnHidden
       >
         {selectedShot ? (
@@ -2829,6 +2692,9 @@ export default function DirectorRecipeStudio({
             stillJob={allJobs.find((entry) => entry.id === selectedShot.stillJobId)}
             takeJobs={allJobs}
             compareDesktop={false}
+            focus={activeStage === "storyboard" ? "design" : "production"}
+            onGoToProduction={() => { setInspectorOpen(false); handleStageChange("shots") }}
+            onGoToVoice={() => { setInspectorOpen(false); handleStageChange("voice") }}
             onChange={(patch) => patchShot(selectedShot.id, patch)}
             submitting={submittingShotIds.includes(selectedShot.id)}
             submittingStill={submittingStillIds.includes(selectedShot.id)}

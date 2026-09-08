@@ -19,6 +19,7 @@ import {
   recipePackedPlates, recipeShotPreferredTake,
 } from "../types"
 import { dialogueTimingWarning } from "../dialogue-timing"
+import { recipeShotFlow } from "../recipe-flow"
 
 type JobLike = {
   id: string
@@ -68,6 +69,9 @@ export default function RecipeShotInspector({
   stillJob,
   takeJobs = [],
   compareDesktop = true,
+  focus = "production",
+  onGoToProduction,
+  onGoToVoice,
   onChange,
   onRender,
   onGenerateStill,
@@ -79,6 +83,7 @@ export default function RecipeShotInspector({
   continuityRepairing = false,
   ttsBusy = false,
   submitting = false,
+  submittingMessage,
   submittingStill = false,
 }: {
   shot: RecipeShot
@@ -88,6 +93,9 @@ export default function RecipeShotInspector({
   stillJob?: JobLike
   takeJobs?: JobLike[]
   compareDesktop?: boolean
+  focus?: "design" | "production"
+  onGoToProduction?: () => void
+  onGoToVoice?: () => void
   onChange: (patch: Partial<RecipeShot>) => void
   onRender: () => void
   onGenerateStill: () => void
@@ -99,6 +107,7 @@ export default function RecipeShotInspector({
   continuityRepairing?: boolean
   ttsBusy?: boolean
   submitting?: boolean
+  submittingMessage?: string
   submittingStill?: boolean
 }) {
   const firstInputRef = useRef<HTMLInputElement>(null)
@@ -113,7 +122,7 @@ export default function RecipeShotInspector({
       progress: shot.progress,
     }),
     submitting,
-    "正在润色提示词并提交…",
+    submittingMessage || "正在润色提示词并提交…",
   )
   const stillState = overlaySubmittingState(
     shotGenerationState(stillJob, shot.stillUrl, shot.stillJobId, {
@@ -123,7 +132,8 @@ export default function RecipeShotInspector({
     submittingStill,
     "正在提交静帧…",
   )
-  const displayStatus = state.generating ? state.status : (state.status !== "idle" ? state.status : shot.status)
+  const flow = recipeShotFlow(shot)
+  const displayStatus = state.generating ? state.status : flow.status
   const failed = !state.generating && isDirectorFailedStatus(displayStatus)
   const takes = shot.takes || []
   const approvedId = shot.approvedTakeId || ""
@@ -208,7 +218,7 @@ export default function RecipeShotInspector({
   const continuityPair = recipe.continuityQa?.pairs.find((pair) => pair.toShot === shot.shotNumber)
 
   return (
-    <div className="director-recipe-inspector" style={recipeAspectVars(recipe.aspectRatio)}>
+    <div className={`director-recipe-inspector${focus === "design" ? " is-design-focus" : ""}`} style={recipeAspectVars(recipe.aspectRatio)}>
       {messageContextHolder}
       {continuityPair && (
         <Alert
@@ -273,8 +283,11 @@ export default function RecipeShotInspector({
                   ) : (
                     <>
                       <Clapperboard size={22} />
-                      <strong>还没有成片</strong>
-                      <span>可先出静帧，或改完导演参数后生成这一镜</span>
+                      <strong>{shot.title || "还没有镜头视频"}</strong>
+                      <span>{shot.description || "完善镜头描述后，即可生成这一镜"}</span>
+                      <span>{flow.label}</span>
+                      {flow.error ? <span>{flow.error}</span> : null}
+                      <Button type="primary" onClick={onRender}>{failed ? "重试这一镜" : "生成这一镜"}</Button>
                     </>
                   )}
                 </div>
@@ -294,7 +307,7 @@ export default function RecipeShotInspector({
           </div>
         ) : null}
         <div className="director-inspector-heading">
-          <Tag color={directorStatusColor(displayStatus)}>{directorStatusLabel(displayStatus)}</Tag>
+          <Tag color={directorStatusColor(displayStatus)}>{flow.label}</Tag>
           {shot.stillUrl ? <Tag>静帧</Tag> : null}
           {activeTake?.renderPass ? <Tag>{directorRenderPassLabel(activeTake.renderPass)}</Tag> : null}
           <span>{shot.durationSec}s</span>
@@ -369,7 +382,7 @@ export default function RecipeShotInspector({
           options={[
             { label: "文案", value: "script" },
             { label: "镜头", value: "shot" },
-            { label: "生成", value: "produce" },
+            ...(focus === "production" ? [{ label: "生成", value: "produce" }] : []),
           ]}
           onChange={(value) => setInspectorTab(value as InspectorTab)}
         />
@@ -404,10 +417,16 @@ export default function RecipeShotInspector({
                   <label className="director-inspector-field">
                     <span>对白</span>
                     <Input.TextArea
-                      value={shot.dialogue}
+                      value={shot.dialogueLines?.length ? shot.dialogueLines.map((line) => `${line.speaker}：${line.text}`).join("\n") : shot.dialogue}
                       autoSize={{ minRows: 2, maxRows: 4 }}
                       placeholder="角色说的话"
-                      onChange={(event) => onChange({ dialogue: event.target.value })}
+                      onChange={(event) => {
+                        const lines = event.target.value.split("\n").filter((line) => line.trim()).map((line) => {
+                          const match = line.match(/^([^：:]+)[：:]\s*(.*)$/)
+                          return { speaker: match?.[1] || "the speaker", text: match?.[2] || line }
+                        })
+                        onChange({ dialogue: lines.map((line) => line.text).join("\n"), dialogueLines: lines })
+                      }}
                     />
                     {dialogueDurationHint ? <p>{dialogueDurationHint}</p> : null}
                   </label>
@@ -648,7 +667,7 @@ export default function RecipeShotInspector({
                     )}
                   </section>
                   <section className="director-inspector-compiled">
-                    <strong>即将提交给 MiniMax 的提示词</strong>
+                    <strong>当前分镜编译预览（生成前润色尚未应用）</strong>
                     <div className="director-inspector-heading">
                       <Space size={6} wrap>
                         <Tag color="purple">{workflowRouteLabel(submission.workflowId, submission.plan.route)}</Tag>
@@ -661,7 +680,7 @@ export default function RecipeShotInspector({
                         icon={<Copy size={12} />}
                         onClick={() => {
                           void navigator.clipboard.writeText(submission.prompt)
-                          messageApi.success("已复制即将提交的提示词")
+                          messageApi.success("已复制当前编译预览")
                         }}
                       >
                         复制
@@ -677,6 +696,13 @@ export default function RecipeShotInspector({
                       <p>这一镜没有参考图，会走文生视频结构。</p>
                     )}
                     <pre className="director-compiled-prompt">{submission.prompt || "还没有可编译的镜头正文"}</pre>
+                    <p>开启提示词润色后，服务端会在生成时改写此预览。词数按空白分隔统计，不代表中文字数。</p>
+                    {shot.compiledPrompt ? <>
+                      <strong>最近一次实际提交提示词</strong>
+                      <p>这是最近一次任务的提交快照，不随当前分镜编辑改变；是否经过润色取决于该次生成设置。</p>
+                      <Button size="small" onClick={() => { void navigator.clipboard.writeText(shot.compiledPrompt || ""); messageApi.success("已复制实际提交提示词") }}>复制实际提交提示词</Button>
+                      <pre className="director-compiled-prompt">{shot.compiledPrompt}</pre>
+                    </> : null}
 
                   </section>
                 </div>
@@ -684,7 +710,7 @@ export default function RecipeShotInspector({
         </div>
         <div className="director-inspector-action-bar">
           <JobErrorNotice error={state.error || shot.error} />
-          <Space wrap className="director-inspector-action-buttons">
+          {focus === "design" ? <Button onClick={onGoToProduction}>前往镜头制作</Button> : <Space wrap className="director-inspector-action-buttons">
             <Button loading={stillState.generating} onClick={onGenerateStill}>生成静帧</Button>
             <Button
               disabled={!shot.stillUrl}
@@ -699,8 +725,8 @@ export default function RecipeShotInspector({
             <Button loading={extracting} disabled={!videoUrl || !onExtractEndFrame} onClick={() => { void handleExtractEnd() }}>
               截取尾帧
             </Button>
-            <Button loading={ttsBusy} disabled={!shot.dialogue.trim() || !onGenerateTts} onClick={() => onGenerateTts?.()}>
-              生成本镜配音
+            <Button loading={ttsBusy} disabled={!shot.dialogue.trim() || (!onGoToVoice && !onGenerateTts)} onClick={() => onGoToVoice ? onGoToVoice() : onGenerateTts?.()}>
+              {onGoToVoice ? "前往配音" : "生成本镜配音"}
             </Button>
             {state.generating && onCancelShot ? (
               <Button danger onClick={onCancelShot}>停止生成</Button>
@@ -709,7 +735,7 @@ export default function RecipeShotInspector({
                 {state.generating ? state.label : failed ? "重试这一镜" : "生成这一镜"}
               </Button>
             )}
-          </Space>
+          </Space>}
         </div>
       </div>
     </div>

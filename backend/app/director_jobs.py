@@ -13,6 +13,7 @@ from .config import settings
 from .director_compiler import (
     H3_MAX_REFERENCE_IMAGES,
     apply_recipe_continuity,
+    director_job_options,
     h3_prompt_mode,
     recipe_assets_as_slots,
     recipe_style_prefix,
@@ -1039,8 +1040,9 @@ def render_recipe_shots(
     shot_ids: list[str] | None = None,
     render_pass: str = "final",
     resource_storage: Any | None = None,
-    h3_prompt_refiner: Callable[[str, str], str] | None = None,
+    h3_prompt_refiner: Callable[[str, str, Callable[[str], None] | None], str] | None = None,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
+    on_message: Callable[[str], None] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     recipe = sync_recipe_asset_images(store, recipe, resource_storage=resource_storage)
     wanted = {item for item in (shot_ids or []) if item}
@@ -1090,8 +1092,13 @@ def render_recipe_shots(
             on_progress(recipe)
         if h3_prompt_refiner is not None and (refs or not plan_items):
             try:
+                def prompt_progress(chunk: str) -> None:
+                    if on_message:
+                        shot_prefix = f"镜头 {matched}/{len(wanted)}：" if wanted and len(wanted) > 1 else ""
+                        on_message(f"正在润色{shot_prefix}提示词…（{len(chunk)} 字）")
+                        
                 prompt_mode = h3_prompt_mode(submission.get("plan") or {})
-                polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode)
+                polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode, prompt_progress)
                 polish_errors = validate_h3_polished_prompt(polished_prompt, submission.get("plan") or {})
                 if polish_errors:
                     revision_request = (
@@ -1203,7 +1210,7 @@ def render_batch_items(
             options={
                 "aspect_ratio": aspect,
                 "quality": payload.get("finalQuality") or "1.0",
-                "speed": payload.get("finalSpeed") or "balanced",
+                "speed": director_job_options("final", project=payload)["speed"],
                 "weight_profile": payload.get("weightProfile") or payload.get("weight_profile") or "full",
                 "duration": duration,
             },

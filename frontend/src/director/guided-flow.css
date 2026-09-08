@@ -1,0 +1,50 @@
+.director-stage-actions { flex-shrink: 0; padding: 8px 0 16px; }
+.director-recipe-main.is-shot-workspace .director-task-context.is-compact { background: var(--studio-surface); border-color: var(--studio-border); }
+.director-task-context.is-compact .director-task-copy { display: block; }
+.director-task-context.is-compact .director-task-copy h1 { color: var(--studio-text); font-size: 18px; }
+.director-task-context .director-task-path { display: none; }
+.director-top-actions .ant-btn:not(.ant-btn-primary) > span.ant-btn-icon { display: inline-flex; }
+.director-top-actions .ant-btn:not(.ant-btn-primary) > span:not(.ant-btn-icon) { display: inline; }
+.director-top-actions .ant-btn:not(.ant-btn-primary) { width: auto; padding-inline: 12px; }
+.director-production-form { display: grid; gap: 12px; }
+.director-production-form .director-setting-field { width: 100%; }
+.director-production-form .ant-select { width: 100%; }
+.director-shot-selection-actions { flex-shrink: 0; }
+.director-shot-bin-toolbar { flex-wrap: wrap; }
+.director-recipe-inspector .director-inspector-frame { width: 100%; }
+.director-recipe-inspector .director-inspector-frame.is-empty { width: 100%; min-height: 280px; aspect-ratio: auto; overflow: auto; background: var(--studio-surface-raised); }
+.director-recipe-inspector .director-inspector-empty { position: relative; min-height: 280px; color: var(--studio-text-secondary); }
+.director-recipe-inspector .director-inspector-empty strong { color: var(--studio-text); }
+.director-production-settings { flex-shrink: 0; max-height: 45vh; overflow: auto; }
+.director-export-section { display: flex; flex-direction: column; }
+.director-film-delivery { order: -1; }
+.director-export-runtime { order: 10; }
+.director-recipe-inspector.is-design-focus { grid-template-columns: minmax(0, 1fr); }
+.director-recipe-inspector.is-design-focus .director-inspector-picture { display: none; }
+.director-shot-list-status .ant-tag { white-space: normal; text-align: left; }
+.director-inspector-empty { max-width: 100%; padding: 24px; text-align: center; overflow-wrap: anywhere; }
+.director-inspector-empty > span { max-width: 60ch; }
+.director-task-copy p { color: var(--studio-text-secondary); }
+.director-shot-workspace { grid-template-columns: 200px minmax(0, 1fr); }
+.director-shot-workspace .director-recipe-inspector:not(.is-design-focus) { grid-template-columns: minmax(0, 1fr) 360px; }
+.director-stage-actions .ant-btn:focus-visible,
+.director-shot-list-button:focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 2px; }
+@media (max-width: 767px) {
+  .director-shot-workspace { display: block; width: 100%; }
+  .director-shot-workspace .director-shot-list { display: flex; flex-direction: column; width: 100%; }
+  .director-shot-workspace .director-shot-list-item { width: 100%; min-width: 0; }
+  .director-shot-list-button { width: 100%; min-width: 0; }
+  .director-shot-workspace .director-shot-thumb { max-height: 140px; }
+  .director-recipe-main .director-task-copy p { display: block; }
+  .director-task-copy { padding-right: 0; }
+  .director-task-context { grid-template-columns: 32px minmax(0, 1fr); padding-right: 0; }
+  .director-task-state { position: static; grid-column: 2; }
+  .director-stage-actions .ant-space-item:first-child { display: none; }
+  .director-stage-actions .ant-btn, .director-production-settings .ant-collapse-header,
+  .director-shot-bin-toolbar .ant-btn { min-height: 44px; }
+  .director-recipe-main { min-width: 0; padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+}
+@media (min-width: 768px) and (max-width: 1199px) {
+  .director-shot-workspace { display: block; }
+  .director-shot-workspace .director-shot-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

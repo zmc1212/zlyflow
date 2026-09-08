@@ -41,6 +41,7 @@ class WorkflowDefinition:
         data.pop("grs_profile", None)
         data["reference_labels"] = list(self.reference_labels)
         data["parameters"] = parameter_payload(self)
+        data["director_controls"] = director_controls(self)
         group = CATALOG_GROUPS.get(self.catalog_group, {})
         data["catalog_group_label"] = group.get("label", "")
         data["catalog_group_order"] = int(group.get("order", 100))
@@ -49,6 +50,31 @@ class WorkflowDefinition:
 
 def mode_key(mode: JobMode | str) -> str:
     return mode.value if isinstance(mode, JobMode) else str(mode)
+
+
+def director_controls(definition: WorkflowDefinition) -> list[dict[str, Any]]:
+    """Recipe field bindings are declared here, never inferred by the UI."""
+    if not definition.supports_h3_options:
+        return []
+    properties = (definition.option_schema or H3_STANDARD_OPTION_SCHEMA).get("properties", {})
+    bindings = [
+        ("aspect_ratio", "aspectRatio", "primary", "画面比例"),
+        ("quality", "finalQuality", "advanced", "画质"),
+        ("speed", "finalSpeed", "advanced", "生成质量"),
+    ]
+    result = []
+    for name, field, group, label in bindings:
+        schema = properties.get(name)
+        if not schema:
+            continue
+        choices = schema.get("ui_options") or [{"value": value, "label": str(value)} for value in schema.get("enum", [])]
+        if name == "speed":
+            labels = {"fast": "快速", "balanced": "均衡", "quality": "精细"}
+            choices = [{"value": item["value"], "label": labels[item["value"]]} for item in choices if item["value"] in labels]
+        result.append({"field": field, "option": name, "label": label, "ui_group": group,
+                       "default": schema.get("default"), "options": choices,
+                       "preview_field": {"quality": "previewQuality", "speed": "previewSpeed"}.get(name)})
+    return result
 
 
 def option(label: str, value_type: str, default: Any, *, group: str = "internal", **constraints: Any) -> dict[str, Any]:

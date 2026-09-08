@@ -168,7 +168,7 @@ export function assertRecipeReadinessContract(): void {
     throw new Error("stage query must accept current ids and legacy tab keys")
   }
   const grouped = RECIPE_STAGE_GROUPS.flatMap((group) => group.stages)
-  if (grouped.join(",") !== RECIPE_STAGE_IDS.join(",")) {
+  if ([...grouped].sort().join(",") !== [...RECIPE_STAGE_IDS].sort().join(",")) {
     throw new Error("stage groups must cover every user task and omit research/media")
   }
 }

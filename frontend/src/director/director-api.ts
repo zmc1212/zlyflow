@@ -70,6 +70,7 @@ export type DirectorOperationResponse = {
     render_pass?: "preview" | "final"
   }
   result: {
+    message?: string
     job_ids?: string[]
     failed_agents?: string[]
     project_revision?: number
@@ -196,7 +197,8 @@ export function listWorkflowModes() {
     max_references?: number
     catalog_group?: string
     catalog_group_label?: string
-    catalog_group_order?: number
+      catalog_group_order?: number
+      director_controls?: import("./director-workflows").DirectorControl[]
   }> }>("/api/modes")
 }
 

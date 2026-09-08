@@ -1,4 +1,4 @@
-import { Select, Tag, Tooltip } from "antd"
+import { Button, Select, Space, Tag, Tooltip } from "antd"
 import {
   Clapperboard,
   FileText,
@@ -64,11 +64,17 @@ export default function DirectorTaskHeader({
   readiness,
   onSelect,
   compact = false,
+  summary,
+  primary,
+  nextStage,
 }: {
   activeStage: RecipeStageId
   readiness: RecipeReadiness
   onSelect: (stage: RecipeStageId) => void
   compact?: boolean
+  summary?: string
+  primary?: { label: string; onClick: () => void; loading?: boolean; disabled?: boolean }
+  nextStage?: RecipeStageId
 }) {
   const activeGroup = RECIPE_STAGE_GROUPS.find((group) => (
     (group.stages as readonly RecipeStageId[]).includes(activeStage)
@@ -110,7 +116,7 @@ export default function DirectorTaskHeader({
             {activeGroup.label} · {stagePosition} / {activeGroup.stages.length}
           </span>
           <h1 id="director-active-task-title">{RECIPE_STAGE_LABELS[activeStage]}</h1>
-          {compact ? null : <p>{detail.description}</p>}
+          <p>{summary || detail.description}</p>
         </div>
         <div className="director-task-state">
           <Tag color={RECIPE_READINESS_TAG_COLOR[state.level]}>
@@ -119,6 +125,10 @@ export default function DirectorTaskHeader({
           {state.total > 1 ? <span>{state.done} / {state.total}</span> : null}
         </div>
       </section>
+      <Space wrap className="director-stage-actions">
+        {primary ? <Button type="primary" loading={primary.loading} disabled={primary.disabled} onClick={primary.onClick}>{primary.label}</Button> : null}
+        {nextStage && !primary?.label.startsWith("前往") && !primary?.label.startsWith("查看") ? <Button onClick={() => onSelect(nextStage)}>继续：{RECIPE_STAGE_LABELS[nextStage]}</Button> : null}
+      </Space>
     </>
   )
 }

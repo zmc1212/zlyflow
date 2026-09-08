@@ -94,7 +94,7 @@ export default function DirectorStudioModule({
         message.info("已将旧时间轴转为 Recipe")
         return
       }
-      navigate(directorProjectPath(item.id))
+      navigate(`${directorProjectPath(item.id)}?stage=${item.shot_count > 0 ? "shots" : "script"}`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : "打开失败")
     }

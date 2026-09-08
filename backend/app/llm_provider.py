@@ -361,7 +361,7 @@ class LlmProviderService:
             on_progress=on_progress,
         )
 
-    def polish_director_h3_prompt(self, draft_prompt: str, mode: str) -> str:
+    def polish_director_h3_prompt(self, draft_prompt: str, mode: str, on_chunk: Callable[[str], None] | None = None) -> str:
         """Use the configured LLM after the final H3 input mode and reference order are known."""
         from .llm_minimax_skills import build_h3_final_prompt_polish_prompt
 
@@ -379,6 +379,7 @@ class LlmProviderService:
             max_tokens=8192,
             timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
             stream=True,
+            on_chunk=on_chunk,
         ).strip()
 
     def polish_director_ref2va_prompt(self, draft_prompt: str) -> str:

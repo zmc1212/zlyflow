@@ -233,7 +233,7 @@ export function CharacterAssetCard({
           rendition={portrait}
           approvedVersionId={portrait.approvedVersionId}
           jobs={jobs}
-          approveLabel="批准为身份锚点"
+          approveLabel="采用肖像"
           onApprove={(versionId) => onApprove("character_portrait", versionId)}
         />
       ),
@@ -246,7 +246,7 @@ export function CharacterAssetCard({
           rendition={look.sheet || { versions: [] }}
           approvedVersionId={look.sheet?.approvedVersionId}
           jobs={jobs}
-          approveLabel="批准这版定妆"
+          approveLabel="采用定妆"
           onApprove={(versionId) => onApprove("character_sheet", versionId, look.id)}
         />
       ) : <Empty description="还没有角色造型" />,
@@ -296,7 +296,7 @@ export function CharacterAssetCard({
           items={[
             {
               key: "approve",
-              label: "批准",
+              label: sheetApprovable ? "采用定妆" : "采用肖像",
               icon: <CheckCircle2 size={14} />,
               emphasis: approvable ? "primary" : "default",
               disabled: !approvable || !approveKind,
@@ -318,7 +318,7 @@ export function CharacterAssetCard({
             },
             {
               key: "generate",
-              label: portraitApproved ? (sheetApproved ? "重生成" : "定妆板") : "肖像",
+              label: portraitApproved ? (sheetApproved ? "重新生成" : "生成定妆") : "生成肖像",
               icon: portraitApproved ? <PanelsTopLeft size={14} /> : <ScanFace size={14} />,
               emphasis: !approvable && !sheetApproved ? "primary" : "default",
               loading: generating,

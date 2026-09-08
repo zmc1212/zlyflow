@@ -75,3 +75,6 @@ Desktop.ini
 .impeccable/
 frontend/.impeccable/
 sourceXd/
+output/
+submit_*.py
+backend/tests/test_*.py

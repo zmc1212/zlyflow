@@ -101,6 +101,7 @@ export interface DirectorShot {
   durationSec: number
   prompt: string
   dialogue?: string
+  dialogueLines?: Array<{ speaker: string; text: string }>
   soundscape?: string
   camera: CameraDirection
   firstFrameUrl?: string
@@ -502,7 +503,15 @@ export function buildFormattedShotPrompt(shot: DirectorShot): string {
   }
 
   const dialogue = shot.dialogue?.trim()
-  if (dialogue && !visual.includes("<d>")) {
+  if (shot.dialogueLines?.length) {
+    visual = visual.replace(/<d>[\s\S]*?<\/d>/g, "").trim()
+    const speakers = new Map<string, number>()
+    const lines = shot.dialogueLines.map(({ speaker, text }) => {
+      if (!speakers.has(speaker)) speakers.set(speaker, speakers.size + 1)
+      return `${speaker} (S${speakers.get(speaker)}) says: <d>[${hasCjk(text) ? "Chinese" : "English"}] ${text}</d>`
+    })
+    visual = `${visual.replace(/[. ]+$/, "")}. ${lines.join(" ")}`
+  } else if (dialogue && !visual.includes("<d>")) {
     const spokenText = extractSpokenWords(dialogue)
     const tag = hasCjk(spokenText) ? "Chinese" : "English"
     visual = `${visual.replace(/[. ]+$/, "")}. the on-screen speaker (S1) says: <d>[${tag}] ${spokenText}</d>`
@@ -672,6 +681,7 @@ export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
       durationSec,
       prompt: userFacingCopy(shot.description, shot.title),
       dialogue: shot.dialogue,
+      dialogueLines: shot.dialogueLines,
       camera: shot.camera || defaultCameraDirection(),
       referencedSubjectIds: [
         ...(shot.characterNames || []).map((name) => name.trim()).filter(Boolean),

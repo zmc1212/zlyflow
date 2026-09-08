@@ -2,6 +2,16 @@ export const DEFAULT_DIRECTOR_WORKFLOW_FAMILY = "official_h3"
 
 export type DirectorRoute = "t2v" | "i2v" | "r2v"
 
+export type DirectorControl = {
+  field: string
+  option: string
+  label: string
+  ui_group: "primary" | "advanced" | "internal"
+  default: string
+  options: Array<{ value: string; label: string }>
+  preview_field?: string | null
+}
+
 export type DirectorWorkflowFamily = {
   id: string
   label: string

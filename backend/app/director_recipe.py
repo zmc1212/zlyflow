@@ -905,6 +905,11 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
         "description": description,
         "promptText": sync_dialogue_prompt(prompt_text, dialogue),
         "dialogue": dialogue,
+        "dialogueLines": [
+            {"speaker": str(line.get("speaker") or "").strip(), "text": str(line.get("text") or "").strip()}
+            for line in (item.get("dialogueLines") or [])
+            if isinstance(line, dict) and str(line.get("text") or "").strip()
+        ],
         "characterNames": character_names,
         "characterBindings": bindings,
         "assetBindingMode": "stable" if explicit_bindings or explicit_location or explicit_props else "legacy",

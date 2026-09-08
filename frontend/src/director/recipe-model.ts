@@ -131,6 +131,7 @@ export interface RecipeShot {
   description: string
   promptText?: string
   dialogue: string
+  dialogueLines?: Array<{ speaker: string; text: string }>
   characterNames: string[]
   characterBindings: RecipeCharacterBinding[]
   locationName: string
