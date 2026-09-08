@@ -1,6 +1,18 @@
 name: zly-ai-video-studio
 
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: zly-ai-video-studio-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${ZLY_MYSQL_PASSWORD:-123456}
+      MYSQL_DATABASE: ${ZLY_MYSQL_DATABASE:-ai-media}
+    ports:
+      - "127.0.0.1:13306:3306"
+    volumes:
+      - zly-ai-video-studio-mysql-data:/var/lib/mysql
+
   zly-ai-video-studio:
     build:
       context: .
@@ -11,6 +23,8 @@ services:
     image: zly-ai-video-studio:latest
     container_name: zly-ai-video-studio
     restart: unless-stopped
+    depends_on:
+      - mysql
     # Linux server deployment: directly access the host-only ComfyUI on 18188.
     network_mode: host
     command: ["sh", "-c", "python -m uvicorn backend.app.main:app --host 127.0.0.1 --port $${ZLY_AI_VIDEO_STUDIO_WORKBENCH_PORT}"]
@@ -25,7 +39,14 @@ services:
       ZLY_AI_VIDEO_STUDIO_GRS_POLL_INTERVAL_SECONDS: "5"
       ZLY_AI_VIDEO_STUDIO_GRS_TIMEOUT_SECONDS: "43200"
       ZLY_AI_VIDEO_STUDIO_GRS_MAX_CONCURRENCY: "4"
+      ZLY_MYSQL_CONNECT_ATTEMPTS: "10"
+      ZLY_MYSQL_HOST: ${ZLY_MYSQL_HOST:-127.0.0.1}
+      ZLY_MYSQL_PORT: ${ZLY_MYSQL_PORT:-13306}
+      ZLY_MYSQL_DATABASE: ${ZLY_MYSQL_DATABASE:-ai-media}
+      ZLY_MYSQL_USER: ${ZLY_MYSQL_USER:-root}
+      ZLY_MYSQL_PASSWORD: ${ZLY_MYSQL_PASSWORD:-123456}
     volumes:
       - zly-ai-video-studio-data:/var/lib/zly-ai-video-studio
 volumes:
   zly-ai-video-studio-data:
+  zly-ai-video-studio-mysql-data:

@@ -7,13 +7,18 @@ set "ARCHIVE=%~dp0zly-ai-video-studio_latest.tar"
 set "TEMP_ARCHIVE=%ARCHIVE%.tmp"
 
 echo.
-echo [1/2] Building zly-ai-video-studio:latest ...
-docker compose --env-file .env.example build
+echo [1/3] Building docker image ...
+docker compose --env-file .env.example build zly-ai-video-studio
 if errorlevel 1 goto :build_error
 
 echo.
-echo [2/2] Exporting image archive ...
-docker save --output "%TEMP_ARCHIVE%" zly-ai-video-studio:latest
+echo [2/3] Pulling mysql:8.0 ...
+docker pull mysql:8.0
+if errorlevel 1 goto :pull_error
+
+echo.
+echo [3/3] Exporting image archive ...
+docker save --output "%TEMP_ARCHIVE%" zly-ai-video-studio:latest mysql:8.0
 if errorlevel 1 goto :export_error
 
 move /y "%TEMP_ARCHIVE%" "%ARCHIVE%" >nul
@@ -31,6 +36,11 @@ exit /b 1
 
 :build_error
 echo Image build failed. The existing image archive was not changed.
+pause
+exit /b 1
+
+:pull_error
+echo Pulling mysql:8.0 failed. The existing image archive was not changed.
 pause
 exit /b 1
 
