@@ -225,6 +225,26 @@ export function getDirectorProject(projectId: string) {
   return requestJson<DirectorProjectResponse>(`/api/director/projects/${encodeURIComponent(projectId)}`)
 }
 
+export type DirectorContinuityRepairResponse = {
+  recipe: RecipeProject
+  applied: number
+  pair: { fromShot: number; toShot: number; status: "passed" | "warning"; reason?: string }
+  resplitRequired?: Array<{ fromShot: number; toShot: number }>
+  alreadyPassed?: boolean
+}
+
+export function repairDirectorContinuity(
+  recipe: RecipeProject,
+  fromShot: number,
+  toShot: number,
+  csrfToken: string,
+) {
+  return requestJson<DirectorContinuityRepairResponse>(
+    "/api/llm/repair-continuity",
+    jsonMutation(csrfToken, { recipe, from_shot: fromShot, to_shot: toShot }),
+  )
+}
+
 export function createDirectorProject(project: TimelineProject, csrfToken: string) {
   return requestJson<DirectorProjectResponse>("/api/director/projects", jsonMutation(csrfToken, directorProjectToCreateBody(project)))
 }

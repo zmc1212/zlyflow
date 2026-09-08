@@ -221,6 +221,29 @@ def build_storyboard_continuity_polish_prompt() -> str:
     ])
 
 
+def build_storyboard_continuity_repair_prompt() -> str:
+    """Prompt for the bounded post-QA causal repair pass."""
+    return "\n\n".join([
+        "You are the causal continuity repair editor for ZLY AI Video Studio / MiniMax H3.",
+        "Input: a JSON object with storyContext and a bounded list of adjacent shot pairs flagged by deterministic QA.",
+        "Return ONLY {\"repairs\":[...]} and no explanation outside JSON.",
+        "Repair the causal handoff at each requested boundary without changing the story's plot or adding a new character, prop, dialogue line, location, or unrelated event.",
+        "The incoming shot must visibly or audibly inherit the outgoing shot's last state before starting its next action. If a character attacks, turns, reaches, flees, or blocks, show the threat or trigger being answered in the opening beat and preserve who protects whom and the screen direction.",
+        "If the existing target shot contains two independent playable changes that cannot be made coherent in one clip, set status to needs_resplit and leave the patch empty. This pass reports that requirement; it must not invent a fake bridge or change duration.",
+        "For a repairable pair, use fromShotPatch only for continuityOut, transitionNote, soundscape, and soundscapeEn; use toShotPatch for promptText, continuityIn, continuityOut, transitionNote, soundscape, and soundscapeEn.",
+        "Never return or modify dialogue, durationSec, shotNumber, shot order, characterBindings, locationId, propIds, or camera. Every returned pair must use the original global fromShot/toShot numbers.",
+        "promptText must remain one independently renderable [Shot N] clip whose local timeline starts at 00:00.000. Its opening action must agree with toShotPatch.continuityIn. Keep any existing dialogue exactly as supplied and keep its <d> tag synchronized.",
+        "continuityIn, continuityOut, and soundscapeEn must be pure English. transitionNote is concise Chinese for the editor and is not pasted into H3.",
+        "Output schema:",
+        '{"repairs":[{"fromShot":5,"toShot":6,"status":"repaired","fromShotPatch":{"continuityOut":""},"toShotPatch":{"promptText":"","continuityIn":"","continuityOut":"","transitionNote":"","soundscape":"","soundscapeEn":""},"reason":""}]}',
+        "When status is needs_resplit, return empty patches and a short reason. Cover every requested pair exactly once; do not return any other pair.",
+        load_shot_continuity_excerpt(),
+        load_shot_continuity_skill(),
+        load_shot_continuity_guide(),
+        STORYBOARD_DIALOGUE_CONTRACT,
+    ])
+
+
 def build_script_agent_prompt() -> str:
     return "\n\n".join([
         "把一句话扩成可拍的 AI 短剧剧本。输出 {\"title\":\"\",\"summary\":\"\",\"fullStory\":\"\"}。",
@@ -371,11 +394,15 @@ def build_h3_ref2va_polish_prompt() -> str:
     return build_h3_final_prompt_polish_prompt("REF2VA")
 
 
-def build_h3_split_script_prompt() -> str:
+def build_h3_split_script_prompt(*, script_mode: str = "literal") -> str:
+    mode_rules = ("Literal mode: preserve every original dialogue word-for-word, keep event order, and do not add dialogue, characters, props, or events. Only divide the supplied material into shots."
+                  if script_mode == "literal" else
+                  "Creative mode: you may expand connective action and dialogue, but preserve all original dialogue verbatim and mark additions in prompt prose as AI-added.")
     return f"""Follow the official MiniMax H3 h3-prompt-writing skill below.
 {DIRECTOR_STUDIO_ADAPTER}
 {load_shot_continuity_excerpt()}
 Split the user's script into a coherent shot list. Shots may continue the story, but each prompt field must be independently submittable to MiniMax H3 as a single [Shot 1] clip.
+{mode_rules}
 Keep adjacent cuts inherit opening/closing visual state in the English prompt prose when helpful.
 title 用中文。prompt 字段写英文 H3 镜头正文。sfx 字段写中文环境声给用户看。
 

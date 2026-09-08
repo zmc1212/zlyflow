@@ -5,7 +5,7 @@ import {
 import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { ApiRequestError, User } from "../api"
+import { ApiRequestError, User, requestJson } from "../api"
 import JianyingExportModal from "../media/JianyingExportModal"
 import type { JianyingMediaItem } from "../media/jianying-draft-builder"
 import JobErrorNotice from "./components/JobErrorNotice"
@@ -43,6 +43,7 @@ import {
   generateDirectorTts, getDirectorOperation, getDirectorProject,
   insertDirectorLibraryAssets, listDirectorArtStyles, listWorkflowModes, muxDirectorFilm, recipePayloadFromApi,
   saveRecipeAssetsToLibrary, downloadDirectorExport,
+  repairDirectorContinuity,
   updateDirectorProjectRecord, uploadDirectorBgm, uploadDirectorShotFrame,
   DirectorOperationResponse,
 } from "./director-api"
@@ -75,6 +76,7 @@ import {
   mergeRecipeShotFrameState,
   reconcileShotJobExecution,
 } from "./recipe-execution"
+import { mergeContinuityRepair } from "./recipe-continuity"
 import {
   formatSimpleAssetStageSummary,
   simpleAssetStageCounts,
@@ -312,6 +314,7 @@ export default function DirectorRecipeStudio({
   const activeStage = parseRecipeStage(searchParams.get("stage")) ?? "script"
   const [ttsBusy, setTtsBusy] = useState(false)
   const [muxBusy, setMuxBusy] = useState(false)
+  const [continuityRepairKey, setContinuityRepairKey] = useState<string | null>(null)
   const [previewingCharacterId, setPreviewingCharacterId] = useState<string | null>(null)
   const [submittingShotIds, setSubmittingShotIds] = useState<string[]>([])
   const [submittingStillIds, setSubmittingStillIds] = useState<string[]>([])
@@ -1750,6 +1753,31 @@ export default function DirectorRecipeStudio({
     })
   }
 
+  async function handleContinuityRepair(fromShot: number, toShot: number) {
+    const key = `${fromShot}:${toShot}`
+    if (continuityRepairKey) return
+    setContinuityRepairKey(key)
+    try {
+      const result = await repairDirectorContinuity(recipeRef.current, fromShot, toShot, csrfToken)
+      if (result.alreadyPassed) {
+        messageApi.info(`第 ${fromShot} → ${toShot} 镜已通过连续性检查`)
+        return
+      }
+      updateRecipe((current) => mergeContinuityRepair(current, result.recipe, fromShot, toShot))
+      if (result.resplitRequired?.length) {
+        messageApi.warning(`第 ${fromShot} → ${toShot} 镜需要重新拆分，LLM 未直接改写镜头结构`)
+      } else if (result.pair.status === "passed") {
+        messageApi.success(`已修复第 ${fromShot} → ${toShot} 镜，连续性检查通过`)
+      } else {
+        messageApi.warning(`已更新第 ${fromShot} → ${toShot} 镜，但仍有衔接风险：${result.pair.reason || "请人工检查"}`)
+      }
+    } catch (error) {
+      notifyFailure(error, `第 ${fromShot} → ${toShot} 镜修复失败`)
+    } finally {
+      setContinuityRepairKey(null)
+    }
+  }
+
   function selectShot(shotId: string) {
     setSelectedShotId(shotId)
     if (isMobile) setInspectorOpen(true)
@@ -2351,6 +2379,8 @@ export default function DirectorRecipeStudio({
               onRetryFailed={() => { void requestBoardGenerate(failedShotIds, "仅重试失败项") }}
               onCancelSelected={() => { void handleCancelShots(checkedShotIds) }}
               onCancelShot={(shotId) => { void handleCancelShots([shotId]) }}
+              onContinuityRepair={handleContinuityRepair}
+              continuityRepairing={Boolean(continuityRepairKey)}
             />
           ) : null}
           {!isTimelineView && (activeStage === "storyboard" || activeStage === "shots") ? (
@@ -2629,6 +2659,8 @@ export default function DirectorRecipeStudio({
                             onExtractEndFrame={(file) => handleUploadFrame(selectedShot.id, "end", file)}
                             onGenerateTts={() => { void handleGenerateTts([selectedShot.id]) }}
                             onCancelShot={() => { void handleCancelShots([selectedShot.id]) }}
+                            onContinuityRepair={handleContinuityRepair}
+                            continuityRepairing={Boolean(continuityRepairKey)}
                             ttsBusy={ttsBusy}
                           />
                         ) : null}
@@ -2792,6 +2824,8 @@ export default function DirectorRecipeStudio({
             onExtractEndFrame={(file) => handleUploadFrame(selectedShot.id, "end", file)}
             onGenerateTts={() => { void handleGenerateTts([selectedShot.id]) }}
             onCancelShot={() => { void handleCancelShots([selectedShot.id]) }}
+            onContinuityRepair={handleContinuityRepair}
+            continuityRepairing={Boolean(continuityRepairKey)}
             ttsBusy={ttsBusy}
           />
         ) : null}

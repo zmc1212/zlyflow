@@ -167,6 +167,10 @@ export interface RecipeShot {
   stillJobId?: string | null
   stillStatus?: DirectorShot["status"] | null
   usePreviousEndFrame?: boolean
+  sourceBeatIds?: string[]
+  startState?: Record<string, unknown>
+  endState?: Record<string, unknown>
+  transitionType?: string
   approvedTakeId?: string | null
   activeTakeIndex?: number
   speakerName?: string | null
@@ -255,6 +259,7 @@ export interface RecipeProject {
   audio?: RecipeAudioMix
   subtitles?: RecipeSubtitleStyle
   export?: RecipeExportState
+  continuityQa?: { status: "passed" | "warning"; issues: string[]; pairs: Array<{ fromShot: number; toShot: number; status: "passed" | "warning"; reason?: string; visualAnchor?: "recommended" | "none" | "review"; visualAnchorReason?: string }> }
 }
 
 export function emptyRecipeAssetRendition(): RecipeAssetRendition {

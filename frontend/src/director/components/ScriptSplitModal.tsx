@@ -74,6 +74,7 @@ export default function ScriptSplitModal({
   const [script, setScript] = useState(initialScript)
   const [shotCount, setShotCount] = useState<number>(initialShotCount)
   const [styleVibe, setStyleVibe] = useState(initialStyleVibe || "电影级大片")
+  const [scriptMode, setScriptMode] = useState<"literal" | "creative">("literal")
   const [previewResult, setPreviewResult] = useState<SplitResponse | null>(null)
 
   useEffect(() => {
@@ -81,6 +82,7 @@ export default function ScriptSplitModal({
     setScript(initialScript)
     setShotCount(initialShotCount || 4)
     setStyleVibe(initialStyleVibe || "电影级大片")
+    setScriptMode("literal")
     setPreviewResult(null)
   }, [open, initialScript, initialShotCount, initialStyleVibe])
 
@@ -97,6 +99,7 @@ export default function ScriptSplitModal({
           shot_count: shotCount,
           style_vibe: styleVibe,
           cast_names: castList.map((c) => c.name),
+          script_mode: scriptMode,
         }),
       }),
     onSuccess: (data) => {
@@ -219,6 +222,13 @@ export default function ScriptSplitModal({
             placeholder="输入您的一段剧本文案、故事情节或视频创意大纲，AI 导演将自动拆解为连续分镜镜头..."
             className="rounded-lg text-sm"
           />
+        </div>
+        <div className="mt-4">
+          <span className="mb-1.5 block text-xs font-semibold text-[#374151]">剧本模式</span>
+          <Select className="w-full" value={scriptMode} onChange={setScriptMode} options={[
+            { value: "literal", label: "忠实拆解（保留原对白与事件）" },
+            { value: "creative", label: "创作扩写（允许 AI 补充动作）" },
+          ]} />
         </div>
 
         <div className="grid grid-cols-2 gap-4">

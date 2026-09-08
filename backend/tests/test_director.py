@@ -466,12 +466,21 @@ class DirectorRecipeModelTests(unittest.TestCase):
                     "toShot": 6,
                     "status": "warning",
                     "reason": "开场动作未继承",
+                    "issues": ["第 6 镜开场动作未体现入镜状态"],
                 }],
+                "repair": {
+                    "attempted": 1,
+                    "applied": 0,
+                    "resplitRequired": [{"fromShot": 5, "toShot": 6}],
+                    "errors": [],
+                },
             },
         })
         self.assertEqual(payload["continuityQa"]["status"], "warning")
         self.assertEqual(payload["continuityQa"]["pairs"][0]["fromShot"], 5)
         self.assertEqual(payload["continuityQa"]["pairs"][0]["toShot"], 6)
+        self.assertEqual(payload["continuityQa"]["pairs"][0]["issues"], ["第 6 镜开场动作未体现入镜状态"])
+        self.assertEqual(payload["continuityQa"]["repair"]["resplitRequired"], [{"fromShot": 5, "toShot": 6}])
 
     def test_interrupt_stale_pipeline_marks_running_storyboard_failed(self) -> None:
         from backend.app.director_recipe import STALE_PIPELINE_INTERRUPT, interrupt_stale_pipeline
@@ -821,6 +830,30 @@ class DirectorApiEndpointTests(unittest.TestCase):
             data = response.json()
             self.assertEqual(data["project_title"], "测试导演项目")
             self.assertEqual(len(data["shots"]), 1)
+
+    def test_repair_continuity_endpoint_returns_repaired_recipe(self) -> None:
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com",
+            "model": "deepseek-v3",
+            "api_key": "sk-dummy",
+        })
+        repaired = {
+            "recipe": {"kind": "director_recipe", "scenes": []},
+            "applied": 1,
+            "pair": {"fromShot": 1, "toShot": 2, "status": "passed", "reason": ""},
+            "resplitRequired": [],
+            "alreadyPassed": False,
+        }
+        with patch.object(self.llm_provider, "repair_director_continuity", return_value=repaired) as repair:
+            response = self.client.post(
+                "/api/llm/repair-continuity",
+                headers={"X-CSRF-Token": csrf_token(self.token)},
+                json={"recipe": {"kind": "director_recipe"}, "from_shot": 1, "to_shot": 2},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["applied"], 1)
+        repair.assert_called_once_with({"kind": "director_recipe"}, from_shot=1, to_shot=2)
 
 
 class DirectorCompilerTests(unittest.TestCase):
@@ -2329,6 +2362,156 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertEqual(state_jump["status"], "warning")
         self.assertTrue(any("人物锚点" in issue for issue in state_jump["issues"]))
         self.assertTrue(any("道具锚点" in issue for issue in state_jump["issues"]))
+
+    def test_continuity_repair_only_changes_handoff_owned_fields(self) -> None:
+        from backend.app.director_agents import _apply_continuity_repair
+
+        recipe = {
+            "scenes": [{"shots": [
+                {
+                    "shotNumber": 5,
+                    "promptText": "old 5",
+                    "continuityOut": "The plaque remains at the stele.",
+                    "dialogue": "交出玉牌。",
+                    "durationSec": 5,
+                },
+                {
+                    "shotNumber": 6,
+                    "promptText": "Ye Qingli cuts the vines.",
+                    "continuityIn": "The plaque is handed over.",
+                    "dialogue": "退后！",
+                    "durationSec": 5,
+                    "camera": {"scale": "MS"},
+                },
+            ]}],
+        }
+        applied, errors, resplit = _apply_continuity_repair(
+            recipe,
+            {
+                "repairs": [{
+                    "fromShot": 5,
+                    "toShot": 6,
+                    "status": "repaired",
+                    "fromShotPatch": {
+                        "continuityOut": "The plaque remains at the stele as rain continues.",
+                    },
+                    "toShotPatch": {
+                        "promptText": "[Shot 1] At 00:00.000, the plaque remains at the stele as rain continues; the steward reacts and Ye Qingli cuts the vines to block him.",
+                        "continuityIn": "The plaque remains at the stele as rain continues.",
+                        "continuityOut": "The vines are cut and the rocks form a barrier.",
+                        "dialogue": "模型不应覆盖对白。",
+                        "durationSec": 12,
+                        "camera": {"scale": "CU"},
+                    },
+                }],
+            },
+            requested_pairs=[(5, 6)],
+        )
+
+        self.assertEqual(applied, 1)
+        self.assertEqual(errors, [])
+        self.assertEqual(resplit, [])
+        self.assertEqual(recipe["scenes"][0]["shots"][0]["continuityOut"], "The plaque remains at the stele as rain continues.")
+        repaired = recipe["scenes"][0]["shots"][1]
+        self.assertIn("the steward reacts", repaired["promptText"])
+        self.assertEqual(repaired["continuityIn"], "The plaque remains at the stele as rain continues.")
+        self.assertEqual(repaired["dialogue"], "退后！")
+        self.assertEqual(repaired["durationSec"], 5)
+        self.assertEqual(repaired["camera"], {"scale": "MS"})
+
+    def test_continuity_repair_reports_when_pair_needs_resplit(self) -> None:
+        from backend.app.director_agents import _apply_continuity_repair
+
+        recipe = {"scenes": [{"shots": [
+            {"shotNumber": 5, "promptText": "old 5"},
+            {"shotNumber": 6, "promptText": "old 6"},
+        ]}]}
+        applied, errors, resplit = _apply_continuity_repair(
+            recipe,
+            {"repairs": [{"fromShot": 5, "toShot": 6, "status": "needs_resplit", "reason": "two actions"}]},
+            requested_pairs=[(5, 6)],
+        )
+
+        self.assertEqual(applied, 0)
+        self.assertEqual(errors, [])
+        self.assertEqual(resplit, [{"fromShot": 5, "toShot": 6}])
+        self.assertEqual(recipe["scenes"][0]["shots"][1]["promptText"], "old 6")
+
+    def test_storyboard_runs_causal_repair_after_continuity_qa(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        calls: list[str] = []
+
+        def chat(messages: list[dict]) -> str:
+            system = messages[0]["content"]
+            calls.append(system)
+            if "causal continuity repair editor" in system:
+                return json.dumps({
+                    "repairs": [{
+                        "fromShot": 1,
+                        "toShot": 2,
+                        "status": "repaired",
+                        "fromShotPatch": {},
+                        "toShotPatch": {
+                            "continuityIn": "The jade plaque remains at the stele while rain continues.",
+                            "promptText": "[Shot 1] At 00:00.000, the jade plaque remains at the stele while rain continues; the steward reacts and Kai cuts the vines to block him.",
+                            "continuityOut": "The vines are cut and the rocks form a barrier.",
+                            "transitionNote": "因果动作承接，雨声不断。",
+                        },
+                    }],
+                }, ensure_ascii=False)
+            if "You are the continuity editor" in system:
+                return json.dumps({
+                    "scenes": [{"shots": [
+                        {
+                            "shotNumber": 1,
+                            "promptText": "[Shot 1] At 00:00.000, Kai holds the jade plaque at the stele.",
+                            "dialogue": "",
+                            "characterNames": ["阿凯"],
+                            "locationName": "暗巷",
+                            "durationSec": 5,
+                            "continuityOut": "The jade plaque remains at the stele while rain continues.",
+                            "transitionNote": "动作匹配切，雨声不断。",
+                        },
+                        {
+                            "shotNumber": 2,
+                            "promptText": "[Shot 1] At 00:00.000, Kai cuts the vines.",
+                            "dialogue": "",
+                            "characterNames": ["阿凯"],
+                            "locationName": "暗巷",
+                            "durationSec": 5,
+                            "continuityIn": "The jade plaque remains at the stele while rain continues.",
+                            "continuityOut": "The vines are cut.",
+                            "transitionNote": "动作匹配切，雨声不断。",
+                        },
+                    ]}],
+                }, ensure_ascii=False)
+            if "You are the Shot Timing Editor" in system:
+                return json.dumps({
+                    "scenes": [{"shots": [
+                        {"shotNumber": 1, "promptText": "[Shot 1] At 00:00.000, Kai holds the jade plaque at the stele.", "characterNames": ["阿凯"], "locationName": "暗巷", "durationSec": 5},
+                        {"shotNumber": 2, "promptText": "[Shot 1] At 00:00.000, Kai cuts the vines.", "characterNames": ["阿凯"], "locationName": "暗巷", "durationSec": 5},
+                    ]}],
+                }, ensure_ascii=False)
+            return json.dumps({
+                "scenes": [{"shots": [
+                    {"title": "持牌", "description": "阿凯握住玉牌。", "promptText": "Kai holds the jade plaque.", "characterNames": ["阿凯"], "locationName": "暗巷", "durationSec": 5},
+                    {"title": "斩藤", "description": "阿凯斩断藤蔓。", "promptText": "Kai cuts the vines.", "characterNames": ["阿凯"], "locationName": "暗巷", "durationSec": 5},
+                ]}],
+            }, ensure_ascii=False)
+
+        recipe = run_agent(
+            "storyboard",
+            {"kind": "director_recipe", "script": {"title": "雨夜", "summary": "追逐", "fullStory": "阿凯握住玉牌，随后斩断藤蔓。"}},
+            goal="雨夜里的追逐",
+            chat_fn=chat,
+        )
+
+        self.assertTrue(any("causal continuity repair editor" in item for item in calls))
+        self.assertEqual(recipe["continuityQa"]["repair"]["attempted"], 1)
+        self.assertEqual(recipe["continuityQa"]["repair"]["applied"], 1)
+        self.assertEqual(recipe["continuityQa"]["status"], "passed")
+        self.assertIn("the steward reacts", recipe["scenes"][0]["shots"][1]["promptText"])
 
     def test_normalize_dialogue_strips_model_speaker_prefix(self) -> None:
         from backend.app.director_recipe import normalize_dialogue

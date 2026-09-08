@@ -1430,3 +1430,17 @@ Docker、服务器和本地启动统一使用 `ZLY_AI_VIDEO_STUDIO_*` 环境变�
 导演台连续性润色现在以五镜头窗口加一个重叠上下文镜头处理镜头序列，镜头 5→6 会在同一请求中校验动作、人物位置、道具、天气、光线和声音承接。连续性 pass 只更新边界状态与声音/提示词字段，错误编号或缺镜头会重试并保留原镜头；结构化 `continuityQa` 会在工程中记录风险，旧 Recipe 没有该字段也能继续打开。对白字段会自动去除 `<d>`、`[Chinese]` 和角色情绪前缀，并同步 H3 提示词中的对白标签。
 
 本阶段仅修改后端连续性处理、对白规范化、回归测试和文档，不改变 API 请求格式、数据库表、ComfyUI 工作流、节点 ID、模型路径或端口。
+
+## 2026-09-08 分镜连续性阶段 2：因果动作修复
+
+- 原因：阶段 1 能发现“上一镜出镜状态与下一镜开场动作不一致”，但只留下风险时，镜头 5→6 仍可能从“递牌/贴符”直接跳到“斩藤落石”。
+- 当前行为：连续性 QA 标出的相邻风险会进入一次有界的因果修复请求。修复器只允许改 `promptText`、`continuityIn`、`continuityOut`、`transitionNote`、`soundscape` 和 `soundscapeEn`，强制下一镜先呈现上一镜的触发状态，再开始防御、转身、追逐等后续动作；对白、时长、镜头编号、角色/场景/道具绑定和 camera 不可被覆盖。修复后会重新运行 QA。
+- 安全边界：大模型只能返回已请求的边界；重复、越界或缺失边界会被拒绝。若一个镜头确实包含无法在同一片段表达的两个独立可播放动作，可返回 `needs_resplit`，系统记录到 `continuityQa.repair.resplitRequired`，不擅自重编号或伪造过渡。
+- 兼容性：只增加可选的 `continuityQa.repair` 结果字段，不改 API 请求格式、数据库表、工作流 graph、ComfyUI 节点、模型路径或端口；旧 Recipe 和无大模型配置仍可打开/生成。
+- 受影响文件：`backend/app/director_agents.py`、`backend/app/director_recipe.py`、`backend/app/llm_minimax_skills.py`、`backend/tests/test_director.py` 与三份主文档。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述后端、测试和文档文件；无需迁移数据库或回滚媒体、ComfyUI 资产。
+
+导演台剧本拆解支持 literal（默认，忠实保留原对白与事件）和 creative（允许 AI 扩写）两种模式；旧客户端不传字段时仍按 literal 运行。
+
+导演台连续性风险支持局部 LLM 修复：镜头检查器调用 `/api/llm/repair-continuity`，只修复指定相邻镜头的连续性字段并自动重新 QA。

@@ -1,4 +1,4 @@
-import { Button, Checkbox, Collapse, Input, InputNumber, Modal, Progress, Segmented, Select, Space, Tag, message } from "antd"
+import { Alert, Button, Checkbox, Collapse, Input, InputNumber, Modal, Progress, Segmented, Select, Space, Tag, message } from "antd"
 import { Clapperboard, Copy, ImagePlus, Star, Trash2 } from "lucide-react"
 import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import JobErrorNotice from "./JobErrorNotice"
@@ -75,6 +75,8 @@ export default function RecipeShotInspector({
   onExtractEndFrame,
   onGenerateTts,
   onCancelShot,
+  onContinuityRepair,
+  continuityRepairing = false,
   ttsBusy = false,
   submitting = false,
   submittingStill = false,
@@ -93,6 +95,8 @@ export default function RecipeShotInspector({
   onExtractEndFrame?: (file: File) => Promise<void>
   onGenerateTts?: () => void
   onCancelShot?: () => void
+  onContinuityRepair?: (fromShot: number, toShot: number) => Promise<void>
+  continuityRepairing?: boolean
   ttsBusy?: boolean
   submitting?: boolean
   submittingStill?: boolean
@@ -201,10 +205,24 @@ export default function RecipeShotInspector({
 
   const comparing = Boolean(compareDesktop && showVideo && compareTake?.videoUrl)
   const emptyPreview = !showVideo && !firstPreview
+  const continuityPair = recipe.continuityQa?.pairs.find((pair) => pair.toShot === shot.shotNumber)
 
   return (
     <div className="director-recipe-inspector" style={recipeAspectVars(recipe.aspectRatio)}>
       {messageContextHolder}
+      {continuityPair && (
+        <Alert
+          className="mb-3"
+          type={continuityPair.status === "warning" ? "warning" : "success"}
+          showIcon
+          message={`第 ${continuityPair.fromShot} → ${continuityPair.toShot} 镜衔接：${continuityPair.status === "warning" ? "需要检查" : "通过"}`}
+          description={continuityPair.visualAnchorReason || continuityPair.reason || "连续性检查通过"}
+          action={<Space size={6}>
+            {continuityPair.status === "warning" && onContinuityRepair ? <Button size="small" loading={continuityRepairing} disabled={continuityRepairing} onClick={() => { void onContinuityRepair(continuityPair.fromShot, continuityPair.toShot) }}>只修复这两个镜头</Button> : null}
+            {continuityPair.visualAnchor === "recommended" && previousShot?.endFrameUrl && !shot.usePreviousEndFrame && <Button size="small" onClick={() => onChange({ usePreviousEndFrame: true })}>采用上一镜尾帧</Button>}
+          </Space>}
+        />
+      )}
       <div className="director-inspector-picture">
         <div className={`director-inspector-stage${comparing ? " is-compare" : ""}`}>
           {comparing && compareTake?.videoUrl ? (

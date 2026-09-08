@@ -1460,3 +1460,21 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不改 API 请求格式、数据库表、ComfyUI graph、节点 ID、模型路径或 7865/8188 端口；`continuityQa` 为可选字段，旧 Recipe 与旧客户端可继续读取。旧 Recipe 不自动重写，重新生成分镜时启用新逻辑。
 - 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。完整后端发现测试还需按当前实例环境配置 ComfyUI 地址和 LLM provider。
 - 回滚方式：恢复上述后端、测试和三份文档；无需迁移或回滚数据库、媒体和 ComfyUI 资产。
+
+## 2026-09-08 分镜连续性阶段 2：因果动作修复
+
+- 原因：阶段 1 的重叠连续性窗口和确定性 QA 能定位出镜状态与下一镜开场动作的断裂，但不能自动改善已经生成的镜头正文。
+- 当前基线：`storyboard` Agent 在连续性 QA 后，对风险相邻镜头执行一次有界因果修复 pass。请求同时携带原剧本片段、风险原因、前后镜头的可视状态和资产绑定；修复器要求下一镜在 `00:00` 先呈现上一镜的触发/空间状态，再进入本镜动作。修复后重新运行 `validate_continuity_pairs()`，`continuityQa.repair` 保存尝试数、应用数、未完成错误和 `resplitRequired` 边界。
+- 字段所有权：修复 pass 只能写 `promptText`、`continuityIn`、`continuityOut`、`transitionNote`、`soundscape`、`soundscapeEn`。对白、`durationSec`、`shotNumber`、镜头顺序、`characterBindings`、`locationId`、`propIds` 和 `camera` 仍属于锁定字段。响应必须覆盖已请求边界，重复、越界或缺失项整项不应用；`needs_resplit` 仅记录明确风险，不在后台擅自重编号。
+- 兼容性：新增结果字段为可选 Recipe 数据，不改 HTTP 请求格式、数据库表、工作流注册表、ComfyUI graph、节点 ID、模型路径或 7865/8188 端口；旧 Recipe 无 `continuityQa.repair` 时照常读取。
+- 受影响文件：`backend/app/director_agents.py`、`backend/app/director_recipe.py`、`backend/app/llm_minimax_skills.py`、`backend/tests/test_director.py`。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend test`、`pnpm --dir frontend build`；重点回归镜头 5→6 的因果开场、锁定字段不被覆盖和需要重拆的风险记录。
+- 回滚方式：恢复上述后端、测试和文档文件；无需数据库、历史 Recipe、媒体或 ComfyUI 资产回滚。
+
+## 2026-09-08 阶段3：剧本拆解模式
+
+/api/llm/split-script 新增可选 script_mode（默认 literal，兼容旧客户端）；literal 保留原对白和事件顺序，creative 允许扩写并要求标记 AI-added。后端将模式传入 MiniMax H3 提示词，不改变数据库、ComfyUI 或端口。验证：python -m unittest backend.tests.test_director -q。回滚：移除字段并恢复默认提示词。
+
+## 2026-09-08 局部连续性修复闭环
+
+新增 `POST /api/llm/repair-continuity`。后端仅接收当前 Recipe 与相邻镜头号，调用连续性修复模型并原子应用连续性字段，随后重新执行 QA。前端桌面、移动端和时间线检查器统一调用该接口，并只合并连续性字段，保留本地对白、时长、相机、素材和生成状态。验证：`python -m unittest backend.tests.test_director -q`、`pnpm --dir frontend build`。回滚：移除接口调用并保留旧 QA 展示。

@@ -78,6 +78,8 @@ export default function DirectorTimelineView({
   onRetryFailed,
   onCancelSelected,
   onCancelShot,
+  onContinuityRepair,
+  continuityRepairing = false,
 }: {
   recipe: RecipeProject
   shots: RecipeShot[]
@@ -113,6 +115,8 @@ export default function DirectorTimelineView({
   onRetryFailed: () => void
   onCancelSelected: () => void
   onCancelShot: (shotId: string) => void
+  onContinuityRepair: (fromShot: number, toShot: number) => Promise<void>
+  continuityRepairing?: boolean
 }) {
   const [messageApi, messageContextHolder] = message.useMessage()
   const plates = useMemo(() => dressedRecipePlates(recipe), [recipe])
@@ -541,6 +545,8 @@ export default function DirectorTimelineView({
             onExtractEndFrame={(file) => onExtractEndFrame(selectedShot.id, file)}
             onGenerateTts={() => onGenerateTts(selectedShot.id)}
             onCancelShot={() => onCancelShot(selectedShot.id)}
+            onContinuityRepair={onContinuityRepair}
+            continuityRepairing={continuityRepairing}
             ttsBusy={ttsBusy}
           />
         ) : (

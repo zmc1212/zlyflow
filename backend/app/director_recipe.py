@@ -962,6 +962,17 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
     transition_note = _text(item.get("transitionNote"), item.get("transition_note") or "")
     if transition_note:
         shot["transitionNote"] = transition_note
+    source_beats = item.get("sourceBeatIds", item.get("source_beat_ids"))
+    if isinstance(source_beats, list):
+        shot["sourceBeatIds"] = [str(value).strip() for value in source_beats if str(value).strip()]
+    for key in ("startState", "endState"):
+        snake_key = "start_state" if key == "startState" else "end_state"
+        value = item.get(key, item.get(snake_key))
+        if isinstance(value, dict):
+            shot[key] = dict(value)
+    transition_type = _text(item.get("transitionType"), item.get("transition_type") or "")
+    if transition_type:
+        shot["transitionType"] = transition_type
     return shot
 
 
@@ -1148,17 +1159,51 @@ def normalize_recipe_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
             pair_status = _text(raw_pair.get("status"), "warning")
             if pair_status not in {"passed", "warning"}:
                 pair_status = "warning"
+            pair_issues = [
+                _text(item) for item in _as_list(raw_pair.get("issues")) if _text(item)
+            ]
             pairs.append({
                 "fromShot": from_shot,
                 "toShot": to_shot,
                 "status": pair_status,
                 "reason": _text(raw_pair.get("reason")),
+                "issues": pair_issues,
+                "visualAnchor": _text(raw_pair.get("visualAnchor"), "review"),
+                "visualAnchorReason": _text(raw_pair.get("visualAnchorReason")),
             })
         normalized["continuityQa"] = {
             "status": status,
             "issues": issues,
             "pairs": pairs,
         }
+        raw_repair = raw_continuity_qa.get("repair")
+        if isinstance(raw_repair, dict):
+            try:
+                attempted = max(0, int(raw_repair.get("attempted") or 0))
+            except (TypeError, ValueError):
+                attempted = 0
+            try:
+                applied = max(0, int(raw_repair.get("applied") or 0))
+            except (TypeError, ValueError):
+                applied = 0
+            resplit_required: list[dict[str, int]] = []
+            for raw_pair in _as_list(raw_repair.get("resplitRequired") or raw_repair.get("resplit_required")):
+                if not isinstance(raw_pair, dict):
+                    continue
+                try:
+                    from_shot = int(raw_pair.get("fromShot") or raw_pair.get("from_shot"))
+                    to_shot = int(raw_pair.get("toShot") or raw_pair.get("to_shot"))
+                except (TypeError, ValueError):
+                    continue
+                resplit_required.append({"fromShot": from_shot, "toShot": to_shot})
+            normalized["continuityQa"]["repair"] = {
+                "attempted": attempted,
+                "applied": applied,
+                "resplitRequired": resplit_required,
+                "errors": [
+                    _text(item) for item in _as_list(raw_repair.get("errors")) if _text(item)
+                ],
+            }
     normalized["audio"] = normalize_audio_mix(raw.get("audio"))
     normalized["subtitles"] = normalize_subtitle_style(raw.get("subtitles"))
     normalized["export"] = normalize_export_state(raw.get("export"))

@@ -86,6 +86,7 @@ from .models import (
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
     PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse,
     ScriptSplitRequest, ScriptSplitResponse,
+    DirectorContinuityRepairRequest,
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
     DirectorProjectResponse, DirectorProjectMigrateRequest, DirectorProjectMigrateResponse,
     DirectorArtStyleCatalogResponse, DirectorRecipeRunRequest, DirectorRecipeStepRequest,
@@ -1445,6 +1446,7 @@ async def split_script_endpoint(
             shot_count=payload.shot_count or 4,
             style_vibe=payload.style_vibe,
             cast_names=payload.cast_names,
+            script_mode=payload.script_mode,
         )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
@@ -1453,10 +1455,33 @@ async def split_script_endpoint(
 
     app.state.auth_store.audit(
         "split_script", "llm", actor_user_id=user["id"], target_id="director",
-        detail=f"shot_count={payload.shot_count or 4}; style={payload.style_vibe or 'default'}",
+        detail=f"shot_count={payload.shot_count or 4}; style={payload.style_vibe or 'default'}; mode={payload.script_mode}",
         ip_address=client_ip(request),
     )
     return split_result
+
+@app.post("/api/llm/repair-continuity", tags=["大模型"], summary="局部修复相邻镜头连续性")
+async def repair_continuity_endpoint(
+    payload: DirectorContinuityRepairRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    available, reason = app.state.llm_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "大模型服务不可用")
+    try:
+        result = await asyncio.to_thread(
+            app.state.llm_provider.repair_director_continuity,
+            payload.recipe,
+            from_shot=payload.from_shot,
+            to_shot=payload.to_shot,
+        )
+    except (LlmError, requests.exceptions.RequestException) as error:
+        raise_as_llm_http(error)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"连续性局部修复异常：{error}") from error
+    app.state.auth_store.audit("repair_continuity", "llm", actor_user_id=user["id"], target_id="director", detail=f"from={payload.from_shot};to={payload.to_shot}", ip_address=client_ip(request))
+    return result
 
 
 @app.get(
