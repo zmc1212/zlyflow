@@ -34,9 +34,10 @@ from .xiaji_asset_prompts import (
 )
 from .xiaji_analyze import build_voice_define_messages
 from .xiaji_art_style import definition_art_style_id, first_art_style_id, settings_art_style_id
+from .xiaji_visual_styles import DEFAULT_VISUAL_STYLE, normalize_visual_style, settings_visual_style
 from .xiaji_asset_store import ASSET_KINDS, XiajiAssetStore
 from .xiaji_episode_run_store import episode_runs_store
-from .xiaji_llm_jobs import finish_xiaji_llm_job, llm_jobs_store, start_xiaji_llm_job
+from .xiaji_llm_jobs import finish_xiaji_llm_job, llm_failure_response, llm_jobs_store, start_xiaji_llm_job
 from .xiaji_project_api import require_xiaji_project
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -78,6 +79,7 @@ class XiajiAssetGenerateRequest(BaseModel):
     look_id: str | None = None
     style: str | None = None
     art_style_id: str | None = None
+    visual_style: str | None = None
     ethnicity: str | None = None
     model: str | None = None
     scene_view: str | None = None
@@ -88,17 +90,37 @@ def _assets(app: Any) -> XiajiAssetStore:
     return app.state.xiaji_asset_store
 
 
-def _project_art_style_id(app: Any, owner_user_id: str, project_id: str) -> str:
+def _project_settings(app: Any, owner_user_id: str, project_id: str) -> dict[str, Any]:
     project_id = (project_id or "").strip()
     store = getattr(app.state, "xiaji_project_store", None)
     if not project_id or store is None:
-        return ""
+        return {}
     try:
         project = store.get_project(project_id, owner_user_id)
     except (KeyError, TypeError, AttributeError):
-        return ""
-    settings = project.get("settings") if isinstance(project.get("settings"), dict) else {}
-    return settings_art_style_id(settings)
+        return {}
+    return project.get("settings") if isinstance(project.get("settings"), dict) else {}
+
+
+def _project_art_style_id(app: Any, owner_user_id: str, project_id: str) -> str:
+    return settings_art_style_id(_project_settings(app, owner_user_id, project_id))
+
+
+def _project_visual_style(app: Any, owner_user_id: str, project_id: str) -> str:
+    return settings_visual_style(_project_settings(app, owner_user_id, project_id))
+
+
+def _resolved_visual_style(app: Any, asset: dict[str, Any], requested: str = "") -> str:
+    definition = asset.get("definition") if isinstance(asset.get("definition"), dict) else {}
+    return (
+        normalize_visual_style(requested, definition.get("visual_style"))
+        or _project_visual_style(
+            app,
+            str(asset.get("owner_user_id") or ""),
+            str(asset.get("project_id") or ""),
+        )
+        or DEFAULT_VISUAL_STYLE
+    )
 
 
 def _resolved_art_style_id(app: Any, asset: dict[str, Any], requested: str = "") -> str:
@@ -364,10 +386,15 @@ def _submit_asset_image_job(
         raise HTTPException(status_code=422, detail="声线请使用试听生成或上传参考音频")
     workflow_id = _resolve_image_workflow(app, payload.model)
     style = _resolved_art_style_id(app, asset, payload.art_style_id or payload.style or "")
-    if style:
-        current_def = dict(asset.get("definition") or {})
-        if definition_art_style_id(current_def) != style:
-            asset = store.update_asset(asset_id, owner_user_id, definition={"art_style_id": style})
+    visual_style = _resolved_visual_style(app, asset, payload.visual_style or "")
+    current_def = dict(asset.get("definition") or {})
+    patched: dict[str, Any] = {}
+    if style and definition_art_style_id(current_def) != style:
+        patched["art_style_id"] = style
+    if visual_style and normalize_visual_style(current_def.get("visual_style")) != visual_style:
+        patched["visual_style"] = visual_style
+    if patched:
+        asset = store.update_asset(asset_id, owner_user_id, definition=patched)
     ethnicity = (payload.ethnicity or "").strip()
     look_id = (payload.look_id or "").strip()
     look = None
@@ -386,7 +413,7 @@ def _submit_asset_image_job(
                 detail="请先生成或上传肖像，造型图需要把它作为身份锚点传入",
             )
         references = [portrait_path]
-        prompt = character_look_prompt(asset, look, style=style, ethnicity=ethnicity)
+        prompt = character_look_prompt(asset, look, style=style, visual_style=visual_style, ethnicity=ethnicity)
         title = f"导台2 造型 · {asset['name']} · {look.get('name') or '造型'}"
         media_kind = "look"
         slot = look_id
@@ -399,6 +426,7 @@ def _submit_asset_image_job(
         prompt = character_portrait_prompt(
             asset,
             style=style,
+            visual_style=visual_style,
             ethnicity=ethnicity,
             has_style_reference=bool(style_path),
         )
@@ -424,6 +452,7 @@ def _submit_asset_image_job(
             asset,
             view,
             style=style,
+            visual_style=visual_style,
             has_master_reference=has_master and view != "master",
             has_reverse_reference=has_reverse and view == "panorama",
         )
@@ -447,7 +476,13 @@ def _submit_asset_image_job(
                 )
             references = [master_path]
             has_master = True
-        prompt = prop_view_prompt(asset, view, style=style, has_master_reference=has_master and view != "master")
+        prompt = prop_view_prompt(
+            asset,
+            view,
+            style=style,
+            visual_style=visual_style,
+            has_master_reference=has_master and view != "master",
+        )
         view_titles = {"master": "主视图", "turnaround": "转面三视图", "detail": "细节特写"}
         title = f"导台2 道具{view_titles[view]} · {asset['name']}"
         media_kind = view
@@ -933,6 +968,7 @@ SLOT_LABELS = {
     "script": "生成脚本",
     "voice": "声线定义",
     "auto_run": "整集自动生成",
+    "compose": "合成成片",
 }
 
 
@@ -1242,11 +1278,15 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
     ) -> dict:
         project = require_xiaji_project(app, project_id, user["id"])
         definition = dict(payload.definition or {})
+        settings = project.get("settings") if isinstance(project.get("settings"), dict) else {}
         if not definition_art_style_id(definition):
-            settings = project.get("settings") if isinstance(project.get("settings"), dict) else {}
             inherited = settings_art_style_id(settings)
             if inherited:
                 definition["art_style_id"] = inherited
+        if not normalize_visual_style(definition.get("visual_style")):
+            inherited_visual = settings_visual_style(settings)
+            if inherited_visual:
+                definition["visual_style"] = inherited_visual
         try:
             return _public_asset(
                 app,
@@ -1432,7 +1472,13 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
         try:
             profile = app.state.llm_provider.define_xiaji_voice(payload)
         except LlmError as error:
-            finish_xiaji_llm_job(app, job_id, status="failed", error=str(error))
+            finish_xiaji_llm_job(
+                app,
+                job_id,
+                status="failed",
+                error=str(error),
+                response=llm_failure_response(error),
+            )
             raise HTTPException(status_code=422, detail=str(error)) from error
         finish_xiaji_llm_job(app, job_id, status="succeeded", response=profile)
         store.update_asset(asset_id, user["id"], definition={"voice_profile": profile}, status=asset["status"] or "draft")

@@ -7,7 +7,7 @@ from typing import Any
 
 from .db import Database, DbConnection, open_database
 from .storage import now
-from .xiaji_parser import billed_char_count, estimated_episode_count, parse_chapters
+from .xiaji_parser import billed_char_count, episode_count_for_text, parse_chapters
 
 
 SQLITE_SCHEMA = """
@@ -161,7 +161,7 @@ class XiajiIngestStore:
         original = row["original_text"] if row else ""
         char_count = len(original)
         billed = billed_char_count(original)
-        episode_count = estimated_episode_count(char_count)
+        episode_count = episode_count_for_text(original)
         next_status = status
         if next_status is None:
             next_status = "review_required" if len(chapters) <= 1 else "ready"
@@ -219,7 +219,7 @@ class XiajiIngestStore:
                 (
                     document_id, owner_user_id, project_id, title[:255], filename[:255], source_format, original_text, status,
                     len(original_text), billed_char_count(original_text), len(chapters),
-                    estimated_episode_count(len(original_text)), timestamp, timestamp,
+                    episode_count_for_text(original_text), timestamp, timestamp,
                 ),
             )
             self._replace_chapters(connection, document_id, chapters)

@@ -32,10 +32,10 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `frontend/src/auth/AuthScreens.tsx` | 登录、首次超级管理员初始化与强制改密界面 |
 | `frontend/src/admin/AdminSettings.tsx` | 管理设置（账号 / AI 供应商 / LLM / 媒体存储） |
 | `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成/导演台/导台2/资产、图/视频与选中任务；工作流、参考图草稿仍在组件 state |
-| `frontend/src/xiaji/XiajiStudioModule.tsx` | 导台2：项目内内容库、资产库、剧集工坊 + 其余占位 |
+| `frontend/src/xiaji/XiajiStudioModule.tsx` | 导台2：项目内内容库、资产库、剧集工坊、全部任务 |
 | `frontend/src/xiaji/XiajiHome.tsx` | 导台2 项目列表与新建 |
 | `frontend/src/xiaji/XiajiAssetsModule.tsx` | 导台2 资产库：角色/场景/道具/声线定义与生成 |
-| `frontend/src/xiaji/XiajiWorkshopModule.tsx` | 导台2 剧集工坊：规划落库、脚本 Beat |
+| `frontend/src/xiaji/XiajiWorkshopModule.tsx` | 导台2 剧集工坊：规划落库、脚本 Beat、镜头与成片合成 |
 | `frontend/src/xiaji/XiajiShotsWorkbench.tsx` | 导台2 镜头工作台：左 Beat 网格、右文案/单帧/参考图 |
 | `frontend/src/director/DirectorRecipeStudio.tsx` | 导演创作工作面：方案/剪辑双视图共用同一份 `director_recipe`；`?stage=` 与桌面 `?view=` |
 | `frontend/src/director/components/DirectorStageNav.tsx` | 方案视图左栏四组任务导航（方案 / 镜头制作 / 声音 / 交付）与 readiness 徽标 |
@@ -46,7 +46,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `desktop/src-tauri/` | Tauri Windows 壳、可信 origin capability 与受限本地资源命令 |
 | `backend/dev_reloader.py` | 本机 Windows 开发监督器：无 `--reload` 拉起 uvicorn，源码变更或崩溃后重启 |
 | `backend/app/main.py` | HTTP API、认证依赖、资源交付、上传和静态前端托管 |
-| `backend/app/xiaji_parser.py` | 导台2 内容库：TXT/Markdown/DOCX 解码与规则章节切分 |
+| `backend/app/xiaji_visual_styles.py` | 导台2 内容库六项视觉风格预设与风格说明 |
 | `backend/app/xiaji_store.py` | 导台2 内容库文档/章节/分析持久化（项目隔离） |
 | `backend/app/xiaji_project_store.py` | 导台2 项目 CRUD 与旧数据回填 |
 | `backend/app/xiaji_asset_store.py` | 导台2 资产库角色/场景/道具/声线与媒体版本 |
@@ -54,6 +54,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/xiaji_episode_prompts.py` | 导台2 草图/精绘/视频提示词与人工 Beat 规范化 |
 | `backend/app/xiaji_literal_script.py` | 导台2 生成脚本：逐行标注，一行一个 Beat |
 | `backend/app/xiaji_episode_api.py` | 导台2 剧集工坊 API |
+| `backend/app/xiaji_compose.py` | 导台2 剧集成片：本机 ffmpeg 拼接、字幕与 SRT/ZIP |
 | `backend/app/xiaji_episode_run_store.py` | 导台2 整集自动生成编排记录 |
 | `backend/app/xiaji_auto_pipeline.py` | 导台2 整集串行草图/精绘/提示词/视频 |
 | `backend/app/auth.py` | scrypt 密码、会话、用户、角色和审计数据访问 |
@@ -1450,3 +1451,93 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不新增数据库字段，不改变 API、任务 JSON、工作流 graph、ComfyUI 节点或端口；无参考图 T2V 与相对路径旧任务行为保持不变。
 - 验证命令：`python -m unittest backend.tests.test_core.WorkerTests`、`pnpm --dir frontend build`。
 - 回滚方式：移除恢复/执行前的本地参考图门禁并恢复文档；无需数据库回滚。
+
+## 2026-09-07 导台2 剧集成片合成
+
+- 原因：剧集「合成」页仍是占位，镜头视频完成后无法在工作台内拼成片。
+- 当前行为：精品剧在至少一段镜头视频就绪后即可拼接 `epNNN_final.mp4`（场次卡不作为出片门禁；尚未出片的 Beat 会跳过）。可选 720p/1080p 与烧录对白字幕；解说剧仅对实际入片的 Beat 要求 `audio_url`，本版不入队 TTS。成片上传七牛，支持预览、下载、导出 SRT 与 ZIP。
+- 受影响文件：`backend/app/xiaji_compose.py`、`xiaji_episode_api.py`、`xiaji_episode_store.py`、`sql/012_xiaji_episode_compose.sql`、`frontend/src/xiaji/XiajiComposePane.tsx`、`XiajiWorkshopModule.tsx`、`XiajiShotsWorkbench.tsx`、`xiaji-api.ts` 与三份主文档。
+- 兼容性：不改 `xiaji_episodes.status`、ComfyUI 节点、导演台 mux 或端口；新增剧集 compose_* 列与 `xiaji_beats.audio_url`，由 `ensure_column` 补齐。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码与文档并重启；可选忽略新增空列。
+
+## 2026-09-07 导台2 合成成片写入全部任务
+
+- 原因：点「合成成片」只改剧集 `compose_*`，项目「全部任务」看不到进度和成片。
+- 当前行为：每次合成本机 ffmpeg 成片都会在 `xiaji_llm_jobs` 记一条 `kind=compose` 任务；`GET /api/xiaji/jobs` 列出槽位「合成成片」，进行中显示进度，完成后带回成片 URL。
+- 受影响文件：`xiaji_llm_jobs.py`、`xiaji_episode_api.py`、`xiaji_asset_api.py`、`XiajiJobsModule.tsx`、`XiajiComposePane.tsx` 与三份主文档。
+- 兼容性：不改 ComfyUI、jobs 主表或剧集 `status`；复用已有 `xiaji_llm_jobs`。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiComposeTests`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码与文档。
+
+## 2026-09-07 隐藏导台2 空模块 Tab
+
+- 原因：「风格中心」「制作助手」尚无功能，占位 Tab 干扰操作。
+- 当前行为：项目 Tab 只保留内容库、资产库、剧集工坊、全部任务；家页文案同步。画风仍从家页进入。
+- 受影响文件：`XiajiStudioModule.tsx`、`XiajiHome.tsx` 与三份主文档。
+- 兼容性：不改 API、路由路径或 ComfyUI。
+- 验证命令：`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码与文档。
+
+## 2026-09-07 场景参考图强制空镜无人
+
+- 原因：场景正面源图任务会把剧情人物画进环境图。
+- 当前行为：场景生图对齐 sourceXd 空镜合同：忽略描述里的人物与动作，只保留建筑和固定陈设；画风只取材质/色板/光线，不按时尚杂志构图加人。内容分析的场景 description 也改为环境合同。
+- 受影响文件：`xiaji_asset_prompts.py`、`xiaji_analyze.py`、`backend/tests/test_xiaji.py` 与三份主文档。
+- 兼容性：不改 ComfyUI、工作流 ID 或 API 路径。已有场景资产需重新生成参考图。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiAssetStoreTests.test_sync_creates_character_scene_prop_and_narrator`。
+- 回滚方式：恢复上述代码与文档。
+
+## 2026-09-07 镜头视频提示词加厚为分镜说明书
+
+- 原因：「生成本 Beat 提示词」偏短，缺少运镜、微表演和环境反应。
+- 当前行为：提示词合同升为 `beat_video_motion.v5`，要求中英按 CUT/TRANSITION/HOLD 写满指定秒数（英文≥220 词，中文≥280 字），保留 `<Picture n>` 锁图与 0-1.5s 衔接；动画风才允许字效，禁止抄示例情节，不写 `<Audio n>`。
+- 受影响文件：`xiaji_episode_prompts.py`、`xiaji_episode_api.py`、`backend/tests/test_xiaji.py` 与三份主文档。
+- 兼容性：不改 ComfyUI 节点与参考图装箱；已有镜头需重新点「生成本 Beat 提示词」。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests.test_bridge_prompt_requires_timing`。
+- 回滚方式：恢复上述代码与文档。
+
+## 2026-09-07 镜头视频提示词把本镜动作放到最前
+
+- 原因：已生成的 Beat 提示词把锁图和画风写在最前，又写成「不得改变首帧站位」，成片里咳血、推搡倒地、饿晕倒地等动作看不见。
+- 当前行为：提示词合同升为 `beat_video_motion.v6`。中英稿第一段必须是本镜动作；参考图只锁身份/服装/空间，禁止整镜冻住站位；画风不得改成产品静物。落库时若模型把动作埋在后面，后端会把【必须演出】/ MUST PLAY THIS ACTION 提到最前。
+- 受影响文件：`xiaji_episode_prompts.py`、`XiajiShotsWorkbench.tsx`、`backend/tests/test_xiaji.py` 与三份主文档。
+- 兼容性：不改 ComfyUI 节点与参考图装箱。已有镜头需重新点「生成本 Beat 提示词」，再「生成视频」。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests.test_video_motion_leads_with_beat_action backend.tests.test_xiaji.XiajiBeatPromptTests.test_bridge_prompt_requires_timing`。
+- 回滚方式：恢复上述代码与文档。
+
+## 2026-09-07 大模型失败任务展示返回原文
+
+- 原因：内容导入任务 `e984abd3ca144f20` 只写了「不是合法 JSON」，没有把模型原文落库，无法排障。
+- 当前行为：解析失败时把模型原文写入 `xiaji_llm_jobs.response_json`（`llm_output.raw`），全部任务抽屉展示「模型返回内容」。
+- 受影响文件：`llm_client.py`、`xiaji_analyze.py`、`xiaji_llm_jobs.py`、`xiaji_api.py`、`xiaji_episode_api.py`、`xiaji_asset_api.py`、`XiajiJobsModule.tsx`、测试与三份主文档。
+- 兼容性：不改 ComfyUI。历史失败任务没有原文，需重新导入或重新生成。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiLlmJobTests.test_failed_ingest_job_keeps_model_raw backend.tests.test_xiaji.XiajiAnalysisTests.test_invalid_json_keeps_raw`。
+- 回滚方式：恢复上述代码与文档。
+
+## 2026-09-07 导台2 按显式分段导入
+
+- 原因：带有“第一段｜0–10秒、第二段｜10–20秒、第三段｜20–30秒”的短剧文本会被旧规则当作无标题正文，分析阶段又按总字数估算集数，导致分段边界丢失。
+- 当前行为：内容解析识别中文“第N段/段落N/第N部分”和英文“Part N/Segment N”等独占行标题；显式分段数量优先作为预计集数和分析目标集数，分段原文按顺序直接分配给剧集。分析提示词要求严格一段一集，模型漏返回时由归一化逻辑补齐。
+- 受影响文件：`backend/app/xiaji_parser.py`、`xiaji_store.py`、`xiaji_episode_store.py`、`xiaji_analyze.py`、`llm_provider.py`、`xiaji_api.py`、`backend/tests/test_xiaji.py` 与三份主文档。
+- 兼容性：不新增数据库字段，不改变 API 路径、工作流、ComfyUI 节点或端口；无显式分段的旧文稿继续沿用章节识别和按字数估算。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend exec tsc -b --pretty false`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码与文档；已有文档和剧集数据无需迁移。
+
+## 2026-09-08 导台2 内容库一行一个镜头
+
+- 原因：精品剧导入按小说章节引导，且不识别「第X集」。
+- 当前行为：规则切分识别「第X集 / Episode N」为显式剧集边界；分析提示词要求保留一行一镜。界面格式说明对齐 sourceXd 分场剧本。
+- 受影响文件：`xiaji_parser.py`、`xiaji_analyze.py`、`XiajiStudioModule.tsx`、测试与三份主文档。
+- 兼容性：不改 API、ComfyUI 或表结构。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiParserTests backend.tests.test_xiaji.XiajiAnalysisTests.test_drama_ingest_keeps_one_shot_per_line`。
+- 回滚方式：恢复上述代码与文档。
+
+## 2026-09-08 内容库恢复风格，画风可选
+
+- 原因：内容导入用导演台画风替换了 sourceXd 六项风格。
+- 当前行为：导入保存 `visual_style` 与可选 `art_style_id`；资产生图、镜头草图/精绘和视频提示词始终写入风格说明，仅在选择画风时附加目录 `promptPrefix` 和预览参考图。
+- 受影响文件：`xiaji_visual_styles.py`、内容库/资产/剧集提示词与 API、前端、测试与三份主文档。
+- 兼容性：不改 ComfyUI 或表结构。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiAssetStoreTests.test_sync_creates_character_scene_prop_and_narrator`。
+- 回滚方式：恢复上述代码与文档。

@@ -27,7 +27,6 @@ import {
   deleteXiajiDocument,
   getXiajiDocument,
   getXiajiProject,
-  getXiajiUserArtStyle,
   listXiajiAssets,
   listXiajiDocuments,
   listXiajiEpisodes,
@@ -56,11 +55,6 @@ const STATUS_LABEL: Record<XiajiDocumentStatus, { color: string; text: string }>
   failed: { color: "red", text: "失败" },
 }
 
-const PLACEHOLDERS = [
-  { key: "styles", label: "风格中心", hint: "视觉风格和 Prompt 模板将在后续版本接入。" },
-  { key: "assistant", label: "制作助手", hint: "进度查询和受控任务操作将在后续版本接入。" },
-] as const
-
 const SETTINGS_KEY = "zly-xiaji-ingest-settings"
 
 const SPINE_OPTIONS = [
@@ -81,11 +75,21 @@ const ETHNICITY_OPTIONS = [
   { value: "Mixed", label: "混合" },
 ] as const
 
+const VISUAL_STYLE_OPTIONS = [
+  { value: "chinese_period_drama", label: "写实古装剧" },
+  { value: "anime", label: "动漫风格" },
+  { value: "guoman_fantasy", label: "3D玄幻国漫" },
+  { value: "post_apocalyptic", label: "写实末日风格" },
+  { value: "realistic", label: "写实现代" },
+  { value: "republican_era_drama", label: "民国年代剧" },
+] as const
+
 type InputMode = "upload" | "paste"
 type SpineTemplate = (typeof SPINE_OPTIONS)[number]["value"]
 
 type IngestSettings = {
   spine_template: SpineTemplate
+  visual_style: string
   art_style_id: string
   narration_style: string
   ethnicity: string
@@ -93,10 +97,37 @@ type IngestSettings = {
 
 const DEFAULT_SETTINGS: IngestSettings = {
   spine_template: "drama",
+  visual_style: "chinese_period_drama",
   art_style_id: "",
   narration_style: "first_person",
   ethnicity: "Chinese",
 }
+
+const DRAMA_FORMAT_SPEC = [
+  "第X集",
+  "1-X 场景：【内/外 地点 日/夜】",
+  "人物：",
+  "△ 画面描述：[动作清晰，无多余修饰，直白描述]",
+  "角色A(表情/动作)：台词内容",
+  "△ 画面描述：",
+  "角色B(表情/动作)：台词内容",
+  "△ 画面描述：",
+  "角色A OS：内心独白内容",
+].join("\n")
+
+const DRAMA_FORMAT_EXAMPLE = [
+  "第 1 集",
+  "1-1 场景：苏鸾寝殿深夜内",
+  "人物：苏糖（附身苏鸾）、锦绣（贴身侍女）",
+  "△【闪回】漆黑寝殿，匕首尖正对跳动的烛火，刀身映出一张布满冷汗、瞳孔骤缩的少女脸。",
+  "△苏糖 OS：我不能死！",
+  "△【闪出】寒光匕首狠狠刺入少女心口，鲜血瞬间喷溅在锦被上。凶手缓缓抬头，露出贴身侍女锦绣冰冷的脸。",
+  "苏糖（大口喘气，眼神涣散，声音发颤）：这种风格是……《乱世凤鸣录》？",
+  "△【特写】一双纤白细腻、完全陌生的手，在苏糖眼前缓缓攥成拳。",
+  "△苏糖浑身剧烈一颤。",
+  "苏糖（瞬间收敛所有情绪，声音带着刚睡醒的沙哑慵懒）：锦绣，几更了？",
+  "锦绣（头埋得极低，声音恭顺）：回公主，三更。公主噩梦惊醒，奴婢炖了安神汤。",
+].join("\n")
 
 function loadSettings(projectId: string): IngestSettings {
   try {
@@ -290,7 +321,6 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
   const assetsQuery = useQuery({ queryKey: ["xiaji-assets", projectId], queryFn: () => listXiajiAssets(projectId) })
   const episodesQuery = useQuery({ queryKey: ["xiaji-episodes", projectId], queryFn: () => listXiajiEpisodes(projectId) })
   const projectQuery = useQuery({ queryKey: ["xiaji-project", projectId], queryFn: () => getXiajiProject(projectId) })
-  const userStyleQuery = useQuery({ queryKey: ["xiaji-user-art-style"], queryFn: getXiajiUserArtStyle })
   const stylesQuery = useQuery({ queryKey: ["director-art-styles"], queryFn: listDirectorArtStyles })
   const detailQuery = useQuery({
     queryKey: ["xiaji-document", selectedId],
@@ -301,19 +331,18 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
   useEffect(() => {
     const loaded = loadSettings(projectId)
     const fromProject = projectQuery.data?.settings
-    const userDefault = userStyleQuery.data?.art_style_id || ""
     const merged = {
       ...DEFAULT_SETTINGS,
       ...loaded,
-      ...(userDefault ? { art_style_id: userDefault } : {}),
       ...(fromProject?.spine_template ? { spine_template: fromProject.spine_template as SpineTemplate } : {}),
-      ...(fromProject?.art_style_id ? { art_style_id: fromProject.art_style_id } : {}),
+      ...(fromProject?.visual_style ? { visual_style: fromProject.visual_style } : {}),
+      ...(fromProject && "art_style_id" in fromProject ? { art_style_id: fromProject.art_style_id || "" } : {}),
       ...(fromProject?.narration_style ? { narration_style: fromProject.narration_style } : {}),
       ...(fromProject?.ethnicity ? { ethnicity: fromProject.ethnicity } : {}),
     }
     setSettings(merged)
     setSavedSettings(merged)
-  }, [projectId, projectQuery.data, userStyleQuery.data])
+  }, [projectId, projectQuery.data])
 
   useEffect(() => {
     const documents = listQuery.data
@@ -367,6 +396,7 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
 
   const ingestSettings = {
     spine_template: settings.spine_template,
+    visual_style: settings.visual_style,
     art_style_id: settings.art_style_id,
     narration_style: settings.narration_style,
     ethnicity: settings.ethnicity,
@@ -412,7 +442,14 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
 
   const ingestBusy = uploadMutation.isPending || pasteMutation.isPending
 
+  const persistSettings = () => {
+    saveSettings(projectId, settings)
+    void updateXiajiProject(csrfToken, projectId, { settings })
+    setSavedSettings(settings)
+  }
+
   const runIngest = (replace: boolean) => {
+    persistSettings()
     const typed = readPastedText()
     if (inputMode === "paste" || (typed && !pendingFile)) {
       if (!typed) {
@@ -548,7 +585,7 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
               />
             ) : null}
           </div>
-          <p>上传剧本，开启你的创意之旅</p>
+          <p>上传剧本，精品剧一行一个镜头</p>
         </div>
       </header>
 
@@ -592,8 +629,8 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                       <div className="xiaji-dropzone-body">
                         <span className="xiaji-dropzone-plus"><Plus size={28} strokeWidth={1.25} /></span>
                         <div className="xiaji-dropzone-copy">
-                          <p>点击或拖拽上传小说文件</p>
-                          <span>支持 .txt / .md / .docx，建议不超过 8MB</span>
+                          <p>点击或拖拽上传剧本文件</p>
+                          <span>支持 .txt / .md / .docx；精品剧一行一个镜头，建议不超过 8MB</span>
                         </div>
                       </div>
                     </Upload.Dragger>
@@ -607,7 +644,7 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                         const next = typeof event === "string" ? event : event.target.value
                         setPasteText(next)
                       }}
-                      placeholder="在这里粘贴小说或剧本文本"
+                      placeholder="粘贴剧本：第X集起一行一个镜头，对白用「角色：台词」"
                       className="xiaji-paste-area"
                     />
                     <div className="xiaji-paste-count">{pasteText.length} 字</div>
@@ -631,11 +668,19 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                   onChange={(value) => setSettings((current) => ({ ...current, spine_template: value }))}
                   options={[...SPINE_OPTIONS]}
                 />
+                <Select
+                  size="small"
+                  value={settings.visual_style}
+                  onChange={(value) => setSettings((current) => ({ ...current, visual_style: value }))}
+                  options={[...VISUAL_STYLE_OPTIONS]}
+                  popupMatchSelectWidth={160}
+                />
                 <ArtStyleCompactField
                   size="small"
                   styles={stylesQuery.data?.styles || []}
                   categories={stylesQuery.data?.categories || []}
                   value={settings.art_style_id}
+                  placeholder="画风（可不选）"
                   onChange={(artStyleId) => setSettings((current) => ({ ...current, art_style_id: artStyleId }))}
                 />
                 {showNarration ? (
@@ -655,7 +700,7 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                 {settings.spine_template === "drama" ? (
                   <button type="button" className="xiaji-format-link" onClick={() => setFormatOpen(true)}>
                     <Info size={14} />
-                    <span>小说格式</span>
+                    <span>精品剧格式</span>
                   </button>
                 ) : null}
                 <div className="xiaji-ingest-actions">
@@ -667,9 +712,7 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                     icon={<CheckCircle2 size={14} />}
                     disabled={!settingsChanged}
                     onClick={() => {
-                      saveSettings(projectId, settings)
-                      void updateXiajiProject(csrfToken, projectId, { settings })
-                      setSavedSettings(settings)
+                      persistSettings()
                       message.success("设置已保存到当前项目")
                     }}
                   >
@@ -744,6 +787,10 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                     <p>{optionLabel(SPINE_OPTIONS, settings.spine_template)}</p>
                   </div>
                   <div>
+                    <small>风格</small>
+                    <p>{optionLabel(VISUAL_STYLE_OPTIONS, settings.visual_style)}</p>
+                  </div>
+                  <div>
                     <small>画风</small>
                     <p>
                       {(stylesQuery.data?.styles || []).find((item) => item.id === settings.art_style_id)?.name_zh
@@ -791,7 +838,7 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
                 ]}
               />
               <Typography.Paragraph type="secondary" className="xiaji-table-hint">
-                点击章节可校对标题和正文。拆分时请在上下两段之间留一个空行。
+                精品剧按「第X集」切分，正文一行一个镜头。点击章节可校对；拆分时请在上下两段之间留一个空行。
               </Typography.Paragraph>
               <AnalysisPanel
                 analysis={detail?.analysis}
@@ -840,19 +887,16 @@ function ContentLibrary({ csrfToken, projectId }: { csrfToken: string; projectId
         ) : <Empty description="没有章节" />}
       </Drawer>
 
-      <Modal title="小说格式" open={formatOpen} onCancel={() => setFormatOpen(false)} footer={null} width={640}>
+      <Modal title="精品剧格式" open={formatOpen} onCancel={() => setFormatOpen(false)} footer={null} width={720}>
         <Typography.Paragraph>
-          精品剧建议按章节标题切分。当前内容库用规则识别标题，不调用大模型。
+          按「第X集」切分；画面和对白各占一行，后续生成脚本时一行一个镜头。规则识别标题，不调用大模型切集。
         </Typography.Paragraph>
-        <pre className="xiaji-format-spec">{`第1章 开篇
-正文……
-
-第2章 转折
-正文……
-
-# Markdown 一级标题也可以作为章节`}</pre>
+        <Typography.Text type="secondary">标准格式</Typography.Text>
+        <pre className="xiaji-format-spec">{DRAMA_FORMAT_SPEC}</pre>
+        <Typography.Text type="secondary">示例片段</Typography.Text>
+        <pre className="xiaji-format-spec">{DRAMA_FORMAT_EXAMPLE}</pre>
         <Typography.Paragraph type="secondary">
-          没有标题时整篇作为一章，导入后可在章节表中拆分、合并和改标题。
+          没有集标题时整篇作为一集，导入后可在章节表中拆分、合并和改标题。解说剧仍可用章节或「第N段」标题。
         </Typography.Paragraph>
       </Modal>
     </div>
@@ -916,16 +960,6 @@ export default function XiajiStudioModule({ csrfToken, projectId }: { csrfToken:
             label: "剧集工坊",
             children: <XiajiWorkshopModule csrfToken={csrfToken} projectId={projectId} />,
           },
-          ...PLACEHOLDERS.map((item) => ({
-            key: item.key,
-            label: item.label,
-            children: (
-              <Empty
-                className="xiaji-placeholder"
-                description={`${item.hint}当前项目：${projectQuery.data?.name || "未命名"}。`}
-              />
-            ),
-          })),
           {
             key: "jobs",
             label: runningJobs ? `全部任务 (${runningJobs})` : "全部任务",

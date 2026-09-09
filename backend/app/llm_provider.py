@@ -351,6 +351,7 @@ class LlmProviderService:
         visual_style: str = "",
         narration_style: str = "",
         ethnicity: str = "",
+        target_episodes: int | None = None,
     ) -> dict[str, Any]:
         from .xiaji_analyze import analyze_ingest_text
 
@@ -363,6 +364,7 @@ class LlmProviderService:
             visual_style=visual_style,
             narration_style=narration_style,
             ethnicity=ethnicity,
+            target_episodes=target_episodes,
         )
 
     def define_xiaji_voice(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -401,5 +403,6 @@ class LlmProviderService:
             pictures=list(payload.get("pictures") or []),
             duration=float(payload.get("duration") or 5),
             visual_style=str(payload.get("visual_style") or ""),
+            art_style_id=str(payload.get("art_style_id") or ""),
             route=str(payload.get("route") or "r2v"),
         )

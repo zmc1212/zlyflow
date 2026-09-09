@@ -3,15 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, File, Form, HTTPException, Path as ApiPath, Query, UploadFile
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
 
-from .llm_client import LlmError
+from .llm_client import LlmError, llm_error_raw
 from .xiaji_analyze import build_ingest_messages
 from .xiaji_art_style import art_style_hint, first_art_style_id
-from .xiaji_llm_jobs import finish_xiaji_llm_job, start_xiaji_llm_job
-from .xiaji_parser import ALLOWED_EXTENSIONS, MAX_INGEST_BYTES, estimated_episode_count, load_source_text
+from .xiaji_visual_styles import (
+    DEFAULT_VISUAL_STYLE,
+    normalize_visual_style,
+    visual_style_contract,
+    visual_style_label,
+)
+from .xiaji_llm_jobs import finish_xiaji_llm_job, llm_failure_response, start_xiaji_llm_job
+from .xiaji_parser import ALLOWED_EXTENSIONS, MAX_INGEST_BYTES, episode_count_for_text, load_source_text
 from .xiaji_project_api import require_xiaji_project
 from .xiaji_store import XiajiIngestStore
 
@@ -103,13 +109,21 @@ def _run_llm_analysis(
 ) -> dict[str, Any]:
     store = _store(app)
     original_text = str(document.get("original_text") or "")
-    target_episodes = estimated_episode_count(len(original_text))
-    resolved_style = first_art_style_id(art_style_id, visual_style)
-    style_hint = art_style_hint(resolved_style) or visual_style
+    target_episodes = episode_count_for_text(original_text)
+    resolved_art = first_art_style_id(art_style_id)
+    resolved_visual = normalize_visual_style(visual_style) or DEFAULT_VISUAL_STYLE
+    style_hint = "；".join(
+        part
+        for part in (
+            f"{visual_style_label(resolved_visual)}。{visual_style_contract(resolved_visual)}".strip("。"),
+            art_style_hint(resolved_art),
+        )
+        if part
+    )
     ingest_settings = {
         "spine_template": spine_template,
-        "art_style_id": resolved_style,
-        "visual_style": resolved_style or visual_style,
+        "art_style_id": resolved_art,
+        "visual_style": resolved_visual,
         "narration_style": narration_style,
         "ethnicity": ethnicity,
     }
@@ -137,8 +151,8 @@ def _run_llm_analysis(
             "chapter_count": document.get("chapter_count") or 0,
             "target_episodes": target_episodes,
             "spine_template": spine_template,
-            "art_style_id": resolved_style,
-            "visual_style": resolved_style or visual_style,
+            "art_style_id": resolved_art,
+            "visual_style": resolved_visual,
             "narration_style": narration_style,
             "ethnicity": ethnicity,
             "original_text": original_text,
@@ -158,10 +172,21 @@ def _run_llm_analysis(
             visual_style=style_hint,
             narration_style=narration_style,
             ethnicity=ethnicity,
+            target_episodes=target_episodes,
         )
     except LlmError as error:
         logs.append(f"分析失败：{error}")
-        finish_xiaji_llm_job(app, job_id, status="failed", error=str(error))
+        raw = llm_error_raw(error)
+        if raw:
+            logs.append("模型返回原文：")
+            logs.append(raw[:8000])
+        finish_xiaji_llm_job(
+            app,
+            job_id,
+            status="failed",
+            error=str(error),
+            response=llm_failure_response(error),
+        )
         return store.save_analysis(
             document["id"],
             owner_user_id,
@@ -264,7 +289,10 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
         )
 
     @router.get("/documents/{document_id}", summary="读取文档原文与章节")
-    def get_document(document_id: str, user: dict = Depends(current_user)) -> dict:
+    def get_document(
+        document_id: str = ApiPath(..., description="导台2 内容库文档 ID"),
+        user: dict = Depends(current_user),
+    ) -> dict:
         return _document_or_404(_store(app), document_id, user["id"])
 
     @router.post("/documents", status_code=201, summary="上传文本并解析章节")
@@ -320,8 +348,8 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
 
     @router.put("/documents/{document_id}/chapters", summary="保存章节校对结果")
     def replace_chapters(
-        document_id: str,
         payload: XiajiChaptersReplaceRequest,
+        document_id: str = ApiPath(..., description="导台2 内容库文档 ID"),
         user: dict = Depends(mutating_user),
     ) -> dict:
         store = _store(app)
@@ -336,7 +364,10 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @router.delete("/documents/{document_id}", summary="删除内容库文档")
-    def delete_document(document_id: str, user: dict = Depends(mutating_user)) -> dict:
+    def delete_document(
+        document_id: str = ApiPath(..., description="导台2 内容库文档 ID"),
+        user: dict = Depends(mutating_user),
+    ) -> dict:
         try:
             _store(app).delete_document(document_id, user["id"])
         except KeyError as error:

@@ -7,6 +7,7 @@ from typing import Any
 
 from .db import Database, open_database
 from .storage import now
+from .xiaji_parser import is_segment_heading
 
 BEAT_KINDS = ("scene_heading", "action", "dialogue")
 EPISODE_STATUSES = ("draft", "scripting", "script_ready", "sketching", "sketched")
@@ -32,6 +33,19 @@ BEAT_MEDIA_COLUMNS = (
     ("video_in_frame_sec", "TEXT"),
     ("video_in_source_job_id", "TEXT"),
     ("video_in_frame_manual", "TEXT"),
+    ("audio_url", "TEXT"),
+)
+
+EPISODE_COMPOSE_COLUMNS = (
+    ("compose_status", "TEXT"),
+    ("compose_url", "TEXT"),
+    ("compose_key", "TEXT"),
+    ("compose_error", "TEXT"),
+    ("compose_resolution", "TEXT"),
+    ("compose_add_subtitles", "TEXT"),
+    ("compose_duration_sec", "TEXT"),
+    ("compose_at", "TEXT"),
+    ("compose_progress", "TEXT"),
 )
 
 
@@ -144,6 +158,24 @@ def split_original_lines(text: str) -> list[str]:
 
 def allocate_chapter_text(chapters: list[dict[str, Any]], episode_count: int) -> list[str]:
     count = max(1, episode_count)
+    segment_indices = [
+        index for index, item in enumerate(chapters)
+        if is_segment_heading(str(item.get("title") or ""))
+    ]
+    if segment_indices:
+        first_segment_index = segment_indices[0]
+        segment_chapters = [chapters[index] for index in segment_indices]
+        preamble = [
+            str(item.get("content") or "").strip()
+            for item in chapters[:first_segment_index]
+            if str(item.get("content") or "").strip()
+        ]
+        allocated = [str(item.get("content") or "").strip() for item in segment_chapters]
+        if preamble and allocated:
+            allocated[0] = "\n\n".join([*preamble, allocated[0]]).strip()
+        if count <= len(allocated):
+            return allocated[:count]
+        return [*allocated, *([""] * (count - len(allocated)))]
     bodies = [str(item.get("content") or "").strip() for item in chapters]
     combined = "\n\n".join(part for part in bodies if part)
     if not combined:
@@ -193,6 +225,9 @@ class XiajiEpisodeStore:
             if self._db.table_exists(connection, "xiaji_beats"):
                 for name, declaration in BEAT_MEDIA_COLUMNS:
                     self._db.ensure_column(connection, "xiaji_beats", name, declaration)
+            if self._db.table_exists(connection, "xiaji_episodes"):
+                for name, declaration in EPISODE_COMPOSE_COLUMNS:
+                    self._db.ensure_column(connection, "xiaji_episodes", name, declaration)
 
     def delete_project_episodes(self, project_id: str, owner_user_id: str) -> None:
         with self._db.connection() as connection:
@@ -269,6 +304,7 @@ class XiajiEpisodeStore:
             "video_in_frame_sec": _row_value(row, "video_in_frame_sec"),
             "video_in_source_job_id": _row_value(row, "video_in_source_job_id"),
             "video_in_frame_manual": _row_value(row, "video_in_frame_manual"),
+            "audio_url": _row_value(row, "audio_url"),
             "status": row["status"],
             "error": row["error"],
         }
@@ -294,6 +330,15 @@ class XiajiEpisodeStore:
             "original_lines": _parse_json(row["original_lines_json"], []),
             "status": row["status"],
             "error": row["error"],
+            "compose_status": _row_value(row, "compose_status") or "idle",
+            "compose_url": _row_value(row, "compose_url"),
+            "compose_key": _row_value(row, "compose_key"),
+            "compose_error": _row_value(row, "compose_error"),
+            "compose_resolution": _row_value(row, "compose_resolution"),
+            "compose_add_subtitles": _row_value(row, "compose_add_subtitles"),
+            "compose_duration_sec": _row_value(row, "compose_duration_sec"),
+            "compose_at": _row_value(row, "compose_at"),
+            "compose_progress": _row_value(row, "compose_progress"),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "links": links if links is not None else [],
@@ -530,15 +575,26 @@ class XiajiEpisodeStore:
         status: str | None = None,
         error: str | None = None,
         clear_error: bool = False,
+        **fields: Any,
     ) -> dict[str, Any]:
         current = self.get_episode(episode_id, owner_user_id)
         next_title = (title.strip() if isinstance(title, str) else current["title"])[:255]
         next_status = status or current["status"]
         next_error = None if clear_error else (error if error is not None else current.get("error"))
+        allowed = {name for name, _declaration in EPISODE_COMPOSE_COLUMNS}
+        extras: list[str] = []
+        extra_values: list[Any] = []
+        for key, value in fields.items():
+            if key in allowed:
+                extras.append(f"{key} = ?")
+                extra_values.append(value)
+        set_sql = "title = ?, status = ?, error = ?, updated_at = ?"
+        if extras:
+            set_sql = f"{set_sql}, {', '.join(extras)}"
         with self._db.connection() as connection:
             connection.execute(
-                "UPDATE xiaji_episodes SET title = ?, status = ?, error = ?, updated_at = ? WHERE id = ?",
-                (next_title, next_status, next_error, now(), episode_id),
+                f"UPDATE xiaji_episodes SET {set_sql} WHERE id = ?",
+                tuple([next_title, next_status, next_error, now(), *extra_values, episode_id]),
             )
         return self.get_episode(episode_id, owner_user_id)
 
@@ -586,6 +642,7 @@ class XiajiEpisodeStore:
                 "video_in_frame_sec",
                 "video_in_source_job_id",
                 "video_in_frame_manual",
+                "audio_url",
                 "status",
                 "error",
             }

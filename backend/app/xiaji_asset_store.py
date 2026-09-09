@@ -8,6 +8,7 @@ from typing import Any
 from .db import Database, open_database
 from .storage import now
 from .xiaji_art_style import definition_art_style_id, first_art_style_id
+from .xiaji_visual_styles import normalize_visual_style
 from .xiaji_asset_prompts import VOICE_SLOTS
 
 ASSET_KINDS = ("character", "scene", "prop", "voice")
@@ -470,8 +471,8 @@ class XiajiAssetStore:
         art_style_id = first_art_style_id(
             settings.get("art_style_id"),
             settings.get("art_style"),
-            settings.get("visual_style"),
         )
+        visual_style = normalize_visual_style(settings.get("visual_style"))
         ethnicity = str(settings.get("ethnicity") or "Chinese")
         created = 0
         character_count = 0
@@ -480,7 +481,9 @@ class XiajiAssetStore:
         for item in analysis.get("characters") or []:
             if not isinstance(item, dict) or not str(item.get("name") or "").strip():
                 continue
-            created += self._upsert_character(owner_user_id, project_id, item, document_id, art_style_id, ethnicity)
+            created += self._upsert_character(
+                owner_user_id, project_id, item, document_id, art_style_id, ethnicity, visual_style,
+            )
             character_count += 1
         for item in analysis.get("scenes") or []:
             if not isinstance(item, dict) or not str(item.get("name") or "").strip():
@@ -496,6 +499,7 @@ class XiajiAssetStore:
                     "environment_prompt": str(item.get("environment_prompt") or item.get("description") or ""),
                     "time_of_day": str(item.get("time_of_day") or ""),
                     "art_style_id": art_style_id,
+                    "visual_style": visual_style,
                     "ethnicity": ethnicity,
                     "aliases": list(item.get("aliases") or []),
                 },
@@ -517,6 +521,7 @@ class XiajiAssetStore:
                     "description": str(item.get("description") or ""),
                     "owner": str(item.get("owner") or ""),
                     "art_style_id": art_style_id,
+                    "visual_style": visual_style,
                     "ethnicity": ethnicity,
                 },
                 document_id,
@@ -530,6 +535,7 @@ class XiajiAssetStore:
             {
                 "role": "narrator",
                 "art_style_id": art_style_id,
+                "visual_style": visual_style,
                 "voice_profile": empty_voice_profile(),
             },
             document_id,
@@ -562,6 +568,7 @@ class XiajiAssetStore:
         document_id: str | None,
         art_style_id: str,
         ethnicity: str = "Chinese",
+        visual_style: str = "",
     ) -> int:
         name = str(item["name"]).strip()
         incoming = {
@@ -574,6 +581,7 @@ class XiajiAssetStore:
             "description": str(item.get("description") or ""),
             "face_prompt": str(item.get("face_prompt") or ""),
             "art_style_id": art_style_id,
+            "visual_style": visual_style,
             "ethnicity": ethnicity or "Chinese",
         }
         existing = self._find(project_id, "character", name)
@@ -596,6 +604,8 @@ class XiajiAssetStore:
         for key in ("role", "gender", "age_group", "body_type", "description", "face_prompt", "ethnicity"):
             if incoming.get(key):
                 merged[key] = incoming[key]
+        if incoming.get("visual_style") and not normalize_visual_style(merged.get("visual_style")):
+            merged["visual_style"] = incoming["visual_style"]
         if incoming.get("art_style_id") and not definition_art_style_id(merged):
             merged["art_style_id"] = incoming["art_style_id"]
         merged["is_main"] = incoming["is_main"] or bool(merged.get("is_main"))
@@ -636,6 +646,10 @@ class XiajiAssetStore:
             if key == "aliases":
                 continue
             if key == "voice_profile" and merged.get("voice_profile"):
+                continue
+            if key == "visual_style":
+                if value and not normalize_visual_style(merged.get("visual_style")):
+                    merged[key] = value
                 continue
             if key == "art_style_id":
                 if value and not definition_art_style_id(merged):

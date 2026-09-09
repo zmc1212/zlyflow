@@ -4642,6 +4642,7 @@
 }
 .xiaji-format-spec {
   padding: 12px 14px;
+  margin: 8px 0 16px;
   border: 1px solid var(--studio-border);
   border-radius: 8px;
   background: var(--studio-surface-raised, var(--studio-surface));
@@ -5547,6 +5548,119 @@
   }
 }
 
+.xiaji-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 280px;
+}
+.xiaji-compose-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.xiaji-compose-head h3 {
+  margin: 0;
+  color: var(--studio-text);
+  font-size: 20px;
+}
+.xiaji-compose-head p {
+  margin: 6px 0 0;
+  color: var(--studio-muted);
+  font-size: 12px;
+}
+.xiaji-compose-head code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.xiaji-compose-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  align-items: center;
+  justify-content: space-between;
+}
+.xiaji-compose-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--studio-muted);
+  font-size: 12px;
+}
+.xiaji-compose-preview {
+  display: flex;
+  min-height: 240px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--studio-preview, #111);
+}
+.xiaji-compose-preview video {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 560px);
+}
+.xiaji-compose-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 480px;
+}
+.xiaji-compose-blockers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.xiaji-compose-blockers button {
+  display: flex;
+  min-height: 92px;
+  width: 100%;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--studio-border);
+  border-radius: 8px;
+  background: var(--studio-surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.xiaji-compose-blockers button:hover {
+  border-color: var(--studio-accent, #1677ff);
+}
+.xiaji-compose-blockers em {
+  font-size: 11px;
+  font-style: normal;
+  color: var(--studio-muted);
+  text-transform: uppercase;
+}
+.xiaji-compose-blockers strong {
+  font-size: 24px;
+  line-height: 1;
+  color: var(--studio-text);
+}
+.xiaji-compose-blockers span {
+  font-size: 12px;
+  color: var(--studio-muted);
+}
+.xiaji-compose-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.xiaji-compose-summary span {
+  display: block;
+  color: var(--studio-muted);
+  font-size: 12px;
+}
+.xiaji-compose-summary strong {
+  color: var(--studio-text);
+}
 .xiaji-workshop,
 .xiaji-episode {
   display: flex;
@@ -5625,14 +5739,26 @@
   font-style: normal;
 }
 .xiaji-episode-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.xiaji-episode-head-main {
+  flex: 1;
+  min-width: 240px;
   display: grid;
   gap: 8px;
 }
-.xiaji-episode-head > div:first-child {
+.xiaji-episode-head-title {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+.xiaji-episode-head-actions {
+  flex-shrink: 0;
 }
 .xiaji-episode-head h2 {
   margin: 0;

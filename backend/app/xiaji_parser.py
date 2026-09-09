@@ -13,6 +13,17 @@ HEADING_PATTERNS = (
     re.compile(r"^(#{1,3}\s+.+)$"),
 )
 
+SEGMENT_HEADING_PATTERNS = (
+    re.compile(r"^(?:第\s*[零一二三四五六七八九十百千0-9]+\s*(?:段|部分)|段落\s*[零一二三四五六七八九十百千0-9]+)(?:(?:\s*[｜|:：\-—]\s*|\s+).+)?$"),
+    re.compile(r"^(?:Part|Segment)\s*#?\s*\d+(?:(?:\s*[｜|:：\-—]\s*|\s+).+)?$", re.IGNORECASE),
+)
+
+EPISODE_HEADING_RE = re.compile(
+    r"^(?:第\s*[零一二三四五六七八九十百千0-9]+\s*集|Episode\s*#?\s*\d+)(?P<tail>.*)$",
+    re.IGNORECASE,
+)
+SENTENCE_TAIL_RE = re.compile(r"[。\.…]\s*$")
+
 ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".docx"}
 MAX_INGEST_BYTES = 8 * 1024 * 1024
 CHARS_PER_EPISODE = 3500
@@ -74,10 +85,56 @@ def estimated_episode_count(char_count: int) -> int:
     return max(1, (char_count + CHARS_PER_EPISODE - 1) // CHARS_PER_EPISODE)
 
 
+def _normalize_heading_line(value: str) -> str:
+    return str(value or "").strip().lstrip("#").strip()
+
+
+def _is_valid_heading_tail(tail: str) -> bool:
+    stripped = (tail or "").strip()
+    if not stripped:
+        return True
+    if stripped[0] in ":：《（(【[-—–、｜|":
+        return True
+    if stripped[0] in ".。．":
+        remainder = stripped[1:].strip()
+        return not remainder or not SENTENCE_TAIL_RE.search(remainder)
+    return not SENTENCE_TAIL_RE.search(stripped)
+
+
+def is_episode_heading(value: str) -> bool:
+    stripped = _normalize_heading_line(value)
+    match = EPISODE_HEADING_RE.match(stripped)
+    return bool(match) and _is_valid_heading_tail(match.group("tail") or "")
+
+
+def is_segment_heading(value: str) -> bool:
+    stripped = _normalize_heading_line(value)
+    if not stripped:
+        return False
+    if is_episode_heading(stripped):
+        return True
+    return any(pattern.match(stripped) for pattern in SEGMENT_HEADING_PATTERNS)
+
+
+def explicit_segment_count(chapters: list[dict[str, Any]]) -> int:
+    return sum(1 for chapter in chapters if is_segment_heading(str(chapter.get("title") or "")))
+
+
+def episode_count_for_text(text: str) -> int:
+    chapters = parse_chapters(text)
+    explicit = explicit_segment_count(chapters)
+    return explicit or estimated_episode_count(len(text))
+
+
 def _is_heading(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
+    normalized = _normalize_heading_line(stripped)
+    if is_episode_heading(normalized):
+        return True
+    if any(pattern.match(normalized) for pattern in SEGMENT_HEADING_PATTERNS):
+        return True
     return any(pattern.match(stripped) for pattern in HEADING_PATTERNS)
 
 

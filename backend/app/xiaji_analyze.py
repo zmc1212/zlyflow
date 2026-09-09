@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 from .llm_client import LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS, LlmError, OpenAICompatibleClient
-from .xiaji_parser import estimated_episode_count
+from .xiaji_parser import episode_count_for_text, is_segment_heading, parse_chapters
 
 MAX_ANALYZE_CHARS = 24000
 
@@ -52,12 +52,25 @@ EPISODE_PROMPT = """你是一个专业的剧集规划师。将小说内容规划
 - 情节连贯，前后呼应
 - 高潮放在中后期"""
 
+EXPLICIT_SEGMENT_PROMPT = """原文包含明确的集标题或分段标题（例如“第1集”“第 1 集”“第一段｜0–10秒”或“Part 1”。）
+此时 episodes 必须严格按这些分段逐项输出：数量、顺序和原文边界都不能改变，不得合并、拆分或按字数重新分配；每个分段的标题和内容只对应自己的原文。"""
+
+DRAMA_SHOT_LINE_PROMPT = """精品剧正文按「一行一个镜头」导入，对齐分场剧本而不是长篇小说：
+- 除空行、集标题、「人物：」行和场景头外，每一行对应后续一个 Beat/镜头，不要把多行合并成一段小说
+- 画面/动作行（可带 △、【特写】、【闪回】等）与「角色名：台词」各占一行
+- 场景头格式如「1-1 场景：【内/外 地点 日/夜】」或「地点 时间 内/外」
+- 分析角色、场景、道具时仍读取全文，但不要改写或拼接这些镜头行"""
+
 SCENE_PROMPT = """你是场景环境设计专家。根据原文列出可复用的地点场景。
 
 对于每个场景，生成：
 1. name: 场景名称（保留原文具体地名，不要过度概括，例如不要把「兰州拉面馆」改成「面馆」）
 2. scene_type: interior / exterior / nature
-3. description: 场景叙述性描述（中文，50字以内）"""
+3. description: 空镜环境描述（中文，80字以内）。只写空间、建筑、固定陈设、光线和天气。不要写人物、动作、对白或剧情瞬间。
+
+规则：
+- 这是给场景参考图用的环境合同，画面里不能有人
+- 把原文里的人物动作改写成他们离开后仍在的陈设，例如「陈平安跪在床前」写成「破屋内有木床、窗和地面，光线压抑」"""
 
 PROP_PROMPT = """你是小说道具分析专家。只提取推动剧情的重要物品（信物、武器、法宝、文书等），不提取普通日用品。
 
@@ -86,9 +99,9 @@ def parse_llm_json(raw: str) -> dict[str, Any]:
     try:
         parsed = json.loads(clean_text)
     except json.JSONDecodeError as error:
-        raise LlmError("大模型返回的分析结果不是合法 JSON") from error
+        raise LlmError("大模型返回的分析结果不是合法 JSON", raw=raw) from error
     if not isinstance(parsed, dict):
-        raise LlmError("大模型返回的分析结果格式不正确")
+        raise LlmError("大模型返回的分析结果格式不正确", raw=raw)
     return parsed
 
 
@@ -108,7 +121,12 @@ def _as_str_list(value: Any) -> list[str]:
     return items
 
 
-def normalize_analysis(parsed: dict[str, Any], *, target_episodes: int) -> dict[str, Any]:
+def normalize_analysis(
+    parsed: dict[str, Any],
+    *,
+    target_episodes: int,
+    segment_titles: list[str] | None = None,
+) -> dict[str, Any]:
     characters = []
     found_main = False
     for item in _as_list(parsed.get("characters")):
@@ -186,7 +204,22 @@ def normalize_analysis(parsed: dict[str, Any], *, target_episodes: int) -> dict[
             }
         )
     episodes.sort(key=lambda item: item["number"])
-    if not episodes and target_episodes > 0:
+    if segment_titles:
+        aligned: list[dict[str, Any]] = []
+        for index, source_title in enumerate(segment_titles, start=1):
+            item = episodes[index - 1] if index <= len(episodes) else {}
+            aligned.append(
+                {
+                    "number": index,
+                    "title": str(item.get("title") or source_title).strip()[:128],
+                    "content_summary": str(item.get("content_summary") or "").strip()[:200],
+                    "main_conflict": str(item.get("main_conflict") or "").strip()[:200],
+                    "cliffhanger": str(item.get("cliffhanger") or "").strip()[:200],
+                    "key_events": _as_str_list(item.get("key_events"))[:12],
+                }
+            )
+        episodes = aligned
+    elif not episodes and target_episodes > 0:
         episodes = [
             {
                 "number": 1,
@@ -217,6 +250,11 @@ def build_ingest_messages(
     target_episodes: int,
 ) -> list[dict[str, str]]:
     excerpt = text.strip()
+    segment_titles = [
+        str(chapter.get("title") or "").strip()
+        for chapter in parse_chapters(text)
+        if is_segment_heading(str(chapter.get("title") or ""))
+    ]
     if len(excerpt) > MAX_ANALYZE_CHARS:
         excerpt = excerpt[:MAX_ANALYZE_CHARS] + "\n…（原文已截断）"
     system = (
@@ -224,10 +262,12 @@ def build_ingest_messages(
         "JSON 字段：summary, characters, scenes, props, episodes。\n\n"
         f"{CHARACTER_PROMPT}\n\n{SCENE_PROMPT}\n\n{PROP_PROMPT}\n\n"
         f"{EPISODE_PROMPT}\n目标集数：{max(1, target_episodes)}。"
+        + (f"\n\n{DRAMA_SHOT_LINE_PROMPT}" if (spine_template or "drama") == "drama" else "")
+        + (f"\n\n{EXPLICIT_SEGMENT_PROMPT}\n分段标题：{'、'.join(segment_titles)}" if segment_titles else "")
     )
     user = (
         f"项目类型：{spine_template or 'drama'}\n"
-        f"画风：{visual_style or ''}\n"
+        f"风格与画风：{visual_style or ''}\n"
         f"解说人称：{narration_style or ''}\n"
         f"人物族裔：{ethnicity or ''}\n\n"
         f"【原文】\n{excerpt}"
@@ -247,18 +287,24 @@ def analyze_ingest_text(
     visual_style: str = "",
     narration_style: str = "",
     ethnicity: str = "",
+    target_episodes: int | None = None,
 ) -> dict[str, Any]:
     clean = re.sub(r"\r\n?", "\n", text).strip()
     if not clean:
         raise LlmError("没有可分析的正文")
-    target_episodes = estimated_episode_count(len(clean))
+    resolved_target_episodes = target_episodes or episode_count_for_text(clean)
+    segment_titles = [
+        str(chapter.get("title") or "").strip()
+        for chapter in parse_chapters(clean)
+        if is_segment_heading(str(chapter.get("title") or ""))
+    ]
     messages = build_ingest_messages(
         clean,
         spine_template=spine_template,
         visual_style=visual_style,
         narration_style=narration_style,
         ethnicity=ethnicity,
-        target_episodes=target_episodes,
+        target_episodes=resolved_target_episodes,
     )
     raw = client.chat_completion(
         messages,
@@ -267,9 +313,13 @@ def analyze_ingest_text(
         max_tokens=4096,
         timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
     )
-    normalized = normalize_analysis(parse_llm_json(raw), target_episodes=target_episodes)
+    normalized = normalize_analysis(
+        parse_llm_json(raw),
+        target_episodes=resolved_target_episodes,
+        segment_titles=segment_titles or None,
+    )
     normalized["model"] = model
-    normalized["target_episodes"] = target_episodes
+    normalized["target_episodes"] = resolved_target_episodes
     return normalized
 
 

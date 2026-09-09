@@ -4,7 +4,7 @@ import json
 import uuid
 from typing import Any
 
-from .llm_client import LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS
+from .llm_client import LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS, llm_error_raw
 from .storage import now
 
 KIND_LABELS = {
@@ -12,6 +12,7 @@ KIND_LABELS = {
     "script": "生成脚本",
     "voice": "声线定义",
     "video_prompt": "镜头视频提示词",
+    "compose": "合成成片",
 }
 
 PARAMETER_LABELS = {
@@ -33,6 +34,7 @@ PARAMETER_LABELS = {
     "target_episodes": "目标集数",
     "spine_template": "项目类型",
     "visual_style": "视觉风格",
+    "art_style_id": "画风",
     "narration_style": "解说人称",
     "ethnicity": "人物族裔",
     "episode_id": "剧集 ID",
@@ -62,6 +64,12 @@ PARAMETER_LABELS = {
     "age_group": "年龄段",
     "description": "外貌与性格",
     "purpose": "用途",
+    "resolution": "分辨率",
+    "add_subtitles": "烧录字幕",
+    "clip_count": "拼接镜头数",
+    "compose_url": "成片地址",
+    "compose_filename": "成片文件名",
+    "compose_duration_sec": "成片时长",
 }
 
 SQLITE_LLM_JOB_SCHEMA = """
@@ -92,15 +100,27 @@ CREATE INDEX IF NOT EXISTS idx_xiaji_llm_jobs_project
 def _parse_json(raw: Any, fallback: Any) -> Any:
     if isinstance(raw, (dict, list)):
         return raw
-    try:
-        parsed = json.loads(raw or ("{}" if isinstance(fallback, dict) else "[]"))
-    except json.JSONDecodeError:
+    text = "" if raw is None else str(raw)
+    if not text.strip():
         return fallback
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return raw if fallback is None else fallback
+    if fallback is None:
+        return parsed
     return parsed if isinstance(parsed, type(fallback)) else fallback
 
 
 def _dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def llm_failure_response(error: Exception | None) -> dict[str, str] | None:
+    raw = llm_error_raw(error)
+    if not raw:
+        return None
+    return {"raw": raw}
 
 
 def llm_runtime_snapshot(app: Any, *, temperature: float, max_tokens: int) -> dict[str, Any]:
@@ -291,20 +311,29 @@ class XiajiLlmJobStore:
         response = _parse_json(row["response_json"], None) if row["response_json"] else None
         if response is None and "response" in parameters:
             response = parameters.get("response")
+        compose_url = ""
+        if isinstance(response, dict):
+            compose_url = str(response.get("compose_url") or "").strip()
+        if not compose_url:
+            compose_url = str(parameters.get("compose_url") or "").strip()
+        outputs = []
+        if compose_url:
+            outputs = [{"kind": "video", "cloud_url": compose_url, "download_url": compose_url}]
+        kind = row["kind"]
         return {
             "id": row["id"],
             "job_id": row["id"],
             "owner_user_id": row["owner_user_id"],
             "project_id": row["project_id"],
-            "kind": row["kind"],
+            "kind": kind,
             "source": "llm",
             "target": row["target"],
-            "slot": row["kind"],
-            "slot_label": KIND_LABELS.get(row["kind"], row["kind"]),
+            "slot": kind,
+            "slot_label": KIND_LABELS.get(kind, kind),
             "title": row["title"],
             "status": row["status"],
             "progress": row["progress"] or 0,
-            "mode": "xiaji-llm",
+            "mode": "xiaji-compose" if kind == "compose" else "xiaji-llm",
             "model": row["model"] or "",
             "prompt": row["prompt"] or "",
             "system_prompt": row["system_prompt"] or "",
@@ -312,15 +341,15 @@ class XiajiLlmJobStore:
             "parameters": flatten_parameters(parameters),
             "options": parameters,
             "response": response,
-            "llm_output": response,
+            "llm_output": response if kind != "compose" else None,
             "error": row["error"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "job_created_at": row["created_at"],
             "job_updated_at": row["updated_at"],
-            "bound_url": "",
-            "preview_url": "",
-            "outputs": [],
+            "bound_url": compose_url,
+            "preview_url": compose_url,
+            "outputs": outputs,
             "reference_count": 0,
             "references": [],
             "negative_prompt": "",
@@ -371,6 +400,47 @@ def start_xiaji_llm_job(
         status="running",
     )
     return str(created["id"])
+
+
+def start_xiaji_tracked_job(
+    app: Any,
+    *,
+    owner_user_id: str,
+    project_id: str,
+    kind: str,
+    target: str,
+    title: str,
+    prompt: str = "",
+    parameters: dict[str, Any] | None = None,
+) -> str | None:
+    store = llm_jobs_store(app)
+    if store is None:
+        return None
+    payload = dict(parameters or {})
+    payload["kind"] = kind
+    created = store.create(
+        owner_user_id=owner_user_id,
+        project_id=project_id,
+        kind=kind,
+        target=target,
+        title=title,
+        prompt=prompt,
+        system_prompt="",
+        messages=[],
+        parameters=payload,
+        model="",
+        status="running",
+    )
+    return str(created["id"])
+
+
+def set_xiaji_job_progress(app: Any, job_id: str | None, progress: int, *, message: str | None = None) -> None:
+    if not job_id:
+        return
+    store = llm_jobs_store(app)
+    if store is None:
+        return
+    store.set_progress(job_id, progress, message=message)
 
 
 def finish_xiaji_llm_job(
