@@ -290,11 +290,7 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
 
     @router.get("/documents/{document_id}", summary="读取文档原文与章节")
     def get_document(
-<<<<<<< HEAD
-        document_id: str = FastApiPath(description="内容库文档 ID"),
-=======
-        document_id: str = ApiPath(..., description="导台2 内容库文档 ID"),
->>>>>>> e3a0393b692f3cc2c41465303ca4f1ea741ad85e
+        document_id: str = FastApiPath(..., description="导台2 内容库文档 ID"),
         user: dict = Depends(current_user),
     ) -> dict:
         return _document_or_404(_store(app), document_id, user["id"])
@@ -352,13 +348,8 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
 
     @router.put("/documents/{document_id}/chapters", summary="保存章节校对结果")
     def replace_chapters(
-<<<<<<< HEAD
-        document_id: str = FastApiPath(description="内容库文档 ID"),
-        payload: XiajiChaptersReplaceRequest = ...,
-=======
         payload: XiajiChaptersReplaceRequest,
-        document_id: str = ApiPath(..., description="导台2 内容库文档 ID"),
->>>>>>> e3a0393b692f3cc2c41465303ca4f1ea741ad85e
+        document_id: str = FastApiPath(..., description="导台2 内容库文档 ID"),
         user: dict = Depends(mutating_user),
     ) -> dict:
         store = _store(app)
@@ -374,11 +365,7 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
 
     @router.delete("/documents/{document_id}", summary="删除内容库文档")
     def delete_document(
-<<<<<<< HEAD
-        document_id: str = FastApiPath(description="内容库文档 ID"),
-=======
-        document_id: str = ApiPath(..., description="导台2 内容库文档 ID"),
->>>>>>> e3a0393b692f3cc2c41465303ca4f1ea741ad85e
+        document_id: str = FastApiPath(..., description="导台2 内容库文档 ID"),
         user: dict = Depends(mutating_user),
     ) -> dict:
         try:
