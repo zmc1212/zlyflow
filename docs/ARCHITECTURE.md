@@ -32,10 +32,10 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `frontend/src/auth/AuthScreens.tsx` | 登录、首次超级管理员初始化与强制改密界面 |
 | `frontend/src/admin/AdminSettings.tsx` | 管理设置（账号 / AI 供应商 / LLM / 媒体存储） |
 | `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成/导演台/导台2/资产、图/视频与选中任务；工作流、参考图草稿仍在组件 state |
-| `frontend/src/xiaji/XiajiStudioModule.tsx` | 导台2：项目内内容库、资产库、剧集工坊 + 其余占位 |
+| `frontend/src/xiaji/XiajiStudioModule.tsx` | 导台2：项目内内容库、资产库、剧集工坊、全部任务 |
 | `frontend/src/xiaji/XiajiHome.tsx` | 导台2 项目列表与新建 |
 | `frontend/src/xiaji/XiajiAssetsModule.tsx` | 导台2 资产库：角色/场景/道具/声线定义与生成 |
-| `frontend/src/xiaji/XiajiWorkshopModule.tsx` | 导台2 剧集工坊：规划落库、脚本 Beat |
+| `frontend/src/xiaji/XiajiWorkshopModule.tsx` | 导台2 剧集工坊：规划落库、脚本 Beat、镜头与成片合成 |
 | `frontend/src/xiaji/XiajiShotsWorkbench.tsx` | 导台2 镜头工作台：左 Beat 网格、右文案/单帧/参考图 |
 | `frontend/src/director/DirectorRecipeStudio.tsx` | 导演创作工作面：方案/剪辑双视图共用同一份 `director_recipe`；`?stage=` 与桌面 `?view=` |
 | `frontend/src/director/components/DirectorStageNav.tsx` | 方案视图左栏四组任务导航（方案 / 镜头制作 / 声音 / 交付）与 readiness 徽标 |
@@ -46,7 +46,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `desktop/src-tauri/` | Tauri Windows 壳、可信 origin capability 与受限本地资源命令 |
 | `backend/dev_reloader.py` | 本机 Windows 开发监督器：无 `--reload` 拉起 uvicorn，源码变更或崩溃后重启 |
 | `backend/app/main.py` | HTTP API、认证依赖、资源交付、上传和静态前端托管 |
-| `backend/app/xiaji_parser.py` | 导台2 内容库：TXT/Markdown/DOCX 解码与规则章节切分 |
+| `backend/app/xiaji_visual_styles.py` | 导台2 内容库六项视觉风格预设与风格说明 |
 | `backend/app/xiaji_store.py` | 导台2 内容库文档/章节/分析持久化（项目隔离） |
 | `backend/app/xiaji_project_store.py` | 导台2 项目 CRUD 与旧数据回填 |
 | `backend/app/xiaji_asset_store.py` | 导台2 资产库角色/场景/道具/声线与媒体版本 |
@@ -54,6 +54,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/xiaji_episode_prompts.py` | 导台2 草图/精绘/视频提示词与人工 Beat 规范化 |
 | `backend/app/xiaji_literal_script.py` | 导台2 生成脚本：逐行标注，一行一个 Beat |
 | `backend/app/xiaji_episode_api.py` | 导台2 剧集工坊 API |
+| `backend/app/xiaji_compose.py` | 导台2 剧集成片：本机 ffmpeg 拼接、字幕与 SRT/ZIP |
 | `backend/app/xiaji_episode_run_store.py` | 导台2 整集自动生成编排记录 |
 | `backend/app/xiaji_auto_pipeline.py` | 导台2 整集串行草图/精绘/提示词/视频 |
 | `backend/app/auth.py` | scrypt 密码、会话、用户、角色和审计数据访问 |

@@ -49,8 +49,32 @@ from .xiaji_episode_prompts import (
 from .xiaji_literal_script import LITERAL_LINE_MAX_TOKENS, LITERAL_LINE_TIMEOUT_SECONDS
 from .xiaji_episode_store import XiajiEpisodeStore, first_seen_line, allocate_chapter_text, split_original_lines
 from .xiaji_episode_run_store import episode_runs_store
-from .xiaji_llm_jobs import finish_xiaji_llm_job, llm_jobs_store, start_xiaji_llm_job
+from .xiaji_llm_jobs import (
+    finish_xiaji_llm_job,
+    llm_failure_response,
+    llm_jobs_store,
+    set_xiaji_job_progress,
+    start_xiaji_llm_job,
+    start_xiaji_tracked_job,
+)
 from .xiaji_art_style import art_style_hint, settings_art_style_id
+from .xiaji_visual_styles import settings_visual_style, visual_style_contract, visual_style_label
+from .xiaji_compose import (
+    XiajiComposeError,
+    build_episode_zip,
+    build_srt_content,
+    clips_for_subtitles,
+    compose_blockers,
+    compose_concat_beats,
+    compose_episode_film,
+    compose_episode_ready,
+    compose_filename,
+    ffmpeg_ready,
+    load_compose_bytes,
+    parse_resolution,
+    public_compose_fields,
+    require_audio_for_project,
+)
 from .xiaji_project_api import require_xiaji_project
 
 
@@ -111,6 +135,12 @@ class VideoPromptRequest(BaseModel):
     family: str | None = None
     duration: float | None = None
     scene_view: Literal["front", "reverse"] = "front"
+
+
+class ComposeRequest(BaseModel):
+    resolution: str = "1280x720"
+    add_subtitles: bool = True
+    force: bool = False
 
 
 class AutoRunRequest(BaseModel):
@@ -518,6 +548,17 @@ def _with_assets(
         )
     public = dict(episode)
     public.pop("owner_user_id", None)
+    public.pop("compose_key", None)
+    project = None
+    try:
+        project = app.state.xiaji_project_store.get_project(str(episode.get("project_id") or ""), owner_user_id)
+    except Exception:
+        project = None
+    require_audio = require_audio_for_project(project)
+    blockers = compose_blockers(episode, require_audio=require_audio)
+    public.update(public_compose_fields(episode))
+    public["compose_blockers"] = blockers
+    public["compose_ready"] = compose_episode_ready(episode, require_audio=require_audio)
     return public
 
 
@@ -639,12 +680,20 @@ def _script_llm_payload(app: Any, episode: dict[str, Any], owner_user_id: str) -
     project = require_xiaji_project(app, episode["project_id"], owner_user_id)
     settings = project.get("settings") if isinstance(project.get("settings"), dict) else {}
     style_id = settings_art_style_id(settings)
+    visual_id = settings_visual_style(settings)
+    style_parts = []
+    if visual_id:
+        style_parts.append(f"{visual_style_label(visual_id)}。{visual_style_contract(visual_id)}".strip("。"))
+    art_hint = art_style_hint(style_id)
+    if art_hint:
+        style_parts.append(art_hint)
     return {
         "original_lines": episode.get("original_lines") or [],
         "characters": [item["name"] for item in episode.get("links") or [] if item.get("kind") == "character"],
         "scenes": [item["name"] for item in episode.get("links") or [] if item.get("kind") == "scene"],
         "props": [item["name"] for item in episode.get("links") or [] if item.get("kind") == "prop"],
-        "visual_style": art_style_hint(style_id) or style_id,
+        "visual_style": " ".join(style_parts),
+        "art_style_id": style_id,
         "title": episode.get("title") or "",
         "summary": episode.get("content_summary") or "",
         "name_to_asset": _name_map(episode),
@@ -723,7 +772,13 @@ def _run_script_generation_sync(app: Any, episode_id: str, owner_user_id: str, j
         )
     except Exception as error:
         _episodes(app).update_episode(episode_id, owner_user_id, status="draft", error=str(error))
-        finish_xiaji_llm_job(app, job_id, status="failed", error=str(error))
+        finish_xiaji_llm_job(
+            app,
+            job_id,
+            status="failed",
+            error=str(error),
+            response=llm_failure_response(error),
+        )
         write_request_log(
             "xiaji-generate-script",
             {"phase": "failed", "episode_id": episode_id, "error": str(error)[:300]},
@@ -1241,7 +1296,8 @@ def _submit_sketch(
     prompt = beat_sketch_prompt(
         beat,
         assets=assets,
-        visual_style=settings_art_style_id(settings),
+        visual_style=settings_visual_style(settings),
+        art_style_id=settings_art_style_id(settings),
         ethnicity=str(settings.get("ethnicity") or "Chinese"),
     )
     workflow_id = _resolve_image_workflow(app, payload.model)
@@ -1301,7 +1357,8 @@ def _submit_render(
     prompt = beat_render_prompt(
         beat,
         assets=assets,
-        visual_style=settings_art_style_id(settings),
+        visual_style=settings_visual_style(settings),
+        art_style_id=settings_art_style_id(settings),
         ethnicity=str(settings.get("ethnicity") or "Chinese"),
     )
     workflow_id = _resolve_image_workflow(app, payload.model)
@@ -1461,12 +1518,14 @@ def generate_beat_video_prompt(
     duration = _coerce_duration_seconds(payload.duration, beat.get("video_duration"))
     project = require_xiaji_project(app, episode["project_id"], owner_user_id)
     settings = project.get("settings") if isinstance(project.get("settings"), dict) else {}
-    visual_style = settings_art_style_id(settings)
+    visual_style = settings_visual_style(settings)
+    art_style_id = settings_art_style_id(settings)
     messages = build_video_motion_messages(
         beat=beat,
         pictures=pictures,
         duration=duration,
         visual_style=visual_style,
+        art_style_id=art_style_id,
         route=route,
     )
     heading = str(beat.get("heading") or f"镜头 {beat.get('sequence')}")
@@ -1485,11 +1544,12 @@ def generate_beat_video_prompt(
             "route": route,
             "family": payload.family or "",
             "visual_style": visual_style,
+            "art_style_id": art_style_id,
             "pictures": public_video_pictures(pictures),
             "prompt_version": VIDEO_MOTION_PROMPT_VERSION,
         },
-        temperature=0.55,
-        max_tokens=4096,
+        temperature=0.75,
+        max_tokens=8192,
     )
     try:
         pair = app.state.llm_provider.generate_xiaji_beat_video_prompt(
@@ -1498,11 +1558,18 @@ def generate_beat_video_prompt(
                 "pictures": pictures,
                 "duration": duration,
                 "visual_style": visual_style,
+                "art_style_id": art_style_id,
                 "route": route,
             }
         )
     except LlmError as error:
-        finish_xiaji_llm_job(app, job_id, status="failed", error=str(error))
+        finish_xiaji_llm_job(
+            app,
+            job_id,
+            status="failed",
+            error=str(error),
+            response=llm_failure_response(error),
+        )
         raise HTTPException(status_code=502, detail=str(error)) from error
     finish_xiaji_llm_job(
         app,
@@ -1555,6 +1622,105 @@ def store_beat_in_frame(
         video_in_source_job_id=str(source_job_id or "").strip() or None,
         video_in_frame_manual="1" if manual else "0",
     )
+
+
+def _start_compose_job(app: Any, episode: dict[str, Any], owner_user_id: str, resolution: str, add_subtitles: bool) -> str | None:
+    number = int(episode.get("number") or 1)
+    title_text = str(episode.get("title") or "").strip()
+    target = f"第{number}集 {title_text}".strip()
+    filename = compose_filename(number)
+    clips = compose_concat_beats(episode)
+    return start_xiaji_tracked_job(
+        app,
+        owner_user_id=owner_user_id,
+        project_id=str(episode.get("project_id") or ""),
+        kind="compose",
+        target=target,
+        title=f"合成成片 · {target}",
+        prompt=filename,
+        parameters={
+            "episode_id": str(episode.get("id") or ""),
+            "episode_number": number,
+            "title": title_text,
+            "resolution": resolution,
+            "add_subtitles": add_subtitles,
+            "clip_count": len(clips),
+            "compose_filename": filename,
+        },
+    )
+
+
+def _run_episode_compose(
+    app: Any,
+    episode_id: str,
+    owner_user_id: str,
+    resolution: str,
+    add_subtitles: bool,
+    job_id: str | None = None,
+) -> None:
+    store = _episodes(app)
+
+    def progress(value: int) -> None:
+        try:
+            store.update_episode(episode_id, owner_user_id, compose_status="composing", compose_progress=str(int(value)))
+        except Exception:
+            pass
+        set_xiaji_job_progress(app, job_id, value)
+
+    try:
+        episode = store.get_episode(episode_id, owner_user_id)
+        result = compose_episode_film(
+            episode,
+            getattr(app.state, "store", None),
+            resource_storage=getattr(app.state, "resource_storage", None),
+            resolution=resolution,
+            add_subtitles=add_subtitles,
+            runner=getattr(app.state, "ffmpeg_runner", None),
+            progress=progress,
+        )
+        store.update_episode(
+            episode_id,
+            owner_user_id,
+            compose_status=result["compose_status"],
+            compose_url=result.get("compose_url"),
+            compose_key=result.get("compose_key"),
+            compose_error=None,
+            compose_resolution=result.get("compose_resolution"),
+            compose_add_subtitles=result.get("compose_add_subtitles"),
+            compose_duration_sec=result.get("compose_duration_sec"),
+            compose_at=result.get("compose_at"),
+            compose_progress="100",
+            clear_error=True,
+        )
+        finish_xiaji_llm_job(
+            app,
+            job_id,
+            status="succeeded",
+            response={
+                "compose_url": result.get("compose_url"),
+                "compose_filename": result.get("compose_filename"),
+                "compose_resolution": result.get("compose_resolution"),
+                "compose_duration_sec": result.get("compose_duration_sec"),
+            },
+        )
+    except Exception as error:
+        try:
+            store.update_episode(
+                episode_id,
+                owner_user_id,
+                compose_status="failed",
+                compose_error=str(error),
+                compose_progress="0",
+            )
+        except Exception:
+            pass
+        finish_xiaji_llm_job(
+            app,
+            job_id,
+            status="failed",
+            error=str(error),
+            response=llm_failure_response(error),
+        )
 
 
 def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_user: Callable) -> None:
@@ -1991,5 +2157,92 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
             raise HTTPException(status_code=404, detail="没有进行中的自动生成任务")
         updated = runs.update(active["id"], cancel_requested=True)
         return _public_auto_run(updated)
+
+    @router.post(
+        "/episodes/{episode_id}/compose",
+        status_code=202,
+        summary="入队本机 ffmpeg 拼接成片；完成后轮询 GET 剧集",
+    )
+    async def compose_episode(
+        episode_id: str,
+        background_tasks: BackgroundTasks,
+        user: dict = Depends(mutating_user),
+        payload: ComposeRequest = Body(default_factory=ComposeRequest),
+    ) -> dict:
+        episode = _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
+        if episode.get("compose_status") == "composing" and not payload.force:
+            return {"ok": True, "status": "composing", "episode": episode, "reused": True}
+        project = require_xiaji_project(app, str(episode.get("project_id") or ""), user["id"])
+        require_audio = require_audio_for_project(project)
+        blockers = compose_blockers(episode, require_audio=require_audio)
+        audio_blockers = [item for item in blockers if "audio" in item.get("stages", [])]
+        if audio_blockers:
+            missing = "、".join(f"第{item['sequence']}镜缺配音" for item in audio_blockers[:8])
+            raise HTTPException(status_code=422, detail=f"还不能合成：{missing}")
+        if not compose_concat_beats(episode):
+            raise HTTPException(status_code=422, detail="没有可合成的镜头视频，请先在「镜头」生成视频")
+        runner = getattr(app.state, "ffmpeg_runner", None)
+        if runner is None and not ffmpeg_ready().get("ffmpeg"):
+            raise HTTPException(status_code=503, detail="未找到 ffmpeg/ffprobe。请安装 ffmpeg 并加入 PATH 后重试。")
+        storage = getattr(app.state, "resource_storage", None)
+        if storage is None:
+            raise HTTPException(status_code=503, detail="媒体存储未配置")
+        resolution, _width, _height = parse_resolution(payload.resolution)
+        job_id = _start_compose_job(app, episode, user["id"], resolution, payload.add_subtitles)
+        _episodes(app).update_episode(
+            episode_id,
+            user["id"],
+            compose_status="composing",
+            compose_error=None,
+            compose_progress="0",
+            compose_resolution=resolution,
+            compose_add_subtitles="1" if payload.add_subtitles else "0",
+        )
+        background_tasks.add_task(
+            _run_episode_compose, app, episode_id, user["id"], resolution, payload.add_subtitles, job_id
+        )
+        fresh = _hydrate_episode_single(app, _episodes(app).get_episode(episode_id, user["id"]), user["id"])
+        return {"ok": True, "status": "composing", "episode": fresh, "reused": False, "job_id": job_id}
+
+    @router.get("/episodes/{episode_id}/export/video", summary="下载本集成片 MP4")
+    def export_episode_video(episode_id: str, user: dict = Depends(current_user)) -> Response:
+        episode = _episode_or_404(app, episode_id, user["id"])
+        try:
+            data = load_compose_bytes(episode, getattr(app.state, "resource_storage", None))
+        except XiajiComposeError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        filename = compose_filename(int(episode.get("number") or 1))
+        return Response(content=data, media_type="video/mp4", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+    @router.get("/episodes/{episode_id}/export/srt", summary="下载本集字幕 SRT")
+    def export_episode_srt(episode_id: str, user: dict = Depends(current_user)) -> Response:
+        episode = _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
+        text = build_srt_content(clips_for_subtitles(episode))
+        if not text.strip():
+            raise HTTPException(status_code=404, detail="这一集没有可导出的对白字幕")
+        filename = f"ep{int(episode.get('number') or 1):03d}.srt"
+        return Response(
+            content=text.encode("utf-8"),
+            media_type="application/x-subrip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @router.post("/episodes/{episode_id}/export/zip", summary="打包本集镜头视频、成片和字幕")
+    def export_episode_zip(episode_id: str, user: dict = Depends(mutating_user)) -> Response:
+        episode = _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
+        srt_text = build_srt_content(clips_for_subtitles(episode))
+        try:
+            data = build_episode_zip(
+                episode,
+                getattr(app.state, "store", None),
+                resource_storage=getattr(app.state, "resource_storage", None),
+                srt_text=srt_text,
+            )
+        except XiajiComposeError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if not data:
+            raise HTTPException(status_code=404, detail="没有可打包的素材")
+        filename = f"ep{int(episode.get('number') or 1):03d}.zip"
+        return Response(content=data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     app.include_router(router)

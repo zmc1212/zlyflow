@@ -6,7 +6,8 @@ import { listXiajiProjectJobs, type XiajiProjectJob } from "./xiaji-api"
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   queued: { color: "default", text: "排队中" },
-  running: { color: "processing", text: "生成中" },
+  running: { color: "processing", text: "进行中" },
+  composing: { color: "processing", text: "合成中" },
   succeeded: { color: "green", text: "已完成" },
   partial: { color: "green", text: "部分完成" },
   failed: { color: "red", text: "失败" },
@@ -17,13 +18,29 @@ const STATUS_TAG: Record<string, { color: string; text: string }> = {
 
 export const xiajiProjectJobsQueryKey = (projectId: string) => ["xiaji-project-jobs", projectId] as const
 
-function statusTag(status: string) {
+function statusTag(status: string, slot?: string) {
+  if (slot === "compose" && (status === "running" || status === "queued")) {
+    return <Tag color="processing">合成中</Tag>
+  }
   const item = STATUS_TAG[status] || STATUS_TAG.unknown
   return <Tag color={item.color}>{item.text}</Tag>
 }
 
 function previewOf(row: XiajiProjectJob) {
   return row.preview_url || row.bound_url || row.outputs?.[0]?.cloud_url || row.outputs?.[0]?.download_url || ""
+}
+
+function isVideoPreview(row: XiajiProjectJob, src: string) {
+  if (row.slot === "compose" || row.slot === "video") return true
+  return /\.(mp4|webm|mov)(\?|$)/i.test(src)
+}
+
+function formatLlmOutput(value: unknown) {
+  if (value && typeof value === "object" && !Array.isArray(value) && "raw" in value) {
+    const raw = (value as { raw?: unknown }).raw
+    if (typeof raw === "string" && raw.trim()) return raw
+  }
+  return formatParamValue(value)
 }
 
 function formatParamValue(value: unknown) {
@@ -64,7 +81,7 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
               </Button>
             </Space>
           </div>
-          <p>当前项目里每次内容导入分析、生成脚本、声线定义、整集自动生成，以及生图、草图、精绘和视频都会留下一条记录。点开可核对提示词、全部入参和结果。</p>
+          <p>当前项目里每次内容导入分析、生成脚本、声线定义、整集自动生成、合成成片，以及生图、草图、精绘和视频都会留下一条记录。点开可核对提示词、全部入参和结果。</p>
         </div>
       </header>
       {jobsQuery.isError ? <Alert type="error" showIcon message={(jobsQuery.error as Error).message} /> : null}
@@ -83,7 +100,11 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
               width: 72,
               render: (_, record) => {
                 const src = previewOf(record)
-                return src ? <Image src={src} width={48} height={48} style={{ objectFit: "cover" }} /> : "—"
+                if (!src) return "—"
+                if (isVideoPreview(record, src)) {
+                  return <video src={src} muted playsInline width={48} height={48} style={{ objectFit: "cover" }} />
+                }
+                return <Image src={src} width={48} height={48} style={{ objectFit: "cover" }} />
               },
             },
             { title: "标题", dataIndex: "title", ellipsis: true },
@@ -94,7 +115,7 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
               width: 100,
               render: (_, record) => (
                 <Space size={4}>
-                  {statusTag(record.status)}
+                  {statusTag(record.status, record.slot)}
                   {record.status === "running" || record.status === "queued" ? <span>{record.progress}%</span> : null}
                 </Space>
               ),
@@ -112,7 +133,7 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
         {selected ? (
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <div>
-              {statusTag(selected.status)}
+              {statusTag(selected.status, selected.slot)}
               {selected.missing ? <Tag>任务记录缺失</Tag> : null}
             </div>
             <Descriptions
@@ -125,7 +146,25 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
                 { key: "job", label: "任务 ID", children: selected.job_id },
               ]}
             />
-            {selected.error ? <Alert type="error" showIcon message={selected.error} /> : null}
+            {selected.error ? (
+              <Alert
+                type="error"
+                showIcon
+                message={selected.error}
+                description={
+                  selected.llm_output == null
+                    ? "这次调用没有把模型原文落库。重新跑该任务后，返回内容会出现在下方。"
+                    : "下方是模型当时返回的原文。"
+                }
+              />
+            ) : null}
+
+            {selected.llm_output != null ? (
+              <Typography.Paragraph>
+                <strong>模型返回内容</strong>
+                <pre className="xiaji-job-prompt">{formatLlmOutput(selected.llm_output)}</pre>
+              </Typography.Paragraph>
+            ) : null}
 
             {selected.system_prompt ? (
               <Typography.Paragraph>
@@ -134,10 +173,12 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
               </Typography.Paragraph>
             ) : null}
 
-            <Typography.Paragraph>
-              <strong>创作提示词</strong>
-              <pre className="xiaji-job-prompt">{selected.prompt || "—"}</pre>
-            </Typography.Paragraph>
+            {selected.slot !== "compose" && selected.slot !== "auto_run" ? (
+              <Typography.Paragraph>
+                <strong>创作提示词</strong>
+                <pre className="xiaji-job-prompt">{selected.prompt || "—"}</pre>
+              </Typography.Paragraph>
+            ) : null}
 
             {selected.negative_prompt ? (
               <Typography.Paragraph>
@@ -165,13 +206,7 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
               />
             </div>
 
-            {selected.llm_output != null ? (
-              <Typography.Paragraph>
-                <strong>模型输出</strong>
-                <pre className="xiaji-job-prompt">{formatParamValue(selected.llm_output)}</pre>
-              </Typography.Paragraph>
-            ) : null}
-
+            {selected.slot === "compose" || selected.slot === "auto_run" ? null : (
             <Typography.Paragraph>
               <strong>传入参考图</strong>
               {(selected.reference_count || selected.references?.length || 0) > 0 ? (
@@ -204,6 +239,7 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
                 <div>没有传入参考图</div>
               )}
             </Typography.Paragraph>
+            )}
 
             <Typography.Paragraph>
               <strong>回填 URL</strong>
@@ -211,9 +247,17 @@ export default function XiajiJobsModule({ projectId }: { projectId: string }) {
               {selected.bound_url || "尚未写回资产"}
             </Typography.Paragraph>
             <Typography.Paragraph>
-              <strong>回调预览</strong>
+              <strong>{selected.slot === "compose" ? "成片" : "回调预览"}</strong>
               <br />
-              {previewOf(selected) ? <Image src={previewOf(selected)} /> : "暂无输出"}
+              {previewOf(selected) ? (
+                isVideoPreview(selected, previewOf(selected)) ? (
+                  <video src={previewOf(selected)} controls playsInline style={{ maxWidth: "100%" }} />
+                ) : (
+                  <Image src={previewOf(selected)} />
+                )
+              ) : (
+                "暂无输出"
+              )}
             </Typography.Paragraph>
             {selected.outputs && selected.outputs.length > 0 ? (
               <Typography.Paragraph>

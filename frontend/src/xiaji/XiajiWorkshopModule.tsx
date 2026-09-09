@@ -13,6 +13,7 @@ import {
   type XiajiEpisodeLink,
   type XiajiEpisodeStatus,
 } from "./xiaji-api"
+import XiajiComposePane from "./XiajiComposePane"
 import XiajiShotsWorkbench from "./XiajiShotsWorkbench"
 
 const EPISODE_STATUS: Record<XiajiEpisodeStatus, { color: string; text: string }> = {
@@ -147,7 +148,7 @@ function EpisodeWorkspace({
     queryFn: () => getXiajiEpisode(episodeId),
     refetchInterval: (query) => {
       const data = query.state.data
-      if (xiajiEpisodeHasActiveJobs(data)) return data?.status === "scripting" ? 2000 : 4000
+      if (xiajiEpisodeHasActiveJobs(data)) return data?.compose_status === "composing" || data?.status === "scripting" ? 2000 : 4000
       return false
     },
   })
@@ -162,7 +163,10 @@ function EpisodeWorkspace({
     onError: (error: Error) => message.error(error.message),
   })
   const episode = episodeQuery.data
+  const [tab, setTab] = useState("script")
+  const [focusBeatId, setFocusBeatId] = useState<string | null>(null)
   const previousStatus = useRef(episode?.status)
+  const previousCompose = useRef(episode?.compose_status)
   useEffect(() => {
     const current = episode?.status
     if (previousStatus.current === "scripting" && current === "script_ready") {
@@ -170,6 +174,16 @@ function EpisodeWorkspace({
     }
     previousStatus.current = current
   }, [episode?.beats.length, episode?.status])
+  useEffect(() => {
+    const current = episode?.compose_status
+    if (previousCompose.current === "composing" && current === "succeeded") {
+      message.success("成片已合成")
+    }
+    if (previousCompose.current === "composing" && current === "failed") {
+      message.error(episode?.compose_error || "合成失败")
+    }
+    previousCompose.current = current
+  }, [episode?.compose_error, episode?.compose_status])
   if (episodeQuery.isLoading || !episode) {
     return (
       <div className="xiaji-workshop-loading">
@@ -181,17 +195,19 @@ function EpisodeWorkspace({
   return (
     <div className="xiaji-episode">
       <header className="xiaji-episode-head">
-        <div>
-          <Button onClick={onBack}>返回概览</Button>
-          <h2>第{episode.number}集 {episode.title}</h2>
-          {statusTag(episode.status)}
+        <div className="xiaji-episode-head-main">
+          <div className="xiaji-episode-head-title">
+            <Button onClick={onBack}>返回概览</Button>
+            <h2>第{episode.number}集 {episode.title}</h2>
+            {statusTag(episode.status)}
+          </div>
+          <p>
+            {episode.line_count} 行原文 · {episode.beats.length} 个 Beat · {episode.character_count} 个身份 ·
+            {episode.scene_count} 个场景 · {episode.prop_count} 个道具
+          </p>
+          {episode.error ? <Alert type="error" showIcon message={episode.error} /> : null}
         </div>
-        <p>
-          {episode.line_count} 行原文 · {episode.beats.length} 个 Beat · {episode.character_count} 个身份 ·
-          {episode.scene_count} 个场景 · {episode.prop_count} 个道具
-        </p>
-        {episode.error ? <Alert type="error" showIcon message={episode.error} /> : null}
-        <Space>
+        <Space className="xiaji-episode-head-actions">
           <Button
             type="primary"
             icon={<Sparkles size={14} />}
@@ -203,17 +219,35 @@ function EpisodeWorkspace({
         </Space>
       </header>
       <Tabs
+        activeKey={tab}
+        onChange={setTab}
         items={[
           { key: "script", label: "剧本", children: <ScriptPane episode={episode} /> },
           {
             key: "shots",
             label: "镜头",
-            children: <XiajiShotsWorkbench csrfToken={csrfToken} episode={episode} onRefresh={() => episodeQuery.refetch()} />,
+            children: (
+              <XiajiShotsWorkbench
+                csrfToken={csrfToken}
+                episode={episode}
+                focusBeatId={focusBeatId}
+                onRefresh={() => episodeQuery.refetch()}
+              />
+            ),
           },
           {
             key: "compose",
             label: "合成",
-            children: <Empty className="xiaji-placeholder" description="配音、字幕和时间线合成将在后续版本接入。" />,
+            children: (
+              <XiajiComposePane
+                csrfToken={csrfToken}
+                episode={episode}
+                onJumpToBeat={(beatId) => {
+                  setFocusBeatId(beatId)
+                  setTab("shots")
+                }}
+              />
+            ),
           },
         ]}
       />

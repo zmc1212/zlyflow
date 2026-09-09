@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  Alert,
   Button,
   Checkbox,
   Collapse,
@@ -1225,6 +1226,14 @@ function Inspector({
                             ))}
                           </div>
                         ) : null}
+                        {String(beat.action || "").trim() ? (
+                          <Alert
+                            type="warning"
+                            showIcon
+                            message={`必须演出：${String(beat.action).trim()}`}
+                            description="提示词和成片都要演完这件事。参考图只锁身份与空间，不要把首帧冻住。重新生成提示词后再生成视频。"
+                          />
+                        ) : null}
                         <Input.TextArea
                           value={promptZh}
                           rows={10}
@@ -1553,10 +1562,12 @@ export default function XiajiShotsWorkbench({
   csrfToken,
   episode,
   onRefresh,
+  focusBeatId,
 }: {
   csrfToken: string
   episode: XiajiEpisode
   onRefresh: () => Promise<unknown>
+  focusBeatId?: string | null
 }) {
   const queryClient = useQueryClient()
   const shots = episode.beats.filter(sketchable)
@@ -1581,6 +1592,12 @@ export default function XiajiShotsWorkbench({
   })
   const assets = assetsQuery.data ?? []
   const selected = shots.find((item) => item.id === selectedId) || shots[0]
+
+  useEffect(() => {
+    if (focusBeatId && shots.some((item) => item.id === focusBeatId)) {
+      setSelectedId(focusBeatId)
+    }
+  }, [focusBeatId, shots])
 
   useEffect(() => {
     if (selectedId && shots.some((item) => item.id === selectedId)) return

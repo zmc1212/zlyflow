@@ -6,7 +6,7 @@
 
 1. 启动固定目录 `D:\zlyun\ZLY AI Video Studio\整合包及模型\comfyui-integrate-v1.3\comfyui-integrate\Comfyui` 下的 ComfyUI，默认地址为 `http://127.0.0.1:8188`。若端口或映射地址不同，以超级管理员在「管理设置 → AI 供应商」填写实际地址，或设置环境变量 `ZLY_AI_VIDEO_STUDIO_COMFY_URL`（首次启动写入数据库）。
 2. 双击 `启动本地视频工作台.bat`。脚本会分别启动 FastAPI（`7865`）和 Vite 开发服务器（`5173`），并始终自动打开 `http://127.0.0.1:5173`。若 FastAPI 已在运行，重复双击仍打开 5173（必要时补启 Vite），不会打开 7865 上的 `frontend/dist` 静态页。Vite 会显示在独立终端窗口，前端代码变更会自动热更新；后端由 `backend/dev_reloader.py` 监督，修改 `backend/app` 下的 Python 文件或服务异常退出后会自动重启，不再使用 Windows 上会把整个进程组一起关掉的 uvicorn `--reload`。首次使用前执行一次 `pnpm --dir frontend install`。要停止本机工作台时，双击 `关闭本地视频工作台.bat`：脚本会结束 `5173`（Vite）和 `7865`（FastAPI / 监督器）上的工作台进程及对应控制台窗口，不会关闭 ComfyUI（`8188`）。若端口被其他无关程序占用，脚本会提示而不强制结束。
-3. 首次打开时在工作站本机 `http://127.0.0.1:5173/setup` 创建超级管理员，再由管理后台分配员工账号。之后登录地址为 `/login`，登录成功默认进入 `/generate/video`。图/视频任务为 `/generate/image/:jobId` 与 `/generate/video/:jobId`，导演工程为 `/director/:projectId`（可选 `?stage=` 与桌面 `?view=plan|timeline`）或 `/director/batch/:projectId`，导台2 项目列表为 `/director2`、项目内五个模块为 `/director2/:projectId`，资产库为 `/assets`。管理设置可通过 `/admin/accounts`、`/admin/providers`、`/admin/llm`、`/admin/storage` 直达；员工打开 `/admin` 会被送回创作台。刷新或浏览器进退会停留在对应 URL。未登录打开这些链接会先登录，成功后再回到原路径。
+3. 首次打开时在工作站本机 `http://127.0.0.1:5173/setup` 创建超级管理员，再由管理后台分配员工账号。之后登录地址为 `/login`，登录成功默认进入 `/generate/video`。图/视频任务为 `/generate/image/:jobId` 与 `/generate/video/:jobId`，导演工程为 `/director/:projectId`（可选 `?stage=` 与桌面 `?view=plan|timeline`）或 `/director/batch/:projectId`，导台2 项目列表为 `/director2`、项目内模块（内容库、资产库、剧集工坊、全部任务）为 `/director2/:projectId`，资产库为 `/assets`。管理设置可通过 `/admin/accounts`、`/admin/providers`、`/admin/llm`、`/admin/storage` 直达；员工打开 `/admin` 会被送回创作台。刷新或浏览器进退会停留在对应 URL。未登录打开这些链接会先登录，成功后再回到原路径。
 4. 使用本机 `127.0.0.1` 或 HTTPS 浏览器交付时，员工首次登录并修改初始密码后需选择本机资源目录；最新版 Chrome/Edge 仅在这些安全上下文允许目录授权。通过局域网 IP 访问时不再阻塞目录选择，启用七牛云后直接使用结果中的七牛云短期签名地址播放或下载。
 5. 若 7865 已被其他程序占用，请先确认或关闭该程序，再启动工作台。
 
@@ -316,6 +316,62 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 ## 2026-09-04 导台2 家页画风入口
 
 - 用户可见行为：导台2 家页「画风」进入 `/director2/art-styles`，显示 34 条目录，不会瞬间回到项目列表。
+
+## 2026-09-07 导台2 剧集成片合成
+
+- 用户可见行为：剧集工坊「合成」可在至少一段镜头视频就绪后拼接本集成片（720p/1080p、可选字幕），场次卡不挡住按钮，未出片镜头会跳过。可预览下载 MP4，并导出 SRT 与素材包。精品剧不强制单独配音；解说剧对入片镜头缺配音时禁用合成。
+- 受影响文件：导台2 剧集合成前后端、`sql/012_xiaji_episode_compose.sql` 与三份主文档。
+- 兼容性：不改 ComfyUI 与导演台。
+- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-07 导台2 合成成片写入全部任务
+
+- 用户可见行为：点「合成成片」后，项目「全部任务」会出现一条「合成成片」记录，合成中可看进度，完成后可预览成片。
+- 受影响文件：导台2 任务列表与合成入队。
+- 兼容性：不改 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiComposeTests`、`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-07 隐藏导台2 空模块 Tab
+
+- 用户可见行为：项目内不再显示「风格中心」「制作助手」占位 Tab；家页模块说明改为内容库、资产库、剧集工坊、全部任务。家页「画风」入口仍可用。
+- 受影响文件：`XiajiStudioModule.tsx`、`XiajiHome.tsx` 与三份主文档。
+- 兼容性：不改路由与 API。
+- 验证命令：`pnpm --dir frontend exec tsc -b --pretty false`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-07 场景参考图强制空镜无人
+
+- 用户可见行为：资产库生成场景正面/背面/360 时按空镜出图，即使场景描述里写了人物动作也不会把人画进画面。重新生成场景图即可。
+- 受影响文件：导台2 场景提示词与内容分析。
+- 兼容性：不改 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiAssetStoreTests.test_sync_creates_character_scene_prop_and_narrator`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-07 镜头视频提示词加厚为分镜说明书
+
+- 用户可见行为：镜头页「生成本 Beat 提示词」会写出更长的分镜说明书（CUT/运镜/微表演/环境反应）。已有镜头需重新点生成。
+- 受影响文件：导台2 镜头视频提示词。
+- 兼容性：不改 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests.test_bridge_prompt_requires_timing`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-07 镜头视频提示词把本镜动作放到最前
+
+- 用户可见行为：镜头页提示词开头会写「必须演出」+ 本镜动作；生成视频用的英文稿同样以 MUST PLAY THIS ACTION 开头。已有镜头需重新生成提示词再生成视频。
+- 受影响文件：导台2 镜头视频提示词。
+- 兼容性：不改 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests.test_video_motion_leads_with_beat_action`。
+- 回滚方式：恢复上述代码。
+
+## 2026-09-07 大模型失败任务展示返回原文
+
+- 用户可见行为：全部任务里失败的大模型调用会显示模型返回原文。历史失败任务没有原文，需重新跑。
+- 受影响文件：导台2 全部任务。
+- 兼容性：不改 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiLlmJobTests.test_failed_ingest_job_keeps_model_raw`。
+- 回滚方式：恢复上述代码。
 
 ## 2026-09-04 导台2 用画风目录替换视觉风格
 

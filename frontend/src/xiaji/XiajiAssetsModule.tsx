@@ -119,6 +119,15 @@ const ETHNICITY_OPTIONS = [
   { value: "Mixed", label: "混合" },
 ]
 
+const VISUAL_STYLE_OPTIONS = [
+  { value: "chinese_period_drama", label: "写实古装剧" },
+  { value: "anime", label: "动漫风格" },
+  { value: "guoman_fantasy", label: "3D玄幻国漫" },
+  { value: "post_apocalyptic", label: "写实末日风格" },
+  { value: "realistic", label: "写实现代" },
+  { value: "republican_era_drama", label: "民国年代剧" },
+]
+
 const VOICE_SLOT_LABELS: Record<string, string> = {
   default: "默认（兜底）",
   child: "幼年",
@@ -131,8 +140,12 @@ function isMainCharacter(asset: XiajiAsset) {
   return Boolean(asset.definition.is_main) || asset.definition.role === "主角"
 }
 
-function resolvedArtStyleId(asset: XiajiAsset, projectArtStyleId = "") {
-  return String(asset.definition.art_style_id || projectArtStyleId || "")
+function resolvedArtStyleId(asset: XiajiAsset, _projectArtStyleId = "") {
+  return String(asset.definition.art_style_id || "")
+}
+
+function resolvedVisualStyle(asset: XiajiAsset, projectVisualStyle = "") {
+  return String(asset.definition.visual_style || projectVisualStyle || "chinese_period_drama")
 }
 
 function compareAssets(a: XiajiAsset, b: XiajiAsset) {
@@ -202,6 +215,7 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
   const catalogStyles = stylesQuery.data?.styles || []
   const catalogCategories = stylesQuery.data?.categories || []
   const projectArtStyleId = String(projectQuery.data?.settings?.art_style_id || "")
+  const projectVisualStyle = String(projectQuery.data?.settings?.visual_style || "chinese_period_drama")
 
   const autoTried = useRef(false)
   const allAssets = assetsQuery.data ?? []
@@ -262,7 +276,10 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
       return createXiajiAsset(csrfToken, projectId, {
         kind,
         name: createName.trim(),
-        definition: projectArtStyleId ? { art_style_id: projectArtStyleId } : {},
+        definition: {
+          ...(projectArtStyleId ? { art_style_id: projectArtStyleId } : {}),
+          visual_style: projectVisualStyle,
+        },
       })
     },
     onSuccess: (asset) => {
@@ -499,6 +516,7 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
               key={selected.id}
               asset={selected}
               projectArtStyleId={projectArtStyleId}
+              projectVisualStyle={projectVisualStyle}
               catalogStyles={catalogStyles}
               catalogCategories={catalogCategories}
               busy={busy}
@@ -516,6 +534,7 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
               key={selected.id}
               asset={selected}
               projectArtStyleId={projectArtStyleId}
+              projectVisualStyle={projectVisualStyle}
               catalogStyles={catalogStyles}
               catalogCategories={catalogCategories}
               busy={busy}
@@ -535,6 +554,7 @@ export default function XiajiAssetsModule({ csrfToken, projectId }: { csrfToken:
               key={selected.id}
               asset={selected}
               projectArtStyleId={projectArtStyleId}
+              projectVisualStyle={projectVisualStyle}
               catalogStyles={catalogStyles}
               catalogCategories={catalogCategories}
               busy={busy}
@@ -591,6 +611,7 @@ function iconFor(kind: XiajiAssetKind) {
 function AssetEditor({
   asset,
   projectArtStyleId = "",
+  projectVisualStyle = "",
   catalogStyles = [],
   catalogCategories = [],
   busy,
@@ -604,6 +625,7 @@ function AssetEditor({
 }: {
   asset: XiajiAsset
   projectArtStyleId?: string
+  projectVisualStyle?: string
   catalogStyles?: DirectorArtStyle[]
   catalogCategories?: DirectorArtStyleCategory[]
   busy: boolean
@@ -618,9 +640,11 @@ function AssetEditor({
   const [form] = Form.useForm()
   const [pendingSlots, setPendingSlots] = useState<string[]>([])
   const [artStyleId, setArtStyleId] = useState(() => resolvedArtStyleId(asset, projectArtStyleId))
+  const [visualStyle, setVisualStyle] = useState(() => resolvedVisualStyle(asset, projectVisualStyle))
   useEffect(() => {
     setArtStyleId(resolvedArtStyleId(asset, projectArtStyleId))
-  }, [asset.id, projectArtStyleId])
+    setVisualStyle(resolvedVisualStyle(asset, projectVisualStyle))
+  }, [asset.id, projectArtStyleId, projectVisualStyle])
   useEffect(() => {
     form.setFieldsValue({
       name: asset.name,
@@ -673,6 +697,7 @@ function AssetEditor({
         look_id: lookId || null,
         style: artStyleId,
         art_style_id: artStyleId,
+        visual_style: visualStyle,
         ethnicity: String(values.ethnicity || asset.definition.ethnicity || "Chinese"),
       }),
     ).finally(() => {
@@ -768,20 +793,23 @@ function AssetEditor({
             definition.description = values.description
             definition.face_prompt = values.face_prompt
             definition.looks = looks
-            definition.art_style_id = artStyleId || projectArtStyleId
+            definition.art_style_id = artStyleId
+            definition.visual_style = visualStyle
             definition.ethnicity = values.ethnicity || "Chinese"
           } else if (asset.kind === "scene") {
             definition.scene_type = values.scene_type
             definition.time_of_day = values.time_of_day
             definition.description = values.description
             definition.environment_prompt = values.environment_prompt
-            definition.art_style_id = artStyleId || projectArtStyleId
+            definition.art_style_id = artStyleId
+            definition.visual_style = visualStyle
           } else {
             definition.prop_type = values.prop_type
             definition.visual_prompt = values.visual_prompt
             definition.owner = values.owner
             definition.description = values.description
-            definition.art_style_id = artStyleId || projectArtStyleId
+            definition.art_style_id = artStyleId
+            definition.visual_style = visualStyle
           }
           onSave(values.name, definition)
         }}
@@ -866,11 +894,19 @@ function AssetEditor({
           </>
         )}
         <div className={isCharacter ? "xiaji-char-extra" : undefined}>
+          <Form.Item label="风格">
+            <Select
+              options={[...VISUAL_STYLE_OPTIONS]}
+              value={visualStyle}
+              onChange={(value) => setVisualStyle(value)}
+            />
+          </Form.Item>
           <Form.Item label="画风">
             <ArtStyleCompactField
               styles={catalogStyles}
               categories={catalogCategories}
               value={artStyleId}
+              placeholder="可不选"
               onChange={setArtStyleId}
             />
           </Form.Item>
@@ -1301,6 +1337,7 @@ function LookCardItem({
 function SceneEditor({
   asset,
   projectArtStyleId = "",
+  projectVisualStyle = "",
   catalogStyles = [],
   catalogCategories = [],
   busy,
@@ -1311,6 +1348,7 @@ function SceneEditor({
 }: {
   asset: XiajiAsset
   projectArtStyleId?: string
+  projectVisualStyle?: string
   catalogStyles?: DirectorArtStyle[]
   catalogCategories?: DirectorArtStyleCategory[]
   busy: boolean
@@ -1378,6 +1416,7 @@ function SceneEditor({
   const stylePayload = {
     style: artStyleId,
     art_style_id: artStyleId,
+    visual_style: resolvedVisualStyle(asset, projectVisualStyle),
     ethnicity: "Chinese",
   }
 
@@ -1445,6 +1484,7 @@ function SceneEditor({
               styles={catalogStyles}
               categories={catalogCategories}
               value={artStyleId}
+              placeholder="画风（可不选）"
               onChange={setArtStyleId}
             />
             <Button
@@ -1734,6 +1774,7 @@ function SceneEditor({
 function PropEditor({
   asset,
   projectArtStyleId = "",
+  projectVisualStyle = "",
   catalogStyles = [],
   catalogCategories = [],
   busy,
@@ -1744,6 +1785,7 @@ function PropEditor({
 }: {
   asset: XiajiAsset
   projectArtStyleId?: string
+  projectVisualStyle?: string
   catalogStyles?: DirectorArtStyle[]
   catalogCategories?: DirectorArtStyleCategory[]
   busy: boolean
@@ -1815,6 +1857,7 @@ function PropEditor({
   const stylePayload = {
     style: artStyleId,
     art_style_id: artStyleId,
+    visual_style: resolvedVisualStyle(asset, projectVisualStyle),
     ethnicity: "Chinese",
   }
 
@@ -1885,6 +1928,7 @@ function PropEditor({
               styles={catalogStyles}
               categories={catalogCategories}
               value={artStyleId}
+              placeholder="画风（可不选）"
               onChange={setArtStyleId}
             />
             <Button

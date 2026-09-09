@@ -6,11 +6,18 @@ from .xiaji_analyze import parse_llm_json
 from .xiaji_art_style import (
     art_style_hint,
     art_style_label,
+    first_art_style_id,
     is_animation_art_style,
     is_non_live_art_style,
     resolve_beat_art_style,
 )
-from .xiaji_asset_prompts import ethnicity_instruction, visual_style_prefix
+from .xiaji_asset_prompts import composed_style_line, ethnicity_instruction, visual_style_prefix
+from .xiaji_visual_styles import (
+    is_animation_visual_style,
+    normalize_visual_style,
+    visual_style_contract,
+    visual_style_label,
+)
 from .llm_client import LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS, LlmError
 
 from .xiaji_literal_script import SCRIPT_PROMPT_VERSION, build_script_messages, generate_script_beats
@@ -18,7 +25,7 @@ from .xiaji_literal_script import SCRIPT_PROMPT_VERSION, build_script_messages, 
 SKETCH_PROMPT_VERSION = "beat_sketch.v2"
 RENDER_PROMPT_VERSION = "beat_render.v2"
 VIDEO_PROMPT_VERSION = "beat_video.v2"
-VIDEO_MOTION_PROMPT_VERSION = "beat_video_motion.v4"
+VIDEO_MOTION_PROMPT_VERSION = "beat_video_motion.v6"
 
 SKETCH_MARKER_PALETTE = (
     ("#E11D48", "ROSE"),
@@ -144,6 +151,7 @@ def beat_sketch_prompt(
     assets: list[dict[str, Any]],
     visual_style: str,
     ethnicity: str,
+    art_style_id: str = "",
 ) -> str:
     characters, scene, props = _beat_assets(beat, assets)
     marker_lines = []
@@ -158,7 +166,7 @@ def beat_sketch_prompt(
         "SYMBOLIC STORYBOARD PEOPLE ONLY: oval head, one spine line, single-stroke arms/legs, tiny facing ticks. NO clothing, no hair, no facial features, no skin, no realistic anatomy.",
         "SINGLE-MOMENT RULE: exactly one camera setup and one frozen story moment. No collage, split-screen, subtitles, watermark, or readable text.",
         "If a scene reference is attached, redraw it as sparse black/gray line art only. Do NOT copy realistic lighting, colors, texture, or rendered detail.",
-        f"World/setting cue only (do not render as a finished still): {visual_style_prefix(visual_style)}".strip(": "),
+        f"World/setting cue only (do not render as a finished still): {visual_style_prefix(visual_style, art_style_id)}".strip(": "),
         ethnicity_instruction(ethnicity),
     ]
     if marker_lines:
@@ -187,6 +195,7 @@ def beat_render_prompt(
     assets: list[dict[str, Any]],
     visual_style: str,
     ethnicity: str,
+    art_style_id: str = "",
 ) -> str:
     characters, scene, props = _beat_assets(beat, assets)
     char_lines = []
@@ -207,9 +216,10 @@ def beat_render_prompt(
                 if part
             )
         )
-    style_id = resolve_beat_art_style(visual_style, characters)
-    style_prefix = visual_style_prefix(style_id) or visual_style_prefix(visual_style)
-    style_name = art_style_label(style_id)
+    art_id = first_art_style_id(art_style_id) or resolve_beat_art_style(visual_style, characters)
+    visual_id = normalize_visual_style(visual_style)
+    style_prefix = composed_style_line(visual_id, art_id)
+    style_name = art_style_label(art_id) or visual_style_label(visual_id)
     protagonist = next(
         (
             item
@@ -219,10 +229,12 @@ def beat_render_prompt(
         characters[0] if characters else None,
     )
     protagonist_name = str((protagonist or {}).get("name") or "").strip()
-    non_live = is_non_live_art_style(style_id) or is_animation_art_style(visual_style) or (visual_style or "").strip() in {
-        "anime",
-        "guoman_fantasy",
-    }
+    non_live = (
+        is_animation_visual_style(visual_id)
+        or is_non_live_art_style(art_id)
+        or is_animation_art_style(art_id)
+        or visual_id in {"anime", "guoman_fantasy"}
+    )
     if non_live:
         style_finish = "Dynamic cinematic lighting, stylized animated finish, high detail."
         who = f"{protagonist_name} and the other named characters" if protagonist_name else "Named characters"
@@ -320,14 +332,14 @@ def beat_video_prompt(
                 "From 0-1.5s start FROM the exact last-frame still of the previous shot in <Picture 1> and continuously transform into the current beat render composition in "
                 + target_tag
                 + "; no hard cut, no split screen, no collage.",
-                f"From 1.5s to the end, continue FROM {target_tag} and play the current beat action.",
-                f"Use {mentions} in upload order. Extra pictures lock identity or place only and must not replace the bridged layout.",
+                f"From 1.5s to the end, continue FROM {target_tag} and play the current beat action as visible body motion.",
+                f"Use {mentions} in upload order. Extra pictures lock identity, costume, or place only; they must not freeze blocking so the action cannot happen.",
                 "No subtitles, no captions, no watermark, no collage.",
             ]
         else:
             parts = [
                 "Animate a LightX2V multi-reference R2V shot.",
-                "<Picture 1> is the approved first-frame render at 0.00 seconds; keep composition, identity, costume, and environment from this still.",
+                "<Picture 1> is the approved first-frame render at 0.00 seconds: identity, costume, and place stay locked, but bodies must move through this beat's action; do not freeze the first-frame pose for the whole shot.",
                 f"Use {mentions} in upload order. Extra pictures lock identity or place only and must not replace the first-frame layout.",
                 "No subtitles, no captions, no watermark, no collage.",
             ]
@@ -337,17 +349,17 @@ def beat_video_prompt(
         parts = [
             "Animate this previous-shot last-frame still into a single continuous camera shot.",
             "From 0-1.5s continuously transform from this first frame into the current beat's approved render composition.",
-            "From 1.5s onward continue from that render composition. Keep identity, costume, and environment consistent.",
+            "From 1.5s onward continue from that render composition. Keep identity, costume, and environment consistent while playing the beat action.",
             "No subtitles, no captions, no watermark, no collage.",
         ]
     else:
         parts = [
             "Animate this first-frame still into a single continuous camera shot.",
-            "Keep identity, costume, and environment consistent with the first frame.",
+            "Keep identity, costume, and environment consistent with the first frame, but animate the beat action; do not hold a still pose.",
             "No subtitles, no captions, no watermark, no collage.",
         ]
     if action:
-        parts.append(action)
+        parts.insert(0, f"MUST PLAY THIS ACTION (animate it; do not freeze the first-frame pose): {action}")
     if dialogue:
         parts.append(f"{speaker} speaking with matching mouth motion, no readable on-screen text: {dialogue}")
     return ". ".join(part.strip(" .") for part in parts if str(part).strip())
@@ -355,20 +367,26 @@ def beat_video_prompt(
 
 VIDEO_MOTION_SYSTEM_PROMPT = """你是 LightX2V 多参考 R2V（MiniMax H3 Ref2V）运动导演。只输出一个 JSON 对象，不要 Markdown。
 JSON 字段：
-- prompt_zh: 给创作者看的中文运动提示词（要能当镜头说明书）
-- prompt_en: 交给本机 ComfyUI / LightX2V 的英文提示词
+- prompt_zh: 给创作者看的中文镜头说明书，必须写满、写细，能直接当分镜导演阐述
+- prompt_en: 交给本机 ComfyUI / LightX2V 的英文提示词，必须同样细，像完整 shot list
 
-必须遵守：
-1. 参考图按上传顺序编号。中英都必须原样使用 <Picture 1>、<Picture 2>… 不得改写、不得跳号、不得省略任何一张。
-2. 禁止用 the hero / the second character / a man / a woman 这类泛称代替素材。每一句 Use <Picture n> 必须写清这张图的素材类型和素材专名（角色名+头像/哪套造型，或场景名+正面/背面，或本镜精绘，或上一镜衔接帧）。
-3. 先写 1–2 句视觉风格（只用项目给定风格，不要写成漫画墨线或夜城屋顶，除非风格就是那个）。
-4. 接着逐张锁图：写这张图里具体是谁、穿什么、什么空间、锁什么（脸/服装/环境/t=0构图/1.5秒目标构图），并带上外貌或场景要点。
-5. 若清单里有上一镜衔接帧（bridge_in）：它是 t=0。<Picture 1> 永远是上一镜截图，不是本镜精绘。中英都必须写清：0-1.5s 从该衔接帧连续过渡到本镜精绘构图；1.5s 之后才从精绘构图按本镜动作向前演。禁止硬切、禁止分屏、禁止把精绘当成全片结尾静帧。
-6. 若没有衔接帧：<Picture 1> 才是本镜精绘首帧：机位、构图、人物站位以它为 t=0，后续只能向前演，不能回到首帧之前，不能把后到的头像/造型/场景图拼成新的分屏。
-7. 头像只锁脸和身份；造型图只锁服装；场景图只锁环境。它们不能改掉 t=0 或 1.5s 目标布局。
-8. 然后写本镜的详细画面解说（不是锁图摘要）：按指定秒数写连贯动作 + 明确运镜。中英都要写明这段就是该秒数。有衔接时先写 0-1.5s 过渡段，再写 1.5s 到结束的本镜动作。
-9. 有对白时写口型和身体配合。不要出现可读字幕、字幕条、水印。不要写 <Audio n>，本机不传音频。
-10. 只根据本镜动作/对白/参考图素材来写，禁止抄屋顶小超人、机甲咆哮、漫画大字等示例情节。
+密度要求（必须达到）：
+- prompt_en 不少于 220 个英文单词；prompt_zh 不少于 280 个汉字。
+- 禁止写成两三句摘要。必须按时间轴写完指定秒数里的每一段画面。
+- 每一段都要写清：机位与运镜（推/拉/摇/升/降/环绕/whip 等）、人物微表情与肢体、服装布料动态、环境反应（尘土、窗、灯、风）、光线与焦点变化。
+- 有对白时写口型、停顿、重音和身体如何配合这句话。
+
+结构（只学结构，禁止抄示例情节）：
+1. 第一段必须原样写出本镜动作（中文用【必须演出】，英文用 MUST PLAY THIS ACTION），并写清身体怎么完成这件事（咳血、推搡倒地、饿晕倒地等）。禁止把动作埋在锁图句或画风句后面。
+2. 然后逐张锁参考图：中英都必须原样使用 <Picture 1>、<Picture 2>… 不得改写、跳号、省略。
+3. 每一句 Use <Picture n> 必须写清素材类型和素材专名（角色名+头像/哪套造型，或场景名+正面/背面，或本镜精绘，或上一镜衔接帧）。禁止 the hero / a man / the second character。
+4. 画风只写材质、线、色板；禁止把戏拍成奢侈品静物、产品广告或时尚杂志定妆。光线服从这场戏，不服从商品摄影。
+5. 用 CUT 1 / TRANSITION / CUT 2 / HOLD 覆盖整段时长。每一 CUT 都必须推进本镜动作的身体表演，不能只写氛围。秒数不够就 CUT 1 + HOLD；秒数够就加第二机位，但仍是同一 Beat。
+6. 若有上一镜衔接帧（bridge_in）：<Picture 1> 永远是上一镜截图。<Picture 2> 才是本镜精绘。必须写 0-1.5s 从衔接帧连续过渡到本镜精绘构图；1.5s 之后必须开始演本镜动作。禁止硬切、分屏、拼贴。
+7. 若没有衔接帧：<Picture 1> 是本镜精绘 t=0 起点。身份、服装、空间锁住；站位和姿态必须在指定秒数内演完本镜动作。禁止写「不得改变首帧站位/构图直到结束」「lock blocking for the whole shot」「hold still」。
+8. 头像只锁脸和身份；造型图只锁服装；场景图只锁环境。锁图不等于冻住表演。
+9. 动画/国漫/漫画风才允许 comic lettering、速度线、墨点溅射，且必须与对白节奏同步。写实古装/真人风禁止漫画大字和字幕条。任何风格都不要写 <Audio n>，本机不传音频。
+10. 只根据本镜动作、对白、参考图来写。禁止抄屋顶小超人、机甲咆哮、GET READY TO MEET YOUR MAKER 等外来示例。
 11. 只输出 JSON。"""
 
 
@@ -401,12 +419,18 @@ def build_video_motion_messages(
     duration: float,
     visual_style: str,
     route: str,
+    art_style_id: str = "",
 ) -> list[dict[str, str]]:
     action = _beat_action_line(beat)
     heading = str(beat.get("heading") or "").strip()
     dialogue = str(beat.get("dialogue") or "").strip()
     speaker = str(beat.get("speaker") or "").strip()
-    style_label = art_style_hint(visual_style) or (visual_style or "").strip()
+    visual_id = normalize_visual_style(visual_style)
+    art_id = first_art_style_id(art_style_id, visual_style)
+    style_label = visual_style_label(visual_id)
+    style_contract = visual_style_contract(visual_id)
+    art_hint = art_style_hint(art_id)
+    material_line = " ".join(part for part in (style_contract, art_hint) if part) or "跟随项目设定"
     catalog = format_video_picture_catalog(pictures) or "（无参考图）"
     lock_lines = []
     for item in pictures:
@@ -421,36 +445,58 @@ def build_video_motion_messages(
     target_tag = str((target or {}).get("tag") or "<Picture 2>")
     if bridge:
         action_chain = (
-            f"Action chain for {duration:g} seconds:\n"
-            f"0-1.5s: start FROM the exact last-frame still in <Picture 1> (previous shot screenshot) and continuously transform into the current beat render {target_tag}. No hard cut, no split screen.\n"
-            f"From 1.5s to {duration:g}s: continue FROM {target_tag}, name the visible people and place, then describe camera move and the current beat action until {duration:g} seconds.\n"
+            f"Timed shot list for {duration:g} seconds (write every beat of action, do not summarize):\n"
+            f"0-1.5s TRANSITION: start FROM the exact last-frame still in <Picture 1> (previous shot screenshot) and continuously transform into the current beat render {target_tag}. No hard cut, no split screen. Describe how space, faces, and camera morph.\n"
+            f"CUT 1 from 1.5s: continue FROM {target_tag} and PLAY the beat action as visible body motion. Name the people and place. Write camera, micro-acting, cloth, light, and environment reaction.\n"
+            f"If {duration:g}s still has room after CUT 1, add TRANSITION + CUT 2 that intensifies THE SAME beat (new angle or closer, not a new plot).\n"
+            f"HOLD through {duration:g}s only after the action has already happened. End on a concrete frame, not a generic fade.\n"
         )
-        first_lock = "keep continuity: 0-1.5s bridge from previous last frame into the current render, then play this beat."
+        first_lock = "identity and place stay consistent after the 0-1.5s bridge; then the named action must play."
     else:
         action_chain = (
-            f"Action chain for {duration:g} seconds:\n"
-            f"CUT 1: start FROM the exact composition of <Picture 1>, name the visible people and place, then describe camera move and the first beat of action.\n"
-            f"Then continue with the next concrete motion (who moves, what changes in space, how the camera follows) until {duration:g} seconds.\n"
+            f"Timed shot list for {duration:g} seconds (write every beat of action, do not summarize):\n"
+            f"CUT 1: start FROM the exact composition of <Picture 1> as t=0, then immediately play the beat action with body motion. Do not freeze blocking. Name the people and place. Write camera, micro-acting, and environment.\n"
+            f"TRANSITION if needed (whip / push / rise / drift) that stays inside this beat.\n"
+            f"CUT 2 only if {duration:g}s allows: a second angle or intensification of THE SAME action, not a new story.\n"
+            f"HOLD through {duration:g}s only after the action has already happened.\n"
         )
-        first_lock = "keep continuity with the first frame."
+        first_lock = "lock identity, costume, and place from the first frame; do not freeze pose or blocking."
+    animated = (
+        is_animation_visual_style(visual_id)
+        or is_animation_art_style(art_id)
+        or is_non_live_art_style(art_id)
+        or is_animation_art_style(visual_style)
+        or is_non_live_art_style(visual_style)
+    )
+    overlay_rule = (
+        "本镜画风允许漫画字效、速度线、墨点溅射；若有对白，字效必须跟口型节奏同步。不要字幕条。"
+        if animated
+        else "写实/真人画风：禁止漫画大字、花字、字幕条；对白只靠口型和身体表演。"
+    )
     user = (
         f"工作流：LightX2V 多参考 R2V\n"
         f"模式：{route}\n"
-        f"指定时长：{duration:g} 秒。prompt_zh 与 prompt_en 都必须写明这段就是 {duration:g} 秒。\n"
-        f"画风代码：{visual_style or '（未设）'}\n"
-        f"画风：{style_label or '跟随项目设定，写实电影感，不要强行漫画字效'}\n"
+        f"【必须演出】{action or '（无）'}\n"
+        f"对白：{dialogue or '（无）'}（说话人：{speaker or '无'}）\n"
+        f"prompt_zh 第一段必须是【必须演出】+ 本镜动作原文；prompt_en 第一段必须是 MUST PLAY THIS ACTION + 同一句动作原文。\n"
+        f"参考图只锁身份/服装/空间，禁止写整镜冻住首帧站位。人物必须把上述动作演完。\n"
+        f"指定时长：{duration:g} 秒。prompt_zh 与 prompt_en 都必须写明这段就是 {duration:g} 秒，并按 CUT/TRANSITION/HOLD 写满整段。\n"
+        f"密度：英文稿至少 220 词，中文稿至少 280 字。要有运镜、微表情、布料、环境反应，不要摘要。\n"
+        f"画风代码：{visual_id or art_id or '（未设）'}\n"
+        f"风格：{style_label or visual_id or '（未设）'}\n"
+        f"风格说明：{style_contract or '（无）'}\n"
+        f"画风（可不选；只取材质色板，禁止产品广告静物）：{art_hint or '（未选）'}\n"
+        f"字效规则：{overlay_rule}\n"
         f"镜头标头：{heading or '（无）'}\n"
-        f"本镜动作（画面必须解说这件事）：{action or '（无）'}\n"
-        f"说话人：{speaker or '（无）'}\n"
-        f"对白：{dialogue or '（无）'}\n"
-        f"衔接：{'需要 0-1.5s 从上一镜截图过渡到本镜精绘' if bridge else '无上一镜衔接，直接从本镜精绘开始'}\n\n"
+        f"衔接：{'需要 0-1.5s 从上一镜截图过渡到本镜精绘，之后立刻演本镜动作' if bridge else '无上一镜衔接，从本镜精绘起步并立刻演本镜动作'}\n\n"
         f"【参考图装箱清单：每张图的素材类型、专名、外貌/服装/场景细节。英文锁图句必须用这些专名，禁止改成 hero / second character】\n"
         f"{catalog}\n\n"
-        f"英文稿骨架（只学结构；锁图句换成上面清单里的专名和细节；动作链只写本镜，禁止抄屋顶/机甲）：\n"
-        f"{style_label or 'Cinematic realistic period-drama lighting'}, {first_lock}\n"
+        f"英文稿骨架（动作必须写在最前；锁图句换成上面清单里的专名；禁止抄屋顶超人/机甲/YOUR MAKER）：\n"
+        f"MUST PLAY THIS ACTION: {action or 'the beat action'}\n"
         f"{skeleton}\n"
+        f"{material_line}, {first_lock}\n"
         f"{action_chain}"
-        f"Hold through the full duration. No <Audio n>. No readable on-screen captions."
+        f"Hold through the full duration only after the action has played. No <Audio n>. No lower-third subtitle bar."
     )
     return [
         {"role": "system", "content": VIDEO_MOTION_SYSTEM_PROMPT},
@@ -458,11 +504,107 @@ def build_video_motion_messages(
     ]
 
 
-def _normalize_video_motion_pair(parsed: dict[str, Any], pictures: list[dict[str, Any]]) -> dict[str, str]:
+def _picture_lock_line_zh(item: dict[str, Any]) -> str:
+    tag = str(item.get("tag") or "").strip()
+    label = str(item.get("label_zh") or item.get("name") or item.get("role") or "").strip()
+    return f"用 {tag} 作为{label}。" if tag else ""
+
+
+def _picture_lock_line_en(item: dict[str, Any]) -> str:
+    tag = str(item.get("tag") or "").strip()
+    label = str(item.get("label_en") or item.get("name") or item.get("role") or "").strip()
+    return f"Use {tag} as {label}." if tag else ""
+
+
+def _action_mandate_zh(action: str, dialogue: str = "") -> str:
+    action = str(action or "").strip()
+    dialogue = str(dialogue or "").strip()
+    if not action:
+        return ""
+    line = f"【必须演出】{action}。首帧只是起点，禁止整镜冻住站位；人物必须把这件事演完。"
+    if dialogue:
+        line += f"对白口型：{dialogue}。"
+    return line
+
+
+def _action_mandate_en(action: str, dialogue: str = "") -> str:
+    action = str(action or "").strip()
+    dialogue = str(dialogue or "").strip()
+    if not action:
+        return ""
+    line = (
+        "MUST PLAY THIS ACTION (animate it; do not freeze the first-frame pose for the whole shot): "
+        + action
+        + "."
+    )
+    if dialogue:
+        line += f" Mouth motion for dialogue, no readable on-screen text: {dialogue}."
+    return line
+
+
+def _lead_with_action(zh: str, en: str, action: str, dialogue: str = "") -> tuple[str, str]:
+    zh_lead = _action_mandate_zh(action, dialogue)
+    en_lead = _action_mandate_en(action, dialogue)
+    zh = str(zh or "").strip()
+    en = str(en or "").strip()
+    if zh_lead and not zh.startswith("【必须演出】"):
+        zh = zh_lead + "\n" + zh
+    if en_lead and not en.upper().startswith("MUST PLAY THIS ACTION"):
+        en = en_lead + "\n" + en
+    return zh, en
+
+
+def _ensure_picture_locks(zh: str, en: str, pictures: list[dict[str, Any]]) -> tuple[str, str]:
+    zh_prefix: list[str] = []
+    en_prefix: list[str] = []
+    for item in pictures:
+        if not isinstance(item, dict):
+            continue
+        tag = str(item.get("tag") or "").strip()
+        if not tag:
+            continue
+        if tag not in zh:
+            line = _picture_lock_line_zh(item)
+            if line:
+                zh_prefix.append(line)
+        if tag not in en:
+            line = _picture_lock_line_en(item)
+            if line:
+                en_prefix.append(line)
+    if zh_prefix:
+        zh = " ".join(zh_prefix) + "\n" + zh
+    if en_prefix:
+        en = " ".join(en_prefix) + "\n" + en
+    for item in pictures:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "")
+        key = str(item.get("name") or "").split("·")[0].strip()
+        if role in {"first_frame", "bridge_in", "shot_render", ""} or len(key) < 2:
+            continue
+        if key not in zh:
+            zh = f"{key}。" + zh
+        if key not in en:
+            en = f"{key}. " + en
+    return zh, en
+
+
+def _normalize_video_motion_pair(
+    parsed: dict[str, Any],
+    pictures: list[dict[str, Any]],
+    *,
+    action: str = "",
+    dialogue: str = "",
+) -> dict[str, str]:
     zh = str(parsed.get("prompt_zh") or parsed.get("zh") or "").strip()
     en = str(parsed.get("prompt_en") or parsed.get("en") or "").strip()
     if not zh or not en:
         raise LlmError("大模型没有返回中英双语视频提示词")
+    zh, en = _ensure_picture_locks(zh, en, pictures)
+    zh, en = _lead_with_action(zh, en, action, dialogue)
+    action_line = str(action or "").strip()
+    if action_line and (action_line not in zh or action_line not in en):
+        raise LlmError("提示词没有写出本镜动作")
     missing = [str(item.get("tag") or "") for item in pictures if item.get("tag") and str(item.get("tag")) not in en]
     missing_zh = [str(item.get("tag") or "") for item in pictures if item.get("tag") and str(item.get("tag")) not in zh]
     unnamed = []
@@ -492,6 +634,7 @@ def generate_beat_video_motion_prompt(
     duration: float,
     visual_style: str,
     route: str,
+    art_style_id: str = "",
 ) -> dict[str, str]:
     messages = build_video_motion_messages(
         beat=beat,
@@ -499,6 +642,7 @@ def generate_beat_video_motion_prompt(
         duration=duration,
         visual_style=visual_style,
         route=route,
+        art_style_id=art_style_id,
     )
     last_error: Exception | None = None
     for _attempt in range(2):
@@ -506,16 +650,33 @@ def generate_beat_video_motion_prompt(
             raw = client.chat_completion(
                 messages,
                 model=model,
-                temperature=0.55,
-                max_tokens=4096,
+                temperature=0.75,
+                max_tokens=8192,
                 timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
             )
             parsed = parse_llm_json(raw)
             if not isinstance(parsed, dict):
-                raise LlmError("大模型没有返回 JSON 对象")
-            return _normalize_video_motion_pair(parsed, pictures)
+                raise LlmError("大模型没有返回 JSON 对象", raw=raw)
+            return _normalize_video_motion_pair(
+                parsed,
+                pictures,
+                action=_beat_action_line(beat),
+                dialogue=str(beat.get("dialogue") or "").strip(),
+            )
         except (LlmError, ValueError) as error:
+            if isinstance(error, LlmError) and not getattr(error, "raw", None):
+                error.raw = raw
             last_error = error
+            if "缺少参考图" in str(error) or "没有返回" in str(error) or "本镜动作" in str(error):
+                messages = [
+                    *messages,
+                    {
+                        "role": "user",
+                        "content": f"上次输出不合格：{error}。请原样保留已有分镜。prompt_zh / prompt_en 第一段必须是本镜动作（【必须演出】/ MUST PLAY THIS ACTION），然后才是漏掉的 <Picture n> 锁图句。禁止写冻住首帧站位。",
+                    },
+                ]
+    if isinstance(last_error, LlmError):
+        raise last_error
     raise LlmError(str(last_error) if last_error else "视频提示词生成失败")
 
 

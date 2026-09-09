@@ -417,6 +417,7 @@ export type XiajiAssetGenerateImagePayload = {
   look_id?: string | null
   style?: string
   art_style_id?: string
+  visual_style?: string
   ethnicity?: string
   model?: string
   scene_view?: "master" | "reverse" | "panorama"
@@ -441,6 +442,7 @@ export function generateXiajiAssetImage(
       look_id: payload.look_id || null,
       style: payload.art_style_id || payload.style || "",
       art_style_id: payload.art_style_id || payload.style || "",
+      visual_style: payload.visual_style || "",
       ethnicity: payload.ethnicity || "",
       model: payload.model || "",
       scene_view: payload.scene_view || null,
@@ -573,6 +575,7 @@ export type XiajiBeat = {
   video_in_frame_sec?: string | null
   video_in_source_job_id?: string | null
   video_in_frame_manual?: string | null
+  audio_url?: string | null
   status: XiajiBeatStatus
   error?: string | null
 }
@@ -599,6 +602,17 @@ export type XiajiEpisode = {
   line_count: number
   sketch_ready?: number
   sketch_failed?: number
+  compose_status?: "idle" | "composing" | "succeeded" | "failed"
+  compose_url?: string | null
+  compose_error?: string | null
+  compose_resolution?: string | null
+  compose_add_subtitles?: boolean
+  compose_duration_sec?: number | null
+  compose_at?: string | null
+  compose_filename?: string
+  compose_progress?: number
+  compose_ready?: boolean
+  compose_blockers?: Array<{ beat_id: string; sequence: number; stages: string[] }>
   updated_at: string
 }
 
@@ -625,6 +639,7 @@ export function xiajiPreviousVideoBeat(episode: XiajiEpisode | null | undefined,
 export function xiajiEpisodeHasActiveJobs(episode?: XiajiEpisode | null) {
   if (!episode) return false
   if (episode.status === "scripting") return true
+  if (episode.compose_status === "composing") return true
   return (episode.beats || []).some(
     (item) =>
       xiajiBeatSlotBusy(item.status) || xiajiBeatSlotBusy(item.render_status) || xiajiBeatSlotBusy(item.video_status),
@@ -860,6 +875,61 @@ export function startXiajiEpisodeAutoRun(csrfToken: string, episodeId: string, p
 
 export function getXiajiEpisodeAutoRun(episodeId: string) {
   return requestJson<XiajiAutoRunResult>(`/api/xiaji/episodes/${encodeURIComponent(episodeId)}/auto-run`)
+}
+
+export type XiajiComposeResult = { ok: boolean; status: string; reused?: boolean; job_id?: string | null; episode: XiajiEpisode }
+
+export function composeXiajiEpisode(
+  csrfToken: string,
+  episodeId: string,
+  payload: { resolution?: string; add_subtitles?: boolean; force?: boolean } = {},
+) {
+  return requestJson<XiajiComposeResult>(
+    `/api/xiaji/episodes/${encodeURIComponent(episodeId)}/compose`,
+    jsonMutation(csrfToken, {
+      resolution: payload.resolution || "1280x720",
+      add_subtitles: payload.add_subtitles !== false,
+      force: payload.force || false,
+    }),
+  )
+}
+
+async function downloadXiajiBlob(path: string, filename: string, init?: RequestInit) {
+  const response = await fetch(path, init)
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? ""
+    if (contentType.includes("application/json")) {
+      const body = await response.json().catch(() => null)
+      throw new ApiRequestError(response.status, body)
+    }
+    const text = await response.text().catch(() => "")
+    throw new ApiRequestError(response.status, text.trim() || `请求失败（HTTP ${response.status}）`)
+  }
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000)
+}
+
+export function downloadXiajiEpisodeVideo(episodeId: string, filename: string) {
+  return downloadXiajiBlob(`/api/xiaji/episodes/${encodeURIComponent(episodeId)}/export/video`, filename)
+}
+
+export function downloadXiajiEpisodeSrt(episodeId: string, filename: string) {
+  return downloadXiajiBlob(`/api/xiaji/episodes/${encodeURIComponent(episodeId)}/export/srt`, filename)
+}
+
+export function downloadXiajiEpisodeZip(csrfToken: string, episodeId: string, filename: string) {
+  return downloadXiajiBlob(
+    `/api/xiaji/episodes/${encodeURIComponent(episodeId)}/export/zip`,
+    filename,
+    jsonMutation(csrfToken, {}, "POST"),
+  )
 }
 
 export type XiajiOptionProperty = {

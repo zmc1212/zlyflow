@@ -3,16 +3,13 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from .xiaji_art_style import art_style_prefix, definition_art_style_id, is_animation_art_style
-
-VISUAL_STYLE_LABELS = {
-    "chinese_period_drama": "写实古装剧",
-    "anime": "动漫",
-    "guoman_fantasy": "国漫奇幻",
-    "post_apocalyptic": "末世废土",
-    "realistic": "写实",
-    "republican_era_drama": "民国剧",
-}
+from .xiaji_art_style import art_style_prefix, definition_art_style_id, first_art_style_id, is_animation_art_style
+from .xiaji_visual_styles import (
+    VISUAL_STYLE_LABELS,
+    is_animation_visual_style,
+    normalize_visual_style,
+    visual_style_contract,
+)
 
 VOICE_SLOT_LABELS = {
     "default": "默认（兜底）",
@@ -38,14 +35,24 @@ VOICE_DEFINE_PROMPT = """你是影视配音导演。根据角色资料写一条�
 规则：不要写画面；不要编造原文没有的身份。"""
 
 
-def visual_style_prefix(visual_style: str) -> str:
-    prefix = art_style_prefix(visual_style)
-    if prefix:
-        return prefix
-    label = VISUAL_STYLE_LABELS.get((visual_style or "").strip(), "")
-    if not label:
-        return ""
-    return f"cinematic still in {label} visual style"
+def composed_style_line(visual_style: str = "", art_style_id: str = "") -> str:
+    visual_id = normalize_visual_style(visual_style)
+    art_id = first_art_style_id(art_style_id) or ("" if visual_id else first_art_style_id(visual_style))
+    parts = [visual_style_contract(visual_id)]
+    art = art_style_prefix(art_id)
+    if art:
+        parts.append(art)
+    if not any(parts):
+        label = VISUAL_STYLE_LABELS.get((visual_style or "").strip(), "")
+        if label:
+            parts.append(f"cinematic still in {label} visual style")
+        elif (visual_style or "").strip() and not art_id:
+            parts.append((visual_style or "").strip())
+    return " ".join(part for part in parts if part)
+
+
+def visual_style_prefix(visual_style: str, art_style_id: str = "") -> str:
+    return composed_style_line(visual_style, art_style_id)
 
 
 def ethnicity_instruction(ethnicity: str) -> str:
@@ -56,22 +63,46 @@ def ethnicity_instruction(ethnicity: str) -> str:
     )
 
 
-def _style_and_ethnicity(asset: dict[str, Any], *, style: str = "", ethnicity: str = "") -> tuple[str, str]:
+def _resolved_style_ids(
+    asset: dict[str, Any],
+    *,
+    style: str = "",
+    visual_style: str = "",
+) -> tuple[str, str]:
     definition = asset.get("definition") if isinstance(asset.get("definition"), dict) else {}
-    visual = (style or definition_art_style_id(definition) or str(definition.get("visual_style") or "")).strip()
+    requested = (style or "").strip()
+    visual_id = normalize_visual_style(
+        visual_style,
+        requested,
+        definition.get("visual_style"),
+    )
+    art_id = first_art_style_id(requested) or definition_art_style_id(definition)
+    return visual_id, art_id
+
+
+def _style_and_ethnicity(
+    asset: dict[str, Any],
+    *,
+    style: str = "",
+    visual_style: str = "",
+    ethnicity: str = "",
+) -> tuple[str, str]:
+    definition = asset.get("definition") if isinstance(asset.get("definition"), dict) else {}
+    visual_id, art_id = _resolved_style_ids(asset, style=style, visual_style=visual_style)
     race = (ethnicity or str(definition.get("ethnicity") or "")).strip() or "Chinese"
-    return visual, race
+    return composed_style_line(visual_id, art_id), race
 
 
 def character_portrait_prompt(
     asset: dict[str, Any],
     *,
     style: str = "",
+    visual_style: str = "",
     ethnicity: str = "",
     has_style_reference: bool = False,
 ) -> str:
     definition = asset.get("definition") if isinstance(asset.get("definition"), dict) else {}
-    visual, race = _style_and_ethnicity(asset, style=style, ethnicity=ethnicity)
+    visual, race = _style_and_ethnicity(asset, style=style, visual_style=visual_style, ethnicity=ethnicity)
     face = str(definition.get("face_prompt") or "").strip()
     body = str(definition.get("body_type") or "").strip()
     desc = str(definition.get("description") or "").strip()
@@ -96,7 +127,7 @@ def character_portrait_prompt(
     return ". ".join(
         part
         for part in (
-            visual_style_prefix(visual),
+            visual,
             ethnicity_instruction(race),
             style_ref,
             instruction,
@@ -135,14 +166,16 @@ def character_look_prompt(
     look: dict[str, Any],
     *,
     style: str = "",
+    visual_style: str = "",
     ethnicity: str = "",
     has_costume_reference: bool = False,
 ) -> str:
-    visual, _race = _style_and_ethnicity(asset, style=style, ethnicity=ethnicity)
+    visual_id, art_id = _resolved_style_ids(asset, style=style, visual_style=visual_style)
+    visual, _race = _style_and_ethnicity(asset, style=style, visual_style=visual_style, ethnicity=ethnicity)
     name = str(asset.get("name") or "").strip() or "未命名角色"
     tag = _character_tag(name)
     costume = look_costume_text(look)
-    style_line = visual_style_prefix(visual)
+    style_line = visual
     costume_block = ""
     if has_costume_reference:
         costume_block = """
@@ -153,8 +186,8 @@ A second reference image is provided showing the target costume/clothing.
 - Combine the FACE from the identity anchor (first reference) with the CLOTHING from the costume reference (second reference)
 """
     details = costume if costume and not has_costume_reference else ""
-    if is_animation_art_style(visual) or visual in {"anime", "guoman_fantasy"}:
-        medium = _animation_medium_phrase(visual)
+    if is_animation_visual_style(visual_id) or is_animation_art_style(art_id) or visual_id in {"anime", "guoman_fantasy"}:
+        medium = _animation_medium_phrase(visual_id)
         return f"""Animated character turnaround / identity sheet. Neutral presentation setup.
 PLAIN SOLID WHITE or LIGHT GRAY background ONLY — no environment, no scenery, no props. {style_line}
 
@@ -264,19 +297,49 @@ def scene_view_prompt(
     view: str,
     *,
     style: str = "",
+    visual_style: str = "",
     has_master_reference: bool = False,
     has_reverse_reference: bool = False,
 ) -> str:
     view = (view or "master").strip() or "master"
     if view == "reverse":
-        return _scene_reverse_prompt(asset, style=style, has_master_reference=has_master_reference)
+        return _scene_reverse_prompt(asset, style=style, visual_style=visual_style, has_master_reference=has_master_reference)
     if view == "panorama":
         return _scene_panorama_prompt(
             asset,
+            style=style,
+            visual_style=visual_style,
             has_master_reference=has_master_reference,
             has_reverse_reference=has_reverse_reference,
         )
-    return _scene_front_prompt(asset, style=style)
+    return _scene_front_prompt(asset, style=style, visual_style=visual_style)
+
+
+def _scene_style_block(asset: dict[str, Any], *, style: str = "", visual_style: str = "") -> str:
+    style_line, _race = _style_and_ethnicity(asset, style=style, visual_style=visual_style)
+    if not style_line:
+        return ""
+    return (
+        "PROJECT STYLE PRESET:\n"
+        f"- Apply only materials, palette, linework and lighting from: {style_line}\n"
+        "- This is an EMPTY LOCATION plate, not a fashion editorial, character poster, or magazine cover.\n"
+        "- Ignore posing, models, portraits, and any people implied by the style preset."
+    )
+
+
+def _scene_empty_location_block() -> str:
+    return """EMPTY LOCATION CONTRACT:
+- Output an unoccupied set, as if photographed before actors arrive.
+- SCENE DESCRIPTION may mention character names or story action (跪、站、坐、咳血、议论). Those are NOTES, not subjects.
+- Do NOT draw any person, face, body, silhouette, crowd, corpse, ghost, or character occupying the space.
+- Keep only architecture and fixed dressings that remain after people leave (walls, floor, ceiling, bed, window, furniture, lamps).
+- Do not turn the frame into a story beat, portrait, or fashion shot.
+
+HARD REQUIREMENTS:
+- No people, no characters, no temporary story props.
+- Preserve only fixed environment objects: walls, floor, ceiling, doors, windows,
+  counters, tables, seats, shelves, lamps, appliances, architectural trim, exterior fixtures.
+- No readable text, labels, UI, watermarks, collage, floorplan, or diagrams."""
 
 
 def _scene_text_block(asset: dict[str, Any]) -> str:
@@ -293,15 +356,13 @@ def _scene_text_block(asset: dict[str, Any]) -> str:
     ]
     if time_of_day:
         lines.append(f"TARGET TIME-OF-DAY PLATE: {time_of_day}")
-    lines.append("SCENE DESCRIPTION:")
+    lines.append("SCENE DESCRIPTION (environment notes only; ignore people and story action):")
     lines.append(description or name)
     return "\n".join(lines)
 
 
-def _scene_front_prompt(asset: dict[str, Any], *, style: str = "") -> str:
-    visual, _race = _style_and_ethnicity(asset, style=style)
-    style_line = visual_style_prefix(visual)
-    style_block = f"PROJECT STYLE PRESET:\n- {style_line}" if style_line else ""
+def _scene_front_prompt(asset: dict[str, Any], *, style: str = "", visual_style: str = "") -> str:
+    style_block = _scene_style_block(asset, style=style, visual_style=visual_style)
     return f"""Generate ONE master reference image for this scene.
 
 {_scene_text_block(asset)}
@@ -325,11 +386,8 @@ COMPOSITION:
 - No back view, no rear angle, no aerial, no fisheye, no VR, no 360 panorama.
 - Wide establishing framing with about 160-180 degrees of horizontal coverage.
 
-HARD REQUIREMENTS:
+{_scene_empty_location_block()}
 - FRONT-FACING HALF ONLY.
-- No people, no characters, no temporary story props.
-- Preserve only fixed environment objects.
-- No readable text, labels, UI, watermarks, collage, floorplan, or diagrams.
 - Output one finished scene reference image only.
 """.strip()
 
@@ -338,6 +396,7 @@ def _scene_reverse_prompt(
     asset: dict[str, Any],
     *,
     style: str = "",
+    visual_style: str = "",
     has_master_reference: bool = False,
 ) -> str:
     definition = asset.get("definition") if isinstance(asset.get("definition"), dict) else {}
@@ -351,7 +410,7 @@ def _scene_reverse_prompt(
             "STYLE SOURCE:\n"
             "- Visual style comes ENTIRELY from REFERENCE 1 (the front master). "
             "Match its art style, materials, palette, lighting and exposure. "
-            "Do not re-derive style from text."
+            "Do not re-derive style from text. Keep the reverse view EMPTY of people."
         )
         input_block = f"""INPUT IMAGE:
 - REFERENCE 1 = the FRONT-FACING master of this {space_word}.
@@ -359,9 +418,7 @@ def _scene_reverse_prompt(
 - You are showing what is BEHIND REFERENCE 1's camera after a 180-degree yaw.
 - Do NOT copy REFERENCE 1's front-center composition."""
     else:
-        visual, _race = _style_and_ethnicity(asset, style=style)
-        style_line = visual_style_prefix(visual)
-        style_block = f"PROJECT STYLE PRESET:\n- {style_line}" if style_line else ""
+        style_block = _scene_style_block(asset, style=style, visual_style=visual_style)
         input_block = "INPUT:\n- No master reference attached. Build the reverse view from SCENE DESCRIPTION only."
     return f"""Generate ONE reverse-angle establishing image of the SAME {location_word}.
 
@@ -390,13 +447,16 @@ CENTER REGION:
 HARD REQUIREMENTS:
 - Eye-level wide rectilinear perspective. NO fisheye, NO equirectangular panorama, NO 360 unwrap, NO floorplan, NO collage.
 - 16:9 aspect ratio. One finished establishing image.
-- No people, no readable text, labels, or watermarks.
+
+{_scene_empty_location_block()}
 """.strip()
 
 
 def _scene_panorama_prompt(
     asset: dict[str, Any],
     *,
+    style: str = "",
+    visual_style: str = "",
     has_master_reference: bool = False,
     has_reverse_reference: bool = False,
 ) -> str:
@@ -438,8 +498,12 @@ def _scene_panorama_prompt(
 
 {_scene_text_block(asset)}
 
+{_scene_style_block(asset, style=style, visual_style=visual_style)}
+
 LAYER MODE: FULL ENVIRONMENT
-- Complete environment and fixed fixtures only. No people, no story action, no temporary props.
+- Complete environment and fixed fixtures only.
+
+{_scene_empty_location_block()}
 
 PROJECTION REQUIREMENTS:
 - Correct equirectangular spherical panorama, one continuous 2:1 image for a VR/360 viewer.
@@ -468,14 +532,15 @@ def prop_view_prompt(
     view: str,
     *,
     style: str = "",
+    visual_style: str = "",
     has_master_reference: bool = False,
 ) -> str:
     view = (view or "master").strip() or "master"
     if view == "turnaround":
-        return _prop_turnaround_prompt(asset, style=style, has_master_reference=has_master_reference)
+        return _prop_turnaround_prompt(asset, style=style, visual_style=visual_style, has_master_reference=has_master_reference)
     if view == "detail":
-        return _prop_detail_prompt(asset, style=style, has_master_reference=has_master_reference)
-    return _prop_master_prompt(asset, style=style)
+        return _prop_detail_prompt(asset, style=style, visual_style=visual_style, has_master_reference=has_master_reference)
+    return _prop_master_prompt(asset, style=style, visual_style=visual_style)
 
 
 def _prop_text_block(asset: dict[str, Any]) -> str:
@@ -499,9 +564,8 @@ def _prop_text_block(asset: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _prop_style_block(asset: dict[str, Any], *, style: str = "") -> str:
-    visual, _race = _style_and_ethnicity(asset, style=style)
-    style_line = visual_style_prefix(visual)
+def _prop_style_block(asset: dict[str, Any], *, style: str = "", visual_style: str = "") -> str:
+    style_line, _race = _style_and_ethnicity(asset, style=style, visual_style=visual_style)
     return f"VISUAL STYLE:\n{style_line}" if style_line else ""
 
 
@@ -534,12 +598,12 @@ MUST AVOID:
 - Do NOT add busy or distracting backgrounds"""
 
 
-def _prop_master_prompt(asset: dict[str, Any], *, style: str = "") -> str:
+def _prop_master_prompt(asset: dict[str, Any], *, style: str = "", visual_style: str = "") -> str:
     return f"""Generate ONE isolated FRONT product photograph of this story prop.
 
 {_prop_text_block(asset)}
 
-{_prop_style_block(asset, style=style)}
+{_prop_style_block(asset, style=style, visual_style=visual_style)}
 
 PURPOSE:
 - This is the primary visual master (主视图): the FRONT / most characteristic face of the prop.
@@ -558,6 +622,7 @@ def _prop_turnaround_prompt(
     asset: dict[str, Any],
     *,
     style: str = "",
+    visual_style: str = "",
     has_master_reference: bool = False,
 ) -> str:
     if has_master_reference:
@@ -573,7 +638,7 @@ def _prop_turnaround_prompt(
         )
     else:
         input_block = "INPUT:\n- No master reference attached. Build the three-panel sheet from PROP DESCRIPTION only."
-        style_block = _prop_style_block(asset, style=style)
+        style_block = _prop_style_block(asset, style=style, visual_style=visual_style)
     return f"""Generate a 3-PANEL product reference sheet for a story prop.
 
 LAYOUT (1x3, 16:9 overall):
@@ -601,6 +666,7 @@ def _prop_detail_prompt(
     asset: dict[str, Any],
     *,
     style: str = "",
+    visual_style: str = "",
     has_master_reference: bool = False,
 ) -> str:
     if has_master_reference:
@@ -615,7 +681,7 @@ def _prop_detail_prompt(
         )
     else:
         input_block = "INPUT:\n- No master reference attached. Invent the close-up from PROP DESCRIPTION only."
-        style_block = _prop_style_block(asset, style=style)
+        style_block = _prop_style_block(asset, style=style, visual_style=visual_style)
     return f"""Generate ONE extreme close-up / macro detail still of this story prop.
 
 {input_block}

@@ -61,7 +61,7 @@ export default function XiajiHome({ csrfToken }: { csrfToken: string }) {
       <header className="director-library-header">
         <div>
           <h1>导台2 项目</h1>
-          <p>先新建或打开项目。内容库、资产库、剧集工坊、风格中心和制作助手都挂在同一个项目下。</p>
+          <p>先新建或打开项目。内容库、资产库、剧集工坊和全部任务都挂在同一个项目下。</p>
         </div>
         <Space>
           <ThemeToggle />
@@ -131,7 +131,7 @@ export default function XiajiHome({ csrfToken }: { csrfToken: string }) {
                     {item.name}
                   </Typography.Title>
                 </div>
-                <p className="director-library-card-summary">内容库 · 资产库 · 剧集工坊 · 风格中心 · 制作助手</p>
+                <p className="director-library-card-summary">内容库 · 资产库 · 剧集工坊 · 全部任务</p>
                 <span className="director-library-card-updated">更新于 {formatUpdatedAt(item.updated_at)}</span>
               </button>
             </Card>

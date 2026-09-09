@@ -13,7 +13,14 @@ LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
 
 
 class LlmError(RuntimeError):
-    pass
+    def __init__(self, *args: object, raw: str | None = None) -> None:
+        super().__init__(*args)
+        self.raw = raw
+
+
+def llm_error_raw(error: Exception | None) -> str:
+    raw = getattr(error, "raw", None) if error is not None else None
+    return str(raw or "").strip()
 
 
 class LlmTemporaryError(LlmError):
