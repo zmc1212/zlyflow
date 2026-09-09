@@ -29,7 +29,7 @@ def build_minimax_h3_workflow(
     seed: int,
 ) -> dict[str, dict[str, Any]]:
     width, height = h3_dimensions(options)
-    is_reference_mode = mode is JobMode.MINIMAX_H3_R2V
+    is_reference_mode = mode in (JobMode.MINIMAX_H3_R2V, JobMode.MINIMAX_H3_LIGHTX2V_R2V, JobMode.MINIMAX_H3_DUAL_ACCEL_R2V)
     conditioning_class = "MiniMaxH3ReferenceToVideo" if is_reference_mode else "MiniMaxH3ImageToVideo"
     steps = int(options.get("steps", 20))
     lora_strength = float(options.get("lora_strength", 0))

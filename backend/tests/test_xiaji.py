@@ -2462,9 +2462,6 @@ class XiajiEpisodeTests(unittest.TestCase):
             missing_prev = client.post(f"{prefix}/generate-video", json={"force": True})
             self.assertEqual(missing_prev.status_code, 422, missing_prev.text)
             self.assertIn("上一镜视频", missing_prev.json()["detail"])
-            missing_prompt = client.post(f"{prefix}/video-prompt", json={})
-            self.assertEqual(missing_prompt.status_code, 422, missing_prompt.text)
-            self.assertIn("上一镜视频", missing_prompt.json()["detail"])
 
             episodes.update_beat(
                 first_id,

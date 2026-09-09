@@ -42,12 +42,18 @@ _SQLITE_BEGIN = re.compile(r"^BEGIN(\s+(DEFERRED|IMMEDIATE|EXCLUSIVE))?$", re.IG
 
 def load_app_env(env_override: str | None = None) -> str:
     """Load .env.dev or .env.prod (or .env) according to APP_ENV / ENVIRONMENT / ENV."""
+    import sys
+
+    is_test = (
+        "unittest" in sys.modules
+        or any("unittest" in str(arg).lower() or "pytest" in str(arg).lower() for arg in sys.argv)
+    )
     raw_env = (
         env_override
         or os.getenv("APP_ENV")
         or os.getenv("ENVIRONMENT")
         or os.getenv("ENV")
-        or "dev"
+        or ("test" if is_test else "dev")
     ).strip().lower()
 
     if raw_env in {"prod", "production"}:
@@ -68,9 +74,10 @@ def load_app_env(env_override: str | None = None) -> str:
     if target_env_file.is_file():
         loaded_files.append(target_env_file)
 
-    for base_file in (backend_dir / ".env", workspace_dir / ".env"):
-        if base_file.is_file() and base_file not in loaded_files:
-            loaded_files.append(base_file)
+    if env not in {"test", "testing"}:
+        for base_file in (backend_dir / ".env", workspace_dir / ".env"):
+            if base_file.is_file() and base_file not in loaded_files:
+                loaded_files.append(base_file)
 
     for env_path in loaded_files:
         try:

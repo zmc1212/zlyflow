@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.error import URLError
 
-from fastapi import BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, Body, Depends, File, Form, HTTPException, Path as FastApiPath, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
@@ -1523,7 +1523,11 @@ def register_xiaji_asset_routes(app: Any, *, current_user: Callable, mutating_us
         raise HTTPException(status_code=404, detail="参考图不可用")
 
     @router.get("/assets/{asset_id}/media/{media_id}", summary="读取资产媒体")
-    def download_asset_media(asset_id: str, media_id: str, user: dict = Depends(current_user)):
+    def download_asset_media(
+        asset_id: str = FastApiPath(description="资产 ID"),
+        media_id: str = FastApiPath(description="媒体 ID"),
+        user: dict = Depends(current_user),
+    ):
         asset = _asset_or_404(_assets(app), asset_id, user["id"])
         item = next((row for row in asset.get("media") or [] if row.get("id") == media_id), None)
         if item is None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, File, Form, HTTPException, Path as FastApiPath, Query, UploadFile
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
 
@@ -264,7 +264,10 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
         )
 
     @router.get("/documents/{document_id}", summary="读取文档原文与章节")
-    def get_document(document_id: str, user: dict = Depends(current_user)) -> dict:
+    def get_document(
+        document_id: str = FastApiPath(description="内容库文档 ID"),
+        user: dict = Depends(current_user),
+    ) -> dict:
         return _document_or_404(_store(app), document_id, user["id"])
 
     @router.post("/documents", status_code=201, summary="上传文本并解析章节")
@@ -320,8 +323,8 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
 
     @router.put("/documents/{document_id}/chapters", summary="保存章节校对结果")
     def replace_chapters(
-        document_id: str,
-        payload: XiajiChaptersReplaceRequest,
+        document_id: str = FastApiPath(description="内容库文档 ID"),
+        payload: XiajiChaptersReplaceRequest = ...,
         user: dict = Depends(mutating_user),
     ) -> dict:
         store = _store(app)
@@ -336,7 +339,10 @@ def register_xiaji_routes(app: Any, *, current_user: Callable, mutating_user: Ca
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @router.delete("/documents/{document_id}", summary="删除内容库文档")
-    def delete_document(document_id: str, user: dict = Depends(mutating_user)) -> dict:
+    def delete_document(
+        document_id: str = FastApiPath(description="内容库文档 ID"),
+        user: dict = Depends(mutating_user),
+    ) -> dict:
         try:
             _store(app).delete_document(document_id, user["id"])
         except KeyError as error:

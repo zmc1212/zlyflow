@@ -2488,8 +2488,6 @@ async def render_director_recipe_shots(
     if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
         raise HTTPException(status_code=422, detail="只有 Recipe 工程可以提交分镜")
     llm_available, llm_reason = app.state.llm_provider.availability()
-    if payload.polish_prompt and not llm_available:
-        raise HTTPException(status_code=422, detail=f"提示词润色不可用：{llm_reason}。请配置大模型服务，或关闭提示词润色后重试。")
     def persist_progress(current: dict) -> None:
         persist_recipe_execution(
             app.state.store, project_id, current, scope="render", shot_ids=payload.shot_ids,

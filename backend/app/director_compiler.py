@@ -1144,9 +1144,6 @@ def recipe_shot_as_timeline_shot(recipe: dict[str, Any], shot: dict[str, Any]) -
         if h3_body:
             break
     h3_body = normalize_independent_shot_prompt(h3_body)
-    action = str(shot.get("description") or "").strip()
-    if action and action not in h3_body:
-        h3_body = f"{action}\n{h3_body}".strip()
     continuity_in, continuity_out = continuity_boundary_prompt(shot)
     body = ". ".join(part.rstrip(". ") for part in (continuity_in, h3_body, continuity_out) if part).strip()
     visual = f"{prefix}. {body}".strip(". ").strip() if prefix else body

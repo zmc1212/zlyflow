@@ -1098,7 +1098,13 @@ def render_recipe_shots(
                         on_message(f"正在润色{shot_prefix}提示词…（{len(chunk)} 字）")
                         
                 prompt_mode = h3_prompt_mode(submission.get("plan") or {})
-                polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode, prompt_progress)
+                if on_message:
+                    try:
+                        polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode, prompt_progress)
+                    except TypeError:
+                        polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode)
+                else:
+                    polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode)
                 polish_errors = validate_h3_polished_prompt(polished_prompt, submission.get("plan") or {})
                 if polish_errors:
                     revision_request = (

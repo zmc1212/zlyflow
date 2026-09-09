@@ -6,8 +6,11 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 from urllib.error import URLError
 
-from fastapi import BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, Body, Depends, File, Form, HTTPException, Path as FastApiPath, Query, UploadFile
 from fastapi.routing import APIRouter
+
+_EPISODE_ID_PARAM = FastApiPath(description="剧集 ID")
+_BEAT_ID_PARAM = FastApiPath(description="镜头 Beat ID")
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -1443,7 +1446,10 @@ def generate_beat_video_prompt(
     beat_id = str(beat.get("id") or "")
     if not str(beat.get("render_url") or "").strip() and not str(beat.get("render_job_id") or "").strip():
         raise HTTPException(status_code=422, detail="请先生成渲染图")
-    available, reason = app.state.llm_provider.availability()
+    llm_provider = getattr(app.state, "llm_provider", None)
+    if llm_provider is None:
+        raise HTTPException(status_code=503, detail="大模型未配置")
+    available, reason = llm_provider.availability()
     if not available:
         raise HTTPException(status_code=503, detail=reason or "大模型未配置")
     _workflow_id, route = _video_route_for_family(payload.family)
@@ -1593,11 +1599,18 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         return _materialize_from_analysis(app, user["id"], project_id, payload)
 
     @router.get("/episodes/{episode_id}", summary="读取剧集脚本与镜头")
-    def get_episode(episode_id: str, user: dict = Depends(current_user)) -> dict:
+    def get_episode(
+        episode_id: str = _EPISODE_ID_PARAM,
+        user: dict = Depends(current_user),
+    ) -> dict:
         return _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
 
     @router.patch("/episodes/{episode_id}", summary="更新剧集标题")
-    def patch_episode(episode_id: str, payload: EpisodePatch, user: dict = Depends(mutating_user)) -> dict:
+    def patch_episode(
+        episode_id: str = _EPISODE_ID_PARAM,
+        payload: EpisodePatch = ...,
+        user: dict = Depends(mutating_user),
+    ) -> dict:
         _episode_or_404(app, episode_id, user["id"])
         return _hydrate_episode_single(
             app,
@@ -1611,8 +1624,8 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         summary="入队生成 Beat 脚本，立即返回；完成后轮询 GET 剧集",
     )
     async def generate_script(
-        episode_id: str,
         background_tasks: BackgroundTasks,
+        episode_id: str = _EPISODE_ID_PARAM,
         user: dict = Depends(mutating_user),
         payload: ScriptGenerateRequest = Body(default_factory=ScriptGenerateRequest),
     ) -> dict:
@@ -1631,14 +1644,23 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         return {"ok": True, "status": "scripting", "episode": fresh, "reused": False}
 
     @router.put("/episodes/{episode_id}/beats", summary="保存人工校对后的 Beat")
-    def replace_beats(episode_id: str, payload: BeatsReplaceRequest, user: dict = Depends(mutating_user)) -> dict:
+    def replace_beats(
+        payload: BeatsReplaceRequest,
+        episode_id: str = _EPISODE_ID_PARAM,
+        user: dict = Depends(mutating_user),
+    ) -> dict:
         _episode_or_404(app, episode_id, user["id"])
         beats = [item.model_dump() for item in payload.beats]
         updated = _episodes(app).replace_beats(episode_id, user["id"], beats, status="script_ready")
         return _hydrate_episode_single(app, updated, user["id"])
 
     @router.patch("/episodes/{episode_id}/beats/{beat_id}", summary="更新单个 Beat 文案与参考资产")
-    def patch_beat(episode_id: str, beat_id: str, payload: BeatPatch, user: dict = Depends(mutating_user)) -> dict:
+    def patch_beat(
+        payload: BeatPatch,
+        episode_id: str = _EPISODE_ID_PARAM,
+        beat_id: str = _BEAT_ID_PARAM,
+        user: dict = Depends(mutating_user),
+    ) -> dict:
         episode = _episode_or_404(app, episode_id, user["id"])
         beat = next((item for item in episode.get("beats") or [] if item["id"] == beat_id), None)
         if beat is None:
@@ -1651,8 +1673,8 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
 
     @router.post("/episodes/{episode_id}/beats/{beat_id}/upload-sketch", summary="上传镜头草图")
     async def upload_sketch(
-        episode_id: str,
-        beat_id: str,
+        episode_id: str = _EPISODE_ID_PARAM,
+        beat_id: str = _BEAT_ID_PARAM,
         user: dict = Depends(mutating_user),
         file: UploadFile = File(...),
     ) -> dict:
@@ -1691,8 +1713,8 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         summary="上传上一镜衔接帧（默认末帧，可手动改截）",
     )
     async def upload_in_frame(
-        episode_id: str,
-        beat_id: str,
+        episode_id: str = _EPISODE_ID_PARAM,
+        beat_id: str = _BEAT_ID_PARAM,
         user: dict = Depends(mutating_user),
         file: UploadFile = File(...),
         sec: str | None = Form(default=None),
@@ -1741,9 +1763,9 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         summary="为单个 Beat 入队镜头草图",
     )
     async def generate_sketch(
-        episode_id: str,
-        beat_id: str,
         background_tasks: BackgroundTasks,
+        episode_id: str = _EPISODE_ID_PARAM,
+        beat_id: str = _BEAT_ID_PARAM,
         user: dict = Depends(mutating_user),
         payload: SketchRequest = Body(default_factory=SketchRequest),
     ) -> dict:
@@ -1769,8 +1791,8 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         summary="为本集可出图 Beat 批量入队草图",
     )
     async def generate_sketches(
-        episode_id: str,
         background_tasks: BackgroundTasks,
+        episode_id: str = _EPISODE_ID_PARAM,
         user: dict = Depends(mutating_user),
         payload: SketchRequest = Body(default_factory=SketchRequest),
     ) -> dict:
@@ -1801,9 +1823,9 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         summary="把草图精绘为渲染图",
     )
     async def generate_render(
-        episode_id: str,
-        beat_id: str,
         background_tasks: BackgroundTasks,
+        episode_id: str = _EPISODE_ID_PARAM,
+        beat_id: str = _BEAT_ID_PARAM,
         user: dict = Depends(mutating_user),
         payload: RenderRequest = Body(default_factory=RenderRequest),
     ) -> dict:
@@ -1833,8 +1855,8 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         include_in_schema=False,
     )
     async def generate_video_prompt(
-        episode_id: str,
-        beat_id: str,
+        episode_id: str = _EPISODE_ID_PARAM,
+        beat_id: str = _BEAT_ID_PARAM,
         user: dict = Depends(mutating_user),
         payload: VideoPromptRequest = Body(default_factory=VideoPromptRequest),
     ) -> dict:
@@ -1850,9 +1872,9 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         summary="用渲染图生成镜头视频（I2V 首帧或 R2V 多参考；后续镜需上一镜衔接帧）",
     )
     async def generate_video(
-        episode_id: str,
-        beat_id: str,
         background_tasks: BackgroundTasks,
+        episode_id: str = _EPISODE_ID_PARAM,
+        beat_id: str = _BEAT_ID_PARAM,
         user: dict = Depends(mutating_user),
         payload: VideoRequest = Body(default_factory=VideoRequest),
     ) -> dict:
@@ -1898,7 +1920,7 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         summary="添加整集自动生成任务（草图→精绘→提示词→视频，视频参数锁定）",
     )
     async def start_auto_run(
-        episode_id: str,
+        episode_id: str = _EPISODE_ID_PARAM,
         user: dict = Depends(mutating_user),
         payload: AutoRunRequest = Body(default_factory=AutoRunRequest),
     ) -> dict:
@@ -1945,7 +1967,10 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         return _public_auto_run(runs.get(created["id"]))
 
     @router.get("/episodes/{episode_id}/auto-run", summary="读取本集最近一次自动生成任务进度")
-    def get_auto_run(episode_id: str, user: dict = Depends(current_user)) -> dict:
+    def get_auto_run(
+        episode_id: str = _EPISODE_ID_PARAM,
+        user: dict = Depends(current_user),
+    ) -> dict:
         _episode_or_404(app, episode_id, user["id"])
         runs = episode_runs_store(app)
         if runs is None:
@@ -1953,7 +1978,10 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         return _public_auto_run(runs.latest_for_episode(user["id"], episode_id))
 
     @router.post("/episodes/{episode_id}/auto-run/cancel", summary="取消本集进行中的自动生成任务")
-    def cancel_auto_run(episode_id: str, user: dict = Depends(mutating_user)) -> dict:
+    def cancel_auto_run(
+        episode_id: str = _EPISODE_ID_PARAM,
+        user: dict = Depends(mutating_user),
+    ) -> dict:
         _episode_or_404(app, episode_id, user["id"])
         runs = episode_runs_store(app)
         if runs is None:
