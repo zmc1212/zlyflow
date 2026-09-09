@@ -43,6 +43,8 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 
 COPY backend backend
 COPY local_video_studio.py local_video_studio.py
+COPY docs docs
+COPY sql sql
 COPY --from=frontend-builder /build/frontend/dist frontend/dist
 
 USER zlyai

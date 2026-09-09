@@ -36,6 +36,7 @@ export type CameraSpeed = "smooth" | "dynamic" | "slow"
 export type CameraLighting = "cinematic_soft" | "cyberpunk" | "golden_hour" | "dramatic_low_key" | "studio"
 
 export interface CameraDirection {
+  enabled?: boolean
   scale: CameraScale
   movement: CameraMovement
   angle: CameraAngle
@@ -100,6 +101,7 @@ export interface DirectorShot {
   durationSec: number
   prompt: string
   dialogue?: string
+  dialogueLines?: Array<{ speaker: string; text: string }>
   soundscape?: string
   camera: CameraDirection
   firstFrameUrl?: string
@@ -306,6 +308,7 @@ export function applyRecipeOutputSettings(
 
 export function defaultCameraDirection(): CameraDirection {
   return {
+    enabled: false,
     scale: "MS",
     movement: "zoom_in",
     angle: "eye_level",
@@ -451,23 +454,67 @@ export function h3CameraSentence(camera: CameraDirection): string {
   return `The camera ${action} ${amplitude} ${tempo}.`
 }
 
+/**
+ * 从对白字段提取纯台词文字。
+ * 对白允许写 `角色名（情绪）："台词"` 或 `角色名: "台词"` 格式，
+ * 此函数优先取引号内的内容，其次去掉冒号之前的角色描述，
+ * 若均无法匹配则返回原始字符串。
+ */
+export function extractSpokenWords(dialogue: string): string {
+  const text = (dialogue || "").trim()
+  // 优先匹配中文弯引号 "..." 或英文直引号 "..."
+  const quoteMatch = text.match(/[\u201c"](.*?)[\u201d"]\s*$/)
+  if (quoteMatch) return quoteMatch[1].trim()
+  // 次选：冒号后的内容（支持全角：和半角:），再去掉可能残留的引号
+  const colonMatch = text.match(/[\uff1a:]\s*(.+)$/)
+  if (colonMatch) return colonMatch[1].replace(/^[\u201c"\u2018']|[\u201d"\u2019']$/g, "").trim()
+  return text
+}
+
+/**
+ * 对已存储 promptText 里的 <d> 标签进行净化。
+ * 兼容 LLM 历史生成的格式：
+ *   <d>[Chinese] 陆沉舟（沉稳）："好，跟紧我。"</d>
+ * 净化为：
+ *   <d>[Chinese] 好，跟紧我。</d>
+ */
+export function sanitizeDialogueTags(text: string): string {
+  return text.replace(/<d>(\[(?:Chinese|English)\])\s*([\s\S]+?)<\/d>/g, (_, langTag: string, content: string) => {
+    const cleaned = extractSpokenWords(content.trim())
+    return `<d>${langTag} ${cleaned}</d>`
+  })
+}
+
 export function buildFormattedShotPrompt(shot: DirectorShot): string {
-  let visual = (shot.prompt || "").trim()
+  let visual = sanitizeDialogueTags((shot.prompt || "").trim())
   const camera = shot.camera || defaultCameraDirection()
-  if (visual && !hasScaleProse(visual)) {
-    visual = `${H3_SCALE_PHRASES[camera.scale] || H3_SCALE_PHRASES.MS} at ${H3_ANGLE_PHRASES[camera.angle] || H3_ANGLE_PHRASES.eye_level} frames the scene. ${visual}`.trim()
+  
+  if (camera.enabled) {
+    if (visual && !hasScaleProse(visual)) {
+      visual = `${H3_SCALE_PHRASES[camera.scale] || H3_SCALE_PHRASES.MS} at ${H3_ANGLE_PHRASES[camera.angle] || H3_ANGLE_PHRASES.eye_level} frames the scene. ${visual}`.trim()
+    }
+    if (visual && !hasCameraProse(visual)) {
+      visual = `${visual.replace(/[. ]+$/, "")}. ${h3CameraSentence(camera)}`.trim()
+    }
+    const lighting = H3_LIGHTING_PHRASES[camera.lighting]
+    if (lighting && !visual.toLowerCase().includes(lighting.toLowerCase())) {
+      visual = `${visual.replace(/[. ]+$/, "")}. ${lighting.charAt(0).toUpperCase()}${lighting.slice(1)}.`
+    }
   }
-  if (visual && !hasCameraProse(visual)) {
-    visual = `${visual.replace(/[. ]+$/, "")}. ${h3CameraSentence(camera)}`.trim()
-  }
-  const lighting = H3_LIGHTING_PHRASES[camera.lighting]
-  if (lighting && !visual.toLowerCase().includes(lighting.toLowerCase())) {
-    visual = `${visual.replace(/[. ]+$/, "")}. ${lighting.charAt(0).toUpperCase()}${lighting.slice(1)}.`
-  }
+
   const dialogue = shot.dialogue?.trim()
-  if (dialogue && !visual.includes("<d>")) {
-    const tag = hasCjk(dialogue) ? "Chinese" : "English"
-    visual = `${visual.replace(/[. ]+$/, "")}. the on-screen speaker (S1) says: <d>[${tag}] ${dialogue}</d>`
+  if (shot.dialogueLines?.length) {
+    visual = visual.replace(/<d>[\s\S]*?<\/d>/g, "").trim()
+    const speakers = new Map<string, number>()
+    const lines = shot.dialogueLines.map(({ speaker, text }) => {
+      if (!speakers.has(speaker)) speakers.set(speaker, speakers.size + 1)
+      return `${speaker} (S${speakers.get(speaker)}) says: <d>[${hasCjk(text) ? "Chinese" : "English"}] ${text}</d>`
+    })
+    visual = `${visual.replace(/[. ]+$/, "")}. ${lines.join(" ")}`
+  } else if (dialogue && !visual.includes("<d>")) {
+    const spokenText = extractSpokenWords(dialogue)
+    const tag = hasCjk(spokenText) ? "Chinese" : "English"
+    visual = `${visual.replace(/[. ]+$/, "")}. the on-screen speaker (S1) says: <d>[${tag}] ${spokenText}</d>`
   }
   return visual.trim()
 }
@@ -634,6 +681,7 @@ export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
       durationSec,
       prompt: userFacingCopy(shot.description, shot.title),
       dialogue: shot.dialogue,
+      dialogueLines: shot.dialogueLines,
       camera: shot.camera || defaultCameraDirection(),
       referencedSubjectIds: [
         ...(shot.characterNames || []).map((name) => name.trim()).filter(Boolean),

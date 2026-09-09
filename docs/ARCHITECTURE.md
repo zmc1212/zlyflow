@@ -1452,92 +1452,67 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 验证命令：`python -m unittest backend.tests.test_core.WorkerTests`、`pnpm --dir frontend build`。
 - 回滚方式：移除恢复/执行前的本地参考图门禁并恢复文档；无需数据库回滚。
 
-## 2026-09-07 导台2 剧集成片合成
+## 2026-09-08 分镜连续性窗口与 QA 修复
 
-- 原因：剧集「合成」页仍是占位，镜头视频完成后无法在工作台内拼成片。
-- 当前行为：精品剧在至少一段镜头视频就绪后即可拼接 `epNNN_final.mp4`（场次卡不作为出片门禁；尚未出片的 Beat 会跳过）。可选 720p/1080p 与烧录对白字幕；解说剧仅对实际入片的 Beat 要求 `audio_url`，本版不入队 TTS。成片上传七牛，支持预览、下载、导出 SRT 与 ZIP。
-- 受影响文件：`backend/app/xiaji_compose.py`、`xiaji_episode_api.py`、`xiaji_episode_store.py`、`sql/012_xiaji_episode_compose.sql`、`frontend/src/xiaji/XiajiComposePane.tsx`、`XiajiWorkshopModule.tsx`、`XiajiShotsWorkbench.tsx`、`xiaji-api.ts` 与三份主文档。
-- 兼容性：不改 `xiaji_episodes.status`、ComfyUI 节点、导演台 mux 或端口；新增剧集 compose_* 列与 `xiaji_beats.audio_url`，由 `ensure_column` 补齐。
-- 验证命令：`python -m unittest backend.tests.test_xiaji`、`pnpm --dir frontend exec tsc -b --pretty false`。
-- 回滚方式：恢复上述代码与文档并重启；可选忽略新增空列。
+- 原因：连续性润色沿用五镜头无重叠分块时，镜头 5 与镜头 6 会落在两个请求中，模型看不到跨块的动作、人物位置和道具状态，导致相邻镜头断裂。
+- 当前基线：时长润色仍按原五镜头分块；连续性润色改用五镜头窗口并重叠一个上下文镜头（1–5、5–9、9–13）。每个请求携带全局 `shotNumber`、`contextShotNumbers` 和 `editableShotNumbers`，重叠镜头只读，不会覆盖已确认结果。连续性响应只允许写入 `promptText`、`continuityIn`、`continuityOut`、`transitionNote`、`soundscape` 和 `soundscapeEn`；缺镜头、重复编号、窗口外编号或无效 JSON 会整块丢弃并重试，仍失败则保留原内容并记录风险。
+- QA 与对白：后端新增相邻镜头 `validate_continuity_pairs()`，检查边界字段、场景硬切标记、人物/道具/地点、天气/时间/光线、开场动作和转场说明，并把结构化结果写入可选 `Recipe.continuityQa`。对白字段统一去除 `<d>`、`[Chinese]` 和角色/情绪前缀，再同步 H3 `promptText` 的 `<d>` 标签；原始对白内容不翻译、不改写。高风险只在 Agent 状态中提示，不阻断流水线。
+- 受影响文件：`backend/app/director_agents.py`、`backend/app/director_recipe.py`、`backend/app/llm_minimax_skills.py`、`backend/app/director_jobs.py`、`backend/tests/test_director.py`。
+- 兼容性：不改 API 请求格式、数据库表、ComfyUI graph、节点 ID、模型路径或 7865/8188 端口；`continuityQa` 为可选字段，旧 Recipe 与旧客户端可继续读取。旧 Recipe 不自动重写，重新生成分镜时启用新逻辑。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。完整后端发现测试还需按当前实例环境配置 ComfyUI 地址和 LLM provider。
+- 回滚方式：恢复上述后端、测试和三份文档；无需迁移或回滚数据库、媒体和 ComfyUI 资产。
 
-## 2026-09-07 导台2 合成成片写入全部任务
+## 2026-09-08 分镜连续性阶段 2：因果动作修复
 
-- 原因：点「合成成片」只改剧集 `compose_*`，项目「全部任务」看不到进度和成片。
-- 当前行为：每次合成本机 ffmpeg 成片都会在 `xiaji_llm_jobs` 记一条 `kind=compose` 任务；`GET /api/xiaji/jobs` 列出槽位「合成成片」，进行中显示进度，完成后带回成片 URL。
-- 受影响文件：`xiaji_llm_jobs.py`、`xiaji_episode_api.py`、`xiaji_asset_api.py`、`XiajiJobsModule.tsx`、`XiajiComposePane.tsx` 与三份主文档。
-- 兼容性：不改 ComfyUI、jobs 主表或剧集 `status`；复用已有 `xiaji_llm_jobs`。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiComposeTests`、`pnpm --dir frontend exec tsc -b --pretty false`。
-- 回滚方式：恢复上述代码与文档。
+- 原因：阶段 1 的重叠连续性窗口和确定性 QA 能定位出镜状态与下一镜开场动作的断裂，但不能自动改善已经生成的镜头正文。
+- 当前基线：`storyboard` Agent 在连续性 QA 后，对风险相邻镜头执行一次有界因果修复 pass。请求同时携带原剧本片段、风险原因、前后镜头的可视状态和资产绑定；修复器要求下一镜在 `00:00` 先呈现上一镜的触发/空间状态，再进入本镜动作。修复后重新运行 `validate_continuity_pairs()`，`continuityQa.repair` 保存尝试数、应用数、未完成错误和 `resplitRequired` 边界。
+- 字段所有权：修复 pass 只能写 `promptText`、`continuityIn`、`continuityOut`、`transitionNote`、`soundscape`、`soundscapeEn`。对白、`durationSec`、`shotNumber`、镜头顺序、`characterBindings`、`locationId`、`propIds` 和 `camera` 仍属于锁定字段。响应必须覆盖已请求边界，重复、越界或缺失项整项不应用；`needs_resplit` 仅记录明确风险，不在后台擅自重编号。
+- 兼容性：新增结果字段为可选 Recipe 数据，不改 HTTP 请求格式、数据库表、工作流注册表、ComfyUI graph、节点 ID、模型路径或 7865/8188 端口；旧 Recipe 无 `continuityQa.repair` 时照常读取。
+- 受影响文件：`backend/app/director_agents.py`、`backend/app/director_recipe.py`、`backend/app/llm_minimax_skills.py`、`backend/tests/test_director.py`。
+- 验证命令：`python -m unittest backend.tests.test_director`、`pnpm --dir frontend test`、`pnpm --dir frontend build`；重点回归镜头 5→6 的因果开场、锁定字段不被覆盖和需要重拆的风险记录。
+- 回滚方式：恢复上述后端、测试和文档文件；无需数据库、历史 Recipe、媒体或 ComfyUI 资产回滚。
 
-## 2026-09-07 隐藏导台2 空模块 Tab
+## 2026-09-08 阶段3：剧本拆解模式
 
-- 原因：「风格中心」「制作助手」尚无功能，占位 Tab 干扰操作。
-- 当前行为：项目 Tab 只保留内容库、资产库、剧集工坊、全部任务；家页文案同步。画风仍从家页进入。
-- 受影响文件：`XiajiStudioModule.tsx`、`XiajiHome.tsx` 与三份主文档。
-- 兼容性：不改 API、路由路径或 ComfyUI。
-- 验证命令：`pnpm --dir frontend exec tsc -b --pretty false`。
-- 回滚方式：恢复上述代码与文档。
+/api/llm/split-script 新增可选 script_mode（默认 literal，兼容旧客户端）；literal 保留原对白和事件顺序，creative 允许扩写并要求标记 AI-added。后端将模式传入 MiniMax H3 提示词，不改变数据库、ComfyUI 或端口。验证：python -m unittest backend.tests.test_director -q。回滚：移除字段并恢复默认提示词。
 
-## 2026-09-07 场景参考图强制空镜无人
+## 2026-09-08 局部连续性修复闭环
 
-- 原因：场景正面源图任务会把剧情人物画进环境图。
-- 当前行为：场景生图对齐 sourceXd 空镜合同：忽略描述里的人物与动作，只保留建筑和固定陈设；画风只取材质/色板/光线，不按时尚杂志构图加人。内容分析的场景 description 也改为环境合同。
-- 受影响文件：`xiaji_asset_prompts.py`、`xiaji_analyze.py`、`backend/tests/test_xiaji.py` 与三份主文档。
-- 兼容性：不改 ComfyUI、工作流 ID 或 API 路径。已有场景资产需重新生成参考图。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiAssetStoreTests.test_sync_creates_character_scene_prop_and_narrator`。
-- 回滚方式：恢复上述代码与文档。
+新增 `POST /api/llm/repair-continuity`。后端仅接收当前 Recipe 与相邻镜头号，调用连续性修复模型并原子应用连续性字段，随后重新执行 QA。前端桌面、移动端和时间线检查器统一调用该接口，并只合并连续性字段，保留本地对白、时长、相机、素材和生成状态。验证：`python -m unittest backend.tests.test_director -q`、`pnpm --dir frontend build`。回滚：移除接口调用并保留旧 QA 展示。
 
-## 2026-09-07 镜头视频提示词加厚为分镜说明书
+## 2026-09-08 H3 分辨率质量档位优先
 
-- 原因：「生成本 Beat 提示词」偏短，缺少运镜、微表演和环境反应。
-- 当前行为：提示词合同升为 `beat_video_motion.v5`，要求中英按 CUT/TRANSITION/HOLD 写满指定秒数（英文≥220 词，中文≥280 字），保留 `<Picture n>` 锁图与 0-1.5s 衔接；动画风才允许字效，禁止抄示例情节，不写 `<Audio n>`。
-- 受影响文件：`xiaji_episode_prompts.py`、`xiaji_episode_api.py`、`backend/tests/test_xiaji.py` 与三份主文档。
-- 兼容性：不改 ComfyUI 节点与参考图装箱；已有镜头需重新点「生成本 Beat 提示词」。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests.test_bridge_prompt_requires_timing`。
-- 回滚方式：恢复上述代码与文档。
+旧任务或导演草稿可能保留内部 `megapixels=0.4`，但用户可见的 `quality` 已选择 `0.9`。`h3_dimensions()` 现在以质量档位为权威值，只有缺少可识别 `quality` 时才回退到 legacy MP；不改 API、数据库、节点 ID、模型路径或端口。验证：`python -m unittest backend.tests.test_core.WorkflowTests.test_h3_dimensions_prioritize_quality_over_stale_internal_megapixels -q`、`pnpm --dir frontend build`。回滚：恢复相关后端与测试文件。
 
-## 2026-09-07 镜头视频提示词把本镜动作放到最前
 
-- 原因：已生成的 Beat 提示词把锁图和画风写在最前，又写成「不得改变首帧站位」，成片里咳血、推搡倒地、饿晕倒地等动作看不见。
-- 当前行为：提示词合同升为 `beat_video_motion.v6`。中英稿第一段必须是本镜动作；参考图只锁身份/服装/空间，禁止整镜冻住站位；画风不得改成产品静物。落库时若模型把动作埋在后面，后端会把【必须演出】/ MUST PLAY THIS ACTION 提到最前。
-- 受影响文件：`xiaji_episode_prompts.py`、`XiajiShotsWorkbench.tsx`、`backend/tests/test_xiaji.py` 与三份主文档。
-- 兼容性：不改 ComfyUI 节点与参考图装箱。已有镜头需重新点「生成本 Beat 提示词」，再「生成视频」。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiBeatPromptTests.test_video_motion_leads_with_beat_action backend.tests.test_xiaji.XiajiBeatPromptTests.test_bridge_prompt_requires_timing`。
-- 回滚方式：恢复上述代码与文档。
+## 2026-09-08 流式媒体请求卡死修复
 
-## 2026-09-07 大模型失败任务展示返回原文
+- 原因：请求日志中间件回放请求体后无限返回空 `http.request`，流式响应监听断连时可能进入无让出的忙循环，阻塞同进程健康检查和其他请求。
+- 当前基线：请求体仅回放一次，后续 `receive()` 委托原始 ASGI transport，保留真实等待与断连；上传期间断连不再派发残缺请求。
+- 受影响文件：`backend/app/request_log.py`、`backend/tests/test_request_log.py` 和三份主文档。
+- 兼容性：无 API、数据库、端口、工作流或媒体格式变更。需重建并更新服务器镜像，仅重启旧镜像不会修复。
+- 验证命令：`python -m unittest backend.tests.test_request_log -v`、`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`。部署后打开媒体预览并同时执行 `curl --max-time 5 http://127.0.0.1:18189/api/health`。
+- 回滚方式：恢复上述代码并重建旧镜像；无需回滚数据库和数据卷，但旧版会恢复该忙循环风险。
+## 2026-09-08 手动分镜结构化对白
 
-- 原因：内容导入任务 `e984abd3ca144f20` 只写了「不是合法 JSON」，没有把模型原文落库，无法排障。
-- 当前行为：解析失败时把模型原文写入 `xiaji_llm_jobs.response_json`（`llm_output.raw`），全部任务抽屉展示「模型返回内容」。
-- 受影响文件：`llm_client.py`、`xiaji_analyze.py`、`xiaji_llm_jobs.py`、`xiaji_api.py`、`xiaji_episode_api.py`、`xiaji_asset_api.py`、`XiajiJobsModule.tsx`、测试与三份主文档。
-- 兼容性：不改 ComfyUI。历史失败任务没有原文，需重新导入或重新生成。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiLlmJobTests.test_failed_ingest_job_keeps_model_raw backend.tests.test_xiaji.XiajiAnalysisTests.test_invalid_json_keeps_raw`。
-- 回滚方式：恢复上述代码与文档。
+为解决双人对白合并到单个语音标签的问题，RecipeShot 新增可选 dialogueLines（speaker/text），经 director_recipe.py 保存、director_compiler.py 和前端 types.ts/prompt-compiler.ts 编译为逐句独立标签；manual-import.ts 与 RecipeShotInspector.tsx 支持导入和编辑角色台词。角色编号在单镜内按首次出现顺序复用，角色名放在语音标签外。旧 dialogue 字符串保持兼容；旧数据丢失的角色信息需重新导入或编辑，不能自动恢复。
 
-## 2026-09-07 导台2 按显式分段导入
+验证：pnpm --dir frontend build；python -m unittest backend.tests.test_structured_dialogue backend.tests.test_director -q。当前系统 Python 缺少 pymysql，导演测试有一项启动失败。回滚：恢复上述前后端文件并重新构建；无需数据库迁移。
 
-- 原因：带有“第一段｜0–10秒、第二段｜10–20秒、第三段｜20–30秒”的短剧文本会被旧规则当作无标题正文，分析阶段又按总字数估算集数，导致分段边界丢失。
-- 当前行为：内容解析识别中文“第N段/段落N/第N部分”和英文“Part N/Segment N”等独占行标题；显式分段数量优先作为预计集数和分析目标集数，分段原文按顺序直接分配给剧集。分析提示词要求严格一段一集，模型漏返回时由归一化逻辑补齐。
-- 受影响文件：`backend/app/xiaji_parser.py`、`xiaji_store.py`、`xiaji_episode_store.py`、`xiaji_analyze.py`、`llm_provider.py`、`xiaji_api.py`、`backend/tests/test_xiaji.py` 与三份主文档。
-- 兼容性：不新增数据库字段，不改变 API 路径、工作流、ComfyUI 节点或端口；无显式分段的旧文稿继续沿用章节识别和按字数估算。
-- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend exec tsc -b --pretty false`、`pnpm --dir frontend build`。
-- 回滚方式：恢复上述代码与文档；已有文档和剧集数据无需迁移。
 
-## 2026-09-08 导台2 内容库一行一个镜头
+## 2026-09-08 导演台八步双加速提交修复
 
-- 原因：精品剧导入按小说章节引导，且不识别「第X集」。
-- 当前行为：规则切分识别「第X集 / Episode N」为显式剧集边界；分析提示词要求保留一行一镜。界面格式说明对齐 sourceXd 分场剧本。
-- 受影响文件：`xiaji_parser.py`、`xiaji_analyze.py`、`XiajiStudioModule.tsx`、测试与三份主文档。
-- 兼容性：不改 API、ComfyUI 或表结构。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiParserTests backend.tests.test_xiaji.XiajiAnalysisTests.test_drama_ingest_keeps_one_shot_per_line`。
-- 回滚方式：恢复上述代码与文档。
+导演台预览、终稿及批量生成按所选工作流注册表校正速度：旧工程或默认预览中的 fast 在八步双加速下回退到注册表默认 balanced，避免“生成速度不是有效选项”；支持的速度保持原值。涉及 backend/app/director_compiler.py、backend/app/director_jobs.py 与 backend/tests/test_director_workflow_speed.py。不改变 API、数据库或 ComfyUI graph 协议，旧工程无需迁移。
 
-## 2026-09-08 内容库恢复风格，画风可选
+验证命令：python -m pytest backend/tests -q；pnpm --dir frontend build。回滚：撤销上述文件中本节对应的速度校正和测试改动，保留其他已有修改。
 
-- 原因：内容导入用导演台画风替换了 sourceXd 六项风格。
-- 当前行为：导入保存 `visual_style` 与可选 `art_style_id`；资产生图、镜头草图/精绘和视频提示词始终写入风格说明，仅在选择画风时附加目录 `promptPrefix` 和预览参考图。
-- 受影响文件：`xiaji_visual_styles.py`、内容库/资产/剧集提示词与 API、前端、测试与三份主文档。
-- 兼容性：不改 ComfyUI 或表结构。
-- 验证命令：`python -m unittest backend.tests.test_xiaji.XiajiAssetStoreTests.test_sync_creates_character_scene_prop_and_narrator`。
-- 回滚方式：恢复上述代码与文档。
+## 2026-09-08 导演台导入与润色预览纠正
+
+修复 Markdown 时间码导入为默认 5 秒、声音遗漏和结构化对白重复；前后端编译保留画面描述。检查器区分当前编译预览与最近一次实际提交快照，明确词数按空白统计。开启润色而 LLM 不可用时返回错误，禁止静默跳过。受影响文件：manual-import.ts、prompt-compiler.ts、types.ts、RecipeShotInspector.tsx、director_compiler.py、director_operations.py、main.py。兼容性：不改数据库与工作流节点；旧工程不自动改写。验证：pnpm --dir frontend build；python -m unittest backend.tests.test_structured_dialogue backend.tests.test_director -q。回滚：仅撤销本次相关变更并重建前端，保留其他未提交改动；无需数据迁移。
+## 2026-09-08 导演台五阶段流程重构
+
+- 原因：阶段导航、创作视图和执行动作耦合，空态与失败态无法给出可执行下一步。
+- 实现：新增 `recipe-flow.ts` 派生阶段摘要、缺项和镜头运行/采用状态；`DirectorStageNav` 使用五阶段分组；保存队列和操作轮询提取为 `useDirectorProjectSession`、`useDirectorOperation`；工作流 payload 增加兼容的 `director_controls` 声明；导出增加排除镜头定位；手机参数进入 Drawer。
+- 兼容性：保留现有 stage、旧别名、`view=plan|timeline`、Recipe/Take/节点协议和工程 ID；仅改变导航不触发生成/导出的用户行为。
+- 验证：`pnpm --dir frontend build`（40 tests）；`python output/playwright/run-backend-check.py`（SQLite 隔离，379 passed / 6 个既有测试失败）；`node output/playwright/director-flow-check.cjs`（桌面/手机、浅色/暗色、导航和保存失败路径）。
+- 回滚：恢复本次前端组件、纯函数、注册表 `director_controls` 和三份文档；无需数据库迁移。

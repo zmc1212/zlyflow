@@ -292,6 +292,7 @@ function validateOptionValues(
   definitions: Record<string, OptionDefinition>, values: Record<string, OptionInputValue>, referenceCount: number,
 ) {
   for (const [name, definition] of Object.entries(definitions)) {
+    if (definition.ui_group === "internal") continue
     if (!optionVisible(definition, values)) continue
     const value = values[name]
     if (definition.type === "boolean") continue

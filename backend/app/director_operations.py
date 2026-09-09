@@ -209,9 +209,14 @@ class DirectorOperationService:
         shot_ids = [str(item) for item in (request.get("shot_ids") or []) if str(item)]
         render_pass = "preview" if request.get("render_pass") == "preview" else "final"
         polish_prompt = request.get("polish_prompt", True) is not False
-        llm_available, _ = self.llm_provider.availability() if polish_prompt else (False, "已关闭提示词润色")
+        llm_available, llm_reason = self.llm_provider.availability() if polish_prompt else (False, "已关闭提示词润色")
+        if polish_prompt and not llm_available:
+            raise LlmError(f"提示词润色不可用：{llm_reason}。请配置大模型服务，或关闭提示词润色后重试。")
+
+        latest_revision = record["revision"]
 
         def persist(current: dict[str, Any]) -> None:
+            nonlocal latest_revision
             self._check_cancelled(operation_id)
             saved = persist_recipe_execution(
                 self.store,
@@ -220,10 +225,18 @@ class DirectorOperationService:
                 scope="render",
                 shot_ids=shot_ids,
             )
+            latest_revision = saved["revision"]
             self.store.update_director_operation(
                 operation_id,
                 progress=20,
-                result={"project_revision": saved["revision"]},
+                result={"project_revision": latest_revision},
+            )
+
+        def persist_message(message: str) -> None:
+            self._check_cancelled(operation_id)
+            self.store.update_director_operation(
+                operation_id,
+                result={"project_revision": latest_revision, "message": message},
             )
 
         recipe, job_ids = await asyncio.to_thread(
@@ -240,6 +253,7 @@ class DirectorOperationService:
                 else None
             ),
             on_progress=persist,
+            on_message=persist_message,
         )
         saved = persist_recipe_execution(
             self.store, record["id"], recipe, scope="render", shot_ids=shot_ids,

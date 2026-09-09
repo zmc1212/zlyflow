@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from urllib.parse import urlparse
 
@@ -223,6 +224,7 @@ class LlmProviderService:
         shot_count: int = 4,
         style_vibe: str | None = None,
         cast_names: list[str] | None = None,
+        script_mode: str = "literal",
     ) -> dict[str, Any]:
         available, reason = self.availability()
         if not available:
@@ -239,8 +241,69 @@ class LlmProviderService:
             shot_count=shot_count,
             style_vibe=style_vibe,
             cast_names=cast_names,
+            script_mode=script_mode,
             model=config["model"],
         )
+
+    def repair_director_continuity(
+        self,
+        recipe: dict[str, Any],
+        *,
+        from_shot: int,
+        to_shot: int,
+    ) -> dict[str, Any]:
+        from .director_agents import (
+            _apply_continuity_repair,
+            _chat_json,
+            _continuity_repair_payload,
+            default_chat_fn,
+            validate_continuity_pairs,
+        )
+        from .director_recipe import normalize_recipe_payload
+        from .llm_minimax_skills import build_storyboard_continuity_repair_prompt
+
+        normalized = normalize_recipe_payload(recipe)
+        qa = validate_continuity_pairs(normalized)
+        selected = next((
+            pair for pair in qa.get("pairs", [])
+            if pair.get("fromShot") == from_shot and pair.get("toShot") == to_shot
+        ), None)
+        if selected is None:
+            raise LlmError("指定的相邻镜头不存在")
+        if selected.get("status") != "warning":
+            return {"recipe": normalized, "applied": 0, "pair": selected, "alreadyPassed": True}
+
+        request_payload, requested_pairs = _continuity_repair_payload(normalized, [selected], limit=1)
+        if requested_pairs != [(from_shot, to_shot)]:
+            raise LlmError("无法构造指定镜头对的连续性修复请求")
+
+        client, model = self._chat_client()
+        parsed = _chat_json(default_chat_fn(client, model), [
+            {"role": "system", "content": build_storyboard_continuity_repair_prompt()},
+            {"role": "user", "content": json.dumps(request_payload, ensure_ascii=False)},
+        ], retries=1)
+        if not isinstance(parsed, dict):
+            raise LlmError("连续性修复未返回合法 JSON")
+
+        applied, errors, resplit_required = _apply_continuity_repair(
+            normalized,
+            parsed,
+            requested_pairs=requested_pairs,
+        )
+        if errors:
+            raise LlmError("；".join(errors))
+        normalized["continuityQa"] = validate_continuity_pairs(normalized)
+        pair = next((
+            item for item in normalized["continuityQa"].get("pairs", [])
+            if item.get("fromShot") == from_shot and item.get("toShot") == to_shot
+        ), {"fromShot": from_shot, "toShot": to_shot, "status": "warning"})
+        return {
+            "recipe": normalized,
+            "applied": applied,
+            "pair": pair,
+            "resplitRequired": resplit_required,
+            "alreadyPassed": False,
+        }
 
     def _chat_client(self) -> tuple[Any, str]:
         available, reason = self.availability()
@@ -298,7 +361,7 @@ class LlmProviderService:
             on_progress=on_progress,
         )
 
-    def polish_director_h3_prompt(self, draft_prompt: str, mode: str) -> str:
+    def polish_director_h3_prompt(self, draft_prompt: str, mode: str, on_chunk: Callable[[str], None] | None = None) -> str:
         """Use the configured LLM after the final H3 input mode and reference order are known."""
         from .llm_minimax_skills import build_h3_final_prompt_polish_prompt
 
@@ -316,6 +379,7 @@ class LlmProviderService:
             max_tokens=8192,
             timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
             stream=True,
+            on_chunk=on_chunk,
         ).strip()
 
     def polish_director_ref2va_prompt(self, draft_prompt: str) -> str:

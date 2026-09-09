@@ -524,12 +524,18 @@ class ScriptSplitRequest(BaseModel):
     shot_count: int | None = Field(default=4, ge=2, le=12, description="期望拆分的分镜头数量")
     style_vibe: str | None = Field(default=None, max_length=64, description="整体风格基调，如电影级、赛博朋克等")
     cast_names: list[str] = Field(default_factory=list, description="已知角色名称列表")
+    script_mode: Literal["literal", "creative"] = Field(default="literal", description="剧本拆解模式")
 
 
 class ScriptSplitResponse(BaseModel):
     project_title: str = Field(description="提取或生成的项目标题")
     summary: str = Field(description="剧本核心梗概")
     shots: list[DirectorShotItem] = Field(description="拆解后的分镜头列表")
+
+class DirectorContinuityRepairRequest(BaseModel):
+    recipe: dict[str, Any]
+    from_shot: int = Field(ge=1)
+    to_shot: int = Field(ge=1)
 
 
 DirectorGenerationStatus = Literal["pending", "partial", "complete"]
@@ -583,6 +589,7 @@ class DirectorProjectUpdateRequest(BaseModel):
     style_vibe: str | None = Field(default=None, max_length=64)
     requested_shot_count: int | None = Field(default=None, ge=1, le=24)
     payload: dict[str, Any] | None = Field(default=None, description="完整替换工程 payload（时间轴或 Recipe）")
+    deleted_take_ids: list[str] | None = Field(default=None, description="需要显式删除的 Take ID 列表")
     expected_content_revision: int | None = Field(
         default=None,
         ge=1,

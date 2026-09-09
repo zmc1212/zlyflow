@@ -70,6 +70,7 @@ export type DirectorOperationResponse = {
     render_pass?: "preview" | "final"
   }
   result: {
+    message?: string
     job_ids?: string[]
     failed_agents?: string[]
     project_revision?: number
@@ -196,7 +197,8 @@ export function listWorkflowModes() {
     max_references?: number
     catalog_group?: string
     catalog_group_label?: string
-    catalog_group_order?: number
+      catalog_group_order?: number
+      director_controls?: import("./director-workflows").DirectorControl[]
   }> }>("/api/modes")
 }
 
@@ -223,6 +225,26 @@ export function batchPayloadFromApi(row: DirectorProjectResponse): BatchRunPaylo
 
 export function getDirectorProject(projectId: string) {
   return requestJson<DirectorProjectResponse>(`/api/director/projects/${encodeURIComponent(projectId)}`)
+}
+
+export type DirectorContinuityRepairResponse = {
+  recipe: RecipeProject
+  applied: number
+  pair: { fromShot: number; toShot: number; status: "passed" | "warning"; reason?: string }
+  resplitRequired?: Array<{ fromShot: number; toShot: number }>
+  alreadyPassed?: boolean
+}
+
+export function repairDirectorContinuity(
+  recipe: RecipeProject,
+  fromShot: number,
+  toShot: number,
+  csrfToken: string,
+) {
+  return requestJson<DirectorContinuityRepairResponse>(
+    "/api/llm/repair-continuity",
+    jsonMutation(csrfToken, { recipe, from_shot: fromShot, to_shot: toShot }),
+  )
 }
 
 export function createDirectorProject(project: TimelineProject, csrfToken: string) {
@@ -255,6 +277,7 @@ export function updateDirectorProjectRecord(
     summary?: string
     source_script?: string
     payload?: RecipeProject | BatchRunPayload | Record<string, unknown>
+    deleted_take_ids?: string[]
     expected_content_revision?: number
     force?: boolean
   },

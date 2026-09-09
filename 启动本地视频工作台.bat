@@ -85,7 +85,7 @@ if errorlevel 1 goto :vite_port_in_use
 goto :open_browser
 
 :start_vite
-start "ZLY AI Video Studio Vite" /d "%CD%\frontend" cmd.exe /d /k "pnpm dev -- --host 127.0.0.1 --port 5173 --strictPort"
+start "ZLY AI Video Studio Vite" /d "%CD%\frontend" cmd.exe /d /k "pnpm dev --host 127.0.0.1 --port 5173 --strictPort"
 
 powershell -NoProfile -Command "$deadline = [DateTime]::UtcNow.AddSeconds(10); do { if (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1) { exit 0 }; Start-Sleep -Milliseconds 250 } while ([DateTime]::UtcNow -lt $deadline); exit 1"
 if errorlevel 1 goto :vite_start_failed

@@ -146,6 +146,23 @@ class WorkflowTests(unittest.TestCase):
             options = normalize_options(JobMode.MINIMAX_H3_T2V, {"aspect_ratio": "16:9", "quality": quality})
             self.assertEqual(h3_dimensions(options), expected)
 
+    def test_h3_dimensions_prioritize_quality_over_stale_internal_megapixels(self) -> None:
+        options = normalize_options(
+            JobMode.MINIMAX_H3_LIGHTX2V_R2V,
+            {"aspect_ratio": "16:9", "quality": "0.9"},
+        )
+        options["megapixels"] = 0.4
+        self.assertEqual(h3_dimensions(options), (1280, 736))
+        workflow = build_minimax_h3_lightx2v_workflow(
+            JobMode.MINIMAX_H3_LIGHTX2V_R2V,
+            "Use <Picture 1>.",
+            ["reference.png"],
+            options,
+            42,
+        )
+        self.assertEqual(workflow["5"]["inputs"]["width"], 1280)
+        self.assertEqual(workflow["5"]["inputs"]["height"], 736)
+
     def test_minimax_h3_quality_presets_map_to_internal_megapixels_and_accept_legacy_mp(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_T2V, {"quality": "0.98"})
         self.assertEqual(options["quality"], "0.98")
@@ -383,6 +400,15 @@ class WorkflowTests(unittest.TestCase):
             normalize_options(mode, {"save_output": False})
         with self.assertRaises(ValueError):
             validate_option_relationships(mode, normalize_options(mode, {"task_type": "Ref2VA"}), 0)
+
+    def test_t8_random_seed_stays_within_the_registered_range(self) -> None:
+        mode = JobMode.MINIMAX_H3_T8_ALL_REFERENCE
+        seed_definition = workflow_for(mode).option_schema["properties"]["seed"]
+        expected_span = seed_definition["maximum"] - seed_definition["minimum"] + 1
+        with patch("backend.app.workflow_registry.secrets.randbelow", return_value=expected_span - 1) as randbelow:
+            normalized = normalize_options(mode, {"seed": seed_definition["maximum"] + 1})
+        randbelow.assert_called_once_with(expected_span)
+        self.assertEqual(normalized["seed"], seed_definition["maximum"])
 
     def test_generation_stage_follows_workflow_family(self) -> None:
         self.assertEqual(generation_stage(JobMode.MINIMAX_H3_LIGHTX2V_I2V), "LightX2V 正在生成视频")

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Button, Card, Empty, Input, Modal, Select, Space, Tabs, Tag, Typography, message } from "antd"
+import { Button, Card, Empty, Input, Modal, Select, Space, Tabs, Tag, Typography, message, Upload } from "antd"
 import { Library, Maximize2, Pencil, Plus, Search, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import {
@@ -287,13 +287,47 @@ export default function DirectorAssetLibrary({
               autoSize={{ minRows: 3, maxRows: 6 }}
             />
           </label>
-          <label>
-            参考图
-            <input
-              type="file"
+          <label style={{ display: 'block' }}>
+            <div style={{ marginBottom: 8 }}>参考图</div>
+            <Upload
               accept="image/*"
-              onChange={(event) => setFormFile(event.target.files?.[0] || null)}
-            />
+              listType="picture-card"
+              maxCount={1}
+              showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
+              beforeUpload={(file) => {
+                setFormFile(file)
+                return false
+              }}
+              onRemove={() => {
+                setFormFile(null)
+              }}
+              fileList={
+                formFile
+                  ? [{ uid: '-1', name: formFile.name, status: 'done', url: URL.createObjectURL(formFile) }]
+                  : editing?.imageUrl
+                  ? [{ uid: '-2', name: 'Original', status: 'done', url: editing.imageUrl }]
+                  : []
+              }
+              onPreview={(file) => {
+                if (file.url) {
+                  setPreviewingAsset(editing || {
+                    id: 'preview',
+                    kind: formKind,
+                    name: formName || '预览',
+                    description: formPrompt,
+                    promptText: formPrompt,
+                    imageUrl: file.url,
+                  } as DirectorLibraryAsset)
+                }
+              }}
+            >
+              {!formFile && !editing?.imageUrl ? (
+                <div>
+                  <Plus size={18} style={{ margin: '0 auto' }} />
+                  <div style={{ marginTop: 8 }}>上传</div>
+                </div>
+              ) : null}
+            </Upload>
           </label>
         </div>
       </Modal>
@@ -304,7 +338,7 @@ export default function DirectorAssetLibrary({
         title={previewingAsset.name}
         description={userFacingCopy(previewingAsset.description, previewingAsset.promptText)}
         onClose={() => setPreviewingAsset(null)}
-        actions={[
+        actions={previewingAsset.id === 'preview' ? [] : [
           ...(mode === "picker" ? [{ key: "select", label: selectedIds.includes(previewingAsset.id) ? "取消选择" : "选择此资产", type: selectedIds.includes(previewingAsset.id) ? "default" as const : "primary" as const, onClick: () => toggleSelect(previewingAsset.id) }] : []),
           { key: "edit", label: "编辑资产", icon: <Pencil size={15} />, onClick: () => { openEdit(previewingAsset); setPreviewingAsset(null) } },
           { key: "delete", label: "删除资产", icon: <Trash2 size={15} />, danger: true, onClick: () => { handleDelete(previewingAsset); setPreviewingAsset(null) } },

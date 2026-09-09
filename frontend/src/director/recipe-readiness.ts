@@ -1,4 +1,4 @@
-import { recipeShotPreferredTake, type RecipeProject, type RecipeShot } from "./recipe-model"
+import { recipeApprovedAssetVersion, shotIsMuxable, type RecipeAssetRendition, type RecipeProject, type RecipeShot } from "./recipe-model"
 
 export const RECIPE_STAGE_IDS = [
   "script",
@@ -29,17 +29,18 @@ export const RECIPE_STAGE_LABELS: Record<RecipeStageId, string> = {
   storyboard: "分镜设计",
   characters: "角色定妆",
   locations: "场景定妆",
-  shots: "镜头生成",
+  shots: "镜头制作",
   voice: "配音",
   music: "配乐",
   export: "成片",
 }
 
 export const RECIPE_STAGE_GROUPS = [
-  { id: "plan", label: "方案", stages: ["script", "art_style"] },
-  { id: "production", label: "视觉制作", stages: ["characters", "locations", "storyboard", "shots"] },
-  { id: "sound", label: "声音", stages: ["voice", "music"] },
-  { id: "delivery", label: "交付", stages: ["export"] },
+  { id: "plan", label: "故事与风格", stages: ["script", "art_style"] },
+  { id: "storyboard", label: "分镜设计", stages: ["storyboard"] },
+  { id: "assets", label: "视觉素材", stages: ["characters", "locations"] },
+  { id: "production", label: "镜头制作", stages: ["shots"] },
+  { id: "delivery", label: "声音与交付", stages: ["voice", "music", "export"] },
 ] as const
 
 export const RECIPE_READINESS_LABELS: Record<RecipeReadinessLevel, string> = {
@@ -73,7 +74,7 @@ export const DIRECTOR_RECIPE_VIEWS = ["plan", "timeline"] as const
 export type DirectorRecipeView = (typeof DIRECTOR_RECIPE_VIEWS)[number]
 
 export const DIRECTOR_RECIPE_VIEW_LABELS: Record<DirectorRecipeView, string> = {
-  plan: "方案",
+  plan: "创作流程",
   timeline: "剪辑",
 }
 
@@ -104,6 +105,12 @@ function shots(recipe: RecipeProject): RecipeShot[] {
   return recipe.scenes.flatMap((scene) => scene.shots)
 }
 
+export function recipeAssetIsAdopted(rendition: RecipeAssetRendition | undefined, legacyUrl?: string | null): boolean {
+  if (!rendition?.versions.length) return Boolean(legacyUrl)
+  const approved = recipeApprovedAssetVersion(rendition)
+  return Boolean(approved && approved.status === "succeeded" && (approved.imageUrl || approved.jobId))
+}
+
 function placeholderBoard(items: RecipeShot[], goal: string, fullStory: string): boolean {
   if (!items.length) return true
   if (items.length > 1) return false
@@ -116,14 +123,6 @@ function placeholderBoard(items: RecipeShot[], goal: string, fullStory: string):
   const descriptionIsIdea = !description || description === idea || description === story
   const noPrompt = !prompt || prompt === description || prompt === idea
   return dummyTitle && descriptionIsIdea && noPrompt
-}
-
-function isMuxable(shot: RecipeShot): boolean {
-  const failed = new Set(["failed", "interrupted", "cancelled", "stopped"])
-  const take = recipeShotPreferredTake(shot)
-  if (take) return true
-  if (failed.has(shot.status)) return false
-  return shot.status === "succeeded" && Boolean(shot.outputVideoUrl || shot.jobId)
 }
 
 /** Pure payload-derived readiness; agent execution status is deliberately ignored. */
@@ -145,19 +144,21 @@ export function recipeReadiness(recipe: RecipeProject, goal: string = ""): Recip
     ? readinessItem("ready", designedShots.length, designedShots.length)
     : readinessItem("empty", 0, 0)
   const characters = ratioReadiness(
-    recipe.characters.filter((item) => Boolean(item.imageUrl)).length,
+    recipe.characters.filter((item) => recipeAssetIsAdopted(item.looks?.[0]?.sheet, item.imageUrl)).length,
     recipe.characters.length,
   )
   const locations = ratioReadiness(
-    recipe.locations.filter((item) => Boolean(item.imageUrl)).length,
+    recipe.locations.filter((item) => recipeAssetIsAdopted(item.plate, item.imageUrl)).length,
     recipe.locations.length,
   )
-  const shotRenders = ratioReadiness(designedShots.filter(isMuxable).length, designedShots.length)
+  const shotRenders = ratioReadiness(designedShots.filter(shotIsMuxable).length, designedShots.length)
   const dialogueShots = designedShots.filter((shot) => (shot.dialogue || "").trim())
-  const voicedShots = dialogueShots.filter((shot) => shot.ttsStatus === "succeeded")
+  const voicedShots = dialogueShots.filter((shot) => shot.ttsStatus === "succeeded" && Boolean(shot.ttsUrl || shot.ttsPath))
   const voiceAssigned = recipe.characters.some((item) => Boolean(item.voiceId))
   const voice = dialogueShots.length
     ? ratioReadiness(voicedShots.length, dialogueShots.length)
+    : designedShots.length
+      ? readinessItem("ready", 0, 0)
     : voiceAssigned
       ? readinessItem("draft", 0, 0)
       : readinessItem("empty", 0, 0)

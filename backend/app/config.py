@@ -92,7 +92,7 @@ class Settings:
         from .db import MysqlDatabase, open_database
 
         backend = os.getenv("ZLY_AI_VIDEO_STUDIO_DB_BACKEND", "mysql").strip().lower()
-        if backend == "sqlite" or self.data_dir_override:
+        if backend == "sqlite":
             return open_database(self.database_path)
         return MysqlDatabase(self.mysql_config)
 

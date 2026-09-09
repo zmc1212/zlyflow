@@ -86,6 +86,7 @@ from .models import (
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
     PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse,
     ScriptSplitRequest, ScriptSplitResponse,
+    DirectorContinuityRepairRequest,
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
     DirectorProjectResponse, DirectorProjectMigrateRequest, DirectorProjectMigrateResponse,
     DirectorArtStyleCatalogResponse, DirectorRecipeRunRequest, DirectorRecipeStepRequest,
@@ -1445,6 +1446,7 @@ async def split_script_endpoint(
             shot_count=payload.shot_count or 4,
             style_vibe=payload.style_vibe,
             cast_names=payload.cast_names,
+            script_mode=payload.script_mode,
         )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
@@ -1453,10 +1455,33 @@ async def split_script_endpoint(
 
     app.state.auth_store.audit(
         "split_script", "llm", actor_user_id=user["id"], target_id="director",
-        detail=f"shot_count={payload.shot_count or 4}; style={payload.style_vibe or 'default'}",
+        detail=f"shot_count={payload.shot_count or 4}; style={payload.style_vibe or 'default'}; mode={payload.script_mode}",
         ip_address=client_ip(request),
     )
     return split_result
+
+@app.post("/api/llm/repair-continuity", tags=["大模型"], summary="局部修复相邻镜头连续性")
+async def repair_continuity_endpoint(
+    payload: DirectorContinuityRepairRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    available, reason = app.state.llm_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "大模型服务不可用")
+    try:
+        result = await asyncio.to_thread(
+            app.state.llm_provider.repair_director_continuity,
+            payload.recipe,
+            from_shot=payload.from_shot,
+            to_shot=payload.to_shot,
+        )
+    except (LlmError, requests.exceptions.RequestException) as error:
+        raise_as_llm_http(error)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"连续性局部修复异常：{error}") from error
+    app.state.auth_store.audit("repair_continuity", "llm", actor_user_id=user["id"], target_id="director", detail=f"from={payload.from_shot};to={payload.to_shot}", ip_address=client_ip(request))
+    return result
 
 
 @app.get(
@@ -1639,7 +1664,9 @@ def update_director_project(
             force=payload.force,
             content_update=True,
             payload_merger=(
-                merge_recipe_creative
+                (lambda latest, incoming: merge_recipe_creative(
+                    latest, incoming, deleted_take_ids=payload.deleted_take_ids
+                ))
                 if payload.payload is not None
                 and payload_kind(current.get("payload")) == PAYLOAD_KIND_RECIPE
                 and payload_kind(payload.payload) == PAYLOAD_KIND_RECIPE
@@ -2460,7 +2487,9 @@ async def render_director_recipe_shots(
     record = director_project_or_404(app.state.store, project_id, user)
     if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
         raise HTTPException(status_code=422, detail="只有 Recipe 工程可以提交分镜")
-    llm_available, _ = app.state.llm_provider.availability()
+    llm_available, llm_reason = app.state.llm_provider.availability()
+    if payload.polish_prompt and not llm_available:
+        raise HTTPException(status_code=422, detail=f"提示词润色不可用：{llm_reason}。请配置大模型服务，或关闭提示词润色后重试。")
     def persist_progress(current: dict) -> None:
         persist_recipe_execution(
             app.state.store, project_id, current, scope="render", shot_ids=payload.shot_ids,
@@ -3297,7 +3326,10 @@ def browser_direct_output(
     job_id: str,
     output_index: int,
     user: Annotated[dict, Depends(current_user)],
+    request: Request,
 ) -> dict:
+    if request.client and request.client.host not in {"127.0.0.1", "::1", "localhost"}:
+        raise HTTPException(status_code=409, detail="Only local clients support browser direct delivery")
     job = job_or_404(app.state.store, job_id, user)
     if output_index < 0 or output_index >= len(job["outputs"]):
         raise HTTPException(status_code=404, detail="Resource not found")
@@ -3415,7 +3447,10 @@ def download_generation_output(
 def browser_direct_generation_output(
     job_id: str, generation_item_id: str, output_index: int,
     user: Annotated[dict, Depends(current_user)],
+    request: Request,
 ) -> dict:
+    if request.client and request.client.host not in {"127.0.0.1", "::1", "localhost"}:
+        raise HTTPException(status_code=409, detail="Only local clients support browser direct delivery")
     _, item = generation_item_or_404(app.state.store, job_id, generation_item_id, user)
     if output_index < 0 or output_index >= len(item["outputs"]):
         raise HTTPException(status_code=404, detail="资源不存在")

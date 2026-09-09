@@ -49,7 +49,7 @@ def write_request_log(event: str, payload: dict[str, Any]) -> None:
         with LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
     except OSError:
-        LOGGER.exception("写入请求日志失败")
+        pass
 
 
 class RequestLogMiddleware:
@@ -71,6 +71,8 @@ class RequestLogMiddleware:
         more = True
         while more:
             message = await receive()
+            if message["type"] == "http.disconnect":
+                return
             chunks.append(message.get("body") or b"")
             more = bool(message.get("more_body"))
         body = b"".join(chunks)
@@ -79,7 +81,9 @@ class RequestLogMiddleware:
         async def replay() -> Message:
             nonlocal replayed
             if replayed:
-                return {"type": "http.request", "body": b"", "more_body": False}
+                # StreamingResponse waits here for a real disconnect. Returning
+                # synthetic requests forever starves the entire event loop.
+                return await receive()
             replayed = True
             return {"type": "http.request", "body": body, "more_body": False}
 

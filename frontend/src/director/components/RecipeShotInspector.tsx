@@ -1,5 +1,5 @@
-import { Button, Checkbox, Collapse, Input, InputNumber, Progress, Segmented, Select, Space, Tag, message } from "antd"
-import { Clapperboard, Copy, ImagePlus, Star } from "lucide-react"
+import { Alert, Button, Checkbox, Collapse, Input, InputNumber, Modal, Progress, Segmented, Select, Space, Tag, message } from "antd"
+import { Clapperboard, Copy, ImagePlus, Star, Trash2 } from "lucide-react"
 import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import JobErrorNotice from "./JobErrorNotice"
 import TakeGenerationParams from "./TakeGenerationParams"
@@ -12,13 +12,14 @@ import {
   snapH3DurationSec,
   workflowRouteLabel,
 } from "../prompt-compiler"
-import { extractVideoFrame, overlaySubmittingState, shotGenerationState } from "../director-submit"
+import { extractVideoFrame, overlaySubmittingState, shotGenerationState, shotStatusFromJob, jobProgressFromJob } from "../director-submit"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "../status-labels"
 import {
   CameraDirection, RecipeProject, RecipeShot, ShotTake, TTS_VOICE_OPTIONS, defaultCameraDirection,
   recipePackedPlates, recipeShotPreferredTake,
 } from "../types"
 import { dialogueTimingWarning } from "../dialogue-timing"
+import { recipeShotFlow } from "../recipe-flow"
 
 type JobLike = {
   id: string
@@ -68,14 +69,21 @@ export default function RecipeShotInspector({
   stillJob,
   takeJobs = [],
   compareDesktop = true,
+  focus = "production",
+  onGoToProduction,
+  onGoToVoice,
   onChange,
   onRender,
   onGenerateStill,
   onUploadFrame,
   onExtractEndFrame,
   onGenerateTts,
+  onCancelShot,
+  onContinuityRepair,
+  continuityRepairing = false,
   ttsBusy = false,
   submitting = false,
+  submittingMessage,
   submittingStill = false,
 }: {
   shot: RecipeShot
@@ -85,14 +93,21 @@ export default function RecipeShotInspector({
   stillJob?: JobLike
   takeJobs?: JobLike[]
   compareDesktop?: boolean
+  focus?: "design" | "production"
+  onGoToProduction?: () => void
+  onGoToVoice?: () => void
   onChange: (patch: Partial<RecipeShot>) => void
   onRender: () => void
   onGenerateStill: () => void
   onUploadFrame: (slot: "first" | "end", file: File) => Promise<void>
   onExtractEndFrame?: (file: File) => Promise<void>
   onGenerateTts?: () => void
+  onCancelShot?: () => void
+  onContinuityRepair?: (fromShot: number, toShot: number) => Promise<void>
+  continuityRepairing?: boolean
   ttsBusy?: boolean
   submitting?: boolean
+  submittingMessage?: string
   submittingStill?: boolean
 }) {
   const firstInputRef = useRef<HTMLInputElement>(null)
@@ -107,7 +122,7 @@ export default function RecipeShotInspector({
       progress: shot.progress,
     }),
     submitting,
-    "正在润色提示词并提交…",
+    submittingMessage || "正在润色提示词并提交…",
   )
   const stillState = overlaySubmittingState(
     shotGenerationState(stillJob, shot.stillUrl, shot.stillJobId, {
@@ -117,7 +132,8 @@ export default function RecipeShotInspector({
     submittingStill,
     "正在提交静帧…",
   )
-  const displayStatus = state.generating ? state.status : (state.status !== "idle" ? state.status : shot.status)
+  const flow = recipeShotFlow(shot)
+  const displayStatus = state.generating ? state.status : flow.status
   const failed = !state.generating && isDirectorFailedStatus(displayStatus)
   const takes = shot.takes || []
   const approvedId = shot.approvedTakeId || ""
@@ -154,8 +170,10 @@ export default function RecipeShotInspector({
     () => compileRecipeShotPreview(recipe, shot, previousShot),
     [recipe, shot, previousShot],
   )
-  const submittedSnapshot = (activeTake?.promptSnapshot || shot.compiledPrompt || "").trim()
+
   const promptTextLooksChinese = /[\u4e00-\u9fff]/.test(shot.promptText || "") && !(shot.promptText || "").toLowerCase().includes("the camera")
+  const continuityInLooksChinese = /[\u4e00-\u9fff]/.test(shot.continuityIn || "")
+  const continuityOutLooksChinese = /[\u4e00-\u9fff]/.test(shot.continuityOut || "")
   const dialogueDurationHint = useMemo(
     () => dialogueTimingWarning(shot.dialogue, shot.durationSec),
     [shot.dialogue, shot.durationSec],
@@ -190,12 +208,31 @@ export default function RecipeShotInspector({
     onChange({ approvedTakeId: id })
   }
 
+  const activeTakeJob = jobForTake(activeTake)
+  const activeTakeStatus = activeTakeJob ? shotStatusFromJob(activeTakeJob) : activeTake?.status
+  const activeTakeGenerating = activeTakeStatus === "running" || activeTakeStatus === "queued"
+  const activeTakeProgress = activeTakeJob ? jobProgressFromJob(activeTakeJob, activeTake?.progress) : (activeTake?.progress || 0)
+
   const comparing = Boolean(compareDesktop && showVideo && compareTake?.videoUrl)
   const emptyPreview = !showVideo && !firstPreview
+  const continuityPair = recipe.continuityQa?.pairs.find((pair) => pair.toShot === shot.shotNumber)
 
   return (
-    <div className="director-recipe-inspector" style={recipeAspectVars(recipe.aspectRatio)}>
+    <div className={`director-recipe-inspector${focus === "design" ? " is-design-focus" : ""}`} style={recipeAspectVars(recipe.aspectRatio)}>
       {messageContextHolder}
+      {continuityPair && (
+        <Alert
+          className="mb-3"
+          type={continuityPair.status === "warning" ? "warning" : "success"}
+          showIcon
+          message={`第 ${continuityPair.fromShot} → ${continuityPair.toShot} 镜衔接：${continuityPair.status === "warning" ? "需要检查" : "通过"}`}
+          description={continuityPair.visualAnchorReason || continuityPair.reason || "连续性检查通过"}
+          action={<Space size={6}>
+            {continuityPair.status === "warning" && onContinuityRepair ? <Button size="small" loading={continuityRepairing} disabled={continuityRepairing} onClick={() => { void onContinuityRepair(continuityPair.fromShot, continuityPair.toShot) }}>只修复这两个镜头</Button> : null}
+            {continuityPair.visualAnchor === "recommended" && previousShot?.endFrameUrl && !shot.usePreviousEndFrame && <Button size="small" onClick={() => onChange({ usePreviousEndFrame: true })}>采用上一镜尾帧</Button>}
+          </Space>}
+        />
+      )}
       <div className="director-inspector-picture">
         <div className={`director-inspector-stage${comparing ? " is-compare" : ""}`}>
           {comparing && compareTake?.videoUrl ? (
@@ -227,16 +264,30 @@ export default function RecipeShotInspector({
                 <img src={firstPreview} alt="分镜画面" />
               ) : (
                 <div className="director-inspector-empty">
-                  {state.generating || stillState.generating ? (
-                    <>
-                      <Progress percent={state.generating ? state.progress : stillState.progress} size="small" status="active" showInfo={false} />
-                      <span>{state.generating ? state.label : "静帧生成中"}</span>
-                    </>
+                  {state.generating || stillState.generating || activeTakeGenerating ? (
+                    <div style={{ width: 200, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                      <Progress
+                        percent={activeTakeGenerating ? activeTakeProgress : state.generating ? state.progress : stillState.progress}
+                        size="small"
+                        status="active"
+                        showInfo={false}
+                      />
+                      <span>
+                        {activeTakeGenerating
+                          ? (activeTakeStatus === "queued" ? "排队中" : `生成中 ${Math.round(activeTakeProgress)}%`)
+                          : state.generating
+                            ? state.label
+                            : "静帧生成中"}
+                      </span>
+                    </div>
                   ) : (
                     <>
                       <Clapperboard size={22} />
-                      <strong>还没有成片</strong>
-                      <span>可先出静帧，或改完导演参数后生成这一镜</span>
+                      <strong>{shot.title || "还没有镜头视频"}</strong>
+                      <span>{shot.description || "完善镜头描述后，即可生成这一镜"}</span>
+                      <span>{flow.label}</span>
+                      {flow.error ? <span>{flow.error}</span> : null}
+                      <Button type="primary" onClick={onRender}>{failed ? "重试这一镜" : "生成这一镜"}</Button>
                     </>
                   )}
                 </div>
@@ -256,7 +307,7 @@ export default function RecipeShotInspector({
           </div>
         ) : null}
         <div className="director-inspector-heading">
-          <Tag color={directorStatusColor(displayStatus)}>{directorStatusLabel(displayStatus)}</Tag>
+          <Tag color={directorStatusColor(displayStatus)}>{flow.label}</Tag>
           {shot.stillUrl ? <Tag>静帧</Tag> : null}
           {activeTake?.renderPass ? <Tag>{directorRenderPassLabel(activeTake.renderPass)}</Tag> : null}
           <span>{shot.durationSec}s</span>
@@ -272,6 +323,10 @@ export default function RecipeShotInspector({
                 const selected = index === activeIndex
                 const approved = takeId(take) === approvedId
                 const id = takeId(take)
+                const takeJob = jobForTake(take)
+                const takeStatus = takeJob ? shotStatusFromJob(takeJob) : take.status
+                const isRunning = takeStatus === "running" || takeStatus === "queued"
+                const progress = takeJob ? jobProgressFromJob(takeJob, take.progress) : (take.progress || 0)
                 return (
                   <div
                     key={id || index}
@@ -289,6 +344,7 @@ export default function RecipeShotInspector({
                         <span>Take {take.takeNumber}</span>
                         {take.renderPass ? <Tag className="!m-0">{directorRenderPassLabel(take.renderPass)}</Tag> : null}
                         {approved ? <Tag color="success" className="!m-0">已批准</Tag> : null}
+                        {isRunning ? <Tag color="processing" className="!m-0">{takeStatus === "queued" ? "排队中" : `生成中 ${Math.round(progress)}%`}</Tag> : takeStatus === "failed" ? <Tag color="error" className="!m-0">失败</Tag> : null}
                       </button>
                       <div className="director-take-rail-actions">
                         <Button
@@ -326,7 +382,7 @@ export default function RecipeShotInspector({
           options={[
             { label: "文案", value: "script" },
             { label: "镜头", value: "shot" },
-            { label: "生成", value: "produce" },
+            ...(focus === "production" ? [{ label: "生成", value: "produce" }] : []),
           ]}
           onChange={(value) => setInspectorTab(value as InspectorTab)}
         />
@@ -361,10 +417,16 @@ export default function RecipeShotInspector({
                   <label className="director-inspector-field">
                     <span>对白</span>
                     <Input.TextArea
-                      value={shot.dialogue}
+                      value={shot.dialogueLines?.length ? shot.dialogueLines.map((line) => `${line.speaker}：${line.text}`).join("\n") : shot.dialogue}
                       autoSize={{ minRows: 2, maxRows: 4 }}
                       placeholder="角色说的话"
-                      onChange={(event) => onChange({ dialogue: event.target.value })}
+                      onChange={(event) => {
+                        const lines = event.target.value.split("\n").filter((line) => line.trim()).map((line) => {
+                          const match = line.match(/^([^：:]+)[：:]\s*(.*)$/)
+                          return { speaker: match?.[1] || "the speaker", text: match?.[2] || line }
+                        })
+                        onChange({ dialogue: lines.map((line) => line.text).join("\n"), dialogueLines: lines })
+                      }}
                     />
                     {dialogueDurationHint ? <p>{dialogueDurationHint}</p> : null}
                   </label>
@@ -425,6 +487,11 @@ export default function RecipeShotInspector({
                         placeholder="上一镜切入时的人物、道具、视线、运动方向和声音状态"
                         onChange={(event) => onChange({ continuityIn: event.target.value })}
                       />
+                      {continuityInLooksChinese ? (
+                        <p style={{ color: "var(--studio-warning, #faad14)", fontSize: 12, marginTop: 4 }}>
+                          当前状态是中文。MiniMax H3 要求非对白提示必须使用纯英文，否则可能会将其错误地作为旁白读出。
+                        </p>
+                      ) : null}
                     </label>
                     <label className="director-inspector-field">
                       <span>出镜状态（英文提示）</span>
@@ -434,6 +501,11 @@ export default function RecipeShotInspector({
                         placeholder="留给下一镜继承的最终构图、动作、方向或声音"
                         onChange={(event) => onChange({ continuityOut: event.target.value })}
                       />
+                      {continuityOutLooksChinese ? (
+                        <p style={{ color: "var(--studio-warning, #faad14)", fontSize: 12, marginTop: 4 }}>
+                          当前状态是中文。MiniMax H3 要求非对白提示必须使用纯英文，否则可能会将其错误地作为旁白读出。
+                        </p>
+                      ) : null}
                     </label>
                     <label className="director-inspector-field">
                       <span>转场说明</span>
@@ -526,6 +598,8 @@ export default function RecipeShotInspector({
                             {takes.map((take, index) => {
                               const selected = index === activeIndex
                               const takeJob = jobForTake(take)
+                              const takeStatus = takeJob ? shotStatusFromJob(takeJob) : take.status
+                              const progress = takeJob ? jobProgressFromJob(takeJob, take.progress) : (take.progress || 0)
                               return (
                                 <div key={take.id || take.jobId || index} className={`director-take-item${selected ? " is-active" : ""}`}>
                                   <button type="button" className="director-take-preview" onClick={() => selectTake(index)}>
@@ -536,7 +610,25 @@ export default function RecipeShotInspector({
                                       <span>Take {take.takeNumber}</span>
                                       {take.renderPass ? <Tag>{directorRenderPassLabel(take.renderPass)}</Tag> : null}
                                       {takeId(take) === approvedId ? <Tag color="success">已批准</Tag> : null}
-                                      <Tag color={directorStatusColor(take.status)}>{directorStatusLabel(take.status)}</Tag>
+                                      <Tag color={directorStatusColor(takeStatus)}>{takeStatus === "running" ? `生成中 ${Math.round(progress)}%` : takeStatus === "queued" ? "排队中" : directorStatusLabel(takeStatus)}</Tag>
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        danger
+                                        icon={<Trash2 size={12} />}
+                                        title="删除这个 Take"
+                                        style={{ padding: 4, height: "auto", marginLeft: "auto" }}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          Modal.confirm({
+                                            title: "确认删除",
+                                            content: `确定要删除 Take ${take.takeNumber} 吗？`,
+                                            onOk: () => {
+                                              onChange({ takes: takes.filter((t) => t !== take) })
+                                            },
+                                          })
+                                        }}
+                                      />
                                     </div>
                                     <TakeGenerationParams
                                       take={take}
@@ -575,7 +667,7 @@ export default function RecipeShotInspector({
                     )}
                   </section>
                   <section className="director-inspector-compiled">
-                    <strong>即将提交给 MiniMax 的提示词</strong>
+                    <strong>当前分镜编译预览（生成前润色尚未应用）</strong>
                     <div className="director-inspector-heading">
                       <Space size={6} wrap>
                         <Tag color="purple">{workflowRouteLabel(submission.workflowId, submission.plan.route)}</Tag>
@@ -588,7 +680,7 @@ export default function RecipeShotInspector({
                         icon={<Copy size={12} />}
                         onClick={() => {
                           void navigator.clipboard.writeText(submission.prompt)
-                          messageApi.success("已复制即将提交的提示词")
+                          messageApi.success("已复制当前编译预览")
                         }}
                       >
                         复制
@@ -604,19 +696,21 @@ export default function RecipeShotInspector({
                       <p>这一镜没有参考图，会走文生视频结构。</p>
                     )}
                     <pre className="director-compiled-prompt">{submission.prompt || "还没有可编译的镜头正文"}</pre>
-                    {submittedSnapshot && submittedSnapshot !== submission.prompt ? (
-                      <>
-                        <p>上次实际提交的提示词与当前预览不同（改过描述或参考图后会这样）。</p>
-                        <pre className="director-compiled-prompt is-snapshot">{submittedSnapshot}</pre>
-                      </>
-                    ) : null}
+                    <p>开启提示词润色后，服务端会在生成时改写此预览。词数按空白分隔统计，不代表中文字数。</p>
+                    {shot.compiledPrompt ? <>
+                      <strong>最近一次实际提交提示词</strong>
+                      <p>这是最近一次任务的提交快照，不随当前分镜编辑改变；是否经过润色取决于该次生成设置。</p>
+                      <Button size="small" onClick={() => { void navigator.clipboard.writeText(shot.compiledPrompt || ""); messageApi.success("已复制实际提交提示词") }}>复制实际提交提示词</Button>
+                      <pre className="director-compiled-prompt">{shot.compiledPrompt}</pre>
+                    </> : null}
+
                   </section>
                 </div>
           ) : null}
         </div>
         <div className="director-inspector-action-bar">
           <JobErrorNotice error={state.error || shot.error} />
-          <Space wrap className="director-inspector-action-buttons">
+          {focus === "design" ? <Button onClick={onGoToProduction}>前往镜头制作</Button> : <Space wrap className="director-inspector-action-buttons">
             <Button loading={stillState.generating} onClick={onGenerateStill}>生成静帧</Button>
             <Button
               disabled={!shot.stillUrl}
@@ -631,13 +725,17 @@ export default function RecipeShotInspector({
             <Button loading={extracting} disabled={!videoUrl || !onExtractEndFrame} onClick={() => { void handleExtractEnd() }}>
               截取尾帧
             </Button>
-            <Button loading={ttsBusy} disabled={!shot.dialogue.trim() || !onGenerateTts} onClick={() => onGenerateTts?.()}>
-              生成本镜配音
+            <Button loading={ttsBusy} disabled={!shot.dialogue.trim() || (!onGoToVoice && !onGenerateTts)} onClick={() => onGoToVoice ? onGoToVoice() : onGenerateTts?.()}>
+              {onGoToVoice ? "前往配音" : "生成本镜配音"}
             </Button>
-            <Button type="primary" loading={state.generating} onClick={onRender}>
-              {state.generating ? state.label : failed ? "重试这一镜" : "生成这一镜"}
-            </Button>
-          </Space>
+            {state.generating && onCancelShot ? (
+              <Button danger onClick={onCancelShot}>停止生成</Button>
+            ) : (
+              <Button type="primary" loading={state.generating} onClick={onRender}>
+                {state.generating ? state.label : failed ? "重试这一镜" : "生成这一镜"}
+              </Button>
+            )}
+          </Space>}
         </div>
       </div>
     </div>

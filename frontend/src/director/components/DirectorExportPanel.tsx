@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Alert, Button, ColorPicker, InputNumber, Select, Slider, Space, Switch, Tag, Typography, Upload } from "antd"
+import { Alert, Button, Collapse, ColorPicker, InputNumber, Select, Slider, Space, Switch, Tag, Typography, Upload } from "antd"
 import { Clapperboard, Download, Film, Play } from "lucide-react"
 import { getDirectorExportCapabilities } from "../director-api"
 import { directorStatusColor, directorStatusLabel } from "../status-labels"
@@ -36,6 +36,7 @@ export default function DirectorExportPanel({
   onDownload,
   onPlaySequence,
   onJianying,
+  onLocateShot,
 }: {
   recipe: RecipeProject
   ttsBusy: boolean
@@ -51,6 +52,7 @@ export default function DirectorExportPanel({
   onDownload: (kind: "mux" | "fcpxml" | "edl") => void
   onPlaySequence: () => void
   onJianying: () => void
+  onLocateShot?: (id: string) => void
 }) {
   const show = (section: DirectorExportSection) => visibleSections.includes(section)
   const capabilities = useQuery({
@@ -75,7 +77,7 @@ export default function DirectorExportPanel({
   return (
     <div className="director-export-section">
       {show("ffmpegAlert") ? (
-      <Alert
+      <Collapse className="director-export-runtime" items={[{ key: "runtime", label: ffmpegReady ? "运行详情 · 导出服务可用" : "运行详情 · 导出服务未就绪", children: <Alert
         type={ffmpegReady ? "success" : "warning"}
         showIcon
         message={ffmpegReady ? "本机已找到 ffmpeg，可以导出成片 MP4" : "未找到 ffmpeg / ffprobe"}
@@ -84,7 +86,7 @@ export default function DirectorExportPanel({
             ? `路径：${capabilities.data?.ffmpeg_path || "PATH"}。失败、中断或停止的镜头不会进入成片；优先使用已批准的 Take。剪映草稿仍然可用。`
             : "请把 ffmpeg 和 ffprobe 加入系统 PATH，或安装到常见目录后刷新本页。未安装时导出成片会返回不可用。ComfyUI 端口不变。"
         }
-      />
+      /> }]} />
       ) : null}
       {show("ttsAlert") ? (
       <Alert
@@ -161,14 +163,16 @@ export default function DirectorExportPanel({
         <div className="director-section-head">
           <Typography.Title level={5}>字幕</Typography.Title>
           <Switch
+            aria-label="预览字幕"
             checked={subtitles.enabled}
-            onChange={(checked) => onChangeRecipe({ subtitles: { ...subtitles, enabled: checked } })}
+            onChange={(checked) => onChangeRecipe({ subtitles: { ...subtitles, enabled: checked }, ...(!checked ? { export: { ...exportState, burnSubtitles: false } } : {}) })}
             checkedChildren="叠层开"
             unCheckedChildren="叠层关"
           />
         </div>
         <p className="director-output-hint">串播预览按此样式叠对白。勾选烧字幕后，成片 MP4 会把字幕写进画面。</p>
-        <div className="director-export-grid">
+        {subtitles.enabled && <div className="director-export-grid">
+          <label className="director-inspector-field"><span>字幕写入成片</span><Switch aria-label="字幕写入成片" checked={Boolean(exportState.burnSubtitles)} onChange={(checked) => onChangeRecipe({ export: { ...exportState, burnSubtitles: checked } })} /></label>
           <label className="director-inspector-field">
             <span>位置</span>
             <Select
@@ -220,7 +224,7 @@ export default function DirectorExportPanel({
               onChange={(color) => onChangeRecipe({ subtitles: { ...subtitles, strokeColor: color.toHexString() } })}
             />
           </label>
-        </div>
+        </div>}
       </section>
       ) : null}
 
@@ -265,7 +269,7 @@ export default function DirectorExportPanel({
       ) : null}
 
       {show("film") ? (
-      <section className="director-export-card">
+      <section className="director-export-card director-film-delivery">
         <div className="director-section-head">
           <Typography.Title level={5}>工作台内成片</Typography.Title>
           <Tag color={directorStatusColor(exportState.muxStatus)}>
@@ -276,15 +280,11 @@ export default function DirectorExportPanel({
           可进入成片的镜头 {muxableCount} / {shots.length}
           {exportState.muxDurationSec ? ` · 上次成片 ${exportState.muxDurationSec}s` : ""}
         </p>
+        {shots.some((shot) => !shotIsMuxable(shot)) ? <Alert type="warning" showIcon message="以下镜头缺少可用视频" description={<Space wrap>{shots.filter((shot) => !shotIsMuxable(shot)).map((shot) => <Button key={shot.id} onClick={() => onLocateShot?.(shot.id)}>查看 #{shot.shotNumber} {shot.title}</Button>)}</Space>} /> : null}
+        {!shots.length ? <p>请先生成或导入分镜，再前往镜头制作。</p> : null}
         {exportState.muxError ? <Alert type="error" showIcon message={exportState.muxError} /> : null}
         {muxUrl ? <video className="director-export-film" src={muxUrl} controls playsInline /> : null}
         <Space wrap>
-          <Switch
-            checked={Boolean(exportState.burnSubtitles)}
-            onChange={(checked) => onChangeRecipe({ export: { ...exportState, burnSubtitles: checked } })}
-            checkedChildren="烧字幕"
-            unCheckedChildren="不烧字幕"
-          />
           <Button
             type="primary"
             icon={<Film size={14} />}
@@ -292,7 +292,7 @@ export default function DirectorExportPanel({
             disabled={!ffmpegReady || !muxableCount}
             onClick={onMux}
           >
-            {muxBatchLabel(muxableCount)}
+            {muxableCount < shots.length ? `仅导出可用镜头（${muxableCount}）` : muxBatchLabel(muxableCount)}
           </Button>
           <Button icon={<Download size={14} />} disabled={!muxUrl} onClick={() => onDownload("mux")}>下载 MP4</Button>
           <Button disabled={!muxableCount} onClick={() => onDownload("fcpxml")}>FCPXML</Button>

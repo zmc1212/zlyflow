@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { message } from "antd"
-import { useMatch, useNavigate } from "react-router-dom"
+import { useLocation, useMatch, useNavigate } from "react-router-dom"
 import { User } from "../api"
 import { DirectoryHandleLike } from "../local-resource-store"
 import { directorBatchPath, directorProjectPath, PATHS, ROUTE_PATTERNS } from "../paths"
 import DirectorBatchStudio from "./DirectorBatchStudio"
 import DirectorHome from "./DirectorHome"
 import DirectorRecipeStudio from "./DirectorRecipeStudio"
+import DirectorDesignMockup from "./DirectorDesignMockup"
 import {
   convertDirectorProjectToRecipe, copyDirectorProject, createDirectorProjectRecord,
   deleteDirectorProject, listDirectorProjects, DirectorProjectListItem,
@@ -30,6 +31,7 @@ export default function DirectorStudioModule({
 }: DirectorStudioModuleProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const location = useLocation()
   const batchMatch = useMatch(ROUTE_PATTERNS.directorBatch)
   const recipeMatch = useMatch(ROUTE_PATTERNS.directorProject)
   const activeProjectId = batchMatch?.params.projectId ?? recipeMatch?.params.projectId
@@ -92,7 +94,7 @@ export default function DirectorStudioModule({
         message.info("已将旧时间轴转为 Recipe")
         return
       }
-      navigate(directorProjectPath(item.id))
+      navigate(`${directorProjectPath(item.id)}?stage=${item.shot_count > 0 ? "shots" : "script"}`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : "打开失败")
     }
@@ -120,7 +122,8 @@ export default function DirectorStudioModule({
 
   return (
     <div className="director-shell !h-0 !min-h-0 flex-1 overflow-hidden">
-      {view === "home" || !activeProjectId ? (
+      {location.search.includes("design=1") ? <DirectorDesignMockup /> : null}
+      {location.search.includes("design=1") ? null : view === "home" || !activeProjectId ? (
         <DirectorHome
           items={listQuery.data || []}
           loading={listQuery.isLoading}

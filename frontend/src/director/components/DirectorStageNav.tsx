@@ -12,6 +12,8 @@ import {
 const GROUP_ICONS: Record<string, LucideIcon> = {
   plan: FileStack,
   production: Clapperboard,
+  storyboard: Clapperboard,
+  assets: PackageCheck,
   sound: AudioLines,
   delivery: PackageCheck,
 }
@@ -34,14 +36,15 @@ export default function DirectorStageNav({
         className="director-stage-collapse"
         items={RECIPE_STAGE_GROUPS.map((group) => {
           const Icon = GROUP_ICONS[group.id]
-          const readyCount = group.stages.filter((stage) => readiness[stage].level === "ready").length
+          const readyCount = group.stages.reduce((sum, stage) => sum + readiness[stage].done, 0)
+          const total = group.stages.reduce((sum, stage) => sum + readiness[stage].total, 0)
           return {
             key: group.id,
             label: (
               <span className="director-stage-group-label">
                 <span className="director-stage-group-icon"><Icon size={15} /></span>
                 <strong>{group.label}</strong>
-                <em>{readyCount}/{group.stages.length}</em>
+                <em aria-label={`${readyCount} 项已准备，${Math.max(0, total - readyCount)} 项待处理`}>{readyCount}/{total}</em>
               </span>
             ),
             children: (

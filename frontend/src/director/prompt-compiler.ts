@@ -321,11 +321,11 @@ function shotSoundscape(project: TimelineProject, shots: DirectorShot[]): string
     const sfx = shot.camera?.sfx?.trim()
     if (sfx) return sfx
   }
-  return project.globalSoundscape?.trim() || "Natural room tone and physical action sounds matching the on-screen movement."
+  return "Natural room tone and physical action sounds matching the on-screen movement."
 }
 
 function nonDiegeticMusic(project: TimelineProject): string {
-  return project.globalMusic?.trim() || "N/A"
+  return "N/A"
 }
 
 function keyframeAlignment(plan: ReferencePlan, durationSec: number): string {
@@ -620,6 +620,8 @@ export function compileRecipeShotPreview(
   const prefix = (recipe.artStyle?.promptPrefix || "").trim()
   let body = (resolved.promptText || resolved.description || "").trim()
   body = normalizeIndependentShotPrompt(body)
+  const action = resolved.description?.trim()
+  if (action && !body.includes(action)) body = `${action}\n${body}`.trim()
   const handoff = continuityBoundaryText(resolved)
   body = [handoff.opening, body, handoff.closing].filter(Boolean).map((part) => part.replace(/[. ]+$/, "")).join(". ")
   const visual = prefix ? `${prefix.replace(/[. ]+$/, "")}. ${body}`.trim() : body
@@ -629,6 +631,7 @@ export function compileRecipeShotPreview(
     title: resolved.title,
     prompt: visual,
     dialogue: resolved.dialogue,
+    dialogueLines: resolved.dialogueLines,
     durationSec: snapH3DurationSec(resolved.durationSec || 5),
     soundscape: englishAudioText([resolved.soundscapeEn, resolved.soundscape], ""),
     camera: resolved.camera || defaultCameraDirection(),

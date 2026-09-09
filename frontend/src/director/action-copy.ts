@@ -4,7 +4,7 @@ export const PLAN_GENERATION_SUCCESS = "创作方案已生成。定妆、出片�
 export const PLAN_GENERATION_FAILURE = "生成创作方案失败"
 export const PLAN_GENERATION_CONNECTING = "正在连接创作方案生成"
 
-export type BoardBatchMode = "still" | "preview" | "final"
+export type BoardBatchMode = "still" | "preview" | "final" | "custom"
 
 export function plateBatchLabel(kind: "character" | "location", count: number): string {
   const base = kind === "location" ? "全部场景" : "全部定妆"
@@ -46,7 +46,7 @@ export function plateBatchConfirm(kind: "character" | "location", total: number,
 }
 
 export function boardBatchLabel(mode: BoardBatchMode, count: number): string {
-  const base = mode === "still" ? "全部静帧" : mode === "preview" ? "全部预览" : "全部出片"
+  const base = mode === "still" ? "全部静帧" : mode === "preview" ? "全部预览" : mode === "custom" ? "全部自定义" : "全部出片"
   return count > 0 ? `${base}（${count} 镜）` : base
 }
 
@@ -55,13 +55,14 @@ export function boardBatchConfirm(mode: BoardBatchMode, count: number, title?: s
   countLabel: string
   costLabel: string
 } {
-  const modeLabel = mode === "still" ? "静帧" : mode === "preview" ? "预览视频" : "终稿视频"
+  const modeLabel = mode === "still" ? "静帧" : mode === "preview" ? "预览视频" : mode === "custom" ? "自定义视频" : "终稿视频"
+  const passLabel = mode === "preview" ? "预览档" : mode === "custom" ? "自定义（终稿通道）" : "终稿档"
   return {
-    title: title || (mode === "still" ? "全部静帧" : mode === "preview" ? "全部预览" : "全部出片"),
+    title: title || (mode === "still" ? "全部静帧" : mode === "preview" ? "全部预览" : mode === "custom" ? "全部自定义生成" : "全部出片"),
     countLabel: `将提交 ${count} 镜${modeLabel}。`,
     costLabel: mode === "still"
       ? `预计消耗：${count} 个 GRS 图片任务。`
-      : `预计消耗：${count} 个本机 MiniMax H3 任务（${mode === "preview" ? "预览档" : "终稿档"}）。`,
+      : `预计消耗：${count} 个本机 MiniMax H3 任务（${passLabel}）。`,
   }
 }
 

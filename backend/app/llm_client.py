@@ -998,6 +998,7 @@ class OpenAICompatibleClient:
         shot_count: int = 4,
         style_vibe: str | None = None,
         cast_names: list[str] | None = None,
+        script_mode: str = "literal",
         model: str,
     ) -> dict[str, Any]:
         clean_script = script.strip()
@@ -1006,13 +1007,14 @@ class OpenAICompatibleClient:
 
         from .llm_minimax_skills import build_h3_split_script_prompt
 
-        system_instruction = build_h3_split_script_prompt()
+        system_instruction = build_h3_split_script_prompt(script_mode=script_mode)
 
         user_content = f"待拆解剧本内容：\n{clean_script}\n\n期望镜头数量：{shot_count} 个镜头"
         if style_vibe:
             user_content += f"\n指定整体风格基调：{style_vibe}"
         if cast_names:
             user_content += f"\n已知角色/资产列表：{', '.join(cast_names)}"
+        user_content += f"\n剧本模式：{script_mode}"
 
         messages = [
             {"role": "system", "content": system_instruction},

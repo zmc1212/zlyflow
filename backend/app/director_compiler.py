@@ -5,7 +5,7 @@ from typing import Any
 
 from .workflow_registry import (
     DEFAULT_DIRECTOR_WORKFLOW_FAMILY, H3_DURATION_MAX_SEC, H3_DURATION_MIN_SEC, H3_FPS,
-    h3_length, resolve_director_workflow,
+    h3_length, resolve_director_workflow, workflow_for,
 )
 
 H3_MIN_DURATION_SEC = H3_DURATION_MIN_SEC
@@ -105,9 +105,14 @@ def _normalize_quality(value: Any, fallback: str) -> str:
     return text if text in DIRECTOR_QUALITIES else fallback
 
 
-def _normalize_speed(value: Any, fallback: str) -> str:
+def _normalize_speed(value: Any, fallback: str, project: dict[str, Any] | None = None) -> str:
     text = str(value or "").strip()
-    return text if text in DIRECTOR_SPEEDS else fallback
+    speed = text if text in DIRECTOR_SPEEDS else fallback
+    mode = resolve_director_workflow(_get(project, "videoWorkflowFamily", "video_workflow_family"), "t2v")
+    definition = (workflow_for(mode).option_schema or {}).get("properties", {}).get("speed", {})
+    if definition.get("enum") and speed not in definition["enum"]:
+        return str(definition["default"])
+    return speed
 
 
 def _normalize_weight_profile(value: Any, fallback: str = DIRECTOR_WEIGHT_PROFILE) -> str:
@@ -127,14 +132,14 @@ def director_job_options(
     if render_pass == "preview":
         return {
             "quality": _normalize_quality(_get(project, "previewQuality", "preview_quality") if project else None, DIRECTOR_PREVIEW_QUALITY),
-            "speed": _normalize_speed(_get(project, "previewSpeed", "preview_speed") if project else None, DIRECTOR_PREVIEW_SPEED),
+            "speed": _normalize_speed(_get(project, "previewSpeed", "preview_speed") if project else None, DIRECTOR_PREVIEW_SPEED, project),
             "weight_profile": weight_profile,
             "renderPass": "preview",
         }
     final_quality = _get(project, "finalQuality", "final_quality") if project else None
     return {
         "quality": _normalize_quality(final_quality, registry_quality_for_canvas(canvas)),
-        "speed": _normalize_speed(_get(project, "finalSpeed", "final_speed") if project else None, DIRECTOR_FINAL_SPEED),
+        "speed": _normalize_speed(_get(project, "finalSpeed", "final_speed") if project else None, DIRECTOR_FINAL_SPEED, project),
         "weight_profile": weight_profile,
         "renderPass": "final",
     }
@@ -217,6 +222,23 @@ def _has_scale_prose(text: str) -> bool:
 
 
 def _wrap_dialogue(text: str, shot: dict[str, Any]) -> str:
+    lines = _get(shot, "dialogueLines", "dialogue_lines", default=[]) or []
+    if lines:
+        # Structured dialogue is authoritative; legacy normalization may have
+        # embedded the entire conversation as one additional anonymous block.
+        text = re.sub(r"<d>.*?</d>", "", text, flags=re.DOTALL).strip()
+        speakers: dict[str, int] = {}
+        segments = []
+        for line in lines:
+            if not isinstance(line, dict) or not str(line.get("text") or "").strip():
+                continue
+            speaker = str(line.get("speaker") or "the speaker").strip()
+            number = speakers.setdefault(speaker, len(speakers) + 1)
+            spoken = str(line["text"]).strip()
+            tag = _dialogue_language_tag(spoken)
+            segments.append(f"{speaker} (S{number}) says: <d>[{tag}] {spoken}</d>")
+        rendered = " ".join(segments)
+        if rendered: return f"{text.rstrip('. ')}. {rendered}"
     dialogue = str(_get(shot, "dialogue", default="") or "").strip()
     if not dialogue:
         return text
@@ -449,13 +471,11 @@ def _shot_soundscape(project: dict[str, Any], shots: list[dict[str, Any]]) -> st
         shot_texts.append(str(_get(shot, "soundscape", default="") or "").strip())
         camera = _get(shot, "camera", default={}) or {}
         shot_texts.append(str(_get(camera, "sfx", default="") or "").strip())
-    global_sound = str(_get(project, "globalSoundscape", "global_soundscape", default="") or "").strip()
-    return _english_audio_text(*shot_texts, global_sound, fallback="Natural room tone and physical action sounds matching the on-screen movement.")
+    return _english_audio_text(*shot_texts, fallback="Natural room tone and physical action sounds matching the on-screen movement.")
 
 
 def _non_diegetic_music(project: dict[str, Any]) -> str:
-    music = str(_get(project, "globalMusic", "global_music", default="") or "").strip()
-    return _english_audio_text(music, fallback="N/A")
+    return "N/A"
 
 
 def _is_r2v(plan: dict[str, Any]) -> bool:
@@ -963,10 +983,10 @@ def apply_recipe_continuity(recipe: dict[str, Any] | None, shot: dict[str, Any] 
     previous = previous_recipe_shot(recipe, resolved)
     if not isinstance(previous, dict):
         return resolved
-    if _shot_has_last_frame(previous) or previous.get("endFramePath") or previous.get("endFrameJobId"):
+    if _shot_has_last_frame(previous) or previous.get("endFramePath") or previous.get("endFrameJobId") or previous.get("jobId"):
         end_url = _get(previous, "endFrameUrl", "end_frame_url")
         end_path = _get(previous, "endFramePath", "end_frame_path")
-        end_job = _get(previous, "endFrameJobId", "end_frame_job_id")
+        end_job = _get(previous, "endFrameJobId", "end_frame_job_id") or previous.get("jobId")
     else:
         end_url = _get(previous, "stillUrl", "still_url")
         end_path = None
@@ -1124,6 +1144,9 @@ def recipe_shot_as_timeline_shot(recipe: dict[str, Any], shot: dict[str, Any]) -
         if h3_body:
             break
     h3_body = normalize_independent_shot_prompt(h3_body)
+    action = str(shot.get("description") or "").strip()
+    if action and action not in h3_body:
+        h3_body = f"{action}\n{h3_body}".strip()
     continuity_in, continuity_out = continuity_boundary_prompt(shot)
     body = ". ".join(part.rstrip(". ") for part in (continuity_in, h3_body, continuity_out) if part).strip()
     visual = f"{prefix}. {body}".strip(". ").strip() if prefix else body
@@ -1142,6 +1165,7 @@ def recipe_shot_as_timeline_shot(recipe: dict[str, Any], shot: dict[str, Any]) -
         "title": shot.get("title"),
         "prompt": visual or h3_body,
         "dialogue": _get(shot, "dialogue", default="") or "",
+        "dialogueLines": shot.get("dialogueLines") or [],
         "durationSec": snap_h3_duration_sec(_get(shot, "durationSec", "duration_sec", default=5)),
         "soundscapeEn": _get(shot, "soundscapeEn", "soundscape_en", default=""),
         "soundscape": _get(shot, "soundscape", default="") or _get(recipe, "globalSoundscape", "global_soundscape", default=""),
