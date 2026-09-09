@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import ipaddress
 import mimetypes
 import socket
@@ -10,6 +11,7 @@ from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
 import requests
+from PIL import Image
 from requests import exceptions as request_exceptions
 
 
@@ -241,13 +243,26 @@ class GrsClient:
 
     @staticmethod
     def data_uri(path: Path) -> str:
-        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        if not mime.startswith("image/"):
-            raise GrsError(f"参考文件不是图片: {path.name}")
         content = path.read_bytes()
         if len(content) > MAX_IMAGE_BYTES:
             raise GrsError(f"参考图片超过 50 MB: {path.name}")
-        return f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}"
+        
+        try:
+            with Image.open(io.BytesIO(content)) as img:
+                # 检查并修正色彩模式 (如 CMYK 转 RGB)
+                if img.mode not in ("RGB", "RGBA"):
+                    img = img.convert("RGBA" if "transparency" in img.info else "RGB")
+                
+                # 统一转成标准格式输出
+                format_name = "PNG" if img.mode == "RGBA" else "JPEG"
+                buffer = io.BytesIO()
+                img.save(buffer, format=format_name, quality=95)
+                sanitized_content = buffer.getvalue()
+                
+                mime = f"image/{format_name.lower()}"
+                return f"data:{mime};base64,{base64.b64encode(sanitized_content).decode('ascii')}"
+        except Exception as error:
+            raise GrsError(f"无法读取参考图片 (可能格式不受支持或已损坏): {path.name}") from error
 
     def _validate_public_https(self, url: str) -> None:
         parsed = urlparse(url)
