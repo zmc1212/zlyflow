@@ -1565,3 +1565,9 @@ H3 视频生成以后端 `quality` 档位计算实际宽高，避免旧草稿的
 - 兼容性：纯前端布局重构；不改 API、`?stage=` 协议与后端。
 - 验证命令：`pnpm --dir frontend build`；`python -m pytest backend/tests/test_director_stream.py backend/tests/test_director.py -q`。
 - 回滚方式：还原本次提交即恢复 Tabs+侧栏+水平任务行布局。
+
+## 2026-09-12 对话组件按官方源码逐像素复刻
+
+创意澄清卡、Prompt Bar、用户气泡、流式光标、等待加载器按官方 ai-native-react-components 源码逐像素复刻：澄清卡为行式单选（选中自动翻页、圆点分页器、墨色发送箭头、可跳过单题或全部）；输入条聚焦加深描边、发送键墨色方形箭头；气泡右对齐无底色；等待态为像素网格加载器。规则已写入 AGENTS.md（导演台 AI 对话界面视觉标准），后续该区域样式改动必须对照官方源码并浏览器实测。
+
+验证：`pnpm --dir frontend build`。回滚：还原本次提交。

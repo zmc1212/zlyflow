@@ -1566,3 +1566,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：皮肤仅作用于对话创作室（`is-chat` 作用域），工作台模式与全局 `--studio-*` 主题不变；MIT 许可仅参考样式值，不引入任何新依赖或复制组件源码。
 - 验证命令：`pnpm --dir frontend build`。人工回归：对话创作室浅色/暗色双主题视觉、任务面板胶囊行、按压动效、移动端。
 - 回滚方式：还原本次提交即恢复 `--studio-*` 皮肤。
+
+## 2026-09-12 生成完成后对话记录常驻（历史回放）
+
+- 原因：对话记录（任务面板、产出块）只存在于流式内存中，生成完成或刷新后剧本阶段退化为纯成稿文档视图，用户看不到 Task Rows 与生成过程——浏览器实测发现。
+- 当前基线：`DirectorScriptStreamPanel` 新增 `historyMode`/`recipe` props。活动操作结束后以 `historyMode` 渲染：从已保存的 recipe payload 一次性重建全部产出块（剧本三字段、globalMusic/globalSoundscape 文本、角色/道具/场景卡、分镜镜头行、声线行）与任务面板（recipe.agentStatus），默认全部展开、可手动折叠；任务面板头部在历史模式隐藏耗时。空 recipe（工程查询未返回）不消费 seed 机会，等真实数据到达。完成状态 `lastPlanCompletion` 持久化到 `director-plan-completion:{projectId}`，刷新后完成卡恢复。成稿文档在历史回放下方常驻（运行中不显示）。历史头部显示「AI 导演创作记录」+ 完成图标，隐藏取消按钮与脉动点。分镜场景标题相邻去重、镜头描述两行截断（英文编译提示词属噪音）、道具芯片修复被 grid 拉伸的问题。
+- 受影响文件：`frontend/src/director/components/{DirectorScriptStreamPanel,DirectorTaskRows}.tsx`、`frontend/src/director/{DirectorRecipeStudio.tsx,action-copy.ts,guided-flow.css}`。
+- 兼容性：纯前端；不改 API 与数据。
+- 验证：浏览器实测（登录工作台 → 血与恩情工程剧本阶段）：任务面板 9 行官方胶囊形态、角色/场景/道具卡、9 镜头行、画风卡、846 字手稿、完成卡、亮/暗双主题截图确认。
+- 回滚方式：还原本次提交即恢复「完成后仅文档视图」。

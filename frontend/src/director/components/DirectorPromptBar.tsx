@@ -62,13 +62,13 @@ export default function DirectorPromptBar({
             />
             <button
               type="button"
-              className="director-prompt-send"
+              className={`director-prompt-send${canSubmit ? " is-armed" : ""}`}
               disabled={!canSubmit}
               aria-label={submitLabel || PLAN_GENERATION_LABEL}
               title={submitLabel || PLAN_GENERATION_LABEL}
               onClick={() => { if (canSubmit) onSubmit() }}
             >
-              <ArrowUp size={16} />
+              <ArrowUp size={15} strokeWidth={2.4} />
             </button>
           </div>
           <p className="director-prompt-hint">

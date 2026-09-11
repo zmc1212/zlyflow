@@ -1,13 +1,13 @@
-import { Button, Input } from "antd"
+import { Button } from "antd"
 import {
-  CheckCircle2, ChevronDown, ChevronRight, Circle, Clapperboard, FileText, Loader2, MapPinned, Mic2, Music2,
-  Palette, Search, Sparkles, Users, XCircle,
+  ArrowUp, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, Clapperboard, FileText, Loader2, MapPinned,
+  Mic2, Music2, Palette, Search, Users, XCircle,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  SCRIPT_ART_BLOCK_TITLE, SCRIPT_ART_CHANGE_LABEL, SCRIPT_CLARIFY_CUSTOM, SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER,
-  SCRIPT_CLARIFY_HINT, SCRIPT_CLARIFY_PROGRESS, SCRIPT_CLARIFY_SKIP_ALL, SCRIPT_CLARIFY_SKIP_ONE,
-  SCRIPT_CLARIFY_SUBMIT, SCRIPT_CLARIFY_TITLE, SCRIPT_DIRECTION_LABEL, SCRIPT_HISTORY_TITLE,
+  SCRIPT_ART_BLOCK_TITLE, SCRIPT_ART_CHANGE_LABEL, SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER, SCRIPT_CLARIFY_HINT,
+  SCRIPT_CLARIFY_SKIP_ALL, SCRIPT_CLARIFY_SKIP_ONE, SCRIPT_CLARIFY_SUBMIT, SCRIPT_CLARIFY_TITLE,
+  SCRIPT_DIRECTION_LABEL, SCRIPT_HISTORY_TITLE,
   SCRIPT_STREAM_CANCEL_LABEL, SCRIPT_STREAM_STATE_LABELS, SCRIPT_STREAM_TITLE, SCRIPT_STREAM_WRITING_LABELS,
   SCRIPT_USER_BUBBLE_LABEL,
 } from "../action-copy"
@@ -122,9 +122,19 @@ export default function DirectorScriptStreamPanel({
   // Clarify (approval card) state.
   const [questions, setQuestions] = useState<ClarifyQuestion[] | null>(() => initialQuestions ?? null)
   const [questionIndex, setQuestionIndex] = useState(0)
-  const [customOpen, setCustomOpen] = useState(false)
   const [customValue, setCustomValue] = useState("")
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const answersRef = useRef<ClarifyAnswer[]>([])
+
+  // 官方 Approval Card 交互：单选立即高亮，480ms 后自动翻到下一题。
+  const handleSelect = (value: string) => {
+    setSelectedOption(value)
+    setCustomValue("")
+    window.setTimeout(() => {
+      answerCurrent(value)
+      setSelectedOption(null)
+    }, 480)
+  }
 
   const targetRef = useRef(targetTexts)
   targetRef.current = targetTexts
@@ -327,10 +337,9 @@ export default function DirectorScriptStreamPanel({
     if (!current) return
     const next = [...answersRef.current, { question: current.question, answer: value }]
     answersRef.current = next
+    setCustomValue("")
     if (questionIndex + 1 < list.length) {
       setQuestionIndex(questionIndex + 1)
-      setCustomOpen(false)
-      setCustomValue("")
     } else {
       onStartPipeline(next)
     }
@@ -339,10 +348,9 @@ export default function DirectorScriptStreamPanel({
   const skipOne = () => {
     const list = questions
     if (!list) return
+    setCustomValue("")
     if (questionIndex + 1 < list.length) {
       setQuestionIndex(questionIndex + 1)
-      setCustomOpen(false)
-      setCustomValue("")
     } else {
       onStartPipeline(answersRef.current)
     }
@@ -382,6 +390,14 @@ export default function DirectorScriptStreamPanel({
     const list = questions
     const current = phase === "clarify-ask" && list ? list[questionIndex] : undefined
     const streamedQuestions = Object.keys(targetTexts).filter((key) => key.startsWith("clarify|question|")).sort()
+    const last = Boolean(list && questionIndex === list.length - 1)
+    const customAnswer = customValue.trim()
+    const hasAnswer = selectedOption !== null || customAnswer.length > 0
+    const submitArrow = () => {
+      if (selectedOption) answerCurrent(selectedOption)
+      else if (customAnswer) answerCurrent(customAnswer)
+      else skipOne()
+    }
     return (
       <div className={`director-script-stream is-clarify${terminal ? " is-terminal" : ""}`} data-stream-live={streamLive || undefined}>
         {head}
@@ -395,54 +411,102 @@ export default function DirectorScriptStreamPanel({
         >
           {userBubble}
           {current ? (
-            <div className="director-clarify">
-              <div className="director-clarify-progress">
-                <Sparkles size={13} />
-                {list ? SCRIPT_CLARIFY_PROGRESS(questionIndex, list.length) : ""}
-              </div>
-              <div className="director-clarify-card">
-                <h3>{current.question}</h3>
-                {current.why ? <p className="director-clarify-why">{current.why}</p> : null}
-                <div className="director-clarify-options">
-                  {current.options.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className="director-clarify-option"
-                      disabled={terminal !== null}
-                      onClick={() => answerCurrent(option.value)}
-                    >
-                      <span>{option.label}</span>
-                      {option.recommended ? <em>推荐</em> : null}
-                    </button>
-                  ))}
+            <div className="director-approval">
+              <div key={questionIndex} className="director-approval-card">
+                <div className="director-approval-question">
+                  <span>{current.question}</span>
+                </div>
+                {current.why ? <p className="director-approval-why">{current.why}</p> : null}
+                <div className="director-approval-options">
+                  {current.options.map((option) => {
+                    const on = selectedOption === option.value
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={on}
+                        disabled={terminal !== null}
+                        className="director-approval-option"
+                        onClick={() => handleSelect(option.value)}
+                      >
+                        <span className={`director-approval-radio${on ? " is-on" : ""}`} aria-hidden>
+                          <span className="director-approval-radio-dot" />
+                        </span>
+                        <span className={`director-approval-option-label${on ? " is-on" : ""}`}>{option.label}</span>
+                        {option.recommended ? <em className="director-approval-recommended">推荐</em> : null}
+                      </button>
+                    )
+                  })}
                   {current.allowCustom !== false ? (
-                    <button
-                      type="button"
-                      className="director-clarify-option is-custom"
-                      disabled={terminal !== null}
-                      onClick={() => setCustomOpen((value) => !value)}
-                    >
-                      <span>{SCRIPT_CLARIFY_CUSTOM}</span>
-                    </button>
+                    <label className="director-approval-option is-custom">
+                      <span className="director-approval-radio" aria-hidden />
+                      <input
+                        value={customValue}
+                        disabled={terminal !== null}
+                        placeholder={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
+                        onChange={(event) => {
+                          setCustomValue(event.target.value)
+                          setSelectedOption(null)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && customAnswer) answerCurrent(customAnswer)
+                        }}
+                      />
+                    </label>
                   ) : null}
                 </div>
-                {customOpen && current.allowCustom !== false ? (
-                  <Input.Search
-                    placeholder={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
-                    enterButton={SCRIPT_CLARIFY_SUBMIT}
-                    value={customValue}
-                    autoFocus
+                <div className="director-approval-footer">
+                  <span className="director-approval-pager">
+                    <button
+                      type="button"
+                      aria-label="上一题"
+                      disabled={questionIndex === 0 || terminal !== null}
+                      onClick={() => { setSelectedOption(null); setCustomValue(""); setQuestionIndex((index) => Math.max(0, index - 1)) }}
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <span className="director-approval-dots">
+                      {(list || []).map((_, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          aria-label={`第 ${index + 1} 题`}
+                          aria-current={index === questionIndex || undefined}
+                          disabled={terminal !== null}
+                          className={`director-approval-dot${index === questionIndex ? " is-current" : ""}${index < questionIndex ? " is-done" : ""}`}
+                          onClick={() => { setSelectedOption(null); setCustomValue(""); setQuestionIndex(index) }}
+                        />
+                      ))}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="下一题"
+                      disabled={last || terminal !== null}
+                      onClick={() => { setSelectedOption(null); setCustomValue(""); setQuestionIndex((index) => Math.min((list?.length ?? 1) - 1, index + 1)) }}
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={hasAnswer ? "确认这个方向" : SCRIPT_CLARIFY_SKIP_ONE}
+                    title={hasAnswer ? (last ? SCRIPT_CLARIFY_SUBMIT : "下一题") : SCRIPT_CLARIFY_SKIP_ONE}
                     disabled={terminal !== null}
-                    onChange={(event) => setCustomValue(event.target.value)}
-                    onSearch={(value) => { if (value.trim()) answerCurrent(value.trim()) }}
-                  />
-                ) : null}
-                <div className="director-clarify-actions">
-                  <Button type="link" size="small" disabled={terminal !== null} onClick={skipOne}>{SCRIPT_CLARIFY_SKIP_ONE}</Button>
-                  <Button type="link" size="small" disabled={terminal !== null} onClick={() => onStartPipeline(answersRef.current)}>{SCRIPT_CLARIFY_SKIP_ALL}</Button>
+                    className={`director-approval-send${hasAnswer ? " is-armed" : ""}`}
+                    onClick={submitArrow}
+                  >
+                    <ArrowUp size={14} />
+                  </button>
                 </div>
               </div>
+              <button
+                type="button"
+                className="director-approval-skip-all"
+                disabled={terminal !== null}
+                onClick={() => onStartPipeline(answersRef.current)}
+              >
+                {SCRIPT_CLARIFY_SKIP_ALL}
+              </button>
             </div>
           ) : (
             <div className="director-clarify is-waiting">
@@ -454,10 +518,11 @@ export default function DirectorScriptStreamPanel({
                   </p>
                 ))
               ) : (
-                <div className="director-stream-skeleton" aria-hidden>
-                  <span className="is-title" />
-                  <span />
-                  <span className="is-short" />
+                <div className="director-pixel-loader">
+                  <span className="director-pixel-grid" aria-hidden>
+                    {Array.from({ length: 9 }, (_, index) => <span key={index} />)}
+                  </span>
+                  <span className="director-pixel-label">{SCRIPT_CLARIFY_TITLE}</span>
                 </div>
               )}
             </div>
@@ -551,11 +616,19 @@ export default function DirectorScriptStreamPanel({
       const activeSceneLive = activeScene !== undefined && items["storyboard|scenes"]?.[activeScene] === undefined
       if (!scenes.length && !shots.length && !activeShotLive && !activeSceneLive) return null
       const shotIndices = activeShotLive ? [...shots.map((_, index) => index), activeShot as number] : shots.map((_, index) => index)
+      const seenSceneTitles = new Set<string>()
+      const sceneTitles = scenes
+        .map((item) => itemText(item, "title"))
+        .filter((title) => {
+          if (!title || seenSceneTitles.has(title)) return false
+          seenSceneTitles.add(title)
+          return true
+        })
       return (
         <div className="director-block-shots">
-          {scenes.map((item, index) => itemText(item, "title") ? (
-            <div key={`scene-${index}`} className="director-shot-scene">【{itemText(item, "title")}】</div>
-          ) : null)}
+          {sceneTitles.map((title) => (
+            <div key={`scene-${title}`} className="director-shot-scene">【{title}】</div>
+          ))}
           {activeSceneLive && shown("storyboard", "title", activeScene) ? (
             <div className="director-shot-scene is-active">
               【{shown("storyboard", "title", activeScene)}
@@ -657,11 +730,11 @@ export default function DirectorScriptStreamPanel({
       >
         {userBubble}
         {!visibleBlocks.length ? (
-          <div className="director-stream-skeleton" aria-hidden>
-            <span className="is-title" />
-            <span />
-            <span />
-            <span className="is-short" />
+          <div className="director-pixel-loader" aria-hidden>
+            <span className="director-pixel-grid">
+              {Array.from({ length: 9 }, (_, index) => <span key={index} />)}
+            </span>
+            <span className="director-pixel-label">{SCRIPT_STREAM_TITLE}</span>
           </div>
         ) : (
           visibleBlocks.map((agent) => {
