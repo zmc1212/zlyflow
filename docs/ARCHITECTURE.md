@@ -1516,3 +1516,53 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：保留现有 stage、旧别名、`view=plan|timeline`、Recipe/Take/节点协议和工程 ID；仅改变导航不触发生成/导出的用户行为。
 - 验证：`pnpm --dir frontend build`（40 tests）；`python output/playwright/run-backend-check.py`（SQLite 隔离，379 passed / 6 个既有测试失败）；`node output/playwright/director-flow-check.cjs`（桌面/手机、浅色/暗色、导航和保存失败路径）。
 - 回滚：恢复本次前端组件、纯函数、注册表 `director_controls` 和三份文档；无需数据库迁移。
+
+## 2026-09-11 导演台剧本生成流式展示（SSE）
+
+- 原因：剧本阶段（片名/一句话梗概/完整故事）一直是可编辑输入框，用户误以为是输入区，实际是 script agent 生成后一次性回填；生成过程只有 1.2 秒轮询状态文案，看不到内容逐步产出。
+- 当前基线：`backend/app/director_stream.py` 提供 `ScriptFieldStreamTracker`（把 script agent `on_chunk` 的累积原文容错解析为 title/summary/fullStory 字段级增量，处理 `<think>` 块、``` 围栏、跨块转义与模型改写重置）和 `DirectorOperationEventBus`（按操作缓冲带递增 seq 的事件，`call_soon_threadsafe` 支持工作线程发射，订阅可重放 `since` 之后的历史并实时推送，终态后关闭并清理，最多缓冲 128 个操作）。`DirectorOperationService` 在生命周期发 `status`/`agent`/终态事件；`run_director_recipe`/`run_recipe_pipeline`/`run_agent` 新增 `on_stream` 回调，script agent 分支接入 tracker。新端点 `GET /api/director/operations/{operation_id}/events`（SSE，15 秒心跳；事件 `status`/`agent`/`script_delta`/`done`/`cancelled`/`error`，`id:` 为事件序号，查询参数 `since` 控制重放起点）与既有轮询接口同权限；断流由前端携带 `since` 重连，既有 1.2 秒轮询保留为兜底。
+- 前端：`director-operation-stream.ts` 手写 SSE 解析（fetch + ReadableStream、AbortController、最多 4 次断线重连）；`DirectorScriptStreamPanel` 生成中视图（脉动状态栏 + 9 Agent 任务行 + 打字机文档 + 骨架屏 + 耗时 + 取消，正文自动跟随滚动、上滚暂停）；`DirectorScriptDocument` 成稿只读文档（「编辑剧本」显式切回表单、「进入分镜设计」CTA）；`DirectorRecipeStudio` 剧本阶段四态 empty/streaming/document/edit，完整方案生成成功后停留在剧本页，不再自动跳转分镜。
+- 受影响文件：`backend/app/{director_stream,director_operations,director_agents,llm_provider,main}.py`、`backend/tests/test_director_stream.py`、`frontend/src/director/{director-operation-stream.ts,DirectorRecipeStudio.tsx,action-copy.ts,guided-flow.css}`、`frontend/src/director/components/{DirectorScriptStreamPanel,DirectorScriptDocument}.tsx` 和三份主文档。
+- 兼容性：不改既有 operation 创建/轮询/取消 API、Agent 提示词与 JSON 契约、数据库 schema、ComfyUI 节点或端口。SSE 为纯增量通道，事件仅在内存短期缓冲，服务重启或缓冲被逐出后前端自动回退轮询；旧客户端不受影响。
+- 验证命令：`python -m pytest backend/tests/test_director_stream.py backend/tests/test_director.py backend/tests/test_director_concurrency.py backend/tests/test_director_controls.py -q`；`pnpm --dir frontend build`。浏览器验证空态/流式/成稿/编辑/取消/失败/刷新恢复七个场景与双主题、移动端布局。
+- 回滚方式：还原本次提交即可回到输入框 + 纯轮询的现状，无数据库迁移。
+
+## 2026-09-11 导演台生成过程全面流式化与创意澄清
+
+- 原因：中间区域只流式展示剧本，script 之后的 Agent 运行时画面静止；研究与脚本两步缺少计划模式式的方向引导，用户无法影响剧情走向。
+- 当前基线：`director_stream.py` 的 `ScriptFieldStreamTracker` 泛化为 `AgentStreamTracker`（声明式 spec：`scalar_fields` + `AgentArraySpec(key, display_fields, extractor)`）。新事件：`agent_delta`（agent/field/index/delta/reset，index=null 为标量字段，否则为数组条目的展示字段流式）与 `agent_item`（数组条目闭合解析后整体发出，finish 时以权威解析值覆盖重发，上限 200 条）。多调用 Agent（storyboard 每场景片段、重拆重试）在每次 LLM 调用前 `begin_call()`，条目序号跨调用连续。spec 注册表覆盖 research/script/characters（含 props）/locations/storyboard（scenes+嵌套 shots）/voice/music/clarify；art_style（仅 id）与 media（无 LLM）不接流式。`run_agent`/`run_recipe_pipeline` 新增 `clarifications` 参数，script 分支用 `_clarified_goal_text()` 把问答以「创作方向确认」附加到 user content（goal 本身不改动，避免污染标题回退等逻辑）。
+- 创意澄清：新 operation kind `plan_clarify`（`models.py` 的 `DirectorOperationCreateRequest.kind` 增量、新增 `clarifications: list[DirectorClarificationItem]`）。`llm_minimax_skills.build_clarify_questions_prompt()` 要求 2-4 个剧情走向问题（每题 3-4 个选项含 recommended、allowCustom）；`LlmProviderService.run_director_clarify()` 流式生成问题并经 `parse_json_object` 归一化；`DirectorOperationService._run_clarify` 通过事件总线推送问题文本流，questions 存入 operation result 并由 done 事件携带；`_run_plan` 把 clarifications 透传 `run_director_recipe`。创建接口对 plan_clarify 校验 LLM 可用性与 goal 必填。
+- 前端：`DirectorScriptStreamPanel` 重构为聊天记录式生成视图——每个 Agent 一个段落块（运行中展开、完成折叠为一行摘要、点击回看），块内按 Agent 渲染：剧本手稿、画风揭晓卡、角色/道具/场景卡片（agent_item 逐张出现 + 活动卡片描述打字机）、镜头行（跨场景全局镜号）、声线分配行、配乐方案文本；顶部 Task Rows 与创作方向 chips 保留。澄清流程：点「生成创作方案」创建 plan_clarify → 问题文本流式 → Approval Card 逐题作答（选项 chip 单选 / 自定义输入 / 跳过这题 / 跳过全部）→ 答完自动等待前一操作落定后创建 plan_pipeline（携带 clarifications）。未答问题持久化在 `director-clarify:{projectId}`，刷新恢复后重新展示。
+- 受影响文件：`backend/app/{director_stream,director_agents,llm_minimax_skills,models,llm_provider,director_operations,main}.py`、`backend/tests/test_director_stream.py`、`frontend/src/director/{director-operation-stream.ts,DirectorRecipeStudio.tsx,director-api.ts,action-copy.ts,guided-flow.css}`、`frontend/src/director/components/DirectorScriptStreamPanel.tsx` 和三份主文档。
+- 兼容性：`script_delta` 事件被 `agent_delta`（agent=script）取代，SSE 事件协议随本次前后端同版本变更；既有 operation 创建/轮询/取消 API、数据库 schema、Agent JSON 契约与 ComfyUI 协议不变（kind 与 clarifications 为增量字段）。旧客户端轮询路径不受影响。
+- 验证命令：`python -m pytest backend/tests/test_director_stream.py backend/tests/test_director.py backend/tests/test_director_concurrency.py backend/tests/test_director_controls.py -q`；`pnpm --dir frontend build`。人工回归：提问→回答/跳过→生成、聊天记录滚动与折叠、取消/失败、刷新恢复、双主题与移动端。
+- 回滚方式：还原本次提交即回到「仅剧本流式」现状；无数据库迁移。
+
+## 2026-09-11 导演台 Prompt Bar 对话式创作室布局
+
+- 原因：创意简报输入位于左上角侧栏，与内容展示区（中部）割裂；生成/取消按钮在顶栏、阶段操作行、底栏三处重复，界面组织仍是「表单 + 内容」而非对话式创作。
+- 当前基线：新组件 `frontend/src/director/components/DirectorPromptBar.tsx`——对话式输入条（TextArea 自适应 + 圆形发送按钮），Enter 发送、Shift+Enter 换行、输入法组合键保护；三态 idle（可编辑+发送）/ streaming（锁定为状态条：脉动指示 + 状态文案 + 取消）/ clarify（禁用 + 「回答上方的问题以继续」）。剧本阶段改为对话式创作室 `.director-script-room`：内容区从上到下为用户创意气泡（`brief` prop，取本次操作 request.goal 快照）→ 澄清问题卡 → 生成记录块 → 成稿文档，底部 sticky Prompt Bar（`.director-recipe-main` 为滚动列，`min-height:100%` 保证空态时输入条也贴底）。空态改为 hero 欢迎区 + 3 个示例创意 chips（点击填入输入框）。
+- 入口收敛：剧本阶段移除顶栏「生成创作方案」（Prompt Bar 承担生成/取消，`scriptRoomActive` 控制）、移除 rail 内简报卡与移动端简报卡、隐藏移动端底栏（Prompt Bar fixed 于安全区上方，z-index 85）；画风阶段保留顶栏生成按钮；其他阶段 mobilePrimary/底栏逻辑不变。批量短视频页主题输入从「主题与参数」卡迁移到底部常驻 Prompt Bar（卡片改名「生成参数」，shell 改纵向 flex + `.director-batch-scroll` 滚动），顶栏「裂变并生成」与移动底栏移除。
+- 受影响文件：`frontend/src/director/{DirectorRecipeStudio.tsx,DirectorBatchStudio.tsx,action-copy.ts,guided-flow.css}`、`frontend/src/director/components/{DirectorPromptBar.tsx,DirectorScriptStreamPanel.tsx}` 和三份主文档。
+- 兼容性：纯前端布局调整；`goal`/`payload.theme` 的 state 绑定与自动保存逻辑不变，不改 API、后端协议、数据库或 ComfyUI。`SCRIPT_EMPTY_HINT` 等文案同步更新，删除 `.director-script-empty` 样式（index.css 中 `.director-brief-card` 系列成为死样式，留待下次清理）。
+- 验证命令：`pnpm --dir frontend build`；`python -m pytest backend/tests/test_director_stream.py backend/tests/test_director.py -q`（确认无后端回归）。人工回归：空态 hero→示例填入→发送→澄清→生成记录→成稿→改简报重新生成；生成中取消；画风阶段顶栏生成；批量页新输入流；桌面+移动端、双主题。
+- 回滚方式：还原本次提交即恢复侧栏简报卡 + 顶栏按钮布局。
+
+## 2026-09-11 导演台 Agent 对话界面重构（双模式）
+
+- 原因：对话创作界面上残留旧工作台元素（剧本/画风 Tabs、阶段头「继续」按钮、顶栏任务活动/取消按钮、Task Rows 为水平单行不符合 beautifului 形态），且分镜文字没有逐字流式打印——根因是活跃镜头（JSON 未闭合）只有 agent_delta 事件而无渲染载体，镜头行要等 agent_item 整行出现。
+- 当前基线：双模式布局——`script` 阶段为全屏 Agent 对话创作室（`.director-recipe-layout.is-chat` 单列：隐藏左侧导航、剧本/画风 Tabs 与 DirectorTaskHeader；顶栏收敛为返回/工程名/主题/串播/更多，「任务活动」移入更多菜单，取消生成由 Prompt Bar 状态条承担）；其他阶段（分镜/素材/镜头/声音/成片）保留现有编辑工作台与左侧导航，侧栏「剧本」即回对话。对话流新结构：用户气泡 → 垂直任务面板（新组件 `DirectorTaskRows`：每行状态图标+任务名+实时消息，头部总进度条+百分比+耗时，运行中常驻、终态折叠为一行可展开）→ 澄清卡 → 产出块卡片化（圆角卡+Agent 图标，运行中主色描边）→ 分镜块活跃镜头逐字打印（`activeIndex` 跟踪各 field 最新 delta 序号，活跃行以打字机 shown 值渲染+光标，title 未到时骨架行；活跃场景标题同理）→ 画风卡（`更换画风` 打开 Modal 内嵌现有 ArtStyleCatalogPicker，选完提示可重新生成）→ 完成卡（新组件 `DirectorCompletionCard`：成功/部分失败状态 + 下一步 chips「进入分镜设计」「重新生成」，由完成 effect 写入 `lastPlanCompletion` state 渲染在成稿视图上方）。
+- 受影响文件：`frontend/src/director/DirectorRecipeStudio.tsx`、`frontend/src/director/components/{DirectorTaskRows,DirectorCompletionCard,DirectorScriptStreamPanel}.tsx`、`frontend/src/director/{action-copy.ts,guided-flow.css}` 和三份主文档。
+- 兼容性：纯前端；不改 API、阶段 URL 协议（`?stage=`）、工作台阶段行为或后端（分镜 delta 事件已存在，本次为渲染修复）。删除水平任务 chips（`.director-agent-tasks`）与 `.director-style-reveal` 样式。
+- 验证命令：`pnpm --dir frontend build`；`python -m pytest backend/tests/test_director_stream.py backend/tests/test_director.py -q`（后端未改动，确认无回归）。人工回归：对话全流程（气泡→任务面板→澄清→分镜逐字→画风弹层→完成卡→进入分镜设计→侧栏点剧本回对话）、生成中取消/失败、刷新恢复、桌面+移动端双主题。
+- 回滚方式：还原本次提交即恢复 Tabs+侧栏+水平任务行布局。
+
+## 2026-09-12 导演台对话界面 beautifului 官方皮肤校准
+
+- 原因：此前皮肤按官网 CSS 推测实现，视觉与 beautifului.dev 有差距；用户找到官方源码仓库 `TurboKach/ai-native-react-components`（beautifului.dev 同源，MIT），提供 19 个组件的精确实现与完整双主题 token。
+- 使用方式：不安装（shadcn CLI 需 Tailwind v4 + shadcn 项目）、不整文件复制（组件为自驱动 demo 动画的视觉参考，且工作台规范要求 antd 统一）——将其源码与 `app/globals.css` token 块作为像素级样式规范，校准导演台对话创作室的皮肤。
+- 当前基线：`.director-recipe-layout.is-chat` 作用域内的 `--director-*` token 层替换为官方精确值（accent #0285ff/暗 #3d9aff、green/red/orange 及 tint 系、三层 `shadow-card`/`shadow-btn`/`shadow-raised` 阴影）。`DirectorTaskRows` 重写为官方 Capsules 语法：SVG 圆环序号徽章（灰底环+旋转弧+中心序号）、实心绿圆勾/红圆叉状态徽章（pop-in 弹出）、行右侧 tint 状态胶囊（已完成绿/失败红）、每行独立白胶囊卡（44px 高、22px 圆角、运行中收窄 14px、hairline 阴影、hover inset、fade-up stagger 进场）。产出块/澄清卡/完成卡/示例创意卡统一 `shadow-card`+14px 圆角+fade-up 曲线；用户气泡改 accent 蓝底白字；Prompt Bar 用 `shadow-raised`、聚焦 accent 描边、发送键按压缩放 `scale(.94)`、提示行虚线上边；关键帧补齐官方 `fade-up/pop-in/stream-in/fade-in`（cubic-bezier(0.23,1,0.32,1)）。
+- 受影响文件：`frontend/src/director/guided-flow.css`、`frontend/src/director/components/{DirectorTaskRows,DirectorScriptStreamPanel}.tsx`。
+- 兼容性：皮肤仅作用于对话创作室（`is-chat` 作用域），工作台模式与全局 `--studio-*` 主题不变；MIT 许可仅参考样式值，不引入任何新依赖或复制组件源码。
+- 验证命令：`pnpm --dir frontend build`。人工回归：对话创作室浅色/暗色双主题视觉、任务面板胶囊行、按压动效、移动端。
+- 回滚方式：还原本次提交即恢复 `--studio-*` 皮肤。

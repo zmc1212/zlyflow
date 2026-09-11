@@ -20,6 +20,7 @@ from .director_recipe import (
     split_display_and_prompt,
     sync_dialogue_prompt,
 )
+from .director_stream import AGENT_STREAM_SPECS, AgentStreamTracker
 from .llm_client import (
     LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
     LlmBillingError,
@@ -219,6 +220,40 @@ def pick_art_style_from_catalog(goal: str, preferred: Any = None) -> dict[str, s
 
 def default_chat_fn(client: OpenAICompatibleClient, model: str) -> ChatFn:
     return DirectorChatFn(client, model)
+
+
+def _make_agent_tracker(agent_id: str, on_stream: Callable[[dict[str, Any]], None] | None) -> AgentStreamTracker | None:
+    """Build the display stream tracker for an agent, or None when streaming is off."""
+    spec = AGENT_STREAM_SPECS.get(agent_id)
+    if spec is None or on_stream is None:
+        return None
+    return AgentStreamTracker(spec, on_stream)
+
+
+def _attach_agent_tracker(tracker: AgentStreamTracker | None, chat_fn: ChatFn | None) -> None:
+    if tracker is not None and chat_fn is not None and hasattr(chat_fn, "on_chunk"):
+        chat_fn.on_chunk = tracker.feed
+
+
+def _finish_agent_tracker(tracker: AgentStreamTracker | None, parsed: Any) -> None:
+    if tracker is not None:
+        tracker.finish(parsed if isinstance(parsed, dict) else None)
+
+
+def _clarified_goal_text(goal: str, clarifications: Any) -> str:
+    """Append user-confirmed creative directions to the script agent input."""
+    rows: list[str] = []
+    if isinstance(clarifications, list):
+        for item in clarifications:
+            if not isinstance(item, dict):
+                continue
+            question = _text(item.get("question"))
+            answer = _text(item.get("answer") or item.get("value"))
+            if question and answer:
+                rows.append(f"- {question} → {answer}")
+    if not rows:
+        return goal
+    return goal + "\n\n创作方向确认（用户已选定，剧本必须遵循这些决定）：\n" + "\n".join(rows)
 
 
 def _text(value: Any, fallback: str = "") -> str:
@@ -1555,6 +1590,8 @@ def run_agent(
     art_style_id: str | None = None,
     skip_research: bool | None = None,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
+    on_stream: Callable[[dict[str, Any]], None] | None = None,
+    clarifications: Any = None,
 ) -> dict[str, Any]:
     if agent_id not in AGENT_IDS:
         raise ValueError(f"未知 Agent：{agent_id}")
@@ -1574,20 +1611,27 @@ def run_agent(
                 recipe["researchNotes"] = ""
                 set_agent_status(recipe, agent_id, "completed", message="无事实核查需求，已跳过")
                 return recipe
+            tracker = _make_agent_tracker(agent_id, on_stream)
+            _attach_agent_tracker(tracker, chat_fn)
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(agent_id, "根据常识摘要用户故事里需要核实的设定。不要编造网址。输出 {\"notes\":\"...\",\"skipped\":false}。无事实需求时 notes 为空、skipped 为 true。")},
                 {"role": "user", "content": goal},
             ])
             recipe["researchNotes"] = _text((parsed or {}).get("notes"))
+            _finish_agent_tracker(tracker, parsed)
             set_agent_status(recipe, agent_id, "completed")
             return recipe
 
         if agent_id == "script":
-            parsed = _chat_json(chat_fn, [
+            tracker = _make_agent_tracker(agent_id, on_stream)
+            _attach_agent_tracker(tracker, chat_fn)
+            messages = [
                 {"role": "system", "content": _system(agent_id, build_script_agent_prompt())},
-                {"role": "user", "content": goal},
-            ]) if chat_fn else None
+                {"role": "user", "content": _clarified_goal_text(goal, clarifications)},
+            ]
+            parsed = _chat_json(chat_fn, messages) if chat_fn else None
             _apply_script(recipe, parsed or {}, goal)
+            _finish_agent_tracker(tracker, parsed)
             set_agent_status(recipe, agent_id, "completed")
             return recipe
 
@@ -1614,7 +1658,8 @@ def run_agent(
             full_story = script.get("fullStory") or script.get("content") or goal
             scene_texts = _split_story_into_scene_texts(full_story)
             all_scenes = []
-            
+            tracker = _make_agent_tracker(agent_id, on_stream)
+
             if chat_fn:
                 previous_chunk = getattr(chat_fn, "on_chunk", None)
 
@@ -1650,9 +1695,18 @@ def run_agent(
                                 set_agent_status(recipe, agent_id, "running", message=f"正在写分镜 ({idx+1}/{len(scene_texts)}) - 已收 {n} 字")
                                 try: emit()
                                 except: pass
-                                
+
                         if hasattr(chat_fn, "on_chunk"):
-                            chat_fn.on_chunk = local_report
+                            if tracker is not None:
+                                tracker.begin_call()
+
+                                def combined_report(accumulated: str) -> None:
+                                    local_report(accumulated)
+                                    tracker.feed(accumulated)
+
+                                chat_fn.on_chunk = combined_report
+                            else:
+                                chat_fn.on_chunk = local_report
 
                         raw = _chat_text(chat_fn, [
                             {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
@@ -1668,6 +1722,8 @@ def run_agent(
                             set_agent_status(recipe, agent_id, "running", message=f"镜头不完整，正在重拆 ({idx+1}/{len(scene_texts)})")
                             try: emit()
                             except: pass
+                            if tracker is not None and hasattr(chat_fn, "on_chunk"):
+                                tracker.begin_call()
                             raw = _chat_text(chat_fn, [
                                 {"role": "system", "content": _system(agent_id, STORYBOARD_RETRY_SYSTEM)},
                                 {"role": "user", "content": user_content},
@@ -1681,6 +1737,7 @@ def run_agent(
                         chat_fn.on_chunk = previous_chunk
             
             _apply_storyboard(recipe, {"scenes": all_scenes}, goal)
+            _finish_agent_tracker(tracker, {"scenes": all_scenes})
             _normalize_recipe_dialogue_fields(recipe)
             if _recipe_shot_count(recipe) == 0:
                 recipe["scenes"] = []
@@ -1875,6 +1932,8 @@ def run_agent(
             return recipe
 
         if agent_id == "characters":
+            tracker = _make_agent_tracker(agent_id, on_stream)
+            _attach_agent_tracker(tracker, chat_fn)
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
@@ -1892,10 +1951,13 @@ def run_agent(
                 {"role": "user", "content": _story_context(recipe, goal)},
             ]) if chat_fn else None
             _apply_characters(recipe, parsed or {})
+            _finish_agent_tracker(tracker, parsed)
             set_agent_status(recipe, agent_id, "completed")
             return recipe
 
         if agent_id == "locations":
+            tracker = _make_agent_tracker(agent_id, on_stream)
+            _attach_agent_tracker(tracker, chat_fn)
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
@@ -1905,10 +1967,13 @@ def run_agent(
                 {"role": "user", "content": _story_context(recipe, goal)},
             ]) if chat_fn else None
             _apply_locations(recipe, parsed or {})
+            _finish_agent_tracker(tracker, parsed)
             set_agent_status(recipe, agent_id, "completed")
             return recipe
 
         if agent_id == "voice":
+            tracker = _make_agent_tracker(agent_id, on_stream)
+            _attach_agent_tracker(tracker, chat_fn)
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
@@ -1925,10 +1990,13 @@ def run_agent(
                 }, ensure_ascii=False)[:7000]},
             ]) if chat_fn else None
             _apply_voice(recipe, parsed or {})
+            _finish_agent_tracker(tracker, parsed)
             set_agent_status(recipe, agent_id, "completed")
             return recipe
 
         if agent_id == "music":
+            tracker = _make_agent_tracker(agent_id, on_stream)
+            _attach_agent_tracker(tracker, chat_fn)
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
@@ -1942,6 +2010,7 @@ def run_agent(
                 {"role": "user", "content": _story_context(recipe, goal)},
             ]) if chat_fn else None
             _apply_music(recipe, parsed or {})
+            _finish_agent_tracker(tracker, parsed)
             set_agent_status(recipe, agent_id, "completed")
             return recipe
 
@@ -1967,6 +2036,8 @@ def run_recipe_pipeline(
     agents: list[str] | None = None,
     skip_research: bool | None = None,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
+    on_stream: Callable[[dict[str, Any]], None] | None = None,
+    clarifications: Any = None,
 ) -> dict[str, Any]:
     current = normalize_recipe_payload(recipe or empty_recipe_payload(title=_text(goal)[:24], full_story=goal))
     if not _text((current.get("script") or {}).get("fullStory")):
@@ -1990,6 +2061,8 @@ def run_recipe_pipeline(
                 art_style_id=art_style_id,
                 skip_research=skip_research,
                 on_progress=on_progress,
+                on_stream=on_stream,
+                clarifications=clarifications,
             )
             if on_progress:
                 on_progress(current)

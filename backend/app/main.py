@@ -16,7 +16,7 @@ from typing import Annotated, Any
 from urllib.parse import urlencode
 
 import requests
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, Security, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, Security, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -71,6 +71,7 @@ from .director_recipe import (
 )
 from .director_project_service import merge_recipe_creative, merge_recipe_execution, persist_recipe_execution
 from .director_operations import DirectorOperationService
+from .director_stream import TERMINAL_OPERATION_STATUSES, terminal_event_for_status
 from .grs_provider import GrsProviderService
 from .llm_client import LlmError, is_upstream_llm_failure
 from .llm_provider import LlmProviderService
@@ -2005,10 +2006,12 @@ async def create_director_operation(
     record = director_project_or_404(app.state.store, project_id, user)
     if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
         raise HTTPException(status_code=422, detail="只有 Recipe 工程可以创建导演操作")
-    if payload.kind == "plan_pipeline":
+    if payload.kind in {"plan_pipeline", "plan_clarify"}:
         available, reason = app.state.llm_provider.availability()
         if not available:
             raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+        if payload.kind == "plan_clarify" and not (payload.goal or "").strip():
+            raise HTTPException(status_code=422, detail="请先填写创意简报，AI 才能提出创作方向问题")
         requested_agents = payload.agents or []
         unknown = [agent_id for agent_id in requested_agents if agent_id not in AGENT_IDS]
         if unknown:
@@ -2048,6 +2051,86 @@ def get_director_operation(
     user: Annotated[dict, Depends(current_user)],
 ) -> dict:
     return public_director_operation(director_operation_or_404(app.state.store, operation_id, user))
+
+
+def _format_sse_event(event: dict) -> str:
+    name = str(event.get("event") or "message")
+    seq = int(event.get("seq") or 0)
+    payload = json.dumps(event.get("data") or {}, ensure_ascii=False)
+    return f"id: {seq}\nevent: {name}\ndata: {payload}\n\n"
+
+
+@app.get(
+    "/api/director/operations/{operation_id}/events",
+    tags=["导演台"],
+    summary="订阅导演操作事件流（SSE）",
+    description=(
+        "以 `text/event-stream` 推送导演长操作的过程事件：`status`（状态/进度）、"
+        "`agent`（Agent 状态变化）、`script_delta`（剧本字段流式增量，field 为 title/summary/fullStory）、"
+        "以及终态 `done`/`cancelled`/`error`。连接即重放 `since` 之后的缓冲事件，收到终态事件后服务端关闭流；"
+        "事件仅在内存中短期缓冲，重连过旧或服务重启后请回退到轮询接口。"
+    ),
+)
+async def stream_director_operation_events(
+    operation_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(current_user)],
+    since: Annotated[int, Query(description="只重放 seq 大于该值的缓冲事件；0 表示从头重放缓冲区")] = 0,
+) -> StreamingResponse:
+    director_operation_or_404(app.state.store, operation_id, user)
+    bus = app.state.director_operations.events
+
+    async def event_stream():
+        queue, replay = bus.subscribe(operation_id, since=max(0, since))
+        last_seq = max(0, since)
+        try:
+            for event in replay:
+                last_seq = max(last_seq, int(event.get("seq") or 0))
+                yield _format_sse_event(event)
+                if event.get("terminal"):
+                    return
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    try:
+                        current = app.state.store.get_director_operation(operation_id)
+                    except KeyError:
+                        current = {"status": "failed", "error": "导演操作不存在"}
+                    if current.get("status") in TERMINAL_OPERATION_STATUSES:
+                        yield _format_sse_event(
+                            terminal_event_for_status(
+                                str(current["status"]),
+                                result=current.get("result"),
+                                message=current.get("error"),
+                            )
+                        )
+                        return
+                    yield ": keep-alive\n\n"
+                    continue
+                if item is None:
+                    return
+                seq = int(item.get("seq") or 0)
+                if seq <= last_seq:
+                    continue
+                last_seq = seq
+                yield _format_sse_event(item)
+                if item.get("terminal"):
+                    return
+        finally:
+            bus.unsubscribe(operation_id, queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.post(

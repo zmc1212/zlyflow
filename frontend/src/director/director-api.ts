@@ -52,8 +52,10 @@ export type DirectorProjectResponse = DirectorProjectListItem & {
   payload: Record<string, unknown>
 }
 
-export type DirectorOperationKind = "plan_pipeline" | "shot_render_prepare"
+export type DirectorOperationKind = "plan_pipeline" | "plan_clarify" | "shot_render_prepare"
 export type DirectorOperationStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled"
+
+export type DirectorClarificationInput = { question: string; answer: string }
 
 export type DirectorOperationResponse = {
   id: string
@@ -68,6 +70,7 @@ export type DirectorOperationResponse = {
     skip_research?: boolean
     shot_ids?: string[]
     render_pass?: "preview" | "final"
+    clarifications?: DirectorClarificationInput[]
   }
   result: {
     message?: string
@@ -75,6 +78,7 @@ export type DirectorOperationResponse = {
     failed_agents?: string[]
     project_revision?: number
     content_revision?: number
+    questions?: unknown
   }
   error?: string | null
   cancel_requested: boolean
@@ -300,6 +304,7 @@ export function createDirectorOperation(
     shot_ids?: string[]
     render_pass?: "preview" | "final"
     polish_prompt?: boolean
+    clarifications?: DirectorClarificationInput[]
   },
   csrfToken: string,
 ) {

@@ -12,6 +12,10 @@ import JobErrorNotice from "./components/JobErrorNotice"
 import DirectorExportPanel from "./components/DirectorExportPanel"
 import DirectorStageNav from "./components/DirectorStageNav"
 import DirectorTaskHeader from "./components/DirectorTaskHeader"
+import DirectorScriptDocument from "./components/DirectorScriptDocument"
+import DirectorScriptStreamPanel, { type ClarifyAnswer, type ClarifyQuestion } from "./components/DirectorScriptStreamPanel"
+import DirectorPromptBar from "./components/DirectorPromptBar"
+import DirectorCompletionCard from "./components/DirectorCompletionCard"
 import { useDirectorProjectSession } from "./useDirectorProjectSession"
 import { useDirectorOperation } from "./useDirectorOperation"
 import DirectorProductionSettings from "./components/DirectorProductionSettings"
@@ -33,6 +37,13 @@ import {
   PLAN_GENERATION_HINT,
   PLAN_GENERATION_LABEL,
   PLAN_GENERATION_SUCCESS,
+  SCRIPT_EMPTY_HINT,
+  SCRIPT_EMPTY_TITLE,
+  SCRIPT_ART_CHANGE_HINT,
+  SCRIPT_ART_PICKER_TITLE,
+  SCRIPT_IDEA_EXAMPLES,
+  SCRIPT_PROM_BAR_CLARIFY_PLACEHOLDER,
+  SCRIPT_PROM_BAR_PLACEHOLDER,
   approveBatchConfirm,
   approveBatchLabel,
   boardBatchConfirm,
@@ -331,11 +342,26 @@ export default function DirectorRecipeStudio({
   const [manualImportOpen, setManualImportOpen] = useState(false)
   const [skeletonCount, setSkeletonCount] = useState(0)
   const [elapsedSec, setElapsedSec] = useState(0)
+  const [scriptEditMode, setScriptEditMode] = useState(false)
+  const clarifyStorageKey = `director-clarify:${projectId}`
+  const [clarifyQuestions, setClarifyQuestions] = useState<ClarifyQuestion[] | null>(() => {
+    if (typeof window === "undefined") return null
+    try {
+      const raw = window.localStorage.getItem(`director-clarify:${projectId}`)
+      const parsed = raw ? JSON.parse(raw) : null
+      return Array.isArray(parsed) && parsed.length ? parsed as ClarifyQuestion[] : null
+    } catch {
+      return null
+    }
+  })
+  const [scriptAnswers, setScriptAnswers] = useState<ClarifyAnswer[]>([])
   const runStartedAtRef = useRef(0)
   const recipeRef = useRef(recipe)
   const goalRef = useRef(goal)
   const deletedTakeIdsRef = useRef(new Set<string>())
   const { saveStatus, setSaveStatus, contentConflict, setContentConflict, saveTimerRef, projectRevisionRef, contentRevisionRef, editVersionRef, savedEditVersionRef, conflictRef, persistNow, scheduleSave, flushSave } = useDirectorProjectSession({ projectId, csrfToken, recipeRef, goalRef, runStartedAtRef, deletedTakeIdsRef, notifyFailure })
+  const activeOperationIdRef = useRef(activeOperationId)
+  activeOperationIdRef.current = activeOperationId
   const isMobile = useIsMobile()
   const compactInspector = useIsMobile("(max-width: 1199px)")
   const returnStageRef = useRef<RecipeStageId | null>(null)
@@ -407,7 +433,7 @@ export default function DirectorRecipeStudio({
     if (!operation) return
     if (typeof window !== "undefined") window.localStorage.setItem(operationStorageKey, operation.id)
     if (directorOperationIsActive(operation)) {
-      if (operation.kind === "plan_pipeline") {
+      if (operation.kind === "plan_pipeline" || operation.kind === "plan_clarify") {
         if (!runStartedAtRef.current) runStartedAtRef.current = Date.parse(operation.created_at) || Date.now()
         setRunning(true)
       } else {
@@ -433,7 +459,18 @@ export default function DirectorRecipeStudio({
         const refreshed = await projectQuery.refetch()
         const row = refreshed.data
         const payload = row ? recipePayloadFromApi(row) : null
-        if (operation.kind === "plan_pipeline") {
+        if (operation.kind === "plan_clarify") {
+          const questions = operation.result?.questions
+          if (operation.status === "succeeded" && Array.isArray(questions) && questions.length) {
+            const pending = questions as ClarifyQuestion[]
+            setClarifyQuestions(pending)
+            if (typeof window !== "undefined") window.localStorage.setItem(clarifyStorageKey, JSON.stringify(pending))
+          } else if (operation.status !== "succeeded") {
+            notifyFailure(operation.error, operation.status === "cancelled" ? "生成已取消" : PLAN_GENERATION_FAILURE)
+          } else {
+            messageApi.warning("AI 没有给出创作方向问题，请直接重新生成")
+          }
+        } else if (operation.kind === "plan_pipeline") {
           if (payload && row) {
             recipeRef.current = payload
             setRecipe(payload)
@@ -444,6 +481,15 @@ export default function DirectorRecipeStudio({
             if (nextShots.length) setSelectedShotId(nextShots[0].id)
           }
           const failedAgents = directorOperationFailedAgents(operation, payload)
+          const planOutcome = {
+            ok: operation.status === "succeeded" && failedAgents.length === 0,
+            failedAgents,
+            shotCount: payload ? flattenRecipeShots(payload).length : 0,
+          }
+          setLastPlanCompletion(planOutcome)
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(planCompletionStorageKey, JSON.stringify(planOutcome))
+          }
           if (operation.status === "succeeded" && failedAgents.length === 0) {
             const agents = operation.request.agents || []
             if (agents.includes("storyboard") && agents.length <= 2) {
@@ -451,8 +497,8 @@ export default function DirectorRecipeStudio({
               messageApi.success(count ? `已根据剧本生成 ${count} 个镜头` : "分镜已生成")
               setActiveStage("storyboard")
             } else {
+              // 生成完成后停留在剧本页展示成稿，由用户通过「进入分镜设计」继续。
               messageApi.success(PLAN_GENERATION_SUCCESS)
-              setActiveStage("storyboard")
             }
           } else if (operation.status === "succeeded") {
             messageApi.error(`生成未完整完成：${failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id).join("、")}`)
@@ -487,7 +533,7 @@ export default function DirectorRecipeStudio({
         const toastKey = operationToastKeysRef.current.get(operation.id)
         if (toastKey) messageApi.destroy(toastKey)
         operationToastKeysRef.current.delete(operation.id)
-        if (operation.kind === "plan_pipeline") {
+        if (operation.kind === "plan_pipeline" || operation.kind === "plan_clarify") {
           runStartedAtRef.current = 0
           setRunning(false)
         }
@@ -850,6 +896,37 @@ export default function DirectorRecipeStudio({
     const saved = await flushSave()
     if (!saved) return
     setRunning(true)
+    setScriptEditMode(false)
+    setLastPlanCompletion(null)
+    if (typeof window !== "undefined") window.localStorage.removeItem(planCompletionStorageKey)
+    setActiveStage("script")
+    runStartedAtRef.current = Date.now()
+    try {
+      const operation = await createDirectorOperation(projectId, {
+        kind: "plan_clarify",
+        goal: text,
+      }, csrfToken)
+      rememberDirectorOperation(operation)
+    } catch (error) {
+      notifyFailure(error, PLAN_GENERATION_FAILURE)
+      runStartedAtRef.current = 0
+      setRunning(false)
+    }
+  }
+
+  async function handleStartPipeline(answers: ClarifyAnswer[]) {
+    setClarifyQuestions(null)
+    if (typeof window !== "undefined") window.localStorage.removeItem(clarifyStorageKey)
+    setScriptAnswers(answers)
+    // 等 clarify 操作的完成处理清掉活动操作后再创建 pipeline，避免单飞约束 409。
+    for (let attempt = 0; attempt < 100 && activeOperationIdRef.current; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    const text = goalRef.current.trim()
+    if (!text || activeOperationIdRef.current) return
+    setRunning(true)
+    setLastPlanCompletion(null)
+    if (typeof window !== "undefined") window.localStorage.removeItem(planCompletionStorageKey)
     runStartedAtRef.current = Date.now()
     setRecipe((current) => startLocalPipelineRun(
       setLocalAgentStatus(current, "research", "completed", "无事实核查需求，已跳过"),
@@ -860,8 +937,9 @@ export default function DirectorRecipeStudio({
       const operation = await createDirectorOperation(projectId, {
         kind: "plan_pipeline",
         goal: text,
-        art_style_id: recipe.artStyle?.id,
+        art_style_id: recipeRef.current.artStyle?.id,
         skip_research: true,
+        clarifications: answers,
       }, csrfToken)
       rememberDirectorOperation(operation)
     } catch (error) {
@@ -1860,6 +1938,30 @@ export default function DirectorRecipeStudio({
     : "暂无人物"
   const dialogueShotCount = shots.filter((shot) => shot.dialogue.trim()).length
   const planStagePrimary = activeStage === "script" || activeStage === "art_style"
+  const planPipelineRunning = running && operationQuery.data?.kind !== "shot_render_prepare"
+  const clarifyActive = Boolean(clarifyQuestions?.length) && !planPipelineRunning
+  const hasScriptContent = Boolean(
+    recipe.script.title.trim() || recipe.script.summary.trim() || recipe.script.fullStory.trim(),
+  )
+  const scriptStageMode: "streaming" | "empty" | "document" | "edit" = planPipelineRunning || clarifyActive
+    ? "streaming"
+    : !hasScriptContent
+      ? "empty"
+      : scriptEditMode ? "edit" : "document"
+  // 剧本阶段是对话式创作室：生成/取消由底部 Prompt Bar 承担，顶栏与底栏不再重复。
+  const scriptRoomActive = activeStage === "script" && !isTimelineView
+  const [artStylePickerOpen, setArtStylePickerOpen] = useState(false)
+  const planCompletionStorageKey = `director-plan-completion:${projectId}`
+  const [lastPlanCompletion, setLastPlanCompletion] = useState<{ ok: boolean; failedAgents: string[]; shotCount: number } | null>(() => {
+    if (typeof window === "undefined") return null
+    try {
+      const raw = window.localStorage.getItem(`director-plan-completion:${projectId}`)
+      const parsed = raw ? JSON.parse(raw) : null
+      return parsed && typeof parsed === "object" && typeof parsed.ok === "boolean" ? parsed : null
+    } catch {
+      return null
+    }
+  })
   const characterActionLabel = plateBatchLabel("character", pendingCharacterCount || recipe.characters.length)
   const locationActionLabel = plateBatchLabel("location", pendingLocationCount || recipe.locations.length)
   const locationApproveLabel = approveBatchLabel("location", approvableLocationCount)
@@ -2026,6 +2128,25 @@ export default function DirectorRecipeStudio({
               ),
             }]}
           /></Drawer>
+      <Modal
+        title={SCRIPT_ART_PICKER_TITLE}
+        open={artStylePickerOpen}
+        footer={null}
+        width={isMobile ? "100%" : 860}
+        onCancel={() => setArtStylePickerOpen(false)}
+      >
+        <ArtStyleCatalogPicker
+          styles={styles}
+          categories={categories}
+          value={recipe.artStyle?.id}
+          disabled={running}
+          onChange={(style) => {
+            updateRecipe((current) => ({ ...current, artStyle: recipeArtStyleFromCatalog(style) }))
+            setArtStylePickerOpen(false)
+            messageApi.success(SCRIPT_ART_CHANGE_HINT)
+          }}
+        />
+      </Modal>
       <ManualStoryboardModal open={manualImportOpen} onCancel={() => setManualImportOpen(false)} onImport={applyManualStoryboard} />
       <DirectorMobileHeader
         title={mobileTitle}
@@ -2081,13 +2202,14 @@ export default function DirectorRecipeStudio({
           />
         )}
         <Space wrap className="director-top-actions">
-          <Button onClick={() => setActivityOpen(true)}>任务活动{running ? " · 进行中" : ""}</Button>
+          {!scriptRoomActive ? <Button onClick={() => setActivityOpen(true)}>任务活动{running ? " · 进行中" : ""}</Button> : null}
           <ThemeToggle />
           <Button icon={<Play size={14} />} disabled={!completedShots.length} onClick={() => setPlayerOpen(true)}>串播</Button>
           <Dropdown
             trigger={["click"]}
             menu={{
               items: [
+                ...(scriptRoomActive ? [{ key: "activity", label: `任务活动${running ? " · 进行中" : ""}`, onClick: () => setActivityOpen(true) }] : []),
                 { key: "workspace", label: "返回创作工作台" },
                 { key: "export", label: "查看成片与交付", icon: <Film size={14} /> },
                 { key: "jianying", label: "剪映导出", disabled: !completedShots.length },
@@ -2097,12 +2219,12 @@ export default function DirectorRecipeStudio({
           >
             <Button icon={<MoreHorizontal size={15} />}>更多</Button>
           </Dropdown>
-          {planStagePrimary && <Tooltip title={PLAN_GENERATION_HINT}>
-            <Button type={planStagePrimary ? "primary" : "default"} icon={<Wand2 size={14} />} loading={running} onClick={handleRun}>
+          {activeStage === "art_style" && <Tooltip title={PLAN_GENERATION_HINT}>
+            <Button type="primary" icon={<Wand2 size={14} />} loading={running} onClick={handleRun}>
               {PLAN_GENERATION_LABEL}
             </Button>
           </Tooltip>}
-          {running && activeOperationId ? (
+          {!scriptRoomActive && running && activeOperationId ? (
             <Button
               danger
               loading={Boolean(operationQuery.data?.cancel_requested)}
@@ -2116,31 +2238,12 @@ export default function DirectorRecipeStudio({
       </header>
 
       <div
-        className={`director-recipe-layout${isTimelineView ? " is-timeline-view" : ""}`}
+        className={`director-recipe-layout${isTimelineView ? " is-timeline-view" : ""}${scriptRoomActive ? " is-chat" : ""}`}
         aria-busy={running}
         {...(isTimelineView ? { role: "region" as const, "aria-label": "剪辑视图" } : {})}
       >
-        {isTimelineView ? null : (
+        {isTimelineView || scriptRoomActive ? null : (
         <aside className="director-recipe-rail">
-          {planStagePrimary && <section className="director-brief-card" aria-labelledby="director-brief-title">
-            <div className="director-brief-head">
-              <span><Wand2 size={15} /><strong id="director-brief-title">创意简报</strong></span>
-              <em>{goal.trim().length} 字</em>
-            </div>
-            <Input.TextArea
-              value={goal}
-              readOnly={running}
-              onChange={(event) => {
-                const value = event.target.value
-                setGoal(value)
-                goalRef.current = value
-                scheduleSave()
-              }}
-              autoSize={{ minRows: 4, maxRows: 8 }}
-              placeholder="例如：雨夜里侦探穿过霓虹暗巷，追上一个撑红伞的女人。"
-            />
-            <p>生成方案只整理创意，不会自动消耗定妆、视频或配音额度。</p>
-          </section>}
           <DirectorStageNav
             activeStage={activeStage}
             readiness={readiness}
@@ -2155,78 +2258,103 @@ export default function DirectorRecipeStudio({
         )}
 
         <section className={`director-recipe-main${shotWorkspaceStage ? " is-shot-workspace" : ""}`}>
-          {!isTimelineView ? (
+          {!isTimelineView && !scriptRoomActive ? (
             <DirectorTaskHeader
               activeStage={activeStage}
               readiness={readiness}
               onSelect={handleStageChange}
               compact={shotWorkspaceStage}
               summary={stageFlow.summary}
-              primary={mobilePrimary}
+              primary={scriptRoomActive ? undefined : mobilePrimary}
               nextStage={stageFlow.nextStage}
             />
           ) : null}
-          {!isTimelineView && activeStage === "script" ? (
-          <Tabs activeKey="script" items={[{ key: "script", label: "剧本" }, { key: "art_style", label: "画风" }]} onChange={(key) => handleStageChange(key as RecipeStageId)} />
-          ) : !isTimelineView && activeStage === "art_style" ? (
+          {!isTimelineView && activeStage === "art_style" ? (
           <Tabs activeKey="art_style" items={[{ key: "script", label: "剧本" }, { key: "art_style", label: "画风" }]} onChange={(key) => handleStageChange(key as RecipeStageId)} />
           ) : null}
           {!isTimelineView && (activeStage === "characters" || activeStage === "locations") ? <Tabs activeKey={activeStage === "locations" ? "locations" : assetTab} items={[{ key: "characters", label: "角色" }, { key: "locations", label: "场景" }, { key: "props", label: "道具" }]} onChange={(key) => { handleStageChange(key === "props" ? "characters" : key as RecipeStageId); setAssetTab(key) }} /> : null}
           {!isTimelineView && ["voice", "music", "export"].includes(activeStage) ? <Tabs activeKey={activeStage} items={[{ key: "voice", label: "配音" }, { key: "music", label: "配乐" }, { key: "export", label: "成片" }]} onChange={(key) => handleStageChange(key as RecipeStageId)} /> : null}
           {!isTimelineView && activeStage === "script" ? (
-                  <div className="director-recipe-form">
-                    <div className="director-mobile-brief-card">
-                      <span>创意简报</span>
-                      <Input.TextArea
-                        value={goal}
-                        readOnly={running}
-                        autoSize={{ minRows: 3, maxRows: 6 }}
-                        placeholder="用一句话描述你想拍的故事"
-                        onChange={(event) => {
-                          const value = event.target.value
-                          setGoal(value)
-                          goalRef.current = value
-                          scheduleSave()
-                        }}
-                      />
-                    </div>
-                    <div className="director-script-sheet">
-                      <label className="director-script-field">
-                        <span>片名</span>
-                        <Input
-                          value={recipe.script.title}
-                          readOnly={running}
-                          placeholder="未命名故事"
-                          onChange={(event) => updateRecipe((current) => ({
-                            ...current, script: { ...current.script, title: event.target.value },
-                          }))}
+                  <div className="director-script-room">
+                    {scriptStageMode === "empty" ? (
+                      <div className="director-hero">
+                        <span className="director-hero-icon"><Wand2 size={22} /></span>
+                        <strong>{SCRIPT_EMPTY_TITLE}</strong>
+                        <p>{SCRIPT_EMPTY_HINT}</p>
+                        <div className="director-hero-examples">
+                          {SCRIPT_IDEA_EXAMPLES.map((example) => (
+                            <button
+                              key={example}
+                              type="button"
+                              className="director-hero-example"
+                              disabled={running}
+                              onClick={() => {
+                                setGoal(example)
+                                goalRef.current = example
+                                scheduleSave()
+                              }}
+                            >
+                              {example}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {lastPlanCompletion && !planPipelineRunning && !clarifyActive ? (
+                          <DirectorCompletionCard
+                            completion={lastPlanCompletion}
+                            failedLabels={lastPlanCompletion.failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id)}
+                            onNextStoryboard={() => setActiveStage("storyboard")}
+                            onRegenerate={() => { void handleRun() }}
+                          />
+                        ) : null}
+                        <DirectorScriptStreamPanel
+                          operationId={activeOperationId || ""}
+                          operationKind={operationQuery.data?.kind || (clarifyActive ? "plan_clarify" : "plan_pipeline")}
+                          startedAt={runStartedAtRef.current}
+                          agentStatus={recipe.agentStatus}
+                          artStyleName={recipe.artStyle?.name || ""}
+                          cancelRequested={Boolean(operationQuery.data?.cancel_requested)}
+                          brief={operationQuery.data?.request?.goal || goal}
+                          initialQuestions={clarifyQuestions || undefined}
+                          clarifications={scriptAnswers}
+                          onOpenPicker={() => setArtStylePickerOpen(true)}
+                          historyMode={!planPipelineRunning && !clarifyActive}
+                          recipe={recipe}
+                          onCancel={() => { void handleCancelActiveOperation() }}
+                          onStartPipeline={(answers) => { void handleStartPipeline(answers) }}
                         />
-                      </label>
-                      <label className="director-script-field">
-                        <span>一句话梗概</span>
-                        <Input.TextArea
-                          value={recipe.script.summary}
-                          readOnly={running}
-                          placeholder="用一句话说清主角、目标与冲突"
-                          autoSize={{ minRows: 2, maxRows: 4 }}
-                          onChange={(event) => updateRecipe((current) => ({
-                            ...current, script: { ...current.script, summary: event.target.value },
-                          }))}
-                        />
-                      </label>
-                      <label className="director-script-field is-story">
-                        <span>完整故事 <em>{recipe.script.fullStory.trim().length} 字</em></span>
-                        <Input.TextArea
-                          value={recipe.script.fullStory}
-                          readOnly={running}
-                          placeholder="完整写下故事进展、关键动作、对白与结尾。分镜会严格从这里拆解。"
-                          autoSize={{ minRows: 12, maxRows: 22 }}
-                          onChange={(event) => updateRecipe((current) => ({
-                            ...current, script: { ...current.script, fullStory: event.target.value },
-                          }))}
-                        />
-                      </label>
-                    </div>
+                        {!planPipelineRunning && !clarifyActive ? (
+                          <DirectorScriptDocument
+                            script={recipe.script}
+                            mode={scriptStageMode === "edit" ? "edit" : "document"}
+                            busy={running}
+                            onEdit={() => setScriptEditMode(true)}
+                            onDoneEdit={() => setScriptEditMode(false)}
+                            onChange={(patch) => updateRecipe((current) => ({
+                              ...current,
+                              script: { ...current.script, ...patch },
+                            }))}
+                            onNext={() => setActiveStage("storyboard")}
+                          />
+                        ) : null}
+                      </>
+                    )}
+                    <DirectorPromptBar
+                      value={goal}
+                      phase={planPipelineRunning ? "streaming" : clarifyActive ? "clarify" : "idle"}
+                      statusText={operationQuery.data?.kind === "plan_clarify" ? "AI 导演正在规划你的创意…" : "AI 导演正在创作…"}
+                      placeholder={clarifyActive ? SCRIPT_PROM_BAR_CLARIFY_PLACEHOLDER : SCRIPT_PROM_BAR_PLACEHOLDER}
+                      onChange={(value) => {
+                        setGoal(value)
+                        goalRef.current = value
+                        scheduleSave()
+                      }}
+                      onSubmit={() => { void handleRun() }}
+                      onCancel={() => { void handleCancelActiveOperation() }}
+                      cancelRequested={Boolean(operationQuery.data?.cancel_requested)}
+                    />
                   </div>
           ) : null}
           {!isTimelineView && activeStage === "art_style" ? (
@@ -2723,12 +2851,14 @@ export default function DirectorRecipeStudio({
           onInsert={handleInsertFromLibrary}
         />
       </Drawer>
-      <DirectorMobileBottomBar
-        label={mobilePrimary.label}
-        onClick={mobilePrimary.onClick}
-        loading={mobilePrimary.loading}
-        disabled={mobilePrimary.disabled}
-      />
+      {!scriptRoomActive ? (
+        <DirectorMobileBottomBar
+          label={mobilePrimary.label}
+          onClick={mobilePrimary.onClick}
+          loading={mobilePrimary.loading}
+          disabled={mobilePrimary.disabled}
+        />
+      ) : null}
     </div>
   )
 }

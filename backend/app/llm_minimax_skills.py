@@ -244,6 +244,16 @@ def build_storyboard_continuity_repair_prompt() -> str:
     ])
 
 
+def build_clarify_questions_prompt() -> str:
+    return "\n\n".join([
+        "你是短剧导演，正在为用户的创意做开机前的方向规划。根据用户的一句话创意，提出 2-4 个真正决定剧情走向的问题。",
+        "只问会改变剧情走向的创作方向问题，例如：结局倒向、故事基调、主角动机、冲突升级方式、叙事视角。禁止问画面风格、镜头设计、时长、配音等执行细节。",
+        "每个问题给 3-4 个具体、可直接采用的选项，其中一个标记 recommended=true（你认为最适合这个创意的方向）。选项 label 用简体中文短语，value 与 label 相同。",
+        "问题与选项必须贴合用户创意的具体内容，禁止空泛模板问题。",
+        '必须且仅输出一个合法 JSON 对象：{"questions":[{"id":"q1","question":"","why":"一句话说明这个问题如何影响剧情走向","options":[{"label":"","value":"","recommended":true}],"allowCustom":true}]}',
+    ])
+
+
 def build_script_agent_prompt() -> str:
     return "\n\n".join([
         "把一句话扩成可拍的 AI 短剧剧本。输出 {\"title\":\"\",\"summary\":\"\",\"fullStory\":\"\"}。",

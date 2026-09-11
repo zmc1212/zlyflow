@@ -7,6 +7,7 @@ from .director_catalog import find_art_style
 from .director_jobs import render_recipe_shots, revert_orphaned_shot_submissions
 from .director_project_service import persist_recipe_execution
 from .director_recipe import AGENT_IDS, PAYLOAD_KIND_RECIPE, normalize_recipe_payload, payload_kind
+from .director_stream import DirectorOperationEventBus, terminal_event_for_status
 from .llm_client import LlmError
 from .storage import DirectorProjectConflictError, JobStore
 
@@ -34,6 +35,8 @@ class DirectorOperationService:
         self.llm_provider = llm_provider
         self.worker = worker
         self.resource_storage = resource_storage
+        self.events = DirectorOperationEventBus()
+        self._agent_snapshots: dict[str, dict[str, tuple[str, str]]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         self._stopping = False
 
@@ -49,6 +52,38 @@ class DirectorOperationService:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        self.events.close()
+
+    def _emit(self, operation_id: str, event: dict[str, Any]) -> None:
+        self.events.emit(operation_id, event)
+
+    def _emit_status(self, operation_id: str, status: str, progress: int | None = None) -> None:
+        data: dict[str, Any] = {"status": status}
+        if progress is not None:
+            data["progress"] = progress
+        self._emit(operation_id, {"event": "status", "data": data})
+
+    def _emit_agent_events(self, operation_id: str, current: dict[str, Any]) -> None:
+        """Diff agentStatus against the last snapshot and emit changes."""
+        snapshot = self._agent_snapshots.get(operation_id) or {}
+        latest: dict[str, tuple[str, str]] = {}
+        for item in current.get("agentStatus") or []:
+            if not isinstance(item, dict):
+                continue
+            agent_id = str(item.get("id") or "")
+            if not agent_id:
+                continue
+            status = str(item.get("status") or "")
+            message = str(item.get("message") or item.get("error") or "")
+            latest[agent_id] = (status, message)
+            if snapshot.get(agent_id) == (status, message):
+                continue
+            self._emit(operation_id, {
+                "event": "agent",
+                "data": {"id": agent_id, "status": status, "message": message},
+            })
+        if latest or operation_id in self._agent_snapshots:
+            self._agent_snapshots[operation_id] = latest
 
     def _check_cancelled(self, operation_id: str) -> None:
         operation = self.store.get_director_operation(operation_id)
@@ -63,9 +98,12 @@ class DirectorOperationService:
             operation = self.store.update_director_operation(
                 operation_id, status="running", progress=1, error=None, update_error=True,
             )
+            self._emit_status(operation_id, "running", 1)
             self._check_cancelled(operation_id)
             if operation["kind"] == "plan_pipeline":
                 result = await self._run_plan(operation)
+            elif operation["kind"] == "plan_clarify":
+                result = await self._run_clarify(operation)
             elif operation["kind"] == "shot_render_prepare":
                 result = await self._run_render(operation)
             else:
@@ -79,12 +117,14 @@ class DirectorOperationService:
                 error=None,
                 update_error=True,
             )
+            self._emit(operation_id, terminal_event_for_status("succeeded", result=result))
         except DirectorOperationCancelled as error:
             if operation is not None:
                 self._revert_orphaned_render_submissions(operation)
             self.store.update_director_operation(
                 operation_id, status="cancelled", error=str(error), update_error=True,
             )
+            self._emit(operation_id, terminal_event_for_status("cancelled", message=str(error)))
         except asyncio.CancelledError:
             try:
                 if operation is not None:
@@ -96,6 +136,10 @@ class DirectorOperationService:
                     update_error=True,
                 )
             finally:
+                self._emit(
+                    operation_id,
+                    terminal_event_for_status("interrupted", message="服务停止，操作已中断"),
+                )
                 raise
         except Exception as error:
             if operation is not None:
@@ -103,6 +147,9 @@ class DirectorOperationService:
             self.store.update_director_operation(
                 operation_id, status="failed", error=str(error), update_error=True,
             )
+            self._emit(operation_id, terminal_event_for_status("failed", message=str(error)))
+        finally:
+            self._agent_snapshots.pop(operation_id, None)
 
     def _revert_orphaned_render_submissions(self, operation: dict[str, Any]) -> None:
         if operation.get("kind") != "shot_render_prepare":
@@ -118,6 +165,21 @@ class DirectorOperationService:
             scope="render",
             shot_ids=shot_ids or None,
         )
+
+    async def _run_clarify(self, operation: dict[str, Any]) -> dict[str, Any]:
+        operation_id = operation["id"]
+        request = operation.get("request") or {}
+        goal = str(request.get("goal") or "").strip()
+        if not goal:
+            raise ValueError("请先填写创意简报")
+
+        def stream_event(event: dict[str, Any]) -> None:
+            self._emit(operation_id, event)
+
+        questions = await asyncio.to_thread(
+            self.llm_provider.run_director_clarify, goal, on_stream=stream_event,
+        )
+        return {"questions": questions}
 
     async def _run_plan(self, operation: dict[str, Any]) -> dict[str, Any]:
         operation_id = operation["id"]
@@ -169,11 +231,17 @@ class DirectorOperationService:
                 content_update=True,
             )
             expected_content_revision = int(saved["content_revision"])
+            progress = min(95, 5 + int(completed / total * 90))
             self.store.update_director_operation(
                 operation_id,
-                progress=min(95, 5 + int(completed / total * 90)),
+                progress=progress,
                 result={"project_revision": saved["revision"]},
             )
+            self._emit_status(operation_id, "running", progress)
+            self._emit_agent_events(operation_id, current)
+
+        def stream_event(event: dict[str, Any]) -> None:
+            self._emit(operation_id, event)
 
         updated = await asyncio.to_thread(
             self.llm_provider.run_director_recipe,
@@ -183,6 +251,8 @@ class DirectorOperationService:
             agents=agents,
             skip_research=request.get("skip_research"),
             on_progress=persist,
+            on_stream=stream_event,
+            clarifications=request.get("clarifications"),
         )
         persist(updated)
         saved = self.store.get_director_project(record["id"])
@@ -231,6 +301,8 @@ class DirectorOperationService:
                 progress=20,
                 result={"project_revision": latest_revision},
             )
+            self._emit_status(operation_id, "running", 20)
+            self._emit_agent_events(operation_id, current)
 
         def persist_message(message: str) -> None:
             self._check_cancelled(operation_id)
@@ -238,6 +310,7 @@ class DirectorOperationService:
                 operation_id,
                 result={"project_revision": latest_revision, "message": message},
             )
+            self._emit(operation_id, {"event": "status", "data": {"status": "running", "message": message}})
 
         recipe, job_ids = await asyncio.to_thread(
             render_recipe_shots,

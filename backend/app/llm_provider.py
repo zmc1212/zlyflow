@@ -324,6 +324,8 @@ class LlmProviderService:
         agents: list[str] | None = None,
         skip_research: bool | None = None,
         on_progress: Any = None,
+        on_stream: Any = None,
+        clarifications: Any = None,
     ) -> dict[str, Any]:
         from .director_agents import default_chat_fn, run_recipe_pipeline
 
@@ -336,7 +338,65 @@ class LlmProviderService:
             agents=agents,
             skip_research=skip_research,
             on_progress=on_progress,
+            on_stream=on_stream,
+            clarifications=clarifications,
         )
+
+    def run_director_clarify(self, goal: str, *, on_stream: Any = None) -> list[dict[str, Any]]:
+        """Ask 2-4 plot-direction questions for the brief; streams question text via on_stream."""
+        from .director_stream import AGENT_STREAM_SPECS, AgentStreamTracker
+        from .llm_minimax_skills import build_clarify_questions_prompt
+
+        brief = str(goal or "").strip()
+        if not brief:
+            raise LlmError("请先填写创意简报")
+        client, model = self._chat_client()
+        messages = [
+            {"role": "system", "content": build_clarify_questions_prompt()},
+            {"role": "user", "content": brief},
+        ]
+        tracker = AgentStreamTracker(AGENT_STREAM_SPECS["clarify"], on_stream) if on_stream is not None else None
+        raw = client.chat_completion(
+            messages,
+            model=model,
+            temperature=0.6,
+            max_tokens=2048,
+            timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
+            stream=True,
+            on_chunk=tracker.feed if tracker is not None else None,
+        )
+        from .director_agents import parse_json_object
+
+        parsed = parse_json_object(raw)
+        questions: list[dict[str, Any]] = []
+        if isinstance(parsed, dict) and isinstance(parsed.get("questions"), list):
+            for item in parsed["questions"][:4]:
+                if not isinstance(item, dict) or not str(item.get("question") or "").strip():
+                    continue
+                options = []
+                for option in item.get("options") or []:
+                    if not isinstance(option, dict):
+                        continue
+                    label = str(option.get("label") or "").strip()
+                    if not label:
+                        continue
+                    options.append({
+                        "label": label,
+                        "value": str(option.get("value") or label).strip() or label,
+                        "recommended": bool(option.get("recommended")),
+                    })
+                questions.append({
+                    "id": str(item.get("id") or f"q{len(questions) + 1}"),
+                    "question": str(item.get("question")).strip(),
+                    "why": str(item.get("why") or "").strip(),
+                    "options": options[:4],
+                    "allowCustom": item.get("allowCustom") is not False,
+                })
+        if not questions:
+            raise LlmError("大模型未返回有效的创作方向问题，请重试")
+        if tracker is not None:
+            tracker.finish({"questions": questions})
+        return questions
 
     def run_director_agent_step(
         self,

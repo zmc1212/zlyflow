@@ -1,10 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Button, Card, Input, InputNumber, Select, Space, Tag, Typography, message } from "antd"
-import { ArrowLeft, Layers } from "lucide-react"
+import { Button, Card, InputNumber, Select, Space, Tag, Typography, message } from "antd"
+import { ArrowLeft } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import ThemeToggle from "../components/ThemeToggle"
 import JobErrorNotice from "./components/JobErrorNotice"
+import DirectorPromptBar from "./components/DirectorPromptBar"
 import { DirectorMobileBottomBar, DirectorMobileHeader } from "./DirectorMobileChrome"
+import { BATCH_PROMPT_HINT, BATCH_PROMPT_PLACEHOLDER } from "./action-copy"
 import {
   batchPayloadFromApi, createDirectorBatch, getDirectorProject, listDirectorArtStyles, listWorkflowModes,
   renderDirectorBatchItems, updateDirectorProjectRecord,
@@ -143,7 +145,7 @@ export default function DirectorBatchStudio({
   }
 
   return (
-    <div className="director-recipe-shell !h-0 !min-h-0 flex-1 overflow-hidden">
+    <div className="director-recipe-shell !h-0 !min-h-0 flex-1 overflow-hidden flex-col">
       <DirectorMobileHeader
         title={mobileTitle}
         onBack={onBack}
@@ -159,18 +161,12 @@ export default function DirectorBatchStudio({
         <Space>
           <ThemeToggle />
           <Button onClick={onExitDirector}>创作工作台</Button>
-          <Button type="primary" icon={<Layers size={14} />} loading={running} onClick={handleRun}>裂变并生成</Button>
         </Space>
       </header>
 
+      <div className="director-batch-scroll">
       <div className="director-batch-layout">
-        <Card className="director-batch-form" title="主题与参数">
-          <Input.TextArea
-            value={payload.theme}
-            onChange={(event) => setPayload((current) => ({ ...current, theme: event.target.value }))}
-            autoSize={{ minRows: 4, maxRows: 8 }}
-            placeholder="例如：办公室久坐的人如何用 60 秒学会肩颈拉伸"
-          />
+        <Card className="director-batch-form" title="生成参数">
           <div className="director-batch-fields">
             <label>
               条数
@@ -276,15 +272,19 @@ export default function DirectorBatchStudio({
             )
           })}
           {!payload.items.length && (
-            <Card><Typography.Text type="secondary">填写主题后点击「裂变并生成」，会按所选工作流并行提交文生视频。</Typography.Text></Card>
+            <Card><Typography.Text type="secondary">{BATCH_PROMPT_HINT}</Typography.Text></Card>
           )}
         </div>
       </div>
-      <DirectorMobileBottomBar
-        label="裂变并生成"
-        onClick={() => { void handleRun() }}
-        loading={running}
-        disabled={running}
+      </div>
+      <DirectorPromptBar
+        value={payload.theme}
+        phase={running ? "streaming" : "idle"}
+        statusText="AI 正在裂变脚本并提交文生视频…"
+        submitLabel="裂变并生成"
+        placeholder={BATCH_PROMPT_PLACEHOLDER}
+        onChange={(value) => setPayload((current) => ({ ...current, theme: value }))}
+        onSubmit={() => { void handleRun() }}
       />
     </div>
   )

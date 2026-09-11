@@ -688,8 +688,15 @@ class DirectorRenderShotsRequest(BaseModel):
     )
 
 
+class DirectorClarificationItem(BaseModel):
+    """One user-confirmed creative-direction answer injected into the script agent."""
+
+    question: str = Field(description="AI 提出的创作方向问题")
+    answer: str = Field(description="用户选定或自定义的答案")
+
+
 class DirectorOperationCreateRequest(BaseModel):
-    kind: Literal["plan_pipeline", "shot_render_prepare"]
+    kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare"]
     goal: str | None = Field(default=None, max_length=8000)
     agents: list[str] | None = Field(default=None)
     art_style_id: str | None = Field(default=None, max_length=32)
@@ -700,12 +707,16 @@ class DirectorOperationCreateRequest(BaseModel):
         default=True,
         description="提交视频前是否调用大模型润色 H3 提示词；关闭后直接使用当前镜头提示词。",
     )
+    clarifications: list[DirectorClarificationItem] | None = Field(
+        default=None,
+        description="plan_pipeline 专用：创意澄清问答（plan_clarify 产出），注入剧本 Agent 作为创作方向约束。",
+    )
 
 
 class DirectorOperationResponse(BaseModel):
     id: str
     project_id: str
-    kind: Literal["plan_pipeline", "shot_render_prepare"]
+    kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare"]
     status: Literal["queued", "running", "succeeded", "failed", "interrupted", "cancelled"]
     progress: int = Field(ge=0, le=100)
     request: dict[str, Any] = Field(default_factory=dict)

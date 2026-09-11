@@ -1,0 +1,123 @@
+import { ChevronDown, ChevronRight } from "lucide-react"
+import { useState } from "react"
+import { SCRIPT_TASK_ROWS_TITLE } from "../action-copy"
+
+export type TaskRow = {
+  id: string
+  label: string
+  status: string
+  message: string
+}
+
+type Props = {
+  rows: TaskRow[]
+  running: boolean
+  elapsedSec: number
+  /** Force the panel open (e.g. the transcript is still streaming). */
+  pinnedOpen?: boolean
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return minutes > 0 ? `${minutes} 分 ${String(seconds).padStart(2, "0")} 秒` : `${seconds} 秒`
+}
+
+/* 官方 Task Rows 的 SVG 圆环序号徽章：灰底环 + 旋转弧（运行中）+ 中心序号。 */
+function SpinnerRing({ active, order }: { active?: boolean; order: number }) {
+  const size = 22
+  const stroke = 2
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  return (
+    <span className="director-ring" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className={active ? "is-spin" : undefined}>
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--director-line)" strokeWidth={stroke} />
+        {active ? (
+          <circle
+            cx={size / 2} cy={size / 2} r={radius} fill="none"
+            stroke="var(--director-accent)" strokeWidth={stroke} strokeLinecap="round"
+            strokeDasharray={`${circumference * 0.28} ${circumference * 0.72}`}
+          />
+        ) : null}
+      </svg>
+      <span className="director-ring-num">{order}</span>
+    </span>
+  )
+}
+
+/** 官方式实心圆状态徽章（完成绿勾 / 失败红叉，pop-in 弹出）。 */
+function StatusBadge({ tone, children }: { tone: "green" | "red"; children: React.ReactNode }) {
+  return (
+    <span className={`director-badge is-${tone}`}>{children}</span>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+  )
+}
+
+function XIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+  )
+}
+
+/**
+ * Vertical Task Rows panel following the official beautifului capsule grammar:
+ * ring-sequence badges, solid status badges, tint status pills, per-row capsule
+ * cards with hairline shadows, and a collapsed summary once everything settles.
+ */
+export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false }: Props) {
+  const relevant = rows.filter((row) => row.status !== "pending" || running)
+  const finished = relevant.filter((row) => row.status === "completed" || row.status === "failed").length
+  const percent = relevant.length ? Math.round((finished / relevant.length) * 100) : 0
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
+  const open = userExpanded ?? (pinnedOpen || running)
+
+  return (
+    <section className={`director-task-rows${open ? " is-open" : " is-collapsed"}`} aria-label={SCRIPT_TASK_ROWS_TITLE}>
+      <button
+        type="button"
+        className="director-task-rows-head"
+        onClick={() => setUserExpanded(!open)}
+      >
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <strong>{SCRIPT_TASK_ROWS_TITLE}</strong>
+        <span className="director-task-rows-meta">
+          {finished}/{relevant.length}
+          {elapsedSec >= 0 ? ` · 已进行 ${formatElapsed(elapsedSec)}` : ""}
+        </span>
+        <span className="director-task-rows-track" aria-hidden>
+          <span className="director-task-rows-fill" style={{ width: `${percent}%` }} />
+        </span>
+        <em className="director-task-rows-percent">{percent}%</em>
+      </button>
+      {open ? (
+        <ol className="director-task-rows-list">
+          {relevant.map((row, index) => (
+            <li
+              key={row.id}
+              className={`director-task-row is-${row.status}`}
+              style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
+            >
+              <span className="director-task-row-icon" aria-hidden>
+                {row.status === "completed" ? <StatusBadge tone="green"><CheckIcon /></StatusBadge>
+                  : row.status === "failed" ? <StatusBadge tone="red"><XIcon /></StatusBadge>
+                    : <SpinnerRing active={row.status === "running"} order={index + 1} />}
+              </span>
+              <span className="director-task-row-label">{row.label}</span>
+              {row.status === "running" && row.message ? (
+                <span className="director-task-row-message">{row.message}</span>
+              ) : null}
+              {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+              {row.status === "failed" ? <span className="director-task-pill is-red">失败</span> : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </section>
+  )
+}
