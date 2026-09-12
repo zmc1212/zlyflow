@@ -43,7 +43,6 @@ import {
   SCRIPT_IDEA_EXAMPLES,
   SCRIPT_PROM_BAR_CLARIFY_PLACEHOLDER,
   SCRIPT_PROM_BAR_PLACEHOLDER,
-  STAGE_CLARIFY_PLANNING_LABEL,
   STAGE_CLARIFY_FAILED_LABEL,
   GUIDED_RESUME_PREFIX,
   approveBatchConfirm,
@@ -2027,7 +2026,8 @@ export default function DirectorRecipeStudio({
     : !hasScriptContent
       ? "empty"
       : scriptEditMode ? "edit" : "document"
-  // 剧本阶段是对话式创作室：生成/取消由底部 Prompt Bar 承担，顶栏与底栏不再重复。
+  // 剧本阶段是对话式创作室：流式进行中的状态与取消由流面板头部承担，
+  // 底部 Prompt Bar 只在空闲/澄清应答时作为输入区渲染，避免双份「正在创作 + 取消生成」。
   const scriptRoomActive = activeStage === "script" && !isTimelineView
   // 逐步确认流程还没有走完时，在成稿区提供「继续生成」入口（刷新/中断后可恢复）。
   const guidedNextStep = useMemo(() => {
@@ -2355,7 +2355,7 @@ export default function DirectorRecipeStudio({
           {!isTimelineView && (activeStage === "characters" || activeStage === "locations") ? <Tabs activeKey={activeStage === "locations" ? "locations" : assetTab} items={[{ key: "characters", label: "角色" }, { key: "locations", label: "场景" }, { key: "props", label: "道具" }]} onChange={(key) => { handleStageChange(key === "props" ? "characters" : key as RecipeStageId); setAssetTab(key) }} /> : null}
           {!isTimelineView && ["voice", "music", "export"].includes(activeStage) ? <Tabs activeKey={activeStage} items={[{ key: "voice", label: "配音" }, { key: "music", label: "配乐" }, { key: "export", label: "成片" }]} onChange={(key) => handleStageChange(key as RecipeStageId)} /> : null}
           {!isTimelineView && activeStage === "script" ? (
-                  <div className="director-script-room">
+                  <div className={`director-script-room${planPipelineRunning ? " is-streaming" : ""}`}>
                     {scriptStageMode === "empty" ? (
                       <div className="director-hero">
                         <span className="director-hero-icon"><Wand2 size={22} /></span>
@@ -2433,22 +2433,21 @@ export default function DirectorRecipeStudio({
                         onRetryAgent={(agentId) => { void handleRerun(agentId as RecipeAgentId) }}
                       />
                     )}
-                    <DirectorPromptBar
-                      value={goal}
-                      phase={planPipelineRunning ? "streaming" : clarifyActive ? "clarify" : "idle"}
-                      statusText={operationQuery.data?.kind === "plan_clarify"
-                        ? (operationQuery.data?.request?.agent ? STAGE_CLARIFY_PLANNING_LABEL : "AI 导演正在规划你的创意…")
-                        : "AI 导演正在创作…"}
-                      placeholder={clarifyActive ? SCRIPT_PROM_BAR_CLARIFY_PLACEHOLDER : SCRIPT_PROM_BAR_PLACEHOLDER}
-                      onChange={(value) => {
-                        setGoal(value)
-                        goalRef.current = value
-                        scheduleSave()
-                      }}
-                      onSubmit={() => { void handleRun() }}
-                      onCancel={() => { void handleCancelActiveOperation() }}
-                      cancelRequested={Boolean(operationQuery.data?.cancel_requested)}
-                    />
+                    {!planPipelineRunning ? (
+                      <DirectorPromptBar
+                        value={goal}
+                        phase={clarifyActive ? "clarify" : "idle"}
+                        placeholder={clarifyActive ? SCRIPT_PROM_BAR_CLARIFY_PLACEHOLDER : SCRIPT_PROM_BAR_PLACEHOLDER}
+                        onChange={(value) => {
+                          setGoal(value)
+                          goalRef.current = value
+                          scheduleSave()
+                        }}
+                        onSubmit={() => { void handleRun() }}
+                        onCancel={() => { void handleCancelActiveOperation() }}
+                        cancelRequested={Boolean(operationQuery.data?.cancel_requested)}
+                      />
+                    ) : null}
                   </div>
           ) : null}
           {!isTimelineView && activeStage === "art_style" ? (

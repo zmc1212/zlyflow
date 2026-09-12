@@ -20,7 +20,7 @@ from .director_recipe import (
     split_display_and_prompt,
     sync_dialogue_prompt,
 )
-from .director_stream import AGENT_STREAM_SPECS, AgentStreamTracker
+from .director_stream import AGENT_STREAM_SPECS, AgentStreamTracker, scan_current_shot_number
 from .llm_client import (
     LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
     LlmBillingError,
@@ -1827,11 +1827,20 @@ def run_agent(
                         def timing_report(accumulated: str, idx=i, rng=range_text) -> None:
                             n = len(accumulated or "")
                             if n > 0:
-                                set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({idx+1}/{len(chunks)}){rng} - 已收 {n} 字")
+                                shot = scan_current_shot_number(accumulated)
+                                shot_text = f" · 正在第 {shot} 镜" if shot is not None else ""
+                                set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({idx+1}/{len(chunks)}){rng}{shot_text} - 已收 {n} 字")
                                 try: emit()
                                 except: pass
                         if hasattr(chat_fn, "on_chunk"):
-                            chat_fn.on_chunk = timing_report
+                            polish_tracker = _make_agent_tracker("storyboard_polish", on_stream)
+                            if polish_tracker is not None:
+                                def combined_timing_report(accumulated: str, idx=i, rng=range_text) -> None:
+                                    timing_report(accumulated, idx, rng)
+                                    polish_tracker.feed(accumulated)
+                                chat_fn.on_chunk = combined_timing_report
+                            else:
+                                chat_fn.on_chunk = timing_report
 
                         chunk_payload = {"scenes": [{"shots": chunk}]}
                         timing_raw = _chat_text(chat_fn, [
@@ -1860,11 +1869,20 @@ def run_agent(
                         def cont_report(accumulated: str, idx=i, rng=range_text) -> None:
                             n = len(accumulated or "")
                             if n > 0:
-                                set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({idx+1}/{len(continuity_windows)}){rng} - 已收 {n} 字")
+                                shot = scan_current_shot_number(accumulated)
+                                shot_text = f" · 正在第 {shot} 镜" if shot is not None else ""
+                                set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({idx+1}/{len(continuity_windows)}){rng}{shot_text} - 已收 {n} 字")
                                 try: emit()
                                 except: pass
                         if hasattr(chat_fn, "on_chunk"):
-                            chat_fn.on_chunk = cont_report
+                            polish_tracker = _make_agent_tracker("storyboard_polish", on_stream)
+                            if polish_tracker is not None:
+                                def combined_cont_report(accumulated: str, idx=i, rng=range_text) -> None:
+                                    cont_report(accumulated, idx, rng)
+                                    polish_tracker.feed(accumulated)
+                                chat_fn.on_chunk = combined_cont_report
+                            else:
+                                chat_fn.on_chunk = cont_report
 
                         window_payload = {
                             "scenes": [{"shots": window["shots"]}],

@@ -162,8 +162,37 @@ AGENT_STREAM_SPECS: dict[str, AgentStreamSpec] = {
         AgentArraySpec("scenes", ("title",)),
         AgentArraySpec("shots", ("title", "description", "dialogue"), extractor=_flatten_storyboard_shots),
     )),
+    # 分镜打磨（按秒分配/校验衔接）的独立直播命名空间：每个分块用全新 tracker，
+    # 索引从 0 重来，前端只作瞬时直播字幕渲染，不落到 storyboard 的 items 里。
+    "storyboard_polish": AgentStreamSpec("storyboard_polish", arrays=(
+        AgentArraySpec("shots", ("description", "dialogue")),
+    )),
     "clarify": AgentStreamSpec("clarify", arrays=(AgentArraySpec("questions", ("question", "why")),)),
 }
+
+_SHOT_NUMBER_PATTERN = re.compile(r'"shotNumber"\s*:\s*(\d+)')
+
+
+def scan_current_shot_number(text: str) -> int | None:
+    """Latest ``"shotNumber": N`` in an accumulated LLM stream, or None.
+
+    Skips fenced code markers and closed ``<think>`` blocks so a model that
+    reasons about shot numbers out loud does not skew the result; an open
+    think block means the JSON has not started yet.
+    """
+    if not text:
+        return None
+    if "<think>" in text and "</think>" not in text:
+        return None
+    probe = _strip_closed_think_blocks(text)
+    if "```json" in probe:
+        probe = probe.split("```json", 1)[1]
+    elif "```" in probe:
+        probe = probe.split("```", 1)[1]
+    last = None
+    for match in _SHOT_NUMBER_PATTERN.finditer(probe):
+        last = int(match.group(1))
+    return last
 
 
 def _array_starts(text: str, key: str) -> list[int]:

@@ -1674,3 +1674,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：纯前端修正；后端协议不变。
 - 验证：`pnpm --dir frontend build`、前端 vitest 46 项、浏览器自动化全链路实测。
 - 回滚方式：还原本次提交。
+
+## 2026-09-12 分镜打磨阶段直播化（当前镜号 + 流式字幕）
+
+- 原因：打磨期间直播卡只有镜头芯片和静态「已收 N 字」，用户看不到正在处理哪个镜头、更看不到被改写的内容，要等整段跑完才有反馈。
+- 当前基线：`director_stream.py` 新增 `scan_current_shot_number()`（跳过 `<think>`/围栏后取累计流中最后一个 `"shotNumber": N`）与独立命名空间 spec `storyboard_polish`（shots 数组，display 字段 description/dialogue）。`director_agents.py` 的 Timing/Continuity pass 每个分块/窗口新建一个 `storyboard_polish` tracker 与字数上报合并挂到 `chat_fn.on_chunk`：①运行消息追加「· 正在第 N 镜」（复用既有 SSE `agent` 事件）；②当前正在改写镜头的 description/dialogue 以 `agent_delta` 实时推送（每分块索引归零，前端仅作瞬时直播字幕，不落 `storyboard|shots` items，历史回放不受影响）。前端 `parseStoryboardPhase` 解析 `currentShot`，`.director-phase-panel` 芯片按 currentShot 逐镜推进（已完成绿/当前脉冲），新增 `.director-phase-live` 当前镜直播行（标题取已完成镜头 items，正文流式打字机 + 光标），「已收 N 字」加千分位与 live 脉冲点。
+- 受影响文件：`backend/app/{director_stream,director_agents}.py`、`backend/tests/test_director.py`、`frontend/src/director/components/DirectorScriptStreamPanel.tsx`、`frontend/src/director/components/DirectorScriptStreamPanel.phase.test.ts`、`frontend/src/director/guided-flow.css`。
+- 兼容性：SSE 事件为纯增量（新 agent 命名空间 `storyboard_polish`，旧客户端忽略未知字段即可）；运行消息新增片段但旧格式仍可解析（无 `正在第 N 镜` 时回退 range 高亮）；不改 API、数据库、ComfyUI 协议。
+- 验证：`python -m unittest backend.tests.test_director.DirectorAgentPipelineTests`（含新增 `test_storyboard_polish_reports_current_shot_and_streams_deltas`）、`pnpm --dir frontend test`、`pnpm --dir frontend build`。
+- 回滚方式：还原本次提交即回到芯片网格 + 静态字数面板。

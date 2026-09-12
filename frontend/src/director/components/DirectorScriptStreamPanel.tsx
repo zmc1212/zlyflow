@@ -73,12 +73,14 @@ const TRANSCRIPT_AGENTS = ["research", "script", "art_style", "characters", "loc
 
 const TRANSCRIPT_AGENT_SET = new Set<string>(TRANSCRIPT_AGENTS)
 
-/** 分镜打磨阶段（按秒分配/校验衔接等）不产出 delta 流，只有运行消息可解析。 */
+/** 分镜打磨阶段（按秒分配/校验衔接等）的进度消息解析结果。
+ *  打磨阶段同时有 storyboard_polish 命名空间的 delta 直播字幕（当前正在改写的镜头文本）。 */
 export type StoryboardPolishPhase = {
   title: string
   index?: number
   total?: number
   range?: [number, number]
+  currentShot?: number
   chars?: number
 }
 
@@ -86,10 +88,12 @@ export function parseStoryboardPhase(message: string | undefined | null): Storyb
   if (!message) return null
   const charsMatch = message.match(/已收 (\d+) 字/)
   const chars = charsMatch ? Number(charsMatch[1]) : undefined
+  const rangeMatch = message.match(/第 (\d+)-(\d+) 镜/)
+  const range = rangeMatch ? [Number(rangeMatch[1]), Number(rangeMatch[2])] as [number, number] : undefined
+  const shotMatch = message.match(/正在第 (\d+) 镜/)
+  const currentShot = shotMatch ? Number(shotMatch[1]) : undefined
   const withStep = (title: string, index: number, total: number): StoryboardPolishPhase => ({
-    title, index, total,
-    range: message.match(/第 (\d+)-(\d+) 镜/) ? [Number(message.match(/第 (\d+)-(\d+) 镜/)![1]), Number(message.match(/第 (\d+)-(\d+) 镜/)![2])] : undefined,
-    chars,
+    title, index, total, range, currentShot, chars,
   })
   const timing = message.match(/^正在按秒分配对白与动作 \((\d+)\/(\d+)\)/)
   if (timing) return withStep("按秒分配对白与动作", Number(timing[1]), Number(timing[2]))
@@ -478,6 +482,55 @@ export default function DirectorScriptStreamPanel({
     prevStoryboardShotRef.current = storyboardShotOrdinal
   }, [storyboardShotOrdinal, runningAgentId])
 
+  // 打磨直播字幕：storyboard_polish 命名空间的 delta（后端每个分块索引归零），
+  // 取仍在打字或最新的序号作为当前直播文本，随镜头切换被 reset 覆盖。
+  const polishLive = (() => {
+    let draining: number | undefined
+    let latest: number | undefined
+    for (const key of Object.keys(targetTexts)) {
+      if (!key.startsWith("storyboard_polish|")) continue
+      const field = key.split("|")[1]
+      if (field !== "description" && field !== "dialogue") continue
+      const ordinal = Number(key.split("|")[2])
+      if (!Number.isFinite(ordinal)) continue
+      if (latest === undefined || ordinal > latest) latest = ordinal
+      if ((shownTexts[key] || "") !== (targetTexts[key] || "")) {
+        if (draining === undefined || ordinal > draining) draining = ordinal
+      }
+    }
+    const ordinal = draining ?? latest
+    if (ordinal === undefined) return undefined
+    return {
+      ordinal,
+      description: shownTexts[`storyboard_polish|description|${ordinal}`] || "",
+      dialogue: shownTexts[`storyboard_polish|dialogue|${ordinal}`] || "",
+    }
+  })()
+
+  // 打磨分块切换（消息里的阶段 (i/N) 变化）时清掉上一分块的直播字幕键：
+  // 每个分块的 delta 序号都从 0 重来，不清会与上一分块的序号混在一起。
+  const polishPhaseKey = runningAgentId === "storyboard"
+    ? (() => {
+      const phase = parseStoryboardPhase(runningAgent?.message)
+      return phase ? `${phase.title}|${phase.index ?? ""}` : null
+    })()
+    : null
+  const prevPolishPhaseKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    const previous = prevPolishPhaseKeyRef.current
+    prevPolishPhaseKeyRef.current = polishPhaseKey
+    if (polishPhaseKey === null || previous === null || previous === polishPhaseKey) return
+    const dropPolishKeys = (current: Record<string, string>) => {
+      const next: Record<string, string> = {}
+      for (const key of Object.keys(current)) {
+        if (!key.startsWith("storyboard_polish|")) next[key] = current[key]
+      }
+      return next
+    }
+    setTargetTexts(dropPolishKeys)
+    setShownTexts(dropPolishKeys)
+  }, [polishPhaseKey])
+
   // 分镜打磨阶段切换（写分镜 → 按秒分配 → 校验衔接）时强制恢复跟随，
   // 让用户第一时间看到切换后的阶段面板。
   const storyboardPhaseTitle = runningAgentId === "storyboard"
@@ -833,12 +886,33 @@ export default function DirectorScriptStreamPanel({
       // 只有当前镜头展开实时流式文字（不截断），写完自动切到下一镜。
       const liveStoryboard = runningAgent?.id === "storyboard" && !historyMode
       if (liveStoryboard) {
-        // 打磨阶段（按秒分配/校验衔接）不产 delta 流：切换为阶段进度面板。
+        // 打磨阶段（按秒分配/校验衔接）：阶段进度面板 + 当前镜头直播字幕。
         const polish = parseStoryboardPhase(runningAgent?.message)
         if (polish) {
           const shotCount = shots.length
           const rangeStart = polish.range?.[0]
           const rangeEnd = polish.range?.[1]
+          // 当前镜号优先取后端消息里的「正在第 N 镜」；缺失时用直播流序号推
+          // 导（分块内第 ordinal 个对象 = rangeStart + ordinal，模型按序输出）。
+          const currentShot = polish.currentShot
+            ?? (rangeStart !== undefined && polishLive?.ordinal !== undefined
+              ? rangeStart + polishLive.ordinal
+              : undefined)
+          const shotState = (no: number): string => {
+            if (currentShot !== undefined) {
+              if (no < currentShot) return " is-done"
+              if (no === currentShot) return " is-active"
+              return ""
+            }
+            if (rangeStart !== undefined && no < rangeStart) return " is-done"
+            if (rangeStart !== undefined && rangeEnd !== undefined && no >= rangeStart && no <= rangeEnd) return " is-active"
+            return ""
+          }
+          const knownShot = currentShot !== undefined ? items["storyboard|shots"]?.[currentShot - 1] : undefined
+          const liveTitle = itemText(knownShot, "title")
+          const liveDescription = polishLive?.description || ""
+          const liveDialogue = polishLive?.dialogue || ""
+          const caret = <span className="stream-caret" aria-hidden />
           return (
             <div className="director-phase-panel">
               <div className="director-phase-head">
@@ -849,11 +923,9 @@ export default function DirectorScriptStreamPanel({
               </div>
               {shotCount > 0 ? (
                 <div className="director-phase-shots">
-                  {Array.from({ length: shotCount }, (_, i) => i + 1).map((no) => {
-                    const state = rangeStart !== undefined && no < rangeStart ? " is-done"
-                      : rangeStart !== undefined && rangeEnd !== undefined && no >= rangeStart && no <= rangeEnd ? " is-active" : ""
-                    return <span key={no} className={`director-phase-chip${state}`}>{no}</span>
-                  })}
+                  {Array.from({ length: shotCount }, (_, i) => i + 1).map((no) => (
+                    <span key={no} className={`director-phase-chip${shotState(no)}`}>{no}</span>
+                  ))}
                 </div>
               ) : (
                 <div className="director-live-skeleton" aria-hidden>
@@ -861,7 +933,24 @@ export default function DirectorScriptStreamPanel({
                   <span style={{ width: "70%" }} />
                 </div>
               )}
-              {polish.chars ? <div className="director-phase-meta">已收 {polish.chars} 字</div> : null}
+              {currentShot !== undefined || polishLive ? (
+                <div className="director-shot-stream-row is-active director-phase-live">
+                  <span className="director-shot-no">{currentShot ?? "…"}</span>
+                  <div className="director-shot-stream-text">
+                    {liveTitle
+                      ? <strong>{liveDescription || liveDialogue ? liveTitle : <>{liveTitle}{caret}</>}</strong>
+                      : <strong className="is-skeleton">{currentShot !== undefined ? `正在打磨第 ${currentShot} 镜…` : `正在${polish.title}…`}</strong>}
+                    {liveDescription ? <p>{liveDialogue ? liveDescription : <>{liveDescription}{caret}</>}</p> : null}
+                    {liveDialogue ? <p className="is-dialogue">「{liveDialogue}{caret}」</p> : null}
+                  </div>
+                </div>
+              ) : null}
+              {polish.chars ? (
+                <div className="director-phase-meta is-live">
+                  <span className="director-live-dot" aria-hidden />
+                  已收 {polish.chars.toLocaleString()} 字
+                </div>
+              ) : null}
             </div>
           )
         }

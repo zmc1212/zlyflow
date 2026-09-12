@@ -2993,6 +2993,135 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertTrue(any(item.startswith("正在写分镜 (") and "已收 " in item for item in snapshots))
         self.assertEqual(len([shot for scene in recipe["scenes"] for shot in scene["shots"]]), 2)
 
+    def test_storyboard_polish_reports_current_shot_and_streams_deltas(self) -> None:
+        from backend.app.director_agents import DirectorChatFn, run_agent
+
+        writing_body = json.dumps({
+            "scenes": [{
+                "title": "巷口",
+                "locationName": "暗巷",
+                "shots": [
+                    {
+                        "shotNumber": 1, "title": "进巷", "description": "侦探走进雨巷。",
+                        "promptText": "detective Kai enters the rainy alley", "dialogue": "",
+                        "characterNames": ["阿凯"], "locationName": "暗巷", "durationSec": 5,
+                    },
+                    {
+                        "shotNumber": 2, "title": "喝止", "description": "侦探喝止对方。",
+                        "promptText": "Kai says stop", "dialogue": "别动。",
+                        "characterNames": ["阿凯"], "locationName": "暗巷", "durationSec": 5,
+                    },
+                ],
+            }],
+        }, ensure_ascii=False)
+        timing_body = json.dumps({
+            "scenes": [{
+                "title": "巷口",
+                "locationName": "暗巷",
+                "shots": [
+                    {
+                        "shotNumber": 1, "title": "进巷", "description": "侦探在雨巷里加快脚步。",
+                        "promptText": "[Shot 1] At 00:00.000, detective Kai hurries through the rainy alley.",
+                        "dialogue": "", "characterNames": ["阿凯"], "locationName": "暗巷",
+                        "durationSec": 5, "timingNote": "动作镜保持 5 秒。",
+                    },
+                    {
+                        "shotNumber": 2, "title": "喝止", "description": "侦探喝止对方。",
+                        "promptText": "[Shot 1] At 00:00.000, Kai raises a hand. At 00:01.200 he says <d>[Chinese] 别动。</d>",
+                        "dialogue": "别动。", "characterNames": ["阿凯"], "locationName": "暗巷",
+                        "durationSec": 4, "timingNote": "短对白压到 4 秒。",
+                    },
+                ],
+            }],
+        }, ensure_ascii=False)
+        timing_partial = timing_body[:timing_body.index("加快脚步。") + len("加快脚")]
+        continuity_body = json.dumps({
+            "scenes": [{
+                "title": "巷口",
+                "locationName": "暗巷",
+                "shots": [
+                    {
+                        "shotNumber": 1, "title": "进巷", "description": "侦探在雨巷里加快脚步。",
+                        "promptText": "[Shot 1] At 00:00.000, detective Kai enters the rainy alley.",
+                        "dialogue": "", "characterNames": ["阿凯"], "locationName": "暗巷", "durationSec": 5,
+                        "continuityOut": "Kai stands mid-frame facing screen right as rain continues.",
+                        "transitionNote": "动作匹配切，雨声不断。",
+                    },
+                    {
+                        "shotNumber": 2, "title": "喝止", "description": "侦探喝止对方。",
+                        "promptText": "[Shot 1] At 00:00.000, Kai raises a hand. At 00:01.200 he says <d>[Chinese] 别动。</d>",
+                        "dialogue": "别动。", "characterNames": ["阿凯"], "locationName": "暗巷", "durationSec": 4,
+                        "continuityIn": "Kai stands mid-frame facing screen right as rain continues.",
+                        "continuityOut": "Kai holds a ready stance under neon light.",
+                        "transitionNote": "视线匹配切。",
+                    },
+                ],
+            }],
+        }, ensure_ascii=False)
+
+        class FakeClient:
+            def chat_completion(self, messages, **kwargs):
+                system = messages[0]["content"]
+                on_chunk = kwargs.get("on_chunk")
+                if "You are the Shot Timing Editor" in system:
+                    if on_chunk:
+                        on_chunk(timing_partial)
+                        on_chunk(timing_body)
+                    return timing_body
+                if "You are the continuity editor" in system:
+                    if on_chunk:
+                        on_chunk(continuity_body)
+                    return continuity_body
+                if on_chunk:
+                    on_chunk(writing_body)
+                return writing_body
+
+        snapshots: list[str] = []
+        events: list[dict] = []
+
+        def on_progress(recipe: dict) -> None:
+            status = next(item for item in recipe["agentStatus"] if item["id"] == "storyboard")
+            if status.get("message"):
+                snapshots.append(status["message"])
+
+        def on_stream(event: dict) -> None:
+            events.append(event)
+
+        recipe = run_agent(
+            "storyboard",
+            {"kind": "director_recipe", "script": {"title": "雨夜", "summary": "侦探", "fullStory": "侦探走进雨巷。阿凯：别动。"}},
+            goal="雨夜里侦探穿过暗巷。",
+            chat_fn=DirectorChatFn(FakeClient(), "demo-model"),
+            on_progress=on_progress,
+            on_stream=on_stream,
+        )
+
+        timing_messages = [item for item in snapshots if item.startswith("正在按秒分配对白与动作")]
+        self.assertTrue(any("正在第 1 镜" in item for item in timing_messages))
+        self.assertTrue(any("正在第 2 镜" in item for item in timing_messages))
+        continuity_messages = [item for item in snapshots if item.startswith("正在校验镜头衔接")]
+        self.assertTrue(any("正在第 2 镜" in item for item in continuity_messages))
+        polish_deltas = [
+            event for event in events
+            if event.get("event") == "agent_delta" and event["data"].get("agent") == "storyboard_polish"
+        ]
+        self.assertTrue(polish_deltas)
+        first = polish_deltas[0]["data"]
+        self.assertEqual(first["field"], "description")
+        self.assertEqual(first["index"], 0)
+        self.assertTrue(first["reset"])
+        self.assertIn("加快脚", first["delta"])
+        # 打磨文本不得串入 storyboard 主命名空间的 delta 流
+        storyboard_deltas = [
+            event for event in events
+            if event.get("event") == "agent_delta" and event["data"].get("agent") == "storyboard"
+        ]
+        self.assertFalse(any("加快脚" in event["data"].get("delta", "") for event in storyboard_deltas))
+        shots = [shot for scene in recipe["scenes"] for shot in scene["shots"]]
+        self.assertEqual(len(shots), 2)
+        self.assertEqual(shots[0]["description"], "侦探在雨巷里加快脚步。")
+        self.assertEqual(shots[1]["dialogue"], "别动。")
+
     def test_recipe_r2v_packs_at_most_nine_references(self) -> None:
         from backend.app.director_compiler import recipe_assets_as_slots, resolve_recipe_shot_submission
 
