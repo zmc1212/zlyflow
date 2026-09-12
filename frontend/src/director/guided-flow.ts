@@ -45,7 +45,12 @@ export function tagClarifyAnswers<T extends { id?: string; question: string; ans
   return answers.map((item) => ({ ...item, agent }))
 }
 
-export type ClarifyScope = { agent?: string; questions: GuidedClarifyQuestion[] }
+export type ClarifyScope = {
+  agent?: string
+  questions: GuidedClarifyQuestion[]
+  /** 本次提问由「重新生成」发起且用户选择级联清空后续环节；随作用域一起持久化。 */
+  regenerateResetFollowing?: boolean
+}
 
 export type GuidedClarifyOption = { label: string; value: string; recommended?: boolean }
 
@@ -66,7 +71,11 @@ export function parseClarifyScope(raw: string | null | undefined): ClarifyScope 
       return parsed.length ? { questions: parsed as GuidedClarifyQuestion[] } : null
     }
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.questions) && parsed.questions.length) {
-      return { agent: typeof parsed.agent === "string" && parsed.agent ? parsed.agent : undefined, questions: parsed.questions }
+      return {
+        agent: typeof parsed.agent === "string" && parsed.agent ? parsed.agent : undefined,
+        questions: parsed.questions,
+        ...(parsed.regenerateResetFollowing === true ? { regenerateResetFollowing: true } : {}),
+      }
     }
     return null
   } catch {

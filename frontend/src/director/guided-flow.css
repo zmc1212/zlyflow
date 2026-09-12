@@ -168,6 +168,24 @@
 .director-task-retry:focus-visible { outline: 2px solid var(--director-accent); outline-offset: 2px; }
 .director-task-retry:disabled { opacity: .55; cursor: not-allowed; }
 .director-task-retry-icon { display: inline-flex; animation: director-stream-spin 1.2s linear infinite; }
+/* 已完成环节的重生成入口：官方重试图标同款语法，hover 显现，触屏常显半透明。 */
+.director-task-regen {
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-left: 6px; padding: 0;
+  border: none; border-radius: 999px; cursor: pointer; font-family: inherit;
+  background: transparent; color: var(--director-ink-3);
+  opacity: 0; transition: opacity .15s ease, background .15s ease, color .15s ease;
+}
+.director-task-row:hover .director-task-regen,
+.director-task-regen:focus-visible { opacity: 1; }
+.director-task-regen:hover:not(:disabled) { background: var(--director-green-tint); color: var(--director-green); }
+.director-task-regen:focus-visible { outline: 2px solid var(--director-accent); outline-offset: 2px; }
+.director-task-regen:disabled { opacity: .3; cursor: not-allowed; }
+.director-task-regen-icon { display: inline-flex; }
+@media (hover: none) {
+  .director-task-regen { opacity: .65; }
+  .director-task-row:hover .director-task-regen { opacity: 1; }
+}
 .director-task-rows.is-collapsed .director-task-rows-head {
   background: var(--director-surface); border-radius: 22px; box-shadow: var(--director-shadow-card);
   padding: 10px 14px; color: var(--director-ink);
@@ -586,6 +604,24 @@
 .director-step-row-chevron { flex-shrink: 0; color: var(--director-ink-3); opacity: 0; transition: opacity 150ms ease; }
 .director-step-row-head:hover .director-step-row-chevron,
 .director-step-row-head:focus-visible .director-step-row-chevron { opacity: 1; }
+/* 已完成环节行尾的重新生成入口：与任务栏 hover 显现按钮同一语法。 */
+.director-step-regen {
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  border: none; border-radius: 999px; cursor: pointer; font-family: inherit;
+  background: transparent; color: var(--director-ink-3);
+  opacity: 0; transition: opacity .15s ease, background .15s ease, color .15s ease;
+}
+.director-step-row:hover .director-step-regen,
+.director-step-regen:focus-visible { opacity: 1; }
+.director-step-regen:hover:not(:disabled) { background: var(--director-green-tint); color: var(--director-green); }
+.director-step-regen:focus-visible { outline: 2px solid var(--director-accent); outline-offset: 2px; }
+.director-step-regen:disabled { opacity: .3; cursor: not-allowed; }
+.director-step-regen-icon { display: inline-flex; }
+@media (hover: none) {
+  .director-step-regen { opacity: .65; }
+  .director-step-row:hover .director-step-regen { opacity: 1; }
+}
 
 /* 官方 thinking.tsx 工作中头部：细环 spinner + 微光状态文字 */
 .director-step-spinner {

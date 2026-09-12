@@ -3,6 +3,12 @@ import {
   PLAN_GENERATION_FAILURE,
   PLAN_GENERATION_LABEL,
   PLAN_GENERATION_SUCCESS,
+  SCRIPT_REGENERATE_ADJUST_LABEL,
+  SCRIPT_REGENERATE_DIRECT_LABEL,
+  SCRIPT_REGENERATE_SCOPE_FOLLOWING,
+  SCRIPT_REGENERATE_SCOPE_ONLY,
+  SCRIPT_REGENERATE_TITLE,
+  SCRIPT_STEP_REGENERATE_TITLE,
   approveBatchConfirm,
   approveBatchLabel,
   boardBatchConfirm,
@@ -61,6 +67,19 @@ export function assertActionCopyContract(): void {
   }
   if (!muxBatchLabel(3).includes("3 镜")) {
     throw new Error("mux button must show N 镜")
+  }
+
+  if (SCRIPT_REGENERATE_TITLE("角色") !== "重新生成「角色」") {
+    throw new Error("regenerate dialog title must quote the stage label")
+  }
+  if (!SCRIPT_STEP_REGENERATE_TITLE.includes("重新生成")) {
+    throw new Error("step row regenerate affordance must say 重新生成")
+  }
+  if (!SCRIPT_REGENERATE_DIRECT_LABEL.startsWith("直接") || !SCRIPT_REGENERATE_ADJUST_LABEL.includes("调整要求")) {
+    throw new Error("regenerate dialog actions must offer direct rerun and requirement adjust")
+  }
+  if (!SCRIPT_REGENERATE_SCOPE_ONLY.includes("仅") || !SCRIPT_REGENERATE_SCOPE_FOLLOWING.includes("清空后续")) {
+    throw new Error("regenerate scope options must separate keep-downstream from cascade reset")
   }
 }
 

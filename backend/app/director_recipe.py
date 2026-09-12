@@ -1510,6 +1510,45 @@ def interrupt_stale_pipeline(payload: dict[str, Any] | None) -> dict[str, Any] |
     return recipe
 
 
+def reset_recipe_following(recipe: dict[str, Any], agent_id: str) -> dict[str, Any]:
+    """重新生成 agent_id 成功后的级联重置：清空流水线顺序中其后环节的产物并置回待生成。
+
+    只动 agent_id 之后的环节；agent_id 自身与上游产物保留（自身产物已被本次生成覆盖）。
+    供 plan_pipeline + reset_following 在生成成功后调用，失败或取消不应走到这里。
+    """
+    order = list(PIPELINE_AGENT_ORDER)
+    if agent_id not in order:
+        return recipe
+    following = set(order[order.index(agent_id) + 1:])
+    if not following:
+        return recipe
+    if "script" in following:
+        recipe["script"] = {"title": "", "summary": "", "fullStory": ""}
+    if "research" in following:
+        recipe["researchNotes"] = ""
+    if "art_style" in following:
+        recipe["artStyle"] = None
+    if "characters" in following:
+        recipe["characters"] = []
+        recipe["props"] = []
+    if "locations" in following:
+        recipe["locations"] = []
+    if "storyboard" in following:
+        recipe["scenes"] = []
+        recipe.pop("continuityQa", None)
+    if "voice" in following:
+        for character in recipe.get("characters") or []:
+            if isinstance(character, dict):
+                character["voiceId"] = None
+    if "music" in following:
+        recipe["globalMusic"] = ""
+        recipe["globalSoundscape"] = ""
+    for item in recipe.get("agentStatus") or []:
+        if isinstance(item, dict) and item.get("id") in following:
+            set_agent_status(recipe, str(item.get("id")), "pending")
+    return recipe
+
+
 def find_recipe_shot(recipe: dict[str, Any], shot_id: str) -> dict[str, Any] | None:
     needle = str(shot_id or "").strip()
     if not needle:

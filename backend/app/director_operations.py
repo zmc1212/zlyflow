@@ -13,6 +13,7 @@ from .director_recipe import (
     PAYLOAD_KIND_REPLICATION,
     normalize_recipe_payload,
     payload_kind,
+    reset_recipe_following,
 )
 from .director_replication import (
     find_replication_shot,
@@ -295,6 +296,21 @@ class DirectorOperationService:
             on_stream=stream_event,
             clarifications=request.get("clarifications"),
         )
+        # 级联重置只在目标环节确实成功后执行：失败或取消时保留下游产物，避免无谓破坏。
+        reset_following = bool(request.get("reset_following")) and agents is not None and len(agents) == 1
+        reset_applied = False
+        if reset_following:
+            target_status = next(
+                (
+                    item.get("status")
+                    for item in updated.get("agentStatus") or []
+                    if isinstance(item, dict) and item.get("id") == agents[0]
+                ),
+                None,
+            )
+            if target_status == "completed":
+                updated = reset_recipe_following(updated, agents[0])
+                reset_applied = True
         persist(updated)
         saved = self.store.get_director_project(record["id"])
         selected_agents = agents or list(AGENT_IDS)
@@ -309,6 +325,7 @@ class DirectorOperationService:
             "project_revision": saved["revision"],
             "content_revision": saved["content_revision"],
             "failed_agents": failed_agents,
+            "reset_following": reset_applied,
         }
 
     async def _run_render(self, operation: dict[str, Any]) -> dict[str, Any]:

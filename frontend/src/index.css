@@ -2667,6 +2667,30 @@
 .director-heavy-confirm .director-output-hint {
   margin: 0;
 }
+/* 重新生成确认弹窗：范围单选与三按钮 footer（调整要求 / 直接重生成 / 取消）。 */
+.director-regenerate-confirm .ant-radio-group { display: block; margin-top: 4px; }
+.director-regenerate-scope {
+  display: block;
+  font-weight: 500;
+  color: #111827;
+}
+.director-regenerate-scope-hint {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #4b5563;
+}
+.director-regenerate-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.director-regenerate-footer .ant-btn + .ant-btn { margin-inline-start: 0; }
+@media (max-width: 767px) {
+  .director-regenerate-footer .ant-btn { flex: 1 1 auto; }
+}
 .director-style-grid, .director-asset-grid, .director-shot-wall, .director-batch-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
@@ -4055,6 +4079,7 @@
   .director-agent-collapse .ant-collapse-header,
   .director-section-head h5,
   .director-heavy-confirm p,
+  .director-regenerate-scope,
   .director-style-card,
   .director-shot-dialogue,
   .director-library-form label,
@@ -4104,6 +4129,7 @@
   .director-frame-slot,
   .director-style-toolbar p,
   .director-output-hint,
+  .director-regenerate-scope-hint,
   .director-asset-status,
   .director-library-hint,
   .director-library-prompt,

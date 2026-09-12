@@ -17,6 +17,8 @@ type Props = {
   pinnedOpen?: boolean
   /** Retry a failed step (e.g. rerun a single agent); absent hides the affordance. */
   onRetry?: (id: string) => void
+  /** Regenerate a completed step; absent hides the affordance. */
+  onRegenerate?: (id: string) => void
   /** Open a settled step's full output (drawer); absent keeps rows inert. */
   onOpen?: (id: string) => void
   /** "panel"（默认，可折叠面板）| "rail"（左侧任务栏：常开、无折叠、行内不显示消息） */
@@ -83,7 +85,7 @@ function RetryIcon() {
  * ring-sequence badges, solid status badges, tint status pills, per-row capsule
  * cards with hairline shadows, and a collapsed summary once everything settles.
  */
-export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false, onRetry, onOpen, variant = "panel" }: Props) {
+export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false, onRetry, onRegenerate, onOpen, variant = "panel" }: Props) {
   const relevant = rows.filter((row) => row.status !== "pending" || running)
   const finished = relevant.filter((row) => row.status === "completed" || row.status === "failed").length
   const percent = relevant.length ? Math.round((finished / relevant.length) * 100) : 0
@@ -127,6 +129,20 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                 </span>
                 <span className="director-task-row-label">{row.label}</span>
                 {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+                {row.status === "completed" && onRegenerate ? (
+                  <button
+                    type="button"
+                    className="director-task-regen"
+                    title="重新生成这一环节"
+                    disabled={running}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onRegenerate(row.id)
+                    }}
+                  >
+                    <span className="director-task-regen-icon" aria-hidden><RetryIcon /></span>
+                  </button>
+                ) : null}
                 {row.status === "failed" ? (
                   onRetry ? (
                     <button
@@ -193,6 +209,20 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                   <span className="director-task-row-message">{row.message}</span>
                 ) : null}
                 {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+                {row.status === "completed" && onRegenerate ? (
+                  <button
+                    type="button"
+                    className="director-task-regen"
+                    title="重新生成这一环节"
+                    disabled={running}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onRegenerate(row.id)
+                    }}
+                  >
+                    <span className="director-task-regen-icon" aria-hidden><RetryIcon /></span>
+                  </button>
+                ) : null}
                 {row.status === "failed" ? (
                   onRetry ? (
                     <button
