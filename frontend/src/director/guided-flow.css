@@ -52,8 +52,8 @@
 /* ---- 剧本阶段：AI 流式手稿 / 成稿文档 / 空态 hero ---- */
 .director-hero {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px; padding: 56px 24px; text-align: center;
-  color: var(--studio-text-muted);
+  gap: 10px; padding: 40px 24px; text-align: center; flex: 1; min-height: 0;
+  color: var(--director-ink-3);
 }
 .director-hero-icon {
   display: inline-flex; align-items: center; justify-content: center;
@@ -75,30 +75,35 @@
 
 .director-script-stream {
   display: flex; flex-direction: column; gap: 12px; padding: 16px;
-  background: var(--studio-surface); border: 1px solid var(--studio-border); border-radius: 12px;
+  flex: 1; min-height: 0; overflow: hidden;
+  background: var(--director-surface); border: 1px solid var(--director-line);
+  border-radius: 14px; box-shadow: var(--director-shadow-card);
 }
-.director-script-stream-head { display: flex; align-items: center; gap: 10px; }
+.director-script-stream-head { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .director-script-stream-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.director-script-stream-copy strong { font-size: 14px; color: var(--studio-text); }
+.director-script-stream-copy strong { font-size: 14px; color: var(--director-ink); }
 .director-script-stream-copy span {
-  font-size: 12px; color: var(--studio-text-secondary);
+  font-size: 12px; color: var(--director-ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.director-stream-head-icon.is-done { color: var(--studio-success); }
-.director-stream-head-icon.is-failed { color: var(--studio-danger); }
+.director-stream-head-icon.is-done { color: var(--director-green); }
+.director-stream-head-icon.is-failed { color: var(--director-red); }
 
 .director-stream-pulse {
   position: relative; flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%;
-  background: var(--studio-primary);
+  background: var(--director-accent);
 }
 .director-stream-pulse::after {
   content: ""; position: absolute; inset: -4px; border-radius: 50%;
-  border: 2px solid var(--studio-primary); opacity: .5;
+  border: 2px solid var(--director-accent); opacity: .5;
   animation: director-stream-pulse-ring 1.6s ease-out infinite;
 }
 @keyframes director-stream-pulse-ring { 0% { transform: scale(.5); opacity: .6; } 100% { transform: scale(1.4); opacity: 0; } }
 
-.director-task-rows { display: flex; flex-direction: column; gap: 8px; max-width: 440px; }
+.director-task-rows {
+  display: flex; flex-direction: column; gap: 8px; max-width: 440px; flex-shrink: 0;
+  max-height: min(46%, 360px); overflow-y: auto;
+}
 .director-task-rows-head {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 2px 4px;
   background: none; border: none; cursor: pointer; text-align: left;
@@ -152,6 +157,16 @@
 }
 .director-task-pill.is-green { background: var(--director-green-tint); color: var(--director-green); }
 .director-task-pill.is-red { background: var(--director-red-tint); color: var(--director-red); }
+/* 官方失败 pill：文字 + 旋转重试图标（task-rows.tsx "Failed <RetryIcon>" 原样式），
+   在真实接线里作为单步重跑按钮。 */
+.director-task-retry {
+  gap: 6px; border: none; cursor: pointer; font-family: inherit;
+  transition: background .15s ease;
+}
+.director-task-retry:hover:not(:disabled) { background: color-mix(in srgb, var(--director-red) 18%, transparent); }
+.director-task-retry:focus-visible { outline: 2px solid var(--director-accent); outline-offset: 2px; }
+.director-task-retry:disabled { opacity: .55; cursor: not-allowed; }
+.director-task-retry-icon { display: inline-flex; animation: director-stream-spin 1.2s linear infinite; }
 .director-task-rows.is-collapsed .director-task-rows-head {
   background: var(--director-surface); border-radius: 22px; box-shadow: var(--director-shadow-card);
   padding: 10px 14px; color: var(--director-ink);
@@ -163,7 +178,7 @@
 @keyframes director-stream-spin { to { transform: rotate(360deg); } }
 
 .director-stream-body {
-  position: relative; overflow-y: auto; min-height: 240px; max-height: calc(100vh - 320px);
+  position: relative; overflow-y: auto; flex: 1; min-height: 0;
   padding: 8px 4px 8px 0;
 }
 .director-stream-article { max-width: 72ch; margin: 0 auto; }
@@ -429,13 +444,17 @@
 }
 
 /* ---- Prompt Bar：对话式创作输入（剧本阶段 + 批量页） ---- */
+/* 官方 chat 布局：整卡固定视口高度，只有消息列表内部滚动，输入区常驻。 */
+.director-recipe-layout.is-chat .director-recipe-main {
+  display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px;
+}
 .director-script-room {
-  display: flex; flex-direction: column; gap: 12px; min-height: 100%;
+  display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0;
 }
 .director-batch-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
 
 .director-prompt-bar {
-  position: sticky; bottom: 0; z-index: 30;
+  position: static; flex-shrink: 0;
   display: flex; flex-direction: column; gap: 6px;
   padding: 6px;
   background: var(--director-surface);
@@ -444,7 +463,6 @@
   box-shadow: var(--director-shadow-card);
   transition: border-color 150ms;
 }
-.director-recipe-main .director-prompt-bar { margin-top: auto; }
 .director-prompt-bar.is-streaming {
   background: var(--director-surface);
 }
@@ -578,6 +596,7 @@
   .director-completion-card { animation: none; }
   .director-block.is-running .director-block-icon { animation: none; }
   .director-shot-copy strong.is-skeleton { animation: none; }
+  .director-task-retry-icon { animation: none; }
 }
 
 /* ---- beautifului 视觉皮肤层（仅导演台对话创作室，--director-* 独立 token） ---- */

@@ -55,7 +55,7 @@ export type DirectorProjectResponse = DirectorProjectListItem & {
 export type DirectorOperationKind = "plan_pipeline" | "plan_clarify" | "shot_render_prepare"
 export type DirectorOperationStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled"
 
-export type DirectorClarificationInput = { question: string; answer: string }
+export type DirectorClarificationInput = { id?: string; question: string; answer: string }
 
 export type DirectorOperationResponse = {
   id: string

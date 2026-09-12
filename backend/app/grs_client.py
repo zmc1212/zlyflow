@@ -37,6 +37,10 @@ GRS_INTERNATIONAL_BASE_URL = "https://grsaiapi.com"
 # other result URLs cannot be used to reach non-public addresses.
 GRS_BENCHMARK_RESULT_DOMAIN = "aitohumanize.com"
 RFC2544_BENCHMARK_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+# The local fake-IP proxy DNS also answers that domain with a reserved IPv6
+# range; accept it the same way as the benchmark range.
+GRS_RESULT_PROXY_IPV6_NETWORK = ipaddress.ip_network("fdfe:dcba:9876::/48")
+GRS_BENCHMARK_RESULT_NETWORKS = (RFC2544_BENCHMARK_NETWORK, GRS_RESULT_PROXY_IPV6_NETWORK)
 
 
 def is_grs_benchmark_result_host(hostname: str) -> bool:
@@ -278,7 +282,8 @@ class GrsClient:
         for address in addresses:
             resolved = ipaddress.ip_address(address)
             if not resolved.is_global and not (
-                is_grs_benchmark_result_host(hostname) and resolved in RFC2544_BENCHMARK_NETWORK
+                is_grs_benchmark_result_host(hostname)
+                and any(resolved in network for network in GRS_BENCHMARK_RESULT_NETWORKS)
             ):
                 raise GrsError(f"GRS 图片地址指向非公共网络，已拒绝下载（{hostname}）")
 

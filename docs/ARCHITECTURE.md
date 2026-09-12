@@ -1575,3 +1575,21 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：纯前端；不改 API 与数据。
 - 验证：浏览器实测（登录工作台 → 血与恩情工程剧本阶段）：任务面板 9 行官方胶囊形态、角色/场景/道具卡、9 镜头行、画风卡、846 字手稿、完成卡、亮/暗双主题截图确认。
 - 回滚方式：还原本次提交即恢复「完成后仅文档视图」。
+
+## 2026-09-12 对话创作室布局重构（官方 chat 固定高度卡内滚动）
+
+- 原因：剧本对话阶段使用页面级滚动 + sticky 输入条，输入框被页面滚动截断，需滚到底部才能看全；不符合官方 chat 的「整卡固定高度、消息区内部滚动、输入区常驻」布局。
+- 当前基线：`is-chat` 作用域内 `.director-recipe-main` 改为纵向 flex 容器（`overflow: hidden`），`.director-script-room` 弹性填充，对话卡（`.director-script-stream`）`flex: 1; min-height: 0` 固定视口高度，**唯一滚动区为消息列表**（`.director-stream-body { flex: 1; min-height: 0; overflow-y: auto }`），Prompt Bar 静态常驻卡底（不再 sticky）。完成卡与成稿文档经新 `transcriptFooter` prop 渲染在消息流末尾。任务面板 `max-height: min(46%, 360px)` 内部滚动，历史回放默认折叠为一行摘要（运行中保持展开），避免挤压消息区。空态判定改为仅看 `script.fullStory`（工程创建时 title/summary 会写入工程名，不能作为「已有剧本」依据）。文案/图标/指示条配色统一改用 `--director-*` token。
+- 受影响文件：`frontend/src/director/{DirectorRecipeStudio.tsx,guided-flow.css}`、`frontend/src/director/components/{DirectorScriptStreamPanel,DirectorPromptBar}.tsx`。
+- 兼容性：纯前端布局与样式；移动端断点保持原行为（页面自然滚动 + fixed 输入条）。
+- 验证：浏览器实测三个场景——已完成工程（无页面滚动、任务面板折叠/展开、消息区滚动到手稿与成稿文档）、生成中工程、空白工程（hero + 示例创意 + 输入框完整可见）；亮/暗双主题截图确认。
+- 回滚方式：还原本次提交即恢复页面级滚动 + sticky 输入条布局。
+
+## 2026-09-12 剧本 Beat 数量由澄清问答确认（beat_count）
+
+- 原因：剧本 Agent 固定 800-1500 字导致短句创意也生成数十个 Beat，无法做短剧级控制。
+- 当前基线：`plan_clarify` 返回「2-3 道剧情走向题 + 固定 `beat_count` 镜头数量题」（档位 8/16/30/50 硬编码于 `llm_minimax_skills.py`，`normalize_clarify_questions` 兜底）；`POST /api/director/recipes/{id}/operations` 的 `clarifications[]` 新增可选 `id` 字段。`plan_pipeline` 剧本 Agent 用 `_clarified_beat_target` 解析用户确认数量并经 `build_script_agent_prompt(target_beats=N)` 约束 Beat 总数（±2，钳制 3-120）；未确认时保持旧行为。
+- 受影响文件：`backend/app/llm_minimax_skills.py`、`backend/app/llm_provider.py`、`backend/app/director_agents.py`、`backend/app/models.py`、`backend/tests/test_director_clarify.py`、`frontend/src/director/{director-api.ts,DirectorRecipeStudio.tsx,components/DirectorScriptStreamPanel.tsx}`。
+- 兼容性：`id` 可选，旧请求/旧澄清记录不受影响。
+- 验证命令：`python -m unittest backend.tests.test_director_clarify backend.tests.test_director -q`；`npm --prefix frontend run build`。
+- 回滚方式：还原本次提交即恢复固定字数生成与纯方向澄清题。

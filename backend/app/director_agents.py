@@ -256,6 +256,32 @@ def _clarified_goal_text(goal: str, clarifications: Any) -> str:
     return goal + "\n\n创作方向确认（用户已选定，剧本必须遵循这些决定）：\n" + "\n".join(rows)
 
 
+def _clarified_beat_target(clarifications: Any) -> int | None:
+    """User-confirmed shot/beat count from the clarify answers; None keeps the default script scale."""
+    if not isinstance(clarifications, list):
+        return None
+    for item in clarifications:
+        if not isinstance(item, dict):
+            continue
+        question = _text(item.get("question"))
+        matched = _text(item.get("id")) == "beat_count" or (
+            "镜头" in question and any(token in question.lower() for token in ("beat", "数量", "多少"))
+        )
+        if not matched:
+            continue
+        answer = _text(item.get("answer") or item.get("value"))
+        range_match = re.search(r"(\d+)\s*[-~～—至到]\s*(\d+)", answer)
+        if range_match:
+            value = (int(range_match.group(1)) + int(range_match.group(2))) // 2
+        else:
+            number_match = re.search(r"\d+", answer)
+            if not number_match:
+                continue
+            value = int(number_match.group())
+        return min(120, max(3, value))
+    return None
+
+
 def _text(value: Any, fallback: str = "") -> str:
     if value is None:
         return fallback
@@ -1626,7 +1652,7 @@ def run_agent(
             tracker = _make_agent_tracker(agent_id, on_stream)
             _attach_agent_tracker(tracker, chat_fn)
             messages = [
-                {"role": "system", "content": _system(agent_id, build_script_agent_prompt())},
+                {"role": "system", "content": _system(agent_id, build_script_agent_prompt(target_beats=_clarified_beat_target(clarifications)))},
                 {"role": "user", "content": _clarified_goal_text(goal, clarifications)},
             ]
             parsed = _chat_json(chat_fn, messages) if chat_fn else None

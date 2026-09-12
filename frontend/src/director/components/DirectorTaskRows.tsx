@@ -15,6 +15,8 @@ type Props = {
   elapsedSec: number
   /** Force the panel open (e.g. the transcript is still streaming). */
   pinnedOpen?: boolean
+  /** Retry a failed step (e.g. rerun a single agent); absent hides the affordance. */
+  onRetry?: (id: string) => void
 }
 
 function formatElapsed(totalSeconds: number): string {
@@ -65,12 +67,19 @@ function XIcon() {
   )
 }
 
+/* 官方失败 pill 内的重试图标（官方 task-rows.tsx RetryIcon 原路径）。 */
+function RetryIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" /></svg>
+  )
+}
+
 /**
  * Vertical Task Rows panel following the official beautifului capsule grammar:
  * ring-sequence badges, solid status badges, tint status pills, per-row capsule
  * cards with hairline shadows, and a collapsed summary once everything settles.
  */
-export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false }: Props) {
+export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false, onRetry }: Props) {
   const relevant = rows.filter((row) => row.status !== "pending" || running)
   const finished = relevant.filter((row) => row.status === "completed" || row.status === "failed").length
   const percent = relevant.length ? Math.round((finished / relevant.length) * 100) : 0
@@ -113,7 +122,22 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                 <span className="director-task-row-message">{row.message}</span>
               ) : null}
               {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
-              {row.status === "failed" ? <span className="director-task-pill is-red">失败</span> : null}
+              {row.status === "failed" ? (
+                onRetry ? (
+                  <button
+                    type="button"
+                    className="director-task-pill is-red director-task-retry"
+                    title="重跑这一步"
+                    disabled={running}
+                    onClick={() => onRetry(row.id)}
+                  >
+                    失败
+                    <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
+                  </button>
+                ) : (
+                  <span className="director-task-pill is-red">失败</span>
+                )
+              ) : null}
             </li>
           ))}
         </ol>

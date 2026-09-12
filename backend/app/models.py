@@ -691,6 +691,11 @@ class DirectorRenderShotsRequest(BaseModel):
 class DirectorClarificationItem(BaseModel):
     """One user-confirmed creative-direction answer injected into the script agent."""
 
+    id: str | None = Field(
+        default=None,
+        max_length=64,
+        description="问题 id；beat_count 表示镜头数量确认题，剧本 Agent 据此约束 Beat 数量",
+    )
     question: str = Field(description="AI 提出的创作方向问题")
     answer: str = Field(description="用户选定或自定义的答案")
 

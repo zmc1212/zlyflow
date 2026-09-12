@@ -970,6 +970,8 @@ export default function DirectorRecipeStudio({
         agents: [agentId],
         art_style_id: recipe.artStyle?.id,
         skip_research: agentId === "research",
+        // 重跑剧本时沿用本次会话已确认的创作方向（含镜头数量），避免重跑后 Beat 数量失控。
+        clarifications: agentId === "script" && scriptAnswers.length ? scriptAnswers : undefined,
       }, csrfToken)
       rememberDirectorOperation(operation)
     } catch (error) {
@@ -1940,9 +1942,8 @@ export default function DirectorRecipeStudio({
   const planStagePrimary = activeStage === "script" || activeStage === "art_style"
   const planPipelineRunning = running && operationQuery.data?.kind !== "shot_render_prepare"
   const clarifyActive = Boolean(clarifyQuestions?.length) && !planPipelineRunning
-  const hasScriptContent = Boolean(
-    recipe.script.title.trim() || recipe.script.summary.trim() || recipe.script.fullStory.trim(),
-  )
+  // 只看真实创作内容：工程创建时 title/summary 会被写入工程名，不能作为「已有剧本」的依据。
+  const hasScriptContent = Boolean(recipe.script.fullStory.trim())
   const scriptStageMode: "streaming" | "empty" | "document" | "edit" = planPipelineRunning || clarifyActive
     ? "streaming"
     : !hasScriptContent
@@ -2300,46 +2301,47 @@ export default function DirectorRecipeStudio({
                         </div>
                       </div>
                     ) : (
-                      <>
-                        {lastPlanCompletion && !planPipelineRunning && !clarifyActive ? (
-                          <DirectorCompletionCard
-                            completion={lastPlanCompletion}
-                            failedLabels={lastPlanCompletion.failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id)}
-                            onNextStoryboard={() => setActiveStage("storyboard")}
-                            onRegenerate={() => { void handleRun() }}
-                          />
-                        ) : null}
-                        <DirectorScriptStreamPanel
-                          operationId={activeOperationId || ""}
-                          operationKind={operationQuery.data?.kind || (clarifyActive ? "plan_clarify" : "plan_pipeline")}
-                          startedAt={runStartedAtRef.current}
-                          agentStatus={recipe.agentStatus}
-                          artStyleName={recipe.artStyle?.name || ""}
-                          cancelRequested={Boolean(operationQuery.data?.cancel_requested)}
-                          brief={operationQuery.data?.request?.goal || goal}
-                          initialQuestions={clarifyQuestions || undefined}
-                          clarifications={scriptAnswers}
-                          onOpenPicker={() => setArtStylePickerOpen(true)}
-                          historyMode={!planPipelineRunning && !clarifyActive}
-                          recipe={recipe}
-                          onCancel={() => { void handleCancelActiveOperation() }}
-                          onStartPipeline={(answers) => { void handleStartPipeline(answers) }}
-                        />
-                        {!planPipelineRunning && !clarifyActive ? (
-                          <DirectorScriptDocument
-                            script={recipe.script}
-                            mode={scriptStageMode === "edit" ? "edit" : "document"}
-                            busy={running}
-                            onEdit={() => setScriptEditMode(true)}
-                            onDoneEdit={() => setScriptEditMode(false)}
-                            onChange={(patch) => updateRecipe((current) => ({
-                              ...current,
-                              script: { ...current.script, ...patch },
-                            }))}
-                            onNext={() => setActiveStage("storyboard")}
-                          />
-                        ) : null}
-                      </>
+                      <DirectorScriptStreamPanel
+                        operationId={activeOperationId || ""}
+                        operationKind={operationQuery.data?.kind || (clarifyActive ? "plan_clarify" : "plan_pipeline")}
+                        startedAt={runStartedAtRef.current}
+                        agentStatus={recipe.agentStatus}
+                        artStyleName={recipe.artStyle?.name || ""}
+                        cancelRequested={Boolean(operationQuery.data?.cancel_requested)}
+                        brief={operationQuery.data?.request?.goal || goal}
+                        initialQuestions={clarifyQuestions || undefined}
+                        clarifications={scriptAnswers}
+                        onOpenPicker={() => setArtStylePickerOpen(true)}
+                        historyMode={!planPipelineRunning && !clarifyActive}
+                        recipe={recipe}
+                        transcriptFooter={!planPipelineRunning && !clarifyActive ? (
+                          <>
+                            {lastPlanCompletion ? (
+                              <DirectorCompletionCard
+                                completion={lastPlanCompletion}
+                                failedLabels={lastPlanCompletion.failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id)}
+                                onNextStoryboard={() => setActiveStage("storyboard")}
+                                onRegenerate={() => { void handleRun() }}
+                              />
+                            ) : null}
+                            <DirectorScriptDocument
+                              script={recipe.script}
+                              mode={scriptStageMode === "edit" ? "edit" : "document"}
+                              busy={running}
+                              onEdit={() => setScriptEditMode(true)}
+                              onDoneEdit={() => setScriptEditMode(false)}
+                              onChange={(patch) => updateRecipe((current) => ({
+                                ...current,
+                                script: { ...current.script, ...patch },
+                              }))}
+                              onNext={() => setActiveStage("storyboard")}
+                            />
+                          </>
+                        ) : undefined}
+                        onCancel={() => { void handleCancelActiveOperation() }}
+                        onStartPipeline={(answers) => { void handleStartPipeline(answers) }}
+                        onRetryAgent={(agentId) => { void handleRerun(agentId as RecipeAgentId) }}
+                      />
                     )}
                     <DirectorPromptBar
                       value={goal}

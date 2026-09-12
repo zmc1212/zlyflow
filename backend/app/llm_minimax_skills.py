@@ -245,19 +245,104 @@ def build_storyboard_continuity_repair_prompt() -> str:
 
 
 def build_clarify_questions_prompt() -> str:
+    beat_option_items = "、".join(
+        '{"label":"%s","value":"%s"}' % (item["label"], item["value"])
+        for item in BEAT_COUNT_OPTIONS
+    )
     return "\n\n".join([
-        "你是短剧导演，正在为用户的创意做开机前的方向规划。根据用户的一句话创意，提出 2-4 个真正决定剧情走向的问题。",
-        "只问会改变剧情走向的创作方向问题，例如：结局倒向、故事基调、主角动机、冲突升级方式、叙事视角。禁止问画面风格、镜头设计、时长、配音等执行细节。",
+        "你是短剧导演，正在为用户的创意做开机前的方向规划。根据用户的一句话创意，提出 2-3 个真正决定剧情走向的问题。",
+        "只问会改变剧情走向的创作方向问题，并让各题覆盖不同维度，例如：结局倒向、故事基调、主角动机、冲突升级方式、叙事视角、时空设定。禁止重复维度，禁止问画面风格、配音、台词语言等执行细节（镜头数量除外，见下）。",
         "每个问题给 3-4 个具体、可直接采用的选项，其中一个标记 recommended=true（你认为最适合这个创意的方向）。选项 label 用简体中文短语，value 与 label 相同。",
-        "问题与选项必须贴合用户创意的具体内容，禁止空泛模板问题。",
-        '必须且仅输出一个合法 JSON 对象：{"questions":[{"id":"q1","question":"","why":"一句话说明这个问题如何影响剧情走向","options":[{"label":"","value":"","recommended":true}],"allowCustom":true}]}',
+        "方向问题之后，必须在 questions 最后输出一道固定题：id 固定为 \"beat_count\"，question 固定为「" + BEAT_COUNT_QUESTION_TEXT + "」，why 用一句话结合该创意说明镜头数量如何决定成片时长与节奏，options 固定为：" + beat_option_items + "（value 必须用这些纯数字，不得改动），并根据创意体量给其中一个标 recommended=true；allowCustom 固定为 true，用户可自填其他数量。",
+        "问题与选项必须贴合用户创意的具体内容，禁止空泛模板问题（beat_count 的 why 除外）。",
+        '必须且仅输出一个合法 JSON 对象：{"questions":[{"id":"q1","question":"","why":"一句话说明这个问题如何影响剧情走向","options":[{"label":"","value":"","recommended":true}],"allowCustom":true},{"id":"beat_count","question":"' + BEAT_COUNT_QUESTION_TEXT + '","why":"","options":[{"label":"约 8 个镜头 · 1 分钟内","value":"8"},{"label":"约 16 个镜头 · 1-2 分钟","value":"16","recommended":true},{"label":"约 30 个镜头 · 3 分钟左右","value":"30"},{"label":"约 50 个镜头 · 完整短剧","value":"50"}],"allowCustom":true}]}',
     ])
 
 
-def build_script_agent_prompt() -> str:
+BEAT_COUNT_QUESTION_ID = "beat_count"
+
+# 镜头数量题的固定档位：value 必须是纯数字，前端与后端都按这个约定解析。
+BEAT_COUNT_OPTIONS: list[dict[str, str]] = [
+    {"label": "约 8 个镜头 · 1 分钟内", "value": "8"},
+    {"label": "约 16 个镜头 · 1-2 分钟", "value": "16"},
+    {"label": "约 30 个镜头 · 3 分钟左右", "value": "30"},
+    {"label": "约 50 个镜头 · 完整短剧", "value": "50"},
+]
+BEAT_COUNT_DEFAULT_RECOMMENDED = "16"
+BEAT_COUNT_QUESTION_TEXT = "这部剧拍多少个镜头（Beat）？"
+
+
+def build_beat_count_question(recommended_value: str = BEAT_COUNT_DEFAULT_RECOMMENDED) -> dict[str, Any]:
+    """Deterministic 镜头数量 clarify question; the LLM only picks the recommended tier."""
+    recommended = str(recommended_value) if str(recommended_value) in {item["value"] for item in BEAT_COUNT_OPTIONS} else BEAT_COUNT_DEFAULT_RECOMMENDED
+    options = []
+    for item in BEAT_COUNT_OPTIONS:
+        option = {"label": item["label"], "value": item["value"]}
+        if option["value"] == recommended:
+            option["recommended"] = True
+        options.append(option)
+    return {
+        "id": BEAT_COUNT_QUESTION_ID,
+        "question": BEAT_COUNT_QUESTION_TEXT,
+        "why": "镜头数量决定成片时长与节奏：每个镜头约 3-8 秒，确认后剧本会按这个数量拆写节拍。",
+        "options": options,
+        "allowCustom": True,
+    }
+
+
+def normalize_clarify_questions(parsed_questions: Any) -> list[dict[str, Any]]:
+    """Normalize raw LLM clarify output: cap direction questions, force the beat_count question last."""
+    questions: list[dict[str, Any]] = []
+    beat_recommended = BEAT_COUNT_DEFAULT_RECOMMENDED
+    if isinstance(parsed_questions, list):
+        for item in parsed_questions:
+            if not isinstance(item, dict) or not str(item.get("question") or "").strip():
+                continue
+            if str(item.get("id") or "").strip() == BEAT_COUNT_QUESTION_ID:
+                for option in item.get("options") or []:
+                    if isinstance(option, dict) and option.get("recommended"):
+                        value = str(option.get("value") or "").strip()
+                        if value in {entry["value"] for entry in BEAT_COUNT_OPTIONS}:
+                            beat_recommended = value
+                continue
+            options = []
+            for option in item.get("options") or []:
+                if not isinstance(option, dict):
+                    continue
+                label = str(option.get("label") or "").strip()
+                if not label:
+                    continue
+                options.append({
+                    "label": label,
+                    "value": str(option.get("value") or label).strip() or label,
+                    "recommended": bool(option.get("recommended")),
+                })
+            if not options:
+                continue
+            questions.append({
+                "id": str(item.get("id") or f"q{len(questions) + 1}"),
+                "question": str(item.get("question")).strip(),
+                "why": str(item.get("why") or "").strip(),
+                "options": options[:4],
+                "allowCustom": item.get("allowCustom") is not False,
+            })
+    questions = questions[:3]
+    questions.append(build_beat_count_question(beat_recommended))
+    return questions
+
+
+def build_script_agent_prompt(target_beats: int | None = None) -> str:
+    if target_beats and target_beats > 0:
+        scale_line = (
+            f"fullStory 中文，总 Beat 数量必须约为 {target_beats} 个（上下浮动不超过 2 个）。"
+            "情节按这个数量规划节奏：禁止把多个动作合并进一个 Beat 来减少数量，也禁止超出该数量继续加戏。"
+            "必须使用基于 Seedance Scene Ledger（场景账本）的节拍式写法："
+        )
+    else:
+        scale_line = "fullStory 800-1500 字中文。必须使用基于 Seedance Scene Ledger（场景账本）的节拍式写法："
     return "\n\n".join([
         "把一句话扩成可拍的 AI 短剧剧本。输出 {\"title\":\"\",\"summary\":\"\",\"fullStory\":\"\"}。",
-        "fullStory 800-1500 字中文。必须使用基于 Seedance Scene Ledger（场景账本）的节拍式写法：",
+        scale_line,
         "1. 【禁止传统段落式动作】：严禁把多个动作打包成一段。必须将情节拆解为独立的『动作节拍 (Beat)』。",
         "2. 【One Playable Change】：每个 Beat 只能发生一个肉眼可见的物理变化（如：角色 A 拔剑，或角色 B 倒下）。",
         "3. 【物理状态继承】：下一个 Beat 必须严格继承上一个 Beat 的人物站位、手持道具、环境光影和残骸。禁止凭空变出未交代的道具，禁止空间逻辑瞬移。",

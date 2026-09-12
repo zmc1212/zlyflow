@@ -299,12 +299,26 @@ class GrsClientTests(unittest.TestCase):
         filename, content = file8.download_image("https://file8.aitohumanize.com/a.png")
         self.assertEqual(filename, "grs-result.png")
         self.assertEqual(content, image)
+        proxy_v6_session = FakeSession([FakeResponse({}, headers={"Content-Type": "image/png"}, content=image)])
+        proxy_v6 = GrsClient(
+            "https://grs.example.com", "secret", session=proxy_v6_session,
+            resolver=lambda _host: ["198.18.1.48", "fdfe:dcba:9876::15f"],
+        )
+        filename, content = proxy_v6.download_image("https://file5.aitohumanize.com/a.png")
+        self.assertEqual(filename, "grs-result.png")
+        self.assertEqual(content, image)
         untrusted = GrsClient(
             "https://grs.example.com", "secret", session=FakeSession([]),
             resolver=lambda _host: ["198.18.1.176"],
         )
         with self.assertRaises(GrsError):
             untrusted.download_image("https://cdn.example.com/a.png")
+        untrusted_v6 = GrsClient(
+            "https://grs.example.com", "secret", session=FakeSession([]),
+            resolver=lambda _host: ["fdfe:dcba:9876::15f"],
+        )
+        with self.assertRaises(GrsError):
+            untrusted_v6.download_image("https://cdn.example.com/a.png")
 
     def test_format_failure_translates_upstream_generate_image_failed(self) -> None:
         self.assertEqual(GrsClient.format_failure("failed", "generate image failed"), "上游生图失败，请重新生成")

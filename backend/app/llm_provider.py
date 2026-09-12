@@ -343,9 +343,13 @@ class LlmProviderService:
         )
 
     def run_director_clarify(self, goal: str, *, on_stream: Any = None) -> list[dict[str, Any]]:
-        """Ask 2-4 plot-direction questions for the brief; streams question text via on_stream."""
+        """Ask 2-3 plot-direction questions plus the shot-count question; streams question text via on_stream."""
         from .director_stream import AGENT_STREAM_SPECS, AgentStreamTracker
-        from .llm_minimax_skills import build_clarify_questions_prompt
+        from .llm_minimax_skills import (
+            BEAT_COUNT_QUESTION_ID,
+            build_clarify_questions_prompt,
+            normalize_clarify_questions,
+        )
 
         brief = str(goal or "").strip()
         if not brief:
@@ -368,32 +372,16 @@ class LlmProviderService:
         from .director_agents import parse_json_object
 
         parsed = parse_json_object(raw)
-        questions: list[dict[str, Any]] = []
-        if isinstance(parsed, dict) and isinstance(parsed.get("questions"), list):
-            for item in parsed["questions"][:4]:
-                if not isinstance(item, dict) or not str(item.get("question") or "").strip():
-                    continue
-                options = []
-                for option in item.get("options") or []:
-                    if not isinstance(option, dict):
-                        continue
-                    label = str(option.get("label") or "").strip()
-                    if not label:
-                        continue
-                    options.append({
-                        "label": label,
-                        "value": str(option.get("value") or label).strip() or label,
-                        "recommended": bool(option.get("recommended")),
-                    })
-                questions.append({
-                    "id": str(item.get("id") or f"q{len(questions) + 1}"),
-                    "question": str(item.get("question")).strip(),
-                    "why": str(item.get("why") or "").strip(),
-                    "options": options[:4],
-                    "allowCustom": item.get("allowCustom") is not False,
-                })
-        if not questions:
+        raw_questions = parsed.get("questions") if isinstance(parsed, dict) else None
+        has_direction_question = any(
+            isinstance(item, dict)
+            and str(item.get("question") or "").strip()
+            and str(item.get("id") or "").strip() != BEAT_COUNT_QUESTION_ID
+            for item in (raw_questions or [])
+        )
+        if not has_direction_question:
             raise LlmError("大模型未返回有效的创作方向问题，请重试")
+        questions = normalize_clarify_questions(raw_questions)
         if tracker is not None:
             tracker.finish({"questions": questions})
         return questions

@@ -3,7 +3,7 @@ import {
   ArrowUp, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, Clapperboard, FileText, Loader2, MapPinned,
   Mic2, Music2, Palette, Search, Users, XCircle,
 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   SCRIPT_ART_BLOCK_TITLE, SCRIPT_ART_CHANGE_LABEL, SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER, SCRIPT_CLARIFY_HINT,
   SCRIPT_CLARIFY_SKIP_ALL, SCRIPT_CLARIFY_SKIP_ONE, SCRIPT_CLARIFY_SUBMIT, SCRIPT_CLARIFY_TITLE,
@@ -34,7 +34,7 @@ const AGENT_BLOCK_ICONS: Record<string, typeof FileText> = {
 
 export type ClarifyOption = { label: string; value: string; recommended?: boolean }
 export type ClarifyQuestion = { id: string; question: string; why?: string; options: ClarifyOption[]; allowCustom?: boolean }
-export type ClarifyAnswer = { question: string; answer: string }
+export type ClarifyAnswer = { id?: string; question: string; answer: string }
 
 type TerminalState = { kind: "done" | "cancelled" | "error"; message?: string }
 
@@ -58,6 +58,10 @@ type Props = {
   /** Finished-run replay: rebuild the transcript from the saved recipe payload. */
   historyMode?: boolean
   recipe?: RecipeProject
+  /** Rendered at the end of the transcript (completion card, finished script…). */
+  transcriptFooter?: ReactNode
+  /** Retry a single failed agent step from the task rows. */
+  onRetryAgent?: (agentId: string) => void
   onCancel: () => void
   onStartPipeline: (answers: ClarifyAnswer[]) => void
 }
@@ -102,8 +106,8 @@ function StoryParagraphs({ text, active }: { text: string; active: boolean }) {
 /** Chat-transcript style live view of the whole generation, plus the clarify approval cards. */
 export default function DirectorScriptStreamPanel({
   operationId, operationKind, startedAt, agentStatus, artStyleName, cancelRequested, brief,
-  initialQuestions, clarifications, onOpenPicker, historyMode = false, recipe,
-  onCancel, onStartPipeline,
+  initialQuestions, clarifications, onOpenPicker, historyMode = false, recipe, transcriptFooter,
+  onRetryAgent, onCancel, onStartPipeline,
 }: Props) {
   // Streaming content, keyed by `${agent}|${field}|${index ?? ""}`.
   const [targetTexts, setTargetTexts] = useState<Record<string, string>>({})
@@ -140,6 +144,20 @@ export default function DirectorScriptStreamPanel({
   targetRef.current = targetTexts
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const followTailRef = useRef(true)
+  const startedAtRef = useRef(startedAt)
+  startedAtRef.current = startedAt
+
+  // 新一轮操作接入时清掉上一轮的终态与流式覆盖，面板回到直播模式；
+  // 操作结束回落到空 id 时不重置，保留终态头部。已有创作记录正文保留，由新一轮流式覆盖。
+  useEffect(() => {
+    if (!operationId) return
+    setTerminal(null)
+    setAgentOverrides({})
+    setStreamLive(false)
+    setStatusText("")
+    const base = startedAtRef.current
+    setElapsed(base > 0 ? Math.max(0, Math.floor((Date.now() - base) / 1000)) : 0)
+  }, [operationId])
 
   // 历史回放：活动操作结束后，用已保存的 recipe 一次性重建对话记录
   //（流式数据只在内存里，刷新后靠 recipe 恢复任务面板与产出块）。
@@ -335,7 +353,7 @@ export default function DirectorScriptStreamPanel({
     if (!list) return
     const current = list[questionIndex]
     if (!current) return
-    const next = [...answersRef.current, { question: current.question, answer: value }]
+    const next = [...answersRef.current, { id: current.id, question: current.question, answer: value }]
     answersRef.current = next
     setCustomValue("")
     if (questionIndex + 1 < list.length) {
@@ -709,7 +727,7 @@ export default function DirectorScriptStreamPanel({
           rows={agentRows}
           running={!terminal && !historyMode}
           elapsedSec={historyMode ? -1 : elapsed}
-          pinnedOpen={historyMode}
+          onRetry={onRetryAgent}
         />
       ) : null}
       {directionAnswers.length ? (
@@ -767,6 +785,7 @@ export default function DirectorScriptStreamPanel({
             )
           })
         )}
+        {transcriptFooter}
       </div>
       {!terminal && runningAgent?.id === "script" ? (
         <div className="director-stream-writing">
