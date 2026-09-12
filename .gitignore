@@ -89,5 +89,8 @@ output/
 # 9. AI 助手工作目录
 # ==========================================
 .zcode/
+dev-log/
+docs/design-ref-director/
+docs/导演台设计图/
 submit_*.py
 backend/tests/test_*.py
