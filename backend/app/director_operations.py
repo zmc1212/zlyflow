@@ -23,6 +23,7 @@ from .director_replication import (
 )
 from .director_stream import DirectorOperationEventBus, terminal_event_for_status
 from .llm_client import LlmError
+from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
 from .storage import DirectorProjectConflictError, JobStore
 
 
@@ -188,6 +189,24 @@ class DirectorOperationService:
         operation_id = operation["id"]
         request = operation.get("request") or {}
         goal = str(request.get("goal") or "").strip()
+        agent = str(request.get("agent") or "").strip()
+        recipe = None
+        if agent:
+            if agent not in STAGE_CLARIFY_AGENT_IDS:
+                raise ValueError(f"该环节不支持创作确认：{agent}")
+            record = self.store.get_director_project(operation["project_id"])
+            if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+                raise ValueError("只有 Recipe 工程可以确认创作环节")
+            recipe = normalize_recipe_payload(record["payload"])
+            if not goal:
+                script = recipe.get("script") or {}
+                goal = str(
+                    record.get("source_script")
+                    or script.get("fullStory")
+                    or script.get("summary")
+                    or record.get("title")
+                    or ""
+                ).strip()
         if not goal:
             raise ValueError("请先填写创意简报")
 
@@ -195,7 +214,11 @@ class DirectorOperationService:
             self._emit(operation_id, event)
 
         questions = await asyncio.to_thread(
-            self.llm_provider.run_director_clarify, goal, on_stream=stream_event,
+            self.llm_provider.run_director_clarify,
+            goal,
+            recipe=recipe,
+            agent=agent or None,
+            on_stream=stream_event,
         )
         return {"questions": questions}
 

@@ -642,6 +642,46 @@
 .director-live-skeleton span:nth-child(3) { animation-delay: .3s; }
 .director-live-skeleton span:nth-child(4) { animation-delay: .45s; }
 
+/* 分镜直播镜头行（TaskRows 式）：完成镜头收成一行，当前镜头展开实时文字流 */
+.director-shot-stream-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 8px; animation: director-fade-up 300ms cubic-bezier(0.23,1,0.32,1) both; }
+.director-shot-stream-row.is-done { align-items: center; min-height: 28px; color: var(--studio-text-muted); }
+.director-shot-stream-row.is-done:hover { background: var(--director-hover); }
+.director-shot-stream-title { min-width: 0; flex: 1; font-size: 12.5px; font-weight: 500; color: var(--studio-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.director-shot-stream-check { flex-shrink: 0; color: var(--studio-success); }
+.director-shot-stream-row.is-active { background: var(--studio-primary-soft); }
+.director-shot-stream-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.director-shot-stream-text strong { color: var(--studio-text); font-size: 12.5px; font-weight: 600; }
+.director-shot-stream-text strong.is-skeleton {
+  display: inline-block; min-width: 120px; height: 13px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--studio-surface-raised) 25%, var(--studio-hover) 45%, var(--studio-surface-raised) 65%);
+  background-size: 200% 100%; animation: director-stream-shimmer 1.4s ease-in-out infinite;
+}
+.director-shot-stream-text p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--studio-text-secondary); overflow-wrap: anywhere; }
+.director-shot-stream-text p.is-dialogue { color: var(--studio-text-muted); }
+
+/* 分镜打磨阶段面板（按秒分配/校验衔接）：阶段行 + 镜头芯片网格 */
+.director-phase-panel { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 8px; }
+.director-phase-head { display: flex; align-items: center; gap: 8px; }
+.director-phase-title { font-size: 13px; font-weight: 500; color: var(--director-ink); }
+.director-phase-shots { display: flex; flex-wrap: wrap; gap: 6px; }
+.director-phase-chip {
+  min-width: 28px; height: 24px; padding: 0 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px; font-size: 11.5px; font-variant-numeric: tabular-nums;
+  color: var(--director-ink-3); background: var(--director-inset); box-shadow: 0 0 0 1px var(--director-line);
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.director-phase-chip.is-done { color: var(--director-green); background: var(--director-green-tint); box-shadow: none; }
+.director-phase-chip.is-active {
+  color: var(--director-accent-ink); background: var(--director-accent-tint);
+  box-shadow: 0 0 0 1.5px var(--director-accent);
+  animation: director-phase-pulse 1.6s ease-in-out infinite;
+}
+@keyframes director-phase-pulse {
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--director-accent) 22%, transparent); }
+}
+.director-phase-meta { font-size: 11.5px; color: var(--director-ink-3); font-variant-numeric: tabular-nums; }
+
 @media (max-width: 767px) {
   .director-script-layout { display: block; }
   .director-task-rail { display: none; }
@@ -694,6 +734,8 @@
     background: none; -webkit-background-clip: initial; background-clip: initial;
   }
   .director-live-skeleton span { animation: none; }
+  .director-shot-stream-row, .director-shot-stream-text strong.is-skeleton { animation: none; }
+  .director-phase-chip.is-active { animation: none; }
 }
 
 /* ---- beautifului 视觉皮肤层（仅导演台对话创作室，--director-* 独立 token） ---- */

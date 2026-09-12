@@ -80,6 +80,7 @@ from .director_operations import DirectorOperationService
 from .director_stream import TERMINAL_OPERATION_STATUSES, terminal_event_for_status
 from .grs_provider import GrsProviderService
 from .llm_client import LlmError, is_upstream_llm_failure
+from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
 from .llm_provider import LlmProviderService
 from .tts_provider import TtsProviderService
 from .models import (
@@ -2038,6 +2039,8 @@ async def create_director_operation(
             raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
         if payload.kind == "plan_clarify" and not (payload.goal or "").strip():
             raise HTTPException(status_code=422, detail="请先填写创意简报，AI 才能提出创作方向问题")
+        if payload.kind == "plan_clarify" and payload.agent and payload.agent not in STAGE_CLARIFY_AGENT_IDS:
+            raise HTTPException(status_code=422, detail=f"该环节不支持创作确认：{payload.agent}")
         requested_agents = payload.agents or []
         unknown = [agent_id for agent_id in requested_agents if agent_id not in AGENT_IDS]
         if unknown:

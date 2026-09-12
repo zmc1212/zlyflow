@@ -344,7 +344,9 @@ class AgentStreamTracker:
             else:
                 self._active[(array.key, name)] = (global_ordinal, value)
                 if value:
-                    self._emit_delta(name, global_ordinal, value, False)
+                    # 新（数组，字段，序号）状态的首条 delta 带 reset：场景/镜头的
+                    # 显示字段同名同序号（如都叫 title/0），前端按 key 替换而非拼接。
+                    self._emit_delta(name, global_ordinal, value, True)
 
     # -- emission ---------------------------------------------------------
 

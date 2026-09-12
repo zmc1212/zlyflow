@@ -71,6 +71,33 @@ const TRANSCRIPT_AGENTS = ["research", "script", "art_style", "characters", "loc
 
 const TRANSCRIPT_AGENT_SET = new Set<string>(TRANSCRIPT_AGENTS)
 
+/** 分镜打磨阶段（按秒分配/校验衔接等）不产出 delta 流，只有运行消息可解析。 */
+export type StoryboardPolishPhase = {
+  title: string
+  index?: number
+  total?: number
+  range?: [number, number]
+  chars?: number
+}
+
+export function parseStoryboardPhase(message: string | undefined | null): StoryboardPolishPhase | null {
+  if (!message) return null
+  const charsMatch = message.match(/已收 (\d+) 字/)
+  const chars = charsMatch ? Number(charsMatch[1]) : undefined
+  const withStep = (title: string, index: number, total: number): StoryboardPolishPhase => ({
+    title, index, total,
+    range: message.match(/第 (\d+)-(\d+) 镜/) ? [Number(message.match(/第 (\d+)-(\d+) 镜/)![1]), Number(message.match(/第 (\d+)-(\d+) 镜/)![2])] : undefined,
+    chars,
+  })
+  const timing = message.match(/^正在按秒分配对白与动作 \((\d+)\/(\d+)\)/)
+  if (timing) return withStep("按秒分配对白与动作", Number(timing[1]), Number(timing[2]))
+  const continuity = message.match(/^正在校验镜头衔接 \((\d+)\/(\d+)\)/)
+  if (continuity) return withStep("校验镜头衔接", Number(continuity[1]), Number(continuity[2]))
+  const misc = message.match(/^(正在整理镜头|正在从剧本补全对白|正在修复镜头因果衔接)/)
+  if (misc) return { title: misc[1], chars }
+  return null
+}
+
 /* 官方失败 pill 内的重试图标（task-rows.tsx RetryIcon 原路径）。 */
 function RetryIcon() {
   return (
@@ -402,6 +429,49 @@ export default function DirectorScriptStreamPanel({
     prevRunningAgentRef.current = runningAgentId
   }, [runningAgentId])
 
+  // 分镜直播：新镜头开始时强制恢复跟随并跳到最新处（镜头完成自动展开下一镜）。
+  // 注意：后端 agent_delta 的 field 是具体字段名（title/description/dialogue）、
+  // index 是数组内全局序号，activeIndex 里没有 "storyboard|shots" 这个键，
+  // 当前镜头序号要取各字段序号的最大值。
+  const storyboardShotOrdinal = (() => {
+    const values = [
+      activeIndex["storyboard|title"],
+      activeIndex["storyboard|description"],
+      activeIndex["storyboard|dialogue"],
+    ].filter((value): value is number => value !== undefined)
+    return values.length ? Math.max(...values) : undefined
+  })()
+  const prevStoryboardShotRef = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (runningAgentId !== "storyboard" || storyboardShotOrdinal === undefined) {
+      prevStoryboardShotRef.current = undefined
+      return
+    }
+    if (prevStoryboardShotRef.current !== storyboardShotOrdinal) {
+      followTailRef.current = true
+      setTailFollowing(true)
+      const element = bodyRef.current
+      if (element) element.scrollTop = element.scrollHeight
+    }
+    prevStoryboardShotRef.current = storyboardShotOrdinal
+  }, [storyboardShotOrdinal, runningAgentId])
+
+  // 分镜打磨阶段切换（写分镜 → 按秒分配 → 校验衔接）时强制恢复跟随，
+  // 让用户第一时间看到切换后的阶段面板。
+  const storyboardPhaseTitle = runningAgentId === "storyboard"
+    ? parseStoryboardPhase(runningAgent?.message)?.title ?? null
+    : null
+  const prevPhaseTitleRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (storyboardPhaseTitle && prevPhaseTitleRef.current !== storyboardPhaseTitle) {
+      followTailRef.current = true
+      setTailFollowing(true)
+      const element = bodyRef.current
+      if (element) element.scrollTop = element.scrollHeight
+    }
+    prevPhaseTitleRef.current = storyboardPhaseTitle
+  }, [storyboardPhaseTitle])
+
   // 生成结束瞬间定位到完成卡：继续贴底会落在长文档的末尾。
   // footer 由 studio 侧稍晚挂载（historyMode 翻转后），依赖两个状态到位后再定位。
   useEffect(() => {
@@ -714,13 +784,16 @@ export default function DirectorScriptStreamPanel({
     if (agent === "storyboard") {
       const scenes = sortedItems("storyboard", "scenes")
       const shots = sortedItems("storyboard", "shots")
-      const activeShot = activeIndex["storyboard|shots"]
+      // 活跃镜头序号取各字段 delta 序号最大值（见上方 storyboardShotOrdinal 注释）。
+      const activeShot = storyboardShotOrdinal
       const activeScene = activeIndex["storyboard|scenes"]
       // 活跃镜头/场景尚无 agent_item（JSON 未闭合），用 delta 流式值实时打印。
       const activeShotLive = activeShot !== undefined && items["storyboard|shots"]?.[activeShot] === undefined
       const activeSceneLive = activeScene !== undefined && items["storyboard|scenes"]?.[activeScene] === undefined
       if (!scenes.length && !shots.length && !activeShotLive && !activeSceneLive) return null
-      const shotIndices = activeShotLive ? [...shots.map((_, index) => index), activeShot as number] : shots.map((_, index) => index)
+      const shotIndices = activeShotLive && activeShot !== undefined && activeShot >= shots.length
+        ? [...shots.map((_, index) => index), activeShot]
+        : shots.map((_, index) => index)
       const seenSceneTitles = new Set<string>()
       const sceneTitles = scenes
         .map((item) => itemText(item, "title"))
@@ -729,6 +802,86 @@ export default function DirectorScriptStreamPanel({
           seenSceneTitles.add(title)
           return true
         })
+      // 直播中用 TaskRows 式镜头行：完成镜头收成一行（镜号 + 标题），
+      // 只有当前镜头展开实时流式文字（不截断），写完自动切到下一镜。
+      const liveStoryboard = runningAgent?.id === "storyboard" && !historyMode
+      if (liveStoryboard) {
+        // 打磨阶段（按秒分配/校验衔接）不产 delta 流：切换为阶段进度面板。
+        const polish = parseStoryboardPhase(runningAgent?.message)
+        if (polish) {
+          const shotCount = shots.length
+          const rangeStart = polish.range?.[0]
+          const rangeEnd = polish.range?.[1]
+          return (
+            <div className="director-phase-panel">
+              <div className="director-phase-head">
+                <span className="director-step-spinner" aria-hidden />
+                <span className="director-step-status">
+                  {polish.title}{polish.total && polish.total > 1 && polish.index ? ` (${polish.index}/${polish.total})` : ""}
+                </span>
+              </div>
+              {shotCount > 0 ? (
+                <div className="director-phase-shots">
+                  {Array.from({ length: shotCount }, (_, i) => i + 1).map((no) => {
+                    const state = rangeStart !== undefined && no < rangeStart ? " is-done"
+                      : rangeStart !== undefined && rangeEnd !== undefined && no >= rangeStart && no <= rangeEnd ? " is-active" : ""
+                    return <span key={no} className={`director-phase-chip${state}`}>{no}</span>
+                  })}
+                </div>
+              ) : (
+                <div className="director-live-skeleton" aria-hidden>
+                  <span style={{ width: "52%" }} />
+                  <span style={{ width: "70%" }} />
+                </div>
+              )}
+              {polish.chars ? <div className="director-phase-meta">已收 {polish.chars} 字</div> : null}
+            </div>
+          )
+        }
+        return (
+          <div className="director-block-shots">
+            {sceneTitles.map((title) => (
+              <div key={`scene-${title}`} className="director-shot-scene">【{title}】</div>
+            ))}
+            {activeSceneLive && shown("storyboard", "title", activeScene) ? (
+              <div className="director-shot-scene is-active">
+                【{shown("storyboard", "title", activeScene)}
+                <span className="stream-caret" aria-hidden />】
+              </div>
+            ) : null}
+            {shotIndices.map((index) => {
+              const done = items["storyboard|shots"]?.[index]
+              const isActive = activeShotLive && index === activeShot
+              if (!isActive) {
+                const title = itemText(done, "title")
+                return (
+                  <div key={`shot-${index}`} className="director-shot-stream-row is-done" title={itemText(done, "description")}>
+                    <span className="director-shot-no">{index + 1}</span>
+                    <span className="director-shot-stream-title">{title || `第 ${index + 1} 镜`}</span>
+                    <CheckCircle2 size={12} className="director-shot-stream-check" aria-hidden />
+                  </div>
+                )
+              }
+              const title = shown("storyboard", "title", index)
+              const description = shown("storyboard", "description", index)
+              const dialogue = shown("storyboard", "dialogue", index)
+              const caret = <span className="stream-caret" aria-hidden />
+              return (
+                <div key={`shot-${index}`} className="director-shot-stream-row is-active">
+                  <span className="director-shot-no">{index + 1}</span>
+                  <div className="director-shot-stream-text">
+                    {title
+                      ? <strong>{description || dialogue ? title : <>{title}{caret}</>}</strong>
+                      : <strong className="is-skeleton">正在写第 {index + 1} 镜…</strong>}
+                    {description ? <p>{dialogue ? description : <>{description}{caret}</>}</p> : null}
+                    {dialogue ? <p className="is-dialogue">「{dialogue}{caret}」</p> : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      }
       return (
         <div className="director-block-shots">
           {sceneTitles.map((title) => (

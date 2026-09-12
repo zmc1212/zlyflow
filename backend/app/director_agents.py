@@ -247,6 +247,8 @@ def _clarified_goal_text(goal: str, clarifications: Any) -> str:
         for item in clarifications:
             if not isinstance(item, dict):
                 continue
+            if _text(item.get("agent")):
+                continue
             question = _text(item.get("question"))
             answer = _text(item.get("answer") or item.get("value"))
             if question and answer:
@@ -256,12 +258,35 @@ def _clarified_goal_text(goal: str, clarifications: Any) -> str:
     return goal + "\n\n创作方向确认（用户已选定，剧本必须遵循这些决定）：\n" + "\n".join(rows)
 
 
+def _clarified_stage_text(agent_id: str, clarifications: Any) -> str:
+    """User-confirmed answers for one pipeline step; empty string when the user skipped them."""
+    from .llm_minimax_skills import STAGE_CLARIFY_INJECTION_TITLES
+
+    rows: list[str] = []
+    if isinstance(clarifications, list):
+        for item in clarifications:
+            if not isinstance(item, dict):
+                continue
+            if _text(item.get("agent")) != agent_id:
+                continue
+            question = _text(item.get("question"))
+            answer = _text(item.get("answer") or item.get("value"))
+            if question and answer:
+                rows.append(f"- {question} → {answer}")
+    if not rows:
+        return ""
+    title = STAGE_CLARIFY_INJECTION_TITLES.get(agent_id, "创作确认")
+    return f"\n\n{title}（用户已选定，本环节产出必须遵循这些决定）：\n" + "\n".join(rows)
+
+
 def _clarified_beat_target(clarifications: Any) -> int | None:
     """User-confirmed shot/beat count from the clarify answers; None keeps the default script scale."""
     if not isinstance(clarifications, list):
         return None
     for item in clarifications:
         if not isinstance(item, dict):
+            continue
+        if _text(item.get("agent")):
             continue
         question = _text(item.get("question"))
         matched = _text(item.get("id")) == "beat_count" or (
@@ -1672,7 +1697,7 @@ def run_agent(
             )
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(agent_id, "只能从目录里选一条画风，禁止发明 id 或名称。输出 {\"id\":\"as_1001\"}。\n目录：\n" + catalog_brief)},
-                {"role": "user", "content": _story_context(recipe, goal)},
+                {"role": "user", "content": _story_context(recipe, goal) + _clarified_stage_text(agent_id, clarifications)},
             ]) if chat_fn else None
             preferred = (parsed or {}).get("id") or (parsed or {}).get("name")
             recipe["artStyle"] = pick_art_style_from_catalog(goal, preferred)
@@ -1708,6 +1733,7 @@ def run_agent(
                             + "剧本每条对白（含自言自语）必须写入对应镜头的 dialogue，与同时发生的动作放在同一镜。"
                             + "拆镜时按 scene ledger 草拟相邻镜的 continuityIn / continuityOut（英文）与 transitionNote（中文）；"
                             + "后续时长与衔接润色会再校准，但不要整表留空。"
+                            + _clarified_stage_text("storyboard", clarifications)
                         )
                         
                         if original_full is not None:
@@ -1793,13 +1819,15 @@ def run_agent(
                 previous_chunk = getattr(chat_fn, "on_chunk", None) if chat_fn else None
                 try:
                     for i, chunk in enumerate(chunks):
-                        set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({i+1}/{len(chunks)})")
+                        chunk_numbers = [s["shotNumber"] for s in chunk if isinstance(s.get("shotNumber"), int)]
+                        range_text = f" · 第 {chunk_numbers[0]}-{chunk_numbers[-1]} 镜" if chunk_numbers else ""
+                        set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({i+1}/{len(chunks)}){range_text}")
                         emit()
-                        
-                        def timing_report(accumulated: str, idx=i) -> None:
+
+                        def timing_report(accumulated: str, idx=i, rng=range_text) -> None:
                             n = len(accumulated or "")
                             if n > 0:
-                                set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({idx+1}/{len(chunks)}) - 已收 {n} 字")
+                                set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({idx+1}/{len(chunks)}){rng} - 已收 {n} 字")
                                 try: emit()
                                 except: pass
                         if hasattr(chat_fn, "on_chunk"):
@@ -1824,13 +1852,15 @@ def run_agent(
                     )
                     
                     for i, window in enumerate(continuity_windows):
-                        set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({i+1}/{len(continuity_windows)})")
+                        editable_numbers = sorted(n for n in (window.get("editableShotNumbers") or []) if isinstance(n, int))
+                        range_text = f" · 第 {editable_numbers[0]}-{editable_numbers[-1]} 镜" if editable_numbers else ""
+                        set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({i+1}/{len(continuity_windows)}){range_text}")
                         emit()
-                        
-                        def cont_report(accumulated: str, idx=i) -> None:
+
+                        def cont_report(accumulated: str, idx=i, rng=range_text) -> None:
                             n = len(accumulated or "")
                             if n > 0:
-                                set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({idx+1}/{len(continuity_windows)}) - 已收 {n} 字")
+                                set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({idx+1}/{len(continuity_windows)}){rng} - 已收 {n} 字")
                                 try: emit()
                                 except: pass
                         if hasattr(chat_fn, "on_chunk"):
@@ -1974,7 +2004,7 @@ def run_agent(
                     "\"aiAssumptions\":[],\"looks\":[{\"id\":\"look-default\",\"name\":\"基础造型\",\"appearanceDetails\":\"\",\"promptText\":\"\"}]}],"
                     "\"props\":[{\"name\":\"\",\"description\":\"\",\"promptText\":\"\"}]}",
                 )},
-                {"role": "user", "content": _story_context(recipe, goal)},
+                {"role": "user", "content": _story_context(recipe, goal) + _clarified_stage_text(agent_id, clarifications)},
             ]) if chat_fn else None
             _apply_characters(recipe, parsed or {})
             _finish_agent_tracker(tracker, parsed)
@@ -1990,7 +2020,7 @@ def run_agent(
                     "从完整剧本中抽取所有会承载镜头的独立场景，合并同地点同时段的别名。description 用中文空景说明给用户看；promptText 必须是空景、无人物的英文环境描述。"
                     "输出 {\"locations\":[{\"name\":\"\",\"description\":\"\",\"promptText\":\"\"}]}",
                 )},
-                {"role": "user", "content": _story_context(recipe, goal)},
+                {"role": "user", "content": _story_context(recipe, goal) + _clarified_stage_text(agent_id, clarifications)},
             ]) if chat_fn else None
             _apply_locations(recipe, parsed or {})
             _finish_agent_tracker(tracker, parsed)
@@ -2013,7 +2043,7 @@ def run_agent(
                 {"role": "user", "content": json.dumps({
                     "characters": recipe.get("characters") or [],
                     "scenes": recipe.get("scenes") or [],
-                }, ensure_ascii=False)[:7000]},
+                }, ensure_ascii=False)[:7000] + _clarified_stage_text(agent_id, clarifications)},
             ]) if chat_fn else None
             _apply_voice(recipe, parsed or {})
             _finish_agent_tracker(tracker, parsed)
@@ -2033,7 +2063,7 @@ def run_agent(
                     "输出 {\"globalMusic\":\"\",\"globalSoundscape\":\"\",\"bgmVolume\":0.25,"
                     "\"bgmFadeInSec\":1.2,\"bgmFadeOutSec\":2.0,\"shotSfx\":[{\"shotNumber\":1,\"sfx\":\"\"}]}",
                 )},
-                {"role": "user", "content": _story_context(recipe, goal)},
+                {"role": "user", "content": _story_context(recipe, goal) + _clarified_stage_text(agent_id, clarifications)},
             ]) if chat_fn else None
             _apply_music(recipe, parsed or {})
             _finish_agent_tracker(tracker, parsed)
