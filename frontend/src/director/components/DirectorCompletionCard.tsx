@@ -1,8 +1,5 @@
-import { Button } from "antd"
-import { AlertTriangle, CheckCircle2, Clapperboard, RefreshCw } from "lucide-react"
-import {
-  SCRIPT_COMPLETION_FAILED_PREFIX, SCRIPT_COMPLETION_TITLE, SCRIPT_NEXT_REGENERATE, SCRIPT_NEXT_STORYBOARD,
-} from "../action-copy"
+import { AlertTriangle, CheckCircle2 } from "lucide-react"
+import { SCRIPT_COMPLETION_FAILED_PREFIX, SCRIPT_COMPLETION_TITLE } from "../action-copy"
 
 export type PlanCompletion = {
   ok: boolean
@@ -13,13 +10,15 @@ export type PlanCompletion = {
 type Props = {
   completion: PlanCompletion
   failedLabels?: string[]
-  onNextStoryboard: () => void
-  onRegenerate: () => void
 }
 
-/** Post-generation card at the end of the creation conversation with next-step chips. */
+/**
+ * Post-generation status card at the end of the creation conversation.
+ * 纯状态展示：重跑走各环节的重试入口，进入分镜走成稿工具栏，避免出现
+ * 会把整个方案从第一步重跑的「重新生成」和重复的「进入分镜设计」。
+ */
 export default function DirectorCompletionCard({
-  completion, failedLabels = [], onNextStoryboard, onRegenerate,
+  completion, failedLabels = [],
 }: Props) {
   const ok = completion.ok
   return (
@@ -28,14 +27,6 @@ export default function DirectorCompletionCard({
       <div className="director-completion-copy">
         <strong>{ok ? SCRIPT_COMPLETION_TITLE : `${SCRIPT_COMPLETION_FAILED_PREFIX}${failedLabels.join("、")}`}</strong>
         <span>{completion.shotCount > 0 ? `已产出 ${completion.shotCount} 个镜头的完整创作方案。` : "创作方案已生成。"}</span>
-      </div>
-      <div className="director-completion-actions">
-        {completion.shotCount > 0 ? (
-          <Button type="primary" icon={<Clapperboard size={14} />} onClick={onNextStoryboard}>
-            {SCRIPT_NEXT_STORYBOARD}
-          </Button>
-        ) : null}
-        <Button icon={<RefreshCw size={14} />} onClick={onRegenerate}>{SCRIPT_NEXT_REGENERATE}</Button>
       </div>
     </div>
   )

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   PLAN_GENERATION_FAILURE,
-  PLAN_GENERATION_HINT,
   PLAN_GENERATION_LABEL,
   PLAN_GENERATION_SUCCESS,
   approveBatchConfirm,
@@ -20,9 +19,6 @@ import {
 export function assertActionCopyContract(): void {
   if (PLAN_GENERATION_LABEL !== "生成创作方案") {
     throw new Error("top-bar plan action must be 生成创作方案, not the old pipeline label")
-  }
-  if (!PLAN_GENERATION_HINT.includes("不会生成视频")) {
-    throw new Error("plan generation hint must say it does not produce video")
   }
   if (PLAN_GENERATION_SUCCESS.includes("流水线已完成") || PLAN_GENERATION_FAILURE.includes("流水线失败")) {
     throw new Error("plan generation copy must not reuse pipeline-done wording")

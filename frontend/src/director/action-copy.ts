@@ -1,5 +1,4 @@
 export const PLAN_GENERATION_LABEL = "生成创作方案"
-export const PLAN_GENERATION_HINT = "只产出剧本、画风、分镜、人物场景和声音方案，不会生成视频或配音音频。"
 export const PLAN_GENERATION_SUCCESS = "创作方案已生成。定妆、出片和配音请到对应任务区提交。"
 export const PLAN_GENERATION_FAILURE = "生成创作方案失败"
 export const PLAN_GENERATION_CONNECTING = "正在连接创作方案生成"
@@ -13,12 +12,10 @@ export const SCRIPT_STEP_EMPTY_LABEL = "该环节没有可展示的过程产出�
 export const SCRIPT_JUMP_LATEST_LABEL = "回到底部"
 export const SCRIPT_COMPLETION_TITLE = "创作方案已完成"
 export const SCRIPT_COMPLETION_FAILED_PREFIX = "部分步骤未完成："
-export const SCRIPT_NEXT_STORYBOARD = "进入分镜设计"
-export const SCRIPT_NEXT_REGENERATE = "重新生成"
 export const SCRIPT_ART_BLOCK_TITLE = "美术风格"
 export const SCRIPT_ART_CHANGE_LABEL = "更换画风"
 export const SCRIPT_ART_PICKER_TITLE = "选择美术风格"
-export const SCRIPT_ART_CHANGE_HINT = "画风已更新，点击「重新生成」可按新画风重跑创作方案。"
+export const SCRIPT_ART_CHANGE_HINT = "画风已更新，后续生成会按新画风进行。"
 export const SCRIPT_STREAM_WRITING_LABELS: Record<"title" | "summary" | "fullStory", string> = {
   title: "正在写：片名",
   summary: "正在写：一句话梗概",

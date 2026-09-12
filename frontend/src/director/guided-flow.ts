@@ -15,7 +15,7 @@ export function nextGuidedStep(recipe: RecipeProject): GuidedStepAgent | null {
   if (!recipe.locations.length) return "locations"
   if (!flattenRecipeShots(recipe).length) return "storyboard"
   if (!recipe.characters.some((item) => item.voiceId)) return "voice"
-  if (!(recipe.globalMusic || "").trim() && !(recipe.globalSoundscape || "").trim()) return "music"
+  if (!(recipe.globalMusic || "").trim()) return "music"
   return null
 }
 

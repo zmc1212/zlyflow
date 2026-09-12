@@ -584,7 +584,6 @@
 .director-step-row-chevron { flex-shrink: 0; color: var(--director-ink-3); opacity: 0; transition: opacity 150ms ease; }
 .director-step-row-head:hover .director-step-row-chevron,
 .director-step-row-head:focus-visible .director-step-row-chevron { opacity: 1; }
-.director-step-row-retry { margin-left: auto; }
 
 /* 官方 thinking.tsx 工作中头部：细环 spinner + 微光状态文字 */
 .director-step-spinner {
@@ -711,12 +710,9 @@
 .director-completion-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .director-completion-copy strong { font-size: 15px; color: var(--studio-text); }
 .director-completion-copy span { font-size: 12px; color: var(--studio-text-secondary); }
-.director-completion-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 @media (max-width: 767px) {
   .director-completion-card { padding: 12px 14px; }
-  .director-completion-actions { width: 100%; }
-  .director-completion-actions .ant-btn { flex: 1; }
   .director-task-rows-head { flex-wrap: wrap; }
   .director-task-rows-track { order: 5; width: 100%; flex-basis: 100%; }
 }
@@ -942,3 +938,14 @@
 .director-agent-drawer-state.is-running { background: var(--director-accent-tint); color: var(--director-accent-ink); }
 .director-agent-drawer-body { display: flex; flex-direction: column; gap: 8px; }
 .director-agent-drawer-empty { margin: 0; font-size: 13px; color: var(--director-ink-3); }
+
+/* 逐步确认流程：成稿区的「继续生成：XX」入口，复用官方按钮语法的间距与 token。 */
+.director-guided-resume { display: flex; justify-content: center; padding: 2px 0 10px; }
+.director-guided-resume .ant-btn-primary {
+  background: var(--director-accent, #1677ff);
+  border-color: transparent;
+  box-shadow: none;
+}
+.director-guided-resume .ant-btn-primary:not(:disabled):hover {
+  background: var(--director-accent-ink, #4096ff);
+}

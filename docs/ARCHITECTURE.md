@@ -1656,3 +1656,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：运行消息文本变化，前端兼容旧格式（无范围时不高亮芯片）。
 - 验证：`pnpm --dir frontend build`、导演台 119 项单测通过。
 - 回滚方式：还原本次提交。
+
+## 2026-09-12 逐步确认流程（分环节 plan_clarify + 引导链）
+
+- 原因：创意澄清只覆盖剧本方向，画风/角色/场景/分镜/配音/配乐由 Agent 自动决定，用户无确认点。
+- 当前基线：`plan_clarify` 请求新增可选 `agent`（取值 `STAGE_CLARIFY_AGENT_IDS = art_style/characters/locations/storyboard/voice/music`，`main.py` 校验；`DirectorOperationService._run_clarify` 按环节加载 Recipe 上下文并透传 `run_director_clarify(goal, recipe, agent)`，复用 `AGENT_STREAM_SPECS["clarify"]` 流式问题）。`plan_clarify`/`plan_pipeline` 请求新增 `guided` 标记；`DirectorClarificationItem` 新增 `agent` 归属——剧本 Agent 只消费无标记答案（`_clarified_goal_text/_clarified_beat_target` 过滤），`run_agent` 的 art_style/characters/locations/storyboard/voice/music 经 `_clarified_stage_text` 把对应环节答案注入 user 消息。初始流水线从「一次跑全量」改为只跑 `script`，之后前端编排引导链：每个 `guided` `plan_pipeline` 成功且无失败 agent 时，用 `guided-flow.ts` 的 `nextGuidedStep(payload)`（按画风/角色/场景/镜头/声线/配乐派生，幂等、刷新安全）自动发起下一环节 `plan_clarify`；链条走完或失败/取消才落完成卡。澄清作用域持久化为 `{agent, questions}`（键 `director-clarify:{projectId}`，兼容旧数组）。`plan_pipeline` 的 `agents` 子集与单飞约束、SSE 事件、审批流均不变。
+- 受影响文件：`backend/app/{llm_minimax_skills,llm_provider,director_operations,director_agents,models,main}.py`、`frontend/src/director/{guided-flow.ts,guided-flow.test.ts,action-copy.ts,director-api.ts,DirectorRecipeStudio.tsx,guided-flow.css}`、`frontend/src/director/components/DirectorScriptStreamPanel.tsx`。
+- 兼容性：不带 `agent` 的 `plan_clarify` 与不带 `guided` 的 `plan_pipeline` 行为不变；旧 clarifications（无 agent）仍作用于剧本；前端兼容旧 localStorage 格式。
+- 验证：`pnpm --dir frontend build`、前端 vitest 45 项、导演台 120 项单测通过。
+- 回滚方式：还原本次提交。

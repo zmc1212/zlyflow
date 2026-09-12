@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography, message,
+  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Typography, message,
 } from "antd"
 import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -34,7 +34,6 @@ import { DirectorMobileBottomBar, DirectorMobileHeader } from "./DirectorMobileC
 import {
   PLAN_GENERATION_CONNECTING,
   PLAN_GENERATION_FAILURE,
-  PLAN_GENERATION_HINT,
   PLAN_GENERATION_LABEL,
   PLAN_GENERATION_SUCCESS,
   SCRIPT_EMPTY_HINT,
@@ -44,6 +43,9 @@ import {
   SCRIPT_IDEA_EXAMPLES,
   SCRIPT_PROM_BAR_CLARIFY_PLACEHOLDER,
   SCRIPT_PROM_BAR_PLACEHOLDER,
+  STAGE_CLARIFY_PLANNING_LABEL,
+  STAGE_CLARIFY_FAILED_LABEL,
+  GUIDED_RESUME_PREFIX,
   approveBatchConfirm,
   approveBatchLabel,
   boardBatchConfirm,
@@ -55,6 +57,10 @@ import {
   ttsBatchConfirm,
   ttsBatchLabel,
 } from "./action-copy"
+import {
+  GUIDED_STEP_AGENTS, guidedFlowHasBrief, nextGuidedStep, parseClarifyScope, tagClarifyAnswers,
+  type ClarifyScope, type GuidedStepAgent,
+} from "./guided-flow"
 import {
   approveDirectorAssetVersion, cancelDirectorJob, cancelDirectorOperation, createDirectorOperation, generateDirectorAssets, generateDirectorStills,
   generateDirectorTts, getDirectorOperation, getDirectorProject,
@@ -344,15 +350,10 @@ export default function DirectorRecipeStudio({
   const [elapsedSec, setElapsedSec] = useState(0)
   const [scriptEditMode, setScriptEditMode] = useState(false)
   const clarifyStorageKey = `director-clarify:${projectId}`
-  const [clarifyQuestions, setClarifyQuestions] = useState<ClarifyQuestion[] | null>(() => {
+  // 当前待回答的确认题及所属环节（agent 为空表示剧本创作方向）。
+  const [clarifyScope, setClarifyScope] = useState<ClarifyScope | null>(() => {
     if (typeof window === "undefined") return null
-    try {
-      const raw = window.localStorage.getItem(`director-clarify:${projectId}`)
-      const parsed = raw ? JSON.parse(raw) : null
-      return Array.isArray(parsed) && parsed.length ? parsed as ClarifyQuestion[] : null
-    } catch {
-      return null
-    }
+    return parseClarifyScope(window.localStorage.getItem(`director-clarify:${projectId}`))
   })
   const [scriptAnswers, setScriptAnswers] = useState<ClarifyAnswer[]>([])
   const runStartedAtRef = useRef(0)
@@ -462,8 +463,11 @@ export default function DirectorRecipeStudio({
         if (operation.kind === "plan_clarify") {
           const questions = operation.result?.questions
           if (operation.status === "succeeded" && Array.isArray(questions) && questions.length) {
-            const pending = questions as ClarifyQuestion[]
-            setClarifyQuestions(pending)
+            const pending: ClarifyScope = {
+              agent: operation.request.agent || undefined,
+              questions: questions as ClarifyQuestion[],
+            }
+            setClarifyScope(pending)
             if (typeof window !== "undefined") window.localStorage.setItem(clarifyStorageKey, JSON.stringify(pending))
           } else if (operation.status !== "succeeded") {
             notifyFailure(operation.error, operation.status === "cancelled" ? "生成已取消" : PLAN_GENERATION_FAILURE)
@@ -481,29 +485,38 @@ export default function DirectorRecipeStudio({
             if (nextShots.length) setSelectedShotId(nextShots[0].id)
           }
           const failedAgents = directorOperationFailedAgents(operation, payload)
-          const planOutcome = {
-            ok: operation.status === "succeeded" && failedAgents.length === 0,
-            failedAgents,
-            shotCount: payload ? flattenRecipeShots(payload).length : 0,
-          }
-          setLastPlanCompletion(planOutcome)
-          if (typeof window !== "undefined") {
-            window.localStorage.setItem(planCompletionStorageKey, JSON.stringify(planOutcome))
-          }
-          if (operation.status === "succeeded" && failedAgents.length === 0) {
-            const agents = operation.request.agents || []
-            if (agents.includes("storyboard") && agents.length <= 2) {
-              const count = payload ? flattenRecipeShots(payload).length : 0
-              messageApi.success(count ? `已根据剧本生成 ${count} 个镜头` : "分镜已生成")
-              setActiveStage("storyboard")
-            } else {
-              // 生成完成后停留在剧本页展示成稿，由用户通过「进入分镜设计」继续。
-              messageApi.success(PLAN_GENERATION_SUCCESS)
-            }
-          } else if (operation.status === "succeeded") {
-            messageApi.error(`生成未完整完成：${failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id).join("、")}`)
+          // 逐步确认流程：本环节完成且无失败时，自动衔接下一环节的确认问题；
+          // 全部环节完成或中途失败才落完成卡。
+          const nextStep = operation.request.guided && operation.status === "succeeded" && !failedAgents.length
+            ? nextGuidedStep(payload || recipeRef.current)
+            : null
+          if (nextStep) {
+            void continueGuidedFlow(nextStep)
           } else {
-            notifyFailure(operation.error, operation.status === "cancelled" ? "生成已取消" : PLAN_GENERATION_FAILURE)
+            const planOutcome = {
+              ok: operation.status === "succeeded" && failedAgents.length === 0,
+              failedAgents,
+              shotCount: payload ? flattenRecipeShots(payload).length : 0,
+            }
+            setLastPlanCompletion(planOutcome)
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem(planCompletionStorageKey, JSON.stringify(planOutcome))
+            }
+            if (operation.status === "succeeded" && failedAgents.length === 0) {
+              const agents = operation.request.agents || []
+              if (agents.includes("storyboard") && agents.length <= 2) {
+                const count = payload ? flattenRecipeShots(payload).length : 0
+                messageApi.success(count ? `已根据剧本生成 ${count} 个镜头` : "分镜已生成")
+                setActiveStage("storyboard")
+              } else {
+                // 生成完成后停留在剧本页展示成稿，由用户通过「进入分镜设计」继续。
+                messageApi.success(PLAN_GENERATION_SUCCESS)
+              }
+            } else if (operation.status === "succeeded") {
+              messageApi.error(`生成未完整完成：${failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id).join("、")}`)
+            } else {
+              notifyFailure(operation.error, operation.status === "cancelled" ? "生成已取消" : PLAN_GENERATION_FAILURE)
+            }
           }
         } else {
           const targets = directorOperationTargetShotIds(operation, flattenRecipeShots(recipeRef.current))
@@ -915,35 +928,69 @@ export default function DirectorRecipeStudio({
   }
 
   async function handleStartPipeline(answers: ClarifyAnswer[]) {
-    setClarifyQuestions(null)
+    // 无 agent 标记 = 剧本创作方向确认（只跑 script），有标记 = 对应环节确认（只跑该环节）。
+    const scopeAgent = clarifyScope?.agent
+    setClarifyScope(null)
     if (typeof window !== "undefined") window.localStorage.removeItem(clarifyStorageKey)
-    setScriptAnswers(answers)
+    if (!scopeAgent) setScriptAnswers(answers)
     // 等 clarify 操作的完成处理清掉活动操作后再创建 pipeline，避免单飞约束 409。
     for (let attempt = 0; attempt < 100 && activeOperationIdRef.current; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    const text = goalRef.current.trim()
+    const text = goalRef.current.trim() || recipeRef.current.script.fullStory.trim()
     if (!text || activeOperationIdRef.current) return
     setRunning(true)
     setLastPlanCompletion(null)
     if (typeof window !== "undefined") window.localStorage.removeItem(planCompletionStorageKey)
     runStartedAtRef.current = Date.now()
+    const agentId = scopeAgent as RecipeAgentId | undefined
     setRecipe((current) => startLocalPipelineRun(
-      setLocalAgentStatus(current, "research", "completed", "无事实核查需求，已跳过"),
-      AGENT_ORDER,
-      "script",
+      agentId ? current : setLocalAgentStatus(current, "research", "completed", "无事实核查需求，已跳过"),
+      agentId ? [agentId] : ["script"],
     ))
     try {
       const operation = await createDirectorOperation(projectId, {
         kind: "plan_pipeline",
         goal: text,
+        agents: agentId ? [agentId] : ["script"],
         art_style_id: recipeRef.current.artStyle?.id,
         skip_research: true,
-        clarifications: answers,
+        guided: true,
+        clarifications: answers.length
+          ? (agentId ? tagClarifyAnswers(answers, agentId) : answers)
+          : undefined,
       }, csrfToken)
       rememberDirectorOperation(operation)
     } catch (error) {
       notifyFailure(error, PLAN_GENERATION_FAILURE)
+      runStartedAtRef.current = 0
+      setRunning(false)
+    }
+  }
+
+  // 逐步确认流程：为下一个缺失环节发起确认提问；全部完成后由 pipeline 完成回调落完成卡。
+  async function continueGuidedFlow(step: GuidedStepAgent) {
+    if (!guidedFlowHasBrief(recipeRef.current, goalRef.current)) return
+    for (let attempt = 0; attempt < 100 && activeOperationIdRef.current; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    if (activeOperationIdRef.current) return
+    const script = recipeRef.current.script
+    const text = goalRef.current.trim() || script.fullStory.trim() || script.summary.trim() || script.title.trim()
+    if (!text) return
+    setRunning(true)
+    runStartedAtRef.current = Date.now()
+    try {
+      const operation = await createDirectorOperation(projectId, {
+        kind: "plan_clarify",
+        goal: text,
+        agent: step,
+        guided: true,
+      }, csrfToken)
+      rememberDirectorOperation(operation)
+    } catch (error) {
+      if (await resumeConflictingDirectorOperation(error)) return
+      notifyFailure(error, STAGE_CLARIFY_FAILED_LABEL)
       runStartedAtRef.current = 0
       setRunning(false)
     }
@@ -962,6 +1009,9 @@ export default function DirectorRecipeStudio({
     const saved = await flushSave()
     if (!saved) return
     setRunning(true)
+    // 重跑期间不保留上一轮的完成卡，避免失败后仍显示旧的「创作方案已完成」。
+    setLastPlanCompletion(null)
+    if (typeof window !== "undefined") window.localStorage.removeItem(planCompletionStorageKey)
     runStartedAtRef.current = Date.now()
     setRecipe((current) => startLocalPipelineRun(current, [agentId]))
     try {
@@ -1943,6 +1993,7 @@ export default function DirectorRecipeStudio({
   const dialogueShotCount = shots.filter((shot) => shot.dialogue.trim()).length
   const planStagePrimary = activeStage === "script" || activeStage === "art_style"
   const planPipelineRunning = running && operationQuery.data?.kind !== "shot_render_prepare"
+  const clarifyQuestions = clarifyScope?.questions ?? null
   const clarifyActive = Boolean(clarifyQuestions?.length) && !planPipelineRunning
   // 只看真实创作内容：工程创建时 title/summary 会被写入工程名，不能作为「已有剧本」的依据。
   const hasScriptContent = Boolean(recipe.script.fullStory.trim())
@@ -1953,6 +2004,12 @@ export default function DirectorRecipeStudio({
       : scriptEditMode ? "edit" : "document"
   // 剧本阶段是对话式创作室：生成/取消由底部 Prompt Bar 承担，顶栏与底栏不再重复。
   const scriptRoomActive = activeStage === "script" && !isTimelineView
+  // 逐步确认流程还没有走完时，在成稿区提供「继续生成」入口（刷新/中断后可恢复）。
+  const guidedNextStep = useMemo(() => {
+    if (running || clarifyActive || isTimelineView) return null
+    if (!recipe.script.fullStory.trim()) return null
+    return nextGuidedStep(recipe)
+  }, [clarifyActive, isTimelineView, recipe, running])
   const [artStylePickerOpen, setArtStylePickerOpen] = useState(false)
   const planCompletionStorageKey = `director-plan-completion:${projectId}`
   const [lastPlanCompletion, setLastPlanCompletion] = useState<{ ok: boolean; failedAgents: string[]; shotCount: number } | null>(() => {
@@ -2222,11 +2279,6 @@ export default function DirectorRecipeStudio({
           >
             <Button icon={<MoreHorizontal size={15} />}>更多</Button>
           </Dropdown>
-          {activeStage === "art_style" && <Tooltip title={PLAN_GENERATION_HINT}>
-            <Button type="primary" icon={<Wand2 size={14} />} loading={running} onClick={handleRun}>
-              {PLAN_GENERATION_LABEL}
-            </Button>
-          </Tooltip>}
           {!scriptRoomActive && running && activeOperationId ? (
             <Button
               danger
@@ -2310,8 +2362,9 @@ export default function DirectorRecipeStudio({
                         agentStatus={recipe.agentStatus}
                         artStyleName={recipe.artStyle?.name || ""}
                         cancelRequested={Boolean(operationQuery.data?.cancel_requested)}
-                        brief={operationQuery.data?.request?.goal || goal}
+                        brief={operationQuery.data?.request?.agent ? goal : (operationQuery.data?.request?.goal || goal)}
                         initialQuestions={clarifyQuestions || undefined}
+                        clarifyAgent={clarifyScope?.agent}
                         clarifications={scriptAnswers}
                         onOpenPicker={() => setArtStylePickerOpen(true)}
                         historyMode={!planPipelineRunning && !clarifyActive}
@@ -2322,9 +2375,18 @@ export default function DirectorRecipeStudio({
                               <DirectorCompletionCard
                                 completion={lastPlanCompletion}
                                 failedLabels={lastPlanCompletion.failedAgents.map((id) => RECIPE_AGENT_LABELS[id as RecipeAgentId] || id)}
-                                onNextStoryboard={() => setActiveStage("storyboard")}
-                                onRegenerate={() => { void handleRun() }}
                               />
+                            ) : null}
+                            {guidedNextStep ? (
+                              <div className="director-guided-resume">
+                                <Button
+                                  type="primary"
+                                  size="small"
+                                  onClick={() => { void continueGuidedFlow(guidedNextStep) }}
+                                >
+                                  {GUIDED_RESUME_PREFIX}{RECIPE_AGENT_LABELS[guidedNextStep]}
+                                </Button>
+                              </div>
                             ) : null}
                             <DirectorScriptDocument
                               script={recipe.script}
@@ -2341,14 +2403,16 @@ export default function DirectorRecipeStudio({
                           </>
                         ) : undefined}
                         onCancel={() => { void handleCancelActiveOperation() }}
-                        onStartPipeline={(answers) => { void handleStartPipeline(answers) }}
+                        onConfirmStep={(answers) => { void handleStartPipeline(answers) }}
                         onRetryAgent={(agentId) => { void handleRerun(agentId as RecipeAgentId) }}
                       />
                     )}
                     <DirectorPromptBar
                       value={goal}
                       phase={planPipelineRunning ? "streaming" : clarifyActive ? "clarify" : "idle"}
-                      statusText={operationQuery.data?.kind === "plan_clarify" ? "AI 导演正在规划你的创意…" : "AI 导演正在创作…"}
+                      statusText={operationQuery.data?.kind === "plan_clarify"
+                        ? (operationQuery.data?.request?.agent ? STAGE_CLARIFY_PLANNING_LABEL : "AI 导演正在规划你的创意…")
+                        : "AI 导演正在创作…"}
                       placeholder={clarifyActive ? SCRIPT_PROM_BAR_CLARIFY_PLACEHOLDER : SCRIPT_PROM_BAR_PLACEHOLDER}
                       onChange={(value) => {
                         setGoal(value)

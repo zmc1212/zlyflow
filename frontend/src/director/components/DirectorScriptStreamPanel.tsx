@@ -10,7 +10,7 @@ import {
   SCRIPT_DIRECTION_LABEL, SCRIPT_HISTORY_TITLE,
   SCRIPT_JUMP_LATEST_LABEL, SCRIPT_STEP_EMPTY_LABEL, SCRIPT_STEP_VIEW_LABEL,
   SCRIPT_STREAM_CANCEL_LABEL, SCRIPT_STREAM_STATE_LABELS, SCRIPT_STREAM_TITLE, SCRIPT_STREAM_WRITING_LABELS,
-  SCRIPT_USER_BUBBLE_LABEL,
+  SCRIPT_USER_BUBBLE_LABEL, STAGE_CLARIFY_HINTS, STAGE_CLARIFY_TITLES,
 } from "../action-copy"
 import type { RecipeAgentStatus, RecipeProject } from "../recipe-model"
 import { flattenRecipeShots } from "../recipe-model"
@@ -64,7 +64,9 @@ type Props = {
   /** Retry a single failed agent step from the task rows. */
   onRetryAgent?: (agentId: string) => void
   onCancel: () => void
-  onStartPipeline: (answers: ClarifyAnswer[]) => void
+  /** Guided step this clarify belongs to (art_style/characters/…); unset = script direction. */
+  clarifyAgent?: string
+  onConfirmStep: (answers: ClarifyAnswer[]) => void
 }
 
 const TRANSCRIPT_AGENTS = ["research", "script", "art_style", "characters", "locations", "storyboard", "voice", "music"] as const
@@ -96,13 +98,6 @@ export function parseStoryboardPhase(message: string | undefined | null): Storyb
   const misc = message.match(/^(正在整理镜头|正在从剧本补全对白|正在修复镜头因果衔接)/)
   if (misc) return { title: misc[1], chars }
   return null
-}
-
-/* 官方失败 pill 内的重试图标（task-rows.tsx RetryIcon 原路径）。 */
-function RetryIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" /></svg>
-  )
 }
 
 function useIsMobile(query = "(max-width: 767px)") {
@@ -155,7 +150,7 @@ function StoryParagraphs({ text, active }: { text: string; active: boolean }) {
 export default function DirectorScriptStreamPanel({
   operationId, operationKind, startedAt, agentStatus, artStyleName, cancelRequested, brief,
   initialQuestions, clarifications, onOpenPicker, historyMode = false, recipe, transcriptFooter,
-  onRetryAgent, onCancel, onStartPipeline,
+  onRetryAgent, onCancel, clarifyAgent, onConfirmStep,
 }: Props) {
   // Streaming content, keyed by `${agent}|${field}|${index ?? ""}`.
   const [targetTexts, setTargetTexts] = useState<Record<string, string>>({})
@@ -441,6 +436,23 @@ export default function DirectorScriptStreamPanel({
     ].filter((value): value is number => value !== undefined)
     return values.length ? Math.max(...values) : undefined
   })()
+  // 打字机视角的"当前镜头"：agent_item（JSON 闭合）到达时不立即翻转已完成行——
+  // LLM 分块批量到达时镜头瞬间闭合，立即收起会让流式打印一闪而过；
+  // 只要该镜头的 shown 还没追上 target，就保持展开继续逐字打印。
+  const storyboardPrintingOrdinal = (() => {
+    let draining: number | undefined
+    for (const key of Object.keys(targetTexts)) {
+      if (!key.startsWith("storyboard|")) continue
+      const field = key.split("|")[1]
+      if (field !== "title" && field !== "description" && field !== "dialogue") continue
+      const ordinal = Number(key.split("|")[2])
+      if (!Number.isFinite(ordinal)) continue
+      if ((shownTexts[key] || "") !== (targetTexts[key] || "")) {
+        if (draining === undefined || ordinal > draining) draining = ordinal
+      }
+    }
+    return draining ?? storyboardShotOrdinal
+  })()
   const prevStoryboardShotRef = useRef<number | undefined>(undefined)
   useEffect(() => {
     if (runningAgentId !== "storyboard" || storyboardShotOrdinal === undefined) {
@@ -481,17 +493,21 @@ export default function DirectorScriptStreamPanel({
     footerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" })
   }, [terminal, historyMode])
 
+  // 分环节提问的标题与说明：script 方向沿用开场文案，其余环节按步骤展示。
+  const clarifyTitle = clarifyAgent ? STAGE_CLARIFY_TITLES[clarifyAgent] || SCRIPT_CLARIFY_TITLE : SCRIPT_CLARIFY_TITLE
+  const clarifyHint = clarifyAgent ? STAGE_CLARIFY_HINTS[clarifyAgent] || SCRIPT_CLARIFY_HINT : SCRIPT_CLARIFY_HINT
+
   const headTitle = terminal
     ? SCRIPT_STREAM_STATE_LABELS[terminal.kind]
     : historyMode
       ? SCRIPT_HISTORY_TITLE
-      : phase === "pipeline" ? SCRIPT_STREAM_TITLE : SCRIPT_CLARIFY_TITLE
+      : phase === "pipeline" ? SCRIPT_STREAM_TITLE : clarifyTitle
   const headDetail = terminal
     ? (terminal.message || (terminal.kind === "done" ? "成稿已就绪，可以在下方查看与编辑。" : "已停止本次创作。"))
     : phase === "clarify-stream"
-      ? "正在根据你的创意构思创作方向问题…"
+      ? clarifyAgent ? "正在结合剧本构思这一步的确认问题…" : "正在根据你的创意构思创作方向问题…"
       : phase === "clarify-ask"
-        ? SCRIPT_CLARIFY_HINT
+        ? clarifyHint
         : historyMode
           ? "以下是本次生成的完整过程记录。"
           : `${runningAgent?.message || statusText || "正在连接 AI 导演…"}${elapsed > 0 ? ` · 已进行 ${formatElapsed(elapsed)}` : ""}`
@@ -507,7 +523,7 @@ export default function DirectorScriptStreamPanel({
     if (questionIndex + 1 < list.length) {
       setQuestionIndex(questionIndex + 1)
     } else {
-      onStartPipeline(next)
+      onConfirmStep(next)
     }
   }
 
@@ -518,7 +534,7 @@ export default function DirectorScriptStreamPanel({
     if (questionIndex + 1 < list.length) {
       setQuestionIndex(questionIndex + 1)
     } else {
-      onStartPipeline(answersRef.current)
+      onConfirmStep(answersRef.current)
     }
   }
 
@@ -544,11 +560,12 @@ export default function DirectorScriptStreamPanel({
         <strong>{headTitle}</strong>
         <span>{headDetail}</span>
       </div>
-      {!settled && (
+      {/* 仅在还有活动操作可取消时显示；澄清问题已就绪（操作已结束）时不渲染死按钮。 */}
+      {!settled && operationId ? (
         <Button size="small" danger loading={cancelRequested} disabled={cancelRequested} onClick={onCancel}>
           {SCRIPT_STREAM_CANCEL_LABEL}
         </Button>
-      )}
+      ) : null}
     </div>
   )
 
@@ -664,7 +681,7 @@ export default function DirectorScriptStreamPanel({
                 type="button"
                 className="director-approval-skip-all"
                 disabled={terminal !== null}
-                onClick={() => onStartPipeline(answersRef.current)}
+                onClick={() => onConfirmStep(answersRef.current)}
               >
                 {SCRIPT_CLARIFY_SKIP_ALL}
               </button>
@@ -683,7 +700,7 @@ export default function DirectorScriptStreamPanel({
                   <span className="director-pixel-grid" aria-hidden>
                     {Array.from({ length: 9 }, (_, index) => <span key={index} />)}
                   </span>
-                  <span className="director-pixel-label">{SCRIPT_CLARIFY_TITLE}</span>
+                  <span className="director-pixel-label">{clarifyTitle}</span>
                 </div>
               )}
             </div>
@@ -784,10 +801,10 @@ export default function DirectorScriptStreamPanel({
     if (agent === "storyboard") {
       const scenes = sortedItems("storyboard", "scenes")
       const shots = sortedItems("storyboard", "shots")
-      // 活跃镜头序号取各字段 delta 序号最大值（见上方 storyboardShotOrdinal 注释）。
-      const activeShot = storyboardShotOrdinal
+      // 当前镜头 = 打字机视角（闭合但未打印完的镜头保持展开），见 storyboardPrintingOrdinal。
+      const activeShot = storyboardPrintingOrdinal
       const activeScene = activeIndex["storyboard|scenes"]
-      // 活跃镜头/场景尚无 agent_item（JSON 未闭合），用 delta 流式值实时打印。
+      // 尚无 agent_item（JSON 未闭合）的镜头不在 items 里，需追加到列表尾部。
       const activeShotLive = activeShot !== undefined && items["storyboard|shots"]?.[activeShot] === undefined
       const activeSceneLive = activeScene !== undefined && items["storyboard|scenes"]?.[activeScene] === undefined
       if (!scenes.length && !shots.length && !activeShotLive && !activeSceneLive) return null
@@ -851,7 +868,7 @@ export default function DirectorScriptStreamPanel({
             ) : null}
             {shotIndices.map((index) => {
               const done = items["storyboard|shots"]?.[index]
-              const isActive = activeShotLive && index === activeShot
+              const isActive = activeShot !== undefined && index === activeShot
               if (!isActive) {
                 const title = itemText(done, "title")
                 return (
@@ -964,7 +981,8 @@ export default function DirectorScriptStreamPanel({
     return ""
   }
 
-  /* 官方 tool-chips 行语法：状态图标 + 环节名 + 摘要 chip，整行点开抽屉。 */
+  /* 官方 tool-chips 行语法：状态图标 + 环节名 + 摘要 chip，整行点开抽屉。
+     失败重试由任务栏/任务面板的官方重试 pill 承担，这里不再放第二个入口。 */
   const renderStepRow = (agent: string) => {
     const row = agentRows.find((item) => item.id === agent)
     const status = row?.status || "pending"
@@ -984,17 +1002,6 @@ export default function DirectorScriptStreamPanel({
           <span className="director-step-row-chip">{blockPreview(agent)}</span>
           <ChevronRight size={13} className="director-step-row-chevron" aria-hidden />
         </button>
-        {failed && onRetryAgent && !runningAgent ? (
-          <button
-            type="button"
-            className="director-task-pill is-red director-task-retry director-step-row-retry"
-            title="重跑这一步"
-            onClick={() => onRetryAgent(agent)}
-          >
-            重试
-            <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
-          </button>
-        ) : null}
       </div>
     )
   }
