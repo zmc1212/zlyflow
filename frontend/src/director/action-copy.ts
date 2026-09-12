@@ -39,6 +39,27 @@ export const SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER = "输入你的想法"
 export const SCRIPT_CLARIFY_SUBMIT = "按这个方向开拍"
 export const SCRIPT_DIRECTION_LABEL = "创作方向"
 
+/* 逐步确认流程：每个环节生成前 AI 先提问，回答或跳过后再生成该环节。 */
+export const STAGE_CLARIFY_TITLES: Record<string, string> = {
+  art_style: "AI 导演想和你确认画风",
+  characters: "AI 导演想和你确认角色设定",
+  locations: "AI 导演想和你确认场景设定",
+  storyboard: "AI 导演想和你确认分镜手法",
+  voice: "AI 导演想和你确认配音风格",
+  music: "AI 导演想和你确认配乐方向",
+}
+export const STAGE_CLARIFY_HINTS: Record<string, string> = {
+  art_style: "回答或跳过下面的问题，AI 会按你的偏好从画风目录里选定整部片子的画风。",
+  characters: "回答或跳过下面的问题，角色与道具设定会按你的偏好建立。",
+  locations: "回答或跳过下面的问题，场景空景会按你的偏好设计。",
+  storyboard: "回答或跳过下面的问题，镜头会按你确认的节奏与手法拆解。",
+  voice: "回答或跳过下面的问题，角色声线会按你的偏好分配。",
+  music: "回答或跳过下面的问题，配乐与声音设计会按你的方向编写。",
+}
+export const STAGE_CLARIFY_PLANNING_LABEL = "AI 导演正在准备这一步的确认问题…"
+export const STAGE_CLARIFY_FAILED_LABEL = "创作确认问题生成失败"
+export const GUIDED_RESUME_PREFIX = "继续生成："
+
 export const SCRIPT_DOCUMENT_EDIT_LABEL = "编辑剧本"
 export const SCRIPT_DOCUMENT_EDIT_DONE_LABEL = "完成编辑"
 export const SCRIPT_DOCUMENT_NEXT_LABEL = "进入分镜设计"
