@@ -1,189 +1,28 @@
 import { useRef } from "react"
 import { Button, Card, Empty, Popconfirm, Space, Spin, Tag, Typography } from "antd"
-import { ArrowLeft, Clapperboard, Copy, Film, Layers, Plus, Trash2, Wand2 } from "lucide-react"
+import { ArrowLeft, Clapperboard, Copy, Film, Layers, Plus, Clock3, Sparkles, Trash2, Wand2 } from "lucide-react"
 import ThemeToggle from "../components/ThemeToggle"
 import { DirectorProjectListItem, DirectorGenerationStatus, DirectorPayloadKind } from "./director-api"
 
 const CARD_OPEN_SUPPRESS_MS = 400
+function generationLabel(status: DirectorGenerationStatus) { return status === "complete" ? { text: "已完成", color: "success" } : status === "partial" ? { text: "部分完成", color: "warning" } : { text: "待生成", color: "default" } }
+function kindLabel(kind: DirectorPayloadKind) { return kind === "director_recipe" ? { text: "导演创作", color: "blue" } : kind === "batch_run" ? { text: "短视频批量", color: "purple" } : kind === "shot_replication" ? { text: "参考片复刻", color: "cyan" } : { text: "旧时间轴", color: "default" } }
+function formatUpdatedAt(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) }
 
-function generationLabel(status: DirectorGenerationStatus): { text: string; color: string } {
-  if (status === "complete") return { text: "已完成", color: "success" }
-  if (status === "partial") return { text: "部分完成", color: "warning" }
-  return { text: "待生成", color: "default" }
-}
+interface DirectorHomeProps { items: DirectorProjectListItem[]; loading: boolean; onCreateDirector: () => void; onCreateBatch: () => void; onCreateReplication?: () => void; onOpen: (item: DirectorProjectListItem) => void; onCopy: (projectId: string) => void; onDelete: (projectId: string) => void; onExitDirector?: () => void }
 
-function kindLabel(kind: DirectorPayloadKind): { text: string; color: string } {
-  if (kind === "director_recipe") return { text: "导演创作", color: "blue" }
-  if (kind === "batch_run") return { text: "短视频批量", color: "purple" }
-  if (kind === "shot_replication") return { text: "参考片复刻", color: "cyan" }
-  return { text: "旧时间轴", color: "default" }
-}
-
-function formatUpdatedAt(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
-}
-
-interface DirectorHomeProps {
-  items: DirectorProjectListItem[]
-  loading: boolean
-  onCreateDirector: () => void
-  onCreateBatch: () => void
-  onCreateReplication?: () => void
-  onOpen: (item: DirectorProjectListItem) => void
-  onCopy: (projectId: string) => void
-  onDelete: (projectId: string) => void
-  onExitDirector?: () => void
-}
-
-export default function DirectorHome({
-  items,
-  loading,
-  onCreateDirector,
-  onCreateBatch,
-  onCreateReplication,
-  onOpen,
-  onCopy,
-  onDelete,
-  onExitDirector,
-}: DirectorHomeProps) {
+export default function DirectorHome({ items, loading, onCreateDirector, onCreateBatch, onCreateReplication, onOpen, onCopy, onDelete, onExitDirector }: DirectorHomeProps) {
   const suppressOpenUntilRef = useRef(0)
-
-  function suppressCardOpen() {
-    suppressOpenUntilRef.current = Date.now() + CARD_OPEN_SUPPRESS_MS
-  }
-
-  function openProject(item: DirectorProjectListItem) {
-    if (Date.now() < suppressOpenUntilRef.current) return
-    onOpen(item)
-  }
-
-  return (
-    <div className="director-library">
-      <header className="director-mobile-header">
-        <button type="button" aria-label="返回创作工作台" onClick={onExitDirector}><ArrowLeft size={20} /></button>
-        <strong>导演台</strong>
-        <div className="director-mobile-header-actions">
-          <ThemeToggle />
-          <button type="button" aria-label="新建导演创作" onClick={onCreateDirector}><Plus size={20} /></button>
-        </div>
-      </header>
-
-      <header className="director-library-header">
-        <div>
-          <h1>导演台</h1>
-          <p>一句话做完整短片，或按主题批量裂变多条 H3 文生视频。媒体仍走 GRS 定妆与本机 MiniMax H3。</p>
-        </div>
-        <ThemeToggle />
-      </header>
-
-      <div className="director-engine-grid">
-        <button type="button" className="director-engine-card" onClick={onCreateDirector}>
-          <span className="director-engine-icon"><Clapperboard size={22} /></span>
-          <strong>导演创作</strong>
-          <span>一句话 → 9 Agent Recipe → 人物/场景定妆 → 分镜出片</span>
-        </button>
-        <button type="button" className="director-engine-card" onClick={onCreateBatch}>
-          <span className="director-engine-icon is-batch"><Layers size={22} /></span>
-          <strong>短视频批量</strong>
-          <span>主题裂变多条脚本，并行排队 MiniMax H3 文生视频</span>
-        </button>
-        {onCreateReplication ? (
-          <button type="button" className="director-engine-card" onClick={onCreateReplication}>
-            <span className="director-engine-icon is-replication"><Film size={22} /></span>
-            <strong>参考片复刻</strong>
-            <span>上传参考片 → 拉片反推提示词 + 深度视频 → VACE 批量转绘</span>
-          </button>
-        ) : null}
-      </div>
-
-      {loading ? (
-        <div className="director-library-loading"><Spin /><span>正在加载工程</span></div>
-      ) : items.length === 0 ? (
-        <div className="director-library-empty">
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={
-              <div className="director-library-empty-copy">
-                <strong>还没有导演工程</strong>
-                <span>从导演创作或短视频批量开始。旧时间轴工程仍可打开并转为 Recipe。</span>
-              </div>
-            }
-          >
-            <Space>
-              <Button icon={<Wand2 size={15} />} onClick={onCreateDirector}>导演创作</Button>
-              <Button onClick={onCreateBatch}>短视频批量</Button>
-            </Space>
-          </Empty>
-        </div>
-      ) : (
-        <div className="director-library-grid">
-          {items.map((item) => {
-            const gen = generationLabel(item.generation_status)
-            const kind = kindLabel(item.kind)
-            return (
-              <Card
-                key={item.id}
-                className="director-library-card"
-                hoverable
-                actions={[
-                  <span key="copy" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
-                    <button type="button" className="director-library-card-action" onClick={() => onCopy(item.id)}>
-                      <Copy size={14} />复制
-                    </button>
-                  </span>,
-                  <span key="delete" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
-                    <Popconfirm
-                      title="删除这个工程？"
-                      description="工程文档会从服务器移除，已生成的视频任务仍保留在任务列表。"
-                      okText="删除"
-                      cancelText="取消"
-                      okButtonProps={{ danger: true }}
-                      onPopupClick={(event) => event.stopPropagation()}
-                      onOpenChange={(open) => { if (!open) suppressCardOpen() }}
-                      onConfirm={(event) => {
-                        event?.stopPropagation()
-                        suppressCardOpen()
-                        onDelete(item.id)
-                      }}
-                      onCancel={(event) => {
-                        event?.stopPropagation()
-                        suppressCardOpen()
-                      }}
-                    >
-                      <button type="button" className="director-library-card-action is-danger" onClick={(event) => event.stopPropagation()}>
-                        <Trash2 size={14} />删除
-                      </button>
-                    </Popconfirm>
-                  </span>,
-                ]}
-              >
-                <button
-                  type="button"
-                  className="director-library-card-main"
-                  onClick={() => openProject(item)}
-                  aria-label={`打开工程 ${item.title}`}
-                >
-                  <div className="director-library-card-top">
-                    {item.kind === "batch_run" ? <Layers size={16} /> : item.kind === "shot_replication" ? <Film size={16} /> : <Clapperboard size={16} />}
-                    <Typography.Text strong className="director-library-card-title" ellipsis>
-                      {item.title}
-                    </Typography.Text>
-                  </div>
-                  <p className="director-library-card-summary">{item.summary || "暂无梗概"}</p>
-                  <div className="director-library-card-meta">
-                    <Tag color={kind.color}>{kind.text}</Tag>
-                    <Tag color={gen.color}>{gen.text}</Tag>
-                    <Tag>{item.shot_count} 镜</Tag>
-                  </div>
-                  <div className="director-library-card-updated">{formatUpdatedAt(item.updated_at)}</div>
-                </button>
-              </Card>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
+  const suppressCardOpen = () => { suppressOpenUntilRef.current = Date.now() + CARD_OPEN_SUPPRESS_MS }
+  const openProject = (item: DirectorProjectListItem) => { if (Date.now() >= suppressOpenUntilRef.current) onOpen(item) }
+  const totalShots = items.reduce((sum, item) => sum + (item.shot_count || 0), 0)
+  return <div className="director-library director-home-v2">
+    <header className="director-mobile-header director-home-mobile-header"><button type="button" aria-label="返回创作工作台" onClick={onExitDirector}><ArrowLeft size={20} /></button><strong>导演台</strong><div className="director-mobile-header-actions"><ThemeToggle /><button type="button" aria-label="新建导演创作" onClick={onCreateDirector}><Plus size={20} /></button></div></header>
+    <header className="director-home-topbar"><div className="director-home-brand"><span className="director-home-mark"><Clapperboard size={16} /></span><span>导演台</span><span className="director-home-divider" /><span className="director-home-workspace">ZLY AI Studio</span></div><div className="director-home-top-actions"><span className="director-home-status"><i />工作台在线</span><ThemeToggle /></div></header>
+    <main className="director-home-content">
+      <section className="director-home-hero"><div className="director-home-hero-copy"><div className="director-home-kicker"><Sparkles size={14} /> AI 导演工作台</div><h1>把脑海里的画面，<em>拍成一部片。</em></h1><p>从一句话开始，导演台会替你拆解故事、统一角色与场景，再把每个镜头交给 MiniMax H3 出片。</p><div className="director-home-hero-actions"><Button type="primary" size="large" icon={<Plus size={17} />} onClick={onCreateDirector}>新建导演工程</Button><button type="button" className="director-home-text-action" onClick={onCreateBatch}>批量制作短视频 <span>→</span></button></div></div><div className="director-home-hero-art" aria-hidden="true"><div className="director-home-frame director-home-frame-back" /><div className="director-home-frame director-home-frame-main"><span className="director-home-frame-label">SCENE / 01</span><div className="director-home-sun" /><div className="director-home-horizon" /><div className="director-home-frame-line" /><div className="director-home-frame-caption">story<br /><b>in motion</b></div></div><span className="director-home-film-cell cell-a" /><span className="director-home-film-cell cell-b" /><span className="director-home-film-cell cell-c" /></div></section>
+      <section className="director-home-section director-home-process"><div className="director-home-section-head"><div><span className="director-home-eyebrow">从灵感到成片</span><h2>选择你的创作方式</h2></div><span className="director-home-process-note">3 条工作流 · 同一套素材资产</span></div><div className="director-home-mode-list"><button type="button" className="director-home-mode mode-primary" onClick={onCreateDirector}><span className="director-home-mode-index">01</span><span className="director-home-mode-icon"><Clapperboard size={20} /></span><span className="director-home-mode-copy"><strong>导演创作</strong><small>一句话 → 9 Agent Recipe → 分镜出片</small></span><span className="director-home-mode-arrow">↗</span></button><button type="button" className="director-home-mode" onClick={onCreateBatch}><span className="director-home-mode-index">02</span><span className="director-home-mode-icon is-purple"><Layers size={20} /></span><span className="director-home-mode-copy"><strong>短视频批量</strong><small>一个主题，裂变多条脚本并行排队</small></span><span className="director-home-mode-arrow">↗</span></button>{onCreateReplication ? <button type="button" className="director-home-mode" onClick={onCreateReplication}><span className="director-home-mode-index">03</span><span className="director-home-mode-icon is-cyan"><Film size={20} /></span><span className="director-home-mode-copy"><strong>参考片复刻</strong><small>上传参考片，反推提示词并批量转绘</small></span><span className="director-home-mode-arrow">↗</span></button> : null}</div></section>
+      <section className="director-home-section director-home-projects"><div className="director-home-section-head"><div><span className="director-home-eyebrow">你的片场</span><h2>最近工程</h2></div><div className="director-home-project-stats"><span><b>{items.length}</b> 个工程</span><span><b>{totalShots}</b> 个镜头</span></div></div>{loading ? <div className="director-library-loading director-home-state"><Spin /><span>正在加载工程</span></div> : items.length === 0 ? <div className="director-library-empty director-home-state"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<div className="director-library-empty-copy"><strong>还没有导演工程</strong><span>从上方选择一种创作方式，开始你的第一部片。</span></div>}><Space><Button icon={<Wand2 size={15} />} onClick={onCreateDirector}>导演创作</Button><Button onClick={onCreateBatch}>短视频批量</Button></Space></Empty></div> : <div className="director-library-grid director-home-project-grid">{items.map((item) => { const gen = generationLabel(item.generation_status); const kind = kindLabel(item.kind); return <Card key={item.id} className="director-library-card director-home-project-card" hoverable actions={[<span key="copy" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}><button type="button" className="director-library-card-action" onClick={() => onCopy(item.id)}><Copy size={14} />复制</button></span>, <span key="delete" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}><Popconfirm title="删除这个工程？" description="工程文档会从服务器移除，已生成的视频任务仍保留在任务列表。" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onPopupClick={(event) => event.stopPropagation()} onOpenChange={(open) => { if (!open) suppressCardOpen() }} onConfirm={(event) => { event?.stopPropagation(); suppressCardOpen(); onDelete(item.id) }} onCancel={(event) => { event?.stopPropagation(); suppressCardOpen() }}><button type="button" className="director-library-card-action is-danger" onClick={(event) => event.stopPropagation()}><Trash2 size={14} />删除</button></Popconfirm></span>]}> <button type="button" className="director-library-card-main" onClick={() => openProject(item)} aria-label={`打开工程 ${item.title}`}><div className="director-home-project-cover"><span>{item.kind === "batch_run" ? <Layers size={17} /> : item.kind === "shot_replication" ? <Film size={17} /> : <Clapperboard size={17} />}</span><small>{kind.text}</small><i>OPEN ↗</i></div><div className="director-library-card-top"><Typography.Text strong className="director-library-card-title" ellipsis>{item.title}</Typography.Text></div><p className="director-library-card-summary">{item.summary || "暂无梗概"}</p><div className="director-library-card-meta"><Tag color={kind.color}>{kind.text}</Tag><Tag color={gen.color}>{gen.text}</Tag><Tag><Clock3 size={11} /> {item.shot_count} 镜</Tag></div><div className="director-library-card-updated">最近编辑 {formatUpdatedAt(item.updated_at)}</div></button></Card> })}</div>}</section>
+    </main><footer className="director-home-footer"><span>ZLY AI Studio / Director Workspace</span><span>素材、脚本与生成任务均在当前工作区内管理</span></footer>
+  </div>
 }
