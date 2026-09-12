@@ -243,6 +243,7 @@ export interface RecipeProject {
   pipelineRun?: RecipePipelineRun
   globalMusic: string
   globalSoundscape: string
+  researchNotes?: string
   aspectRatio: string
   canvasTier: CanvasTier
   previewQuality: DirectorQuality

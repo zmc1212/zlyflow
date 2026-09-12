@@ -1601,3 +1601,21 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：API 请求/响应结构与工作流协议不变，无数据库迁移；行为变化：`POST /api/director/batches` 对非 batch 工程返回 422（此前静默覆盖 payload）、对不接受 `negative_prompt`/`image_size` 的工作流这两个表单字段被忽略（此前入库脏数据并可能令任务列表 500）、管理员访问员工工程时导演台文件端点改按工程属主目录读写（此前必然 404 或写错目录）；其余为并发安全与健壮性加固。
 - 验证命令：`python -m pytest backend/tests -q`（407 passed；另有 2 个依赖本机工作流 JSON 目录的既有环境性失败，与本批次无关）；`pnpm --dir frontend build`。
 - 回滚方式：还原本次提交即恢复原无条件认领/读改写回写/端点级超管检查等逻辑。
+
+## 2026-09-12 导演台生成过程直播工作区视图（单行环节记录 + 当前环节直播 + 始终跟随滚动）
+
+- 原因：剧本阶段「每环节一张折叠卡片」的展示不可用——运行中已完成环节缩成一行摘要、历史回放全量堆叠且漏种子 `researchNotes`（研究块展开为空）、自动跟随滚动依赖不完整且无回底入口，用户无法直观看出当前 agent 正在生成什么。
+- 当前基线：`DirectorScriptStreamPanel` 管线视图改为直播工作区时间线：已完成/失败环节渲染为单行完成条目（官方 tool-chips 行语法），整行点击打开 antd Drawer（`rootClassName=director-agent-drawer`，抽屉根节点成对配置官方浅色/暗色 `--director-*` token，因 Drawer 挂载在 body 下拿不到 `.is-chat` 作用域 token），抽屉内容复用 `renderBlockBody`；失败条目内联重试（`onRetryAgent`）。当前运行环节渲染为唯一的全宽直播卡片（`director-block is-live`，官方 thinking「工作中」头部语法，无折叠交互）；`manualExpanded`/`blockPreview` 折叠逻辑移除。滚动跟随改为 ResizeObserver 监听 `.director-stream-body` 与内容容器（`.director-stream-feed`）高度变化贴底，上滚超 48px 解除跟随并显示「回到底部」胶囊（即时 `scrollTop=scrollHeight`，不用平滑滚动——目标值会随流式内容过期），`runningAgentId` 变化强制恢复跟随，终态出现后 `scrollIntoView` 定位到完成卡页脚。历史回放种子补 `research|notes|`（`RecipeProject` 新增可选 `researchNotes` 字段，后端 payload 原样透传）。`DirectorTaskRows` 新增 `onOpen`（完成/失败行点击打开同一抽屉，重试按钮 `stopPropagation`）。
+- 受影响文件：`frontend/src/director/components/{DirectorScriptStreamPanel,DirectorTaskRows}.tsx`、`frontend/src/director/{recipe-model.ts,action-copy.ts,guided-flow.css}`。
+- 兼容性：纯前端展示层；SSE 事件、REST API、存储结构不变；旧工程历史回放自动获得新视图。
+- 验证命令：`pnpm --dir frontend build`（vitest + tsc + vite）、`python -m unittest discover -s backend/tests -t . -p "test_director*.py"`。人工回归：浅/暗双主题历史回放与抽屉、390px 移动端、真实运行中单行记录累积/直播卡贴底/上滚解除跟随/回底后持续跟随、失败态红行与内联重试。
+- 回滚方式：还原本次前端提交即恢复折叠卡片视图。
+
+## 2026-09-12 导演台生成过程两栏化（左侧任务栏 + 右侧全宽直播）
+
+- 原因：自查发现运行中「生成任务」面板（max-height 360px）与直播时间线上下堆叠：同一份 agentStatus 呈现两遍、直播区被压缩、无流式内容的环节（画风/媒体类）只剩标题卡 + 大片空白、阅读顺序为任务→方向→创意→过程。
+- 当前基线：`DirectorScriptStreamPanel` pipeline 分支在桌面端（`!isMobile`）渲染 `.director-script-layout`（flex 两栏）：左 `.director-task-rail`（248px，`DirectorTaskRows variant="rail"`——常开、纵向头部「生成任务 n/m + 进度条 + 百分比/已进行」、行内不渲染 message，点击完成/失败行走 `onOpen` 抽屉），右为原 `.director-script-stream` 直播卡（flex:1）。创作方向 chips 从流卡外移入 `.director-stream-feed`（创意气泡之后）。空 body 运行环节渲染 `.director-live-skeleton`（shimmer 骨架行）。澄清/空态分支维持单栏流卡。移动端断点隐藏侧栏并回落为折叠任务面板置顶。
+- 受影响文件：`frontend/src/director/components/{DirectorTaskRows,DirectorScriptStreamPanel}.tsx`、`frontend/src/director/guided-flow.css`。
+- 兼容性：纯前端布局；数据流、SSE、API、存储不变。
+- 验证：`pnpm --dir frontend build`；浏览器实测双主题两栏、侧栏进度条、侧栏行抽屉、移动端回落形态。
+- 回滚方式：还原本次提交即恢复单栏 + 顶部任务面板。
