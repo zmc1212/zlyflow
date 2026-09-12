@@ -290,13 +290,39 @@ def build_beat_count_question(recommended_value: str = BEAT_COUNT_DEFAULT_RECOMM
     }
 
 
+def _normalize_clarify_item(item: Any, index: int) -> dict[str, Any] | None:
+    if not isinstance(item, dict) or not str(item.get("question") or "").strip():
+        return None
+    options = []
+    for option in item.get("options") or []:
+        if not isinstance(option, dict):
+            continue
+        label = str(option.get("label") or "").strip()
+        if not label:
+            continue
+        options.append({
+            "label": label,
+            "value": str(option.get("value") or label).strip() or label,
+            "recommended": bool(option.get("recommended")),
+        })
+    if not options:
+        return None
+    return {
+        "id": str(item.get("id") or f"q{index + 1}"),
+        "question": str(item.get("question")).strip(),
+        "why": str(item.get("why") or "").strip(),
+        "options": options[:4],
+        "allowCustom": item.get("allowCustom") is not False,
+    }
+
+
 def normalize_clarify_questions(parsed_questions: Any) -> list[dict[str, Any]]:
     """Normalize raw LLM clarify output: cap direction questions, force the beat_count question last."""
     questions: list[dict[str, Any]] = []
     beat_recommended = BEAT_COUNT_DEFAULT_RECOMMENDED
     if isinstance(parsed_questions, list):
         for item in parsed_questions:
-            if not isinstance(item, dict) or not str(item.get("question") or "").strip():
+            if not isinstance(item, dict):
                 continue
             if str(item.get("id") or "").strip() == BEAT_COUNT_QUESTION_ID:
                 for option in item.get("options") or []:
@@ -305,30 +331,123 @@ def normalize_clarify_questions(parsed_questions: Any) -> list[dict[str, Any]]:
                         if value in {entry["value"] for entry in BEAT_COUNT_OPTIONS}:
                             beat_recommended = value
                 continue
-            options = []
-            for option in item.get("options") or []:
-                if not isinstance(option, dict):
-                    continue
-                label = str(option.get("label") or "").strip()
-                if not label:
-                    continue
-                options.append({
-                    "label": label,
-                    "value": str(option.get("value") or label).strip() or label,
-                    "recommended": bool(option.get("recommended")),
-                })
-            if not options:
-                continue
-            questions.append({
-                "id": str(item.get("id") or f"q{len(questions) + 1}"),
-                "question": str(item.get("question")).strip(),
-                "why": str(item.get("why") or "").strip(),
-                "options": options[:4],
-                "allowCustom": item.get("allowCustom") is not False,
-            })
+            normalized = _normalize_clarify_item(item, len(questions))
+            if normalized:
+                questions.append(normalized)
     questions = questions[:3]
     questions.append(build_beat_count_question(beat_recommended))
     return questions
+
+
+# 支持单独出确认题的流水线环节；开场澄清（剧本方向）不在此列。
+STAGE_CLARIFY_AGENT_IDS = ("art_style", "characters", "locations", "storyboard", "voice", "music")
+
+STAGE_CLARIFY_FOCUS: dict[str, str] = {
+    "art_style": (
+        "美术风格。围绕会改变整部片子观感的维度提问，例如：整体视觉基调（写实电影感／动漫／3D／插画等）、"
+        "色彩与光影氛围（冷暖、饱和、明暗对比）、年代与地域质感。"
+    ),
+    "characters": (
+        "角色设定。围绕影响定妆与观众记忆点的维度提问，例如：主角的年龄感与气质、"
+        "核心角色的外形记忆点（发型、服饰风格、随身标志物）、配角与群演的规模。"
+    ),
+    "locations": (
+        "场景设定。围绕影响空景与氛围的维度提问，例如：主要场景的氛围基调（昼夜、明暗、拥挤程度）、"
+        "时代与地域特征、是否需要一个强风格化的标志性主场景。"
+    ),
+    "storyboard": (
+        "分镜手法。围绕影响镜头设计的维度提问，例如：叙事节奏（快切紧凑／舒缓铺陈）、"
+        "镜头语言（稳定运镜／手持纪实／大量特写）、高潮段落如何强化。"
+    ),
+    "voice": (
+        "配音风格。围绕影响声线选择的维度提问，例如：主角声线的年龄感与音色气质、"
+        "整体配音基调（正剧感／轻快生活化／悬疑张力）、是否需要旁白。"
+    ),
+    "music": (
+        "配乐方向。围绕影响配乐与声音设计的维度提问，例如：配乐情绪基调、"
+        "主要乐器质感（弦乐／电子／民族乐器）、主题旋律是否贯穿全片。"
+    ),
+}
+
+STAGE_CLARIFY_INJECTION_TITLES: dict[str, str] = {
+    "art_style": "画风偏好确认",
+    "characters": "角色设定确认",
+    "locations": "场景设定确认",
+    "storyboard": "分镜手法确认",
+    "voice": "配音风格确认",
+    "music": "配乐方向确认",
+}
+
+
+def build_stage_clarify_prompt(agent_id: str, *, style_categories: str = "") -> str:
+    """System prompt for a per-step clarify round: ask 2-3 questions about this step's creative decisions."""
+    focus = STAGE_CLARIFY_FOCUS.get(agent_id)
+    if not focus:
+        raise ValueError(f"该环节不支持创作确认：{agent_id}")
+    lines = [
+        "你是短剧导演，正在逐步推进创作。每进入一个新环节，先向用户提出 2-3 个真正影响该环节产出的问题，等用户确认后再生成。",
+        f"当前环节：{focus}",
+        "问题必须贴合当前工程已有的剧本与设定内容，禁止空泛模板问题；禁止问其他环节负责的维度，禁止问与该环节产出无关的细节。",
+        "每个问题给 3-4 个具体、可直接采用的选项，其中一个标记 recommended=true（你认为最适合这个故事的方向）。选项 label 用简体中文短语，value 与 label 相同。",
+    ]
+    if agent_id == "art_style" and style_categories:
+        lines.append(
+            "画风的选项观感必须能对应到这些既有画风分类（用户的选择最终会落到真实画风目录）：" + style_categories + "。"
+            "选项不要照抄分类名，用用户能直接感知的观感描述（例如「写实电影质感」「二次元动漫感」）。"
+        )
+    lines.append(
+        '必须且仅输出一个合法 JSON 对象：'
+        '{"questions":[{"id":"q1","question":"","why":"一句话说明这个选择如何影响本环节产出",'
+        '"options":[{"label":"","value":"","recommended":true}],"allowCustom":true}]}',
+    )
+    return "\n\n".join(lines)
+
+
+def build_stage_clarify_context(recipe: Any, goal: str) -> str:
+    """User-side brief for a per-step clarify round: everything the project already confirms."""
+    data = recipe if isinstance(recipe, dict) else {}
+    script = data.get("script") if isinstance(data.get("script"), dict) else {}
+    art = data.get("artStyle") if isinstance(data.get("artStyle"), dict) else {}
+
+    def names(value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [
+            str(item.get("name") or "").strip()
+            for item in value
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        ]
+
+    shot_count = sum(
+        len(scene.get("shots") or [])
+        for scene in (data.get("scenes") or [])
+        if isinstance(scene, dict)
+    )
+    rows = [
+        f"用户创意：{goal}" if goal else "",
+        f"片名：{script.get('title')}" if script.get("title") else "",
+        f"梗概：{script.get('summary')}" if script.get("summary") else "",
+        f"完整故事：{script.get('fullStory')}" if script.get("fullStory") else "",
+        f"已选画风：{art.get('name') or art.get('name_zh')}" if (art.get("name") or art.get("name_zh")) else "",
+        f"已建立角色：{'、'.join(names(data.get('characters')))}" if names(data.get("characters")) else "",
+        f"已建立场景：{'、'.join(names(data.get('locations')))}" if names(data.get("locations")) else "",
+        f"已拆分镜头数：{shot_count}" if shot_count else "",
+    ]
+    context = "\n".join(row for row in rows if row)
+    return context
+
+
+def normalize_stage_clarify_questions(parsed_questions: Any) -> list[dict[str, Any]]:
+    """Normalize per-step clarify output; same question shape as the script round but without beat_count."""
+    questions: list[dict[str, Any]] = []
+    if isinstance(parsed_questions, list):
+        for item in parsed_questions:
+            if isinstance(item, dict) and str(item.get("id") or "").strip() == BEAT_COUNT_QUESTION_ID:
+                continue
+            normalized = _normalize_clarify_item(item, len(questions))
+            if normalized:
+                questions.append(normalized)
+    return questions[:3]
 
 
 def build_script_agent_prompt(target_beats: int | None = None) -> str:

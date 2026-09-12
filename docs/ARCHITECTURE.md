@@ -1629,3 +1629,30 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：纯前端布局；数据流、SSE、API、存储不变。
 - 验证：`pnpm --dir frontend build`；浏览器实测双主题两栏、侧栏进度条、侧栏行抽屉、移动端回落形态。
 - 回滚方式：还原本次提交即恢复单栏 + 顶部任务面板。
+
+## 2026-09-12 分镜直播镜头级行列表
+
+- 原因：分镜直播把全部镜头平铺且描述 clamp 两行，无法观察单镜头实时生成；流式过程中跟随滚动易丢。
+- 当前基线：`renderBlockBody("storyboard")` 在直播态（`runningAgent?.id === "storyboard"` 且非 historyMode）渲染 `.director-shot-stream-row` 行列表——完成镜头一行（镜号 + 标题 + CheckCircle2，title 悬停显示描述），当前镜头展开完整流式 title/description/dialogue（光标跟随最后一个非空字段），场景标题行置顶；`agent_item` 闭合即收起、新镜头 delta 开始即展开。`activeIndex["storyboard|shots"]` 变化时强制恢复跟随（`followTailRef=true` + 跳底）。历史回放与 Drawer 保持原平铺渲染。
+- 受影响文件：`frontend/src/director/components/DirectorScriptStreamPanel.tsx`、`frontend/src/director/guided-flow.css`。
+- 兼容性：纯前端展示层。
+- 验证：`pnpm --dir frontend build`；雨夜抉择历史回放回归（侧栏/条目/失败行重试）通过。
+- 回滚方式：还原本次提交。
+
+## 2026-09-12 分镜直播 activeIndex 键不匹配修复
+
+- 原因：`agent_delta.field` 为显示字段名（title/description/dialogue）、`index` 为数组内全局序号，前端 `activeIndex` 键为 `storyboard|<field>`；分镜渲染读取不存在的 `activeIndex["storyboard|shots"]` 导致当前镜头直播从未渲染（历史遗留 bug，非本次重构引入）。另场景/镜头字段同名同序号导致前端文本键串字。
+- 当前基线：前端 `storyboardShotOrdinal = max(activeIndex["storyboard|title"|"description"|"dialogue"])` 作为当前镜头序号，`activeShot >= len(shots)` 时才追加活跃行防键重复；后端 `_stream_active_item` 新状态首条 delta 发 `reset=true`（前端按 key 替换，场景标题不再拼进镜头标题）。后端改动需重启进程生效。
+- 受影响文件：`frontend/src/director/components/DirectorScriptStreamPanel.tsx`、`backend/app/director_stream.py`。
+- 兼容性：SSE 事件结构不变；旧事件流兼容。
+- 验证：`pnpm --dir frontend build`、导演台 119 项单测通过。
+- 回滚方式：还原本次提交。
+
+## 2026-09-12 分镜打磨阶段进度面板
+
+- 原因：分镜打磨（按秒分配对白与动作/校验镜头衔接）的 LLM 调用不进 tracker（`chat_fn.on_chunk` 被替换为字数上报），打磨期间前端无 delta 流，无法展示当前处理的镜头。
+- 当前基线：`director_agents.py` 打磨/衔接运行消息附镜头范围（timing chunk 取 `shotNumber` 首尾，continuity 窗口取 `editableShotNumbers` 首尾）；前端 `parseStoryboardPhase` 解析运行消息，storyboard 直播卡在打磨阶段渲染 `.director-phase-panel`（阶段名 (i/N) + `director-phase-chip` 镜头芯片网格：已完成/处理中/未到三态 + 已收字数），阶段切换强制恢复跟随；写分镜阶段维持镜头行直播。
+- 受影响文件：`backend/app/director_agents.py`、`frontend/src/director/components/DirectorScriptStreamPanel.tsx`、`frontend/src/director/guided-flow.css`。
+- 兼容性：运行消息文本变化，前端兼容旧格式（无范围时不高亮芯片）。
+- 验证：`pnpm --dir frontend build`、导演台 119 项单测通过。
+- 回滚方式：还原本次提交。

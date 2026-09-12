@@ -60,7 +60,7 @@ export type DirectorOperationKind =
   | "replicate_shots"
 export type DirectorOperationStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled"
 
-export type DirectorClarificationInput = { id?: string; question: string; answer: string }
+export type DirectorClarificationInput = { id?: string; agent?: string; question: string; answer: string }
 
 export type DirectorOperationResponse = {
   id: string
@@ -71,6 +71,8 @@ export type DirectorOperationResponse = {
   request: {
     goal?: string
     agents?: string[]
+    agent?: string
+    guided?: boolean
     art_style_id?: string
     skip_research?: boolean
     shot_ids?: string[]
@@ -304,6 +306,8 @@ export function createDirectorOperation(
     kind: DirectorOperationKind
     goal?: string
     agents?: string[]
+    agent?: string
+    guided?: boolean
     art_style_id?: string
     skip_research?: boolean
     shot_ids?: string[]

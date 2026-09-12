@@ -951,7 +951,8 @@ export default function DirectorRecipeStudio({
 
   async function handleRerun(agentId: RecipeAgentId) {
     if (agentId === "storyboard") {
-      await handleGenerateStoryboard({ force: true })
+      // 从对话直播视图重试分镜：留在原地观看生成，不切到分镜设计工作台。
+      await handleGenerateStoryboard({ force: true, stayInChat: true })
       return
     }
     if (activeOperationId) {
@@ -981,7 +982,7 @@ export default function DirectorRecipeStudio({
     }
   }
 
-  async function handleGenerateStoryboard(options?: { force?: boolean }) {
+  async function handleGenerateStoryboard(options?: { force?: boolean; stayInChat?: boolean }) {
     if (!projectQuery.isFetched) return
     const current = recipeRef.current
     const currentShots = flattenRecipeShots(current)
@@ -1016,7 +1017,8 @@ export default function DirectorRecipeStudio({
     }
     const saved = await persistNow(current)
     if (!saved) return
-    setActiveStage("storyboard")
+    // 对话直播视图里的分镜重试留在原地（分镜阶段工作台的重生成仍切到分镜设计）。
+    if (!options?.stayInChat) setActiveStage("storyboard")
     setRunning(true)
     runStartedAtRef.current = Date.now()
     setRecipe((currentRecipe) => startLocalPipelineRun(currentRecipe, agents))

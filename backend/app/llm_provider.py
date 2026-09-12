@@ -378,22 +378,58 @@ class LlmProviderService:
             clarifications=clarifications,
         )
 
-    def run_director_clarify(self, goal: str, *, on_stream: Any = None) -> list[dict[str, Any]]:
-        """Ask 2-3 plot-direction questions plus the shot-count question; streams question text via on_stream."""
+    @staticmethod
+    def _art_style_category_names() -> str:
+        try:
+            from .director_catalog import list_art_style_categories
+
+            categories = list_art_style_categories()
+        except Exception:
+            return ""
+        return "、".join(str(item.get("name_zh") or "").strip() for item in categories if str(item.get("name_zh") or "").strip())
+
+    def run_director_clarify(
+        self,
+        goal: str,
+        *,
+        recipe: Any = None,
+        agent: str | None = None,
+        on_stream: Any = None,
+    ) -> list[dict[str, Any]]:
+        """Ask confirm questions and stream them via on_stream.
+
+        agent=None asks plot-direction questions before the script agent; otherwise
+        agent is a STAGE_CLARIFY_AGENT_IDS step and the questions cover that step only.
+        """
         from .director_stream import AGENT_STREAM_SPECS, AgentStreamTracker
         from .llm_minimax_skills import (
             BEAT_COUNT_QUESTION_ID,
+            STAGE_CLARIFY_AGENT_IDS,
             build_clarify_questions_prompt,
+            build_stage_clarify_context,
+            build_stage_clarify_prompt,
             normalize_clarify_questions,
+            normalize_stage_clarify_questions,
         )
 
         brief = str(goal or "").strip()
         if not brief:
             raise LlmError("请先填写创意简报")
+        agent_id = str(agent or "").strip() or None
+        if agent_id:
+            if agent_id not in STAGE_CLARIFY_AGENT_IDS:
+                raise LlmError(f"该环节不支持创作确认：{agent_id}")
+            system_prompt = build_stage_clarify_prompt(agent_id, style_categories=self._art_style_category_names())
+            user_content = build_stage_clarify_context(recipe, brief)
+            if not user_content:
+                raise LlmError("还没有可以确认的创作内容，请先生成剧本")
+        else:
+            system_prompt = build_clarify_questions_prompt()
+            user_content = brief
         client, model = self._chat_client()
         messages = [
-            {"role": "system", "content": build_clarify_questions_prompt()},
-            {"role": "user", "content": brief},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
         ]
         tracker = AgentStreamTracker(AGENT_STREAM_SPECS["clarify"], on_stream) if on_stream is not None else None
         raw = client.chat_completion(
@@ -409,15 +445,20 @@ class LlmProviderService:
 
         parsed = parse_json_object(raw)
         raw_questions = parsed.get("questions") if isinstance(parsed, dict) else None
-        has_direction_question = any(
-            isinstance(item, dict)
-            and str(item.get("question") or "").strip()
-            and str(item.get("id") or "").strip() != BEAT_COUNT_QUESTION_ID
-            for item in (raw_questions or [])
-        )
-        if not has_direction_question:
-            raise LlmError("大模型未返回有效的创作方向问题，请重试")
-        questions = normalize_clarify_questions(raw_questions)
+        if agent_id:
+            questions = normalize_stage_clarify_questions(raw_questions)
+            if not questions:
+                raise LlmError("大模型未返回有效的确认问题，请重试")
+        else:
+            has_direction_question = any(
+                isinstance(item, dict)
+                and str(item.get("question") or "").strip()
+                and str(item.get("id") or "").strip() != BEAT_COUNT_QUESTION_ID
+                for item in (raw_questions or [])
+            )
+            if not has_direction_question:
+                raise LlmError("大模型未返回有效的创作方向问题，请重试")
+            questions = normalize_clarify_questions(raw_questions)
         if tracker is not None:
             tracker.finish({"questions": questions})
         return questions

@@ -690,12 +690,17 @@ class DirectorRenderShotsRequest(BaseModel):
 
 
 class DirectorClarificationItem(BaseModel):
-    """One user-confirmed creative-direction answer injected into the script agent."""
+    """One user-confirmed creative answer injected into the matching agent."""
 
     id: str | None = Field(
         default=None,
         max_length=64,
         description="问题 id；beat_count 表示镜头数量确认题，剧本 Agent 据此约束 Beat 数量",
+    )
+    agent: str | None = Field(
+        default=None,
+        max_length=32,
+        description="答案所属环节（STAGE_CLARIFY_AGENT_IDS 之一）；为空表示剧本创作方向（开场澄清）。",
     )
     question: str = Field(description="AI 提出的创作方向问题")
     answer: str = Field(description="用户选定或自定义的答案")
@@ -705,6 +710,15 @@ class DirectorOperationCreateRequest(BaseModel):
     kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare", "analyze_reference_video", "replicate_shots"]
     goal: str | None = Field(default=None, max_length=8000)
     agents: list[str] | None = Field(default=None)
+    agent: str | None = Field(
+        default=None,
+        max_length=32,
+        description="plan_clarify 专用：为指定环节生成确认问题；为空表示剧本创作方向澄清。",
+    )
+    guided: bool | None = Field(
+        default=None,
+        description="前端逐步确认流程标记：本次操作由引导链发起，完成后自动衔接下一环节。",
+    )
     art_style_id: str | None = Field(default=None, max_length=32)
     skip_research: bool | None = None
     shot_ids: list[str] = Field(default_factory=list)
@@ -715,7 +729,7 @@ class DirectorOperationCreateRequest(BaseModel):
     )
     clarifications: list[DirectorClarificationItem] | None = Field(
         default=None,
-        description="plan_pipeline 专用：创意澄清问答（plan_clarify 产出），注入剧本 Agent 作为创作方向约束。",
+        description="plan_pipeline 专用：创作确认问答（plan_clarify 产出），按 agent 注入对应环节 Agent。",
     )
     analysis_mode: Literal["smart", "fixed"] | None = Field(
         default=None,
