@@ -1,3 +1,5 @@
+import { notifyUnauthorized } from "./api"
+
 type PermissionMode = "read" | "readwrite"
 type PermissionStateValue = "granted" | "denied" | "prompt"
 
@@ -236,6 +238,7 @@ async function responseForBrowserDelivery(
   }
 
   const response = await fetch(downloadUrl)
+  if (response.status === 401) notifyUnauthorized()
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "Download failed")
   return response
 }
@@ -279,6 +282,7 @@ export async function saveToResourceDirectory(
       method: "POST",
       headers: { "X-CSRF-Token": csrfToken ?? "" },
     })
+    if (ticketResponse.status === 401) notifyUnauthorized()
     if (!ticketResponse.ok) throw new Error((await ticketResponse.json().catch(() => null))?.detail || "获取桌面下载凭证失败")
     const ticket = await ticketResponse.json() as DesktopDeliveryTicket
     const saved = await desktopInvoke<DesktopSavedResource>("desktop_save_resource", {

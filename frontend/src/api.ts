@@ -89,9 +89,30 @@ export class ApiRequestError extends Error {
   }
 }
 
+type UnauthorizedHandler = () => void
+
+let unauthorizedHandler: UnauthorizedHandler | null = null
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler
+}
+
+// 会话过期/后端重启后，任何接口都可能返回 401"请先登录"；
+// 各请求封装（requestJson 与少量原生 fetch）都通过这里通知 Root 重新走登录跳转。
+export function notifyUnauthorized() {
+  unauthorizedHandler?.()
+}
+
+function isCredentialAuthPath(path: string) {
+  return path.startsWith("/api/auth/login")
+}
+
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (!response.ok) {
+    if (response.status === 401 && !isCredentialAuthPath(path)) {
+      notifyUnauthorized()
+    }
     const contentType = response.headers.get("content-type") ?? ""
     if (contentType.includes("application/json")) {
       const body = await response.json().catch(() => null)

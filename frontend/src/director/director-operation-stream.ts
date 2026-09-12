@@ -9,6 +9,8 @@
  * failed stream degrades to today's behaviour instead of breaking the run.
  */
 
+import { notifyUnauthorized } from "../api"
+
 export type ScriptStreamField = "title" | "summary" | "fullStory"
 
 export type AgentStreamItem = Record<string, unknown>
@@ -84,6 +86,7 @@ async function readStream(
     { signal, headers: { Accept: "text/event-stream" } },
   )
   if (!response.ok || !response.body) {
+    if (response.status === 401) notifyUnauthorized()
     throw new Error(`事件流连接失败（HTTP ${response.status}）`)
   }
   const reader = response.body.getReader()

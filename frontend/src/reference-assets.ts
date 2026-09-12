@@ -1,3 +1,5 @@
+import { notifyUnauthorized } from "./api"
+
 export type ReferenceSource = { index: number; url: string }
 
 const IMAGE_KIND_BY_MIME: Record<string, { mime: string; ext: string }> = {
@@ -65,6 +67,7 @@ export async function fileFromReferenceBlob(blob: Blob, index: number, declaredT
 export async function restoreReferenceFiles(sources: ReferenceSource[]): Promise<File[]> {
   return Promise.all(sources.map(async (reference) => {
     const response = await fetch(reference.url, { credentials: "include" })
+    if (response.status === 401) notifyUnauthorized()
     if (!response.ok) throw new Error(`参考图 ${reference.index} 无法读取`)
     const blob = await response.blob()
     return fileFromReferenceBlob(blob, reference.index, blob.type || response.headers.get("content-type") || "")

@@ -1,4 +1,4 @@
-import { ApiRequestError, jsonMutation, requestJson } from "../api"
+import { ApiRequestError, jsonMutation, notifyUnauthorized, requestJson } from "../api"
 
 export type XiajiDocumentStatus = "uploaded" | "parsing" | "indexed" | "review_required" | "ready" | "failed"
 
@@ -896,6 +896,7 @@ export function composeXiajiEpisode(
 
 async function downloadXiajiBlob(path: string, filename: string, init?: RequestInit) {
   const response = await fetch(path, init)
+  if (response.status === 401) notifyUnauthorized()
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? ""
     if (contentType.includes("application/json")) {

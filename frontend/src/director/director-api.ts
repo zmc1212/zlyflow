@@ -1,4 +1,4 @@
-import { ApiRequestError, apiErrorMessage, jsonMutation, requestJson } from "../api"
+import { ApiRequestError, apiErrorMessage, jsonMutation, notifyUnauthorized, requestJson } from "../api"
 import { persistableTimelineProject } from "./director-storage"
 import {
   createEmptyProject,
@@ -344,6 +344,7 @@ export async function deleteDirectorProject(projectId: string, csrfToken: string
     `/api/director/projects/${encodeURIComponent(projectId)}`,
     jsonMutation(csrfToken, undefined, "DELETE"),
   )
+  if (response.status === 401) notifyUnauthorized()
   if (response.status === 204 || response.ok) return
   const contentType = response.headers.get("content-type") ?? ""
   if (contentType.includes("application/json")) {
@@ -475,6 +476,7 @@ export async function uploadDirectorShotFrame(
     `/api/director/recipes/${encodeURIComponent(projectId)}/frames`,
     { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
   )
+  if (response.status === 401) notifyUnauthorized()
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? ""
     const payload = contentType.includes("application/json")
@@ -523,6 +525,7 @@ export async function uploadReplicationSourceVideo(
     `/api/director/replications/${encodeURIComponent(projectId)}/source-video`,
     { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
   )
+  if (response.status === 401) notifyUnauthorized()
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? ""
     const payload = contentType.includes("application/json")
@@ -604,6 +607,7 @@ export async function deleteDirectorLibraryAsset(assetId: string, csrfToken: str
     `/api/director/library-assets/${encodeURIComponent(assetId)}`,
     jsonMutation(csrfToken, undefined, "DELETE"),
   )
+  if (response.status === 401) notifyUnauthorized()
   if (response.status === 204 || response.ok) return
   const contentType = response.headers.get("content-type") ?? ""
   if (contentType.includes("application/json")) {
@@ -620,6 +624,7 @@ export async function uploadDirectorLibraryAssetImage(assetId: string, file: Fil
     `/api/director/library-assets/${encodeURIComponent(assetId)}/image`,
     { method: "POST", headers: { "X-CSRF-Token": csrfToken }, body: form },
   )
+  if (response.status === 401) notifyUnauthorized()
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? ""
     if (contentType.includes("application/json")) {
@@ -678,6 +683,7 @@ export async function uploadDirectorBgm(projectId: string, file: File, csrfToken
     `/api/director/recipes/${encodeURIComponent(projectId)}/bgm`,
     { method: "POST", headers: { "X-CSRF-Token": csrfToken }, body: form },
   )
+  if (response.status === 401) notifyUnauthorized()
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
     throw new Error(apiErrorMessage(payload, "上传配乐失败"))
@@ -705,6 +711,7 @@ export async function downloadDirectorExport(
     ? `/api/director/recipes/${encodeURIComponent(projectId)}/mux`
     : `/api/director/recipes/${encodeURIComponent(projectId)}/export.${kind}`
   const response = await fetch(path, { credentials: "include" })
+  if (response.status === 401) notifyUnauthorized()
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? ""
     if (contentType.includes("application/json")) {

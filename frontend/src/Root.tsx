@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useEffect } from "react"
 import { Navigate, useLocation } from "react-router-dom"
-import { AuthStatus, jsonMutation, requestJson } from "./api"
+import { AuthStatus, jsonMutation, requestJson, setUnauthorizedHandler } from "./api"
 import { CenteredStatus } from "./auth/AuthScreens"
 import { PATHS, resolveAuthRedirect } from "./paths"
 import { AppRoutes } from "./router"
@@ -13,6 +14,18 @@ export default function Root() {
     queryFn: () => requestJson<AuthStatus>("/api/auth/status"),
     retry: false,
   })
+
+  // 会话过期后接口会陆续返回 401"请先登录"：把 auth 置为未登录，
+  // 让 resolveAuthRedirect 携带当前地址跳转登录页，登录后可回到原页面。
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      queryClient.setQueryData<AuthStatus>(["auth"], (current) =>
+        current ? { ...current, authenticated: false, user: null, csrf_token: null } : current,
+      )
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== "auth" })
+    })
+    return () => setUnauthorizedHandler(null)
+  }, [queryClient])
 
   const logoutMutation = useMutation({
     mutationFn: () => requestJson<{ ok: boolean }>("/api/auth/logout", jsonMutation(authQuery.data?.csrf_token ?? "")),
