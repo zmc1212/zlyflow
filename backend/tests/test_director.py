@@ -1512,6 +1512,46 @@ class DirectorProjectApiTests(unittest.TestCase):
         missing = self.client.get(f"/api/director/projects/{project_id}")
         self.assertEqual(missing.status_code, 404)
 
+    def test_replication_project_crud_and_kind_roundtrip(self) -> None:
+        payload = {
+            "kind": "shot_replication",
+            "schemaVersion": 1,
+            "title": "参考片复刻",
+            "sourceVideo": None,
+            "analysis": {"status": "idle", "mode": "smart", "segmentSeconds": 15, "sceneThreshold": 0.35, "depthStatus": "idle"},
+            "renderSettings": {"engine": "vace_depth", "keepFirstFrame": True, "artStyle": "", "vaceStrength": 1.0, "steps": 30, "seed": None},
+            "subjects": [],
+            "shots": [],
+        }
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={"title": "参考片复刻", "payload": payload},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        body = created.json()
+        self.assertEqual(body["kind"], "shot_replication")
+        self.assertEqual(body["payload"]["renderSettings"]["engine"], "vace_depth")
+
+        listed = self.client.get("/api/director/projects")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()[0]["kind"], "shot_replication")
+
+        updated = self.client.put(
+            f"/api/director/projects/{body['id']}",
+            headers=self._headers(),
+            json={"payload": {**payload, "shots": [{
+                "id": "rshot_a1", "shotNumber": 1, "timeStart": 0.0, "timeEnd": 3.0,
+                "promptText": "A cat jumps.", "status": "ready",
+            }]}},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["kind"], "shot_replication")
+        self.assertEqual(len(updated.json()["payload"]["shots"]), 1)
+
+        deleted = self.client.delete(f"/api/director/projects/{body['id']}", headers=self._headers())
+        self.assertEqual(deleted.status_code, 204)
+
     def test_employee_cannot_access_another_users_project(self) -> None:
         created = self.client.post(
             "/api/director/projects",

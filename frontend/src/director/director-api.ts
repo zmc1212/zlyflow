@@ -28,7 +28,7 @@ export type DirectorExportCapabilities = {
 }
 
 export type DirectorGenerationStatus = "pending" | "partial" | "complete"
-export type DirectorPayloadKind = "timeline" | "director_recipe" | "batch_run"
+export type DirectorPayloadKind = "timeline" | "director_recipe" | "batch_run" | "shot_replication"
 
 export type DirectorProjectListItem = {
   id: string
@@ -52,7 +52,12 @@ export type DirectorProjectResponse = DirectorProjectListItem & {
   payload: Record<string, unknown>
 }
 
-export type DirectorOperationKind = "plan_pipeline" | "plan_clarify" | "shot_render_prepare"
+export type DirectorOperationKind =
+  | "plan_pipeline"
+  | "plan_clarify"
+  | "shot_render_prepare"
+  | "analyze_reference_video"
+  | "replicate_shots"
 export type DirectorOperationStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled"
 
 export type DirectorClarificationInput = { id?: string; question: string; answer: string }
@@ -478,6 +483,47 @@ export function cancelDirectorJob(jobId: string, csrfToken: string) {
     `/api/jobs/${encodeURIComponent(jobId)}/cancel`,
     jsonMutation(csrfToken, {}),
   )
+}
+
+export function createReplicationOperation(
+  projectId: string,
+  body: {
+    kind: "analyze_reference_video" | "replicate_shots"
+    analysis_mode?: "smart" | "fixed"
+    segment_seconds?: number
+    scene_threshold?: number
+    shot_ids?: string[]
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorOperationResponse>(
+    `/api/director/replications/${encodeURIComponent(projectId)}/operations`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export async function uploadReplicationSourceVideo(
+  projectId: string,
+  body: { file: File; expected_content_revision?: number },
+  csrfToken: string,
+) {
+  const form = new FormData()
+  form.set("file", body.file)
+  if (body.expected_content_revision) {
+    form.set("expected_content_revision", String(body.expected_content_revision))
+  }
+  const response = await fetch(
+    `/api/director/replications/${encodeURIComponent(projectId)}/source-video`,
+    { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
+  )
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? ""
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => "")
+    throw new ApiRequestError(response.status, payload, "上传参考片失败")
+  }
+  return response.json() as Promise<DirectorProjectResponse>
 }
 
 export function renderDirectorBatchItems(

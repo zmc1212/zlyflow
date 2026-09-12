@@ -611,3 +611,21 @@ Current style skill: [{selected_skill.name}] ({selected_skill.description})
 {official}
 
 Output only the final prompt text. No preamble, no markdown fences."""
+
+
+def build_video_shot_analysis_prompt() -> str:
+    """复刻台拉片：逐镜头视觉反推的 JSON 契约提示词。"""
+    return """你是资深电影摄影师与 AI 视频提示词工程师。用户会提供同一个镜头内的 1-2 张关键帧（第一张为镜头起始帧，第二张为镜头中段帧，可能缺省）。
+请对这个镜头做标准化拉片，反推出可用于 AI 视频生成（MiniMax H3 / Wan VACE 深度控制）的结构化描述。
+
+要求：
+- promptText：英文 H3 镜头散文，覆盖 style、composition、subjects、environment、action、camera（运动类型+幅度+速度）。这是一个独立镜头，本地时间线从 00:00 开始，不要引用绝对时间码。
+- camera：运镜短语，中文，例如“缓慢推近”“跟随摇移”“固定机位”。
+- lighting：光线描述，中文，例如“黄昏侧逆光”“冷色顶光”。
+- style：画面风格，中文，例如“写实电影感”“2D 动画”“港风霓虹”。
+- subjects：本镜头出现的主体清单。type 只能是 character（人物）、scene（场景）、prop（道具）；description 用一句中文概括该主体在本镜头的外观与状态；name 用简短中文名。
+- description：面向用户的镜头内容摘要，中文，一两句话。
+- 分析必须只基于画面可见证据，不要臆测画外信息；关键帧模糊时写保守描述。
+
+必须且仅输出一个合法 JSON 对象（无 markdown 代码块）：
+{"promptText":"","camera":"","lighting":"","style":"","description":"","subjects":[{"name":"","type":"character","description":""}]}"""

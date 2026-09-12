@@ -1,6 +1,6 @@
 import { useRef } from "react"
 import { Button, Card, Empty, Popconfirm, Space, Spin, Tag, Typography } from "antd"
-import { ArrowLeft, Clapperboard, Copy, Layers, Plus, Trash2, Wand2 } from "lucide-react"
+import { ArrowLeft, Clapperboard, Copy, Film, Layers, Plus, Trash2, Wand2 } from "lucide-react"
 import ThemeToggle from "../components/ThemeToggle"
 import { DirectorProjectListItem, DirectorGenerationStatus, DirectorPayloadKind } from "./director-api"
 
@@ -15,6 +15,7 @@ function generationLabel(status: DirectorGenerationStatus): { text: string; colo
 function kindLabel(kind: DirectorPayloadKind): { text: string; color: string } {
   if (kind === "director_recipe") return { text: "导演创作", color: "blue" }
   if (kind === "batch_run") return { text: "短视频批量", color: "purple" }
+  if (kind === "shot_replication") return { text: "参考片复刻", color: "cyan" }
   return { text: "旧时间轴", color: "default" }
 }
 
@@ -29,6 +30,7 @@ interface DirectorHomeProps {
   loading: boolean
   onCreateDirector: () => void
   onCreateBatch: () => void
+  onCreateReplication?: () => void
   onOpen: (item: DirectorProjectListItem) => void
   onCopy: (projectId: string) => void
   onDelete: (projectId: string) => void
@@ -40,6 +42,7 @@ export default function DirectorHome({
   loading,
   onCreateDirector,
   onCreateBatch,
+  onCreateReplication,
   onOpen,
   onCopy,
   onDelete,
@@ -86,6 +89,13 @@ export default function DirectorHome({
           <strong>短视频批量</strong>
           <span>主题裂变多条脚本，并行排队 MiniMax H3 文生视频</span>
         </button>
+        {onCreateReplication ? (
+          <button type="button" className="director-engine-card" onClick={onCreateReplication}>
+            <span className="director-engine-icon is-replication"><Film size={22} /></span>
+            <strong>参考片复刻</strong>
+            <span>上传参考片 → 拉片反推提示词 + 深度视频 → VACE 批量转绘</span>
+          </button>
+        ) : null}
       </div>
 
       {loading ? (
@@ -156,7 +166,7 @@ export default function DirectorHome({
                   aria-label={`打开工程 ${item.title}`}
                 >
                   <div className="director-library-card-top">
-                    {item.kind === "batch_run" ? <Layers size={16} /> : <Clapperboard size={16} />}
+                    {item.kind === "batch_run" ? <Layers size={16} /> : item.kind === "shot_replication" ? <Film size={16} /> : <Clapperboard size={16} />}
                     <Typography.Text strong className="director-library-card-title" ellipsis>
                       {item.title}
                     </Typography.Text>

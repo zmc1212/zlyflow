@@ -109,6 +109,7 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 
 新作品写入员工授权目录的 `ZLY AI Studio/<YYYY-MM>`；既有 IndexedDB 记录和 `ZLY AI Video Studio` 目录继续只读兼容。GRS 图片成功 URL 会在后端校验 HTTPS、重定向、公网地址、MIME、文件签名和 50 MB 上限后暂存，浏览器/桌面端确认交付后立即清理。
 
+
 ## 2026-08-31 导台2 与内容库
 
 - 用户可见行为：左侧导航增加「导台2」（`/director2`）。内容库采用居中导入卡片：可上传 TXT/Markdown/Word 或粘贴正文，开始导入后会切章并调用已配置大模型分析，页面底部展示摘要、角色、场景、道具和剧集规划。资产库、剧集工坊、风格中心、制作助手为占位页。
@@ -1571,3 +1572,10 @@ H3 视频生成以后端 `quality` 档位计算实际宽高，避免旧草稿的
 创意澄清卡、Prompt Bar、用户气泡、流式光标、等待加载器按官方 ai-native-react-components 源码逐像素复刻：澄清卡为行式单选（选中自动翻页、圆点分页器、墨色发送箭头、可跳过单题或全部）；输入条聚焦加深描边、发送键墨色方形箭头；气泡右对齐无底色；等待态为像素网格加载器。规则已写入 AGENTS.md（导演台 AI 对话界面视觉标准），后续该区域样式改动必须对照官方源码并浏览器实测。
 
 验证：`pnpm --dir frontend build`。回滚：还原本次提交。
+
+## 2026-09-12 复刻台（参考片拉片 + VACE 深度转绘）
+
+- 用户可见行为：导演台首页新增「参考片复刻」创建卡（`/director/replication/:projectId`）。上传参考片（mp4/mov/webm，≤2GB，仅用于分镜学习与参考复刻）后可一键拉片：智能分镜（按镜头切换点，灵敏度可调）或固定分段；自动提取全片深度视频并逐镜切段；用配置的视觉大模型逐镜反推英文 H3 提示词、运镜说明与主体清单（人物/场景/道具及出镜镜头），视觉模型不可用时提示词可手动填写。拉片结果以逐镜卡片展示（原片段、深度视频、关键帧、可编辑提示词），支持修改后批量转绘或单镜转绘：本地 Wan2.1 VACE 1.3B 以深度视频锁定原片运镜与构图，用提示词与原片首帧/参考图重塑画面内容；深度控制强度、采样步数、目标风格可调。转绘任务与创作台共用同一 ComfyUI 串行队列，原片与复刻成片并排对比，失败镜头可就地重试。
+- 依赖与准备：整合包 ComfyUI 模型目录需具备 `wan2.1_vace_1.3B.safetensors`（可对 `vace-native-checkpoint/diffusion_pytorch_model.safetensors` 做硬链接）、`text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors`（约 6.7GB）、`vae/wan_2.1_vae.safetensors`、`models/geometry_estimation/depth_anything_3_mono_large.safetensors`（约 1.3GB）；反推提示词需在管理后台配置带视觉（VL/Vision）的大模型。单镜转绘按 16fps、4n+1 帧网格，上限 81 帧（约 5 秒）。
+- 受影响文件：`backend/app/{video_analysis,video_depth_workflow,wan_vace_depth_workflow,director_replication}.py`（新增）与 `workflow_registry/comfy_service/director_operations/main/models/llm_*` 扩展；`frontend/src/director/{DirectorReplicationStudio.tsx,replication-model.ts}`（新增）与路由/导航/样式扩展。详见 `docs/ARCHITECTURE.md` 同日条目。
+- 验证：`python -m pytest backend/tests -q`（440 通过）；`npm --prefix frontend run build` 通过；ComfyUI 实跑深度提取与复刻出片成功。

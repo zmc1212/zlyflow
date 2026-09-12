@@ -217,6 +217,42 @@ class LlmProviderService:
             model=config["model"],
         )
 
+    def analyze_video_shot(
+        self,
+        *,
+        frames: list[str],
+        shot_number: int,
+        duration_sec: float,
+        art_style: str = "",
+    ) -> dict[str, Any]:
+        """复刻台拉片：对单镜头关键帧反推结构化提示词与主体清单。"""
+        available, reason = self.availability()
+        if not available:
+            raise LlmError(reason or "大模型服务不可用")
+        config = self.store.get_llm_settings()
+        if not model_supports_vision(config.get("model")):
+            raise LlmError("当前大模型不支持视觉输入，无法自动反推镜头提示词。请在管理设置中改用带 VL/Vision 的模型。")
+        api_key = self.api_key()
+        if not api_key:
+            raise LlmError("大模型凭据未配置")
+        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
+        return client.analyze_video_shot(
+            frames=frames,
+            shot_number=shot_number,
+            duration_sec=duration_sec,
+            art_style=art_style,
+            model=config["model"],
+        )
+
+    def vision_model_name(self) -> str | None:
+        """当前配置的模型名（界面上标注视觉分析所用模型）；不支持视觉时返回 None。"""
+        try:
+            config = self.store.get_llm_settings()
+        except Exception:
+            return None
+        model = str(config.get("model") or "")
+        return model if model_supports_vision(model) else None
+
     def split_script(
         self,
         script: str,

@@ -23,6 +23,8 @@ from .minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from .minimax_h3_workflow import build_minimax_h3_workflow
 from .models import JobMode
 from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, StoredResource, resource_object_url
+from .video_depth_workflow import DEPTH_OUTPUT_NODE, build_depth_video_workflow
+from .wan_vace_depth_workflow import VACE_OUTPUT_NODE, build_vace_depth_workflow
 from .workflow_registry import (
     DUAL_ACCEL_WORKFLOWS,
     H3_WORKFLOWS,
@@ -30,6 +32,7 @@ from .workflow_registry import (
     T8_WORKFLOWS,
     generation_output_label,
     generation_stage,
+    normalize_options,
 )
 
 
@@ -281,6 +284,27 @@ class ComfyService:
         if not name:
             raise legacy.ComfyError(f"ComfyUI 上传接口未返回文件名: {payload}")
         return f"{payload.get('subfolder')}/{name}" if payload.get("subfolder") else name
+
+    def upload_video(self, local_path: str, tag: str) -> str:
+        """上传视频到 ComfyUI input 目录（/upload/image 接口接受任意文件，VHS 从该目录读取）。"""
+        return self.upload_image(local_path, tag)
+
+    def run_depth_extraction(
+        self, video_path: str | Path, *, fps: int, frame_cap: int, resolution: int = 504,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> StoredResource:
+        """把参考片交给 ComfyUI 的 Depth Anything 3 提取时序稳定深度视频，返回本地文件。"""
+        filename = self.upload_video(str(video_path), "depth_source")
+        workflow = build_depth_video_workflow(filename, fps=fps, frame_cap=frame_cap, resolution=resolution)
+        record = self.run_workflow(
+            workflow, "正在提取参考片深度视频", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        return self.download(
+            legacy.output_file(record, DEPTH_OUTPUT_NODE, ("videos", "gifs", "images")),
+            "depth_video", require_local=True,
+        )
 
     def progress_socket(self, client_id: str):
         parsed = urlsplit(self.comfy_url)
@@ -703,6 +727,55 @@ class ComfyService:
             if connection is not None:
                 connection.close()
 
+    def _run_vace_depth_replication(
+        self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """复刻台专用：references[0] 为深度控制视频，其后为可选参考图（首帧/主体/风格）。"""
+        if not references:
+            raise legacy.ComfyError("深度复刻需要至少上传一个深度控制视频。")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        update_stage("正在上传深度控制视频")
+        control_video = self.upload_video(references[0], "vace_depth_control")
+        uploaded_refs: list[str] = []
+        for index, path in enumerate(references[1:], 1):
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            uploaded_refs.append(self.upload_image(path, f"vace_reference_{index}"))
+        normalized = normalize_options(JobMode.WAN_VACE_DEPTH_V2V, options or {})
+        # registry 对 seed 字段始终随机化；这里读原始提交值，0 表示随机，
+        # 并把实际使用的 seed 回写进生效参数快照以支持复现。
+        requested_seed = int((options or {}).get("seed") or 0)
+        seed = requested_seed if requested_seed > 0 else int(normalized.get("seed") or 0) or secrets.randbits(31)
+        normalized["seed"] = seed
+        workflow = build_vace_depth_workflow(
+            control_video,
+            uploaded_refs,
+            prompt,
+            negative_prompt=negative_prompt,
+            width=int(normalized.get("width") or 832),
+            height=int(normalized.get("height") or 480),
+            length=int(normalized.get("length") or 81),
+            vace_strength=float(normalized.get("vace_strength") or 1.0),
+            steps=int(normalized.get("steps") or 30),
+            cfg=float(normalized.get("cfg") or 5.0),
+            shift=float(normalized.get("shift") or 16.0),
+            sampler=str(normalized.get("sampler") or "uni_pc"),
+            scheduler=str(normalized.get("scheduler") or "simple"),
+            seed=seed,
+            weight_dtype=str(normalized.get("weight_dtype") or "default"),
+        )
+        record = self.run_workflow(
+            workflow, "Wan VACE 正在复刻镜头", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        output = self.download(
+            legacy.output_file(record, VACE_OUTPUT_NODE, ("videos", "gifs", "images")), "wan_vace_depth",
+        )
+        return [self.output_payload(output, "video", "VACE 复刻视频")]
+
     def completed_outputs(self, mode: JobMode, record: dict) -> list[dict]:
         if mode in H3_WORKFLOWS:
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
@@ -713,6 +786,9 @@ class ComfyService:
         if mode is JobMode.VACE_VIDEO:
             output = self.download(legacy.output_file(record, legacy.VACE_OUTPUT_NODE, ("videos", "gifs", "images")), "wan_vace_multi_reference")
             return [self.output_payload(output, "video", "VACE 视频")]
+        if mode is JobMode.WAN_VACE_DEPTH_V2V:
+            output = self.download(legacy.output_file(record, VACE_OUTPUT_NODE, ("videos", "gifs", "images")), "wan_vace_depth")
+            return [self.output_payload(output, "video", "VACE 复刻视频")]
         raise legacy.ComfyError(f"不支持恢复工作流模式: {mode}")
 
     def resume(
@@ -804,6 +880,11 @@ class ComfyService:
             )
             output = self.download(legacy.output_file(record, legacy.T2I_OUTPUT_NODE, ("images",)), "text_to_image")
             return [self.output_payload(output, "image", "生成图片")]
+
+        if mode is JobMode.WAN_VACE_DEPTH_V2V:
+            return self._run_vace_depth_replication(
+                references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
+            )
 
         if len(references) != 3:
             raise legacy.ComfyError("视频模式需要上传场景、主体和风格三张参考图。")

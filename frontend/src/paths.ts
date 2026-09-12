@@ -24,6 +24,7 @@ export const ROUTE_PATTERNS = {
   generateVideoJob: "/generate/video/:jobId",
   directorProject: "/director/:projectId",
   directorBatch: "/director/batch/:projectId",
+  directorReplication: "/director/replication/:projectId",
   director2Project: "/director2/:projectId",
   adminTab: "/admin/:tab",
 } as const
@@ -40,6 +41,7 @@ export const STUDIO_ROUTE_PATHS = [
   PATHS.generateVideo,
   ROUTE_PATTERNS.generateVideoJob,
   ROUTE_PATTERNS.directorBatch,
+  ROUTE_PATTERNS.directorReplication,
   ROUTE_PATTERNS.directorProject,
   PATHS.director,
   PATHS.director2ArtStyles,
@@ -91,6 +93,10 @@ export function directorProjectPath(projectId: string) {
 
 export function directorBatchPath(projectId: string) {
   return `${PATHS.director}/batch/${encodeURIComponent(projectId)}`
+}
+
+export function directorReplicationPath(projectId: string) {
+  return `${PATHS.director}/replication/${encodeURIComponent(projectId)}`
 }
 
 export function director2ProjectPath(projectId: string) {

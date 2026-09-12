@@ -26,6 +26,13 @@ from backend.app.storage import JobStore
 from backend.app.resource_storage import BrowserLocalStagingStorage, BrowserStreamStorage, create_resource_storage
 from backend.app.models import UserRole
 from backend.app.worker import JobWorker
+from backend.app.video_depth_workflow import DEPTH_OUTPUT_NODE, build_depth_video_workflow
+from backend.app.wan_vace_depth_workflow import (
+    VACE_OUTPUT_NODE, build_vace_depth_workflow, snap_vace_length,
+)
+from backend.app.director_replication import (
+    empty_replication_payload, normalize_replication_payload,
+)
 from backend.app.workflow_registry import (
     CATALOG_GROUP_CUSTOM, CATALOG_GROUP_DUAL_ACCEL, CATALOG_GROUP_LIGHTX2V, CATALOG_GROUP_OFFICIAL_H3,
     DUAL_ACCEL_LORA_NAME, H3_FL2VA_FULL, H3_FL2VA_PRUNED, H3_REF2VA_FULL, H3_REF2VA_PRUNED, LIGHTX2V_FL2V_4STEP_LORA,
@@ -548,7 +555,12 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(t8_options["seed"]["ui_group"], "internal")
         self.assertEqual(t8_options["task_type"]["ui_group"], "internal")
         self.assertEqual(t8_options["video_steps"]["ui_group"], "internal")
-        self.assertTrue(all(workflow.id.startswith("minimax-h3-") for workflow in WORKFLOWS))
+        self.assertTrue(
+            all(
+                workflow.id.startswith("minimax-h3-") or workflow.id == JobMode.WAN_VACE_DEPTH_V2V.value
+                for workflow in WORKFLOWS
+            )
+        )
         groups = {workflow.catalog_group: workflow.payload() for workflow in WORKFLOWS}
         self.assertEqual(workflow_for(JobMode.MINIMAX_H3_LIGHTX2V_T2V).catalog_group, CATALOG_GROUP_LIGHTX2V)
         self.assertEqual(workflow_for(JobMode.MINIMAX_H3_DUAL_ACCEL_T2V).catalog_group, CATALOG_GROUP_DUAL_ACCEL)
@@ -561,6 +573,76 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertLess(groups[CATALOG_GROUP_LIGHTX2V]["catalog_group_order"], groups[CATALOG_GROUP_DUAL_ACCEL]["catalog_group_order"])
         self.assertLess(groups[CATALOG_GROUP_DUAL_ACCEL]["catalog_group_order"], groups[CATALOG_GROUP_OFFICIAL_H3]["catalog_group_order"])
         self.assertLess(groups[CATALOG_GROUP_OFFICIAL_H3]["catalog_group_order"], groups[CATALOG_GROUP_CUSTOM]["catalog_group_order"])
+
+    def test_wan_vace_depth_workflow_parameter_layers_and_builder_mapping(self) -> None:
+        definition = workflow_for(JobMode.WAN_VACE_DEPTH_V2V)
+        self.assertTrue(definition.hidden_from_catalog)
+        self.assertEqual(definition.min_references, 1)
+        self.assertEqual(definition.max_references, 9)
+        parameters = {item["name"]: item for item in definition.payload()["parameters"]}
+        properties = parameters["options"]["schema"]["properties"]
+        self.assertTrue(all(option["ui_group"] in {"primary", "advanced", "internal"} for option in properties.values()))
+        self.assertEqual(
+            {name for name, option in properties.items() if option["ui_group"] == "primary"},
+            {"vace_strength", "keep_first_frame"},
+        )
+        self.assertEqual(
+            {name for name, option in properties.items() if option["ui_group"] == "advanced"},
+            {"steps", "seed"},
+        )
+        self.assertEqual(properties["vace_strength"]["default"], 1.0)
+        self.assertEqual(properties["steps"]["default"], 30)
+        self.assertEqual(properties["width"]["default"], 832)
+
+        options = normalize_options(JobMode.WAN_VACE_DEPTH_V2V, {
+            "width": 832, "height": 480, "length": 17, "vace_strength": 0.8,
+            "steps": 20, "seed": 0, "keep_first_frame": True,
+        })
+        self.assertEqual(options["width"], 832)
+        self.assertEqual(options["vace_strength"], 0.8)
+        self.assertIsInstance(options["seed"], int)
+        self.assertGreaterEqual(options["seed"], 0)
+        with self.assertRaises(ValueError):
+            normalize_options(JobMode.WAN_VACE_DEPTH_V2V, {"unknown_option": 1})
+        validate_references(JobMode.WAN_VACE_DEPTH_V2V, ["depth.mp4", "first.png"])
+        with self.assertRaises(ValueError):
+            validate_references(JobMode.WAN_VACE_DEPTH_V2V, [])
+
+        graph = build_vace_depth_workflow(
+            "depth.mp4", ["first.png", "style.png"], "test prompt",
+            width=832, height=480, length=18, vace_strength=0.9, steps=20, seed=7,
+        )
+        self.assertEqual(graph[VACE_OUTPUT_NODE]["class_type"], "SaveVideo")
+        self.assertEqual(graph["25"]["class_type"], "WanVaceMultiReference")
+        self.assertEqual(graph["25"]["inputs"]["length"], snap_vace_length(18))
+        self.assertEqual(graph["25"]["inputs"]["reference_images"], ["17", 0])
+        self.assertEqual(graph["26"]["inputs"]["seed"], 7)
+        without_refs = build_vace_depth_workflow(
+            "depth.mp4", [], "test prompt", width=832, height=480, length=17, seed=1,
+        )
+        self.assertEqual(without_refs["25"]["class_type"], "WanVaceToVideo")
+
+        depth_graph = build_depth_video_workflow("source.mp4", frame_cap=33)
+        self.assertEqual(depth_graph[DEPTH_OUTPUT_NODE]["class_type"], "VHS_VideoCombine")
+        self.assertEqual(depth_graph["3"]["class_type"], "DA3Inference")
+        self.assertEqual(depth_graph["3"]["inputs"]["mode"], "mono")
+
+    def test_shot_replication_payload_normalization(self) -> None:
+        payload = normalize_replication_payload(empty_replication_payload(title="复刻"))
+        self.assertEqual(payload["kind"], "shot_replication")
+        self.assertEqual(payload["analysis"]["status"], "idle")
+        self.assertEqual(payload["renderSettings"]["engine"], "vace_depth")
+        payload["shots"].append({
+            "id": "s1", "timeStart": 5.0, "timeEnd": 2.0,
+            "promptText": "A cat", "takes": [{"id": "t1", "status": "succeeded"}],
+        })
+        normalized = normalize_replication_payload(payload)
+        shot = normalized["shots"][0]
+        self.assertEqual(shot["timeStart"], 2.0)
+        self.assertEqual(shot["timeEnd"], 5.0)
+        self.assertEqual(shot["durationSec"], 3.0)
+        self.assertEqual(shot["status"], "idle")
+        self.assertEqual(shot["takes"][0]["status"], "succeeded")
 
     def test_lightx2v_t2v_uses_euler_sigma_shift_and_one_megapixel_defaults(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {})

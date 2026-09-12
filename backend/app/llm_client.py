@@ -991,6 +991,49 @@ class OpenAICompatibleClient:
                 description = "\n".join(lines[1:-1]).strip()
         return description
 
+    def analyze_video_shot(
+        self,
+        *,
+        frames: list[str],
+        shot_number: int,
+        duration_sec: float,
+        art_style: str = "",
+        model: str,
+    ) -> dict[str, Any]:
+        """复刻台拉片：对同一镜头的 1-2 张关键帧反推结构化描述（JSON 契约）。"""
+        from .llm_minimax_skills import build_video_shot_analysis_prompt
+
+        if not frames:
+            raise LlmError("缺少关键帧，无法进行镜头拉片分析")
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": (
+                    f"镜头序号：{shot_number}；镜头时长约 {max(0.5, duration_sec):.1f} 秒。"
+                    + (f"目标整体风格：{art_style}。" if art_style else "")
+                    + "请按系统约定输出 JSON。"
+                ),
+            },
+            *[{"type": "image_url", "image_url": {"url": frame}} for frame in frames],
+        ]
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": build_video_shot_analysis_prompt()},
+            {"role": "user", "content": content},
+        ]
+        raw_reply = self.chat_completion(messages, model=model, temperature=0.2, max_tokens=1024, timeout=90.0)
+        clean_text = raw_reply.strip()
+        if "```json" in clean_text:
+            clean_text = clean_text.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in clean_text:
+            clean_text = clean_text.split("```", 1)[1].split("```", 1)[0].strip()
+        try:
+            payload = json.loads(clean_text)
+        except json.JSONDecodeError as error:
+            raise LlmError(f"镜头拉片结果不是合法 JSON：{error}") from error
+        if not isinstance(payload, dict) or not str(payload.get("promptText") or "").strip():
+            raise LlmError("镜头拉片结果缺少 promptText")
+        return payload
+
     def split_script(
         self,
         script: str,

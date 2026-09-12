@@ -22,6 +22,7 @@ class JobMode(str, Enum):
     MINIMAX_H3_DUAL_ACCEL_R2V = "minimax-h3-dual-accel-r2v"
     MINIMAX_H3_T8_ALL_REFERENCE = "minimax-h3-t8-all-reference"
     MINIMAX_H3_T8_DUAL_CLOCK = "minimax-h3-t8-dual-clock"
+    WAN_VACE_DEPTH_V2V = "wan21-vace-depth-v2v"
     GRS_GPT_IMAGE_2 = "grs-gpt-image-2"
     GRS_GPT_IMAGE_2_VIP = "grs-gpt-image-2-vip"
 
@@ -539,7 +540,7 @@ class DirectorContinuityRepairRequest(BaseModel):
 
 
 DirectorGenerationStatus = Literal["pending", "partial", "complete"]
-DirectorPayloadKind = Literal["timeline", "director_recipe", "batch_run"]
+DirectorPayloadKind = Literal["timeline", "director_recipe", "batch_run", "shot_replication"]
 
 
 class DirectorArtStyleCategory(BaseModel):
@@ -701,7 +702,7 @@ class DirectorClarificationItem(BaseModel):
 
 
 class DirectorOperationCreateRequest(BaseModel):
-    kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare"]
+    kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare", "analyze_reference_video", "replicate_shots"]
     goal: str | None = Field(default=None, max_length=8000)
     agents: list[str] | None = Field(default=None)
     art_style_id: str | None = Field(default=None, max_length=32)
@@ -716,12 +717,28 @@ class DirectorOperationCreateRequest(BaseModel):
         default=None,
         description="plan_pipeline 专用：创意澄清问答（plan_clarify 产出），注入剧本 Agent 作为创作方向约束。",
     )
+    analysis_mode: Literal["smart", "fixed"] | None = Field(
+        default=None,
+        description="analyze_reference_video 专用：smart 按镜头切换点切分，fixed 按固定秒数切段。",
+    )
+    segment_seconds: float | None = Field(
+        default=None,
+        ge=3,
+        le=30,
+        description="analyze_reference_video 专用：fixed 模式的分段秒数。",
+    )
+    scene_threshold: float | None = Field(
+        default=None,
+        ge=0.05,
+        le=0.95,
+        description="analyze_reference_video 专用：smart 模式的镜头切换判定阈值。",
+    )
 
 
 class DirectorOperationResponse(BaseModel):
     id: str
     project_id: str
-    kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare"]
+    kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare", "analyze_reference_video", "replicate_shots"]
     status: Literal["queued", "running", "succeeded", "failed", "interrupted", "cancelled"]
     progress: int = Field(ge=0, le=100)
     request: dict[str, Any] = Field(default_factory=dict)

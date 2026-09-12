@@ -65,10 +65,16 @@ from .director_library import (
     save_library_asset_image,
 )
 from .director_recipe import (
-    AGENT_IDS, DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_RECIPE, empty_batch_payload,
-    empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload, payload_kind,
-    set_agent_status,
+    AGENT_IDS, DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_RECIPE, PAYLOAD_KIND_REPLICATION,
+    empty_batch_payload, empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload,
+    payload_kind, set_agent_status,
 )
+from .director_replication import (
+    ReplicationError, empty_replication_payload, find_replication_artifact_file,
+    find_replication_depth_file, find_replication_source_file, normalize_replication_payload,
+    save_replication_source, validate_source_video,
+)
+from .video_analysis import VideoAnalysisError, probe_video as probe_source_video
 from .director_project_service import merge_recipe_creative, merge_recipe_execution, persist_recipe_execution
 from .director_operations import DirectorOperationService
 from .director_stream import TERMINAL_OPERATION_STATUSES, terminal_event_for_status
@@ -732,6 +738,7 @@ app = FastAPI(
         {"name": "创作台", "description": "创作页面需要的供应商状态与余额快照。"},
         {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
         {"name": "导演台", "description": "员工隔离的导演工程库：Recipe 双引擎、画风目录、9 Agent 流水线与批量短视频。"},
+        {"name": "复刻台", "description": "参考片拉片复刻：上传成片，自动分镜反推提示词与深度视频，用 Wan VACE 深度控制批量转绘。"},
         {"name": "导台2", "description": "按项目组织的内容库、资产库与剧集工坊（脚本 Beat 与镜头草图）。"},
     ],
     lifespan=lifespan,
@@ -991,7 +998,8 @@ def listed_workflows():
     image_workflows = []
     if hasattr(app.state, "grs_provider"):
         image_workflows = app.state.grs_provider.enabled_image_workflows()
-    return [*image_workflows, *WORKFLOWS]
+    visible = [item for item in WORKFLOWS if not item.hidden_from_catalog]
+    return [*image_workflows, *visible]
 
 
 @app.get("/api/modes", response_model=ModesResponse, tags=["工作流"], summary="获取工作流注册表")
@@ -2155,6 +2163,178 @@ def cancel_director_operation(
         ip_address=client_ip(request),
     )
     return public_director_operation(updated)
+
+
+# ---------------------------------------------------------------------------
+# 复刻台（shot_replication）：参考片上传 / 拉片产物服务 / 拉片与转绘操作
+# ---------------------------------------------------------------------------
+
+
+def replication_project_or_404(store: JobStore, project_id: str, user: dict) -> dict:
+    record = director_project_or_404(store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_REPLICATION:
+        raise HTTPException(status_code=422, detail="只有复刻工程可以使用该接口")
+    return record
+
+
+@app.post(
+    "/api/director/replications/{project_id}/source-video",
+    response_model=DirectorProjectResponse,
+    tags=["复刻台"],
+    summary="上传复刻参考片",
+)
+async def upload_replication_source_video(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    file: Annotated[UploadFile, File(description="参考片视频文件（mp4/mov/webm，≤2GB）")],
+    expected_content_revision: Annotated[
+        int | None,
+        Form(ge=1, description="客户端最后读取的创作内容版本；不匹配时返回 409。"),
+    ] = None,
+) -> dict:
+    record = replication_project_or_404(app.state.store, project_id, user)
+    suffix = validate_source_video(file.filename or "", file.size)
+    staging = settings.staging_dir / f"replication-source-{secrets.token_urlsafe(6)}{suffix}"
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    await save_upload(file, staging)
+    try:
+        try:
+            probe = probe_source_video(staging)
+        except VideoAnalysisError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        saved_path, public_url = save_replication_source(
+            user["id"], project_id, source=staging, original_name=file.filename or "reference.mp4",
+        )
+        try:
+            saved = app.state.store.mutate_director_project_payload(
+                project_id,
+                lambda latest: _bind_replication_source(
+                    normalize_replication_payload(latest),
+                    path=str(saved_path), url=public_url, name=file.filename or saved_path.name,
+                    probe=probe,
+                ),
+                content_update=True,
+                expected_content_revision=expected_content_revision,
+            )
+        except DirectorProjectConflictError as error:
+            raise director_content_conflict_http(error) from error
+    finally:
+        staging.unlink(missing_ok=True)
+    app.state.auth_store.audit(
+        "upload_replication_source", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=saved_path.name, ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+def _bind_replication_source(payload: dict, *, path: str, url: str, name: str, probe) -> dict:
+    payload["sourceVideo"] = {
+        "path": path,
+        "url": url,
+        "name": name,
+        "width": probe.width,
+        "height": probe.height,
+        "fps": round(probe.fps, 3),
+        "durationSec": round(probe.duration, 3),
+    }
+    analysis = payload.get("analysis") or {}
+    analysis.update({"status": "idle", "depthStatus": "idle", "error": None,
+                     "depthPath": None, "depthUrl": None})
+    payload["shots"] = []
+    payload["subjects"] = []
+    return payload
+
+
+@app.get(
+    "/api/director/replications/{project_id}/source",
+    tags=["复刻台"],
+    summary="读取复刻参考片",
+)
+def download_replication_source(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    replication_project_or_404(app.state.store, project_id, user)
+    path = find_replication_source_file(user["id"], project_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="尚未上传参考片")
+    return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+@app.get(
+    "/api/director/replications/{project_id}/depth",
+    tags=["复刻台"],
+    summary="读取全片深度视频",
+)
+def download_replication_depth(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    replication_project_or_404(app.state.store, project_id, user)
+    path = find_replication_depth_file(user["id"], project_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="深度视频尚未生成")
+    return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+@app.get(
+    "/api/director/replications/{project_id}/shots/{shot_id}/{slot}",
+    tags=["复刻台"],
+    summary="读取分镜拉片产物（segment/depth/key0/key1）",
+)
+def download_replication_shot_artifact(
+    project_id: str,
+    shot_id: str,
+    slot: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    replication_project_or_404(app.state.store, project_id, user)
+    path = find_replication_artifact_file(
+        owner_user_id=user["id"], project_id=project_id, shot_id=shot_id, slot=slot,
+    )
+    if path is None:
+        raise HTTPException(status_code=404, detail="拉片产物不存在")
+    media_type = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "video/mp4"
+    return FileResponse(path, media_type=media_type, filename=path.name)
+
+
+@app.post(
+    "/api/director/replications/{project_id}/operations",
+    response_model=DirectorOperationResponse,
+    status_code=202,
+    tags=["复刻台"],
+    summary="创建复刻台长操作（analyze_reference_video / replicate_shots）",
+)
+async def create_replication_operation(
+    project_id: str,
+    payload: DirectorOperationCreateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = replication_project_or_404(app.state.store, project_id, user)
+    if payload.kind not in {"analyze_reference_video", "replicate_shots"}:
+        raise HTTPException(status_code=422, detail="复刻台仅支持拉片分析与批量转绘操作")
+    if payload.kind == "analyze_reference_video":
+        source = find_replication_source_file(user["id"], project_id)
+        if source is None:
+            raise HTTPException(status_code=422, detail="请先上传参考片")
+    body = payload.model_dump(exclude_none=True)
+    try:
+        operation = app.state.store.create_director_operation(
+            project_id=project_id,
+            owner_user_id=user["id"],
+            kind=payload.kind,
+            request=body,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.director_operations.start(operation["id"])
+    app.state.auth_store.audit(
+        "create_replication_operation", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"{payload.kind}:{operation['id']}", ip_address=client_ip(request),
+    )
+    return public_director_operation(operation)
 
 
 @app.post(

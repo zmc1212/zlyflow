@@ -3,16 +3,18 @@ import { message } from "antd"
 import { useLocation, useMatch, useNavigate } from "react-router-dom"
 import { User } from "../api"
 import { DirectoryHandleLike } from "../local-resource-store"
-import { directorBatchPath, directorProjectPath, PATHS, ROUTE_PATTERNS } from "../paths"
+import { directorBatchPath, directorProjectPath, directorReplicationPath, PATHS, ROUTE_PATTERNS } from "../paths"
 import DirectorBatchStudio from "./DirectorBatchStudio"
 import DirectorHome from "./DirectorHome"
 import DirectorRecipeStudio from "./DirectorRecipeStudio"
 import DirectorDesignMockup from "./DirectorDesignMockup"
+import DirectorReplicationStudio from "./DirectorReplicationStudio"
 import {
   convertDirectorProjectToRecipe, copyDirectorProject, createDirectorProjectRecord,
   deleteDirectorProject, listDirectorProjects, DirectorProjectListItem,
 } from "./director-api"
 import { createEmptyBatch, createEmptyRecipe } from "./types"
+import { createEmptyReplication } from "./replication-model"
 
 interface DirectorStudioModuleProps {
   user: User
@@ -33,9 +35,10 @@ export default function DirectorStudioModule({
   const navigate = useNavigate()
   const location = useLocation()
   const batchMatch = useMatch(ROUTE_PATTERNS.directorBatch)
+  const replicationMatch = useMatch(ROUTE_PATTERNS.directorReplication)
   const recipeMatch = useMatch(ROUTE_PATTERNS.directorProject)
-  const activeProjectId = batchMatch?.params.projectId ?? recipeMatch?.params.projectId
-  const view = batchMatch ? "batch" : recipeMatch ? "recipe" : "home"
+  const activeProjectId = batchMatch?.params.projectId ?? replicationMatch?.params.projectId ?? recipeMatch?.params.projectId
+  const view = batchMatch ? "batch" : replicationMatch ? "replication" : recipeMatch ? "recipe" : "home"
 
   const listQuery = useQuery({
     queryKey: ["director-projects"],
@@ -81,10 +84,29 @@ export default function DirectorStudioModule({
     }
   }
 
+  async function handleCreateReplication() {
+    try {
+      const created = await createDirectorProjectRecord({
+        title: "参考片复刻",
+        summary: "",
+        source_script: "",
+        payload: createEmptyReplication(),
+      }, csrfToken)
+      navigate(directorReplicationPath(created.id))
+      await refreshList()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "创建失败")
+    }
+  }
+
   async function handleOpen(item: DirectorProjectListItem) {
     try {
       if (item.kind === "batch_run") {
         navigate(directorBatchPath(item.id))
+        return
+      }
+      if (item.kind === "shot_replication") {
+        navigate(directorReplicationPath(item.id))
         return
       }
       if (item.kind === "timeline") {
@@ -129,6 +151,7 @@ export default function DirectorStudioModule({
           loading={listQuery.isLoading}
           onCreateDirector={handleCreateDirector}
           onCreateBatch={handleCreateBatch}
+          onCreateReplication={handleCreateReplication}
           onOpen={handleOpen}
           onCopy={handleCopy}
           onDelete={handleDelete}
@@ -136,6 +159,14 @@ export default function DirectorStudioModule({
         />
       ) : view === "batch" ? (
         <DirectorBatchStudio
+          projectId={activeProjectId}
+          csrfToken={csrfToken}
+          allJobs={allJobs}
+          onBack={goHome}
+          onExitDirector={onExitDirector}
+        />
+      ) : view === "replication" ? (
+        <DirectorReplicationStudio
           projectId={activeProjectId}
           csrfToken={csrfToken}
           allJobs={allJobs}

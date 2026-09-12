@@ -34,6 +34,7 @@ class WorkflowDefinition:
     executor: str = "comfyui"
     grs_profile: str | None = None
     catalog_group: str = ""
+    hidden_from_catalog: bool = False
 
     def payload(self) -> dict[str, Any]:
         data = asdict(self)
@@ -721,6 +722,45 @@ T8_DUAL_CLOCK_OPTION_SCHEMA = t8_option_schema(sampler="dual-clock")
 LIGHTX2V_OPTION_SCHEMA = lightx2v_option_schema()
 DUAL_ACCEL_OPTION_SCHEMA = dual_accel_option_schema()
 
+
+# Wan VACE 深度复刻：画布尺寸与帧数由源视频/深度视频决定，属 internal 托管；
+# primary 只暴露深度控制强度与保留原片首帧两个创作语义选项。
+VACE_DEPTH_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "vace_strength": option(
+            "深度控制强度", "number", 1.0, group="primary",
+            minimum=0.1, maximum=1.0, step=0.05,
+            description="越高越严格复刻原片的运镜与构图；调低可让画面内容更自由。",
+        ),
+        "keep_first_frame": option(
+            "保留原片首帧", "boolean", True, group="primary",
+            description="将原片首帧作为参考图，帮助保持主体形象一致。",
+        ),
+        "steps": option(
+            "采样步数", "integer", 30, group="advanced",
+            minimum=4, maximum=60, step=1,
+            description="步数越多细节越精致，耗时也越长。",
+        ),
+        "seed": option(
+            "随机种子", "integer", 0, group="advanced",
+            minimum=0, maximum=2147483647, step=1,
+            description="固定种子可复现相同结果；0 表示每次随机。",
+        ),
+        "width": option("画布宽", "integer", 832, group="internal", minimum=16, maximum=16384, step=16),
+        "height": option("画布高", "integer", 480, group="internal", minimum=16, maximum=16384, step=16),
+        "length": option("生成帧数", "integer", 81, group="internal", minimum=5, maximum=16384, step=4),
+        "cfg": option("CFG", "number", 5.0, group="internal", minimum=1.0, maximum=12.0, step=0.1),
+        "shift": option("采样 Shift", "number", 16.0, group="internal", minimum=1.0, maximum=20.0, step=0.5),
+        "sampler": option("采样器", "string", "uni_pc", group="internal", enum=["uni_pc"]),
+        "scheduler": option("调度器", "string", "simple", group="internal", enum=["simple"]),
+        "weight_dtype": option(
+            "模型精度", "string", "default", group="internal", enum=["default", "fp16", "bf16"],
+        ),
+        "fps": option("输出帧率", "integer", 16, group="internal", minimum=8, maximum=24, step=1),
+    },
+}
+
 WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         JobMode.MINIMAX_H3_LIGHTX2V_T2V.value,
@@ -842,6 +882,18 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         supports_h3_options=True,
         option_schema=T8_DUAL_CLOCK_OPTION_SCHEMA,
         catalog_group=CATALOG_GROUP_CUSTOM,
+    ),
+    WorkflowDefinition(
+        JobMode.WAN_VACE_DEPTH_V2V.value,
+        "Wan VACE 深度复刻",
+        "以深度视频锁定原片运镜与构图，用提示词与参考图重塑画面内容；由复刻台按镜头提交，"
+        "references[0] 为深度视频文件，其后为可选参考图。",
+        "collection",
+        1,
+        9,
+        option_schema=VACE_DEPTH_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_CUSTOM,
+        hidden_from_catalog=True,
     ),
 )
 
@@ -1099,6 +1151,9 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
                 raise ValueError("当前画面比例不支持所选分辨率。")
         return normalized
     if not is_h3_workflow(mode):
+        definition = workflow_for(mode)
+        if definition.option_schema is not None:
+            return _normalize_schema_options(definition.option_schema, raw or {})
         return {}
     raw = raw or {}
     if is_t8_workflow(mode):

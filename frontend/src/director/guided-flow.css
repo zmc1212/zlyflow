@@ -655,3 +655,102 @@
 .director-recipe-layout.is-chat .director-recipe-main {
   background: var(--director-page);
 }
+
+/* ---- 复刻台：参考片拉片与 VACE 转绘 ---- */
+.replication-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.replication-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+}
+.replication-source {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.replication-source .director-shot-video {
+  width: 100%;
+  border-radius: 10px;
+  background: var(--studio-surface-raised);
+}
+.replication-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--studio-text-secondary);
+}
+.replication-field.is-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.replication-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.replication-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.replication-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--studio-surface-raised);
+}
+.replication-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--studio-primary);
+  transition: width 0.3s ease;
+}
+.replication-keyframes {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.replication-keyframes img {
+  width: 96px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--studio-border);
+}
+.replication-shot-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.replication-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--studio-border);
+  color: var(--studio-text-muted);
+  font-size: 12px;
+}
+@media (max-width: 767px) {
+  .replication-layout {
+    grid-template-columns: 1fr;
+  }
+  .replication-side {
+    position: static;
+  }
+}
