@@ -1683,3 +1683,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：SSE 事件为纯增量（新 agent 命名空间 `storyboard_polish`，旧客户端忽略未知字段即可）；运行消息新增片段但旧格式仍可解析（无 `正在第 N 镜` 时回退 range 高亮）；不改 API、数据库、ComfyUI 协议。
 - 验证：`python -m unittest backend.tests.test_director.DirectorAgentPipelineTests`（含新增 `test_storyboard_polish_reports_current_shot_and_streams_deltas`）、`pnpm --dir frontend test`、`pnpm --dir frontend build`。
 - 回滚方式：还原本次提交即回到芯片网格 + 静态字数面板。
+
+## 2026-09-12 已完成环节「重新生成」（含级联清空后续）
+
+- 原因：逐步确认链走完后每个环节只有「已完成」徽章和抽屉回看，用户对某环节产物不满意时没有任何重做入口，只能放弃整案。
+- 当前基线：任务栏（rail/panel）与聊天结果行（`renderStepRow`）的已完成环节新增「重新生成」入口（官方重试图标语法，hover 显现、触屏常显、运行中禁用；仅历史回放/终态展示，直播中隐藏）。点击弹出确认框：①范围单选「仅重做本环节 / 重做本环节并清空后续环节」（无已完成下游时省略）；②动作「直接重新生成 / 调整要求后重新生成」（脚本/研究/媒体无阶段澄清，仅提供直接重生成）；分镜附媒体关联失效提示。`plan_pipeline` 请求新增 `reset_following: bool`——`DirectorOperationService._run_plan` 在目标环节**成功后**调用 `director_recipe.reset_recipe_following(recipe, agent_id)`：按 `PIPELINE_AGENT_ORDER` 清空其后环节产物（artStyle、characters/props、locations、scenes+continuityQa、characters[].voiceId、globalMusic/globalSoundscape）并重置 agentStatus 为 pending（失败/取消不动下游）；旧 shot 的 takes/jobId 随 scenes 替换解绑，沿用「原任务媒体不删除」语义。`result.reset_following` 回显是否执行。前端重生成请求一律带 `guided: true`，级联清空后 `nextGuidedStep` 自然指向下一缺失环节，引导链自动从下一环节续跑；「调整要求」路径复用 `continueGuidedFlow(agent)` 重新生成该环节确认问题卡，级联标记经澄清作用域 `{agent, questions, regenerateResetFollowing?}`（键 `director-clarify:{projectId}`）持久化并在 `handleStartPipeline` 注入。顺带修复 `handleRerun` 的 `skip_research` 反向条件（`agentId !== "research"`）。
+- 受影响文件：`backend/app/{models,director_recipe,director_operations}.py`、`backend/tests/test_director.py`、`frontend/src/director/{action-copy.ts,action-copy.test.ts,guided-flow.ts,guided-flow.test.ts,director-api.ts,DirectorRecipeStudio.tsx,guided-flow.css,index.css}`、`frontend/src/director/components/{DirectorTaskRows,DirectorScriptStreamPanel}.tsx`。
+- 兼容性：`reset_following` 默认 False，不传行为与旧版完全一致；澄清作用域新增可选字段，`parseClarifyScope` 兼容旧格式；无数据库迁移。
+- 验证：`python -m unittest backend.tests.test_director`（117 项，含新增 `ResetRecipeFollowingTests` 7 项）、`pnpm --dir frontend test`（51 项）、`pnpm --dir frontend build`、浏览器双主题/桌面+移动端自查。
+- 回滚方式：还原本次提交（前端隐藏入口 + 后端忽略新参数即等价回滚，无数据迁移）。

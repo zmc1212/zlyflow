@@ -75,6 +75,7 @@ export type DirectorOperationResponse = {
     guided?: boolean
     art_style_id?: string
     skip_research?: boolean
+    reset_following?: boolean
     shot_ids?: string[]
     render_pass?: "preview" | "final"
     clarifications?: DirectorClarificationInput[]
@@ -85,6 +86,7 @@ export type DirectorOperationResponse = {
     failed_agents?: string[]
     project_revision?: number
     content_revision?: number
+    reset_following?: boolean
     questions?: unknown
   }
   error?: string | null
@@ -310,6 +312,7 @@ export function createDirectorOperation(
     guided?: boolean
     art_style_id?: string
     skip_research?: boolean
+    reset_following?: boolean
     shot_ids?: string[]
     render_pass?: "preview" | "final"
     polish_prompt?: boolean

@@ -77,4 +77,15 @@ describe("parseClarifyScope", () => {
     expect(parseClarifyScope("not json")).toBeNull()
     expect(parseClarifyScope(null)).toBeNull()
   })
+
+  it("keeps the regenerate cascade flag across refresh recovery", () => {
+    const scoped = {
+      agent: "characters",
+      regenerateResetFollowing: true,
+      questions: [{ id: "q1", question: "角色基调？", options: [{ label: "群像", value: "群像" }] }],
+    }
+    expect(parseClarifyScope(JSON.stringify(scoped))).toEqual(scoped)
+    const plain = { agent: "characters", questions: scoped.questions }
+    expect(parseClarifyScope(JSON.stringify(plain))?.regenerateResetFollowing).toBeUndefined()
+  })
 })

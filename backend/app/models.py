@@ -721,6 +721,10 @@ class DirectorOperationCreateRequest(BaseModel):
     )
     art_style_id: str | None = Field(default=None, max_length=32)
     skip_research: bool | None = None
+    reset_following: bool = Field(
+        default=False,
+        description="plan_pipeline 专用：重新生成单个环节成功后，按流水线顺序清空其后环节的产物并重置为待生成；失败或取消不动下游。",
+    )
     shot_ids: list[str] = Field(default_factory=list)
     render_pass: Literal["preview", "final"] = "final"
     polish_prompt: bool = Field(

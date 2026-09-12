@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Typography, message,
+  Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Radio, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Typography, message,
 } from "antd"
 import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -43,6 +43,17 @@ import {
   SCRIPT_IDEA_EXAMPLES,
   SCRIPT_PROM_BAR_CLARIFY_PLACEHOLDER,
   SCRIPT_PROM_BAR_PLACEHOLDER,
+  SCRIPT_STEP_REGENERATE_TITLE,
+  SCRIPT_REGENERATE_ADJUST_LABEL,
+  SCRIPT_REGENERATE_DIRECT_LABEL,
+  SCRIPT_REGENERATE_DOWNSTREAM_PREFIX,
+  SCRIPT_REGENERATE_NO_DOWNSTREAM_HINT,
+  SCRIPT_REGENERATE_SCOPE_FOLLOWING,
+  SCRIPT_REGENERATE_SCOPE_FOLLOWING_HINT,
+  SCRIPT_REGENERATE_SCOPE_ONLY,
+  SCRIPT_REGENERATE_SCOPE_ONLY_HINT,
+  SCRIPT_REGENERATE_STORYBOARD_NOTE,
+  SCRIPT_REGENERATE_TITLE,
   STAGE_CLARIFY_FAILED_LABEL,
   GUIDED_RESUME_PREFIX,
   approveBatchConfirm,
@@ -287,6 +298,69 @@ function confirmBoardBatch(options: {
   })
 }
 
+type RegenerateChoice = { action: "direct" | "adjust" | null; resetFollowing: boolean }
+
+/** 重新生成确认弹窗：选择影响范围（仅本环节 / 连同后续环节清空）与是否先调整创作要求。 */
+function confirmRegenerateStage(options: {
+  agentLabel: string
+  downstreamLabels: string[]
+  storyboardNote?: boolean
+  /** 仅引导链环节支持阶段澄清；脚本/研究/媒体没有可调整的要求卡。 */
+  adjustEnabled?: boolean
+}): Promise<RegenerateChoice> {
+  return new Promise((resolve) => {
+    let resetFollowing = false
+    const cancel = { action: null, resetFollowing: false } as const
+    const modal = Modal.confirm({
+      title: SCRIPT_REGENERATE_TITLE(options.agentLabel),
+      content: (
+        <div className="director-heavy-confirm director-regenerate-confirm">
+          {options.storyboardNote ? (
+            <p className="director-output-hint">{SCRIPT_REGENERATE_STORYBOARD_NOTE}</p>
+          ) : null}
+          {options.downstreamLabels.length ? (
+            <>
+              <p>{SCRIPT_REGENERATE_DOWNSTREAM_PREFIX}{options.downstreamLabels.join("、")}</p>
+              <Radio.Group
+                defaultValue={false}
+                onChange={(event) => { resetFollowing = event.target.value }}
+              >
+                <Space direction="vertical" size={8}>
+                  <Radio value={false}>
+                    <span className="director-regenerate-scope">{SCRIPT_REGENERATE_SCOPE_ONLY}</span>
+                    <span className="director-regenerate-scope-hint">{SCRIPT_REGENERATE_SCOPE_ONLY_HINT}</span>
+                  </Radio>
+                  <Radio value={true}>
+                    <span className="director-regenerate-scope">{SCRIPT_REGENERATE_SCOPE_FOLLOWING}</span>
+                    <span className="director-regenerate-scope-hint">{SCRIPT_REGENERATE_SCOPE_FOLLOWING_HINT}</span>
+                  </Radio>
+                </Space>
+              </Radio.Group>
+            </>
+          ) : (
+            <p>{SCRIPT_REGENERATE_NO_DOWNSTREAM_HINT}</p>
+          )}
+        </div>
+      ),
+      footer: (
+        <div className="director-regenerate-footer">
+          <Button onClick={() => { modal.destroy(); resolve({ ...cancel }) }}>取消</Button>
+          {options.adjustEnabled ? (
+            <Button onClick={() => { modal.destroy(); resolve({ action: "adjust", resetFollowing }) }}>
+              {SCRIPT_REGENERATE_ADJUST_LABEL}
+            </Button>
+          ) : null}
+          <Button type="primary" onClick={() => { modal.destroy(); resolve({ action: "direct", resetFollowing }) }}>
+            {SCRIPT_REGENERATE_DIRECT_LABEL}
+          </Button>
+        </div>
+      ),
+      centered: true,
+      onCancel: () => resolve({ action: null, resetFollowing: false }),
+    })
+  })
+}
+
 function startLocalPipelineRun(
   recipe: RecipeProject,
   agents: RecipeAgentId[],
@@ -357,6 +431,8 @@ export default function DirectorRecipeStudio({
   const [scriptAnswers, setScriptAnswers] = useState<ClarifyAnswer[]>([])
   const clarifyScopeRef = useRef<ClarifyScope | null>(clarifyScope)
   clarifyScopeRef.current = clarifyScope
+  // 「调整要求后重新生成」选择级联时，待该环节确认问题生成后把标记写入澄清作用域。
+  const pendingRegenerateScopeRef = useRef<RecipeAgentId | null>(null)
   const runStartedAtRef = useRef(0)
   const recipeRef = useRef(recipe)
   const goalRef = useRef(goal)
@@ -464,9 +540,15 @@ export default function DirectorRecipeStudio({
         if (operation.kind === "plan_clarify") {
           const questions = operation.result?.questions
           if (operation.status === "succeeded" && Array.isArray(questions) && questions.length) {
+            // 「调整要求后重新生成」选择的级联标记，随问题卡一起持久化，回答后注入重生成请求。
+            const pendingRef = pendingRegenerateScopeRef.current
+            pendingRegenerateScopeRef.current = null
+            const pendingAgent = operation.request.agent || undefined
+            const regenerateResetFollowing = pendingRef != null && pendingRef === pendingAgent
             const pending: ClarifyScope = {
-              agent: operation.request.agent || undefined,
+              agent: pendingAgent,
               questions: questions as ClarifyQuestion[],
+              ...(regenerateResetFollowing ? { regenerateResetFollowing: true } : {}),
             }
             setClarifyScope(pending)
             if (typeof window !== "undefined") window.localStorage.setItem(clarifyStorageKey, JSON.stringify(pending))
@@ -916,6 +998,7 @@ export default function DirectorRecipeStudio({
     // 新一轮生成前丢弃未回答的旧问题卡，避免旧卡叠在新澄清上被误答。
     setClarifyScope(null)
     if (typeof window !== "undefined") window.localStorage.removeItem(clarifyStorageKey)
+    pendingRegenerateScopeRef.current = null
     setActiveStage("script")
     runStartedAtRef.current = Date.now()
     try {
@@ -977,6 +1060,8 @@ export default function DirectorRecipeStudio({
         art_style_id: recipeRef.current.artStyle?.id,
         skip_research: true,
         guided: true,
+        // 「调整要求后重新生成」选择级联时，由确认问题卡作用域携带该标记。
+        reset_following: scope.regenerateResetFollowing || undefined,
         clarifications: answers.length
           ? (agentId ? tagClarifyAnswers(answers, agentId) : answers)
           : undefined,
@@ -1044,7 +1129,8 @@ export default function DirectorRecipeStudio({
         goal,
         agents: [agentId],
         art_style_id: recipe.artStyle?.id,
-        skip_research: agentId === "research",
+        // 只有重跑研究本身才允许做研究；其余环节重跑不重跑事实核查。
+        skip_research: agentId !== "research",
         // 重跑剧本时沿用本次会话已确认的创作方向（含镜头数量），避免重跑后 Beat 数量失控。
         clarifications: agentId === "script" && scriptAnswers.length ? scriptAnswers : undefined,
       }, csrfToken)
@@ -1056,7 +1142,82 @@ export default function DirectorRecipeStudio({
     }
   }
 
-  async function handleGenerateStoryboard(options?: { force?: boolean; stayInChat?: boolean }) {
+  /** 重新生成（直接重跑）：单环节重跑并在选择级联时清空后续环节；完成后引导链自动续跑。 */
+  async function handleRegenerateDirect(agentId: RecipeAgentId, resetFollowing: boolean) {
+    if (agentId === "storyboard") {
+      // 从对话直播视图重新生成分镜：留在原地观看生成，范围已在重生成弹窗里确认过。
+      await handleGenerateStoryboard({
+        force: true, stayInChat: true, skipConfirm: true, guided: true, resetFollowing,
+      })
+      return
+    }
+    if (activeOperationId) {
+      messageApi.warning("已有导演操作正在执行，请完成或取消后再试")
+      return
+    }
+    const saved = await flushSave()
+    if (!saved) return
+    setRunning(true)
+    setLastPlanCompletion(null)
+    if (typeof window !== "undefined") window.localStorage.removeItem(planCompletionStorageKey)
+    runStartedAtRef.current = Date.now()
+    setRecipe((current) => startLocalPipelineRun(current, [agentId]))
+    try {
+      const operation = await createDirectorOperation(projectId, {
+        kind: "plan_pipeline",
+        goal,
+        agents: [agentId],
+        art_style_id: recipe.artStyle?.id,
+        skip_research: agentId !== "research",
+        guided: true,
+        reset_following: resetFollowing || undefined,
+        // 重生成剧本时沿用本次会话已确认的创作方向（含镜头数量）。
+        clarifications: agentId === "script" && scriptAnswers.length ? scriptAnswers : undefined,
+      }, csrfToken)
+      rememberDirectorOperation(operation)
+    } catch (error) {
+      if (await resumeConflictingDirectorOperation(error)) return
+      notifyFailure(error, "重新生成失败")
+      runStartedAtRef.current = 0
+      setRunning(false)
+    }
+  }
+
+  /** 重新生成（调整要求）：重新走该环节的确认问题卡，答案随重生成请求注入对应环节。 */
+  function handleRegenerateAdjust(agentId: GuidedStepAgent, resetFollowing: boolean) {
+    pendingRegenerateScopeRef.current = resetFollowing ? (agentId as RecipeAgentId) : null
+    void continueGuidedFlow(agentId)
+  }
+
+  /** 已完成环节行内的「重新生成」入口：先弹窗确认范围与方式，再执行。 */
+  function handleRegenerateRequest(agentId: string) {
+    if (running) return
+    const id = agentId as RecipeAgentId
+    const index = RECIPE_AGENT_ORDER.indexOf(id)
+    const downstream = index >= 0
+      ? RECIPE_AGENT_ORDER.slice(index + 1).filter((agent) => (
+        recipe.agentStatus.find((item) => item.id === agent)?.status === "completed"
+      ))
+      : []
+    void confirmRegenerateStage({
+      agentLabel: RECIPE_AGENT_LABELS[id] || id,
+      downstreamLabels: downstream.map((agent) => RECIPE_AGENT_LABELS[agent]),
+      storyboardNote: id === "storyboard",
+      adjustEnabled: (GUIDED_STEP_AGENTS as readonly string[]).includes(id),
+    }).then(({ action, resetFollowing }) => {
+      if (action === "direct") void handleRegenerateDirect(id, resetFollowing)
+      if (action === "adjust") handleRegenerateAdjust(id as GuidedStepAgent, resetFollowing)
+    })
+  }
+
+  async function handleGenerateStoryboard(options?: {
+    force?: boolean
+    stayInChat?: boolean
+    /** 重新生成弹窗已确认过影响，跳过二次确认。 */
+    skipConfirm?: boolean
+    guided?: boolean
+    resetFollowing?: boolean
+  }) {
     if (!projectQuery.isFetched) return
     const current = recipeRef.current
     const currentShots = flattenRecipeShots(current)
@@ -1070,7 +1231,7 @@ export default function DirectorRecipeStudio({
     if (!options?.force && !isPlaceholderRecipeBoard(currentShots, idea, story)) {
       return
     }
-    if (options?.force && !isPlaceholderRecipeBoard(currentShots, idea, story)) {
+    if (options?.force && !options?.skipConfirm && !isPlaceholderRecipeBoard(currentShots, idea, story)) {
       const confirmed = await confirmHeavyAction({ title: "重新生成分镜", countLabel: `将替换现有 ${currentShots.length} 个镜头的分镜结构。`, costLabel: "已有镜头的媒体关联可能失效；原任务媒体不会被删除。" })
       if (!confirmed) return
     }
@@ -1103,6 +1264,8 @@ export default function DirectorRecipeStudio({
         art_style_id: current.artStyle?.id,
         skip_research: true,
         agents,
+        guided: options?.guided || undefined,
+        reset_following: options?.resetFollowing || undefined,
       }, csrfToken)
       rememberDirectorOperation(operation)
     } catch (error) {
@@ -2431,6 +2594,7 @@ export default function DirectorRecipeStudio({
                         onCancel={() => { void handleCancelActiveOperation() }}
                         onConfirmStep={(answers) => { void handleStartPipeline(answers) }}
                         onRetryAgent={(agentId) => { void handleRerun(agentId as RecipeAgentId) }}
+                        onRegenerateAgent={handleRegenerateRequest}
                       />
                     )}
                     {!planPipelineRunning ? (

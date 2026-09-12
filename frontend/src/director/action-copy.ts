@@ -57,6 +57,19 @@ export const STAGE_CLARIFY_PLANNING_LABEL = "AI 导演正在准备这一步的�
 export const STAGE_CLARIFY_FAILED_LABEL = "创作确认问题生成失败"
 export const GUIDED_RESUME_PREFIX = "继续生成："
 
+/* 环节重新生成：已完成阶段可重跑，弹窗里选择影响范围与是否先调整创作要求。 */
+export const SCRIPT_STEP_REGENERATE_TITLE = "重新生成这一环节"
+export const SCRIPT_REGENERATE_TITLE = (label: string) => `重新生成「${label}」`
+export const SCRIPT_REGENERATE_DIRECT_LABEL = "直接重新生成"
+export const SCRIPT_REGENERATE_ADJUST_LABEL = "调整要求后重新生成"
+export const SCRIPT_REGENERATE_NO_DOWNSTREAM_HINT = "重新生成本环节不会影响其他环节的产物。"
+export const SCRIPT_REGENERATE_DOWNSTREAM_PREFIX = "本环节之后已完成："
+export const SCRIPT_REGENERATE_SCOPE_ONLY = "仅重做本环节"
+export const SCRIPT_REGENERATE_SCOPE_ONLY_HINT = "保留后续环节的产物，但它们可能与新结果不再一致。"
+export const SCRIPT_REGENERATE_SCOPE_FOLLOWING = "重做本环节并清空后续环节"
+export const SCRIPT_REGENERATE_SCOPE_FOLLOWING_HINT = "清空后续环节的生成结果，完成后从下一环节继续逐步引导重做。"
+export const SCRIPT_REGENERATE_STORYBOARD_NOTE = "已有镜头的媒体关联可能失效；原任务媒体不会被删除。"
+
 export const SCRIPT_DOCUMENT_EDIT_LABEL = "编辑剧本"
 export const SCRIPT_DOCUMENT_EDIT_DONE_LABEL = "完成编辑"
 export const SCRIPT_DOCUMENT_NEXT_LABEL = "进入分镜设计"

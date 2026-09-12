@@ -3156,6 +3156,200 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertIn("epic cinematic", submission["prompt"])
 
 
+class ResetRecipeFollowingTests(unittest.TestCase):
+    """重新生成单环节后的级联重置：产物清空映射与 plan_pipeline + reset_following 集成。"""
+
+    def _full_recipe(self) -> dict:
+        from backend.app.director_recipe import empty_recipe_payload
+
+        recipe = empty_recipe_payload(title="都市程序员", summary="短剧", full_story="李明走进公司。他坐下写代码。")
+        recipe["researchNotes"] = "相关题材研究"
+        recipe["artStyle"] = {"id": "as_1001", "name": "写实电影"}
+        recipe["characters"] = [{
+            "id": "char-1", "name": "李明", "gender": "male", "description": "程序员",
+            "identitySpec": "保持一致", "voiceId": "male_young_01",
+        }]
+        recipe["props"] = [{"id": "prop-1", "name": "工牌", "description": "员工卡"}]
+        recipe["locations"] = [{"id": "loc-1", "name": "办公室", "description": "开放工位"}]
+        recipe["scenes"] = [{"id": "scene-1", "title": "开场", "shots": [{
+            "id": "shot-1", "title": "进门", "description": "推开门", "promptText": "He opens the door.",
+            "durationSec": 5, "speakerName": "李明", "voiceId": "male_young_01",
+        }]}]
+        recipe["continuityQa"] = {"status": "passed", "issues": [], "pairs": []}
+        recipe["globalMusic"] = "轻快电子乐"
+        recipe["globalSoundscape"] = "办公室键盘声"
+        statuses = {item["id"]: dict(item) for item in recipe["agentStatus"]}
+        for agent_id in ("research", "script", "art_style", "characters", "locations", "storyboard", "voice", "music", "media"):
+            statuses[agent_id]["status"] = "completed"
+        recipe["agentStatus"] = list(statuses.values())
+        return recipe
+
+    @staticmethod
+    def _status_map(recipe: dict) -> dict[str, str]:
+        return {item["id"]: item["status"] for item in recipe["agentStatus"]}
+
+    def test_reset_from_script_cascades_all_downstream(self) -> None:
+        from backend.app.director_recipe import reset_recipe_following
+
+        recipe = reset_recipe_following(self._full_recipe(), "script")
+        self.assertEqual(recipe["script"]["fullStory"], "李明走进公司。他坐下写代码。")
+        self.assertEqual(recipe["researchNotes"], "相关题材研究")
+        self.assertIsNone(recipe["artStyle"])
+        self.assertEqual(recipe["characters"], [])
+        self.assertEqual(recipe["props"], [])
+        self.assertEqual(recipe["locations"], [])
+        self.assertEqual(recipe["scenes"], [])
+        self.assertNotIn("continuityQa", recipe)
+        self.assertEqual(recipe["globalMusic"], "")
+        self.assertEqual(recipe["globalSoundscape"], "")
+        statuses = self._status_map(recipe)
+        self.assertEqual(statuses["script"], "completed")
+        for agent_id in ("art_style", "characters", "locations", "storyboard", "voice", "music", "media"):
+            self.assertEqual(statuses[agent_id], "pending", agent_id)
+
+    def test_reset_from_storyboard_keeps_upstream_clears_voice_music(self) -> None:
+        from backend.app.director_recipe import reset_recipe_following
+
+        recipe = reset_recipe_following(self._full_recipe(), "storyboard")
+        self.assertIsNotNone(recipe["artStyle"])
+        self.assertEqual(len(recipe["characters"]), 1)
+        self.assertEqual(recipe["locations"][0]["name"], "办公室")
+        self.assertEqual(len(recipe["scenes"]), 1)
+        self.assertEqual(recipe["characters"][0]["voiceId"], None)
+        self.assertEqual(recipe["globalMusic"], "")
+        statuses = self._status_map(recipe)
+        self.assertEqual(statuses["storyboard"], "completed")
+        for agent_id in ("voice", "music", "media"):
+            self.assertEqual(statuses[agent_id], "pending", agent_id)
+        for agent_id in ("research", "script", "art_style", "characters", "locations"):
+            self.assertEqual(statuses[agent_id], "completed", agent_id)
+
+    def test_reset_from_music_only_resets_media_status(self) -> None:
+        from backend.app.director_recipe import reset_recipe_following
+
+        recipe = reset_recipe_following(self._full_recipe(), "music")
+        self.assertEqual(recipe["globalMusic"], "轻快电子乐")
+        self.assertEqual(len(recipe["scenes"]), 1)
+        statuses = self._status_map(recipe)
+        self.assertEqual(statuses["media"], "pending")
+        self.assertEqual(statuses["music"], "completed")
+
+    def test_reset_unknown_agent_is_noop(self) -> None:
+        from backend.app.director_recipe import reset_recipe_following
+
+        recipe = self._full_recipe()
+        self.assertIs(reset_recipe_following(recipe, "not-an-agent"), recipe)
+
+    def _make_service(self, provider: object):
+        from backend.app.director_operations import DirectorOperationService
+
+        return DirectorOperationService(
+            self.job_store, llm_provider=provider, worker=MagicMock(), resource_storage=None,
+        )
+
+    def _seed_project(self) -> str:
+        from backend.app.director_recipe import empty_recipe_payload
+
+        record = self.job_store.create_director_project(
+            owner_user_id="user-1",
+            title="级联工程",
+            payload={**self._full_recipe(), "kind": PAYLOAD_KIND_RECIPE},
+        )
+        return record["id"]
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.db_path = Path(self.temp_dir.name) / "test_reset_following.db"
+        self.job_store = JobStore(self.db_path)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _run_operation(self, project_id: str, request: dict, provider: object) -> dict:
+        import asyncio
+
+        operation = self.job_store.create_director_operation(
+            project_id=project_id, owner_user_id="user-1", kind="plan_pipeline", request=request,
+        )
+        service = self._make_service(provider)
+        asyncio.run(service._run(operation["id"]))
+        return self.job_store.get_director_operation(operation["id"])
+
+    def test_run_plan_reset_following_clears_downstream_after_success(self) -> None:
+        project_id = self._seed_project()
+
+        class StubProvider:
+            @staticmethod
+            def run_director_recipe(recipe, **_kwargs):
+                from backend.app.director_recipe import set_agent_status
+
+                recipe["script"] = {"title": "新剧本", "summary": "新简介", "fullStory": "全新故事。"}
+                set_agent_status(recipe, "script", "completed")
+                return recipe
+
+        operation = self._run_operation(
+            project_id,
+            {"goal": "都市程序员短剧", "agents": ["script"], "reset_following": True},
+            StubProvider(),
+        )
+        self.assertEqual(operation["status"], "succeeded", operation.get("error"))
+        self.assertTrue(operation["result"]["reset_following"])
+        payload = self.job_store.get_director_project(project_id)["payload"]
+        self.assertEqual(payload["script"]["fullStory"], "全新故事。")
+        self.assertEqual(payload["scenes"], [])
+        self.assertIsNone(payload["artStyle"])
+        statuses = {item["id"]: item["status"] for item in payload["agentStatus"]}
+        self.assertEqual(statuses["locations"], "pending")
+        self.assertEqual(statuses["music"], "pending")
+
+    def test_run_plan_reset_following_skipped_when_target_failed(self) -> None:
+        project_id = self._seed_project()
+
+        class StubProvider:
+            @staticmethod
+            def run_director_recipe(recipe, **_kwargs):
+                from backend.app.director_recipe import set_agent_status
+
+                set_agent_status(recipe, "script", "failed", "上游对话失败")
+                return recipe
+
+        operation = self._run_operation(
+            project_id,
+            {"goal": "都市程序员短剧", "agents": ["script"], "reset_following": True},
+            StubProvider(),
+        )
+        self.assertEqual(operation["status"], "succeeded")
+        self.assertFalse(operation["result"]["reset_following"])
+        payload = self.job_store.get_director_project(project_id)["payload"]
+        self.assertIsNotNone(payload["artStyle"])
+        self.assertEqual(len(payload["scenes"]), 1)
+        statuses = {item["id"]: item["status"] for item in payload["agentStatus"]}
+        self.assertEqual(statuses["storyboard"], "completed")
+
+    def test_run_plan_without_flag_keeps_downstream(self) -> None:
+        project_id = self._seed_project()
+
+        class StubProvider:
+            @staticmethod
+            def run_director_recipe(recipe, **_kwargs):
+                from backend.app.director_recipe import set_agent_status
+
+                recipe["script"] = {"title": "新剧本", "summary": "新简介", "fullStory": "全新故事。"}
+                set_agent_status(recipe, "script", "completed")
+                return recipe
+
+        operation = self._run_operation(
+            project_id,
+            {"goal": "都市程序员短剧", "agents": ["script"]},
+            StubProvider(),
+        )
+        self.assertEqual(operation["status"], "succeeded")
+        self.assertFalse(operation["result"].get("reset_following", False))
+        payload = self.job_store.get_director_project(project_id)["payload"]
+        self.assertIsNotNone(payload["artStyle"])
+        self.assertEqual(len(payload["scenes"]), 1)
+
+
 class DirectorDualEngineApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)

@@ -8,7 +8,7 @@ import {
   SCRIPT_ART_BLOCK_TITLE, SCRIPT_ART_CHANGE_LABEL, SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER, SCRIPT_CLARIFY_HINT,
   SCRIPT_CLARIFY_SKIP_ALL, SCRIPT_CLARIFY_SKIP_ONE, SCRIPT_CLARIFY_SUBMIT, SCRIPT_CLARIFY_TITLE,
   SCRIPT_DIRECTION_LABEL, SCRIPT_HISTORY_TITLE,
-  SCRIPT_JUMP_LATEST_LABEL, SCRIPT_STEP_EMPTY_LABEL, SCRIPT_STEP_VIEW_LABEL,
+  SCRIPT_JUMP_LATEST_LABEL, SCRIPT_STEP_EMPTY_LABEL, SCRIPT_STEP_REGENERATE_TITLE, SCRIPT_STEP_VIEW_LABEL,
   SCRIPT_STREAM_CANCEL_LABEL, SCRIPT_STREAM_STATE_LABELS, SCRIPT_STREAM_TITLE, SCRIPT_STREAM_WRITING_LABELS,
   SCRIPT_USER_BUBBLE_LABEL, STAGE_CLARIFY_HINTS, STAGE_CLARIFY_TITLES,
 } from "../action-copy"
@@ -63,6 +63,8 @@ type Props = {
   transcriptFooter?: ReactNode
   /** Retry a single failed agent step from the task rows. */
   onRetryAgent?: (agentId: string) => void
+  /** Ask to regenerate a completed agent step (opens the scope confirm in the studio). */
+  onRegenerateAgent?: (agentId: string) => void
   onCancel: () => void
   /** Guided step this clarify belongs to (art_style/characters/…); unset = script direction. */
   clarifyAgent?: string
@@ -72,6 +74,13 @@ type Props = {
 const TRANSCRIPT_AGENTS = ["research", "script", "art_style", "characters", "locations", "storyboard", "voice", "music"] as const
 
 const TRANSCRIPT_AGENT_SET = new Set<string>(TRANSCRIPT_AGENTS)
+
+/* 官方 task-rows.tsx RetryIcon 原路径：复用为已完成环节的「重新生成」图标。 */
+function RegenerateIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" /></svg>
+  )
+}
 
 /** 分镜打磨阶段（按秒分配/校验衔接等）的进度消息解析结果。
  *  打磨阶段同时有 storyboard_polish 命名空间的 delta 直播字幕（当前正在改写的镜头文本）。 */
@@ -154,7 +163,7 @@ function StoryParagraphs({ text, active }: { text: string; active: boolean }) {
 export default function DirectorScriptStreamPanel({
   operationId, operationKind, startedAt, agentStatus, artStyleName, cancelRequested, brief,
   initialQuestions, clarifications, onOpenPicker, historyMode = false, recipe, transcriptFooter,
-  onRetryAgent, onCancel, clarifyAgent, onConfirmStep,
+  onRetryAgent, onRegenerateAgent, onCancel, clarifyAgent, onConfirmStep,
 }: Props) {
   // Streaming content, keyed by `${agent}|${field}|${index ?? ""}`.
   const [targetTexts, setTargetTexts] = useState<Record<string, string>>({})
@@ -1081,11 +1090,14 @@ export default function DirectorScriptStreamPanel({
   }
 
   /* 官方 tool-chips 行语法：状态图标 + 环节名 + 摘要 chip，整行点开抽屉。
-     失败重试由任务栏/任务面板的官方重试 pill 承担，这里不再放第二个入口。 */
+     失败重试由任务栏/任务面板的官方重试 pill 承担，这里不再放第二个入口；
+     已完成环节行尾提供「重新生成」入口，与任务栏行内按钮一致（范围在弹窗里确认）。 */
   const renderStepRow = (agent: string) => {
     const row = agentRows.find((item) => item.id === agent)
     const status = row?.status || "pending"
     const failed = status === "failed"
+    // 仅在非直播状态（历史回放或已终态）展示重新生成，避免与进行中的生成混淆。
+    const canRegenerate = Boolean(onRegenerateAgent) && status === "completed" && settled
     return (
       <div key={agent} className={`director-step-row is-${status}`}>
         <button
@@ -1101,6 +1113,19 @@ export default function DirectorScriptStreamPanel({
           <span className="director-step-row-chip">{blockPreview(agent)}</span>
           <ChevronRight size={13} className="director-step-row-chevron" aria-hidden />
         </button>
+        {canRegenerate ? (
+          <button
+            type="button"
+            className="director-step-regen"
+            title={SCRIPT_STEP_REGENERATE_TITLE}
+            onClick={(event) => {
+              event.stopPropagation()
+              onRegenerateAgent?.(agent)
+            }}
+          >
+            <span className="director-step-regen-icon" aria-hidden><RegenerateIcon /></span>
+          </button>
+        ) : null}
       </div>
     )
   }
@@ -1151,6 +1176,7 @@ export default function DirectorScriptStreamPanel({
     running: !terminal && !historyMode,
     elapsedSec: historyMode ? -1 : elapsed,
     onRetry: onRetryAgent,
+    onRegenerate: onRegenerateAgent,
     onOpen: openAgentTranscript,
   }
 
