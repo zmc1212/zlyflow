@@ -177,6 +177,16 @@ export default function DirectorScriptStreamPanel({
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const answersRef = useRef<ClarifyAnswer[]>([])
 
+  // 与 Studio 的澄清作用域保持同步：作用域清空或换轮时重置问题卡与作答进度。
+  // 否则旧问题卡会在新一轮澄清准备期间仍然可点，答完走的是过期作用域（表现为“选了没效果”）。
+  useEffect(() => {
+    setQuestions(initialQuestions ?? null)
+    setQuestionIndex(0)
+    answersRef.current = []
+    setSelectedOption(null)
+    setCustomValue("")
+  }, [initialQuestions])
+
   // 官方 Approval Card 交互：单选立即高亮，480ms 后自动翻到下一题。
   const handleSelect = (value: string) => {
     setSelectedOption(value)

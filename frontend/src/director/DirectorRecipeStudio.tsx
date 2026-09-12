@@ -356,6 +356,8 @@ export default function DirectorRecipeStudio({
     return parseClarifyScope(window.localStorage.getItem(`director-clarify:${projectId}`))
   })
   const [scriptAnswers, setScriptAnswers] = useState<ClarifyAnswer[]>([])
+  const clarifyScopeRef = useRef<ClarifyScope | null>(clarifyScope)
+  clarifyScopeRef.current = clarifyScope
   const runStartedAtRef = useRef(0)
   const recipeRef = useRef(recipe)
   const goalRef = useRef(goal)
@@ -912,6 +914,9 @@ export default function DirectorRecipeStudio({
     setScriptEditMode(false)
     setLastPlanCompletion(null)
     if (typeof window !== "undefined") window.localStorage.removeItem(planCompletionStorageKey)
+    // 新一轮生成前丢弃未回答的旧问题卡，避免旧卡叠在新澄清上被误答。
+    setClarifyScope(null)
+    if (typeof window !== "undefined") window.localStorage.removeItem(clarifyStorageKey)
     setActiveStage("script")
     runStartedAtRef.current = Date.now()
     try {
@@ -928,8 +933,18 @@ export default function DirectorRecipeStudio({
   }
 
   async function handleStartPipeline(answers: ClarifyAnswer[]) {
+    // SSE 的问题事件可能早于轮询落作用域：先短暂等待，再判断问题卡是否过期。
+    let scope = clarifyScopeRef.current
+    for (let attempt = 0; !scope && attempt < 15 && !activeOperationIdRef.current; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      scope = clarifyScopeRef.current
+    }
+    if (!scope) {
+      messageApi.warning("这组问题已过期，请回答最新的确认问题")
+      return
+    }
     // 无 agent 标记 = 剧本创作方向确认（只跑 script），有标记 = 对应环节确认（只跑该环节）。
-    const scopeAgent = clarifyScope?.agent
+    const scopeAgent = scope.agent
     setClarifyScope(null)
     if (typeof window !== "undefined") window.localStorage.removeItem(clarifyStorageKey)
     if (!scopeAgent) setScriptAnswers(answers)
@@ -937,8 +952,15 @@ export default function DirectorRecipeStudio({
     for (let attempt = 0; attempt < 100 && activeOperationIdRef.current; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
+    if (activeOperationIdRef.current) {
+      messageApi.warning("AI 正在准备新的确认问题，请稍后回答最新的问题")
+      return
+    }
     const text = goalRef.current.trim() || recipeRef.current.script.fullStory.trim()
-    if (!text || activeOperationIdRef.current) return
+    if (!text) {
+      messageApi.warning("请先写一句创意或故事")
+      return
+    }
     setRunning(true)
     setLastPlanCompletion(null)
     if (typeof window !== "undefined") window.localStorage.removeItem(planCompletionStorageKey)
@@ -971,6 +993,9 @@ export default function DirectorRecipeStudio({
   // 逐步确认流程：为下一个缺失环节发起确认提问；全部完成后由 pipeline 完成回调落完成卡。
   async function continueGuidedFlow(step: GuidedStepAgent) {
     if (!guidedFlowHasBrief(recipeRef.current, goalRef.current)) return
+    // 新一轮提问前丢弃未回答的旧问题卡，保证问题卡与当前环节一致。
+    setClarifyScope(null)
+    if (typeof window !== "undefined") window.localStorage.removeItem(clarifyStorageKey)
     for (let attempt = 0; attempt < 100 && activeOperationIdRef.current; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
@@ -2364,7 +2389,8 @@ export default function DirectorRecipeStudio({
                         cancelRequested={Boolean(operationQuery.data?.cancel_requested)}
                         brief={operationQuery.data?.request?.agent ? goal : (operationQuery.data?.request?.goal || goal)}
                         initialQuestions={clarifyQuestions || undefined}
-                        clarifyAgent={clarifyScope?.agent}
+                        clarifyAgent={clarifyScope?.agent
+                          ?? (operationQuery.data?.kind === "plan_clarify" ? operationQuery.data?.request?.agent : undefined)}
                         clarifications={scriptAnswers}
                         onOpenPicker={() => setArtStylePickerOpen(true)}
                         historyMode={!planPipelineRunning && !clarifyActive}
