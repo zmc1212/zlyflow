@@ -8,7 +8,7 @@ import time
 from http.client import RemoteDisconnected
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from .resource_storage import StoredResource
 
@@ -169,7 +169,9 @@ class QiniuStorage:
         object_key = str(key or "").lstrip("/")
         if not domain or not object_key:
             return None
-        return f"{domain}/{object_key}"
+        # Keys carry the original filename suffix; percent-encode non-ASCII or
+        # spaces so the signed/download URL stays valid.
+        return f"{domain}/{quote(object_key, safe='/')}"
 
     def download_url(self, key: str, expires_in_seconds: int = 300) -> str:
         url = self.object_url(key)

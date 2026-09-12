@@ -7,6 +7,7 @@ from typing import Any, Callable, Literal
 from urllib.error import URLError
 
 from fastapi import BackgroundTasks, Body, Depends, File, Form, HTTPException, Path as FastApiPath, Query, UploadFile
+from fastapi.responses import Response
 from fastapi.routing import APIRouter
 
 _EPISODE_ID_PARAM = FastApiPath(description="剧集 ID")
@@ -2164,9 +2165,9 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         summary="入队本机 ffmpeg 拼接成片；完成后轮询 GET 剧集",
     )
     async def compose_episode(
-        episode_id: str,
         background_tasks: BackgroundTasks,
         user: dict = Depends(mutating_user),
+        episode_id: str = _EPISODE_ID_PARAM,
         payload: ComposeRequest = Body(default_factory=ComposeRequest),
     ) -> dict:
         episode = _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
@@ -2205,7 +2206,7 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         return {"ok": True, "status": "composing", "episode": fresh, "reused": False, "job_id": job_id}
 
     @router.get("/episodes/{episode_id}/export/video", summary="下载本集成片 MP4")
-    def export_episode_video(episode_id: str, user: dict = Depends(current_user)) -> Response:
+    def export_episode_video(user: dict = Depends(current_user), episode_id: str = _EPISODE_ID_PARAM) -> Response:
         episode = _episode_or_404(app, episode_id, user["id"])
         try:
             data = load_compose_bytes(episode, getattr(app.state, "resource_storage", None))
@@ -2215,7 +2216,7 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         return Response(content=data, media_type="video/mp4", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     @router.get("/episodes/{episode_id}/export/srt", summary="下载本集字幕 SRT")
-    def export_episode_srt(episode_id: str, user: dict = Depends(current_user)) -> Response:
+    def export_episode_srt(user: dict = Depends(current_user), episode_id: str = _EPISODE_ID_PARAM) -> Response:
         episode = _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
         text = build_srt_content(clips_for_subtitles(episode))
         if not text.strip():
@@ -2228,7 +2229,7 @@ def register_xiaji_episode_routes(app: Any, *, current_user: Callable, mutating_
         )
 
     @router.post("/episodes/{episode_id}/export/zip", summary="打包本集镜头视频、成片和字幕")
-    def export_episode_zip(episode_id: str, user: dict = Depends(mutating_user)) -> Response:
+    def export_episode_zip(user: dict = Depends(mutating_user), episode_id: str = _EPISODE_ID_PARAM) -> Response:
         episode = _hydrate_episode_single(app, _episode_or_404(app, episode_id, user["id"]), user["id"])
         srt_text = build_srt_content(clips_for_subtitles(episode))
         try:

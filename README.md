@@ -1571,3 +1571,10 @@ H3 视频生成以后端 `quality` 档位计算实际宽高，避免旧草稿的
 创意澄清卡、Prompt Bar、用户气泡、流式光标、等待加载器按官方 ai-native-react-components 源码逐像素复刻：澄清卡为行式单选（选中自动翻页、圆点分页器、墨色发送箭头、可跳过单题或全部）；输入条聚焦加深描边、发送键墨色方形箭头；气泡右对齐无底色；等待态为像素网格加载器。规则已写入 AGENTS.md（导演台 AI 对话界面视觉标准），后续该区域样式改动必须对照官方源码并浏览器实测。
 
 验证：`pnpm --dir frontend build`。回滚：还原本次提交。
+## 2026-09-12 任务队列原子认领与后端健壮性修复批次
+
+- 用户可见行为：多机共享数据库部署时，同一图片/视频任务只会被一台机器执行一次（此前 GRS 图片可能重复提交重复扣费）；整集自动生成的「取消」不再被进度回写吞掉；管理员查看员工工程的导演台首尾帧、配音、配乐、FCPXML/EDL 导出恢复正常（此前 404）；批量短视频「重新裂变」对非批量工程返回 422 提示（此前静默清空工程）；对不接受负面提示词/图片尺寸的工作流，这两个字段被忽略且任务可正常打开；对白含反斜杠、SRT/ASS 整分进位、静帧重复点击、参考图上传失败残留、ComfyUI 非 JSON 响应、GRS 超时文案、七牛中文文件名 URL、登录限流内存、修改密码污染最后登录时间等健壮性问题一并修复。重试失败项传入不存在的轮次 ID 现在返回 404（此前静默重试最后一轮）；并发双击「再生成一轮」返回 409 友好提示（此前 500）；整集自动生成过程中镜头被删除时给出明确错误（此前内部异常）。
+- 受影响文件：`backend/app/{main,storage,worker,auth,comfy_service,dialogue_timing,xiaji_auto_pipeline,xiaji_compose,director_jobs,director_export,xiaji_episode_api,xiaji_episode_run_store,qiniu_storage,llm_provider,api_documentation}.py`、`backend/tests/{test_core,test_director,test_dialogue_timing,test_dev_reloader,test_xiaji,test_ai_studio}.py` 和三份主文档。
+- 兼容性：无数据库迁移；API 结构不变；行为变化仅限上述用户可见项；create_job/create_job_round/retry-failed-items 的数据库读写改为线程池执行，事件循环不再被远程数据库抖动阻塞。
+- 验证命令：`python -m pytest backend/tests -q`（407 passed）；`pnpm --dir frontend build`。
+- 回滚方式：还原本次提交即恢复原行为。

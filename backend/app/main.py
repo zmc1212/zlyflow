@@ -24,7 +24,7 @@ from fastapi.security import APIKeyCookie
 from fastapi.openapi.utils import get_openapi
 
 from .api_documentation import enrich_openapi_documentation
-from .auth import AuthStore, SESSION_HOURS, csrf_token
+from .auth import AuthStore, LastSuperAdminError, SESSION_HOURS, csrf_token
 from .comfy_provider import ComfyProviderError, ComfyProviderService
 from .comfy_service import ComfyService
 from .config import settings
@@ -393,7 +393,11 @@ def enforce_login_limit(key: str) -> None:
     cutoff = time.monotonic() - LOGIN_WINDOW_SECONDS
     with login_failures_lock:
         attempts = [value for value in login_failures.get(key, []) if value > cutoff]
-        login_failures[key] = attempts
+        if attempts:
+            login_failures[key] = attempts
+        else:
+            # Drop empty keys so failed-login bookkeeping cannot grow unbounded.
+            login_failures.pop(key, None)
         if len(attempts) >= LOGIN_MAX_ATTEMPTS:
             raise HTTPException(status_code=429, detail="登录失败次数过多，请 15 分钟后再试")
 
@@ -605,9 +609,21 @@ def request_parameters(job: dict) -> list[dict]:
         {"name": "prompt", "label": definitions["prompt"]["label"], "value": job["prompt"], "visibility": "primary"},
     ]
     if job.get("negative_prompt"):
-        parameters.append({"name": "negative_prompt", "label": definitions["negative_prompt"]["label"], "value": job["negative_prompt"], "visibility": "primary"})
+        negative_definition = definitions.get("negative_prompt")
+        parameters.append({
+            "name": "negative_prompt",
+            "label": negative_definition["label"] if negative_definition else "负面提示词",
+            "value": job["negative_prompt"],
+            "visibility": "primary" if negative_definition else "internal",
+        })
     if job.get("image_size"):
-        parameters.append({"name": "image_size", "label": definitions["image_size"]["label"], "value": job["image_size"], "visibility": "primary"})
+        image_size_definition = definitions.get("image_size")
+        parameters.append({
+            "name": "image_size",
+            "label": image_size_definition["label"] if image_size_definition else "图片尺寸",
+            "value": job["image_size"],
+            "visibility": "primary" if image_size_definition else "internal",
+        })
     if job.get("reference_count", 0):
         parameters.append({"name": "references", "label": definitions["references"]["label"], "value": job["reference_count"], "visibility": "primary"})
 
@@ -850,7 +866,7 @@ def change_password(
     user: Annotated[dict, Depends(csrf_user)],
 ) -> dict:
     auth_store: AuthStore = app.state.auth_store
-    if auth_store.authenticate(user["username"], payload.current_password) is None:
+    if auth_store.verify_credentials(user["username"], payload.current_password) is None:
         raise HTTPException(status_code=422, detail="当前密码不正确")
     try:
         updated = auth_store.set_password(user["id"], payload.new_password, must_change_password=False)
@@ -914,6 +930,8 @@ def update_user(
         raise HTTPException(status_code=409, detail="不能停用当前登录账号")
     try:
         updated = app.state.auth_store.update_user(user_id, role=payload.role, is_active=payload.is_active)
+    except LastSuperAdminError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except KeyError as error:
         raise HTTPException(status_code=404, detail="账号不存在") from error
     app.state.auth_store.audit(
@@ -2489,6 +2507,7 @@ async def upload_director_recipe_frame(
         raise HTTPException(status_code=422, detail="只有 Recipe 工程可以上传分镜帧")
     if file.content_type and not file.content_type.startswith("image/"):
         raise HTTPException(status_code=422, detail="首尾帧必须为图片")
+    owner_user_id = str(record.get("owner_user_id") or user["id"])
     suffix = Path(file.filename or "frame.png").suffix or ".png"
     staging = settings.staging_dir / f"director-frame-{secrets.token_urlsafe(6)}{suffix}"
     staging.parent.mkdir(parents=True, exist_ok=True)
@@ -2498,7 +2517,7 @@ async def upload_director_recipe_frame(
             project_id,
             lambda latest: save_recipe_shot_frame(
                 normalize_recipe_payload(latest),
-                owner_user_id=user["id"],
+                owner_user_id=owner_user_id,
                 project_id=project_id,
                 shot_id=shot_id,
                 slot=slot,
@@ -2537,7 +2556,7 @@ def download_director_recipe_frame(
     if slot not in {"first", "end"}:
         raise HTTPException(status_code=404, detail="分镜帧不存在")
     path = find_recipe_frame_file(
-        owner_user_id=user["id"],
+        owner_user_id=str(record.get("owner_user_id") or user["id"]),
         project_id=project_id,
         shot_id=shot_id,
         slot=slot,
@@ -2689,7 +2708,7 @@ async def generate_director_recipe_tts(
             generate_recipe_tts,
             normalize_recipe_payload(record["payload"]),
             app.state.tts_provider,
-            owner_user_id=user["id"],
+            owner_user_id=str(record.get("owner_user_id") or user["id"]),
             project_id=project_id,
             shot_ids=payload.shot_ids,
             character_id=payload.character_id,
@@ -2724,8 +2743,8 @@ def download_director_shot_tts(
     shot_id: str,
     user: Annotated[dict, Depends(current_user)],
 ) -> FileResponse:
-    director_project_or_404(app.state.store, project_id, user)
-    path = find_tts_file(user["id"], project_id, shot_id)
+    record = director_project_or_404(app.state.store, project_id, user)
+    path = find_tts_file(str(record.get("owner_user_id") or user["id"]), project_id, shot_id)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="配音不存在")
     return FileResponse(path, media_type=_audio_media_type(path))
@@ -2741,8 +2760,8 @@ def download_director_character_voice(
     character_id: str,
     user: Annotated[dict, Depends(current_user)],
 ) -> FileResponse:
-    director_project_or_404(app.state.store, project_id, user)
-    path = find_voice_preview_file(user["id"], project_id, character_id)
+    record = director_project_or_404(app.state.store, project_id, user)
+    path = find_voice_preview_file(str(record.get("owner_user_id") or user["id"]), project_id, character_id)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="试听不存在")
     return FileResponse(path, media_type=_audio_media_type(path))
@@ -2774,7 +2793,7 @@ async def upload_director_recipe_bgm(
     try:
         recipe = save_recipe_bgm(
             normalize_recipe_payload(record["payload"]),
-            owner_user_id=user["id"],
+            owner_user_id=str(record.get("owner_user_id") or user["id"]),
             project_id=project_id,
             source=staging,
         )
@@ -2799,8 +2818,8 @@ def download_director_recipe_bgm(
     project_id: str,
     user: Annotated[dict, Depends(current_user)],
 ) -> FileResponse:
-    director_project_or_404(app.state.store, project_id, user)
-    path = find_bgm_file(user["id"], project_id)
+    record = director_project_or_404(app.state.store, project_id, user)
+    path = find_bgm_file(str(record.get("owner_user_id") or user["id"]), project_id)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="配乐不存在")
     return FileResponse(path, media_type=_audio_media_type(path))
@@ -2826,7 +2845,7 @@ async def mux_director_recipe_film(
             mux_recipe_film,
             normalize_recipe_payload(record["payload"]),
             app.state.store,
-            owner_user_id=user["id"],
+            owner_user_id=str(record.get("owner_user_id") or user["id"]),
             project_id=project_id,
             burn_subtitles=payload.burn_subtitles,
             resource_storage=getattr(app.state, "resource_storage", None),
@@ -2876,7 +2895,7 @@ def download_director_fcpxml(
         _clips, xml, _edl = export_timeline_documents(
             normalize_recipe_payload(record["payload"]),
             app.state.store,
-            owner_user_id=user["id"],
+            owner_user_id=str(record.get("owner_user_id") or user["id"]),
             project_id=project_id,
             title=record.get("title") or "导演成片",
             resource_storage=getattr(app.state, "resource_storage", None),
@@ -2907,7 +2926,7 @@ def download_director_edl(
         _clips, _xml, edl = export_timeline_documents(
             normalize_recipe_payload(record["payload"]),
             app.state.store,
-            owner_user_id=user["id"],
+            owner_user_id=str(record.get("owner_user_id") or user["id"]),
             project_id=project_id,
             title=record.get("title") or "导演成片",
             resource_storage=getattr(app.state, "resource_storage", None),
@@ -2943,6 +2962,11 @@ async def create_director_batch(
         if found is None:
             raise HTTPException(status_code=422, detail="画风必须选自目录")
         art_style = art_style_ref_for_recipe(found)
+    batch_project: dict | None = None
+    if payload.project_id:
+        batch_project = director_project_or_404(app.state.store, payload.project_id, user)
+        if payload_kind(batch_project.get("payload")) != PAYLOAD_KIND_BATCH:
+            raise HTTPException(status_code=422, detail="只有批量短视频工程可以重新裂变，请新建批量工程")
     try:
         scripts = await asyncio.to_thread(
             app.state.llm_provider.fission_batch_scripts,
@@ -2972,10 +2996,9 @@ async def create_director_batch(
         for item in scripts
     ]
     title = (payload.title or payload.theme.strip()[:24] or "批量短视频").strip()
-    if payload.project_id:
-        record = director_project_or_404(app.state.store, payload.project_id, user)
+    if batch_project is not None:
         saved = app.state.store.update_director_project(
-            record["id"],
+            batch_project["id"],
             title=title,
             summary=payload.theme.strip(),
             source_script=payload.theme.strip(),
@@ -3066,7 +3089,7 @@ async def create_job(
     if not prompt:
         raise HTTPException(status_code=422, detail="请填写创作提示词")
     try:
-        workflow_for(mode)
+        definition = workflow_for(mode)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="工作流不存在") from error
     try:
@@ -3086,7 +3109,7 @@ async def create_job(
 
     source: dict | None = None
     if source_job_id:
-        if workflow_for(mode).media_type != "video":
+        if definition.media_type != "video":
             raise HTTPException(status_code=422, detail="只有视频任务可以记录图片转视频来源")
         source_job = job_or_404(app.state.store, source_job_id, user)
         source_item = next((
@@ -3103,21 +3126,27 @@ async def create_job(
     upload_dir = settings.uploads_dir / user["id"] / job_id
     upload_dir.mkdir(parents=True, exist_ok=True)
     references_paths: list[str] = []
-    for index, upload in enumerate(references, start=1):
-        if upload.content_type and not upload.content_type.startswith("image/"):
-            shutil.rmtree(upload_dir, ignore_errors=True)
-            raise HTTPException(status_code=422, detail="参考素材必须为图片")
-        destination = upload_dir / f"{index}_{safe_name(upload.filename or 'upload.png')}"
-        await save_upload(upload, destination)
-        references_paths.append(str(destination))
+    try:
+        for index, upload in enumerate(references, start=1):
+            if upload.content_type and not upload.content_type.startswith("image/"):
+                raise HTTPException(status_code=422, detail="参考素材必须为图片")
+            destination = upload_dir / f"{index}_{safe_name(upload.filename or 'upload.png')}"
+            await save_upload(upload, destination)
+            references_paths.append(str(destination))
+    except HTTPException:
+        # Never leave partially-saved references behind when a later file
+        # fails validation or exceeds the size limit.
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise
 
     store: JobStore = app.state.store
-    job = store.create(
+    job = await asyncio.to_thread(
+        store.create,
         job_id,
         mode,
         prompt,
-        negative_prompt.strip(),
-        image_size,
+        negative_prompt.strip() if definition.accepts_negative_prompt else "",
+        image_size if definition.accepts_image_size else None,
         references_paths,
         generation_options,
         submitted_options=raw_options if options is not None else None,
@@ -3126,7 +3155,7 @@ async def create_job(
         source=source,
     )
     await app.state.worker.enqueue(job_id)
-    return public_job(store.get(job_id))
+    return public_job(await asyncio.to_thread(store.get, job_id))
 
 
 @app.post(
@@ -3150,6 +3179,10 @@ async def create_job_round(
     if not prompt:
         raise HTTPException(status_code=422, detail="请填写创作提示词")
     try:
+        definition = workflow_for(mode)
+    except KeyError:
+        definition = None
+    try:
         raw_options = json.loads(options) if options is not None else existing.get("options", {})
         if not isinstance(raw_options, dict):
             raise ValueError("生成参数必须为对象。")
@@ -3167,20 +3200,30 @@ async def create_job_round(
     upload_dir = settings.uploads_dir / user["id"] / job_id / f"round-{sequence}"
     upload_dir.mkdir(parents=True, exist_ok=True)
     reference_paths: list[str] = list(reused_references)
-    for index, upload in enumerate(references, start=1):
-        if upload.content_type and not upload.content_type.startswith("image/"):
-            shutil.rmtree(upload_dir, ignore_errors=True)
-            raise HTTPException(status_code=422, detail="参考素材必须为图片")
-        destination = upload_dir / f"{index}_{safe_name(upload.filename or 'upload.png')}"
-        await save_upload(upload, destination)
-        reference_paths.append(str(destination))
-    job = app.state.store.create_round(
-        job_id, prompt=prompt, negative_prompt=negative_prompt.strip(), image_size=image_size,
-        references=reference_paths, options=generation_options,
-        submitted_options=raw_options if options is not None else None,
-    )
+    try:
+        for index, upload in enumerate(references, start=1):
+            if upload.content_type and not upload.content_type.startswith("image/"):
+                raise HTTPException(status_code=422, detail="参考素材必须为图片")
+            destination = upload_dir / f"{index}_{safe_name(upload.filename or 'upload.png')}"
+            await save_upload(upload, destination)
+            reference_paths.append(str(destination))
+    except HTTPException:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise
+    try:
+        job = await asyncio.to_thread(
+            app.state.store.create_round,
+            job_id, prompt=prompt,
+            negative_prompt=negative_prompt.strip() if definition is not None and definition.accepts_negative_prompt else "",
+            image_size=image_size if definition is not None and definition.accepts_image_size else None,
+            references=reference_paths, options=generation_options,
+            submitted_options=raw_options if options is not None else None,
+        )
+    except ValueError as error:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=409, detail=str(error)) from error
     await app.state.worker.enqueue(job_id)
-    return public_job(app.state.store.get(job_id))
+    return public_job(await asyncio.to_thread(app.state.store.get, job_id))
 
 
 @app.post(
@@ -3191,7 +3234,10 @@ async def retry_failed_generation_items(
     job_id: str, round_id: str, user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
     job_or_404(app.state.store, job_id, user)
-    retried = app.state.store.retry_failed_items(job_id, round_id)
+    try:
+        retried = await asyncio.to_thread(app.state.store.retry_failed_items, job_id, round_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="轮次不存在") from error
     if not retried:
         raise HTTPException(status_code=409, detail="当前轮次没有可重试的失败项")
     for item in retried:
@@ -3199,7 +3245,7 @@ async def retry_failed_generation_items(
             app.state.worker.enqueue_generation(item["id"])
         else:
             await app.state.worker.enqueue(job_id)
-    return public_job(app.state.store.get(job_id))
+    return public_job(await asyncio.to_thread(app.state.store.get, job_id))
 
 
 @app.get("/api/jobs", response_model=list[JobResponse], tags=["任务"], summary="列出最近任务")

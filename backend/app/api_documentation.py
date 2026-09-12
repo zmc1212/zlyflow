@@ -90,7 +90,6 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "provider_model": ("上游模型 ID", "提交给 GRS /v1/api/generate 的 model 字段。"),
     "resolutions": ("分辨率列表", "该模型允许的分辨率档；为空时使用能力档默认值。"),
     "sort_order": ("排序", "管理目录和创作页工作流列表中的显示顺序，数值越小越靠前。"),
-    "workflow_id": ("工作流 ID", "工作台内部生图工作流标识，出现在 GET /api/modes 与任务 mode 字段。"),
     "model": ("模型标识", "上游大模型服务使用的模型名称。"),
     "modes": ("工作流列表", "当前账号可见的生成工作流及其能力摘要。"),
     "msg": ("错误消息", "校验失败的人类可读原因。"),

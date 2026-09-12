@@ -164,6 +164,35 @@ class StoryboardDialogueAssignmentTests(unittest.TestCase):
         self.assertNotIn("损失...", shot["promptText"])
         self.assertGreaterEqual(shot["durationSec"], 4)
 
+    def test_replace_dialogue_in_prompt_keeps_backslash_sequences_literal(self) -> None:
+        dialogue = r"路径写的是 C:\d\backup，编号 \1 好"
+        tagged_prompt = "Close-up. At 00:00.500, operator says: <d>[Chinese] 旧台词</d>"
+        updated = replace_dialogue_in_prompt(tagged_prompt, dialogue)
+        self.assertIn(r"C:\d\backup，编号 \1 好", updated)
+        self.assertNotIn("旧台词", updated)
+
+        says_prompt = "The operator says: 旧台词. At 00:01.000, he leaves."
+        updated_says = replace_dialogue_in_prompt(says_prompt, dialogue)
+        self.assertIn(r"C:\d\backup，编号 \1 好", updated_says)
+        self.assertNotIn("旧台词", updated_says)
+
+    def test_speaker_matches_shot_via_role_name_stem(self) -> None:
+        recipe = {
+            "scenes": [{
+                "shots": [
+                    {"shotNumber": 1, "title": "掌门现身", "description": "掌门立于高台", "dialogue": ""},
+                    {"shotNumber": 2, "title": "同门骚动", "description": "同门交头接耳", "dialogue": ""},
+                ],
+            }],
+        }
+        script = "掌门：（严肃）今日起闭山大典。\n同门甲：（小声）发生何事？"
+        assigned = assign_missing_script_dialogue(recipe, script)
+        self.assertEqual(assigned, 2)
+        shots = recipe["scenes"][0]["shots"]
+        self.assertEqual(shots[0]["speakerName"], "掌门")
+        self.assertIn("发生何事", shots[1]["dialogue"])
+        self.assertEqual(shots[1]["speakerName"], "同门甲")
+
     def test_replace_dialogue_in_prompt_updates_says_tag(self) -> None:
         prompt = "At 00:03.000, he says: <d>[Chinese] 报警了，损失...</d>"
         full = "报警了，损失太大了，得赶紧处理。"

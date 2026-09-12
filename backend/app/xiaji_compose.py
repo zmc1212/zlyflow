@@ -148,14 +148,12 @@ def compose_blockers(episode: dict[str, Any], *, require_audio: bool) -> list[di
 
 
 def format_srt_time(seconds: float) -> str:
-    total = max(0.0, seconds)
-    hours = int(total // 3600)
-    minutes = int((total % 3600) // 60)
-    secs = int(total % 60)
-    millis = int(round((total - int(total)) * 1000))
-    if millis >= 1000:
-        millis = 0
-        secs += 1
+    # Round total milliseconds first so a carry (59.9996s) rolls into the
+    # next second/minute instead of printing "00:00:60,000".
+    total_ms = int(round(max(0.0, seconds) * 1000))
+    hours, rem = divmod(total_ms, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    secs, millis = divmod(rem, 1000)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 

@@ -19,7 +19,7 @@ from .grs_catalog import (
     workflow_id_for,
 )
 from .config import settings
-from .db import Database, DbConnection, Row, open_database
+from .db import Database, DbConnection, IntegrityError, Row, open_database
 from .models import JobMode, JobStatus
 
 
@@ -663,10 +663,15 @@ class JobStore:
         refs = references if references is not None else job.get("references", [])
         effective_options = options if options is not None else job.get("options", {})
         with self.connection() as connection:
-            self._insert_round(
-                connection, round_id, job_id, sequence, mode, job["media_type"], prompt,
-                negative_prompt, image_size, refs, effective_options, submitted_options,
-            )
+            try:
+                self._insert_round(
+                    connection, round_id, job_id, sequence, mode, job["media_type"], prompt,
+                    negative_prompt, image_size, refs, effective_options, submitted_options,
+                )
+            except IntegrityError as error:
+                # UNIQUE(job_id, sequence): a concurrent request created the
+                # next round first; the caller should surface 409, not 500.
+                raise ValueError("该任务刚刚创建了新的轮次，请刷新后重试。") from error
             connection.execute("UPDATE jobs SET last_round_id = ?, updated_at = ? WHERE id = ?", (round_id, now(), job_id))
             self._refresh_job(connection, job_id)
         return self.get(job_id)
@@ -889,7 +894,13 @@ class JobStore:
 
     def retry_failed_items(self, job_id: str, round_id: str | None = None) -> list[dict]:
         job = self.get(job_id)
-        target = next((item for item in job["rounds"] if item["id"] == round_id), job["rounds"][-1])
+        if round_id is None:
+            target = job["rounds"][-1]
+        else:
+            try:
+                target = next(item for item in job["rounds"] if item["id"] == round_id)
+            except StopIteration as error:
+                raise KeyError(f"轮次不存在: {round_id}") from error
         retried: list[dict] = []
         for item in target["generation_items"]:
             if item["status"] in {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}:
@@ -898,6 +909,37 @@ class JobStore:
                     outputs=[], error="", remote_status="", cancel_requested=False, clear_execution=True,
                 ))
         return retried
+
+    def claim_generation(self, generation_item_id: str, *, stage: str, progress: int) -> bool:
+        """Atomically move one queued generation item to running.
+
+        Returns False when the item was already claimed, finished or cancelled,
+        so workers sharing one database never submit the same item twice.
+        """
+        with self.connection() as connection:
+            cursor = connection.execute(
+                """UPDATE generation_items SET status = ?, stage = ?, progress = ?, updated_at = ?
+                   WHERE id = ? AND status = ? AND cancel_requested = 0""",
+                (
+                    JobStatus.RUNNING.value,
+                    stage,
+                    max(0, min(100, int(progress))),
+                    now(),
+                    generation_item_id,
+                    JobStatus.QUEUED.value,
+                ),
+            )
+            claimed = int(getattr(cursor, "rowcount", 0) or 0) > 0
+            if claimed:
+                row = connection.execute(
+                    """SELECT i.round_id, r.job_id FROM generation_items i
+                       JOIN job_rounds r ON r.id = i.round_id WHERE i.id = ?""",
+                    (generation_item_id,),
+                ).fetchone()
+                if row is not None:
+                    self._refresh_round(connection, row["round_id"])
+                    self._refresh_job(connection, row["job_id"])
+        return claimed
 
     def with_statuses(self, *statuses: JobStatus) -> list[dict]:
         if not statuses:

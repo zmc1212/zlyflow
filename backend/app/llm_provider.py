@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from .grs_provider import CredentialManager
