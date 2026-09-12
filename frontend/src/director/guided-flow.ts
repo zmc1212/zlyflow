@@ -8,14 +8,19 @@ export type GuidedStepAgent = (typeof GUIDED_STEP_AGENTS)[number]
 /**
  * First guided step the project still needs, in creation order; null when every
  * step already has output. Derived from the payload so the chain survives refresh.
+ * 产出存在或对应 agent 已跑过（agentStatus completed）都视为完成：
+ * 归一化会给角色填默认 voiceId，所以配音只能用执行状态判断。
  */
 export function nextGuidedStep(recipe: RecipeProject): GuidedStepAgent | null {
-  if (!recipe.artStyle?.id) return "art_style"
-  if (!recipe.characters.length) return "characters"
-  if (!recipe.locations.length) return "locations"
-  if (!flattenRecipeShots(recipe).length) return "storyboard"
-  if (!recipe.characters.some((item) => item.voiceId)) return "voice"
-  if (!(recipe.globalMusic || "").trim()) return "music"
+  const status = (agentId: string) =>
+    (recipe.agentStatus || []).find((item) => item.id === agentId)?.status
+  const done = (agentId: string) => status(agentId) === "completed"
+  if (!recipe.artStyle?.id && !done("art_style")) return "art_style"
+  if (!recipe.characters.length && !done("characters")) return "characters"
+  if (!recipe.locations.length && !done("locations")) return "locations"
+  if (!flattenRecipeShots(recipe).length && !done("storyboard")) return "storyboard"
+  if (!done("voice")) return "voice"
+  if (!(recipe.globalMusic || "").trim() && !done("music")) return "music"
   return null
 }
 

@@ -1665,3 +1665,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不带 `agent` 的 `plan_clarify` 与不带 `guided` 的 `plan_pipeline` 行为不变；旧 clarifications（无 agent）仍作用于剧本；前端兼容旧 localStorage 格式。
 - 验证：`pnpm --dir frontend build`、前端 vitest 45 项、导演台 120 项单测通过。
 - 回滚方式：还原本次提交。
+
+## 2026-09-12 逐步确认链 E2E 联测修复
+
+- 原因：真实全链路联测发现：旧澄清问题卡在新一轮提问期间仍可作答（作答走过期作用域后被静默丢弃）；配音完成误判（归一化填默认 voiceId，`characters.some(voiceId)` 恒真）；环节澄清流式期间标题回退剧本轮文案。
+- 当前基线：面板以 `initialQuestions`（澄清作用域）为唯一事实源，作用域清空/换轮即重置问题卡与作答进度；`handleRun`/`continueGuidedFlow` 创建新操作前清空待答作用域；`handleStartPipeline` 作用域缺失时提示并忽略作答（3 秒竞态宽限），单飞等待超时改为明确提示。`nextGuidedStep` 改为「产出存在或 agentStatus=completed 视为完成」，配音环节只看 `agentStatus`。面板 `clarifyAgent` 回退读活动 plan_clarify 的 `request.agent`。已在测试工程（proj-79bc4dc943d14c03）跑通 剧本→画风→角色→场景→分镜→配乐→配音 全链路并验证刷新恢复。
+- 受影响文件：`frontend/src/director/{guided-flow.ts,guided-flow.test.ts,DirectorRecipeStudio.tsx}`、`frontend/src/director/components/DirectorScriptStreamPanel.tsx`。
+- 兼容性：纯前端修正；后端协议不变。
+- 验证：`pnpm --dir frontend build`、前端 vitest 46 项、浏览器自动化全链路实测。
+- 回滚方式：还原本次提交。

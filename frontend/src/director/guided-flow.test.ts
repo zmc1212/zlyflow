@@ -27,17 +27,33 @@ describe("nextGuidedStep", () => {
     expect(nextGuidedStep(recipe)).toBe("voice")
   })
 
-  it("waits for a voice assignment and a music hint before finishing", () => {
+  it("waits for the voice agent run and a music hint before finishing", () => {
     const recipe = createEmptyRecipe()
     recipe.artStyle = { id: "as_1001", name: "写实电影", promptPrefix: "" }
-    recipe.characters = [{ id: "c1", name: "主角", voiceId: "onyx" } as never]
+    // 归一化会填充默认 voiceId，配音环节是否跑过只能看 agentStatus。
+    recipe.characters = [{ id: "c1", name: "主角", voiceId: "alloy" } as never]
     recipe.locations = [{ id: "l1", name: "雨夜街道" } as never]
     recipe.scenes = [{
       id: "s1", sceneNumber: 1, title: "", description: "", locationName: "",
       shots: [{ id: "shot-1", title: "开场" } as never],
     }]
+    expect(nextGuidedStep(recipe)).toBe("voice")
+    recipe.agentStatus = [{ id: "voice", status: "completed", message: null, error: null }]
     expect(nextGuidedStep(recipe)).toBe("music")
     recipe.globalMusic = "warm strings"
+    expect(nextGuidedStep(recipe)).toBeNull()
+  })
+
+  it("skips steps that already ran even if their payload slot is empty", () => {
+    const recipe = createEmptyRecipe()
+    recipe.agentStatus = [
+      { id: "art_style", status: "completed", message: null, error: null },
+      { id: "characters", status: "completed", message: null, error: null },
+      { id: "locations", status: "completed", message: null, error: null },
+      { id: "storyboard", status: "completed", message: null, error: null },
+      { id: "voice", status: "completed", message: null, error: null },
+      { id: "music", status: "completed", message: null, error: null },
+    ]
     expect(nextGuidedStep(recipe)).toBeNull()
   })
 })
