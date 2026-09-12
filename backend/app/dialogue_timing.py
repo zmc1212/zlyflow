@@ -123,7 +123,11 @@ def _speaker_matches_shot(shot: dict[str, Any], speaker: str) -> bool:
         if speaker in name_text or name_text in speaker:
             return True
     blob = _shot_text_blob(shot)
-    return speaker in blob
+    if speaker in blob:
+        return True
+    # Role-style names ("同门甲", "路人乙") share a 2-char stem with the shot
+    # text even when the full name never appears.
+    return len(speaker) >= 3 and speaker[:2] in blob
 
 
 def _score_shot_for_dialogue_entry(shot: dict[str, Any], entry: dict[str, str]) -> int:
@@ -140,10 +144,6 @@ def _score_shot_for_dialogue_entry(shot: dict[str, Any], entry: dict[str, str]) 
     for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", dialogue):
         if chunk in _shot_text_blob(shot):
             score += 3
-    if "同门" in speaker and "同门" in _shot_text_blob(shot):
-        score += 8
-    if "灵石" in dialogue and "灵石" in _shot_text_blob(shot):
-        score += 4
     return score
 
 
@@ -262,10 +262,12 @@ def replace_dialogue_in_prompt(prompt_text: str, dialogue: str) -> str:
         return prompt_text or ""
     text = prompt_text or ""
     tag_block = format_dialogue_tag(line)
+    # Lambda replacement keeps dialogue literal: a plain replacement string
+    # would interpret backslash sequences (e.g. "\d") as escapes.
     if re.search(r"<d>", text, re.I):
         return re.sub(
             r"<d>(?:\[[^\]]+\])?\s*.*?</d>",
-            tag_block,
+            lambda _match: tag_block,
             text,
             count=1,
             flags=re.I | re.DOTALL,
@@ -273,7 +275,7 @@ def replace_dialogue_in_prompt(prompt_text: str, dialogue: str) -> str:
     if re.search(r"says\s*:", text, re.I):
         return re.sub(
             r"(says\s*:\s*)(?:<d>.*?</d>|.+?)(?=\s+At\s+00:|$)",
-            rf"\1{tag_block}",
+            lambda match: f"{match.group(1)}{tag_block}",
             text,
             count=1,
             flags=re.I | re.DOTALL,

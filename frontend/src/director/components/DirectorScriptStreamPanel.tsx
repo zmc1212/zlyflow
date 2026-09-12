@@ -1,6 +1,6 @@
-import { Button } from "antd"
+import { Button, Drawer } from "antd"
 import {
-  ArrowUp, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, Clapperboard, FileText, Loader2, MapPinned,
+  ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Clapperboard, FileText, MapPinned,
   Mic2, Music2, Palette, Search, Users, XCircle,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
@@ -8,6 +8,7 @@ import {
   SCRIPT_ART_BLOCK_TITLE, SCRIPT_ART_CHANGE_LABEL, SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER, SCRIPT_CLARIFY_HINT,
   SCRIPT_CLARIFY_SKIP_ALL, SCRIPT_CLARIFY_SKIP_ONE, SCRIPT_CLARIFY_SUBMIT, SCRIPT_CLARIFY_TITLE,
   SCRIPT_DIRECTION_LABEL, SCRIPT_HISTORY_TITLE,
+  SCRIPT_JUMP_LATEST_LABEL, SCRIPT_STEP_EMPTY_LABEL, SCRIPT_STEP_VIEW_LABEL,
   SCRIPT_STREAM_CANCEL_LABEL, SCRIPT_STREAM_STATE_LABELS, SCRIPT_STREAM_TITLE, SCRIPT_STREAM_WRITING_LABELS,
   SCRIPT_USER_BUBBLE_LABEL,
 } from "../action-copy"
@@ -68,6 +69,26 @@ type Props = {
 
 const TRANSCRIPT_AGENTS = ["research", "script", "art_style", "characters", "locations", "storyboard", "voice", "music"] as const
 
+const TRANSCRIPT_AGENT_SET = new Set<string>(TRANSCRIPT_AGENTS)
+
+/* 官方失败 pill 内的重试图标（task-rows.tsx RetryIcon 原路径）。 */
+function RetryIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" /></svg>
+  )
+}
+
+function useIsMobile(query = "(max-width: 767px)") {
+  const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches)
+  useEffect(() => {
+    const mql = window.matchMedia(query)
+    const onChange = (event: MediaQueryListEvent) => setMobile(event.matches)
+    mql.addEventListener("change", onChange)
+    return () => mql.removeEventListener("change", onChange)
+  }, [query])
+  return mobile
+}
+
 function textKey(agent: string, field: string, index: number | null): string {
   return `${agent}|${field}|${index ?? ""}`
 }
@@ -121,7 +142,11 @@ export default function DirectorScriptStreamPanel({
   const [streamLive, setStreamLive] = useState(false)
   const [terminal, setTerminal] = useState<TerminalState | null>(null)
   const [elapsed, setElapsed] = useState(() => (startedAt > 0 ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0))
-  const [manualExpanded, setManualExpanded] = useState<Record<string, boolean>>({})
+  // 环节产出抽屉（查看已完成/失败环节的完整内容）。
+  const [viewingAgent, setViewingAgent] = useState<string | null>(null)
+  // 跟随滚动状态的渲染镜像：false 时浮现"回到底部"。
+  const [tailFollowing, setTailFollowing] = useState(true)
+  const isMobile = useIsMobile()
 
   // Clarify (approval card) state.
   const [questions, setQuestions] = useState<ClarifyQuestion[] | null>(() => initialQuestions ?? null)
@@ -143,7 +168,9 @@ export default function DirectorScriptStreamPanel({
   const targetRef = useRef(targetTexts)
   targetRef.current = targetTexts
   const bodyRef = useRef<HTMLDivElement | null>(null)
-  const followTailRef = useRef(true)
+  const feedRef = useRef<HTMLDivElement | null>(null)
+  const footerRef = useRef<HTMLDivElement | null>(null)
+  const followTailRef = useRef(!historyMode)
   const startedAtRef = useRef(startedAt)
   startedAtRef.current = startedAt
 
@@ -155,6 +182,8 @@ export default function DirectorScriptStreamPanel({
     setAgentOverrides({})
     setStreamLive(false)
     setStatusText("")
+    followTailRef.current = true
+    setTailFollowing(true)
     const base = startedAtRef.current
     setElapsed(base > 0 ? Math.max(0, Math.floor((Date.now() - base) / 1000)) : 0)
   }, [operationId])
@@ -171,6 +200,7 @@ export default function DirectorScriptStreamPanel({
     if (!hasContent) return
     seededRef.current = true
     const texts: Record<string, string> = {}
+    if (recipe.researchNotes) texts["research|notes|"] = recipe.researchNotes
     const script = recipe.script
     if (script.title) texts["script|title|"] = script.title
     if (script.summary) texts["script|summary|"] = script.summary
@@ -304,12 +334,6 @@ export default function DirectorScriptStreamPanel({
     return () => window.clearInterval(timer)
   }, [startedAt, terminal])
 
-  useEffect(() => {
-    const element = bodyRef.current
-    if (!element || !followTailRef.current) return
-    element.scrollTop = element.scrollHeight
-  }, [shownTexts, items, questions, questionIndex])
-
   const agentRows = useMemo<AgentRowState[]>(() => RECIPE_AGENT_ORDER.map((id) => {
     const streamed = agentOverrides[id]
     const polled = agentStatus.find((item) => item.id === id)
@@ -325,6 +349,37 @@ export default function DirectorScriptStreamPanel({
       ? (questions && questions.length ? "clarify-ask" : "clarify-stream")
       : "pipeline"
 
+  // 跟随滚动：流式内容高度任何变化（打字机、卡片、完成页脚）都贴住底部；
+  // 用户上滚离开底部 48px 即停止跟随，由"回到底部"按钮恢复。
+  useEffect(() => {
+    const element = bodyRef.current
+    const feed = feedRef.current
+    if (!element || !feed || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(() => {
+      if (followTailRef.current) element.scrollTop = element.scrollHeight
+      setTailFollowing(followTailRef.current)
+    })
+    observer.observe(element)
+    observer.observe(feed)
+    return () => observer.disconnect()
+  }, [phase])
+
+  // 跳底必须即时定位：平滑滚动的目标值在内容持续增长时会过期，
+  // 且动画途中的 scroll 事件会被误判为"用户上滚"而关闭跟随。
+  const jumpToLatest = () => {
+    followTailRef.current = true
+    setTailFollowing(true)
+    const element = bodyRef.current
+    if (element) element.scrollTop = element.scrollHeight
+  }
+
+  const handleBodyScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const element = event.currentTarget
+    const following = element.scrollHeight - element.scrollTop - element.clientHeight < 48
+    followTailRef.current = following
+    setTailFollowing(following)
+  }
+
   const sortedItems = (agent: string, field: string): AgentStreamItem[] => {
     const map = items[`${agent}|${field}`]
     if (!map) return []
@@ -333,6 +388,29 @@ export default function DirectorScriptStreamPanel({
 
   const runningAgent = agentRows.find((row) => row.status === "running")
   const settled = terminal !== null || historyMode
+
+  // 新环节开始时强制恢复跟随：直播内容始终从最新处可见，不要求用户手动回底。
+  const runningAgentId = runningAgent?.id ?? null
+  const prevRunningAgentRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (runningAgentId && prevRunningAgentRef.current !== runningAgentId) {
+      followTailRef.current = true
+      setTailFollowing(true)
+      const element = bodyRef.current
+      if (element) element.scrollTop = element.scrollHeight
+    }
+    prevRunningAgentRef.current = runningAgentId
+  }, [runningAgentId])
+
+  // 生成结束瞬间定位到完成卡：继续贴底会落在长文档的末尾。
+  // footer 由 studio 侧稍晚挂载（historyMode 翻转后），依赖两个状态到位后再定位。
+  useEffect(() => {
+    if (!terminal || !historyMode) return
+    followTailRef.current = false
+    setTailFollowing(false)
+    footerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" })
+  }, [terminal, historyMode])
+
   const headTitle = terminal
     ? SCRIPT_STREAM_STATE_LABELS[terminal.kind]
     : historyMode
@@ -419,16 +497,11 @@ export default function DirectorScriptStreamPanel({
     return (
       <div className={`director-script-stream is-clarify${terminal ? " is-terminal" : ""}`} data-stream-live={streamLive || undefined}>
         {head}
-        <div
-          className="director-stream-body"
-          ref={bodyRef}
-          onScroll={(event) => {
-            const element = event.currentTarget
-            followTailRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48
-          }}
-        >
-          {userBubble}
-          {current ? (
+        <div className="director-stream-wrap">
+          <div className="director-stream-body" ref={bodyRef} onScroll={handleBodyScroll}>
+            <div className="director-stream-feed" ref={feedRef}>
+              {userBubble}
+              {current ? (
             <div className="director-approval">
               <div key={questionIndex} className="director-approval-card">
                 <div className="director-approval-question">
@@ -545,16 +618,30 @@ export default function DirectorScriptStreamPanel({
               )}
             </div>
           )}
+            </div>
+          </div>
+          {!settled && !tailFollowing ? (
+            <button type="button" className="director-jump-latest" onClick={jumpToLatest}>
+              <ArrowDown size={13} aria-hidden />
+              {SCRIPT_JUMP_LATEST_LABEL}
+            </button>
+          ) : null}
         </div>
       </div>
     )
   }
 
   const directionAnswers = clarifications || []
-  const visibleBlocks = TRANSCRIPT_AGENTS.filter((agent) => {
+  // 直播工作区：已完成/失败环节压成单行记录（点开抽屉看全文），
+  // 正在运行的环节全宽直播，不再使用折叠卡片。
+  const feedAgents = TRANSCRIPT_AGENTS.filter((agent) => {
     const status = agentRows.find((row) => row.id === agent)?.status
     return status && status !== "pending"
   })
+  const liveAgent = historyMode
+    ? undefined
+    : feedAgents.find((agent) => agentRows.find((row) => row.id === agent)?.status === "running")
+  const doneAgents = feedAgents.filter((agent) => agent !== liveAgent)
 
   const renderBlockBody = (agent: string) => {
     if (agent === "research") {
@@ -705,6 +792,12 @@ export default function DirectorScriptStreamPanel({
 
   const blockPreview = (agent: string): string => {
     if (agent === "script") return shown("script", "title") || "剧本已完成"
+    if (agent === "research") {
+      const notes = shown("research", "notes").trim()
+      if (!notes) return "研究已完成"
+      const firstLine = notes.split("\n").find((line) => line.trim()) || notes
+      return firstLine.length > 26 ? `${firstLine.slice(0, 26)}…` : firstLine
+    }
     if (agent === "art_style") return artStyleName ? `画风：${artStyleName}` : "画风已选定"
     if (agent === "characters") {
       const count = sortedItems("characters", "characters").length
@@ -715,77 +808,127 @@ export default function DirectorScriptStreamPanel({
     if (agent === "storyboard") return `已拆出 ${sortedItems("storyboard", "shots").length} 个镜头`
     if (agent === "voice") return `已分配 ${sortedItems("voice", "characters").length} 个声线`
     if (agent === "music") return "配乐方案已完成"
-    if (agent === "research") return "研究已完成"
     return ""
   }
 
-  return (
+  /* 官方 tool-chips 行语法：状态图标 + 环节名 + 摘要 chip，整行点开抽屉。 */
+  const renderStepRow = (agent: string) => {
+    const row = agentRows.find((item) => item.id === agent)
+    const status = row?.status || "pending"
+    const failed = status === "failed"
+    return (
+      <div key={agent} className={`director-step-row is-${status}`}>
+        <button
+          type="button"
+          className="director-step-row-head"
+          title={`${RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent} · ${SCRIPT_STEP_VIEW_LABEL}`}
+          onClick={() => setViewingAgent(agent)}
+        >
+          {failed
+            ? <XCircle size={14} className="director-step-row-icon is-failed" />
+            : <CheckCircle2 size={14} className="director-step-row-icon is-done" />}
+          <span className="director-step-row-name">{RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}</span>
+          <span className="director-step-row-chip">{blockPreview(agent)}</span>
+          <ChevronRight size={13} className="director-step-row-chevron" aria-hidden />
+        </button>
+        {failed && onRetryAgent && !runningAgent ? (
+          <button
+            type="button"
+            className="director-task-pill is-red director-task-retry director-step-row-retry"
+            title="重跑这一步"
+            onClick={() => onRetryAgent(agent)}
+          >
+            重试
+            <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
+          </button>
+        ) : null}
+      </div>
+    )
+  }
+
+  /* 当前运行环节：唯一的全宽直播卡片（官方 thinking.tsx 工作中语法），不可折叠。
+     无流式产出的环节（如画风选择）渲染骨架占位行，避免直播卡只剩标题。 */
+  const renderLiveBlock = (agent: string) => {
+    const row = agentRows.find((item) => item.id === agent)
+    const body = renderBlockBody(agent)
+    const BlockIcon = AGENT_BLOCK_ICONS[agent]
+    return (
+      <section key={agent} className="director-block is-running is-live">
+        <div className="director-block-head">
+          <span className="director-step-spinner" aria-hidden />
+          {BlockIcon ? <BlockIcon size={13} className="director-block-icon" /> : null}
+          <span className="director-block-title">{RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}</span>
+          {row?.message ? <span className="director-step-status">{row.message}</span> : null}
+        </div>
+        <div className="director-block-body">
+          {body || (
+            <div className="director-live-skeleton" aria-hidden>
+              <span style={{ width: "38%" }} />
+              <span style={{ width: "72%" }} />
+              <span style={{ width: "56%" }} />
+              <span style={{ width: "64%" }} />
+            </div>
+          )}
+        </div>
+      </section>
+    )
+  }
+
+  const openAgentTranscript = (id: string) => {
+    if (TRANSCRIPT_AGENT_SET.has(id)) setViewingAgent(id)
+  }
+
+  const directionChips = directionAnswers.length ? (
+    <div className="director-direction-chips" aria-label={SCRIPT_DIRECTION_LABEL}>
+      <span className="director-direction-label">{SCRIPT_DIRECTION_LABEL}</span>
+      {directionAnswers.map((item, index) => (
+        <span key={index} className="director-direction-chip">{item.question} → {item.answer}</span>
+      ))}
+    </div>
+  ) : null
+
+  const taskRowsProps = {
+    rows: agentRows,
+    running: !terminal && !historyMode,
+    elapsedSec: historyMode ? -1 : elapsed,
+    onRetry: onRetryAgent,
+    onOpen: openAgentTranscript,
+  }
+
+  // 桌面端：任务列表走左侧窄栏（只负责进度全景），右侧整块给直播时间线；
+  // 移动端空间有限，保留原折叠面板置于时间线上方。
+  const showTaskRail = phase === "pipeline" && !isMobile
+  const streamCard = (
     <div className={`director-script-stream is-transcript${terminal ? " is-terminal" : ""}`} data-stream-live={streamLive || undefined}>
       {head}
-      {phase === "pipeline" ? (
-        <DirectorTaskRows
-          rows={agentRows}
-          running={!terminal && !historyMode}
-          elapsedSec={historyMode ? -1 : elapsed}
-          onRetry={onRetryAgent}
-        />
-      ) : null}
-      {directionAnswers.length ? (
-        <div className="director-direction-chips" aria-label={SCRIPT_DIRECTION_LABEL}>
-          <span className="director-direction-label">{SCRIPT_DIRECTION_LABEL}</span>
-          {directionAnswers.map((item, index) => (
-            <span key={index} className="director-direction-chip">{item.question} → {item.answer}</span>
-          ))}
-        </div>
-      ) : null}
-      <div
-        className="director-stream-body"
-        ref={bodyRef}
-        onScroll={(event) => {
-          const element = event.currentTarget
-          followTailRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48
-        }}
-      >
-        {userBubble}
-        {!visibleBlocks.length ? (
-          <div className="director-pixel-loader" aria-hidden>
-            <span className="director-pixel-grid">
-              {Array.from({ length: 9 }, (_, index) => <span key={index} />)}
-            </span>
-            <span className="director-pixel-label">{SCRIPT_STREAM_TITLE}</span>
+      {phase === "pipeline" && !showTaskRail ? <DirectorTaskRows {...taskRowsProps} /> : null}
+      <div className="director-stream-wrap">
+        <div className="director-stream-body" ref={bodyRef} onScroll={handleBodyScroll}>
+          <div className="director-stream-feed" ref={feedRef}>
+            {userBubble}
+            {directionChips}
+            {!feedAgents.length ? (
+              <div className="director-pixel-loader" aria-hidden>
+                <span className="director-pixel-grid">
+                  {Array.from({ length: 9 }, (_, index) => <span key={index} />)}
+                </span>
+                <span className="director-pixel-label">{SCRIPT_STREAM_TITLE}</span>
+              </div>
+            ) : (
+              <div className="director-step-feed">
+                {doneAgents.map((agent) => renderStepRow(agent))}
+                {liveAgent ? renderLiveBlock(liveAgent) : null}
+              </div>
+            )}
+            <div ref={footerRef}>{transcriptFooter}</div>
           </div>
-        ) : (
-          visibleBlocks.map((agent) => {
-            const row = agentRows.find((item) => item.id === agent)
-            const status = row?.status || "pending"
-            const body = renderBlockBody(agent)
-            // 实时生成时只展开当前步骤；历史回放默认全部展开，手动点击可折叠。
-            const expanded = manualExpanded[agent] ?? (status === "running" || historyMode)
-            return (
-              <section key={agent} className={`director-block is-${status}${expanded ? " is-expanded" : ""}`}>
-                <button
-                  type="button"
-                  className="director-block-head"
-                  onClick={() => setManualExpanded((current) => ({ ...current, [agent]: !expanded }))}
-                >
-                  {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  {(() => {
-                    const BlockIcon = AGENT_BLOCK_ICONS[agent]
-                    return BlockIcon ? <BlockIcon size={13} className="director-block-icon" /> : null
-                  })()}
-                  <span className="director-block-title">{RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}</span>
-                  {status === "running" ? <Loader2 size={12} className="is-spin director-block-status" /> : null}
-                  {status === "completed" ? <CheckCircle2 size={12} className="director-block-status is-done" /> : null}
-                  {status === "failed" ? <XCircle size={12} className="director-block-status is-failed" /> : null}
-                  {!expanded ? <span className="director-block-preview">{blockPreview(agent)}</span> : null}
-                  {status === "running" && row?.message ? <span className="director-block-preview">{row.message}</span> : null}
-                </button>
-                {expanded ? <div className="director-block-body">{body}</div> : null}
-              </section>
-            )
-          })
-        )}
-        {transcriptFooter}
+        </div>
+        {!settled && !tailFollowing ? (
+          <button type="button" className="director-jump-latest" onClick={jumpToLatest}>
+            <ArrowDown size={13} aria-hidden />
+            {SCRIPT_JUMP_LATEST_LABEL}
+          </button>
+        ) : null}
       </div>
       {!terminal && runningAgent?.id === "script" ? (
         <div className="director-stream-writing">
@@ -796,6 +939,47 @@ export default function DirectorScriptStreamPanel({
               : SCRIPT_STREAM_WRITING_LABELS.title}
         </div>
       ) : null}
+      <Drawer
+        rootClassName="director-agent-drawer"
+        open={viewingAgent !== null}
+        onClose={() => setViewingAgent(null)}
+        width={isMobile ? "100%" : 480}
+        destroyOnHidden
+        title={
+          viewingAgent ? (
+            <span className="director-agent-drawer-title">
+              {(() => {
+                const DrawerIcon = AGENT_BLOCK_ICONS[viewingAgent]
+                return DrawerIcon ? <DrawerIcon size={15} aria-hidden /> : null
+              })()}
+              {RECIPE_AGENT_LABELS[viewingAgent as keyof typeof RECIPE_AGENT_LABELS] || viewingAgent}
+              <em className={`director-agent-drawer-state is-${agentRows.find((row) => row.id === viewingAgent)?.status || "completed"}`}>
+                {agentRows.find((row) => row.id === viewingAgent)?.status === "failed"
+                  ? "失败"
+                  : agentRows.find((row) => row.id === viewingAgent)?.status === "running"
+                    ? "进行中"
+                    : "已完成"}
+              </em>
+            </span>
+          ) : null
+        }
+      >
+        {viewingAgent ? (
+          <div className="director-agent-drawer-body">
+            {renderBlockBody(viewingAgent) || <p className="director-agent-drawer-empty">{SCRIPT_STEP_EMPTY_LABEL}</p>}
+          </div>
+        ) : null}
+      </Drawer>
+    </div>
+  )
+
+  if (!showTaskRail) return streamCard
+  return (
+    <div className="director-script-layout">
+      <aside className="director-task-rail">
+        <DirectorTaskRows {...taskRowsProps} variant="rail" />
+      </aside>
+      {streamCard}
     </div>
   )
 }

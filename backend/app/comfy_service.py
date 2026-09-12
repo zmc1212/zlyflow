@@ -474,7 +474,7 @@ class ComfyService:
             if response.ok:
                 record = response.json().get(prompt_id)
                 if record:
-                    status = record.get("status", {}).get("status_str")
+                    status = (record.get("status") or {}).get("status_str")
                     if status == "error":
                         return "failed", record
                     if status == "success" or record.get("outputs"):
@@ -545,12 +545,25 @@ class ComfyService:
                     ) from error
                 time.sleep(2)
                 continue
-            unavailable_since = None
             if response.ok:
-                record = response.json().get(prompt_id)
+                try:
+                    record = response.json().get(prompt_id)
+                except (ValueError, AttributeError):
+                    # A proxy may answer 200 with a non-JSON or non-object
+                    # body; treat that like a transient outage instead of
+                    # failing the job. unavailable_since is only reset after a
+                    # healthy parse so the 30s threshold can actually fire.
+                    unavailable_since = unavailable_since or time.monotonic()
+                    if time.monotonic() - unavailable_since >= 30:
+                        raise ComfyUnavailable(
+                            "ComfyUI 或 FRP 连接中断，任务已暂停。恢复后将自动重新提交。"
+                        )
+                    time.sleep(2)
+                    continue
+                unavailable_since = None
                 if record:
                     missing_since = None
-                    status = record.get("status", {}).get("status_str")
+                    status = (record.get("status") or {}).get("status_str")
                     if status == "error":
                         elapsed = self.execution_elapsed_ms(record)
                         if elapsed is not None:
@@ -562,8 +575,8 @@ class ComfyService:
                             self.last_execution_elapsed_ms = (self.last_execution_elapsed_ms or 0) + elapsed
                         return record
                 else:
-                    active_prompts = self.active_prompts()
-                    if active_prompts is None or prompt_id in {item.prompt_id for item in active_prompts}:
+                    live = self.live_queue_ids()
+                    if live is None or prompt_id in live[0] | live[1]:
                         missing_since = None
                     else:
                         missing_since = missing_since or time.monotonic()

@@ -14,6 +14,10 @@ SESSION_HOURS = 12
 PASSWORD_MIN_LENGTH = 6
 
 
+class LastSuperAdminError(RuntimeError):
+    """Raised when an update would leave the system without an active super admin."""
+
+
 def now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -169,15 +173,25 @@ class AuthStore:
             ).fetchone()
         return int(row["total"])
 
-    def authenticate(self, username: str, password: str) -> dict | None:
+    def verify_credentials(self, username: str, password: str) -> dict | None:
+        """Read-only password check: unlike authenticate(), it must not touch last_login_at."""
         with self.connection() as connection:
             row = connection.execute(
                 "SELECT * FROM users WHERE username = ?", (normalize_username(username),),
             ).fetchone()
-            if row is None or not row["is_active"] or not verify_password(password, row["password_hash"]):
-                return None
-            connection.execute("UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?", (iso(), iso(), row["id"]))
-        return self.get_user(row["id"])
+        if row is None or not row["is_active"] or not verify_password(password, row["password_hash"]):
+            return None
+        return self.public_user(row)
+
+    def authenticate(self, username: str, password: str) -> dict | None:
+        user = self.verify_credentials(username, password)
+        if user is None:
+            return None
+        with self.connection() as connection:
+            connection.execute(
+                "UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?", (iso(), iso(), user["id"]),
+            )
+        return self.get_user(user["id"])
 
     def create_session(self, user_id: str) -> tuple[str, str]:
         raw_token = secrets.token_urlsafe(32)
@@ -219,6 +233,27 @@ class AuthStore:
             updates["is_active"] = int(is_active)
         assignment = ", ".join(f"{column} = ?" for column in updates)
         with self.connection() as connection:
+            # Check-then-act must share the write transaction: SQLite serializes
+            # writers via BEGIN IMMEDIATE; MySQL locking reads observe the latest
+            # committed rows, so two concurrent demotions cannot both pass.
+            if self._db.dialect == "sqlite":
+                connection.execute("BEGIN IMMEDIATE")
+            target = connection.execute(
+                "SELECT role FROM users WHERE id = ?", (user_id,), for_update=True,
+            ).fetchone()
+            if target is None:
+                raise KeyError(user_id)
+            removes_active_super_admin = (
+                str(target["role"]) == UserRole.SUPER_ADMIN.value
+                and ((role is not None and role is not UserRole.SUPER_ADMIN) or is_active is False)
+            )
+            if removes_active_super_admin:
+                remaining = connection.execute(
+                    "SELECT COUNT(*) AS total FROM users WHERE role = ? AND is_active = 1 AND id != ?",
+                    (UserRole.SUPER_ADMIN.value, user_id), for_update=True,
+                ).fetchone()
+                if int(remaining["total"]) < 1:
+                    raise LastSuperAdminError("不能停用或降级最后一个超级管理员")
             cursor = connection.execute(f"UPDATE users SET {assignment} WHERE id = ?", (*updates.values(), user_id))
             if cursor.rowcount == 0:
                 raise KeyError(user_id)

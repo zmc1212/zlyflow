@@ -1602,3 +1602,30 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：payload kind 判定向后兼容（timeline/recipe/batch 不变）；`flatten_recipe_shots` 对顶层 `shots` 的既有兜底使进度统计自动兼容；旧 payload 无需迁移。深度模型文件位于整合包 ComfyUI 目录（符合模型路径规则），未新建第二 ComfyUI 实例，未迁移 VACE 自定义节点。
 - 验证命令：`python -m pytest backend/tests -q`（440 通过，新增 `test_wan_vace_depth_workflow_parameter_layers_and_builder_mapping`、`test_shot_replication_payload_normalization`）；`npm --prefix frontend run build`（40 测试+构建通过）。ComfyUI 实跑验证：DA3 深度提取与 VACE 复刻图均出片。人工检查：复刻台桌面/移动端双主题（--studio-* 令牌）。
 - 回滚方式：还原本次提交即移除复刻台；已归位模型硬链接/下载文件可保留（不影响既有工作流）。回滚 `normalize_options` 需连同 `workflow_registry.py` 一并还原。
+
+## 2026-09-12 任务队列原子认领与后端并发/健壮性修复批次
+
+- 原因：后端代码审查发现，多宿主共享 MySQL（代码注释明确支持的生产拓扑）下任务认领无原子性——GRS 图片任务可能被多机重复提交重复扣费、同机重复入队双提交、T2V 被另一宿主误标丢失重提；另有运行存储取消竞态、最后一个超管保护为 check-then-act、导演台文件端点按当前登录用户而非工程属主定位文件、批量裂变可静默覆盖任意工程 payload，以及一批解析/计时/资源泄漏健壮性问题。
+- 当前基线：`storage.py` 新增 `claim_generation`（条件更新原子认领：仅 QUEUED 且未取消可认领，成功后刷新轮次与任务状态）；`worker.py` 视频 QUEUED→RUNNING 与 GRS 图片提交统一走认领，新增 `queued_generation_ids` 去重集合，参考图不在本机的宿主对 GRS 项留队不认领；`xiaji_episode_run_store.update()` 改为只写显式传入字段（用户取消标志不再被管线进度回写复活）；`auth.py` 新增 `LastSuperAdminError`，`update_user` 以同事务锁（SQLite BEGIN IMMEDIATE / MySQL 锁定读）校验「最后一个活跃超管」；导演台首尾帧上传/读取、TTS、试听、BGM、FCPXML/EDL 导出端点统一使用工程属主 `owner_user_id` 定位文件；`create_director_batch` 携带 project_id 时先校验目标工程为 batch 类型（否则 422，且在 LLM 裂变调用之前）；`request_parameters` 与任务创建对未声明 `negative_prompt`/`image_size` 的工作流容错（不再 KeyError、写路径按 `accepts_*` 忽略）；`replace_dialogue_in_prompt` 改用 lambda 替换（对白含 `\d`/`\1` 等反斜杠序列不再抛 `re.error`），`_speaker_matches_shot` 以角色名词干（前两字）泛化匹配取代「同门/灵石」硬编码加分；`format_srt_time`/ASS 时间按总毫秒/总厘秒取整进位（不再出现 `00:00:60,000`）；`generate_recipe_stills` 增加在途任务守卫（静帧排队/运行中不再重复建任务，force 仍可强制重生成，且对已删除任务 ID 容错）；create_job/create_job_round 参考图保存失败统一清理已落盘目录；`comfy_service.wait` 对 200+非 JSON 响应按瞬时故障处理、`record.status` 空值安全、缺失检查由全量 `/history` 轮询改为轻量 `live_queue_ids`；GRS 轮询超时文案改用 `grs_timeout_seconds` 动态生成；七牛 `object_url` 对 object key 百分号编码；登录限流在 key 失效后回收条目；`verify_credentials` 从 `authenticate` 拆出（修改密码不再污染 `last_login_at`）。同批次补充：`retry_failed_items` 对不存在的轮次 ID 抛 KeyError 并由端点映射 404（此前静默重试最后一轮）；`create_round` 捕获 `UNIQUE(job_id, sequence)` 冲突并抛 ValueError、端点映射 409 并清理已上传参考图（此前 500）；create_job/create_job_round/retry-failed-items 的存储读写包 `asyncio.to_thread`（远程 MySQL 抖动不再阻塞事件循环）；`xiaji_auto_pipeline` 镜头重取使用显式缺失检查（镜头被删除时给出明确错误而非 StopIteration）；worker 的 fire-and-forget 任务（GRS 余额刷新）改经 `_spawn_background_task` 持强引用并在 `stop()` 统一取消（不再可能被 GC 中途丢弃）。
+- 受影响文件：`backend/app/{main,storage,worker,auth,comfy_service,dialogue_timing,xiaji_auto_pipeline,xiaji_compose,director_jobs,director_export,xiaji_episode_api,xiaji_episode_run_store,qiniu_storage,llm_provider,api_documentation}.py`、`backend/tests/{test_core,test_director,test_dialogue_timing,test_dev_reloader,test_xiaji,test_ai_studio}.py`。
+- 兼容性：API 请求/响应结构与工作流协议不变，无数据库迁移；行为变化：`POST /api/director/batches` 对非 batch 工程返回 422（此前静默覆盖 payload）、对不接受 `negative_prompt`/`image_size` 的工作流这两个表单字段被忽略（此前入库脏数据并可能令任务列表 500）、管理员访问员工工程时导演台文件端点改按工程属主目录读写（此前必然 404 或写错目录）；其余为并发安全与健壮性加固。
+- 验证命令：`python -m pytest backend/tests -q`（407 passed；另有 2 个依赖本机工作流 JSON 目录的既有环境性失败，与本批次无关）；`pnpm --dir frontend build`。
+- 回滚方式：还原本次提交即恢复原无条件认领/读改写回写/端点级超管检查等逻辑。
+
+## 2026-09-12 导演台生成过程直播工作区视图（单行环节记录 + 当前环节直播 + 始终跟随滚动）
+
+- 原因：剧本阶段「每环节一张折叠卡片」的展示不可用——运行中已完成环节缩成一行摘要、历史回放全量堆叠且漏种子 `researchNotes`（研究块展开为空）、自动跟随滚动依赖不完整且无回底入口，用户无法直观看出当前 agent 正在生成什么。
+- 当前基线：`DirectorScriptStreamPanel` 管线视图改为直播工作区时间线：已完成/失败环节渲染为单行完成条目（官方 tool-chips 行语法），整行点击打开 antd Drawer（`rootClassName=director-agent-drawer`，抽屉根节点成对配置官方浅色/暗色 `--director-*` token，因 Drawer 挂载在 body 下拿不到 `.is-chat` 作用域 token），抽屉内容复用 `renderBlockBody`；失败条目内联重试（`onRetryAgent`）。当前运行环节渲染为唯一的全宽直播卡片（`director-block is-live`，官方 thinking「工作中」头部语法，无折叠交互）；`manualExpanded`/`blockPreview` 折叠逻辑移除。滚动跟随改为 ResizeObserver 监听 `.director-stream-body` 与内容容器（`.director-stream-feed`）高度变化贴底，上滚超 48px 解除跟随并显示「回到底部」胶囊（即时 `scrollTop=scrollHeight`，不用平滑滚动——目标值会随流式内容过期），`runningAgentId` 变化强制恢复跟随，终态出现后 `scrollIntoView` 定位到完成卡页脚。历史回放种子补 `research|notes|`（`RecipeProject` 新增可选 `researchNotes` 字段，后端 payload 原样透传）。`DirectorTaskRows` 新增 `onOpen`（完成/失败行点击打开同一抽屉，重试按钮 `stopPropagation`）。
+- 受影响文件：`frontend/src/director/components/{DirectorScriptStreamPanel,DirectorTaskRows}.tsx`、`frontend/src/director/{recipe-model.ts,action-copy.ts,guided-flow.css}`。
+- 兼容性：纯前端展示层；SSE 事件、REST API、存储结构不变；旧工程历史回放自动获得新视图。
+- 验证命令：`pnpm --dir frontend build`（vitest + tsc + vite）、`python -m unittest discover -s backend/tests -t . -p "test_director*.py"`。人工回归：浅/暗双主题历史回放与抽屉、390px 移动端、真实运行中单行记录累积/直播卡贴底/上滚解除跟随/回底后持续跟随、失败态红行与内联重试。
+- 回滚方式：还原本次前端提交即恢复折叠卡片视图。
+
+## 2026-09-12 导演台生成过程两栏化（左侧任务栏 + 右侧全宽直播）
+
+- 原因：自查发现运行中「生成任务」面板（max-height 360px）与直播时间线上下堆叠：同一份 agentStatus 呈现两遍、直播区被压缩、无流式内容的环节（画风/媒体类）只剩标题卡 + 大片空白、阅读顺序为任务→方向→创意→过程。
+- 当前基线：`DirectorScriptStreamPanel` pipeline 分支在桌面端（`!isMobile`）渲染 `.director-script-layout`（flex 两栏）：左 `.director-task-rail`（248px，`DirectorTaskRows variant="rail"`——常开、纵向头部「生成任务 n/m + 进度条 + 百分比/已进行」、行内不渲染 message，点击完成/失败行走 `onOpen` 抽屉），右为原 `.director-script-stream` 直播卡（flex:1）。创作方向 chips 从流卡外移入 `.director-stream-feed`（创意气泡之后）。空 body 运行环节渲染 `.director-live-skeleton`（shimmer 骨架行）。澄清/空态分支维持单栏流卡。移动端断点隐藏侧栏并回落为折叠任务面板置顶。
+- 受影响文件：`frontend/src/director/components/{DirectorTaskRows,DirectorScriptStreamPanel}.tsx`、`frontend/src/director/guided-flow.css`。
+- 兼容性：纯前端布局；数据流、SSE、API、存储不变。
+- 验证：`pnpm --dir frontend build`；浏览器实测双主题两栏、侧栏进度条、侧栏行抽屉、移动端回落形态。
+- 回滚方式：还原本次提交即恢复单栏 + 顶部任务面板。

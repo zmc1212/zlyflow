@@ -141,29 +141,30 @@ class XiajiEpisodeRunStore:
         update_error: bool = False,
         cancel_requested: bool | None = None,
     ) -> dict[str, Any]:
+        # Only persist the fields the caller passed: a progress/cursor write
+        # must never resurrect cancel_requested from a stale read, otherwise a
+        # user cancel arriving between the read and the write is lost.
+        updates: dict[str, Any] = {"updated_at": now()}
+        if status is not None:
+            updates["status"] = status
+        if progress is not None:
+            updates["progress"] = max(0, min(100, int(progress)))
+        if cursor is not None:
+            updates["cursor_json"] = _dump(cursor)
+        if update_error:
+            updates["error"] = error
+        if cancel_requested is not None:
+            updates["cancel_requested"] = 1 if cancel_requested else 0
         current = self.get(run_id)
         if current is None:
             raise KeyError(run_id)
-        next_status = status if status is not None else current["status"]
-        next_progress = current["progress"] if progress is None else max(0, min(100, int(progress)))
-        next_cursor = current.get("cursor") if cursor is None else cursor
-        next_error = error if update_error else current.get("error")
-        next_cancel = current["cancel_requested"] if cancel_requested is None else (1 if cancel_requested else 0)
-        timestamp = now()
-        with self._db.connection() as connection:
-            connection.execute(
-                """UPDATE xiaji_episode_runs SET status = ?, progress = ?, cursor_json = ?,
-                    error = ?, cancel_requested = ?, updated_at = ? WHERE id = ?""",
-                (
-                    next_status,
-                    next_progress,
-                    _dump(next_cursor) if next_cursor is not None else None,
-                    next_error,
-                    int(next_cancel),
-                    timestamp,
-                    run_id,
-                ),
-            )
+        if len(updates) > 1:
+            with self._db.connection() as connection:
+                assignment = ", ".join(f"{column} = ?" for column in updates)
+                connection.execute(
+                    f"UPDATE xiaji_episode_runs SET {assignment} WHERE id = ?",
+                    (*updates.values(), run_id),
+                )
         return self.get(run_id)
 
     def interrupt_stale(self) -> int:

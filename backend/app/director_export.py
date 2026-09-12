@@ -407,10 +407,12 @@ def build_ass_subtitles(clips: list[MuxClip], style: dict[str, Any], *, width: i
     ]
 
     def ass_time(seconds: float) -> str:
-        total = max(0.0, seconds)
-        hours = int(total // 3600)
-        minutes = int((total % 3600) // 60)
-        secs = total % 60
+        # Round to centiseconds first so a carry (59.999s) rolls into the next
+        # second/minute instead of printing "0:00:60.00".
+        total_cs = int(round(max(0.0, seconds) * 100))
+        hours, rem = divmod(total_cs, 360_000)
+        minutes, rem = divmod(rem, 6_000)
+        secs = rem / 100
         return f"{hours:d}:{minutes:02d}:{secs:05.2f}"
 
     for clip in clips:

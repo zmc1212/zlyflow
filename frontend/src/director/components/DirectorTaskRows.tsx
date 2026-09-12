@@ -17,6 +17,10 @@ type Props = {
   pinnedOpen?: boolean
   /** Retry a failed step (e.g. rerun a single agent); absent hides the affordance. */
   onRetry?: (id: string) => void
+  /** Open a settled step's full output (drawer); absent keeps rows inert. */
+  onOpen?: (id: string) => void
+  /** "panel"（默认，可折叠面板）| "rail"（左侧任务栏：常开、无折叠、行内不显示消息） */
+  variant?: "panel" | "rail"
 }
 
 function formatElapsed(totalSeconds: number): string {
@@ -79,12 +83,76 @@ function RetryIcon() {
  * ring-sequence badges, solid status badges, tint status pills, per-row capsule
  * cards with hairline shadows, and a collapsed summary once everything settles.
  */
-export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false, onRetry }: Props) {
+export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false, onRetry, onOpen, variant = "panel" }: Props) {
   const relevant = rows.filter((row) => row.status !== "pending" || running)
   const finished = relevant.filter((row) => row.status === "completed" || row.status === "failed").length
   const percent = relevant.length ? Math.round((finished / relevant.length) * 100) : 0
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
-  const open = userExpanded ?? (pinnedOpen || running)
+  const open = variant === "rail" ? true : (userExpanded ?? (pinnedOpen || running))
+
+  const railHead = (
+    <div className="director-task-rail-head">
+      <div className="director-task-rail-title">
+        <strong>{SCRIPT_TASK_ROWS_TITLE}</strong>
+        <span>{finished}/{relevant.length}</span>
+      </div>
+      <span className="director-task-rows-track" aria-hidden>
+        <span className="director-task-rows-fill" style={{ width: `${percent}%` }} />
+      </span>
+      <div className="director-task-rail-meta">
+        <em>{percent}%</em>
+        {elapsedSec >= 0 && running ? <span>已进行 {formatElapsed(elapsedSec)}</span> : null}
+      </div>
+    </div>
+  )
+
+  if (variant === "rail") {
+    return (
+      <section className="director-task-rows is-rail is-open" aria-label={SCRIPT_TASK_ROWS_TITLE}>
+        {railHead}
+        <ol className="director-task-rows-list">
+          {relevant.map((row, index) => {
+            const canOpen = Boolean(onOpen) && (row.status === "completed" || row.status === "failed")
+            return (
+              <li
+                key={row.id}
+                className={`director-task-row is-${row.status}${canOpen ? " is-clickable" : ""}`}
+                style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
+                {...(canOpen ? { onClick: () => onOpen?.(row.id), title: "查看这一步的产出" } : {})}
+              >
+                <span className="director-task-row-icon" aria-hidden>
+                  {row.status === "completed" ? <StatusBadge tone="green"><CheckIcon /></StatusBadge>
+                    : row.status === "failed" ? <StatusBadge tone="red"><XIcon /></StatusBadge>
+                      : <SpinnerRing active={row.status === "running"} order={index + 1} />}
+                </span>
+                <span className="director-task-row-label">{row.label}</span>
+                {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+                {row.status === "failed" ? (
+                  onRetry ? (
+                    <button
+                      type="button"
+                      className="director-task-pill is-red director-task-retry"
+                      title="重跑这一步"
+                      disabled={running}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onRetry(row.id)
+                      }}
+                    >
+                      失败
+                      <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
+                    </button>
+                  ) : (
+                    <span className="director-task-pill is-red">失败</span>
+                  )
+                ) : null}
+              </li>
+            )
+          })}
+        </ol>
+      </section>
+    )
+  }
 
   return (
     <section className={`director-task-rows${open ? " is-open" : " is-collapsed"}`} aria-label={SCRIPT_TASK_ROWS_TITLE}>
@@ -106,40 +174,47 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
       </button>
       {open ? (
         <ol className="director-task-rows-list">
-          {relevant.map((row, index) => (
-            <li
-              key={row.id}
-              className={`director-task-row is-${row.status}`}
-              style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
-            >
-              <span className="director-task-row-icon" aria-hidden>
-                {row.status === "completed" ? <StatusBadge tone="green"><CheckIcon /></StatusBadge>
-                  : row.status === "failed" ? <StatusBadge tone="red"><XIcon /></StatusBadge>
-                    : <SpinnerRing active={row.status === "running"} order={index + 1} />}
-              </span>
-              <span className="director-task-row-label">{row.label}</span>
-              {row.status === "running" && row.message ? (
-                <span className="director-task-row-message">{row.message}</span>
-              ) : null}
-              {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
-              {row.status === "failed" ? (
-                onRetry ? (
-                  <button
-                    type="button"
-                    className="director-task-pill is-red director-task-retry"
-                    title="重跑这一步"
-                    disabled={running}
-                    onClick={() => onRetry(row.id)}
-                  >
-                    失败
-                    <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
-                  </button>
-                ) : (
-                  <span className="director-task-pill is-red">失败</span>
-                )
-              ) : null}
-            </li>
-          ))}
+          {relevant.map((row, index) => {
+            const canOpen = Boolean(onOpen) && (row.status === "completed" || row.status === "failed")
+            return (
+              <li
+                key={row.id}
+                className={`director-task-row is-${row.status}${canOpen ? " is-clickable" : ""}`}
+                style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
+                {...(canOpen ? { onClick: () => onOpen?.(row.id), title: "查看这一步的产出" } : {})}
+              >
+                <span className="director-task-row-icon" aria-hidden>
+                  {row.status === "completed" ? <StatusBadge tone="green"><CheckIcon /></StatusBadge>
+                    : row.status === "failed" ? <StatusBadge tone="red"><XIcon /></StatusBadge>
+                      : <SpinnerRing active={row.status === "running"} order={index + 1} />}
+                </span>
+                <span className="director-task-row-label">{row.label}</span>
+                {row.status === "running" && row.message ? (
+                  <span className="director-task-row-message">{row.message}</span>
+                ) : null}
+                {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+                {row.status === "failed" ? (
+                  onRetry ? (
+                    <button
+                      type="button"
+                      className="director-task-pill is-red director-task-retry"
+                      title="重跑这一步"
+                      disabled={running}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onRetry(row.id)
+                      }}
+                    >
+                      失败
+                      <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
+                    </button>
+                  ) : (
+                    <span className="director-task-pill is-red">失败</span>
+                  )
+                ) : null}
+              </li>
+            )
+          })}
         </ol>
       ) : null}
     </section>

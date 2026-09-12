@@ -821,8 +821,19 @@ def generate_recipe_stills(
     for _scene, shot in _iter_shots(recipe):
         if wanted and shot.get("id") not in wanted:
             continue
-        if not force and shot.get("stillUrl"):
-            continue
+        if not force:
+            if shot.get("stillUrl"):
+                continue
+            still_job_id = str(shot.get("stillJobId") or "").strip()
+            if still_job_id:
+                try:
+                    existing = store.get(still_job_id)
+                except KeyError:
+                    existing = None
+                if existing is not None and existing.get("status") in {
+                    JobStatus.QUEUED.value, JobStatus.RUNNING.value,
+                }:
+                    continue
         refs = _plate_paths_for_shot(store, recipe, shot, resource_storage=resource_storage)
         job = create_queued_job(
             store,

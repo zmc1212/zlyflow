@@ -13,11 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import local_video_studio as legacy
 
-from backend.app.auth import AuthStore, csrf_token, validate_password, verify_password
+from backend.app.auth import AuthStore, LastSuperAdminError, csrf_token, validate_password, verify_password
 from backend.app.config import Settings
 from backend.app.models import JobMode, JobStatus
 from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_username, current_user, login_failures, output_response, public_job, _image_media_type
 from backend.app.comfy_service import ComfyQueuePrompt, ComfyService, ComfyUnavailable, interpret_comfy_progress, resolve_minimax_picture_prompt, resolve_reference_prompt
+from backend.app import comfy_service as comfy_service_module
 from backend.app.minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from backend.app.minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from backend.app.minimax_h3_workflow import build_minimax_h3_workflow
@@ -812,6 +813,127 @@ class StoreTests(unittest.TestCase):
         )
         self.assertNotIn("submitted_options", job)
 
+    def test_request_parameters_tolerates_unaccepted_negative_prompt(self) -> None:
+        job = public_job({
+            "id": "job-dirty",
+            "mode": JobMode.MINIMAX_H3_T2V,
+            "prompt": "电影级城市远景",
+            "negative_prompt": "blurry",
+            "image_size": "1024x1024",
+            "reference_count": 0,
+            "options": {},
+            "outputs": [],
+        })
+        by_name = {item["name"]: item for item in job["request_parameters"]}
+        self.assertEqual(by_name["negative_prompt"]["label"], "负面提示词")
+        self.assertEqual(by_name["negative_prompt"]["visibility"], "internal")
+        self.assertEqual(by_name["image_size"]["label"], "图片尺寸")
+        self.assertEqual(by_name["image_size"]["visibility"], "internal")
+
+    def test_create_job_ignores_unaccepted_negative_prompt_and_image_size(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from backend.app import main as main_module
+
+        class WorkerStub:
+            def __init__(self, *_args) -> None:
+                pass
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+            async def enqueue(self, job_id: str) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            try:
+                with TestClient(main_module.app) as client:
+                    user = main_module.app.state.auth_store.create_user(
+                        "negative-prompt-test", "负面提示词测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
+                    )
+                    token, _ = main_module.app.state.auth_store.create_session(user["id"])
+                    response = client.post(
+                        "/api/jobs",
+                        headers={"X-CSRF-Token": csrf_token(token)},
+                        cookies={"zly_ai_video_studio_session": token},
+                        data={
+                            "mode": JobMode.MINIMAX_H3_T2V.value,
+                            "prompt": "电影级城市远景",
+                            "negative_prompt": "blurry",
+                            "image_size": "1024x1024",
+                            "options": "{}",
+                        },
+                    )
+                    self.assertEqual(response.status_code, 202)
+                    stored = main_module.app.state.store.get(response.json()["id"])
+                    self.assertEqual(stored["negative_prompt"], "")
+                    self.assertIsNone(stored["image_size"])
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
+
+    def test_create_job_cleans_up_partial_reference_uploads(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from backend.app import main as main_module
+
+        class WorkerStub:
+            def __init__(self, *_args) -> None:
+                pass
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+            async def enqueue(self, job_id: str) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            try:
+                with TestClient(main_module.app) as client:
+                    user = main_module.app.state.auth_store.create_user(
+                        "ref-residue-test", "参考图残留测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
+                    )
+                    token, _ = main_module.app.state.auth_store.create_session(user["id"])
+                    response = client.post(
+                        "/api/jobs",
+                        headers={"X-CSRF-Token": csrf_token(token)},
+                        cookies={"zly_ai_video_studio_session": token},
+                        data={
+                            "mode": JobMode.MINIMAX_H3_R2V.value,
+                            "prompt": "电影级城市远景",
+                            "options": "{}",
+                        },
+                        files=[
+                            ("references", ("a.png", b"\x89PNG\r\n\x1a\nfake", "image/png")),
+                            ("references", ("b.txt", b"not an image", "text/plain")),
+                        ],
+                    )
+                    self.assertEqual(response.status_code, 422)
+                    user_uploads = main_module.settings.uploads_dir / user["id"]
+                    self.assertFalse(
+                        any(user_uploads.iterdir()) if user_uploads.is_dir() else True,
+                        "部分保存的参考图目录应被清理",
+                    )
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
+
     def test_image_media_type_sniffs_extensionless_png(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "1_upload"
@@ -932,6 +1054,21 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(job["status"], JobStatus.RUNNING)
             self.assertEqual(job["comfy_prompt_id"], "prompt-1")
 
+    def test_claim_generation_only_claims_a_queued_item_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            created = store.create("job-1", JobMode.MINIMAX_H3_T2V, "提示词", "", None, [])
+            item_id = created["rounds"][-1]["generation_items"][0]["id"]
+
+            self.assertTrue(store.claim_generation(item_id, stage="正在准备任务", progress=0))
+            self.assertEqual(store.get("job-1")["status"], JobStatus.RUNNING)
+
+            self.assertFalse(store.claim_generation(item_id, stage="二次认领", progress=10))
+
+            store.update_generation(item_id, status=JobStatus.QUEUED, cancel_requested=True)
+            self.assertFalse(store.claim_generation(item_id, stage="取消后认领", progress=0))
+            self.assertEqual(store.get_generation(item_id)["status"], JobStatus.QUEUED.value)
+
     def test_job_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = JobStore(Path(directory) / "test.db")
@@ -1039,6 +1176,71 @@ class AuthenticationTests(unittest.TestCase):
             auth.revoke_session(token)
             self.assertIsNone(auth.user_for_session(token))
 
+    def test_update_user_rejects_demoting_last_active_super_admin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            auth = AuthStore(Path(directory) / "auth.db")
+            last = auth.create_user("root", "超管", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False)
+            worker = auth.create_user("staff", "员工", "secure-pass-123", UserRole.EMPLOYEE, must_change_password=False)
+
+            with self.assertRaises(LastSuperAdminError):
+                auth.update_user(last["id"], role=UserRole.ADMIN)
+            with self.assertRaises(LastSuperAdminError):
+                auth.update_user(last["id"], is_active=False)
+            self.assertEqual(auth.get_user(last["id"])["role"], UserRole.SUPER_ADMIN.value)
+            self.assertTrue(auth.get_user(last["id"])["is_active"])
+
+            second = auth.create_user("root2", "超管二", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False)
+            demoted = auth.update_user(second["id"], role=UserRole.ADMIN)
+            self.assertEqual(demoted["role"], UserRole.ADMIN.value)
+            self.assertEqual(auth.active_super_admin_count(), 1)
+
+            self.assertEqual(auth.update_user(worker["id"], is_active=False)["is_active"], False)
+
+    def test_update_user_active_super_admin_guard_survives_stale_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            auth = AuthStore(Path(directory) / "auth.db")
+            first = auth.create_user("root-a", "超管一", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False)
+            second = auth.create_user("root-b", "超管二", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False)
+            self.assertEqual(auth.active_super_admin_count(), 2)
+
+            demoted = auth.update_user(first["id"], role=UserRole.ADMIN)
+            self.assertEqual(demoted["role"], UserRole.ADMIN.value)
+            self.assertEqual(auth.active_super_admin_count(), 1)
+            with self.assertRaises(LastSuperAdminError):
+                auth.update_user(second["id"], is_active=False)
+            self.assertTrue(auth.get_user(second["id"])["is_active"])
+
+    def test_verify_credentials_does_not_refresh_last_login(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            auth = AuthStore(Path(directory) / "auth.db")
+            user = auth.create_user("staff", "员工", "secure-pass-123", UserRole.EMPLOYEE, must_change_password=False)
+            self.assertIsNone(auth.get_user(user["id"])["last_login_at"])
+            self.assertIsNotNone(auth.authenticate("staff", "secure-pass-123"))
+            first_login = auth.get_user(user["id"])["last_login_at"]
+            self.assertIsNotNone(first_login)
+            self.assertIsNotNone(auth.verify_credentials("staff", "secure-pass-123"))
+            self.assertIsNone(auth.verify_credentials("staff", "wrong-password"))
+            self.assertEqual(auth.get_user(user["id"])["last_login_at"], first_login)
+
+    def test_enforce_login_limit_drops_keys_with_only_expired_failures(self) -> None:
+        import time as time_module
+
+        from backend.app.main import LOGIN_WINDOW_SECONDS, enforce_login_limit, login_failures, login_failures_lock
+
+        with login_failures_lock:
+            login_failures.clear()
+        try:
+            stale = time_module.monotonic() - LOGIN_WINDOW_SECONDS - 1
+            with login_failures_lock:
+                login_failures["10.0.0.9:ghost"] = [stale]
+            enforce_login_limit("10.0.0.9:ghost")
+            self.assertNotIn("10.0.0.9:ghost", login_failures)
+            enforce_login_limit("10.0.0.9:fresh")
+            self.assertNotIn("10.0.0.9:fresh", login_failures)
+        finally:
+            with login_failures_lock:
+                login_failures.clear()
+
     def test_password_reset_revokes_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             auth = AuthStore(Path(directory) / "auth.db")
@@ -1124,6 +1326,73 @@ class ResourceStorageTests(unittest.TestCase):
                 "filename": "outside.mp4", "subfolder": "..", "type": "output",
             }))
             self.assertTrue(outside.exists())
+
+    def test_prompt_state_tolerates_null_status_and_non_json_body(self) -> None:
+        service = ComfyService(Settings(), BrowserLocalStagingStorage(Path(tempfile.gettempdir()) / "stream-test"))
+
+        class FakeResponse:
+            def __init__(self, ok: bool, payload) -> None:
+                self.ok = ok
+                self._payload = payload
+
+            def json(self):
+                if isinstance(self._payload, Exception):
+                    raise self._payload
+                return self._payload
+
+        with patch.object(comfy_service_module.requests, "get", return_value=FakeResponse(True, {
+            "prompt-1": {"status": None, "outputs": {}},
+        })):
+            state, _record = service.prompt_state("prompt-1", {"prompt-1"})
+        self.assertEqual(state, "active")
+
+        with patch.object(comfy_service_module.requests, "get", return_value=FakeResponse(True, ValueError("bad json"))):
+            state, _record = service.prompt_state("prompt-1", set())
+        self.assertEqual(state, "unknown")
+
+    def test_wait_treats_non_json_history_as_transient_outage(self) -> None:
+        service = ComfyService(Settings(), BrowserLocalStagingStorage(Path(tempfile.gettempdir()) / "stream-test"))
+
+        class FakeResponse:
+            def __init__(self, payload) -> None:
+                self.ok = True
+                self._payload = payload
+
+            def json(self):
+                if isinstance(self._payload, Exception):
+                    raise self._payload
+                return self._payload
+
+        success_record = {"status": {"status_str": "success"}, "outputs": {"1": {"images": []}}}
+        responses = [
+            FakeResponse(ValueError("html body")),
+            FakeResponse(["not", "an", "object"]),
+            FakeResponse({"prompt-1": success_record}),
+        ]
+        with patch.object(comfy_service_module.requests, "get", side_effect=responses):
+            result = service.wait("prompt-1", lambda progress: None, is_cancelled=lambda: False)
+        self.assertEqual(result, success_record)
+
+    def test_wait_missing_poll_uses_lightweight_queue_check(self) -> None:
+        service = ComfyService(Settings(), BrowserLocalStagingStorage(Path(tempfile.gettempdir()) / "stream-test"))
+
+        class FakeResponse:
+            def __init__(self, payload=None) -> None:
+                self.ok = True
+                self._payload = payload if payload is not None else {}
+
+            def json(self):
+                return self._payload
+
+        success_record = {"status": {"status_str": "success"}, "outputs": {"1": {"images": []}}}
+        responses = [FakeResponse(), FakeResponse({"prompt-1": success_record})]
+        with patch.object(comfy_service_module.requests, "get", side_effect=responses), \
+                patch.object(service, "live_queue_ids", return_value=(set(), {"prompt-1"})) as live, \
+                patch.object(service, "active_prompts") as active_prompts:
+            result = service.wait("prompt-1", lambda progress: None, is_cancelled=lambda: False)
+        self.assertEqual(result, success_record)
+        self.assertEqual(live.call_count, 1)
+        active_prompts.assert_not_called()
 
     def test_public_job_never_exposes_comfy_output_locator(self) -> None:
         job = public_job({

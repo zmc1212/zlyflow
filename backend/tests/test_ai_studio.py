@@ -438,6 +438,10 @@ class QiniuStorageTests(unittest.TestCase):
             "https://media.example.com/studio/image/look.png",
         )
         self.assertIsNone(storage.object_url(""))
+        self.assertEqual(
+            storage.object_url("studio/image/镜头 01.png"),
+            "https://media.example.com/studio/image/%E9%95%9C%E5%A4%B4%2001.png",
+        )
 
 
 class JobEndpointTests(unittest.TestCase):

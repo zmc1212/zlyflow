@@ -164,7 +164,12 @@ class XiajiAutoPipeline:
                     progress=int((done / total) * 100),
                 )
                 episode = await self._run_step(run_id, episode, beat["id"], step, params, owner)
-                beat = next(item for item in episode.get("beats") or [] if item["id"] == beat["id"])
+                beat = next(
+                    (item for item in episode.get("beats") or [] if item["id"] == beat["id"]),
+                    None,
+                )
+                if beat is None:
+                    raise XiajiAutoRunFailed("镜头已被删除，自动生成停止")
                 done += 1
                 self._runs().update(run_id, progress=int((done / total) * 100))
 

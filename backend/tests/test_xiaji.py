@@ -3573,6 +3573,8 @@ class XiajiComposeTests(unittest.TestCase):
 
         self.assertEqual(format_srt_time(0), "00:00:00,000")
         self.assertEqual(format_srt_time(5), "00:00:05,000")
+        self.assertEqual(format_srt_time(59.9999), "00:01:00,000")
+        self.assertEqual(format_srt_time(3599.9999), "01:00:00,000")
         clips = [
             ComposeClip("a", 1, "一", "别动。", 5.0, Path("."), None, 0.0),
             ComposeClip("b", 2, "二", "走。", 3.0, Path("."), None, 5.0),
@@ -3581,6 +3583,17 @@ class XiajiComposeTests(unittest.TestCase):
         self.assertIn("00:00:00,000 --> 00:00:05,000", text)
         self.assertIn("别动。", text)
         self.assertIn("00:00:05,000 --> 00:00:08,000", text)
+
+    def test_ass_time_carries_overflow_into_next_minute(self) -> None:
+        from backend.app.director_export import MuxClip, build_ass_subtitles
+
+        clips = [
+            MuxClip("a", 1, "一", "别动。", 5.0, Path("."), start_sec=59.9996),
+            MuxClip("b", 2, "二", "走。", 3.0, Path("."), start_sec=0.0),
+        ]
+        text = build_ass_subtitles(clips, {"position": "bottom", "fontSize": 28, "strokeWidth": 2})
+        self.assertIn("0:01:00.00,", text)
+        self.assertNotIn(":60.", text)
 
     def _compose_app(self, raw: str, *, spine: str = "drama"):
         import subprocess

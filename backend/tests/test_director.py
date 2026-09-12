@@ -3429,6 +3429,68 @@ class DirectorDualEngineApiTests(unittest.TestCase):
         self.assertIn("still frame", job["prompt"])
         self.assertIn("detective walks", job["prompt"])
 
+    def test_generate_stills_skips_in_flight_job(self) -> None:
+        from backend.app.director_recipe import empty_recipe_payload
+        from backend.app.models import JobMode
+
+        class FakeGrs:
+            def availability(self, mode=None):
+                return True, None
+
+            def enabled_image_workflows(self):
+                return [{"id": JobMode.GRS_GPT_IMAGE_2.value}]
+
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={
+                "title": "静帧在途工程",
+                "payload": {
+                    **empty_recipe_payload(title="静帧在途工程"),
+                    "artStyle": {"id": "as_1001"},
+                    "scenes": [{"shots": [{
+                        "id": "shot-still-inflight",
+                        "title": "开场",
+                        "description": "走进雨巷",
+                        "promptText": "detective walks into a rainy alley",
+                    }]}],
+                },
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        project_id = created.json()["id"]
+        app.state.grs_provider = FakeGrs()
+        first = self.client.post(
+            f"/api/director/recipes/{project_id}/generate-stills",
+            headers=self._headers(),
+            json={"shot_ids": ["shot-still-inflight"], "force": False},
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        shot = first.json()["payload"]["scenes"][0]["shots"][0]
+        first_job_id = shot["stillJobId"]
+        self.assertTrue(first_job_id)
+        self.assertEqual(len(self.enqueued), 1)
+
+        second = self.client.post(
+            f"/api/director/recipes/{project_id}/generate-stills",
+            headers=self._headers(),
+            json={"shot_ids": ["shot-still-inflight"], "force": False},
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        shot = second.json()["payload"]["scenes"][0]["shots"][0]
+        self.assertEqual(shot["stillJobId"], first_job_id)
+        self.assertEqual(len(self.enqueued), 1)
+
+        forced = self.client.post(
+            f"/api/director/recipes/{project_id}/generate-stills",
+            headers=self._headers(),
+            json={"shot_ids": ["shot-still-inflight"], "force": True},
+        )
+        self.assertEqual(forced.status_code, 200, forced.text)
+        forced_shot = forced.json()["payload"]["scenes"][0]["shots"][0]
+        self.assertNotEqual(forced_shot["stillJobId"], first_job_id)
+        self.assertEqual(len(self.enqueued), 2)
+
     def test_batches_enqueue_two_t2v_jobs(self) -> None:
         self.llm_provider.update({
             "enabled": True,
@@ -3517,6 +3579,64 @@ class DirectorDualEngineApiTests(unittest.TestCase):
         self.assertEqual(retried[1]["jobId"], project["payload"]["items"][1]["jobId"])
         self.assertEqual(retried[0]["status"], "queued")
         self.assertIsNone(retried[0].get("error"))
+
+    def test_batch_fission_rejects_recipe_project_before_llm_call(self) -> None:
+        from backend.app.director_recipe import empty_recipe_payload
+
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com/v1",
+            "model": "deepseek-chat",
+            "api_key": "sk-dummy",
+        })
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={"title": "剧本工程", "payload": empty_recipe_payload(title="剧本工程")},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        project_id = created.json()["id"]
+
+        with patch.object(self.llm_provider, "fission_batch_scripts") as fission:
+            response = self.client.post(
+                "/api/director/batches",
+                headers=self._headers(),
+                json={"theme": "运动活力", "count": 1, "aspect_ratio": "9:16", "duration_sec": 8, "project_id": project_id},
+            )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("批量短视频工程", response.json()["detail"])
+        fission.assert_not_called()
+        refreshed = self.client.get(f"/api/director/projects/{project_id}", headers=self._headers())
+        self.assertEqual(refreshed.json()["kind"], PAYLOAD_KIND_RECIPE)
+
+    def test_recipe_frame_download_resolves_project_owner_directory(self) -> None:
+        from backend.app import main as main_module
+        from backend.app.director_recipe import empty_recipe_payload
+
+        admin = self.auth_store.create_user("boss", "管理员", "password123456", UserRole.ADMIN, must_change_password=False)
+        admin_token, _ = self.auth_store.create_session(admin["id"])
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={"title": "帧目录测试", "payload": empty_recipe_payload(title="帧目录测试")},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        project_id = created.json()["id"]
+        frame_file = Path(self.temp_dir.name) / "shot-1_first.png"
+        frame_file.write_bytes(b"\x89PNG\r\n\x1a\nframe")
+        captured: dict[str, str] = {}
+
+        def fake_find(*, owner_user_id: str, project_id: str, shot_id: str, slot: str):
+            captured["owner_user_id"] = owner_user_id
+            return frame_file
+
+        admin_client = TestClient(app)
+        admin_client.cookies.set("zly_ai_video_studio_session", admin_token)
+        with patch.object(main_module, "find_recipe_frame_file", side_effect=fake_find):
+            response = admin_client.get(f"/api/director/recipes/{project_id}/frames/shot-1/first")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(captured["owner_user_id"], self.user["id"])
+        self.assertEqual(response.content, b"\x89PNG\r\n\x1a\nframe")
 
 
 class DirectorAssetCloudTests(unittest.TestCase):

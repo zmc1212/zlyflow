@@ -46,10 +46,12 @@ class JobWorker:
         self.resource_storage = resource_storage
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self.queued_job_ids: set[str] = set()
+        self.queued_generation_ids: set[str] = set()
         self._auto_retries: dict[str, int] = {}
         self.task: asyncio.Task | None = None
         self.watch_task: asyncio.Task | None = None
         self.image_tasks: set[asyncio.Task] = set()
+        self.background_tasks: set[asyncio.Task] = set()
         self.image_semaphore = asyncio.Semaphore(max(1, min(4, settings.grs_max_concurrency)))
 
     async def start(self) -> None:
@@ -84,6 +86,11 @@ class JobWorker:
             task.cancel()
         if image_tasks:
             await asyncio.wait(image_tasks, timeout=self.STOP_TIMEOUT_SECONDS)
+        background_tasks = list(self.background_tasks)
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.wait(background_tasks, timeout=self.STOP_TIMEOUT_SECONDS)
 
     async def enqueue(self, job_id: str) -> None:
         job = await asyncio.to_thread(self.store.get, job_id)
@@ -117,9 +124,25 @@ class JobWorker:
                 continue
 
     def enqueue_generation(self, generation_item_id: str) -> None:
+        if generation_item_id in self.queued_generation_ids:
+            return
+        self.queued_generation_ids.add(generation_item_id)
         task = asyncio.create_task(self.execute_image(generation_item_id), name=f"grs-image-{generation_item_id}")
         self.image_tasks.add(task)
-        task.add_done_callback(self.image_tasks.discard)
+
+        def _release(done: asyncio.Task) -> None:
+            self.image_tasks.discard(done)
+            self.queued_generation_ids.discard(generation_item_id)
+
+        task.add_done_callback(_release)
+
+    def _spawn_background_task(self, coro, *, name: str) -> asyncio.Task:
+        # The event loop only keeps weak references to running tasks; hold one
+        # so a fire-and-forget task cannot be garbage-collected mid-flight.
+        task = asyncio.create_task(coro, name=name)
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
+        return task
 
     @staticmethod
     def references_available_locally(job: dict) -> bool:
@@ -273,9 +296,13 @@ class JobWorker:
         if not self.references_available_locally(job):
             return
         if job["status"] == JobStatus.QUEUED:
-            await asyncio.to_thread(
-                self.store.update, job_id, status=JobStatus.RUNNING, stage="正在准备任务", progress=0,
+            claimed = await asyncio.to_thread(
+                self.store.claim_generation,
+                job["rounds"][-1]["generation_items"][0]["id"],
+                stage="正在准备任务", progress=0,
             )
+            if not claimed:
+                return
             job = await asyncio.to_thread(self.store.get, job_id, include_references=True)
         elif job["status"] == JobStatus.INTERRUPTED and job.get("comfy_prompt_id"):
             await asyncio.to_thread(
@@ -381,9 +408,17 @@ class JobWorker:
             remote_task_id = context.get("remote_task_id")
             try:
                 if not remote_task_id:
-                    self.store.update_generation(
-                        generation_item_id, status=JobStatus.RUNNING, stage="正在提交 GRS", progress=5,
-                    )
+                    if not self._generation_references_available_locally(context):
+                        # Shared-database deployment: the reference files belong
+                        # to the host that created the task; leave it queued so
+                        # that host can claim and submit it.
+                        return
+                    if not await asyncio.to_thread(
+                        self.store.claim_generation, generation_item_id,
+                        stage="正在提交 GRS", progress=5,
+                    ):
+                        return
+
                     def reference_data_uris() -> list[str]:
                         uploads_root = settings.uploads_dir.resolve()
                         images: list[str] = []
@@ -446,6 +481,19 @@ class JobWorker:
             return False
         return item.get("status") == JobStatus.SUCCEEDED.value or bool(item.get("outputs"))
 
+    @staticmethod
+    def _generation_references_available_locally(context: dict) -> bool:
+        """Mirror reference_data_uris(): keep shared-DB hosts from claiming items whose uploads are elsewhere."""
+        uploads_root = settings.uploads_dir.resolve()
+        for raw in context.get("references") or []:
+            value = str(raw or "").strip()
+            if not value:
+                continue
+            path = Path(value).resolve()
+            if uploads_root not in path.parents or not path.is_file():
+                return False
+        return True
+
     def _bind_director_recipe_image(self, generation_item_id: str) -> None:
         from .director_jobs import bind_director_asset_image, job_asset_image_url
 
@@ -493,7 +541,7 @@ class JobWorker:
                 outputs=[output], error="", remote_status=remote_status,
             )
             self._bind_director_recipe_image(generation_item_id)
-            asyncio.create_task(self._refresh_grs_balance(), name="grs-balance-refresh")
+            self._spawn_background_task(self._refresh_grs_balance(), name="grs-balance-refresh")
             return
         if last_error is not None:
             raise last_error
@@ -548,7 +596,8 @@ class JobWorker:
                     generation_item_id, stage="GRS 已完成，等待结果地址", progress=progress, remote_status=status,
                 )
             await asyncio.sleep(delay)
-        raise GrsError("GRS 图片生成超过 30 分钟，已停止轮询。")
+        timeout_minutes = max(1, int(settings.grs_timeout_seconds) // 60)
+        raise GrsError(f"GRS 图片生成超过 {timeout_minutes} 分钟，已停止轮询。")
 
     async def _refresh_grs_balance(self) -> None:
         if self.grs_provider is None:
