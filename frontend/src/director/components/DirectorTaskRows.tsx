@@ -9,6 +9,14 @@ export type TaskRow = {
   message: string
 }
 
+/** 已完成环节的产出预览（镜头视频/静帧、画风封面等），仅使用产品数据模型里已有的 URL。 */
+export type TaskRowPreview = {
+  src: string
+  kind: "video" | "image"
+  durationLabel?: string
+  ratioLabel?: string
+}
+
 type Props = {
   rows: TaskRow[]
   running: boolean
@@ -23,6 +31,8 @@ type Props = {
   onOpen?: (id: string) => void
   /** "panel"（默认，可折叠面板）| "rail"（左侧任务栏：常开、无折叠、行内不显示消息） */
   variant?: "panel" | "rail"
+  /** 环节产出预览（按环节 id 索引），completed 行内嵌展示。 */
+  previews?: Record<string, TaskRowPreview>
 }
 
 function formatElapsed(totalSeconds: number): string {
@@ -80,12 +90,38 @@ function RetryIcon() {
   )
 }
 
+function PreviewPlayIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13l11-6.5-11-6.5z" /></svg>
+  )
+}
+
+/** 已完成环节的产出缩略图（视频首帧自动预览 / 静帧图片），数据来自镜头与画风字段。 */
+function TaskRowPreviewMedia({ preview }: { preview: TaskRowPreview }) {
+  return (
+    <span className="director-task-preview" aria-hidden>
+      {preview.kind === "video" ? (
+        <video src={preview.src} muted playsInline preload="metadata" />
+      ) : (
+        <img src={preview.src} alt="" loading="lazy" />
+      )}
+      <span className="director-task-preview-play">{preview.kind === "video" ? <PreviewPlayIcon /> : null}</span>
+      {(preview.durationLabel || preview.ratioLabel) ? (
+        <span className="director-task-preview-meta">
+          {preview.durationLabel ? <b>{preview.durationLabel}</b> : null}
+          {preview.ratioLabel ? <i>{preview.ratioLabel}</i> : null}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 /**
  * Vertical Task Rows panel following the official beautifului capsule grammar:
  * ring-sequence badges, solid status badges, tint status pills, per-row capsule
  * cards with hairline shadows, and a collapsed summary once everything settles.
  */
-export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false, onRetry, onRegenerate, onOpen, variant = "panel" }: Props) {
+export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen = false, onRetry, onRegenerate, onOpen, variant = "panel", previews }: Props) {
   const relevant = rows.filter((row) => row.status !== "pending" || running)
   const finished = relevant.filter((row) => row.status === "completed" || row.status === "failed").length
   const percent = relevant.length ? Math.round((finished / relevant.length) * 100) : 0
@@ -115,10 +151,11 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
         <ol className="director-task-rows-list">
           {relevant.map((row, index) => {
             const canOpen = Boolean(onOpen) && (row.status === "completed" || row.status === "failed")
+            const preview = row.status === "completed" ? previews?.[row.id] : undefined
             return (
               <li
                 key={row.id}
-                className={`director-task-row is-${row.status}${canOpen ? " is-clickable" : ""}`}
+                className={`director-task-row is-${row.status}${canOpen ? " is-clickable" : ""}${preview ? " has-preview" : ""}`}
                 style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
                 {...(canOpen ? { onClick: () => onOpen?.(row.id), title: "查看这一步的产出" } : {})}
               >
@@ -162,6 +199,7 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                     <span className="director-task-pill is-red">失败</span>
                   )
                 ) : null}
+                {preview ? <TaskRowPreviewMedia preview={preview} /> : null}
               </li>
             )
           })}
@@ -192,10 +230,11 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
         <ol className="director-task-rows-list">
           {relevant.map((row, index) => {
             const canOpen = Boolean(onOpen) && (row.status === "completed" || row.status === "failed")
+            const preview = row.status === "completed" ? previews?.[row.id] : undefined
             return (
               <li
                 key={row.id}
-                className={`director-task-row is-${row.status}${canOpen ? " is-clickable" : ""}`}
+                className={`director-task-row is-${row.status}${canOpen ? " is-clickable" : ""}${preview ? " has-preview" : ""}`}
                 style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
                 {...(canOpen ? { onClick: () => onOpen?.(row.id), title: "查看这一步的产出" } : {})}
               >
@@ -242,6 +281,7 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                     <span className="director-task-pill is-red">失败</span>
                   )
                 ) : null}
+                {preview ? <TaskRowPreviewMedia preview={preview} /> : null}
               </li>
             )
           })}

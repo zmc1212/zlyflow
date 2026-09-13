@@ -997,3 +997,510 @@
 .director-guided-resume .ant-btn-primary:not(:disabled):hover {
   background: var(--director-accent-ink, #4096ff);
 }
+
+/* ========================================================================
+   v2 电影感暗色（cinema）—— agent 剧本创作室固定视觉层
+   作用域：[data-theme="dark"] .director-recipe-shell[data-look="cinema"]（剧本阶段整壳，含顶栏）。
+   设计语言：Runway 式暗色编辑部——深炭画布、两级表面、蓝色辉光渐变、
+   等宽时间码、玻璃拟态输入条；不依赖全局浅/暗主题，独立成体系。
+   ======================================================================== */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] {
+  /* guided-flow 工作台 token */
+  --director-page: #0b0d12;
+  --director-canvas: #0e1016;
+  --director-surface: #12151c;
+  --director-surface-2: #171b24;
+  --director-inset: #0f1218;
+  --director-hover: #1a1e27;
+  --director-ink: #f2f4f8;
+  --director-ink-2: #a8b0bd;
+  --director-ink-3: #6b7280;
+  --director-line: rgba(255, 255, 255, .07);
+  --director-line-strong: rgba(255, 255, 255, .14);
+  --director-field: #1a1e27;
+  --director-accent: #5b7cff;
+  --director-accent-ink: #8b6aff;
+  --director-accent-tint: rgba(91, 124, 255, .14);
+  --director-green: #3dbb72;
+  --director-green-tint: rgba(61, 187, 114, .14);
+  --director-orange: #f68f3c;
+  --director-orange-tint: rgba(246, 143, 60, .16);
+  --director-red: #ee5c61;
+  --director-red-tint: rgba(238, 92, 97, .16);
+  --director-shadow-card: 0 0 0 1px rgba(255, 255, 255, .06), 0 12px 32px rgba(0, 0, 0, .42);
+  /* index.css 工作区 token（剧本房间内一并接管） */
+  --director-bg: #0b0d12;
+  --director-surface: #12151c;
+  --director-border: rgba(255, 255, 255, .07);
+  --director-text: #f2f4f8;
+  --director-muted: #a8b0bd;
+  --director-primary: #5b7cff;
+  --director-primary-soft: rgba(91, 124, 255, .14);
+  /* cinema 专属 */
+  --cinema-gradient: linear-gradient(135deg, #5b7cff 0%, #8b6aff 100%);
+  --cinema-glow: 0 0 24px rgba(91, 124, 255, .35);
+
+  background:
+    radial-gradient(1100px 560px at 72% -12%, rgba(91, 124, 255, .09), transparent 62%),
+    radial-gradient(900px 500px at -10% 110%, rgba(139, 106, 255, .06), transparent 60%),
+    var(--director-page);
+  color: var(--director-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- 顶栏 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-topbar {
+  border-bottom: 1px solid var(--director-line);
+  background: rgba(11, 13, 18, .82);
+  backdrop-filter: blur(16px);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-project-title { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-project-title:hover { color: var(--director-accent); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-project-subline .director-project-meta { color: var(--director-ink-3); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-back-library { color: var(--director-ink-2); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-back-library:hover { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-topbar .ant-btn:not(.ant-btn-primary):not(.ant-btn-text) {
+  background: rgba(18, 21, 28, .82);
+  border-color: var(--director-line);
+  color: var(--director-ink-2);
+  box-shadow: none;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-topbar .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):hover {
+  color: var(--director-ink);
+  border-color: var(--director-line-strong);
+}
+
+/* ---- 主区布局 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-layout { background: transparent; }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-main { background: transparent; }
+
+/* ---- 任务栏（rail）：生成任务 + 成果墙 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rows.is-rail {
+  background: rgba(18, 21, 28, .55);
+  border: 1px solid var(--director-line);
+  border-radius: 16px;
+  padding: 14px;
+  backdrop-filter: blur(8px);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rail-title strong {
+  color: var(--director-ink);
+  letter-spacing: .02em;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rail-title strong::after {
+  content: "TASKS";
+  margin-left: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .18em;
+  color: var(--director-ink-3);
+  vertical-align: 2px;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rail-title span {
+  color: var(--director-ink-3);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rows-track { background: rgba(255, 255, 255, .08); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rows-fill {
+  background: var(--cinema-gradient);
+  box-shadow: 0 0 12px rgba(91, 124, 255, .55);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rail-meta em {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 21px;
+  font-style: normal;
+  font-weight: 650;
+  letter-spacing: .01em;
+  background: var(--cinema-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 10px rgba(91, 124, 255, .35));
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row {
+  background: var(--director-surface);
+  border: 1px solid var(--director-line);
+  box-shadow: none;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row .director-task-row-label { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.is-completed .director-task-pill.is-green {
+  background: var(--director-green-tint);
+  border: 1px solid rgba(61, 187, 114, .3);
+  color: var(--director-green);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-badge.is-green {
+  background: var(--director-green);
+  box-shadow: 0 0 12px rgba(61, 187, 114, .45);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-regen {
+  border-radius: 50%;
+  border: 1px solid rgba(91, 124, 255, .45);
+  box-shadow: 0 0 14px rgba(91, 124, 255, .28);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-regen-icon { color: var(--director-accent); }
+
+/* ---- 产出缩略图（分镜视频/静帧、画风封面）---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-preview {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--director-line-strong);
+  border-radius: 12px;
+  background: #000;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-preview video,
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-preview-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, .92);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, .35) 100%);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-preview-play svg {
+  width: 30px;
+  height: 30px;
+  padding: 8px;
+  box-sizing: content-box;
+  border-radius: 50%;
+  background: rgba(10, 12, 18, .62);
+  border: 1px solid rgba(255, 255, 255, .22);
+  backdrop-filter: blur(4px);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-preview-meta {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgba(255, 255, 255, .88);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .7);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-preview-meta b { font-weight: 500; }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-preview-meta i { font-style: normal; }
+
+/* ---- 直播卡 / 步骤行 / 流式文本 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-block {
+  background: var(--director-surface);
+  border: 1px solid rgba(91, 124, 255, .45);
+  border-radius: 16px;
+  box-shadow: 0 0 24px rgba(91, 124, 255, .16), inset 0 0 32px rgba(91, 124, 255, .05);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-block-title { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-step-row-head {
+  background: var(--director-surface);
+  border: 1px solid var(--director-line);
+  border-radius: 12px;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-step-row-name { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-step-row-chip {
+  background: var(--director-field);
+  border-radius: 999px;
+  color: var(--director-ink-2);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-user-bubble {
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--director-line);
+  color: var(--director-ink);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-user-bubble-label { color: var(--director-ink-3); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-direction-chip {
+  background: var(--director-accent-tint);
+  border: 1px solid rgba(91, 124, 255, .26);
+  color: #bcc8ff;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-stream-caret-line { border-left-color: var(--director-accent); }
+
+/* ---- 澄清问题卡 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--director-surface);
+  border: 1px solid var(--director-line-strong);
+  border-radius: 16px;
+  box-shadow: var(--director-shadow-card);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--cinema-gradient);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-option {
+  background: transparent;
+  border: 1px solid var(--director-line);
+  border-radius: 12px;
+  color: var(--director-ink-2);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-option:hover {
+  border-color: var(--director-line-strong);
+  color: var(--director-ink);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-option:has(input:checked) {
+  background: var(--director-accent-tint);
+  border-color: rgba(91, 124, 255, .55);
+  color: var(--director-ink);
+  box-shadow: 0 0 16px rgba(91, 124, 255, .18);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-send {
+  background: var(--director-field);
+  border: 1px solid var(--director-line);
+  color: var(--director-ink-2);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-send:not(:disabled):hover {
+  background: var(--cinema-gradient);
+  border: none;
+  color: #fff;
+  box-shadow: var(--cinema-glow);
+}
+
+/* ---- 空态 hero ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-hero-icon {
+  background: var(--cinema-gradient);
+  color: #fff;
+  box-shadow: var(--cinema-glow);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-hero strong { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-hero p { color: var(--director-ink-2); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-hero-example {
+  background: var(--director-surface);
+  border: 1px solid var(--director-line);
+  border-radius: 14px;
+  color: var(--director-ink-2);
+  box-shadow: none;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-hero-example:hover:not(:disabled) {
+  background: var(--director-hover);
+  color: var(--director-ink);
+}
+
+/* ---- 剧本成稿 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-script-sheet {
+  background: var(--director-surface);
+  border: 1px solid var(--director-line);
+  border-radius: 16px;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-title { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-lead { color: var(--director-ink-2); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-story { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-meta { color: var(--director-ink-3); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-script-field .ant-input,
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-script-sheet textarea {
+  background: var(--director-field);
+  border-color: var(--director-line);
+  color: var(--director-ink);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-completion-copy strong { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-completion-copy p { color: var(--director-ink-2); }
+
+/* ---- antd 按钮与杂项（聊天室内）---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-main .ant-btn-primary {
+  background: var(--cinema-gradient);
+  border: none;
+  box-shadow: 0 0 18px rgba(91, 124, 255, .35);
+  text-shadow: none;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-main .ant-btn-primary:not(:disabled):hover {
+  background: linear-gradient(135deg, #6c8aff 0%, #9b7cff 100%);
+  box-shadow: 0 0 26px rgba(91, 124, 255, .5);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-main .ant-btn-default {
+  background: rgba(18, 21, 28, .82);
+  border-color: var(--director-line-strong);
+  color: var(--director-ink-2);
+  box-shadow: none;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-main .ant-btn-default:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, .24);
+  color: var(--director-ink);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-main .ant-btn-text { color: var(--director-ink-2); }
+
+/* ---- Prompt Bar：玻璃拟态 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-prompt-bar .director-prompt-input {
+  background: rgba(18, 21, 28, .72);
+  border: 1px solid var(--director-line-strong);
+  border-radius: 24px;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .45);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-prompt-textarea {
+  background: transparent;
+  color: var(--director-ink);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-prompt-textarea::placeholder { color: var(--director-ink-3); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-prompt-send {
+  background: var(--director-field);
+  border: 1px solid var(--director-line);
+  color: var(--director-ink-2);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-prompt-send.is-armed {
+  background: var(--cinema-gradient);
+  border: none;
+  color: #fff;
+  box-shadow: var(--cinema-glow);
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-prompt-hint { color: var(--director-ink-3); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-prompt-status-text { color: var(--director-ink-2); }
+
+/* ---- cinema 修正 1：.is-chat 布局层会重声明 beautifului 浅色 token，
+   必须在 cinema 作用域内重新接管（选择器特异性高于 788/814 两处基线）---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-layout.is-chat {
+  --director-page: #0b0d12;
+  --director-canvas: #0e1016;
+  --director-surface: #12151c;
+  --director-surface-2: #171b24;
+  --director-inset: #0f1218;
+  --director-hover: #1a1e27;
+  --director-ink: #f2f4f8;
+  --director-ink-2: #a8b0bd;
+  --director-ink-3: #6b7280;
+  --director-line: rgba(255, 255, 255, .07);
+  --director-line-strong: rgba(255, 255, 255, .14);
+  --director-field: #1a1e27;
+  --director-accent: #5b7cff;
+  --director-accent-ink: #8b6aff;
+  --director-accent-tint: rgba(91, 124, 255, .14);
+  --director-green: #3dbb72;
+  --director-green-tint: rgba(61, 187, 114, .14);
+  --director-orange: #f68f3c;
+  --director-orange-tint: rgba(246, 143, 60, .16);
+  --director-red: #ee5c61;
+  --director-red-tint: rgba(238, 92, 97, .16);
+  --director-shadow-card: 0 0 0 1px rgba(255, 255, 255, .06), 0 12px 32px rgba(0, 0, 0, .42);
+}
+
+/* ---- cinema 修正 2：含缩略图的任务行保持单行表头 + 整行宽缩略图 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview { flex-wrap: wrap; row-gap: 10px; }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview .director-task-preview { flex-basis: 100%; }
+
+/* ---- cinema 修正 3：抽屉与 body 挂载的弹层在 cinema 下保持深色 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-agent-drawer .ant-drawer-content {
+  --director-surface: #12151c;
+  --director-inset: #0f1218;
+  --director-hover: #1a1e27;
+  --director-ink: #f2f4f8;
+  --director-ink-2: #a8b0bd;
+  --director-ink-3: #6b7280;
+  --director-line: rgba(255, 255, 255, .07);
+}
+
+/* ---- cinema 修正 4：文档非编辑态容器 + 任务栏溢出与行方向 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-body {
+  background: var(--director-surface);
+  color: var(--director-ink);
+  border: 1px solid var(--director-line);
+  border-radius: 16px;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-title { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-lead { color: var(--director-ink-2); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-story { color: var(--director-ink); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-meta { color: var(--director-ink-3); }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rows.is-rail { overflow: hidden; }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rows.is-rail .director-task-rows-list { min-width: 0; }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview { flex-direction: row; }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview .director-task-preview {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 100%;
+}
+
+/* ---- v2 浅色主题增强层：同样的布局与增强（产物缩略图/渐变进度），
+   但走浅色设计语言——白卡、细边框、品牌蓝渐变、柔和投影。 ---- */
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-rows-fill {
+  background: linear-gradient(90deg, #4d6bfe 0%, #7b5bff 100%);
+  box-shadow: 0 0 10px rgba(77, 107, 254, .35);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-rail-meta em {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 20px;
+  font-style: normal;
+  font-weight: 650;
+  background: linear-gradient(90deg, #4d6bfe 0%, #7b5bff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview {
+  flex-direction: row;
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview .director-task-preview {
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-rows.is-rail { overflow: hidden; }
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, .12);
+  border-radius: 12px;
+  background: #0f1218;
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview video,
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, .92);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, .3) 100%);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview-play svg {
+  width: 30px;
+  height: 30px;
+  padding: 8px;
+  box-sizing: content-box;
+  border-radius: 50%;
+  background: rgba(10, 12, 18, .55);
+  border: 1px solid rgba(255, 255, 255, .25);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview-meta {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgba(255, 255, 255, .9);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .65);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview-meta b { font-weight: 500; }
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview-meta i { font-style: normal; }
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-regen {
+  border-radius: 50%;
+  border: 1px solid rgba(77, 107, 254, .4);
+  box-shadow: 0 0 10px rgba(77, 107, 254, .22);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-regen-icon { color: #4d6bfe; }

@@ -13,7 +13,8 @@ import {
   SCRIPT_USER_BUBBLE_LABEL, STAGE_CLARIFY_HINTS, STAGE_CLARIFY_TITLES,
 } from "../action-copy"
 import type { RecipeAgentStatus, RecipeProject } from "../recipe-model"
-import { flattenRecipeShots } from "../recipe-model"
+import { artStylePreviewUrl, flattenRecipeShots } from "../recipe-model"
+import type { TaskRowPreview } from "./DirectorTaskRows"
 import { RECIPE_AGENT_LABELS, RECIPE_AGENT_ORDER, RECIPE_AGENT_RUNNING_MESSAGES } from "../types"
 import DirectorTaskRows from "./DirectorTaskRows"
 import {
@@ -564,6 +565,35 @@ export default function DirectorScriptStreamPanel({
     setTailFollowing(false)
     footerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" })
   }, [terminal, historyMode])
+
+  /* 已完成环节的产出预览：分镜行取最新镜头的视频/首帧，画风行取画风封面。
+     只使用 recipe 数据模型里已有的字段，纯装饰用途，任何缺失都静默降级。
+     注意：必须位于下方 `if (phase !== "pipeline")` 提前 return 之前，保证 hooks 顺序稳定。 */
+  const taskPreviews = useMemo(() => {
+    const previews: Record<string, TaskRowPreview> = {}
+    if (!recipe) return previews
+    try {
+      const shots = flattenRecipeShots(recipe)
+      const withMedia = shots.filter((shot) => shot.outputVideoUrl || shot.firstFrameUrl || shot.stillUrl)
+      const latest = withMedia[withMedia.length - 1]
+      if (latest) {
+        const totalSeconds = Math.max(0, Math.round(latest.durationSec || 0))
+        previews.storyboard = {
+          src: (latest.outputVideoUrl || latest.firstFrameUrl || latest.stillUrl) as string,
+          kind: latest.outputVideoUrl ? "video" : "image",
+          durationLabel: `00:00 / 00:${String(totalSeconds).padStart(2, "0")}`,
+          ratioLabel: recipe.aspectRatio === "9:16" ? "9:16" : "16:9",
+        }
+      }
+      if (recipe.artStyle) {
+        const styleCover = artStylePreviewUrl(recipe.artStyle)
+        if (styleCover) previews.art_style = { src: styleCover, kind: "image" }
+      }
+    } catch {
+      /* 预览是装饰能力，数据异常时直接不展示 */
+    }
+    return previews
+  }, [recipe])
 
   // 分环节提问的标题与说明：script 方向沿用开场文案，其余环节按步骤展示。
   const clarifyTitle = clarifyAgent ? STAGE_CLARIFY_TITLES[clarifyAgent] || SCRIPT_CLARIFY_TITLE : SCRIPT_CLARIFY_TITLE
@@ -1178,6 +1208,7 @@ export default function DirectorScriptStreamPanel({
     onRetry: onRetryAgent,
     onRegenerate: onRegenerateAgent,
     onOpen: openAgentTranscript,
+    previews: taskPreviews,
   }
 
   // 桌面端：任务列表走左侧窄栏（只负责进度全景），右侧整块给直播时间线；

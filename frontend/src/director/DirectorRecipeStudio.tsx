@@ -2318,7 +2318,7 @@ export default function DirectorRecipeStudio({
   }
 
   return (
-    <div className="director-recipe-shell !h-0 !min-h-0 flex-1 overflow-hidden" data-director-view={activeView}>
+    <div className="director-recipe-shell !h-0 !min-h-0 flex-1 overflow-hidden" data-director-view={activeView} data-look={scriptRoomActive ? "cinema" : undefined}>
       {messageContextHolder}
 <Drawer title="任务活动" open={activityOpen} onClose={() => setActivityOpen(false)} size={isMobile ? "100%" : 480}>          <Collapse
             defaultActiveKey={["agents"]}
