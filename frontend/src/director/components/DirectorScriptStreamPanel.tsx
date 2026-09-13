@@ -717,27 +717,26 @@ export default function DirectorScriptStreamPanel({
                       </button>
                     )
                   })}
-                  {current.allowCustom !== false ? (
-                    <label className="director-approval-option is-custom">
-                      <span className={`director-approval-radio${customValue.trim() ? " is-on" : ""}`} aria-hidden>
-                        <span className="director-approval-radio-dot" />
-                      </span>
-                      <span className="director-approval-option-label is-custom-label">{SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}</span>
-                      <input
-                        value={customValue}
-                        disabled={terminal !== null}
-                        aria-label={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
-                        placeholder={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
-                        onChange={(event) => {
-                          setCustomValue(event.target.value)
-                          setSelectedOption(null)
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && customAnswer) answerCurrent(customAnswer)
-                        }}
-                      />
-                    </label>
-                  ) : null}
+                  {/* 产品规则：每道确认题最后必须保留自定义输入，不按 allowCustom 关闭。 */}
+                  <label className="director-approval-option is-custom">
+                    <span className={`director-approval-radio${customValue.trim() ? " is-on" : ""}`} aria-hidden>
+                      <span className="director-approval-radio-dot" />
+                    </span>
+                    <span className="director-approval-option-label is-custom-label">{SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}</span>
+                    <input
+                      value={customValue}
+                      disabled={terminal !== null}
+                      aria-label={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
+                      placeholder={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
+                      onChange={(event) => {
+                        setCustomValue(event.target.value)
+                        setSelectedOption(null)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && customAnswer) answerCurrent(customAnswer)
+                      }}
+                    />
+                  </label>
                 </div>
                 <div className="director-approval-footer">
                   <span className="director-approval-pager">

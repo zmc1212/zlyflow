@@ -290,6 +290,19 @@ class DirectorRecipeModelTests(unittest.TestCase):
         self.assertIn("Scene ledger", guide)
         self.assertIn("动作匹配切", guide)
 
+    def test_clarify_questions_always_allow_custom_input(self) -> None:
+        """产品规则：所有确认题（含分环节）必须保留自定义输入，归一化强制 allowCustom=true。"""
+        from backend.app.llm_minimax_skills import (
+            normalize_clarify_questions,
+            normalize_stage_clarify_questions,
+        )
+
+        raw = [{"id": "q1", "question": "基调？", "options": [{"label": "冷峻", "value": "冷峻"}], "allowCustom": False}]
+        for question in normalize_clarify_questions(raw)[:-1]:  # 末位是固定 beat_count 题
+            self.assertTrue(question["allowCustom"])
+        for question in normalize_stage_clarify_questions(raw):
+            self.assertTrue(question["allowCustom"])
+
     def test_timeline_payload_converts_shots_to_scenes(self) -> None:
         timeline = {
             "aspectRatio": "16:9",

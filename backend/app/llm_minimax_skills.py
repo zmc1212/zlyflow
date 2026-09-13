@@ -253,6 +253,7 @@ def build_clarify_questions_prompt() -> str:
         "你是短剧导演，正在为用户的创意做开机前的方向规划。根据用户的一句话创意，提出 2-3 个真正决定剧情走向的问题。",
         "只问会改变剧情走向的创作方向问题，并让各题覆盖不同维度，例如：结局倒向、故事基调、主角动机、冲突升级方式、叙事视角、时空设定。禁止重复维度，禁止问画面风格、配音、台词语言等执行细节（镜头数量除外，见下）。",
         "每个问题给 3-4 个具体、可直接采用的选项，其中一个标记 recommended=true（你认为最适合这个创意的方向）。选项 label 用简体中文短语，value 与 label 相同。",
+        "每题必须 allowCustom=true：选项之外用户可以自己输入，禁止用 allowCustom=false 关闭自定义。",
         "方向问题之后，必须在 questions 最后输出一道固定题：id 固定为 \"beat_count\"，question 固定为「" + BEAT_COUNT_QUESTION_TEXT + "」，why 用一句话结合该创意说明镜头数量如何决定成片时长与节奏，options 固定为：" + beat_option_items + "（value 必须用这些纯数字，不得改动），并根据创意体量给其中一个标 recommended=true；allowCustom 固定为 true，用户可自填其他数量。",
         "问题与选项必须贴合用户创意的具体内容，禁止空泛模板问题（beat_count 的 why 除外）。",
         '必须且仅输出一个合法 JSON 对象：{"questions":[{"id":"q1","question":"","why":"一句话说明这个问题如何影响剧情走向","options":[{"label":"","value":"","recommended":true}],"allowCustom":true},{"id":"beat_count","question":"' + BEAT_COUNT_QUESTION_TEXT + '","why":"","options":[{"label":"约 8 个镜头 · 1 分钟内","value":"8"},{"label":"约 16 个镜头 · 1-2 分钟","value":"16","recommended":true},{"label":"约 30 个镜头 · 3 分钟左右","value":"30"},{"label":"约 50 个镜头 · 完整短剧","value":"50"}],"allowCustom":true}]}',
@@ -312,7 +313,8 @@ def _normalize_clarify_item(item: Any, index: int) -> dict[str, Any] | None:
         "question": str(item.get("question")).strip(),
         "why": str(item.get("why") or "").strip(),
         "options": options[:4],
-        "allowCustom": item.get("allowCustom") is not False,
+        # 产品规则：每道确认题必须保留自定义输入，由后端强制开启，不采纳 LLM 的 allowCustom=false。
+        "allowCustom": True,
     }
 
 
@@ -389,6 +391,7 @@ def build_stage_clarify_prompt(agent_id: str, *, style_categories: str = "") -> 
         f"当前环节：{focus}",
         "问题必须贴合当前工程已有的剧本与设定内容，禁止空泛模板问题；禁止问其他环节负责的维度，禁止问与该环节产出无关的细节。",
         "每个问题给 3-4 个具体、可直接采用的选项，其中一个标记 recommended=true（你认为最适合这个故事的方向）。选项 label 用简体中文短语，value 与 label 相同。",
+        "每题必须 allowCustom=true：选项之外用户可以自己输入，禁止用 allowCustom=false 关闭自定义。",
     ]
     if agent_id == "art_style" and style_categories:
         lines.append(
