@@ -362,6 +362,7 @@ class LlmProviderService:
         on_progress: Any = None,
         on_stream: Any = None,
         clarifications: Any = None,
+        resume: bool | None = None,
     ) -> dict[str, Any]:
         from .director_agents import default_chat_fn, run_recipe_pipeline
 
@@ -376,6 +377,7 @@ class LlmProviderService:
             on_progress=on_progress,
             on_stream=on_stream,
             clarifications=clarifications,
+            resume=resume,
         )
 
     @staticmethod
@@ -510,6 +512,26 @@ class LlmProviderService:
     def polish_director_ref2va_prompt(self, draft_prompt: str) -> str:
         """Backward-compatible entry point for callers that explicitly request Ref2VA."""
         return self.polish_director_h3_prompt(draft_prompt, "REF2VA")
+
+    def translate_director_shot_prompt(self, text: str) -> str:
+        """Translate a Chinese shot body into an official-format English H3 shot body."""
+        from .llm_minimax_skills import build_h3_prompt_translate_prompt
+
+        source = str(text or "").strip()
+        if not source:
+            raise LlmError("没有可翻译的镜头正文")
+        client, model = self._chat_client()
+        return client.chat_completion(
+            [
+                {"role": "system", "content": build_h3_prompt_translate_prompt()},
+                {"role": "user", "content": f"Translate this shot body to English:\n\n{source}"},
+            ],
+            model=model,
+            temperature=0.2,
+            max_tokens=4096,
+            timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
+            stream=False,
+        ).strip()
 
     def fission_batch_scripts(
         self,

@@ -1491,6 +1491,8 @@ class JobStore:
         generation_status, generated_count, shot_count = self.director_generation_progress(payload)
         source_script = row["source_script"] or ""
         from .director_recipe import payload_kind
+        script = payload.get("script") if isinstance(payload.get("script"), dict) else {}
+        cover_url = script.get("coverUrl") or script.get("cover_url")
 
         record: dict[str, Any] = {
             "id": row["id"],
@@ -1501,6 +1503,7 @@ class JobStore:
             "style_vibe": row["style_vibe"],
             "requested_shot_count": row["requested_shot_count"],
             "has_source_script": bool(source_script.strip()),
+            "cover_url": cover_url if isinstance(cover_url, str) and cover_url.strip() else None,
             "kind": payload_kind(payload),
             "shot_count": shot_count,
             "generated_count": generated_count,

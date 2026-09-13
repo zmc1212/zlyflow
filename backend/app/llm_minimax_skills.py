@@ -608,6 +608,24 @@ def build_h3_ref2va_polish_prompt() -> str:
     return build_h3_final_prompt_polish_prompt("REF2VA")
 
 
+def build_h3_prompt_translate_prompt() -> str:
+    """Translate a Chinese shot body into an official-format English H3 shot body."""
+    return "\n\n".join([
+        "You are the MiniMax H3 shot-body translator. Translate the supplied Chinese shot body (镜头正文) "
+        "into one production-ready English H3 shot body.",
+        "Return ONLY the translated shot body. Do not return JSON, Markdown fences, analysis, or a preface.",
+        "Write descriptive prose in English per the official skill; preserve dialogue, lyrics, and visible scene text in their original language inside <d> tags with their [Chinese]/[English] language tag.",
+        "Never translate or transliterate character names: keep every name exactly as written in the source.",
+        "Preserve timing markers (At 00:00.000 ...), <Picture N> and <Subject N> labels, camera tokens "
+        "(scale/movement/angle/speed/lighting), and continuity phrases exactly as given.",
+        "Translate only; do not add shots, events, dialogue, props, or style words that are not in the source. "
+        "Keep it one independent clip starting from 00:00 matching the requested duration.",
+        "Portions of the source that are already English stay as-is wherever possible.",
+        load_h3_prompt_writing_skill(),
+        load_h3_prompt_writing_guide(mode="base"),
+    ])
+
+
 def build_h3_split_script_prompt(*, script_mode: str = "literal") -> str:
     mode_rules = ("Literal mode: preserve every original dialogue word-for-word, keep event order, and do not add dialogue, characters, props, or events. Only divide the supplied material into shots."
                   if script_mode == "literal" else

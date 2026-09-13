@@ -577,7 +577,7 @@ class DirectorProjectCreateRequest(BaseModel):
     requested_shot_count: int | None = Field(default=None, ge=1, le=24, description="拆分时请求的镜数")
     payload: dict[str, Any] = Field(
         default_factory=dict,
-        description="工程 payload。kind=director_recipe 为 Recipe（script/artStyle/characters/locations/scenes）；kind=batch_run 为批量；缺省 kind 为旧时间轴。不含 data URL。",
+        description="工程 payload。kind=director_recipe 为 Recipe（script 含可选 coverUrl、artStyle/characters/locations/scenes）；kind=batch_run 为批量；缺省 kind 为旧时间轴。不含 data URL。",
     )
     created_at: str | None = Field(default=None, max_length=64, description="迁库时保留的创建时间")
     updated_at: str | None = Field(default=None, max_length=64, description="迁库时保留的更新时间")
@@ -604,6 +604,7 @@ class DirectorProjectListItem(BaseModel):
     title: str
     summary: str
     has_source_script: bool
+    cover_url: str | None = Field(default=None, description="剧本封面图读取地址（可选）")
     kind: DirectorPayloadKind = "timeline"
     shot_count: int
     generated_count: int
@@ -724,6 +725,10 @@ class DirectorOperationCreateRequest(BaseModel):
     reset_following: bool = Field(
         default=False,
         description="plan_pipeline 专用：重新生成单个环节成功后，按流水线顺序清空其后环节的产物并重置为待生成；失败或取消不动下游。",
+    )
+    resume: bool = Field(
+        default=False,
+        description="plan_pipeline 专用：保留分镜环节已产出的镜头继续处理（跳过重新拆镜，直接补跑对白补全、时长分配与衔接校验）；无镜头时回落为完整重拆，其他环节忽略。",
     )
     shot_ids: list[str] = Field(default_factory=list)
     render_pass: Literal["preview", "final"] = "final"
@@ -881,6 +886,14 @@ class DirectorTtsRequest(BaseModel):
     shot_ids: list[str] = Field(default_factory=list)
     character_id: str | None = Field(default=None, max_length=80)
     text: str | None = Field(default=None, max_length=200, description="角色试听文案；缺省用角色名")
+
+
+class DirectorTranslatePromptRequest(BaseModel):
+    text: str | None = Field(
+        default=None,
+        max_length=8000,
+        description="要翻译的镜头正文；缺省读镜头上已保存的中文正文 promptTextZh",
+    )
 
 
 class DirectorMuxRequest(BaseModel):

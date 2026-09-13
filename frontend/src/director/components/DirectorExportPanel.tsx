@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Alert, Button, Collapse, ColorPicker, InputNumber, Select, Slider, Space, Switch, Tag, Typography, Upload } from "antd"
+import { Alert, Button, Collapse, ColorPicker, Input, InputNumber, Select, Slider, Space, Switch, Tag, Typography, Upload } from "antd"
 import { Clapperboard, Download, Film, Play } from "lucide-react"
 import { getDirectorExportCapabilities } from "../director-api"
 import { directorStatusColor, directorStatusLabel } from "../status-labels"
@@ -121,6 +121,26 @@ export default function DirectorExportPanel({
         ) : (
           <p className="director-output-hint">可选。成片会按音量与淡入淡出混入配乐。</p>
         )}
+        <label className="director-inspector-field">
+          <span>配乐方案</span>
+          <Input.TextArea
+            aria-label="配乐方案"
+            value={recipe.globalMusic}
+            placeholder="描述整支影片的音乐风格、情绪与节奏，例如：轻快的电子合成器配乐，副歌处渐强"
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            onChange={(event) => onChangeRecipe({ globalMusic: event.target.value })}
+          />
+        </label>
+        <label className="director-inspector-field">
+          <span>环境声方案</span>
+          <Input.TextArea
+            aria-label="环境声方案"
+            value={recipe.globalSoundscape}
+            placeholder="描述整体环境声底色，例如：清晨城市街道，远处车流与鸟鸣"
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            onChange={(event) => onChangeRecipe({ globalSoundscape: event.target.value })}
+          />
+        </label>
         <div className="director-export-grid">
           <label className="director-inspector-field">
             <span>配乐音量 {Math.round(audio.bgmVolume * 100)}%</span>

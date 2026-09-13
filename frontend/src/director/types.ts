@@ -703,7 +703,7 @@ export function recipeShotsToPlayer(shots: RecipeShot[]): DirectorShot[] {
   })
 }
 
-function newRecipeEntityId(prefix: string): string {
+export function newRecipeEntityId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 }
 

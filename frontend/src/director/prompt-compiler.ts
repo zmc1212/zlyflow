@@ -618,10 +618,10 @@ export function compileRecipeShotPreview(
   const hasFirst = Boolean(resolved.firstFrameUrl)
   const slots = recipeAssetsAsSlots(recipe, resolved, hasFirst ? 1 : 0)
   const prefix = (recipe.artStyle?.promptPrefix || "").trim()
+  // 与后端 recipe_shot_as_timeline_shot 保持一致：正文按 promptText → description 取第一个非空，不拼接中文卡片描述，
+  // 否则编译预览会显示实际不会提交的内容。
   let body = (resolved.promptText || resolved.description || "").trim()
   body = normalizeIndependentShotPrompt(body)
-  const action = resolved.description?.trim()
-  if (action && !body.includes(action)) body = `${action}\n${body}`.trim()
   const handoff = continuityBoundaryText(resolved)
   body = [handoff.opening, body, handoff.closing].filter(Boolean).map((part) => part.replace(/[. ]+$/, "")).join(". ")
   const visual = prefix ? `${prefix.replace(/[. ]+$/, "")}. ${body}`.trim() : body

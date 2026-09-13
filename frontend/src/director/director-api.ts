@@ -35,6 +35,7 @@ export type DirectorProjectListItem = {
   title: string
   summary: string
   has_source_script: boolean
+  cover_url?: string | null
   kind: DirectorPayloadKind
   shot_count: number
   generated_count: number
@@ -76,6 +77,7 @@ export type DirectorOperationResponse = {
     art_style_id?: string
     skip_research?: boolean
     reset_following?: boolean
+    resume?: boolean
     shot_ids?: string[]
     render_pass?: "preview" | "final"
     clarifications?: DirectorClarificationInput[]
@@ -302,6 +304,18 @@ export function updateDirectorProjectRecord(
   )
 }
 
+export function translateDirectorShotPrompt(
+  projectId: string,
+  shotId: string,
+  text: string | undefined,
+  csrfToken: string,
+) {
+  return requestJson<{ promptText: string }>(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/translate-prompt`,
+    jsonMutation(csrfToken, text === undefined ? {} : { text }),
+  )
+}
+
 export function createDirectorOperation(
   projectId: string,
   body: {
@@ -313,6 +327,7 @@ export function createDirectorOperation(
     art_style_id?: string
     skip_research?: boolean
     reset_following?: boolean
+    resume?: boolean
     shot_ids?: string[]
     render_pass?: "preview" | "final"
     polish_prompt?: boolean
@@ -483,6 +498,53 @@ export async function uploadDirectorShotFrame(
       ? await response.json().catch(() => null)
       : await response.text().catch(() => "")
     throw new ApiRequestError(response.status, payload, "上传分镜帧失败")
+  }
+  return response.json() as Promise<DirectorProjectResponse>
+}
+
+export async function uploadDirectorScriptCover(
+  projectId: string,
+  file: File,
+  expectedContentRevision: number | undefined,
+  csrfToken: string,
+) {
+  const form = new FormData()
+  form.set("file", file)
+  if (expectedContentRevision) {
+    form.set("expected_content_revision", String(expectedContentRevision))
+  }
+  const response = await fetch(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/cover`,
+    { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
+  )
+  if (response.status === 401) notifyUnauthorized()
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? ""
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => "")
+    throw new ApiRequestError(response.status, payload, "上传剧本封面失败")
+  }
+  return response.json() as Promise<DirectorProjectResponse>
+}
+
+export async function removeDirectorScriptCover(
+  projectId: string,
+  expectedContentRevision: number | undefined,
+  csrfToken: string,
+) {
+  const query = expectedContentRevision ? `?expected_content_revision=${encodeURIComponent(String(expectedContentRevision))}` : ""
+  const response = await fetch(
+    `/api/director/recipes/${encodeURIComponent(projectId)}/cover${query}`,
+    { method: "DELETE", headers: { "X-CSRF-Token": csrfToken } },
+  )
+  if (response.status === 401) notifyUnauthorized()
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? ""
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => "")
+    throw new ApiRequestError(response.status, payload, "移除剧本封面失败")
   }
   return response.json() as Promise<DirectorProjectResponse>
 }

@@ -1692,3 +1692,40 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：`reset_following` 默认 False，不传行为与旧版完全一致；澄清作用域新增可选字段，`parseClarifyScope` 兼容旧格式；无数据库迁移。
 - 验证：`python -m unittest backend.tests.test_director`（117 项，含新增 `ResetRecipeFollowingTests` 7 项）、`pnpm --dir frontend test`（51 项）、`pnpm --dir frontend build`、浏览器双主题/桌面+移动端自查。
 - 回滚方式：还原本次提交（前端隐藏入口 + 后端忽略新参数即等价回滚，无数据迁移）。
+
+## 2026-09-13 剧本封面上传与澄清自定义选项
+
+- 变更原因：导演台设计稿缺少“输入你的想法”自定义选项的明确表达，且剧本创意中的人物被误画成无数据来源的背景图；系统需要一个真实的剧本封面上传位置。
+- 当前基线：Recipe 的 `script` 支持可选 `coverUrl`；新增 `POST/GET/DELETE /api/director/recipes/{project_id}/cover`，图片按 `data/uploads/{user}/{project}/cover.*` 隔离保存，并通过 `cover_url` 回显到工程列表。导演台剧本空态和成稿文档使用 Ant Design `Upload` 提供上传、替换、移除；首页工程卡有封面时显示用户图片。无封面时保持纯 UI 空态，澄清卡逐行保留全部预置选项并额外包含“输入你的想法”可输入项。
+- 受影响文件：`backend/app/{director_recipe,director_jobs,main,models,storage,api_documentation}.py`、`frontend/src/director/{recipe-model,director-api,DirectorRecipeStudio,DirectorHome}.tsx`、`frontend/src/director/components/{DirectorScriptCoverPicker,DirectorScriptDocument}.tsx`、`frontend/src/director/{guided-flow.css}`、`frontend/src/index.css`、`docs/导演台设计图生图提示词.md`、`docs/导演台流程与界面结构.md`、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：旧 Recipe 没有 `coverUrl` 时继续正常打开和生成；无数据库迁移；内容版本校验沿用现有 409 冲突机制。回滚可移除新增入口、路由和封面文件，不影响镜头任务或既有媒体。
+- 验证命令：`python -m unittest discover -s backend/tests -p 'test_*.py'`、`pnpm --dir frontend build`；补充浅色/暗色桌面与 390px 移动宽度的真实工作台检查。
+- 回滚方式：还原本节涉及代码与文档，删除 `data/uploads/{user}/{project}/cover.*`（可选），旧工程数据无需迁移。
+
+## 2026-09-13 导演台「AI 生成 / 手动编辑」创作模式切换
+
+- 变更原因：导演台九阶段产物此前只有零散的手动编辑入口（如对话流底部的「编辑剧本」），没有一个总开关让用户在 agent 自动创作与手动创作之间显式切换；同时确认三处编辑缺口——配乐方案文本（`globalMusic`/`globalSoundscape`）无任何编辑 UI、角色/场景/道具无手动新建、创作视图分镜空态无「新建镜头」。
+- 当前基线：新增纯前端创作模式 `DirectorCreationMode = "agent" | "manual"`（`frontend/src/director/creation-mode.ts`），真源为 URL `?mode=manual`（可分享），缺省读工程级 localStorage（`director-creation-mode:<projectId>`），再缺省 AI 生成；切换双写 URL + localStorage，切阶段/刷新保持。顶栏与移动端头部常驻 antd Segmented 切换（`components/DirectorCreationModeSwitch.tsx`，AI 写作进行中禁用）。手动模式：剧本阶段与普通阶段同布局（显示左侧阶段导航与任务头，可直接跳转其他环节），主区渲染专属手动工作区（`DirectorScriptDocument` 默认编辑态，860px 居中栏，隐藏 Prompt Bar/澄清卡/继续生成/AI 记录流）；隐藏 AI 写作类入口（画风「生成创作方案」、「根据剧本生成分镜」、「按剧本重新生成分镜」菜单、任务活动抽屉「生成/重跑」、移动端 FAB 同步过滤），保留全部执行类操作（定妆/静帧/渲染/TTS/合成）；补齐缺口——`DirectorExportPanel` 配乐段新增「配乐方案/环境声方案」TextArea（两种模式可见），角色/场景/道具工具条新增「新增」按钮（`createEmptyRecipeCharacter/Location/Prop` + 导出 `newRecipeEntityId`，两种模式可见），分镜空态与 bin 工具条新增「新建镜头」（复用 `insertRecipeShotAfter`，空 scenes 自动建首场景）；「更多操作」菜单项为空时不渲染按钮。手动填写内容经既有 `PUT /api/director/projects/{id}` 整包保存，就绪度由 payload 派生，切回 AI 生成时引导链自动跳过已有内容环节，**后端零改动**。
+- 受影响文件：`frontend/src/director/{creation-mode.ts(新增),DirectorRecipeStudio.tsx,recipe-model.ts,types.ts,DirectorMobileChrome.tsx,guided-flow.css}`、`frontend/src/director/components/{DirectorCreationModeSwitch.tsx(新增),DirectorExportPanel.tsx}`、`docs/导演台流程与界面结构.md`（含新增参考截图 `22-script-manual.png`、`23-storyboard-manual-empty.png`，重拍 02-12/17/18/19）、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：无 API/数据库变更；默认 AI 生成模式行为与旧版完全一致（对话创作室复刻组件零样式改动）；localStorage 缺失或被禁用时回退 URL/默认值。
+- 验证命令：`pnpm --dir frontend build`、`python -m unittest discover -s backend/tests -p 'test_*.py'`（470 项；`test_director_stream.test_plan_clarify_emits_stream_and_done_with_questions` 为 dev 分支既有失败，与本变更无关，已用 git stash 基线复现确认）、真实工作台浏览器自查（桌面 1920/1440 + 移动 390 宽、浅色/暗色双主题、模式切换与刷新保持、手动编辑自动保存、AI 模式回归对照）。
+- 回滚方式：还原本次前端提交即可（无数据迁移、无后端变更；localStorage 键与 URL 参数残留无害）。
+
+
+## 2026-09-13 镜头正文“中文编辑、英文提交”（中文镜头正文 + 一键翻译）
+
+- 变更原因：镜头检查器此前只暴露英文 `promptText`（MiniMax H3 官方要求英文镜头正文），中文用户读写困难；且前端编译预览错误地把中文卡片描述 `description` 前置拼进正文（`prompt-compiler.ts` 623-624 行），与后端实际提交内容（`recipe_shot_as_timeline_shot` 只取 promptText，为空才回退 description）不一致，用户会误以为中文会被提交。
+- 当前基线：检查器文案 Tab 以「中文镜头正文」承载中文内容——即镜头既有 `description` 字段（AI 分镜生成后直接有值，同时仍是静帧提示与编译回退来源），原「描述（中文卡片）」编辑框移除，中英正文一一对应；`RecipeShot` 另有 `promptTextStale`（中文改过、英文待同步）、`promptTextManual`（用户手动改过英文，翻译需确认覆盖）与兼容字段 `promptTextZh`（已不再由界面写入，接口仍作输入回退）三个可选键，`_normalize_shot` 按需透传（缺省键不落盘，旧工程零迁移）。字段顺序：标题 → 中文镜头正文 → 英文镜头正文（提交用，可手动微调）+「翻译为英文正文」按钮与同步状态徽标（待同步 / 已手动调整 / 已同步；手动改过英文时翻译需 Popconfirm 确认覆盖）。新增同步接口 `POST /api/director/recipes/{project_id}/shots/{shot_id}/translate-prompt`（body 可选 `text`，缺省读镜头中文正文：`promptTextZh` → `description`，规范化产生的标题占位不算中文正文）：用已配置 LLM 按官方 `h3-prompt-writing` skill 翻译（对白/画面文字保留原语言、人名不翻译、保留时间码与 `<Picture n>`），只返回 `{promptText}` 不落库，由前端随既有 `PUT /api/director/projects/{id}` 保存链写回。LLM 未配置返回 503、缺中文正文 422、未知 shot 404。同时移除前端预览的中文描述前置拼接，编译预览与真实提交（润色前）一致；`handleRender` 对“英文正文为空但有中文正文”的镜头给出非阻断提醒（仍走 description 回退编译）。
+- 受影响文件：`backend/app/{director_recipe,llm_minimax_skills,llm_provider,main,models,api_documentation}.py`、`backend/tests/test_director.py`、`frontend/src/director/{recipe-model,director-api,prompt-compiler,DirectorRecipeStudio}.tsx/ts`、`frontend/src/director/components/{RecipeShotInspector,DirectorTimelineView}.tsx`、`frontend/src/index.css`、四份文档。
+- 兼容性：提交/编译/润色链路零改动（`promptText` 仍是唯一提交正文来源）；旧工程无新字段时翻译按钮禁用、原直接写英文的工作流不变；无数据库迁移。
+- 验证命令：`python -m unittest backend.tests.test_director.DirectorTranslatePromptEndpointTests backend.tests.test_director.DirectorRecipeModelTests`、`python -m unittest discover -s backend/tests -p 'test_*.py'`（475 通过 1 失败；失败项 `test_director_stream.test_plan_clarify_emits_stream_and_done_with_questions` 为 dev 分支既有失败，git stash 基线复现确认）、`npx tsc --noEmit` 与 `npm run build`（frontend，54 项前端单测全过）。
+- 回滚方式：还原本次提交即可；新字段为可选键，存量数据无需迁移。参考截图 `11/12/19` 因检查器新增字段待按附录重拍。
+
+## 2026-09-13 分镜失败「重试」续跑（保留已产出镜头，不重头拆镜）
+
+- 变更原因：分镜 Agent 先写镜头再做对白补全、按秒时长分配与衔接校验，后续步骤的 LLM 失败会把整个环节标记失败，但已产出的镜头仍在工程里；此时完成卡只有「继续生成：下一环节」，用户想修分镜只能从任务栏失败 pill「重跑」——而那是整环节重拆，会替换全部镜头，与“只补完失败部分”的直觉相悖。
+- 当前基线：`plan_pipeline` 请求新增可选 `resume: bool`（`DirectorOperationCreateRequest`，默认 False）→ `DirectorOperationService._run_plan_pipeline` → `run_director_recipe` → `run_recipe_pipeline` → `run_agent` 透传。分镜 Agent 在 `resume=True` 且工程已有镜头时跳过「读剧本拆镜」与 `_apply_storyboard`（不覆盖 `scenes`），直接补跑 `_normalize_recipe_dialogue_fields` → 对白覆盖率检查/剧本对白回填 → 按秒 Timing Pass → 衔接校验与因果修复 → completed（运行消息「保留已有 N 个镜头，继续完成对白与衔接处理」）；`resume=True` 但无镜头时回落为完整重拆，非分镜环节忽略该标记。前端：完成卡（`DirectorCompletionCard`）在有失败环节时渲染「重试<环节名>」按钮（title「保留已产出结果继续这一步，不重头生成。」），点击经 `handleRetryFailedAgent` 分派——分镜走新增 `handleResumeStoryboard`（`agents:["storyboard"]` + `resume:true` + `guided:true`，成功后引导链自动衔接下一环节；无镜头回落 `handleGenerateStoryboard`），其余环节仍走 `handleRerun`；任务栏失败 pill（`onRetryAgent`）与 `handleRerun` 的分镜分支统一改走同一续跑入口，重试语义全局一致。
+- 受影响文件：`backend/app/{models,director_operations,llm_provider,director_agents}.py`、`backend/tests/test_director.py`（新增续跑 2 项）、`frontend/src/director/{action-copy.ts,director-api.ts,DirectorRecipeStudio.tsx}`、`frontend/src/director/components/DirectorCompletionCard.tsx`、`frontend/src/director/guided-flow.css`、四份文档。
+- 兼容性：`resume` 默认 False，不传行为与旧版完全一致；无数据库迁移；旧工程失败态直接可续跑。全量重拆入口不变（分镜设计页「按剧本重新生成分镜」仍走 `handleGenerateStoryboard` 并保留替换确认弹窗）。
+- 验证命令：`python -m unittest backend.tests.test_director`（130 项通过）、`pnpm --dir frontend build`；浏览器自查完成卡重试按钮双主题渲染。
+- 回滚方式：还原本次提交即可（前端不传 `resume`、后端忽略该字段即等价回滚，无数据迁移）。

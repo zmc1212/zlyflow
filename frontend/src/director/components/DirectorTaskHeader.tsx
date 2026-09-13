@@ -1,5 +1,6 @@
 import { Button, Select, Space, Tag, Tooltip } from "antd"
 import {
+  ArrowRight,
   Clapperboard,
   FileText,
   MapPinned,
@@ -119,16 +120,28 @@ export default function DirectorTaskHeader({
           <p>{summary || detail.description}</p>
         </div>
         <div className="director-task-state">
-          <Tag color={RECIPE_READINESS_TAG_COLOR[state.level]}>
-            {RECIPE_READINESS_LABELS[state.level]}
-          </Tag>
-          {state.total > 1 ? <span>{state.done} / {state.total}</span> : null}
+          <div className="director-task-state-line">
+            <Tag color={RECIPE_READINESS_TAG_COLOR[state.level]}>
+              {RECIPE_READINESS_LABELS[state.level]}
+            </Tag>
+            {state.total > 1 ? <span>{state.done} / {state.total}</span> : null}
+          </div>
+          {/* 下一步引导（2026-09-13 重设计）：固定显示在标题卡状态区，全部阶段统一；
+              主按钮行的「前往xxx」纯跳转已由 jump 标记移除，不再与本引导重复。
+              成片是流程终点（next 回环到镜头制作），不显示。 */}
+          {nextStage && activeStage !== "export" ? (
+            <Button type="link" size="small" className="director-next-step" onClick={() => onSelect(nextStage)}>
+              下一步：{RECIPE_STAGE_LABELS[nextStage]}
+              <ArrowRight size={13} />
+            </Button>
+          ) : null}
         </div>
       </section>
-      <Space wrap className="director-stage-actions">
-        {primary ? <Button type="primary" loading={primary.loading} disabled={primary.disabled} onClick={primary.onClick}>{primary.label}</Button> : null}
-        {nextStage && !primary?.label.startsWith("前往") && !primary?.label.startsWith("查看") ? <Button onClick={() => onSelect(nextStage)}>继续：{RECIPE_STAGE_LABELS[nextStage]}</Button> : null}
-      </Space>
+      {primary ? (
+        <Space wrap className="director-stage-actions">
+          <Button type="primary" loading={primary.loading} disabled={primary.disabled} onClick={primary.onClick}>{primary.label}</Button>
+        </Space>
+      ) : null}
     </>
   )
 }

@@ -112,6 +112,20 @@ class DirectorArtStyleCatalogTests(unittest.TestCase):
 
 
 class DirectorRecipeModelTests(unittest.TestCase):
+    def test_script_cover_url_is_optional_and_persistable(self) -> None:
+        recipe = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "script": {
+                "title": "雨夜",
+                "coverUrl": "/api/director/recipes/p1/cover",
+            },
+        })
+        self.assertEqual(recipe["script"]["coverUrl"], "/api/director/recipes/p1/cover")
+        self.assertNotIn("coverUrl", normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "script": {"coverUrl": "data:image/png;base64,abc"},
+        })["script"])
+
     def test_structured_assets_keep_identity_spec_and_stable_shot_bindings(self) -> None:
         payload = normalize_recipe_payload({
             "kind": PAYLOAD_KIND_RECIPE,
@@ -541,6 +555,32 @@ class DirectorRecipeModelTests(unittest.TestCase):
         })
         self.assertIsNone(dropped["scenes"][0]["shots"][0]["firstFrameUrl"])
 
+    def test_normalize_shot_keeps_chinese_prompt_body_fields(self) -> None:
+        payload = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "scenes": [{
+                "shots": [{
+                    "id": "shot-zh",
+                    "title": "开场",
+                    "promptTextZh": "小明在雨夜的街头站定，掏出手机收到邀请。",
+                    "promptTextStale": True,
+                    "promptTextManual": False,
+                }],
+            }],
+        })
+        shot = payload["scenes"][0]["shots"][0]
+        self.assertEqual(shot["promptTextZh"], "小明在雨夜的街头站定，掏出手机收到邀请。")
+        self.assertTrue(shot["promptTextStale"])
+        self.assertFalse(shot["promptTextManual"])
+        legacy = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "scenes": [{"shots": [{"id": "shot-legacy", "title": "旧数据"}]}],
+        })
+        legacy_shot = legacy["scenes"][0]["shots"][0]
+        self.assertNotIn("promptTextZh", legacy_shot)
+        self.assertNotIn("promptTextStale", legacy_shot)
+        self.assertNotIn("promptTextManual", legacy_shot)
+
     def test_normalize_character_and_location_keep_library_asset_id(self) -> None:
         payload = normalize_recipe_payload({
             "kind": PAYLOAD_KIND_RECIPE,
@@ -854,6 +894,154 @@ class DirectorApiEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["applied"], 1)
         repair.assert_called_once_with({"kind": "director_recipe"}, from_shot=1, to_shot=2)
+
+
+class DirectorTranslatePromptEndpointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "test_translate_prompt.db"
+        self.credential_key = Fernet.generate_key().decode("ascii")
+        self.auth_store = AuthStore(self.db_path)
+        self.job_store = JobStore(self.db_path)
+        self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
+
+        app.state.auth_store = self.auth_store
+        app.state.store = self.job_store
+        app.state.llm_provider = self.llm_provider
+
+        self.user = self.auth_store.create_user(
+            "translate_user", "翻译", "password123456", UserRole.EMPLOYEE, must_change_password=False,
+        )
+        self.token, self.csrf_token = self.auth_store.create_session(self.user["id"])
+        self.client = TestClient(app)
+        self.client.cookies.set("zly_ai_video_studio_session", self.token)
+        self.headers = {"X-CSRF-Token": csrf_token(self.token)}
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _create_recipe_project(self, shot: dict) -> str:
+        recipe = normalize_recipe_payload({
+            "kind": PAYLOAD_KIND_RECIPE,
+            "script": {"title": "雨夜成片", "summary": "侦探", "fullStory": "雨巷"},
+            "artStyle": {"id": "as_1001"},
+            "scenes": [{"title": "巷口", "shots": [shot]}],
+        })
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self.headers,
+            json={"title": "雨夜成片", "payload": recipe},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        return created.json()["id"]
+
+    @staticmethod
+    def _zh_shot() -> dict:
+        return {
+            "id": "shot-zh",
+            "title": "开场",
+            "description": "小明在雨夜的街头站定，掏出手机收到邀请。",
+            "promptTextZh": "小明在雨夜的街头站定，掏出手机收到邀请。",
+            "promptTextStale": True,
+            "durationSec": 5,
+        }
+
+    def test_translate_prompt_endpoint_success_uses_saved_chinese_body(self) -> None:
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com",
+            "model": "deepseek-v3",
+            "api_key": "sk-dummy",
+        })
+        translated = "A medium shot in a rainy night street. At 00:00.000, Xiaoming stands under rain."
+        with patch.object(self.llm_provider, "translate_director_shot_prompt", return_value=translated) as translate:
+            project_id = self._create_recipe_project(self._zh_shot())
+            response = self.client.post(
+                f"/api/director/recipes/{project_id}/shots/shot-zh/translate-prompt",
+                headers=self.headers,
+                json={},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["promptText"], translated)
+        translate.assert_called_once_with("小明在雨夜的街头站定，掏出手机收到邀请。")
+
+    def test_translate_prompt_endpoint_prefers_request_text(self) -> None:
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com",
+            "model": "deepseek-v3",
+            "api_key": "sk-dummy",
+        })
+        with patch.object(self.llm_provider, "translate_director_shot_prompt", return_value="English body") as translate:
+            project_id = self._create_recipe_project(self._zh_shot())
+            response = self.client.post(
+                f"/api/director/recipes/{project_id}/shots/shot-zh/translate-prompt",
+                headers=self.headers,
+                json={"text": "镜头缓缓推近，主角抬头。"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        translate.assert_called_once_with("镜头缓缓推近，主角抬头。")
+
+    def test_translate_prompt_endpoint_falls_back_to_description(self) -> None:
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com",
+            "model": "deepseek-v3",
+            "api_key": "sk-dummy",
+        })
+        with patch.object(self.llm_provider, "translate_director_shot_prompt", return_value="English body") as translate:
+            project_id = self._create_recipe_project({
+                "id": "shot-desc-only",
+                "title": "开场",
+                "description": "小明在雨夜的街头站定，掏出手机收到邀请。",
+                "durationSec": 5,
+            })
+            response = self.client.post(
+                f"/api/director/recipes/{project_id}/shots/shot-desc-only/translate-prompt",
+                headers=self.headers,
+                json={},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        translate.assert_called_once_with("小明在雨夜的街头站定，掏出手机收到邀请。")
+
+    def test_translate_prompt_endpoint_unavailable_when_llm_disabled(self) -> None:
+        project_id = self._create_recipe_project(self._zh_shot())
+        response = self.client.post(
+            f"/api/director/recipes/{project_id}/shots/shot-zh/translate-prompt",
+            headers=self.headers,
+            json={},
+        )
+        self.assertEqual(response.status_code, 503)
+
+    def test_translate_prompt_endpoint_requires_chinese_body(self) -> None:
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com",
+            "model": "deepseek-v3",
+            "api_key": "sk-dummy",
+        })
+        project_id = self._create_recipe_project({"id": "shot-no-zh", "title": "开场", "durationSec": 5})
+        response = self.client.post(
+            f"/api/director/recipes/{project_id}/shots/shot-no-zh/translate-prompt",
+            headers=self.headers,
+            json={},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_translate_prompt_endpoint_returns_404_for_unknown_shot(self) -> None:
+        self.llm_provider.update({
+            "enabled": True,
+            "base_url": "https://api.example.com",
+            "model": "deepseek-v3",
+            "api_key": "sk-dummy",
+        })
+        project_id = self._create_recipe_project(self._zh_shot())
+        response = self.client.post(
+            f"/api/director/recipes/{project_id}/shots/shot-missing/translate-prompt",
+            headers=self.headers,
+            json={},
+        )
+        self.assertEqual(response.status_code, 404)
 
 
 class DirectorCompilerTests(unittest.TestCase):
@@ -1511,6 +1699,56 @@ class DirectorProjectApiTests(unittest.TestCase):
         self.assertEqual(deleted.status_code, 204)
         missing = self.client.get(f"/api/director/projects/{project_id}")
         self.assertEqual(missing.status_code, 404)
+
+    def test_recipe_cover_upload_read_remove_and_owner_isolation(self) -> None:
+        from types import SimpleNamespace
+        from backend.app import director_jobs as director_jobs_module
+        from backend.app import main as main_module
+
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={
+                "title": "封面测试",
+                "payload": {"kind": PAYLOAD_KIND_RECIPE, "script": {"title": "雨夜"}},
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        project_id = created.json()["id"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_settings = SimpleNamespace(staging_dir=root / "staging", uploads_dir=root / "uploads")
+            with patch.object(main_module, "settings", fake_settings), patch.object(director_jobs_module, "settings", fake_settings):
+                uploaded = self.client.post(
+                    f"/api/director/recipes/{project_id}/cover",
+                    headers=self._headers(),
+                    files={"file": ("cover.jpg", b"\xff\xd8fake-cover", "image/jpeg")},
+                )
+                self.assertEqual(uploaded.status_code, 200, uploaded.text)
+                body = uploaded.json()
+                self.assertEqual(body["payload"]["script"]["coverUrl"], f"/api/director/recipes/{project_id}/cover")
+                self.assertEqual(body["cover_url"], f"/api/director/recipes/{project_id}/cover")
+                downloaded = self.client.get(f"/api/director/recipes/{project_id}/cover")
+                self.assertEqual(downloaded.status_code, 200)
+                self.assertEqual(downloaded.content, b"\xff\xd8fake-cover")
+
+                other_client = TestClient(app)
+                other_client.cookies.set("zly_ai_video_studio_session", self.other_token)
+                self.assertEqual(other_client.get(f"/api/director/recipes/{project_id}/cover").status_code, 404)
+
+                copied = self.client.post(f"/api/director/projects/{project_id}/copy", headers=self._headers())
+                self.assertEqual(copied.status_code, 201, copied.text)
+                copied_id = copied.json()["id"]
+                self.assertEqual(copied.json()["payload"]["script"]["coverUrl"], f"/api/director/recipes/{copied_id}/cover")
+                self.assertEqual(self.client.get(f"/api/director/recipes/{copied_id}/cover").content, b"\xff\xd8fake-cover")
+
+                removed = self.client.delete(
+                    f"/api/director/recipes/{project_id}/cover?expected_content_revision={body['content_revision']}",
+                    headers=self._headers(),
+                )
+                self.assertEqual(removed.status_code, 200, removed.text)
+                self.assertIsNone(removed.json()["cover_url"])
+                self.assertEqual(self.client.get(f"/api/director/recipes/{project_id}/cover").status_code, 404)
 
     def test_replication_project_crud_and_kind_roundtrip(self) -> None:
         payload = {
@@ -2255,6 +2493,178 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertEqual(shots[0]["transitionNote"], "动作匹配切，雨声不断。")
         self.assertEqual(shots[1]["continuityIn"], "Kai stands mid-frame facing screen right as rain continues.")
         self.assertEqual(shots[1]["dialogue"], "别动。")
+
+    def test_storyboard_resume_keeps_existing_shots_without_resplit(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        def first_chat(messages: list[dict]) -> str:
+            system = messages[0]["content"]
+            if "You are the Shot Timing Editor" in system or "You are the continuity editor" in system:
+                return json.dumps({"scenes": []}, ensure_ascii=False)
+            return json.dumps({
+                "scenes": [{
+                    "title": "巷口",
+                    "locationName": "暗巷",
+                    "shots": [
+                        {
+                            "title": "进巷",
+                            "description": "侦探走进雨巷。",
+                            "promptText": "detective Kai enters the rainy alley",
+                            "dialogue": "",
+                            "characterNames": ["阿凯"],
+                            "locationName": "暗巷",
+                            "durationSec": 5,
+                        },
+                        {
+                            "title": "喝止",
+                            "description": "侦探喝止对方。",
+                            "promptText": "Kai says stop",
+                            "dialogue": "别动。",
+                            "characterNames": ["阿凯"],
+                            "locationName": "暗巷",
+                            "durationSec": 5,
+                        },
+                    ],
+                }],
+            }, ensure_ascii=False)
+
+        calls: list[str] = []
+
+        def resume_chat(messages: list[dict]) -> str:
+            system = messages[0]["content"]
+            calls.append(system)
+            if "You are the Shot Timing Editor" in system:
+                return json.dumps({
+                    "scenes": [{
+                        "title": "巷口",
+                        "locationName": "暗巷",
+                        "shots": [
+                            {
+                                "title": "进巷",
+                                "description": "侦探走进雨巷。",
+                                "promptText": "[Shot 1] At 00:00.000, detective Kai enters the rainy alley.",
+                                "dialogue": "",
+                                "characterNames": ["阿凯"],
+                                "locationName": "暗巷",
+                                "durationSec": 5,
+                                "timingNote": "动作镜保持 5 秒。",
+                            },
+                            {
+                                "title": "喝止",
+                                "description": "侦探喝止对方。",
+                                "promptText": "[Shot 1] At 00:00.000, Kai raises a hand. At 00:01.200 he says <d>[Chinese] 别动。</d>",
+                                "dialogue": "别动。",
+                                "characterNames": ["阿凯"],
+                                "locationName": "暗巷",
+                                "durationSec": 4,
+                                "timingNote": "短对白压到 4 秒。",
+                            },
+                        ],
+                    }],
+                }, ensure_ascii=False)
+            if "You are the continuity editor" in system:
+                return json.dumps({
+                    "scenes": [{
+                        "title": "巷口",
+                        "locationName": "暗巷",
+                        "shots": [
+                            {
+                                "shotNumber": 1,
+                                "title": "进巷",
+                                "description": "侦探走进雨巷。",
+                                "promptText": "[Shot 1] At 00:00.000, detective Kai enters the rainy alley.",
+                                "dialogue": "",
+                                "characterNames": ["阿凯"],
+                                "locationName": "暗巷",
+                                "durationSec": 5,
+                                "continuityOut": "Kai stands mid-frame facing screen right as rain continues.",
+                                "transitionNote": "动作匹配切，雨声不断。",
+                            },
+                            {
+                                "shotNumber": 2,
+                                "title": "喝止",
+                                "description": "侦探喝止对方。",
+                                "promptText": "[Shot 1] At 00:00.000, Kai raises a hand. At 00:01.200 he says <d>[Chinese] 别动。</d>",
+                                "dialogue": "别动。",
+                                "characterNames": ["阿凯"],
+                                "locationName": "暗巷",
+                                "durationSec": 4,
+                                "continuityIn": "Kai stands mid-frame facing screen right as rain continues.",
+                                "continuityOut": "Kai holds a ready stance under neon light.",
+                                "transitionNote": "视线匹配切。",
+                            },
+                        ],
+                    }],
+                }, ensure_ascii=False)
+            return json.dumps({"scenes": []}, ensure_ascii=False)
+
+        first = run_agent(
+            "storyboard",
+            {"kind": "director_recipe", "script": {"title": "雨夜", "summary": "侦探", "fullStory": "侦探走进雨巷。阿凯：别动。"}},
+            goal="雨夜里侦探穿过暗巷。",
+            chat_fn=first_chat,
+        )
+        resumed = run_agent(
+            "storyboard",
+            first,
+            goal="雨夜里侦探穿过暗巷。",
+            chat_fn=resume_chat,
+            resume=True,
+        )
+        self.assertEqual(len(first["scenes"][0]["shots"]), 2)
+        self.assertFalse(any("h3-prompt-writing" in item for item in calls), "续跑不应重新拆镜")
+        self.assertTrue(any("You are the Shot Timing Editor" in item for item in calls))
+        self.assertTrue(any("You are the continuity editor" in item for item in calls))
+        shots = resumed["scenes"][0]["shots"]
+        self.assertEqual(len(shots), 2)
+        self.assertEqual(shots[1]["dialogue"], "别动。")
+        status = next(item for item in resumed["agentStatus"] if item["id"] == "storyboard")
+        self.assertEqual(status["status"], "completed")
+
+    def test_storyboard_resume_without_shots_falls_back_to_full_split(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        calls: list[str] = []
+
+        def chat(messages: list[dict]) -> str:
+            system = messages[0]["content"]
+            calls.append(system)
+            return json.dumps({
+                "scenes": [{
+                    "title": "巷口",
+                    "locationName": "暗巷",
+                    "shots": [
+                        {
+                            "title": "进巷",
+                            "description": "侦探走进雨巷。",
+                            "promptText": "detective Kai enters the rainy alley",
+                            "dialogue": "",
+                            "characterNames": ["阿凯"],
+                            "locationName": "暗巷",
+                            "durationSec": 5,
+                        },
+                        {
+                            "title": "喝止",
+                            "description": "侦探喝止对方。",
+                            "promptText": "Kai says stop",
+                            "dialogue": "别动。",
+                            "characterNames": ["阿凯"],
+                            "locationName": "暗巷",
+                            "durationSec": 5,
+                        },
+                    ],
+                }],
+            }, ensure_ascii=False)
+
+        recipe = run_agent(
+            "storyboard",
+            {"kind": "director_recipe", "script": {"title": "雨夜", "summary": "侦探", "fullStory": "侦探走进雨巷。阿凯：别动。"}},
+            goal="雨夜里侦探穿过暗巷。",
+            chat_fn=chat,
+            resume=True,
+        )
+        self.assertTrue(any("h3-prompt-writing" in item for item in calls), "没有已产出镜头时应回落为完整重拆")
+        self.assertEqual(len(recipe["scenes"][0]["shots"]), 2)
 
     def test_continuity_windows_overlap_adjacent_boundary(self) -> None:
         from backend.app.director_agents import _overlapping_continuity_windows

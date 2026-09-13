@@ -79,6 +79,7 @@ export default function DirectorTimelineView({
   onCancelSelected,
   onCancelShot,
   onContinuityRepair,
+  onTranslatePrompt,
   continuityRepairing = false,
 }: {
   recipe: RecipeProject
@@ -116,6 +117,7 @@ export default function DirectorTimelineView({
   onCancelSelected: () => void
   onCancelShot: (shotId: string) => void
   onContinuityRepair: (fromShot: number, toShot: number) => Promise<void>
+  onTranslatePrompt?: (shotId: string, text?: string) => Promise<string>
   continuityRepairing?: boolean
 }) {
   const [messageApi, messageContextHolder] = message.useMessage()
@@ -546,6 +548,7 @@ export default function DirectorTimelineView({
             onGenerateTts={() => onGenerateTts(selectedShot.id)}
             onCancelShot={() => onCancelShot(selectedShot.id)}
             onContinuityRepair={onContinuityRepair}
+            onTranslatePrompt={onTranslatePrompt}
             continuityRepairing={continuityRepairing}
             ttsBusy={ttsBusy}
           />

@@ -605,7 +605,7 @@ export default function DirectorScriptStreamPanel({
       ? SCRIPT_HISTORY_TITLE
       : phase === "pipeline" ? SCRIPT_STREAM_TITLE : clarifyTitle
   const headDetail = terminal
-    ? (terminal.message || (terminal.kind === "done" ? "成稿已就绪，可以在下方查看与编辑。" : "已停止本次创作。"))
+    ? (terminal.message || (terminal.kind === "done" ? "成稿已就绪，可在下方记录中查看；编辑请切换「手动编辑」。" : "已停止本次创作。"))
     : phase === "clarify-stream"
       ? clarifyAgent ? "正在结合剧本构思这一步的确认问题…" : "正在根据你的创意构思创作方向问题…"
       : phase === "clarify-ask"
@@ -719,10 +719,14 @@ export default function DirectorScriptStreamPanel({
                   })}
                   {current.allowCustom !== false ? (
                     <label className="director-approval-option is-custom">
-                      <span className="director-approval-radio" aria-hidden />
+                      <span className={`director-approval-radio${customValue.trim() ? " is-on" : ""}`} aria-hidden>
+                        <span className="director-approval-radio-dot" />
+                      </span>
+                      <span className="director-approval-option-label is-custom-label">{SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}</span>
                       <input
                         value={customValue}
                         disabled={terminal !== null}
+                        aria-label={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
                         placeholder={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
                         onChange={(event) => {
                           setCustomValue(event.target.value)

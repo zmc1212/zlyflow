@@ -74,7 +74,9 @@ export default function DirectorHome({ items, loading, onCreateDirector, onCreat
           const KindIcon = kind.Icon
           return <article key={item.id} className="dh-project">
             <button type="button" className="dh-project-main" onClick={() => onOpen(item)} aria-label={`打开工程 ${item.title}`}>
-              <span className="dh-project-cover" data-kind={item.kind}><KindIcon size={22} /></span>
+              <span className="dh-project-cover" data-kind={item.kind}>
+                {item.cover_url ? <img src={item.cover_url} alt="" /> : <KindIcon size={22} />}
+              </span>
               <span className="dh-project-info">
                 <strong>{item.title}</strong>
                 <span className="dh-project-summary">{item.summary || "暂无梗概"}</span>

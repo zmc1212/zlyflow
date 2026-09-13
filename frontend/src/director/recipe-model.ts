@@ -67,6 +67,8 @@ export interface RecipeScript {
   title: string
   summary: string
   fullStory: string
+  /** Optional user-provided script cover served by the director project API. */
+  coverUrl?: string | null
 }
 
 export interface RecipeArtStyle {
@@ -130,6 +132,12 @@ export interface RecipeShot {
   title: string
   description: string
   promptText?: string
+  /** 兼容字段：界面中文正文已改由 description 承载；历史数据与翻译接口输入回退仍读取。 */
+  promptTextZh?: string
+  /** 中文正文已改动、英文正文待重新翻译。 */
+  promptTextStale?: boolean
+  /** 用户手动调整过英文正文，翻译时不自动覆盖。 */
+  promptTextManual?: boolean
   dialogue: string
   dialogueLines?: Array<{ speaker: string; text: string }>
   characterNames: string[]
@@ -354,6 +362,17 @@ export function createEmptyRecipeLocation(overrides: Partial<RecipeLocation> = {
     description: "",
     promptText: "",
     plate: emptyRecipeAssetRendition(),
+    ...overrides,
+  })
+}
+
+export function createEmptyRecipeProp(overrides: Partial<RecipeProp> = {}): RecipeProp {
+  return ensureRecipeProp({
+    id: "prop-1",
+    name: "道具",
+    description: "",
+    promptText: "",
+    turnaround: emptyRecipeAssetRendition(),
     ...overrides,
   })
 }

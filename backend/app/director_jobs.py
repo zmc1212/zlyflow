@@ -963,6 +963,88 @@ def save_recipe_shot_frame(
     return recipe
 
 
+def recipe_script_cover_file(
+    *,
+    owner_user_id: str,
+    project_id: str,
+    suffix: str = ".png",
+) -> Path:
+    safe_suffix = suffix if suffix.startswith(".") else f".{suffix}"
+    return settings.uploads_dir / owner_user_id / project_id / f"cover{safe_suffix}"
+
+
+def find_recipe_script_cover_file(*, owner_user_id: str, project_id: str) -> Path | None:
+    directory = settings.uploads_dir / owner_user_id / project_id
+    if not directory.is_dir():
+        return None
+    matches = sorted(path for path in directory.glob("cover.*") if path.is_file())
+    return matches[0] if matches else None
+
+
+def save_recipe_script_cover(
+    recipe: dict[str, Any],
+    *,
+    owner_user_id: str,
+    project_id: str,
+    source: Path,
+) -> dict[str, Any]:
+    normalized = normalize_recipe_payload(recipe)
+    suffix = source.suffix.lower() or ".png"
+    dest = recipe_script_cover_file(
+        owner_user_id=owner_user_id,
+        project_id=project_id,
+        suffix=suffix,
+    )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    pending = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        shutil.copy2(source, pending)
+        pending.replace(dest)
+    finally:
+        pending.unlink(missing_ok=True)
+    for leftover in dest.parent.glob("cover.*"):
+        if leftover != dest:
+            leftover.unlink(missing_ok=True)
+    normalized["script"]["coverUrl"] = f"/api/director/recipes/{project_id}/cover"
+    return normalized
+
+
+def remove_recipe_script_cover(
+    recipe: dict[str, Any],
+    *,
+    owner_user_id: str,
+    project_id: str,
+) -> dict[str, Any]:
+    normalized = normalize_recipe_payload(recipe)
+    directory = settings.uploads_dir / owner_user_id / project_id
+    if directory.is_dir():
+        for path in directory.glob("cover.*"):
+            if path.is_file():
+                path.unlink(missing_ok=True)
+    normalized["script"].pop("coverUrl", None)
+    return normalized
+
+
+def copy_recipe_script_cover(
+    *,
+    source_owner_user_id: str,
+    source_project_id: str,
+    target_owner_user_id: str,
+    target_project_id: str,
+) -> bool:
+    source = find_recipe_script_cover_file(owner_user_id=source_owner_user_id, project_id=source_project_id)
+    if source is None or not source.is_file():
+        return False
+    dest = recipe_script_cover_file(
+        owner_user_id=target_owner_user_id,
+        project_id=target_project_id,
+        suffix=source.suffix,
+    )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, dest)
+    return True
+
+
 def _plate_file_for_slot(
     store: JobStore,
     slot: dict[str, Any],

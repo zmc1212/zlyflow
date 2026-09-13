@@ -1643,6 +1643,7 @@ def run_agent(
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     on_stream: Callable[[dict[str, Any]], None] | None = None,
     clarifications: Any = None,
+    resume: bool | None = None,
 ) -> dict[str, Any]:
     if agent_id not in AGENT_IDS:
         raise ValueError(f"未知 Agent：{agent_id}")
@@ -1707,11 +1708,13 @@ def run_agent(
         if agent_id == "storyboard":
             script = recipe.get("script") or {}
             full_story = script.get("fullStory") or script.get("content") or goal
+            # 续跑：上次失败前已拆出镜头时保留它们，跳过重拆，直接补跑对白、时长与衔接处理。
+            resumed_shots = _recipe_shot_count(recipe) if resume else 0
             scene_texts = _split_story_into_scene_texts(full_story)
             all_scenes = []
             tracker = _make_agent_tracker(agent_id, on_stream)
 
-            if chat_fn:
+            if chat_fn and not resumed_shots:
                 previous_chunk = getattr(chat_fn, "on_chunk", None)
 
                 try:
@@ -1788,8 +1791,13 @@ def run_agent(
                     if hasattr(chat_fn, "on_chunk"):
                         chat_fn.on_chunk = previous_chunk
             
-            _apply_storyboard(recipe, {"scenes": all_scenes}, goal)
-            _finish_agent_tracker(tracker, {"scenes": all_scenes})
+            if resumed_shots > 0:
+                set_agent_status(recipe, agent_id, "running", message=f"保留已有 {resumed_shots} 个镜头，继续完成对白与衔接处理")
+                try: emit()
+                except: pass
+            else:
+                _apply_storyboard(recipe, {"scenes": all_scenes}, goal)
+                _finish_agent_tracker(tracker, {"scenes": all_scenes})
             _normalize_recipe_dialogue_fields(recipe)
             if _recipe_shot_count(recipe) == 0:
                 recipe["scenes"] = []
@@ -1808,13 +1816,17 @@ def run_agent(
                     )
                     emit()
             if chat_fn and _recipe_shot_count(recipe) > 0:
-                chunk_size = 5
+                # 按秒分配每批 2 镜：模型单次要规划的数据少，首字更快到达，
+                # 前端直播字幕更早出现；衔接校验保持 5 镜/窗（overlap 1），
+                # 改小会让每窗只剩 1 个可编辑镜头、调用次数成倍增加。
+                timing_chunk_size = 2
+                continuity_window_size = 5
                 continuity_window_warnings: list[str] = []
-                
+
                 # --- Timing Pass ---
                 timing_payload = _recipe_shots_timing_payload(recipe)
                 all_shots = [shot for scene in (timing_payload.get("scenes") or []) for shot in (scene.get("shots") or [])]
-                chunks = [all_shots[i:i + chunk_size] for i in range(0, len(all_shots), chunk_size)]
+                chunks = [all_shots[i:i + timing_chunk_size] for i in range(0, len(all_shots), timing_chunk_size)]
                 
                 previous_chunk = getattr(chat_fn, "on_chunk", None) if chat_fn else None
                 try:
@@ -1856,7 +1868,7 @@ def run_agent(
                     all_shots = [shot for scene in (cont_payload.get("scenes") or []) for shot in (scene.get("shots") or [])]
                     continuity_windows = _overlapping_continuity_windows(
                         all_shots,
-                        size=chunk_size,
+                        size=continuity_window_size,
                         overlap=1,
                     )
                     
@@ -2112,6 +2124,7 @@ def run_recipe_pipeline(
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     on_stream: Callable[[dict[str, Any]], None] | None = None,
     clarifications: Any = None,
+    resume: bool | None = None,
 ) -> dict[str, Any]:
     current = normalize_recipe_payload(recipe or empty_recipe_payload(title=_text(goal)[:24], full_story=goal))
     if not _text((current.get("script") or {}).get("fullStory")):
@@ -2137,6 +2150,7 @@ def run_recipe_pipeline(
                 on_progress=on_progress,
                 on_stream=on_stream,
                 clarifications=clarifications,
+                resume=resume,
             )
             if on_progress:
                 on_progress(current)

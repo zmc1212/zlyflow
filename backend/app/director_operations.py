@@ -295,6 +295,7 @@ class DirectorOperationService:
             on_progress=persist,
             on_stream=stream_event,
             clarifications=request.get("clarifications"),
+            resume=bool(request.get("resume")),
         )
         # 级联重置只在目标环节确实成功后执行：失败或取消时保留下游产物，避免无谓破坏。
         reset_following = bool(request.get("reset_following")) and agents is not None and len(agents) == 1

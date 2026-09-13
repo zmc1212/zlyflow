@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Alert, Button, Card, Col, Empty, Input, InputNumber, Popconfirm, Radio, Row, Select,
+  Alert, Button, Card, Col, Empty, Input, InputNumber, Popconfirm, Progress, Row, Segmented,
   Slider, Space, Switch, Tag, Typography, Upload, message,
 } from "antd"
 import { ArrowLeft, Film, Play, RefreshCw, Upload as UploadIcon, Wand2 } from "lucide-react"
@@ -270,7 +270,7 @@ export default function DirectorReplicationStudio({
               ) : (
                 <div className="replication-source">
                   <video src={payload.sourceVideo!.url!} controls playsInline className="director-shot-video" />
-                  <p className="director-project-meta">
+                  <p className="replication-note">
                     {payload.sourceVideo!.width}×{payload.sourceVideo!.height}
                     {" · "}{formatTime(payload.sourceVideo!.durationSec)}
                     {" · "}{payload.shots.length} 镜
@@ -288,17 +288,18 @@ export default function DirectorReplicationStudio({
 
             <Card title="拉片设置" size="small">
               <Space direction="vertical" style={{ width: "100%" }} size={10}>
-                <Radio.Group
+                <Segmented
                   value={analysis.mode}
                   disabled={analyzing}
-                  onChange={(event) => queueSave((current) => ({
+                  onChange={(value) => queueSave((current) => ({
                     ...current,
-                    analysis: { ...current.analysis, mode: event.target.value },
+                    analysis: { ...current.analysis, mode: value as "smart" | "fixed" },
                   }))}
-                >
-                  <Radio.Button value="smart">智能分镜</Radio.Button>
-                  <Radio.Button value="fixed">固定分段</Radio.Button>
-                </Radio.Group>
+                  options={[
+                    { label: "智能分镜", value: "smart" },
+                    { label: "固定分段", value: "fixed" },
+                  ]}
+                />
                 {analysis.mode === "fixed" ? (
                   <label className="replication-field">
                     每段秒数
@@ -374,12 +375,14 @@ export default function DirectorReplicationStudio({
                 >
                   {payload.shots.length ? "重新拉片" : "开始拉片"}
                 </Button>
-                <Typography.Text type="secondary" className="director-project-meta">{ANALYZE_HINT}</Typography.Text>
+                <p className="replication-note">{ANALYZE_HINT}</p>
                 {analyzing && statusLine ? (
                   <div className="replication-progress">
-                    <div className="replication-progress-bar">
-                      <span style={{ width: `${Math.max(3, Math.min(100, statusLine.progress))}%` }} />
-                    </div>
+                    <Progress
+                      percent={Math.max(0, Math.min(100, Math.round(statusLine.progress)))}
+                      size="small"
+                      showInfo={false}
+                    />
                     <Typography.Text type="secondary">{statusLine.message || "处理中…"}</Typography.Text>
                   </div>
                 ) : null}
@@ -398,7 +401,7 @@ export default function DirectorReplicationStudio({
             </Card>
           </div>
 
-          <div className="director-batch-list">
+          <div className="replication-list">
             <div className="replication-toolbar">
               <Typography.Text type="secondary">
                 {shots.length ? `${shots.length} 镜 · ${readyShots.length} 镜可转绘` : "拉片完成后这里会展示逐镜结果"}
@@ -414,10 +417,10 @@ export default function DirectorReplicationStudio({
               </Button>
             </div>
             {!shots.length && !analyzing ? (
-              <Card>
+              <Card className="replication-empty">
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={<span className="director-project-meta">上传参考片并点击「开始拉片」，AI 会逐镜给出提示词与深度视频。</span>}
+                  description={<span className="replication-note">上传参考片并点击「开始拉片」，AI 会逐镜给出提示词与深度视频。</span>}
                 />
               </Card>
             ) : null}
@@ -438,7 +441,7 @@ export default function DirectorReplicationStudio({
                       {shot.segmentUrl ? (
                         <video src={shot.segmentUrl} controls playsInline className="director-shot-video" />
                       ) : (
-                        <p className="director-project-meta">片段生成中…</p>
+                        <p className="replication-note">片段生成中…</p>
                       )}
                       {shot.depthUrl ? (
                         depthPreviewId === shot.id ? (
@@ -453,7 +456,7 @@ export default function DirectorReplicationStudio({
                       {replicatedUrl ? (
                         <video src={replicatedUrl} controls playsInline className="director-shot-video" />
                       ) : (
-                        <p className="director-project-meta">{shot.jobId ? `任务 ${shot.jobId}` : "尚未转绘"}</p>
+                        <p className="replication-note">{shot.jobId ? `任务 ${shot.jobId}` : "尚未转绘"}</p>
                       )}
                       <JobErrorNotice error={shot.error} />
                     </Col>
@@ -509,7 +512,7 @@ export default function DirectorReplicationStudio({
                     </Button>
                   </div>
                   {shot.cameraNote ? (
-                    <p className="director-project-meta">运镜：{shot.cameraNote}</p>
+                    <p className="replication-note">运镜：{shot.cameraNote}</p>
                   ) : null}
                   {shot.analysisNote ? (
                     <p className="director-shot-desc">{shot.analysisNote}</p>

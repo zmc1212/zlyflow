@@ -599,6 +599,7 @@
 }
 .director-timeline-view .director-inspector-picture { display: none; }
 .director-timeline-view .director-recipe-inspector {
+  grid-template-columns: minmax(0, 1fr);
   min-height: 100%;
 }
 .director-timeline-asset-list {
@@ -1715,6 +1716,7 @@
 .dh-project:hover { transform: translateY(-2px); border-color: var(--dh-primary-card-border); box-shadow: var(--dh-shadow); }
 .dh-project-main { display: flex; flex: 1 1 0%; gap: 12px; align-items: stretch; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .dh-project-cover { position: relative; display: grid; flex: none; width: 86px; min-height: 86px; place-items: center; overflow: hidden; border-radius: 10px; background: var(--dh-cover-a); color: rgba(255, 255, 255, .92); }
+.dh-project-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .dh-project-cover::after { content: ""; position: absolute; inset: 0; background: radial-gradient(64px 46px at 72% 16%, rgba(255, 255, 255, .26), transparent 70%); }
 .dh-project-cover[data-kind="batch_run"] { background: var(--dh-cover-b); }
 .dh-project-cover[data-kind="shot_replication"] { background: var(--dh-cover-c); }
@@ -1942,7 +1944,10 @@
 .director-recipe-main.is-shot-workspace {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* 生成设置展开或窗口较矮时，工作区保住最小高度，主列可滚动，
+     避免右侧检查器被压缩到无法滚动的一小条 */
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-bottom: 0;
 }
 .director-recipe-main.is-shot-workspace .director-task-context,
@@ -1953,10 +1958,9 @@
   width: min(100%, 1440px);
   max-width: none;
   margin: 0 auto;
-  padding: 10px 16px 8px;
+  padding: 10px 16px;
   border: 1px solid rgba(15, 23, 42, .08);
-  border-bottom: 0;
-  border-radius: 14px 14px 0 0;
+  border-radius: 14px;
   background: #fff;
 }
 .director-recipe-main.is-shot-workspace .director-shot-section {
@@ -1983,7 +1987,9 @@
 
 .director-recipe-main.is-shot-workspace .director-shot-workspace {
   flex: 1;
-  min-height: 0;
+  /* 覆盖为具体最小高度：可用高度不足时主列出滚动条，而不是把
+     镜头列表 / 预览 / 右侧检查器压成不可用的一小条 */
+  min-height: 480px;
   max-height: none;
 }
 .director-recipe-main.is-shot-workspace .director-recipe-scroll-end {
@@ -2069,7 +2075,6 @@
   height: 100%;
   flex-direction: column;
   overflow: hidden;
-  background: #fff;
 }
 .director-inspector-tab-switch {
   flex: none;
@@ -2186,6 +2191,9 @@
 .director-recipe-inspector .director-inspector-empty .ant-progress {
   width: min(100%, 180px);
 }
+/* 空态进度条：antd 默认轨迹 #f1f3f5 在浅色面板上几乎不可见，按主题成对加深。 */
+.director-recipe-inspector .director-inspector-empty .ant-progress-rail { background: rgba(15, 23, 42, .12); }
+:root[data-theme="dark"] .director-recipe-inspector .director-inspector-empty .ant-progress-rail { background: rgba(255, 255, 255, .16); }
 .director-recipe-inspector .director-inspector-heading {
   justify-content: flex-start;
 }
@@ -2252,6 +2260,13 @@
   color: #6b7280;
   font-size: 12px;
 }
+.director-inspector-prompt-sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .director-compiled-tags {
   display: flex;
   flex-wrap: wrap;
@@ -2259,8 +2274,6 @@
 }
 .director-compiled-prompt {
   margin: 0;
-  max-height: 220px;
-  overflow: auto;
   padding: 10px 12px;
   border: 1px solid rgba(15, 23, 42, .1);
   border-radius: 10px;
@@ -2273,7 +2286,6 @@
   word-break: break-word;
 }
 .director-compiled-prompt.is-snapshot {
-  max-height: 140px;
   color: #4b5563;
   background: #f3f4f6;
 }
@@ -2320,11 +2332,12 @@
   overflow-x: auto;
   padding-bottom: 2px;
 }
+/* Takes 卡片竖排：预览块占满卡宽（16:9），正文与操作整行排列——
+   「生成中 0%」等长状态标签不再被 64px 预览挤到第二行，多卡动作行保持对齐。 */
 .director-take-rail-item {
-  display: grid;
-  grid-template-columns: 64px minmax(120px, 1fr);
-  gap: 8px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex: 0 0 auto;
   width: min(100%, 220px);
   padding: 8px;
@@ -2335,14 +2348,16 @@
 .director-take-rail-item.is-active { border-color: rgba(77, 107, 254, .35); }
 .director-take-rail-item.is-approved { box-shadow: inset 0 0 0 1px rgba(34, 197, 94, .25); }
 .director-take-rail-preview {
-  width: 64px;
-  height: 36px;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: auto;
+  aspect-ratio: var(--shot-aspect, 16 / 9);
   overflow: hidden;
   border: 0;
   border-radius: 6px;
   background: #e5e7eb;
   color: #6b7280;
-  font-size: 11px;
   cursor: pointer;
 }
 .director-take-rail-preview video { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -2438,6 +2453,8 @@
 }
 .director-take-compare-panel { display: grid; gap: 6px; min-width: 0; }
 .director-take-preview {
+  display: grid;
+  place-items: center;
   width: 72px;
   height: 40px;
   overflow: hidden;
@@ -2445,7 +2462,6 @@
   border-radius: 6px;
   background: #e5e7eb;
   color: #6b7280;
-  font-size: 11px;
   cursor: pointer;
 }
 .director-take-preview video { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -3381,6 +3397,9 @@
 .director-stage-nav .ant-menu-item::after { display: none; }
 .director-stage-nav .ant-menu-item:hover { background: #f4f6f8 !important; }
 .director-stage-nav .ant-menu-item-selected { background: #edf1ff !important; }
+/* 暗色主题成对覆盖：否则选中项保持浅蓝底，叠上暗色强制文字色后不可读。 */
+:root[data-theme="dark"] .director-stage-nav .ant-menu-item:hover { background: var(--studio-hover) !important; }
+:root[data-theme="dark"] .director-stage-nav .ant-menu-item-selected { background: var(--studio-primary-soft) !important; }
 .director-stage-item {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) minmax(0, max-content);
@@ -3462,12 +3481,21 @@
 }
 .director-task-state {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
   padding-top: 15px;
   color: #65707c;
   font-size: 11px;
 }
+.director-task-state-line { display: flex; align-items: center; gap: 8px; }
+.director-next-step {
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.director-next-step svg { margin-left: 2px; }
 .director-task-state .ant-tag { margin: 0; border: 0; border-radius: 6px; font-size: 11px; }
 .director-task-context.is-compact {
   grid-template-columns: 32px minmax(0, 1fr) auto;
@@ -3584,16 +3612,26 @@
   gap: 8px;
 }
 .director-shot-actions .ant-btn { height: 36px; border-radius: 8px; white-space: nowrap; }
+/* 镜头 bin 工具条（2026-09-13）：200px 窄侧栏内改为纵向网格——
+   两个按钮等宽通栏，「全选 + 清空」单独一行两端对齐，不再出现参差的换行堆叠。 */
 .director-shot-bin-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
   border-bottom: 1px solid rgba(15, 23, 42, .08);
   font-size: 12px;
   color: #65707c;
   flex-shrink: 0;
 }
+.director-shot-bin-toolbar > .ant-btn { width: 100%; min-width: 0; }
+.director-shot-bin-select-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.director-shot-bin-select-row .ant-checkbox-wrapper { margin: 0; flex: none; }
 .director-shot-bin-title {
   font-size: 12px;
   font-weight: 500;
@@ -3694,7 +3732,7 @@
   .director-task-copy p { display: none; }
   .director-task-copy { padding-right: 78px; }
   .director-task-state { position: absolute; top: 22px; right: 0; width: auto; padding-top: 0; }
-  .director-task-state > span:not(.ant-tag) { display: none; }
+  .director-task-state-line > span:not(.ant-tag) { display: none; }
   .director-recipe-form,
   .director-asset-section,
   .director-shot-section,
@@ -3901,6 +3939,8 @@
 :root[data-theme="dark"] .studio-select-popup.ant-select-dropdown,
 :root[data-theme="dark"] .studio-parameter-popover .ant-popover-inner,
 :root[data-theme="dark"] .studio-parameter-popover .ant-popover-arrow::before { background: var(--studio-surface-raised) !important; }
+:root[data-theme="dark"] .director-settings-popover .ant-popover-inner,
+:root[data-theme="dark"] .director-settings-popover .ant-popover-arrow::before { background: var(--studio-surface-raised) !important; }
 :root[data-theme="dark"] .studio-select-popup.ant-select-dropdown { border-color: var(--studio-border); box-shadow: var(--studio-shadow); }
 :root[data-theme="dark"] .studio-select-popup .ant-select-item { color: var(--studio-text-secondary); }
 :root[data-theme="dark"] .studio-select-popup .ant-select-item-group { color: var(--studio-text-muted); }
@@ -4042,6 +4082,8 @@
   .director-brief-card .ant-input,
   .director-script-field .ant-input,
   .director-shot-list-item,
+  .director-take-rail-preview,
+  .director-take-preview,
   .director-anchor-slot
 ) { background: var(--studio-surface-raised) !important; }
 :root[data-theme="dark"] :is(
@@ -4187,6 +4229,7 @@
   .director-add-next,
   .director-shot-list-title.is-skeleton-text
 ) { color: var(--studio-text-muted) !important; }
+:root[data-theme="dark"] .director-back-library:hover { background: var(--studio-hover); color: var(--studio-text) !important; }
 :root[data-theme="dark"] :is(
   .director-project-title:hover,
   .director-library-card-top,

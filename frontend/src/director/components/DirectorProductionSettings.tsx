@@ -1,4 +1,4 @@
-import { Button, Collapse, Drawer, Select, Space, Switch } from "antd"
+import { Button, Collapse, Drawer, Popover, Select, Space, Switch } from "antd"
 import { useState } from "react"
 import type { RecipeProject } from "../recipe-model"
 import type { DirectorControl } from "../director-workflows"
@@ -26,6 +26,17 @@ export default function DirectorProductionSettings({ recipe, controls, families,
     <Collapse items={[{ key: "advanced", label: "更多设置", children: <Space direction="vertical" className="w-full">{controls.filter((item) => item.ui_group === "advanced").map(renderControl)}<label className="director-setting-field"><span>生成前润色提示词</span><Switch aria-label="生成前润色提示词" checked={polish} onChange={onPolish} disabled={mode === "still"} /></label></Space> }]} />
   </div>
   const summary = `生成设置 · ${recipe.aspectRatio} · ${mode === "still" ? "静帧" : mode === "preview" ? "预览" : "终稿"}`
-  return mobile ? <><Button className="director-settings-entry" onClick={() => setOpen(true)}>{summary}</Button><Drawer title="生成设置" open={open} onClose={() => setOpen(false)} size="100%">{content}</Drawer></>
-    : <Collapse className="director-production-settings" items={[{ key: "settings", label: summary, children: content }]} />
+  if (mobile) return <><Button className="director-settings-entry" onClick={() => setOpen(true)}>{summary}</Button><Drawer title="生成设置" open={open} onClose={() => setOpen(false)} size="100%">{content}</Drawer></>
+  return (
+    <Popover
+      trigger="click"
+      placement="bottomLeft"
+      open={open}
+      onOpenChange={setOpen}
+      overlayClassName="director-settings-popover"
+      content={content}
+    >
+      <Button aria-expanded={open}>{summary}</Button>
+    </Popover>
+  )
 }

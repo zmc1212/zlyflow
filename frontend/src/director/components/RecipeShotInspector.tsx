@@ -1,4 +1,4 @@
-import { Alert, Button, Checkbox, Collapse, Input, InputNumber, Modal, Progress, Segmented, Select, Space, Tag, message } from "antd"
+import { Alert, Button, Checkbox, Collapse, Input, InputNumber, Modal, Popconfirm, Progress, Segmented, Select, Space, Tag, message } from "antd"
 import { Clapperboard, Copy, ImagePlus, Star, Trash2 } from "lucide-react"
 import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import JobErrorNotice from "./JobErrorNotice"
@@ -80,6 +80,7 @@ export default function RecipeShotInspector({
   onGenerateTts,
   onCancelShot,
   onContinuityRepair,
+  onTranslatePrompt,
   continuityRepairing = false,
   ttsBusy = false,
   submitting = false,
@@ -104,6 +105,8 @@ export default function RecipeShotInspector({
   onGenerateTts?: () => void
   onCancelShot?: () => void
   onContinuityRepair?: (fromShot: number, toShot: number) => Promise<void>
+  /** 将中文镜头正文翻译为官方规范英文正文；返回翻译结果。错误由 Studio 侧统一提示。 */
+  onTranslatePrompt?: (shotId: string, text?: string) => Promise<string>
   continuityRepairing?: boolean
   ttsBusy?: boolean
   submitting?: boolean
@@ -178,6 +181,28 @@ export default function RecipeShotInspector({
     () => dialogueTimingWarning(shot.dialogue, shot.durationSec),
     [shot.dialogue, shot.durationSec],
   )
+  const [translatingPrompt, setTranslatingPrompt] = useState(false)
+  const chinesePromptBody = (shot.description || shot.promptTextZh || "").trim()
+  const promptSyncState: "stale" | "manual" | "synced" | "" = shot.promptTextStale
+    ? "stale"
+    : shot.promptTextManual
+      ? "manual"
+      : shot.promptText
+        ? "synced"
+        : ""
+
+  async function runTranslatePrompt() {
+    if (!onTranslatePrompt || translatingPrompt) return
+    setTranslatingPrompt(true)
+    try {
+      const promptText = await onTranslatePrompt(shot.id, chinesePromptBody || undefined)
+      if (promptText) onChange({ promptText, promptTextStale: false, promptTextManual: false })
+    } catch {
+      // 翻译失败已在 Studio 侧统一提示
+    } finally {
+      setTranslatingPrompt(false)
+    }
+  }
 
   function jobForTake(take: ShotTake | undefined) {
     if (!take?.jobId) return undefined
@@ -332,11 +357,11 @@ export default function RecipeShotInspector({
                     key={id || index}
                     className={`director-take-rail-item${selected ? " is-active" : ""}${approved ? " is-approved" : ""}`}
                   >
-                    <button type="button" className="director-take-rail-preview" onClick={() => selectTake(index)}>
+                    <button type="button" className="director-take-rail-preview" onClick={() => selectTake(index)} title={`预览 Take ${take.takeNumber}`}>
                       {take.videoUrl ? (
                         <video src={take.videoUrl} muted playsInline />
                       ) : (
-                        <span>Take {take.takeNumber}</span>
+                        <Clapperboard size={16} aria-hidden />
                       )}
                     </button>
                     <div className="director-take-rail-body">
@@ -394,31 +419,58 @@ export default function RecipeShotInspector({
                     <Input value={shot.title} onChange={(event) => onChange({ title: event.target.value })} />
                   </label>
                   <label className="director-inspector-field">
-                    <span>描述（中文卡片）</span>
+                    <span>中文镜头正文</span>
                     <Input.TextArea
                       value={shot.description}
-                      autoSize={{ minRows: 2, maxRows: 6 }}
-                      placeholder="这一镜里发生什么，给分镜卡片看"
-                      onChange={(event) => onChange({ description: event.target.value })}
+                      autoSize={{ minRows: 3 }}
+                      placeholder="用中文写这一镜的画面与动作，写完点“翻译为英文正文”生成提交用正文"
+                      onChange={(event) => onChange({ description: event.target.value, promptTextStale: true })}
                     />
                   </label>
                   <label className="director-inspector-field">
                     <span>英文镜头正文</span>
                     <Input.TextArea
                       value={shot.promptText || ""}
-                      autoSize={{ minRows: 3, maxRows: 8 }}
+                      autoSize={{ minRows: 3 }}
                       placeholder="MiniMax H3 镜头正文：画风、构图、动作、运镜。单独一镜，从 00:00 写起。"
-                      onChange={(event) => onChange({ promptText: event.target.value })}
+                      onChange={(event) => onChange({ promptText: event.target.value, promptTextManual: true })}
                     />
                     {promptTextLooksChinese ? (
                       <p>当前正文是中文。MiniMax H3 官方要求英文镜头正文；中文只应出现在对白 &lt;d&gt; 里。</p>
                     ) : null}
                   </label>
+                  <div className="director-inspector-prompt-sync">
+                    {promptSyncState === "stale" ? <Tag className="!m-0" color="warning">待同步</Tag> : null}
+                    {promptSyncState === "manual" ? <Tag className="!m-0" color="processing">已手动调整</Tag> : null}
+                    {promptSyncState === "synced" ? <Tag className="!m-0" color="success">已同步</Tag> : null}
+                    {shot.promptTextManual ? (
+                      <Popconfirm
+                        title="英文正文已手动修改"
+                        description="继续翻译会覆盖手动修改的内容。"
+                        okText="覆盖并翻译"
+                        cancelText="取消"
+                        onConfirm={runTranslatePrompt}
+                      >
+                        <Button size="small" loading={translatingPrompt} disabled={!chinesePromptBody}>
+                          翻译为英文正文
+                        </Button>
+                      </Popconfirm>
+                    ) : (
+                      <Button
+                        size="small"
+                        loading={translatingPrompt}
+                        disabled={!chinesePromptBody}
+                        onClick={runTranslatePrompt}
+                      >
+                        翻译为英文正文
+                      </Button>
+                    )}
+                  </div>
                   <label className="director-inspector-field">
                     <span>对白</span>
                     <Input.TextArea
                       value={shot.dialogueLines?.length ? shot.dialogueLines.map((line) => `${line.speaker}：${line.text}`).join("\n") : shot.dialogue}
-                      autoSize={{ minRows: 2, maxRows: 4 }}
+                      autoSize={{ minRows: 2 }}
                       placeholder="角色说的话"
                       onChange={(event) => {
                         const lines = event.target.value.split("\n").filter((line) => line.trim()).map((line) => {
@@ -483,7 +535,7 @@ export default function RecipeShotInspector({
                       <span>入镜状态（英文提示）</span>
                       <Input.TextArea
                         value={shot.continuityIn || ""}
-                        autoSize={{ minRows: 2, maxRows: 4 }}
+                        autoSize={{ minRows: 2 }}
                         placeholder="上一镜切入时的人物、道具、视线、运动方向和声音状态"
                         onChange={(event) => onChange({ continuityIn: event.target.value })}
                       />
@@ -497,7 +549,7 @@ export default function RecipeShotInspector({
                       <span>出镜状态（英文提示）</span>
                       <Input.TextArea
                         value={shot.continuityOut || ""}
-                        autoSize={{ minRows: 2, maxRows: 4 }}
+                        autoSize={{ minRows: 2 }}
                         placeholder="留给下一镜继承的最终构图、动作、方向或声音"
                         onChange={(event) => onChange({ continuityOut: event.target.value })}
                       />
@@ -602,8 +654,8 @@ export default function RecipeShotInspector({
                               const progress = takeJob ? jobProgressFromJob(takeJob, take.progress) : (take.progress || 0)
                               return (
                                 <div key={take.id || take.jobId || index} className={`director-take-item${selected ? " is-active" : ""}`}>
-                                  <button type="button" className="director-take-preview" onClick={() => selectTake(index)}>
-                                    {take.videoUrl ? <video src={take.videoUrl} muted playsInline /> : <span>Take {take.takeNumber}</span>}
+                                  <button type="button" className="director-take-preview" onClick={() => selectTake(index)} title={`预览 Take ${take.takeNumber}`}>
+                                    {take.videoUrl ? <video src={take.videoUrl} muted playsInline /> : <Clapperboard size={16} aria-hidden />}
                                   </button>
                                   <div className="director-take-body">
                                     <div className="director-take-meta">

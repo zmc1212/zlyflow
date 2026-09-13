@@ -968,6 +968,15 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
     transition_note = _text(item.get("transitionNote"), item.get("transition_note") or "")
     if transition_note:
         shot["transitionNote"] = transition_note
+    prompt_text_zh = _text(item.get("promptTextZh"), item.get("prompt_text_zh") or "")
+    if prompt_text_zh:
+        shot["promptTextZh"] = prompt_text_zh
+    stale_raw = item.get("promptTextStale", item.get("prompt_text_stale"))
+    if stale_raw is not None:
+        shot["promptTextStale"] = _as_bool(stale_raw)
+    manual_raw = item.get("promptTextManual", item.get("prompt_text_manual"))
+    if manual_raw is not None:
+        shot["promptTextManual"] = _as_bool(manual_raw)
     source_beats = item.get("sourceBeatIds", item.get("source_beat_ids"))
     if isinstance(source_beats, list):
         shot["sourceBeatIds"] = [str(value).strip() for value in source_beats if str(value).strip()]
@@ -1121,6 +1130,9 @@ def normalize_recipe_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
         summary=_text(script_raw.get("summary"), raw.get("summary") or ""),
         full_story=_text(script_raw.get("fullStory"), script_raw.get("full_story") or raw.get("fullStory") or ""),
     )
+    cover_url = _persistable_media_url(script_raw.get("coverUrl") or script_raw.get("cover_url"))
+    if cover_url:
+        normalized["script"]["coverUrl"] = cover_url
     _copy_render_settings(raw, normalized)
     normalized["assetSchemaVersion"] = 2
     normalized["artStyle"] = resolve_recipe_art_style(raw.get("artStyle") or raw.get("art_style"))
@@ -1523,7 +1535,10 @@ def reset_recipe_following(recipe: dict[str, Any], agent_id: str) -> dict[str, A
     if not following:
         return recipe
     if "script" in following:
+        cover_url = _persistable_media_url(_as_dict(recipe.get("script")).get("coverUrl"))
         recipe["script"] = {"title": "", "summary": "", "fullStory": ""}
+        if cover_url:
+            recipe["script"]["coverUrl"] = cover_url
     if "research" in following:
         recipe["researchNotes"] = ""
     if "art_style" in following:

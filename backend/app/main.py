@@ -49,8 +49,8 @@ from .director_export import (
 )
 from .director_jobs import (
     approve_recipe_asset_version, find_recipe_frame_file, generate_recipe_assets, generate_recipe_stills,
-    render_batch_items, render_recipe_shots,
-    save_recipe_shot_frame, sync_batch_items, sync_recipe_asset_images,
+    copy_recipe_script_cover, find_recipe_script_cover_file, remove_recipe_script_cover, render_batch_items,
+    render_recipe_shots, save_recipe_script_cover, save_recipe_shot_frame, sync_batch_items, sync_recipe_asset_images,
 )
 from .director_library import (
     DirectorLibraryError,
@@ -64,6 +64,7 @@ from .director_library import (
     recipe_items_for_library,
     save_library_asset_image,
 )
+from .director_compiler import iter_recipe_shots
 from .director_recipe import (
     AGENT_IDS, DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_RECIPE, PAYLOAD_KIND_REPLICATION,
     empty_batch_payload, empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload,
@@ -105,6 +106,7 @@ from .models import (
     DirectorLibraryFromRecipeRequest, DirectorLibraryFromRecipeResponse, DirectorInsertLibraryAssetsRequest,
     TtsProviderResponse, TtsProviderUpdateRequest, TtsProviderTestRequest,
     DirectorTtsRequest, DirectorMuxRequest, DirectorExportCapabilitiesResponse,
+    DirectorTranslatePromptRequest,
 )
 
 from .xiaji_api import register_xiaji_routes
@@ -1743,8 +1745,33 @@ def copy_director_project(
     request: Request,
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
-    director_project_or_404(app.state.store, project_id, user)
+    source = director_project_or_404(app.state.store, project_id, user)
     copied = app.state.store.copy_director_project(project_id, user["id"])
+    if payload_kind(source.get("payload")) == PAYLOAD_KIND_RECIPE and isinstance(source.get("payload"), dict):
+        source_script = source["payload"].get("script") if isinstance(source["payload"].get("script"), dict) else {}
+        if source_script.get("coverUrl"):
+            copied_cover = copy_recipe_script_cover(
+                source_owner_user_id=str(source.get("owner_user_id") or user["id"]),
+                source_project_id=project_id,
+                target_owner_user_id=user["id"],
+                target_project_id=copied["id"],
+            )
+
+            def patch_copied_cover(latest: dict) -> dict:
+                normalized = normalize_recipe_payload(latest)
+                script = dict(normalized.get("script") or {})
+                if copied_cover:
+                    script["coverUrl"] = f"/api/director/recipes/{copied['id']}/cover"
+                else:
+                    script.pop("coverUrl", None)
+                normalized["script"] = script
+                return normalized
+
+            copied = app.state.store.mutate_director_project_payload(
+                copied["id"],
+                patch_copied_cover,
+                content_update=True,
+            )
     app.state.auth_store.audit(
         "copy_director_project", "director", actor_user_id=user["id"], target_id=copied["id"],
         detail=f"source={project_id}",
@@ -2722,6 +2749,120 @@ async def upload_director_recipe_frame(
     return public_director_project(saved)
 
 
+@app.post(
+    "/api/director/recipes/{project_id}/cover",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="上传剧本封面图",
+)
+async def upload_director_recipe_cover(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    file: Annotated[UploadFile, File(description="剧本封面图片")],
+    expected_content_revision: Annotated[
+        int | None,
+        Form(ge=1, description="客户端最后读取的创作内容版本；不匹配时返回 409。"),
+    ] = None,
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以上传剧本封面")
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail="剧本封面必须为图片")
+    suffix = Path(file.filename or "cover.png").suffix.lower() or ".png"
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}:
+        raise HTTPException(status_code=422, detail="剧本封面仅支持 PNG、JPG、WebP、GIF 或 BMP")
+    owner_user_id = str(record.get("owner_user_id") or user["id"])
+    staging = settings.staging_dir / f"director-cover-{secrets.token_urlsafe(6)}{suffix}"
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    await save_upload(file, staging)
+    try:
+        saved = app.state.store.mutate_director_project_payload(
+            project_id,
+            lambda latest: save_recipe_script_cover(
+                normalize_recipe_payload(latest),
+                owner_user_id=owner_user_id,
+                project_id=project_id,
+                source=staging,
+            ),
+            content_update=True,
+            expected_content_revision=expected_content_revision,
+        )
+    except DirectorProjectConflictError as error:
+        raise director_content_conflict_http(error) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        staging.unlink(missing_ok=True)
+    app.state.auth_store.audit(
+        "upload_director_cover", "director", actor_user_id=user["id"], target_id=project_id,
+        detail="script_cover", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.get(
+    "/api/director/recipes/{project_id}/cover",
+    tags=["导演台"],
+    summary="读取剧本封面图",
+    responses={200: {"content": {"image/*": {}}}},
+)
+def download_director_recipe_cover(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=404, detail="剧本封面不存在")
+    path = find_recipe_script_cover_file(
+        owner_user_id=str(record.get("owner_user_id") or user["id"]),
+        project_id=project_id,
+    )
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="剧本封面不存在")
+    return FileResponse(path, media_type=_image_media_type(path))
+
+
+@app.delete(
+    "/api/director/recipes/{project_id}/cover",
+    response_model=DirectorProjectResponse,
+    tags=["导演台"],
+    summary="移除剧本封面图",
+)
+def delete_director_recipe_cover(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    expected_content_revision: Annotated[
+        int | None,
+        Query(ge=1, description="客户端最后读取的创作内容版本；不匹配时返回 409。"),
+    ] = None,
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以移除剧本封面")
+    owner_user_id = str(record.get("owner_user_id") or user["id"])
+    try:
+        saved = app.state.store.mutate_director_project_payload(
+            project_id,
+            lambda latest: remove_recipe_script_cover(
+                normalize_recipe_payload(latest),
+                owner_user_id=owner_user_id,
+                project_id=project_id,
+            ),
+            content_update=True,
+            expected_content_revision=expected_content_revision,
+        )
+    except DirectorProjectConflictError as error:
+        raise director_content_conflict_http(error) from error
+    app.state.auth_store.audit(
+        "delete_director_cover", "director", actor_user_id=user["id"], target_id=project_id,
+        detail="script_cover", ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
 @app.get(
     "/api/director/recipes/{project_id}/frames/{shot_id}/{slot}",
     tags=["导演台"],
@@ -2807,6 +2948,59 @@ async def render_director_recipe_shots(
         detail=f"jobs={len(job_ids)}", ip_address=client_ip(request),
     )
     return public_director_project(saved)
+
+
+@app.post(
+    "/api/director/recipes/{project_id}/shots/{shot_id}/translate-prompt",
+    tags=["导演台"],
+    summary="将镜头中文正文翻译为官方规范的英文 H3 镜头正文",
+)
+async def translate_director_shot_prompt_endpoint(
+    project_id: str,
+    shot_id: str,
+    payload: DirectorTranslatePromptRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = director_project_or_404(app.state.store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+        raise HTTPException(status_code=422, detail="只有 Recipe 工程可以翻译镜头正文")
+    recipe = normalize_recipe_payload(record["payload"])
+    shot = next(
+        (item for _scene, item in iter_recipe_shots(recipe) if str(item.get("id") or "") == shot_id),
+        None,
+    )
+    if shot is None:
+        raise HTTPException(status_code=404, detail="未找到该分镜")
+    # normalize 会把空 description 回退成标题占位，只有非占位中文正文才可翻译
+    description_text = str(shot.get("description") or "").strip()
+    if description_text and description_text != str(shot.get("title") or "").strip():
+        source = (
+            str(payload.text or "").strip()
+            or str(shot.get("promptTextZh") or "").strip()
+            or description_text
+        )
+    else:
+        source = str(payload.text or "").strip() or str(shot.get("promptTextZh") or "").strip()
+    if not source:
+        raise HTTPException(status_code=422, detail="该分镜还没有中文正文，请先填写中文镜头正文")
+    available, reason = app.state.llm_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+    try:
+        translated = await asyncio.to_thread(
+            app.state.llm_provider.translate_director_shot_prompt,
+            source,
+        )
+    except (LlmError, requests.exceptions.RequestException) as error:
+        raise_as_llm_http(error)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"镜头正文翻译异常：{error}") from error
+    app.state.auth_store.audit(
+        "translate_director_shot_prompt", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"shot={shot_id}", ip_address=client_ip(request),
+    )
+    return {"promptText": translated}
 
 
 def _audio_media_type(path: Path) -> str:

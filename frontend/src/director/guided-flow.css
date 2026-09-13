@@ -1,4 +1,6 @@
-.director-stage-actions { flex-shrink: 0; padding: 8px 0 16px; }
+/* 主按钮行与主列其他区块（标题卡/工作区/表单，均为 min(100%,1440px) 居中）保持同一内容列——
+   否则 1920+ 宽度下按钮行全宽，两侧各凸出 36px，与标题卡左缘错位。 */
+.director-stage-actions { flex-shrink: 0; width: min(100%, 1440px); margin: 0 auto; padding: 12px 0 16px; }
 .director-recipe-main.is-shot-workspace .director-task-context.is-compact { background: var(--studio-surface); border-color: var(--studio-border); }
 .director-task-context.is-compact .director-task-copy { display: block; }
 .director-task-context.is-compact .director-task-copy h1 { color: var(--studio-text); font-size: 18px; }
@@ -10,18 +12,79 @@
 .director-production-form .director-setting-field { width: 100%; }
 .director-production-form .ant-select { width: 100%; }
 .director-shot-selection-actions { flex-shrink: 0; }
-.director-shot-bin-toolbar { flex-wrap: wrap; }
 .director-recipe-inspector .director-inspector-frame { width: 100%; }
-.director-recipe-inspector .director-inspector-frame.is-empty { width: 100%; min-height: 280px; aspect-ratio: auto; overflow: auto; background: var(--studio-surface-raised); }
+.director-recipe-inspector .director-inspector-frame.is-empty { width: 100%; min-height: 280px; aspect-ratio: auto; overflow: hidden; background: var(--studio-surface-raised); }
 .director-recipe-inspector .director-inspector-empty { position: relative; min-height: 280px; color: var(--studio-text-secondary); }
 .director-recipe-inspector .director-inspector-empty strong { color: var(--studio-text); }
-.director-production-settings { flex-shrink: 0; max-height: 45vh; overflow: auto; }
+/* 生成设置浮层（桌面端 Popover，替代原内联折叠条：不挤压工作区、不新增常驻滚动条）。
+   弹层挂 body，暗色底色按 :root[data-theme="dark"] 规则成对配置（见 index.css studio-popover 区）。 */
+.director-settings-popover .director-production-form { width: 340px; max-height: min(70vh, 560px); overflow: auto; }
+/* 面板细滚动条（悬停显现）：轨道 6px 常驻（无布局跳动），滑块常态透明、
+   悬停所在面板时才着色——阶段导航 / 镜头列表 / 检查器 / Takes 横向条 / 设置浮层统一。 */
+.director-settings-popover .director-production-form,
+.director-shot-list,
+.director-inspector-tab-scroll,
+.director-take-rail-list,
+.director-recipe-rail {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.director-settings-popover:hover .director-production-form,
+.director-shot-list:hover,
+.director-inspector-tab-scroll:hover,
+.director-take-rail-list:hover,
+.director-recipe-rail:hover {
+  scrollbar-color: var(--studio-border-strong) transparent;
+}
+.director-settings-popover .director-production-form::-webkit-scrollbar,
+.director-shot-list::-webkit-scrollbar,
+.director-inspector-tab-scroll::-webkit-scrollbar,
+.director-take-rail-list::-webkit-scrollbar,
+.director-recipe-rail::-webkit-scrollbar { width: 6px; height: 6px; }
+.director-settings-popover .director-production-form::-webkit-scrollbar-thumb,
+.director-shot-list::-webkit-scrollbar-thumb,
+.director-inspector-tab-scroll::-webkit-scrollbar-thumb,
+.director-take-rail-list::-webkit-scrollbar-thumb,
+.director-recipe-rail::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: transparent;
+}
+.director-settings-popover:hover .director-production-form::-webkit-scrollbar-thumb,
+.director-shot-list:hover::-webkit-scrollbar-thumb,
+.director-inspector-tab-scroll:hover::-webkit-scrollbar-thumb,
+.director-take-rail-list:hover::-webkit-scrollbar-thumb,
+.director-recipe-rail:hover::-webkit-scrollbar-thumb {
+  background: var(--studio-border-strong);
+}
+.director-settings-popover .director-production-form::-webkit-scrollbar-track,
+.director-shot-list::-webkit-scrollbar-track,
+.director-inspector-tab-scroll::-webkit-scrollbar-track,
+.director-take-rail-list::-webkit-scrollbar-track,
+.director-recipe-rail::-webkit-scrollbar-track { background: transparent; }
+/* 保险层：检查器多行输入框已随内容增高（无 maxRows 封顶），不出现内层滚动条；
+   若今后有代码重新封顶，内层滚动条也走同一套悬停显现样式，避免双层滚动条并存。 */
+.director-inspector-tab-scroll .ant-input {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.director-inspector-tab-scroll .ant-input:hover {
+  scrollbar-color: var(--studio-border-strong) transparent;
+}
+.director-inspector-tab-scroll .ant-input::-webkit-scrollbar { width: 6px; height: 6px; }
+.director-inspector-tab-scroll .ant-input::-webkit-scrollbar-thumb { border-radius: 999px; background: transparent; }
+.director-inspector-tab-scroll .ant-input:hover::-webkit-scrollbar-thumb { background: var(--studio-border-strong); }
+.director-inspector-tab-scroll .ant-input::-webkit-scrollbar-track { background: transparent; }
 .director-export-section { display: flex; flex-direction: column; }
 .director-film-delivery { order: -1; }
 .director-export-runtime { order: 10; }
 .director-recipe-inspector.is-design-focus { grid-template-columns: minmax(0, 1fr); }
 .director-recipe-inspector.is-design-focus .director-inspector-picture { display: none; }
-.director-shot-list-status .ant-tag { white-space: normal; text-align: left; }
+/* 宽屏约束（2026-09-13）：设计聚焦表单（分镜设计阶段）占满主列时，内容列限宽 860px 居中——
+   1920+ 下 Tab 栏、输入框、底部按钮不再被网格拉伸到上千像素宽；窄屏（<860px）不受影响。 */
+.director-recipe-inspector.is-design-focus .director-inspector-sidebar { width: 100%; max-width: 860px; margin-inline: auto; }
+/* 镜头列表状态标签：横向流式排列、单行省略——窄侧栏内不再把「未采用版本」折成两行。 */
+.director-shot-list-status { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; min-width: 0; }
+.director-shot-list-status .ant-tag { max-width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .director-inspector-empty { max-width: 100%; padding: 24px; text-align: center; overflow-wrap: anywhere; }
 .director-inspector-empty > span { max-width: 60ch; }
 .director-task-copy p { color: var(--studio-text-secondary); }
@@ -40,7 +103,7 @@
   .director-task-context { grid-template-columns: 32px minmax(0, 1fr); padding-right: 0; }
   .director-task-state { position: static; grid-column: 2; }
   .director-stage-actions .ant-space-item:first-child { display: none; }
-  .director-stage-actions .ant-btn, .director-production-settings .ant-collapse-header,
+  .director-stage-actions .ant-btn, .director-settings-entry,
   .director-shot-bin-toolbar .ant-btn { min-height: 44px; }
   .director-recipe-main { min-width: 0; padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 }
@@ -72,6 +135,45 @@
 .director-hero-example:hover:not(:disabled) { background: var(--director-hover); color: var(--director-ink); }
 .director-hero-example:active:not(:disabled) { transform: scale(.985); }
 .director-hero-example:disabled { opacity: .55; cursor: not-allowed; }
+
+/* 剧本封面：用户资产入口。无封面时只显示上传控件，不生成虚构场景图。 */
+.director-script-cover-picker {
+  display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 520px;
+  align-self: center; text-align: left; color: var(--director-ink, var(--studio-text));
+}
+.director-script-document > .director-script-cover-picker { max-width: none; align-self: stretch; }
+.director-script-cover-label { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--director-ink-2, var(--studio-text-secondary)); }
+.director-script-cover-label .ant-tag { margin-inline-end: 0; font-size: 11px; line-height: 20px; color: var(--director-ink-3, var(--studio-text-muted)); background: transparent; border-color: var(--director-line, var(--studio-border)); }
+.director-script-cover-empty {
+  display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 62px; padding: 12px 14px;
+  border: 1px dashed var(--director-line-strong, var(--studio-border)); border-radius: 12px;
+  background: var(--director-surface, var(--studio-surface)); color: var(--director-accent, var(--studio-primary)); cursor: pointer;
+  text-align: left; transition: border-color .15s, background .15s, transform .1s;
+}
+.director-script-cover-empty:hover:not(:disabled) { border-color: var(--director-accent, var(--studio-primary)); background: var(--director-hover, var(--studio-surface-raised)); }
+.director-script-cover-empty:active:not(:disabled) { transform: scale(.99); }
+.director-script-cover-empty:disabled { opacity: .55; cursor: not-allowed; }
+.director-script-cover-empty > span { display: flex; flex-direction: column; gap: 2px; }
+.director-script-cover-empty strong { font-size: 13px; font-weight: 600; color: var(--director-ink, var(--studio-text)); }
+.director-script-cover-empty small { font-size: 11px; color: var(--director-ink-3, var(--studio-text-muted)); }
+.director-script-cover-preview {
+  display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px; border: 1px solid var(--director-line, var(--studio-border));
+  border-radius: 12px; background: var(--director-surface, var(--studio-surface));
+}
+.director-script-cover-preview img { display: block; width: 128px; aspect-ratio: 16 / 9; flex: none; object-fit: cover; border-radius: 8px; background: var(--director-inset, var(--studio-surface-raised)); }
+.director-script-cover-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.director-script-cover-hint { margin: 0; font-size: 11px; line-height: 1.6; color: var(--director-ink-3, var(--studio-text-muted)); }
+.director-script-cover-picker.is-compact { max-width: none; padding: 10px 12px; border: 1px dashed var(--director-line, var(--studio-border)); border-radius: 12px; background: var(--director-inset, var(--studio-surface-raised)); }
+.director-script-cover-picker.is-compact .director-script-cover-preview { padding: 0; border: 0; background: transparent; }
+.director-script-cover-picker.is-compact .director-script-cover-preview img { width: 116px; }
+.director-script-cover-picker.is-compact .director-script-cover-empty { min-height: 48px; border: 0; background: transparent; }
+.director-script-cover-picker.is-compact .director-script-cover-hint { flex-basis: 100%; }
+@media (max-width: 767px) {
+  .director-script-cover-preview { align-items: flex-start; }
+  .director-script-cover-preview img { width: 104px; }
+  .director-script-cover-actions { flex: 1; min-width: 0; }
+  .director-script-cover-actions .ant-btn { min-height: 32px; }
+}
 
 .director-script-stream {
   display: flex; flex-direction: column; gap: 12px; padding: 16px;
@@ -539,7 +641,8 @@
     padding-bottom: max(10px, env(safe-area-inset-bottom));
     box-shadow: 0 -8px 24px rgba(9, 12, 17, .10);
   }
-  .director-script-room { padding-bottom: 132px; }
+  /* 底部固定 Prompt Bar 的预留空间只属于对话创作室；手动编辑模式无 Prompt Bar */
+  .director-recipe-layout.is-chat .director-script-room { padding-bottom: 132px; }
   /* 流式进行中不渲染底部 Prompt Bar，无需为固定底栏预留空间 */
   .director-script-room.is-streaming { padding-bottom: 0; }
   .director-recipe-main { padding-bottom: 0 !important; }
@@ -757,6 +860,7 @@
 .director-completion-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .director-completion-copy strong { font-size: 15px; color: var(--studio-text); }
 .director-completion-copy span { font-size: 12px; color: var(--studio-text-secondary); }
+.director-completion-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex-shrink: 0; }
 
 @media (max-width: 767px) {
   .director-completion-card { padding: 12px 14px; }
@@ -845,23 +949,41 @@
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+  padding: 16px;
 }
 .replication-side {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
   position: sticky;
-  top: 0;
+  top: 16px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
 }
 .replication-source {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.replication-source .director-shot-video {
+/* 复刻页视频按 16:9 完整呈现（对比原片与复刻成片），不用卡片墙的定高裁切。 */
+.replication-layout .director-shot-video {
   width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
   border-radius: 10px;
-  background: var(--studio-surface-raised);
+  background: #0b0d12;
+}
+.replication-source .director-shot-video {
+  border-radius: 10px;
+}
+.replication-note {
+  margin: 0;
+  color: var(--studio-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 .replication-field {
   display: flex;
@@ -878,28 +1000,30 @@
 }
 .replication-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
+  gap: 8px 12px;
 }
-.replication-progress {
+.replication-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
+  min-width: 0;
 }
-.replication-progress-bar {
-  height: 6px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--studio-surface-raised);
+.replication-progress {
+  display: grid;
+  gap: 4px;
 }
-.replication-progress-bar span {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--studio-primary);
-  transition: width 0.3s ease;
+.replication-empty.ant-card { border-style: dashed; }
+.replication-empty .ant-card-body {
+  display: grid;
+  place-items: center;
+  padding: 40px 24px;
+}
+.replication-empty .replication-note {
+  max-width: 32em;
+  text-align: center;
 }
 .replication-keyframes {
   display: flex;
@@ -932,9 +1056,12 @@
 @media (max-width: 767px) {
   .replication-layout {
     grid-template-columns: 1fr;
+    padding: 12px;
   }
   .replication-side {
     position: static;
+    max-height: none;
+    overflow: visible;
   }
 }
 
@@ -1423,6 +1550,65 @@
   flex: 1 1 100%;
 }
 
+/* ---- cinema 浅色主题 token：与暗色共享布局，只替换表面与文字层级 ---- */
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] {
+  --director-page: #fafafb;
+  --director-canvas: #f1f2f3;
+  --director-surface: #ffffff;
+  --director-surface-2: #f7f8f9;
+  --director-inset: #f7f8f9;
+  --director-hover: #f4f5f6;
+  --director-ink: #1f2124;
+  --director-ink-2: #62656b;
+  --director-ink-3: #9a9da3;
+  --director-line: rgba(15, 23, 42, .08);
+  --director-line-strong: rgba(15, 23, 42, .14);
+  --director-field: #f2f2f3;
+  --director-accent: #4d6bfe;
+  --director-accent-ink: #7b5bff;
+  --director-accent-tint: #eef1ff;
+  --director-green: #189a4d;
+  --director-green-tint: #e8f5ed;
+  --director-orange: #d97706;
+  --director-orange-tint: #fff4df;
+  --director-red: #e3474c;
+  --director-red-tint: #fcecec;
+  --director-shadow-card: 0 0 0 1px rgba(15, 23, 42, .06), 0 12px 32px rgba(15, 23, 42, .08);
+  --director-bg: #fafafb;
+  --director-border: rgba(15, 23, 42, .08);
+  --director-text: #1f2124;
+  --director-muted: #62656b;
+  --director-primary: #4d6bfe;
+  --director-primary-soft: #eef1ff;
+  --cinema-gradient: linear-gradient(135deg, #4d6bfe 0%, #7b5bff 100%);
+  --cinema-glow: 0 0 20px rgba(77, 107, 254, .18);
+  background:
+    radial-gradient(1000px 540px at 72% -12%, rgba(77, 107, 254, .08), transparent 62%),
+    radial-gradient(900px 500px at -10% 110%, rgba(123, 91, 255, .05), transparent 60%),
+    var(--director-page);
+  color: var(--director-ink);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-topbar {
+  border-bottom: 1px solid var(--director-line);
+  background: rgba(255, 255, 255, .86);
+  backdrop-filter: blur(16px);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-recipe-layout,
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-recipe-main { background: transparent; }
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-hero-icon {
+  background: var(--cinema-gradient); color: #fff; box-shadow: var(--cinema-glow);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-hero-example {
+  background: var(--director-surface); border: 1px solid var(--director-line); color: var(--director-ink-2);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-hero-example:hover:not(:disabled) {
+  background: var(--director-hover); color: var(--director-ink);
+}
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-script-sheet,
+[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-document-body {
+  background: var(--director-surface); border-color: var(--director-line); color: var(--director-ink);
+}
+
 /* ---- v2 浅色主题增强层：同样的布局与增强（产物缩略图/渐变进度），
    但走浅色设计语言——白卡、细边框、品牌蓝渐变、柔和投影。 ---- */
 [data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-rows-fill {
@@ -1691,3 +1877,520 @@
 /* ---- cinema 修正 6：澄清卡选项与问题提高对比度 ---- */
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-option { color: #c9cfda; }
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-option:hover { color: var(--director-ink); }
+
+/* ========================================================================
+   v2.3 视觉强化：cinema studio desk
+   只作用于剧本创作室，沿用 beautifului 的 surface / inset / raised 语法，
+   用开放画布、层级表面和一条克制的舞台动效替代同尺寸白卡堆叠。
+   ======================================================================== */
+
+.director-recipe-shell[data-look="cinema"] {
+  --director-stage-glow: rgba(77, 107, 254, .09);
+  --director-stage-shadow: 0 24px 60px rgba(15, 23, 42, .10);
+  --director-float-shadow: 0 14px 34px rgba(15, 23, 42, .08), 0 2px 6px rgba(15, 23, 42, .05);
+  --director-accent-line: rgba(77, 107, 254, .38);
+  --director-card-tint: rgba(255, 255, 255, .72);
+  --director-card-tint-strong: #eef1ff;
+  background:
+    radial-gradient(circle at 76% 4%, var(--director-stage-glow), transparent 34%),
+    radial-gradient(circle at 10% 88%, rgba(125, 92, 255, .035), transparent 28%),
+    var(--director-page);
+}
+
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] {
+  --director-stage-glow: rgba(91, 124, 255, .13);
+  --director-stage-shadow: 0 24px 70px rgba(0, 0, 0, .34);
+  --director-float-shadow: 0 18px 40px rgba(0, 0, 0, .30), 0 2px 8px rgba(0, 0, 0, .18);
+  --director-accent-line: rgba(91, 124, 255, .58);
+  --director-card-tint: rgba(255, 255, 255, .025);
+  --director-card-tint-strong: rgba(91, 124, 255, .10);
+}
+
+/* 顶栏像工作台的控制台：微量高光、发丝线和项目状态点。 */
+.director-recipe-shell[data-look="cinema"] .director-topbar {
+  min-height: 68px;
+  padding: 12px 24px;
+  border-bottom-color: var(--director-line);
+  background: color-mix(in srgb, var(--director-surface) 86%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--director-line-strong) 62%, transparent), 0 10px 28px color-mix(in srgb, var(--director-page) 48%, transparent);
+  backdrop-filter: blur(18px);
+}
+.director-recipe-shell[data-look="cinema"] .director-topbar::after {
+  content: "";
+  position: absolute;
+  right: 24px;
+  bottom: -1px;
+  left: 24px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--director-accent-line) 46%, transparent 100%);
+  opacity: .85;
+}
+.director-recipe-shell[data-look="cinema"] .director-project-identity::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: -14px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--director-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--director-accent) 14%, transparent), 0 0 18px color-mix(in srgb, var(--director-accent) 42%, transparent);
+}
+.director-recipe-shell[data-look="cinema"] .director-back-library {
+  min-height: 34px;
+  padding-inline: 10px;
+  border-radius: 10px;
+  transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+.director-recipe-shell[data-look="cinema"] .director-back-library:hover {
+  background: var(--director-hover);
+  transform: translateX(-2px);
+}
+.director-recipe-shell[data-look="cinema"] .director-top-actions .ant-btn {
+  border-radius: 10px;
+}
+
+/* 主区打开呼吸：空态、直播和成稿都共享同一条空间节奏。 */
+.director-recipe-shell[data-look="cinema"] .director-recipe-main {
+  padding: 22px 24px 24px;
+  background: transparent;
+}
+.director-recipe-shell[data-look="cinema"] .director-script-room {
+  gap: 16px;
+  animation: director-stage-reveal 520ms cubic-bezier(.23, 1, .32, 1) both;
+}
+.director-recipe-shell[data-look="cinema"] .director-script-layout {
+  gap: 18px;
+}
+
+/* 任务栏从白色胶囊列表变成低对比度的工作台侧栏。 */
+.director-recipe-shell[data-look="cinema"] .director-task-rail {
+  width: 292px;
+  padding: 14px 12px 12px;
+  border: 1px solid var(--director-line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--director-surface) 82%, var(--director-inset));
+  box-shadow: var(--director-float-shadow);
+}
+.director-recipe-shell[data-look="cinema"] .director-recipe-layout.is-chat .director-task-rail { width: 292px; }
+.director-recipe-shell[data-look="cinema"] .director-task-rows.is-rail { gap: 10px; }
+.director-recipe-shell[data-look="cinema"] .director-task-rail-head {
+  gap: 8px;
+  margin: 0 2px 12px;
+  padding: 0 4px 14px;
+  border-bottom: 1px solid var(--director-line);
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-title {
+  gap: 9px;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-title strong {
+  color: var(--director-ink-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-title span {
+  width: auto;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--director-ink-2);
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rows-track {
+  height: 6px;
+  background: color-mix(in srgb, var(--director-line-strong) 72%, transparent);
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rows-fill {
+  background: linear-gradient(90deg, var(--director-accent), var(--director-accent-ink));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--director-accent) 34%, transparent);
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-meta {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-meta em {
+  font-size: 20px;
+  letter-spacing: -.04em;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-row {
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-row:hover,
+.director-recipe-shell[data-look="cinema"] .director-task-row.is-running {
+  background: var(--director-card-tint);
+  border-color: var(--director-line);
+  transform: translateX(2px);
+}
+.director-recipe-shell[data-look="cinema"] .director-task-row.is-running {
+  border-color: color-mix(in srgb, var(--director-accent) 46%, var(--director-line));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--director-accent) 10%, transparent);
+}
+.director-recipe-shell[data-look="cinema"] .director-task-row-label { font-size: 13px; }
+.director-recipe-shell[data-look="cinema"] .director-task-pill { font-size: 10px; }
+
+/* 直播主卡是舞台，不再和侧栏共享同样的白底权重。 */
+.director-recipe-shell[data-look="cinema"] .director-script-stream {
+  position: relative;
+  gap: 16px;
+  padding: 20px 22px 18px;
+  border: 1px solid var(--director-line-strong);
+  border-radius: 20px;
+  background:
+    linear-gradient(145deg, var(--director-card-tint), transparent 52%),
+    var(--director-surface);
+  box-shadow: var(--director-stage-shadow);
+}
+.director-recipe-shell[data-look="cinema"] .director-script-stream::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 22px;
+  left: 22px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--director-accent-line), transparent);
+  opacity: .9;
+}
+.director-recipe-shell[data-look="cinema"] .director-script-stream-head {
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom-color: var(--director-line);
+}
+.director-recipe-shell[data-look="cinema"] .director-script-stream-head::after {
+  width: 112px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--director-accent), transparent);
+}
+.director-recipe-shell[data-look="cinema"] .director-script-stream-copy strong { font-size: 20px; }
+.director-recipe-shell[data-look="cinema"] .director-script-stream-copy span { max-width: 72ch; line-height: 1.55; }
+.director-recipe-shell[data-look="cinema"] .director-stream-body {
+  padding: 4px 6px 10px 2px;
+  scrollbar-color: var(--director-line-strong) transparent;
+  scrollbar-width: thin;
+}
+.director-recipe-shell[data-look="cinema"] .director-stream-body::-webkit-scrollbar,
+.director-recipe-shell[data-look="cinema"] .director-task-rows::-webkit-scrollbar { width: 7px; }
+.director-recipe-shell[data-look="cinema"] .director-stream-body::-webkit-scrollbar-thumb,
+.director-recipe-shell[data-look="cinema"] .director-task-rows::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--director-line-strong);
+  background-clip: padding-box;
+}
+
+/* 用户创意作为有方向性的右侧批注，和系统输出形成明显对话关系。 */
+.director-recipe-shell[data-look="cinema"] .director-user-bubble {
+  margin: 2px 0 18px;
+  padding-right: 4px;
+  background: transparent;
+  border: 0;
+}
+.director-recipe-shell[data-look="cinema"] .director-user-bubble-label {
+  margin-right: 6px;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.director-recipe-shell[data-look="cinema"] .director-user-bubble p {
+  max-width: min(78%, 620px);
+  padding: 10px 14px;
+  border: 1px solid var(--director-line);
+  border-radius: 14px 14px 4px 14px;
+  background: var(--director-card-tint-strong);
+  color: var(--director-ink);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--director-accent) 8%, transparent);
+  text-align: left;
+}
+
+/* 澄清卡：问题、选项、自由输入各有层级，宽度足够承载真实文案。 */
+.director-recipe-shell[data-look="cinema"] .director-approval {
+  max-width: 460px;
+  margin: 4px auto 18px 4px;
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-card {
+  border: 1px solid var(--director-line-strong);
+  border-radius: 18px;
+  background: var(--director-surface);
+  box-shadow: var(--director-float-shadow);
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-card::before {
+  width: 1px;
+  background: var(--director-accent-line);
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-question {
+  padding: 20px 20px 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-why {
+  margin: 6px 20px 0;
+  line-height: 1.65;
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-options {
+  gap: 6px;
+  margin-top: 16px;
+  padding: 0 14px;
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-option {
+  min-height: 44px;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-option:hover {
+  background: var(--director-hover);
+  border-color: var(--director-line);
+  transform: translateX(2px);
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-option:has(.director-approval-radio.is-on) {
+  background: var(--director-accent-tint);
+  border-color: color-mix(in srgb, var(--director-accent) 44%, var(--director-line));
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-option.is-custom {
+  align-items: flex-start;
+  padding-block: 10px;
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-option.is-custom input {
+  min-width: 0;
+  flex: 1;
+  margin-top: -1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--director-ink);
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-option.is-custom:focus-within {
+  background: var(--director-inset);
+  border-color: var(--director-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--director-accent) 15%, transparent);
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-footer {
+  margin-top: 14px;
+  padding: 12px 14px 14px;
+  border-top-color: var(--director-line);
+}
+.director-recipe-shell[data-look="cinema"] .director-approval-skip-all {
+  margin: 0 4px;
+  font-size: 11px;
+  letter-spacing: .03em;
+}
+
+/* 底部输入是 command dock，聚焦时只抬起一圈蓝色光。 */
+.director-recipe-shell[data-look="cinema"] .director-prompt-bar {
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--director-line-strong);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--director-surface) 90%, var(--director-inset));
+  box-shadow: var(--director-float-shadow);
+}
+.director-recipe-shell[data-look="cinema"] .director-prompt-bar:focus-within {
+  border-color: var(--director-accent-line);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--director-accent) 10%, transparent), var(--director-float-shadow);
+}
+.director-recipe-shell[data-look="cinema"] .director-prompt-input {
+  min-height: 42px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--director-line);
+  border-radius: 13px;
+  background: var(--director-inset);
+}
+.director-recipe-shell[data-look="cinema"] .director-prompt-textarea { padding: 7px 4px; }
+.director-recipe-shell[data-look="cinema"] .director-prompt-send {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 0;
+  border-radius: 10px;
+  background: var(--director-line-strong);
+}
+.director-recipe-shell[data-look="cinema"] .director-prompt-send.is-armed {
+  background: linear-gradient(135deg, var(--director-accent), var(--director-accent-ink));
+  color: #fff;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--director-accent) 26%, transparent);
+}
+.director-recipe-shell[data-look="cinema"] .director-prompt-hint {
+  padding: 4px 6px 0;
+  border-top: 0;
+}
+
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-main .ant-btn:not(.ant-btn-primary) {
+  background: var(--director-inset);
+  border-color: var(--director-line-strong);
+  color: var(--director-ink-2);
+  box-shadow: none;
+}
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-recipe-main .ant-btn:not(.ant-btn-primary):hover {
+  background: var(--director-hover);
+  border-color: var(--director-accent-line);
+  color: var(--director-ink);
+}
+
+/* 成稿像编辑台上的纸张，封面入口与文档成为一个整体。 */
+.director-recipe-shell[data-look="cinema"] .director-script-document { gap: 14px; }
+.director-recipe-shell[data-look="cinema"] .director-document-toolbar { padding-inline: 2px; }
+.director-recipe-shell[data-look="cinema"] .director-script-cover-picker.is-compact {
+  padding: 12px 14px;
+  border-style: solid;
+  border-color: var(--director-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--director-surface) 76%, var(--director-inset));
+}
+.director-recipe-shell[data-look="cinema"] .director-document-body {
+  position: relative;
+  padding: 30px 34px 26px;
+  border: 1px solid var(--director-line-strong);
+  border-radius: 20px;
+  background: var(--director-surface);
+  box-shadow: var(--director-stage-shadow);
+}
+.director-recipe-shell[data-look="cinema"] .director-document-body::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 34px;
+  left: 34px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--director-accent), transparent 72%);
+}
+.director-recipe-shell[data-look="cinema"] .director-document-title { max-width: 22ch; }
+.director-recipe-shell[data-look="cinema"] .director-document-lead { max-width: 72ch; line-height: 1.8; }
+.director-recipe-shell[data-look="cinema"] .director-document-story { max-width: 78ch; }
+.director-recipe-shell[data-look="cinema"] .director-script-sheet {
+  padding: 22px;
+  border: 1px solid var(--director-line-strong);
+  border-radius: 18px;
+  background: var(--director-surface);
+  box-shadow: var(--director-float-shadow);
+}
+
+/* 空态示例从竖排列表变成创作入口矩阵。 */
+.director-recipe-shell[data-look="cinema"] .director-hero {
+  align-items: stretch;
+  gap: 14px;
+  padding: 46px 28px 28px;
+}
+.director-recipe-shell[data-look="cinema"] .director-hero-icon { align-self: center; width: 64px; height: 64px; border-radius: 20px; }
+.director-recipe-shell[data-look="cinema"] .director-hero strong { text-align: center; }
+.director-recipe-shell[data-look="cinema"] .director-hero p { align-self: center; }
+.director-recipe-shell[data-look="cinema"] .director-hero-examples {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 760px;
+  margin: 16px auto 0;
+}
+.director-recipe-shell[data-look="cinema"] .director-hero-example {
+  min-height: 78px;
+  padding: 13px 14px;
+  border: 1px solid var(--director-line);
+  border-radius: 14px;
+  background: var(--director-card-tint);
+  box-shadow: none;
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+.director-recipe-shell[data-look="cinema"] .director-hero-example:hover:not(:disabled) {
+  border-color: var(--director-accent-line);
+  background: var(--director-accent-tint);
+  transform: translateY(-2px);
+}
+
+@keyframes director-stage-reveal {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: none; }
+}
+
+@media (max-width: 1100px) and (min-width: 768px) {
+  .director-recipe-shell[data-look="cinema"] .director-task-rail,
+  .director-recipe-shell[data-look="cinema"] .director-recipe-layout.is-chat .director-task-rail { width: 250px; }
+  .director-recipe-shell[data-look="cinema"] .director-hero-examples { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 767px) {
+  .director-recipe-shell[data-look="cinema"] .director-topbar { min-height: 60px; padding: 10px 14px; }
+  .director-recipe-shell[data-look="cinema"] .director-topbar::after { right: 14px; left: 14px; }
+  .director-recipe-shell[data-look="cinema"] .director-project-identity { max-width: 48vw; }
+  .director-recipe-shell[data-look="cinema"] .director-project-identity::before { left: -10px; }
+  .director-recipe-shell[data-look="cinema"] .director-recipe-main { padding: 14px 12px 0; }
+  .director-recipe-shell[data-look="cinema"] .director-script-room { gap: 12px; }
+  .director-recipe-shell[data-look="cinema"] .director-script-stream {
+    gap: 12px;
+    padding: 14px 14px 12px;
+    border-radius: 16px;
+  }
+  .director-recipe-shell[data-look="cinema"] .director-script-stream-head { padding-bottom: 12px; }
+  .director-recipe-shell[data-look="cinema"] .director-script-stream-copy strong { font-size: 17px; }
+  .director-recipe-shell[data-look="cinema"] .director-stream-body { padding-right: 2px; }
+  .director-recipe-shell[data-look="cinema"] .director-user-bubble p { max-width: 92%; }
+  .director-recipe-shell[data-look="cinema"] .director-approval { max-width: none; margin: 2px 0 14px; }
+  .director-recipe-shell[data-look="cinema"] .director-approval-question { padding: 16px 16px 0; }
+  .director-recipe-shell[data-look="cinema"] .director-approval-why { margin-inline: 16px; }
+  .director-recipe-shell[data-look="cinema"] .director-approval-options { padding-inline: 10px; }
+  .director-recipe-shell[data-look="cinema"] .director-document-body { padding: 24px 20px 20px; border-radius: 16px; }
+  .director-recipe-shell[data-look="cinema"] .director-document-body::before { right: 20px; left: 20px; }
+  .director-recipe-shell[data-look="cinema"] .director-script-sheet { padding: 16px; border-radius: 14px; }
+  .director-recipe-shell[data-look="cinema"] .director-hero { padding: 30px 14px 18px; }
+  .director-recipe-shell[data-look="cinema"] .director-hero-examples { grid-template-columns: 1fr; margin-top: 10px; }
+  .director-recipe-shell[data-look="cinema"] .director-hero-example { min-height: 0; }
+  .director-recipe-shell[data-look="cinema"] .director-prompt-bar {
+    border-radius: 16px 16px 0 0;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .director-recipe-shell[data-look="cinema"] .director-script-room { animation: none; }
+  .director-recipe-shell[data-look="cinema"] .director-task-row,
+  .director-recipe-shell[data-look="cinema"] .director-approval-option,
+  .director-recipe-shell[data-look="cinema"] .director-hero-example { transition: none; }
+}
+
+/* ---- 创作模式切换（AI 生成 / 手动编辑）----
+   顶栏与移动端头部使用全局 --studio-* 语义变量，双主题自动生效。 */
+.director-creation-mode-switch.ant-segmented {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 3px;
+  border: 1px solid var(--studio-border);
+  border-radius: 10px;
+  background: var(--studio-surface-raised);
+}
+.director-creation-mode-switch.ant-segmented .ant-segmented-item { min-width: 78px; border-radius: 7px; line-height: 28px; }
+.director-creation-mode-switch.ant-segmented .director-creation-mode-option {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 12px; font-weight: 550; color: var(--studio-text-secondary);
+}
+.director-creation-mode-switch.ant-segmented .ant-segmented-item-selected .director-creation-mode-option { color: var(--studio-text); font-weight: 600; }
+.director-creation-mode-switch.is-compact .ant-segmented-item { min-width: 34px; }
+.director-creation-mode-switch.is-compact .director-creation-mode-option { gap: 0; }
+
+/* ---- 剧本阶段手动编辑工作区（复用 DirectorScriptDocument；手动模式不进对话室，
+   与普通阶段同布局显示左侧阶段导航，容器走全局 --studio-* 语义变量）---- */
+.director-script-manual {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px;
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border);
+  border-radius: 14px;
+}
+.director-script-manual-head { display: flex; flex-direction: column; gap: 4px; width: 100%; max-width: 860px; margin: 0 auto; }
+.director-script-manual .director-script-document { align-self: center; width: 100%; max-width: 860px; }
+.director-script-manual .director-script-sheet { margin: 0 auto; width: 100%; }
+.director-script-manual-head strong { font-size: 15px; color: var(--studio-text); }
+.director-script-manual-head p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--studio-text-muted); }
+@media (max-width: 767px) {
+  .director-script-manual { padding: 12px; }
+}
