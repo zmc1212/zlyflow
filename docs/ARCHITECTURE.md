@@ -1692,3 +1692,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：`reset_following` 默认 False，不传行为与旧版完全一致；澄清作用域新增可选字段，`parseClarifyScope` 兼容旧格式；无数据库迁移。
 - 验证：`python -m unittest backend.tests.test_director`（117 项，含新增 `ResetRecipeFollowingTests` 7 项）、`pnpm --dir frontend test`（51 项）、`pnpm --dir frontend build`、浏览器双主题/桌面+移动端自查。
 - 回滚方式：还原本次提交（前端隐藏入口 + 后端忽略新参数即等价回滚，无数据迁移）。
+
+## 2026-09-12 确认题强制保留自定义输入
+
+- 原因：所有澄清/确认题必须允许用户自填答案，`allowCustom` 不能交给 LLM 决定。
+- 当前基线：`_normalize_clarify_item` 强制 `allowCustom=true`；两份 clarify prompt 声明禁止关闭自定义；前端 `DirectorScriptStreamPanel` 无条件渲染自定义输入行。`plan_clarify` 协议不变。
+- 受影响文件：`backend/app/llm_minimax_skills.py`、`backend/tests/test_director.py`、`frontend/src/director/components/DirectorScriptStreamPanel.tsx`。
+- 兼容性：纯收紧性修正，接口与数据结构不变。
+- 验证：导演台单测 129 项、前端 vitest 54 项、前端构建通过；浏览器实测自定义答案提交并生效（beat_count 自填 12 → 剧本 12 Beat）。
+- 回滚方式：还原本次提交。
