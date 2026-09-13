@@ -408,6 +408,18 @@ class JobWorker:
             remote_task_id = context.get("remote_task_id")
             try:
                 if not remote_task_id:
+                    unclaimable = self._unclaimable_reference_error(context)
+                    if unclaimable:
+                        # reference_data_uris() only reads files under uploads_dir,
+                        # so no shared-database host can ever submit these references;
+                        # fail visibly instead of skipping the item at every boot.
+                        if self._generation_cancelled(generation_item_id):
+                            return
+                        self.store.update_generation(
+                            generation_item_id, status=JobStatus.FAILED,
+                            stage="参考素材不可用", error=unclaimable,
+                        )
+                        return
                     if not self._generation_references_available_locally(context):
                         # Shared-database deployment: the reference files belong
                         # to the host that created the task; leave it queued so
@@ -493,6 +505,25 @@ class JobWorker:
             if uploads_root not in path.parents or not path.is_file():
                 return False
         return True
+
+    @staticmethod
+    def _unclaimable_reference_error(context: dict) -> str | None:
+        """Error message when no host can ever claim the item, else None.
+
+        reference_data_uris() only reads files under uploads_dir, so references
+        stored elsewhere fail submission on every host. A missing file under
+        uploads_dir may still exist on the creating host, so such items stay
+        queued for that host instead of failing here.
+        """
+        uploads_root = settings.uploads_dir.resolve()
+        for raw in context.get("references") or []:
+            value = str(raw or "").strip()
+            if not value:
+                continue
+            path = Path(value).resolve()
+            if uploads_root not in path.parents:
+                return f"参考图片不存在或超出上传目录: {path.name}"
+        return None
 
     def _bind_director_recipe_image(self, generation_item_id: str) -> None:
         from .director_jobs import bind_director_asset_image, job_asset_image_url

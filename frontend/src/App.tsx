@@ -7,7 +7,7 @@ import {
 } from "lucide-react"
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
-import { jsonMutation, requestJson, User } from "./api"
+import { jsonMutation, notifyUnauthorized, requestJson, User } from "./api"
 import { generateJobPath, isXiajiArtStylesPath, parseGeneratePath, parseXiajiProjectPath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import {
@@ -959,6 +959,7 @@ export default function App({
       }
       references.forEach((asset) => form.append("references", asset.file))
       const response = await fetch("/api/jobs", { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } })
+      if (response.status === 401) notifyUnauthorized()
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "提交任务失败")
       return response.json() as Promise<Job>
     },
@@ -996,6 +997,7 @@ export default function App({
       form.set("prompt", job.prompt)
       form.set("negative_prompt", job.negative_prompt)
       const response = await fetch(`/api/jobs/${job.id}/rounds`, { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } })
+      if (response.status === 401) notifyUnauthorized()
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "创建下一轮失败")
       return response.json() as Promise<Job>
     },

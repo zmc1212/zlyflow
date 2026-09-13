@@ -1,3 +1,5 @@
+import { notifyUnauthorized } from "../api"
+
 export function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -16,6 +18,7 @@ export function fileToDataUrl(file: File): Promise<string> {
 
 export async function fileFromUrl(url: string, filename: string): Promise<File> {
   const response = await fetch(url)
+  if (response.status === 401) notifyUnauthorized()
   if (!response.ok) {
     throw new Error(`无法读取参考图 ${filename}`)
   }
@@ -335,6 +338,7 @@ export async function waitForJobTerminal(
 
   while (Date.now() - started < timeoutMs) {
     const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`)
+    if (response.status === 401) notifyUnauthorized()
     if (!response.ok) {
       throw new Error("查询分镜任务失败")
     }

@@ -5,7 +5,7 @@ import {
 import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { ApiRequestError, User, requestJson } from "../api"
+import { ApiRequestError, User, notifyUnauthorized, requestJson } from "../api"
 import JianyingExportModal from "../media/JianyingExportModal"
 import type { JianyingMediaItem } from "../media/jianying-draft-builder"
 import JobErrorNotice from "./components/JobErrorNotice"
@@ -1733,6 +1733,7 @@ export default function DirectorRecipeStudio({
         let videoUrl = freshPrevShot?.outputVideoUrl
         if (!videoUrl && freshPrevShot?.jobId) {
            const jobRes = await fetch(`/api/jobs/${encodeURIComponent(freshPrevShot.jobId)}`)
+           if (jobRes.status === 401) notifyUnauthorized()
            if (jobRes.ok) {
              const job = await jobRes.json()
              videoUrl = jobVideoUrl(job)
