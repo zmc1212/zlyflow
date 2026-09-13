@@ -1,5 +1,5 @@
 import { Button } from "antd"
-import { ArrowUp } from "lucide-react"
+import { ArrowUp, Wand2 } from "lucide-react"
 import { useRef } from "react"
 import { PLAN_GENERATION_LABEL, SCRIPT_PROM_BAR_HINT } from "../action-copy"
 
@@ -44,6 +44,9 @@ export default function DirectorPromptBar({
       ) : (
         <>
           <div className="director-prompt-input">
+            <span className="director-prompt-lead" aria-hidden>
+              <Wand2 size={16} />
+            </span>
             <textarea
               className="director-prompt-textarea"
               value={value}

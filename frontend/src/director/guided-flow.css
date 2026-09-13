@@ -1504,3 +1504,190 @@
   box-shadow: 0 0 10px rgba(77, 107, 254, .22);
 }
 [data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-regen-icon { color: #4d6bfe; }
+
+/* ========================================================================
+   v2.2 排版还原（主题中性）：布局、字号戏剧性、构图按设计图 17-25 落地。
+   颜色继续由 cinema（暗色）与浅色增强层提供。
+   ======================================================================== */
+
+/* ---- 顶栏：标题居中构图 ---- */
+.director-recipe-shell[data-look="cinema"] .director-topbar { position: relative; }
+.director-recipe-shell[data-look="cinema"] .director-topbar .director-project-heading { position: static; }
+.director-recipe-shell[data-look="cinema"] .director-topbar .director-project-identity {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  text-align: center;
+}
+.director-recipe-shell[data-look="cinema"] .director-topbar .director-project-title {
+  width: auto;
+  max-width: 40vw;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+.director-recipe-shell[data-look="cinema"] .director-topbar .director-project-subline {
+  justify-content: center;
+  gap: 10px;
+  font-size: 11px;
+}
+.director-recipe-shell[data-look="cinema"] .director-top-actions { margin-left: auto; }
+
+/* ---- 任务栏头部：大数字堆叠（标签行 → 巨型 N/N → 进度条 → 巨型百分比）---- */
+.director-recipe-shell[data-look="cinema"] .director-task-rail-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  order: 1;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-title span {
+  order: 2;
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -.03em;
+  color: var(--director-ink);
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rows-track {
+  order: 3;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-meta {
+  order: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-meta em {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -.02em;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-rail-meta span { font-size: 11px; }
+
+/* ---- 任务行：加高的胶囊卡 ---- */
+.director-recipe-shell[data-look="cinema"] .director-task-row {
+  min-height: 52px;
+  padding: 12px 14px;
+  gap: 12px;
+  border-radius: 14px;
+  font-size: 14px;
+}
+.director-recipe-shell[data-look="cinema"] .director-task-row-label { font-weight: 550; }
+
+/* ---- 主卡头部：大标题 + 渐变细线 ---- */
+.director-recipe-shell[data-look="cinema"] .director-script-stream { border-radius: 16px; }
+.director-recipe-shell[data-look="cinema"] .director-script-stream-head {
+  position: relative;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--director-line);
+}
+.director-recipe-shell[data-look="cinema"] .director-script-stream-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 168px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--cinema-gradient, linear-gradient(135deg, #5b7cff 0%, #8b6aff 100%));
+}
+.director-recipe-shell[data-look="cinema"] .director-script-stream-copy strong {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.015em;
+}
+.director-recipe-shell[data-look="cinema"] .director-script-stream-copy span { font-size: 13px; }
+
+/* ---- 完成卡与操作行 ---- */
+.director-recipe-shell[data-look="cinema"] .director-completion-card {
+  padding: 18px 20px;
+  border-radius: 16px;
+}
+.director-recipe-shell[data-look="cinema"] .director-completion-copy strong { font-size: 16px; }
+.director-recipe-shell[data-look="cinema"] .director-script-document { gap: 10px; }
+.director-recipe-shell[data-look="cinema"] .director-document-toolbar {
+  justify-content: space-between;
+  margin-top: 2px;
+}
+.director-recipe-shell[data-look="cinema"] .director-document-toolbar .ant-btn { min-width: 112px; }
+
+/* ---- 剧本成稿：大标题 + 宽松行距 ---- */
+.director-recipe-shell[data-look="cinema"] .director-document-body { padding: 24px 26px; gap: 14px; }
+.director-recipe-shell[data-look="cinema"] .director-document-title {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -.015em;
+  line-height: 1.25;
+}
+.director-recipe-shell[data-look="cinema"] .director-document-lead { font-size: 14px; }
+.director-recipe-shell[data-look="cinema"] .director-document-story {
+  font-size: 14px;
+  line-height: 1.95;
+  white-space: pre-wrap;
+}
+
+/* ---- 步骤行 / 方向 chips ---- */
+.director-recipe-shell[data-look="cinema"] .director-step-row-head { padding: 10px 14px; }
+.director-recipe-shell[data-look="cinema"] .director-step-row-name { font-size: 13.5px; font-weight: 550; }
+.director-recipe-shell[data-look="cinema"] .director-direction-label {
+  font-size: 11px;
+  letter-spacing: .12em;
+  color: var(--director-ink-3);
+}
+
+/* ---- 空态 hero ---- */
+.director-recipe-shell[data-look="cinema"] .director-hero { gap: 12px; }
+.director-recipe-shell[data-look="cinema"] .director-hero-icon { width: 56px; height: 56px; border-radius: 18px; }
+.director-recipe-shell[data-look="cinema"] .director-hero strong { font-size: 20px; letter-spacing: -.01em; }
+.director-recipe-shell[data-look="cinema"] .director-hero p { font-size: 13px; line-height: 1.8; }
+
+/* ---- 澄清问题卡：左置窄卡 ---- */
+.director-recipe-shell[data-look="cinema"] .director-approval-card { max-width: 380px; }
+
+/* ---- Prompt Bar：魔杖引导 + 玻璃胶囊 ---- */
+.director-recipe-shell[data-look="cinema"] .director-prompt-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.director-recipe-shell[data-look="cinema"] .director-prompt-lead {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin: 0 0 12px 4px;
+  color: var(--director-ink-3);
+}
+.director-recipe-shell[data-look="cinema"] .director-prompt-textarea { flex: 1; }
+
+/* ---- cinema 修正 5：1920 基准布局 ---- */
+/* 脚本房间无 Segmented，顶栏 actions 固定到第三列（右侧贴边），让居中标题不与之重叠 */
+.director-recipe-shell[data-look="cinema"] .director-top-actions { grid-column: 3; justify-content: flex-end; }
+/* 任务栏加宽至设计稿比例（约 19% 视宽），预览更接近媒体卡质感 */
+.director-recipe-shell[data-look="cinema"] .director-task-rail { width: 320px; }
+.director-recipe-shell[data-look="cinema"] .director-recipe-layout.is-chat .director-task-rail { width: 320px; }
+
+/* ---- cinema 修正 6：澄清卡选项与问题提高对比度 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-option { color: #c9cfda; }
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-approval-option:hover { color: var(--director-ink); }
