@@ -26,6 +26,7 @@ from backend.app.minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from backend.app.storage import JobStore
 from backend.app.resource_storage import BrowserLocalStagingStorage, BrowserStreamStorage, create_resource_storage
 from backend.app.models import UserRole
+from backend.app import worker as worker_module
 from backend.app.worker import JobWorker
 from backend.app.video_depth_workflow import DEPTH_OUTPUT_NODE, build_depth_video_workflow
 from backend.app.wan_vace_depth_workflow import (
@@ -1618,6 +1619,73 @@ class WorkerTests(unittest.TestCase):
     def test_linux_worker_recognizes_missing_windows_reference_as_host_local(self) -> None:
         job = {"references": [r"D:\\zlyun\\workspace\\data\\uploads\\reference.png"]}
         self.assertFalse(JobWorker.references_available_locally(job))
+
+    def test_worker_fails_grs_item_whose_references_live_outside_uploads(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return []
+
+        class FakeGrs:
+            def __init__(self) -> None:
+                self.submit_calls = 0
+
+            def availability(self, mode):
+                return True, None
+
+            def client(self):
+                return self
+
+            def submit(self, **kwargs):
+                self.submit_calls += 1
+                return "remote-1"
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            outside = Path(directory) / "elsewhere" / "reference.png"
+            outside.parent.mkdir(parents=True, exist_ok=True)
+            outside.write_bytes(b"png")
+            store.create("job-1", JobMode.GRS_GPT_IMAGE_2, "prompt", "", None, [str(outside)])
+            item_id = store.get("job-1")["rounds"][-1]["generation_items"][0]["id"]
+            grs = FakeGrs()
+            worker = JobWorker(store, FakeComfy(), grs_provider=grs, resource_storage=object())
+
+            asyncio.run(worker.execute_image(item_id))
+
+            item = store.get("job-1")["rounds"][-1]["generation_items"][0]
+            self.assertEqual(item["status"], JobStatus.FAILED.value)
+            self.assertIn("超出上传目录", item["error"])
+            self.assertEqual(grs.submit_calls, 0)
+
+    def test_worker_keeps_queued_grs_item_when_uploads_reference_missing_locally(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return []
+
+        class FakeGrs:
+            def availability(self, mode):
+                return True, None
+
+            def client(self):
+                return self
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = worker_module.settings
+            worker_module.settings = Settings(
+                workspace_dir=Path(directory), data_dir_override=str(Path(directory) / "data"),
+            )
+            try:
+                store = JobStore(Path(directory) / "data" / "test.db")
+                missing = Path(directory) / "data" / "uploads" / "owner" / "job-1" / "1_reference.png"
+                store.create("job-1", JobMode.GRS_GPT_IMAGE_2, "prompt", "", None, [str(missing)])
+                item_id = store.get("job-1")["rounds"][-1]["generation_items"][0]["id"]
+                worker = JobWorker(store, FakeComfy(), grs_provider=FakeGrs(), resource_storage=object())
+
+                asyncio.run(worker.execute_image(item_id))
+
+                item = store.get("job-1")["rounds"][-1]["generation_items"][0]
+                self.assertEqual(item["status"], JobStatus.QUEUED.value)
+            finally:
+                worker_module.settings = original_settings
 
     def test_worker_releases_queue_when_comfy_connection_is_interrupted(self) -> None:
         class InterruptedComfy:
