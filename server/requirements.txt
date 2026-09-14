@@ -1,0 +1,8 @@
+fastapi==0.115.14
+uvicorn[standard]==0.34.3
+pydantic==2.13.4
+pymysql==1.1.1
+cryptography==45.0.7
+requests==2.34.2
+qiniu==7.16.0
+python-dotenv>=1.0.0
