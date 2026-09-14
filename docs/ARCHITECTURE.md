@@ -1741,6 +1741,7 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 回滚方式：还原本次提交即可（前端不传 `resume`、后端忽略该字段即等价回滚，无数据迁移）。
 
 
+
 ## 2026-09-13 「道具定妆」独立子阶段（前端阶段模型）
 
 - 变更原因：视觉素材步骤左侧阶段导航只有角色/场景两个子项，右侧内容区却是角色/场景/道具三个 Tab；「道具」此前仅靠组件本地状态（`assetTab`）寄生在角色定妆阶段下，无导航入口、无 URL 阶段、无就绪度，两侧清单不一致。
@@ -1769,3 +1770,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：无 API / 数据 / 后端变化；未启用七牛云的部署仍按原逻辑弹目录授权；缓存只影响瞬时错误时的兜底判断，接口成功后立即覆盖。
 - 验证命令：`pnpm --dir frontend build`（vitest 54 项通过）。
 - 回滚方式：还原 `App.tsx` 本次改动即可。
+
+## 2026-09-14 澄清待答不再锁定「创作模式」切换（修复手动模式切不回 AI 生成）
+
+- 变更原因：创作模式切换的禁用条件原为 `planPipelineRunning || clarifyActive`（`DirectorRecipeStudio.tsx`）。澄清问题卡会持久化在工程级 localStorage（`director-clarify:<projectId>`），用户拿到问题后未作答就离开（关页、切走、或另一标签页触发澄清）时该残留长期存在；而澄清卡只在剧本对话室渲染，其余阶段既看不到卡片也得不到任何提示，模式开关却被整体 disabled，表现为「手动编辑模式下点任意步骤后切不回 AI 生成」。同一条件还牵连 `scriptManualActive`，使手动模式下的剧本阶段漏出 AI 对话室，违背 3.0 节「手动模式隐藏 Prompt Bar/澄清卡」的承诺。
+- 当前基线：`creationModeLocked` 仅由 `planPipelineRunning`（流水线进行中，含 `plan_pipeline`/`plan_clarify` 活动操作恢复）驱动，流式进度与「取消生成」入口仍可见，符合原锁定意图；澄清问题待答不再影响开关可用性与 `scriptManualActive`。未答问题卡继续保留在 localStorage，切回 AI 生成后在剧本对话室仍可见、可作答或跳过；新一轮生成（`handleRun`/`continueGuidedFlow`）沿用既有「丢弃旧卡」逻辑，不会出现新旧卡片叠答。同时 `setCreationMode` 在切换时用 antd message 即时反馈（「已切换到手动编辑，可直接编写各环节内容」/「已切换到 AI 生成，可继续用 AI 打磨各环节」）：画风等阶段两种模式界面几乎一致，无提示时用户会误以为切换无效（实测同一工程画风页两种模式按钮完全相同）。
+- 受影响文件：`frontend/src/director/DirectorRecipeStudio.tsx`（锁定条件与切换反馈）、`docs/导演台流程与界面结构.md`（§3.0）、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：纯前端交互条件变化，无 API/数据库/存储格式变更；流水线运行中的锁定行为与旧版一致；残留澄清卡的清理解析不变。回滚仅还原该行表达式即可。
+- 验证命令：`pnpm --dir frontend test`、`pnpm --dir frontend build`、`python -m unittest discover -s backend/tests -p 'test_*.py'`；浏览器实测：注入 `director-clarify:<projectId>` 待答状态后，手动模式在各阶段点击「AI 生成」立即生效（桌面 1280 + 移动 390），剧本阶段显示手动编辑器而非对话室；无残留状态时各阶段「点步骤 → 切模式」回归正常。
+- 回滚方式：还原 `DirectorRecipeStudio.tsx` 中 `creationModeLocked` 表达式与四份文档对应段落，无数据迁移。

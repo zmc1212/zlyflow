@@ -1194,12 +1194,15 @@ export default function DirectorScriptStreamPanel({
           title={`${RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent} · ${SCRIPT_STEP_VIEW_LABEL}`}
           onClick={() => setViewingAgent(agent)}
         >
-          {failed
-            ? <XCircle size={14} className="director-step-row-icon is-failed" />
-            : <CheckCircle2 size={14} className="director-step-row-icon is-done" />}
+          {/* 官方 tool-chips 行首语法：状态图标与 chevron 同位叠放，hover 时图标淡出、chevron 旋入。 */}
+          <span className="director-step-row-icon" aria-hidden>
+            {failed
+              ? <XCircle size={14} className="is-failed" />
+              : <CheckCircle2 size={14} className="is-done" />}
+            <ChevronRight size={12} className="director-step-row-icon-chevron" />
+          </span>
           <span className="director-step-row-name">{RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}</span>
           <span className="director-step-row-chip">{blockPreview(agent)}</span>
-          <ChevronRight size={13} className="director-step-row-chevron" aria-hidden />
         </button>
         {canRegenerate ? (
           <button

@@ -940,6 +940,8 @@ export default function DirectorRecipeStudio({
     setCreationModeState(mode)
     storeCreationMode(projectId, mode)
     patchStudioSearch({ mode })
+    // 画风等阶段两种模式界面几乎一致，切换必须给即时反馈，否则用户会误以为没切成功。
+    messageApi.success(mode === "manual" ? "已切换到手动编辑，可直接编写各环节内容" : "已切换到 AI 生成，可继续用 AI 打磨各环节")
   }
 
   function setActiveStage(stage: RecipeStageId) {
@@ -2374,8 +2376,9 @@ export default function DirectorRecipeStudio({
   const clarifyQuestions = clarifyScope?.questions ?? null
   const clarifyActive = Boolean(clarifyQuestions?.length) && !planPipelineRunning
   const manualMode = creationMode === "manual"
-  // AI 写作（流水线/澄清）进行中锁定模式切换，避免遮挡流式进度与取消入口。
-  const creationModeLocked = planPipelineRunning || clarifyActive
+  // 仅流水线进行中锁定模式切换（流式进度与取消入口可见）；
+  // 澄清问题待答不锁定：未答卡片保留在剧本对话室，可随时切模式后再回答。
+  const creationModeLocked = planPipelineRunning
   const scriptManualActive = manualMode && !creationModeLocked
   // 进入手动编辑时剧本默认展开为编辑态；「完成编辑」后仍可一键回到编辑。
   useEffect(() => {

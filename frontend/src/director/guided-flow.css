@@ -236,6 +236,16 @@
 .director-task-row.is-running { border-radius: 14px; }
 .director-task-row.is-clickable { cursor: pointer; }
 .director-task-row-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex-shrink: 0; }
+/* 行主体（图标+名称+状态胶囊/按钮）单独一行；含产出预览的行改为上下两段，
+   预览行的标签行与其他行的内容行高保持一致，避免任务栏节奏参差。 */
+.director-task-row-main { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.director-task-row.has-preview { flex-direction: column; align-items: stretch; row-gap: 8px; }
+.director-task-row.has-preview .director-task-row-main { min-height: 30px; }
+.director-task-preview {
+  position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+  border-radius: 10px; background: var(--director-canvas);
+}
+.director-task-preview video, .director-task-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .director-ring { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .director-ring svg { position: absolute; inset: 0; }
 .director-ring svg.is-spin { animation: director-stream-spin 1.1s linear infinite; }
@@ -684,8 +694,10 @@
 .director-stream-wrap { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .director-stream-feed { display: flex; flex-direction: column; }
 
-.director-step-feed { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px; }
-.director-step-row { display: flex; align-items: center; gap: 6px; animation: director-fade-up 300ms cubic-bezier(0.23,1,0.32,1) both; }
+.director-step-feed { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 4px; }
+/* 官方 tool-chips 行语法。行尾固定预留 30px 槽位：已完成环节的「重新生成」按钮
+   绝对定位在该槽内（hover 显现），失败行同宽——所有步骤行头保持像素一致。 */
+.director-step-row { position: relative; display: flex; align-items: center; gap: 6px; padding-right: 30px; animation: director-fade-up 300ms cubic-bezier(0.23,1,0.32,1) both; }
 .director-step-row-head {
   display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 30px; padding: 0 6px;
   margin: 0 -2px; background: none; border: none; border-radius: 8px; cursor: pointer;
@@ -694,21 +706,30 @@
 }
 .director-step-row-head:hover { background: var(--director-hover); }
 .director-step-row-head:focus-visible { outline: 2px solid var(--director-accent); outline-offset: 1px; }
-.director-step-row-icon { display: inline-flex; flex-shrink: 0; }
-.director-step-row-icon.is-done { color: var(--director-green); }
-.director-step-row-icon.is-failed { color: var(--director-red); }
+/* 官方行首图标叠放：状态图标与 chevron 同位，hover 时图标淡出、chevron 旋入。 */
+.director-step-row-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; }
+.director-step-row-icon .is-done { color: var(--director-green); }
+.director-step-row-icon .is-failed { color: var(--director-red); }
+.director-step-row-icon > svg:first-child { transition: opacity 100ms ease; }
+.director-step-row-icon-chevron {
+  position: absolute; inset: 0; margin: auto; color: var(--director-ink-3);
+  opacity: 0; transform: rotate(-90deg); transition: opacity 150ms ease, transform 150ms ease;
+}
+.director-step-row-head:hover .director-step-row-icon > svg:first-child,
+.director-step-row-head:focus-visible .director-step-row-icon > svg:first-child { opacity: 0; }
+.director-step-row-head:hover .director-step-row-icon-chevron,
+.director-step-row-head:focus-visible .director-step-row-icon-chevron { opacity: 1; transform: rotate(0deg); }
 .director-step-row-name { flex-shrink: 0; font-size: 12.5px; font-weight: 500; color: var(--director-ink); }
 .director-step-row-chip {
   flex: 1; min-width: 0; display: inline-flex; align-items: center; height: 22px; padding: 0 8px;
-  border-radius: 6px; background: var(--director-inset); box-shadow: 0 0 0 1px var(--director-line);
+  border-radius: 6px; background: var(--director-hover-2, var(--director-inset)); box-shadow: 0 0 0 1px var(--director-line);
   font-size: 11.5px; color: var(--director-ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.director-step-row-chevron { flex-shrink: 0; color: var(--director-ink-3); opacity: 0; transition: opacity 150ms ease; }
-.director-step-row-head:hover .director-step-row-chevron,
-.director-step-row-head:focus-visible .director-step-row-chevron { opacity: 1; }
-/* 已完成环节行尾的重新生成入口：与任务栏 hover 显现按钮同一语法。 */
+/* 已完成环节行尾的重新生成入口：与任务栏 hover 显现按钮同一语法；
+   绝对定位在步骤行尾的固定槽位内，不参与 flex 占位，失败/完成行头等宽。 */
 .director-step-regen {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
   flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; padding: 0;
   border: none; border-radius: 999px; cursor: pointer; font-family: inherit;
@@ -894,6 +915,7 @@
   --director-surface: #ffffff;
   --director-inset: #f7f8f9;
   --director-hover: #f4f5f6;
+  --director-hover-2: #e7e9eb;
   --director-ink: #1f2124;
   --director-ink-2: #62656b;
   --director-ink-3: #9a9da3;
@@ -920,6 +942,7 @@
   --director-surface: #232427;
   --director-inset: #1f2022;
   --director-hover: #2a2b2e;
+  --director-hover-2: #313236;
   --director-ink: #f2f3f4;
   --director-ink-2: #a5a8ad;
   --director-ink-3: #6c6f75;
@@ -1337,7 +1360,7 @@
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-step-row-name { color: var(--director-ink); }
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-step-row-chip {
   background: var(--director-field);
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--director-ink-2);
 }
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-user-bubble {
@@ -1497,6 +1520,7 @@
   --director-surface-2: #171b24;
   --director-inset: #0f1218;
   --director-hover: #1a1e27;
+  --director-hover-2: #313236;
   --director-ink: #f2f4f8;
   --director-ink-2: #a8b0bd;
   --director-ink-3: #6b7280;
@@ -1515,9 +1539,9 @@
   --director-shadow-card: 0 0 0 1px rgba(255, 255, 255, .06), 0 12px 32px rgba(0, 0, 0, .42);
 }
 
-/* ---- cinema 修正 2：含缩略图的任务行保持单行表头 + 整行宽缩略图 ---- */
-[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview { flex-wrap: wrap; row-gap: 10px; }
-[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview .director-task-preview { flex-basis: 100%; }
+/* ---- cinema 修正 2：含缩略图的任务行——上下两段结构由基线 .director-task-row.has-preview
+   （column + 预览图整行宽）统一提供，此处只需保证暗色下缩略图不受行内 gap 拉伸 ---- */
+[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview .director-task-preview { width: 100%; }
 
 /* ---- cinema 修正 3：抽屉与 body 挂载的弹层在 cinema 下保持深色 ---- */
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-agent-drawer .ant-drawer-content {
@@ -1543,12 +1567,6 @@
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-document-meta { color: var(--director-ink-3); }
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rows.is-rail { overflow: hidden; }
 [data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-rows.is-rail .director-task-rows-list { min-width: 0; }
-[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview { flex-direction: row; }
-[data-theme="dark"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview .director-task-preview {
-  width: 100%;
-  min-width: 0;
-  flex: 1 1 100%;
-}
 
 /* ---- cinema 浅色主题 token：与暗色共享布局，只替换表面与文字层级 ---- */
 [data-theme="light"] .director-recipe-shell[data-look="cinema"] {
@@ -1558,6 +1576,7 @@
   --director-surface-2: #f7f8f9;
   --director-inset: #f7f8f9;
   --director-hover: #f4f5f6;
+  --director-hover-2: #e7e9eb;
   --director-ink: #1f2124;
   --director-ink-2: #62656b;
   --director-ink-3: #9a9da3;
@@ -1624,16 +1643,6 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-}
-[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview {
-  flex-direction: row;
-  flex-wrap: wrap;
-  row-gap: 10px;
-}
-[data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-row.has-preview .director-task-preview {
-  flex: 1 1 100%;
-  width: 100%;
-  min-width: 0;
 }
 [data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-rows.is-rail { overflow: hidden; }
 [data-theme="light"] .director-recipe-shell[data-look="cinema"] .director-task-preview {
@@ -1836,7 +1845,8 @@
 }
 
 /* ---- 步骤行 / 方向 chips ---- */
-.director-recipe-shell[data-look="cinema"] .director-step-row-head { padding: 10px 14px; }
+/* height:auto 解除基线 30px 定高与 padding 的 box-sizing 冲突；行高由 padding + min-height 决定。 */
+.director-recipe-shell[data-look="cinema"] .director-step-row-head { height: auto; min-height: 34px; padding: 6px 14px; }
 .director-recipe-shell[data-look="cinema"] .director-step-row-name { font-size: 13.5px; font-weight: 550; }
 .director-recipe-shell[data-look="cinema"] .director-direction-label {
   font-size: 11px;
@@ -2033,7 +2043,9 @@
   box-shadow: 0 6px 18px color-mix(in srgb, var(--director-accent) 10%, transparent);
 }
 .director-recipe-shell[data-look="cinema"] .director-task-row-label { font-size: 13px; }
-.director-recipe-shell[data-look="cinema"] .director-task-pill { font-size: 10px; }
+.director-recipe-shell[data-look="cinema"] .director-task-row-main { gap: 12px; }
+.director-recipe-shell[data-look="cinema"] .director-task-row.has-preview { row-gap: 8px; }
+.director-recipe-shell[data-look="cinema"] .director-task-pill { font-size: 11.5px; }
 
 /* 直播主卡是舞台，不再和侧栏共享同样的白底权重。 */
 .director-recipe-shell[data-look="cinema"] .director-script-stream {

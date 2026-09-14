@@ -159,46 +159,48 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                 style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
                 {...(canOpen ? { onClick: () => onOpen?.(row.id), title: "查看这一步的产出" } : {})}
               >
-                <span className="director-task-row-icon" aria-hidden>
-                  {row.status === "completed" ? <StatusBadge tone="green"><CheckIcon /></StatusBadge>
-                    : row.status === "failed" ? <StatusBadge tone="red"><XIcon /></StatusBadge>
-                      : <SpinnerRing active={row.status === "running"} order={index + 1} />}
-                </span>
-                <span className="director-task-row-label">{row.label}</span>
-                {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
-                {row.status === "completed" && onRegenerate ? (
-                  <button
-                    type="button"
-                    className="director-task-regen"
-                    title="重新生成这一环节"
-                    disabled={running}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onRegenerate(row.id)
-                    }}
-                  >
-                    <span className="director-task-regen-icon" aria-hidden><RetryIcon /></span>
-                  </button>
-                ) : null}
-                {row.status === "failed" ? (
-                  onRetry ? (
+                <span className="director-task-row-main">
+                  <span className="director-task-row-icon" aria-hidden>
+                    {row.status === "completed" ? <StatusBadge tone="green"><CheckIcon /></StatusBadge>
+                      : row.status === "failed" ? <StatusBadge tone="red"><XIcon /></StatusBadge>
+                        : <SpinnerRing active={row.status === "running"} order={index + 1} />}
+                  </span>
+                  <span className="director-task-row-label">{row.label}</span>
+                  {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+                  {row.status === "completed" && onRegenerate ? (
                     <button
                       type="button"
-                      className="director-task-pill is-red director-task-retry"
-                      title="重跑这一步"
+                      className="director-task-regen"
+                      title="重新生成这一环节"
                       disabled={running}
                       onClick={(event) => {
                         event.stopPropagation()
-                        onRetry(row.id)
+                        onRegenerate(row.id)
                       }}
                     >
-                      失败
-                      <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
+                      <span className="director-task-regen-icon" aria-hidden><RetryIcon /></span>
                     </button>
-                  ) : (
-                    <span className="director-task-pill is-red">失败</span>
-                  )
-                ) : null}
+                  ) : null}
+                  {row.status === "failed" ? (
+                    onRetry ? (
+                      <button
+                        type="button"
+                        className="director-task-pill is-red director-task-retry"
+                        title="重跑这一步"
+                        disabled={running}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onRetry(row.id)
+                        }}
+                      >
+                        失败
+                        <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
+                      </button>
+                    ) : (
+                      <span className="director-task-pill is-red">失败</span>
+                    )
+                  ) : null}
+                </span>
                 {preview ? <TaskRowPreviewMedia preview={preview} /> : null}
               </li>
             )
@@ -238,49 +240,51 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                 style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
                 {...(canOpen ? { onClick: () => onOpen?.(row.id), title: "查看这一步的产出" } : {})}
               >
-                <span className="director-task-row-icon" aria-hidden>
-                  {row.status === "completed" ? <StatusBadge tone="green"><CheckIcon /></StatusBadge>
-                    : row.status === "failed" ? <StatusBadge tone="red"><XIcon /></StatusBadge>
-                      : <SpinnerRing active={row.status === "running"} order={index + 1} />}
-                </span>
-                <span className="director-task-row-label">{row.label}</span>
-                {row.status === "running" && row.message ? (
-                  <span className="director-task-row-message">{row.message}</span>
-                ) : null}
-                {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
-                {row.status === "completed" && onRegenerate ? (
-                  <button
-                    type="button"
-                    className="director-task-regen"
-                    title="重新生成这一环节"
-                    disabled={running}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onRegenerate(row.id)
-                    }}
-                  >
-                    <span className="director-task-regen-icon" aria-hidden><RetryIcon /></span>
-                  </button>
-                ) : null}
-                {row.status === "failed" ? (
-                  onRetry ? (
+                <span className="director-task-row-main">
+                  <span className="director-task-row-icon" aria-hidden>
+                    {row.status === "completed" ? <StatusBadge tone="green"><CheckIcon /></StatusBadge>
+                      : row.status === "failed" ? <StatusBadge tone="red"><XIcon /></StatusBadge>
+                        : <SpinnerRing active={row.status === "running"} order={index + 1} />}
+                  </span>
+                  <span className="director-task-row-label">{row.label}</span>
+                  {row.status === "running" && row.message ? (
+                    <span className="director-task-row-message">{row.message}</span>
+                  ) : null}
+                  {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+                  {row.status === "completed" && onRegenerate ? (
                     <button
                       type="button"
-                      className="director-task-pill is-red director-task-retry"
-                      title="重跑这一步"
+                      className="director-task-regen"
+                      title="重新生成这一环节"
                       disabled={running}
                       onClick={(event) => {
                         event.stopPropagation()
-                        onRetry(row.id)
+                        onRegenerate(row.id)
                       }}
                     >
-                      失败
-                      <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
+                      <span className="director-task-regen-icon" aria-hidden><RetryIcon /></span>
                     </button>
-                  ) : (
-                    <span className="director-task-pill is-red">失败</span>
-                  )
-                ) : null}
+                  ) : null}
+                  {row.status === "failed" ? (
+                    onRetry ? (
+                      <button
+                        type="button"
+                        className="director-task-pill is-red director-task-retry"
+                        title="重跑这一步"
+                        disabled={running}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onRetry(row.id)
+                        }}
+                      >
+                        失败
+                        <span className="director-task-retry-icon" aria-hidden><RetryIcon /></span>
+                      </button>
+                    ) : (
+                      <span className="director-task-pill is-red">失败</span>
+                    )
+                  ) : null}
+                </span>
                 {preview ? <TaskRowPreviewMedia preview={preview} /> : null}
               </li>
             )
