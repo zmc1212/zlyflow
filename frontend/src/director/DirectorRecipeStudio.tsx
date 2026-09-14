@@ -2864,7 +2864,7 @@ export default function DirectorRecipeStudio({
                         onRegenerateAgent={handleRegenerateRequest}
                       />
                     )}
-                    {!planPipelineRunning && !scriptManualActive ? (
+                    {!planPipelineRunning && !scriptManualActive && scriptStageMode !== "history" ? (
                       <DirectorPromptBar
                         value={goal}
                         phase={clarifyActive ? "clarify" : "idle"}
