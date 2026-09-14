@@ -762,7 +762,7 @@ export default function RecipeShotInspector({
         </div>
         <div className="director-inspector-action-bar">
           <JobErrorNotice error={state.error || shot.error} />
-          {focus === "design" ? <Button onClick={onGoToProduction}>前往镜头制作</Button> : <Space wrap className="director-inspector-action-buttons">
+          {focus === "design" ? <Button onClick={onGoToProduction}>切换到制作</Button> : <Space wrap className="director-inspector-action-buttons">
             <Button loading={stillState.generating} onClick={onGenerateStill}>生成静帧</Button>
             <Button
               disabled={!shot.stillUrl}

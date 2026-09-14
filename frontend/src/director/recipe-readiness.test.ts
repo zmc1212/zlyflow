@@ -4,6 +4,7 @@ import {
   createEmptyRecipe,
   createEmptyRecipeCharacter,
   createEmptyRecipeLocation,
+  createEmptyRecipeProp,
   parseRecipeStage,
   recipeReadiness,
   RECIPE_STAGE_GROUPS,
@@ -81,14 +82,14 @@ export function assertRecipeReadinessContract(): void {
     description: titled.script.fullStory,
     promptText: titled.script.fullStory,
   }))
-  if (recipeReadiness(placeholder, "").storyboard.level !== "empty") {
-    throw new Error("placeholder board must not count as designed storyboard")
+  if (recipeReadiness(placeholder, "").shots.level !== "empty") {
+    throw new Error("placeholder board must not count as designed shots")
   }
 
   const boarded = withShot(titled, sampleShot())
   const boardedReady = recipeReadiness(boarded)
-  if (boardedReady.storyboard.level !== "ready" || boardedReady.shots.level !== "draft") {
-    throw new Error("real shots without takes must be storyboard ready and shots draft")
+  if (boardedReady.shots.level !== "draft") {
+    throw new Error("real shots without takes must be shots draft")
   }
 
   boarded.characters = [createEmptyRecipeCharacter({
@@ -106,6 +107,17 @@ export function assertRecipeReadinessContract(): void {
   const looksReady = recipeReadiness(boarded)
   if (looksReady.characters.level !== "ready" || looksReady.locations.level !== "ready") {
     throw new Error("imageUrl must make character/location ready")
+  }
+
+  boarded.props = [createEmptyRecipeProp({
+    id: "p1", name: "红伞", description: "女主的红伞", promptText: "red umbrella",
+  })]
+  if (recipeReadiness(boarded).props.level !== "draft") {
+    throw new Error("named prop without imageUrl must be draft")
+  }
+  boarded.props[0].imageUrl = "/api/jobs/p1/outputs/0/download"
+  if (recipeReadiness(boarded).props.level !== "ready") {
+    throw new Error("imageUrl must make prop ready")
   }
 
   boarded.characters.push(createEmptyRecipeCharacter({
@@ -164,7 +176,7 @@ export function assertRecipeReadinessContract(): void {
   if (parseRecipeStage(null) !== null || parseRecipeStage("research") !== null) {
     throw new Error("unknown stage query must be rejected")
   }
-  if (parseRecipeStage("script") !== "script" || parseRecipeStage("board") !== "storyboard") {
+  if (parseRecipeStage("script") !== "script" || parseRecipeStage("board") !== "shots" || parseRecipeStage("storyboard") !== "shots" || parseRecipeStage("props") !== "props") {
     throw new Error("stage query must accept current ids and legacy tab keys")
   }
   const grouped = RECIPE_STAGE_GROUPS.flatMap((group) => group.stages)

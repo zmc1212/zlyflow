@@ -19,8 +19,8 @@ type Props = {
 
 /**
  * Post-generation status card at the end of the creation conversation.
- * 纯状态展示 + 失败环节的「重试」入口：重跑走各环节的重试入口，进入分镜走成稿工具栏，避免出现
- * 会把整个方案从第一步重跑的「重新生成」和重复的「进入分镜设计」。
+ * 纯状态展示 + 失败环节的「重试」入口：重跑走各环节的重试入口，进入镜头设计走成稿工具栏，避免出现
+ * 会把整个方案从第一步重跑的「重新生成」和重复的「进入镜头设计」。
  */
 export default function DirectorCompletionCard({
   completion, failedLabels = [], onRetryAgent,

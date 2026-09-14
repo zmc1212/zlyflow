@@ -12,7 +12,6 @@ import {
 const GROUP_ICONS: Record<string, LucideIcon> = {
   plan: FileStack,
   production: Clapperboard,
-  storyboard: Clapperboard,
   assets: PackageCheck,
   sound: AudioLines,
   delivery: PackageCheck,

@@ -5,7 +5,7 @@ export const RECIPE_STAGE_IDS = [
   "art_style",
   "characters",
   "locations",
-  "storyboard",
+  "props",
   "shots",
   "voice",
   "music",
@@ -26,10 +26,10 @@ export type RecipeReadiness = Record<RecipeStageId, RecipeReadinessItem>
 export const RECIPE_STAGE_LABELS: Record<RecipeStageId, string> = {
   script: "剧本",
   art_style: "画风",
-  storyboard: "分镜设计",
   characters: "角色定妆",
   locations: "场景定妆",
-  shots: "镜头制作",
+  props: "道具定妆",
+  shots: "镜头设计",
   voice: "配音",
   music: "配乐",
   export: "成片",
@@ -37,9 +37,8 @@ export const RECIPE_STAGE_LABELS: Record<RecipeStageId, string> = {
 
 export const RECIPE_STAGE_GROUPS = [
   { id: "plan", label: "故事与风格", stages: ["script", "art_style"] },
-  { id: "storyboard", label: "分镜设计", stages: ["storyboard"] },
-  { id: "assets", label: "视觉素材", stages: ["characters", "locations"] },
-  { id: "production", label: "镜头制作", stages: ["shots"] },
+  { id: "assets", label: "视觉素材", stages: ["characters", "locations", "props"] },
+  { id: "production", label: "镜头设计", stages: ["shots"] },
   { id: "delivery", label: "声音与交付", stages: ["voice", "music", "export"] },
 ] as const
 
@@ -61,7 +60,8 @@ const LEGACY_RECIPE_STAGES: Record<string, RecipeStageId> = {
   story: "script",
   style: "art_style",
   assets: "characters",
-  board: "storyboard",
+  board: "shots",
+  storyboard: "shots",
 }
 
 export function parseRecipeStage(value: string | null | undefined): RecipeStageId | null {
@@ -111,7 +111,8 @@ export function recipeAssetIsAdopted(rendition: RecipeAssetRendition | undefined
   return Boolean(approved && approved.status === "succeeded" && (approved.imageUrl || approved.jobId))
 }
 
-function placeholderBoard(items: RecipeShot[], goal: string, fullStory: string): boolean {
+/** True when the board is empty or still the single placeholder shot seeded on creation. */
+export function placeholderBoard(items: RecipeShot[], goal: string, fullStory: string): boolean {
   if (!items.length) return true
   if (items.length > 1) return false
   const shot = items[0]
@@ -140,9 +141,6 @@ export function recipeReadiness(recipe: RecipeProject, goal: string = ""): Recip
     : readinessItem("empty", 0, 1)
   const allShots = shots(recipe)
   const designedShots = placeholderBoard(allShots, goal, story) ? [] : allShots
-  const storyboard = designedShots.length
-    ? readinessItem("ready", designedShots.length, designedShots.length)
-    : readinessItem("empty", 0, 0)
   const characters = ratioReadiness(
     recipe.characters.filter((item) => recipeAssetIsAdopted(item.looks?.[0]?.sheet, item.imageUrl)).length,
     recipe.characters.length,
@@ -150,6 +148,11 @@ export function recipeReadiness(recipe: RecipeProject, goal: string = ""): Recip
   const locations = ratioReadiness(
     recipe.locations.filter((item) => recipeAssetIsAdopted(item.plate, item.imageUrl)).length,
     recipe.locations.length,
+  )
+  const allProps = recipe.props || []
+  const props = ratioReadiness(
+    allProps.filter((item) => recipeAssetIsAdopted(item.turnaround, item.imageUrl)).length,
+    allProps.length,
   )
   const shotRenders = ratioReadiness(designedShots.filter(shotIsMuxable).length, designedShots.length)
   const dialogueShots = designedShots.filter((shot) => (shot.dialogue || "").trim())
@@ -181,9 +184,9 @@ export function recipeReadiness(recipe: RecipeProject, goal: string = ""): Recip
   return {
     script,
     art_style: artStyle,
-    storyboard,
     characters,
     locations,
+    props,
     shots: shotRenders,
     voice,
     music,

@@ -301,7 +301,7 @@ export default function DirectorExportPanel({
           {exportState.muxDurationSec ? ` · 上次成片 ${exportState.muxDurationSec}s` : ""}
         </p>
         {shots.some((shot) => !shotIsMuxable(shot)) ? <Alert type="warning" showIcon message="以下镜头缺少可用视频" description={<Space wrap>{shots.filter((shot) => !shotIsMuxable(shot)).map((shot) => <Button key={shot.id} onClick={() => onLocateShot?.(shot.id)}>查看 #{shot.shotNumber} {shot.title}</Button>)}</Space>} /> : null}
-        {!shots.length ? <p>请先生成或导入分镜，再前往镜头制作。</p> : null}
+        {!shots.length ? <p>请先生成或导入分镜，再前往镜头设计。</p> : null}
         {exportState.muxError ? <Alert type="error" showIcon message={exportState.muxError} /> : null}
         {muxUrl ? <video className="director-export-film" src={muxUrl} controls playsInline /> : null}
         <Space wrap>

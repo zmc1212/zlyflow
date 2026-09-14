@@ -22,10 +22,12 @@ describe("director guided flow", () => {
     const recipe = createEmptyRecipe()
     const shot = { ...createEmptyRecipeShot(1), title: "手动镜头", description: "天空中的云" }
     recipe.scenes = [{ id: "scene", sceneNumber: 1, title: "", description: "", locationName: "", shots: [shot] }]
-    expect(recipeStageFlow(recipe, "storyboard").nextStage).toBe("characters")
+    expect(recipeStageFlow(recipe, "script").nextStage).toBe("characters")
     expect(recipeStageFlow(recipe, "shots").pending.map((item) => item.id)).toEqual([shot.id])
     expect(recipeStageFlow(recipe, "voice").summary).toContain("无需配音")
     expect(recipeStageFlow(recipe, "characters").summary).toContain("文生")
+    expect(recipeStageFlow(recipe, "props").summary).toContain("文生")
+    expect(recipeStageFlow(recipe, "props").nextStage).toBe("shots")
   })
   it("does not include running or usable shots in pending generation", () => {
     const recipe = createEmptyRecipe()

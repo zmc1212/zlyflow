@@ -74,7 +74,7 @@ export const SCRIPT_REGENERATE_STORYBOARD_NOTE = "已有镜头的媒体关联可
 
 export const SCRIPT_DOCUMENT_EDIT_LABEL = "编辑剧本"
 export const SCRIPT_DOCUMENT_EDIT_DONE_LABEL = "完成编辑"
-export const SCRIPT_DOCUMENT_NEXT_LABEL = "进入分镜设计"
+export const SCRIPT_DOCUMENT_NEXT_LABEL = "进入视觉素材"
 export const SCRIPT_DOCUMENT_STORY_HINT = "分镜将严格按「完整故事」拆解，改完记得继续。"
 export const SCRIPT_EMPTY_TITLE = "从一句创意开始"
 export const SCRIPT_EMPTY_HINT = "在下方输入你的故事创意，点击发送，AI 导演会先和你确认创作方向，再逐步写出片名、梗概和完整故事。"

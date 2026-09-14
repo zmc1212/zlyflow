@@ -6,9 +6,9 @@ import {
   MapPinned,
   Mic2,
   Music2,
+  Package,
   PackageCheck,
   Palette,
-  PanelsTopLeft,
   UserRound,
   type LucideIcon,
 } from "lucide-react"
@@ -30,10 +30,6 @@ const STAGE_DETAILS: Record<RecipeStageId, { description: string; icon: LucideIc
     description: "选定整支影片的视觉母版。画风会进入定妆图、静帧和镜头提示词，保持成片一致。",
     icon: Palette,
   },
-  storyboard: {
-    description: "把完整故事一次拆成可编辑的镜头序列，先确认叙事节奏，再进入素材与视频生成。",
-    icon: PanelsTopLeft,
-  },
   characters: {
     description: "固定人物与关键道具的外观。已完成的定妆图会按镜头自动装入参考图，最多 9 张。",
     icon: UserRound,
@@ -42,8 +38,12 @@ const STAGE_DETAILS: Record<RecipeStageId, { description: string; icon: LucideIc
     description: "固定主要场景的空间、材质和光线，减少镜头之间的环境跳变。",
     icon: MapPinned,
   },
+  props: {
+    description: "为关键道具生成多视角转面图，道具出现在镜头里时形态保持一致。",
+    icon: Package,
+  },
   shots: {
-    description: "按镜生成静帧、预览或终稿。工作流会依据本镜素材自动选择文生、首尾帧或多参考模式。",
+    description: "设计并制作每个镜头：先在「设计」里编辑镜头序列与提示词，再在「制作」里按镜生成静帧、预览或终稿。工作流会依据本镜素材自动选择文生、首尾帧或多参考模式。",
     icon: Clapperboard,
   },
   voice: {
@@ -128,7 +128,7 @@ export default function DirectorTaskHeader({
           </div>
           {/* 下一步引导（2026-09-13 重设计）：固定显示在标题卡状态区，全部阶段统一；
               主按钮行的「前往xxx」纯跳转已由 jump 标记移除，不再与本引导重复。
-              成片是流程终点（next 回环到镜头制作），不显示。 */}
+              成片是流程终点（next 回环到镜头设计），不显示。 */}
           {nextStage && activeStage !== "export" ? (
             <Button type="link" size="small" className="director-next-step" onClick={() => onSelect(nextStage)}>
               下一步：{RECIPE_STAGE_LABELS[nextStage]}

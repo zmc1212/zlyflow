@@ -38,7 +38,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `frontend/src/xiaji/XiajiWorkshopModule.tsx` | 导台2 剧集工坊：规划落库、脚本 Beat、镜头与成片合成 |
 | `frontend/src/xiaji/XiajiShotsWorkbench.tsx` | 导台2 镜头工作台：左 Beat 网格、右文案/单帧/参考图 |
 | `frontend/src/director/DirectorRecipeStudio.tsx` | 导演创作工作面：方案/剪辑双视图共用同一份 `director_recipe`；`?stage=` 与桌面 `?view=` |
-| `frontend/src/director/components/DirectorStageNav.tsx` | 方案视图左栏四组任务导航（方案 / 镜头制作 / 声音 / 交付）与 readiness 徽标 |
+| `frontend/src/director/components/DirectorStageNav.tsx` | 方案视图左栏四组任务导航（故事与风格 / 视觉素材 / 镜头设计 / 声音与交付）与 readiness 徽标 |
 | `frontend/src/director/components/DirectorTimelineView.tsx` | 桌面剪辑视图：素材栏 + 预览/串播 + 镜头轨 + Inspector |
 | `frontend/src/director/types.ts` | Recipe 类型、`recipeReadiness` 派生、`?view=` / `?stage=` 解析 |
 | `frontend/src/local-resource-store.ts` | 目录句柄/资源索引 IndexedDB 持久化及本地文件读写 |
@@ -1739,3 +1739,32 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 验证命令：`python -m unittest backend.tests.test_director`（130 项通过）、`pnpm --dir frontend build`；浏览器自查完成卡重试按钮双主题渲染。
 - 回滚方式：还原本次提交即可（前端不传 `resume`、后端忽略该字段即等价回滚，无数据迁移）。
 
+
+## 2026-09-13 「道具定妆」独立子阶段（前端阶段模型）
+
+- 变更原因：视觉素材步骤左侧阶段导航只有角色/场景两个子项，右侧内容区却是角色/场景/道具三个 Tab；「道具」此前仅靠组件本地状态（`assetTab`）寄生在角色定妆阶段下，无导航入口、无 URL 阶段、无就绪度，两侧清单不一致。
+- 当前基线：`recipe-readiness.ts` 的 `RECIPE_STAGE_IDS` 新增 `props`（位于 `locations` 后；同日 `storyboard` 阶段并入 `shots`，阶段总数为 9），`RECIPE_STAGE_GROUPS` 视觉素材组为 `["characters", "locations", "props"]`，`RECIPE_STAGE_LABELS` 新增「道具定妆」，`recipeReadiness` 新增 props 就绪度（已采纳转面图 `turnaround` 计数）；`recipe-flow.ts` 的 `next` 映射新增 `props: "shots"`。`DirectorRecipeStudio` 删除 `assetTab` 本地状态，Tab 栏与内容渲染统一由 `?stage=` URL 参数驱动；`DirectorTaskHeader` 的 `STAGE_DETAILS` 补 props 条目。后端九环节 agent 流水线（`AGENT_IDS`）不变，道具仍由 characters 环节产出。
+- 受影响文件：`frontend/src/director/recipe-readiness.ts`、`frontend/src/director/recipe-flow.ts`、`frontend/src/director/DirectorRecipeStudio.tsx`、`frontend/src/director/components/DirectorTaskHeader.tsx`、`frontend/src/director/recipe-readiness.test.ts`、`frontend/src/director/recipe-flow.test.ts`、`docs/导演台流程与界面结构.md`、`README.md`。
+- 兼容性：纯前端导航层变更，无 API / 数据库 / ComfyUI 协议变化；`?stage=characters` 等旧链接与既有工程数据不受影响，`parseRecipeStage` 对未知阶段仍回落剧本阶段。
+- 验证命令：`pnpm --dir frontend test`（54 项通过）、`pnpm --dir frontend build`；浏览器实测左右导航联动与 `?stage=props` 深链。
+- 回滚方式：还原本次提交即可，前端回滚后道具退回角色定妆内 Tab 形态，无数据迁移。
+
+
+## 2026-09-13 「分镜设计」阶段并入「镜头设计」（设计 / 制作双模式）
+
+- 变更原因：左侧导航的「分镜设计」（`storyboard`）与「镜头制作」（`shots`）两个阶段底层是同一份镜头数据（`recipe.scenes[].shots`），就绪计数 8/8 与 0/8 数的是同一批镜头，用户感知为重复内容；两者渲染同一个镜头工作台（镜头列表 + `RecipeShotInspector`），仅 focus 不同（design=编辑分镜与提示词，production=画质设置与逐镜出片）。
+- 当前基线：`recipe-readiness.ts` 删除 `storyboard` 阶段 id，`shots` 标签改为「镜头设计」，`RECIPE_STAGE_GROUPS` 收敛为 4 组并按 故事与风格 → 视觉素材（角色/场景/道具）→ 镜头设计 → 声音与交付 排序（与后端 Agent 流水线顺序一致）；导出 `placeholderBoard` 供流程判断；`parseRecipeStage` 的 legacy 映射把 `storyboard` / `board` 重定向到 `shots`（旧链接 `?stage=storyboard` 仍可用）。`DirectorRecipeStudio` 新增 `shotMode`（`design | production`，默认 design，切换工程重置），镜头工作台批量条左侧新增 antd Segmented「设计 / 制作」；原 `activeStage === "storyboard"` 分支全部改由 `shotMode` 承载，检查器 `focus` 直接传 `shotMode`，设计模式底部按钮改为「切换到制作」（模式内切换，不再跳阶段）。`recipe-flow.ts` 的 next 映射改线性：script/art_style → characters，characters/locations/props → shots，shots → voice，export → shots；镜头设计阶段 summary 合并为「N 镜已设计 · X / Y 镜可用」。后端 9 个 LLM Agent（`storyboard` 仍为拆镜环节）不变。
+- 受影响文件：`frontend/src/director/recipe-readiness.ts`、`frontend/src/director/recipe-flow.ts`、`frontend/src/director/DirectorRecipeStudio.tsx`、`frontend/src/director/action-copy.ts`、`frontend/src/director/components/DirectorTaskHeader.tsx`、`DirectorStageNav.tsx`、`RecipeShotInspector.tsx`、`DirectorExportPanel.tsx`、`DirectorCompletionCard.tsx`、`frontend/src/director/recipe-readiness.test.ts`、`docs/导演台流程与界面结构.md`、`docs/API.md`、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：纯前端导航与交互层变更；不改后端 Agent、payload、数据库与 ComfyUI 协议，既有工程数据零迁移；旧 URL `?stage=storyboard` / `board` 经 legacy 映射落到 `shots`。
+- 验证命令：`pnpm --dir frontend build`（vitest + tsc + vite）、`python -m unittest backend.tests.test_director`（129 项通过）；浏览器桌面/移动端检查导航分组计数、设计/制作切换、主按钮流转与旧链接兼容。
+- 回滚方式：还原本次前端提交即可（导航层回退到双阶段结构，数据无影响）。
+
+
+## 2026-09-13 存储目录弹窗不再因 /api/storage 瞬时错误误弹（七牛云场景）
+
+- 变更原因：七牛云启用时 `GET /api/storage` 正确返回 `requires_local_directory: false`，但前端把该查询的瞬时失败（后端重启、网络抖动）也当作「需要本地目录」，导致七牛云用户在刷新/登录时偶发被「设置作品存储目录」弹窗拦截。
+- 当前基线：`frontend/src/App.tsx` 的 `storageQuery` 成功后把能力结果缓存到 `localStorage`（`zly-storage-capability`）并作为 `initialData`；`localDirectoryRequired` 在有能力数据（实时或缓存）时只信 `requires_local_directory`，仅当完全没有任何能力数据且查询失败时才保守回退为需要（默认 browser-stream 场景）。后端 `/api/storage` 契约不变：七牛云持久存储 `false`，本地暂存/流式交付 `true`。
+- 受影响文件：`frontend/src/App.tsx`、`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：无 API / 数据 / 后端变化；未启用七牛云的部署仍按原逻辑弹目录授权；缓存只影响瞬时错误时的兜底判断，接口成功后立即覆盖。
+- 验证命令：`pnpm --dir frontend build`（vitest 54 项通过）。
+- 回滚方式：还原 `App.tsx` 本次改动即可。

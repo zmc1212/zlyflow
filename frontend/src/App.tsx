@@ -98,6 +98,31 @@ type OptionInputValue = string | boolean
 type ModesPayload = { modes: Workflow[]; image_sizes: string[]; presets: Record<string, string> }
 type GrsBalanceSnapshot = { credits: number | null; queried_at: string | null; refresh_error?: string | null }
 type StorageCapability = { provider: string; requires_local_directory: boolean }
+// 记住上次 /api/storage 的能力结果：查询瞬时失败（后端重启、网络抖动）时不再误弹
+// 「设置作品存储目录」——七牛云等持久化存储开启时 requires_local_directory 为 false，无需本地目录。
+const STORAGE_CAPABILITY_CACHE_KEY = "zly-storage-capability"
+
+function readCachedStorageCapability(): StorageCapability | undefined {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_CAPABILITY_CACHE_KEY)
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw) as StorageCapability
+    return typeof parsed?.requires_local_directory === "boolean" ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function cacheStorageCapability(capability: StorageCapability) {
+  try {
+    window.localStorage.setItem(STORAGE_CAPABILITY_CACHE_KEY, JSON.stringify({
+      provider: capability.provider,
+      requires_local_directory: Boolean(capability.requires_local_directory),
+    }))
+  } catch {
+    /* 忽略隐私模式等写入失败；仅影响瞬时错误时的兜底精度 */
+  }
+}
 type ReferenceAsset = { id: string; file: File; preview: string }
 type MediaPreview = {
   kind: PreviewMediaKind
@@ -554,7 +579,15 @@ export default function App({
       return hasActive ? 4000 : 15000
     },
   })
-  const storageQuery = useQuery({ queryKey: ["storage-capability"], queryFn: () => api<StorageCapability>("/api/storage") })
+  const storageQuery = useQuery({
+    queryKey: ["storage-capability"],
+    queryFn: async () => {
+      const capability = await api<StorageCapability>("/api/storage")
+      cacheStorageCapability(capability)
+      return capability
+    },
+    initialData: readCachedStorageCapability,
+  })
   const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => api<{ comfy: { reachable: boolean }; grs: { available: boolean; message?: string | null } }>("/api/health"), refetchInterval: 8000 })
   const workflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === mediaType)
   const workflow = workflows.find((item) => item.id === workflowId) ?? workflows[0]
@@ -823,8 +856,12 @@ export default function App({
     Object.values(localMediaUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
   }, [])
   const ipAddressAccess = isRemoteIpAddress(window.location.hostname)
+  // 能力数据（含本地缓存）说不需要本地目录时，即使 /api/storage 瞬时报错也不再弹目录授权；
+  // 仅在完全拿不到任何能力数据且查询失败时保守回退为需要（默认 browser-stream 场景）。
   const localDirectoryRequired = !ipAddressAccess && (
-    storageQuery.isError || Boolean(storageQuery.data?.requires_local_directory)
+    storageQuery.data
+      ? Boolean(storageQuery.data.requires_local_directory)
+      : storageQuery.isError
   )
 
   useEffect(() => {
