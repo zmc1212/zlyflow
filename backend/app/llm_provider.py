@@ -451,6 +451,17 @@ class LlmProviderService:
             questions = normalize_stage_clarify_questions(raw_questions)
             if not questions:
                 raise LlmError("大模型未返回有效的确认问题，请重试")
+            if agent_id == "storyboard" and bool((recipe or {}).get("scenes")):
+                questions.insert(0, {
+                    "id": "keep_original_storyboard",
+                    "question": "检测到已导入原分镜，是否直接使用？",
+                    "why": "你可以选择保留已导入的分镜，或者让大模型根据剧本重新自动拆分。",
+                    "options": [
+                        {"label": "不改变原分镜", "value": "保留并跳过 AI 生成", "recommended": True},
+                        {"label": "调用大模型自动拆分", "value": "重新生成"},
+                    ],
+                    "allowCustom": False,
+                })
         else:
             has_direction_question = any(
                 isinstance(item, dict)
@@ -461,6 +472,17 @@ class LlmProviderService:
             if not has_direction_question:
                 raise LlmError("大模型未返回有效的创作方向问题，请重试")
             questions = normalize_clarify_questions(raw_questions)
+            if bool(str(((recipe or {}).get("script") or {}).get("fullStory") or "").strip()):
+                questions.insert(0, {
+                    "id": "keep_original_script",
+                    "question": "检测到已导入原剧本，是否直接使用？",
+                    "why": "你可以选择保留已导入的文本，或者在后续步骤让大模型根据你的想法重新生成。",
+                    "options": [
+                        {"label": "不改变原剧本", "value": "保留并跳过 AI 生成", "recommended": True},
+                        {"label": "让大模型按新想法重新生成", "value": "重新生成"},
+                    ],
+                    "allowCustom": False,
+                })
         if tracker is not None:
             tracker.finish({"questions": questions})
         return questions

@@ -79,6 +79,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/storage.py` | 任务、owner、交付状态与导演工程元数据（生产 MySQL，unittest SQLite） |
 | `backend/app/worker.py` | 单任务串行执行，避免显存并发；最后一条视频任务结束后请求 ComfyUI 释放显存 |
 | `frontend/dist/` | FastAPI 生产环境托管的前端构建产物 |
+| `frontend/scripts/clean-dist.mjs` | `pnpm build` 前清空 `dist` 的构建脚本（本机 Node `fs.rmSync` 会静默失败，改走 shell 删除） |
 | `Dockerfile` | 前端多阶段构建和 FastAPI 运行镜像定义 |
 | `compose.yaml` | 工作台容器、数据卷及服务器本机 ComfyUI 地址配置 |
 | `deploy-server-image.sh` | Linux 服务器离线 tar 镜像加载、容器重建和健康检查脚本 |

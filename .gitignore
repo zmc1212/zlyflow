@@ -64,11 +64,20 @@ dist/
 desktop/src-tauri/target/
 
 # ==========================================
-# 7. 测试与自动化工具缓存
+# 7. 测试与自动化工具缓存及临时产物
 # ==========================================
 .playwright-cli/
 playwright-report/
+**/playwright-report/
 test-results/
+**/test-results/
+tmp/
+.tmp/
+*.tmp
+*.tmp.*
+.tmp-*
+tmp-*
+*.temp
 
 # ==========================================
 # 8. 操作系统与编辑器

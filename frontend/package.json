@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "test": "vitest run",
-    "build": "pnpm test && tsc -b && vite build",
-    "preview": "vite preview"
+    "build": "pnpm test && tsc -b && pnpm clean && vite build",
+    "preview": "vite preview",
+    "clean": "node scripts/clean-dist.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.66.8",

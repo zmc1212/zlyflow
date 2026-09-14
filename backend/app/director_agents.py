@@ -1675,6 +1675,10 @@ def run_agent(
             return recipe
 
         if agent_id == "script":
+            ans = next((str(c.get("answer") or c.get("value") or "") for c in (clarifications or []) if c.get("id") == "keep_original_script"), "")
+            if ans == "保留并跳过 AI 生成":
+                set_agent_status(recipe, agent_id, "completed", message="已保留原剧本，跳过重新生成")
+                return recipe
             tracker = _make_agent_tracker(agent_id, on_stream)
             _attach_agent_tracker(tracker, chat_fn)
             messages = [
@@ -1706,6 +1710,10 @@ def run_agent(
             return recipe
 
         if agent_id == "storyboard":
+            ans = next((str(c.get("answer") or c.get("value") or "") for c in (clarifications or []) if c.get("id") == "keep_original_storyboard"), "")
+            if ans == "保留并跳过 AI 生成":
+                set_agent_status(recipe, agent_id, "completed", message="已保留原分镜，跳过自动拆分")
+                return recipe
             script = recipe.get("script") or {}
             full_story = script.get("fullStory") or script.get("content") or goal
             # 续跑：上次失败前已拆出镜头时保留它们，跳过重拆，直接补跑对白、时长与衔接处理。

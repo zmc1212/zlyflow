@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Radio, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Typography, message,
 } from "antd"
-import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Plus, Wand2 } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Clapperboard, Film, ImagePlus, Library, MoreHorizontal, Play, Plus, Wand2, FileText } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { ApiRequestError, User, notifyUnauthorized, requestJson } from "../api"
@@ -426,7 +426,7 @@ export default function DirectorRecipeStudio({
   const [submittingShotIds, setSubmittingShotIds] = useState<string[]>([])
   const [submittingStillIds, setSubmittingStillIds] = useState<string[]>([])
   const [manualImportBusy, setManualImportBusy] = useState(false)
-  const [manualImportOpen, setManualImportOpen] = useState(false)
+  const [manualImportOpen, setManualImportOpen] = useState<false | "storyboard" | "script">(false)
   const [skeletonCount, setSkeletonCount] = useState(0)
   const [elapsedSec, setElapsedSec] = useState(0)
   const [scriptEditMode, setScriptEditMode] = useState(false)
@@ -1096,7 +1096,7 @@ export default function DirectorRecipeStudio({
   }
 
   // 逐步确认流程：为下一个缺失环节发起确认提问；全部完成后由 pipeline 完成回调落完成卡。
-  async function continueGuidedFlow(step: GuidedStepAgent) {
+  async function continueGuidedFlow(step?: GuidedStepAgent) {
     if (!guidedFlowHasBrief(recipeRef.current, goalRef.current)) return
     // 新一轮提问前丢弃未回答的旧问题卡，保证问题卡与当前环节一致。
     setClarifyScope(null)
@@ -2185,7 +2185,8 @@ export default function DirectorRecipeStudio({
     } finally { setManualImportBusy(false) }
   }
 
-  async function applyManualStoryboard(scenes: any[], mode: "replace" | "append") {
+  async function applyManualStoryboard(result: import("./manual-import").ManualImportResult, mode: "replace" | "append", autoGenerate: boolean = false) {
+    const scenes = result.scenes
     if (mode === "replace" && flattenRecipeShots(recipeRef.current).length) {
       const confirmed = await confirmHeavyAction({ title: "替换现有分镜", countLabel: `将替换当前 ${flattenRecipeShots(recipeRef.current).length} 个镜头。`, costLabel: "当前镜头与已生成媒体的关联将被替换；需要保留时请选择追加导入。原任务媒体不会删除。" })
       if (!confirmed) return
@@ -2193,7 +2194,11 @@ export default function DirectorRecipeStudio({
     const merged = mode === "replace" || !recipeRef.current.scenes.length ? scenes : [...recipeRef.current.scenes, ...scenes]
     let number = 1
     const normalized = merged.map((scene: any, si: number) => ({ ...scene, sceneNumber: si + 1, shots: scene.shots.map((shot: any) => ({ ...shot, shotNumber: number++ })) }))
+    
     const next = { ...recipeRef.current, scenes: normalized }
+    if (result.title) next.script = { ...next.script, title: result.title }
+    if (result.fullStory) next.script = { ...next.script, fullStory: result.fullStory }
+    
     recipeRef.current = next
     setRecipe(next)
     scheduleSave()
@@ -2203,6 +2208,12 @@ export default function DirectorRecipeStudio({
     const total = normalized.reduce((sum: number, scene: any) => sum + scene.shots.reduce((n: number, shot: any) => n + Number(shot.durationSec || 0), 0), 0)
     messageApi.success(`手动分镜已导入，共 ${number - 1} 镜，${total} 秒`)
     if (total !== 30) messageApi.warning(`当前总时长为 ${total} 秒，目标为 30 秒，请在时间线调整`)
+
+    if (autoGenerate && (result.fullStory || result.scenes.length)) {
+      setCreationMode("agent")
+      setActiveStage("script")
+      setTimeout(() => continueGuidedFlow(), 50)
+    }
   }
 
   async function handleContinuityRepair(fromShot: number, toShot: number) {
@@ -2603,7 +2614,13 @@ export default function DirectorRecipeStudio({
           }}
         />
       </Modal>
-      <ManualStoryboardModal open={manualImportOpen} onCancel={() => setManualImportOpen(false)} onImport={applyManualStoryboard} />
+      <ManualStoryboardModal 
+        open={Boolean(manualImportOpen)} 
+        title={manualImportOpen === "script" ? "导入带分镜的剧本" : "手动导入分镜"} 
+        hint={manualImportOpen === "script" ? "粘贴含有片名、全局设定与按场划分的分镜剧本，将提取片名、完整故事与全部镜头。" : "按 Markdown 粘贴场景和镜头，导入后可继续在镜头检查器中编辑。"}
+        onCancel={() => setManualImportOpen(false)} 
+        onImport={applyManualStoryboard} 
+      />
       <DirectorMobileHeader
         title={mobileTitle}
         onBack={onBack}
@@ -2738,7 +2755,10 @@ export default function DirectorRecipeStudio({
                     {scriptManualActive ? (
                       <div className="director-script-manual">
                         <div className="director-script-manual-head">
-                          <strong>手动编辑剧本</strong>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <strong>手动编辑剧本</strong>
+                            <Button icon={<FileText size={14} />} onClick={() => setManualImportOpen("script")}>导入剧本与分镜</Button>
+                          </div>
                           <p>直接修改片名、梗概与完整故事，改动会自动保存；左侧阶段导航可随时切换到分镜、角色、配乐等环节手动编辑。切回「{DIRECTOR_CREATION_MODE_LABELS.agent}」可继续用 AI 打磨或重跑后续环节。</p>
                         </div>
                         <DirectorScriptDocument
@@ -2783,6 +2803,16 @@ export default function DirectorRecipeStudio({
                               {example}
                             </button>
                           ))}
+                        </div>
+                        <div style={{ marginTop: 24, textAlign: "center" }}>
+                          <Button 
+                            type="dashed" 
+                            icon={<FileText size={14} />} 
+                            onClick={() => setManualImportOpen("script")}
+                            disabled={running}
+                          >
+                            已有现成底稿？点此导入剧本与分镜
+                          </Button>
                         </div>
                       </div>
                     ) : (
@@ -3064,7 +3094,7 @@ export default function DirectorRecipeStudio({
                             ]}
                           />
                           {shotMode === "production" ? <DirectorProductionSettings recipe={recipe} controls={productionControls} families={workflowFamilyOptions} family={workflowFamilyId} mode={boardMode} mobile={isMobile} polish={polishPrompt} onMode={setBoardMode} onPolish={setPolishPrompt} onChange={updateOutputSettings} /> : null}
-                          <Button loading={manualImportBusy} onClick={() => setManualImportOpen(true)}>导入分镜</Button>
+                          <Button loading={manualImportBusy} onClick={() => setManualImportOpen("storyboard")}>导入分镜</Button>
                         {shotMode === "production" && failedShotIds.length > 0 ? <Button disabled={running} onClick={() => { void requestBoardGenerate(failedShotIds, "仅重试失败项") }}>重试失败镜头（{failedShotIds.length}）</Button> : null}
                         {checkedShotIds.length > 0 && shotMode === "production" ? <>
                           <Button disabled={running} onClick={() => { void requestBoardGenerate(checkedShotIds, "生成选中") }}>生成选中（{checkedShotIds.length}）</Button>
@@ -3086,7 +3116,7 @@ export default function DirectorRecipeStudio({
                         <aside className="director-shot-bin">
                           <div className="director-shot-bin-toolbar">
                             <Button size="small" icon={<Plus size={14} />} onClick={handleAddShot}>新增镜头</Button>
-                            <Button size="small" loading={manualImportBusy} onClick={() => setManualImportOpen(true)}>
+                            <Button size="small" loading={manualImportBusy} onClick={() => setManualImportOpen("storyboard")}>
                               重新导入分镜
                             </Button>
                             <div className="director-shot-bin-select-row">
@@ -3253,7 +3283,7 @@ export default function DirectorRecipeStudio({
                             </Button>
                           ) : null}
                           <Button icon={<Plus size={14} />} onClick={handleAddShot}>新建空白镜头</Button>
-                          <Button loading={manualImportBusy} onClick={() => setManualImportOpen(true)}>导入手动分镜（粘贴 Markdown）</Button>
+                          <Button loading={manualImportBusy} onClick={() => setManualImportOpen("storyboard")}>导入手动分镜（粘贴 Markdown）</Button>
                         </Space>
                       </Empty>
                     )}

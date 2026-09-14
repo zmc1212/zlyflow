@@ -234,11 +234,11 @@ export default function DirectorScriptStreamPanel({
     setElapsed(base > 0 ? Math.max(0, Math.floor((Date.now() - base) / 1000)) : 0)
   }, [operationId])
 
-  // 历史回放：活动操作结束后，用已保存的 recipe 一次性重建对话记录
+  // 恢复记录：页面加载时用已保存的 recipe 重建已完成的对话记录
   //（流式数据只在内存里，刷新后靠 recipe 恢复任务面板与产出块）。
   const seededRef = useRef(false)
   useEffect(() => {
-    if (!historyMode || !recipe || seededRef.current) return
+    if (!recipe || seededRef.current) return
     // 空的初始 recipe（工程查询未返回）不消费 seed 机会，等真实数据到达再重建。
     const hasContent = Boolean(
       recipe.script?.fullStory?.trim() || recipe.characters?.length || recipe.scenes?.length,
@@ -274,9 +274,15 @@ export default function DirectorScriptStreamPanel({
       }))),
       "storyboard|scenes": indexList((recipe.scenes || []).map((scene) => ({ title: scene.title }))),
     }
-    setTargetTexts(texts)
-    setShownTexts(texts)
-    setItems(itemsMap)
+    setTargetTexts((prev) => ({ ...texts, ...prev }))
+    setShownTexts((prev) => ({ ...texts, ...prev }))
+    setItems((prev) => {
+      const merged: Record<string, Record<number, AgentStreamItem>> = { ...itemsMap }
+      for (const key of Object.keys(prev)) {
+        merged[key] = { ...(merged[key] || {}), ...prev[key] }
+      }
+      return merged
+    })
   }, [historyMode, recipe])
 
   const shown = (agent: string, field: string, index: number | null = null): string => (
@@ -871,35 +877,87 @@ export default function DirectorScriptStreamPanel({
     if (agent === "characters") {
       const cards = sortedItems("characters", "characters")
       const props = sortedItems("characters", "props")
-      if (!cards.length && !props.length) return null
+      const activeIndexVal = activeIndex["characters|name"] ?? activeIndex["characters|description"]
+      const isPropActive = props.length > 0 || (cards.length > 0 && activeIndexVal !== undefined && activeIndexVal < cards.length)
+      const activeCharLive = !isPropActive && activeIndexVal !== undefined && activeIndexVal === cards.length
+      const activePropLive = isPropActive && activeIndexVal !== undefined && activeIndexVal === props.length
+
+      if (!cards.length && !props.length && !activeCharLive && !activePropLive) return null
+
+      const charIndices = cards.map((_, i) => i)
+      if (activeCharLive) charIndices.push(cards.length)
+
+      const propIndices = props.map((_, i) => i)
+      if (activePropLive) propIndices.push(props.length)
+
       return (
         <div className="director-block-cards">
-          {cards.map((item, index) => (
-            <div key={index} className="director-block-card">
-              <strong>{itemText(item, "name") || "角色"}</strong>
-              {itemText(item, "role") ? <em>{itemText(item, "role")}</em> : null}
-              <p>{shown("characters", "description", index) || itemText(item, "description")}</p>
-            </div>
-          ))}
-          {props.length ? (
-            <div className="director-block-props">
-              {props.map((item, index) => <span key={index} className="director-prop-chip">道具 · {itemText(item, "name")}</span>)}
-            </div>
-          ) : null}
+          {charIndices.map((index) => {
+            const item = items["characters|characters"]?.[index]
+            const isActive = activeCharLive && index === cards.length
+            const name = (isActive ? shown("characters", "name", index) : "") || itemText(item, "name")
+            const role = (isActive ? shown("characters", "role", index) : "") || itemText(item, "role")
+            const description = (isActive ? shown("characters", "description", index) : "") || itemText(item, "description")
+            const caret = isActive ? <span className="stream-caret" aria-hidden /> : null
+            return (
+              <div key={`char-${index}`} className={`director-block-card${isActive ? " is-active" : ""}`}>
+                <strong>
+                  {name || (isActive ? "正在生成角色…" : "角色")}
+                  {isActive && !name && !role && !description ? caret : null}
+                </strong>
+                {role ? <em>{role}{isActive && role && !description ? caret : null}</em> : null}
+                <p>{description}{isActive && description ? caret : null}</p>
+              </div>
+            )
+          })}
+          {propIndices.map((index) => {
+            const item = items["characters|props"]?.[index]
+            const isActive = activePropLive && index === props.length
+            const name = (isActive ? shown("characters", "name", index) : "") || itemText(item, "name")
+            const description = (isActive ? shown("characters", "description", index) : "") || itemText(item, "description")
+            const caret = isActive ? <span className="stream-caret" aria-hidden /> : null
+            return (
+              <div key={`prop-${index}`} className={`director-block-card${isActive ? " is-active" : ""}`}>
+                <strong>
+                  {name || (isActive ? "正在生成道具…" : "道具")}
+                  {isActive && !name && !description ? caret : null}
+                </strong>
+                <em>道具</em>
+                <p>{description}{isActive && description ? caret : null}</p>
+              </div>
+            )
+          })}
         </div>
       )
     }
     if (agent === "locations") {
       const cards = sortedItems("locations", "locations")
-      if (!cards.length) return null
+      const activeIndexVal = activeIndex["locations|name"] ?? activeIndex["locations|description"]
+      const activeLocLive = activeIndexVal !== undefined && activeIndexVal === cards.length
+
+      if (!cards.length && !activeLocLive) return null
+      
+      const indices = cards.map((_, i) => i)
+      if (activeLocLive) indices.push(cards.length)
+
       return (
         <div className="director-block-cards">
-          {cards.map((item, index) => (
-            <div key={index} className="director-block-card">
-              <strong>{itemText(item, "name") || "场景"}</strong>
-              <p>{shown("locations", "description", index) || itemText(item, "description")}</p>
-            </div>
-          ))}
+          {indices.map((index) => {
+            const item = items["locations|locations"]?.[index]
+            const isActive = activeLocLive && index === cards.length
+            const name = (isActive ? shown("locations", "name", index) : "") || itemText(item, "name")
+            const description = (isActive ? shown("locations", "description", index) : "") || itemText(item, "description")
+            const caret = isActive ? <span className="stream-caret" aria-hidden /> : null
+            return (
+              <div key={`loc-${index}`} className={`director-block-card${isActive ? " is-active" : ""}`}>
+                <strong>
+                  {name || (isActive ? "正在生成场景…" : "场景")}
+                  {isActive && !name && !description ? caret : null}
+                </strong>
+                <p>{description}{isActive && description ? caret : null}</p>
+              </div>
+            )
+          })}
         </div>
       )
     }
@@ -937,8 +995,8 @@ export default function DirectorScriptStreamPanel({
           // 当前镜号优先取后端消息里的「正在第 N 镜」；缺失时用直播流序号推
           // 导（分块内第 ordinal 个对象 = rangeStart + ordinal，模型按序输出）。
           const currentShot = polish.currentShot
-            ?? (rangeStart !== undefined && polishLive?.ordinal !== undefined
-              ? rangeStart + polishLive.ordinal
+            ?? (rangeStart !== undefined
+              ? rangeStart + (polishLive?.ordinal ?? 0)
               : undefined)
           const shotState = (no: number): string => {
             if (currentShot !== undefined) {
@@ -958,8 +1016,7 @@ export default function DirectorScriptStreamPanel({
           return (
             <div className="director-phase-panel">
               <div className="director-phase-head">
-                <span className="director-step-spinner" aria-hidden />
-                <span className="director-step-status">
+                <span className="director-phase-title">
                   {polish.title}{polish.total && polish.total > 1 && polish.index ? ` (${polish.index}/${polish.total})` : ""}
                 </span>
               </div>
@@ -975,18 +1032,16 @@ export default function DirectorScriptStreamPanel({
                   <span style={{ width: "70%" }} />
                 </div>
               )}
-              {currentShot !== undefined || polishLive ? (
-                <div className="director-shot-stream-row is-active director-phase-live">
-                  <span className="director-shot-no">{currentShot ?? "…"}</span>
-                  <div className="director-shot-stream-text">
-                    {liveTitle
-                      ? <strong>{liveDescription || liveDialogue ? liveTitle : <>{liveTitle}{caret}</>}</strong>
-                      : <strong className="is-skeleton">{currentShot !== undefined ? `正在打磨第 ${currentShot} 镜…` : `正在${polish.title}…`}</strong>}
-                    {liveDescription ? <p>{liveDialogue ? liveDescription : <>{liveDescription}{caret}</>}</p> : null}
-                    {liveDialogue ? <p className="is-dialogue">「{liveDialogue}{caret}」</p> : null}
-                  </div>
+              <div className="director-shot-stream-row is-active director-phase-live">
+                <span className="director-shot-no">{currentShot ?? "…"}</span>
+                <div className="director-shot-stream-text">
+                  {liveTitle
+                    ? <strong>{liveDescription || liveDialogue ? liveTitle : <>{liveTitle}{caret}</>}</strong>
+                    : <strong className="is-skeleton">{currentShot !== undefined ? `正在打磨第 ${currentShot} 镜…` : `正在${polish.title}…`}</strong>}
+                  {liveDescription ? <p>{liveDialogue ? liveDescription : <>{liveDescription}{caret}</>}</p> : null}
+                  {liveDialogue ? <p className="is-dialogue">「{liveDialogue}{caret}」</p> : null}
                 </div>
-              ) : null}
+              </div>
               {polish.chars ? (
                 <div className="director-phase-meta is-live">
                   <span className="director-live-dot" aria-hidden />
@@ -1175,7 +1230,7 @@ export default function DirectorScriptStreamPanel({
           <span className="director-step-spinner" aria-hidden />
           {BlockIcon ? <BlockIcon size={13} className="director-block-icon" /> : null}
           <span className="director-block-title">{RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}</span>
-          {row?.message ? <span className="director-step-status">{row.message}</span> : null}
+          {row?.message && !(agent === "storyboard" && parseStoryboardPhase(row.message)) ? <span className="director-step-status">{row.message}</span> : null}
         </div>
         <div className="director-block-body">
           {body || (
