@@ -192,22 +192,25 @@ class DirectorOperationService:
         goal = str(request.get("goal") or "").strip()
         agent = str(request.get("agent") or "").strip()
         recipe = None
+        record = self.store.get_director_project(operation["project_id"])
+        if payload_kind(record.get("payload")) == PAYLOAD_KIND_RECIPE:
+            recipe = normalize_recipe_payload(record["payload"])
+
         if agent:
             if agent not in STAGE_CLARIFY_AGENT_IDS:
                 raise ValueError(f"该环节不支持创作确认：{agent}")
-            record = self.store.get_director_project(operation["project_id"])
-            if payload_kind(record.get("payload")) != PAYLOAD_KIND_RECIPE:
+            if not recipe:
                 raise ValueError("只有 Recipe 工程可以确认创作环节")
-            recipe = normalize_recipe_payload(record["payload"])
-            if not goal:
-                script = recipe.get("script") or {}
-                goal = str(
-                    record.get("source_script")
-                    or script.get("fullStory")
-                    or script.get("summary")
-                    or record.get("title")
-                    or ""
-                ).strip()
+            
+        if not goal and recipe:
+            script = recipe.get("script") or {}
+            goal = str(
+                record.get("source_script")
+                or script.get("fullStory")
+                or script.get("summary")
+                or record.get("title")
+                or ""
+            ).strip()
         if not goal:
             raise ValueError("请先填写创意简报")
 

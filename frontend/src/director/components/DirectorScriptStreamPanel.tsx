@@ -628,10 +628,10 @@ export default function DirectorScriptStreamPanel({
     const next = [...answersRef.current, { id: current.id, question: current.question, answer: value }]
     answersRef.current = next
     setCustomValue("")
-    if (questionIndex + 1 < list.length) {
-      setQuestionIndex(questionIndex + 1)
-    } else {
+    if (value === "保留并跳过 AI 生成" || questionIndex + 1 >= list.length) {
       onConfirmStep(next)
+    } else {
+      setQuestionIndex(questionIndex + 1)
     }
   }
 

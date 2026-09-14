@@ -17,6 +17,7 @@ import websocket
 import local_video_studio as legacy
 
 from .config import Settings
+from .minimax_h3_director_accel_workflow import build_minimax_h3_director_accel_workflow
 from .minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from .minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from .minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
@@ -26,6 +27,7 @@ from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, Store
 from .video_depth_workflow import DEPTH_OUTPUT_NODE, build_depth_video_workflow
 from .wan_vace_depth_workflow import VACE_OUTPUT_NODE, build_vace_depth_workflow
 from .workflow_registry import (
+    DIRECTOR_ACCEL_WORKFLOWS,
     DUAL_ACCEL_WORKFLOWS,
     H3_WORKFLOWS,
     LIGHTX2V_WORKFLOWS,
@@ -87,10 +89,12 @@ LOADER_CLASS_TYPES = frozenset({
     "LoraLoaderModelOnly", "LoraLoaderBypassModelOnly", "LoraLoader",
     "ReservedVRAMSetter", "MiniMaxH3MemoryEfficientSageAttentionPatch",
     "PathchSageAttentionKJ", "LoadImage", "VRAMCleanup", "RAMCleanup",
+    "MiniMaxH3DirectorGroupImageToVideo", "MiniMaxH3DirectorGroupReferenceToVideo",
 })
 SAMPLER_CLASS_TYPES = frozenset({
     "SamplerCustomAdvanced", "KSampler", "KSamplerAdvanced",
     "MiniMaxH3MultiRateSamplerEXPT8", "MiniMaxH3DualClockSamplerT8",
+    "MiniMaxH3Director",
 })
 DECODE_CLASS_TYPES = frozenset({
     "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo",
@@ -875,6 +879,10 @@ class ComfyService:
                     mode, resolved_prompt, uploaded, options, secrets.randbits(63),
                 )
                 if mode in DUAL_ACCEL_WORKFLOWS
+                else build_minimax_h3_director_accel_workflow(
+                    mode, resolved_prompt, uploaded, options, secrets.randbits(63),
+                )
+                if mode in DIRECTOR_ACCEL_WORKFLOWS
                 else build_minimax_h3_workflow(mode, resolved_prompt, uploaded, options, secrets.randbits(63))
             )
             record = self.run_workflow(

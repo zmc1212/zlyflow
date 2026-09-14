@@ -231,12 +231,14 @@ GRS_IMAGE_VIP_OPTION_SCHEMA = grs_option_schema(GRS_PROFILE_GPT_IMAGE_2_VIP, "gp
 CATALOG_GROUP_IMAGE = "image"
 CATALOG_GROUP_LIGHTX2V = "lightx2v"
 CATALOG_GROUP_DUAL_ACCEL = "dual_accel"
+CATALOG_GROUP_DIRECTOR_ACCEL = "h3_director_accel"
 CATALOG_GROUP_OFFICIAL_H3 = "official_h3"
 CATALOG_GROUP_CUSTOM = "custom"
 CATALOG_GROUPS = {
     CATALOG_GROUP_IMAGE: {"label": "图片生成", "order": 0},
     CATALOG_GROUP_LIGHTX2V: {"label": "LightX2V", "order": 10},
     CATALOG_GROUP_DUAL_ACCEL: {"label": "八步双加速", "order": 15},
+    CATALOG_GROUP_DIRECTOR_ACCEL: {"label": "H3 Director 加速版", "order": 17},
     CATALOG_GROUP_OFFICIAL_H3: {"label": "官方 MiniMax H3", "order": 20},
     CATALOG_GROUP_CUSTOM: {"label": "自定义", "order": 30},
 }
@@ -472,6 +474,88 @@ def dual_accel_option_schema() -> dict[str, Any]:
     properties["shift_video"] = option("视频 Shift", "number", 12, minimum=0.01, maximum=100, step=0.01)
     properties["shift_audio"] = option("音频 Shift", "number", 3, minimum=0.01, maximum=100, step=0.01)
     properties["use_sage_attention"] = option("SageAttention", "boolean", True)
+    return {"type": "object", "properties": properties}
+
+
+DIRECTOR_ACCEL_SPEED_PRESETS = {
+    H3_SPEED_BALANCED: {"steps": 20, "video_steps": 20, "audio_steps": 20},
+    H3_SPEED_QUALITY: {"steps": 25, "video_steps": 25, "audio_steps": 25},
+}
+
+
+def director_accel_speed_option() -> dict[str, Any]:
+    return option(
+        "生成质量", "string", H3_SPEED_BALANCED, group="advanced",
+        enum=[H3_SPEED_BALANCED, H3_SPEED_QUALITY],
+        ui_control="select",
+        ui_options=[
+            {"value": H3_SPEED_BALANCED, "label": "均衡（20 步）"},
+            {"value": H3_SPEED_QUALITY, "label": "精细（25 步）"},
+        ],
+        description="无 4 步 Turbo LoRA；均衡为 20 步双 Sage，精细为 25 步完整采样。",
+    )
+
+
+def director_accel_weight_profile_option() -> dict[str, Any]:
+    return option(
+        "模型体积", "string", H3_WEIGHT_PRUNED, group="primary",
+        enum=[H3_WEIGHT_FULL, H3_WEIGHT_PRUNED],
+        ui_control="select",
+        ui_options=[
+            {"value": H3_WEIGHT_FULL, "label": "完整（32 GB）"},
+            {"value": H3_WEIGHT_PRUNED, "label": "精简（20 GB）"},
+        ],
+        description="加速版默认精简 INT8；加速来自双 Sage，不挂 Turbo LoRA。完整权重约 32 GB。",
+    )
+
+
+def apply_director_accel_speed_preset(normalized: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    speed = normalized.get("speed", H3_SPEED_BALANCED)
+    if speed not in DIRECTOR_ACCEL_SPEED_PRESETS:
+        raise ValueError("H3 Director 加速版请选择均衡或精细。")
+    mapping = DIRECTOR_ACCEL_SPEED_PRESETS[speed]
+    for key in ("steps", "video_steps", "audio_steps"):
+        if key not in raw:
+            normalized[key] = mapping[key]
+        elif key not in normalized:
+            normalized[key] = mapping[key]
+    apply_h3_weight_profile(normalized, raw)
+    normalized["lora_strength"] = 0.0
+    normalized.setdefault("sampler_name", "res_multistep")
+    normalized.setdefault("shift_video", 12.0)
+    normalized.setdefault("shift_audio", 3.0)
+    normalized.setdefault("cfg", 1.0)
+    normalized.setdefault("use_sage_attention", True)
+    normalized.setdefault("sage_allow_compile", True)
+    normalized.setdefault("reference_image_size", "match")
+    return normalized
+
+
+def director_accel_option_schema() -> dict[str, Any]:
+    properties = dict(H3_STANDARD_OPTION_SCHEMA["properties"])
+    properties["quality"] = option(
+        "分辨率", "string", "0.4", group="advanced", ui_control="select",
+        enum=list(H3_STANDARD_RESOLUTION_PRESETS),
+        ui_options=local_resolution_options(H3_STANDARD_RESOLUTION_PRESETS),
+        megapixels_by_quality=H3_STANDARD_RESOLUTION_PRESETS,
+        ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+        description="H3 Director 加速版默认 0.4 MP（16:9 约 864×480），与参考工作流画布一致。",
+    )
+    properties["megapixels"] = option(
+        "内部像素面积", "number", 0.4, group="internal", minimum=0.1, maximum=16.0, step=0.1, unit="MP",
+    )
+    properties["speed"] = director_accel_speed_option()
+    properties["weight_profile"] = director_accel_weight_profile_option()
+    properties.pop("custom_steps", None)
+    properties.pop("lora_name", None)
+    properties.pop("lora_strength", None)
+    properties["steps"] = option("采样步数", "integer", 20, minimum=1, maximum=1000, step=1)
+    properties["sampler_name"] = option("采样器", "string", "res_multistep", enum=["res_multistep", "euler"])
+    properties["shift_video"] = option("视频 Shift", "number", 12, minimum=0.01, maximum=100, step=0.01)
+    properties["shift_audio"] = option("音频 Shift", "number", 3, minimum=0.01, maximum=100, step=0.01)
+    properties["cfg"] = option("CFG", "number", 1, minimum=0, maximum=20, step=0.1)
+    properties["use_sage_attention"] = option("SageAttention", "boolean", True)
+    properties["sage_allow_compile"] = option("Sage 允许编译", "boolean", True)
     return {"type": "object", "properties": properties}
 
 
@@ -721,6 +805,7 @@ T8_DUAL_CLOCK_OPTION_SCHEMA = t8_option_schema(sampler="dual-clock")
 
 LIGHTX2V_OPTION_SCHEMA = lightx2v_option_schema()
 DUAL_ACCEL_OPTION_SCHEMA = dual_accel_option_schema()
+DIRECTOR_ACCEL_OPTION_SCHEMA = director_accel_option_schema()
 
 
 # Wan VACE 深度复刻：画布尺寸与帧数由源视频/深度视频决定，属 internal 托管；
@@ -831,6 +916,40 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         catalog_group=CATALOG_GROUP_DUAL_ACCEL,
     ),
     WorkflowDefinition(
+        JobMode.MINIMAX_H3_DIRECTOR_ACCEL_T2V.value,
+        "H3 Director 加速版 文生视频",
+        "MiniMaxH3Director + 双 Sage 加速的文生视频；无 Turbo LoRA，默认 0.4 MP、20 步、pruned INT8。",
+        "none",
+        0,
+        0,
+        supports_h3_options=True,
+        option_schema=DIRECTOR_ACCEL_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_DIRECTOR_ACCEL,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_DIRECTOR_ACCEL_I2V.value,
+        "H3 Director 加速版 首尾帧视频",
+        "MiniMaxH3Director 图生视频；首帧必填，尾帧可选。无 Turbo LoRA，默认 0.4 MP、20 步。",
+        "keyframes",
+        1,
+        2,
+        ("首帧", "尾帧（可选）"),
+        supports_h3_options=True,
+        option_schema=DIRECTOR_ACCEL_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_DIRECTOR_ACCEL,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V.value,
+        "H3 Director 加速版 多参考视频",
+        "MiniMaxH3Director 多参考视频；按顺序添加参考并在提示词中引用 <Picture n>。无 Turbo LoRA。",
+        "collection",
+        1,
+        9,
+        supports_h3_options=True,
+        option_schema=DIRECTOR_ACCEL_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_DIRECTOR_ACCEL,
+    ),
+    WorkflowDefinition(
         JobMode.MINIMAX_H3_T2V.value,
         "MiniMax H3 文生视频",
         "根据提示词生成带原生音频的视频。",
@@ -909,17 +1028,24 @@ DUAL_ACCEL_WORKFLOWS = {
     JobMode.MINIMAX_H3_DUAL_ACCEL_I2V,
     JobMode.MINIMAX_H3_DUAL_ACCEL_R2V,
 }
+DIRECTOR_ACCEL_WORKFLOWS = {
+    JobMode.MINIMAX_H3_DIRECTOR_ACCEL_T2V,
+    JobMode.MINIMAX_H3_DIRECTOR_ACCEL_I2V,
+    JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V,
+}
 H3_WORKFLOWS = {
     JobMode.MINIMAX_H3_T2V,
     JobMode.MINIMAX_H3_I2V,
     JobMode.MINIMAX_H3_R2V,
     *LIGHTX2V_WORKFLOWS,
     *DUAL_ACCEL_WORKFLOWS,
+    *DIRECTOR_ACCEL_WORKFLOWS,
     *T8_WORKFLOWS,
 }
 T8_WORKFLOW_IDS = {item.value for item in T8_WORKFLOWS}
 LIGHTX2V_WORKFLOW_IDS = {item.value for item in LIGHTX2V_WORKFLOWS}
 DUAL_ACCEL_WORKFLOW_IDS = {item.value for item in DUAL_ACCEL_WORKFLOWS}
+DIRECTOR_ACCEL_WORKFLOW_IDS = {item.value for item in DIRECTOR_ACCEL_WORKFLOWS}
 DEFAULT_DIRECTOR_WORKFLOW_FAMILY = CATALOG_GROUP_OFFICIAL_H3
 
 
@@ -998,11 +1124,17 @@ def is_dual_accel_workflow(mode: JobMode | str) -> bool:
     return mode_key(mode) in DUAL_ACCEL_WORKFLOW_IDS
 
 
+def is_director_accel_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in DIRECTOR_ACCEL_WORKFLOW_IDS
+
+
 def generation_family_label(mode: JobMode | str) -> str:
     if is_lightx2v_workflow(mode):
         return "LightX2V"
     if is_dual_accel_workflow(mode):
         return "八步双加速"
+    if is_director_accel_workflow(mode):
+        return "H3 Director 加速版"
     if is_h3_workflow(mode):
         return "MiniMax H3"
     return ""
@@ -1166,6 +1298,9 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
     if is_dual_accel_workflow(mode):
         normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
         return apply_dual_accel_speed_preset(normalized, raw)
+    if is_director_accel_workflow(mode):
+        normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
+        return apply_director_accel_speed_preset(normalized, raw)
     unknown_options = set(raw) - H3_OPTION_NAMES
     if unknown_options:
         names = ", ".join(sorted(unknown_options))

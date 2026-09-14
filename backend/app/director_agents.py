@@ -2094,11 +2094,12 @@ def run_agent(
             parsed = _chat_json(chat_fn, [
                 {"role": "system", "content": _system(
                     agent_id,
-                    "输出可播放配乐元数据，不要生成音频文件。用户稍后上传 BGM；本步只写音量/淡化与 H3 声音提示词。"
-                    "globalMusic 即 non_diegetic_music：英文写乐器、速度、力度变化，禁止空洞情绪词；无配乐写 N/A。"
-                    "globalSoundscape 即 overall_soundscape：英文写环境声与物理交互声，不重复台词。"
-                    "bgmVolume 为 0-1 小数，bgmFadeInSec / bgmFadeOutSec 为秒。"
-                    "输出 {\"globalMusic\":\"\",\"globalSoundscape\":\"\",\"bgmVolume\":0.25,"
+                    "输出可播放配乐元数据，不要生成音频文件。用户稍后上传 BGM；本步只写音量/淡化与 H3 声音提示词。\n"
+                    "重要：必须且只能输出严格的 JSON 对象，不要包含任何前缀（如“配乐：”），不要写 markdown 标记。\n"
+                    "globalMusic 即 non_diegetic_music：必须全部使用英文描述乐器、速度、力度变化（若用户确认了中文风格如“史诗”，必须转为具体的英文乐器与氛围，如 epic orchestral, massive horns, pounding drums），禁止直接写中文；无配乐写 N/A。\n"
+                    "globalSoundscape 即 overall_soundscape：英文写环境声与物理交互声，不重复台词。\n"
+                    "bgmVolume 为 0-1 小数，bgmFadeInSec / bgmFadeOutSec 为秒。\n"
+                    "输出格式：{\"globalMusic\":\"\",\"globalSoundscape\":\"\",\"bgmVolume\":0.25,"
                     "\"bgmFadeInSec\":1.2,\"bgmFadeOutSec\":2.0,\"shotSfx\":[{\"shotNumber\":1,\"sfx\":\"\"}]}",
                 )},
                 {"role": "user", "content": _story_context(recipe, goal) + _clarified_stage_text(agent_id, clarifications)},

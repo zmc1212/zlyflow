@@ -1,3 +1,4 @@
+import { uploadDirectorRecipeAssetImage } from "./director-api"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Button, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, Modal, Progress, Radio, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Typography, message,
@@ -1909,6 +1910,36 @@ export default function DirectorRecipeStudio({
     }
   }
 
+  
+  async function handleUploadAssetImage(kind: "character" | "location" | "prop", assetId: string, lookId: string | undefined, file: File) {
+    try {
+      const saved = await flushSave()
+      if (!saved) return
+      const row = await uploadDirectorRecipeAssetImage(projectId, {
+        kind,
+        asset_id: assetId,
+        look_id: lookId,
+        file,
+        expected_content_revision: contentRevisionRef.current || undefined,
+      }, csrfToken)
+      const payload = recipePayloadFromApi(row)
+      projectRevisionRef.current = row.revision
+      contentRevisionRef.current = row.content_revision
+      if (payload) setRecipe(payload)
+      messageApi.success("已上传素材图片")
+    } catch (error) {
+      const remote = readDirectorContentConflict(error)
+      if (remote) {
+        const conflict = { remote }
+        conflictRef.current = conflict
+        setContentConflict(conflict)
+        setSaveStatus("failed")
+        return
+      }
+      notifyFailure(error, "上传素材图片失败")
+    }
+  }
+
   async function handleUploadScriptCover(file: File) {
     try {
       const saved = await flushSave()
@@ -2936,6 +2967,7 @@ export default function DirectorRecipeStudio({
                           onGenerate={(kind, lookId) => { void handleGenerateAssetTarget(kind, character.id, lookId) }}
                           onApprove={(kind, versionId, lookId) => { void handleApproveAssetVersion(kind, character.id, versionId, lookId) }}
                           onSaveToLibrary={() => void handleSaveToLibrary([character.id], [])}
+                          onUpload={(lookId, file) => { void handleUploadAssetImage('character', character.id, lookId, file) }}
                         />
                       ))}
                       {!recipe.characters.length && (
@@ -2979,6 +3011,7 @@ export default function DirectorRecipeStudio({
                               onGenerate={() => { void handleGenerateAssetTarget("prop", prop.id) }}
                               onApprove={(versionId) => { void handleApproveAssetVersion("prop", prop.id, versionId) }}
                               onSaveToLibrary={() => void handleSaveToLibrary([], [], [prop.id])}
+                          onUpload={(file) => { void handleUploadAssetImage('prop', prop.id, undefined, file) }}
                             />
                           ))}
                         </div>
@@ -3029,6 +3062,7 @@ export default function DirectorRecipeStudio({
                           onGenerate={() => { void handleGenerateAssetTarget("location", location.id) }}
                           onApprove={(versionId) => { void handleApproveAssetVersion("location", location.id, versionId) }}
                           onSaveToLibrary={() => void handleSaveToLibrary([], [location.id])}
+                          onUpload={(file) => { void handleUploadAssetImage('location', location.id, undefined, file) }}
                         />
                       ))}
                       {!recipe.locations.length && (

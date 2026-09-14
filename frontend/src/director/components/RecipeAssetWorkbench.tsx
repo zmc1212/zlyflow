@@ -11,6 +11,7 @@ import {
   Tabs,
   Tag,
   Typography,
+  Upload,
 } from "antd"
 import {
   CheckCircle2,
@@ -21,6 +22,7 @@ import {
   RefreshCw,
   ScanFace,
   Settings2,
+  Upload as UploadIcon,
 } from "lucide-react"
 import { useMemo, useState } from "react"
 import MediaPreviewModal from "../../components/MediaPreviewModal"
@@ -176,6 +178,7 @@ export function CharacterAssetCard({
   onGenerate,
   onApprove,
   onSaveToLibrary,
+  onUpload,
 }: {
   character: RecipeCharacter
   jobs: JobLike[]
@@ -183,6 +186,7 @@ export function CharacterAssetCard({
   onGenerate: (kind: "character_portrait" | "character_sheet", lookId?: string) => void
   onApprove: (kind: "character_portrait" | "character_sheet", versionId: string, lookId?: string) => void
   onSaveToLibrary: () => void
+  onUpload?: (lookId: string | undefined, file: File) => void
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -218,6 +222,21 @@ export function CharacterAssetCard({
           ? "idle"
           : "idle"
   const statusLabel = SIMPLE_ASSET_CARD_STATUS_LABELS[cardTone as keyof typeof SIMPLE_ASSET_CARD_STATUS_LABELS] || "待生成"
+
+  const beforeUpload = (file: File) => {
+    if (onUpload) {
+      onUpload(look?.id, file)
+    }
+    return Upload.LIST_IGNORE
+  }
+
+  const uploadProps = {
+    showUploadList: false,
+    beforeUpload,
+    accept: "image/*",
+    disabled: !onUpload,
+  }
+
   const totalVersions = portrait.versions.length + (look?.sheet.versions.length || 0)
   const assumptions = character.aiAssumptions || []
   const generateHint = portraitApproved
@@ -255,11 +274,11 @@ export function CharacterAssetCard({
 
   return (
     <Card className="director-asset-card director-character-card" size="small">
+      <Upload.Dragger {...uploadProps} className="director-asset-dragger">
       <button
         type="button"
         className={`director-character-visual${shown ? " has-image" : ""}`}
-        onClick={() => shown && setPreviewOpen(true)}
-        disabled={!shown}
+        onClick={(e) => { if (shown) { e.stopPropagation(); setPreviewOpen(true); } }}
       >
         {shown ? <img src={shown} alt={character.name} /> : (
           <div className="director-character-empty">
@@ -281,6 +300,7 @@ export function CharacterAssetCard({
           <span className={`director-asset-status-chip is-${cardTone}`}>{statusLabel}</span>
         )}
       </button>
+      </Upload.Dragger>
       <div className="director-character-body">
         <div className="director-character-heading">
           <Input value={character.name} aria-label="角色名称" onChange={(event) => onChange({ name: event.target.value })} />
@@ -333,6 +353,7 @@ export function CharacterAssetCard({
               hint: "查看肖像与定妆板候选",
               onClick: () => setHistoryOpen(true),
             },
+
             {
               key: "library",
               label: "入库",
@@ -414,6 +435,7 @@ export function SimpleRenditionAssetCard({
   onGenerate,
   onApprove,
   onSaveToLibrary,
+  onUpload,
 }: {
   asset: SimpleAsset
   kind: "location" | "prop"
@@ -422,12 +444,28 @@ export function SimpleRenditionAssetCard({
   onGenerate: () => void
   onApprove: (versionId: string) => void
   onSaveToLibrary: () => void
+  onUpload?: (file: File) => void
 }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const rendition = ("plate" in asset ? asset.plate : asset.turnaround) || { versions: [] }
   const approved = recipeApprovedAssetVersion(rendition)
   const approvable = recipeApprovableAssetVersion(rendition, jobs)
+
+  const beforeUpload = (file: File) => {
+    if (onUpload) {
+      onUpload(file)
+    }
+    return Upload.LIST_IGNORE
+  }
+
+  const uploadProps = {
+    showUploadList: false,
+    beforeUpload,
+    accept: "image/*",
+    disabled: !onUpload,
+  }
+
   const state = renditionPreview(rendition, jobs)
   const imageUrl = versionImage(approved, jobs) || state.imageUrl
   const generating = state.status === "queued" || state.status === "running"
@@ -443,7 +481,8 @@ export function SimpleRenditionAssetCard({
   const versionCount = rendition.versions.length
   return (
     <Card className="director-asset-card director-simple-asset-card" size="small">
-      <button type="button" className="director-simple-asset-visual" onClick={() => imageUrl && setPreviewOpen(true)} disabled={!imageUrl}>
+      <Upload.Dragger {...uploadProps} className="director-asset-dragger">
+      <button type="button" className="director-simple-asset-visual" onClick={(e) => { if (imageUrl) { e.stopPropagation(); setPreviewOpen(true); } }}>
         {imageUrl ? <img src={imageUrl} alt={asset.name} /> : generating ? (
           <div><Progress percent={state.progress} size="small" showInfo={false} status="active" /><span>{VERSION_STATUS_LABELS[state.status]}</span></div>
         ) : (
@@ -451,6 +490,7 @@ export function SimpleRenditionAssetCard({
         )}
         <span className={`director-asset-status-chip is-${cardTone}`}>{statusLabel}</span>
       </button>
+      </Upload.Dragger>
       <div className="director-simple-asset-meta">
         <Input value={asset.name} aria-label={`${noun}名称`} onChange={(event) => onChange({ name: event.target.value })} />
         <Typography.Text type="secondary" className="director-simple-asset-subline">
@@ -491,6 +531,20 @@ export function SimpleRenditionAssetCard({
             hint: versionCount ? "查看并切换历史候选" : "还没有候选版本",
             onClick: () => setHistoryOpen(true),
           },
+
+            {
+              key: "upload",
+              label: "上传",
+              icon: <UploadIcon size={14} />,
+              disabled: !onUpload,
+              hint: "上传图片",
+              onClick: () => {},
+              renderWrapper: (child: React.ReactNode) => (
+                <Upload {...uploadProps}>
+                  {child}
+                </Upload>
+              )
+            },
           {
             key: "library",
             label: "入库",

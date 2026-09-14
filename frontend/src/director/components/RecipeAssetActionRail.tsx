@@ -10,6 +10,7 @@ export type RecipeAssetActionRailItem = {
   loading?: boolean
   emphasis?: "primary" | "default"
   hint?: string
+  renderWrapper?: (child: ReactNode) => ReactNode
 }
 
 export default function RecipeAssetActionRail({ items }: { items: RecipeAssetActionRailItem[] }) {
@@ -32,7 +33,13 @@ export default function RecipeAssetActionRail({ items }: { items: RecipeAssetAct
         )
         return (
           <div key={item.key} className="director-asset-action-rail-cell">
-            {item.hint ? (
+            {item.renderWrapper ? item.renderWrapper(
+              item.hint ? (
+                <Tooltip title={item.hint}>
+                  <span className="director-asset-action-rail-tooltip">{button}</span>
+                </Tooltip>
+              ) : button
+            ) : item.hint ? (
               <Tooltip title={item.hint}>
                 <span className="director-asset-action-rail-tooltip">{button}</span>
               </Tooltip>

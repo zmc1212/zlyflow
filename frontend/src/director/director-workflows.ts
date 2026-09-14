@@ -53,6 +53,16 @@ export const FALLBACK_DIRECTOR_WORKFLOW_FAMILIES: DirectorWorkflowFamily[] = [
     },
   },
   {
+    id: "h3_director_accel",
+    label: "H3 Director 加速版",
+    order: 17,
+    routes: {
+      t2v: "minimax-h3-director-accel-t2v",
+      i2v: "minimax-h3-director-accel-i2v",
+      r2v: "minimax-h3-director-accel-r2v",
+    },
+  },
+  {
     id: "official_h3",
     label: "MiniMax H3",
     order: 20,

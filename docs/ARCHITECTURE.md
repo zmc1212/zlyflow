@@ -1779,3 +1779,11 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：纯前端交互条件变化，无 API/数据库/存储格式变更；流水线运行中的锁定行为与旧版一致；残留澄清卡的清理解析不变。回滚仅还原该行表达式即可。
 - 验证命令：`pnpm --dir frontend test`、`pnpm --dir frontend build`、`python -m unittest discover -s backend/tests -p 'test_*.py'`；浏览器实测：注入 `director-clarify:<projectId>` 待答状态后，手动模式在各阶段点击「AI 生成」立即生效（桌面 1280 + 移动 390），剧本阶段显示手动编辑器而非对话室；无残留状态时各阶段「点步骤 → 切模式」回归正常。
 - 回滚方式：还原 `DirectorRecipeStudio.tsx` 中 `creationModeLocked` 表达式与四份文档对应段落，无数据迁移。
+
+## 2026-09-14 接入 MiniMax H3 Director 加速版
+
+- 原因：新增 MiniMaxH3Director 节点结合双 Sage 优化的工作流（单镜自动路由 T2V/I2V/R2V），提升出片速度。
+- 当前基线：\ackend/app/models.py\ 新增 \JobMode\ 包含 \minimax-h3-director-accel-t2v\, \i2v\, 2v\。\workflow_registry.py\ 新增 \CATALOG_GROUP_DIRECTOR_ACCEL\，参数层级对齐加速版特性（无 Turbo LoRA，双 Sage，默认 0.4MP/20步/pruned）。\minimax_h3_director_accel_workflow.py\ 提供构建器，支持 0-9 张参考图并使用外部 Group 接线给 Director 节点，最后输出到 SaveVideo。
+- 前端：\rontend/src/director/director-workflows.ts\ 的 \FALLBACK_DIRECTOR_WORKFLOW_FAMILIES\ 增加 \h3_director_accel\ 降级配置，使其在 API 未就绪时显示下拉项。
+- 测试：\ackend/tests/test_minimax_h3_director_accel.py\ 新增 builder 和注册表的单测。\	est_director_controls.py\ 补充对该模式的界面控制测试。
+- 兼容性：新增流程，向前兼容；工作台需要连接已安装 ComfyUI_MiniMaxH3_Director 的实例。
