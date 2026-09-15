@@ -5,13 +5,13 @@
    2) 全部选择器加 .director2-app 前缀，避免与工作台全局样式冲突。
       根元素自身的规则用 .director2-app.app-layout 复合选择器命中。 */
 
-/* ===== App.vue 全局样式（收敛到模块作用域） ===== */
+/* ===== App.vue 全局样式（收敛到模块作用域） =====
+   margin/padding/背景只作用在布局根 .app-layout。
+   新建/编辑项目弹窗也会挂 director2-app（传送到 body 后仍要命中画幅选项等后代样式），
+   若把 margin:0 写在 .director2-app 上会盖掉 antd Modal 的 margin:0 auto，弹窗贴左。 */
 .director2-app {
-  margin: 0;
-  padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: #1f2937;
-  background-color: #f8f9fa;
   -webkit-font-smoothing: antialiased;
   box-sizing: border-box;
 }
@@ -24,9 +24,14 @@
 
 /* ===== App.vue scoped 样式 ===== */
 .director2-app.app-layout {
-  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background-color: #f8f9fa;
 }
 
 .director2-app .top-nav {
@@ -103,43 +108,14 @@
   background: rgba(112, 71, 246, 0.08);
 }
 
-.director2-app .nav-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.director2-app .settings-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 16px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #ffffff;
-  font-size: 13px;
-  font-weight: 500;
-  color: #374151;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.director2-app .settings-btn:hover {
-  border-color: #7047f6;
-  color: #7047f6;
-  background: rgba(112, 71, 246, 0.04);
-}
-
-.director2-app .settings-btn.active {
-  border-color: #7047f6;
-  background: #7047f6;
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(112, 71, 246, 0.25);
-}
-
 .director2-app .app-main {
   flex: 1;
+  min-height: 0 !important;
+  height: auto;
+  padding-bottom: 0 !important;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===== 面板切换过渡（原版 <transition name="fade" mode="out-in">） ===== */
@@ -158,7 +134,10 @@
 
 /* ===== HomeView.vue scoped 样式 ===== */
 .director2-app .home-projects-container {
-  min-height: calc(100vh - 64px);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
   background-color: #f9fafb;
   padding: 32px 24px 64px;
 }
@@ -483,6 +462,11 @@
 /* ===== 项目详情壳样式在 project-detail.css；面板样式各自文件 ===== */
 
 /* ===== Modal 弹层（传送到 body，需独立作用域类 d2-modal-scope） ===== */
+.ant-modal.director2-app {
+  margin: 0 auto;
+  background-color: transparent;
+}
+
 .d2-modal-scope .modal-form {
   padding-top: 4px;
 }
@@ -507,4 +491,26 @@
   color: #ff4d4f;
   margin-right: 4px;
   display: inline-block;
+}
+.director2-app .project-sidebar.is-hidden { display: none; }
+.director2-app .director2-ai-studio {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 16px;
+}
+.director2-app .director2-ai-studio .director-recipe-layout,
+.director2-app .director2-ai-studio .director-recipe-main,
+.director2-app .director2-ai-studio .director-script-room { min-height: 0; }
+.director2-app .director2-ai-studio .director-recipe-main { padding: 18px 20px 20px; }
+.director2-app .director2-ai-studio .director-script-layout { gap: 16px; }
+.director2-app .director2-ai-studio .director-task-rail { width: 264px; }
+.director2-app .director2-ai-studio .director-script-stream { min-height: 0; }
+.director2-app .director2-ai-studio .director-stream-feed { min-height: 100%; }
+.director2-app .director2-ai-studio .director-completion-card { margin-top: 20px; }
+@media (max-width: 767px) {
+  .director2-app .director2-ai-studio { border-radius: 12px; }
+  .director2-app .director2-ai-studio .director-recipe-main { padding: 12px 10px 0; }
+  .director2-app .director2-ai-studio .director-script-layout { display: block; }
+  .director2-app .director2-ai-studio .director-task-rail { display: none; }
 }

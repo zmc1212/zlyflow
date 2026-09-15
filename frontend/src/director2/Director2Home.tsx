@@ -333,6 +333,7 @@ export default function Director2Home({ csrfToken }: HomeContext) {
         okText="立即创建"
         cancelText="取消"
         width={520}
+        centered
         destroyOnClose
         onOk={handleCreateSubmit}
         onCancel={() => setCreateModalVisible(false)}
@@ -394,6 +395,7 @@ export default function Director2Home({ csrfToken }: HomeContext) {
         okText="保存修改"
         cancelText="取消"
         width={520}
+        centered
         destroyOnClose
         onOk={handleEditSubmit}
         onCancel={() => setEditModalVisible(false)}
