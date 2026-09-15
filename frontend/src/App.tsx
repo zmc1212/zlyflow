@@ -8,7 +8,7 @@ import {
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { jsonMutation, notifyUnauthorized, requestJson, User } from "./api"
-import { generateJobPath, isXiajiArtStylesPath, parseGeneratePath, parseXiajiProjectPath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
+import { generateJobPath, parseGeneratePath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import {
   chooseResourceDirectory, DirectoryHandleLike, directoryApiSupported, directoryPermission,
@@ -35,8 +35,7 @@ import { useStudioTheme } from "./ThemeProvider"
 const ImageStudioModule = lazy(() => import("./media/ImageStudioModule"))
 const VideoStudioModule = lazy(() => import("./media/VideoStudioModule"))
 const DirectorStudioModule = lazy(() => import("./director/DirectorStudioModule"))
-const XiajiStudioModule = lazy(() => import("./xiaji/XiajiStudioModule"))
-const XiajiArtStylesPage = lazy(() => import("./xiaji/XiajiArtStylesPage"))
+const Director2App = lazy(() => import("./director2/Director2App"))
 const DirectorAssetLibrary = lazy(() => import("./director/DirectorAssetLibrary"))
 
 type Status = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
@@ -1557,7 +1556,7 @@ export default function App({
   return (
     <div className={`${themeMode === "light" ? "studio-light" : "studio-dark"} min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]`}>
       {messageContext}
-      <header className={`studio-header fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-black/[0.05] bg-white px-3 sm:px-5 ${workspaceView === "director" ? "studio-header-director" : ""}`}>
+      <header className={`studio-header fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-black/[0.05] bg-white px-3 sm:px-5 ${workspaceView === "director" || workspaceView === "director2" ? "studio-header-director" : ""}`}>
         <div className="flex min-w-0 items-center gap-4">
           <div className="flex items-center gap-2 text-[#171a1f]">
             <span className="grid size-7 place-items-center rounded-md border border-[#7655ff] text-[#a28cff]"><Sparkles size={15} /></span>
@@ -1606,7 +1605,7 @@ export default function App({
         </div>
       </section> : null}
 
-      <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "director" ? "studio-director-view" : ""} ${workspaceView === "director2" ? "studio-xiaji-view" : ""}`}>
+      <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "director" ? "studio-director-view" : ""} ${workspaceView === "director2" ? "studio-director2-view" : ""}`}>
         <nav className="studio-mobile-nav" aria-label="工作区导航">
           <NavLink to={lastGeneratePathRef.current} className={() => workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</NavLink>
           <NavLink to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
@@ -1663,7 +1662,7 @@ export default function App({
         <main className={workspaceView === "director"
           ? "director-workspace-main relative flex !h-screen !max-h-screen !min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "director2"
-          ? "xiaji-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
+          ? "director2-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""}`
         }>
           {workspaceView === "director" ? (
@@ -1679,11 +1678,7 @@ export default function App({
             </Suspense>
           ) : workspaceView === "director2" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载导台2...</div>}>
-              {isXiajiArtStylesPath(location.pathname) ? (
-                <XiajiArtStylesPage csrfToken={csrfToken} />
-              ) : (
-                <XiajiStudioModule csrfToken={csrfToken} projectId={parseXiajiProjectPath(location.pathname)} />
-              )}
+              <Director2App csrfToken={csrfToken} />
             </Suspense>
           ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
 

@@ -109,17 +109,9 @@ from .models import (
     DirectorTranslatePromptRequest,
 )
 
-from .xiaji_api import register_xiaji_routes
-from .xiaji_asset_api import register_xiaji_asset_routes
-from .xiaji_asset_store import XiajiAssetStore
-from .xiaji_episode_api import register_xiaji_episode_routes
-from .xiaji_episode_store import XiajiEpisodeStore
-from .xiaji_auto_pipeline import XiajiAutoPipeline
-from .xiaji_episode_run_store import XiajiEpisodeRunStore
-from .xiaji_llm_jobs import XiajiLlmJobStore
-from .xiaji_project_api import register_xiaji_project_routes
-from .xiaji_project_store import XiajiProjectStore
-from .xiaji_store import XiajiIngestStore
+from .media_studio.routers.project_router import register_project_routes
+from .media_studio.services.episode_video_service import EpisodeVideoService
+from .media_studio.services.storyboard_image_service import StoryboardImageService
 from .qiniu_provider import QiniuProviderService
 from .request_log import RequestLogMiddleware, write_request_log
 
@@ -683,12 +675,6 @@ async def lifespan(app: FastAPI):
     database = settings.runtime_database()
     auth_store = AuthStore(database)
     store = JobStore(database)
-    xiaji_store = XiajiIngestStore(database)
-    xiaji_asset_store = XiajiAssetStore(database)
-    xiaji_episode_store = XiajiEpisodeStore(database)
-    xiaji_project_store = XiajiProjectStore(database)
-    xiaji_llm_job_store = XiajiLlmJobStore(database)
-    xiaji_episode_run_store = XiajiEpisodeRunStore(database)
     qiniu_provider = QiniuProviderService(store, settings.credential_key)
     resource_storage = qiniu_provider.enabled_storage() or create_resource_storage(settings.resource_provider, settings.staging_dir)
     grs_provider = GrsProviderService(store, settings.credential_key)
@@ -700,12 +686,6 @@ async def lifespan(app: FastAPI):
     worker = JobWorker(store, comfy, grs_provider, resource_storage)
     app.state.auth_store = auth_store
     app.state.store = store
-    app.state.xiaji_store = xiaji_store
-    app.state.xiaji_asset_store = xiaji_asset_store
-    app.state.xiaji_episode_store = xiaji_episode_store
-    app.state.xiaji_project_store = xiaji_project_store
-    app.state.xiaji_llm_job_store = xiaji_llm_job_store
-    app.state.xiaji_episode_run_store = xiaji_episode_run_store
     app.state.resource_storage = resource_storage
     app.state.grs_provider = grs_provider
     app.state.qiniu_provider = qiniu_provider
@@ -720,17 +700,15 @@ async def lifespan(app: FastAPI):
         resource_storage=resource_storage,
     )
     app.state.director_operations = director_operations
-    xiaji_auto_pipeline = XiajiAutoPipeline(app)
-    app.state.xiaji_auto_pipeline = xiaji_auto_pipeline
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
     store.interrupt_stale_director_pipelines()
     store.interrupt_stale_director_operations()
-    xiaji_auto_pipeline.interrupt_stale()
+    EpisodeVideoService.recover_orphaned_jobs()
+    StoryboardImageService.recover_interrupted_jobs()
     await worker.start()
     yield
     set_catalog_lookup(None)
     await director_operations.stop()
-    await xiaji_auto_pipeline.stop()
     await worker.stop()
 
 
@@ -758,15 +736,12 @@ app = FastAPI(
         {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
         {"name": "导演台", "description": "员工隔离的导演工程库：Recipe 双引擎、画风目录、9 Agent 流水线与批量短视频。"},
         {"name": "复刻台", "description": "参考片拉片复刻：上传成片，自动分镜反推提示词与深度视频，用 Wan VACE 深度控制批量转绘。"},
-        {"name": "导台2", "description": "按项目组织的内容库、资产库与剧集工坊（脚本 Beat 与镜头草图）。"},
+        {"name": "导台2", "description": "AI Media Studio：按项目组织的内容库、资产库、剧集工坊与全部任务（复刻自 dev0914）。"},
     ],
     lifespan=lifespan,
 )
 
-register_xiaji_project_routes(app, current_user=current_user, mutating_user=mutating_user)
-register_xiaji_routes(app, current_user=current_user, mutating_user=mutating_user)
-register_xiaji_asset_routes(app, current_user=current_user, mutating_user=mutating_user)
-register_xiaji_episode_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_project_routes(app, current_user=current_user, mutating_user=mutating_user)
 app.add_middleware(RequestLogMiddleware)
 
 

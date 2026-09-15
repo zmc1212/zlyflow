@@ -10,7 +10,7 @@ export const PATHS = {
   generateVideo: "/generate/video",
   director: "/director",
   director2: "/director2",
-  director2ArtStyles: "/director2/art-styles",
+  director2Settings: "/director2/settings",
   assets: "/assets",
   admin: "/admin",
   adminAccounts: "/admin/accounts",
@@ -25,7 +25,9 @@ export const ROUTE_PATTERNS = {
   directorProject: "/director/:projectId",
   directorBatch: "/director/batch/:projectId",
   directorReplication: "/director/replication/:projectId",
-  director2Project: "/director2/:projectId",
+  director2Project: "/director2/projects/:projectId",
+  director2ProjectMenu: "/director2/projects/:projectId/:menu",
+  director2ProjectEpisode: "/director2/projects/:projectId/workshop/:episodeId",
   adminTab: "/admin/:tab",
 } as const
 
@@ -44,8 +46,10 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.directorReplication,
   ROUTE_PATTERNS.directorProject,
   PATHS.director,
-  PATHS.director2ArtStyles,
   ROUTE_PATTERNS.director2Project,
+  ROUTE_PATTERNS.director2ProjectMenu,
+  ROUTE_PATTERNS.director2ProjectEpisode,
+  PATHS.director2Settings,
   PATHS.director2,
   PATHS.assets,
 ] as const
@@ -97,30 +101,6 @@ export function directorBatchPath(projectId: string) {
 
 export function directorReplicationPath(projectId: string) {
   return `${PATHS.director}/replication/${encodeURIComponent(projectId)}`
-}
-
-export function director2ProjectPath(projectId: string) {
-  return `${PATHS.director2}/${encodeURIComponent(projectId)}`
-}
-
-const XIAJI_RESERVED_SEGMENTS = new Set(["art-styles"])
-
-export function isXiajiArtStylesPath(pathname: string) {
-  const normalized = pathname.replace(/\/+$/, "") || "/"
-  return normalized === PATHS.director2ArtStyles
-}
-
-export function parseXiajiProjectPath(pathname: string): string | undefined {
-  if (isXiajiArtStylesPath(pathname)) return undefined
-  const prefix = `${PATHS.director2}/`
-  if (!pathname.startsWith(prefix)) return undefined
-  const id = pathname.slice(prefix.length).split("/").filter(Boolean)[0]
-  if (!id || XIAJI_RESERVED_SEGMENTS.has(id)) return undefined
-  try {
-    return decodeURIComponent(id)
-  } catch {
-    return id
-  }
 }
 
 export function adminTabPath(tab: AdminTab) {

@@ -1,0 +1,258 @@
+/* GRS 生图供应商设置卡样式 —— 逐条复制自 dev0914 GrsProviderSettings.vue <style scoped>。
+   作用域化：每条选择器统一加 .d2-grs-settings 前缀（后代选择器）；
+   根元素自身规则用 .d2-grs-settings.grs-settings-card 复合选择器命中（与 content-library.css 等做法一致）；
+   类名、数值、伪类、注释、媒体查询保持原样。
+   注：新增模型弹窗传送至 body，Modal 上同样挂了 d2-grs-settings 类，
+   使弹层内 .modal-form / .form-item / .form-label 规则继续命中；
+   模板中的 text-xs / text-gray-500 / m-0 / font-medium 为 Tailwind 工具类，由工作台全局 Tailwind 提供。 */
+
+.d2-grs-settings.grs-settings-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  margin-top: 20px;
+}
+
+.d2-grs-settings .card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding-bottom: 20px;
+}
+
+.d2-grs-settings .icon-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.d2-grs-settings .grs-badge {
+  background: rgba(14, 165, 233, 0.1);
+  color: #0ea5e9;
+}
+
+.d2-grs-settings .title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.d2-grs-settings .desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: #4b5563;
+}
+
+.d2-grs-settings .card-body {
+  margin-top: 20px;
+}
+
+.d2-grs-settings .settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .d2-grs-settings .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.d2-grs-settings .form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.d2-grs-settings .form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.d2-grs-settings .row-item {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.d2-grs-settings .form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.d2-grs-settings .form-sub {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 2px 0 0;
+}
+
+.d2-grs-settings .help-text {
+  font-size: 12px;
+}
+
+.d2-grs-settings .text-success {
+  color: #059669;
+}
+
+.d2-grs-settings .form-actions {
+  display: flex;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.d2-grs-settings .balance-panel {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.05), rgba(99, 102, 241, 0.05));
+  border: 1px solid rgba(14, 165, 233, 0.15);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.d2-grs-settings .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.d2-grs-settings .panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0284c7;
+}
+
+.d2-grs-settings .balance-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0369a1;
+  margin: 8px 0 4px;
+}
+
+.d2-grs-settings .balance-unit {
+  font-size: 14px;
+  font-weight: normal;
+  color: #64748b;
+  margin-left: 4px;
+}
+
+.d2-grs-settings .panel-time {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.d2-grs-settings .status-panel {
+  background: #f9fafb;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.d2-grs-settings .status-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b7280;
+  margin: 0 0 12px;
+}
+
+.d2-grs-settings .status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.d2-grs-settings .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.d2-grs-settings .status-success {
+  color: #059669;
+}
+
+.d2-grs-settings .status-failed {
+  color: #dc2626;
+}
+
+.d2-grs-settings .status-idle {
+  color: #6b7280;
+}
+
+.d2-grs-settings .status-msg {
+  font-size: 12px;
+  line-height: 18px;
+  color: #4b5563;
+  margin: 0 0 10px;
+}
+
+.d2-grs-settings .status-time {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.d2-grs-settings .models-section {
+  margin-top: 32px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding-top: 24px;
+}
+
+.d2-grs-settings .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 0 8px;
+}
+
+.d2-grs-settings .section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.d2-grs-settings .section-desc {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 2px 0 0;
+}
+
+.d2-grs-settings .section-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.d2-grs-settings .models-table {
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.d2-grs-settings .modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 12px;
+}
+
+.d2-grs-settings .mt-3 {
+  margin-top: 12px;
+}

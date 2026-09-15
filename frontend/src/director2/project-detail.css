@@ -1,0 +1,206 @@
+/* 项目详情壳样式 —— 逐条复刻自 dev0914 ProjectDetailView.vue <style scoped>，
+   统一前缀 .director2-app；根元素规则用复合选择器命中。 */
+
+.director2-app .project-detail-layout {
+  height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  background-color: #f8fafc;
+  overflow: hidden; /* 防止双重全局滚动条，由右侧内容区主导滚动 */
+}
+
+/* 顶部项目条 */
+.director2-app .project-topbar {
+  height: 56px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  z-index: 40;
+}
+
+.director2-app .topbar-content {
+  height: 100%;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.director2-app .topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.director2-app .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.director2-app .back-link:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.director2-app .divider {
+  width: 1px;
+  height: 20px;
+  background: #e2e8f0;
+}
+
+.director2-app .project-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.director2-app .project-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.2px;
+}
+
+.director2-app .project-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.director2-app .topbar-right {
+  display: flex;
+  align-items: center;
+}
+
+.director2-app .project-id-tag {
+  font-size: 12px;
+  color: #94a3b8;
+  font-family: monospace;
+  background: #f1f5f9;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+/* 主体：左侧固定侧边栏 + 右侧自由滑动内容区 */
+.director2-app .project-main-body {
+  width: 100%;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* 左侧 4 个菜单导航固定不动 */
+.director2-app .project-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  height: 100%;
+  padding: 20px 12px 20px 24px;
+  overflow-y: auto;
+  user-select: none;
+  background: #f8fafc;
+  border-right: 1px solid #eef2f6;
+}
+
+.director2-app .menu-list {
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 14px;
+  padding: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.director2-app .sidebar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.director2-app .sidebar-menu-item:hover {
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.director2-app .sidebar-menu-item.active {
+  background: rgba(112, 71, 246, 0.08);
+  color: #7047f6;
+  font-weight: 600;
+}
+
+.director2-app .menu-icon {
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.director2-app .menu-text {
+  flex: 1;
+}
+
+.director2-app .active-indicator {
+  position: absolute;
+  right: 8px;
+  width: 5px;
+  height: 18px;
+  border-radius: 4px;
+  background: #7047f6;
+}
+
+/* 右侧内容区：支持随便顺畅自由滑动到底部 */
+.director2-app .project-content-pane {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px 24px 60px 20px;
+  scroll-behavior: smooth;
+}
+
+/* 剧集工坊分集工作台详情模式：无外层多余滚动条，全屏沉浸式工作台 */
+.director2-app .project-content-pane.is-workshop-detail {
+  padding: 14px 20px 14px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.director2-app .project-content-pane.is-workshop-detail > .d2-workshop-host,
+.director2-app .project-content-pane.is-workshop-detail > .workshop-container {
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* fade 过渡容器不占布局空间 */
+.director2-app .project-content-pane > .d2-fade {
+  height: 100%;
+}

@@ -1,0 +1,224 @@
+/* LLM 大模型设置卡样式 —— 逐条复制自 dev0914 LlmProviderSettings.vue <style scoped>。
+   作用域化：每条选择器统一加 .d2-llm-settings 前缀（后代选择器）；
+   根元素自身规则用 .d2-llm-settings.llm-settings-card 复合选择器命中（与 content-library.css 等做法一致）；
+   类名、数值、伪类、注释、媒体查询保持原样。
+   注：模板中的 flex / justify-between / items-center 为 Tailwind 工具类，由工作台全局 Tailwind 提供。 */
+
+.d2-llm-settings.llm-settings-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.d2-llm-settings .card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding-bottom: 20px;
+}
+
+.d2-llm-settings .icon-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.d2-llm-settings .llm-badge {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.d2-llm-settings .title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.d2-llm-settings .desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: #4b5563;
+}
+
+.d2-llm-settings .card-body {
+  margin-top: 20px;
+}
+
+.d2-llm-settings .settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .d2-llm-settings .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.d2-llm-settings .form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.d2-llm-settings .form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.d2-llm-settings .row-item {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.d2-llm-settings .form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.d2-llm-settings .form-sub {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 2px 0 0;
+}
+
+.d2-llm-settings .quick-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.d2-llm-settings .tags-label {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.d2-llm-settings .quick-tag {
+  font-size: 11px;
+  background: #f3f4f6;
+  color: #4b5563;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.d2-llm-settings .quick-tag:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.d2-llm-settings .doc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: #7047f6;
+}
+
+.d2-llm-settings .help-text {
+  font-size: 12px;
+}
+
+.d2-llm-settings .text-success {
+  color: #059669;
+}
+
+.d2-llm-settings .form-actions {
+  display: flex;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.d2-llm-settings .status-panel,
+.d2-llm-settings .tips-panel {
+  background: #f9fafb;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.d2-llm-settings .status-title,
+.d2-llm-settings .tips-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b7280;
+  margin: 0 0 12px;
+}
+
+.d2-llm-settings .status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.d2-llm-settings .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.d2-llm-settings .status-success {
+  color: #059669;
+}
+
+.d2-llm-settings .status-failed {
+  color: #dc2626;
+}
+
+.d2-llm-settings .status-idle {
+  color: #6b7280;
+}
+
+.d2-llm-settings .status-msg {
+  font-size: 12px;
+  line-height: 18px;
+  color: #4b5563;
+  margin: 0 0 10px;
+}
+
+.d2-llm-settings .status-time {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.d2-llm-settings .tips-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #6b7280;
+}
+
+.d2-llm-settings .tips-list code {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.d2-llm-settings .mt-3 {
+  margin-top: 12px;
+}

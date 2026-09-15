@@ -1,0 +1,510 @@
+/* 导演台2（AI Media Studio）壳层与首页样式
+   来源：dev0914 z-admin/src/App.vue（全局 + scoped）与 HomeView.vue <style scoped>
+   规则逐条复制，类名不变；仅做两处适配：
+   1) 原版针对 html/body 的全局样式收敛到 .director2-app 作用域（工作台有自己的外壳）；
+   2) 全部选择器加 .director2-app 前缀，避免与工作台全局样式冲突。
+      根元素自身的规则用 .director2-app.app-layout 复合选择器命中。 */
+
+/* ===== App.vue 全局样式（收敛到模块作用域） ===== */
+.director2-app {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: #1f2937;
+  background-color: #f8f9fa;
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
+
+.director2-app *,
+.director2-app *::before,
+.director2-app *::after {
+  box-sizing: border-box;
+}
+
+/* ===== App.vue scoped 样式 ===== */
+.director2-app.app-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.director2-app .top-nav {
+  height: 64px;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.director2-app .nav-container {
+  height: 100%;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.director2-app .nav-left {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.director2-app .brand-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.director2-app .brand-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #7047f6 0%, #9333ea 100%);
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+}
+
+.director2-app .brand-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.3px;
+}
+
+.director2-app .nav-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.director2-app .nav-item {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #4b5563;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.director2-app .nav-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #111827;
+}
+
+.director2-app .nav-item.active {
+  color: #7047f6;
+  background: rgba(112, 71, 246, 0.08);
+}
+
+.director2-app .nav-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.director2-app .settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.director2-app .settings-btn:hover {
+  border-color: #7047f6;
+  color: #7047f6;
+  background: rgba(112, 71, 246, 0.04);
+}
+
+.director2-app .settings-btn.active {
+  border-color: #7047f6;
+  background: #7047f6;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(112, 71, 246, 0.25);
+}
+
+.director2-app .app-main {
+  flex: 1;
+}
+
+/* ===== 面板切换过渡（原版 <transition name="fade" mode="out-in">） ===== */
+.d2-fade {
+  animation: d2FadeIn 0.15s ease;
+}
+
+@keyframes d2FadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ===== HomeView.vue scoped 样式 ===== */
+.director2-app .home-projects-container {
+  min-height: calc(100vh - 64px);
+  background-color: #f9fafb;
+  padding: 32px 24px 64px;
+}
+
+/* 头部栏 */
+.director2-app .page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.director2-app .header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.director2-app .page-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  letter-spacing: -0.4px;
+}
+
+.director2-app .project-count-badge {
+  font-size: 12px;
+  color: #7047f6;
+  background: rgba(112, 71, 246, 0.1);
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-weight: 600;
+}
+
+.director2-app .page-subtitle {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 6px 0 0;
+}
+
+.director2-app .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.director2-app .search-input {
+  width: 260px;
+  border-radius: 8px;
+}
+
+.director2-app .search-icon {
+  color: #9ca3af;
+}
+
+.director2-app .create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #7047f6 0%, #8b5cf6 100%);
+  border: none;
+  font-weight: 600;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(112, 71, 246, 0.28);
+  transition: all 0.2s;
+}
+
+.director2-app .create-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(112, 71, 246, 0.35);
+  background: linear-gradient(135deg, #7c58f8 0%, #9065f7 100%) !important;
+}
+
+/* 加载状态 */
+.director2-app .loading-box {
+  padding: 100px 0;
+  text-align: center;
+}
+
+/* 空状态 */
+.director2-app .empty-box {
+  background: #ffffff;
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  border-radius: 16px;
+  padding: 72px 24px;
+  text-align: center;
+  margin-top: 16px;
+}
+
+.director2-app .empty-icon-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 24px;
+  background: rgba(112, 71, 246, 0.08);
+  display: grid;
+  place-items: center;
+  color: #7047f6;
+  margin: 0 auto 20px;
+}
+
+.director2-app .empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 8px;
+}
+
+.director2-app .empty-desc {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 auto 24px;
+  max-width: 420px;
+  line-height: 22px;
+}
+
+.director2-app .empty-create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #7047f6;
+  border-radius: 8px;
+  height: 40px;
+  padding: 0 20px;
+}
+
+/* 卡片网格（minmax 由原版 280px 补偿为 270px：宿主左侧 76px 图标栏占用内容宽度，
+   保持与原版一行 5 张卡相同的列数） */
+.director2-app .projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 22px;
+}
+
+.director2-app .project-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.director2-app .project-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(112, 71, 246, 0.3);
+  box-shadow: 0 10px 24px rgba(112, 71, 246, 0.1);
+}
+
+/* 卡片封面图 */
+.director2-app .card-cover {
+  height: 120px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  overflow: hidden;
+}
+
+.director2-app .cover-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.director2-app .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+.director2-app .cover-icon-bg {
+  opacity: 0.7;
+  transition: transform 0.3s;
+}
+
+.director2-app .project-card:hover .cover-icon-bg {
+  transform: scale(1.1);
+  opacity: 0.95;
+}
+
+/* 卡片内容 */
+.director2-app .card-body {
+  padding: 16px 18px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.director2-app .project-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.director2-app .project-name:hover {
+  color: #7047f6;
+}
+
+.director2-app .project-desc {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0 0 14px;
+  line-height: 20px;
+  height: 40px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.director2-app .project-meta {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #9ca3af;
+  padding-top: 10px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.director2-app .meta-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 卡片底栏 */
+.director2-app .card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 14px;
+  background: #fafafa;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  gap: 6px;
+}
+
+.director2-app .footer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 0 6px;
+}
+
+.director2-app .edit-btn {
+  color: #4b5563;
+}
+
+.director2-app .edit-btn:hover {
+  color: #7047f6;
+}
+
+/* 规格选择 */
+.director2-app .preset-specs {
+  display: flex;
+  gap: 10px;
+}
+
+.director2-app .spec-tag {
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #ffffff;
+}
+
+.director2-app .spec-tag:hover {
+  border-color: #7047f6;
+}
+
+.director2-app .spec-tag.active {
+  border-color: #7047f6;
+  background: rgba(112, 71, 246, 0.05);
+}
+
+.director2-app .spec-ratio {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.director2-app .spec-tag.active .spec-ratio {
+  color: #7047f6;
+}
+
+.director2-app .spec-label {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+/* ===== 项目详情壳样式在 project-detail.css；面板样式各自文件 ===== */
+
+/* ===== Modal 弹层（传送到 body，需独立作用域类 d2-modal-scope） ===== */
+.d2-modal-scope .modal-form {
+  padding-top: 4px;
+}
+
+.d2-modal-scope .d2-form .d2-form-item {
+  margin-bottom: 24px;
+}
+
+.d2-modal-scope .d2-form .d2-form-item:last-child {
+  margin-bottom: 0;
+}
+
+.d2-modal-scope .d2-form .d2-form-label {
+  display: block;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.88);
+  margin-bottom: 8px;
+}
+
+.d2-modal-scope .d2-form .d2-required::before {
+  content: "*";
+  color: #ff4d4f;
+  margin-right: 4px;
+  display: inline-block;
+}

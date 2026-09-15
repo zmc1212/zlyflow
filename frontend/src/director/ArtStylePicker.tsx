@@ -193,21 +193,21 @@ export function ArtStyleCompactField({
   }
 
   return (
-    <div className="xiaji-art-style-compact">
+    <div className="director-art-style-compact">
       <Select
         allowClear
         showSearch
         size={size}
         disabled={disabled}
-        className="xiaji-art-style-select"
-        popupClassName="xiaji-art-style-dropdown"
+        className="director-art-style-select"
+        popupClassName="director-art-style-dropdown"
         popupMatchSelectWidth={320}
         placeholder={placeholder}
         value={value || undefined}
         options={grouped}
         optionFilterProp="label"
-        optionRender={(option) => renderOption(String(option.value), option.label, "xiaji-art-style-thumb")}
-        labelRender={(props) => renderOption(String(props.value), props.label, "xiaji-art-style-thumb-sm")}
+        optionRender={(option) => renderOption(String(option.value), option.label, "director-art-style-thumb")}
+        labelRender={(props) => renderOption(String(props.value), props.label, "director-art-style-thumb-sm")}
         onChange={(next?: string) => onChange(next || "")}
       />
     </div>

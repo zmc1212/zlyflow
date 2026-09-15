@@ -1787,3 +1787,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 前端：\rontend/src/director/director-workflows.ts\ 的 \FALLBACK_DIRECTOR_WORKFLOW_FAMILIES\ 增加 \h3_director_accel\ 降级配置，使其在 API 未就绪时显示下拉项。
 - 测试：\ackend/tests/test_minimax_h3_director_accel.py\ 新增 builder 和注册表的单测。\	est_director_controls.py\ 补充对该模式的界面控制测试。
 - 兼容性：新增流程，向前兼容；工作台需要连接已安装 ComfyUI_MiniMaxH3_Director 的实例。
+
+## 2026-09-14 夏姬模块下线，导演台2（AI Media Studio）整体替代
+
+- 变更原因：旧 xiaji（夏姬）前后端模块整体退役，由复刻自 dev0914 终态的「导演台2 / AI Media Studio」替代：后端 `media_studio` 模块 + 前端 `director2` 应用。
+- 当前基线：后端删除 `backend/app/xiaji_*.py`（analyze/api/art_style/asset_api/asset_prompts/asset_store/auto_pipeline/compose/episode_api/episode_prompts/episode_run_store/episode_store/literal_script/llm_jobs/parser/project_api/project_store/store/visual_styles，共 19 个文件）；新增 `backend/app/media_studio/`（`db.py` 启动重放建表、`models.py`、`provider_bridge.py`、`routers/`、`services/`）。`main.py` 移除全部 xiaji store 与路由装配，改为 `media_studio.routers.project_router.register_project_routes`，并接入 `EpisodeVideoService` / `StoryboardImageService`（启动时恢复孤儿与中断任务）；`llm_provider.py` 移除 xiaji ingest 分析方法。数据库新增 `sql/013_media_studio_init.sql`：`ai_projects` / `ai_project_documents` / `ai_project_assets` 等 5 张 `ai_*` 表（索引内联建表、每次启动重放、禁止 ALTER），与旧 `xiaji_*` 表并存。前端删除 `frontend/src/xiaji/`（9 个文件）与 `index.css` 中约 2600 行 xiaji 样式；新增 `frontend/src/director2/`：`Director2App` / `Director2Home` / `Director2ProjectDetail`，panes（内容库 / 资产库 / 剧集工坊 / 任务中心，各 pane 独立 CSS）与 settings（LLM / GRS / Comfy / 七牛存储）；路由重构为 `/director2/projects/:projectId/:menu`、`/director2/projects/:projectId/workshop/:episodeId`、`/director2/settings`，`App.tsx` 以 lazy `Director2App` 装配（workspaceView `director2`）；`ArtStylePicker` 样式类由 `xiaji-art-style-*` 更名 `director-art-style-*`（行为不变）。
+- 受影响文件：`backend/app/{main,llm_provider}.py`、`backend/app/media_studio/**`、`backend/app/xiaji_*.py`（删除）、`backend/tests/media_studio_test_*.py`（新增 3 个）、`sql/013_media_studio_init.sql`（新增）、`frontend/src/{App.tsx,index.css,paths.ts,router.tsx}`、`frontend/src/director/ArtStylePicker.tsx`、`frontend/src/director2/**`（新增）、`frontend/src/xiaji/`（删除）。
+- 兼容性：`sql/001-012` 与既有 `xiaji_*` 数据表保留、不迁移不删除；旧 xiaji HTTP API 与 `/director2/art-styles`、`/director2/:projectId` 旧链接不再可用（导演台2 改用新路由结构，无重定向）；`__pycache__` 已在 `.gitignore` 中。
+- 验证：`python -m unittest backend.tests.media_studio_test_character_content backend.tests.media_studio_test_h3_video backend.tests.media_studio_test_storyboard_images`、`pnpm --dir frontend build`。
+- 回滚方式：还原本提交即恢复 xiaji 模块、旧路由与旧样式；`ai_*` 新表与旧表并存，无需数据回滚。

@@ -1619,3 +1619,7 @@ H3 视频生成以后端 `quality` 档位计算实际宽高，避免旧草稿的
 ## 2026-09-14 修复：手动模式切不回「AI 生成」
 
 导演台「AI 生成 / 手动编辑」模式开关此前在有未回答的剧本澄清问题时会被整体禁用，而澄清卡只在剧本对话室显示，其他环节既看不到卡片也没有提示——用户拿到澄清问题后没回答就离开，之后在任意环节都无法切换创作模式。现在仅在实际生成（流水线）进行中禁用开关；未回答的澄清问题卡继续保留，切回「AI 生成」后在剧本阶段仍可作答或跳过。切换成功时会弹出「已切换到手动编辑 / 已切换到 AI 生成」提示——画风等阶段两种模式界面几乎一致，此前切换后没有任何可见变化，容易被误认为没切成功。详见 `功能说明与扩展指南.md` 与 `docs/ARCHITECTURE.md`。
+
+## 2026-09-14 导演台2（AI Media Studio）整体替代夏姬模块
+
+旧夏姬（xiaji）前后端模块整体下线，由「导演台2 / AI Media Studio」替代：后端为 `backend/app/media_studio/`（项目 / 内容库 / 资产库 / 剧集工坊 / 任务中心与 LLM、GRS、Comfy、七牛存储设置；`sql/013_media_studio_init.sql` 建 5 张 `ai_*` 新表，与旧 `xiaji_*` 表并存），前端为 `frontend/src/director2/`（路由 `/director2/projects/:projectId/:menu`、剧集工坊 `/director2/projects/:projectId/workshop/:episodeId`、设置页 `/director2/settings`）。旧 xiaji API 与 `/director2/art-styles`、`/director2/:projectId` 旧链接不再可用。详见 `docs/ARCHITECTURE.md` 与 `功能说明与扩展指南.md` 同日条目。
