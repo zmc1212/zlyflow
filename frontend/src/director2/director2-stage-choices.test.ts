@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 import type { Director2AiOperation } from "./api"
 import {
   DIRECTOR2_STAGE_CHOICE_FALLBACK,
+  DIRECTOR2_SHOTS_PER_EPISODE_QUESTION,
   choiceDestinationStage,
   choiceEchoLabel,
+  ensureDirector2OpeningQuestions,
   normalizeStageChoices,
   stageChoiceEcho,
   stageChoiceFallbackLabel,
@@ -246,5 +248,18 @@ describe("director2 stage choice mapping", () => {
     delete legacy.stage_clarifications
     expect(stageChoicePathGroups(legacy)).toEqual([])
     expect(stageChoicePathGroups(null)).toEqual([])
+  })
+
+  it("pins the per-episode shot question onto director2 opening clarify", () => {
+    const questions = ensureDirector2OpeningQuestions([
+      { id: "q1", question: "结局如何倒向？", options: [{ label: "反转", value: "反转" }] },
+      { id: "episode_count", question: "这部剧分多少集？", options: [{ label: "1 集 · 单集成片", value: "1" }] },
+    ])
+    expect(questions.map((item) => item.id)).toEqual(["q1", "episode_count", "shots_per_episode"])
+    expect(questions.at(-1)).toMatchObject({
+      id: "shots_per_episode",
+      question: DIRECTOR2_SHOTS_PER_EPISODE_QUESTION.question,
+    })
+    expect(questions.at(-1)?.options?.find((item) => item.recommended)?.value).toBe("6")
   })
 })

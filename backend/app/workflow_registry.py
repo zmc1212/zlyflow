@@ -35,6 +35,12 @@ class WorkflowDefinition:
     grs_profile: str | None = None
     catalog_group: str = ""
     hidden_from_catalog: bool = False
+    supports_timeline: bool = False
+    supports_multi_segment: bool = False
+    max_segments: int | None = None
+    max_total_frames: int | None = None
+    supports_segment_continuity: bool = False
+    supports_audio_batch: bool = False
 
     def payload(self) -> dict[str, Any]:
         data = asdict(self)
@@ -925,6 +931,12 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         supports_h3_options=True,
         option_schema=DIRECTOR_ACCEL_OPTION_SCHEMA,
         catalog_group=CATALOG_GROUP_DIRECTOR_ACCEL,
+        supports_timeline=True,
+        supports_multi_segment=True,
+        max_segments=6,
+        max_total_frames=1152,
+        supports_segment_continuity=True,
+        supports_audio_batch=True,
     ),
     WorkflowDefinition(
         JobMode.MINIMAX_H3_DIRECTOR_ACCEL_I2V.value,
@@ -937,6 +949,12 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         supports_h3_options=True,
         option_schema=DIRECTOR_ACCEL_OPTION_SCHEMA,
         catalog_group=CATALOG_GROUP_DIRECTOR_ACCEL,
+        supports_timeline=True,
+        supports_multi_segment=True,
+        max_segments=6,
+        max_total_frames=1152,
+        supports_segment_continuity=True,
+        supports_audio_batch=True,
     ),
     WorkflowDefinition(
         JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V.value,
@@ -948,6 +966,12 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         supports_h3_options=True,
         option_schema=DIRECTOR_ACCEL_OPTION_SCHEMA,
         catalog_group=CATALOG_GROUP_DIRECTOR_ACCEL,
+        supports_timeline=True,
+        supports_multi_segment=True,
+        max_segments=6,
+        max_total_frames=1152,
+        supports_segment_continuity=True,
+        supports_audio_batch=True,
     ),
     WorkflowDefinition(
         JobMode.MINIMAX_H3_T2V.value,

@@ -5,7 +5,12 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from .grs_provider import CredentialManager
-from .llm_client import LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS, OpenAICompatibleClient, LlmError
+from .llm_client import (
+    LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
+    LLM_TEST_TIMEOUT_SECONDS,
+    OpenAICompatibleClient,
+    LlmError,
+)
 from .storage import JobStore, now
 
 
@@ -16,8 +21,9 @@ DEFAULT_MODELSCOPE_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
 VISION_MODEL_MARKERS = (
     "vl", "vision", "gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "o4-mini",
     "gemini", "claude-3", "claude-4", "claude-sonnet", "claude-opus", "claude-haiku",
-    "llava", "pixtral", "minimax-vl", "glm-4v", "glm-4.1v", "internvl",
-    "phi-4-multimodal", "phi-3.5-vision", "gemma-3", "minicpm-v", "step-1v",
+    "llava", "pixtral", "minimax-vl", "glm-4v", "glm-4.1v", "glm-4.5v", "glm-4.6v",
+    "glm-5v", "internvl",
+    "phi-4-multimodal", "phi-3.5-vision", "gemma-3", "gemma-4", "minicpm-v", "step-1v",
     "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen-vl",
 )
 
@@ -129,9 +135,8 @@ class LlmProviderService:
 
         client = OpenAICompatibleClient(base_url=base_url, api_key=api_key)
         test_time = now()
-        test_timeout = 90.0 if is_local_base_url(base_url or "") else 15.0
         try:
-            reply = client.test_connection(model=model, timeout=test_timeout)
+            reply = client.test_connection(model=model, timeout=LLM_TEST_TIMEOUT_SECONDS)
             test_status = "成功"
             test_message = f"连接成功，模型响应：{reply}"
         except Exception as exc:
@@ -192,66 +197,6 @@ class LlmProviderService:
             workflow_id=workflow_id,
             model=config["model"],
         )
-
-    def analyze_subject(
-        self,
-        *,
-        image_data_url: str,
-        kind: str,
-        name: str,
-    ) -> str:
-        available, reason = self.availability()
-        if not available:
-            raise LlmError(reason or "大模型服务不可用")
-        config = self.store.get_llm_settings()
-        if not model_supports_vision(config.get("model")):
-            raise LlmError("当前大模型不支持视觉输入，无法根据参考图提取外貌。请在管理设置中改用带 VL/Vision 的模型。")
-        api_key = self.api_key()
-        if not api_key:
-            raise LlmError("大模型凭据未配置")
-        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
-        return client.analyze_subject(
-            image_data_url=image_data_url,
-            kind=kind,
-            name=name,
-            model=config["model"],
-        )
-
-    def analyze_video_shot(
-        self,
-        *,
-        frames: list[str],
-        shot_number: int,
-        duration_sec: float,
-        art_style: str = "",
-    ) -> dict[str, Any]:
-        """复刻台拉片：对单镜头关键帧反推结构化提示词与主体清单。"""
-        available, reason = self.availability()
-        if not available:
-            raise LlmError(reason or "大模型服务不可用")
-        config = self.store.get_llm_settings()
-        if not model_supports_vision(config.get("model")):
-            raise LlmError("当前大模型不支持视觉输入，无法自动反推镜头提示词。请在管理设置中改用带 VL/Vision 的模型。")
-        api_key = self.api_key()
-        if not api_key:
-            raise LlmError("大模型凭据未配置")
-        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
-        return client.analyze_video_shot(
-            frames=frames,
-            shot_number=shot_number,
-            duration_sec=duration_sec,
-            art_style=art_style,
-            model=config["model"],
-        )
-
-    def vision_model_name(self) -> str | None:
-        """当前配置的模型名（界面上标注视觉分析所用模型）；不支持视觉时返回 None。"""
-        try:
-            config = self.store.get_llm_settings()
-        except Exception:
-            return None
-        model = str(config.get("model") or "")
-        return model if model_supports_vision(model) else None
 
     def split_script(
         self,

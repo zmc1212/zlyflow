@@ -11,9 +11,13 @@ from .director_recipe import normalize_dialogue
 _HAN_RE = re.compile(r"[\u4e00-\u9fff]")
 _SCRIPT_FIELD_PREFIXES = frozenset({
     "地点", "人物", "动作", "对白", "场次", "场景", "时间", "镜头", "旁白", "画外音",
-    "台词", "道具", "音效", "字幕", "剧情",
+    "台词", "道具", "音效", "字幕", "剧情", "时长",
 })
-_SCRIPT_SECTION_RE = re.compile(r"^(地点|人物|动作|场次|场景|时间|镜头|道具|音效|字幕|剧情)[：:]")
+_SCRIPT_SECTION_RE = re.compile(r"^(地点|人物|动作|场次|场景|时间|镜头|道具|音效|字幕|剧情|时长)[：:]")
+_EXPLICIT_DURATION_RE = re.compile(
+    r"(?:时长|duration)\s*[：:约]?\s*(\d+(?:\.\d+)?)\s*秒?",
+    re.I,
+)
 _DIALOGUE_HEADER_RE = re.compile(r"^(对白|台词)[：:]\s*(.*)$")
 _LIST_PREFIX_RE = re.compile(r"^[-*]\s+")
 _ENTRY_LINE_RE = re.compile(
@@ -60,6 +64,81 @@ def estimate_shot_duration_sec(
     if speech:
         action += 1.0
     return max(2, min(15, int(math.ceil(max(speech, action)))))
+
+
+def count_action_beats_from_text(text: str) -> int:
+    value = str(text or "")
+    timed = count_prompt_action_beats(value)
+    clauses = [part for part in re.split(r"[。！？!?；;]", value) if part.strip()]
+    han = count_han_characters(value)
+    staging = 1
+    if han >= 80:
+        staging = max(3, min(5, max(len(clauses), (han + 39) // 40)))
+    elif han >= 40:
+        staging = 2
+    elif len(clauses) >= 2:
+        staging = 2
+    return max(1, timed, staging)
+
+
+def _explicit_duration_value(shot: dict[str, Any]) -> int | None:
+    for key in ("durationSec", "duration_sec", "video_duration", "duration"):
+        raw = shot.get(key)
+        if raw in (None, "", 0, "0"):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return snap_h3_duration_sec(value)
+    blob = " ".join(
+        str(shot.get(key) or "")
+        for key in ("action", "description", "heading", "timingNote", "video_prompt_zh")
+    )
+    match = _EXPLICIT_DURATION_RE.search(blob)
+    if match:
+        return snap_h3_duration_sec(float(match.group(1)))
+    return None
+
+
+def resolve_shot_duration_sec(
+    shot: dict[str, Any] | None = None,
+    *,
+    default: int = 8,
+    **kwargs: Any,
+) -> int:
+    """Return a 2–15s H3 duration that can play the shot's dialogue and blocking.
+
+    An explicit duration is never shortened. A stored 5s default is raised when
+    the action, English prompt, or spoken line needs a longer take.
+    """
+    data = dict(shot or {})
+    data.update({key: value for key, value in kwargs.items() if value is not None})
+    dialogue = str(data.get("dialogue") or "")
+    action = str(
+        data.get("description")
+        or data.get("action")
+        or data.get("video_prompt_zh")
+        or ""
+    )
+    prompt = str(data.get("promptText") or data.get("visual_prompt") or "")
+    has_content = bool(dialogue.strip() or action.strip() or prompt.strip())
+    beats = max(count_prompt_action_beats(prompt), count_action_beats_from_text(action))
+    recommended = estimate_shot_duration_sec(dialogue, action_beats=beats)
+    han_dialogue = count_han_characters(dialogue)
+    han_action = count_han_characters(action)
+    if han_action >= 80 or beats >= 3:
+        recommended = max(recommended, 8)
+    elif han_dialogue >= 12:
+        recommended = max(recommended, 8)
+    elif han_dialogue:
+        recommended = max(recommended, 6)
+    recommended = snap_h3_duration_sec(recommended)
+    explicit = _explicit_duration_value(data)
+    if explicit is None:
+        return recommended if has_content else snap_h3_duration_sec(default)
+    return max(explicit, recommended)
 
 
 def _strip_wrapping_quotes(text: str) -> str:

@@ -18,13 +18,11 @@ from .director_recipe import (
     empty_export_state,
     flatten_recipe_shots,
     normalize_recipe_payload,
-    normalize_voice_id,
 )
 from .director_takes import FAILED_TAKE_STATUSES, preferred_usable_take
 from .llm_client import LlmError
 from .models import JobStatus
 from .storage import JobStore
-from .tts_provider import DEFAULT_TTS_VOICE
 
 
 FAILED_SHOT_STATUSES = set(FAILED_TAKE_STATUSES)
@@ -296,7 +294,7 @@ def generate_recipe_tts(
         if character is None:
             raise DirectorExportError("角色不存在")
         sample = (text or character.get("name") or "试听").strip() or "试听"
-        voice = normalize_voice_id(character.get("voiceId"), gender=str(character.get("gender") or ""))
+        voice = tts_provider.resolve_voice(character.get("voiceId"), gender=str(character.get("gender") or ""))
         audio = tts_provider.synthesize(sample, voice=voice)
         dest = audio_dir / f"voice-{character_id}.mp3"
         _write_tts_file(dest, audio)
@@ -319,13 +317,14 @@ def generate_recipe_tts(
             continue
         speaker = _text(shot.get("speakerName"))
         voice = _text(shot.get("voiceId"))
+        gender = ""
         if not voice and speaker:
             for character in recipe.get("characters") or []:
                 if isinstance(character, dict) and _text(character.get("name")) == speaker:
-                    voice = normalize_voice_id(character.get("voiceId"), gender=str(character.get("gender") or ""))
+                    gender = str(character.get("gender") or "")
+                    voice = _text(character.get("voiceId"))
                     break
-        if not voice:
-            voice = DEFAULT_TTS_VOICE
+        voice = tts_provider.resolve_voice(voice or None, gender=gender)
         shot["ttsStatus"] = "running"
         shot["ttsError"] = None
         try:

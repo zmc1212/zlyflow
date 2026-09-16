@@ -61,6 +61,18 @@ describe("director2 AI operation state", () => {
     })
     expect(cancelled.status).toBe("cancelled")
     expect(isDirector2AiOperationActive(cancelled)).toBe(false)
+    expect(director2AiHeadlineDetail(cancelled, undefined, "fallback")).not.toContain("正在停止")
+  })
+
+  it("keeps the stopping copy only while cancellation is still in flight", () => {
+    const stopping = operation({ cancel_requested: true })
+    expect(director2AiHeadlineDetail(stopping, undefined, "fallback")).toBe("正在停止当前生成，已完成的内容会保留。")
+    const cancelled = operation({
+      status: "cancelled",
+      cancel_requested: true,
+      error: "AI 生成已取消",
+    })
+    expect(director2AiHeadlineDetail(cancelled, undefined, "fallback")).toBe("AI 生成已取消")
   })
 
   it("ignores leftover recovery errors while the operation is still running", () => {
@@ -199,17 +211,34 @@ describe("director2 content stage derivation", () => {
     expect(director2ContentStages(summary)).toEqual(["clarify", "script", "episodes", "storyboard"])
   })
 
-  it("merges AI operation stages with content-derived stages without duplicates", () => {
+  it("uses the pipeline record as the source of truth and ignores later content leftovers", () => {
     const merged = mergeDirector2StageCompletion(
       operation({ result: { completed_stages: ["clarify", "script"] } }),
-      { scriptCount: 1, assetCount: 2, episodeCount: 0, shotCount: 0 },
+      { scriptCount: 1, assetCount: 2, episodeCount: 3, shotCount: 8 },
     )
-    expect([...merged].sort()).toEqual(["assets", "clarify", "script"])
+    expect([...merged].sort()).toEqual(["clarify", "script"])
     expect(mergeDirector2StageCompletion(null, null).size).toBe(0)
     expect([...mergeDirector2StageCompletion(null, { scriptCount: 1, assetCount: 0, episodeCount: 0, shotCount: 0 })]).toEqual([
       "clarify",
       "script",
     ])
+  })
+
+  it("does not mark clarify completed while the opening questions are being regenerated", () => {
+    const reopening = operation({
+      status: "revising",
+      current_stage: "clarify",
+      result: { completed_stages: [] },
+    })
+    const completed = mergeDirector2StageCompletion(reopening, {
+      scriptCount: 1,
+      assetCount: 2,
+      episodeCount: 1,
+      shotCount: 0,
+    })
+    expect([...completed]).toEqual([])
+    expect(director2RailStageStatus("clarify", reopening, completed)).toBe("running")
+    expect(director2CheckpointHeadline(reopening)).toBe("正在重新确认创作方向…")
   })
 
   it("keeps the awaiting stage out of the completed set so the rail can mark it for review", () => {

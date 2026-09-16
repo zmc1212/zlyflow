@@ -46,9 +46,11 @@ class DirectorOperationService:
         llm_provider: Any,
         worker: Any,
         resource_storage: Any | None,
+        vlm_provider: Any | None = None,
     ) -> None:
         self.store = store
         self.llm_provider = llm_provider
+        self.vlm_provider = vlm_provider
         self.worker = worker
         self.resource_storage = resource_storage
         self.events = DirectorOperationEventBus()
@@ -460,7 +462,11 @@ class DirectorOperationService:
         segment_seconds = float(request.get("segment_seconds") or analysis.get("segmentSeconds") or 15)
         threshold = float(request.get("scene_threshold") or analysis.get("sceneThreshold") or 0.35)
         art_style = str((payload.get("renderSettings") or {}).get("artStyle") or "")
-        vision_model = self.llm_provider.vision_model_name() if hasattr(self.llm_provider, "vision_model_name") else None
+        vision_model = (
+            self.vlm_provider.vision_model_name()
+            if self.vlm_provider is not None and hasattr(self.vlm_provider, "vision_model_name")
+            else None
+        )
 
         source_info = payload.get("sourceVideo") or {}
         source_path = Path(str(source_info.get("path") or ""))
@@ -576,7 +582,7 @@ class DirectorOperationService:
                         raw = Path(path).read_bytes()
                         frames.append("data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii"))
                     try:
-                        analysis_result = self.llm_provider.analyze_video_shot(
+                        analysis_result = self.vlm_provider.analyze_video_shot(
                             frames=frames, shot_number=index,
                             duration_sec=segment.duration, art_style=art_style,
                         )

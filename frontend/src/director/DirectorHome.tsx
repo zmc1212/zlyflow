@@ -27,10 +27,10 @@ export default function DirectorHome({ items, loading, onCreateDirector, onCreat
   return <div className="director-home-v2">
     <header className="director-mobile-header director-home-mobile-header">
       <button type="button" aria-label="返回创作工作台" onClick={onExitDirector}><ArrowLeft size={20} /></button>
-      <strong>导演台</strong>
+      <strong>导演台2</strong>
       <div className="director-home-mobile-actions"><ThemeToggle /><button type="button" className="director-home-mobile-add" aria-label="新建导演创作" onClick={onCreateDirector}><Plus size={18} /></button></div>
     </header>
-    <header className="director-home-topbar"><strong>导演台</strong><ThemeToggle /></header>
+    <header className="director-home-topbar"><strong>导演台2</strong><ThemeToggle /></header>
     <div className="director-home-scroll">
       <section className="director-home-hero"><h1>今天，想拍点什么？</h1><p>用 AI 将你的创意变成精彩的影视作品。</p></section>
       <section className="director-home-entries" aria-label="创作入口">

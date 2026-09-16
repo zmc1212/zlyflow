@@ -480,12 +480,14 @@ export default function App({
   const generateRoute = parseGeneratePath(location.pathname)
   const lastGeneratePathRef = useRef<string>(PATHS.generateVideo)
   const lastDirectorPathRef = useRef<string>(PATHS.director)
+  const lastDirector2PathRef = useRef<string>(PATHS.director2)
   const lastMediaTypeRef = useRef<GenerateMediaType>("video")
   if (workspaceView === "generate" && generateRoute) {
     lastGeneratePathRef.current = location.pathname
     lastMediaTypeRef.current = generateRoute.mediaType
   }
   if (workspaceView === "director") lastDirectorPathRef.current = location.pathname
+  if (workspaceView === "director2") lastDirector2PathRef.current = location.pathname
   const mediaType: GenerateMediaType = generateRoute?.mediaType ?? lastMediaTypeRef.current
   const selectedJobId = workspaceView === "generate" ? generateRoute?.jobId : undefined
   const [workflowId, setWorkflowId] = useState(FALLBACK_WORKFLOW)
@@ -556,7 +558,7 @@ export default function App({
     enabled: isAdminViewer,
   })
   // Director shot/asset progress bars read `allJobs`; keep polling on generate + director.
-  // Assets / 导台2 do not consume this list and should not hit remote MySQL on idle tabs.
+  // Assets / 导演台（director2）do not consume this list and should not hit remote MySQL on idle tabs.
   const jobsPollingEnabled = workspaceView === "generate" || workspaceView === "director"
   const jobsQuery = useQuery({
     queryKey: ["jobs", user.id, adminUserFilter],
@@ -1608,15 +1610,15 @@ export default function App({
       <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "director" ? "studio-director-view" : ""} ${workspaceView === "director2" ? "studio-director2-view" : ""}`}>
         <nav className="studio-mobile-nav" aria-label="工作区导航">
           <NavLink to={lastGeneratePathRef.current} className={() => workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</NavLink>
-          <NavLink to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
-          <NavLink to={PATHS.director2} end className={() => workspaceView === "director2" ? "is-active" : ""}><Library size={16} />导台2</NavLink>
+          <NavLink to={lastDirector2PathRef.current} className={() => workspaceView === "director2" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
+          <NavLink to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Library size={16} />导演台2</NavLink>
           <NavLink to={PATHS.assets} end className={() => workspaceView === "assets" ? "is-active" : ""}><FolderOpen size={16} />资产</NavLink>
         </nav>
         <aside className="studio-icon-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[76px] flex-col items-center border-r border-black/[0.05] bg-white pt-5 xl:flex">
           <div className="flex flex-col items-center gap-2">
             <NavLink to={lastGeneratePathRef.current} title="生成" aria-label="生成" className={() => `studio-global-nav-item ${workspaceView === "generate" ? "studio-global-nav-item-active" : ""}`}><Sparkles size={19} /><span>生成</span></NavLink>
-            <NavLink to={lastDirectorPathRef.current} title="导演台" aria-label="导演台" className={() => `studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><Clapperboard size={19} /><span>导演台</span></NavLink>
-            <NavLink to={PATHS.director2} end title="导台2" aria-label="导台2" className={() => `studio-global-nav-item ${workspaceView === "director2" ? "studio-global-nav-item-active" : ""}`}><Library size={19} /><span>导台2</span></NavLink>
+            <NavLink to={lastDirector2PathRef.current} title="导演台" aria-label="导演台" className={() => `studio-global-nav-item ${workspaceView === "director2" ? "studio-global-nav-item-active" : ""}`}><Clapperboard size={19} /><span>导演台</span></NavLink>
+            <NavLink to={lastDirectorPathRef.current} title="导演台2" aria-label="导演台2" className={() => `studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><Library size={19} /><span>导演台2</span></NavLink>
             <NavLink to={PATHS.assets} end title="资产" aria-label="资产" className={() => `studio-global-nav-item ${workspaceView === "assets" ? "studio-global-nav-item-active" : ""}`}><FolderOpen size={19} /><span>资产</span></NavLink>
           </div>
           {workspaceView === "generate" && taskRailCollapsed ? <Tooltip title="展开任务栏" placement="right"><button type="button" title="展开任务栏" aria-label="展开任务栏" onClick={() => setTaskRailCollapsed(false)} className="studio-task-rail-reopen"><PanelLeftOpen size={17} /></button></Tooltip> : null}
@@ -1677,8 +1679,8 @@ export default function App({
               />
             </Suspense>
           ) : workspaceView === "director2" ? (
-            <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载导台2...</div>}>
-              <Director2App csrfToken={csrfToken} />
+            <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载导演台...</div>}>
+              <Director2App csrfToken={csrfToken} onExitDirector={() => navigate(lastGeneratePathRef.current)} />
             </Suspense>
           ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
 

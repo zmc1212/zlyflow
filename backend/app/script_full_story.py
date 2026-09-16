@@ -14,7 +14,8 @@ _BEAT_ANY_RE = re.compile(r"(?m)^Beat\s*\d+", re.IGNORECASE)
 _DIALOGUE_HEAD_RE = re.compile(r"^对白[：:]\s*(.*)$")
 _ANCHOR_HEAD_RE = re.compile(r"^视觉锚点[：:]\s*(.*)$")
 _SHOT_LINE_RE = re.compile(r"^#{1,3}\s*镜头")
-_FIELD_LINE_RE = re.compile(r"^[-*]\s*(?:人物|场景|道具|动作|镜头|台词|音效|字幕)[：:]")
+_SHOT_FIELD_LABELS = r"人物|场景|道具|动作|镜头|运镜|台词|对白|音效|字幕|提示词"
+_FIELD_LINE_RE = re.compile(rf"^[-*]\s*(?:{_SHOT_FIELD_LABELS})[：:]")
 _STRUCTURAL_BREAK_RE = re.compile(
     r"(?<!\n)\s*("
     r"【[^】\n]{1,40}】"
@@ -26,7 +27,7 @@ _STRUCTURAL_BREAK_RE = re.compile(
     r"|\*\*剧情[：:]\*\*"
     r"|视觉锚点[：:]"
     r"|对白[：:]"
-    r"|[-*]\s*(?:人物|场景|道具|动作|镜头|台词|音效|字幕)[：:]"
+    rf"|[-*]\s*(?:{_SHOT_FIELD_LABELS})[：:]"
     r")",
     re.IGNORECASE,
 )

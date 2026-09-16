@@ -4,7 +4,7 @@ from typing import Annotated, Any, Callable
 
 import json
 
-from fastapi import Depends, HTTPException, Path, Query, Request
+from fastapi import Depends, File, HTTPException, Path, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..models import ProjectCreateRequest, ProjectItem, ProjectUpdateRequest
@@ -97,9 +97,16 @@ def register_project_routes(
             raise HTTPException(status_code=404, detail=str(err)) from err
 
     @app.post("/api/projects/{project_id}/ai/operations/{operation_id}/retry", summary="重试导演台2 AI 生成操作")
-    def retry_ai_operation(project_id: Annotated[str, Path(description="导台2项目 ID")], operation_id: Annotated[str, Path(description="AI 操作 ID")], user: dict = Depends(mutating_user)):
+    def retry_ai_operation(
+        project_id: Annotated[str, Path(description="导台2项目 ID")],
+        operation_id: Annotated[str, Path(description="AI 操作 ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
         try:
-            return ai_service().retry(operation_id, project_id)
+            body = payload or {}
+            stage = body.get("stage")
+            return ai_service().retry(operation_id, project_id, stage if isinstance(stage, str) else None)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
 
@@ -272,6 +279,48 @@ def register_project_routes(
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
+    @app.post("/api/projects/{project_id}/assets/{asset_id}/references", summary="上传资产原片参考图")
+    async def upload_asset_source_reference(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        file: UploadFile = File(...),
+        user: dict = Depends(mutating_user),
+    ):
+        content = await file.read()
+        try:
+            return ProjectDetailService.add_asset_source_reference(
+                project_id,
+                asset_id,
+                filename=file.filename or "",
+                content=content,
+                content_type=file.content_type or "",
+            )
+        except (ValueError, RuntimeError) as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.delete("/api/projects/{project_id}/assets/{asset_id}/references/{ref_id}", summary="删除资产原片参考图")
+    def delete_asset_source_reference(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        ref_id: Annotated[str, Path(description="参考图 ID")],
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return ProjectDetailService.delete_asset_source_reference(project_id, asset_id, ref_id)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/assets/{asset_id}/infer-prompts", summary="根据原片参考图反推并覆盖资产提示词")
+    def infer_asset_prompts(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return ProjectDetailService.infer_asset_prompts(project_id, asset_id)
+        except (ValueError, RuntimeError) as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
     # --- 3. 剧集工坊 Episodes ---
     @app.get("/api/projects/{project_id}/episodes", summary="获取项目剧集工坊列表")
     def list_episodes(project_id: Annotated[str, Path(description="项目 ID")], user: dict = Depends(current_user)):
@@ -326,6 +375,13 @@ def register_project_routes(
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt", status_code=202, summary="生成或优化本镜 H3 视频提示词")
+    def generate_beat_h3_prompt(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
+        try:
+            return ProjectDetailService.generate_beat_h3_prompt(project_id, episode_id, beat_id, payload or {})
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
     @app.post("/api/projects/{project_id}/episodes/{episode_id}/generate-images", status_code=202, summary="批量生成分镜草图或渲染图")
     def generate_beat_images_batch(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict, user: dict = Depends(mutating_user)):
         try:
@@ -336,11 +392,11 @@ def register_project_routes(
     @app.post(
         "/api/projects/{project_id}/episodes/{episode_id}/generate-video",
         status_code=202,
-        summary="一键生成整集 MiniMax H3 视频",
+        summary="按工作流一键生成整集或逐镜视频",
     )
     def generate_episode_video(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict | None = None, user: dict = Depends(mutating_user)):
         try:
-            return EpisodeVideoService.create_job(project_id, episode_id, options=payload or {})
+            return EpisodeVideoService.generate_episode_videos(project_id, episode_id, options=payload or {})
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err))
         except Exception as err:
@@ -349,7 +405,7 @@ def register_project_routes(
     @app.post(
         "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video",
         status_code=202,
-        summary="生成单个 Beat 的 MiniMax H3 视频",
+        summary="生成单个 Beat 的视频",
     )
     def generate_beat_video(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict | None = None, user: dict = Depends(mutating_user)):
         try:
@@ -364,6 +420,19 @@ def register_project_routes(
             raise HTTPException(status_code=400, detail=str(err))
         except Exception as err:
             raise HTTPException(status_code=500, detail=f"创建单镜视频任务失败: {err}")
+
+    @app.post(
+        "/api/projects/{project_id}/episodes/{episode_id}/compose",
+        status_code=202,
+        summary="拼接各镜视频为分集成片",
+    )
+    def compose_episode_video(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict | None = None, user: dict = Depends(mutating_user)):
+        try:
+            return EpisodeVideoService.create_compose_job(project_id, episode_id, options=payload or {})
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        except Exception as err:
+            raise HTTPException(status_code=500, detail=f"创建合成任务失败: {err}")
 
     # --- 4. 全部任务 Jobs ---
     @app.get("/api/projects/{project_id}/jobs", summary="获取项目生成任务列表")

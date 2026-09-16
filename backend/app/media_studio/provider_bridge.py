@@ -50,6 +50,11 @@ def llm_row() -> dict[str, Any]:
     return query_one("SELECT * FROM llm_provider_settings WHERE id = 1") or {}
 
 
+def vlm_row() -> dict[str, Any]:
+    """VLM 视觉模型配置（工作台 vlm_provider_settings）。"""
+    return query_one("SELECT * FROM vlm_provider_settings WHERE id = 1") or {}
+
+
 def qiniu_row() -> dict[str, Any]:
     """七牛云配置（工作台 qiniu_provider_settings）。"""
     return query_one("SELECT * FROM qiniu_provider_settings WHERE id = 1") or {}

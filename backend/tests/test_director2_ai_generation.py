@@ -88,6 +88,17 @@ class Director2AiActiveJobTests(unittest.TestCase):
         questions = self._question_ids(AiGenerationService._public(row))
         self.assertEqual(["episode_count", "shots_per_episode"], questions)
 
+    def test_ensure_director2_opening_questions_appends_shots_question(self) -> None:
+        from backend.app.llm_minimax_skills import ensure_director2_opening_questions
+
+        questions = ensure_director2_opening_questions([
+            {"id": "q1", "question": "结局？", "options": [{"label": "反转", "value": "反转"}]},
+            {"id": "episode_count", "question": "这部剧分多少集？"},
+        ])
+        self.assertEqual(["q1", "episode_count", "shots_per_episode"], [item["id"] for item in questions])
+        self.assertEqual(questions[-1]["question"], "每一集默认拍多少个镜头？")
+        self.assertEqual([item["value"] for item in questions[-1]["options"] if item.get("recommended")], ["6"])
+
     @staticmethod
     def _question_ids(operation: dict) -> list[str]:
         return [str(item.get("id")) for item in operation["result"]["questions"]]
@@ -253,6 +264,24 @@ class Director2AiCancellationTests(unittest.TestCase):
 
         saved_payload = json.loads(execute.call_args.args[1][0])
         self.assertTrue(saved_payload["cancel_requested"])
+
+    def test_retry_update_can_clear_cancel_request_from_terminal_state(self) -> None:
+        service = AiGenerationService(None)
+        row = {
+            "id": "aiop-1",
+            "project_id": "project-1",
+            "job_type": "ai_pipeline",
+            "status": "cancelled",
+            "payload_json": json.dumps({"cancel_requested": True, "current_stage": "script"}),
+        }
+        service._read = Mock(return_value=row)  # type: ignore[method-assign]
+
+        with patch("backend.app.media_studio.services.ai_generation_service.execute_sql") as execute:
+            service._update("aiop-1", status="queued", payload={"cancel_requested": False, "run_stage": "script"})
+
+        saved_payload = json.loads(execute.call_args.args[1][0])
+        self.assertFalse(saved_payload["cancel_requested"])
+        self.assertEqual(saved_payload["run_stage"], "script")
 
     def test_pipeline_exposes_episodes_before_storyboard(self) -> None:
         stages = list(AiGenerationService.STAGES)
@@ -680,6 +709,199 @@ class Director2AiCheckpointTests(unittest.TestCase):
         service._adapt_recipe.assert_called_once()
         self.assertEqual(service._adapt_recipe.call_args.args[2], "assets")
 
+    def _cancelled_row(self, *, current: str = "assets", completed: list[str] | None = None, extra: dict | None = None) -> dict:
+        payload = {
+            "kind": "pipeline",
+            "request": {"goal": "都市逆袭", "project_id": "project-1"},
+            "current_stage": current,
+            "awaiting_stage": None,
+            "completed_stages": list(completed or ["script"]),
+            "stage_clarifications": {"script": [{"question": "气质", "answer": "冷"}]},
+            "result": {"completed_stages": list(completed or ["script"]), "failed_stage": current},
+            "recipe": {
+                "script": {"title": "都市逆袭", "fullStory": "甲走进咖啡馆。"},
+                "characters": [{"name": "甲"}],
+                "locations": [{"name": "咖啡馆"}],
+                "episodes": [{"num": 1, "title": "开场"}],
+                "scenes": [{"shots": [{}]}],
+                "agentStatus": [
+                    {"id": "script", "status": "completed"},
+                    {"id": "characters", "status": "completed"},
+                ],
+            },
+            "cancel_requested": True,
+        }
+        if extra:
+            payload.update(extra)
+        return {
+            "id": "aiop-1",
+            "project_id": "project-1",
+            "job_type": "ai_pipeline",
+            "status": "cancelled",
+            "progress": 40,
+            "error_message": "AI 生成已取消",
+            "payload_json": json.dumps(payload),
+        }
+
+    def test_retry_without_stage_keeps_completed_and_queues_current(self) -> None:
+        service = AiGenerationService(None)
+        service._read = Mock(return_value=self._cancelled_row())  # type: ignore[method-assign]
+        service._update = Mock()  # type: ignore[method-assign]
+        service.start = Mock()  # type: ignore[method-assign]
+        service.get = Mock(return_value={"id": "aiop-1", "status": "queued", "current_stage": "assets"})  # type: ignore[method-assign]
+
+        with patch("backend.app.media_studio.services.ai_generation_service.execute_sql"):
+            service.retry("aiop-1", "project-1")
+
+        payload = service._update.call_args.kwargs["payload"]
+        self.assertEqual(service._update.call_args.kwargs["status"], "queued")
+        self.assertEqual(payload["run_stage"], "assets")
+        self.assertFalse(payload["cancel_requested"])
+        self.assertEqual(payload["completed_stages"], ["script"])
+        self.assertEqual(payload["recipe"]["characters"][0]["name"], "甲")
+        service.start.assert_called_once_with("aiop-1")
+
+    def test_retry_named_stage_truncates_later_completed(self) -> None:
+        service = AiGenerationService(None)
+        service._read = Mock(return_value=self._cancelled_row(  # type: ignore[method-assign]
+            current="episodes",
+            completed=["script", "assets"],
+        ))
+        service._update = Mock()  # type: ignore[method-assign]
+        service.start = Mock()  # type: ignore[method-assign]
+        service.get = Mock(return_value={"id": "aiop-1", "status": "queued"})  # type: ignore[method-assign]
+
+        with patch("backend.app.media_studio.services.ai_generation_service.execute_sql"):
+            service.retry("aiop-1", "project-1", "script")
+
+        payload = service._update.call_args.kwargs["payload"]
+        self.assertEqual(payload["run_action"], "leg")
+        self.assertEqual(payload["run_stage"], "script")
+        self.assertEqual(payload["completed_stages"], [])
+        self.assertEqual(payload["recipe"]["characters"], [])
+        self.assertEqual(payload["recipe"]["episodes"], [])
+        self.assertEqual(payload["stage_clarifications"], {})
+        service.start.assert_called_once_with("aiop-1")
+
+    def test_retry_named_stage_from_awaiting_review_and_succeeded(self) -> None:
+        service = AiGenerationService(None)
+        service._update = Mock()  # type: ignore[method-assign]
+        service.start = Mock()  # type: ignore[method-assign]
+        service.get = Mock(return_value={"id": "aiop-1", "status": "queued"})  # type: ignore[method-assign]
+
+        service._read = Mock(return_value=self._review_row(  # type: ignore[method-assign]
+            stage="assets",
+            completed=["script"],
+        ))
+        with patch("backend.app.media_studio.services.ai_generation_service.execute_sql"):
+            service.retry("aiop-1", "project-1", "script")
+        payload = service._update.call_args.kwargs["payload"]
+        self.assertEqual(payload["run_stage"], "script")
+        self.assertEqual(payload["completed_stages"], [])
+
+        succeeded = self._review_row(stage="storyboard", status="succeeded", completed=["script", "assets", "episodes", "storyboard"])
+        service._read = Mock(return_value=succeeded)  # type: ignore[method-assign]
+        with patch("backend.app.media_studio.services.ai_generation_service.execute_sql"):
+            service.retry("aiop-1", "project-1", "episodes")
+        payload = service._update.call_args.kwargs["payload"]
+        self.assertEqual(payload["run_stage"], "episodes")
+        self.assertEqual(payload["completed_stages"], ["script", "assets"])
+        self.assertEqual(payload["recipe"]["episodes"], [])
+        self.assertEqual(payload["recipe"]["scenes"], [])
+
+    def test_retry_named_stage_rejects_while_running_other_stage(self) -> None:
+        service = AiGenerationService(None)
+        service._read = Mock(return_value={  # type: ignore[method-assign]
+            "id": "aiop-1",
+            "project_id": "project-1",
+            "job_type": "ai_pipeline",
+            "status": "running",
+            "payload_json": json.dumps({"kind": "pipeline", "current_stage": "assets", "run_stage": "assets"}),
+        })
+        service.get = Mock(return_value={"id": "aiop-1", "status": "running"})  # type: ignore[method-assign]
+        with self.assertRaises(ValueError) as ctx:
+            service.retry("aiop-1", "project-1", "script")
+        self.assertIn("生成进行中", str(ctx.exception))
+
+    def test_retry_clarify_reopens_opening_questions_on_pipeline(self) -> None:
+        service = AiGenerationService(None)
+        service._read = Mock(return_value=self._cancelled_row())  # type: ignore[method-assign]
+        service._update = Mock()  # type: ignore[method-assign]
+        service.start = Mock()  # type: ignore[method-assign]
+        service.get = Mock(return_value={"id": "aiop-1", "status": "revising"})  # type: ignore[method-assign]
+
+        with patch("backend.app.media_studio.services.ai_generation_service.execute_sql"):
+            service.retry("aiop-1", "project-1", "clarify")
+
+        payload = service._update.call_args.kwargs["payload"]
+        self.assertEqual(service._update.call_args.kwargs["status"], "revising")
+        self.assertEqual(payload["run_action"], "opening_clarify")
+        self.assertEqual(payload["revise_stage"], "clarify")
+        self.assertEqual(payload["current_stage"], "clarify")
+        self.assertEqual(payload["completed_stages"], [])
+        self.assertEqual(payload["request"]["clarifications"], [])
+        service.start.assert_called_once_with("aiop-1")
+
+    def test_run_opening_clarify_stays_revising_without_terminal(self) -> None:
+        questions = [{"id": "episode_count", "question": "这部剧分多少集？"}]
+
+        class Provider:
+            @staticmethod
+            def run_director_clarify(goal, **kwargs):
+                return questions
+
+        service = AiGenerationService(Provider())
+        service._check_cancelled = Mock()  # type: ignore[method-assign]
+        service._update = Mock()  # type: ignore[method-assign]
+        service._emit = Mock()  # type: ignore[method-assign]
+        payload = {
+            "kind": "pipeline",
+            "request": {"goal": "都市逆袭", "surface": "director2"},
+            "completed_stages": [],
+            "result": {},
+        }
+
+        service._run_opening_clarify("aiop-1", payload, {"goal": "都市逆袭", "surface": "director2"})
+
+        self.assertEqual(service._update.call_args.kwargs["status"], "revising")
+        self.assertEqual(payload["revise_stage"], "clarify")
+        self.assertEqual(payload["result"]["questions"][-1]["id"], "shots_per_episode")
+        events = [call.args[1] for call in service._emit.call_args_list]
+        self.assertTrue(any(event.get("data", {}).get("questions_ready") for event in events))
+        self.assertFalse(any(event.get("terminal") for event in events))
+
+    def test_rerun_opening_clarify_queues_script_leg(self) -> None:
+        service = AiGenerationService(None)
+        service._read = Mock(return_value=self._review_row(  # type: ignore[method-assign]
+            stage="clarify",
+            status="revising",
+            completed=[],
+            extra_payload={
+                "revise_stage": "clarify",
+                "current_stage": "clarify",
+                "awaiting_stage": None,
+                "recipe": {
+                    "script": {"title": "旧剧本", "fullStory": "旧正文"},
+                    "characters": [{"name": "甲"}],
+                },
+            },
+        ))
+        service._update = Mock()  # type: ignore[method-assign]
+        service.start = Mock()  # type: ignore[method-assign]
+        service.get = Mock(return_value={"id": "aiop-1", "status": "queued"})  # type: ignore[method-assign]
+
+        service.rerun_stage("aiop-1", "project-1", [
+            {"id": "episode_count", "question": "这部剧分多少集？", "answer": "12集"},
+        ])
+
+        payload = service._update.call_args.kwargs["payload"]
+        self.assertEqual(payload["run_stage"], "script")
+        self.assertEqual(payload["current_stage"], "script")
+        self.assertEqual(payload["request"]["clarifications"][0]["answer"], "12集")
+        self.assertEqual(payload["completed_stages"], [])
+        self.assertEqual(payload["recipe"]["characters"], [])
+        service.start.assert_called_once_with("aiop-1")
+
     def test_storyboard_consumes_confirmed_episode_outline(self) -> None:
         from backend.app.director_agents import _episodes_for_storyboard
 
@@ -695,6 +917,117 @@ class Director2AiCheckpointTests(unittest.TestCase):
         self.assertEqual([item["num"] for item in consumed], [1, 2])
         self.assertEqual([item["title"] for item in consumed], ["开场", "终局"])
         self.assertNotIn("番外", [item["title"] for item in consumed])
+
+    def test_beat_payload_binds_existing_asset_ids(self) -> None:
+        beat = AiGenerationService._beat_payload(
+            {
+                "locationName": "开元楼走廊",
+                "characterNames": ["吴耐"],
+                "propNames": ["寿命系统HUD"],
+                "description": "吴耐走进走廊",
+                "camera": "中景",
+            },
+            1,
+            "project-1",
+            char_map={"吴耐": "char-1"},
+            scene_map={"开元楼走廊": "scene-ready"},
+            prop_map={"寿命系统HUD": "prop-1"},
+        )
+        self.assertEqual("scene-ready", beat["scene_id"])
+        self.assertEqual(["char-1"], beat["character_ids"])
+        self.assertEqual(["prop-1"], beat["prop_ids"])
+
+    def test_beat_payload_inherits_scene_for_continuation_shots(self) -> None:
+        beat = AiGenerationService._beat_payload(
+            {"description": "看手机", "camera": "特写"},
+            2,
+            "project-1",
+            scene_map={"开元楼走廊": "scene-ready"},
+            inherited_scene_name="开元楼走廊",
+            inherited_scene_id="scene-ready",
+        )
+        self.assertEqual("开元楼走廊", beat["scene"])
+        self.assertEqual("scene-ready", beat["scene_id"])
+
+    def test_recipe_text_writes_complete_shot_fields(self) -> None:
+        recipe = empty_recipe_payload(title="花甲", summary="电梯误会", full_story="电梯寒夜。")
+        recipe["episodes"] = [{
+            "num": 1,
+            "title": "穿越上身",
+            "text": "### 镜头1｜电梯里的误会\n- 动作：旧稿薄动作，不应再出现。",
+        }]
+        recipe["scenes"] = [{
+            "shots": [{
+                "title": "电梯里的误会",
+                "episodeNumber": 1,
+                "characterNames": ["吴耐", "沙丽丽"],
+                "locationName": "单元楼电梯",
+                "propNames": ["绿色苹果手机"],
+                "description": "竖屏短剧单镜，时长约 8 秒。空间：不锈钢轿厢。调度：她护着手机后退。收束：定格睁大的眼睛。",
+                "dialogue": "该不会想让我那啥吧。",
+                "camera": {"scale": "MS", "movement": "zoom_in", "angle": "eye_level"},
+                "soundscape": "电梯低频嗡鸣、铃铛细响",
+                "promptText": "Photorealistic vertical 9:16 eight-second take, lighting from overhead fluorescent, camera slow push-in, she clutches the phone then freezes.",
+                "durationSec": 8,
+            }],
+        }]
+        text = AiGenerationService._recipe_text(recipe)
+        self.assertIn("- 人物：吴耐、沙丽丽", text)
+        self.assertIn("- 场景：单元楼电梯", text)
+        self.assertIn("- 道具：绿色苹果手机", text)
+        self.assertIn("- 动作：竖屏短剧单镜", text)
+        self.assertIn("- 运镜：MS zoom_in eye_level", text)
+        self.assertIn("- 台词：该不会想让我那啥吧。", text)
+        self.assertIn("- 音效：电梯低频嗡鸣、铃铛细响", text)
+        self.assertIn("- 时长：8秒", text)
+        self.assertIn("- 提示词：Photorealistic vertical 9:16", text)
+        self.assertNotIn("旧稿薄动作", text)
+        self.assertEqual(text.count("### 镜头"), 1)
+
+    def test_beat_payload_keeps_audio_and_concatenated_video_prompt(self) -> None:
+        beat = AiGenerationService._beat_payload(
+            {
+                "description": "竖屏短剧单镜，时长约 8 秒。空间：不锈钢轿厢。调度：她护着手机后退。收束：定格睁大的眼睛。",
+                "promptText": "Photorealistic vertical 9:16 eight-second take with fluorescent lighting and a slow camera push-in.",
+                "camera": {"scale": "MS", "movement": "zoom_in"},
+                "soundscape": "电梯低频嗡鸣、铃铛细响",
+                "dialogue": "该不会想让我那啥吧。",
+                "durationSec": 8,
+            },
+            1,
+            "project-1",
+        )
+        self.assertIn("空间：不锈钢轿厢", beat["action"])
+        self.assertEqual(
+            beat["visual_prompt"],
+            "Photorealistic vertical 9:16 eight-second take with fluorescent lighting and a slow camera push-in.",
+        )
+        self.assertEqual(beat["sketch_prompt"], beat["visual_prompt"])
+        self.assertEqual(beat["camera"], "MS zoom_in")
+        self.assertEqual(beat["audio"], "电梯低频嗡鸣、铃铛细响")
+        self.assertIn("运镜：MS zoom_in", beat["video_prompt_zh"])
+        self.assertIn("声音：电梯低频嗡鸣、铃铛细响", beat["video_prompt_zh"])
+        self.assertTrue(beat["video_prompt_zh"].startswith("竖屏短剧单镜"))
+        self.assertEqual(beat["video_duration"], "8")
+        self.assertNotIn("{", beat["camera"])
+
+    def test_beat_payload_bumps_five_second_duration_for_thick_blocking(self) -> None:
+        beat = AiGenerationService._beat_payload(
+            {
+                "description": (
+                    "竖屏短剧单镜，一镜到底。空间：老旧不锈钢轿厢，镜面金属壁反青白顶灯，空间逼仄。"
+                    "光线：惨白顶灯，皮肤偏青。造型锁定：清瘦花甲男人脏污背心；浓妆红裙租客抱绿色手机。"
+                    "调度与表演：电梯门刚合上。她被挤在右后角护着手机；他停在左前方半步，不敢靠近。"
+                    "她先扫他的污渍背心，再盯他的花甲脸，开口前肩膀一缩。口型与台词同步。"
+                    "收束：误会说出后定格在她睁大的眼睛约一秒。"
+                ),
+                "dialogue": "该不会想让我那啥吧。",
+                "durationSec": 5,
+            },
+            1,
+            "project-1",
+        )
+        self.assertGreaterEqual(int(beat["video_duration"]), 8)
 
 
 if __name__ == "__main__":

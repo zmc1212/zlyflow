@@ -394,7 +394,7 @@ export default function DirectorReplicationStudio({
                     type="warning"
                     showIcon
                     message="未检测到视觉模型"
-                    description="当前大模型不支持视觉输入，拉片仍可切分镜头与提取深度，但提示词需要手动填写。可在管理后台改用带 VL/Vision 的模型。"
+                    description="尚未启用独立视觉模型，拉片仍可切分镜头与提取深度，但提示词需要手动填写。请到管理设置 → VLM 视觉模型 配置带 VL 的模型。"
                   />
                 ) : null}
               </Space>

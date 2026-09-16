@@ -1,8 +1,7 @@
-import { CheckCircle2, ChevronDown } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { CheckCircle2 } from "lucide-react"
+import { useState } from "react"
 import {
   buildStoryboardStreamModel,
-  episodeShotCountLabel,
   groupPolishShotNumbers,
   polishPhaseTitle,
   polishShotLegend,
@@ -11,11 +10,11 @@ import {
   resolvePolishCurrentShot,
   resolvePolishGroupStatus,
   shotDurationLabel,
-  type StoryboardEpisodeRowStatus,
   type StoryboardEpisodeView,
   type StoryboardShotView,
   type StoryboardStreamInput,
 } from "../storyboard-stream-view"
+import DirectorEpisodeCapsule from "./DirectorEpisodeCapsule"
 
 export type DirectorStoryboardLiveBodyProps = StoryboardStreamInput & {
   settled?: boolean
@@ -30,41 +29,6 @@ function chipState(no: number, currentShot?: number, range?: [number, number]): 
   if (range && no < range[0]) return " is-done"
   if (range && no >= range[0] && no <= range[1]) return " is-active"
   return ""
-}
-
-function SpinnerRing({ active, order }: { active?: boolean; order: number }) {
-  const size = 22
-  const stroke = 2
-  const radius = (size - stroke) / 2
-  const circumference = 2 * Math.PI * radius
-  return (
-    <span className="director-ring" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className={active ? "is-spin" : undefined}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--director-line)" strokeWidth={stroke} />
-        {active ? (
-          <circle
-            cx={size / 2} cy={size / 2} r={radius} fill="none"
-            stroke="var(--director-accent)" strokeWidth={stroke} strokeLinecap="round"
-            strokeDasharray={`${circumference * 0.28} ${circumference * 0.72}`}
-          />
-        ) : null}
-      </svg>
-      <span className="director-ring-num">{order}</span>
-    </span>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-  )
-}
-
-function EpisodeStatusBadge({ status, order }: { status: StoryboardEpisodeRowStatus; order: number }) {
-  if (status === "completed") {
-    return <span className="director-badge is-green"><CheckIcon /></span>
-  }
-  return <SpinnerRing active={status === "running"} order={order} />
 }
 
 function ShotStreamRow({
@@ -130,55 +94,6 @@ function ShotStreamRow({
         </div>
       ) : null}
     </div>
-  )
-}
-
-function EpisodeCapsule({
-  episodeNumber,
-  title,
-  status,
-  open,
-  index,
-  shotCount,
-  onToggle,
-  children,
-}: {
-  episodeNumber: number
-  title: string
-  status: StoryboardEpisodeRowStatus
-  open: boolean
-  index: number
-  shotCount: number
-  onToggle: (key: string, currentlyOpen: boolean) => void
-  children: ReactNode
-}) {
-  const bodyId = `director-episode-row-body-${episodeNumber}`
-  return (
-    <section
-      className={`director-episode-row is-${status}${open ? " is-open" : ""}`}
-      style={{ animation: `director-fade-up 450ms cubic-bezier(0.23,1,0.32,1) ${index * 80}ms both` }}
-    >
-      <button
-        type="button"
-        className="director-episode-row-head"
-        aria-expanded={open}
-        aria-controls={bodyId}
-        onClick={() => onToggle(String(episodeNumber), open)}
-      >
-        <span className="director-episode-row-icon" aria-hidden>
-          <EpisodeStatusBadge status={status} order={episodeNumber} />
-        </span>
-        <span className="director-episode-row-label">{title}</span>
-        <span className="director-episode-row-amount">{episodeShotCountLabel(shotCount)}</span>
-        {status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
-        <ChevronDown size={14} className="director-episode-row-chevron" aria-hidden />
-      </button>
-      <div className={`director-episode-row-fold${open ? " is-open" : ""}`} id={bodyId} {...(!open ? { inert: true } : {})}>
-        <div>
-          <div className="director-episode-row-body">{children}</div>
-        </div>
-      </div>
-    </section>
   )
 }
 
@@ -258,7 +173,7 @@ export default function DirectorStoryboardLiveBody({ settled = false, ...input }
           const status = resolvePolishGroupStatus(group, currentShot, phase.range)
           const open = manualOpen[String(group.episode)] ?? status === "running"
           return (
-            <EpisodeCapsule
+            <DirectorEpisodeCapsule
               key={group.episode}
               episodeNumber={group.episode}
               title={episode?.title || group.label}
@@ -287,7 +202,7 @@ export default function DirectorStoryboardLiveBody({ settled = false, ...input }
                   </div>
                 </div>
               ) : null}
-            </EpisodeCapsule>
+            </DirectorEpisodeCapsule>
           )
         })}
         {phase.chars ? <div className="director-phase-meta is-live"><span className="director-live-dot" aria-hidden />已收 {phase.chars.toLocaleString()} 字</div> : null}
@@ -300,7 +215,7 @@ export default function DirectorStoryboardLiveBody({ settled = false, ...input }
       const status = resolveEpisodeRowStatus(episode, activeEpisode)
       const open = manualOpen[String(episode.number)] ?? status === "running"
       return (
-        <EpisodeCapsule
+        <DirectorEpisodeCapsule
           key={episode.number}
           episodeNumber={episode.number}
           title={episode.title}
@@ -311,7 +226,7 @@ export default function DirectorStoryboardLiveBody({ settled = false, ...input }
           onToggle={toggleEpisode}
         >
           <WritingEpisodeBody episode={episode} settled={settled} openShots={openShots} onToggleShot={toggleShot} />
-        </EpisodeCapsule>
+        </DirectorEpisodeCapsule>
       )
     })}
   </div>

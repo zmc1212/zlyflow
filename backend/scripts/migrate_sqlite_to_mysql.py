@@ -24,6 +24,7 @@ TABLES_IN_ORDER = (
     "grs_provider_settings",
     "qiniu_provider_settings",
     "llm_provider_settings",
+    "vlm_provider_settings",
     "comfy_provider_settings",
     "tts_provider_settings",
     "director_projects",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Button, Drawer, Space, message } from "antd"
+import { Button, Drawer, Modal, Space, message } from "antd"
 import { Boxes, CheckCircle2, Clapperboard, FileText, ListTree, RefreshCw, Wand2, XCircle } from "lucide-react"
 import {
   advanceAiOperation,
@@ -31,7 +31,7 @@ import DirectorAssetSummaryCard, { type DirectorAssetCardData, type DirectorAsse
 import { assetKindFor, normalizeDirectorAssetCard, relateLiveAssetCards } from "../../director/components/director-asset-card"
 import DirectorStoryboardLiveBody from "../../director/components/DirectorStoryboardLiveBody"
 import { DirectorLiveBlock, DirectorLiveStepChoices, DirectorLiveStepRow, DirectorPathChips, DirectorReviewBlock } from "../../director/components/DirectorLiveStepFeed"
-import { stageChoiceEcho, stageChoiceFallbackLabel, stageChoicePathGroups, stageChoicePreviewAnswer } from "../director2-stage-choices"
+import { stageChoiceEcho, stageChoiceFallbackLabel, stageChoicePathGroups, stageChoicePreviewAnswer, ensureDirector2OpeningQuestions } from "../director2-stage-choices"
 import {
   DIRECTOR2_ACTIVE_AI_STATUSES,
   director2AiHeadlineDetail,
@@ -143,8 +143,7 @@ export default function Director2AiStudioPane({
   const active = isDirector2AiOperationActive(operation)
   const awaitingReview = isDirector2AwaitingReview(operation)
   const checkpointTitle = director2CheckpointHeadline(operation)
-  // 阶段完成状态 = AI 任务记录 ∪ 项目真实内容存量：手动编辑模式导入的
-  // 剧本 / 资产 / 分集与 AI 流水写在同一批数据里，同样要点亮对应步骤。
+  // 有 pipeline 任务时完成态以任务记录为准；无任务时才用项目存量点亮步骤。
   const completed = useMemo(() => mergeDirector2StageCompletion(operation, contentSummary), [operation, contentSummary])
   const hasContent = Boolean(
     contentSummary && (contentSummary.scriptCount > 0 || contentSummary.assetCount > 0 || contentSummary.episodeCount > 0 || contentSummary.shotCount > 0),
@@ -159,6 +158,11 @@ export default function Director2AiStudioPane({
     return `项目已有${parts.join("、")}，左侧步骤对应当前就绪情况，可以继续输入创意推进剩余阶段。`
   }, [contentSummary])
   const questionMode = operation?.kind === "clarify" && operation.status === "succeeded" && questions.length > 0
+  const openingQuestions = useMemo(
+    () => (operation?.kind === "clarify" || operation?.current_stage === "clarify" ? ensureDirector2OpeningQuestions(questions) : questions),
+    [operation?.kind, operation?.current_stage, questions],
+  )
+  const openingClarify = operation?.kind === "pipeline" && operation.current_stage === "clarify" && (operation.status === "revising" || Boolean(questions.length && operation.status === "clarifying"))
   const stageQuestionMode = operation?.status === "revising" && questions.length > 0
   const done = operation?.status === "succeeded" && operation.kind === "pipeline"
   const currentStage = STAGES.find((stage) => stage.key === (operation?.awaiting_stage || operation?.current_stage))
@@ -243,8 +247,10 @@ export default function Director2AiStudioPane({
     persistOperation(next)
     const restoredGoal = typeof next.request.goal === "string" ? next.request.goal.trim() : ""
     if (restoredGoal) setBrief((current) => current || restoredGoal)
-    if (next.result.questions) setQuestions(next.result.questions)
-    else if (next.status !== "revising" && next.status !== "clarifying") setQuestions([])
+    if (next.result.questions) {
+      const opening = next.kind === "clarify" || next.current_stage === "clarify"
+      setQuestions(opening ? ensureDirector2OpeningQuestions(next.result.questions) : next.result.questions)
+    } else if (next.status !== "revising" && next.status !== "clarifying") setQuestions([])
     const liveMessage = next.result.message?.trim()
     if (liveMessage && next.current_stage) {
       setStageMessages((current) => ({ ...current, [next.current_stage as Director2AiStage]: liveMessage }))
@@ -488,7 +494,7 @@ export default function Director2AiStudioPane({
     }
   }
 
-  async function retry() {
+  async function retry(stage?: Director2AiStage) {
     if (!operation || retrying) return
     setRetrying(true)
     try {
@@ -500,16 +506,46 @@ export default function Director2AiStudioPane({
         subscribe(latest)
         return
       }
-      if (latest.status !== "failed" && latest.status !== "cancelled") {
+      if (!stage && latest.status !== "failed" && latest.status !== "cancelled") {
         message.info("任务状态正在更新，请稍后再试")
         applyOperation(latest)
         return
       }
-      const next = await retryAiOperation(csrfToken, projectId, latest.id)
+      if (stage) {
+        const start = STAGES.findIndex((item) => item.key === stage)
+        for (const item of STAGES.slice(Math.max(0, start))) clearStageStreams(item.key)
+      }
+      const next = await retryAiOperation(csrfToken, projectId, latest.id, stage)
       persistOperation(next)
       subscribe(next)
     } catch (err) { message.error(director2ErrorDetail(err, "重试失败")) }
     finally { setRetrying(false) }
+  }
+
+  function confirmRegenerate(stage: Director2AiStage): Promise<boolean> {
+    const label = STAGES.find((item) => item.key === stage)?.label || stage
+    const start = STAGES.findIndex((item) => item.key === stage)
+    const downstream = STAGES.slice(start + 1).filter((item) => completed.has(item.key)).map((item) => item.label)
+    return new Promise((resolve) => {
+      Modal.confirm({
+        title: `重新生成「${label}」`,
+        content: downstream.length
+          ? `将从「${label}」重新生成。后续阶段（${downstream.join("、")}）不再视为完成，确认后需要再次生成。`
+          : `将重新生成「${label}」。该阶段跑完后会覆盖已写入的对应内容。`,
+        okText: "重新生成",
+        cancelText: "取消",
+        centered: true,
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      })
+    })
+  }
+
+  async function regenerateStage(stage: Director2AiStage) {
+    if (!operation || retrying || active) return
+    const confirmed = await confirmRegenerate(stage)
+    if (!confirmed) return
+    await retry(stage)
   }
 
   function followOperation(next: Director2AiOperation) {
@@ -564,14 +600,16 @@ export default function Director2AiStudioPane({
   async function rerunCurrent(answers: DirectorClarificationAnswer[]) {
     if (!operation || busy) return
     const stage = (operation.awaiting_stage || operation.current_stage) as Director2AiStage | null
-    if (stage) clearStageStreams(stage)
+    if (stage === "clarify") {
+      for (const item of STAGES) if (item.key !== "clarify") clearStageStreams(item.key)
+    } else if (stage) clearStageStreams(stage)
     setBusy(true)
     setQuestions([])
     try {
       const next = await rerunAiStage(csrfToken, projectId, operation.id, answers)
       followOperation(next)
     } catch (err) {
-      message.error(director2ErrorDetail(err, "重跑当前阶段失败"))
+      message.error(director2ErrorDetail(err, stage === "clarify" ? "重新确认创意方向失败" : "重跑当前阶段失败"))
     } finally { setBusy(false) }
   }
 
@@ -767,12 +805,24 @@ export default function Director2AiStudioPane({
     if (stageQuestionMode && operation?.current_stage === stage.key) return false
     if (active && operation?.current_stage === stage.key) return false
     if (completed.has(stage.key)) return true
-    if (stage.key === "clarify" && operation?.kind === "pipeline") return true
+    if (stage.key === "clarify" && operation?.kind === "pipeline" && !openingClarify) return true
     return !active && operation?.current_stage === stage.key && ["failed", "cancelled"].includes(operation.status)
   })
+  const canRegenerate = Boolean(
+    operation
+    && !active
+    && !retrying
+    && ["failed", "cancelled", "awaiting_review", "succeeded"].includes(operation.status),
+  )
   const headTitle = checkpointTitle || (questionMode ? "创意方向确认" : done ? "AI 创作已完成" : operation?.status === "cancelled" ? "生成已取消" : operation?.status === "failed" ? "生成遇到问题" : operation ? (currentStage?.label || "AI 导演正在创作") : hasContent ? "继续这个项目的创作" : "开始一段新的创作")
   const messageStage = operation?.awaiting_stage || operation?.current_stage || "script"
-  const headDetail = questionMode ? "回答这些问题，AI 才会继续生成完整剧本与分镜。" : stageQuestionMode ? "回答这些问题后，将只重跑当前阶段。" : done ? "剧本、资产、分集和 Beat 已写入导演台2。" : director2AiHeadlineDetail(operation, stageMessages[messageStage], currentStage?.message || (hasContent ? "项目已有部分内容，左侧步骤显示各阶段就绪情况，可继续输入创意推进。" : "从一句话创意开始，导演台会逐阶段推进。"))
+  const headDetail = questionMode
+    ? "回答这些问题，AI 才会继续生成完整剧本与分镜。"
+    : stageQuestionMode
+      ? (openingClarify || operation?.current_stage === "clarify" ? "回答这些问题后，将从剧本重新开始生成。" : "回答这些问题后，将只重跑当前阶段。")
+      : done
+        ? "剧本、资产、分集和 Beat 已写入导演台2。"
+        : director2AiHeadlineDetail(operation, stageMessages[messageStage], currentStage?.message || (hasContent ? "项目已有部分内容，左侧步骤显示各阶段就绪情况，可继续输入创意推进。" : "从一句话创意开始，导演台会逐阶段推进。"))
   const viewingFailed = Boolean(
     viewingStage
     && (operation?.status === "failed" || operation?.status === "cancelled")
@@ -787,7 +837,15 @@ export default function Director2AiStudioPane({
           <div className={`director-script-room${active ? " is-streaming" : ""}`}>
             <div className="director-script-layout">
               <aside className="director-task-rail">
-                            <DirectorTaskRows rows={rows} running={active || retrying || !operation} elapsedSec={-1} variant="rail" onRetry={operation?.status === "failed" && !retrying ? retry : undefined} onOpen={(id) => setViewingStage(id as Director2AiStage)} />
+                            <DirectorTaskRows
+                              rows={rows}
+                              running={active || retrying || !operation}
+                              elapsedSec={-1}
+                              variant="rail"
+                              onRetry={operation?.status === "failed" && !retrying ? (id) => { void retry(id as Director2AiStage) } : undefined}
+                              onRegenerate={canRegenerate ? (id) => { void regenerateStage(id as Director2AiStage) } : undefined}
+                              onOpen={(id) => setViewingStage(id as Director2AiStage)}
+                            />
               </aside>
               <div className={`director-script-stream is-transcript${operation?.status === "failed" || operation?.status === "cancelled" ? " is-terminal" : ""}`} data-stream-live={active || undefined}>
                 <div className="director-script-stream-head">
@@ -817,15 +875,15 @@ export default function Director2AiStudioPane({
                           )}
                         </div>
                       ) : null}
-                      {questionMode ? <DirectorClarificationCard questions={questions} disabled={busy} onConfirm={(nextAnswers) => { void startPipeline(nextAnswers) }} /> : null}
+                      {questionMode ? <DirectorClarificationCard questions={openingQuestions} disabled={busy} onConfirm={(nextAnswers) => { void startPipeline(nextAnswers) }} /> : null}
                       {operation && !questionMode ? (
                         <div className="director-step-feed">
                           {feedRows.map((stage) => {
                             const failed = (operation.status === "failed" || operation.status === "cancelled") && operation.current_stage === stage.key
                             const recorded = stageChoiceProps(stage.key, failed)
-                            return <DirectorLiveStepRow key={stage.key} id={stage.key} label={stage.label} status={failed ? "failed" : "completed"} preview={stagePreview(stage.key)} choices={recorded.choices} choiceFallback={recorded.choiceFallback} onOpen={() => openStage(stage.key)} />
+                            return <DirectorLiveStepRow key={stage.key} id={stage.key} label={stage.label} status={failed ? "failed" : "completed"} preview={stagePreview(stage.key)} choices={recorded.choices} choiceFallback={recorded.choiceFallback} onOpen={() => openStage(stage.key)} onRegenerate={!failed && canRegenerate ? () => { void regenerateStage(stage.key) } : undefined} />
                           })}
-                          {stageQuestionMode ? <DirectorClarificationCard questions={questions} disabled={busy} onConfirm={(nextAnswers) => { void rerunCurrent(nextAnswers) }} /> : null}
+                          {stageQuestionMode ? <DirectorClarificationCard questions={openingClarify || operation.current_stage === "clarify" ? openingQuestions : questions} disabled={busy} onConfirm={(nextAnswers) => { void rerunCurrent(nextAnswers) }} /> : null}
                           {awaitingReview && currentStage ? (
                             <DirectorReviewBlock
                               label={currentStage.label}

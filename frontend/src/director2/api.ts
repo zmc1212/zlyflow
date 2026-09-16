@@ -228,6 +228,43 @@ export function generateAssetImage(csrfToken: string, projectId: string, assetId
   )
 }
 
+export function uploadAssetSourceReference(
+  csrfToken: string,
+  projectId: string,
+  assetId: string,
+  file: File,
+): Promise<Director2Asset> {
+  const form = new FormData()
+  form.set("file", file)
+  return requestJson<Director2Asset>(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/references`,
+    { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
+  )
+}
+
+export function deleteAssetSourceReference(
+  csrfToken: string,
+  projectId: string,
+  assetId: string,
+  refId: string,
+): Promise<Director2Asset> {
+  return requestJson<Director2Asset>(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/references/${encodeURIComponent(refId)}`,
+    jsonMutation(csrfToken, undefined, "DELETE"),
+  )
+}
+
+export function inferAssetPromptsFromReferences(
+  csrfToken: string,
+  projectId: string,
+  assetId: string,
+): Promise<Director2Asset> {
+  return requestJson<Director2Asset>(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/infer-prompts`,
+    jsonMutation(csrfToken, undefined, "POST"),
+  )
+}
+
 // --- 剧集工坊 Episodes ---
 export function listEpisodes(projectId: string): Promise<Director2Episode[]> {
   return requestJson<Director2Episode[]>(`/api/projects/${encodeURIComponent(projectId)}/episodes`)
@@ -272,6 +309,9 @@ export type Director2EpisodeDetail = {
   beats: Director2Beat[]
   links: Array<{ id: string; asset_id: string; kind: string; name: string; image_url: string }>
   data: Record<string, any>
+  episode_video_url?: string | null
+  episode_video_source?: string | null
+  episode_video_job_id?: string | null
 }
 
 export type Director2Beat = {
@@ -303,6 +343,9 @@ export type Director2Beat = {
   video_prompt_zh?: string
   video_duration?: string
   status?: string
+  h3_prompt?: string | null
+  dialogue_turns?: Array<{ speaker?: string; text?: string; character_id?: string }>
+  visible_text?: string | null
 }
 
 export function getEpisodeDetail(projectId: string, epId: string): Promise<Director2EpisodeDetail> {
@@ -339,7 +382,19 @@ export function generateBeatImagesBatch(csrfToken: string, projectId: string, ep
   )
 }
 
-export function generateEpisodeVideo(csrfToken: string, projectId: string, epId: string, data: Record<string, unknown> = {}): Promise<{ job_id: string; status: string }> {
+export function generateBeatH3Prompt(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<{ job_id?: string; beat_id?: string; status?: string; prompt?: string; duplicate?: boolean }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/h3-prompt`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
+export function generateEpisodeVideo(
+  csrfToken: string,
+  projectId: string,
+  epId: string,
+  data: Record<string, unknown> = {},
+): Promise<import("./director2-video-settings").Director2GenerateVideoResult> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/generate-video`,
     jsonMutation(csrfToken, data, "POST"),
@@ -349,6 +404,18 @@ export function generateEpisodeVideo(csrfToken: string, projectId: string, epId:
 export function generateBeatVideo(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<{ job_id: string; status: string; render_scope?: string }> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/generate-video`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
+export function composeEpisodeVideo(
+  csrfToken: string,
+  projectId: string,
+  epId: string,
+  data: Record<string, unknown> = {},
+): Promise<{ job_id: string; status: string; render_scope?: string; render_mode?: string }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/compose`,
     jsonMutation(csrfToken, data, "POST"),
   )
 }
@@ -398,10 +465,15 @@ export function cancelAiOperation(csrfToken: string, projectId: string, operatio
   )
 }
 
-export function retryAiOperation(csrfToken: string, projectId: string, operationId: string): Promise<Director2AiOperation> {
+export function retryAiOperation(
+  csrfToken: string,
+  projectId: string,
+  operationId: string,
+  stage?: Director2AiStage,
+): Promise<Director2AiOperation> {
   return requestJson<Director2AiOperation>(
     `/api/projects/${encodeURIComponent(projectId)}/ai/operations/${encodeURIComponent(operationId)}/retry`,
-    jsonMutation(csrfToken, undefined, "POST"),
+    jsonMutation(csrfToken, stage ? { stage } : {}, "POST"),
   )
 }
 

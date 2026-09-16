@@ -11,7 +11,7 @@ class StandardScriptParser:
     1. 项目/剧本标题与视频定位（题材、世界观、单集时长、主线等）
     2. 主要人物设定（姓名、角色定位、外貌身材服饰、固定道具、一致性Prompt）
     3. 统一视觉风格（基调、负向禁止词）
-    4. 各集剧情与详细分镜头（镜头序号、场景、人物、道具、动作、运镜、台词、音效、提示词）
+    4. 各集剧情与详细分镜头（镜头序号、场景、人物、道具、时长、动作、运镜、台词、音效、提示词）
     5. 固定场景库与环境要素
     6. 关键道具全量汇聚
     7. 制作建议
@@ -320,6 +320,7 @@ class StandardScriptParser:
     @classmethod
     def _extract_shots_from_episode(cls, episode_block: str) -> list[dict[str, Any]]:
         shots: list[dict[str, Any]] = []
+        episode_block = re.split(r"\n#{1,3}\s*[四五]、", episode_block, maxsplit=1)[0]
 
         shot_splits = list(re.finditer(r"###\s*镜头\s*([0-9一二三四五六七八九十]+)[｜|/：:\s\-]*([^\n]*)", episode_block))
         if not shot_splits:
@@ -341,6 +342,37 @@ class StandardScriptParser:
 
         return shots
 
+    _SHOT_FIELD_START = re.compile(
+        r"^(人物|角色|场景|道具|时长|duration|动作|画面|镜头|运镜|景别|台词|对白|提示词|生图提示词|画面提示词|音效|声音|字幕|旁白)[：:]",
+        re.I,
+    )
+    _TEXT_SHOT_FIELDS = ("action", "camera", "dialogue", "visual_prompt", "audio", "subtitle")
+
+    @classmethod
+    def _shot_content_segments(cls, content: str) -> list[str]:
+        segments: list[str] = []
+        for line in content.split("\n"):
+            line_s = line.strip().lstrip("-* ").strip()
+            if not line_s:
+                continue
+            # 只在「人物：…；场景：…」这种多字段同行时按分号切开，避免把动作/提示词里的分号截断。
+            if "；" in line_s or ";" in line_s:
+                parts = [p.strip() for p in re.split(r"[；;]", line_s) if p.strip()]
+                labeled = sum(1 for part in parts if cls._SHOT_FIELD_START.match(part))
+                if labeled >= 2:
+                    segments.extend(parts)
+                    continue
+            segments.append(line_s)
+        return segments
+
+    @classmethod
+    def _append_shot_text(cls, shot: dict[str, Any], key: str, value: str) -> None:
+        text = str(value or "").strip()
+        if not text:
+            return
+        current = str(shot.get(key) or "").strip()
+        shot[key] = f"{current} {text}".strip() if current else text
+
     @classmethod
     def _parse_single_shot(cls, shot_num: int, title: str, content: str) -> dict[str, Any]:
         shot: dict[str, Any] = {
@@ -355,50 +387,54 @@ class StandardScriptParser:
             "visual_prompt": "",
             "audio": "",
             "subtitle": "",
+            "duration_sec": None,
             "raw_content": content,
         }
 
-        # 先将行按换行与分号拆分成原子片段
-        raw_lines = content.split("\n")
-        atomic_segments: list[str] = []
-        for line in raw_lines:
-            line_s = line.strip().lstrip("-* ").strip()
-            if not line_s:
-                continue
-            # 若行内包含分号，如 "人物：沈砚、村民；场景：村口田地；道具：农具、竹筐、木车；村民因灌溉争论。"
-            if "；" in line_s or ";" in line_s:
-                parts = re.split(r"[；;]", line_s)
-                for p in parts:
-                    if p.strip():
-                        atomic_segments.append(p.strip())
-            else:
-                atomic_segments.append(line_s)
-
-        for seg in atomic_segments:
+        last_text_field = ""
+        for seg in cls._shot_content_segments(content):
             if re.match(r"^(人物|角色)[：:]", seg):
                 val = re.sub(r"^(人物|角色)[：:]\s*", "", seg)
-                raw_chars = re.split(r"[、,，\s]+", val.rstrip("；;。"))
+                raw_chars = re.split(r"[、,，]+", val.rstrip("；;。"))
                 shot["characters"] = [c.strip() for c in raw_chars if c.strip()]
+                last_text_field = ""
             elif re.match(r"^场景[：:]", seg):
                 shot["scene"] = re.sub(r"^场景[：:]\s*", "", seg).rstrip("；;。").strip()
+                last_text_field = ""
             elif re.match(r"^道具[：:]", seg):
                 val = re.sub(r"^道具[：:]\s*", "", seg)
-                raw_props = re.split(r"[、,，\s]+", val.rstrip("；;。"))
+                raw_props = re.split(r"[、,，]+", val.rstrip("；;。"))
                 shot["props"] = [p.strip() for p in raw_props if p.strip()]
-            elif re.match(r"^动作[：:]", seg):
-                shot["action"] = re.sub(r"^动作[：:]\s*", "", seg).strip()
+                last_text_field = ""
+            elif re.match(r"^(时长|duration)[：:]", seg, re.I):
+                raw = re.sub(r"^(时长|duration)[：:]\s*", "", seg, flags=re.I).strip()
+                match = re.search(r"(\d+(?:\.\d+)?)", raw)
+                if match:
+                    shot["duration_sec"] = int(round(float(match.group(1))))
+                last_text_field = ""
+            elif re.match(r"^(动作|画面)[：:]", seg):
+                shot["action"] = re.sub(r"^(动作|画面)[：:]\s*", "", seg).strip()
+                last_text_field = "action"
             elif re.match(r"^(镜头|运镜|景别)[：:]", seg):
                 shot["camera"] = re.sub(r"^(镜头|运镜|景别)[：:]\s*", "", seg).strip()
+                last_text_field = "camera"
             elif re.match(r"^(台词|对白)[：:]", seg):
                 shot["dialogue"] = re.sub(r"^(台词|对白)[：:]\s*", "", seg).strip()
+                last_text_field = "dialogue"
             elif re.match(r"^(提示词|生图提示词|画面提示词)[：:]", seg):
                 shot["visual_prompt"] = re.sub(r"^(提示词|生图提示词|画面提示词)[：:]\s*", "", seg).strip()
+                last_text_field = "visual_prompt"
             elif re.match(r"^(音效|声音)[：:]", seg):
                 shot["audio"] = re.sub(r"^(音效|声音)[：:]\s*", "", seg).strip()
+                last_text_field = "audio"
             elif re.match(r"^(字幕|旁白)[：:]", seg):
                 shot["subtitle"] = re.sub(r"^(字幕|旁白)[：:]\s*", "", seg).strip()
+                last_text_field = "subtitle"
+            elif last_text_field in cls._TEXT_SHOT_FIELDS:
+                cls._append_shot_text(shot, last_text_field, seg)
             elif not shot["action"] and not any(kw in seg for kw in ["人物", "场景", "道具", "镜头", "台词", "提示词"]):
                 shot["action"] = seg
+                last_text_field = "action"
 
         # 若台词为空但内容里有引号对话
         if not shot["dialogue"] and content:

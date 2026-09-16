@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  groupScriptLiveView,
   parseScriptLiveView,
   resolveDirector2ScriptLiveSource,
   visibleShotFields,
@@ -90,6 +91,30 @@ describe("parseScriptLiveView", () => {
     expect(JSON.stringify(blocks)).not.toMatch(/director-episode-row/)
   })
 
+  it("parses 运镜 as a shot field and still hides 提示词 on live cards", () => {
+    const blocks = parseScriptLiveView(`### 镜头1｜单元楼电梯
+- 时长：8秒
+- 动作：竖屏短剧单镜，时长约 8 秒。空间：不锈钢轿厢。调度：她护着手机。收束：定格睁大的眼睛。
+- 运镜：竖屏 9:16，中近景双人，一次缓慢小幅推近
+- 音效：电梯低频嗡鸣
+- 提示词：Photorealistic vertical 9:16 eight-second take, lighting and camera locked.
+`)
+    const shots = blocksOf("shot", blocks)
+    expect(shots[0]?.fields).toEqual([
+      { label: "时长", value: "8秒" },
+      { label: "动作", value: "竖屏短剧单镜，时长约 8 秒。空间：不锈钢轿厢。调度：她护着手机。收束：定格睁大的眼睛。" },
+      { label: "运镜", value: "竖屏 9:16，中近景双人，一次缓慢小幅推近" },
+      { label: "音效", value: "电梯低频嗡鸣" },
+      { label: "提示词", value: "Photorealistic vertical 9:16 eight-second take, lighting and camera locked." },
+    ])
+    expect(visibleShotFields(shots[0]?.fields || []).map((field) => field.label)).toEqual([
+      "时长",
+      "动作",
+      "运镜",
+      "音效",
+    ])
+  })
+
   it("turns a Beat ledger into shot blocks with action and dialogue", () => {
     const blocks = parseScriptLiveView(BEAT_LEDGER)
     const shots = blocksOf("shot", blocks)
@@ -176,5 +201,50 @@ describe("resolveDirector2ScriptLiveSource", () => {
       summary: "拦门",
       fullStory: "### 镜头1｜门口\n- 台词：站住！",
     })
+  })
+})
+
+describe("groupScriptLiveView", () => {
+  it("splits standard Markdown into preamble and episode groups with shot counts", () => {
+    const grouped = groupScriptLiveView(parseScriptLiveView(STANDARD_MARKDOWN))
+    expect(grouped.preamble.some((block) => block.type === "heading" && block.text === "视频定位")).toBe(true)
+    expect(grouped.preamble.some((block) => block.type === "heading" && block.text.includes("主要人物"))).toBe(true)
+    expect(grouped.preamble.some((block) => block.type === "episode")).toBe(false)
+    expect(grouped.preamble.some((block) => block.type === "shot")).toBe(false)
+    expect(grouped.episodes).toHaveLength(1)
+    expect(grouped.episodes[0]).toMatchObject({
+      title: "第1集：硕士穿越，醒来成了穷小子",
+      shotCount: 2,
+      number: 1,
+    })
+    expect(grouped.episodes[0].blocks[0]).toEqual({
+      type: "plot",
+      text: "剧情：现代硕士沈砚意外穿越，醒来成为贫苦农家少年。",
+    })
+    expect(grouped.episodes[0].blocks.filter((block) => block.type === "shot")).toHaveLength(2)
+  })
+
+  it("returns empty episodes for Beat ledgers without episode headings", () => {
+    const grouped = groupScriptLiveView(parseScriptLiveView(BEAT_LEDGER))
+    expect(grouped.episodes).toHaveLength(0)
+    expect(grouped.preamble.filter((block) => block.type === "shot")).toHaveLength(2)
+  })
+
+  it("keeps multiple episodes as separate capsules", () => {
+    const text = `# 第1集：开场
+### 镜头1｜门
+- 动作：推门
+# 第2集：收尾
+### 镜头1｜窗
+- 动作：关窗
+### 镜头2｜街
+- 动作：离开
+`
+    const grouped = groupScriptLiveView(parseScriptLiveView(text))
+    expect(grouped.preamble).toHaveLength(0)
+    expect(grouped.episodes.map((item) => ({ title: item.title, shotCount: item.shotCount, number: item.number }))).toEqual([
+      { title: "第1集：开场", shotCount: 1, number: 1 },
+      { title: "第2集：收尾", shotCount: 2, number: 2 },
+    ])
   })
 })

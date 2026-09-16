@@ -12,6 +12,8 @@ const GrsProviderSettings = lazy(() => import("./GrsProviderSettings"))
 const ComfyProviderSettings = lazy(() => import("./ComfyProviderSettings"))
 const QiniuStorageSettings = lazy(() => import("./QiniuStorageSettings"))
 const LlmProviderSettings = lazy(() => import("./LlmProviderSettings"))
+const VlmProviderSettings = lazy(() => import("./VlmProviderSettings"))
+const TtsProviderSettings = lazy(() => import("./TtsProviderSettings"))
 
 const roleLabel: Record<UserRole, string> = {
   super_admin: "超级管理员",
@@ -76,6 +78,8 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
             ? [
                 { key: "providers", label: "AI 供应商" },
                 { key: "llm", label: "LLM 大模型" },
+                { key: "vlm", label: "VLM 视觉模型" },
+                { key: "tts", label: "TTS 语音合成" },
                 { key: "storage", label: "媒体存储" },
               ]
             : []),
@@ -237,6 +241,10 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
           </>
         ) : tab === "llm" ? (
           <LlmProviderSettings csrfToken={csrfToken} />
+        ) : tab === "vlm" ? (
+          <VlmProviderSettings csrfToken={csrfToken} />
+        ) : tab === "tts" ? (
+          <TtsProviderSettings csrfToken={csrfToken} />
         ) : (
           <QiniuStorageSettings csrfToken={csrfToken} />
         )}

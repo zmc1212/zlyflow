@@ -48,8 +48,13 @@
 | `POST` | `/api/jobs/{job_id}/cancel` | 停止排队中、生成中或已中断的任务。 |
 | `GET` | `/api/library` | 列出当前用户已成功生成的资源元数据。 |
 | `POST` | `/api/admin/providers/llm/models` | 超级管理员向上游拉取模型目录；硅基流动对照模型广场价格 0 / Free 筛选免费模型。 |
+| `GET` | `/api/admin/providers/vlm` | 超级管理员读取 VLM 视觉模型配置。 |
+| `PUT` | `/api/admin/providers/vlm` | 超级管理员保存 VLM 视觉模型配置（独立 Key，与 LLM 分离）。 |
+| `POST` | `/api/admin/providers/vlm/test` | 测试 VLM 视觉模型连接。 |
+| `POST` | `/api/admin/providers/vlm/models` | 拉取上游目录并筛选名称含 VL/Vision 的视觉模型。 |
+| `GET` | `/api/vlm/status` | 查询视觉模型是否可用及当前模型名。 |
 | `POST` | `/api/llm/optimize-prompt` | 按工作流/技能优化提示词，不创建生成任务。 |
-| `POST` | `/api/llm/analyze-subject` | 上传主体参考图，由视觉模型提取外貌描述。 |
+| `POST` | `/api/llm/analyze-subject` | 上传主体参考图，由独立 VLM 配置提取外貌描述。 |
 | `POST` | `/api/llm/split-script` | 将剧本拆成结构化分镜头脚本。 |
 | `GET` | `/api/director/art-styles` | 读取 9 类 34 条画风目录。`imageUrl` 为同源预览地址。 |
 | `GET` | `/api/director/art-styles/{style_id}/preview` | 读取画风 JPEG 预览（登录后，服务端缓存 OpenDirector CDN）。 |
@@ -122,6 +127,7 @@
 | `GET` | `/api/director/recipes/{project_id}/frames/{shot_id}/{slot}` | 读取已上传的分镜首帧或尾帧。 |
 | `POST` | `/api/director/recipes/{project_id}/render-shots` | 按镜提交所选工作流族的视频任务（T2V/I2V/R2V 仍自动匹配）。 |
 | `POST` | `/api/director/recipes/{project_id}/shots/{shot_id}/translate-prompt` | 把镜头中文正文按官方 h3-prompt-writing skill 翻译为英文 H3 正文并返回，不落库。LLM 未配置 503、缺中文正文 422、未知 shot 404。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` | 剧集工坊素材组：入队 `h3_prompt` 任务生成本镜 H3 提示词（传入 `visual_prompt` / `audio` / `video_prompt_zh`，会剥掉动作里整段粘贴的台词；内心/旁白不作为开口对白）。先按对白+调度把 `video_duration` 抬到能演完，再按该秒数写六段 Ref2VA，并注入导演台1 同款 timing 预算；英文须达 320 词量级且含 camera/lighting/sound），**202** 返回 `job_id`。对白 `<d>` 只保留开口台词且每句中文只出现一次，内心必须闭嘴画外音。结果写入 beat `h3_prompt` 与匹配后的 `video_duration`（落库前先 prepare：补 Picture/Subject/`<d>[Chinese]`，按汉字收拢重复台词）。整集/逐镜视频对已保存提示词做同一套 prepare 再跑厚度校验，通过则复用，过薄或对白对不上才走 `H3PromptBuilder` 重写。 |
 | `GET` | `/api/director/export-capabilities` | 查询本机 ffmpeg/ffprobe 与 TTS 是否可用，以及音色目录。 |
 | `POST` | `/api/director/recipes/{project_id}/tts` | 按对白调用 OpenAI 兼容 `/audio/speech` 生成逐镜 TTS；`character_id` 时写角色试听。不使用 Edge TTS。 |
 | `GET` | `/api/director/recipes/{project_id}/tts/{shot_id}` | 读取已生成的分镜 TTS 音频。 |

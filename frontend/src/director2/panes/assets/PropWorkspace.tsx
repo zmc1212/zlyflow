@@ -3,7 +3,9 @@
 import { Button, Col, Form, Input, Row, Select } from "antd"
 import { Edit3, Eye, Layers, Package, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react"
 import type { Director2Asset } from "../../api"
-import { copyText, getPropTypeLabel, openImageLightbox, PROP_TYPE_OPTIONS } from "./shared"
+import { useMediaPreview } from "../../media-preview"
+import { copyText, getPropTypeLabel, PROP_TYPE_OPTIONS } from "./shared"
+import AssetSourceReferenceStrip from "./AssetSourceReferenceStrip"
 
 interface PropWorkspaceProps {
   asset: Director2Asset
@@ -18,6 +20,11 @@ interface PropWorkspaceProps {
   onDeletePropImage: (slot: "reference" | "turnaround" | "detail") => void
   onManualUrl: (target: string) => void
   onOpenEditProp: () => void
+  uploadingSourceRef: boolean
+  inferringSourcePrompts?: boolean
+  onUploadSourceRefs: (files: File[]) => void
+  onRemoveSourceRef: (refId: string) => void
+  onInferSourcePrompts?: () => void
 }
 
 export default function PropWorkspace({
@@ -33,7 +40,13 @@ export default function PropWorkspace({
   onDeletePropImage,
   onManualUrl,
   onOpenEditProp,
+  uploadingSourceRef,
+  inferringSourcePrompts,
+  onUploadSourceRefs,
+  onRemoveSourceRef,
+  onInferSourcePrompts,
 }: PropWorkspaceProps) {
+  const { openMediaPreview } = useMediaPreview()
   return (
     <div className="prop-workspace-layout">
       <div className="section-card">
@@ -88,7 +101,7 @@ export default function PropWorkspace({
                     src={asset.extra?.reference_url || asset.image_url}
                     className="slot-image"
                     alt="Prop Reference"
-                    onClick={() => openImageLightbox(asset.extra?.reference_url || asset.image_url, `${asset.name} 概念参考图`)}
+                    onClick={() => openMediaPreview({ src: asset.extra?.reference_url || asset.image_url, title: `${asset.name} 概念参考图` })}
                   />
                 ) : (
                   <div className="slot-empty-state">
@@ -137,6 +150,14 @@ export default function PropWorkspace({
                 {asset.extra?.reference_url || asset.image_url ? "重新生成参考图" : "生成参考图"}
               </Button>
             </div>
+            <AssetSourceReferenceStrip
+              asset={asset}
+              uploading={uploadingSourceRef}
+              inferring={inferringSourcePrompts}
+              onUpload={onUploadSourceRefs}
+              onRemove={onRemoveSourceRef}
+              onInferPrompts={onInferSourcePrompts}
+            />
 
             <div className="slot-prompt-wrap">
               <div className="field-title-bar">
@@ -166,7 +187,7 @@ export default function PropWorkspace({
                     src={asset.extra.turnaround_url}
                     className="slot-image"
                     alt="Turnaround"
-                    onClick={() => openImageLightbox(asset.extra?.turnaround_url, `${asset.name} 转面三视图`)}
+                    onClick={() => openMediaPreview({ src: asset.extra?.turnaround_url, title: `${asset.name} 转面三视图` })}
                   />
                 ) : (
                   <div className="slot-empty-state">
@@ -244,7 +265,7 @@ export default function PropWorkspace({
                     src={asset.extra.detail_url}
                     className="slot-image"
                     alt="Detail"
-                    onClick={() => openImageLightbox(asset.extra?.detail_url, `${asset.name} 细节特写`)}
+                    onClick={() => openMediaPreview({ src: asset.extra?.detail_url, title: `${asset.name} 细节特写` })}
                   />
                 ) : (
                   <div className="slot-empty-state">

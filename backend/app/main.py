@@ -16,7 +16,7 @@ from typing import Annotated, Any
 from urllib.parse import urlencode
 
 import requests
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, Security, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Path as ApiPath, Query, Request, Response, Security, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -84,6 +84,7 @@ from .llm_client import LlmError, is_upstream_llm_failure
 from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
 from .llm_provider import LlmProviderService
 from .tts_provider import TtsProviderService
+from .vlm_provider import VlmProviderService
 from .models import (
     AuthStatusResponse, BrowserDirectOutputResponse, ChangePasswordRequest, ComfyProviderResponse,
     ComfyProviderTestRequest, ComfyProviderUpdateRequest, CreateUserRequest, HealthResponse, JobResponse,
@@ -93,6 +94,7 @@ from .models import (
     QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateUserRequest, UserResponse, UserRole,
     JobMetadataUpdateRequest,
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
+    VlmProviderUpdateRequest, VlmProviderTestRequest, VlmModelCatalogRequest, VlmStatusResponse,
     PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse,
     ScriptSplitRequest, ScriptSplitResponse,
     DirectorContinuityRepairRequest,
@@ -110,7 +112,9 @@ from .models import (
 )
 
 from .media_studio.routers.project_router import register_project_routes
+from .media_studio.services.ai_generation_service import AiGenerationService
 from .media_studio.services.episode_video_service import EpisodeVideoService
+from .media_studio.services.h3_prompt_job_service import H3PromptJobService
 from .media_studio.services.storyboard_image_service import StoryboardImageService
 from .qiniu_provider import QiniuProviderService
 from .request_log import RequestLogMiddleware, write_request_log
@@ -680,6 +684,7 @@ async def lifespan(app: FastAPI):
     grs_provider = GrsProviderService(store, settings.credential_key)
     set_catalog_lookup(store.get_grs_image_model)
     llm_provider = LlmProviderService(store, settings.credential_key)
+    vlm_provider = VlmProviderService(store, settings.credential_key)
     tts_provider = TtsProviderService(store, settings.credential_key)
     comfy_provider = ComfyProviderService(store, settings.comfy_url)
     comfy = ComfyService(settings, resource_storage, url_resolver=comfy_provider.current_url)
@@ -690,12 +695,14 @@ async def lifespan(app: FastAPI):
     app.state.grs_provider = grs_provider
     app.state.qiniu_provider = qiniu_provider
     app.state.llm_provider = llm_provider
+    app.state.vlm_provider = vlm_provider
     app.state.tts_provider = tts_provider
     app.state.comfy_provider = comfy_provider
     app.state.worker = worker
     director_operations = DirectorOperationService(
         store,
         llm_provider=llm_provider,
+        vlm_provider=vlm_provider,
         worker=worker,
         resource_storage=resource_storage,
     )
@@ -705,6 +712,8 @@ async def lifespan(app: FastAPI):
     store.interrupt_stale_director_operations()
     EpisodeVideoService.recover_orphaned_jobs()
     StoryboardImageService.recover_interrupted_jobs()
+    H3PromptJobService.recover_interrupted_jobs()
+    AiGenerationService.recover_orphaned_jobs()
     await worker.start()
     yield
     set_catalog_lookup(None)
@@ -1285,6 +1294,67 @@ async def list_llm_models(
     return result
 
 
+@app.get("/api/admin/providers/vlm", response_model=LlmProviderResponse, tags=["管理后台"], summary="获取 VLM 视觉模型配置")
+def get_vlm_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.vlm_provider.public_config()
+
+
+@app.put("/api/admin/providers/vlm", response_model=LlmProviderResponse, tags=["管理后台"], summary="更新 VLM 视觉模型配置")
+def update_vlm_provider(
+    payload: VlmProviderUpdateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        result = app.state.vlm_provider.update(payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_vlm_provider", "provider", actor_user_id=user["id"], target_id="vlm",
+        detail=f"model={payload.model}", ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post("/api/admin/providers/vlm/test", response_model=LlmProviderResponse, tags=["管理后台"], summary="测试 VLM 视觉模型连接")
+async def test_vlm_provider(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: VlmProviderTestRequest | None = None,
+) -> dict:
+    try:
+        arguments = None if payload is None else payload.model_dump()
+        result = await asyncio.to_thread(app.state.vlm_provider.test, arguments)
+    except Exception as error:
+        app.state.auth_store.audit(
+            "test_vlm_provider_failed", "provider", actor_user_id=user["id"], target_id="vlm",
+            detail=type(error).__name__, ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "test_vlm_provider", "provider", actor_user_id=user["id"], target_id="vlm",
+        detail="success", ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post("/api/admin/providers/vlm/models", response_model=LlmModelCatalogResponse, tags=["管理后台"], summary="拉取上游 VLM 视觉模型目录")
+async def list_vlm_models(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: VlmModelCatalogRequest | None = None,
+) -> dict:
+    try:
+        arguments = None if payload is None else payload.model_dump()
+        result = await asyncio.to_thread(app.state.vlm_provider.list_catalog, arguments)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "list_vlm_models", "provider", actor_user_id=user["id"], target_id="vlm",
+        detail=f"count={len(result.get('models') or [])}", ip_address=client_ip(request),
+    )
+    return result
+
+
 @app.get("/api/admin/providers/tts", response_model=TtsProviderResponse, tags=["管理后台"], summary="获取独立 TTS 配置")
 def get_tts_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
     return app.state.tts_provider.public_config()
@@ -1339,10 +1409,28 @@ def get_llm_skills(_: Annotated[dict, Depends(current_user)]) -> dict:
 def get_llm_status(_: Annotated[dict, Depends(current_user)]) -> dict:
     available, reason = app.state.llm_provider.availability()
     config = app.state.llm_provider.public_config()
+    vlm = getattr(app.state, "vlm_provider", None)
+    vlm_available = False
+    if vlm is not None:
+        vlm_available, _vlm_reason = vlm.availability()
     return {
         "available": available,
         "message": reason,
-        "supports_vision": bool(config.get("supports_vision")),
+        "supports_vision": vlm_available,
+        "model": config.get("model"),
+    }
+
+
+@app.get("/api/vlm/status", response_model=VlmStatusResponse, tags=["大模型"], summary="查询视觉模型服务可用状态")
+def get_vlm_status(_: Annotated[dict, Depends(current_user)]) -> dict:
+    vlm = getattr(app.state, "vlm_provider", None)
+    if vlm is None:
+        return {"available": False, "message": "视觉模型尚未启用。请在管理设置 → VLM 视觉模型 中配置后再使用看图功能。", "model": None}
+    available, reason = vlm.availability()
+    config = vlm.public_config()
+    return {
+        "available": available,
+        "message": reason,
         "model": config.get("model"),
     }
 
@@ -1403,9 +1491,9 @@ async def analyze_subject_endpoint(
     kind: Annotated[str, Form()] = "character",
     name: Annotated[str, Form()] = "主体",
 ) -> dict:
-    available, reason = app.state.llm_provider.availability()
+    available, reason = app.state.vlm_provider.availability()
     if not available:
-        raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
+        raise HTTPException(status_code=503, detail=reason or "视觉模型尚未启用或不可用")
     content = await image.read()
     if not content:
         raise HTTPException(status_code=422, detail="请上传主体参考图后再提取外貌")
@@ -1416,7 +1504,7 @@ async def analyze_subject_endpoint(
 
     try:
         description = await asyncio.to_thread(
-            app.state.llm_provider.analyze_subject,
+            app.state.vlm_provider.analyze_subject,
             image_data_url=_image_upload_to_data_url(image, content),
             kind=kind,
             name=name,
@@ -1427,7 +1515,7 @@ async def analyze_subject_endpoint(
         raise HTTPException(status_code=400, detail=f"主体特征提取异常：{error}") from error
 
     app.state.auth_store.audit(
-        "analyze_subject", "llm", actor_user_id=user["id"], target_id="director",
+        "analyze_subject", "vlm", actor_user_id=user["id"], target_id="director",
         detail=f"kind={kind}; name={name}",
         ip_address=client_ip(request),
     )
@@ -2744,11 +2832,11 @@ async def upload_director_recipe_asset_image(
     summary="读取素材图片",
 )
 def download_director_recipe_asset_image(
-    project_id: str,
-    kind: str,
-    asset_id: str,
+    project_id: Annotated[str, ApiPath(description="导演工程 ID")],
+    kind: Annotated[str, ApiPath(description="素材类型")],
+    asset_id: Annotated[str, ApiPath(description="素材 ID")],
     user: Annotated[dict, Depends(current_user)],
-    look_id: str | None = None,
+    look_id: Annotated[str | None, Query(description="造型 ID，可选")]= None,
 ) -> FileResponse:
     from .director_jobs import find_recipe_asset_image_file
     record = director_project_or_404(app.state.store, project_id, user)

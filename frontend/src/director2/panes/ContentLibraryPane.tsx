@@ -28,9 +28,10 @@ import {
   Package,
   Sparkles,
   BookOpen,
-  Activity,
-  MessageSquareQuote,
 } from "lucide-react"
+import DirectorAssetSummaryCard from "../../director/components/DirectorAssetSummaryCard"
+import { normalizeDirectorAssetCard } from "../../director/components/director-asset-card"
+import ContentLibraryShotCard from "./content-library-shot-card"
 import {
   listDocuments,
   createDocument,
@@ -41,6 +42,7 @@ import {
   type Director2Document,
 } from "../api"
 import "./content-library.css"
+import "../../director/components/director-asset-card.css"
 
 interface ContentLibraryPaneProps {
   csrfToken: string
@@ -147,24 +149,6 @@ export default function ContentLibraryPane({
     if (!selectedDoc?.analysis?.episodes) return 0
     return selectedDoc.analysis.episodes.reduce((acc, ep) => acc + (ep.shots?.length || 0), 0)
   }, [selectedDoc])
-
-  function getPropTagColor(kind?: string): string {
-    if (kind === "人物固定道具") return "orange"
-    if (kind === "场景陈设道具") return "cyan"
-    return "blue"
-  }
-
-  function getCharGradient(name: string): { background: string } {
-    const gradients = [
-      "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
-      "linear-gradient(135deg, #3b82f6 0%, #2dd4bf 100%)",
-      "linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)",
-      "linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)",
-      "linear-gradient(135deg, #10b981 0%, #06b6d4 100%)",
-    ]
-    const charCode = (name || "").charCodeAt(0) || 0
-    return { background: gradients[charCode % gradients.length] }
-  }
 
   function copyText(txt: string | null | undefined) {
     if (!txt) return
@@ -498,100 +482,13 @@ export default function ContentLibraryPane({
                                   </div>
                                 ),
                                 children: (
-                                  /* 镜头卡片流 */
                                   <div className="shots-grid">
                                     {(ep.shots || []).map((shot) => (
-                                      <div
+                                      <ContentLibraryShotCard
                                         key={shot.shot_num}
-                                        className="shot-card"
-                                      >
-                                        <div className="shot-card-header">
-                                          <span className="shot-badge">镜头 {shot.shot_num}</span>
-                                          <h4 className="shot-title">{shot.title}</h4>
-                                          {shot.camera && <Tag color="purple">{shot.camera}</Tag>}
-                                        </div>
-
-                                        <div className="shot-meta-rows">
-                                          {/* 场景 */}
-                                          {shot.scene && (
-                                            <div className="shot-meta-row">
-                                              <span className="meta-lbl"><MapPin size={13} /> 场景：</span>
-                                              <span className="meta-val scene-val">{shot.scene}</span>
-                                            </div>
-                                          )}
-
-                                          {/* 人物 */}
-                                          {shot.characters?.length ? (
-                                            <div className="shot-meta-row">
-                                              <span className="meta-lbl"><Users size={13} /> 人物：</span>
-                                              <div className="tags-cluster">
-                                                {shot.characters.map((c) => (
-                                                  <Tag
-                                                    key={c}
-                                                    color="purple"
-                                                  >
-                                                    {c}
-                                                  </Tag>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          ) : null}
-
-                                          {/* 道具 */}
-                                          {shot.props?.length ? (
-                                            <div className="shot-meta-row">
-                                              <span className="meta-lbl"><Package size={13} /> 道具：</span>
-                                              <div className="tags-cluster">
-                                                {shot.props.map((p) => (
-                                                  <Tag
-                                                    key={p}
-                                                    color="orange"
-                                                  >
-                                                    {p}
-                                                  </Tag>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          ) : null}
-
-                                          {/* 动作 */}
-                                          {shot.action && (
-                                            <div className="shot-meta-row">
-                                              <span className="meta-lbl"><Activity size={13} /> 动作：</span>
-                                              <span className="meta-val">{shot.action}</span>
-                                            </div>
-                                          )}
-
-                                          {/* 台词 */}
-                                          {shot.dialogue && (
-                                            <div className="shot-meta-row dialogue-row">
-                                              <span className="meta-lbl"><MessageSquareQuote size={13} /> 台词：</span>
-                                              <div className="dialogue-bubble">{shot.dialogue}</div>
-                                            </div>
-                                          )}
-
-                                          {/* 音效与字幕 */}
-                                          {(shot.audio || shot.subtitle) && (
-                                            <div className="shot-meta-row audio-row">
-                                              {shot.audio && <span className="audio-text">🔊 {shot.audio}</span>}
-                                              {shot.subtitle && <span className="subtitle-text">💬 {shot.subtitle}</span>}
-                                            </div>
-                                          )}
-
-                                          {/* AI 生图提示词 */}
-                                          {shot.visual_prompt && (
-                                            <div className="shot-prompt-box">
-                                              <div className="prompt-head">
-                                                <span><Sparkles size={12} /> AI 画面提示词 (Prompt)</span>
-                                                <Button type="link" size="small" className="copy-link" onClick={() => copyText(shot.visual_prompt)}>
-                                                  复制
-                                                </Button>
-                                              </div>
-                                              <p className="prompt-text">{shot.visual_prompt}</p>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
+                                        shot={shot}
+                                        onCopyPrompt={copyText}
+                                      />
                                     ))}
                                   </div>
                                 ),
@@ -614,61 +511,10 @@ export default function ContentLibraryPane({
                           </div>
                         ) : (
                           <div className="cards-grid">
-                            {selectedDoc.analysis.characters.map((char) => (
-                              <div
-                                key={char.name}
-                                className="character-card"
-                              >
-                                <div className="char-header">
-                                  <div className="char-avatar" style={getCharGradient(char.name)}>
-                                    {char.name.slice(0, 1)}
-                                  </div>
-                                  <div className="char-title-meta">
-                                    <div className="char-name-row">
-                                      <h4 className="char-name">{char.name}</h4>
-                                      <Tag color="blue">{char.role}</Tag>
-                                      {char.age && <Tag color="cyan">{char.age}</Tag>}
-                                      <Tag color={char.gender === "女" ? "magenta" : "geekblue"}>
-                                        {char.gender}
-                                      </Tag>
-                                    </div>
-                                    <span className="shots-stat">出现分镜：{char.shots_count || 0} 次</span>
-                                  </div>
-                                </div>
-
-                                {/* 固定道具 */}
-                                {char.fixed_props?.length ? (
-                                  <div className="char-props-section">
-                                    <span className="prop-lbl"><Package size={13} /> 固定道具：</span>
-                                    <div className="tags-cluster">
-                                      {char.fixed_props.map((fp) => (
-                                        <Tag key={fp} color="orange">
-                                          {fp}
-                                        </Tag>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null}
-
-                                {/* 外观设定 */}
-                                <div className="char-desc-section">
-                                  <p className="char-desc">{char.description}</p>
-                                </div>
-
-                                {/* 人物一致性提示词 */}
-                                {char.visual_prompt && (
-                                  <div className="char-prompt-section">
-                                    <div className="prompt-head">
-                                      <span><Sparkles size={12} /> 一致性生图 Prompt</span>
-                                      <Button type="link" size="small" className="copy-link" onClick={() => copyText(char.visual_prompt)}>
-                                        复制
-                                      </Button>
-                                    </div>
-                                    <p className="prompt-text">{char.visual_prompt}</p>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
+                            {selectedDoc.analysis.characters.map((char) => {
+                              const asset = normalizeDirectorAssetCard("character", char)
+                              return asset ? <DirectorAssetSummaryCard key={char.name} asset={asset} onCopyPrompt={copyText} /> : null
+                            })}
                           </div>
                         ),
                       },
@@ -686,43 +532,10 @@ export default function ContentLibraryPane({
                           </div>
                         ) : (
                           <div className="cards-grid">
-                            {selectedDoc.analysis.scenes.map((sc) => (
-                              <div
-                                key={sc.name}
-                                className="scene-card"
-                              >
-                                <div className="scene-header">
-                                  <div className="scene-icon-wrap">
-                                    <MapPin size={20} />
-                                  </div>
-                                  <div className="scene-meta">
-                                    <h4 className="scene-name">{sc.name}</h4>
-                                    <div className="scene-badges">
-                                      <Tag color={sc.type === "固定场景" || sc.type === "固定场景库" ? "green" : "blue"}>
-                                        {sc.type || "拍摄场地"}
-                                      </Tag>
-                                      {sc.shots_count ? <span className="shots-stat">引用 {sc.shots_count} 镜头</span> : null}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <p className="scene-desc">{sc.description}</p>
-
-                                {/* 场景元素 */}
-                                {sc.elements?.length ? (
-                                  <div className="scene-elements">
-                                    <span className="elem-lbl">陈设元素：</span>
-                                    <div className="tags-cluster">
-                                      {sc.elements.map((el) => (
-                                        <Tag key={el} color="default">
-                                          {el}
-                                        </Tag>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            ))}
+                            {selectedDoc.analysis.scenes.map((sc) => {
+                              const asset = normalizeDirectorAssetCard("scene", sc)
+                              return asset ? <DirectorAssetSummaryCard key={sc.name} asset={asset} onCopyPrompt={copyText} /> : null
+                            })}
                           </div>
                         ),
                       },
@@ -740,32 +553,20 @@ export default function ContentLibraryPane({
                           </div>
                         ) : (
                           <div className="props-grid">
-                            {selectedDoc.analysis.props.map((pr) => (
-                              <div
-                                key={pr.name}
-                                className="prop-card"
-                              >
-                                <div className="prop-card-top">
-                                  <div className="prop-icon-wrap">
-                                    <Package size={18} />
-                                  </div>
-                                  <div className="prop-name-box">
-                                    <h4 className="prop-name">{pr.name}</h4>
-                                    <Tag color={getPropTagColor(pr.kind)}>{pr.kind}</Tag>
-                                  </div>
-                                </div>
-                                <div className="prop-card-bottom">
-                                  <div className="prop-info-item">
-                                    <span className="lbl">关联角色/场景：</span>
-                                    <span className="val">{pr.related_character || "场景共用"}</span>
-                                  </div>
-                                  <div className="prop-info-item">
-                                    <span className="lbl">出现频次：</span>
-                                    <span className="val count-val">{pr.count || 1} 次</span>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
+                            {selectedDoc.analysis.props.map((pr) => {
+                              const asset = normalizeDirectorAssetCard("prop", pr)
+                              if (!asset) return null
+                              return (
+                                <DirectorAssetSummaryCard
+                                  key={pr.name}
+                                  asset={{
+                                    ...asset,
+                                    relatedCharacter: asset.relatedCharacter || "场景共用",
+                                    count: asset.count ?? 1,
+                                  }}
+                                />
+                              )
+                            })}
                           </div>
                         ),
                       },

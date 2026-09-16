@@ -536,6 +536,11 @@
 .director2-app .director2-ai-studio .director-stream-feed { min-height: 100%; }
 .director2-app .director2-ai-studio .director-completion-card { margin-top: 20px; }
 .director2-app .director2-ai-studio .director-block .director-completion-card { margin-top: 12px; margin-bottom: 4px; }
+.director2-app .director2-ai-studio .director-task-rail-title strong { font-size: 13.5px; }
+.director2-app .director2-ai-studio .director-task-row { font-size: 14px; min-height: 46px; }
+.director2-app .director2-ai-studio .director-task-pill { height: 24px; font-size: 12.5px; padding: 0 10px; }
+.director2-app .director2-ai-studio .director-script-stream { padding: 20px 20px 16px; }
+.director2-app .director2-ai-studio .director-script-stream-head { gap: 12px; padding-bottom: 4px; }
 @media (max-width: 767px) {
   .director2-app .director2-ai-studio { border-radius: 12px; }
   .director2-app .director2-ai-studio .director-recipe-main { padding: 12px 10px 0; }

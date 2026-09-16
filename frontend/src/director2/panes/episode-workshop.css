@@ -17,7 +17,7 @@
 .d2-episode-workshop.workshop-container.in-episode-detail {
   height: 100%;
   min-height: 0;
-  flex: 1;
+  flex: 1 1 0%;
   overflow: hidden;
 }
 
@@ -206,7 +206,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  flex: 1;
+  flex: 1 1 0%;
   padding: 0;
   gap: 10px;
   background: #f8fafc;
@@ -262,13 +262,14 @@
   color: #64748b;
 }
 
-/* Tabs 深度定制：完全适配沉浸式 Flex 满高布局（:deep 还原为普通后代选择器） */
+/* Tabs：填满剩余高度。当前 antd 使用 body-holder / body / content，旧版为 content-holder / tabpane，两套选择器都锁死 overflow。 */
 .d2-episode-workshop .episode-tabs {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
-  height: 100%;
+  height: auto;
+  overflow: hidden;
 }
 
 .d2-episode-workshop .episode-tabs > .ant-tabs-nav {
@@ -276,37 +277,40 @@
   flex-shrink: 0;
 }
 
+.d2-episode-workshop .episode-tabs > .ant-tabs-body-holder,
 .d2-episode-workshop .episode-tabs > .ant-tabs-content-holder {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
-  height: 100%;
+  height: auto;
+  overflow: hidden;
 }
 
-.d2-episode-workshop .episode-tabs > .ant-tabs-content-holder > .ant-tabs-content {
+.d2-episode-workshop .episode-tabs .ant-tabs-body,
+.d2-episode-workshop .episode-tabs .ant-tabs-content-active,
+.d2-episode-workshop .episode-tabs .ant-tabs-tabpane-active {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 
-.d2-episode-workshop .episode-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
+.d2-episode-workshop .episode-tabs .ant-tabs-content-hidden,
+.d2-episode-workshop .episode-tabs .ant-tabs-tabpane-hidden {
+  display: none !important;
 }
 
 /* ==================== 3. 镜头工作台 (XiajiShotsWorkbench) ==================== */
 .d2-episode-workshop .xiaji-shots-workbench {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 .d2-episode-workshop .xiaji-shots-toolbar {
@@ -325,7 +329,8 @@
 .d2-episode-workshop .toolbar-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 12px 16px;
 }
 
 .d2-episode-workshop .sketched-count-label {
@@ -342,7 +347,8 @@
 
 .d2-episode-workshop .xiaji-shots-split {
   display: flex;
-  flex: 1;
+  align-items: stretch;
+  flex: 1 1 0%;
   min-height: 0;
   border: 1px solid #e2e8f0;
   border-radius: 0 0 10px 10px;
@@ -351,10 +357,12 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-/* 左侧分镜卡片列表 */
+/* 左侧分镜卡片列表：锁高后独立滚动，页头保持可见 */
 .d2-episode-workshop .xiaji-shots-grid-pane {
   height: 100%;
+  min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 12px 12px 24px;
   border-right: 1px solid #e2e8f0;
@@ -363,21 +371,23 @@
 
 .d2-episode-workshop .xiaji-shot-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 156px), 1fr));
   gap: 10px;
+  min-width: 0;
 }
 
 .d2-episode-workshop .xiaji-shot-tile {
   display: flex;
   flex-direction: column;
   padding: 0;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--studio-border, #e2e8f0);
   border-radius: 8px;
-  background: #ffffff;
-  color: #0f172a;
+  background: var(--studio-surface, #ffffff);
+  color: var(--studio-text, #0f172a);
   text-align: left;
-  cursor: pointer;
   transition: all 0.2s;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
@@ -393,28 +403,128 @@
   background: #f5f3ff;
 }
 
+.d2-episode-workshop .xiaji-shot-tile.is-checked:not(.is-selected) {
+  border-color: #a78bfa;
+  background: color-mix(in srgb, #7047f6 8%, var(--studio-surface, #ffffff));
+}
+
+.d2-episode-workshop .xiaji-shot-tile-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 8px 0;
+  min-width: 0;
+  background: inherit;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-head .ant-checkbox-wrapper {
+  flex-shrink: 0;
+  margin-inline-end: 0;
+  padding-top: 1px;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-select,
+.d2-episode-workshop .xiaji-shot-tile-body {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-select {
+  flex: 1;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 2px;
+  min-height: 28px;
+  padding-bottom: 4px;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .d2-episode-workshop .xiaji-shot-tile-num {
-  padding: 6px 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 700;
   color: #7047f6;
   font-variant-numeric: tabular-nums;
-  background: #ffffff;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-duration {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  color: var(--studio-text);
+  background: var(--studio-surface-raised);
+  border: 1px solid var(--studio-border);
+}
+
+.d2-episode-workshop .xiaji-shot-tile.is-selected .xiaji-shot-tile-duration {
+  color: var(--studio-accent-text);
+  border-color: var(--studio-focus);
+  background: var(--studio-primary-soft);
+}
+
+.d2-episode-workshop .xiaji-shot-tile-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-ready,
+.d2-episode-workshop .xiaji-shot-tile-busy-label {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 16px;
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.1);
+}
+
+.d2-episode-workshop .xiaji-shot-tile-busy-label {
+  color: var(--studio-accent-text, #435ce8);
+  background: var(--studio-primary-soft, rgba(67, 92, 232, 0.1));
+  font-variant-numeric: tabular-nums;
 }
 
 .d2-episode-workshop .xiaji-shot-tile.is-selected .xiaji-shot-tile-num {
-  background: #f5f3ff;
+  background: transparent;
 }
 
 .d2-episode-workshop .xiaji-shot-tile-media {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100px;
-  background: #f1f5f9;
-  border-top: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
-  color: #94a3b8;
+  background: var(--studio-canvas, #f1f5f9);
+  border-top: 1px solid var(--studio-border, #e2e8f0);
+  border-bottom: 1px solid var(--studio-border, #e2e8f0);
+  color: var(--studio-text-muted, #94a3b8);
   overflow: hidden;
 }
 
@@ -433,9 +543,43 @@
   color: #7047f6;
 }
 
+.d2-episode-workshop .xiaji-shot-tile-video-progress {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--studio-media, #111827) 58%, transparent);
+  pointer-events: none;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-video-progress .ant-progress {
+  width: min(100%, 112px);
+  margin-bottom: 0;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-video-progress-label {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #f3f5f7;
+}
+
 .d2-episode-workshop .tile-caption {
   margin: 0;
   padding: 6px 8px 8px;
+  min-width: 0;
+  max-width: 100%;
   font-size: 11px;
   line-height: 1.4;
   color: #475569;
@@ -443,11 +587,32 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   background: #ffffff;
 }
 
-.d2-episode-workshop .xiaji-shot-tile.is-selected .tile-caption {
-  background: #f5f3ff;
+.d2-episode-workshop .xiaji-shot-tile.is-selected .tile-caption,
+.d2-episode-workshop .xiaji-shot-tile.is-checked .tile-caption {
+  background: transparent;
+}
+
+[data-theme="dark"] .d2-episode-workshop .xiaji-shot-tile.is-selected {
+  background: color-mix(in srgb, #7047f6 18%, var(--studio-surface, #171a20));
+}
+
+[data-theme="dark"] .d2-episode-workshop .xiaji-shot-tile.is-checked:not(.is-selected) {
+  background: color-mix(in srgb, #a78bfa 12%, var(--studio-surface, #171a20));
+}
+
+[data-theme="dark"] .d2-episode-workshop .xiaji-shot-tile-ready {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.16);
+}
+
+[data-theme="dark"] .d2-episode-workshop .xiaji-shot-tile-busy-label {
+  color: var(--studio-accent-text, #8b93f0);
+  background: var(--studio-primary-soft, rgba(91, 101, 230, 0.18));
 }
 
 /* 分栏拖拽手柄 */
@@ -464,12 +629,12 @@
   background: #7047f6;
 }
 
-/* 右侧检视器 */
+/* 右侧检视器：顶栏固定，表单区独立滚动 */
 .d2-episode-workshop .xiaji-shots-detail {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 0%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -498,9 +663,24 @@
 }
 
 .d2-episode-workshop .topbar-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   font-weight: 700;
   color: #7047f6;
+}
+
+.d2-episode-workshop .topbar-duration {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--studio-text);
+  background: var(--studio-surface-raised);
+  border: 1px solid var(--studio-border);
 }
 
 .d2-episode-workshop .xiaji-pane-btn {
@@ -525,17 +705,16 @@
 }
 
 .d2-episode-workshop .xiaji-pane-scroll-area {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   min-height: 0;
-  height: 100%;
-  overflow-y: auto;
+  height: auto;
   overflow-x: hidden;
+  overflow-y: auto;
   padding: 16px 18px 40px 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   background: #ffffff;
-  scroll-behavior: smooth;
 }
 
 .d2-episode-workshop .xiaji-pane-section {
@@ -544,7 +723,7 @@
   background: #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   flex-shrink: 0;
-  overflow: visible;
+  overflow: hidden;
   transition: border-color 0.2s;
 }
 
@@ -564,9 +743,6 @@
   border-radius: 9px 9px 0 0;
   cursor: pointer;
   user-select: none;
-  position: sticky;
-  top: 0;
-  z-index: 10;
   transition: background 0.2s;
 }
 
@@ -658,6 +834,7 @@
 
 .d2-episode-workshop .form-label {
   font-size: 12px;
+  line-height: 1.4;
   color: #334155;
   font-weight: 500;
 }
@@ -742,6 +919,7 @@
   border-radius: 4px;
   object-fit: cover;
   background: #e2e8f0;
+  cursor: pointer;
 }
 
 .d2-episode-workshop .selected-look-preview strong {
@@ -766,8 +944,21 @@
 
 .d2-episode-workshop .form-row-two {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
+  align-items: start;
+}
+
+.d2-episode-workshop .form-row-two > .form-group {
+  min-width: 0;
+}
+
+.d2-episode-workshop .form-row-two .form-label {
+  white-space: nowrap;
+}
+
+.d2-episode-workshop .xiaji-shot-form .ant-select {
+  width: 100%;
 }
 
 .d2-episode-workshop .chips-flex-row {
@@ -891,6 +1082,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  cursor: pointer;
 }
 
 .d2-episode-workshop .sketch-placeholder {
@@ -935,6 +1127,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  cursor: pointer;
 }
 
 .d2-episode-workshop .version-badge {
@@ -1098,10 +1291,12 @@
 .d2-episode-workshop .xiaji-script-grid {
   display: grid;
   grid-template-columns: 1fr 1.2fr;
+  align-items: stretch;
   gap: 16px;
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
-  overflow-y: auto;
+  height: 100%;
+  overflow: hidden;
   padding-right: 4px;
 }
 
@@ -1109,6 +1304,9 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .d2-episode-workshop .script-section-box {
@@ -1194,8 +1392,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 400px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .d2-episode-workshop .xiaji-original-lines li {
@@ -1223,8 +1420,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 520px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .d2-episode-workshop .xiaji-beat {
@@ -1316,10 +1512,50 @@
   border-bottom: 1px solid #f1f5f9;
 }
 
-.d2-episode-workshop .shot-thumb img {
+.d2-episode-workshop .shot-thumb video {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.d2-episode-workshop .shot-status {
+  padding: 0 6px 8px;
+  font-size: 11px;
+  text-align: center;
+  color: #64748b;
+}
+
+.d2-episode-workshop .timeline-shot-card.is-ready .shot-status {
+  color: #15803d;
+}
+
+.d2-episode-workshop .timeline-shot-card.is-busy .shot-status {
+  color: #1d4ed8;
+}
+
+.d2-episode-workshop .timeline-shot-card.is-missing .shot-status {
+  color: #b45309;
+}
+
+.d2-episode-workshop .compose-episode-player h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.d2-episode-workshop .compose-episode-video {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  background: #0f1115;
+  border-radius: 12px;
+}
+
+.d2-episode-workshop .compose-episode-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #64748b;
 }
 
 .d2-episode-workshop .placeholder-thumb {
@@ -1335,8 +1571,10 @@
 }
 
 .d2-episode-workshop .xiaji-compose-pane {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -1379,3 +1617,387 @@
 .d2-episode-workshop .xiaji-beat-list::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.32);
 }
+
+.d2-episode-workshop .param-static {
+  font-size: 12px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.d2-video-settings-popover {
+  z-index: 1100;
+}
+
+.d2-video-settings-popover .d2-video-settings-form {
+  width: min(340px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.d2-video-settings-popover .d2-video-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--studio-text, #171a1f);
+}
+
+.d2-video-settings-popover .d2-video-settings-field > span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.d2-video-settings-popover .d2-video-settings-field > em {
+  font-size: 11px;
+  font-style: normal;
+  color: var(--studio-text-muted, #64748b);
+  line-height: 1.4;
+}
+
+.d2-episode-workshop .h3-material-content {
+  display: flex;
+  min-height: 300px;
+  max-height: 500px;
+  border: 1px solid var(--studio-border, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--studio-surface, #ffffff);
+}
+
+.d2-episode-workshop .h3-material-left {
+  width: 280px;
+  min-width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--studio-border, #e2e8f0);
+  overflow-y: auto;
+  background: var(--studio-surface, #ffffff);
+}
+
+.d2-episode-workshop .h3-ref-block {
+  padding: 12px 14px;
+}
+
+.d2-episode-workshop .h3-ref-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.d2-episode-workshop .h3-ref-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--studio-text, #334155);
+}
+
+.d2-episode-workshop .h3-ref-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.d2-episode-workshop .h3-ref-img-cell {
+  position: relative;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.d2-episode-workshop .h3-ref-img-cell img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--studio-border, #e2e8f0);
+  background: var(--studio-canvas, #f8fafc);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+}
+
+.d2-episode-workshop .h3-ref-del-btn {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #ffffff;
+  border: 1.5px solid var(--studio-surface, #ffffff);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s;
+  padding: 0;
+  z-index: 2;
+}
+
+.d2-episode-workshop .h3-ref-img-cell:hover .h3-ref-del-btn {
+  display: flex;
+}
+
+.d2-episode-workshop .h3-ref-del-btn:hover {
+  transform: scale(1.15);
+  background: #dc2626;
+}
+
+.d2-episode-workshop .h3-ref-img-empty {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  border: 1px dashed var(--studio-border, #cbd5e1);
+  background: var(--studio-canvas, #f8fafc);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--studio-text-muted, #94a3b8);
+  font-size: 11px;
+}
+
+.d2-episode-workshop .h3-ref-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 0 2px;
+}
+
+.d2-episode-workshop .h3-ref-seq {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--studio-text, #334155);
+  text-align: center;
+  line-height: 1.2;
+}
+
+.d2-episode-workshop .h3-ref-name {
+  font-size: 10px;
+  color: var(--studio-text-muted, #64748b);
+  max-width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.d2-episode-workshop .h3-ref-cat-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-right: 2px;
+  vertical-align: middle;
+}
+
+.d2-episode-workshop .h3-ref-cat-dot.is-char {
+  background: #3b82f6;
+}
+
+.d2-episode-workshop .h3-ref-cat-dot.is-scene {
+  background: #10b981;
+}
+
+.d2-episode-workshop .h3-ref-cat-dot.is-prop {
+  background: #f59e0b;
+}
+
+.d2-episode-workshop .h3-ref-add-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  border: 1px dashed color-mix(in srgb, #7047f6 50%, var(--studio-border, #c4b5fd));
+  background: color-mix(in srgb, #7047f6 8%, var(--studio-surface, #f5f3ff));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7047f6;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.d2-episode-workshop .h3-ref-add-btn:hover {
+  border-color: #7047f6;
+  background: color-mix(in srgb, #7047f6 14%, var(--studio-surface, #ede9fe));
+}
+
+.d2-episode-workshop .h3-ref-expand {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #7047f6;
+  cursor: pointer;
+  text-align: center;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.d2-episode-workshop .h3-ref-expand:hover {
+  background: color-mix(in srgb, #7047f6 8%, var(--studio-surface, #f5f3ff));
+}
+
+.d2-episode-workshop .h3-prompt-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--studio-surface, #ffffff);
+}
+
+.d2-episode-workshop .h3-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--studio-border, #f1f5f9);
+  flex-shrink: 0;
+  background: var(--studio-canvas, #f8fafc);
+}
+
+.d2-episode-workshop .h3-prompt-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--studio-text, #334155);
+}
+
+.d2-episode-workshop .h3-prompt-display {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--studio-text, #1e293b);
+  word-break: break-word;
+}
+
+.d2-episode-workshop .h3-prompt-display .h3-section-key {
+  display: block;
+  color: var(--studio-text, #0f172a);
+  font-weight: 700;
+  font-size: 13px;
+  margin-top: 10px;
+  margin-bottom: 2px;
+}
+
+.d2-episode-workshop .h3-prompt-display .h3-section-key:first-child {
+  margin-top: 0;
+}
+
+.d2-episode-workshop .h3-prompt-display .h3-ref-chip-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: color-mix(in srgb, #10b981 14%, var(--studio-surface, #ecfdf5));
+  border: 1px solid color-mix(in srgb, #10b981 40%, var(--studio-border, #a7f3d0));
+  border-radius: 4px;
+  padding: 1px 7px 1px 5px;
+  font-size: 11.5px;
+  color: #047857;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
+.d2-episode-workshop .h3-prompt-display .h3-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
+}
+
+.d2-episode-workshop .h3-prompt-display .h3-subject-tag {
+  display: inline-flex;
+  align-items: center;
+  background: color-mix(in srgb, #ef4444 10%, var(--studio-surface, #fef2f2));
+  border: 1px solid color-mix(in srgb, #ef4444 35%, var(--studio-border, #fecaca));
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11.5px;
+  color: #dc2626;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
+.d2-episode-workshop .h3-prompt-display .h3-shot-tag {
+  display: inline-flex;
+  align-items: center;
+  background: var(--studio-canvas, #f1f5f9);
+  border: 1px solid var(--studio-border, #cbd5e1);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11.5px;
+  color: var(--studio-text-muted, #475569);
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.d2-episode-workshop .h3-prompt-loading,
+.d2-episode-workshop .h3-prompt-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 13px;
+}
+
+.d2-episode-workshop .h3-prompt-empty {
+  flex-direction: column;
+  padding: 24px;
+  text-align: center;
+}
+
+.d2-episode-workshop .h3-prompt-empty span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--studio-text, #64748b);
+}
+
+.d2-episode-workshop .h3-prompt-empty p {
+  font-size: 12px;
+  color: var(--studio-text-muted, #94a3b8);
+  margin: 0;
+  line-height: 1.6;
+  max-width: 280px;
+}
+
+.d2-episode-workshop .h3-prompt-display::-webkit-scrollbar,
+.d2-episode-workshop .h3-material-left::-webkit-scrollbar {
+  width: 4px;
+}
+
+.d2-episode-workshop .h3-prompt-display::-webkit-scrollbar-track,
+.d2-episode-workshop .h3-material-left::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.d2-episode-workshop .h3-prompt-display::-webkit-scrollbar-thumb,
+.d2-episode-workshop .h3-material-left::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 4px;
+}
+
+[data-theme="dark"] .d2-episode-workshop .h3-prompt-display .h3-ref-chip-inline {
+  color: #6ee7b7;
+}
+
+[data-theme="dark"] .d2-episode-workshop .h3-prompt-display .h3-subject-tag {
+  color: #fca5a5;
+}
+

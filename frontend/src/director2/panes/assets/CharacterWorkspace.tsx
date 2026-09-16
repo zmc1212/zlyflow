@@ -3,9 +3,12 @@
 // 原版通过 v-model 直接深改 selectedAsset 并由深度 watch 触发自动保存；
 // React 中改为 onFieldChange / onExtraChange / onIdentityChange 回调上抛，由父组件统一更新状态与自动保存。
 import { Button, Input, Popconfirm, Select, Space, message } from "antd"
-import { ExternalLink, Plus, Shirt, Sparkles, Trash2, User } from "lucide-react"
+import { Maximize2, Plus, Shirt, Sparkles, Trash2, User } from "lucide-react"
 import type { Director2Asset } from "../../api"
+import { hasSourceReferences } from "../../asset-source-references"
+import { useMediaPreview } from "../../media-preview"
 import { copyText, getAssetGradient, type AssetIdentity } from "./shared"
+import AssetSourceReferenceStrip from "./AssetSourceReferenceStrip"
 
 interface CharacterWorkspaceProps {
   asset: Director2Asset
@@ -18,6 +21,11 @@ interface CharacterWorkspaceProps {
   onGenerateIdentity: (ident: AssetIdentity) => void
   onRemoveIdentity: (idx: number) => void
   onOpenAddIdentity: () => void
+  uploadingSourceRef: boolean
+  inferringSourcePrompts?: boolean
+  onUploadSourceRefs: (files: File[]) => void
+  onRemoveSourceRef: (refId: string) => void
+  onInferSourcePrompts?: () => void
 }
 
 const ROLE_POSITION_OPTIONS = [
@@ -88,7 +96,15 @@ export default function CharacterWorkspace({
   onGenerateIdentity,
   onRemoveIdentity,
   onOpenAddIdentity,
+  uploadingSourceRef,
+  inferringSourcePrompts,
+  onUploadSourceRefs,
+  onRemoveSourceRef,
+  onInferSourcePrompts,
 }: CharacterWorkspaceProps) {
+  const { openMediaPreview } = useMediaPreview()
+  const avatarUrl = asset.extra?.avatar_url || asset.image_url
+
   function resetAvatarPrompt() {
     onExtraChange({
       avatar_prompt: `${asset.name}，面部肖像特写，五官分明，眼神清澈坚毅，中国古代少年，极简中性灰色背景，柔和电影级布光，8k`,
@@ -118,11 +134,12 @@ export default function CharacterWorkspace({
           {/* 左侧：1:1 头像预览与生成按钮 */}
           <div className="portrait-preview-col">
             <div className="avatar-box">
-              {asset.extra?.avatar_url || asset.image_url ? (
+              {avatarUrl ? (
                 <img
-                  src={asset.extra?.avatar_url || asset.image_url}
+                  src={avatarUrl}
                   className="avatar-img-view"
-                  alt=""
+                  alt={`${asset.name} 头像`}
+                  onClick={() => openMediaPreview({ src: avatarUrl, title: `${asset.name} 头像` })}
                 />
               ) : (
                 <div className="avatar-placeholder" style={getAssetGradient(asset.name)}>
@@ -131,15 +148,16 @@ export default function CharacterWorkspace({
                 </div>
               )}
 
-              {asset.extra?.avatar_url || asset.image_url ? (
-                <a
-                  href={asset.extra?.avatar_url || asset.image_url}
-                  target="_blank"
+              {avatarUrl ? (
+                <button
+                  type="button"
                   className="float-view-btn"
-                  title="查看大图"
+                  title="放大查看"
+                  aria-label={`放大查看${asset.name}头像`}
+                  onClick={() => openMediaPreview({ src: avatarUrl, title: `${asset.name} 头像` })}
                 >
-                  <ExternalLink size={13} />
-                </a>
+                  <Maximize2 size={13} />
+                </button>
               ) : null}
             </div>
 
@@ -153,8 +171,18 @@ export default function CharacterWorkspace({
               >
                 {asset.extra?.avatar_url || asset.image_url ? "重新生成头像" : "✨ 生成头像"}
               </Button>
-
+                {hasSourceReferences(asset) ? (
+                <span className="avatar-ref-hint">将按原片截图锁五官和服装，不跟旧提示词加衣服</span>
+              ) : null}
             </div>
+            <AssetSourceReferenceStrip
+              asset={asset}
+              uploading={uploadingSourceRef}
+              inferring={inferringSourcePrompts}
+              onUpload={onUploadSourceRefs}
+              onRemove={onRemoveSourceRef}
+              onInferPrompts={onInferSourcePrompts}
+            />
           </div>
 
           {/* 右侧：头像生图提示词与容貌小传 */}
@@ -184,7 +212,7 @@ export default function CharacterWorkspace({
                 />
               ) : null}
               <span className="field-hint">
-                💡 头像将强化人物五官和肖像眼神表现，生成 1024x1024 高清特写。
+                💡 头像将强化人物五官和肖像眼神表现，生成 1024x1024 高清特写。有原片截图时会优先按参考图锁身份。
               </span>
             </div>
 
@@ -425,7 +453,8 @@ export default function CharacterWorkspace({
                       <img
                         src={ident.image_url}
                         className="ident-img-view"
-                        alt=""
+                        alt={`${ident.name || "造型"}`}
+                        onClick={() => openMediaPreview({ src: ident.image_url, title: `${asset.name} · ${ident.name || "造型图"}` })}
                       />
                     ) : (
                       <div className="ident-img-empty">
@@ -435,14 +464,15 @@ export default function CharacterWorkspace({
                     )}
 
                     {ident.image_url ? (
-                      <a
-                        href={ident.image_url}
-                        target="_blank"
+                      <button
+                        type="button"
                         className="float-view-btn"
-                        title="查看大图"
+                        title="放大查看"
+                        aria-label={`放大查看${ident.name || "造型图"}`}
+                        onClick={() => openMediaPreview({ src: ident.image_url, title: `${asset.name} · ${ident.name || "造型图"}` })}
                       >
-                        <ExternalLink size={13} />
-                      </a>
+                        <Maximize2 size={13} />
+                      </button>
                     ) : null}
                   </div>
 
@@ -455,6 +485,9 @@ export default function CharacterWorkspace({
                   >
                     {ident.image_url ? "重新生成造型图" : "✨ 生成造型图"}
                   </Button>
+                  {hasSourceReferences(asset) ? (
+                    <span className="avatar-ref-hint">将按原片截图的服装生成，忽略下方旧衣装描述</span>
+                  ) : null}
                 </div>
 
                 {/* 右边：外观描述与专属提示词 */}

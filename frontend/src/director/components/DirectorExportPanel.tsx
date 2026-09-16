@@ -96,7 +96,7 @@ export default function DirectorExportPanel({
         description={
           ttsReady
             ? "音色由管理设置中的独立 TTS 配置提供，可复用大模型凭据。不使用 Edge TTS。"
-            : capabilities.data?.tts_reason || "请联系超级管理员在「管理设置 → LLM」启用独立 TTS。"
+            : capabilities.data?.tts_reason || "请联系超级管理员在「管理设置 → TTS」启用语音合成。"
         }
       />
       ) : null}

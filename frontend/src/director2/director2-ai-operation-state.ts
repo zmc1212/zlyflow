@@ -47,6 +47,7 @@ export function isDirector2LastPipelineStage(stage: Director2AiStage | null | un
 
 export function director2CheckpointHeadline(operation: Director2AiOperation | null): string | null {
   if (!operation) return null
+  if (operation.status === "revising" && operation.current_stage === "clarify") return "正在重新确认创作方向…"
   if (operation.status === "revising") return "正在按你的反馈重新规划…"
   if (operation.status === "awaiting_review") {
     const step = director2ReviewStepNumber(director2AwaitingStage(operation) || operation.current_stage)
@@ -93,7 +94,9 @@ export function director2AiHeadlineDetail(
   fallback: string,
 ): string {
   if (!operation) return fallback
-  if (operation.cancel_requested) return "正在停止当前生成，已完成的内容会保留。"
+  if (operation.cancel_requested && DIRECTOR2_ACTIVE_AI_STATUSES.has(operation.status)) {
+    return "正在停止当前生成，已完成的内容会保留。"
+  }
   if (operation.status === "revising") {
     return stageMessage || operation.result.message || "正在按你的反馈重新规划…"
   }
@@ -114,7 +117,8 @@ export function director2RailStageStatus(
   const awaitingStage = director2AwaitingStage(operation)
   if (operation?.status === "awaiting_review" && awaitingStage === stage) return "review"
   const current = operation?.current_stage
-  const clarifyReady = operation?.kind === "pipeline" || (operation?.kind === "clarify" && operation.status === "succeeded")
+  const redoingClarify = current === "clarify" && Boolean(operation && DIRECTOR2_ACTIVE_AI_STATUSES.has(operation.status))
+  const clarifyReady = !redoingClarify && (operation?.kind === "pipeline" || (operation?.kind === "clarify" && operation.status === "succeeded"))
   if (completed.has(stage) || (clarifyReady && stage === "clarify")) return "completed"
   const failedStage = operation?.result?.failed_stage || (["failed", "cancelled"].includes(operation?.status || "") ? current : null)
   if (failedStage === stage) return "failed"
@@ -175,15 +179,25 @@ export function director2ContentStages(summary: Director2ContentSummary | null):
   return stages
 }
 
-/** 左侧步骤的完成集合 = AI 任务记录 ∪ 项目真实内容存量。待确认/调整中的当前步不计入完成。 */
+/** 左侧步骤完成集合：有 pipeline 任务时以任务记录为准，避免旧内容把已作废阶段仍标成完成。无任务时用项目真实存量。 */
 export function mergeDirector2StageCompletion(
   operation: Director2AiOperation | null,
   contentSummary: Director2ContentSummary | null,
 ): Set<Director2AiStage> {
-  const completed = new Set<Director2AiStage>([
-    ...(operation?.result?.completed_stages || []),
-    ...director2ContentStages(contentSummary),
-  ])
+  if (operation?.kind === "pipeline") {
+    const completed = new Set<Director2AiStage>(
+      (operation.result?.completed_stages || []).filter((stage): stage is Director2AiStage => Boolean(stage)),
+    )
+    const redoingClarify = operation.current_stage === "clarify" && DIRECTOR2_ACTIVE_AI_STATUSES.has(operation.status)
+    if (!redoingClarify) completed.add("clarify")
+    const awaiting = director2AwaitingStage(operation)
+    if (awaiting) completed.delete(awaiting)
+    if (operation.current_stage && DIRECTOR2_ACTIVE_AI_STATUSES.has(operation.status)) {
+      completed.delete(operation.current_stage)
+    }
+    return completed
+  }
+  const completed = new Set<Director2AiStage>(director2ContentStages(contentSummary))
   const awaiting = director2AwaitingStage(operation)
   if (awaiting) completed.delete(awaiting)
   return completed

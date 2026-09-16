@@ -11,8 +11,12 @@ from .storage import JobStore, now
 
 DEFAULT_TTS_MODEL = "tts-1"
 DEFAULT_TTS_VOICE = "alloy"
+COSYVOICE2_MODEL = "FunAudioLLM/CosyVoice2-0.5B"
+MOSS_TTSD_MODEL = "fnlp/MOSS-TTSD-v0.5"
 
-TTS_VOICES = (
+OPENAI_VOICE_IDS = frozenset({"alloy", "echo", "fable", "onyx", "nova", "shimmer"})
+
+OPENAI_TTS_VOICES: tuple[dict[str, str], ...] = (
     {"id": "alloy", "label": "Alloy（中性）", "gender": "unspecified"},
     {"id": "echo", "label": "Echo（男声）", "gender": "male"},
     {"id": "fable", "label": "Fable（叙事）", "gender": "unspecified"},
@@ -21,9 +25,50 @@ TTS_VOICES = (
     {"id": "shimmer", "label": "Shimmer（柔和女声）", "gender": "female"},
 )
 
+SILICONFLOW_COSYVOICE_VOICES: tuple[dict[str, str], ...] = (
+    {"id": f"{COSYVOICE2_MODEL}:alex", "label": "Alex（沉稳男声）", "gender": "male"},
+    {"id": f"{COSYVOICE2_MODEL}:benjamin", "label": "Benjamin（低沉男声）", "gender": "male"},
+    {"id": f"{COSYVOICE2_MODEL}:charles", "label": "Charles（磁性男声）", "gender": "male"},
+    {"id": f"{COSYVOICE2_MODEL}:david", "label": "David（活泼男声）", "gender": "male"},
+    {"id": f"{COSYVOICE2_MODEL}:anna", "label": "Anna（沉稳女声）", "gender": "female"},
+    {"id": f"{COSYVOICE2_MODEL}:bella", "label": "Bella（激情女声）", "gender": "female"},
+    {"id": f"{COSYVOICE2_MODEL}:claire", "label": "Claire（温柔女声）", "gender": "female"},
+    {"id": f"{COSYVOICE2_MODEL}:diana", "label": "Diana（活泼女声）", "gender": "female"},
+)
 
-def voice_for_gender(gender: str | None) -> str:
+# 兼容旧常量名
+TTS_VOICES = OPENAI_TTS_VOICES
+
+
+def detect_tts_provider(*, base_url: str = "", model: str = "") -> str:
+    lowered_url = (base_url or "").strip().lower()
+    lowered_model = (model or "").strip().lower()
+    if "siliconflow" in lowered_url:
+        return "siliconflow"
+    if "cosyvoice" in lowered_model or "moss-ttsd" in lowered_model or lowered_model.startswith("funaudiollm/"):
+        return "siliconflow"
+    if "openai.com" in lowered_url or lowered_model in {"tts-1", "tts-1-hd"}:
+        return "openai"
+    return "custom"
+
+
+def voices_for_provider(provider: str) -> list[dict[str, str]]:
+    if provider == "siliconflow":
+        return [dict(item) for item in SILICONFLOW_COSYVOICE_VOICES]
+    if provider == "openai":
+        return [dict(item) for item in OPENAI_TTS_VOICES]
+    return [dict(item) for item in OPENAI_TTS_VOICES]
+
+
+def voice_for_gender(gender: str | None, *, base_url: str = "", model: str = "") -> str:
+    provider = detect_tts_provider(base_url=base_url, model=model)
     value = (gender or "").strip().lower()
+    if provider == "siliconflow":
+        if value in {"male", "男"}:
+            return f"{COSYVOICE2_MODEL}:benjamin"
+        if value in {"female", "女"}:
+            return f"{COSYVOICE2_MODEL}:bella"
+        return f"{COSYVOICE2_MODEL}:alex"
     if value in {"male", "男"}:
         return "onyx"
     if value in {"female", "女"}:
@@ -31,10 +76,33 @@ def voice_for_gender(gender: str | None) -> str:
     return DEFAULT_TTS_VOICE
 
 
+def resolve_tts_voice(
+    voice: str | None,
+    *,
+    gender: str = "",
+    base_url: str = "",
+    model: str = "",
+) -> str:
+    selected = str(voice or "").strip()
+    provider = detect_tts_provider(base_url=base_url, model=model)
+    if provider == "siliconflow" and selected in OPENAI_VOICE_IDS:
+        return voice_for_gender(gender, base_url=base_url, model=model)
+    if selected:
+        return selected
+    return voice_for_gender(gender, base_url=base_url, model=model)
+
+
 class TtsProviderService:
     def __init__(self, store: JobStore, credential_key: str | None) -> None:
         self.store = store
         self.credentials = CredentialManager(credential_key)
+
+    def _effective_config(self, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        settings = dict(config or self.store.get_tts_settings())
+        if settings.get("use_llm_credentials"):
+            llm = self.store.get_llm_settings()
+            settings["base_url"] = str(llm.get("base_url") or settings.get("base_url") or "")
+        return settings
 
     def api_key(self, config: dict[str, Any] | None = None) -> str | None:
         settings = config or self.store.get_tts_settings()
@@ -65,12 +133,35 @@ class TtsProviderService:
 
     def voice(self, config: dict[str, Any] | None = None) -> str:
         settings = config or self.store.get_tts_settings()
-        return str(settings.get("voice") or DEFAULT_TTS_VOICE).strip() or DEFAULT_TTS_VOICE
+        stored = str(settings.get("voice") or DEFAULT_TTS_VOICE).strip() or DEFAULT_TTS_VOICE
+        effective = self._effective_config(settings)
+        return resolve_tts_voice(
+            stored,
+            base_url=self.base_url(settings),
+            model=self.model(settings),
+        )
+
+    def voice_catalog(self, config: dict[str, Any] | None = None) -> list[dict[str, str]]:
+        effective = self._effective_config(config)
+        provider = detect_tts_provider(
+            base_url=self.base_url(effective),
+            model=self.model(effective),
+        )
+        return voices_for_provider(provider)
+
+    def resolve_voice(self, voice: str | None, *, gender: str = "") -> str:
+        effective = self._effective_config()
+        return resolve_tts_voice(
+            voice,
+            gender=gender,
+            base_url=self.base_url(effective),
+            model=self.model(effective),
+        )
 
     def availability(self) -> tuple[bool, str | None]:
         config = self.store.get_tts_settings()
         if not config["enabled"]:
-            return False, "语音合成尚未启用，请联系超级管理员在「管理设置 → LLM」配置独立 TTS。"
+            return False, "语音合成尚未启用，请联系超级管理员在「管理设置 → TTS」配置语音合成。"
         if not self.base_url(config):
             return False, "TTS Base URL 未配置。可勾选复用大模型凭据，或填写独立 OpenAI 兼容地址。"
         if not is_local_base_url(self.base_url(config)) and not self.credentials.ready:
@@ -106,7 +197,7 @@ class TtsProviderService:
             "last_test_at": config.get("last_test_at"),
             "available": available,
             "unavailable_reason": reason,
-            "voices": list(TTS_VOICES),
+            "voices": self.voice_catalog(config),
         }
 
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -143,7 +234,11 @@ class TtsProviderService:
         if merged.get("use_llm_credentials", config.get("use_llm_credentials")):
             base_url = self.base_url({**config, "use_llm_credentials": True})
         model = str(merged.get("model") or self.model(config))
-        voice = str(merged.get("voice") or self.voice(config))
+        voice = resolve_tts_voice(
+            str(merged.get("voice") or self.voice(config)),
+            base_url=base_url,
+            model=model,
+        )
         submitted_key = payload.get("api_key") if payload else None
         api_key = (
             submitted_key.strip()
@@ -191,8 +286,13 @@ class TtsProviderService:
 
     def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
         client, model, default_voice = self.client()
+        resolved = resolve_tts_voice(
+            voice or default_voice,
+            base_url=self.base_url(),
+            model=model,
+        )
         return client.speech(
             text=text,
             model=model,
-            voice=(voice or default_voice).strip() or default_voice,
+            voice=resolved.strip() or default_voice,
         )

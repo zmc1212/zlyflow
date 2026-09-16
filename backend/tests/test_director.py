@@ -34,6 +34,7 @@ from backend.app.director_recipe import (
 )
 from backend.app.llm_client import OpenAICompatibleClient, LlmError
 from backend.app.llm_provider import LlmProviderService
+from backend.app.vlm_provider import VlmProviderService
 from backend.app.main import app
 from backend.app.models import UserRole
 from backend.app.storage import JobStore
@@ -1609,9 +1610,11 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
         self.auth_store = AuthStore(self.db_path)
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
+        self.vlm_provider = VlmProviderService(self.job_store, self.credential_key)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
+        app.state.vlm_provider = self.vlm_provider
         self.user = self.auth_store.create_user("vision_user", "Vision", "password123456", UserRole.EMPLOYEE, must_change_password=False)
         self.token, self.csrf_token = self.auth_store.create_session(self.user["id"])
         self.client = TestClient(app)
@@ -1631,7 +1634,12 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["supports_vision"])
 
-        self.llm_provider.update({"model": "qwen2.5-vl-72b-instruct"})
+        self.vlm_provider.update({
+            "enabled": True,
+            "base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "model": "qwen2.5-vl-72b-instruct",
+            "api_key": "sk-vlm",
+        })
         response = self.client.get("/api/llm/status")
         self.assertTrue(response.json()["supports_vision"])
 
@@ -1648,17 +1656,17 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
             data={"kind": "character", "name": "主角"},
             files={"image": ("ref.png", b"fake-bytes", "image/png")},
         )
-        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.status_code, 503)
         self.assertIn("视觉", response.json()["detail"])
 
     def test_analyze_subject_sends_image(self) -> None:
-        self.llm_provider.update({
+        self.vlm_provider.update({
             "enabled": True,
             "base_url": "https://api.example.com/v1",
             "model": "qwen-vl-max",
             "api_key": "sk-dummy",
         })
-        with patch.object(self.llm_provider, "analyze_subject", return_value="黑色短发，深色风衣，冷白皮"):
+        with patch.object(self.vlm_provider, "analyze_subject", return_value="黑色短发，深色风衣，冷白皮"):
             response = self.client.post(
                 "/api/llm/analyze-subject",
                 headers={"X-CSRF-Token": csrf_token(self.token)},
@@ -2431,7 +2439,10 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertIn("promptText", skill)
         self.assertIn("Never translate or transliterate names", skill)
         self.assertIn("local timeline starts at 00:00", skill)
-        self.assertIn("4–8", skill)
+        self.assertIn("Default 8", skill)
+        self.assertIn("6–8", skill)
+        self.assertIn("Forbid a one-sentence promptText", skill)
+        self.assertIn("scheduling thickness", skill)
         self.assertIn("storyboard", skill)
         self.assertIn("ONLY one JSON object", skill)
         self.assertIn("DIALOGUE ASSIGNMENT", skill)
@@ -3069,7 +3080,7 @@ class DirectorAgentPipelineTests(unittest.TestCase):
 
         prompt = build_script_agent_prompt()
         self.assertIn("scene-ledger", prompt)
-        self.assertIn("opening visual state", prompt)
+        self.assertIn("opening spatial state", prompt)
         self.assertIn("continuityIn", prompt)
         self.assertIn("### 镜头", prompt)
         self.assertIn("# 第", prompt)
@@ -5111,6 +5122,12 @@ class DirectorAvExportTests(unittest.TestCase):
         shot_id = fetched.json()["payload"]["scenes"][0]["shots"][0]["id"]
 
         class FakeTts:
+            def voice(self) -> str:
+                return "alloy"
+
+            def resolve_voice(self, voice, *, gender: str = "") -> str:
+                return voice or "alloy"
+
             def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
                 return f"audio:{voice}:{text}".encode("utf-8")
 

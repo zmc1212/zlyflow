@@ -8,10 +8,16 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from ...dialogue_timing import resolve_shot_duration_sec
 from ...director_recipe import empty_recipe_payload, flatten_recipe_shots, normalize_recipe_payload
 from ...director_stream import DirectorOperationEventBus, terminal_event_for_status
 from ..db import execute_sql, now_str, query_all, query_one, transaction_cursor
-from ..services.project_detail_service import ProjectDetailService
+from ..services.project_detail_service import (
+    ProjectDetailService,
+    asset_name_id_map,
+    match_named_asset_ids,
+    resolve_shot_scene,
+)
 from .script_parser import StandardScriptParser
 
 
@@ -49,11 +55,27 @@ class AiGenerationService:
     }
     # Progress reached when a leg finishes and pauses for review.
     STAGE_END_PROGRESS = {"script": 25, "assets": 50, "episodes": 72, "storyboard": 95}
+    # Statuses that can retry a named completed/failed stage (not a live worker).
+    STAGE_RETRY_ALLOWED = {"failed", "cancelled", "awaiting_review", "succeeded"}
     _STAGE_REVIEW_MESSAGE = {
         "script": "剧本已生成，请确认或提出调整",
         "assets": "角色·场景·道具已生成，请确认或提出调整",
         "episodes": "分集结构已生成，请确认或提出调整",
         "storyboard": "分镜已生成，请确认或提出调整",
+    }
+    _RECIPE_CLEAR_FROM = {
+        "clarify": ("script", "characters", "props", "locations", "episodes", "scenes"),
+        "script": ("script", "characters", "props", "locations", "episodes", "scenes"),
+        "assets": ("characters", "props", "locations", "episodes", "scenes"),
+        "episodes": ("episodes", "scenes"),
+        "storyboard": ("scenes",),
+    }
+    _AGENT_CLEAR_FROM = {
+        "clarify": ("script", "characters", "locations", "episodes", "storyboard"),
+        "script": ("script", "characters", "locations", "episodes", "storyboard"),
+        "assets": ("characters", "locations", "episodes", "storyboard"),
+        "episodes": ("episodes", "storyboard"),
+        "storyboard": ("storyboard",),
     }
     _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="director2-ai")
 
@@ -103,16 +125,15 @@ class AiGenerationService:
         # Director2 used to persist the legacy beat-count question. Normalize
         # it on read so a restarted browser immediately shows the episode and
         # per-episode shot questions instead of replaying stale clarification state.
-        if payload.get("kind") == "clarify" and isinstance(result.get("questions"), list):
-            from ...llm_minimax_skills import build_episode_count_question, build_shots_per_episode_question
+        opening_questions = (
+            payload.get("kind") == "clarify"
+            or payload.get("current_stage") == "clarify"
+            or payload.get("revise_stage") == "clarify"
+        )
+        if opening_questions and isinstance(result.get("questions"), list):
+            from ...llm_minimax_skills import ensure_director2_opening_questions
 
-            questions = [item for item in result["questions"] if isinstance(item, dict) and str(item.get("id") or "") != "beat_count"]
-            ids = {str(item.get("id") or "") for item in questions if isinstance(item, dict)}
-            if "episode_count" not in ids:
-                questions.append(build_episode_count_question())
-            if "shots_per_episode" not in ids:
-                questions.append(build_shots_per_episode_question())
-            result = {**result, "questions": questions}
+            result = {**result, "questions": ensure_director2_opening_questions(result["questions"])}
         return {
             "id": row["id"],
             "project_id": row["project_id"],
@@ -241,40 +262,109 @@ class AiGenerationService:
         })
         return operation
 
-    def retry(self, operation_id: str, project_id: str) -> dict[str, Any]:
+    def retry(self, operation_id: str, project_id: str, stage: str | None = None) -> dict[str, Any]:
         row = self._read(operation_id, project_id)
+        requested = str(stage or "").strip() or None
+        status = row.get("status")
         # 重试请求可能因双击或网络重放而到达两次。第一次请求已把任务置为
         # queued/running 时，直接返回同一个操作并让前端重新订阅，不能再创建
         # 第二个 worker，也不应误报“只有失败或已取消的任务可以重试”。
-        if row.get("status") in self.ACTIVE:
+        if status in self.ACTIVE:
+            payload = self._payload(row)
+            current = payload.get("run_stage") or payload.get("revise_stage") or payload.get("current_stage")
+            if requested and requested != current:
+                raise ValueError("生成进行中，请等待完成或取消后再重试其他阶段")
             return self.get(operation_id, project_id)
-        if row.get("status") not in {"failed", "cancelled"}:
-            raise ValueError("只有失败或已取消的 AI 任务可以重试")
         payload = self._payload(row)
-        # 澄清阶段失败时仍重跑澄清，不要被强制转换成整条流水线；流水线
-        # 阶段才需要根据 failed_stage 复用 Recipe 继续执行。
-        is_clarify = payload.get("kind") == "clarify"
-        if not is_clarify:
+        is_clarify_kind = payload.get("kind") == "clarify"
+        if requested:
+            if status not in self.STAGE_RETRY_ALLOWED:
+                raise ValueError("当前状态不能重试指定阶段")
+            if requested != "clarify" and requested not in self.STAGE_AGENTS:
+                raise ValueError(f"未知的生成阶段：{requested}")
+            if is_clarify_kind and requested != "clarify":
+                raise ValueError("创意确认尚未完成，请先回答问题后再生成")
+        elif status not in {"failed", "cancelled"}:
+            raise ValueError("只有失败或已取消的 AI 任务可以重试")
+        if not is_clarify_kind:
             payload["kind"] = "pipeline"
         payload["cancel_requested"] = False
         payload["attempt"] = int(payload.get("attempt") or 0) + 1
         result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
-        if is_clarify:
+        if is_clarify_kind:
             self._update(operation_id, status="queued", progress=0, payload=payload)
         else:
-            # 逐 leg 模型下重试只重跑失败的那一步：下游此时尚未生成，天然不产生失效。
-            retry_stage = payload.get("awaiting_stage") or payload.get("current_stage") or result.get("failed_stage") or "script"
-            if retry_stage not in self.STAGE_AGENTS:
-                retry_stage = "script"
-            payload["run_action"] = "leg"
-            payload["run_stage"] = retry_stage
-            payload["awaiting_stage"] = None
-            payload["current_stage"] = retry_stage
-            payload["result"] = {"completed_stages": payload.get("completed_stages") or result.get("completed_stages") or []}
-            self._update(operation_id, status="queued", progress=self._stage_start_progress(retry_stage), payload=payload)
+            retry_stage = requested or payload.get("awaiting_stage") or payload.get("current_stage") or result.get("failed_stage") or "script"
+            if retry_stage == "clarify":
+                self._queue_opening_clarify(payload)
+                self._update(operation_id, status="revising", progress=0, payload=payload)
+            else:
+                if retry_stage not in self.STAGE_AGENTS:
+                    retry_stage = "script"
+                if requested:
+                    self._invalidate_from(payload, retry_stage)
+                payload["run_action"] = "leg"
+                payload["run_stage"] = retry_stage
+                payload["awaiting_stage"] = None
+                payload["current_stage"] = retry_stage
+                payload.pop("revise_stage", None)
+                payload.pop("revise_feedback", None)
+                payload["result"] = {"completed_stages": list(payload.get("completed_stages") or result.get("completed_stages") or [])}
+                self._update(operation_id, status="queued", progress=self._stage_start_progress(retry_stage), payload=payload)
         execute_sql("UPDATE ai_project_jobs SET error_message=NULL, updated_at=%s WHERE id=%s AND project_id=%s", (now_str(), operation_id, project_id))
         self.start(operation_id)
         return self.get(operation_id, project_id)
+
+    def _completed_before(self, stage: str) -> list[str]:
+        stages = list(self.STAGES)
+        if stage not in stages:
+            return []
+        return stages[:stages.index(stage)]
+
+    def _invalidate_from(self, payload: dict[str, Any], stage: str) -> None:
+        """Drop later completed stages and their recipe / clarification snapshots."""
+        keep = set(self._completed_before(stage))
+        payload["completed_stages"] = [
+            item for item in (payload.get("completed_stages") or [])
+            if isinstance(item, str) and item in keep
+        ]
+        store = payload.get("stage_clarifications") if isinstance(payload.get("stage_clarifications"), dict) else {}
+        drop = ["clarify", *self.STAGES] if stage == "clarify" else list(self.STAGES)[list(self.STAGES).index(stage):]
+        for key in drop:
+            store.pop(key, None)
+        payload["stage_clarifications"] = store
+        recipe = payload.get("recipe")
+        if not isinstance(recipe, dict):
+            return
+        goal = str((payload.get("request") or {}).get("goal") or "").strip()
+        for field in self._RECIPE_CLEAR_FROM.get(stage, ()):
+            if field == "script":
+                recipe["script"] = {"title": goal[:40], "summary": "", "fullStory": goal}
+            else:
+                recipe[field] = []
+        agents = set(self._AGENT_CLEAR_FROM.get(stage, ()))
+        statuses = recipe.get("agentStatus")
+        if isinstance(statuses, list):
+            for item in statuses:
+                if isinstance(item, dict) and item.get("id") in agents:
+                    item["status"] = "pending"
+                    item["error"] = None
+                    item["message"] = None
+        payload["recipe"] = recipe
+
+    def _queue_opening_clarify(self, payload: dict[str, Any]) -> None:
+        self._invalidate_from(payload, "clarify")
+        request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+        request["clarifications"] = []
+        payload["request"] = request
+        payload["kind"] = "pipeline"
+        payload["run_action"] = "opening_clarify"
+        payload["run_stage"] = None
+        payload["revise_stage"] = "clarify"
+        payload["awaiting_stage"] = None
+        payload["current_stage"] = "clarify"
+        payload.pop("revise_feedback", None)
+        payload["result"] = {"completed_stages": []}
 
     def _check_cancelled(self, operation_id: str) -> None:
         row = self._read(operation_id)
@@ -285,7 +375,17 @@ class AiGenerationService:
         row = self._read(operation_id)
         data = payload if payload is not None else self._payload(row)
         persisted = self._payload(row)
-        if persisted.get("cancel_requested") and not data.get("cancel_requested"):
+        # Keep an in-flight cancel so a stale worker payload cannot clear it.
+        # Retry / advance / revise start a new attempt from a terminal or paused
+        # status and must be allowed to reset the flag; otherwise the new worker
+        # immediately sees cancel_requested and stops again.
+        next_status = status if status is not None else row.get("status")
+        if (
+            persisted.get("cancel_requested")
+            and not data.get("cancel_requested")
+            and row.get("status") in self.ACTIVE
+            and next_status in self.ACTIVE
+        ):
             data = {**data, "cancel_requested": True}
         updates: list[str] = ["payload_json=%s", "updated_at=%s"]
         values: list[Any] = [json.dumps(data, ensure_ascii=False), now_str()]
@@ -318,6 +418,8 @@ class AiGenerationService:
                 self._update(operation_id, status="running", progress=max(1, int(row.get("progress") or 0)), payload=payload)
                 self._emit(operation_id, {"event": "status", "data": {"status": "running", "progress": 1}})
                 self._run_clarify(operation_id, payload, request)
+            elif action == "opening_clarify":
+                self._run_opening_clarify(operation_id, payload, request)
             elif action == "revise":
                 # 生成该阶段的澄清问题：保持 revising 状态（占用 worker），不切回 running。
                 self._run_revise(operation_id, payload, request)
@@ -344,8 +446,7 @@ class AiGenerationService:
             self._update(operation_id, status="failed", error=message, payload=payload)
             self._emit(operation_id, terminal_event_for_status("failed", message=message))
 
-    def _run_clarify(self, operation_id: str, payload: dict[str, Any], request: dict[str, Any]) -> None:
-        self._check_cancelled(operation_id)
+    def _collect_opening_questions(self, operation_id: str, request: dict[str, Any]) -> list[dict[str, Any]]:
         def on_stream(event: dict[str, Any]) -> None:
             self._check_cancelled(operation_id)
             self._emit(operation_id, event)
@@ -358,6 +459,15 @@ class AiGenerationService:
             include_beat_count=not is_director2,
             include_shots_per_episode=is_director2,
         )
+        if is_director2:
+            from ...llm_minimax_skills import ensure_director2_opening_questions
+
+            questions = ensure_director2_opening_questions(questions)
+        return questions
+
+    def _run_clarify(self, operation_id: str, payload: dict[str, Any], request: dict[str, Any]) -> None:
+        self._check_cancelled(operation_id)
+        questions = self._collect_opening_questions(operation_id, request)
         self._check_cancelled(operation_id)
         payload["result"] = {"questions": questions, "completed_stages": []}
         payload["current_stage"] = "clarify"
@@ -365,11 +475,32 @@ class AiGenerationService:
         self._update(operation_id, status="succeeded", progress=100, payload=payload)
         self._emit(operation_id, terminal_event_for_status("succeeded", result=payload["result"]))
 
+    def _run_opening_clarify(self, operation_id: str, payload: dict[str, Any], request: dict[str, Any]) -> None:
+        """Re-ask opening questions on an existing pipeline without ending the operation."""
+        self._check_cancelled(operation_id)
+        questions = self._collect_opening_questions(operation_id, {**request, "surface": "director2"})
+        self._check_cancelled(operation_id)
+        payload["kind"] = "pipeline"
+        payload["revise_stage"] = "clarify"
+        payload["current_stage"] = "clarify"
+        payload["awaiting_stage"] = None
+        payload["completed_stages"] = []
+        payload.pop("run_action", None)
+        payload["result"] = {"questions": questions, "completed_stages": [], "revise_stage": "clarify"}
+        self._update(operation_id, status="revising", progress=0, payload=payload)
+        self._emit(operation_id, {"event": "status", "data": {
+            "status": "revising",
+            "stage": "clarify",
+            "questions_ready": True,
+            "questions": questions,
+            "completed_stages": [],
+        }})
+
     # ------------------------------------------------------------------
     # 逐 leg 状态机：script / assets / episodes / storyboard 各自独立成一步，
     # 跑完暂停在 awaiting_review 等用户确认；采纳(advance)进入下一步，不满意
-    # (revise)出该阶段澄清卡、作答(rerun_stage)后只重跑当前步。因为每步前都会
-    # 暂停，重跑当前步时下游尚未生成，天然不产生下游失效问题。
+    # (revise)出该阶段澄清卡、作答(rerun_stage)后只重跑当前步。已完成的更早阶段
+    # 可通过 retry(stage=…) 单独重跑，该阶段之后从 completed_stages 作废。
     # ------------------------------------------------------------------
     def _next_stage(self, stage: str) -> str | None:
         stages = list(self.STAGES)
@@ -604,10 +735,27 @@ class AiGenerationService:
         if row.get("status") not in {"revising", "awaiting_review"}:
             raise ValueError("当前无法重跑该阶段")
         payload = self._payload(row)
-        stage = str(payload.get("revise_stage") or payload.get("awaiting_stage") or "")
+        stage = str(payload.get("revise_stage") or payload.get("awaiting_stage") or payload.get("current_stage") or "")
+        answers = clarifications if isinstance(clarifications, list) else []
+        if stage == "clarify":
+            request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+            request["clarifications"] = answers
+            payload["request"] = request
+            self._invalidate_from(payload, "clarify")
+            payload["kind"] = "pipeline"
+            payload["run_action"] = "leg"
+            payload["run_stage"] = "script"
+            payload["awaiting_stage"] = None
+            payload["current_stage"] = "script"
+            payload["cancel_requested"] = False
+            payload.pop("revise_stage", None)
+            payload.pop("revise_feedback", None)
+            payload["result"] = self._running_result(payload)
+            self._update(operation_id, status="queued", progress=self._stage_start_progress("script"), payload=payload)
+            self.start(operation_id)
+            return self.get(operation_id, project_id)
         if stage not in self.STAGE_AGENTS:
             raise ValueError("没有需要重跑的生成阶段")
-        answers = clarifications if isinstance(clarifications, list) else []
         feedback = str(payload.get("revise_feedback") or "").strip()
         merged = self._stage_run_clarifications(stage, answers, feedback)
         store = payload.get("stage_clarifications") if isinstance(payload.get("stage_clarifications"), dict) else {}
@@ -641,10 +789,66 @@ class AiGenerationService:
         if isinstance(camera, dict):
             return " ".join(
                 str(camera.get(key) or "").strip()
-                for key in ("scale", "movement", "angle")
+                for key in ("scale", "movement", "angle", "speed")
                 if str(camera.get(key) or "").strip()
             )
         return str(camera or "").strip()
+
+    @classmethod
+    def _format_name_list(cls, value: Any) -> str:
+        if isinstance(value, list):
+            names: list[str] = []
+            for item in value:
+                if isinstance(item, dict):
+                    name = str(item.get("name") or "").strip()
+                else:
+                    name = str(item or "").strip()
+                if name:
+                    names.append(name)
+            return "、".join(names)
+        return str(value or "").strip()
+
+    @staticmethod
+    def _text_has_shot_cards(text: str) -> bool:
+        return bool(re.search(r"#{1,3}\s*镜头", str(text or "")))
+
+    @staticmethod
+    def _shot_duration_seconds(shot: dict[str, Any], default: int = 8) -> int:
+        return resolve_shot_duration_sec(shot, default=default)
+
+    @classmethod
+    def _shot_visual_prompt(cls, shot: dict[str, Any]) -> str:
+        return str(
+            shot.get("promptText")
+            or shot.get("prompt")
+            or shot.get("visualPrompt")
+            or shot.get("visual_prompt")
+            or ""
+        ).strip()
+
+    @classmethod
+    def _recipe_shot_lines(cls, shot: dict[str, Any], index: int) -> list[str]:
+        title = str(shot.get("title") or shot.get("heading") or "分镜").strip() or "分镜"
+        lines = ["", f"### 镜头 {index}｜{title}"]
+        action = str(shot.get("description") or shot.get("action") or "").strip()
+        camera = cls._format_shot_camera(shot.get("camera"))
+        dialogue = str(shot.get("dialogue") or "").strip()
+        audio = str(shot.get("soundscape") or shot.get("audio") or "").strip()
+        fields = [
+            ("人物", cls._format_name_list(shot.get("characterNames") or shot.get("characters"))),
+            ("场景", str(shot.get("locationName") or shot.get("scene") or "").strip()),
+            ("道具", cls._format_name_list(shot.get("propNames") or shot.get("props"))),
+            ("时长", f"{cls._shot_duration_seconds(shot)}秒"),
+            ("动作", action),
+            ("运镜", camera),
+            ("台词", dialogue),
+            ("音效", audio),
+            ("提示词", cls._shot_visual_prompt(shot)),
+        ]
+        for label, value in fields:
+            if value:
+                lines.append(f"- {label}：{value}")
+        return lines
 
     @staticmethod
     def _split_names(value: Any) -> list[str]:
@@ -824,16 +1028,13 @@ class AiGenerationService:
         for ep_num in all_nums:
             episode = story_by_num.get(ep_num) or {}
             title = str(episode.get("title") or (shots[0].get("episodeTitle") if grouped.get(ep_num) else "") or f"第 {ep_num} 集")
-            lines.extend(["", f"# 第{ep_num}集 {title}", "", str(episode.get("text") or "")])
+            lines.extend(["", f"# 第{ep_num}集 {title}"])
+            episode_text = str(episode.get("text") or "").strip()
+            if episode_text and not AiGenerationService._text_has_shot_cards(episode_text):
+                lines.extend(["", episode_text])
             for shot in grouped.get(ep_num) or []:
                 index = shot_index.get(id(shot), 0)
-                lines.extend([
-                    "",
-                    f"### 镜头 {index}｜{shot.get('title') or shot.get('heading') or '分镜'}",
-                    f"- 画面：{shot.get('description') or shot.get('action') or ''}",
-                    f"- 运镜：{AiGenerationService._format_shot_camera(shot.get('camera'))}",
-                    f"- 对白：{shot.get('dialogue') or ''}",
-                ])
+                lines.extend(AiGenerationService._recipe_shot_lines(shot, index))
         return "\n".join(lines).strip()
 
     @classmethod
@@ -875,6 +1076,13 @@ class AiGenerationService:
 
         self.persist_recipe_assets(project_id, recipe)
         if stage in {"episodes", "storyboard"}:
+            asset_rows = query_all(
+                "SELECT id, kind, name, image_url, extra_json FROM ai_project_assets WHERE project_id=%s",
+                (project_id,),
+            )
+            char_map = asset_name_id_map(asset_rows, "character")
+            scene_map = asset_name_id_map(asset_rows, "scene")
+            prop_map = asset_name_id_map(asset_rows, "prop")
             grouped: dict[int, list[dict[str, Any]]] = {}
             for shot in flatten_recipe_shots(recipe):
                 if not isinstance(shot, dict):
@@ -898,8 +1106,26 @@ class AiGenerationService:
                 title = str(outline.get("title") or (shots[0].get("episodeTitle") if shots else "") or f"第 {ep_num} 集")
                 script_text = str(outline.get("text") or outline.get("summary") or "")
                 if shots:
+                    inherited_scene_name = ""
+                    inherited_scene_id = None
+                    beats = []
+                    for i, shot in enumerate(shots):
+                        beat = self._beat_payload(
+                            shot,
+                            i + 1,
+                            project_id,
+                            char_map=char_map,
+                            scene_map=scene_map,
+                            prop_map=prop_map,
+                            inherited_scene_name=inherited_scene_name,
+                            inherited_scene_id=inherited_scene_id,
+                        )
+                        if str(shot.get("locationName") or shot.get("scene") or "").strip():
+                            inherited_scene_name = str(beat.get("scene") or "")
+                            inherited_scene_id = beat.get("scene_id")
+                        beats.append(beat)
                     data = {
-                        "beats": [self._beat_payload(shot, i + 1, project_id) for i, shot in enumerate(shots)],
+                        "beats": beats,
                         "summary": str(outline.get("summary") or ""),
                         "targetShots": outline.get("targetShots") or 0,
                     }
@@ -926,13 +1152,57 @@ class AiGenerationService:
                     )
 
     @staticmethod
-    def _beat_payload(shot: dict[str, Any], sequence: int, project_id: str) -> dict[str, Any]:
+    def _beat_payload(
+        shot: dict[str, Any],
+        sequence: int,
+        project_id: str,
+        *,
+        char_map: dict[str, str] | None = None,
+        scene_map: dict[str, str] | None = None,
+        prop_map: dict[str, str] | None = None,
+        inherited_scene_name: str = "",
+        inherited_scene_id: str | None = None,
+    ) -> dict[str, Any]:
         chars = shot.get("characterNames") or shot.get("characters") or []
         props = shot.get("propNames") or shot.get("props") or []
         action = str(shot.get("description") or shot.get("action") or "").strip()
         dialogue = str(shot.get("dialogue") or "").strip()
-        prompt = str(shot.get("promptText") or shot.get("prompt") or shot.get("visualPrompt") or action).strip()
-        return {"id": f"beat-{uuid.uuid4().hex[:12]}", "sequence": sequence, "kind": "dialogue" if dialogue else "action", "heading": str(shot.get("title") or shot.get("heading") or f"分镜 {sequence}"), "speaker": str(shot.get("speaker") or (chars[0] if chars else "")), "dialogue": dialogue, "action": action, "camera": str(shot.get("camera") or "中景"), "characters": chars, "character_ids": [], "scene": str(shot.get("locationName") or shot.get("scene") or ""), "scene_id": None, "props": props, "prop_ids": [], "visual_prompt": prompt, "sketch_prompt": prompt, "video_prompt_zh": action or dialogue or prompt, "video_duration": "5", "status": "draft"}
+        prompt = AiGenerationService._shot_visual_prompt(shot)
+        camera = AiGenerationService._format_shot_camera(shot.get("camera")) or "中景"
+        audio = str(shot.get("soundscape") or shot.get("audio") or "").strip()
+        explicit_scene = str(shot.get("locationName") or shot.get("scene") or "").strip()
+        scene_name, scene_id = resolve_shot_scene(
+            explicit_scene, scene_map or {}, inherited_scene_name, inherited_scene_id
+        )
+        video_prompt_zh = " ".join(
+            part for part in (
+                action,
+                f"运镜：{camera}" if camera else "",
+                f"声音：{audio}" if audio else "",
+            ) if part
+        ) or dialogue or prompt
+        return {
+            "id": f"beat-{uuid.uuid4().hex[:12]}",
+            "sequence": sequence,
+            "kind": "dialogue" if dialogue else "action",
+            "heading": str(shot.get("title") or shot.get("heading") or f"分镜 {sequence}"),
+            "speaker": str(shot.get("speaker") or (chars[0] if chars else "")),
+            "dialogue": dialogue,
+            "action": action,
+            "camera": camera,
+            "audio": audio,
+            "characters": chars,
+            "character_ids": match_named_asset_ids(chars, char_map or {}),
+            "scene": scene_name,
+            "scene_id": scene_id,
+            "props": props,
+            "prop_ids": match_named_asset_ids(props, prop_map or {}),
+            "visual_prompt": prompt,
+            "sketch_prompt": prompt,
+            "video_prompt_zh": video_prompt_zh,
+            "video_duration": str(AiGenerationService._shot_duration_seconds(shot)),
+            "status": "draft",
+        }
 
     async def stream(self, operation_id: str, project_id: str, request: Any, since: int = 0):
         queue, replay = self.events.subscribe(operation_id, since=max(0, since))

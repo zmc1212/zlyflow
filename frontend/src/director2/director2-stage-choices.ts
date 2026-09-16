@@ -1,5 +1,41 @@
 import type { Director2AiOperation, Director2AiStage, Director2ClarificationQuestion } from "./api"
 
+export const DIRECTOR2_EPISODE_COUNT_QUESTION: Director2ClarificationQuestion = {
+  id: "episode_count",
+  question: "这部剧分多少集？",
+  why: "分集决定叙事节奏：多集时每集是相对独立的故事段落，集尾留钩子，分镜会按集逐集生成。",
+  options: [
+    { label: "1 集 · 单集成片", value: "1", recommended: true },
+    { label: "3 集 · 连载短剧", value: "3" },
+    { label: "6 集 · 系列短剧", value: "6" },
+    { label: "12 集 · 完整系列", value: "12" },
+  ],
+  allowCustom: true,
+}
+
+export const DIRECTOR2_SHOTS_PER_EPISODE_QUESTION: Director2ClarificationQuestion = {
+  id: "shots_per_episode",
+  question: "每一集默认拍多少个镜头？",
+  why: "每集镜头数决定单集节奏与成片时长：每个镜头约 3-8 秒，确认后剧本、分集和分镜都会按这个默认值拆写。",
+  options: [
+    { label: "4 个镜头 · 更紧凑", value: "4" },
+    { label: "6 个镜头 · 推荐单集节奏", value: "6", recommended: true },
+    { label: "8 个镜头 · 稍铺陈", value: "8" },
+    { label: "12 个镜头 · 单集更完整", value: "12" },
+  ],
+  allowCustom: true,
+}
+
+export function ensureDirector2OpeningQuestions(
+  questions: Director2ClarificationQuestion[] | null | undefined,
+): Director2ClarificationQuestion[] {
+  const items = (questions || []).filter((item) => item && item.id !== "beat_count")
+  const ids = new Set(items.map((item) => String(item.id || "")))
+  if (!ids.has("episode_count")) items.push(DIRECTOR2_EPISODE_COUNT_QUESTION)
+  if (!ids.has("shots_per_episode")) items.push(DIRECTOR2_SHOTS_PER_EPISODE_QUESTION)
+  return items
+}
+
 export type Director2StageChoice = {
   id?: string
   question: string

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import re
 import time
@@ -10,6 +13,8 @@ import requests
 
 LLM_CONNECT_TIMEOUT_SECONDS = 20.0
 LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
+LLM_TEST_TIMEOUT_SECONDS = 90.0
+LLM_TEST_MAX_TOKENS = 256
 
 
 class LlmError(RuntimeError):
@@ -157,9 +162,10 @@ def raise_llm_http_error(*, action: str, status: int, upstream: str) -> None:
     if looks_like_llm_content_filter(msg):
         raise LlmError(append_upstream_log(f"大模型拒绝了本次内容（HTTP {status}），请修改后再试。", msg))
     if status in {401, 403} or looks_like_llm_auth(msg):
-        raise LlmAuthError(append_upstream_log(
-            f"大模型鉴权失败（HTTP {status}），请检查管理设置中的 API Key。", msg,
-        ))
+        detail = f"大模型鉴权失败（HTTP {status}），请检查管理设置中的 API Key。"
+        if "令牌" in msg or "验证不正确" in msg:
+            detail = f"{detail} {zhipu_auth_hint()}"
+        raise LlmAuthError(append_upstream_log(detail, msg))
     if status == 404 or looks_like_llm_model_missing(msg):
         raise LlmError(append_upstream_log(f"大模型服务未找到指定模型（HTTP {status}）。", msg))
     if status in {408, 425, 429} or status >= 500:
@@ -222,7 +228,80 @@ def catalog_provider_key(base_url: str) -> str:
         return "deepseek"
     if "dashscope" in host or "aliyuncs.com" in host:
         return "dashscope"
+    if "bigmodel.cn" in host or host.endswith("z.ai") or host == "api.z.ai":
+        return "zhipu"
     return "custom"
+
+
+def normalize_api_key(api_key: str | None) -> str | None:
+    if api_key is None:
+        return None
+    cleaned = str(api_key).strip()
+    if not cleaned:
+        return None
+    lowered = cleaned.lower()
+    if lowered.startswith("bearer "):
+        cleaned = cleaned[7:].strip()
+    return cleaned or None
+
+
+def is_zhipu_base_url(base_url: str) -> bool:
+    return catalog_provider_key(base_url) == "zhipu"
+
+
+def looks_like_zhipu_api_key(api_key: str) -> bool:
+    cleaned = normalize_api_key(api_key)
+    if not cleaned or cleaned.count(".") != 1:
+        return False
+    key_id, secret = cleaned.split(".", 1)
+    return bool(key_id and secret and not cleaned.lower().startswith("sk-"))
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def generate_zhipu_jwt(api_key: str, *, exp_seconds: int = 3600) -> str:
+    cleaned = normalize_api_key(api_key)
+    if not cleaned:
+        raise ValueError("智谱 API Key 不能为空")
+    try:
+        key_id, secret = cleaned.split(".", 1)
+    except ValueError as error:
+        raise ValueError("智谱 API Key 格式应为 id.secret") from error
+    if not key_id or not secret:
+        raise ValueError("智谱 API Key 格式应为 id.secret")
+    header = {"alg": "HS256", "sign_type": "SIGN"}
+    now_ms = int(round(time.time() * 1000))
+    payload = {
+        "api_key": key_id,
+        "exp": now_ms + exp_seconds * 1000,
+        "timestamp": now_ms,
+    }
+    segments = [
+        _b64url(json.dumps(header, separators=(",", ":")).encode("utf-8")),
+        _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8")),
+    ]
+    signing_input = f"{segments[0]}.{segments[1]}".encode("ascii")
+    signature = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    segments.append(_b64url(signature))
+    return ".".join(segments)
+
+
+def resolve_openai_bearer_token(*, base_url: str, api_key: str) -> str:
+    cleaned = normalize_api_key(api_key)
+    if not cleaned:
+        raise ValueError("API Key / Token 不能为空")
+    if is_zhipu_base_url(base_url) and looks_like_zhipu_api_key(cleaned):
+        return generate_zhipu_jwt(cleaned)
+    return cleaned
+
+
+def zhipu_auth_hint() -> str:
+    return (
+        "若使用智谱 GLM，请到 open.bigmodel.cn 的 API Keys 页面复制完整 Key（格式通常为 id.secret），"
+        "不要填入硅基流动 sk- 开头的 Key，也不要粘贴带 Bearer 前缀的字符串。"
+    )
 
 
 def _strings_for_free_label(item: dict[str, Any]) -> list[str]:
@@ -454,13 +533,14 @@ class OpenAICompatibleClient:
         session: requests.Session | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
+        self.api_key = normalize_api_key(api_key) or api_key
         self.session = session or requests.Session()
 
     @property
     def headers(self) -> dict[str, str]:
+        bearer = resolve_openai_bearer_token(base_url=self.base_url, api_key=self.api_key)
         return {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {bearer}",
             "Content-Type": "application/json",
         }
 
@@ -857,9 +937,10 @@ class OpenAICompatibleClient:
         data_preview = str(data)[:300]
         raise LlmError(f"大模型响应格式不匹配（未找到 choices 或 output 内容）。返回数据：{data_preview}")
 
-    def test_connection(self, model: str, *, timeout: float = 15.0) -> str:
+    def test_connection(self, model: str, *, timeout: float = LLM_TEST_TIMEOUT_SECONDS) -> str:
         available = self.list_models(timeout=min(8.0, timeout))
-        if available and model not in available:
+        # 智谱 /models 通常只返回文本 GLM，VL 模型（glm-4v-flash 等）不在目录里但仍可调用。
+        if available and model not in available and not is_zhipu_base_url(self.base_url):
             sample = ", ".join(available[:8])
             raise LlmError(
                 f"服务已连通，但未找到模型 '{model}'。当前可用：{sample}。"
@@ -869,13 +950,21 @@ class OpenAICompatibleClient:
             {"role": "user", "content": "你好，请仅回复两个字：收到。"}
         ]
         try:
+            # 推理模型会先消耗思考 token；8 个 completion token 经常写不出可见回复。
             return self.chat_completion(
-                messages, model=model, temperature=0.1, max_tokens=8, timeout=timeout,
+                messages,
+                model=model,
+                temperature=0.1,
+                max_tokens=LLM_TEST_MAX_TOKENS,
+                timeout=timeout,
             )
         except LlmTemporaryError as error:
             if is_llm_timeout_error(error):
+                seconds = int(timeout if not isinstance(timeout, tuple) else timeout[-1])
                 raise LlmTemporaryError(
-                    f"大模型在 {int(timeout if not isinstance(timeout, tuple) else timeout[-1])} 秒内没有返回。"
+                    f"大模型在 {seconds} 秒内没有返回。"
+                    "拉取模型列表成功只说明目录接口可用；测试连接会真实调用当前模型。"
+                    "推理模型（如 GPT-5 / DeepSeek-R1）或中转站首字延迟经常需要几十秒。"
                     "若使用 Ollama，通常是模型正在首次加载进显存；请等 `ollama ps` 显示模型已占用 GPU/内存后再点一次测试。"
                     "若 ComfyUI 正在占满显卡，可先等其空闲。"
                 ) from error

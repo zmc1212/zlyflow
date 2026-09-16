@@ -14,6 +14,7 @@ from backend.app.dialogue_timing import (
     extract_script_dialogue_lines,
     estimate_dialogue_duration_sec,
     estimate_shot_duration_sec,
+    resolve_shot_duration_sec,
     script_dialogue_coverage_low,
 )
 from backend.app.director_agents import (
@@ -58,6 +59,34 @@ class DialogueTimingTests(unittest.TestCase):
 
     def test_estimate_shot_duration_includes_action_beats(self) -> None:
         self.assertGreaterEqual(estimate_shot_duration_sec("", action_beats=3), 6)
+
+    def test_resolve_shot_duration_bumps_five_seconds_for_thick_blocking(self) -> None:
+        action = (
+            "竖屏短剧单镜，一镜到底。空间：老旧不锈钢轿厢，镜面金属壁反青白顶灯，空间逼仄。"
+            "光线：惨白顶灯，皮肤偏青。造型锁定：清瘦花甲男人脏污背心；浓妆红裙租客抱绿色手机。"
+            "调度与表演：电梯门刚合上。她被挤在右后角护着手机；他停在左前方半步，不敢靠近。"
+            "她先扫他的污渍背心，再盯他的花甲脸，开口前肩膀一缩。口型与台词同步。"
+            "收束：误会说出后定格在她睁大的眼睛约一秒。"
+        )
+        duration = resolve_shot_duration_sec({
+            "video_duration": "5",
+            "action": action,
+            "dialogue": "该不会想让我那啥吧。",
+        })
+        self.assertGreaterEqual(duration, 8)
+        self.assertLessEqual(duration, 15)
+
+    def test_resolve_shot_duration_keeps_five_for_short_silent_beat(self) -> None:
+        self.assertEqual(
+            resolve_shot_duration_sec({"durationSec": 5, "description": "他转身。"}),
+            5,
+        )
+
+    def test_resolve_shot_duration_does_not_shrink_longer_explicit(self) -> None:
+        self.assertEqual(
+            resolve_shot_duration_sec({"durationSec": 12, "description": "他转身。"}),
+            12,
+        )
 
 
 class ShotTimingPolishTests(unittest.TestCase):

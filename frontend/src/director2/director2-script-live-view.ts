@@ -23,15 +23,15 @@ const SHOT_HEADING = /^#{1,3}\s*镜头/
 const TITLE_HEADING = /^#\s+(?!第\s*[0-9一二三四五六七八九十百]+\s*集)/
 const SECTION_HEADING = /^#{2,3}\s+/
 const PLOT_LINE = /^(?:\*\*)?剧情[：:](?:\*\*)?\s*(.*)$/
-const FIELD_LINE = /^[-*]\s*(人物|场景|道具|动作|镜头|台词|对白|音效|字幕|提示词)[：:]\s*(.*)$/
-const BARE_FIELD_LINE = /^(人物|场景|道具|动作|镜头|台词|对白|音效|字幕|提示词)[：:]\s*(.*)$/
+const FIELD_LINE = /^[-*]\s*(人物|场景|道具|时长|动作|镜头|运镜|台词|对白|音效|字幕|提示词)[：:]\s*(.*)$/
+const BARE_FIELD_LINE = /^(人物|场景|道具|时长|动作|镜头|运镜|台词|对白|音效|字幕|提示词)[：:]\s*(.*)$/
 const SCENE_HEADER = /^【([^】]+)】\s*(.*)$/
 const BEAT_HEAD = /^Beat\s*(\d+)\s*[：:.．]?\s*(.*)$/i
 const BEAT_ANY = /^Beat\s*\d+/im
 const DIALOGUE_HEAD = /^对白[：:]\s*(.*)$/
 const ANCHOR_HEAD = /^视觉锚点[：:]\s*(.*)$/
-const STRUCTURAL_TOKEN = /【[^】\n]{1,40}】|Beat\s*\d+|#{1,3}\s*镜头|#\s*第\s*[0-9一二三四五六七八九十百]+\s*集|#{1,2}\s*视频定位|#{1,3}\s*(?:一[、.])?\s*主要人物固定设定|\*\*剧情[：:]\*\*|视觉锚点[：:]|对白[：:]|[-*]\s*(?:人物|场景|道具|动作|镜头|台词|音效|字幕)[：:]/gi
-const INLINE_FIELD = /(人物|场景|道具|动作|镜头|台词|对白|音效|字幕)[：:]/g
+const STRUCTURAL_TOKEN = /【[^】\n]{1,40}】|Beat\s*\d+|#{1,3}\s*镜头|#\s*第\s*[0-9一二三四五六七八九十百]+\s*集|#{1,2}\s*视频定位|#{1,3}\s*(?:一[、.])?\s*主要人物固定设定|\*\*剧情[：:]\*\*|视觉锚点[：:]|对白[：:]|[-*]\s*(?:人物|场景|道具|时长|动作|镜头|运镜|台词|音效|字幕|提示词)[：:]/gi
+const INLINE_FIELD = /(人物|场景|道具|时长|动作|镜头|运镜|台词|对白|音效|字幕)[：:]/g
 const HIDDEN_SHOT_LABELS = new Set(["提示词", "prompt", "prompttext"])
 
 function textValue(value: unknown): string {
@@ -309,6 +309,91 @@ export function parseScriptLiveView(text: string, options?: { skipTitle?: string
 
 export function visibleShotFields(fields: ScriptShotField[]): ScriptShotField[] {
   return fields.filter((field) => !HIDDEN_SHOT_LABELS.has(field.label.toLowerCase()))
+}
+
+export type ScriptLiveEpisodeGroup = {
+  title: string
+  blocks: ScriptLiveBlock[]
+  shotCount: number
+  /** 1-based display order for the capsule badge; prefers 「第N集」 when present. */
+  number: number
+}
+
+export type ScriptLiveGroupedView = {
+  preamble: ScriptLiveBlock[]
+  episodes: ScriptLiveEpisodeGroup[]
+}
+
+const EPISODE_NUMBER = /第\s*([0-9一二三四五六七八九十百]+)\s*集/
+
+function chineseEpisodeNumber(token: string): number | undefined {
+  if (/^\d+$/.test(token)) return Number(token)
+  const map: Record<string, number> = {
+    一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
+  }
+  if (token in map) return map[token]
+  if (token.startsWith("十") && token.length <= 2) {
+    const ones = token.length === 1 ? 0 : map[token[1]]
+    return ones === undefined ? undefined : 10 + ones
+  }
+  if (token.endsWith("十") && token.length === 2) {
+    const tens = map[token[0]]
+    return tens === undefined ? undefined : tens * 10
+  }
+  return undefined
+}
+
+export function scriptEpisodeNumber(title: string, fallback: number): number {
+  const match = EPISODE_NUMBER.exec(title)
+  if (!match) return fallback
+  return chineseEpisodeNumber(match[1]) ?? fallback
+}
+
+function trimEpisodeBlocks(blocks: ScriptLiveBlock[]): ScriptLiveBlock[] {
+  const next = [...blocks]
+  dropLeadingBlanks(next)
+  while (next[next.length - 1]?.type === "blank") next.pop()
+  return next
+}
+
+/** Split parsed manuscript blocks into a sticky preamble + per-episode groups for capsule UI. */
+export function groupScriptLiveView(blocks: ScriptLiveBlock[]): ScriptLiveGroupedView {
+  const preamble: ScriptLiveBlock[] = []
+  const episodes: ScriptLiveEpisodeGroup[] = []
+  let current: ScriptLiveEpisodeGroup | null = null
+
+  for (const block of blocks) {
+    if (block.type === "episode") {
+      if (current) {
+        current.blocks = trimEpisodeBlocks(current.blocks)
+        episodes.push(current)
+      }
+      const order = episodes.length + 1
+      current = {
+        title: block.text,
+        blocks: [],
+        shotCount: 0,
+        number: scriptEpisodeNumber(block.text, order),
+      }
+      continue
+    }
+    if (!current) {
+      preamble.push(block)
+      continue
+    }
+    current.blocks.push(block)
+    if (block.type === "shot") current.shotCount += 1
+  }
+
+  if (current) {
+    current.blocks = trimEpisodeBlocks(current.blocks)
+    episodes.push(current)
+  }
+
+  return {
+    preamble: trimEpisodeBlocks(preamble),
+    episodes,
+  }
 }
 
 export function extractScriptShownTexts(shownTexts: Record<string, string>): ScriptLiveSource {

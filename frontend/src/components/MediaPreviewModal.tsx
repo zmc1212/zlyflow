@@ -62,6 +62,7 @@ export default function MediaPreviewModal({
       closable={false}
       destroyOnHidden
       width="100vw"
+      zIndex={1100}
       rootClassName="media-preview-root"
       className="media-preview-modal"
     >

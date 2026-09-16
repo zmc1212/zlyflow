@@ -58,9 +58,13 @@ describe("DirectorLiveStepFeed", () => {
       />,
     )
     expect(html).toContain("director-step-row-choices")
+    expect(html).toContain("director-step-choice-q")
+    expect(html).toContain("director-step-choice-a")
+    expect(html).toContain("气质？")
+    expect(html).toContain("更冷")
+    expect(html).toContain("本轮调整诉求")
+    expect(html).toContain("道具再少一点")
     expect(html).toContain("气质？ → 更冷")
-    expect(html).toContain("本轮调整诉求 → 道具再少一点")
-    expect(html).toContain("director-step-choice-chip")
     expect(html).toContain("director-step-row-head")
     expect(html).not.toContain("aria-expanded")
     expect(html).not.toContain("director-episode-row")
@@ -89,6 +93,7 @@ describe("DirectorLiveStepFeed", () => {
       />,
     )
     expect(html).toContain("director-direction-chips is-path")
+    expect(html).toContain("director-direction-stages")
     expect(html).toContain("创作路径")
     expect(html).toContain("director-direction-stage-label")
     expect(html).toContain("创意确认")

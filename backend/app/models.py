@@ -256,6 +256,8 @@ class ModeResponse(BaseModel):
     catalog_group: str = ""
     catalog_group_label: str = ""
     catalog_group_order: int = 100
+    supports_timeline: bool = False
+    supports_multi_segment: bool = False
 
 
 class ComfyHealthResponse(BaseModel):
@@ -469,6 +471,31 @@ class LlmStatusResponse(BaseModel):
     available: bool
     message: str | None = None
     supports_vision: bool = False
+    model: str | None = None
+
+
+class VlmProviderUpdateRequest(BaseModel):
+    enabled: bool = False
+    base_url: str = Field(default="https://open.bigmodel.cn/api/paas/v4", max_length=500)
+    api_key: str | None = Field(default=None, max_length=512)
+    model: str = Field(default="glm-4.6v-flash", max_length=255)
+
+
+class VlmProviderTestRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=512)
+    model: str | None = Field(default=None, max_length=255)
+
+
+class VlmModelCatalogRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=512)
+    free_only: bool = False
+
+
+class VlmStatusResponse(BaseModel):
+    available: bool
+    message: str | None = None
     model: str | None = None
 
 

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AutoComplete, Button, Input, Select, Switch, message } from "antd"
-import { Bot, CheckCircle2, ExternalLink, KeyRound, Mic, RefreshCw, Sparkles } from "lucide-react"
+import { Bot, CheckCircle2, ExternalLink, KeyRound, RefreshCw, Sparkles } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
 
@@ -266,7 +266,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
         <div>
           <h2 className="text-base font-semibold text-[#111827]">LLM 大模型服务</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            通用 OpenAI 兼容协议，用于创作提示词一键润色。魔搭会扣除账户魔粒；不想扣费请用硅基流动免费 7B 或本机 Ollama。
+            通用 OpenAI 兼容协议，用于创作提示词一键润色、拆剧本和导演台文本对话。看图反推、原片提示词与复刻台拉片请到「VLM 视觉模型」单独配置。魔搭会扣除账户魔粒；不想扣费请用硅基流动免费 7B 或本机 Ollama。
           </p>
         </div>
       </div>
@@ -447,204 +447,11 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                   ? "魔搭不再提供独立于账户余额的免费次数池。调用会扣魔粒；工作台已对 DeepSeek-V4 关闭思考模式以降低单次消耗，但无法阻止扣费。"
                   : selectedPreset === "siliconflow"
                     ? "会拉取硅基流动全部模型，再用名称或标记里的 Free 文字筛选免费项。Qwen2.5-7B-Instruct 等免费模型不扣魔搭魔粒。"
-                    : "请按所选平台的官方文档配置 Base URL、模型名和 API Key。"}
+                    : "请按所选平台的官方文档配置 Base URL、模型名和 API Key。拉取列表只验证目录接口；「测试连接」会真实调用当前模型。GPT-5 / R1 等推理模型或中转站首字可能需要几十秒，请等按钮转完（最多 90 秒）。"}
             </p>
           </div>
         </aside>
       </section>
-      <TtsProviderCard csrfToken={csrfToken} />
     </main>
-  )
-}
-
-type TtsConfig = {
-  enabled: boolean
-  use_llm_credentials: boolean
-  base_url: string
-  model: string
-  voice: string
-  api_key_masked?: string | null
-  has_api_key: boolean
-  credential_ready: boolean
-  available: boolean
-  unavailable_reason?: string | null
-  last_test_status?: string | null
-  last_test_message?: string | null
-  last_test_at?: string | null
-  voices: { id: string; label: string; gender?: string }[]
-}
-
-function TtsProviderCard({ csrfToken }: { csrfToken: string }) {
-  const queryClient = useQueryClient()
-  const query = useQuery({
-    queryKey: ["tts-provider"],
-    queryFn: () => requestJson<TtsConfig>("/api/admin/providers/tts"),
-  })
-  const [enabled, setEnabled] = useState(false)
-  const [useLlm, setUseLlm] = useState(true)
-  const [baseUrl, setBaseUrl] = useState("")
-  const [model, setModel] = useState("tts-1")
-  const [voice, setVoice] = useState("alloy")
-  const [apiKey, setApiKey] = useState("")
-
-  useEffect(() => {
-    if (!query.data) return
-    setEnabled(query.data.enabled)
-    setUseLlm(query.data.use_llm_credentials)
-    setBaseUrl(query.data.base_url)
-    setModel(query.data.model)
-    setVoice(query.data.voice)
-  }, [query.data])
-
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["tts-provider"] })
-  const save = useMutation({
-    mutationFn: () =>
-      requestJson<TtsConfig>(
-        "/api/admin/providers/tts",
-        jsonMutation(csrfToken, {
-          enabled,
-          use_llm_credentials: useLlm,
-          base_url: baseUrl,
-          model,
-          voice,
-          api_key: apiKey || null,
-        }, "PUT"),
-      ),
-    onSuccess: () => {
-      setApiKey("")
-      refresh()
-      message.success("TTS 配置已保存")
-    },
-  })
-  const test = useMutation({
-    mutationFn: () =>
-      requestJson<TtsConfig>(
-        "/api/admin/providers/tts/test",
-        jsonMutation(csrfToken, {
-          enabled,
-          use_llm_credentials: useLlm,
-          base_url: baseUrl,
-          model,
-          voice,
-          api_key: apiKey || null,
-        }),
-      ),
-    onSuccess: () => {
-      refresh()
-      message.success("语音合成测试成功")
-    },
-  })
-  const error = save.error ?? test.error ?? query.error
-  const voices = query.data?.voices?.length
-    ? query.data.voices
-    : [
-      { id: "alloy", label: "Alloy（中性）" },
-      { id: "echo", label: "Echo（男声）" },
-      { id: "fable", label: "Fable（叙事）" },
-      { id: "onyx", label: "Onyx（低沉男声）" },
-      { id: "nova", label: "Nova（女声）" },
-      { id: "shimmer", label: "Shimmer（柔和女声）" },
-    ]
-
-  return (
-    <section className="mt-10">
-      <div className="flex items-start gap-4 border-b border-black/[0.06] pb-5">
-        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#7047f6]/10 text-[#7047f6]">
-          <Mic size={22} />
-        </span>
-        <div>
-          <h2 className="text-base font-semibold text-[#111827]">独立 TTS 语音合成</h2>
-          <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            导演台配音调用 OpenAI 兼容 <code>/audio/speech</code>。默认可复用上方大模型的地址和密钥；也可填写独立接口。不绑定 Edge TTS。
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="rounded-2xl border border-black/[0.06] bg-white p-6 shadow-sm space-y-5">
-          <div className="flex items-center justify-between gap-4 border-b border-black/[0.06] pb-4">
-            <div>
-              <p className="text-sm font-medium text-[#111827]">启用语音合成</p>
-              <p className="mt-0.5 text-xs text-[#6b7280]">开启后导演台可按对白生成可播放配音。</p>
-            </div>
-            <Switch checked={enabled} onChange={setEnabled} />
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-[#111827]">复用大模型凭据</p>
-              <p className="mt-0.5 text-xs text-[#6b7280]">使用上方 LLM 的 Base URL 与 API Key。上游需支持 /audio/speech。</p>
-            </div>
-            <Switch checked={useLlm} onChange={setUseLlm} />
-          </div>
-          {!useLlm ? (
-            <>
-              <div>
-                <label className="block text-xs font-medium text-[#4b5563]">TTS Base URL</label>
-                <Input
-                  className="mt-1.5"
-                  value={baseUrl}
-                  onChange={(event) => setBaseUrl(event.target.value)}
-                  placeholder="https://api.openai.com/v1"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[#4b5563]">API Key</label>
-                <Input.Password
-                  className="mt-1.5"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
-                  placeholder={query.data?.api_key_masked || "独立 TTS 密钥，复用大模型时可留空"}
-                />
-              </div>
-            </>
-          ) : null}
-          <div>
-            <label className="block text-xs font-medium text-[#4b5563]">模型</label>
-            <Input className="mt-1.5" value={model} onChange={(event) => setModel(event.target.value)} placeholder="tts-1" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-[#4b5563]">默认音色</label>
-            <Select
-              className="mt-1.5 w-full"
-              value={voice}
-              options={voices.map((item) => ({ value: item.id, label: item.label }))}
-              onChange={setVoice}
-            />
-          </div>
-          {error ? <Alert type="error" showIcon message={error.message} /> : null}
-          <div className="flex flex-wrap gap-3 pt-2">
-            <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>保存配置</Button>
-            <Button loading={test.isPending} onClick={() => test.mutate()} icon={<CheckCircle2 size={15} />}>测试连接</Button>
-          </div>
-        </div>
-        <aside className="rounded-2xl border border-black/[0.06] bg-white p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wider text-[#6b7280]">TTS 状态</p>
-          <p className={`mt-3 text-sm font-semibold ${query.data?.available ? "text-emerald-600" : "text-amber-600"}`}>
-            {query.data?.available ? "● 语音合成可用" : "● 语音合成未就绪"}
-          </p>
-          {query.data?.unavailable_reason ? (
-            <p className="mt-2 text-xs leading-5 text-[#6b7280]">{query.data.unavailable_reason}</p>
-          ) : null}
-          <dl className="mt-6 space-y-4 text-xs">
-            <div>
-              <dt className="text-[#6b7280]">当前模型 / 音色</dt>
-              <dd className="mt-1 font-medium text-[#111827]">{query.data?.model || "未配置"} · {query.data?.voice || "alloy"}</dd>
-            </div>
-            <div>
-              <dt className="text-[#6b7280]">最近连通性测试</dt>
-              <dd className="mt-1 font-medium text-[#111827]">
-                {query.data?.last_test_status
-                  ? `${query.data.last_test_status} · ${query.data.last_test_at ? new Date(query.data.last_test_at).toLocaleString("zh-CN", { hour12: false }) : ""}`
-                  : "尚未测试"}
-              </dd>
-              {query.data?.last_test_message ? (
-                <dd className="mt-1 break-all text-[11px] text-[#6b7280]">{query.data.last_test_message}</dd>
-              ) : null}
-            </div>
-          </dl>
-        </aside>
-      </div>
-    </section>
   )
 }

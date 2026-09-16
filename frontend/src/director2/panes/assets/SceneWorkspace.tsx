@@ -4,7 +4,9 @@
 import { Button, Col, Form, Input, Row, Select } from "antd"
 import { Camera, Compass, Edit3, ExternalLink, Image as ImageIcon, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react"
 import type { Director2Asset } from "../../api"
-import { copyText, openImageLightbox, SCENE_TYPE_OPTIONS } from "./shared"
+import { useMediaPreview } from "../../media-preview"
+import { copyText, SCENE_TYPE_OPTIONS } from "./shared"
+import AssetSourceReferenceStrip from "./AssetSourceReferenceStrip"
 
 interface SceneWorkspaceProps {
   asset: Director2Asset
@@ -20,6 +22,11 @@ interface SceneWorkspaceProps {
   onManualUrl: (target: string) => void
   onOpenPanoViewer: (url: string) => void
   onOpenEditScene: () => void
+  uploadingSourceRef: boolean
+  inferringSourcePrompts?: boolean
+  onUploadSourceRefs: (files: File[]) => void
+  onRemoveSourceRef: (refId: string) => void
+  onInferSourcePrompts?: () => void
 }
 
 export default function SceneWorkspace({
@@ -36,7 +43,13 @@ export default function SceneWorkspace({
   onManualUrl,
   onOpenPanoViewer,
   onOpenEditScene,
+  uploadingSourceRef,
+  inferringSourcePrompts,
+  onUploadSourceRefs,
+  onRemoveSourceRef,
+  onInferSourcePrompts,
 }: SceneWorkspaceProps) {
+  const { openMediaPreview } = useMediaPreview()
   return (
     <div className="scene-workspace-layout">
       <div className="section-card">
@@ -88,7 +101,7 @@ export default function SceneWorkspace({
                     src={asset.extra?.master_url || asset.image_url}
                     className="slot-image"
                     alt="Master"
-                    onClick={() => openImageLightbox(asset.extra?.master_url || asset.image_url, "Master 主视角")}
+                    onClick={() => openMediaPreview({ src: asset.extra?.master_url || asset.image_url, title: "Master 主视角" })}
                   />
                 ) : (
                   <div className="slot-empty-state">
@@ -140,6 +153,14 @@ export default function SceneWorkspace({
                 {asset.extra?.master_url || asset.image_url ? "重新生成 Master" : "生成 Master"}
               </Button>
             </div>
+            <AssetSourceReferenceStrip
+              asset={asset}
+              uploading={uploadingSourceRef}
+              inferring={inferringSourcePrompts}
+              onUpload={onUploadSourceRefs}
+              onRemove={onRemoveSourceRef}
+              onInferPrompts={onInferSourcePrompts}
+            />
 
             {/* 环境提示词编辑框 */}
             <div className="slot-prompt-wrap">
@@ -170,7 +191,7 @@ export default function SceneWorkspace({
                     src={asset.extra.reverse_url}
                     className="slot-image"
                     alt="Reverse"
-                    onClick={() => openImageLightbox(asset.extra?.reverse_url, "Reverse 背面反打视角")}
+                    onClick={() => openMediaPreview({ src: asset.extra?.reverse_url, title: "Reverse 背面反打视角" })}
                   />
                 ) : (
                   <div className="slot-empty-state">

@@ -15,6 +15,8 @@ import requests
 from backend.app.llm_client import (
     LLM_CONNECT_TIMEOUT_SECONDS,
     LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
+    LLM_TEST_MAX_TOKENS,
+    LLM_TEST_TIMEOUT_SECONDS,
     OpenAICompatibleClient,
     LlmBillingError,
     LlmError,
@@ -23,6 +25,7 @@ from backend.app.llm_client import (
     parse_siliconflow_plaza_free_ids,
 )
 from backend.app.llm_provider import LlmProviderService
+from backend.app.vlm_provider import VlmProviderService
 from backend.app.main import app, session_cookie_scheme
 from backend.app.models import UserRole
 from backend.app.storage import JobStore
@@ -505,10 +508,12 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.auth_store = AuthStore(self.db_path)
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
+        self.vlm_provider = VlmProviderService(self.job_store, self.credential_key)
 
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
+        app.state.vlm_provider = self.vlm_provider
 
         self.admin = self.auth_store.create_user("superadmin", "Super Admin", "password123456", UserRole.SUPER_ADMIN, must_change_password=False)
         self.admin_token, _ = self.auth_store.create_session(self.admin["id"])
@@ -643,6 +648,7 @@ class LLMConnectionTestTests(unittest.TestCase):
         client = OpenAICompatibleClient("http://127.0.0.1:11434/v1", "ollama")
         self.assertEqual(client.test_connection("qwen2.5:7b-instruct", timeout=90.0), "收到")
         self.assertEqual(mock_chat.call_args.kwargs["timeout"], 90.0)
+        self.assertEqual(mock_chat.call_args.kwargs["max_tokens"], LLM_TEST_MAX_TOKENS)
 
     @patch.object(OpenAICompatibleClient, "list_models", return_value=["qwen2.5:7b-instruct"])
     @patch.object(
@@ -654,7 +660,9 @@ class LLMConnectionTestTests(unittest.TestCase):
         client = OpenAICompatibleClient("http://127.0.0.1:11434/v1", "ollama")
         with self.assertRaises(LlmTemporaryError) as ctx:
             client.test_connection("qwen2.5:7b-instruct", timeout=90.0)
-        self.assertIn("首次加载", str(ctx.exception))
+        text = str(ctx.exception)
+        self.assertIn("首次加载", text)
+        self.assertIn("目录接口可用", text)
 
     @patch.object(OpenAICompatibleClient, "test_connection", return_value="收到")
     def test_provider_uses_longer_timeout_for_local_ollama(self, mock_test: MagicMock) -> None:
@@ -664,19 +672,19 @@ class LLMConnectionTestTests(unittest.TestCase):
             "model": "qwen2.5:7b-instruct",
         })
         result = self.provider.test()
-        self.assertEqual(mock_test.call_args.kwargs["timeout"], 90.0)
+        self.assertEqual(mock_test.call_args.kwargs["timeout"], LLM_TEST_TIMEOUT_SECONDS)
         self.assertEqual(result["last_test_status"], "成功")
 
     @patch.object(OpenAICompatibleClient, "test_connection", return_value="ok")
-    def test_provider_keeps_short_timeout_for_cloud(self, mock_test: MagicMock) -> None:
+    def test_provider_uses_same_timeout_for_cloud_reasoning_models(self, mock_test: MagicMock) -> None:
         self.provider.update({
             "enabled": True,
             "base_url": "https://api-inference.modelscope.cn/v1",
             "api_key": "ms-secret-token-12345678",
-            "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "model": "gpt-5.6-sol",
         })
         self.provider.test()
-        self.assertEqual(mock_test.call_args.kwargs["timeout"], 15.0)
+        self.assertEqual(mock_test.call_args.kwargs["timeout"], LLM_TEST_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":

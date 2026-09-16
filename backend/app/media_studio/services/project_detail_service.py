@@ -12,6 +12,20 @@ from .asset_image_prompts import (
     prop_view_prompt,
     scene_view_prompt,
 )
+from .asset_prompt_inference import (
+    apply_inferred_prompts,
+    reference_urls_to_data_uris,
+    source_urls_for_inference,
+)
+from .asset_source_references import (
+    MAX_SOURCE_REFERENCE_BYTES,
+    apply_source_references_to_generation,
+    append_source_reference,
+    normalize_source_references,
+    remove_source_reference,
+    sniff_image_suffix,
+    source_reference_urls,
+)
 from .episode_image_prompts import (
     asset_to_prompt_dict,
     beat_reference_urls,
@@ -19,6 +33,7 @@ from .episode_image_prompts import (
     beat_sketch_prompt,
 )
 from .grs_client import GrsClient, GrsError
+from .llm_service import LlmService
 from ..provider_bridge import credential_manager, grs_row
 from .qiniu_service import QiniuService
 from .script_parser import StandardScriptParser
@@ -38,6 +53,49 @@ def resolve_shot_scene(
         if asset_name in scene_name or scene_name in asset_name:
             return scene_name, asset_id
     return scene_name, None
+
+
+def asset_name_id_map(rows: list[dict[str, Any]], kind: str) -> dict[str, str]:
+    """Map asset names to IDs, preferring rows that already have an image."""
+    mapping: dict[str, str] = {}
+    ranked: list[tuple[str, bool, str]] = []
+    for row in rows:
+        if row.get("kind") != kind or not row.get("id"):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+        if not extra and row.get("extra_json"):
+            try:
+                extra = json.loads(row["extra_json"]) if isinstance(row["extra_json"], str) else (row["extra_json"] or {})
+            except Exception:
+                extra = {}
+        has_image = bool(str(
+            row.get("image_url")
+            or extra.get("master_url")
+            or extra.get("avatar_url")
+            or extra.get("reference_url")
+            or ""
+        ).strip())
+        ranked.append((name, has_image, str(row["id"])))
+    ranked.sort(key=lambda item: item[1])
+    for name, _has_image, asset_id in ranked:
+        mapping[name] = asset_id
+    return mapping
+
+
+def match_named_asset_ids(names: list[Any], name_map: dict[str, str]) -> list[str]:
+    matched: list[str] = []
+    for raw in names or []:
+        name = str(raw or "").strip()
+        if not name:
+            continue
+        for key, asset_id in name_map.items():
+            if key in name or name in key:
+                if asset_id not in matched:
+                    matched.append(asset_id)
+    return matched
 
 
 class ProjectDetailService:
@@ -339,6 +397,8 @@ class ProjectDetailService:
                     script_lines.append(f"- 动作：{s['action']}")
                 if s.get("dialogue"):
                     script_lines.append(f"- 台词：{s['dialogue']}")
+                if s.get("audio"):
+                    script_lines.append(f"- 音效：{s['audio']}")
                 if s.get("visual_prompt"):
                     script_lines.append(f"- 提示词：{s['visual_prompt']}")
                 script_lines.append("")
@@ -453,6 +513,7 @@ class ProjectDetailService:
             if not extra.get("detail_prompt"):
                 extra["detail_prompt"] = f"{row['name']}，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k"
 
+        extra["source_references"] = normalize_source_references(extra)
         row["extra"] = extra
         return row
 
@@ -610,6 +671,8 @@ class ProjectDetailService:
         grs_model = (model_row["provider_model"] if model_row else None) or "gpt-image-2"
         model_display = (model_row["display_name"] if model_row else None) or grs_model
         extra = row.get("extra") or {}
+        extra["source_references"] = normalize_source_references(extra)
+        follow_source_photos = bool(source_reference_urls(extra))
         for key in ("ethnicity", "visual_style", "art_style_id", "body_type", "gender", "face_prompt"):
             value = payload.get(key)
             if value not in (None, ""):
@@ -629,7 +692,8 @@ class ProjectDetailService:
                 style=art_style_id,
                 visual_style=visual_style,
                 ethnicity=char_ethnicity,
-                face_prompt=prompt,
+                face_prompt="" if follow_source_photos else prompt,
+                follow_source_photos=follow_source_photos,
             )
             job_title = f"生成角色头像: {row['name']} ({grs_model})"
         elif target_type == "identity":
@@ -640,13 +704,14 @@ class ProjectDetailService:
                 raise ValueError("找不到该造型")
             ident_name = ident_item.get("name") or "角色造型"
             costume = look_costume_text(ident_item) or (prompt or "").strip()
-            if not costume:
+            if not costume and not follow_source_photos:
                 raise ValueError("请先填写外观描述，造型图需要服装关键词")
             ident_item = {**ident_item, "appearance_details": costume, "description": costume}
             avatar_url = (extra.get("avatar_url") or row.get("image_url") or "").strip()
-            if not avatar_url:
-                raise ValueError("请先生成或上传肖像，造型图需要把它作为身份锚点传入")
-            reference_urls = [avatar_url]
+            if not avatar_url and not follow_source_photos:
+                raise ValueError("请先生成或上传肖像，或上传原片参考图作为身份锚点")
+            if avatar_url and not follow_source_photos:
+                reference_urls = [avatar_url]
             clean_prompt = character_look_prompt(
                 row,
                 ident_item,
@@ -654,14 +719,22 @@ class ProjectDetailService:
                 style=art_style_id,
                 visual_style=visual_style,
                 ethnicity=char_ethnicity,
+                follow_source_photos=follow_source_photos,
             )
             prompt = costume
             job_title = f"生成造型形象: {row['name']} - {ident_name} ({grs_model})"
         elif target_type == "scene_master":
             aspect_ratio = payload.get("aspect_ratio") or "16:9"
-            if not prompt:
-                prompt = extra.get("environment_prompt") or row.get("visual_prompt") or row.get("name")
-            clean_prompt = f"{prompt}, master wide shot cinematic scene, establishing shot, architectural environment, 8k resolution"
+            if follow_source_photos:
+                clean_prompt = (
+                    "master wide shot cinematic scene matching the source photos exactly, "
+                    "establishing shot, architectural environment, 8k resolution. "
+                    "Do not add furniture, signage, or objects that are not in the photos."
+                )
+            else:
+                if not prompt:
+                    prompt = extra.get("environment_prompt") or row.get("visual_prompt") or row.get("name")
+                clean_prompt = f"{prompt}, master wide shot cinematic scene, establishing shot, architectural environment, 8k resolution"
             job_title = f"生成场景主视角: {row['name']} ({grs_model})"
         elif target_type == "scene_reverse":
             aspect_ratio = payload.get("aspect_ratio") or "16:9"
@@ -740,6 +813,16 @@ class ProjectDetailService:
             clean_prompt = f"{prompt}, cinematic lighting, ultra-detailed, 8k resolution, photorealistic"
             job_title = f"生成资产形象: {row['name']} ({grs_model})"
 
+        extra["source_references"] = normalize_source_references(extra)
+        reference_urls, clean_prompt = apply_source_references_to_generation(
+            kind=str(row.get("kind") or ""),
+            extra=extra,
+            payload=payload,
+            target_type=target_type,
+            reference_urls=reference_urls,
+            clean_prompt=clean_prompt,
+        )
+
         dim_map = {
             "1:1": (1024, 1024),
             "3:4": (896, 1152),
@@ -782,6 +865,7 @@ class ProjectDetailService:
             "body_type": extra.get("body_type") or "",
             "gender": extra.get("gender") or "",
             "reply_type": "async",
+            "source_reference_count": len(source_reference_urls(extra)),
             "reference_urls": reference_urls,
             "request_body": {
                 "model": grs_model,
@@ -988,8 +1072,116 @@ class ProjectDetailService:
             "job_id": jid,
             "target_type": target_type,
             "identity_id": identity_id,
+            "source_reference_count": len(source_reference_urls(extra)),
             "asset": hydrated,
         }
+
+    @classmethod
+    def _persist_asset_extra(cls, project_id: str, asset_id: str, extra: dict[str, Any]) -> dict[str, Any]:
+        extra_json = json.dumps(extra, ensure_ascii=False)
+        ts = now_str()
+        execute_sql(
+            """
+            UPDATE ai_project_assets
+            SET extra_json = %s, updated_at = %s
+            WHERE id = %s AND project_id = %s
+            """,
+            (extra_json, ts, asset_id, project_id),
+        )
+        updated_row = query_one(
+            "SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s",
+            (asset_id, project_id),
+        )
+        if not updated_row:
+            raise ValueError("资产不存在")
+        return cls._hydrate_asset(updated_row)
+
+    @classmethod
+    def add_asset_source_reference(
+        cls,
+        project_id: str,
+        asset_id: str,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str = "",
+    ) -> dict[str, Any]:
+        raw_row = query_one(
+            "SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s",
+            (asset_id, project_id),
+        )
+        if not raw_row:
+            raise ValueError("资产不存在")
+        if not content:
+            raise ValueError("文件为空")
+        if len(content) > MAX_SOURCE_REFERENCE_BYTES:
+            raise ValueError("参考图不能超过 10 MB")
+        suffix = sniff_image_suffix(content, filename, content_type)
+        safe_name = (filename or f"source{suffix}").strip() or f"source{suffix}"
+        _object_key, image_url = QiniuService.store_bytes("asset-ref", safe_name, content)
+        extra = cls._hydrate_asset(raw_row).get("extra") or {}
+        extra["source_references"] = append_source_reference(
+            extra,
+            url=image_url,
+            filename=filename or safe_name,
+        )
+        extra.pop("source_reference_urls", None)
+        return cls._persist_asset_extra(project_id, asset_id, extra)
+
+    @classmethod
+    def delete_asset_source_reference(cls, project_id: str, asset_id: str, ref_id: str) -> dict[str, Any]:
+        raw_row = query_one(
+            "SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s",
+            (asset_id, project_id),
+        )
+        if not raw_row:
+            raise ValueError("资产不存在")
+        extra = cls._hydrate_asset(raw_row).get("extra") or {}
+        before = normalize_source_references(extra)
+        extra["source_references"] = remove_source_reference(extra, ref_id)
+        if len(extra["source_references"]) == len(before):
+            raise ValueError("参考图不存在")
+        return cls._persist_asset_extra(project_id, asset_id, extra)
+
+    @classmethod
+    def infer_asset_prompts(cls, project_id: str, asset_id: str) -> dict[str, Any]:
+        raw_row = query_one(
+            "SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s",
+            (asset_id, project_id),
+        )
+        if not raw_row:
+            raise ValueError("资产不存在")
+        row = cls._hydrate_asset(raw_row)
+        extra = dict(row.get("extra") or {})
+        urls = source_urls_for_inference(extra)
+        images = reference_urls_to_data_uris(urls)
+        inferred = LlmService.infer_asset_prompts_from_images(
+            kind=str(row.get("kind") or "character"),
+            name=str(row.get("name") or ""),
+            role=str(row.get("role") or extra.get("role_position") or ""),
+            images=images,
+        )
+        extra, description, visual_prompt = apply_inferred_prompts(
+            kind=str(row.get("kind") or "character"),
+            extra=extra,
+            inferred=inferred,
+            name=str(row.get("name") or ""),
+            current_description=str(row.get("description") or extra.get("description") or ""),
+            current_visual_prompt=str(row.get("visual_prompt") or extra.get("visual_prompt") or extra.get("environment_prompt") or ""),
+        )
+        return cls.update_asset(
+            project_id,
+            asset_id,
+            {
+                "name": row.get("name") or "",
+                "role": row.get("role") or "",
+                "description": description,
+                "visual_prompt": visual_prompt,
+                "image_url": row.get("image_url") or "",
+                "voice_id": row.get("voice_id") or "",
+                "extra": extra,
+            },
+        )
 
     # --- 3. 剧集工坊 Episodes ---
     @classmethod
@@ -1050,6 +1242,26 @@ class ProjectDetailService:
         aff = execute_sql("DELETE FROM ai_project_episodes WHERE id = %s AND project_id = %s", (episode_id, project_id))
         return aff > 0
 
+    @staticmethod
+    def _resolved_beat_duration(beat: dict[str, Any]) -> int:
+        from ...dialogue_timing import resolve_shot_duration_sec
+        return resolve_shot_duration_sec(beat)
+
+    @classmethod
+    def _apply_resolved_beat_duration(cls, beat: dict[str, Any]) -> bool:
+        if not isinstance(beat, dict):
+            return False
+        resolved = cls._resolved_beat_duration(beat)
+        raw = str(beat.get("video_duration") or "").strip()
+        try:
+            stored = int(float(raw)) if raw else 0
+        except (TypeError, ValueError):
+            stored = 0
+        if stored >= resolved and stored >= 2:
+            return False
+        beat["video_duration"] = str(resolved)
+        return True
+
     @classmethod
     def get_episode_detail(cls, project_id: str, episode_id: str) -> dict[str, Any]:
         """获取分集详细数据（含结构化分镜 beats、关联资产 links 等，对齐 source1 XiajiEpisode）"""
@@ -1069,9 +1281,9 @@ class ProjectDetailService:
 
         # 获取项目资产供反查关联
         assets_rows = query_all("SELECT id, kind, name, image_url, extra_json FROM ai_project_assets WHERE project_id = %s", (project_id,))
-        char_map = {a["name"]: a["id"] for a in assets_rows if a["kind"] == "character"}
-        scene_map = {a["name"]: a["id"] for a in assets_rows if a["kind"] == "scene"}
-        prop_map = {a["name"]: a["id"] for a in assets_rows if a["kind"] == "prop"}
+        char_map = asset_name_id_map(assets_rows, "character")
+        scene_map = asset_name_id_map(assets_rows, "scene")
+        prop_map = asset_name_id_map(assets_rows, "prop")
 
         # 如果 beats 为空，从关联剧本文档解析出的分析结果抽取或生成初始分镜
         if not beats:
@@ -1095,6 +1307,8 @@ class ProjectDetailService:
                         "visual_prompt": f"{ep['title']}，分镜{idx + 1}，{line}，电影级画面，8k",
                     })
 
+            inherited_scene_name = ""
+            inherited_scene_id = None
             for s in shots:
                 s_num = s.get("shot_num", len(beats) + 1)
                 s_title = s.get("title") or f"镜头 {s_num}"
@@ -1103,15 +1317,11 @@ class ProjectDetailService:
                 s_action = s.get("action") or ""
                 s_dialogue = s.get("dialogue") or ""
                 s_prompt = s.get("visual_prompt") or ""
+                s_audio = s.get("audio") or ""
                 s_chars = s.get("characters") or []
                 s_props = s.get("props") or []
 
-                matched_char_ids = []
-                for c_name in s_chars:
-                    for k, aid in char_map.items():
-                        if k in c_name or c_name in k:
-                            if aid not in matched_char_ids:
-                                matched_char_ids.append(aid)
+                matched_char_ids = match_named_asset_ids(s_chars, char_map)
 
                 explicit_scene = bool(str(s_scene or "").strip())
                 s_scene, matched_scene_id = resolve_shot_scene(
@@ -1121,15 +1331,18 @@ class ProjectDetailService:
                     inherited_scene_name = s_scene
                     inherited_scene_id = matched_scene_id
 
-                matched_prop_ids = []
-                for p_name in s_props:
-                    for k, aid in prop_map.items():
-                        if k in p_name or p_name in k:
-                            if aid not in matched_prop_ids:
-                                matched_prop_ids.append(aid)
+                matched_prop_ids = match_named_asset_ids(s_props, prop_map)
 
                 speaker = s_chars[0] if s_chars else ""
                 heading = f"{s_title} · {s_scene} · {s_camera}" if s_scene else s_title
+                video_duration = str(cls._resolved_beat_duration({
+                    "dialogue": s_dialogue,
+                    "action": s_action,
+                    "visual_prompt": s_prompt,
+                    "duration_sec": s.get("duration_sec"),
+                    "video_duration": s.get("video_duration"),
+                    "durationSec": s.get("durationSec") or s.get("duration"),
+                }))
 
                 beats.append({
                     "id": f"beat-{episode_id}-{s_num}",
@@ -1140,6 +1353,7 @@ class ProjectDetailService:
                     "dialogue": s_dialogue,
                     "action": s_action,
                     "camera": s_camera,
+                    "audio": s_audio,
                     "characters": s_chars,
                     "character_ids": matched_char_ids,
                     "scene": s_scene,
@@ -1151,11 +1365,24 @@ class ProjectDetailService:
                     "sketch_url": None,
                     "render_url": None,
                     "video_url": None,
-                    "video_prompt_zh": s_action or s_dialogue or s_prompt,
-                    "video_duration": "5",
+                    "video_prompt_zh": " ".join(
+                        part for part in (s_action, f"运镜：{s_camera}" if s_camera else "", f"声音：{s_audio}" if s_audio else "") if part
+                    ) or s_dialogue or s_prompt,
+                    "video_duration": video_duration,
                     "status": "draft",
                 })
 
+            data["beats"] = beats
+            execute_sql(
+                "UPDATE ai_project_episodes SET data_json = %s, shots_count = %s WHERE id = %s",
+                (json.dumps(data, ensure_ascii=False), len(beats), episode_id),
+            )
+
+        duration_changed = False
+        for beat in beats:
+            if cls._apply_resolved_beat_duration(beat):
+                duration_changed = True
+        if duration_changed:
             data["beats"] = beats
             execute_sql(
                 "UPDATE ai_project_episodes SET data_json = %s, shots_count = %s WHERE id = %s",
@@ -1192,6 +1419,9 @@ class ProjectDetailService:
             "beats": beats,
             "links": links,
             "data": data,
+            "episode_video_url": data.get("episode_video_url") or "",
+            "episode_video_source": data.get("episode_video_source") or "",
+            "episode_video_job_id": data.get("episode_video_job_id") or "",
         }
 
     @classmethod
@@ -1204,6 +1434,7 @@ class ProjectDetailService:
             "characters", "character_ids", "character_look_id", "character_look_ids", "props", "prop_ids", "visual_prompt", "sketch_prompt",
             "sketch_url", "sketch_job_id", "render_url", "render_prompt",
             "render_job_id", "render_status", "video_url", "video_prompt_zh", "video_duration", "status",
+            "h3_prompt", "dialogue_turns", "visible_text",
         ]
         updates = {key: payload[key] for key in allowed_fields if key in payload}
         target = cls._update_episode_beat_atomic(
@@ -1326,6 +1557,11 @@ class ProjectDetailService:
     def generate_beat_images_batch(cls, project_id: str, episode_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         from .storyboard_image_service import StoryboardImageService
         return StoryboardImageService.enqueue_batch(project_id, episode_id, payload or {})
+
+    @classmethod
+    def generate_beat_h3_prompt(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        from .h3_prompt_job_service import H3PromptJobService
+        return H3PromptJobService.enqueue(project_id, episode_id, beat_id, payload or {})
 
     @classmethod
     def _generate_beat_still(
@@ -1658,6 +1894,9 @@ class ProjectDetailService:
         if row and row.get("job_type") == "video_generation":
             from .episode_video_service import EpisodeVideoService
             return EpisodeVideoService.retry_job(project_id, job_id)
+        if row and row.get("job_type") == "h3_prompt":
+            from .h3_prompt_job_service import H3PromptJobService
+            return H3PromptJobService.retry(project_id, job_id)
         payload = json.loads((row or {}).get("payload_json") or "{}")
         if payload.get("target_type") in {"beat_sketch", "beat_render"}:
             from .storyboard_image_service import StoryboardImageService

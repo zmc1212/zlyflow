@@ -1,6 +1,6 @@
 // 剧集工坊面板 —— 逐行复刻自 dev0914 z-admin/src/views/project/EpisodeWorkshopPane.vue
 // Vue → React 对应：ref→useState、computed→useMemo、watch(route.params.episodeId)→useEffect(episodeId)、
-// onMounted/onUnmounted→useEffect（3 秒生图任务静默轮询与清理保留）；
+// onMounted/onUnmounted→useEffect（生图/视频/合成任务静默轮询：空闲 3 秒，本集视频任务活跃时 1 秒）；
 // currentEpisode / selectedBeat 等深响应对象的就地改写收敛为 applyCurrentEpisode / mutateCurrentEpisode /
 // updateSelectedBeat（同步维护 ref 供轮询与异步续体读取，等价 Vue 的 .value 语义）；
 // reactive(Set) generatingBeatIds / generatingRenderBeatIds 以 ref 镜像 + state 双写保持同步读取语义；
@@ -13,11 +13,11 @@ import {
   Checkbox,
   Col,
   Form,
-  Image,
   Input,
   InputNumber,
   Modal,
   Popconfirm,
+  Progress,
   Row,
   Select,
   Space,
@@ -47,6 +47,8 @@ import {
   ExternalLink,
   Video,
   ArrowLeft,
+  Layers,
+  Copy,
 } from "lucide-react"
 import {
   listEpisodes,
@@ -58,9 +60,13 @@ import {
   generateBeatSketch,
   generateBeatRender,
   generateBeatImagesBatch,
+  generateBeatH3Prompt,
+  generateBeatVideo,
   generateEpisodeVideo,
+  composeEpisodeVideo,
   listAssets,
   listJobs,
+  listVideoWorkflowModes,
   director2ErrorDetail,
   type Director2Episode,
   type Director2EpisodeDetail,
@@ -68,6 +74,46 @@ import {
   type Director2Asset,
 } from "../api"
 import { director2ProjectPath } from "../paths"
+import Director2VideoSettingsPopover from "./Director2VideoSettingsPopover"
+import {
+  DIRECTOR2_DEFAULT_VIDEO_WORKFLOW,
+  DIRECTOR2_VIDEO_FALLBACK_FIELDS,
+  buildVideoJobOptions,
+  defaultVideoOptionValues,
+  episodeFilmSource,
+  episodeFilmUrl,
+  episodeVideoRenderMode,
+  formatEpisodeVideoSubmitMessage,
+  formatSelectedShotSubmitMessage,
+  groupedVideoWorkflowOptions,
+  loadSavedVideoSettings,
+  sanitizeVideoOptionValues,
+  saveVideoSettings,
+  selectedShotGenerateExtra,
+  shotVideoActionLabel,
+  shotVideoReadyCount,
+  timelineVideoWorkflows,
+  visibleVideoOptionFields,
+  type Director2WorkflowMode,
+} from "../director2-video-settings"
+import { useMediaPreview } from "../media-preview"
+import { renderH3PromptHtml } from "../h3-prompt-display"
+import {
+  beatDurationSec,
+  formatBeatDurationLabel,
+  formatBeatDurationZh,
+  sumBeatDurationSec,
+} from "../workshop-beat-duration"
+import {
+  WORKSHOP_IDLE_POLL_MS,
+  WORKSHOP_VIDEO_POLL_MS,
+  hasActiveWorkshopVideoProgress,
+  mapWorkshopVideoProgress,
+  workshopVideoOverlayLabel,
+  workshopVideoPercentLabel,
+  type WorkshopEpisodeVideoProgress,
+  type WorkshopShotVideoProgress,
+} from "../workshop-video-progress"
 import "./episode-workshop.css"
 
 interface EpisodeWorkshopPaneProps {
@@ -86,8 +132,14 @@ type WorkshopTabKey = "shots" | "script" | "compose"
 type OpenSections = {
   text: boolean
   sketch: boolean
-  render: boolean
-  video: boolean
+  material: boolean
+}
+
+type H3RefImage = {
+  id: string
+  url: string
+  name: string
+  category?: string
 }
 
 // 新增/编辑分集弹窗表单（openEditModal 会整表 spread 分集数据）
@@ -112,14 +164,6 @@ type WorkshopBeat = Director2Beat & { time_of_day?: string }
 
 type GenerationStage = "sketch" | "render"
 
-const cameraOptions = [
-  { value: "特写", label: "特写 (Close-up)" },
-  { value: "中景", label: "中景 (Medium Shot)" },
-  { value: "全景", label: "全景 (Wide / Establishing)" },
-  { value: "俯视全景", label: "俯视鸟瞰 (Bird-eye)" },
-  { value: "仰拍微距", label: "仰拍微距 (Low angle macro)" },
-]
-
 const timeOptions = [
   { value: "日", label: "日间 (Day)" },
   { value: "夜", label: "夜间 (Night)" },
@@ -134,9 +178,13 @@ const editableBeatFields = [
   "characters", "character_ids", "character_look_id", "character_look_ids", "props", "prop_ids", "visual_prompt", "video_prompt_zh", "video_duration",
 ]
 
+const TERMINAL_JOB_STATUSES = new Set(["completed", "succeeded", "failed", "cancelled", "interrupted"])
+const SUCCEEDED_JOB_STATUSES = new Set(["completed", "succeeded"])
+
 const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorkshopPaneProps>(
   function EpisodeWorkshopPane({ csrfToken, projectId, episodeId, onDetailModeChange }, ref) {
     const navigate = useNavigate()
+    const { openMediaPreview } = useMediaPreview()
 
     // 剧集列表与当前选中的分集
     const [episodes, setEpisodes] = useState<Director2Episode[]>([])
@@ -153,6 +201,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     // 镜头工作台状态
     const [showSketch, setShowSketch] = useState(true)
     const [selectedBeatId, setSelectedBeatId] = useState<string | null>(null)
+    const [checkedBeatIds, setCheckedBeatIds] = useState<Set<string>>(new Set())
     const [splitPct, setSplitPct] = useState(40)
     const splitRef = useRef<HTMLDivElement | null>(null)
 
@@ -167,7 +216,14 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       [projectCharacters],
     )
     const sceneOptions = useMemo(
-      () => projectScenes.map((s) => ({ value: s.id, label: s.name })),
+      () => projectScenes.map((s) => {
+        const hasMaster = Boolean(String(s.extra?.master_url || s.image_url || "").trim())
+        const duplicate = projectScenes.filter((other) => other.name === s.name).length > 1
+        let label = s.name
+        if (!hasMaster) label = `${s.name}（无主视图）`
+        else if (duplicate) label = `${s.name}（已生成）`
+        return { value: s.id, label }
+      }),
       [projectScenes],
     )
 
@@ -175,8 +231,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [openSections, setOpenSections] = useState<OpenSections>({
       text: true,
       sketch: true,
-      render: true,
-      video: true,
+      material: true,
     })
 
     // 各种生成 Loading 状态
@@ -185,8 +240,14 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [batchGenerating, setBatchGenerating] = useState(false)
     const [batchGeneratingRenders, setBatchGeneratingRenders] = useState(false)
     const [generatingVideo, setGeneratingVideo] = useState(false)
+    const [beatVideoProgress, setBeatVideoProgress] = useState<Record<string, WorkshopShotVideoProgress>>({})
+    const [episodeVideoProgress, setEpisodeVideoProgress] = useState<WorkshopEpisodeVideoProgress | null>(null)
+    const [composingEpisode, setComposingEpisode] = useState(false)
     const [currentSceneView, setCurrentSceneView] = useState<"front" | "reverse">("front")
     const [beatJobStates, setBeatJobStates] = useState<Map<string, string>>(new Map())
+    const [h3RefImages, setH3RefImages] = useState<H3RefImage[]>([])
+    const [h3ImagesExpanded, setH3ImagesExpanded] = useState(false)
+    const [generatingH3Prompt, setGeneratingH3Prompt] = useState(false)
 
     // 与 Vue 实例级可变量对应的同步 ref（供轮询与异步续体读取最新值，等价 .value 语义）
     const currentEpisodeIdRef = useRef<string | null>(episodeId ?? null)
@@ -194,14 +255,21 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const selectedBeatIdRef = useRef<string | null>(null)
     const generatingBeatIdsRef = useRef<Set<string>>(new Set())
     const generatingRenderBeatIdsRef = useRef<Set<string>>(new Set())
+    const beatVideoProgressRef = useRef<Record<string, WorkshopShotVideoProgress>>({})
+    const episodeVideoProgressRef = useRef<WorkshopEpisodeVideoProgress | null>(null)
+    const imageJobPollDelayRef = useRef(WORKSHOP_IDLE_POLL_MS)
     const trackedBatchJobsRef = useRef<Map<GenerationStage, Set<string>>>(new Map())
+    const trackedVideoJobsRef = useRef<Set<string>>(new Set())
+    const trackedH3PromptJobIdRef = useRef<string | null>(null)
+    const h3MaterialBeatIdRef = useRef<string | null>(null)
     const imageJobPollTimerRef = useRef<number | null>(null)
     const isDraggingRef = useRef(false)
 
-    // 视频设置参数
-    const [videoWorkflow, setVideoWorkflow] = useState("lightx2v")
-    const [videoQuality, setVideoQuality] = useState("0.2")
-    const [videoSpeed, setVideoSpeed] = useState("balanced")
+    // 视频设置参数（来自 /api/modes 注册表，按项目记住）
+    const [videoWorkflow, setVideoWorkflow] = useState(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW)
+    const [videoWorkflows, setVideoWorkflows] = useState<Director2WorkflowMode[]>([])
+    const [videoOptionFields, setVideoOptionFields] = useState(DIRECTOR2_VIDEO_FALLBACK_FIELDS)
+    const [videoOptions, setVideoOptions] = useState(() => defaultVideoOptionValues(DIRECTOR2_VIDEO_FALLBACK_FIELDS))
 
     // 新增/编辑分集弹窗表单
     const [modalVisible, setModalVisible] = useState(false)
@@ -225,6 +293,27 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     function applySelectedBeatId(id: string) {
       selectedBeatIdRef.current = id
       setSelectedBeatId(id)
+    }
+
+    function applyVideoSettings(workflowId: string, mode: Director2WorkflowMode | undefined, incoming?: Record<string, string> | null) {
+      const fields = visibleVideoOptionFields(mode)
+      const next = sanitizeVideoOptionValues(fields, incoming)
+      setVideoWorkflow(workflowId)
+      setVideoOptionFields(fields)
+      setVideoOptions(next)
+      saveVideoSettings(projectId, { workflow: workflowId, ...next })
+    }
+
+    function handleVideoWorkflowChange(nextId: string) {
+      const mode = videoWorkflows.find((item) => item.id === nextId)
+      applyVideoSettings(nextId, mode, videoOptions)
+      if (episodeVideoRenderMode(mode) !== "shot") setCheckedBeatIds(new Set())
+    }
+
+    function handleVideoOptionChange(name: string, value: string) {
+      const next = { ...videoOptions, [name]: value }
+      setVideoOptions(next)
+      saveVideoSettings(projectId, { workflow: videoWorkflow, ...next })
     }
 
     function setStageGeneratingSet(stage: GenerationStage, next: Set<string>) {
@@ -257,6 +346,14 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       const next = new Set(current)
       next.delete(beatId)
       setStageGeneratingSet(stage, next)
+    }
+
+    function rememberVideoJobIds(ids: Array<string | undefined | null>) {
+      const next = new Set(trackedVideoJobsRef.current)
+      for (const id of ids) {
+        if (id) next.add(id)
+      }
+      trackedVideoJobsRef.current = next
     }
 
     function mutateCurrentEpisode(updater: (ep: Director2EpisodeDetail) => Director2EpisodeDetail) {
@@ -320,9 +417,36 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       return (currentEpisode?.beats || []).filter((b) => Boolean(b.sketch_url)).length
     }, [currentEpisode])
 
-    const renderedCount = useMemo(() => {
-      return (currentEpisode?.beats || []).filter((b) => Boolean(b.render_url)).length
+    const h3PromptCount = useMemo(() => {
+      return (currentEpisode?.beats || []).filter((b) => Boolean(String(b.h3_prompt || "").trim())).length
     }, [currentEpisode])
+    const h3RefImagesVisible = h3ImagesExpanded ? h3RefImages : h3RefImages.slice(0, 3)
+
+    const selectedVideoWorkflow = useMemo(
+      () => videoWorkflows.find((item) => item.id === videoWorkflow) || videoWorkflows[0],
+      [videoWorkflow, videoWorkflows],
+    )
+    const videoRenderMode = episodeVideoRenderMode(selectedVideoWorkflow)
+    const videoWorkflowSelectOptions = useMemo(() => groupedVideoWorkflowOptions(videoWorkflows), [videoWorkflows])
+    const episodeFilm = episodeFilmUrl(currentEpisode)
+    const episodeSource = episodeFilmSource(currentEpisode)
+    const videoReadyCount = shotVideoReadyCount(currentEpisode?.beats)
+    const generatingVideoBeatIds = useMemo(() => new Set(Object.keys(beatVideoProgress)), [beatVideoProgress])
+    const episodeVideoJobActive = Boolean(episodeVideoProgress)
+    const selectedBeatVideoBusy = Boolean(
+      selectedBeat && (generatingVideo || generatingVideoBeatIds.has(selectedBeat.id)),
+    )
+    const shotSelectMode = videoRenderMode === "shot"
+    const beatCount = currentEpisode?.beats?.length || 0
+    const episodeDurationSec = useMemo(
+      () => sumBeatDurationSec(currentEpisode?.beats || []),
+      [currentEpisode],
+    )
+    const checkedBeatCount = useMemo(() => {
+      const valid = new Set((currentEpisode?.beats || []).map((beat) => beat.id))
+      return [...checkedBeatIds].filter((id) => valid.has(id)).length
+    }, [checkedBeatIds, currentEpisode])
+    const allBeatsChecked = Boolean(beatCount && checkedBeatCount === beatCount)
 
     const stats = useMemo(() => {
       const eps = episodes || []
@@ -392,6 +516,162 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       return getCharacterLookOptions(character).find((look) => look.value === lookId) || null
     }
 
+    function getCharacterImage(character: Director2Asset | null | undefined): string {
+      if (!character) return ""
+      const look = getSelectedCharacterLook(character)
+      if (look?.imageUrl) return look.imageUrl
+      return String(character.image_url || character.extra?.avatar_url || character.extra?.reference_url || character.extra?.master_url || "").trim()
+    }
+
+    function getSceneImage(scene: Director2Asset | null | undefined): string {
+      if (!scene) return ""
+      return String(scene.extra?.master_url || scene.image_url || scene.extra?.reference_url || "").trim()
+    }
+
+    function getPropImage(prop: Director2Asset | null | undefined): string {
+      if (!prop) return ""
+      return String(prop.image_url || prop.extra?.reference_url || prop.extra?.turnaround_url || prop.extra?.master_url || "").trim()
+    }
+
+    function getBeatSceneAsset(beat: WorkshopBeat | null | undefined): Director2Asset | null {
+      if (!beat) return null
+      if (beat.scene_id) {
+        const found = projectScenes.find((item) => item.id === beat.scene_id)
+        if (found) return found
+      }
+      if (beat.scene) {
+        const found = projectScenes.find((item) => item.name === beat.scene)
+        if (found) return found
+      }
+      return projectScenes[0] || null
+    }
+
+    function collectH3RefImages(beat: WorkshopBeat | null | undefined): H3RefImage[] {
+      if (!beat) return []
+      const beatChars = (beat.character_ids || [])
+        .map((id) => projectCharacters.find((item) => item.id === id))
+        .filter((item): item is Director2Asset => Boolean(item))
+      let charImgs = (beatChars.length ? beatChars : projectCharacters)
+        .map((item) => ({ id: item.id, url: getCharacterImage(item), name: item.name, category: "character" }))
+        .filter((item) => item.url)
+      if (!charImgs.length && projectCharacters.length) {
+        charImgs = projectCharacters
+          .map((item) => ({ id: item.id, url: getCharacterImage(item), name: item.name, category: "character" }))
+          .filter((item) => item.url)
+          .slice(0, 2)
+      } else if (!beatChars.length) {
+        charImgs = charImgs.slice(0, 2)
+      }
+
+      const sceneAsset = getBeatSceneAsset(beat)
+      const sceneUrl = getSceneImage(sceneAsset)
+      const sceneImgs = sceneUrl && sceneAsset
+        ? [{ id: sceneAsset.id, url: sceneUrl, name: sceneAsset.name || "场景", category: "scene" }]
+        : []
+
+      const beatProps = (beat.prop_ids || [])
+        .map((id) => projectProps.find((item) => item.id === id))
+        .filter((item): item is Director2Asset => Boolean(item))
+      for (const name of beat.props || []) {
+        if (!beatProps.some((item) => item.name === name)) {
+          const found = projectProps.find((item) => item.name === name)
+          if (found) beatProps.push(found)
+        }
+      }
+      const propImgs = beatProps
+        .map((item) => ({ id: item.id, url: getPropImage(item), name: item.name, category: "prop" }))
+        .filter((item) => item.url)
+
+      let source = [...charImgs, ...sceneImgs, ...propImgs]
+      if (!source.length) {
+        source = projectAssets
+          .map((item) => ({
+            id: item.id,
+            url: String(item.image_url || item.extra?.master_url || item.extra?.reference_url || item.extra?.avatar_url || "").trim(),
+            name: item.name,
+            category: item.kind,
+          }))
+          .filter((item) => item.url)
+      }
+      return source.slice(0, 9)
+    }
+
+    function handleSelectExistingImages() {
+      const beat = resolveSelectedBeat(currentEpisodeRef.current)
+      const imgs = collectH3RefImages(beat)
+      if (imgs.length) {
+        setH3RefImages(imgs)
+        message.success(`已选入 ${imgs.length} 张参考图片（包含出场角色、场景与道具）`)
+      } else {
+        message.info("资产库暂无可用图片，请先在资产库上传或生成角色/场景/道具图片")
+      }
+    }
+
+    function removeH3RefImage(idx: number) {
+      setH3RefImages((prev) => prev.filter((_, index) => index !== idx))
+    }
+
+    function handleUploadH3Image(file: File): boolean {
+      if (h3RefImages.length >= 9) {
+        message.warning("最多 9 张参考图")
+        return false
+      }
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const url = String(e.target?.result || "")
+        if (!url) return
+        setH3RefImages((prev) => {
+          if (prev.length >= 9) return prev
+          return [...prev, { id: `upload-${Date.now()}`, url, name: file.name, category: "upload" }]
+        })
+        message.success(`已添加参考图片：${file.name}`)
+      }
+      reader.readAsDataURL(file)
+      return false
+    }
+
+    function copyH3Prompt() {
+      const beat = resolveSelectedBeat(currentEpisodeRef.current)
+      if (!beat?.h3_prompt) return
+      navigator.clipboard.writeText(beat.h3_prompt)
+        .then(() => message.success("H3 提示词已复制到剪贴板"))
+        .catch(() => message.error("复制失败"))
+    }
+
+    async function handleGenerateH3Prompt() {
+      const ep = currentEpisodeRef.current
+      const beat = resolveSelectedBeat(ep)
+      if (!ep || !beat || generatingH3Prompt) return
+      setGeneratingH3Prompt(true)
+      try {
+        const res = await generateBeatH3Prompt(csrfToken, projectId, ep.id, beat.id, {
+          ref_images: h3RefImages.map((img, index) => ({
+            index: index + 1,
+            name: img.name,
+            category: img.category,
+            url: img.url,
+          })),
+        })
+        if (res?.job_id) {
+          trackedH3PromptJobIdRef.current = res.job_id
+          message.success({
+            content: `已提交 H3 提示词生成任务：${res.job_id}，可在「全部任务」查看进度`,
+            key: "h3PromptGen",
+            duration: 4,
+          })
+          await pollImageJobs()
+        } else if (res?.prompt) {
+          updateBeatById(beat.id, { h3_prompt: res.prompt })
+          setOpenSections((prev) => ({ ...prev, material: true }))
+          message.success({ content: "已生成电影级 H3 提示词", key: "h3PromptGen" })
+          setGeneratingH3Prompt(false)
+        }
+      } catch (err) {
+        message.error({ content: `大模型生成失败: ${director2ErrorDetail(err, "生成失败")}`, key: "h3PromptGen" })
+        setGeneratingH3Prompt(false)
+      }
+    }
+
     // ---------------- 剧集列表与详情流转 ----------------
     async function fetchEpisodes() {
       setLoading(true)
@@ -450,6 +730,21 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     function selectBeat(beat: WorkshopBeat) {
       applySelectedBeatId(beat.id)
+    }
+
+    function toggleCheckedBeat(beat: WorkshopBeat, checked: boolean) {
+      setCheckedBeatIds((prev) => {
+        const next = new Set(prev)
+        if (checked) next.add(beat.id)
+        else next.delete(beat.id)
+        return next
+      })
+      applySelectedBeatId(beat.id)
+    }
+
+    function toggleCheckAllBeats(checked: boolean) {
+      const beats = currentEpisodeRef.current?.beats || []
+      setCheckedBeatIds(checked ? new Set(beats.map((beat) => beat.id)) : new Set())
     }
 
     function toggleSection(key: keyof OpenSections) {
@@ -754,9 +1049,14 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     }
 
     async function pollImageJobs() {
-      if (!currentEpisodeRef.current) return
+      if (!currentEpisodeRef.current) {
+        imageJobPollDelayRef.current = WORKSHOP_IDLE_POLL_MS
+        return
+      }
       try {
         const previouslyActive = new Set([...generatingBeatIdsRef.current, ...generatingRenderBeatIdsRef.current])
+        const previouslyActiveVideoBeats = new Set(Object.keys(beatVideoProgressRef.current))
+        const previouslyEpisodeVideoActive = Boolean(episodeVideoProgressRef.current)
         const jobs = await listJobs(projectId)
         const epId = currentEpisodeRef.current?.id
         if (!epId) return
@@ -767,17 +1067,57 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         const nextBeatJobStates = new Map<string, string>()
         episodeJobs.forEach((job) => {
           const stage = job.payload?.target_type === "beat_sketch" ? "sketch" : (job.payload?.target_type === "beat_render" ? "render" : "")
-          if (!stage) return
-          const key = `${stage}:${job.payload.beat_id}`
-          if (!nextBeatJobStates.has(key)) nextBeatJobStates.set(key, job.status)
-          if (!activeStatuses.has(job.status)) return
-          if (stage === "sketch") nextSketchIds.add(job.payload.beat_id)
-          if (stage === "render") nextRenderIds.add(job.payload.beat_id)
+          if (stage) {
+            const key = `${stage}:${job.payload.beat_id}`
+            if (!nextBeatJobStates.has(key)) nextBeatJobStates.set(key, job.status)
+            if (activeStatuses.has(job.status)) {
+              if (stage === "sketch") nextSketchIds.add(job.payload.beat_id)
+              if (stage === "render") nextRenderIds.add(job.payload.beat_id)
+            }
+          }
         })
+        const videoProgress = mapWorkshopVideoProgress(jobs, epId)
+        const nextVideoBeatIds = new Set(Object.keys(videoProgress.beats))
+        const nextEpisodeVideoActive = Boolean(videoProgress.episode)
         setStageGeneratingSet("sketch", nextSketchIds)
         setStageGeneratingSet("render", nextRenderIds)
+        beatVideoProgressRef.current = videoProgress.beats
+        episodeVideoProgressRef.current = videoProgress.episode
+        imageJobPollDelayRef.current = hasActiveWorkshopVideoProgress(videoProgress)
+          ? WORKSHOP_VIDEO_POLL_MS
+          : WORKSHOP_IDLE_POLL_MS
+        setBeatVideoProgress(videoProgress.beats)
+        setEpisodeVideoProgress(videoProgress.episode)
         setBeatJobStates(nextBeatJobStates)
         let refresh = false
+        const currentBeatId = selectedBeatIdRef.current
+        const activePromptJob = episodeJobs.find((job) =>
+          (job.job_type === "h3_prompt" || job.payload?.target_type === "h3_prompt")
+          && job.payload?.beat_id === currentBeatId
+          && activeStatuses.has(job.status),
+        )
+        if (activePromptJob) {
+          setGeneratingH3Prompt(true)
+          trackedH3PromptJobIdRef.current = activePromptJob.id
+        } else if (trackedH3PromptJobIdRef.current) {
+          const trackedJob = episodeJobs.find((job) => job.id === trackedH3PromptJobIdRef.current)
+          if (trackedJob && !activeStatuses.has(trackedJob.status)) {
+            setGeneratingH3Prompt(false)
+            trackedH3PromptJobIdRef.current = null
+            if (SUCCEEDED_JOB_STATUSES.has(trackedJob.status)) {
+              const newPrompt = trackedJob.payload?.h3_prompt || trackedJob.payload?.result_prompt
+              if (newPrompt && currentBeatId && currentBeatId === trackedJob.payload?.beat_id) {
+                updateBeatById(currentBeatId, { h3_prompt: String(newPrompt) })
+              }
+              message.success({ content: "H3 提示词已生成完成！", key: "h3PromptGen" })
+              refresh = true
+            } else if (trackedJob.status === "failed") {
+              message.error({ content: `H3 提示词生成失败: ${trackedJob.error_message || "未知错误"}`, key: "h3PromptGen" })
+            }
+          }
+        } else {
+          setGeneratingH3Prompt(false)
+        }
         for (const [stage, ids] of trackedBatchJobsRef.current.entries()) {
           const relevant = episodeJobs.filter((job) => ids.has(job.id))
           if (relevant.length !== ids.size || relevant.some((job) => activeStatuses.has(job.status))) continue
@@ -793,6 +1133,24 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         }
         const currentlyActive = new Set([...nextSketchIds, ...nextRenderIds])
         if ([...previouslyActive].some((beatId) => !currentlyActive.has(beatId))) refresh = true
+        if ([...previouslyActiveVideoBeats].some((beatId) => !nextVideoBeatIds.has(beatId))) refresh = true
+        if (previouslyEpisodeVideoActive && !nextEpisodeVideoActive) refresh = true
+        const trackedVideoIds = trackedVideoJobsRef.current
+        if (trackedVideoIds.size) {
+          const relevant = episodeJobs.filter((job) => trackedVideoIds.has(job.id))
+          if (relevant.length === trackedVideoIds.size && relevant.every((job) => TERMINAL_JOB_STATUSES.has(job.status))) {
+            const completed = relevant.filter((job) => SUCCEEDED_JOB_STATUSES.has(job.status)).length
+            const failed = relevant.length - completed
+            const composed = relevant.some((job) => String(job.payload?.render_scope || "") === "compose")
+            if (failed) {
+              message.warning(composed ? `合成完成：成功 ${completed}，失败 ${failed}` : `视频任务完成：成功 ${completed}，失败 ${failed}`)
+            } else {
+              message.success(composed ? "分集成片已合成" : "视频任务已完成，成片已写入本集")
+            }
+            trackedVideoJobsRef.current = new Set()
+            refresh = true
+          }
+        }
         if (refresh) await loadEpisodeDetail(epId)
       } catch {
         // Explicit actions surface errors; transient polling errors stay silent.
@@ -843,12 +1201,21 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     }
 
     async function handleGenerateVideo() {
-      if (!resolveSelectedBeat(currentEpisodeRef.current)) return
+      const ep = currentEpisodeRef.current
+      const beat = resolveSelectedBeat(ep)
+      if (!ep || !beat) return
       setGeneratingVideo(true)
       try {
-        message.loading({ content: "正在调用 LightX2V 发起视频生成任务...", key: "vGen" })
-        await new Promise((r) => setTimeout(r, 2000))
-        message.success({ content: "视频任务已进入渲染队列", key: "vGen" })
+        message.loading({ content: "正在提交单镜视频任务...", key: "vGen" })
+        const res = await generateBeatVideo(csrfToken, projectId, ep.id, beat.id, buildVideoJobOptions(
+          videoWorkflow,
+          videoOptions,
+          { duration_per_beat: beatDurationSec(beat.video_duration) },
+        ))
+        rememberVideoJobIds([res.job_id])
+        message.success({ content: `单镜任务已进入队列：${res.job_id}`, key: "vGen", duration: 6 })
+      } catch (err) {
+        message.error({ content: director2ErrorDetail(err, "单镜视频任务创建失败"), key: "vGen", duration: 10 })
       } finally {
         setGeneratingVideo(false)
       }
@@ -869,9 +1236,15 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       if (!ep || generatingEpisodeVideo) return
       setGeneratingEpisodeVideo(true)
       try {
-        const res = await generateEpisodeVideo(csrfToken, projectId, ep.id)
+        const res = await generateEpisodeVideo(
+          csrfToken,
+          projectId,
+          ep.id,
+          buildVideoJobOptions(videoWorkflow, videoOptions),
+        )
+        rememberVideoJobIds(res.job_ids?.length ? res.job_ids : [res.job_id])
         message.success({
-          content: `视频任务已创建：${res.job_id}，可在「全部任务」中查看进度`,
+          content: `${formatEpisodeVideoSubmitMessage(res)}，可在「全部任务 → 视频生成」中查看进度`,
           duration: 6,
         })
       } catch (err) {
@@ -879,6 +1252,51 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         message.error({ content: detail, duration: 10 })
       } finally {
         setGeneratingEpisodeVideo(false)
+      }
+    }
+
+    async function handleGenerateSelectedShots() {
+      const ep = currentEpisodeRef.current
+      if (!ep || generatingEpisodeVideo) return
+      const beatIds = (ep.beats || [])
+        .map((beat) => beat.id)
+        .filter((id) => checkedBeatIds.has(id))
+      if (!beatIds.length) {
+        message.warning("请先勾选要生成的镜头")
+        return
+      }
+      setGeneratingEpisodeVideo(true)
+      try {
+        const res = await generateEpisodeVideo(
+          csrfToken,
+          projectId,
+          ep.id,
+          buildVideoJobOptions(videoWorkflow, videoOptions, selectedShotGenerateExtra(beatIds)),
+        )
+        rememberVideoJobIds(res.job_ids?.length ? res.job_ids : [res.job_id])
+        message.success({
+          content: `${formatSelectedShotSubmitMessage(res)}，可在「全部任务 → 视频生成」中查看进度`,
+          duration: 6,
+        })
+      } catch (err) {
+        message.error({ content: director2ErrorDetail(err, "选中镜头视频任务创建失败"), duration: 10 })
+      } finally {
+        setGeneratingEpisodeVideo(false)
+      }
+    }
+
+    async function handleComposeEpisode() {
+      const ep = currentEpisodeRef.current
+      if (!ep || composingEpisode) return
+      setComposingEpisode(true)
+      try {
+        const res = await composeEpisodeVideo(csrfToken, projectId, ep.id)
+        rememberVideoJobIds([res.job_id])
+        message.success({ content: "合成任务已进入队列，可在「全部任务 → 视频生成」中查看进度", duration: 6 })
+      } catch (err) {
+        message.error({ content: director2ErrorDetail(err, "合成任务创建失败"), duration: 10 })
+      } finally {
+        setComposingEpisode(false)
       }
     }
 
@@ -971,6 +1389,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       if (episodeId) {
         currentEpisodeIdRef.current = episodeId
         setCurrentEpisodeId(episodeId)
+        setCheckedBeatIds(new Set())
         onDetailModeChange?.(true)
         loadEpisodeDetail(episodeId)
       } else {
@@ -982,7 +1401,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [episodeId])
 
-    // 最新闭包 trampoline：3 秒轮询读取最新渲染的 pollImageJobs（等价 Vue 闭包读响应式值）
+    // 最新闭包 trampoline：空闲 3 秒、本集视频任务活跃时 1 秒（等价 Vue 闭包读响应式值）
     const pollImageJobsRef = useRef(pollImageJobs)
     useEffect(() => {
       pollImageJobsRef.current = pollImageJobs
@@ -990,24 +1409,76 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     useEffect(() => {
       let cancelled = false
+      const clearPollTimer = () => {
+        if (imageJobPollTimerRef.current) {
+          window.clearTimeout(imageJobPollTimerRef.current)
+          imageJobPollTimerRef.current = null
+        }
+      }
+      const scheduleNextPoll = () => {
+        if (cancelled) return
+        imageJobPollTimerRef.current = window.setTimeout(() => {
+          void (async () => {
+            await pollImageJobsRef.current()
+            scheduleNextPoll()
+          })()
+        }, imageJobPollDelayRef.current)
+      }
       ;(async () => {
         await Promise.all([fetchEpisodes(), loadAssets()])
         if (cancelled) return
         await pollImageJobs()
         if (cancelled) return
-        imageJobPollTimerRef.current = window.setInterval(() => pollImageJobsRef.current(), 3000)
+        scheduleNextPoll()
       })()
       return () => {
         cancelled = true
         stopDragging()
-        if (imageJobPollTimerRef.current) {
-          window.clearInterval(imageJobPollTimerRef.current)
-          imageJobPollTimerRef.current = null
-        }
+        clearPollTimer()
       }
       // 对应原版 onMounted + onUnmounted
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    useEffect(() => {
+      let cancelled = false
+      const saved = loadSavedVideoSettings(projectId)
+      ;(async () => {
+        try {
+          const payload = await listVideoWorkflowModes()
+          if (cancelled) return
+          const workflows = timelineVideoWorkflows(payload.modes)
+          setVideoWorkflows(workflows)
+          const requested = saved?.workflow || videoWorkflow
+          const selected = workflows.find((item) => item.id === requested) || workflows[0]
+          applyVideoSettings(selected?.id || DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, selected, saved)
+        } catch {
+          if (cancelled) return
+          applyVideoSettings(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, undefined, saved)
+        }
+      })()
+      return () => {
+        cancelled = true
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [projectId])
+
+    useEffect(() => {
+      if (!selectedBeat) {
+        h3MaterialBeatIdRef.current = null
+        setH3RefImages([])
+        return
+      }
+      if (h3MaterialBeatIdRef.current !== selectedBeat.id) {
+        h3MaterialBeatIdRef.current = selectedBeat.id
+        setH3ImagesExpanded(false)
+        setH3RefImages(collectH3RefImages(selectedBeat))
+        return
+      }
+      setH3RefImages((prev) => (prev.length ? prev : collectH3RefImages(selectedBeat)))
+      // collectH3RefImages 读当前资产与造型选择；切镜重建，资产晚到则补齐空组
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedBeat?.id, projectAssets, selectedBeat?.character_ids, selectedBeat?.scene_id, selectedBeat?.prop_ids, selectedBeat?.character_look_ids])
 
     useImperativeHandle(ref, () => ({ fetchEpisodes }))
 
@@ -1108,7 +1579,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 </div>
                 <p className="episode-meta-line">
                   {currentEpisode.line_count || (currentEpisode.beats?.length || 0) * 4} 行原文 ·{" "}
-                  {currentEpisode.beats?.length || 0} 个 Beat 分镜 ·{" "}
+                  {currentEpisode.beats?.length || 0} 个 Beat 分镜 · 共 {episodeDurationSec} 秒 ·{" "}
                   {currentEpisode.character_count || 0} 个身份 ·{" "}
                   {currentEpisode.scene_count || 0} 个场景 ·{" "}
                   {currentEpisode.prop_count || 0} 个道具
@@ -1116,7 +1587,15 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
               </div>
 
               <Space className="xiaji-episode-head-actions">
-                <Button loading={generatingEpisodeVideo} icon={<Video size={14} />} onClick={() => handleGenerateEpisodeVideo()}>
+                <Director2VideoSettingsPopover
+                  workflowId={videoWorkflow}
+                  workflows={videoWorkflows}
+                  fields={videoOptionFields}
+                  values={videoOptions}
+                  onWorkflowChange={handleVideoWorkflowChange}
+                  onChange={handleVideoOptionChange}
+                />
+                <Button loading={generatingEpisodeVideo || episodeVideoJobActive} icon={<Video size={14} />} onClick={() => handleGenerateEpisodeVideo()}>
                   一键生成视频
                 </Button>
                 <Button loading={refreshingDetail} icon={<RefreshCw size={14} />} onClick={() => refreshCurrentEpisode()}>
@@ -1144,12 +1623,45 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                       <div className="xiaji-shots-toolbar">
                         <div className="toolbar-left">
                           <Checkbox checked={showSketch} onChange={(e) => setShowSketch(e.target.checked)}>显示草图</Checkbox>
+                          {shotSelectMode ? (
+                            <>
+                              <Checkbox
+                                checked={allBeatsChecked}
+                                indeterminate={checkedBeatCount > 0 && !allBeatsChecked}
+                                onChange={(e) => toggleCheckAllBeats(e.target.checked)}
+                              >
+                                全选（共 {beatCount} 镜）
+                              </Checkbox>
+                              <span className="sketched-count-label">已选 {checkedBeatCount} / {beatCount} 镜</span>
+                              <Button
+                                type="link"
+                                size="small"
+                                disabled={!checkedBeatCount}
+                                onClick={() => setCheckedBeatIds(new Set())}
+                              >
+                                清空
+                              </Button>
+                            </>
+                          ) : null}
                           <span className="sketched-count-label">
                             {sketchedCount}/{currentEpisode.beats?.length || 0} 张草图 ·{" "}
-                            {renderedCount}/{currentEpisode.beats?.length || 0} 张渲染图
+                            {h3PromptCount}/{currentEpisode.beats?.length || 0} 条 H3 提示词
+                            {shotSelectMode ? ` · ${videoReadyCount}/${beatCount} 镜视频` : ""}
                           </span>
                         </div>
                         <div className="toolbar-right">
+                          {shotSelectMode ? (
+                            <Button
+                              type="primary"
+                              size="small"
+                              loading={generatingEpisodeVideo}
+                              disabled={!checkedBeatCount}
+                              icon={<Video size={13} />}
+                              onClick={() => handleGenerateSelectedShots()}
+                            >
+                              生成选中（{checkedBeatCount}）
+                            </Button>
+                          ) : null}
                           <Button
                             type="primary"
                             size="small"
@@ -1159,53 +1671,100 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                           >
                             批量生成分镜草图
                           </Button>
-                          <Button
-                            type="primary"
-                            size="small"
-                            loading={batchGeneratingRenders}
-                            icon={<Sparkles size={13} />}
-                            onClick={() => enqueueBatch("render")}
-                          >
-                            批量生成渲染图
-                          </Button>
                         </div>
                       </div>
 
                       {/* 分栏布局：左侧缩略图卡片网格 + 右侧检视器 */}
                       <div ref={splitRef} className="xiaji-shots-split">
                         {/* 左侧分镜卡片栅格 (BeatGrid) */}
-                        <div className="xiaji-shots-grid-pane" style={{ width: `${splitPct}%` }}>
+                        <div className="xiaji-shots-grid-pane" style={{ flex: `0 0 ${splitPct}%` }}>
                           <div className="xiaji-shot-tiles">
-                            {(currentEpisode.beats || []).map((beat) => (
-                              <button
+                            {(currentEpisode.beats || []).map((beat) => {
+                              const videoProgress = beatVideoProgress[beat.id]
+                              return (
+                              <div
                                 key={beat.id}
-                                type="button"
-                                className={`xiaji-shot-tile${selectedBeat?.id === beat.id ? " is-selected" : ""}`}
-                                onClick={() => selectBeat(beat)}
+                                className={`xiaji-shot-tile${selectedBeat?.id === beat.id ? " is-selected" : ""}${checkedBeatIds.has(beat.id) ? " is-checked" : ""}`}
                               >
-                                <span className="xiaji-shot-tile-num">Beat {beat.sequence}</span>
-                                <div className="xiaji-shot-tile-media">
-                                  {showSketch && beat.sketch_url ? (
-                                    <img
-                                      src={beat.sketch_url}
-                                      alt={`Beat ${beat.sequence}`}
+                                <div className="xiaji-shot-tile-head">
+                                  {shotSelectMode ? (
+                                    <Checkbox
+                                      checked={checkedBeatIds.has(beat.id)}
+                                      aria-label={`勾选 Beat ${beat.sequence}`}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onChange={(event) => toggleCheckedBeat(beat, event.target.checked)}
                                     />
-                                  ) : generatingBeatIds.has(beat.id) || generatingRenderBeatIds.has(beat.id) ? (
-                                    <div className="xiaji-shot-tile-busy">
-                                      <Spin size="small" />
-                                      <em>{generationStatusText(beat.id, generatingBeatIds.has(beat.id) ? "sketch" : "render") || "GRS 生成中"}</em>
-                                    </div>
-                                  ) : (
-                                    <div className="shot-tile-empty">
-                                      <ImageIcon size={24} />
-                                    </div>
-                                  )}
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className="xiaji-shot-tile-select"
+                                    onClick={() => selectBeat(beat)}
+                                  >
+                                    <span className="xiaji-shot-tile-identity">
+                                      <span className="xiaji-shot-tile-num">Beat {beat.sequence}</span>
+                                      <em className="xiaji-shot-tile-duration">{formatBeatDurationLabel(beat.video_duration)}</em>
+                                    </span>
+                                    {beat.video_url || videoProgress ? (
+                                      <span className="xiaji-shot-tile-flags">
+                                        {beat.video_url ? <em className="xiaji-shot-tile-ready">已出片</em> : null}
+                                        {videoProgress ? (
+                                          <em className="xiaji-shot-tile-busy-label">
+                                            {workshopVideoPercentLabel(videoProgress.progress)}
+                                          </em>
+                                        ) : null}
+                                      </span>
+                                    ) : null}
+                                  </button>
                                 </div>
-                                <p className="tile-caption" title={beat.action || beat.dialogue || beat.heading}>
-                                  {beat.dialogue ? `「${beat.speaker || "对白"}」${beat.dialogue}` : (beat.action || beat.heading || "未填写画面描述")}
-                                </p>
-                              </button>
-                            ))}
+                                <button
+                                  type="button"
+                                  className="xiaji-shot-tile-body"
+                                  onClick={() => selectBeat(beat)}
+                                >
+                                  <div className="xiaji-shot-tile-media">
+                                    {showSketch && beat.sketch_url ? (
+                                      <img
+                                        src={beat.sketch_url}
+                                        alt={`Beat ${beat.sequence}`}
+                                      />
+                                    ) : generatingBeatIds.has(beat.id) || generatingRenderBeatIds.has(beat.id) ? (
+                                      <div className="xiaji-shot-tile-busy">
+                                        <Spin size="small" />
+                                        <em>{generationStatusText(beat.id, generatingBeatIds.has(beat.id) ? "sketch" : "render") || "GRS 生成中"}</em>
+                                      </div>
+                                    ) : (
+                                      <div className="shot-tile-empty">
+                                        <ImageIcon size={24} />
+                                      </div>
+                                    )}
+                                    {videoProgress ? (
+                                      <div
+                                        className="xiaji-shot-tile-video-progress"
+                                        role="status"
+                                        aria-label={`视频${workshopVideoOverlayLabel(videoProgress.status, videoProgress.progress)}`}
+                                      >
+                                        <Progress
+                                          percent={videoProgress.progress}
+                                          size="small"
+                                          status="active"
+                                          showInfo={false}
+                                          strokeColor="var(--studio-primary)"
+                                          trailColor="var(--studio-border-strong)"
+                                          aria-label={`视频进度 ${workshopVideoPercentLabel(videoProgress.progress)}`}
+                                        />
+                                        <em className="xiaji-shot-tile-video-progress-label">
+                                          {workshopVideoOverlayLabel(videoProgress.status, videoProgress.progress)}
+                                        </em>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <p className="tile-caption" title={beat.action || beat.dialogue || beat.heading}>
+                                    {beat.dialogue ? `「${beat.speaker || "对白"}」${beat.dialogue}` : (beat.action || beat.heading || "未填写画面描述")}
+                                  </p>
+                                </button>
+                              </div>
+                              )
+                            })}
                           </div>
                         </div>
 
@@ -1216,13 +1775,14 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                         />
 
                         {/* 右侧分镜检视器 (Inspector) */}
-                        <div className="xiaji-shots-detail" style={{ width: `${100 - splitPct}%` }}>
+                        <div className="xiaji-shots-detail">
                           {selectedBeat ? (
                             <div className="xiaji-shot-pane-container">
                               {/* 顶部 Header 状态栏 */}
                               <div className="xiaji-shot-pane-topbar">
                                 <span className="topbar-title">
                                   Beat {selectedBeat.sequence} 镜头检视
+                                  <em className="topbar-duration">{formatBeatDurationZh(selectedBeat.video_duration)}</em>
                                 </span>
                                 <Space size="small">
                                   <button type="button" className="xiaji-pane-btn" onClick={() => saveCurrentBeat()}>
@@ -1285,14 +1845,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                         </div>
                                         <div className="form-group">
                                           <label className="form-label">景别机位 (Camera)</label>
-                                          <Select
-                                            value={selectedBeat.camera || undefined}
-                                            placeholder="选择景别机位"
-                                            options={cameraOptions}
-                                            onChange={(value: string | undefined) => {
-                                              patchSelectedBeat({ camera: value })
-                                              saveCurrentBeat()
-                                            }}
+                                          <Input.TextArea
+                                            value={selectedBeat.camera || ""}
+                                            rows={3}
+                                            placeholder="输入景别、机位与运镜..."
+                                            onChange={(e) => patchSelectedBeat({ camera: e.target.value })}
+                                            onBlur={() => saveCurrentBeat()}
                                           />
                                         </div>
                                       </div>
@@ -1324,15 +1882,28 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                         </div>
                                       </div>
 
-                                      {/* 场景说明 Heading */}
-                                      <div className="form-group">
-                                        <label className="form-label">场景与镜头标题 (Heading)</label>
-                                        <Input
-                                          value={selectedBeat.heading || ""}
-                                          placeholder="如：现代大学图书馆夜景 · 中景"
-                                          onChange={(e) => patchSelectedBeat({ heading: e.target.value })}
-                                          onBlur={() => saveCurrentBeat()}
-                                        />
+                                      <div className="form-row-two">
+                                        <div className="form-group">
+                                          <label className="form-label">镜头时长 (Duration)</label>
+                                          <InputNumber
+                                            min={2}
+                                            max={15}
+                                            value={beatDurationSec(selectedBeat.video_duration)}
+                                            addonAfter="秒"
+                                            style={{ width: "100%" }}
+                                            onChange={(value) => patchSelectedBeat({ video_duration: String(beatDurationSec(value)) })}
+                                            onBlur={() => saveCurrentBeat()}
+                                          />
+                                        </div>
+                                        <div className="form-group">
+                                          <label className="form-label">场景与镜头标题 (Heading)</label>
+                                          <Input
+                                            value={selectedBeat.heading || ""}
+                                            placeholder="如：现代大学图书馆夜景 · 中景"
+                                            onChange={(e) => patchSelectedBeat({ heading: e.target.value })}
+                                            onBlur={() => saveCurrentBeat()}
+                                          />
+                                        </div>
                                       </div>
 
                                       {/* 画面动作描述 Action */}
@@ -1400,7 +1971,15 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                                   </Select>
                                                   {selectedLook ? (
                                                     <div className="selected-look-preview">
-                                                      <img src={selectedLook.imageUrl} alt={`${character.name}当前服饰造型`} />
+                                                      <img
+                                                        src={selectedLook.imageUrl}
+                                                        alt={`${character.name}当前服饰造型`}
+                                                        onClick={() => openMediaPreview({
+                                                          src: selectedLook.imageUrl,
+                                                          title: `${character.name} · ${selectedLook.label}`,
+                                                          description: selectedLook.description,
+                                                        })}
+                                                      />
                                                       <div>
                                                         <strong>{selectedLook.label}</strong>
                                                         <p>{selectedLook.description || "已选择为该角色当前镜头的造型参考图"}</p>
@@ -1483,9 +2062,15 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                       <div className="sketch-cards-row">
                                         <div className="sketch-main-card">
                                           {selectedBeat.sketch_url ? (
-                                            <Image
+                                            <img
                                               src={selectedBeat.sketch_url}
                                               className="main-preview-img"
+                                              alt={`Beat ${selectedBeat.sequence} 分镜草图`}
+                                              onClick={() => openMediaPreview({
+                                                src: selectedBeat.sketch_url,
+                                                title: `Beat ${selectedBeat.sequence} 分镜草图`,
+                                                description: selectedBeat.heading || selectedBeat.action,
+                                              })}
                                             />
                                           ) : generatingBeatIds.has(selectedBeat.id) ? (
                                             <div className="sketch-placeholder is-busy">
@@ -1508,7 +2093,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                           {selectedBeat.sketch_url ? (
                                             <img
                                               src={selectedBeat.sketch_url}
-                                              alt=""
+                                              alt={`Beat ${selectedBeat.sequence} 草图缩略图`}
+                                              onClick={() => openMediaPreview({
+                                                src: selectedBeat.sketch_url,
+                                                title: `Beat ${selectedBeat.sequence} 分镜草图`,
+                                                description: selectedBeat.heading || selectedBeat.action,
+                                              })}
                                             />
                                           ) : (
                                             <div className="thumb-empty" />
@@ -1579,271 +2169,119 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                   </div>
                                 </div>
 
-                                {/* 3. 渲染精绘 Section (Render) */}
-                                <div className="xiaji-pane-section">
-                                  <div className="xiaji-pane-section-header" onClick={() => toggleSection("render")}>
+                                {/* 3. 素材组 Section (H3 Material Group) */}
+                                <div className="xiaji-pane-section h3-material-section">
+                                  <div className="xiaji-pane-section-header" onClick={() => toggleSection("material")}>
                                     <div className="section-title-wrap">
                                       <ChevronDown
                                         size={14}
-                                        className={`arrow-icon${!openSections.render ? " is-collapsed" : ""}`}
+                                        className={`arrow-icon${!openSections.material ? " is-collapsed" : ""}`}
                                       />
-                                      <LucideImage size={15} />
-                                      <span className="section-title">高精渲染图 (Render 2:3)</span>
+                                      <Layers size={15} />
+                                      <span className="section-title">素材组</span>
                                     </div>
                                     <div className="section-header-actions" onClick={(e) => e.stopPropagation()}>
                                       <Button
                                         type="primary"
                                         size="small"
-                                        loading={generatingRenderBeatIds.has(selectedBeat.id)}
-                                        onClick={() => enqueueSingleRender()}
+                                        loading={generatingH3Prompt}
+                                        icon={<Sparkles size={12} />}
+                                        onClick={() => handleGenerateH3Prompt()}
                                       >
-                                        {generatingRenderBeatIds.has(selectedBeat.id)
-                                          ? "生成中"
-                                          : selectedBeat.render_url
-                                            ? "重新生成渲染图"
-                                            : "✨ 生成渲染图"}
+                                        {generatingH3Prompt ? "生成中" : "生成 H3 提示词"}
                                       </Button>
-                                      <span className={`status-chip ${selectedBeat.render_url ? "is-active" : "is-idle"}`}>
-                                        <span className="chip-dot" /> {selectedBeat.render_url ? "已渲染" : "待渲染"}
+                                      <span className={`status-chip ${selectedBeat.h3_prompt ? "is-active" : "is-idle"}`}>
+                                        <span className="chip-dot" /> {selectedBeat.h3_prompt ? "已生成" : "未生成"}
                                       </span>
                                     </div>
                                   </div>
 
-                                  <div className="xiaji-pane-section-body" style={openSections.render ? undefined : { display: "none" }}>
-                                    <div className="sketch-block">
-
-                                      {/* 绑定的角色/身份 Pill */}
-                                      <div className="sketch-actor-row">
-                                        {(selectedBeat.character_ids || []).map((cid) => (
-                                          <span
-                                            key={cid}
-                                            className="sketch-actor-pill"
-                                          >
-                                            <span className="dot" />
-                                            <span>{getCharName(cid)}</span>
-                                          </span>
-                                        ))}
-                                        {!selectedBeat.character_ids?.length ? (
-                                          <span className="sketch-actor-pill is-none">
-                                            <span className="dot" />
-                                            <span>{selectedBeat.speaker || "未指定主角色"}</span>
-                                          </span>
-                                        ) : null}
-                                      </div>
-
-                                      <div className="sketch-cards-row">
-                                        <div className="sketch-main-card">
-                                          {selectedBeat.render_url ? (
-                                            <Image
-                                              src={selectedBeat.render_url}
-                                              className="main-preview-img"
-                                            />
-                                          ) : generatingRenderBeatIds.has(selectedBeat.id) ? (
-                                            <div className="sketch-placeholder is-busy">
-                                              <Spin />
-                                              <span>{generationStatusText(selectedBeat.id, "render") || "GRS 正在按草图精绘渲染图"}</span>
-                                            </div>
-                                          ) : (
-                                            <div className="sketch-placeholder" onClick={() => enqueueSingleRender()}>
-                                              <LucideImage size={32} />
-                                              <span>点此使用 GRS 生成渲染图</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                        <div className="sketch-thumb-card">
-                                          {selectedBeat.render_url ? <img src={selectedBeat.render_url} alt="" /> : <div className="thumb-empty" />}
-                                          <span className="version-badge">2:3 1K</span>
-                                        </div>
-                                      </div>
-
-                                      <div className="sketch-bottom-toolbar">
-                                        <button
-                                          type="button"
-                                          className="tool-btn is-primary"
-                                          disabled={generatingRenderBeatIds.has(selectedBeat.id)}
-                                          onClick={() => enqueueSingleRender()}
-                                        >
-                                          <Sparkles size={12} className={generatingRenderBeatIds.has(selectedBeat.id) ? "animate-spin" : undefined} />
-                                          <span>{generatingRenderBeatIds.has(selectedBeat.id) ? "生成中" : (selectedBeat.render_url ? "重新生成渲染图" : "✨ 生成渲染图")}</span>
-                                        </button>
-                                        <button type="button" className="tool-btn" onClick={() => handleToolNotice("画质增强")}>
-                                          <Sparkles size={12} />
-                                          <span>画质增强</span>
-                                        </button>
-                                        <button type="button" className="tool-btn" onClick={() => handleToolNotice("画幅智能裁剪")}>
-                                          <Crop size={12} />
-                                          <span>裁剪保存</span>
-                                        </button>
-                                        <button type="button" className="tool-btn" onClick={() => toggleSceneBackground()}>
-                                          <LucideImage size={12} />
-                                          <span>背景对齐</span>
-                                        </button>
-                                        <a
-                                          href={selectedBeat.render_url || undefined}
-                                          target="_blank"
-                                          download
-                                          className={`tool-btn${selectedBeat.render_url ? "" : " is-disabled"}`}
-                                        >
-                                          <Download size={12} />
-                                          <span>下载</span>
-                                        </a>
-                                        <Upload
-                                          accept="image/*"
-                                          showUploadList={false}
-                                          beforeUpload={handleUploadRender}
-                                        >
-                                          <button type="button" className="tool-btn">
-                                            <UploadIcon size={12} />
-                                            <span>上传精绘</span>
-                                          </button>
-                                        </Upload>
-                                        <button type="button" className="tool-btn" onClick={() => handleToolNotice("导演世界资产同步")}>
-                                          <Box size={12} />
-                                          <span>导演世界</span>
-                                        </button>
-                                        <button type="button" className="tool-btn" onClick={() => handleToolNotice("虾画精修")}>
-                                          <ExternalLink size={12} />
-                                          <span>虾画精修</span>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* 4. 视频 Section (Video & LightX2V) */}
-                                <div className="xiaji-pane-section">
-                                  <div className="xiaji-pane-section-header" onClick={() => toggleSection("video")}>
-                                    <div className="section-title-wrap">
-                                      <ChevronDown
-                                        size={14}
-                                        className={`arrow-icon${!openSections.video ? " is-collapsed" : ""}`}
-                                      />
-                                      <Video size={15} />
-                                      <span className="section-title">分镜动态视频 (Video)</span>
-                                    </div>
-                                    <span className="status-chip is-idle">
-                                      <span className="chip-dot" /> {selectedBeat.video_url ? "已生成" : "未生成"}
-                                    </span>
-                                  </div>
-
-                                  <div className="xiaji-pane-section-body" style={openSections.video ? undefined : { display: "none" }}>
-                                    <div className="video-settings-block">
-                                      <div className="video-toolbar-row">
-                                        <div className="param-item">
-                                          <span className="param-lbl">工作流</span>
-                                          <Select value={videoWorkflow} size="small" style={{ width: 170 }} onChange={(value: string | undefined) => setVideoWorkflow(value ?? "lightx2v")}>
-                                            <Select.Option value="lightx2v">LightX2V 多参考视频</Select.Option>
-                                            <Select.Option value="comfy_svd">SVD 首帧生成</Select.Option>
-                                          </Select>
-                                        </div>
-                                        <div className="param-item">
-                                          <span className="param-lbl">时长</span>
-                                          <Select value={selectedBeat.video_duration || undefined} size="small" style={{ width: 75 }} onChange={(value: string | undefined) => patchSelectedBeat({ video_duration: value })}>
-                                            <Select.Option value="3">3 秒</Select.Option>
-                                            <Select.Option value="5">5 秒</Select.Option>
-                                            <Select.Option value="8">8 秒</Select.Option>
-                                          </Select>
-                                        </div>
-                                        <div className="param-item">
-                                          <span className="param-lbl">画质</span>
-                                          <Select value={videoQuality} size="small" style={{ width: 80 }} onChange={(value: string | undefined) => setVideoQuality(value ?? "0.2")}>
-                                            <Select.Option value="0.2">0.2 MP</Select.Option>
-                                            <Select.Option value="0.5">0.5 MP</Select.Option>
-                                          </Select>
-                                        </div>
-                                        <div className="param-item">
-                                          <span className="param-lbl">部署步数</span>
-                                          <Select value={videoSpeed} size="small" style={{ width: 110 }} onChange={(value: string | undefined) => setVideoSpeed(value ?? "balanced")}>
-                                            <Select.Option value="balanced">均衡 (8 步)</Select.Option>
-                                            <Select.Option value="fast">极速 (4 步)</Select.Option>
-                                          </Select>
-                                        </div>
-                                      </div>
-
-                                      <div className="form-group mt-3">
-                                        <div className="prompt-head-row">
-                                          <label className="form-label">本 Beat 视频运镜与运体提示词</label>
-                                          <Button type="link" size="small" icon={<Sparkles size={12} />} onClick={() => generateVideoPrompt()}>
-                                            自动提取生成
-                                          </Button>
-                                        </div>
-                                        <Input.TextArea
-                                          value={selectedBeat.video_prompt_zh || ""}
-                                          rows={4}
-                                          placeholder="描述摄像机推拉摇移、主体人物的面部微表情与动作演进..."
-                                          onChange={(e) => patchSelectedBeat({ video_prompt_zh: e.target.value })}
-                                          onBlur={() => saveCurrentBeat()}
-                                        />
-                                      </div>
-
-                                      {/* 视频预览/播放卡片 */}
-                                      <div className="video-preview-stage mt-3">
-                                        <div className="video-main-card">
-                                          {selectedBeat.video_url ? (
-                                            <video
-                                              src={selectedBeat.video_url}
-                                              controls
-                                              playsInline
-                                              className="video-player-element"
-                                            />
-                                          ) : generatingVideo ? (
-                                            <div className="video-placeholder is-busy">
-                                              <Spin />
-                                              <span>LightX2V 正在生成视频中...</span>
-                                            </div>
-                                          ) : selectedBeat.render_url || selectedBeat.sketch_url ? (
-                                            <div className="video-preview-cover">
-                                              <img src={selectedBeat.render_url || selectedBeat.sketch_url || undefined} alt="" />
-                                              <div className="cover-overlay">
-                                                <Video size={24} />
-                                                <span>基于分镜图首帧驱动生成</span>
+                                  <div className="xiaji-pane-section-body" style={openSections.material ? undefined : { display: "none" }}>
+                                    <div className="h3-material-content">
+                                      <div className="h3-material-left">
+                                        <div className="h3-ref-block">
+                                          <div className="h3-ref-block-head">
+                                            <span className="h3-ref-label">参考图片</span>
+                                            <Button size="small" onClick={() => handleSelectExistingImages()}>
+                                              选已有 {h3RefImages.length}/9
+                                            </Button>
+                                          </div>
+                                          <div className="h3-ref-grid">
+                                            {h3RefImagesVisible.map((img, idx) => (
+                                              <div key={img.id || idx} className="h3-ref-img-cell">
+                                                {img.url ? (
+                                                  <img
+                                                    src={img.url}
+                                                    alt={`图片${idx + 1}`}
+                                                    onClick={() => openMediaPreview({
+                                                      src: img.url,
+                                                      title: img.name || `图片${idx + 1}`,
+                                                      description: img.category,
+                                                    })}
+                                                  />
+                                                ) : (
+                                                  <div className="h3-ref-img-empty">
+                                                    <ImageIcon size={18} />
+                                                    <span>图片{idx + 1}</span>
+                                                  </div>
+                                                )}
+                                                <div className="h3-ref-info">
+                                                  <span className="h3-ref-seq">图片{idx + 1}</span>
+                                                  {img.name ? (
+                                                    <span className="h3-ref-name" title={img.name}>
+                                                      <i className={`h3-ref-cat-dot ${img.category === "prop" ? "is-prop" : img.category === "scene" ? "is-scene" : "is-char"}`} />
+                                                      {img.name}
+                                                    </span>
+                                                  ) : null}
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  className="h3-ref-del-btn"
+                                                  title="移除此参考图"
+                                                  onClick={(e) => { e.stopPropagation(); removeH3RefImage(idx) }}
+                                                >
+                                                  ×
+                                                </button>
                                               </div>
+                                            ))}
+                                            <Upload accept="image/*" showUploadList={false} beforeUpload={handleUploadH3Image}>
+                                              <div className="h3-ref-add-btn">
+                                                <Plus size={16} />
+                                              </div>
+                                            </Upload>
+                                          </div>
+                                          {h3RefImages.length > 3 ? (
+                                            <div className="h3-ref-expand" onClick={() => setH3ImagesExpanded((prev) => !prev)}>
+                                              {h3ImagesExpanded ? "收起" : `展开更多 (+${h3RefImages.length - 3})`}
                                             </div>
-                                          ) : (
-                                            <div className="video-placeholder">
-                                              <Video size={32} />
-                                              <span>请先生成草图或渲染图，再生成动态视频</span>
-                                            </div>
-                                          )}
+                                          ) : null}
                                         </div>
                                       </div>
-
-                                      {/* 底部视频工具条与生成按钮 */}
-                                      <div className="sketch-bottom-toolbar mt-3">
-                                        <button
-                                          type="button"
-                                          className="tool-btn is-primary"
-                                          disabled={generatingVideo || (!selectedBeat.sketch_url && !selectedBeat.render_url)}
-                                          onClick={() => handleGenerateVideo()}
-                                        >
-                                          <Video size={12} className={generatingVideo ? "animate-spin" : undefined} />
-                                          <span>{generatingVideo ? "生成中..." : (selectedBeat.video_url ? "重新生成视频" : "生成分镜视频 (LightX2V)")}</span>
-                                        </button>
-
-                                        <button type="button" className="tool-btn" onClick={() => handleToolNotice("运镜微调")}>
-                                          <Sparkles size={12} />
-                                          <span>镜头微调</span>
-                                        </button>
-
-                                        <a
-                                          href={selectedBeat.video_url || undefined}
-                                          target="_blank"
-                                          download
-                                          className={`tool-btn${selectedBeat.video_url ? "" : " is-disabled"}`}
-                                        >
-                                          <Download size={12} />
-                                          <span>下载视频</span>
-                                        </a>
-
-                                        <button type="button" className="tool-btn" onClick={() => handleToolNotice("导演世界时间轴")}>
-                                          <Box size={12} />
-                                          <span>导演世界</span>
-                                        </button>
-
-                                        <button type="button" className="tool-btn" onClick={() => handleToolNotice("全屏监视器")}>
-                                          <ExternalLink size={12} />
-                                          <span>全屏监视</span>
-                                        </button>
+                                      <div className="h3-prompt-panel">
+                                        <div className="h3-prompt-head">
+                                          <span className="h3-prompt-title">提示词</span>
+                                          {selectedBeat.h3_prompt ? (
+                                            <Button type="link" size="small" icon={<Copy size={12} />} onClick={() => copyH3Prompt()}>
+                                              复制
+                                            </Button>
+                                          ) : null}
+                                        </div>
+                                        {selectedBeat.h3_prompt ? (
+                                          <div
+                                            className="h3-prompt-display"
+                                            dangerouslySetInnerHTML={{ __html: renderH3PromptHtml(selectedBeat.h3_prompt) }}
+                                          />
+                                        ) : generatingH3Prompt ? (
+                                          <div className="h3-prompt-loading">
+                                            <Spin size="small" />
+                                            <span>正在生成 H3 提示词...</span>
+                                          </div>
+                                        ) : (
+                                          <div className="h3-prompt-empty">
+                                            <span>尚未生成 H3 提示词</span>
+                                            <p>点击「生成 H3 提示词」，按技能规则调用大模型生成。</p>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -1910,7 +2348,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                           <header className="section-head">
                             <Clapperboard size={15} />
                             <h3>编排脚本预览</h3>
-                            <em>{currentEpisode.beats?.length || 0} 个 Beat</em>
+                            <em>{currentEpisode.beats?.length || 0} 个 Beat · 共 {episodeDurationSec} 秒</em>
                           </header>
                           <div className="xiaji-beat-list">
                             {(currentEpisode.beats || []).map((beat) => (
@@ -1918,7 +2356,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                 key={beat.id}
                                 className="xiaji-beat"
                               >
-                                <span className="beat-header">Beat {beat.sequence} · {beat.heading || "分镜"}</span>
+                                <span className="beat-header">
+                                  Beat {beat.sequence} · {formatBeatDurationZh(beat.video_duration)} · {beat.heading || "分镜"}
+                                </span>
                                 {beat.dialogue ? (
                                   <p className="beat-dialogue">
                                     <strong>{beat.speaker || "角色"}</strong>：{beat.dialogue}
@@ -1946,40 +2386,100 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                       <div className="compose-summary-card">
                         <Clapperboard size={32} className="text-purple" />
                         <div className="summary-info">
-                          <h3>第 {currentEpisode.number} 集成片合成流水线</h3>
+                          <h3>
+                            {videoRenderMode === "episode"
+                              ? "第 " + currentEpisode.number + " 集 H3 Director 整集直出"
+                              : "第 " + currentEpisode.number + " 集成片合成流水线"}
+                          </h3>
                           <p>
-                            已完成镜头：{sketchedCount}/{currentEpisode.beats?.length || 0} ·{" "}
-                            音频通道：就绪 ·{" "}
-                            字幕 SRT：自动同步
+                            {videoRenderMode === "episode"
+                              ? (episodeFilm
+                                ? "本集已由 H3 Director 加速版一次直出，无需再合成"
+                                : "一键生成视频后，整集成片会直接写入本页，无需再点合成")
+                              : `已出片 ${videoReadyCount}/${currentEpisode.beats?.length || 0} · 音频通道：就绪 · 字幕 SRT：自动同步`}
                           </p>
                         </div>
                         <Space>
-                          <Button type="primary" icon={<Sparkles size={14} />} onClick={() => handleToolNotice("全片自动渲染与剪辑合成")}>
-                            一键合成全集成片
-                          </Button>
+                          {videoRenderMode === "shot" ? (
+                            <Button
+                              type="primary"
+                              icon={<Sparkles size={14} />}
+                              loading={composingEpisode || episodeVideoJobActive}
+                              disabled={
+                                composingEpisode
+                                || episodeVideoJobActive
+                                || !currentEpisode.beats?.length
+                                || videoReadyCount < (currentEpisode.beats?.length || 0)
+                              }
+                              onClick={() => handleComposeEpisode()}
+                            >
+                              一键合成全集成片
+                            </Button>
+                          ) : null}
                           <Button onClick={() => handleToolNotice("字幕导出")}>
                             导出字幕 SRT
                           </Button>
                         </Space>
                       </div>
 
-                      {/* 分镜时间线片段序列 */}
-                      <div className="timeline-preview-section mt-4">
-                        <h4>分镜轨道时间线预览 (Timeline Track)</h4>
-                        <div className="timeline-tiles-scroll">
-                          {(currentEpisode.beats || []).map((b) => (
-                            <div
-                              key={b.id}
-                              className="timeline-shot-card"
-                            >
-                              <div className="shot-thumb">
-                                {b.sketch_url ? <img src={b.sketch_url} alt="" /> : <div className="placeholder-thumb">Shot {b.sequence}</div>}
-                              </div>
-                              <div className="shot-title">Shot {b.sequence} ({b.video_duration || 5}s)</div>
-                            </div>
-                          ))}
+                      {episodeFilm ? (
+                        <div className="compose-episode-player mt-4">
+                          <h4>分集成片</h4>
+                          <video src={episodeFilm} controls playsInline className="compose-episode-video" />
+                          {episodeSource === "director_direct" ? (
+                            <p className="compose-episode-note">来源：H3 Director 加速版一次直出</p>
+                          ) : episodeSource === "composed" ? (
+                            <p className="compose-episode-note">来源：逐镜拼接合成</p>
+                          ) : null}
                         </div>
-                      </div>
+                      ) : null}
+
+                      {videoRenderMode === "shot" ? (
+                        <div className="timeline-preview-section mt-4">
+                          <h4>分镜轨道时间线预览（已出片 {videoReadyCount}/{currentEpisode.beats?.length || 0}）</h4>
+                          <div className="timeline-tiles-scroll">
+                            {(currentEpisode.beats || []).map((b) => {
+                              const busy = generatingVideoBeatIds.has(b.id)
+                              const ready = Boolean(String(b.video_url || "").trim())
+                              return (
+                                <div
+                                  key={b.id}
+                                  className={`timeline-shot-card${ready ? " is-ready" : busy ? " is-busy" : " is-missing"}`}
+                                >
+                                  <div className="shot-thumb">
+                                    {ready ? (
+                                      <video src={b.video_url || undefined} muted playsInline />
+                                    ) : b.render_url || b.sketch_url ? (
+                                      <img src={b.render_url || b.sketch_url || undefined} alt="" />
+                                    ) : (
+                                      <div className="placeholder-thumb">Shot {b.sequence}</div>
+                                    )}
+                                  </div>
+                                  <div className="shot-title">Shot {b.sequence} ({formatBeatDurationLabel(b.video_duration)})</div>
+                                  <div className="shot-status">{ready ? "已出片" : busy ? "生成中" : "未出片"}</div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="timeline-preview-section mt-4">
+                          <h4>分镜轨道时间线预览 (Timeline Track)</h4>
+                          <div className="timeline-tiles-scroll">
+                            {(currentEpisode.beats || []).map((b) => (
+                              <div
+                                key={b.id}
+                                className="timeline-shot-card"
+                              >
+                                <div className="shot-thumb">
+                                  {b.sketch_url || b.render_url ? <img src={b.render_url || b.sketch_url || undefined} alt="" /> : <div className="placeholder-thumb">Shot {b.sequence}</div>}
+                                </div>
+                                <div className="shot-title">Shot {b.sequence} ({formatBeatDurationLabel(b.video_duration)})</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ),
                 },

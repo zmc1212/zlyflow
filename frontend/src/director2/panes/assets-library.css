@@ -573,6 +573,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  cursor: pointer;
   transition: transform 0.3s;
 }
 
@@ -610,9 +611,12 @@
   color: #ffffff;
   width: 24px;
   height: 24px;
+  border: 0;
+  padding: 0;
   border-radius: 4px;
   display: grid;
   place-items: center;
+  cursor: pointer;
   backdrop-filter: blur(4px);
   transition: all 0.2s;
 }
@@ -841,6 +845,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+  cursor: pointer;
   transition: transform 0.3s;
 }
 
@@ -962,6 +967,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  cursor: pointer;
   transition: transform 0.3s;
 }
 
@@ -1252,4 +1258,172 @@
 .d2-assets-library .download-link {
   color: #0284c7;
   font-weight: 500;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.d2-assets-library .asset-source-ref-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.d2-assets-library .asset-source-ref-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.d2-assets-library .asset-source-ref-label,
+.d2-assets-library .asset-source-ref-count,
+.d2-assets-library .asset-source-ref-hint,
+.d2-assets-library .asset-source-ref-full,
+.d2-assets-library .avatar-ref-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--studio-text-muted);
+}
+
+.d2-assets-library .asset-source-ref-label {
+  font-weight: 650;
+  color: var(--studio-text-secondary);
+}
+
+.d2-assets-library .asset-source-ref-dropzone {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 108px;
+  padding: 10px;
+  border: 1px dashed var(--studio-border-strong);
+  border-radius: 10px;
+  background: var(--studio-surface-raised);
+  cursor: pointer;
+}
+
+.d2-assets-library .asset-source-ref-dropzone.has-items,
+.d2-assets-library .asset-source-ref-dropzone.is-full {
+  min-height: 132px;
+}
+
+.d2-assets-library .asset-source-ref-dropzone:hover,
+.d2-assets-library .asset-source-ref-dropzone.is-hover {
+  border-color: var(--studio-primary);
+  background: var(--studio-primary-soft);
+}
+
+.d2-assets-library .asset-source-ref-dropzone.is-full {
+  border-style: solid;
+  border-color: var(--studio-border);
+  cursor: default;
+}
+
+.d2-assets-library .asset-source-ref-dropzone.is-full:hover {
+  background: var(--studio-surface-raised);
+}
+
+.d2-assets-library .asset-source-ref-drop-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--studio-text-muted);
+  text-align: center;
+}
+
+.d2-assets-library .asset-source-ref-drop-copy strong {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--studio-text-secondary);
+}
+
+.d2-assets-library .asset-source-ref-drop-copy span,
+.d2-assets-library .asset-source-ref-full {
+  font-size: 11px;
+}
+
+.d2-assets-library .asset-source-ref-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.d2-assets-library .asset-source-ref-thumb {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--studio-media);
+  border: 1px solid var(--studio-border);
+  cursor: pointer;
+}
+
+.d2-assets-library .asset-source-ref-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.d2-assets-library .asset-source-ref-index {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--studio-scrim);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.d2-assets-library .asset-source-ref-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
+.d2-assets-library .asset-source-ref-remove:hover {
+  background: var(--studio-danger);
+}
+
+.d2-assets-library .asset-source-ref-hint {
+  margin: 0;
+}
+
+.d2-assets-library .asset-source-ref-infer {
+  align-self: stretch;
+}
+
+.d2-assets-library .portrait-preview-col .asset-source-ref-strip,
+.d2-assets-library .avatar-actions {
+  width: 180px;
+}
+
+@media (max-width: 720px) {
+  .d2-assets-library .portrait-preview-col .asset-source-ref-strip,
+  .d2-assets-library .avatar-actions {
+    width: 100%;
+  }
 }

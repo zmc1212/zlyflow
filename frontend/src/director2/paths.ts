@@ -5,7 +5,6 @@ export const DIRECTOR2_PREFIX = "/director2"
 
 export type Director2Route =
   | { kind: "home" }
-  | { kind: "settings" }
   | { kind: "project"; projectId: string; menu: "content" | "assets" | "workshop" | "jobs"; episodeId: string | null }
 
 const MENU_SEGMENTS = new Set(["content", "assets", "workshop", "jobs"])
@@ -15,8 +14,6 @@ export function parseDirector2Path(pathname: string): Director2Route {
     ? pathname.slice(DIRECTOR2_PREFIX.length)
     : pathname
   const segments = rest.split("/").filter(Boolean)
-
-  if (segments[0] === "settings") return { kind: "settings" }
 
   if (segments[0] === "projects" && segments[1]) {
     const projectId = segments[1]
@@ -32,10 +29,6 @@ export function parseDirector2Path(pathname: string): Director2Route {
 
 export function director2HomePath(): string {
   return DIRECTOR2_PREFIX
-}
-
-export function director2SettingsPath(): string {
-  return `${DIRECTOR2_PREFIX}/settings`
 }
 
 export function director2ProjectPath(projectId: string, menu: string, episodeId?: string | null): string {

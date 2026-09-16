@@ -1,12 +1,25 @@
 // 全部任务面板 —— 逐行复刻自 dev0914 z-admin/src/views/project/JobsCenterPane.vue
-// Vue → React 对应：ref→useState、onMounted/onUnmounted→useEffect（3 秒静默轮询与清理保留）；
+// Vue → React 对应：ref→useState、onMounted/onUnmounted→useEffect（1 秒静默轮询与清理保留）；
 // a-table bodyCell 自定义渲染 → columns render；a-* 组件 → antd 同名组件；
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
-import { useEffect, useRef, useState } from "react"
-import { Alert, Button, Modal, Progress, Space, Table, Tag, message } from "antd"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Alert, Button, Modal, Progress, Space, Table, Tabs, Tag, message } from "antd"
 import type { TableProps } from "antd"
-import { RefreshCw, ExternalLink } from "lucide-react"
+import { RefreshCw, ExternalLink, Copy } from "lucide-react"
 import { listJobs, retryJob, type Director2Job } from "../api"
+import {
+  DIRECTOR2_DEFAULT_JOB_TYPE,
+  DIRECTOR2_JOB_TYPES,
+  countJobsByType,
+  defaultJobTypeTab,
+  director2JobTypeLabel,
+  filterJobsByType,
+  h3PromptResultText,
+  isH3PromptJob,
+  videoShotPromptText,
+  type Director2JobType,
+} from "../director2-job-types"
+import { useMediaPreview } from "../media-preview"
 import "./jobs-center.css"
 
 interface JobsCenterPaneProps {
@@ -22,6 +35,7 @@ type VideoShotPayload = {
   scene?: string
   reference_urls?: string[]
   prompt?: string
+  h3_prompt?: string
   character_references?: Array<{ character_name?: string; look_id?: string }>
 }
 
@@ -38,10 +52,14 @@ type LlmAttemptPayload = {
 type StatusTag = { color: string; text: string }
 
 export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneProps) {
+  const { openMediaPreview } = useMediaPreview()
   const [jobs, setJobs] = useState<Director2Job[]>([])
   const [loading, setLoading] = useState(false)
   const [detailVisible, setDetailVisible] = useState(false)
   const [selectedJob, setSelectedJob] = useState<Director2Job | null>(null)
+  const [activeJobType, setActiveJobType] = useState<Director2JobType>(DIRECTOR2_DEFAULT_JOB_TYPE)
+  const [page, setPage] = useState(1)
+  const hasInitializedTab = useRef(false)
 
   // 与 Vue 实例级可变量（selectedJob）对应的同步 ref，供异步续体（fetchJobs 轮询）读取最新值
   const selectedJobRef = useRef<Director2Job | null>(null)
@@ -50,6 +68,9 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     selectedJobRef.current = job
     setSelectedJob(job)
   }
+
+  const typeCounts = useMemo(() => countJobsByType(jobs), [jobs])
+  const filteredJobs = useMemo(() => filterJobsByType(jobs, activeJobType), [jobs, activeJobType])
 
   const columns: TableProps<Director2Job>["columns"] = [
     {
@@ -61,16 +82,6 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
           <span className="job-name">{record.title}</span>
           <span className="job-id">{record.id}</span>
         </div>
-      ),
-    },
-    {
-      title: "类型",
-      key: "job_type",
-      width: 120,
-      render: (_, record) => (
-        <Tag color={record.job_type === "video_generation" ? "purple" : "blue"}>
-          {getJobTypeText(record.job_type)}
-        </Tag>
       ),
     },
     {
@@ -99,13 +110,24 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       width: 80,
       render: (_, record) =>
         record.result_url ? (
-          <a href={record.result_url} target="_blank">
+          <button
+            type="button"
+            className="result-thumb-btn"
+            aria-label="预览结果"
+            onClick={() => openMediaPreview({
+              src: record.result_url,
+              kind: record.job_type === "video_generation" ? "video" : "image",
+              title: record.title || "生成结果",
+            })}
+          >
             {record.job_type === "video_generation" ? (
               <video src={record.result_url} className="result-thumb" muted preload="metadata" />
             ) : (
               <img src={record.result_url} className="result-thumb" alt="结果图" />
             )}
-          </a>
+          </button>
+        ) : isH3PromptJob(record) && (record.status === "completed" || record.status === "succeeded") ? (
+          <Tag color="cyan">提示词就绪</Tag>
         ) : (
           <span className="text-muted">—</span>
         ),
@@ -146,15 +168,23 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   }
 
   function getJobTypeText(type: string): string {
-    const map: Record<string, string> = {
-      image_generation: "图片生成",
-      video_generation: "视频生成",
-    }
-    return map[type] || type
+    return director2JobTypeLabel(type)
+  }
+
+  function handleJobTypeChange(key: string) {
+    setActiveJobType(key as Director2JobType)
+    setPage(1)
   }
 
   function isVideoJob(job: Director2Job | null): boolean {
     return job?.job_type === "video_generation"
+  }
+
+  function copyH3Prompt(text: string) {
+    if (!text) return
+    navigator.clipboard.writeText(text)
+      .then(() => message.success("H3 提示词已复制到剪贴板"))
+      .catch(() => message.error("复制失败"))
   }
 
   function videoShots(job: Director2Job): VideoShotPayload[] {
@@ -205,16 +235,17 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     setDetailVisible(true)
   }
 
-  function openResultUrl(url: string) {
-    window.open(url, "_blank")
-  }
-
   async function fetchJobs(silent = false) {
     if (!silent) setLoading(true)
     try {
       const res = await listJobs(projectId)
       const list = res || []
       setJobs(list)
+      if (!hasInitializedTab.current) {
+        hasInitializedTab.current = true
+        setActiveJobType(defaultJobTypeTab(list))
+        setPage(1)
+      }
       if (selectedJobRef.current) {
         const found = list.find((job) => job.id === selectedJobRef.current?.id) || selectedJobRef.current
         applySelectedJob(found)
@@ -236,21 +267,24 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
   }
 
-  // 最新闭包 trampoline：3 秒静默轮询读取最新渲染的 fetchJobs（等价 Vue 闭包读响应式值）
+  // 最新闭包 trampoline：1 秒静默轮询读取最新渲染的 fetchJobs（等价 Vue 闭包读响应式值）
   const fetchJobsRef = useRef(fetchJobs)
   useEffect(() => {
     fetchJobsRef.current = fetchJobs
   })
 
   useEffect(() => {
+    hasInitializedTab.current = false
+    setActiveJobType(DIRECTOR2_DEFAULT_JOB_TYPE)
+    setPage(1)
     fetchJobs()
-    const pollTimer = window.setInterval(() => fetchJobsRef.current(true), 3000)
+    const pollTimer = window.setInterval(() => fetchJobsRef.current(true), 1000)
     return () => {
       window.clearInterval(pollTimer)
     }
-    // 对应原版 onMounted + onUnmounted
+    // 对应原版 onMounted + onUnmounted；projectId 变化时重新拉列表并重置默认 Tab
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [projectId])
 
   return (
     <div className="d2-jobs-center jobs-pane">
@@ -267,15 +301,29 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
         </Button>
       </div>
 
-      {/* 任务表格 */}
+      {/* 按任务类型切换；无「全部」Tab */}
       <div className="jobs-table-card">
+        <Tabs
+          className="jobs-type-tabs"
+          activeKey={activeJobType}
+          onChange={handleJobTypeChange}
+          items={DIRECTOR2_JOB_TYPES.map((type) => ({
+            key: type,
+            label: `${director2JobTypeLabel(type)} (${typeCounts[type]})`,
+          }))}
+        />
         <Table
           loading={loading}
-          dataSource={jobs}
+          dataSource={filteredJobs}
           columns={columns}
           rowKey="id"
-          pagination={{ pageSize: 20 }}
+          pagination={{
+            pageSize: 20,
+            current: page,
+            onChange: (nextPage) => setPage(nextPage),
+          }}
           size="middle"
+          locale={{ emptyText: `暂无${director2JobTypeLabel(activeJobType)}任务` }}
         />
       </div>
 
@@ -350,6 +398,18 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                     <span className="detail-key">输出分辨率</span>
                     <span className="detail-val">
                       {selectedJob.payload?.width} × {selectedJob.payload?.height} px
+                      {selectedJob.payload?.quality ? ` · ${selectedJob.payload.quality} MP` : ""}
+                    </span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-key">画面比例</span>
+                    <span className="detail-val">{selectedJob.payload?.aspect_ratio || "16:9"}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-key">生成质量</span>
+                    <span className="detail-val">
+                      {selectedJob.payload?.steps || "—"} 步
+                      {selectedJob.payload?.weight_profile === "full" ? " · 完整权重" : " · 精简权重"}
                     </span>
                   </div>
                   <div className="detail-row">
@@ -375,8 +435,15 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             {isVideoJob(selectedJob) && videoShots(selectedJob).length ? (
               <div className="detail-section">
                 <div className="detail-section-title">镜头参考图与 H3 提示词</div>
+                {selectedJob.payload?.prompt_source === "workshop_material" ? (
+                  <div className="text-muted">复用剧集工坊已保存的 H3 提示词</div>
+                ) : selectedJob.payload?.prompt_source === "configured_llm" ? (
+                  <div className="text-muted">任务内重新生成（工坊提示词未通过出片校验）</div>
+                ) : null}
                 <div className="video-shot-list">
-                  {videoShots(selectedJob).map((shot) => (
+                  {videoShots(selectedJob).map((shot) => {
+                    const promptText = videoShotPromptText(shot)
+                    return (
                     <section key={shot.beat_id} className="video-shot-item">
                       <div className="video-shot-head">
                         Beat {shot.sequence} · {shot.heading || shot.scene}
@@ -384,25 +451,33 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                       <div className="video-ref-grid">
                         {(shot.reference_urls || []).map((url, idx) => (
                           <div key={url} className="video-ref-item">
-                            <a href={url} target="_blank">
+                            <button
+                              type="button"
+                              className="preview-media-btn"
+                              onClick={() => openMediaPreview({
+                                src: url,
+                                title: `Picture ${idx + 1} · ${videoReferenceLabel(shot, idx)}`,
+                              })}
+                            >
                               <img src={url} alt={`Picture ${idx + 1}`} />
-                            </a>
+                            </button>
                             <span>
                               Picture {idx + 1} · {videoReferenceLabel(shot, idx)}
                             </span>
                           </div>
                         ))}
                       </div>
-                      {shot.prompt ? (
+                      {promptText ? (
                         <div className="prompt-block">
                           <div className="prompt-label">MiniMax H3 Ref2VA Prompt</div>
-                          <pre className="prompt-text">{shot.prompt}</pre>
+                          <pre className="prompt-text">{promptText}</pre>
                         </div>
                       ) : (
                         <div className="text-muted">提示词尚未生成</div>
                       )}
                     </section>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             ) : null}
@@ -528,17 +603,23 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                   <div className="ref-grid">
                     {referenceUrls(selectedJob).map((url, idx) => (
                       <div key={url + idx} className="ref-item">
-                        <a href={url} target="_blank">
+                        <button
+                          type="button"
+                          className="preview-media-btn"
+                          onClick={() => openMediaPreview({
+                            src: url,
+                            title: `参考图 ${idx + 1}`,
+                            description: idx === 0 && selectedJob.payload?.identity_anchor ? "身份锚点" : undefined,
+                          })}
+                        >
                           <img src={url} className="ref-thumb" alt={`参考图 ${idx + 1}`} />
-                        </a>
+                        </button>
                         <div className="ref-meta">
                           <span className="prompt-label">
                             REFERENCE {idx + 1}
                             {idx === 0 && selectedJob.payload?.identity_anchor ? " · 身份锚点" : ""}
                           </span>
-                          <a href={url} target="_blank" className="url-link">
-                            {url}
-                          </a>
+                          <span className="url-link">{url}</span>
                         </div>
                       </div>
                     ))}
@@ -551,8 +632,28 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               </div>
             ) : null}
 
+            {isH3PromptJob(selectedJob) ? (
+              <div className="detail-section">
+                <div className="detail-section-title is-split">
+                  <span>🎬 生成的 MiniMax H3 视频生成提示词</span>
+                  {h3PromptResultText(selectedJob) ? (
+                    <Button type="link" size="small" icon={<Copy size={13} />} onClick={() => copyH3Prompt(h3PromptResultText(selectedJob))}>
+                      复制提示词
+                    </Button>
+                  ) : null}
+                </div>
+                {h3PromptResultText(selectedJob) ? (
+                  <div className="prompt-block">
+                    <pre className="prompt-text">{h3PromptResultText(selectedJob)}</pre>
+                  </div>
+                ) : (
+                  <div className="text-muted">提示词尚未生成</div>
+                )}
+              </div>
+            ) : null}
+
             {/* Prompt */}
-            {selectedJob.payload?.prompt || selectedJob.payload?.clean_prompt ? (
+            {!isH3PromptJob(selectedJob) && (selectedJob.payload?.prompt || selectedJob.payload?.clean_prompt) ? (
               <div className="detail-section">
                 <div className="detail-section-title">✍️ 生图提示词 (Prompt)</div>
                 {selectedJob.payload?.prompt ? (
@@ -571,7 +672,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* GRS 请求体 */}
-            {!isVideoJob(selectedJob) ? (
+            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) ? (
               <div className="detail-section">
                 <div className="detail-section-title">📤 提交给 GRS 的完整参数</div>
                 <div className="prompt-block">
@@ -605,12 +706,23 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                       src={selectedJob.result_url}
                       className="result-img"
                       alt="生成结果"
-                      onClick={() => openResultUrl(selectedJob.result_url!)}
+                      onClick={() => openMediaPreview({
+                        src: selectedJob.result_url,
+                        title: selectedJob.title || "生成结果",
+                      })}
                     />
                   )}
-                  <a href={selectedJob.result_url} target="_blank" className="result-open-link">
-                    <ExternalLink size={13} /> 在新标签页打开
-                  </a>
+                  <button
+                    type="button"
+                    className="result-open-link"
+                    onClick={() => openMediaPreview({
+                      src: selectedJob.result_url,
+                      kind: isVideoJob(selectedJob) ? "video" : "image",
+                      title: selectedJob.title || "生成结果",
+                    })}
+                  >
+                    <ExternalLink size={13} /> 预览原文件
+                  </button>
                 </div>
               </div>
             ) : null}

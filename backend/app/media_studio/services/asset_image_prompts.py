@@ -55,17 +55,11 @@ def character_portrait_prompt(
     visual_style: str = "",
     ethnicity: str = "",
     face_prompt: str = "",
+    follow_source_photos: bool = False,
 ) -> str:
     extra = extra if isinstance(extra, dict) else {}
     visual = composed_style_line(visual_style or extra.get("visual_style") or "", style or extra.get("art_style_id") or "")
     race = (ethnicity or extra.get("ethnicity") or "").strip() or "Chinese"
-    face = (
-        (face_prompt or "").strip()
-        or str(extra.get("face_prompt") or extra.get("avatar_prompt") or "").strip()
-    )
-    body = str(extra.get("body_type") or "").strip()
-    gender = str(extra.get("gender") or "").strip()
-    desc = str(extra.get("description") or asset.get("description") or "").strip()
     name = str(asset.get("name") or "").strip()
     instruction = (
         "single production identity portrait of one character, head and shoulders, "
@@ -73,6 +67,24 @@ def character_portrait_prompt(
         "centered, no text, no collage, no duplicate person, no dramatic pose, "
         "even studio lighting, plain mid-gray background"
     )
+    if follow_source_photos:
+        return ". ".join(
+            part
+            for part in (
+                visual,
+                instruction,
+                "Copy face, age, hair, and visible clothing from the source photos only",
+                name,
+            )
+            if part
+        )
+    face = (
+        (face_prompt or "").strip()
+        or str(extra.get("face_prompt") or extra.get("avatar_prompt") or "").strip()
+    )
+    body = str(extra.get("body_type") or "").strip()
+    gender = str(extra.get("gender") or "").strip()
+    desc = str(extra.get("description") or asset.get("description") or "").strip()
     return ". ".join(
         part
         for part in (
@@ -106,6 +118,15 @@ def look_costume_text(look: dict[str, Any]) -> str:
     return str(look.get("appearance_details") or look.get("description") or "").strip()
 
 
+def source_photo_wardrobe_rules() -> str:
+    return """
+WARDROBE FROM SOURCE PHOTOS (HIGHEST PRIORITY):
+Copy clothing from the original-footage screenshots exactly: garment type, layers, neckline, color, stains, accessories, and shoes.
+Do NOT add a coat, jacket, shirt, sweater, outerwear, or any extra layer that is not visible in those photos.
+If any text in this prompt names different clothing, age, or hairstyle, IGNORE that text and follow the photos.
+""".strip()
+
+
 def character_look_prompt(
     asset: dict[str, Any],
     look: dict[str, Any],
@@ -115,6 +136,7 @@ def character_look_prompt(
     visual_style: str = "",
     ethnicity: str = "",
     has_costume_reference: bool = False,
+    follow_source_photos: bool = False,
 ) -> str:
     extra = extra if isinstance(extra, dict) else {}
     visual_id = normalize_visual_style(
@@ -126,7 +148,11 @@ def character_look_prompt(
     tag = _character_tag(name)
     costume = look_costume_text(look)
     costume_block = ""
-    if has_costume_reference:
+    if follow_source_photos:
+        costume_block = source_photo_wardrobe_rules()
+        details = ""
+        anchor = "original-footage screenshots as IDENTITY AND COSTUME ANCHOR"
+    elif has_costume_reference:
         costume_block = """
 COSTUME REFERENCE IMAGE (CRITICAL):
 A second reference image is provided showing the target costume/clothing.
@@ -134,13 +160,17 @@ A second reference image is provided showing the target costume/clothing.
 - The costume reference takes PRIORITY over the text description for visual details
 - Combine the FACE from the identity anchor (first reference) with the CLOTHING from the costume reference (second reference)
 """
-    details = costume if costume and not has_costume_reference else ""
+        details = ""
+        anchor = "reference image as IDENTITY ANCHOR"
+    else:
+        details = costume
+        anchor = "reference image as IDENTITY ANCHOR"
     if is_animation_visual_style(visual_id) or visual_id in {"anime", "guoman_fantasy"}:
         medium = _animation_medium_phrase(visual_id)
         return f"""Animated character turnaround / identity sheet. Neutral presentation setup.
 PLAIN SOLID WHITE or LIGHT GRAY background ONLY — no environment, no scenery, no props. {visual}
 
-Using the reference image as IDENTITY ANCHOR for {tag} ({name}),
+Using the {anchor} for {tag} ({name}),
 create a 4-panel animated character reference sheet arranged LEFT to RIGHT:
 
 - Panel 1 (LEFT): FACE CLOSEUP — head and shoulders, filling the panel
@@ -178,7 +208,7 @@ STRICT REQUIREMENTS (MUST AVOID):
     return f"""Character identity reference sheet. Neutral studio setup.
 PLAIN SOLID WHITE or LIGHT GRAY background ONLY — no environment, no scenery, no props. {visual}
 
-Using the reference image as IDENTITY ANCHOR for {tag} ({name}),
+Using the {anchor} for {tag} ({name}),
 create a 4-panel character reference sheet arranged LEFT to RIGHT:
 
 - Panel 1 (LEFT): FACE CLOSEUP — head and shoulders, filling the panel. This is a zoomed-in crop of Panel 2's head: SAME hairstyle, SAME visible clothing (neckline, collar, shoulders)

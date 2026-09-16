@@ -1,6 +1,158 @@
 ﻿# ZLY AI Video Studio 架构快照
 
-更新时间：2026-09-03
+更新时间：2026-09-17
+
+## 2026-09-17 工坊 H3 先补全再校验
+
+- 变更原因：模型输出常缺句号、漏 `<Picture N>`、同一句中文再抄一遍。旧链路先按原文精确匹配校验，失败则不跑 normalize；宽松正则又把标点变体计成复读，同一镜同时报 missing 和 duplicated。
+- 当前基线：`generate_h3_prompt`、落库 `_finalize_prompt`、出片 `_workshop_prompts_usable` 都先 `H3PromptBuilder.prepare_generated_prompt`（规范化标题与参考标签、补合同行、按汉字收拢重复台词、内心改闭嘴画外音），再校验。逐字与唯一性比较汉字序列，`<Picture N>` 大小写不敏感。
+- 受影响文件：`h3_prompt_builder.py`、`llm_service.py`、`h3_prompt_job_service.py`、`episode_video_service.py`、`media_studio_test_h3_video.py`、三份主文档与 `docs/API.md`。
+- 兼容性：不改表结构；重新生成或出片复用时自动补标签并去掉第二份中文。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 工坊 H3 内心不口型同步、中文台词不复读
+
+- 变更原因：第一镜内心「浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙」被动作、visual_prompt、video_prompt_zh、对白原文、多轮对白各贴一遍，且 `吴耐（内心）` 被当成必须 `<d>` 口型同步的开口台词；重新生成还会把旧提示词整段塞回 user。成品里同一句中文出现两次。
+- 当前基线：`H3PromptBuilder.split_spoken_and_inner` 把「内心/旁白/画外音」从开口对白里拆出。组装 user 时剥掉「本镜对白必须口型同步 / Lip-sync the exact Chinese line(s)」粘贴块，并跳过与动作重复的 `video_prompt_zh`；不再把 `existing_prompt` 交给模型。校验要求开口台词与内心原文各只出现一次，内心必须闭嘴画外音、禁止口型同步。生成结果的补标签与收拢复读见上一条 `prepare_generated_prompt`。
+- 受影响文件：`h3_prompt_builder.py`、`llm_service.py`、`h3_prompt_job_service.py`、`EpisodeWorkshopPane.tsx`、`media_studio_test_h3_video.py`、三份主文档与 `docs/API.md`。
+- 兼容性：不改表结构；旧 Beat 动作里若仍粘着整段台词，生成时会剥掉。已保存的复读提示词需重新生成。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 云端 LLM 测试连接等待推理模型
+
+- 变更原因：自定义 OpenAI 兼容接口能拉到 `/v1/models`，但「测试连接」只等 15 秒并只给 8 个 completion token。GPT-5 / R1 等推理模型和中转站首字经常超过 15 秒，被误报成连接失败。
+- 当前基线：LLM / VLM「测试连接」统一等待 90 秒（本地冷启动与云端推理模型相同）。探测对话使用 256 个 token，避免思考过程把额度吃光后写不出「收到」。超时文案区分「目录可通 ≠ 对话可通」。
+- 受影响文件：`backend/app/llm_client.py`、`llm_provider.py`、`vlm_provider.py`、`backend/tests/test_llm.py`、`frontend/src/admin/LlmProviderSettings.tsx`、三份主文档。
+- 兼容性：不改数据库、端口、ComfyUI 或已保存的 LLM 配置；快模型仍会立刻返回。
+- 验证命令：`python -m unittest backend.tests.test_llm`。
+- 回滚方式：还原上述文件并重启工作台。
+
+## 2026-09-16 出片复用工坊 H3 提示词前先 normalize
+
+- 变更原因：工坊已生成的 Ref2VA 只缺 `<Subject 3>` 或 `<d>[Chinese]` 标签时，出片校验直接失败并现场再调一次 LLM；任务详情又只读 `shots[].prompt`，工坊已有 `h3_prompt` 会被显示成「提示词尚未生成」。
+- 当前基线：`EpisodeVideoService._workshop_prompts_usable` 先走与现场生成相同的 `H3PromptBuilder._normalize_prompt`（补 Subject/Picture 合同行、对白标签、hold 句），再跑 `validate_prompts`。通过则 `prompt_source=workshop_material`，跳过 `prompt_generation` 调 LLM。过薄或对白对不上仍重写。`H3PromptJobService` 落库前同样 normalize。全部任务详情读 `prompt || h3_prompt`。
+- 受影响文件：`episode_video_service.py`、`h3_prompt_job_service.py`、`JobsCenterPane.tsx`、`director2-job-types.ts`、对应测试与三份主文档。
+- 兼容性：不改表结构与 jobs API 字段；超薄旧提示词仍会重写。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend exec vitest run src/director2/director2-job-types.test.ts`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 剧集工坊时长与 H3 接入导演台1 timing 预算
+
+- 变更原因：工坊 Beat 常存 `video_duration=5`，H3 只加载官方 `h3-prompt-writing`，导演台1 的 Seedance timing skill 没有接到出片链，厚调度会被压进 5 秒。
+- 当前基线：`resolve_shot_duration_sec` 按对白+调度抬高 2–15 秒（不缩短用户更长设定），工坊打开分集、落库 Beat、「生成 H3 提示词」都会写回 `video_duration`。`LlmService` / `H3PromptBuilder` 注入 `build_workshop_h3_timing_rules`（与导演台1 `load_shot_timing_excerpt` 同一套预算：约 4 字/秒、2–3 秒一拍、禁止 5 秒塞走位+转身+长对白），但 Ref2VA 禁止 `At HH:MM.SSS` 时间码。H3 按已匹配的 N 秒写 `[Shot 1]`，不再写死 8 秒。不复刻导演台1 那轮改 JSON `promptText` 的 LLM 时长润色。
+- 受影响文件：`backend/app/dialogue_timing.py`、`llm_minimax_skills.py`、`media_studio/services/{ai_generation_service,project_detail_service,h3_prompt_job_service,llm_service,h3_prompt_builder,script_parser}.py`、`EpisodeWorkshopPane.tsx`、对应测试与三份主文档。
+- 兼容性：不改表结构；已有工坊项目下次打开分集时，过短的 `video_duration` 会按剧本抬高，不会压短用户已设的更长秒数。
+- 验证命令：`python -m unittest backend.tests.test_dialogue_timing backend.tests.test_director2_ai_generation backend.tests.media_studio_test_h3_video backend.tests.test_standard_script_parser backend.tests.test_director_clarify`、`pnpm --dir frontend exec vitest run src/director2/director2-script-live-view.test.ts`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 剧集工坊 H3 提示词按可出片厚度生成
+
+- 变更原因：工坊「生成 H3 提示词」不把 `visual_prompt` / `audio` 传给模型，校验只查六段标题和对白；出片只要已保存 `h3_prompt` 超过 30 字就复用，超薄提示词会直接进 Comfy。
+- 当前基线：`H3PromptJobService.enqueue` 把 Beat 的 `visual_prompt`、`audio`、`video_prompt_zh` 写入 `beat_info`。`LlmService._h3_user_prompt` / `_h3_system_prompt` 要求英文至少 320 词，并把中文动作、英文 visual_prompt、音效展开进 `detailed_description` / `overall_soundscape`；`_validate_h3_prompt` 对齐 `H3PromptBuilder.thickness_errors`（英文词数 ≥280，必须出现 camera / lighting / sound），外加对白原文、Ref2VA `<Picture N>` 与单镜 `[Shot 1]`，失败则带错误重写（仍 2 次尝试）。落库与出片复用前都先 `H3PromptBuilder._normalize_prompt`。`EpisodeVideoService._run_job` 仅在规范化后的已保存提示词通过 `validate_prompts` 时设 `prompt_source=workshop_material`，否则走 `H3PromptBuilder.build_prompts`。
+- 受影响文件：`backend/app/media_studio/services/{h3_prompt_job_service.py,llm_service.py,h3_prompt_builder.py,episode_video_service.py}`、`backend/app/api_documentation.py`、`backend/tests/media_studio_test_h3_video.py`、三份主文档与 `docs/API.md`。
+- 兼容性：不改表结构与 jobs API 字段；过薄的旧 `h3_prompt` 出片时会重写，不再因「超过 30 字」被复用。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video backend.tests.test_director2_ai_generation backend.tests.test_standard_script_parser backend.tests.test_director_clarify`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 导演台剧本与分镜落库加厚
+
+- 变更原因：剧本步把每个镜头教成「一个可见动作变化」并禁止提示词，分镜落库又把内容库压成画面/运镜/对白三行，工坊 Beat 只剩一句话动作。
+- 当前基线：`build_script_agent_prompt` 把一个 `### 镜头` 写成可提交的 8 秒单镜：动作含空间/调度/收束，并写音效与画面/调度英文「提示词」（不是工坊六段 Ref2VA）。`STORYBOARD_JSON_CONTRACT` / `DIRECTOR_STUDIO_ADAPTER` 要求 `description` 承接厚动作、`promptText` 禁止一句话、默认 `durationSec=8`。`_recipe_text` 按内容库标准写出人物/场景/道具/动作/运镜/台词/音效/提示词；若集正文已含 `### 镜头` 则不再前置以免双份镜头卡。`_beat_payload` 把厚 `description` 写入 `action`，`promptText` 写入 `visual_prompt`/`sketch_prompt`，格式化 `camera`，`audio←soundscape`，`video_prompt_zh` 拼接动作+运镜+声音，`video_duration` 用 `durationSec`（默认 8）。直播卡仍隐藏「提示词」标签。
+- 受影响文件：`backend/app/llm_minimax_skills.py`、`ai_generation_service.py`、`script_full_story.py`、`director_agents.py`、`frontend/src/director2/director2-script-live-view.ts`、对应测试与三份主文档。
+- 兼容性：不改表结构与解析器字段名；已导入旧项目不回写，只影响之后「AI 生成 / 重新生成剧本 / 重新生成分镜」。
+- 验证命令：`python -m unittest backend.tests.test_director2_ai_generation backend.tests.test_standard_script_parser backend.tests.test_script_full_story backend.tests.test_director_clarify`、`pnpm --dir frontend exec vitest run src/director2/director2-script-live-view.test.ts`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 导演台视频任务进度对齐 ComfyUI
+
+- 变更原因：全部任务里的视频生成进度条不是 ComfyUI 采样步进，而是 `/history` 轮询时从 50% 每次 +1%，和 ComfyUI 页面不一致。
+- 当前基线：`ComfyVideoClient` 提交前连接 `/ws?clientId=`，用 `interpret_comfy_progress` 把 `progress` / `progress_state` 写成 `ai_project_jobs.progress`（采样节点百分比与 ComfyUI 一致，导出封顶 99，完成才 100）。无 WebSocket 时不再假递增。全部任务列表改为 1 秒轮询。
+- 受影响文件：`backend/app/media_studio/services/{comfy_video_client.py,episode_video_service.py}`、`frontend/src/director2/panes/JobsCenterPane.tsx`、`backend/tests/media_studio_test_h3_video.py`。
+- 兼容性：jobs API 字段不变；准备阶段仍可能从上传进度跳到 Comfy 队列/采样进度。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 剧集工坊素材组与 H3 对白清洗
+
+- 变更原因：检视器里的高精渲染图 / 分镜动态视频不参与 H3 Director 出片；用户需要按镜头编辑参考图并预生成 H3 提示词。模型常把「沙丽丽：」写进 `<d>` 对白标签，成片会念出角色名。
+- 当前基线：镜头检视器保留分镜草图，去掉渲染图与单镜视频检视（顶栏「一键生成视频」和合成 Tab 仍可用）。新增「素材组」：最多 9 张参考图（角色造型 → 场景 → 道具）+ H3 提示词面板。`POST /api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` 入队 `job_type=h3_prompt`，`LlmService.generate_h3_prompt` 按官方 skill 生成后清洗 `<d>`（台词不含说话人姓名）。`H3PromptBuilder` 从 `姓名："台词"` 解析对白轮次。整集/逐镜视频若每镜已保存且通过厚度校验的 `h3_prompt` 则 `prompt_source=workshop_material`，不再现场调 LLM。全部任务增加「H3 提示词」Tab。
+- 受影响文件：`backend/app/media_studio/services/{h3_prompt_builder.py,llm_service.py,h3_prompt_job_service.py,episode_video_service.py,project_detail_service.py}`、`project_router.py`、`main.py`、`frontend/src/director2/{api.ts,h3-prompt-display.ts,director2-job-types.ts,panes/EpisodeWorkshopPane.tsx,panes/episode-workshop.css}`、测试与三份主文档。
+- 兼容性：草图/渲染图/单镜视频 API 仍在；渲染图与单镜视频只是工坊检视器不再展示。不改表结构。旧 Beat 无 `h3_prompt` 时视频仍走 `H3PromptBuilder.build_prompts`。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend test`。
+- 回滚方式：还原上述文件即可；已写入的 `h3_prompt` 可忽略。
+
+## 2026-09-16 剧集工坊整集直出 / 逐镜生成分流
+
+- 变更原因：剧集工坊「一键生成视频」原先无论选什么工作流都走 MiniMaxH3Director Timeline，且整集只能有 1 个进行中视频任务；官方 H3 / LightX2V / 八步双加速 / T8 无法逐镜出片，合成 Tab 也没有后端接口。
+- 当前基线：`episode_video_render_mode(workflow_id)` 只读注册表 `supports_timeline && supports_multi_segment`。Director 加速版 R2V 仍是 1 个整集 Timeline 任务（超 6 段/1152 帧继续 `plan_timeline_chunks` + ffmpeg）；完成后把 `episode_video_url` / `episode_video_source=director_direct` 写入 `ai_project_episodes.data_json`。其它多参考 R2V 的一键生成改为每个缺成片的 Beat 各建 1 个 `render_scope=shot` 任务，graph 走现有 `build_minimax_h3_workflow` / LightX2V / dual accel / T8，时长取该镜 `video_duration`。并发锁：整集/合成互斥；单镜只锁同一 `beat_id`。新增 `POST /api/projects/{project_id}/episodes/{episode_id}/compose`：全镜 `video_url` 就绪后 ffmpeg 拼接并回写 `episode_video_source=composed`；Director 直出且各镜未逐镜出片时 400。工坊「生成设置」列出全部未隐藏多参考 R2V（`reference_mode=collection` 且 `max_references>=3`），按 `catalog_group_label` 分组并标注「整集直出 / 逐镜」。`GET /api/modes` 的 `ModeResponse` 现回传 `supports_timeline` / `supports_multi_segment`，前端据此判定模式，不自行声明。一键生成按模式提示「已创建 1 个整集任务」或「已提交 N 镜（跳过 M 镜已有成片）」；逐镜模式镜头卡可勾选，工具条「生成选中（N）」把 `beat_ids` + `force` 交给同一接口，只提交勾选镜（已有成片也会重跑），`_prepare_shots` 前置检查也只校验这些镜；检视器「生成本镜」同样只检查当前 Beat。合成 Tab 在逐镜下显示已出片 x/n 并可点「一键合成全集成片」，Director 直出则隐藏合成按钮、直接播 `episode_video_url`。3 秒轮询覆盖视频/合成任务，完成后刷新分集详情。
+- 受影响文件：`backend/app/models.py`、`backend/app/media_studio/services/{timeline_rendering.py,episode_video_service.py,comfy_video_client.py,project_detail_service.py}`、`backend/app/media_studio/routers/project_router.py`、`frontend/src/director2/{director2-video-settings.ts,api.ts,panes/Director2VideoSettingsPopover.tsx,panes/EpisodeWorkshopPane.tsx,panes/episode-workshop.css}`、`backend/tests/{test_timeline_rendering.py,media_studio_test_h3_video.py}`、`frontend/src/director2/director2-video-settings.test.ts`。
+- 兼容性：旧 `job_id` 字段保留；一键生成额外返回 `render_mode` / `job_ids` / `submitted` / `skipped`。不改表结构、端口或 Comfy 节点 ID。T2V/I2V/T8 双时钟/VACE 不进入工坊列表。
+- 验证命令：`python -m unittest backend.tests.test_timeline_rendering backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend test`。
+- 回滚方式：还原上述前后端文件即可；已写入 `data_json` 的成片字段可忽略。
+
+## 2026-09-16 导演台2取消后重试会清掉取消标记
+
+取消任务落为 `cancelled` 后，payload 里仍保留 `cancel_requested`。`_update` 原先无条件锁住该标记，导致「从当前阶段重试」把任务重新入队后，新 worker 立刻再次取消。现仅在仍有活跃 worker（queued/running/clarifying/revising）时锁住该标记；从终态入队时允许清掉。页头「正在停止当前生成」只在进行中显示。验证：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`。回滚：还原 `ai_generation_service.py` 与 `director2-ai-operation-state.ts`。
+
+## 2026-09-16 TTS 供应商预设（硅基流动 CosyVoice2）
+
+TTS 管理页新增与 LLM/VLM 同级的「快速服务预设」：默认推荐 SiliconFlow CosyVoice2（按 UTF-8 字节计费，非 LLM 永久免费档）、OpenAI 官方与自定义接口。后端 `tts_provider.py` 按上游返回对应音色目录；旧 Recipe 中 OpenAI 音色 ID（onyx/nova）在硅基流动配置下会自动映射。验证：`python -m unittest backend.tests.test_tts_provider backend.tests.test_director.DirectorAvExportTests.test_tts_writes_succeeded_status`。
+
+## 2026-09-16 TTS 独立管理页
+
+TTS 语音合成从 LLM 管理页拆出，新增管理页签「TTS 语音合成」：`/admin/tts`，组件 `frontend/src/admin/TtsProviderSettings.tsx`。后端 API（`GET/PUT /api/admin/providers/tts`、`POST …/tts/test`）与 `tts_provider_settings` 表不变；仍支持「复用大模型凭据」。用户可见未就绪提示由「管理设置 → LLM」改为「管理设置 → TTS」。验证：`pnpm --dir frontend build`、打开 `http://127.0.0.1:5173/admin/tts` 自查；`python -m unittest backend.tests.test_director`（TTS 相关用例）。回滚：删除 TTS 页签与组件，将表单迁回 `LlmProviderSettings.tsx`。
+
+## 2026-09-16 独立 VLM 视觉模型配置
+
+看图推理不再占用 LLM 配置。新增 `vlm_provider_settings` 与管理页签「VLM 视觉模型」：`GET/PUT /api/admin/providers/vlm`、`POST …/vlm/test`、`POST …/vlm/models`、`GET /api/vlm/status`。资产库 `infer-prompts`、`POST /api/llm/analyze-subject`、复刻台拉片只走 VLM；提示词优化、拆剧本、导演 Agent 仍走 `llm_provider_settings`。`GET /api/llm/status.supports_vision` 表示 VLM 是否可用，不再看 LLM 模型名。保存 VLM 时校验名称含 VL/Vision（含 `glm-4.6v`）。默认关闭，推荐智谱 `glm-4v-flash`。验证：`python -m unittest backend.tests.test_vlm backend.tests.test_director.DirectorAnalyzeEndpointTests backend.tests.test_llm.LLMAppEndpointsTests`。回滚：删表与 VLM 页，视觉调用改回 LLM。
+
+## 2026-09-16 导演台资产库按原片反推提示词
+
+导演台 `/director2` 资产库在已有 `source_references` 时可 `POST /api/projects/{id}/assets/{id}/infer-prompts`：下载最多 3 张原片图，用独立 VLM 视觉模型反推 JSON，覆盖头像/面部/描述/当前造型服装（角色）或场景/道具提示词。VLM 未启用返回 400。验证：`python -m unittest backend.tests.test_asset_prompt_inference backend.tests.test_vlm`。回滚：还原 inference 模块、llm_service、project_detail_service、路由与资产库面板。
+
+## 2026-09-16 导演台资产库原片参考图优先于旧提示词
+
+导演台 `/director2` 资产生图在存在 `source_references` 时：头像不再把 `avatar_prompt`/描述写进 GRS；造型图不再把衣装正文当服装源，也不再把已生成头像混进参考图。原片截图最高优先级，禁止按文字加外套。验证：`python -m unittest backend.tests.test_asset_source_references`。回滚：还原 `asset_source_references.py`、`asset_image_prompts.py`、`project_detail_service.py` 与资产库面板。
+
+## 2026-09-16 导演台资产库原片参考图
+
+导演台 `/director2` 资产库角色、场景、道具均可上传最多 9 张原片截图，写入 `ai_project_assets.extra_json.source_references`（七牛 `asset-ref/`）。生成头像、造型、场景主视角、道具概念图时，这些图排在 GRS `images` 最前并追加身份锁定提示词；反打/全景/转面/特写仍只吃已生成的主图链。新增 `POST/DELETE /api/projects/{id}/assets/{id}/references`。验证：`python -m unittest backend.tests.test_asset_source_references`、`pnpm --dir frontend test`。回滚：还原参考图 helper、项目详情服务、资产库面板与文档。
+
+## 2026-09-16 导演台2创意确认增加每集镜头数
+
+导演台2 创意确认在方向问题之后固定两道控制题：`episode_count`（分多少集）和 `shots_per_episode`（每一集默认拍多少个镜头，档位 4/6/8/12，推荐 6）。剧本按每集默认镜数拆写，分集缺省 `targetShots` 填该值，分镜消费已确认集大纲。旧 `/director` 仍用全剧 `beat_count`。验证：`python -m unittest backend.tests.test_director_clarify backend.tests.test_director2_ai_generation`。回滚：还原澄清题与 script/episodes agent 约束。
+
+## 2026-09-16 导演台剧集工坊视频生成设置
+
+剧集工坊「一键生成视频」与「生成本镜」共用 `/api/modes` 注册表里的 H3 Director 加速版参数，不再写死 0.4 MP / 20 步。`POST …/generate-video` 现接收 options（`aspect_ratio` / `quality` / `speed` / `weight_profile`）；`EpisodeVideoService.resolve_generation_options` 经 `normalize_options` 校验后写入任务 payload，`ComfyVideoClient` 按注册表计算画布（如 0.4 MP 16:9 = 864×480，1.0 MP = 1376×768）并映射步数、精简/完整 UNET。时长仍按 Beat，不在整集设置里覆盖。默认 16:9、0.4 MP、均衡 20 步、精简 20 GB。旧客户端不传 body 时走同一默认值。验证：`python -m unittest backend.tests.test_timeline_rendering backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend test`。回滚：还原工坊前后端与 Comfy Timeline 客户端。
+
+## 2026-09-16 剧本确认卡按标准台本排版
+
+导演台2 剧本步 `fullStory` 按内容库标准 Markdown 台本生成（`build_script_agent_prompt`：`# 第N集` / `### 镜头` / 真实换行，每个镜头为 8 秒单镜厚动作并写音效与画面英文提示词），落库前 `normalize_script_full_story` 把 Beat 账本和无换行糊墙字整理成可切分镜头块；场景切分同时认 `【` 与 `### 镜头`。前端 `parseScriptLiveView` + `groupScriptLiveView` + `Director2ScriptLiveBody` 把直播/确认卡渲染为 `.director-stream-article`：定位/人物常驻，集层用与分镜共用的 `DirectorEpisodeCapsule`（确认默认收起、直播展开当前集）；刷新回填 `recipe.script`；旧导演台 `StoryParagraphs` / `DirectorScriptDocument` 共用解析高亮、不加集胶囊。SSE 仍是 `title` / `summary` / `fullStory`。验证：`python -m unittest backend.tests.test_director backend.tests.test_director2_ai_generation backend.tests.test_script_full_story`、`pnpm --dir frontend test`。回滚：还原 prompt、`script_full_story.py` 与导演台2 剧本卡渲染。
+
+## 2026-09-16 剧本确认卡按集折叠
+
+导演台2 剧本确认卡过长滚动问题：`Director2ScriptLiveBody` 改为 preamble（片名/定位/人物）常驻 + 按 `# 第N集` 的集胶囊手风琴；分镜与剧本共用 `DirectorEpisodeCapsule`。无集头旧稿仍线性手稿。不改 SSE/API。验证：`pnpm --dir frontend test`；5173 待确认剧本卡不用滚完全文即可看到集清单。回滚：还原 `Director2ScriptLiveBody`、`groupScriptLiveView` 与文档对「剧本不加集胶囊」的约束。
+
+## 2026-09-16 导演台入口互换与 /director2 新首页
+
+侧边栏「导演台」入口改指 `/director2`（新导演台），「导演台2」（原「导台2」）指向 `/director`（旧导演台）；URL 不变，旧工程深链不受影响，`App.tsx` 新增 `lastDirector2PathRef` 记录最近 `/director2` 路径用于导航回跳。`/director2` 首页由 `Director2Home.tsx`（创作项目列表页，已删除）替换为 `Director2StudioHome.tsx`：逐像素复刻旧导演台首页（复用 `index.css` `.director-home-v2`/`.dh-*` 双主题样式），列表接 `/api/projects`；「导演创作」直接创建「未命名导演工程」进入内容库；「短视频批量 / 参考片复刻」沿用旧导演台 `/api/director/projects` 创建并跳转 `/director/batch/:id`、`/director/replication/:id`；卡片仅「打开/删除」（导演台2 无复制接口）。首页分支不渲染 AI Media Studio 顶导航、不套 director2 强制亮色 antd 主题（`Director2App.tsx` 拆分，暗色主题正确）；旧导演台首页标题改为「导演台2」。验证：`pnpm --dir frontend build`（内含 vitest 与 tsc）；5173 浅色/暗色、390×844 移动宽度与创建/删除/跳转闭环自查。回滚：还原前端文件即可，`Director2Home.tsx` 可从 Git 历史恢复。
+
+## 2026-09-16 导演台2 AI 逐步卡点确认
+
+导演台2 AI 流水按四个真实卡点推进：`script → assets → episodes → storyboard`。每个 leg 只跑该阶段 agents（`script`；`characters+locations`；独立 `episodes`；`storyboard` 消费已确认的 `recipe["episodes"]`），跑完写入 `awaiting_stage` 并进入 `awaiting_review`（暂停、不占 worker、不发 terminal）。「采纳」`POST …/advance` 把当前步记入 `completed_stages` 并启动下一 leg，最后一步采纳后 `succeeded`。「不满意」`POST …/revise` 进入 `revising`，按该阶段 `feedback` 流式出澄清卡，作答后 `POST …/rerun` 只重跑当前步并回到确认卡。`ACTIVE` 不含 `awaiting_review`，`OCCUPYING` 含 `awaiting_review/revising`；`create` / `GET …/ai/operations/active` 按占用槽位判重与接管。进程重启只收敛 `queued/running/clarifying/revising`，待确认任务保留给用户继续审核。GET 公开载荷额外回传 `stage_clarifications`，供完成步骤行回显已选选项；SSE 协议不变。验证：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。回滚：还原 `AiGenerationService` 状态机、路由、episodes agent 与导台2 卡点 UI。
+
+## 2026-09-16 导演台2完成步骤选项回显
+
+导演台2 AI 创作室完成步骤行不再只显示笼统摘要。`AiGenerationService._public` 把 payload 里的 `stage_clarifications` 带回 GET / 接管；前端 `director2-stage-choices.ts` 把创意确认的 `request.clarifications` 与各阶段修订答案去重后映射为只读 chip。记录流在用户创意气泡下方增加按阶段分组的「创作路径」Tool Chips（chip 文案为答案、`title` 为 `问题 → 答案`；无答案则不渲染）。`DirectorLiveStepRow` 在 30px 行头下方始终展示 `问题 → 答案`（或「已采纳本次生成」/「已跳过，沿用默认」），不增加 `aria-expanded` 或集胶囊手风琴。阶段抽屉顶部同步列出同一组选项。验证：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`。回滚：还原 `_public`、helper、路径条与步骤行接线。
+
+## 2026-09-15 导演台2 AI 生成模式 v1
+
+导演台2项目详情新增 `AI 生成 / 手动编辑` 双模式。AI 模式通过 `/api/projects/{project_id}/ai/operations` 创建项目级流水线，首期覆盖创意澄清、剧本、角色/场景/道具文本、分集和 Beat 分镜；2026-09-16 起改为四步卡点确认，见上一节。结果通过适配层写入导台2现有表，不改变导演台 Recipe 存储。角色/场景/道具会写入内容库文档的人物、场景、道具章节与 `analysis`，切换「手动编辑」后内容库与资产库都能看到同一批数据。任务以 `ai_pipeline` 写入 `ai_project_jobs`，复用导演台 SSE 事件格式；手动模式和既有逐项生成接口保持兼容。同一项目同时只允许一个活跃 AI 任务（含待确认与调整中）；后端启动时把重启遗留的 worker 活跃 `ai_pipeline` 任务收敛为 `failed`（可重试），前端通过 `GET /api/projects/{project_id}/ai/operations/active` 自动接管进行中的任务。验证：`pnpm --dir frontend build`、`python -m unittest discover -s backend/tests -p 'test_*.py'`。回滚：隐藏 AI 模式入口，不删除已有数据。
+
+AI 工作区视觉接线复用导演台现有 `DirectorPromptBar`、`DirectorTaskRows` 和 `guided-flow.css` 的 `director-recipe-shell[data-look="cinema"]` 结构；不再维护一套独立的 Director2 Card 样式，顶部模式切换也复用 `DirectorCreationModeSwitch`。澄清问答进一步抽为双方共用的 `DirectorClarificationCard` 与纯状态机：预置项高亮后 480ms 自动进入下一题，自定义输入与预置答案严格分离，同时统一支持上一题/下一题、进度点、跳过本题和「跳过全部，直接生成」。
 
 ## 组件关系
 
@@ -30,8 +182,8 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `frontend/src/paths.ts` | 前端路径常量、管理 Tab 权限与登录回跳规则 |
 | `frontend/src/router.tsx` | `BrowserRouter` 路由表：登录/改密、管理设置、创作台壳 |
 | `frontend/src/auth/AuthScreens.tsx` | 登录、首次超级管理员初始化与强制改密界面 |
-| `frontend/src/admin/AdminSettings.tsx` | 管理设置（账号 / AI 供应商 / LLM / 媒体存储） |
-| `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成/导演台/导台2/资产、图/视频与选中任务；工作流、参考图草稿仍在组件 state |
+| `frontend/src/admin/AdminSettings.tsx` | 管理设置（账号 / AI 供应商 / LLM / VLM / TTS / 媒体存储） |
+| `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成/导演台（/director2）/导演台2（/director）/资产、图/视频与选中任务；工作流、参考图草稿仍在组件 state |
 | `frontend/src/xiaji/XiajiStudioModule.tsx` | 导台2：项目内内容库、资产库、剧集工坊、全部任务 |
 | `frontend/src/xiaji/XiajiHome.tsx` | 导台2 项目列表与新建 |
 | `frontend/src/xiaji/XiajiAssetsModule.tsx` | 导台2 资产库：角色/场景/道具/声线定义与生成 |
@@ -70,8 +222,10 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（�
 | `backend/app/director_library.py` | 员工级人物/场景/道具资产库规范化、从 Recipe 快照、插入工程 |
 | `backend/app/tts_provider.py` | 独立 TTS 供应商（OpenAI 兼容 `/audio/speech`）；可复用 LLM 凭据；不绑定 Edge TTS |
 | `backend/app/director_export.py` | 逐镜 TTS、BGM、ffmpeg 成片、FCPXML/EDL；失败镜头不进入成片 |
-| `backend/app/director_agents.py` | 9 Agent 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；分镜 Agent 读取官方 h3-prompt-writing，并依次做时长润色与 Seedance 风格衔接润色；配音/配乐写可播放媒体元数据 |
+| `backend/app/director_agents.py` | 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；独立 `episodes` agent 写集大纲，分镜优先消费已确认结构；分镜读取官方 h3-prompt-writing，并依次做时长润色与 Seedance 风格衔接润色；配音/配乐写可播放媒体元数据 |
+| `backend/app/media_studio/services/ai_generation_service.py` | 导台2 项目级 AI 流水：澄清 → 四步卡点（`awaiting_review` / `advance` / `revise` / `rerun_stage`）；`retry(stage=…)` 可从已完成的更早阶段重跑并作废后续步骤；结果适配写入内容库/资产库/剧集工坊 |
 | `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能、官方 prompt-writing、shot-timing 与 shot-continuity 加载器，供生成页优化和导演台分镜共用 |
+| `backend/app/script_full_story.py` | 剧本 `fullStory` 规范化与按 `【` / `### 镜头` 切场景，供导演台与导台2 共用 |
 | `backend/app/shot_continuity_skill/` | Seedance 2.5 改编的 scene ledger / 相邻镜交接方法，供剧本与分镜 Agent 使用 |
 | `backend/app/h3_prompt_writing/` | MiniMax 官方 `h3-prompt-writing` skill 原文（SKILL.md、T2VA/Ref2VA 参考） |
 | `backend/app/director_jobs.py` | Recipe 定妆 GRS 入队、七牛地址回写、分镜/批量按所选工作流族入队 |
@@ -1761,6 +1915,24 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 验证命令：`pnpm --dir frontend build`（vitest + tsc + vite）、`python -m unittest backend.tests.test_director`（129 项通过）；浏览器桌面/移动端检查导航分组计数、设计/制作切换、主按钮流转与旧链接兼容。
 - 回滚方式：还原本次前端提交即可（导航层回退到双阶段结构，数据无影响）。
 
+## 2026-09-15 导演台2 AI 取消与直播记录对齐
+
+- 变更原因：导演台2 取消接口只写入 `cancel_requested`，前端收到响应后却立即关闭 SSE，导致看不到后端稍后写入的 `cancelled`；生成记录区也只渲染骨架，没有消费导演台 Agent 的直播事件。
+- 当前基线：`AiGenerationService.cancel` 写入取消标记后立即广播 `status`，流式回调、澄清返回后和最终 adapter 写库前均检查取消，最终以明确的 `cancelled` 终态关闭事件流；Director2 前端点击后先乐观标记“正在停止”，保持 SSE 与 1.2 秒状态轮询直至终态。`DirectorLiveStepFeed.tsx` 是导演台与导演台2共用的步骤行/展开直播块视图，Director2 消费 `status`、`agent`、`agent_delta`、`agent_item`、`done`、`cancelled`、`error`，已完成阶段显示摘要行，当前阶段显示真实流式正文和条目卡。
+- 受影响文件：`backend/app/media_studio/{routers/project_router.py,services/ai_generation_service.py}`、`backend/tests/test_director2_ai_generation.py`、`frontend/src/director/components/{DirectorLiveStepFeed.tsx,DirectorScriptStreamPanel.tsx}`、`frontend/src/director2/{director2-ai-operation-state.ts,director2-ai-operation-state.test.ts,panes/Director2AiStudioPane.tsx}`。
+- 兼容性：API 路径、operation JSON 与数据库结构不变；SSE 新增标准 `id` 行并补充取消中的 `status` 事件，旧客户端会忽略新增字段。已完成数据和手工内容不会因取消删除。
+- 验证命令：`python -m unittest discover -s backend/tests -p "test_*.py"`、`pnpm --dir frontend build`；在 5173 验证运行中、取消中、已取消、失败、完成及桌面/移动双主题。
+- 回滚方式：还原上述前后端文件即可；无数据迁移或数据回滚。
+
+## 2026-09-15 导演台2 AI 任务中断恢复与自动接管（修复“已有进行中的 AI 任务”死锁）
+
+- 变更原因：`AiGenerationService.recover_orphaned_jobs()` 虽已实现（进程重启后把 `queued/running/clarifying` 的 `ai_pipeline` 孤儿任务标记为 `failed`），但 `main.py` lifespan 只调用了 `EpisodeVideoService` 与 `StoryboardImageService` 的恢复，漏掉了它——后端重启后 `ai_pipeline` 任务永久停留在活跃状态，`create` 的唯一活跃任务校验从此拒绝该项目的一切新提交，报「该项目已有进行中的 AI 任务：aiop-xxx」，且界面上看不到任何运行中的任务（0/5、0%）。前端又只依赖 localStorage 里的 operation id 恢复视图，换浏览器 / 清缓存 / 旧版本创建的任务一律不可见，用户既不能取消也不能重试，形成死锁。
+- 当前基线：`main.py` lifespan 在 `EpisodeVideoService` / `StoryboardImageService` 之后调用 `AiGenerationService.recover_orphaned_jobs()`，重启后被中断的任务标记为 `failed`（error=「服务进程重启，AI 任务已中断，请重新提交或重试。」），可走既有「重试本阶段」。`AiGenerationService` 新增 `get_active(project_id)`，路由新增 `GET /api/projects/{project_id}/ai/operations/active`（注册在 `/{operation_id}` 之前避免路径参数误捕获；无活跃任务时返回 JSON `null`）。前端 `Director2AiStudioPane` 挂载时先调 active 接口认领进行中的任务（订阅 SSE + 1.2s 轮询），无活跃任务才回退 localStorage 恢复；`createAiOperation` 失败（400 活跃任务冲突等）时同样自动认领并提示「该项目已有进行中的 AI 任务，已恢复显示其进度」，认领失败才回退展示原始错误 toast。
+- 受影响文件：`backend/app/main.py`、`backend/app/media_studio/{services/ai_generation_service.py,routers/project_router.py}`、`backend/tests/test_director2_ai_generation.py`、`frontend/src/director2/{api.ts,panes/Director2AiStudioPane.tsx}`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：新增只读端点，既有 AI 操作 API 路径、operation JSON 与数据库结构不变；`active` 与既有任务 id 命名空间不冲突（任务 id 为 `aiop-` 前缀）。历史残留的活跃孤儿行在下次后端重启时自动收敛为 `failed`，无需手工修库。
+- 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend build`。
+- 回滚方式：还原上述前后端文件即可；无数据迁移或数据回滚。
+
 
 ## 2026-09-13 存储目录弹窗不再因 /api/storage 瞬时错误误弹（七牛云场景）
 
@@ -1796,3 +1968,130 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：`sql/001-012` 与既有 `xiaji_*` 数据表保留、不迁移不删除；旧 xiaji HTTP API 与 `/director2/art-styles`、`/director2/:projectId` 旧链接不再可用（导演台2 改用新路由结构，无重定向）；`__pycache__` 已在 `.gitignore` 中。
 - 验证：`python -m unittest backend.tests.media_studio_test_character_content backend.tests.media_studio_test_h3_video backend.tests.media_studio_test_storyboard_images`、`pnpm --dir frontend build`。
 - 回滚方式：还原本提交即恢复 xiaji 模块、旧路由与旧样式；`ai_*` 新表与旧表并存，无需数据回滚。
+
+## 2026-09-15 移除导演台2内置设置页
+
+- 变更原因：导演台2顶栏的设置入口及其独立页面与现有管理后台重复，且该页面源自 dev0914 复刻分支。
+- 变更内容：删除 `frontend/src/director2/` 顶栏「设置」按钮、`/director2/settings` 路由解析与全局路由注册，并移除 director2 专用设置页及 LLM / GRS / Comfy / 七牛配置卡组件；配置统一使用 `/admin/accounts` 及管理员配置页。
+- 受影响文件：`frontend/src/director2/Director2App.tsx`、`frontend/src/director2/paths.ts`、`frontend/src/director2/director2.css`、`frontend/src/paths.ts`、`frontend/src/director2/settings/**`（删除）。
+- 兼容性：无 API、数据库或工作流协议变化；直接访问旧 `/director2/settings` 地址不再进入导演台2设置页，现有项目路由不受影响。
+- 验证命令：`pnpm --dir frontend build`；浏览器打开 `/director2/projects/:projectId/content` 确认顶栏无设置按钮。
+- 回滚方式：恢复上述前端文件及 `frontend/src/director2/settings/` 目录即可；无数据回滚。
+
+## 2026-09-15 导演台2多集分镜直播流水线
+
+- 变更原因：原 AI 生成仅产出单集，分镜直播把场景与镜头平铺，且阶段消息无法传递到前端。
+- 当前基线：澄清题新增 `episode_count`；剧本按 `# 第N集 标题` 分节；分镜 agent 按集生成并在每集内完成“写分镜→按秒分配→校验衔接”打磨。SSE `agent_delta` / `agent_item` 新增可选 `episode`，`status` 携带阶段 `message`；`ai_project_episodes` 按集落库。
+- 前端 `Director2AiStudioPane` 使用共享 `DirectorStoryboardLiveBody` 与 `storyboard-stream-view`，按集→场景→镜头分组渲染，支持当前镜头打字机、打磨字幕和阶段摘要；旧导演台 `parseStoryboardPhase` 保持 re-export 兼容。
+- 受影响文件：`backend/app/{llm_minimax_skills.py,director_agents.py,director_stream.py,director_recipe.py,media_studio/services/ai_generation_service.py}`、`frontend/src/director/{director-operation-stream.ts,storyboard-stream-view.ts,components/DirectorStoryboardLiveBody.tsx,components/DirectorScriptStreamPanel.tsx}`、`frontend/src/director2/panes/Director2AiStudioPane.tsx` 及对应测试。
+- 兼容性：默认 1 集时行为与旧流程一致；SSE 新字段为可选，旧客户端可忽略；不改变节点 ID、端口、数据库结构或工作流协议。
+- 验证命令：`python -m unittest backend.tests.test_director_stream backend.tests.test_director2_ai_generation`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述代码与文档即可；无需数据迁移或资源清理。
+
+## 2026-09-15 导演台2分镜等待态与阶段文案持久化
+
+- 变更原因：分镜阶段要连续等待远端 LLM，轮询会丢掉 `result.message`，页头又优先展示进程重启残留的 `error_message`，直播卡在镜头出现前是空的，看起来像卡死。
+- 当前基线：`on_progress` 把运行中 agent 文案写入 `result.message`；仅在 `completed_stages` 增长时调用 `_adapt_recipe`；分镜切入不再覆盖「正在读剧本并构思」；`status=running` 时清掉残留 `error_message`。前端页头忽略进行中任务的 error，轮询同步阶段文案；空分镜显示等待骨架，`parseStoryboardPhase` 识别带集前缀的读剧本 / 写分镜文案。
+- 受影响文件：`backend/app/media_studio/services/ai_generation_service.py`、`frontend/src/director2/panes/Director2AiStudioPane.tsx`、`frontend/src/director2/director2-ai-operation-state.ts`、`frontend/src/director/storyboard-stream-view.ts`、`frontend/src/director/components/DirectorStoryboardLiveBody.tsx` 及对应测试。
+- 兼容性：GET 仍返回既有 `result.message` 字段；不改表结构、端口或工作流协议。
+- 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-15 导演台2双层 Timeline 渲染架构
+
+- 变更原因：导演台2需要同时支持单镜快速重试、整集一次提交，以及超过 H3 安全长度的长集稳定出片。
+- 当前基线：`timeline_rendering.py` 定义统一的 `renderScope=shot|episode` 请求和分段规划；单镜与整集都由 `ComfyVideoClient` 生成同一份 `timeline_data`。H3 Director 加速版注册表声明 `supports_timeline`、`supports_multi_segment`、`max_segments=6`、`max_total_frames=1152`、连续性与音频批处理能力。
+- 调度行为：6 个 8 秒镜头以内一次提交；超过能力上限按镜头边界分段，在同一 ComfyUI 实例串行执行，全部成功后由 ffmpeg concat 合成并上传七牛。分段状态、时间码和每个 Beat 的 `segmentIndex/renderStatus/outputStart/outputDuration/promptSnapshot` 保存在任务 payload 中；重试时保留已成功分段。
+- API：新增 `POST /api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video`；整集接口保持不变。导演台2默认改为 `minimax-h3-director-accel-r2v`，旧 `/director` 单镜行为不变。
+- 兼容性：旧任务 payload 可继续查看；不改 ComfyUI 节点 ID、数据库表结构和旧接口字段。七牛未配置时，单镜仍可返回 ComfyUI 预览，分段整集合成会明确失败并保留已完成分段，待配置存储后重试。
+- 验证命令：`python -m unittest backend.tests.test_timeline_rendering backend.tests.media_studio_test_h3_video.ComfyWorkflowTests`、`pnpm --dir frontend build`。
+- 回滚方式：恢复 `timeline_rendering.py`、视频服务、Comfy 客户端、注册表、路由和导演台2 API/面板改动即可；无需数据迁移。
+
+## 2026-09-15 导演台2 AI 资产回写内容库
+
+- 变更原因：AI 生成模式抽屉能看到角色/场景/道具，但适配层只把剧本文本解析进内容库；人物设定不在剧本文本里，且资产完成时 `current_stage` 会回落到 `script`，导致内容库识别人物/场景/道具为空。
+- 当前基线：`_recipe_text` 把 recipe 角色、场景写成内容库可解析的 Markdown；`_adapt_recipe` 把 recipe 资产合并进 `analysis_json`，只要有具名资产就写入 `ai_project_assets`；内容库读取 AI 文档时若分析缺资产，会从最近一次 `ai_pipeline` 任务的 recipe 回填。
+- 受影响文件：`backend/app/media_studio/services/ai_generation_service.py`、`backend/app/media_studio/services/project_detail_service.py`、`backend/app/media_studio/services/script_parser.py`、`backend/tests/test_standard_script_parser.py`。
+- 兼容性：不改表结构、端口或 SSE 协议；手动导入的内容库文档不受影响。
+- 验证命令：`python -m unittest backend.tests.test_standard_script_parser backend.tests.test_director2_ai_generation`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-15 导演台2创意确认改为集数题
+
+- 变更原因：剧本已经按“分集 → 分镜”组织，导演台2不应再要求用户预估整部剧的 Beat 数量。
+- 当前基线：导演台2澄清请求携带 `surface=director2`，只生成 `episode_count` 固定题；旧 `/director` 保留原镜头数量兼容行为。导演台2旧任务读取时会过滤遗留的 `beat_count`，没有集数题时自动补上 `episode_count`。
+- 受影响文件：`backend/app/llm_minimax_skills.py`、`backend/app/llm_provider.py`、`backend/app/media_studio/services/ai_generation_service.py`、`frontend/src/director2/panes/Director2AiStudioPane.tsx`、相关测试。
+- 兼容性：不改数据库结构；旧任务 payload 无需迁移即可在读取时修正。大模型后续按剧本和集数自动拆分每集 Beat 数量。
+- 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend build`。
+- 回滚方式：恢复上述文件即可，旧任务数据不受影响。
+
+## 2026-09-15 导演台2分镜打磨芯片按集分组
+
+- 变更原因：多集剧本进入「按秒分配对白与动作」后，直播卡把全剧镜头平铺成一排无标签序号（例如 1–26）。用户会误以为是集数、秒数或当前集镜数；`(1/3)` 实际是本集打磨批次，也容易看成「第 1 集 / 共 3 集」。
+- 当前基线：`parseStoryboardPhase` 保留集号；芯片上方写明「全剧 N 集 · 共 M 镜 · 当前第 X 集」；多集时按集分行；标题把 `(i/N)` 改成「第 i/N 批」。当前镜号优先用消息里的「正在第 N 镜」，缺失时用本批起点 + 流式序号，不再把 tracker ordinal 直接当成镜号。
+- 受影响文件：`frontend/src/director/storyboard-stream-view.ts`、`frontend/src/director/components/DirectorStoryboardLiveBody.tsx`、`frontend/src/director/guided-flow.css`、对应测试与三份主文档。
+- 兼容性：纯前端展示；单集仍是一排芯片，只多「共 M 镜」说明。不改 API、库表或工作流。
+- 验证命令：`pnpm --dir frontend test`。
+- 回滚方式：还原上述前端与文档文件即可。
+## 2026-09-15 导演台2失败阶段可幂等重试并保留快照
+
+- 变更原因：失败态按钮在重复点击或 SSE/轮询尚未同步时会误报“只有失败或已取消的 AI 任务可以重试”；刷新后抽屉也无法继续查看已生成的部分内容。
+- 当前基线：`AiGenerationService.retry` 对 queued/running/clarifying 请求直接返回同一操作，不重复启动 worker；失败/取消时记录 `result.failed_stage`，重试优先从该阶段继续并复用 payload 中已有 Recipe。终态 GET 在 `result.recipe` 返回保存的 Recipe 快照，前端抽屉在无流式缓存时回显角色、场景、道具、分集与镜头。
+- 受影响文件：`backend/app/media_studio/services/ai_generation_service.py`、`backend/tests/test_director2_ai_generation.py`、`frontend/src/director2/api.ts`、`frontend/src/director2/panes/Director2AiStudioPane.tsx`、`frontend/src/director/storyboard-stream-view.ts`。
+- 兼容性：不改数据库表、端口、SSE 事件或工作流协议；旧任务没有 Recipe 快照时仍可通过内容库/剧集工坊查看已回写数据。
+- 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend build`，并在 `http://127.0.0.1:5173` 导演台2终态页面检查按钮 loading 与抽屉回显。
+- 回滚方式：还原上述文件即可，无需数据迁移。
+
+## 2026-09-16 导演台2 AI 逐步卡点状态机
+
+- 变更原因：原先 `clarify` 后一次性跑完 `script → assets → episodes → storyboard`，中途只能取消；用户无法按阶段确认，也不可能只按反馈重跑当前步。
+- 当前基线：`AiGenerationService` 把 pipeline 改成逐 leg 状态机。`STAGES = script / assets / episodes / storyboard`，`STAGE_AGENTS` 分别为 `[script]`、`[characters, locations]`、`[episodes]`、`[storyboard]`。`_run_stage_leg` 跑完写 `awaiting_stage`、`status=awaiting_review`，发非终态 `status` 事件。`advance` 校验待确认后把当前步加入 `completed_stages` 并启动下一 leg，无下一 stage 则 `succeeded`。`revise` 对当前 stage 调 `run_director_clarify(agent=<stage>, feedback=…)` 进入 `revising`；`rerun_stage` 把 clarifications+feedback 并入 `stage_clarifications` 后只重跑当前 agents。因为每步前暂停，重跑时下游尚未生成。`ACTIVE` 不含 `awaiting_review`（无 worker），`OCCUPYING` 含待确认与调整中；`create` 的判重 SQL 与 `get_active` 使用占用集合。`recover_orphaned_jobs` 仍只收敛 `queued/running/clarifying/revising`，不把用户正在审核的任务标失败。导演台 `run_agent("episodes")` 写入结构化 `recipe["episodes"]`，分镜优先消费该大纲。路由新增 `POST …/advance`、`…/revise`、`…/rerun`。前端 `DIRECTOR2_ACTIVE_AI_STATUSES` 不含 `awaiting_review`，左侧 rail 把 `awaiting_stage` 标为「待确认」。
+- 受影响文件：`backend/app/media_studio/services/ai_generation_service.py`、`backend/app/media_studio/routers/project_router.py`、`backend/app/director_agents.py`、`backend/app/llm_minimax_skills.py`、`backend/app/llm_provider.py`、`backend/tests/test_director2_ai_generation.py`、`frontend/src/director2/{api.ts,director2-ai-operation-state.ts,director2-ai-operation-state.test.ts,panes/Director2AiStudioPane.tsx}`、`frontend/src/director/components/{DirectorLiveStepFeed.tsx,DirectorTaskRows.tsx,DirectorPromptBar.tsx}`、`docs/导演台流程与界面结构.md`、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：operation 仍写入 `ai_project_jobs`（`job_type=ai_pipeline`），无数据库迁移。旧一次性 pipeline 客户端收不到 terminal 就会停在第一步待确认，需使用本版前端的采纳/调整接口。`awaiting_review` / `revising` GET 回传 Recipe 快照供确认卡展示。导演台九环节 Recipe 存储不变。
+- 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`、`pnpm --dir frontend build`；5173 浅色/暗色与移动宽度自查确认卡、澄清卡与只重跑当前步。
+- 回滚方式：还原上述前后端与文档文件即可；无需数据迁移。待确认中的历史任务回滚后可能停在 `awaiting_review`，需取消或按旧逻辑重试本阶段。
+
+## 2026-09-16 导演台资产库原片参考图
+
+- 变更原因：资产库角色/场景/道具生图只吃文字提示词，没有原片截图上传位，生成形象对不上原剧。
+- 当前基线：`extra.source_references` 保存最多 9 张七牛图；`POST/DELETE /api/projects/{project_id}/assets/{asset_id}/references` 上传删除。`generate_asset_image` 对 `avatar` / `identity` / `scene_master` / `prop_reference` / `asset` 把原片图排在 GRS `images` 最前并追加 SOURCE PHOTO REFERENCES 提示；`scene_reverse` / `scene_pano` / `prop_turnaround` / `prop_detail` 仍只跟已生成主图。无参考图时行为与改前相同。
+- 受影响文件：`backend/app/media_studio/services/asset_source_references.py`、`project_detail_service.py`、`project_router.py`、`frontend/src/director2/asset-source-references.ts`、`api.ts`、`panes/AssetsLibraryPane.tsx`、`panes/assets/{AssetSourceReferenceStrip,CharacterWorkspace,SceneWorkspace,PropWorkspace}.tsx`、`assets-library.css`、对应测试与三份主文档。
+- 兼容性：不改表结构、端口或 GRS 协议；旧客户端不上传则纯文生图。
+- 验证命令：`python -m unittest backend.tests.test_asset_source_references`、`pnpm --dir frontend test`；5173 资产库上传条与浅/暗主题。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 分镜直播卡集层 Task Rows 手风琴
+
+- 变更原因：多集分镜直播把各集镜头平铺，当前集容易被顶出视口；完成镜头也不能点开回看描述/对白。
+- 当前基线：`DirectorStoryboardLiveBody` 以「集」为父行胶囊（运行中展开、完成后收起、可回看）；写分镜子行仍是 `.director-shot-stream-row`。打磨阶段同样按集折叠，每个胶囊只显示这一集的镜头芯片（本集 1…N），不把全剧镜号铺进同一集。不改 SSE/API。行内手风琴不用于剧本直播卡、资产摘要卡、分集大纲卡、左侧任务栏 rail、阶段外层 `DirectorLiveBlock` / 已完成步骤行。
+- 受影响文件：`frontend/src/director/components/DirectorStoryboardLiveBody.tsx`、`frontend/src/director/storyboard-stream-view.ts`、`frontend/src/director/guided-flow.css`、`frontend/src/director2/panes/Director2AiStudioPane.tsx`、对应测试与三份主文档。
+- 兼容性：纯前端展示；单集同样走胶囊，不必硬造第二集。
+- 验证命令：`pnpm --dir frontend test`；5173 多集工程看直播与确认卡。
+- 回滚方式：还原上述前端与文档文件即可。
+
+## 2026-09-16 导演台2创意确认增加每集镜头数
+
+- 变更原因：导演台2 创意确认只问集数，每集镜头数由模型自行估算，单集体量不稳定。
+- 当前基线：`surface=director2` 时固定追加 `shots_per_episode`（「每一集默认拍多少个镜头？」），档位 4/6/8/12，推荐 6。剧本 Agent 按每集默认镜数约束 `### 镜头`；分集 Agent 把缺省 `targetShots` 填成该值；分镜继续消费集大纲目标镜数。旧 `/director` 仍用全剧 `beat_count`，不出现本题。读取旧澄清任务时过滤遗留 `beat_count`，并补齐 `episode_count` 与 `shots_per_episode`。
+- 受影响文件：`backend/app/{llm_minimax_skills.py,llm_provider.py,director_agents.py,models.py,media_studio/services/ai_generation_service.py}`、`backend/tests/{test_director_clarify.py,test_director2_ai_generation.py,test_director.py}`、三份主文档。
+- 兼容性：不改表结构、端口或工作流协议；未答本题时分集仍可自行估算镜数。
+- 验证命令：`python -m unittest backend.tests.test_director_clarify backend.tests.test_director2_ai_generation backend.tests.test_director.EpisodesAgentTests`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 导演台2可单独重试已完成阶段
+
+- 变更原因：取消或失败后只能「从当前阶段重试」，已完成的更早阶段（创意确认 / 剧本等）无法单独重跑。
+- 当前基线：`POST …/ai/operations/{id}/retry` 可带 `{stage}`。`failed` / `cancelled` / `awaiting_review` / `succeeded` 均可指定已完成阶段；该阶段之后从 `completed_stages` 作废，recipe 后续字段清空，跑完停在 `awaiting_review`。无 `stage` 时仍只续跑当前失败/取消步。`stage=clarify` 在同一条 pipeline 上重开场问题（`revising`），答完 `rerun` 从剧本开跑。左侧任务栏与记录流已完成行 hover「重新生成」；有 pipeline 任务时完成态以任务记录为准，不再和内容库存量并集。
+- 受影响文件：`backend/app/media_studio/services/ai_generation_service.py`、`routers/project_router.py`、`backend/app/api_documentation.py`、`backend/tests/test_director2_ai_generation.py`、`frontend/src/director2/{api.ts,director2-ai-operation-state.ts,director2-ai-operation-state.test.ts,panes/Director2AiStudioPane.tsx}`、三份主文档。
+- 兼容性：不改表结构；旧客户端不传 `stage` 行为与改前相同。库表已写入内容等该步再次跑完后由 `_adapt_recipe` 覆盖，不立即删除。
+- 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-16 导演台2取消后重试会清掉取消标记
+
+- 变更原因：取消落为 `cancelled` 后 `cancel_requested` 仍为 true；`_update` 无条件锁住该标记，重试入队后新 worker 立刻再次取消。
+- 当前基线：仅当当前状态与写入后状态都仍是活跃 worker（queued/running/clarifying/revising）时才锁住取消标记。从 `cancelled`/`failed`/`awaiting_review`/`succeeded` 入队允许清掉。页头「正在停止当前生成」只在任务仍进行中时显示。
+- 受影响文件：`backend/app/media_studio/services/ai_generation_service.py`、`backend/tests/test_director2_ai_generation.py`、`frontend/src/director2/director2-ai-operation-state.ts`、对应测试与三份主文档。
+- 兼容性：无表结构或接口变化；取消进行中的 worker 仍不能用旧快照清掉标记。
+- 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`。
+- 回滚方式：还原上述文件即可。

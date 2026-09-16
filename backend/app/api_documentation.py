@@ -140,6 +140,8 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "stage": ("处理阶段", "任务当前所在的执行阶段，例如 queued、uploading、generating 或 completed。"),
     "status": ("状态", "任务、轮次或生成项的状态：queued 排队中，running 处理中，succeeded 成功，failed 失败，interrupted 已中断，cancelled 用户已停止，partial 部分成功。"),
     "supports_h3_options": ("支持 H3 参数", "该工作流是否通过 options JSON 接收 MiniMax H3 参数。"),
+    "supports_timeline": ("支持 Timeline", "该视频工作流是否走 MiniMaxH3Director Timeline。"),
+    "supports_multi_segment": ("支持多段 Timeline", "是否可一次提交多个镜头段；与 supports_timeline 同时为真时剧集工坊为一键整集直出。"),
     "temporary_server_staging": ("使用临时服务端暂存", "资源交付前是否先在服务端临时暂存；交付确认后可能被清理。"),
     "title": ("任务标题", "调用方为便于检索而设置的任务标题；最长 120 个字符，null 表示未设置。"),
     "type": ("字段类型", "工作流参数的基础 JSON 类型。"),
@@ -249,11 +251,12 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/director/recipes/{project_id}/insert-library-assets"): "需要登录和 X-CSRF-Token。把选中的库资产复制进 Recipe：人物/道具进 characters（道具 type=object），场景进 locations。写入 libraryAssetId，不建立系列分集。",
     ("post", "/api/director/recipes/{project_id}/generate-assets"): "需要登录和 X-CSRF-Token。为角色/场景提交 GRS 定妆图任务，结果写入 imageJobId。",
     ("post", "/api/director/recipes/{project_id}/generate-stills"): "需要登录和 X-CSRF-Token。为分镜提交 GRS 静帧，提示词用本镜描述+画风，参考图复用人物/场景定妆。结果写入 stillJobId / stillUrl。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt"): "需要登录和 X-CSRF-Token。为当前分镜入队 h3_prompt 任务，把 Beat 的 visual_prompt / audio / video_prompt_zh 一并交给模型（会剥掉动作里整段粘贴的台词，内心/旁白不作为开口对白）。先按对白+调度把 video_duration 抬到能演完，再按官方 h3-prompt-writing 与导演台1 同款 timing 预算生成六段 Ref2VA。英文须达到可出片厚度（提示 320 词、校验 ≥280 词且含 camera/lighting/sound），<d> 对白只保留开口台词且每句中文只出现一次；内心必须闭嘴画外音。202 返回 job_id。重复提交同一镜进行中任务返回 duplicate。生成结果写入 beat.h3_prompt 与匹配后的 video_duration（校验前先 prepare：补 Picture/Subject/<d>[Chinese]，按汉字收拢重复台词）。出片对已保存提示词做同一套 prepare 再跑厚度校验，通过则复用。",
     ("post", "/api/projects/{project_id}/ai/operations"): "需要登录和 X-CSRF-Token。创建导台2 AI 生成操作；首期支持 clarify 创意澄清和 pipeline 剧本、资产文本、分集与 Beat 分镜流水线。",
     ("get", "/api/projects/{project_id}/ai/operations/{operation_id}"): "需要登录。读取当前用户导台2 AI 操作的阶段、进度、结果和错误。",
     ("get", "/api/projects/{project_id}/ai/operations/{operation_id}/events"): "需要登录。以 SSE 推送导台2 AI 操作的阶段进度、流式消息和终态事件。",
     ("post", "/api/projects/{project_id}/ai/operations/{operation_id}/cancel"): "需要登录和 X-CSRF-Token。取消尚未结束的导台2 AI 操作，已完成阶段的数据不会删除。",
-    ("post", "/api/projects/{project_id}/ai/operations/{operation_id}/retry"): "需要登录和 X-CSRF-Token。重试失败或已取消的导台2 AI 操作，并保留已写入的项目内容。",
+    ("post", "/api/projects/{project_id}/ai/operations/{operation_id}/retry"): "需要登录和 X-CSRF-Token。无 body 时重试失败或已取消任务的当前阶段。可选 {stage} 从已完成的更早阶段重跑（failed/cancelled/awaiting_review/succeeded），该阶段之后不再算完成，需再次生成。stage=clarify 在同一条 pipeline 上重开开场问题。",
     ("post", "/api/projects/{project_id}/ai/operations/{operation_id}/advance"): "需要登录和 X-CSRF-Token。采纳当前 awaiting_review 阶段并启动下一阶段；最后一步采纳后任务成功结束。状态不符返回 400。",
     ("post", "/api/projects/{project_id}/ai/operations/{operation_id}/revise"): "需要登录和 X-CSRF-Token。对当前 awaiting_review 阶段提交 feedback，AI 为该阶段生成澄清问题并进入 revising。空反馈或状态不符返回 400。",
     ("post", "/api/projects/{project_id}/ai/operations/{operation_id}/rerun"): "需要登录和 X-CSRF-Token。提交 clarifications 后只重跑当前阶段，完成后回到 awaiting_review。状态不符返回 400。",
@@ -303,6 +306,8 @@ def _provider_operation_detail(method: str, path: str) -> str | None:
             return "需要超级管理员权限和 X-CSRF-Token。使用提交值（如有）测试供应商连接，不必先保存配置；测试结果会写入最近测试状态。"
         if path.endswith("/llm/models"):
             return "需要超级管理员权限和 X-CSRF-Token。向上游拉取完整模型目录；硅基流动按名称或标记中的 Free 文字筛选免费模型。"
+        if path.endswith("/vlm/models"):
+            return "需要超级管理员权限和 X-CSRF-Token。向上游拉取完整模型目录，再按名称筛选 VL/Vision 视觉模型；不默认只保留免费对话项。"
         if path.endswith("/balance"):
             return "需要超级管理员权限和 X-CSRF-Token。向上游查询当前 GRS 余额，并记录本次查询时间。"
         return "需要超级管理员权限和 X-CSRF-Token。保存供应商配置；敏感密钥会在服务端加密保存，响应不会返回原文。"
@@ -312,12 +317,14 @@ def _provider_operation_detail(method: str, path: str) -> str | None:
         if path.endswith("/skills"):
             return "需要登录。返回提示词优化可选择的 MiniMax H3 技能。"
         if path.endswith("/status"):
-            return "需要登录。查询大模型供应商是否已正确配置、当前是否可用，以及当前模型是否支持视觉输入。"
+            return "需要登录。查询文本大模型是否已正确配置、当前是否可用；supports_vision 表示独立 VLM 视觉模型是否可用。"
         if path.endswith("/analyze-subject"):
-            return "需要登录和 X-CSRF-Token。上传主体参考图，由支持视觉的大模型提取外貌描述；当前模型无视觉能力时返回 422，不会退化为纯文本假装看图。"
+            return "需要登录和 X-CSRF-Token。上传主体参考图，由独立配置的视觉模型提取外貌描述；VLM 未启用时返回 503。"
         if path.endswith("/split-script"):
             return "需要登录和 X-CSRF-Token。将剧本或故事拆成结构化分镜头，不会创建生成任务。"
         return "需要登录和 X-CSRF-Token。按目标媒体、工作流和可选技能优化提示词；不会创建生成任务。"
+    if path.startswith("/api/vlm/"):
+        return "需要登录。查询独立视觉模型是否已启用且可用。"
     return None
 
 

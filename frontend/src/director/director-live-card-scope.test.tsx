@@ -58,7 +58,10 @@ describe("live-card accordion stays on storyboard episode rows only", () => {
         onOpen={() => undefined}
       />,
     )
+    expect(echoed).toContain("气质？")
+    expect(echoed).toContain("更冷")
     expect(echoed).toContain("气质？ → 更冷")
+    expect(echoed).toContain("director-step-choice-q")
     expect(echoed).toContain("director-step-row-choices")
     expect(echoed).not.toContain("aria-expanded")
     expectNoEpisodeAccordion(echoed)
@@ -156,7 +159,15 @@ describe("live-card accordion stays on storyboard episode rows only", () => {
     expect(scriptStage).toContain("resolveDirector2ScriptLiveSource")
     expect(scriptStage).toContain("recipe")
     expect(scriptStage).not.toContain("director-block-text")
-    expectNoEpisodeAccordion(scriptStage)
+    // Pane wires Director2ScriptLiveBody only; episode capsules live inside that body, not the stage shell.
+    expect(scriptStage).not.toContain("director-episode-row")
+    expect(scriptStage).not.toContain("DirectorEpisodeCapsule")
+
+    const scriptLiveBody = readSource("../director2/Director2ScriptLiveBody.tsx")
+    expect(scriptLiveBody).toContain("DirectorEpisodeCapsule")
+    expect(scriptLiveBody).toContain("groupScriptLiveView")
+    expect(scriptLiveBody).toContain("bodyClassName=\"is-script\"")
+    expect(scriptLiveBody).toContain("idPrefix=\"director-script-episode-body\"")
 
     const assetStage = sliceBetween(studio, 'if (stage === "assets") {', 'if (stage === "episodes") {')
     expect(assetStage).toContain("DirectorAssetSummaryCard")
@@ -186,10 +197,14 @@ describe("live-card accordion stays on storyboard episode rows only", () => {
     expect(studio).not.toContain("Capsules")
 
     const storyboard = readSource("./components/DirectorStoryboardLiveBody.tsx")
-    expect(storyboard).toContain("director-episode-row")
-    expect(storyboard).toContain("director-episode-row-fold")
+    expect(storyboard).toContain("DirectorEpisodeCapsule")
     expect(storyboard).toContain("director-phase-chip")
     expect(storyboard).not.toContain("director-episode-detail-row")
+
+    const capsule = readSource("./components/DirectorEpisodeCapsule.tsx")
+    expect(capsule).toContain("director-episode-row")
+    expect(capsule).toContain("director-episode-row-fold")
+    expect(capsule).toContain("director-episode-row-head")
   })
 
   it("does not reuse the episode accordion animation on outline cards, asset cards or the live-block shell", () => {
@@ -198,6 +213,7 @@ describe("live-card accordion stays on storyboard episode rows only", () => {
     expect(episodeFold).toContain("grid-template-rows: 0fr")
     expect(css).toContain(".director-episode-row-fold.is-open { grid-template-rows: 1fr; }")
     expect(css).toContain(".director-block-card.is-episode-outline p {")
+    expect(css).toContain(".director-episode-row-body.is-script")
     expect(css).not.toMatch(/\.director-block[^{]*\{[^}]*grid-template-rows:\s*0fr/)
     expect(css).not.toMatch(/\.director-asset-card[^{]*\{[^}]*grid-template-rows:\s*0fr/)
     expect(css).not.toMatch(/\.is-episode-outline[^{]*\{[^}]*grid-template-rows:\s*0fr/)

@@ -1,5 +1,8 @@
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
+import DirectorEpisodeCapsule from "../director/components/DirectorEpisodeCapsule"
+import type { StoryboardEpisodeRowStatus } from "../director/storyboard-stream-view"
 import {
+  groupScriptLiveView,
   parseScriptLiveView,
   scriptLiveSourceHasContent,
   visibleShotFields,
@@ -86,17 +89,62 @@ export function ScriptLiveBlocks({
   )
 }
 
+function scriptEpisodeStatus(
+  index: number,
+  total: number,
+  live: boolean,
+): StoryboardEpisodeRowStatus {
+  if (!live) return "completed"
+  if (index === total - 1) return "running"
+  return "completed"
+}
+
 export default function Director2ScriptLiveBody({ title, summary, fullStory, live = false }: Director2ScriptLiveBodyProps) {
   const sourceTitle = (title || "").trim()
   const sourceSummary = (summary || "").trim()
   const sourceStory = (fullStory || "").trim()
+  const [manualOpen, setManualOpen] = useState<Record<string, boolean>>({})
   if (!scriptLiveSourceHasContent({ title: sourceTitle, summary: sourceSummary, fullStory: sourceStory })) return null
   const blocks = parseScriptLiveView(sourceStory, { skipTitle: sourceTitle })
+  const grouped = groupScriptLiveView(blocks)
+  const useCapsules = grouped.episodes.length > 0
+  const toggleEpisode = (key: string, currentlyOpen: boolean) => {
+    setManualOpen((current) => ({ ...current, [key]: !currentlyOpen }))
+  }
+
   return (
     <div className="director-stream-article">
       {sourceTitle ? <h3 className="director-stream-title">{sourceTitle}</h3> : null}
       {sourceSummary ? <p className="director-stream-lead">{sourceSummary}</p> : null}
-      {blocks.length || live ? (
+      {useCapsules ? (
+        <div className="director-stream-text is-script-episodes">
+          {grouped.preamble.length ? <ScriptLiveBlocks blocks={grouped.preamble} /> : null}
+          <div className="director-block-shots is-script">
+            {grouped.episodes.map((episode, index) => {
+              const status = scriptEpisodeStatus(index, grouped.episodes.length, live)
+              const key = String(episode.number)
+              const open = manualOpen[key] ?? (live && status === "running")
+              const caret = live && index === grouped.episodes.length - 1
+              return (
+                <DirectorEpisodeCapsule
+                  key={`${episode.number}-${episode.title}`}
+                  episodeNumber={episode.number}
+                  title={episode.title}
+                  status={status}
+                  open={open}
+                  index={index}
+                  shotCount={episode.shotCount}
+                  onToggle={toggleEpisode}
+                  bodyClassName="is-script"
+                  idPrefix="director-script-episode-body"
+                >
+                  <ScriptLiveBlocks blocks={episode.blocks} caret={caret} />
+                </DirectorEpisodeCapsule>
+              )
+            })}
+          </div>
+        </div>
+      ) : blocks.length || live ? (
         <div className="director-stream-text">
           <ScriptLiveBlocks blocks={blocks} caret={live} />
         </div>

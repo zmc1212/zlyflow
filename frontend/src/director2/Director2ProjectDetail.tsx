@@ -12,6 +12,7 @@ import { director2ProjectPath, director2HomePath, type Director2Route } from "./
 import Director2AiStudioPane from "./panes/Director2AiStudioPane"
 import { parseDirector2CreationMode, readDirector2CreationMode, storeDirector2CreationMode, type Director2CreationMode } from "./creation-mode"
 import DirectorCreationModeSwitch from "../director/components/DirectorCreationModeSwitch"
+import { MediaPreviewProvider } from "./media-preview"
 import "./project-detail.css"
 
 const MENU_ITEMS = [
@@ -92,7 +93,8 @@ export default function Director2ProjectDetail({
   }
 
   return (
-    <div className="project-detail-layout">
+    <MediaPreviewProvider>
+      <div className="project-detail-layout">
       {/* 顶部项目条 */}
       <header className="project-topbar">
         <div className="topbar-content">
@@ -193,6 +195,7 @@ export default function Director2ProjectDetail({
           )}
         </section>
       </div>
-    </div>
+      </div>
+    </MediaPreviewProvider>
   )
 }

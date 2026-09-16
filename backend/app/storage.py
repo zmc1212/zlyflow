@@ -255,6 +255,18 @@ class JobStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS vlm_provider_settings (
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    base_url TEXT NOT NULL DEFAULT 'https://open.bigmodel.cn/api/paas/v4',
+                    api_key_encrypted TEXT,
+                    model TEXT NOT NULL DEFAULT 'glm-4v-flash',
+                    last_test_status TEXT,
+                    last_test_message TEXT,
+                    last_test_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS comfy_provider_settings (
                     id INTEGER PRIMARY KEY CHECK(id = 1),
                     base_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:8188',
@@ -370,6 +382,12 @@ class JobStore:
             """INSERT OR IGNORE INTO llm_provider_settings
             (id, enabled, base_url, model, updated_at)
             VALUES (1, 0, 'https://api-inference.modelscope.cn/v1', 'Qwen/Qwen2.5-72B-Instruct', ?)""",
+            (now(),),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO vlm_provider_settings
+            (id, enabled, base_url, model, updated_at)
+            VALUES (1, 0, 'https://open.bigmodel.cn/api/paas/v4', 'glm-4v-flash', ?)""",
             (now(),),
         )
         connection.execute(
@@ -1260,6 +1278,39 @@ class JobStore:
         with self.connection() as connection:
             connection.execute(f"UPDATE llm_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
         return self.get_llm_settings()
+
+    def get_vlm_settings(self) -> dict:
+        with self.connection() as connection:
+            row = connection.execute("SELECT * FROM vlm_provider_settings WHERE id = 1").fetchone()
+        if not row:
+            return {
+                "id": 1,
+                "enabled": False,
+                "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key_encrypted": None,
+                "model": "glm-4v-flash",
+                "last_test_status": None,
+                "last_test_message": None,
+                "last_test_at": None,
+                "updated_at": now(),
+            }
+        data = dict(row)
+        data["enabled"] = bool(data["enabled"])
+        return data
+
+    def update_vlm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
+        allowed = {
+            "enabled", "base_url", "api_key_encrypted", "model",
+            "last_test_status", "last_test_message", "last_test_at",
+        }
+        merged = dict(values) if isinstance(values, dict) else {}
+        merged.update(kwargs)
+        updates = {key: value for key, value in merged.items() if key in allowed}
+        updates["updated_at"] = now()
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        with self.connection() as connection:
+            connection.execute(f"UPDATE vlm_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
+        return self.get_vlm_settings()
 
     def get_tts_settings(self) -> dict:
         with self.connection() as connection:

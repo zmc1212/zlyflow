@@ -118,12 +118,6 @@ export function copyText(text: string | null | undefined) {
   })
 }
 
-// 点击放大查看图片（原版第二个参数 title 未使用，保留入参形状）
-export function openImageLightbox(url: string | null | undefined, _title?: string) {
-  if (!url) return
-  window.open(url, "_blank")
-}
-
 // 场景类型选项（场景工作区与编辑场景弹窗共用）
 export const SCENE_TYPE_OPTIONS = [
   { value: "interior", label: "室内内景 (Interior)" },

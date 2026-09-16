@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -10,7 +11,11 @@ from unittest.mock import patch
 
 from backend.app.media_studio.services.episode_image_prompts import beat_sketch_prompt
 from backend.app.media_studio.services.storyboard_image_service import StoryboardImageService, _ACTIVE
-from backend.app.media_studio.services.project_detail_service import resolve_shot_scene
+from backend.app.media_studio.services.project_detail_service import (
+    ProjectDetailService,
+    asset_name_id_map,
+    resolve_shot_scene,
+)
 
 
 class StoryboardPromptTests(unittest.TestCase):
@@ -36,6 +41,53 @@ class StoryboardPromptTests(unittest.TestCase):
             ("Village field", "scene-field"),
             resolve_shot_scene("Village field", scene_map, "Indoor room", "scene-room"),
         )
+
+    @patch("backend.app.media_studio.services.project_detail_service.execute_sql")
+    @patch("backend.app.media_studio.services.project_detail_service.query_all")
+    @patch("backend.app.media_studio.services.project_detail_service.query_one")
+    def test_get_episode_detail_initializes_inherited_scene(self, query_one, query_all, execute_sql):
+        query_one.side_effect = [
+            {
+                "id": "ep-1",
+                "project_id": "proj-1",
+                "episode_num": 1,
+                "title": "第一集",
+                "status": "script_ready",
+                "script_text": "开场",
+                "data_json": "{}",
+            },
+            {
+                "analysis_json": json.dumps({
+                    "episodes": [{
+                        "episode_num": 1,
+                        "shots": [
+                            {"shot_num": 1, "title": "开场", "scene": "出租屋", "action": "吴耐醒来"},
+                            {"shot_num": 2, "title": "接续", "scene": "", "action": "看手机"},
+                        ],
+                    }],
+                }, ensure_ascii=False),
+            },
+        ]
+        query_all.return_value = [
+            {"id": "scene-home", "kind": "scene", "name": "出租屋", "image_url": "", "extra_json": "{}"},
+        ]
+        detail = ProjectDetailService.get_episode_detail("proj-1", "ep-1")
+        self.assertEqual(2, len(detail["beats"]))
+        self.assertEqual("出租屋", detail["beats"][0]["scene"])
+        self.assertEqual("scene-home", detail["beats"][0]["scene_id"])
+        self.assertEqual("出租屋", detail["beats"][1]["scene"])
+        self.assertEqual("scene-home", detail["beats"][1]["scene_id"])
+        execute_sql.assert_called_once()
+
+    def test_asset_name_map_prefers_the_copy_with_an_image(self):
+        mapping = asset_name_id_map(
+            [
+                {"id": "scene-empty", "kind": "scene", "name": "开元楼走廊", "image_url": ""},
+                {"id": "scene-ready", "kind": "scene", "name": "开元楼走廊", "image_url": "https://x/scene.png"},
+            ],
+            "scene",
+        )
+        self.assertEqual({"开元楼走廊": "scene-ready"}, mapping)
 
 
 class StoryboardDispatcherTests(unittest.TestCase):

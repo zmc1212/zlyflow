@@ -34,19 +34,23 @@ export function DirectorPathChips({
   return (
     <div className="director-direction-chips is-path" aria-label={label}>
       <span className="director-direction-label">{label}</span>
-      {groups.map((group) => (
-        <span key={group.id} className="director-direction-stage">
-          <span className="director-direction-stage-label">{group.label}</span>
-          {group.items.map((item, index) => {
-            const title = `${item.question} → ${item.answer}`
-            return (
-              <span key={`${item.question}-${item.answer}-${index}`} className="director-direction-chip" title={title}>
-                {item.answer}
-              </span>
-            )
-          })}
-        </span>
-      ))}
+      <div className="director-direction-stages">
+        {groups.map((group) => (
+          <div key={group.id} className="director-direction-stage">
+            <span className="director-direction-stage-label">{group.label}</span>
+            <span className="director-direction-stage-chips">
+              {group.items.map((item, index) => {
+                const title = `${item.question} → ${item.answer}`
+                return (
+                  <span key={`${item.question}-${item.answer}-${index}`} className="director-direction-chip" title={title}>
+                    {item.answer}
+                  </span>
+                )
+              })}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -66,9 +70,10 @@ export function DirectorLiveStepChoices({
         {items.map((item, index) => {
           const label = `${item.question} → ${item.answer}`
           return (
-            <span key={`${item.question}-${item.answer}-${index}`} className="director-step-choice-chip" title={label}>
-              {label}
-            </span>
+            <div key={`${item.question}-${item.answer}-${index}`} className="director-step-choice" title={label}>
+              <span className="director-step-choice-q">{item.question}</span>
+              <span className="director-step-choice-a">{item.answer}</span>
+            </div>
           )
         })}
       </div>

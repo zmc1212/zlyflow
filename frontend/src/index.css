@@ -288,8 +288,7 @@
   height: 100% !important;
   flex: 1 1 0%;
   flex-direction: column;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
+  overflow: hidden !important;
   padding: 0 !important;
   padding-bottom: 0 !important;
 }
@@ -1190,8 +1189,9 @@
   .studio-workspace:not(.studio-task-rail-collapsed) .studio-composer-form,
   .studio-workspace:not(.studio-task-rail-collapsed) .studio-return-bottom { left: calc(50% + 120px); }
   /* Extra bottom space so generation history can scroll above the fixed composer.
-     Director and 导台2 use viewport-locked panes; this rule must not apply to those mains. */
-  .studio-light main:not(.director-workspace-main):not(.director2-workspace-main) { min-height: calc(100vh - 56px + 340px) !important; padding-bottom: 340px; }
+     Director and 导台2 use viewport-locked panes; this rule must not apply to those mains.
+     导台2 内部还有 <main class="app-main">，必须一并排除，否则会把分集页撑出套娃滚动条。 */
+  .studio-light main:not(.director-workspace-main):not(.director2-workspace-main):not(.app-main) { min-height: calc(100vh - 56px + 340px) !important; padding-bottom: 340px; }
   .studio-light .director-workspace-main {
     min-height: 0 !important;
     height: 100vh !important;

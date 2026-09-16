@@ -68,12 +68,48 @@ def asset_to_prompt_dict(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def scene_master_url(scene: dict[str, Any] | None) -> str:
+    if not scene:
+        return ""
+    extra = scene.get("extra") if isinstance(scene.get("extra"), dict) else {}
+    for value in (extra.get("master_url"), scene.get("image_url")):
+        url = str(value or "").strip()
+        if url.startswith(("http://", "https://")):
+            return url
+    return ""
+
+
+def _scene_name_matches(asset_name: str, scene_name: str) -> bool:
+    asset_name = str(asset_name or "").strip()
+    scene_name = str(scene_name or "").strip()
+    if not asset_name or not scene_name:
+        return False
+    return asset_name == scene_name or asset_name in scene_name or scene_name in asset_name
+
+
+def resolve_scene_asset(beat: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Pick a scene asset for a beat, preferring one that already has a master view."""
+    by_id = {str(item.get("id")): item for item in assets if item.get("id")}
+    bound = by_id.get(str(beat.get("scene_id") or ""))
+    if bound and bound.get("kind") not in (None, "", "scene"):
+        bound = None
+    if scene_master_url(bound):
+        return bound
+    scenes = [item for item in assets if item.get("kind") == "scene"]
+    scene_name = str(beat.get("scene") or (bound or {}).get("name") or "").strip()
+    matches = [item for item in scenes if _scene_name_matches(str(item.get("name") or ""), scene_name)] if scene_name else []
+    with_url = next((item for item in matches if scene_master_url(item)), None)
+    if with_url:
+        return with_url
+    return bound or (matches[0] if matches else None)
+
+
 def _beat_assets(
     beat: dict[str, Any], assets: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, list[dict[str, Any]]]:
     by_id = {item["id"]: item for item in assets if item.get("id")}
     characters = [by_id[item_id] for item_id in beat.get("character_ids") or [] if item_id in by_id]
-    scene = by_id.get(str(beat.get("scene_id") or ""))
+    scene = resolve_scene_asset(beat, assets)
     props = [by_id[item_id] for item_id in beat.get("prop_ids") or [] if item_id in by_id]
     return characters, scene, props
 
@@ -315,7 +351,7 @@ def beat_reference_urls(
 ) -> list[str]:
     by_id = {item["id"]: item for item in assets if item.get("id")}
     urls: list[str] = []
-    scene = by_id.get(str(beat.get("scene_id") or ""))
+    scene = resolve_scene_asset(beat, assets)
     if stage == "render":
         _append_https(urls, beat.get("sketch_url"))
         character_ids = [str(item) for item in (beat.get("character_ids") or [])]

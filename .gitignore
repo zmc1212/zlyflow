@@ -103,3 +103,5 @@ docs/design-ref-director/
 docs/导演台设计图/
 submit_*.py
 backend/tests/test_*.py
+!backend/tests/test_director2_ai_generation.py
+!backend/tests/test_timeline_rendering.py

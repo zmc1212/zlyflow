@@ -149,6 +149,28 @@ def load_shot_timing_excerpt() -> str:
     ])
 
 
+def build_workshop_h3_timing_rules(duration_seconds: str | int = 8) -> str:
+    """Director-1 shot-timing budget, adapted for director-2 workshop Ref2VA.
+
+    Director-1 polish rewrites storyboard promptText with At 00:XX.XXX markers.
+    Workshop H3 is a six-section Ref2VA clip and must not emit those timestamps.
+    Duration is already resolved in code; this text only tells the writer to play
+    the supplied blocking inside that many seconds.
+    """
+    seconds = str(duration_seconds).strip() or "8"
+    return "\n".join([
+        "# Shot timing budget (Seedance-inspired, adapted for MiniMax H3 workshop)",
+        "The same budget director-1 uses after storyboard split:",
+        "- Estimate minimum speakable seconds for dialogue (~4 Chinese chars/s normal, ~3/s emotional).",
+        "- Budget one primary visible action every 2–3 seconds; do not cram dialogue + walk + turn into 5s.",
+        "- A 5s clip holds at most two action beats plus one short line; thick blocking belongs on 8–12s.",
+        "- Never truncate dialogue or <d> to fit. If the beat is still too tight, the duration should already have been raised in video_duration.",
+        f"This beat's duration_seconds is {seconds} (MiniMax H3 clamp 2–15). Play the full supplied blocking and complete speech inside that take.",
+        "Workshop adapter: write one [Shot 1] chronological performance. Do NOT emit At HH:MM.SSS timestamps, internal cuts, or film-wide timecodes.",
+        "Begin speech early enough to finish unhurriedly and hold a final reaction. Do not invent extra events to pad a short clip, and do not compress a long blocking back into 5s.",
+    ])
+
+
 def load_shot_continuity_skill() -> str:
     return (_SHOT_CONTINUITY_SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8").strip()
 
@@ -471,7 +493,22 @@ def normalize_clarify_questions(
     questions.append(build_episode_count_question(episode_recommended))
     if include_shots_per_episode and not include_beat_count:
         questions.append(build_shots_per_episode_question(shots_recommended))
+        questions = ensure_director2_opening_questions(questions)
     return questions
+
+
+def ensure_director2_opening_questions(questions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Director2 opening clarify must always end with 集数 + 每集镜头数."""
+    items = [
+        item for item in (questions or [])
+        if isinstance(item, dict) and str(item.get("id") or "") != BEAT_COUNT_QUESTION_ID
+    ]
+    ids = {str(item.get("id") or "") for item in items}
+    if EPISODE_COUNT_QUESTION_ID not in ids:
+        items.append(build_episode_count_question())
+    if SHOTS_PER_EPISODE_QUESTION_ID not in ids:
+        items.append(build_shots_per_episode_question())
+    return items
 
 
 # 支持单独出确认题的流水线环节。开场澄清（agent 为空）仍是剧本创作方向 + 集数/每集镜头数，不走本表。
@@ -671,27 +708,46 @@ def build_script_agent_prompt(
         "角色名——定位：一句话外形与固定道具（仅供确认阅读，不替代后续资产步）\n"
         "# 第1集：标题\n"
         "**剧情：** 本集一句话\n"
-        "### 镜头1｜场景名\n"
-        "- 人物：…\n"
-        "- 场景：…\n"
-        "- 道具：…\n"
-        "- 动作：一个可见动作变化\n"
-        "- 镜头：运镜\n"
-        "- 台词：有对白则写原话，无对白可省略本行"
+        "### 镜头1｜单元楼电梯\n"
+        "- 人物：吴耐、沙丽丽\n"
+        "- 场景：单元楼电梯\n"
+        "- 道具：绿色苹果手机、铃铛项圈\n"
+        "- 时长：8秒\n"
+        "- 动作：竖屏短剧单镜，一镜到底。空间：老旧不锈钢轿厢，镜面金属壁反青白顶灯，空间逼仄。"
+        "光线：惨白顶灯，皮肤偏青。造型锁定：清瘦花甲男人脏污背心；浓妆红裙租客抱绿色手机。"
+        "调度与表演：电梯门刚合上。她被挤在右后角护着手机；他停在左前方半步，不敢靠近。"
+        "她先扫他的污渍背心，再盯他的花甲脸，开口前肩膀一缩。口型与台词同步。"
+        "收束：误会说出后定格在她睁大的眼睛约一秒。\n"
+        "- 运镜：竖屏 9:16，中近景双人，只允许一次缓慢小幅推近或固定\n"
+        "- 台词：沙丽丽：“该不会想让我那啥吧。”\n"
+        "- 音效：电梯低频嗡鸣、轿厢金属轻响、呼吸和铃铛细响\n"
+        "- 提示词：Photorealistic vertical 9:16 eight-second take, no internal cuts. "
+        "COMPOSITION AND CAMERA: medium-close two-shot, locked-off with one optional slow 5-percent push-in. "
+        "LOCATION: cramped stainless-steel elevator, sickly white fluorescent, greenish metal bounce. "
+        "LIGHTING: overhead fluorescent, cyan skin, no beauty rim light. "
+        "CAST LOCK: skinny 60-year-old landlord in a stained yellow-white tank; glamorous young woman in red satin with a black bell choker. "
+        "EIGHT-SECOND PERFORMANCE: doors shut, she shrinks into the rear-right corner clutching a green iPhone, he freezes a half-step left-front, she scans then panics, last second holds her widened eyes. "
+        "FORBIDDEN: no costume jump, no 16:9 letterbox, no internal cuts."
     )
     return "\n\n".join([
         "把一句话扩成可拍的 AI 短剧剧本。输出 {\"title\":\"\",\"summary\":\"\",\"fullStory\":\"\"}。",
         scale_line,
         *episode_rules,
-        "1. 【禁止传统段落式动作】：严禁把多个动作打包成一段。必须将情节拆解为独立的『镜头』，对应内容库标准剧本的 ### 镜头。",
-        "2. 【One Playable Change】：每个 ### 镜头 只能发生一个肉眼可见的物理变化（如：角色 A 拔剑，或角色 B 倒下）。一个 ### 镜头 = 原来的一个 Beat。",
+        "1. 【禁止传统段落式动作】：严禁把多个可提交镜头打包成一段。必须将情节拆解为独立的『镜头』，对应内容库标准剧本的 ### 镜头。",
+        "2. 【单镜时长必须匹配内容】：一个 ### 镜头 = 一条可提交的 MiniMax H3 单镜（2–15 秒）。禁止默认写成 5 秒。"
+        "必须写「时长」字段（整数秒）。时长 ≥ 对白说完 + 调度演完：有空间/调度/收束的厚动作默认 8 秒；对白 ≥12 字或两段以上调度用 8–12 秒；仍塞不下则拆镜，禁止砍对白或压缩表演。"
+        "只有真正短的静帧/一拍动作才能短于 8 秒；有对白时不得短于 6 秒。"
+        "- 动作 必须写清空间、光线、锁定造型、站位距离、按时间顺序的表演、口型、收束表情；不要再写成一句话动作摘要。",
         "3. 【物理状态继承】：下一个镜头必须严格继承上一个镜头的人物站位、手持道具、环境光影和残骸。禁止凭空变出未交代的道具，禁止空间逻辑瞬移。",
         "4. 【视觉重于对白】：优先用动作、特写来推进，对白只作为辅助。",
-        "5. 【禁止提示词】：剧本步不要写「提示词」字段或英文 H3 prompt；英文提示词由后续分镜步生成。",
+        "5. 【画面提示词】：每个镜头必须写「提示词」字段。这是画面/调度英文（构图、光影、服装锁定、与「时长」秒数匹配的表演、禁止项），必须含 lighting / camera / 表演，词数明显长于一句话。"
+        "这不是工坊那份六段 Ref2VA；六段 H3 仍由「生成 H3 提示词」产出。",
+        "6. 【最低厚度】：- 动作 必须同时含空间、调度、收束；- 运镜 写竖屏比例、景别、是否一次慢推；- 音效 写同期环境与动作声；- 时长 必须能演完本镜。"
+        "无对白可省略台词行，不可省略动作、运镜、音效、提示词、时长。",
         format_example,
         "禁止只写一段摘要。不要发明未给出的品牌、产品参数或真人形象。",
         "Follow the Seedance-inspired scene-ledger method below while writing Chinese scenes:",
-        "- Each ### 镜头 block should make opening visual state, one dramatic beat, and closing visual state obvious.",
+        "- Each ### 镜头 is one MiniMax H3 take whose 时长 fits the spoken line and blocking (default 8s, clamped 2–15). Opening spatial state, chronological performance, lip-sync, and a closing freeze must all fit that duration.",
         "- Preserve dialogue verbatim once written; later agents must not lose spoken lines.",
         "- Prefer observable action over abstract emotion labels so storyboard continuity can inherit positions, props, light, and direction.",
         load_shot_continuity_excerpt(),
@@ -712,13 +768,13 @@ STORYBOARD_DIALOGUE_CONTRACT = """DIALOGUE ASSIGNMENT (non-negotiable):
 
 DIRECTOR_STUDIO_ADAPTER = """Director Studio adapter (keep this even while following the official skill):
 - Each shot is submitted as its own MiniMax H3 job, usually T2VA. The compiler later adds I2VA/Ref2VA wrappers when keyframes or character stills exist.
-- promptText: English H3 shot prose from the official guide. Write one independent [Shot 1] clip covering style, composition, subjects, environment, action, camera (motion type + amplitude + speed), and dialogue. Do not wrap integrated_multimodal_description / overall_soundscape / non_diegetic_music in JSON; the compiler adds those fields.
-- title, description, soundscape: Chinese for the user-facing storyboard card. Never copy promptText into description.
+- promptText: English H3 shot prose from the official guide. Write one independent [Shot 1] clip covering style, composition, blocking and distance, lighting, hero props, chronological 8-second action, camera (motion type + amplitude + speed), sync sound, ending freeze, and dialogue. Forbid a one-sentence promptText. Do not wrap integrated_multimodal_description / overall_soundscape / non_diegetic_music in JSON; the compiler adds those fields.
+- title, description, soundscape: Chinese for the user-facing storyboard card. description MUST inherit the script `- 动作` blocking thickness (space, light, locked looks, 8-second performance, lip-sync, closing freeze). Never collapse it to a one-sentence picture summary. Never copy promptText into description.
 - soundscapeEn: a separate English H3 soundscape sentence covering ambience and physical action sounds; do not repeat dialogue. Keep soundscape as the Chinese card summary.
 - dialogue: keep the user's original spoken words verbatim, but ALWAYS strip any leading character name or emotion label (e.g. strip the "陆沉舟（低语）：" prefix). Inside promptText use <d>[Chinese] SPOKEN_WORDS</d>. BOTH the dialogue field and the <d> tag must contain ONLY the actual words spoken. Every script spoken line must land here — including 自言自语 / 旁白 / 画外音.
 - If the script gives speech during an action, dialogue and that action belong in one shot; silent establishing shots are only for beats with zero script dialogue.
 - Use <d> only for audible dialogue or lyrics. For a computer, phone, sign, or other visible written text, describe it as visible on-screen text in prose and do not wrap it in <d>.
-- durationSec: integer 2–15. Budget speech + action using the shot-timing skill; default 5 only when the beat is truly short.
+- durationSec: integer 2–15. Default 8 for a single take. Budget speech + action using the shot-timing skill; use shorter than 8 only when the beat is truly short.
 - continuityIn / continuityOut: MUST BE PURE ENGLISH boundary states (NO CHINESE ALLOWED, or else it triggers TTS bugs). They are not plot summaries: state composition, character/prop pose, motion direction, light/time and ongoing sound needed to connect the cut.
 - transitionNote: concise Chinese editorial note for the incoming cut; name the bridge or the deliberate hard cut. Keep it user-facing and do not put it in promptText.
 - characterNames and locationName must copy the exact proper nouns and original writing system used by the source script. Never translate or transliterate names (for example, keep 李明 instead of Li Ming).
@@ -750,9 +806,10 @@ STORYBOARD_JSON_CONTRACT = """OUTPUT CONTRACT (non-negotiable):
 - Return ONLY one JSON object. Do not return integrated_multimodal_description / overall_soundscape / non_diegetic_music as the top-level format; the compiler adds those later.
 - Split the provided script excerpt into shots. DO NOT invent extra shots; follow the STRICT 1:1 MAPPING rule exactly.
 - STRICT 1:1 MAPPING: Map EVERY single action beat (Beat 1, Beat 2) from the Chinese script into EXACTLY ONE independent shot. Do not merge multiple beats. Never collapse the story.
-- title / description / soundscape: Chinese for the storyboard card. promptText: English H3 shot body for one [Shot 1] clip whose local timeline starts at 00:00.
-- Schema: {"_thinking":"分析核心动作与视听风格（强制在此输出你的思考过程，限200字内）","scenes":[{"title":"","locationName":"","shots":[{"title":"","description":"","promptText":"","dialogue":"","characterNames":[],"locationName":"","durationSec":5,"camera":{},"soundscape":"","soundscapeEn":"","timingNote":"","continuityIn":"","continuityOut":"","transitionNote":""}]}]}
-- durationSec must fit dialogue + actions (see shot-timing skill). Prefer 4–8 for simple beats; extend to 7–12 when dialogue has ≥10 Chinese characters or multiple actions.
+- title / description / soundscape: Chinese for the storyboard card. description must keep the script `- 动作` scheduling thickness (space, light, locked looks, 8-second performance, closing freeze); never a one-line picture summary.
+- promptText: English H3 shot body for one [Shot 1] clip whose local timeline starts at 00:00. Specifically write composition, blocking/distance, lighting, hero props, chronological action, camera amplitude, sync sound, and ending freeze. Forbid a one-sentence promptText.
+- Schema: {"_thinking":"分析核心动作与视听风格（强制在此输出你的思考过程，限200字内）","scenes":[{"title":"","locationName":"","shots":[{"title":"","description":"","promptText":"","dialogue":"","characterNames":[],"locationName":"","durationSec":8,"camera":{},"soundscape":"","soundscapeEn":"","timingNote":"","continuityIn":"","continuityOut":"","transitionNote":""}]}]}
+- durationSec must fit dialogue + actions (see shot-timing skill). Default 8 for a single take; prefer 6–8 for simple beats; extend to 7–12 when dialogue has ≥10 Chinese characters or multiple actions.
 - While splitting, draft continuityIn / continuityOut / transitionNote for adjacent cuts using the continuity skill; a later continuity pass may refine them.
 - Before finishing, verify every script dialogue line is assigned to a shot's dialogue field (see DIALOGUE ASSIGNMENT).
 """

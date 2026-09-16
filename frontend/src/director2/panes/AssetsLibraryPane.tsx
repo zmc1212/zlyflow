@@ -28,6 +28,9 @@ import {
   updateAsset,
   deleteAsset,
   generateAssetImage,
+  uploadAssetSourceReference,
+  deleteAssetSourceReference,
+  inferAssetPromptsFromReferences,
   director2ErrorDetail,
   type Director2Asset,
 } from "../api"
@@ -55,6 +58,8 @@ import type { CreateFormState } from "./assets/CreateAssetModal"
 import type { SceneDraft } from "./assets/EditSceneModal"
 import type { PropDraft } from "./assets/EditPropModal"
 import type { IdentityFormState } from "./assets/IdentityModal"
+import { MAX_SOURCE_REFERENCE_BYTES, remainingSourceReferenceSlots, sourceReferencesOf } from "../asset-source-references"
+import { useMediaPreview } from "../media-preview"
 import "./assets-library.css"
 
 interface AssetsLibraryPaneProps {
@@ -93,6 +98,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   { csrfToken, projectId },
   ref,
 ) {
+  const { openMediaPreview } = useMediaPreview()
   const [assets, setAssets] = useState<Director2Asset[]>([])
   const [selectedAsset, setSelectedAsset] = useState<Director2Asset | null>(null)
   const [loading, setLoading] = useState(false)
@@ -118,6 +124,8 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const [batchGeneratingPropDetails, setBatchGeneratingPropDetails] = useState(false)
   const [generatingMaster, setGeneratingMaster] = useState(false)
   const [generatingReverse, setGeneratingReverse] = useState(false)
+  const [uploadingSourceRef, setUploadingSourceRef] = useState(false)
+  const [inferringSourcePrompts, setInferringSourcePrompts] = useState(false)
   const [generatingPano, setGeneratingPano] = useState(false)
   const [generatingProp, setGeneratingProp] = useState(false)
   const [generatingPropTurnaround, setGeneratingPropTurnaround] = useState(false)
@@ -448,18 +456,17 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       })) as GenerateImageResult
       const cur = selectedAssetRef.current
       if (!cur) return
-      message.success(`「${cur.name}」头像生成成功！`)
-      if (res.image_url) {
+      const refCount = Number(res.source_reference_count || sourceReferencesOf(cur).length)
+      message.success(refCount > 0 ? `「${cur.name}」头像已按 ${refCount} 张原片参考图生成` : `「${cur.name}」头像生成成功！`)
+      if (res.asset) {
+        applyGeneratedAsset(cur.id, res)
+      } else if (res.image_url) {
         const imageUrl = res.image_url
         mutateSelected((prev) => ({
           ...prev,
           extra: { ...(prev.extra || {}), avatar_url: imageUrl },
           image_url: imageUrl,
         }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
       }
     } catch (err) {
       message.error(director2ErrorDetail(err, "头像生图失败"))
@@ -472,7 +479,82 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     if (!res?.asset) return
     replaceAssetInList(assetId, res.asset)
     if (selectedAssetRef.current?.id === assetId) {
+      suppressAutoSaveRef.current = true
       applySelected({ ...res.asset })
+    }
+  }
+
+  function applyServerAsset(asset: Director2Asset) {
+    replaceAssetInList(asset.id, asset)
+    if (autoSaveQueuedSnapshotRef.current?.id === asset.id) {
+      autoSaveQueuedSnapshotRef.current = cloneAssetSnapshot(asset)
+    }
+    if (selectedAssetRef.current?.id === asset.id) {
+      suppressAutoSaveRef.current = true
+      applySelected({ ...asset })
+    }
+  }
+
+  async function handleUploadSourceRefs(files: File[]) {
+    const sel = selectedAssetRef.current
+    if (!sel || !files.length) return
+    const remaining = remainingSourceReferenceSlots(sel)
+    const accepted: File[] = []
+    for (const file of files.slice(0, remaining)) {
+      if (!file.type.startsWith("image/") && !/\.(jpe?g|png|webp|gif)$/i.test(file.name)) {
+        message.warning(`「${file.name}」不是图片`)
+        continue
+      }
+      if (file.size > MAX_SOURCE_REFERENCE_BYTES) {
+        message.warning(`「${file.name}」超过 10 MB`)
+        continue
+      }
+      accepted.push(file)
+    }
+    if (!accepted.length) return
+    setUploadingSourceRef(true)
+    try {
+      let latest = sel
+      for (const file of accepted) {
+        latest = await uploadAssetSourceReference(csrfToken, projectId, sel.id, file)
+        applyServerAsset(latest)
+      }
+      message.success(`已上传 ${accepted.length} 张原片参考图`)
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "上传参考图失败"))
+    } finally {
+      setUploadingSourceRef(false)
+    }
+  }
+
+  async function handleRemoveSourceRef(refId: string) {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    try {
+      const updated = await deleteAssetSourceReference(csrfToken, projectId, sel.id, refId)
+      applyServerAsset(updated)
+      message.success("已删除原片参考图")
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "删除参考图失败"))
+    }
+  }
+
+  async function handleInferSourcePrompts() {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    if (!sourceReferencesOf(sel).length) {
+      message.warning("请先上传至少一张原片参考图")
+      return
+    }
+    setInferringSourcePrompts(true)
+    try {
+      const updated = await inferAssetPromptsFromReferences(csrfToken, projectId, sel.id)
+      applyServerAsset(updated)
+      message.success("已根据原片截图覆盖提示词")
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "反推提示词失败"))
+    } finally {
+      setInferringSourcePrompts(false)
     }
   }
 
@@ -544,7 +626,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     let skippedNoAvatar = 0
     let skippedNoCostume = 0
     for (const ast of chars) {
-      if (!hasCharacterAvatar(ast)) {
+      if (!hasCharacterAvatar(ast) && !sourceReferencesOf(ast).length) {
         skippedNoAvatar += 1
         continue
       }
@@ -559,10 +641,10 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       }
     }
     if (!jobs.length) {
-      if (skippedNoAvatar && !chars.some((a) => hasCharacterAvatar(a))) {
-        message.info("请先生成头像，造型图需要把头像作为身份锚点")
+      if (skippedNoAvatar && !chars.some((a) => hasCharacterAvatar(a) || sourceReferencesOf(a).length)) {
+        message.info("请先生成头像或上传原片参考图，造型图需要身份锚点")
       } else {
-        message.info("所有已有头像的角色造型图已就绪（或缺少外观描述）")
+        message.info("所有已有头像或参考图的角色造型图已就绪（或缺少外观描述）")
       }
       return
     }
@@ -798,12 +880,13 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     if (!sel || !ident) return
     const extra = sel.extra || {}
     const costume = (ident.description || ident.appearance_details || "").trim()
-    if (!costume) {
-      message.warning("请先填写外观描述，造型图需要服装关键词")
+    const hasSourceRefs = sourceReferencesOf(sel).length > 0
+    if (!costume && !hasSourceRefs) {
+      message.warning("请先填写外观描述，或上传原片截图作为服装参考")
       return
     }
-    if (!(extra.avatar_url || sel.image_url)) {
-      message.warning("请先生成或上传肖像，造型图需要把它作为身份锚点传入")
+    if (!(extra.avatar_url || sel.image_url || sourceReferencesOf(sel).length)) {
+      message.warning("请先生成头像，或上传原片截图作为身份参考")
       return
     }
     setGeneratingIdentityId(ident.id || null)
@@ -818,7 +901,12 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       })) as GenerateImageResult
       const cur = selectedAssetRef.current
       if (!cur) return
-      message.success(`造型「${ident.name}」造型图生成成功！`)
+      const refCount = Number(res.source_reference_count || sourceReferencesOf(cur).length)
+      message.success(
+        refCount > 0
+          ? `造型「${ident.name}」已按 ${refCount} 张原片截图的服装生成`
+          : `造型「${ident.name}」造型图生成成功！`,
+      )
       if (res.image_url) {
         // 与 Vue 直接改写 ident 对象一致：若选中资产已被整体替换则该改写自然失效
         mutateSelected((prev) => ({
@@ -1679,6 +1767,11 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                       onGenerateIdentity={handleGenerateIdentityImage}
                       onRemoveIdentity={handleRemoveIdentity}
                       onOpenAddIdentity={openAddIdentityModal}
+                      uploadingSourceRef={uploadingSourceRef}
+                      inferringSourcePrompts={inferringSourcePrompts}
+                      onUploadSourceRefs={handleUploadSourceRefs}
+                      onRemoveSourceRef={handleRemoveSourceRef}
+                      onInferSourcePrompts={handleInferSourcePrompts}
                     />
                   ) : selectedAsset.kind === "scene" ? (
                     <SceneWorkspace
@@ -1695,6 +1788,11 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                       onManualUrl={triggerManualUrlInput}
                       onOpenPanoViewer={openPanoViewerModal}
                       onOpenEditScene={openEditSceneModal}
+                      uploadingSourceRef={uploadingSourceRef}
+                      inferringSourcePrompts={inferringSourcePrompts}
+                      onUploadSourceRefs={handleUploadSourceRefs}
+                      onRemoveSourceRef={handleRemoveSourceRef}
+                      onInferSourcePrompts={handleInferSourcePrompts}
                     />
                   ) : selectedAsset.kind === "prop" ? (
                     <PropWorkspace
@@ -1710,6 +1808,11 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                       onDeletePropImage={handleDeletePropImage}
                       onManualUrl={triggerManualUrlInput}
                       onOpenEditProp={openEditPropModal}
+                      uploadingSourceRef={uploadingSourceRef}
+                      inferringSourcePrompts={inferringSourcePrompts}
+                      onUploadSourceRefs={handleUploadSourceRefs}
+                      onRemoveSourceRef={handleRemoveSourceRef}
+                      onInferSourcePrompts={handleInferSourcePrompts}
                     />
                   ) : null}
                 </div>
@@ -1736,7 +1839,13 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           <div className="pano-viewer-tips">
             <Compass size={15} className="text-blue" />
             <span>支持 360° 全景等距柱状图漫游展示，在 3D 虚拟影棚与自由运镜模式中作为沉浸式天空盒背景。</span>
-            <a href={currentPanoUrl} target="_blank" className="download-link">在新标签页打开原图</a>
+            <button
+              type="button"
+              className="download-link"
+              onClick={() => openMediaPreview({ src: currentPanoUrl, title: "360° 全景原图" })}
+            >
+              预览原图
+            </button>
           </div>
         </div>
       </Modal>

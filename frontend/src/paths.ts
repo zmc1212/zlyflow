@@ -10,12 +10,13 @@ export const PATHS = {
   generateVideo: "/generate/video",
   director: "/director",
   director2: "/director2",
-  director2Settings: "/director2/settings",
   assets: "/assets",
   admin: "/admin",
   adminAccounts: "/admin/accounts",
   adminProviders: "/admin/providers",
   adminLlm: "/admin/llm",
+  adminVlm: "/admin/vlm",
+  adminTts: "/admin/tts",
   adminStorage: "/admin/storage",
 } as const
 
@@ -31,9 +32,9 @@ export const ROUTE_PATTERNS = {
   adminTab: "/admin/:tab",
 } as const
 
-export const ADMIN_TABS = ["accounts", "providers", "llm", "storage"] as const
+export const ADMIN_TABS = ["accounts", "providers", "llm", "vlm", "tts", "storage"] as const
 export type AdminTab = (typeof ADMIN_TABS)[number]
-export const SUPER_ADMIN_ONLY_TABS: readonly AdminTab[] = ["providers", "llm", "storage"]
+export const SUPER_ADMIN_ONLY_TABS: readonly AdminTab[] = ["providers", "llm", "vlm", "tts", "storage"]
 
 const AUTH_SCREEN_PATHS = new Set<string>([PATHS.login, PATHS.setup, PATHS.password])
 
@@ -49,7 +50,6 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.director2Project,
   ROUTE_PATTERNS.director2ProjectMenu,
   ROUTE_PATTERNS.director2ProjectEpisode,
-  PATHS.director2Settings,
   PATHS.director2,
   PATHS.assets,
 ] as const
@@ -108,7 +108,7 @@ export function adminTabPath(tab: AdminTab) {
 }
 
 export function isAdminTab(value: string | undefined): value is AdminTab {
-  return value === "accounts" || value === "providers" || value === "llm" || value === "storage"
+  return value === "accounts" || value === "providers" || value === "llm" || value === "vlm" || value === "tts" || value === "storage"
 }
 
 export function isAdminPath(pathname: string) {
