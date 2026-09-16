@@ -268,12 +268,14 @@
                       <div class="char-title-meta">
                         <div class="char-name-row">
                           <h4 class="char-name">{{ char.name }}</h4>
-                          <a-tag color="blue">{{ char.role }}</a-tag>
-                          <a-tag v-if="char.age" color="cyan" size="small">{{ char.age }}</a-tag>
+                          <a-tag color="blue">{{ char.role || char.role_position }}</a-tag>
+                          <a-tag v-if="char.role_position" color="purple" size="small">{{ char.role_position }}</a-tag>
+                          <a-tag v-if="char.age_group || char.age" color="cyan" size="small">{{ char.age_group || char.age }}</a-tag>
                           <a-tag :color="char.gender === '女' ? 'magenta' : 'geekblue'" size="small">
-                            {{ char.gender }}
+                            {{ char.gender || '未指定' }}
                           </a-tag>
                         </div>
+                        <span v-if="formatAliases(char.aliases)" class="shots-stat">别名：{{ formatAliases(char.aliases) }}</span>
                         <span class="shots-stat">出现分镜：{{ char.shots_count || 0 }} 次</span>
                       </div>
                     </div>
@@ -291,6 +293,25 @@
                     <!-- 外观设定 -->
                     <div class="char-desc-section">
                       <p class="char-desc">{{ char.description }}</p>
+                    </div>
+
+                    <div v-if="char.face_prompt" class="char-prompt-section">
+                      <div class="prompt-head">
+                        <span><Sparkles :size="12" /> 面部提示词</span>
+                        <a-button type="link" size="small" class="copy-link" @click="copyText(char.face_prompt)">
+                          复制
+                        </a-button>
+                      </div>
+                      <p class="prompt-text">{{ char.face_prompt }}</p>
+                    </div>
+
+                    <div v-if="char.art_style_id || char.visual_style || char.body_type" class="char-props-section">
+                      <span class="prop-lbl">画风设定：</span>
+                      <div class="tags-cluster">
+                        <a-tag v-if="char.art_style_id" color="green">{{ char.art_style_id }}</a-tag>
+                        <a-tag v-if="char.visual_style">{{ char.visual_style }}</a-tag>
+                        <a-tag v-if="char.body_type">{{ char.body_type }}</a-tag>
+                      </div>
                     </div>
 
                     <!-- 人物一致性提示词 -->
@@ -673,6 +694,11 @@ function getCharGradient(name) {
   return { background: gradients[charCode % gradients.length] }
 }
 
+function formatAliases(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join('、')
+  return String(value || '').trim()
+}
+
 function copyText(txt) {
   if (!txt) return
   navigator.clipboard.writeText(txt).then(() => {
@@ -772,8 +798,8 @@ async function handleTransferAssets() {
   transferring.value = true
   try {
     const res = await transferAssetsFromDoc(props.projectId, selectedDoc.value.id)
-    const t = res.transferred
-    message.success(`已成功转入资产库：${t.characters} 角色、${t.scenes} 场景、${t.props} 道具`)
+    const transferred = res.transferred || {}
+    message.success(`已转入资产库：${transferred.characters || 0} 角色、${transferred.scenes || 0} 场景、${transferred.props || 0} 道具。请到资产库选中条目后点击「大模型补全」`)
     emit('assets-transferred')
   } catch (err) {
     message.error(err?.response?.data?.detail || '转入资产库失败')

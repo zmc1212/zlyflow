@@ -26,7 +26,7 @@ export function listDocuments(projectId) {
 }
 
 export function createDocument(projectId, data) {
-  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/documents`, data).then((res) => res.data)
+  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/documents`, data, { timeout: 180000 }).then((res) => res.data)
 }
 
 export function deleteDocument(projectId, docId) {
@@ -34,11 +34,11 @@ export function deleteDocument(projectId, docId) {
 }
 
 export function transferAssetsFromDoc(projectId, docId) {
-  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/transfer-assets`).then((res) => res.data)
+  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/transfer-assets`, null, { timeout: 180000 }).then((res) => res.data)
 }
 
 export function transferEpisodesFromDoc(projectId, docId) {
-  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/transfer-episodes`).then((res) => res.data)
+  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/transfer-episodes`, null, { timeout: 180000 }).then((res) => res.data)
 }
 
 // --- 资产库 Assets ---
@@ -67,6 +67,14 @@ export function deleteAsset(projectId, assetId) {
 
 export function generateAssetImage(projectId, assetId, data = {}) {
   return axios.post(`/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/generate`, data).then((res) => res.data)
+}
+
+export function generateAssetImagesBatch(projectId, data = {}) {
+  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/assets/generate-batch`, data).then((res) => res.data)
+}
+
+export function enrichAssetLlm(projectId, assetId) {
+  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/enrich-llm`).then((res) => res.data)
 }
 
 // --- 剧集工坊 Episodes ---
@@ -106,8 +114,12 @@ export function generateBeatImagesBatch(projectId, epId, data) {
   return axios.post(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/generate-images`, data).then((res) => res.data)
 }
 
-export function generateEpisodeVideo(projectId, epId) {
-  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/generate-video`).then((res) => res.data)
+export function generateEpisodeRequiredAssets(projectId, epId, data = {}) {
+  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/generate-required-assets`, data).then((res) => res.data)
+}
+
+export function generateEpisodeVideo(projectId, epId, data = {}) {
+  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/generate-video`, data).then((res) => res.data)
 }
 
 // --- 全部任务 Jobs ---
@@ -122,3 +134,23 @@ export function createJob(projectId, data) {
 export function retryJob(projectId, jobId) {
   return axios.post(`/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/retry`).then((res) => res.data)
 }
+
+export function cancelAllJobs(projectId) {
+  return axios.post(`/api/projects/${encodeURIComponent(projectId)}/jobs/cancel-all`).then((res) => res.data)
+}
+
+export function getJob(projectId, jobId) {
+  return axios.get(`/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`).then((res) => res.data)
+}
+
+// --- H3 视频提示词 ---
+export function generateBeatH3Prompt(projectId, epId, beatId, payload) {
+  return axios
+    .post(
+      `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/h3-prompt`,
+      payload || {},
+      { timeout: 180000 }
+    )
+    .then((res) => res.data)
+}
+

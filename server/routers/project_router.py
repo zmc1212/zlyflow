@@ -149,10 +149,26 @@ def delete_asset(project_id: str, asset_id: str):
     return {"status": "ok", "id": asset_id}
 
 
+@router.post("/{project_id}/assets/generate-batch", status_code=202, summary="按最大并发批量提交角色头像或造型图任务")
+def generate_character_images_batch(project_id: str, payload: dict = None):
+    try:
+        return ProjectDetailService.enqueue_character_images_batch(project_id, payload or {})
+    except Exception as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
 @router.post("/{project_id}/assets/{asset_id}/generate", summary="AI 生成或重新生成资产形象图")
 def generate_asset_image(project_id: str, asset_id: str, payload: dict):
     try:
         return ProjectDetailService.generate_asset_image(project_id, asset_id, payload)
+    except Exception as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@router.post("/{project_id}/assets/{asset_id}/enrich-llm", summary="为单个资产排队大模型档案补全")
+def enrich_asset_llm(project_id: str, asset_id: str):
+    try:
+        return ProjectDetailService.enqueue_asset_llm_fill(project_id, asset_id)
     except Exception as err:
         raise HTTPException(status_code=400, detail=str(err))
 
@@ -219,6 +235,14 @@ def generate_beat_render(project_id: str, episode_id: str, beat_id: str, payload
         raise HTTPException(status_code=400, detail=str(err))
 
 
+@router.post("/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt", status_code=202, summary="调用大模型生成或优化 H3 视频生成提示词")
+def generate_beat_h3_prompt(project_id: str, episode_id: str, beat_id: str, payload: dict = None):
+    try:
+        return ProjectDetailService.generate_beat_h3_prompt(project_id, episode_id, beat_id, payload or {})
+    except Exception as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
 @router.post("/{project_id}/episodes/{episode_id}/generate-images", status_code=202, summary="批量生成分镜草图或渲染图")
 def generate_beat_images_batch(project_id: str, episode_id: str, payload: dict):
     try:
@@ -228,13 +252,25 @@ def generate_beat_images_batch(project_id: str, episode_id: str, payload: dict):
 
 
 @router.post(
+    "/{project_id}/episodes/{episode_id}/generate-required-assets",
+    status_code=202,
+    summary="提交当前集尚未出图的主角头像、场景主图和道具参考图",
+)
+def generate_episode_required_assets(project_id: str, episode_id: str, payload: dict = None):
+    try:
+        return ProjectDetailService.enqueue_episode_required_assets(project_id, episode_id, payload or {})
+    except Exception as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@router.post(
     "/{project_id}/episodes/{episode_id}/generate-video",
     status_code=202,
     summary="一键生成整集 MiniMax H3 视频",
 )
-def generate_episode_video(project_id: str, episode_id: str):
+def generate_episode_video(project_id: str, episode_id: str, payload: dict = None):
     try:
-        return EpisodeVideoService.create_job(project_id, episode_id)
+        return EpisodeVideoService.create_job(project_id, episode_id, payload or {})
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
     except Exception as err:
@@ -247,10 +283,26 @@ def list_jobs(project_id: str):
     return ProjectDetailService.list_jobs(project_id)
 
 
+@router.get("/{project_id}/jobs/{job_id}", summary="获取指定任务详情")
+def get_job(project_id: str, job_id: str):
+    job = ProjectDetailService.get_job(project_id, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {job_id}")
+    return job
+
+
 @router.post("/{project_id}/jobs", summary="创建任务")
 def create_job(project_id: str, payload: dict):
     try:
         return ProjectDetailService.create_job(project_id, payload)
+    except Exception as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@router.post("/{project_id}/jobs/cancel-all", summary="取消项目下全部未完成任务")
+def cancel_all_jobs(project_id: str):
+    try:
+        return ProjectDetailService.cancel_all_jobs(project_id)
     except Exception as err:
         raise HTTPException(status_code=400, detail=str(err))
 
@@ -261,3 +313,4 @@ def retry_job(project_id: str, job_id: str):
         return ProjectDetailService.retry_job(project_id, job_id)
     except Exception as err:
         raise HTTPException(status_code=400, detail=str(err))
+

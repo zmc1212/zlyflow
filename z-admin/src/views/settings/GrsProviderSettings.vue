@@ -41,9 +41,9 @@
           </div>
 
           <div class="form-item">
-            <label class="form-label">分镜生图最大并发数</label>
+            <label class="form-label">生图最大并发数</label>
             <a-input-number v-model:value="maxStoryboardConcurrency" :min="1" :max="20" :precision="0" />
-            <span class="help-text">草图和渲染图共用该并发上限，默认 5。</span>
+            <span class="help-text">角色头像、造型图与分镜草图/渲染图共用该上限，默认 5。</span>
           </div>
 
           <div v-if="errorMsg" class="form-item">

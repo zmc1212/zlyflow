@@ -23,6 +23,111 @@ from .episode_image_prompts import (
 from .grs_client import GrsClient, GrsError
 from .qiniu_service import QiniuService
 from .script_parser import StandardScriptParser
+from .character_import_service import CharacterImportService, aliases_to_text, character_asset_extra
+
+
+_PROTAGONIST_MARKERS = ("主角", "男主", "女主")
+
+
+def is_protagonist_asset(asset: dict[str, Any]) -> bool:
+    extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
+    blob = " ".join(
+        str(item or "")
+        for item in (extra.get("role_position"), extra.get("role"), asset.get("role"))
+    )
+    return any(marker in blob for marker in _PROTAGONIST_MARKERS)
+
+
+def has_primary_asset_image(asset: dict[str, Any]) -> bool:
+    extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
+    kind = asset.get("kind")
+    if kind == "character":
+        return bool(str(extra.get("avatar_url") or asset.get("image_url") or "").strip())
+    if kind == "scene":
+        return bool(str(extra.get("master_url") or asset.get("image_url") or "").strip())
+    if kind == "prop":
+        return bool(str(extra.get("reference_url") or asset.get("image_url") or "").strip())
+    return bool(str(asset.get("image_url") or "").strip())
+
+
+def index_episode_required_assets(
+    beats: list[dict[str, Any]],
+    assets: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Index this episode's 主角 / 场景 / 道具 from beat links (ids first, then names)."""
+    by_id = {str(item.get("id") or ""): item for item in assets if item.get("id")}
+    by_name = {
+        (str(item.get("kind") or ""), str(item.get("name") or "").strip()): item
+        for item in assets
+        if str(item.get("name") or "").strip()
+    }
+    grouped: dict[str, dict[str, dict[str, Any]]] = {"character": {}, "scene": {}, "prop": {}}
+
+    def remember(asset: dict[str, Any] | None) -> None:
+        if not asset:
+            return
+        kind = str(asset.get("kind") or "")
+        asset_id = str(asset.get("id") or "")
+        if not asset_id or kind not in grouped:
+            return
+        if kind == "character" and not is_protagonist_asset(asset):
+            return
+        grouped[kind][asset_id] = asset
+
+    def remember_id(asset_id: Any) -> None:
+        remember(by_id.get(str(asset_id or "").strip()))
+
+    def remember_name(kind: str, name: Any) -> None:
+        remember(by_name.get((kind, str(name or "").strip())))
+
+    for beat in beats:
+        if not isinstance(beat, dict):
+            continue
+        for character_id in beat.get("character_ids") or []:
+            remember_id(character_id)
+        for name in beat.get("characters") or []:
+            remember_name("character", name)
+        remember_name("character", beat.get("speaker"))
+        remember_id(beat.get("scene_id"))
+        remember_name("scene", beat.get("scene"))
+        for prop_id in beat.get("prop_ids") or []:
+            remember_id(prop_id)
+        for name in beat.get("props") or []:
+            remember_name("prop", name)
+
+    return {
+        "characters": list(grouped["character"].values()),
+        "scenes": list(grouped["scene"].values()),
+        "props": list(grouped["prop"].values()),
+    }
+
+
+def primary_image_enqueue_payload(asset: dict[str, Any], model: str = "gpt-image-2") -> dict[str, Any]:
+    extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
+    style = {
+        "model": model,
+        "enqueue": True,
+        "visual_style": extra.get("visual_style") or "",
+        "art_style_id": extra.get("art_style_id") or "",
+    }
+    kind = asset.get("kind")
+    if kind == "character":
+        return {
+            **style,
+            "target_type": "avatar",
+            "aspect_ratio": "1:1",
+            "prompt": str(extra.get("avatar_prompt") or asset.get("name") or "").strip(),
+        }
+    if kind == "scene":
+        return {
+            **style,
+            "target_type": "scene_master",
+            "aspect_ratio": "16:9",
+            "prompt": str(
+                extra.get("environment_prompt") or asset.get("visual_prompt") or asset.get("name") or ""
+            ).strip(),
+        }
+    return {**style, "target_type": "prop_reference", "aspect_ratio": "16:9"}
 
 
 def resolve_shot_scene(
@@ -87,8 +192,9 @@ class ProjectDetailService:
         timestamp = now_str()
         file_size = len(raw_text.encode("utf-8"))
 
-        # 使用高精度标准剧本与分镜解析器解析
+        # 使用高精度标准剧本与分镜解析器解析，再用大模型补全角色档案
         analysis = StandardScriptParser.parse(raw_text)
+        analysis = CharacterImportService.enrich_analysis(analysis, project_style=visual_style, use_llm=False)
 
         # 若未提供文件名或为默认名称，自动优先采用解析出的剧目主标题
         if (not filename or filename.startswith("未命名") or filename == "新建剧本文档") and analysis.get("title"):
@@ -136,26 +242,71 @@ class ProjectDetailService:
         return aff > 0
 
     @classmethod
+    def _document_visual_style(cls, project_id: str, doc_id: str) -> str:
+        row = query_one(
+            "SELECT visual_style FROM ai_project_documents WHERE id = %s AND project_id = %s",
+            (doc_id, project_id),
+        ) or {}
+        return str(row.get("visual_style") or "chinese_period_drama")
+
+    @classmethod
     def transfer_assets_from_document(cls, project_id: str, doc_id: str) -> dict[str, Any]:
-        row = query_one("SELECT analysis_json FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
-        if not row or not row.get("analysis_json"):
+        row = query_one(
+            "SELECT analysis_json, raw_text, visual_style FROM ai_project_documents WHERE id = %s AND project_id = %s",
+            (doc_id, project_id),
+        )
+        if not row or not (row.get("analysis_json") or row.get("raw_text")):
             raise ValueError("文档不存在或尚未完成分析")
 
-        analysis = json.loads(row["analysis_json"])
         ts = now_str()
+        project_style = str(row.get("visual_style") or "chinese_period_drama")
+        if row.get("raw_text"):
+            analysis = StandardScriptParser.parse(row["raw_text"])
+        else:
+            analysis = json.loads(row["analysis_json"])
+        analysis = CharacterImportService.enrich_analysis(analysis, project_style=project_style, use_llm=False)
+        execute_sql(
+            "UPDATE ai_project_documents SET analysis_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+            (json.dumps(analysis, ensure_ascii=False), ts, doc_id, project_id),
+        )
         chars = analysis.get("characters") or []
         scenes = analysis.get("scenes") or []
         props = analysis.get("props") or []
 
         # 查询已有资产以做平滑更新或去重
-        existing_rows = query_all("SELECT id, kind, name FROM ai_project_assets WHERE project_id = %s", (project_id,))
+        existing_rows = query_all(
+            "SELECT id, kind, name, extra_json FROM ai_project_assets WHERE project_id = %s",
+            (project_id,),
+        )
         existing_map = {(r["kind"], r["name"]): r["id"] for r in existing_rows}
+        existing_extra = {}
+        for r in existing_rows:
+            try:
+                existing_extra[r["id"]] = json.loads(r["extra_json"]) if r.get("extra_json") else {}
+            except Exception:
+                existing_extra[r["id"]] = {}
+
+        def find_character_asset_id(character: dict[str, Any]) -> str | None:
+            wanted = {str(character.get("name") or "").strip()}
+            wanted.update(part for part in aliases_to_text(character.get("aliases")).split(",") if part)
+            wanted = {item for item in wanted if item}
+            for row in existing_rows:
+                if row.get("kind") != "character":
+                    continue
+                have = {str(row.get("name") or "").strip()}
+                extra = existing_extra.get(row["id"]) or {}
+                have.update(part for part in aliases_to_text(extra.get("aliases")).split(",") if part)
+                if "（" in str(row.get("name") or ""):
+                    have.add(str(row.get("name") or "").split("（", 1)[0].strip())
+                if wanted & {item for item in have if item}:
+                    return row["id"]
+            return None
 
         c_count = 0
         s_count = 0
         p_count = 0
 
-        # 1. 角色转入（保存角色名、定位、外观与一致性 Prompt）
+        # 1. 角色转入（完整档案：定位、别名、性别、年龄段、面部提示词、画风、多造型）
         for c in chars:
             c_name = c.get("name", "").strip()
             if not c_name:
@@ -164,19 +315,27 @@ class ProjectDetailService:
             desc = c.get("description") or f"{c.get('gender', '')} 角色设定"
             prompt = c.get("visual_prompt") or ""
             key = ("character", c_name)
-            if key in existing_map:
+            aid = existing_map.get(key) or find_character_asset_id(c)
+            if aid:
+                extra = character_asset_extra(c, aid, existing_extra.get(aid) or {})
                 execute_sql(
-                    "UPDATE ai_project_assets SET role = %s, description = %s, visual_prompt = %s, updated_at = %s WHERE id = %s",
-                    (role, desc, prompt, ts, existing_map[key]),
+                    """
+                    UPDATE ai_project_assets
+                    SET name = %s, role = %s, description = %s, visual_prompt = %s, extra_json = %s, updated_at = %s
+                    WHERE id = %s
+                    """,
+                    (c_name, role, desc, prompt, json.dumps(extra, ensure_ascii=False), ts, aid),
                 )
             else:
                 aid = f"ast-{uuid.uuid4().hex[:12]}"
+                extra = character_asset_extra(c, aid, {})
                 execute_sql(
                     """
-                    INSERT INTO ai_project_assets (id, project_id, kind, name, role, description, visual_prompt, created_at, updated_at)
-                    VALUES (%s, %s, 'character', %s, %s, %s, %s, %s, %s)
+                    INSERT INTO ai_project_assets
+                    (id, project_id, kind, name, role, description, visual_prompt, extra_json, created_at, updated_at)
+                    VALUES (%s, %s, 'character', %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (aid, project_id, c_name, role, desc, prompt, ts, ts),
+                    (aid, project_id, c_name, role, desc, prompt, json.dumps(extra, ensure_ascii=False), ts, ts),
                 )
             c_count += 1
 
@@ -189,9 +348,10 @@ class ProjectDetailService:
             desc = s.get("description") or f"规划场景: {s_name}"
             key = ("scene", s_name)
             if key in existing_map:
+                aid = existing_map[key]
                 execute_sql(
                     "UPDATE ai_project_assets SET role = %s, description = %s, updated_at = %s WHERE id = %s",
-                    (role, desc, ts, existing_map[key]),
+                    (role, desc, ts, aid),
                 )
             else:
                 aid = f"ast-{uuid.uuid4().hex[:12]}"
@@ -214,9 +374,10 @@ class ProjectDetailService:
             desc = f"类型: {role}，关联角色/场景: {rel_char}"
             key = ("prop", p_name)
             if key in existing_map:
+                aid = existing_map[key]
                 execute_sql(
                     "UPDATE ai_project_assets SET role = %s, description = %s, updated_at = %s WHERE id = %s",
-                    (role, desc, ts, existing_map[key]),
+                    (role, desc, ts, aid),
                 )
             else:
                 aid = f"ast-{uuid.uuid4().hex[:12]}"
@@ -240,19 +401,39 @@ class ProjectDetailService:
 
     @classmethod
     def transfer_episodes_from_document(cls, project_id: str, doc_id: str) -> dict[str, Any]:
-        """将解析出的分集与镜头批量同步到剧集工坊"""
-        row = query_one("SELECT analysis_json FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
-        if not row or not row.get("analysis_json"):
+        """将解析出的分集与镜头同步到剧集工坊（仅写入骨架，不排队大模型补全）。"""
+        row = query_one(
+            "SELECT analysis_json, raw_text, visual_style FROM ai_project_documents WHERE id = %s AND project_id = %s",
+            (doc_id, project_id),
+        )
+        if not row or not (row.get("analysis_json") or row.get("raw_text")):
             raise ValueError("文档不存在或尚未完成分析")
 
-        analysis = json.loads(row["analysis_json"])
+        ts = now_str()
+        project_style = str(row.get("visual_style") or "chinese_period_drama")
+        if row.get("raw_text"):
+            analysis = StandardScriptParser.parse(row["raw_text"])
+            analysis = CharacterImportService.enrich_analysis(analysis, project_style=project_style, use_llm=False)
+            execute_sql(
+                "UPDATE ai_project_documents SET analysis_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (json.dumps(analysis, ensure_ascii=False), ts, doc_id, project_id),
+            )
+        else:
+            analysis = json.loads(row["analysis_json"])
+
         episodes = analysis.get("episodes") or []
         if not episodes:
             raise ValueError("该剧本中未识别到分集或分镜头信息")
 
-        ts = now_str()
-        existing_rows = query_all("SELECT id, episode_num FROM ai_project_episodes WHERE project_id = %s", (project_id,))
-        existing_map = {r["episode_num"]: r["id"] for r in existing_rows}
+        existing_rows = query_all(
+            "SELECT id, episode_num, data_json FROM ai_project_episodes WHERE project_id = %s",
+            (project_id,),
+        )
+        existing_map = {r["episode_num"]: r for r in existing_rows}
+        assets_rows = query_all(
+            "SELECT id, kind, name, extra_json FROM ai_project_assets WHERE project_id = %s",
+            (project_id,),
+        )
 
         total_episodes = len(episodes)
         total_shots = 0
@@ -264,12 +445,9 @@ class ProjectDetailService:
             shots_count = len(shots)
             total_shots += shots_count
 
-            # 格式化编排脚本正文供剧集工坊展示
             script_lines = [f"第 {ep_num} 集：{title}"]
             if ep.get("summary"):
                 script_lines.append(f"【剧情概要】{ep['summary']}\n")
-            inherited_scene_name = ""
-            inherited_scene_id = None
             for s in shots:
                 s_header = f"### 镜头 {s.get('shot_num', 1)}｜{s.get('title', '')}"
                 script_lines.append(s_header)
@@ -288,33 +466,164 @@ class ProjectDetailService:
                 if s.get("visual_prompt"):
                     script_lines.append(f"- 提示词：{s['visual_prompt']}")
                 script_lines.append("")
-
             script_text = "\n".join(script_lines).strip()
 
-            if ep_num in existing_map:
+            existing = existing_map.get(ep_num)
+            old_beats = []
+            if existing and existing.get("data_json"):
+                try:
+                    old_beats = (json.loads(existing["data_json"]) or {}).get("beats") or []
+                except Exception:
+                    old_beats = []
+            eid = existing["id"] if existing else f"ep-{uuid.uuid4().hex[:12]}"
+            beats = cls._beats_from_shots(eid, shots, assets_rows, old_beats)
+            data_json = json.dumps({"beats": beats, "summary": ep.get("summary") or ""}, ensure_ascii=False)
+
+            if existing:
                 execute_sql(
                     """
                     UPDATE ai_project_episodes
-                    SET title = %s, script_text = %s, shots_count = %s, status = 'script_ready', updated_at = %s
+                    SET title = %s, script_text = %s, shots_count = %s, status = 'script_ready',
+                        data_json = %s, updated_at = %s
                     WHERE id = %s
                     """,
-                    (title, script_text, shots_count, ts, existing_map[ep_num]),
+                    (title, script_text, shots_count, data_json, ts, eid),
                 )
             else:
-                eid = f"ep-{uuid.uuid4().hex[:12]}"
                 execute_sql(
                     """
                     INSERT INTO ai_project_episodes
-                    (id, project_id, episode_num, title, status, script_text, shots_count, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, 'script_ready', %s, %s, %s, %s)
+                    (id, project_id, episode_num, title, status, script_text, shots_count, data_json, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, 'script_ready', %s, %s, %s, %s, %s)
                     """,
-                    (eid, project_id, ep_num, title, script_text, shots_count, ts, ts),
+                    (eid, project_id, ep_num, title, script_text, shots_count, data_json, ts, ts),
                 )
 
         return {
             "transferred_episodes": total_episodes,
             "transferred_shots": total_shots,
         }
+
+    @classmethod
+    def _beats_from_shots(
+        cls,
+        episode_id: str,
+        shots: list[dict[str, Any]],
+        assets_rows: list[dict[str, Any]],
+        existing_beats: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        from .cast_resolver import match_look_id, resolve_mention
+
+        existing_by_seq = {}
+        for beat in existing_beats or []:
+            try:
+                existing_by_seq[int(beat.get("sequence") or 0)] = beat
+            except (TypeError, ValueError):
+                continue
+        characters = []
+        for row in assets_rows:
+            if row.get("kind") != "character":
+                continue
+            extra = {}
+            if row.get("extra_json"):
+                try:
+                    extra = json.loads(row["extra_json"]) or {}
+                except Exception:
+                    extra = {}
+            aliases = [part.strip() for part in str(extra.get("aliases") or "").split(",") if part.strip()]
+            characters.append({
+                "id": row["id"],
+                "name": row["name"],
+                "aliases": aliases,
+                "looks": extra.get("identities") or [],
+            })
+        scene_map = {a["name"]: a["id"] for a in assets_rows if a.get("kind") == "scene"}
+        prop_map = {a["name"]: a["id"] for a in assets_rows if a.get("kind") == "prop"}
+        inherited_scene_name = ""
+        inherited_scene_id = None
+        beats = []
+        for shot in shots:
+            s_num = int(shot.get("shot_num") or len(beats) + 1)
+            s_title = shot.get("title") or f"镜头 {s_num}"
+            s_scene = shot.get("scene") or ""
+            s_camera = shot.get("camera") or "中景"
+            s_action = shot.get("action") or ""
+            s_dialogue = shot.get("dialogue") or ""
+            s_prompt = shot.get("visual_prompt") or ""
+            raw_names = list(shot.get("characters") or [])
+            s_props = list(shot.get("props") or [])
+            looks_map = shot.get("character_looks") if isinstance(shot.get("character_looks"), dict) else {}
+
+            matched_char_ids = []
+            resolved_names = []
+            look_ids: dict[str, str] = {}
+            for mention in raw_names:
+                matched = resolve_mention(mention, characters)
+                if not matched:
+                    continue
+                if matched["id"] not in matched_char_ids:
+                    matched_char_ids.append(matched["id"])
+                    resolved_names.append(matched["name"])
+                look_name = str(looks_map.get(matched["name"]) or looks_map.get(mention) or "")
+                look_id = match_look_id(matched.get("looks") or [], look_name, mention, s_action, s_prompt)
+                if look_id:
+                    look_ids[str(matched["id"])] = look_id
+
+            speaker_mention = str(shot.get("speaker") or "")
+            speaker = ""
+            if speaker_mention:
+                matched = resolve_mention(speaker_mention, characters)
+                speaker = matched["name"] if matched else ""
+            if not speaker and resolved_names:
+                speaker = resolved_names[0]
+
+            explicit_scene = bool(str(s_scene or "").strip())
+            s_scene, matched_scene_id = resolve_shot_scene(
+                s_scene, scene_map, inherited_scene_name, inherited_scene_id
+            )
+            if explicit_scene:
+                inherited_scene_name = s_scene
+                inherited_scene_id = matched_scene_id
+
+            matched_prop_ids = []
+            for p_name in s_props:
+                for key, aid in prop_map.items():
+                    if key in p_name or p_name in key:
+                        if aid not in matched_prop_ids:
+                            matched_prop_ids.append(aid)
+
+            heading = f"{s_title} · {s_scene} · {s_camera}" if s_scene else s_title
+            old = existing_by_seq.get(s_num) or {}
+            beat = {
+                "id": old.get("id") or f"beat-{episode_id}-{s_num}",
+                "sequence": s_num,
+                "kind": "dialogue" if s_dialogue else "action",
+                "heading": heading,
+                "speaker": speaker,
+                "dialogue": s_dialogue,
+                "action": s_action,
+                "camera": s_camera,
+                "characters": resolved_names or raw_names,
+                "character_ids": matched_char_ids,
+                "character_look_ids": look_ids,
+                "scene": s_scene,
+                "scene_id": matched_scene_id,
+                "props": s_props,
+                "prop_ids": matched_prop_ids,
+                "visual_prompt": s_prompt,
+                "sketch_prompt": s_prompt,
+                "sketch_url": old.get("sketch_url"),
+                "sketch_job_id": old.get("sketch_job_id"),
+                "render_url": old.get("render_url"),
+                "render_job_id": old.get("render_job_id"),
+                "render_status": old.get("render_status"),
+                "video_url": old.get("video_url"),
+                "video_prompt_zh": s_action or s_dialogue or s_prompt,
+                "video_duration": "10",
+                "status": "draft",
+            }
+            beats.append(beat)
+        return beats
 
     # --- 2. 资产库 Assets ---
     @classmethod
@@ -333,7 +642,17 @@ class ProjectDetailService:
             if not extra.get("avatar_url"):
                 extra["avatar_url"] = row.get("image_url") or ""
             if not extra.get("avatar_prompt"):
-                extra["avatar_prompt"] = f"{row['name']}，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k"
+                extra["avatar_prompt"] = extra.get("face_prompt") or f"{row['name']}，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k"
+            extra.setdefault("aliases", "")
+            extra.setdefault("description", row.get("description") or "")
+            extra.setdefault("role_position", "配角")
+            extra.setdefault("age_group", "")
+            extra.setdefault("face_prompt", "")
+            extra.setdefault("gender", "")
+            extra.setdefault("body_type", "")
+            extra.setdefault("art_style_id", "")
+            extra.setdefault("visual_style", "")
+            extra.setdefault("ethnicity", "Chinese")
             
             identities = extra.get("identities")
             if not identities or not isinstance(identities, list):
@@ -406,15 +725,104 @@ class ProjectDetailService:
     def list_assets(cls, project_id: str, kind: Optional[str] = None) -> list[dict[str, Any]]:
         if kind:
             rows = query_all(
-                "SELECT * FROM ai_project_assets WHERE project_id = %s AND kind = %s ORDER BY updated_at DESC",
+                "SELECT * FROM ai_project_assets WHERE project_id = %s AND kind = %s",
                 (project_id, kind),
             )
         else:
             rows = query_all(
-                "SELECT * FROM ai_project_assets WHERE project_id = %s ORDER BY updated_at DESC",
+                "SELECT * FROM ai_project_assets WHERE project_id = %s",
                 (project_id,),
             )
+        order = cls._asset_first_use_order(project_id)
+        rows.sort(key=lambda row: cls._asset_sort_key(row, order))
         return [cls._hydrate_asset(r) for r in rows]
+
+    @classmethod
+    def _asset_sort_key(cls, row: dict[str, Any], order: dict[str, int]) -> tuple:
+        aid = str(row.get("id") or "")
+        if aid in order:
+            return (0, order[aid], str(row.get("name") or ""))
+        return (1, str(row.get("created_at") or ""), str(row.get("name") or ""))
+
+    @classmethod
+    def _asset_first_use_order(cls, project_id: str) -> dict[str, int]:
+        """按剧集号、镜头序号记录每个资产第一次出现的位置。"""
+        episodes = query_all(
+            """
+            SELECT episode_num, data_json FROM ai_project_episodes
+            WHERE project_id = %s ORDER BY episode_num ASC, created_at ASC
+            """,
+            (project_id,),
+        )
+        if not episodes:
+            return {}
+        assets = query_all(
+            "SELECT id, kind, name, extra_json FROM ai_project_assets WHERE project_id = %s",
+            (project_id,),
+        )
+        name_index: dict[tuple[str, str], str] = {}
+        for item in assets:
+            kind = str(item.get("kind") or "")
+            aid = str(item.get("id") or "")
+            names = [str(item.get("name") or "").strip()]
+            extra = {}
+            if item.get("extra_json"):
+                try:
+                    extra = json.loads(item["extra_json"]) or {}
+                except (TypeError, json.JSONDecodeError):
+                    extra = {}
+            aliases = extra.get("aliases") or ""
+            if isinstance(aliases, list):
+                names.extend(str(part).strip() for part in aliases)
+            else:
+                names.extend(part.strip() for part in str(aliases).replace("，", ",").split(","))
+            for name in names:
+                if kind and name:
+                    name_index.setdefault((kind, name), aid)
+        order: dict[str, int] = {}
+        rank = 0
+
+        def remember(asset_id: str | None) -> None:
+            nonlocal rank
+            aid = str(asset_id or "").strip()
+            if not aid or aid in order:
+                return
+            order[aid] = rank
+            rank += 1
+
+        def remember_names(kind: str, names: list[Any]) -> None:
+            for raw in names:
+                name = str(raw or "").strip()
+                if name:
+                    remember(name_index.get((kind, name)))
+
+        for episode in episodes:
+            try:
+                data = json.loads(episode.get("data_json") or "{}") or {}
+            except (TypeError, json.JSONDecodeError):
+                data = {}
+            beats = list(data.get("beats") or [])
+            beats.sort(key=lambda beat: cls._beat_sequence(beat))
+            for beat in beats:
+                if not isinstance(beat, dict):
+                    continue
+                for character_id in beat.get("character_ids") or []:
+                    remember(character_id)
+                remember_names("character", beat.get("characters") or [])
+                remember_names("character", [beat.get("speaker")] if beat.get("speaker") else [])
+                remember(beat.get("scene_id"))
+                remember_names("scene", [beat.get("scene")] if beat.get("scene") else [])
+                for prop_id in beat.get("prop_ids") or []:
+                    remember(prop_id)
+                remember_names("prop", beat.get("props") or [])
+        return order
+
+    @staticmethod
+    def _beat_sequence(beat: dict[str, Any]) -> int:
+        try:
+            return int(beat.get("sequence") or 0)
+        except (TypeError, ValueError):
+            return 0
 
     @classmethod
     def create_asset(cls, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -529,7 +937,324 @@ class ProjectDetailService:
         return aff > 0
 
     @classmethod
-    def generate_asset_image(cls, project_id: str, asset_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _llm_fill_context(cls, project_id: str) -> dict[str, Any]:
+        proj = query_one("SELECT name, settings_json FROM ai_projects WHERE id = %s", (project_id,)) or {}
+        settings: dict[str, Any] = {}
+        if proj.get("settings_json"):
+            try:
+                settings = json.loads(proj["settings_json"]) or {}
+            except Exception:
+                settings = {}
+        roster = []
+        for item in query_all(
+            "SELECT name, extra_json FROM ai_project_assets WHERE project_id = %s AND kind = 'character'",
+            (project_id,),
+        ):
+            extra: dict[str, Any] = {}
+            if item.get("extra_json"):
+                try:
+                    extra = json.loads(item["extra_json"]) or {}
+                except Exception:
+                    extra = {}
+            looks = extra.get("identities") if isinstance(extra.get("identities"), list) else []
+            roster.append({
+                "name": item.get("name"),
+                "aliases": extra.get("aliases") or "",
+                "looks": [str(look.get("name") or "") for look in looks if isinstance(look, dict) and look.get("name")][:8],
+            })
+        return {
+            "title": proj.get("name") or "",
+            "genre": str(settings.get("genre") or ""),
+            "visual_style": str(settings.get("visual_style") or ""),
+            "project_style": str(settings.get("visual_style") or settings.get("art_style_id") or "chinese_period_drama"),
+            "characters": roster[:20],
+        }
+
+    @classmethod
+    def enqueue_asset_llm_fill(cls, project_id: str, asset_id: str) -> dict[str, Any]:
+        from .llm_fill_job_service import LlmFillJobService
+
+        raw = query_one("SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s", (asset_id, project_id))
+        if not raw:
+            raise ValueError("资产不存在")
+        row = cls._hydrate_asset(raw)
+        extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+        context = cls._llm_fill_context(project_id)
+        kind = row.get("kind")
+        if kind == "character":
+            looks = []
+            for ident in extra.get("identities") or []:
+                if not isinstance(ident, dict):
+                    continue
+                looks.append({
+                    "id": ident.get("id"),
+                    "name": ident.get("name"),
+                    "description": str(ident.get("description") or "")[:400],
+                    "visual_prompt": str(ident.get("visual_prompt") or "")[:600],
+                })
+            return LlmFillJobService.enqueue_character(
+                project_id,
+                asset_id,
+                {
+                    "name": row.get("name"),
+                    "aliases": extra.get("aliases") or "",
+                    "role": row.get("role") or extra.get("role_position") or "",
+                    "description": str(row.get("description") or extra.get("description") or "")[:1200],
+                    "looks": looks,
+                },
+                context,
+            )
+        if kind == "scene":
+            return LlmFillJobService.enqueue_scene(
+                project_id,
+                asset_id,
+                {
+                    "name": row.get("name"),
+                    "type": row.get("role") or extra.get("scene_type") or "",
+                    "description": str(row.get("description") or extra.get("environment_prompt") or "")[:1200],
+                },
+                context,
+            )
+        if kind == "prop":
+            return LlmFillJobService.enqueue_prop(
+                project_id,
+                asset_id,
+                {
+                    "name": row.get("name"),
+                    "kind": row.get("role") or extra.get("prop_type") or "",
+                    "related_character": extra.get("owner") or "",
+                    "description": str(row.get("description") or extra.get("visual_prompt") or "")[:1200],
+                },
+                context,
+            )
+        raise ValueError("仅支持角色、场景、道具的大模型补全")
+
+    @classmethod
+    def _find_active_asset_image_job(
+        cls,
+        project_id: str,
+        asset_id: str,
+        target_type: str,
+        identity_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        rows = query_all(
+            """
+            SELECT id, status, payload_json FROM ai_project_jobs
+            WHERE project_id = %s AND job_type = 'image_generation'
+              AND status IN ('queued', 'preparing', 'running', 'storing')
+            ORDER BY created_at DESC
+            """,
+            (project_id,),
+        )
+        for row in rows:
+            payload: dict[str, Any] = {}
+            if row.get("payload_json"):
+                try:
+                    payload = json.loads(row["payload_json"]) or {}
+                except Exception:
+                    payload = {}
+            if payload.get("target_type") != target_type or payload.get("asset_id") != asset_id:
+                continue
+            if target_type == "identity" and str(payload.get("identity_id") or "") != str(identity_id or ""):
+                continue
+            return row
+        return None
+
+    @classmethod
+    def apply_generated_asset_image(
+        cls,
+        project_id: str,
+        asset_id: str,
+        *,
+        target_type: str,
+        identity_id: str | None,
+        image_url: str,
+        object_key: str = "",
+        prompt: str = "",
+    ) -> dict[str, Any]:
+        raw_row = query_one("SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s", (asset_id, project_id))
+        if not raw_row:
+            raise ValueError("资产不存在")
+        extra: dict[str, Any] = {}
+        if raw_row.get("extra_json"):
+            try:
+                extra = json.loads(raw_row["extra_json"]) or {}
+            except Exception:
+                extra = {}
+        ts = now_str()
+        if target_type == "avatar":
+            extra["avatar_url"] = image_url
+            extra["avatar_object_key"] = object_key
+            if prompt:
+                extra["avatar_prompt"] = prompt
+            execute_sql(
+                "UPDATE ai_project_assets SET image_url = %s, extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (image_url, json.dumps(extra, ensure_ascii=False), ts, asset_id, project_id),
+            )
+        elif target_type == "identity":
+            identities = extra.get("identities") if isinstance(extra.get("identities"), list) else []
+            found = False
+            for item in identities:
+                if item.get("id") == identity_id:
+                    item["image_url"] = image_url
+                    item["object_key"] = object_key
+                    found = True
+                    break
+            if not found and identity_id:
+                identities.append({
+                    "id": identity_id,
+                    "name": "新造型",
+                    "description": "",
+                    "visual_prompt": prompt,
+                    "image_url": image_url,
+                    "object_key": object_key,
+                })
+            extra["identities"] = identities
+            execute_sql(
+                "UPDATE ai_project_assets SET extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (json.dumps(extra, ensure_ascii=False), ts, asset_id, project_id),
+            )
+        elif target_type == "scene_master":
+            extra["master_url"] = image_url
+            if prompt:
+                extra["environment_prompt"] = prompt
+            execute_sql(
+                "UPDATE ai_project_assets SET image_url = %s, extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (image_url, json.dumps(extra, ensure_ascii=False), ts, asset_id, project_id),
+            )
+        elif target_type == "scene_reverse":
+            extra["reverse_url"] = image_url
+            extra["reverse_object_key"] = object_key
+            execute_sql(
+                "UPDATE ai_project_assets SET extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (json.dumps(extra, ensure_ascii=False), ts, asset_id, project_id),
+            )
+        elif target_type == "scene_pano":
+            extra["pano_url"] = image_url
+            extra["pano_object_key"] = object_key
+            execute_sql(
+                "UPDATE ai_project_assets SET extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (json.dumps(extra, ensure_ascii=False), ts, asset_id, project_id),
+            )
+        elif target_type == "prop_reference":
+            extra["reference_url"] = image_url
+            extra["reference_object_key"] = object_key
+            execute_sql(
+                "UPDATE ai_project_assets SET image_url = %s, extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (image_url, json.dumps(extra, ensure_ascii=False), ts, asset_id, project_id),
+            )
+        elif target_type == "prop_turnaround":
+            extra["turnaround_url"] = image_url
+            extra["turnaround_object_key"] = object_key
+            execute_sql(
+                "UPDATE ai_project_assets SET extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (json.dumps(extra, ensure_ascii=False), ts, asset_id, project_id),
+            )
+        elif target_type == "prop_detail":
+            extra["detail_url"] = image_url
+            extra["detail_object_key"] = object_key
+            execute_sql(
+                "UPDATE ai_project_assets SET extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (json.dumps(extra, ensure_ascii=False), ts, asset_id, project_id),
+            )
+        else:
+            execute_sql(
+                "UPDATE ai_project_assets SET image_url = %s, visual_prompt = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (image_url, prompt, ts, asset_id, project_id),
+            )
+        updated_row = query_one("SELECT * FROM ai_project_assets WHERE id = %s", (asset_id,))
+        return cls._hydrate_asset(updated_row) if updated_row else {}
+
+    @classmethod
+    def enqueue_character_images_batch(cls, project_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        from .storyboard_image_service import StoryboardImageService
+
+        target_type = str((payload or {}).get("target_type") or "avatar").strip()
+        if target_type not in {"avatar", "identity"}:
+            raise ValueError("仅支持批量提交角色头像或造型图任务")
+        model = str((payload or {}).get("model") or "gpt-image-2").strip() or "gpt-image-2"
+        jobs: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        characters = [item for item in cls.list_assets(project_id, "character") if item.get("kind") == "character"]
+        for asset in characters:
+            extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
+            if target_type == "avatar":
+                if extra.get("avatar_url") or asset.get("image_url"):
+                    skipped.append({"asset_id": asset["id"], "name": asset.get("name"), "reason": "已有头像"})
+                    continue
+                try:
+                    jobs.append(cls.generate_asset_image(
+                        project_id,
+                        asset["id"],
+                        {
+                            "target_type": "avatar",
+                            "prompt": str(extra.get("avatar_prompt") or asset.get("name") or "").strip(),
+                            "model": model,
+                            "aspect_ratio": "1:1",
+                        },
+                        enqueue_only=True,
+                    ))
+                except Exception as err:
+                    skipped.append({"asset_id": asset["id"], "name": asset.get("name"), "reason": str(err)})
+                continue
+            if not (extra.get("avatar_url") or asset.get("image_url")):
+                skipped.append({"asset_id": asset["id"], "name": asset.get("name"), "reason": "请先生成头像"})
+                continue
+            identities = extra.get("identities") if isinstance(extra.get("identities"), list) else []
+            for ident in identities:
+                if not isinstance(ident, dict):
+                    continue
+                costume = look_costume_text(ident) or str(ident.get("description") or ident.get("appearance_details") or "").strip()
+                if not costume:
+                    skipped.append({
+                        "asset_id": asset["id"],
+                        "identity_id": ident.get("id"),
+                        "name": f"{asset.get('name')} / {ident.get('name')}",
+                        "reason": "缺少外观描述",
+                    })
+                    continue
+                if ident.get("image_url"):
+                    skipped.append({
+                        "asset_id": asset["id"],
+                        "identity_id": ident.get("id"),
+                        "name": f"{asset.get('name')} / {ident.get('name')}",
+                        "reason": "已有造型图",
+                    })
+                    continue
+                try:
+                    jobs.append(cls.generate_asset_image(
+                        project_id,
+                        asset["id"],
+                        {
+                            "target_type": "identity",
+                            "identity_id": ident.get("id"),
+                            "prompt": costume,
+                            "model": model,
+                            "aspect_ratio": "16:9",
+                        },
+                        enqueue_only=True,
+                    ))
+                except Exception as err:
+                    skipped.append({
+                        "asset_id": asset["id"],
+                        "identity_id": ident.get("id"),
+                        "name": f"{asset.get('name')} / {ident.get('name')}",
+                        "reason": str(err),
+                    })
+        StoryboardImageService.kick()
+        queued = sum(1 for item in jobs if not item.get("duplicate"))
+        return {
+            "status": "queued",
+            "target_type": target_type,
+            "queued": queued,
+            "jobs": jobs,
+            "skipped": skipped,
+            "concurrency": StoryboardImageService._limit(),
+        }
+
+    @classmethod
+    def generate_asset_image(cls, project_id: str, asset_id: str, payload: dict[str, Any], *, enqueue_only: bool = False) -> dict[str, Any]:
+        enqueue_only = enqueue_only or bool(payload.get("enqueue"))
         raw_row = query_one("SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s", (asset_id, project_id))
         if not raw_row:
             raise ValueError("资产不存在")
@@ -709,6 +1434,7 @@ class ProjectDetailService:
         ts = now_str()
         jid = f"job-{uuid.uuid4().hex[:12]}"
         job_payload = {
+            "project_id": project_id,
             "model": grs_model,
             "api_endpoint": f"{grs_base_url}/v1/api/generate",
             "image_size": "1K",
@@ -738,19 +1464,56 @@ class ProjectDetailService:
                 "replyType": "async",
             },
         }
+        if enqueue_only:
+            existing = cls._find_active_asset_image_job(project_id, asset_id, target_type, identity_id)
+            if existing:
+                return {
+                    "status": existing.get("status") or "queued",
+                    "job_id": existing["id"],
+                    "target_type": target_type,
+                    "identity_id": identity_id,
+                    "asset_id": asset_id,
+                    "duplicate": True,
+                    "busy": True,
+                    "message": "正在任务中",
+                }
         execute_sql(
             """
             INSERT INTO ai_project_jobs
             (id, project_id, job_type, title, status, progress, result_url, payload_json, created_at, updated_at)
-            VALUES (%s, %s, 'image_generation', %s, 'running', 10, NULL, %s, %s, %s)
+            VALUES (%s, %s, 'image_generation', %s, %s, %s, NULL, %s, %s, %s)
             """,
-            (jid, project_id, job_title, json.dumps(job_payload, ensure_ascii=False), ts, ts),
+            (
+                jid,
+                project_id,
+                job_title,
+                "queued" if enqueue_only else "running",
+                0 if enqueue_only else 10,
+                json.dumps(job_payload, ensure_ascii=False),
+                ts,
+                ts,
+            ),
         )
+        if enqueue_only:
+            from .storyboard_image_service import StoryboardImageService
+            StoryboardImageService.kick()
+            live = query_one("SELECT status FROM ai_project_jobs WHERE id = %s", (jid,)) or {}
+            status = str(live.get("status") or "queued")
+            return {
+                "status": status,
+                "job_id": jid,
+                "target_type": target_type,
+                "identity_id": identity_id,
+                "asset_id": asset_id,
+                "duplicate": False,
+                "queued": status == "queued",
+                "concurrency": StoryboardImageService._limit(),
+            }
 
         client = GrsClient(base_url=grs_base_url, api_key=api_key)
         try:
+            reference_images = []
             if reference_urls:
-                reference_images = []
                 for ref_url in reference_urls:
                     ref_name, ref_bytes = client.download_image(ref_url)
                     reference_images.append(GrsClient.data_uri_from_bytes(ref_bytes, ref_name))
@@ -920,7 +1683,7 @@ class ProjectDetailService:
             UPDATE ai_project_jobs
             SET status = 'completed', progress = 100, result_url = %s, payload_json = %s,
                 error_message = NULL, completed_at = %s, updated_at = %s
-            WHERE id = %s
+            WHERE id = %s AND status <> 'cancelled'
             """,
             (image_url, json.dumps(job_payload, ensure_ascii=False), ts, ts, jid),
         )
@@ -1030,7 +1793,6 @@ class ProjectDetailService:
             target_ep = next((e for e in episodes_list if e.get("episode_num") == ep["episode_num"]), None)
 
             shots = (target_ep.get("shots") if target_ep else []) or []
-            # 如果依然没有，从 script_text 简单解析行
             if not shots and ep.get("script_text"):
                 lines = [l.strip() for l in ep["script_text"].split("\n") if l.strip()]
                 for idx, line in enumerate(lines):
@@ -1040,68 +1802,7 @@ class ProjectDetailService:
                         "action": line,
                         "visual_prompt": f"{ep['title']}，分镜{idx + 1}，{line}，电影级画面，8k",
                     })
-
-            for s in shots:
-                s_num = s.get("shot_num", len(beats) + 1)
-                s_title = s.get("title") or f"镜头 {s_num}"
-                s_scene = s.get("scene") or ""
-                s_camera = s.get("camera") or "中景"
-                s_action = s.get("action") or ""
-                s_dialogue = s.get("dialogue") or ""
-                s_prompt = s.get("visual_prompt") or ""
-                s_chars = s.get("characters") or []
-                s_props = s.get("props") or []
-
-                matched_char_ids = []
-                for c_name in s_chars:
-                    for k, aid in char_map.items():
-                        if k in c_name or c_name in k:
-                            if aid not in matched_char_ids:
-                                matched_char_ids.append(aid)
-
-                explicit_scene = bool(str(s_scene or "").strip())
-                s_scene, matched_scene_id = resolve_shot_scene(
-                    s_scene, scene_map, inherited_scene_name, inherited_scene_id
-                )
-                if explicit_scene:
-                    inherited_scene_name = s_scene
-                    inherited_scene_id = matched_scene_id
-
-                matched_prop_ids = []
-                for p_name in s_props:
-                    for k, aid in prop_map.items():
-                        if k in p_name or p_name in k:
-                            if aid not in matched_prop_ids:
-                                matched_prop_ids.append(aid)
-
-                speaker = s_chars[0] if s_chars else ""
-                heading = f"{s_title} · {s_scene} · {s_camera}" if s_scene else s_title
-
-                beats.append({
-                    "id": f"beat-{episode_id}-{s_num}",
-                    "sequence": s_num,
-                    "kind": "dialogue" if s_dialogue else "action",
-                    "heading": heading,
-                    "speaker": speaker,
-                    "dialogue": s_dialogue,
-                    "action": s_action,
-                    "camera": s_camera,
-                    "characters": s_chars,
-                    "character_ids": matched_char_ids,
-                    "scene": s_scene,
-                    "scene_id": matched_scene_id,
-                    "props": s_props,
-                    "prop_ids": matched_prop_ids,
-                    "visual_prompt": s_prompt,
-                    "sketch_prompt": s_prompt,
-                    "sketch_url": None,
-                    "render_url": None,
-                    "video_url": None,
-                    "video_prompt_zh": s_action or s_dialogue or s_prompt,
-                    "video_duration": "5",
-                    "status": "draft",
-                })
-
+            beats = cls._beats_from_shots(episode_id, shots, assets_rows, [])
             data["beats"] = beats
             execute_sql(
                 "UPDATE ai_project_episodes SET data_json = %s, shots_count = %s WHERE id = %s",
@@ -1146,10 +1847,10 @@ class ProjectDetailService:
         detail = cls.get_episode_detail(project_id, episode_id)
         beats = detail.get("beats") or []
         allowed_fields = [
-            "heading", "speaker", "dialogue", "action", "camera", "scene", "scene_id", "time_of_day",
+            "heading", "speaker", "dialogue", "dialogue_turns", "visible_text", "action", "camera", "scene", "scene_id", "time_of_day",
             "characters", "character_ids", "character_look_id", "character_look_ids", "props", "prop_ids", "visual_prompt", "sketch_prompt",
             "sketch_url", "sketch_job_id", "render_url", "render_prompt",
-            "render_job_id", "render_status", "video_url", "video_prompt_zh", "video_duration", "status",
+            "render_job_id", "render_status", "video_url", "video_prompt_zh", "video_duration", "status", "h3_prompt",
         ]
         updates = {key: payload[key] for key in allowed_fields if key in payload}
         target = cls._update_episode_beat_atomic(
@@ -1185,6 +1886,15 @@ class ProjectDetailService:
             if not episode_row:
                 raise ValueError("分集不存在")
 
+            if completed_job:
+                cursor.execute(
+                    "SELECT status FROM ai_project_jobs WHERE id = %s AND project_id = %s FOR UPDATE",
+                    (completed_job["id"], project_id),
+                )
+                job_row = cursor.fetchone() or {}
+                if str(job_row.get("status") or "") == "cancelled":
+                    return {}
+
             try:
                 data = json.loads(episode_row.get("data_json") or "{}")
             except (TypeError, json.JSONDecodeError) as err:
@@ -1209,7 +1919,7 @@ class ProjectDetailService:
                     UPDATE ai_project_jobs
                     SET status = 'completed', progress = 100, result_url = %s, payload_json = %s,
                         error_message = NULL, completed_at = %s, updated_at = %s
-                    WHERE id = %s AND project_id = %s
+                    WHERE id = %s AND project_id = %s AND status <> 'cancelled'
                     """,
                     (
                         completed_job["result_url"],
@@ -1272,6 +1982,70 @@ class ProjectDetailService:
     def generate_beat_images_batch(cls, project_id: str, episode_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         from .storyboard_image_service import StoryboardImageService
         return StoryboardImageService.enqueue_batch(project_id, episode_id, payload or {})
+
+    @classmethod
+    def generate_beat_h3_prompt(
+        cls,
+        project_id: str,
+        episode_id: str,
+        beat_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """将分镜 H3 提示词生成任务提交至「全部任务」后台队列并返回任务信息"""
+        from .llm_fill_job_service import LlmFillJobService
+        return LlmFillJobService.enqueue_h3_prompt(project_id, episode_id, beat_id, payload or {})
+
+    @classmethod
+    def enqueue_episode_required_assets(
+        cls,
+        project_id: str,
+        episode_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from .storyboard_image_service import StoryboardImageService
+
+        model = str((payload or {}).get("model") or "gpt-image-2").strip() or "gpt-image-2"
+        detail = cls.get_episode_detail(project_id, episode_id)
+        indexed = index_episode_required_assets(detail.get("beats") or [], cls.list_assets(project_id))
+        jobs: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        for kind_key, assets in indexed.items():
+            for asset in assets:
+                if has_primary_asset_image(asset):
+                    skipped.append({
+                        "asset_id": asset.get("id"),
+                        "name": asset.get("name"),
+                        "kind": asset.get("kind") or kind_key.rstrip("s"),
+                        "reason": "已有主图",
+                    })
+                    continue
+                try:
+                    jobs.append(cls.generate_asset_image(
+                        project_id,
+                        str(asset["id"]),
+                        primary_image_enqueue_payload(asset, model),
+                        enqueue_only=True,
+                    ))
+                except Exception as err:
+                    skipped.append({
+                        "asset_id": asset.get("id"),
+                        "name": asset.get("name"),
+                        "kind": asset.get("kind") or kind_key.rstrip("s"),
+                        "reason": str(err),
+                    })
+        StoryboardImageService.kick()
+        queued = sum(1 for item in jobs if not item.get("duplicate"))
+        return {
+            "status": "queued",
+            "queued": queued,
+            "jobs": jobs,
+            "skipped": skipped,
+            "indexed": {
+                key: [{"id": item.get("id"), "name": item.get("name"), "kind": item.get("kind")} for item in items]
+                for key, items in indexed.items()
+            },
+            "concurrency": StoryboardImageService._limit(),
+        }
 
     @classmethod
     def _generate_beat_still(
@@ -1499,8 +2273,15 @@ class ProjectDetailService:
     # --- 4. 全部任务 Jobs ---
     @classmethod
     def list_jobs(cls, project_id: str) -> list[dict[str, Any]]:
+        try:
+            from .llm_fill_job_service import LlmFillJobService
+            from .storyboard_image_service import StoryboardImageService
+            LlmFillJobService.kick()
+            StoryboardImageService.kick()
+        except Exception:
+            pass
         rows = query_all(
-            "SELECT * FROM ai_project_jobs WHERE project_id = %s ORDER BY updated_at DESC",
+            "SELECT * FROM ai_project_jobs WHERE project_id = %s ORDER BY created_at DESC, id DESC",
             (project_id,),
         )
         result = []
@@ -1596,16 +2377,33 @@ class ProjectDetailService:
         return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (jid,))
 
     @classmethod
+    def cancel_all_jobs(cls, project_id: str) -> dict[str, Any]:
+        ts = now_str()
+        cancelled = execute_sql(
+            """
+            UPDATE ai_project_jobs
+            SET status = 'cancelled', progress = 0, error_message = '用户取消全部任务', updated_at = %s
+            WHERE project_id = %s
+              AND status NOT IN ('completed', 'succeeded', 'failed', 'cancelled')
+            """,
+            (ts, project_id),
+        )
+        return {"cancelled": int(cancelled or 0)}
+
+    @classmethod
     def retry_job(cls, project_id: str, job_id: str) -> dict[str, Any]:
         row = query_one(
             "SELECT job_type, payload_json FROM ai_project_jobs WHERE id = %s AND project_id = %s",
             (job_id, project_id),
         )
+        if row and row.get("job_type") in ("llm_analysis", "h3_prompt"):
+            from .llm_fill_job_service import LlmFillJobService
+            return LlmFillJobService.retry(project_id, job_id)
         if row and row.get("job_type") == "video_generation":
             from .episode_video_service import EpisodeVideoService
             return EpisodeVideoService.retry_job(project_id, job_id)
         payload = json.loads((row or {}).get("payload_json") or "{}")
-        if payload.get("target_type") in {"beat_sketch", "beat_render"}:
+        if row and row.get("job_type") == "image_generation":
             from .storyboard_image_service import StoryboardImageService
             return StoryboardImageService.retry(project_id, job_id)
         ts = now_str()
@@ -1614,3 +2412,22 @@ class ProjectDetailService:
             (ts, job_id, project_id),
         )
         return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,))
+
+    @classmethod
+    def get_job(cls, project_id: str, job_id: str) -> dict[str, Any] | None:
+        row = query_one(
+            "SELECT * FROM ai_project_jobs WHERE id = %s AND project_id = %s",
+            (job_id, project_id),
+        )
+        if not row:
+            return None
+        r = dict(row)
+        if r.get("payload_json"):
+            try:
+                r["payload"] = json.loads(r["payload_json"])
+            except Exception:
+                r["payload"] = {}
+        else:
+            r["payload"] = {}
+        return r
+

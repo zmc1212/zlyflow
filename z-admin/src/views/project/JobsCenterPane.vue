@@ -8,10 +8,25 @@
         </p>
       </div>
 
-      <a-button :loading="loading" @click="fetchJobs">
-        <template #icon><RefreshCw :size="15" /></template>
-        刷新任务
-      </a-button>
+      <a-space>
+        <a-popconfirm
+          title="确定取消当前项目下所有排队中和执行中的任务？"
+          ok-text="全部取消"
+          cancel-text="返回"
+          ok-type="danger"
+          :disabled="!hasCancellableJobs"
+          @confirm="handleCancelAll"
+        >
+          <a-button danger :loading="cancellingAll" :disabled="!hasCancellableJobs">
+            <template #icon><Ban :size="15" /></template>
+            取消全部任务
+          </a-button>
+        </a-popconfirm>
+        <a-button :loading="loading" @click="fetchJobs">
+          <template #icon><RefreshCw :size="15" /></template>
+          刷新任务
+        </a-button>
+      </a-space>
     </div>
 
     <!-- 任务表格 -->
@@ -21,7 +36,8 @@
         :data-source="jobs"
         :columns="columns"
         row-key="id"
-        :pagination="{ pageSize: 20 }"
+        :pagination="pagination"
+        :show-sorter-tooltip="false"
         size="middle"
       >
         <template #bodyCell="{ column, record }">
@@ -35,7 +51,7 @@
 
           <!-- 类型 -->
           <template v-else-if="column.key === 'job_type'">
-            <a-tag :color="record.job_type === 'video_generation' ? 'purple' : 'blue'">
+            <a-tag :color="record.job_type === 'video_generation' ? 'purple' : (record.job_type === 'h3_prompt' ? 'cyan' : (record.job_type === 'llm_analysis' ? 'green' : 'blue'))">
               {{ getJobTypeText(record.job_type) }}
             </a-tag>
           </template>
@@ -52,7 +68,7 @@
             <a-progress
               :percent="record.progress"
               size="small"
-              :status="record.status === 'failed' ? 'exception' : (record.progress === 100 ? 'success' : 'active')"
+              :status="record.status === 'failed' || record.status === 'cancelled' ? 'exception' : (record.progress === 100 ? 'success' : 'active')"
             />
           </template>
 
@@ -72,6 +88,10 @@
               />
               <img v-else :src="record.result_url" class="result-thumb" alt="结果图" />
             </a>
+            <span v-else-if="record.job_type === 'h3_prompt' || record.payload?.target_type === 'h3_prompt'" class="text-muted">
+              <a-tag v-if="record.status === 'completed'" color="cyan" size="small">提示词就绪</a-tag>
+              <span v-else>—</span>
+            </span>
             <span v-else class="text-muted">—</span>
           </template>
 
@@ -279,8 +299,22 @@
           </div>
         </div>
 
+        <!-- H3 视频生成提示词展示 -->
+        <div v-if="(selectedJob.job_type === 'h3_prompt' || selectedJob.payload?.target_type === 'h3_prompt') && (selectedJob.payload?.h3_prompt || selectedJob.payload?.result_prompt)" class="detail-section">
+          <div class="detail-section-title" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>🎬 生成的 MiniMax H3 视频生成提示词</span>
+            <a-button type="link" size="small" @click="copyPrompt(selectedJob.payload?.h3_prompt || selectedJob.payload?.result_prompt)">
+              <template #icon><Copy :size="13" /></template>
+              复制提示词
+            </a-button>
+          </div>
+          <div class="prompt-block">
+            <pre class="prompt-text">{{ selectedJob.payload?.h3_prompt || selectedJob.payload?.result_prompt }}</pre>
+          </div>
+        </div>
+
         <!-- Prompt -->
-        <div v-if="selectedJob.payload?.prompt || selectedJob.payload?.clean_prompt" class="detail-section">
+        <div v-if="selectedJob.job_type !== 'h3_prompt' && (selectedJob.payload?.prompt || selectedJob.payload?.clean_prompt)" class="detail-section">
           <div class="detail-section-title">✍️ 生图提示词 (Prompt)</div>
           <div v-if="selectedJob.payload.prompt" class="prompt-block">
             <div class="prompt-label">原始 Prompt</div>
@@ -293,7 +327,7 @@
         </div>
 
         <!-- GRS 请求体 -->
-        <div v-if="!isVideoJob(selectedJob)" class="detail-section">
+        <div v-if="!isVideoJob(selectedJob) && selectedJob.job_type !== 'h3_prompt'" class="detail-section">
           <div class="detail-section-title">📤 提交给 GRS 的完整参数</div>
           <div class="prompt-block">
             <div class="prompt-label">POST /v1/api/generate JSON（images 为参考图 URL，实际上传为 data URI）</div>
@@ -313,28 +347,30 @@
 
         <!-- 结果图片 -->
         <div v-if="selectedJob.result_url" class="detail-section">
-          <div class="detail-section-title">🖼️ 生成结果</div>
-          <div class="result-preview">
+          <div class="detail-section-title">🎉 生成结果</div>
+          <div class="result-box">
             <video
               v-if="isVideoJob(selectedJob)"
               :src="selectedJob.result_url"
-              class="result-video"
               controls
+              class="result-video"
               preload="metadata"
             />
-            <img v-else :src="selectedJob.result_url" class="result-img" alt="生成结果" @click="openResultUrl(selectedJob.result_url)" />
-            <a :href="selectedJob.result_url" target="_blank" class="result-open-link">
-              <ExternalLink :size="13" /> 在新标签页打开
-            </a>
+            <img v-else :src="selectedJob.result_url" class="result-img" alt="生成结果" />
+            <div class="result-meta">
+              <a-button type="link" size="small" @click="openResultUrl(selectedJob.result_url)">
+                在新标签页打开原图/视频
+              </a-button>
+            </div>
           </div>
         </div>
 
         <!-- 错误信息 -->
-        <div v-if="selectedJob.error_message" class="detail-section">
-          <div class="detail-section-title">❌ 错误信息</div>
-          <a-alert type="error" show-icon>
-            <template #message>{{ selectedJob.error_message }}</template>
-          </a-alert>
+        <div v-if="selectedJob.error_message" class="detail-section error-section">
+          <div class="detail-section-title">❌ 失败原因</div>
+          <div class="error-box">
+            {{ selectedJob.error_message }}
+          </div>
         </div>
       </div>
     </a-modal>
@@ -342,19 +378,26 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { RefreshCw, ExternalLink } from 'lucide-vue-next'
-import { listJobs, retryJob } from '../../api/projects'
+import { Ban, RefreshCw, ExternalLink, Copy } from 'lucide-vue-next'
+import { listJobs, retryJob, cancelAllJobs } from '../../api/projects'
 
 const props = defineProps({
   projectId: { type: String, required: true },
 })
 
 const jobs = ref([])
+const pagination = { pageSize: 20, showSizeChanger: false, hideOnSinglePage: false }
 const loading = ref(false)
+const cancellingAll = ref(false)
 const detailVisible = ref(false)
 const selectedJob = ref(null)
+
+const TERMINAL_JOB_STATUSES = ['completed', 'succeeded', 'failed', 'cancelled']
+const hasCancellableJobs = computed(() =>
+  jobs.value.some((job) => !TERMINAL_JOB_STATUSES.includes(job.status)),
+)
 
 const columns = [
   { title: '任务名称 / ID', key: 'title', width: 280 },
@@ -377,6 +420,7 @@ function getStatusTag(s) {
     succeeded: { color: 'green', text: '已完成' },
     completed: { color: 'green', text: '已完成' },
     failed: { color: 'red', text: '失败' },
+    cancelled: { color: 'default', text: '已取消' },
   }
   return map[s] || { color: 'default', text: s }
 }
@@ -385,8 +429,17 @@ function getJobTypeText(type) {
   const map = {
     image_generation: '图片生成',
     video_generation: '视频生成',
+    llm_analysis: '大模型补全',
+    h3_prompt: 'H3提示词生成',
   }
   return map[type] || type
+}
+
+function copyPrompt(text) {
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    message.success('H3 提示词已复制到剪贴板')
+  })
 }
 
 function isVideoJob(job) {
@@ -448,12 +501,19 @@ async function fetchJobs(silent = false) {
   if (!silent) loading.value = true
   try {
     const res = await listJobs(props.projectId)
-    jobs.value = res || []
+    const rows = Array.isArray(res) ? res : []
+    jobs.value = rows.slice().sort((a, b) => {
+      const created = String(b.created_at || '').localeCompare(String(a.created_at || ''))
+      if (created) return created
+      return String(b.id || '').localeCompare(String(a.id || ''))
+    })
     if (selectedJob.value) {
       selectedJob.value = jobs.value.find(job => job.id === selectedJob.value.id) || selectedJob.value
     }
+    pollDelay = 3000
   } catch (err) {
-    if (!silent) message.error('加载任务列表失败')
+    if (!silent) message.error('加载任务列表失败，请确认后端服务已启动（9010）')
+    pollDelay = Math.min(pollDelay * 2, 15000)
   } finally {
     if (!silent) loading.value = false
   }
@@ -469,13 +529,36 @@ async function handleRetry(id) {
   }
 }
 
+async function handleCancelAll() {
+  cancellingAll.value = true
+  try {
+    const res = await cancelAllJobs(props.projectId)
+    const count = res?.cancelled || 0
+    message.success(count ? `已取消 ${count} 个未完成任务` : '没有可取消的任务')
+    await fetchJobs()
+  } catch (err) {
+    message.error(err?.response?.data?.detail || '取消全部任务失败')
+  } finally {
+    cancellingAll.value = false
+  }
+}
+
 let pollTimer = null
+let pollDelay = 3000
+function schedulePoll() {
+  if (pollTimer) window.clearTimeout(pollTimer)
+  pollTimer = window.setTimeout(async () => {
+    await fetchJobs(true)
+    schedulePoll()
+  }, pollDelay)
+}
+
 onMounted(() => {
   fetchJobs()
-  pollTimer = window.setInterval(() => fetchJobs(true), 3000)
+  schedulePoll()
 })
 onUnmounted(() => {
-  if (pollTimer) window.clearInterval(pollTimer)
+  if (pollTimer) window.clearTimeout(pollTimer)
 })
 </script>
 

@@ -242,6 +242,14 @@
 
               <a-space>
                 <a-button
+                  type="primary"
+                  :loading="enrichingLlm"
+                  @click="handleEnrichAssetLlm"
+                >
+                  <template #icon><Sparkles :size="15" /></template>
+                  大模型补全
+                </a-button>
+                <a-button
                   v-if="selectedAsset.kind === 'character'"
                   type="dashed"
                   class="add-identity-btn"
@@ -783,7 +791,7 @@
                         size="small"
                         type="primary"
                         class="slot-btn generate-btn"
-                        :loading="generatingMaster"
+                        :loading="isSubmittingImage('scene_master')"
                         @click="handleGenerateSceneMaster"
                       >
                         <template #icon><RefreshCw :size="12" /></template>
@@ -845,7 +853,7 @@
                         size="small"
                         type="primary"
                         class="slot-btn generate-btn reverse-action-btn"
-                        :loading="generatingReverse"
+                        :loading="isSubmittingImage('scene_reverse')"
                         @click="handleGenerateSceneReverse"
                       >
                         <template #icon><RefreshCw :size="12" /></template>
@@ -906,7 +914,7 @@
                         size="small"
                         type="primary"
                         class="slot-btn generate-btn pano-action-btn"
-                        :loading="generatingPano"
+                        :loading="isSubmittingImage('scene_pano')"
                         @click="handleGenerateScenePano"
                       >
                         <template #icon><Sparkles :size="12" /></template>
@@ -1075,7 +1083,7 @@
                         size="small"
                         type="primary"
                         class="slot-btn generate-btn prop-btn"
-                        :loading="generatingProp"
+                        :loading="isSubmittingImage('prop_reference')"
                         @click="handleGeneratePropReference"
                       >
                         <template #icon><RefreshCw :size="12" /></template>
@@ -1144,7 +1152,7 @@
                         size="small"
                         type="primary"
                         class="slot-btn generate-btn turnaround-action-btn"
-                        :loading="generatingPropTurnaround"
+                        :loading="isSubmittingImage('prop_turnaround')"
                         @click="handleGeneratePropTurnaround"
                       >
                         <template #icon><Sparkles :size="12" /></template>
@@ -1213,7 +1221,7 @@
                         size="small"
                         type="primary"
                         class="slot-btn generate-btn detail-action-btn"
-                        :loading="generatingPropDetail"
+                        :loading="isSubmittingImage('prop_detail')"
                         @click="handleGeneratePropDetail"
                       >
                         <template #icon><Sparkles :size="12" /></template>
@@ -1642,6 +1650,9 @@ import {
   updateAsset,
   deleteAsset,
   generateAssetImage,
+  generateAssetImagesBatch,
+  enrichAssetLlm,
+  listJobs,
 } from '../../api/projects'
 
 const props = defineProps({
@@ -1676,12 +1687,42 @@ const batchGeneratingScenePanos = ref(false)
 const batchGeneratingPropReferences = ref(false)
 const batchGeneratingPropTurnarounds = ref(false)
 const batchGeneratingPropDetails = ref(false)
-const generatingMaster = ref(false)
-const generatingReverse = ref(false)
-const generatingPano = ref(false)
-const generatingProp = ref(false)
-const generatingPropTurnaround = ref(false)
-const generatingPropDetail = ref(false)
+const submittingImageKey = ref('')
+
+function isSubmittingImage(targetType) {
+  return submittingImageKey.value === `${selectedAsset.value?.id || ''}:${targetType}`
+}
+
+async function submitAssetImageJob({ targetType, successQueued, successStarted, payload = {} }) {
+  if (!selectedAsset.value) return
+  const assetId = selectedAsset.value.id
+  const assetName = selectedAsset.value.name
+  submittingImageKey.value = `${assetId}:${targetType}`
+  try {
+    const res = await generateAssetImage(props.projectId, assetId, {
+      enqueue: true,
+      target_type: targetType,
+      model: 'gpt-image-2',
+      ...payload,
+    })
+    if (res?.duplicate || res?.busy) {
+      message.info(res.message || '正在任务中')
+      return
+    }
+    if (res?.queued || res?.status === 'queued') {
+      message.success(successQueued || `「${assetName}」已加入排队，超过最大并发后将依次执行`)
+      return
+    }
+    message.success(successStarted || `「${assetName}」已提交生成任务`)
+  } catch (err) {
+    message.error(err?.response?.data?.detail || '提交生图任务失败')
+  } finally {
+    if (submittingImageKey.value === `${assetId}:${targetType}`) {
+      submittingImageKey.value = ''
+    }
+  }
+}
+const enrichingLlm = ref(false)
 
 const batchGenerationActive = computed(() => [
   batchGeneratingAvatars,
@@ -1928,6 +1969,39 @@ function selectAsset(ast) {
   })
 }
 
+async function handleEnrichAssetLlm() {
+  if (!selectedAsset.value) return
+  const assetId = selectedAsset.value.id
+  const assetName = selectedAsset.value.name
+  enrichingLlm.value = true
+  try {
+    const queued = await enrichAssetLlm(props.projectId, assetId)
+    message.success(`已排队补全「${assetName}」，进度可在「全部任务」查看`)
+    const jobId = queued?.job_id
+    if (!jobId) return
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      const jobs = await listJobs(props.projectId)
+      const job = (Array.isArray(jobs) ? jobs : []).find((item) => item.id === jobId)
+      if (!job) continue
+      if (job.status === 'completed') {
+        await fetchAssets()
+        message.success(`「${assetName}」档案补全完成`)
+        return
+      }
+      if (job.status === 'failed') {
+        message.error(job.error_message || `「${assetName}」档案补全失败`)
+        return
+      }
+    }
+    message.info('补全仍在进行中，可在「全部任务」查看进度')
+  } catch (err) {
+    message.error(err?.response?.data?.detail || '排队大模型补全失败')
+  } finally {
+    enrichingLlm.value = false
+  }
+}
+
 async function fetchAssets() {
   loading.value = true
   try {
@@ -2113,40 +2187,17 @@ async function handleBatchGenerateAvatars() {
     return
   }
   batchGeneratingAvatars.value = true
-  let ok = 0
-  const failed = []
-  message.loading({ content: `开始一键生成 ${targets.length} 个头像…`, key: 'batchAvatars' })
   try {
-    for (let i = 0; i < targets.length; i += 1) {
-      const ast = targets[i]
-      message.loading({
-        content: `正在生成头像 (${i + 1}/${targets.length})：${ast.name}`,
-        key: 'batchAvatars',
-      })
-      try {
-        const extra = ast.extra || {}
-        const res = await generateAssetImage(props.projectId, ast.id, {
-          target_type: 'avatar',
-          prompt: (extra.avatar_prompt || ast.name || '').trim(),
-          model: 'gpt-image-2',
-          aspect_ratio: '1:1',
-          ...characterStylePayload(ast),
-        })
-        applyGeneratedAsset(ast.id, res)
-        ok += 1
-      } catch (err) {
-        failed.push(`${ast.name}: ${err?.response?.data?.detail || err?.message || '失败'}`)
-      }
+    const res = await generateAssetImagesBatch(props.projectId, { target_type: 'avatar', model: 'gpt-image-2' })
+    const queued = res.queued || 0
+    const skippedExisting = (res.skipped || []).filter((item) => item.reason === '已有头像').length
+    if (!queued) {
+      message.info(skippedExisting ? '所有角色已有头像或已在排队中' : ((res.skipped || [])[0]?.reason || '没有可提交的头像任务'))
+      return
     }
-    if (failed.length) {
-      message.warning({
-        content: `头像完成 ${ok}/${targets.length}，失败：${failed.slice(0, 3).join('；')}`,
-        key: 'batchAvatars',
-        duration: 6,
-      })
-    } else {
-      message.success({ content: `已一键生成 ${ok} 个头像`, key: 'batchAvatars' })
-    }
+    message.success(`已提交 ${queued} 个头像任务，按最大并发 ${res.concurrency || 5} 执行，请到「全部任务」查看`)
+  } catch (err) {
+    message.error(err?.response?.data?.detail || '提交头像任务失败')
   } finally {
     batchGeneratingAvatars.value = false
   }
@@ -2154,7 +2205,7 @@ async function handleBatchGenerateAvatars() {
 
 async function handleBatchGenerateLooks() {
   const chars = assets.value.filter((a) => a.kind === 'character')
-  const jobs = []
+  const pending = []
   let skippedNoAvatar = 0
   let skippedNoCostume = 0
   for (const ast of chars) {
@@ -2169,10 +2220,10 @@ async function handleBatchGenerateLooks() {
         continue
       }
       if (ident.image_url) continue
-      jobs.push({ ast, ident, costume })
+      pending.push({ ast, ident })
     }
   }
-  if (!jobs.length) {
+  if (!pending.length) {
     if (skippedNoAvatar && !chars.some((a) => hasCharacterAvatar(a))) {
       message.info('请先生成头像，造型图需要把头像作为身份锚点')
     } else {
@@ -2181,45 +2232,21 @@ async function handleBatchGenerateLooks() {
     return
   }
   batchGeneratingLooks.value = true
-  let ok = 0
-  const failed = []
-  message.loading({ content: `开始一键生成 ${jobs.length} 张造型图…`, key: 'batchLooks' })
   try {
-    for (let i = 0; i < jobs.length; i += 1) {
-      const { ast, ident, costume } = jobs[i]
-      message.loading({
-        content: `正在生成造型图 (${i + 1}/${jobs.length})：${ast.name} · ${ident.name}`,
-        key: 'batchLooks',
-      })
-      try {
-        const res = await generateAssetImage(props.projectId, ast.id, {
-          target_type: 'identity',
-          identity_id: ident.id,
-          prompt: costume,
-          model: 'gpt-image-2',
-          aspect_ratio: '16:9',
-          ...characterStylePayload(ast),
-        })
-        applyGeneratedAsset(ast.id, res)
-        ok += 1
-      } catch (err) {
-        failed.push(`${ast.name}/${ident.name}: ${err?.response?.data?.detail || err?.message || '失败'}`)
-      }
-    }
+    const res = await generateAssetImagesBatch(props.projectId, { target_type: 'identity', model: 'gpt-image-2' })
+    const queued = res.queued || 0
     const skipHint = [
       skippedNoAvatar ? `${skippedNoAvatar} 个角色尚无头像已跳过` : '',
       skippedNoCostume ? `${skippedNoCostume} 个造型缺外观描述已跳过` : '',
     ].filter(Boolean).join('，')
     const skipSuffix = skipHint ? `，${skipHint}` : ''
-    if (failed.length) {
-      message.warning({
-        content: `造型图完成 ${ok}/${jobs.length}${skipSuffix}，失败：${failed.slice(0, 3).join('；')}`,
-        key: 'batchLooks',
-        duration: 6,
-      })
-    } else {
-      message.success({ content: `已一键生成 ${ok} 张造型图${skipSuffix}`, key: 'batchLooks' })
+    if (!queued) {
+      message.info(`没有新的造型图任务可提交${skipSuffix}`)
+      return
     }
+    message.success(`已提交 ${queued} 张造型图任务，按最大并发 ${res.concurrency || 5} 执行${skipSuffix}。请到「全部任务」查看`)
+  } catch (err) {
+    message.error(err?.response?.data?.detail || '提交造型图任务失败')
   } finally {
     batchGeneratingLooks.value = false
   }
@@ -2448,29 +2475,16 @@ async function handleGenerateIdentityImage(ident) {
 async function handleGenerateSceneMaster() {
   if (!selectedAsset.value) return
   const prompt = (selectedAsset.value.extra?.environment_prompt || selectedAsset.value.visual_prompt || selectedAsset.value.name).trim()
-  generatingMaster.value = true
-  try {
-    const res = await generateAssetImage(props.projectId, selectedAsset.value.id, {
-      target_type: 'scene_master',
+  await submitAssetImageJob({
+    targetType: 'scene_master',
+    payload: {
       prompt,
       aspect_ratio: '16:9',
-    })
-    message.success(`场景「${selectedAsset.value.name}」Master 主视角生成成功！`)
-    if (res.image_url) {
-      if (!selectedAsset.value.extra) selectedAsset.value.extra = {}
-      selectedAsset.value.extra.master_url = res.image_url
-      selectedAsset.value.image_url = res.image_url
-
-      const idx = assets.value.findIndex((a) => a.id === selectedAsset.value.id)
-      if (idx !== -1 && res.asset) {
-        assets.value[idx] = { ...res.asset }
-      }
-    }
-  } catch (err) {
-    message.error(err?.response?.data?.detail || '主视角生成失败')
-  } finally {
-    generatingMaster.value = false
-  }
+      ...sceneStylePayload(selectedAsset.value),
+    },
+    successStarted: `场景「${selectedAsset.value.name}」已提交 Master 生成任务`,
+    successQueued: `场景「${selectedAsset.value.name}」Master 已加入排队，超过最大并发后将依次执行`,
+  })
 }
 
 // 4. 生成场景 Reverse 背面（对齐 source1：16:9 + Master 为 REFERENCE 1）
@@ -2482,30 +2496,15 @@ async function handleGenerateSceneReverse() {
     message.warning('请先生成或上传正面源图，背面图需要把它作为 REFERENCE 1 传入')
     return
   }
-  generatingReverse.value = true
-  try {
-    const res = await generateAssetImage(props.projectId, selectedAsset.value.id, {
-      target_type: 'scene_reverse',
-      model: 'gpt-image-2',
+  await submitAssetImageJob({
+    targetType: 'scene_reverse',
+    payload: {
       aspect_ratio: '16:9',
-      visual_style: extra.visual_style || '',
-      art_style_id: extra.art_style_id || '',
-    })
-    message.success(`场景「${selectedAsset.value.name}」Reverse 背面反打视角生成成功！`)
-    if (res.image_url) {
-      if (!selectedAsset.value.extra) selectedAsset.value.extra = {}
-      selectedAsset.value.extra.reverse_url = res.image_url
-
-      const idx = assets.value.findIndex((a) => a.id === selectedAsset.value.id)
-      if (idx !== -1 && res.asset) {
-        assets.value[idx] = { ...res.asset }
-      }
-    }
-  } catch (err) {
-    message.error(err?.response?.data?.detail || '反打视角生成失败')
-  } finally {
-    generatingReverse.value = false
-  }
+      ...sceneStylePayload(selectedAsset.value),
+    },
+    successStarted: `场景「${selectedAsset.value.name}」已提交 Reverse 生成任务`,
+    successQueued: `场景「${selectedAsset.value.name}」Reverse 已加入排队，超过最大并发后将依次执行`,
+  })
 }
 
 // 5. 生成场景 Pano 360（对齐 source1：2:1 + Master/Reverse 参考图）
@@ -2517,61 +2516,29 @@ async function handleGenerateScenePano() {
     message.warning('请先生成或上传正面源图，360全景需要把它作为 REFERENCE 1 传入')
     return
   }
-  generatingPano.value = true
-  try {
-    const res = await generateAssetImage(props.projectId, selectedAsset.value.id, {
-      target_type: 'scene_pano',
-      model: 'gpt-image-2',
+  await submitAssetImageJob({
+    targetType: 'scene_pano',
+    payload: {
       aspect_ratio: '2:1',
-      visual_style: extra.visual_style || '',
-      art_style_id: extra.art_style_id || '',
-    })
-    message.success(`场景「${selectedAsset.value.name}」360° 全景图生成成功！`)
-    if (res.image_url) {
-      if (!selectedAsset.value.extra) selectedAsset.value.extra = {}
-      selectedAsset.value.extra.pano_url = res.image_url
-
-      const idx = assets.value.findIndex((a) => a.id === selectedAsset.value.id)
-      if (idx !== -1 && res.asset) {
-        assets.value[idx] = { ...res.asset }
-      }
-    }
-  } catch (err) {
-    message.error(err?.response?.data?.detail || '360 全景图生成失败')
-  } finally {
-    generatingPano.value = false
-  }
+      ...sceneStylePayload(selectedAsset.value),
+    },
+    successStarted: `场景「${selectedAsset.value.name}」已提交 360 全景生成任务`,
+    successQueued: `场景「${selectedAsset.value.name}」360 全景已加入排队，超过最大并发后将依次执行`,
+  })
 }
 
 // 6. 生成道具主视图（对齐 source1：16:9 产品静物正面）
 async function handleGeneratePropReference() {
   if (!selectedAsset.value) return
-  const extra = selectedAsset.value.extra || {}
-  generatingProp.value = true
-  try {
-    const res = await generateAssetImage(props.projectId, selectedAsset.value.id, {
-      target_type: 'prop_reference',
-      model: 'gpt-image-2',
+  await submitAssetImageJob({
+    targetType: 'prop_reference',
+    payload: {
       aspect_ratio: '16:9',
-      visual_style: extra.visual_style || '',
-      art_style_id: extra.art_style_id || '',
-    })
-    message.success(`道具「${selectedAsset.value.name}」参考图生成成功！`)
-    if (res.image_url) {
-      if (!selectedAsset.value.extra) selectedAsset.value.extra = {}
-      selectedAsset.value.extra.reference_url = res.image_url
-      selectedAsset.value.image_url = res.image_url
-
-      const idx = assets.value.findIndex((a) => a.id === selectedAsset.value.id)
-      if (idx !== -1 && res.asset) {
-        assets.value[idx] = { ...res.asset }
-      }
-    }
-  } catch (err) {
-    message.error(err?.response?.data?.detail || '道具参考图生成失败')
-  } finally {
-    generatingProp.value = false
-  }
+      ...propStylePayload(selectedAsset.value),
+    },
+    successStarted: `道具「${selectedAsset.value.name}」已提交参考图生成任务`,
+    successQueued: `道具「${selectedAsset.value.name}」参考图已加入排队，超过最大并发后将依次执行`,
+  })
 }
 
 // 7. 生成道具转面三视图（对齐 source1：16:9 1x3 + 主视图 REFERENCE 1）
@@ -2583,30 +2550,15 @@ async function handleGeneratePropTurnaround() {
     message.warning('请先生成或上传主视图，转面三视图需要把它作为 REFERENCE 1 传入')
     return
   }
-  generatingPropTurnaround.value = true
-  try {
-    const res = await generateAssetImage(props.projectId, selectedAsset.value.id, {
-      target_type: 'prop_turnaround',
-      model: 'gpt-image-2',
+  await submitAssetImageJob({
+    targetType: 'prop_turnaround',
+    payload: {
       aspect_ratio: '16:9',
-      visual_style: extra.visual_style || '',
-      art_style_id: extra.art_style_id || '',
-    })
-    message.success(`道具「${selectedAsset.value.name}」三视图生成成功！`)
-    if (res.image_url) {
-      if (!selectedAsset.value.extra) selectedAsset.value.extra = {}
-      selectedAsset.value.extra.turnaround_url = res.image_url
-
-      const idx = assets.value.findIndex((a) => a.id === selectedAsset.value.id)
-      if (idx !== -1 && res.asset) {
-        assets.value[idx] = { ...res.asset }
-      }
-    }
-  } catch (err) {
-    message.error(err?.response?.data?.detail || '三视图生成失败')
-  } finally {
-    generatingPropTurnaround.value = false
-  }
+      ...propStylePayload(selectedAsset.value),
+    },
+    successStarted: `道具「${selectedAsset.value.name}」已提交三视图生成任务`,
+    successQueued: `道具「${selectedAsset.value.name}」三视图已加入排队，超过最大并发后将依次执行`,
+  })
 }
 
 // 8. 生成道具细节特写（对齐 source1：16:9 微距 + 主视图 REFERENCE 1）
@@ -2618,30 +2570,15 @@ async function handleGeneratePropDetail() {
     message.warning('请先生成或上传主视图，细节特写需要把它作为 REFERENCE 1 传入')
     return
   }
-  generatingPropDetail.value = true
-  try {
-    const res = await generateAssetImage(props.projectId, selectedAsset.value.id, {
-      target_type: 'prop_detail',
-      model: 'gpt-image-2',
+  await submitAssetImageJob({
+    targetType: 'prop_detail',
+    payload: {
       aspect_ratio: '16:9',
-      visual_style: extra.visual_style || '',
-      art_style_id: extra.art_style_id || '',
-    })
-    message.success(`道具「${selectedAsset.value.name}」细节特写生成成功！`)
-    if (res.image_url) {
-      if (!selectedAsset.value.extra) selectedAsset.value.extra = {}
-      selectedAsset.value.extra.detail_url = res.image_url
-
-      const idx = assets.value.findIndex((a) => a.id === selectedAsset.value.id)
-      if (idx !== -1 && res.asset) {
-        assets.value[idx] = { ...res.asset }
-      }
-    }
-  } catch (err) {
-    message.error(err?.response?.data?.detail || '细节特写生成失败')
-  } finally {
-    generatingPropDetail.value = false
-  }
+      ...propStylePayload(selectedAsset.value),
+    },
+    successStarted: `道具「${selectedAsset.value.name}」已提交细节图生成任务`,
+    successQueued: `道具「${selectedAsset.value.name}」细节图已加入排队，超过最大并发后将依次执行`,
+  })
 }
 
 // 删除场景视角图片

@@ -101,7 +101,25 @@
           </p>
         </div>
 
-        <a-space class="xiaji-episode-head-actions">
+        <a-space class="xiaji-episode-head-actions" :size="8">
+          <div class="head-param-item">
+            <span class="head-param-lbl">镜头画质</span>
+            <a-select v-model:value="globalVideoQuality" size="small" style="width: 148px">
+              <a-select-option value="0.4">0.4 MP (标清 480P)</a-select-option>
+              <a-select-option value="0.7">0.7 MP (高清 720P)</a-select-option>
+              <a-select-option value="1.0">1.0 MP (超清 768P)</a-select-option>
+              <a-select-option value="2.0">2.0 MP (全高清 1080P)</a-select-option>
+            </a-select>
+          </div>
+          <div class="head-param-item">
+            <span class="head-param-lbl">镜头时长</span>
+            <a-select v-model:value="globalVideoDuration" size="small" style="width: 115px">
+              <a-select-option :value="5">5 秒 (124帧)</a-select-option>
+              <a-select-option :value="8">8 秒 (192帧)</a-select-option>
+              <a-select-option :value="10">10 秒 (243帧)</a-select-option>
+              <a-select-option :value="15">15 秒 (362帧)</a-select-option>
+            </a-select>
+          </div>
           <a-button :loading="generatingEpisodeVideo" @click="handleGenerateEpisodeVideo">
             <template #icon><Video :size="14" /></template>
             一键生成视频
@@ -132,6 +150,14 @@
                 </span>
               </div>
               <div class="toolbar-right">
+                <a-button
+                  size="small"
+                  :loading="batchGeneratingRequiredAssets"
+                  @click="enqueueRequiredAssets"
+                >
+                  <template #icon><Boxes :size="13" /></template>
+                  生成所有所需资源
+                </a-button>
                 <a-button
                   type="primary"
                   size="small"
@@ -400,7 +426,7 @@
                     </div>
 
                     <!-- 2. 草图 Section (Sketch) -->
-                    <div class="xiaji-pane-section">
+                    <div v-show="false" class="xiaji-pane-section">
                       <div class="xiaji-pane-section-header" @click="toggleSection('sketch')">
                         <div class="section-title-wrap">
                           <ChevronDown
@@ -533,7 +559,7 @@
                     </div>
 
                     <!-- 3. 渲染精绘 Section (Render) -->
-                    <div class="xiaji-pane-section">
+                    <div v-show="false" class="xiaji-pane-section">
                       <div class="xiaji-pane-section-header" @click="toggleSection('render')">
                         <div class="section-title-wrap">
                           <ChevronDown
@@ -664,7 +690,7 @@
                     </div>
 
                     <!-- 4. 视频 Section (Video & LightX2V) -->
-                    <div class="xiaji-pane-section">
+                    <div v-show="false" class="xiaji-pane-section">
                       <div class="xiaji-pane-section-header" @click="toggleSection('video')">
                         <div class="section-title-wrap">
                           <ChevronDown
@@ -797,6 +823,119 @@
                         </div>
                       </div>
                     </div>
+
+                    <!-- 5. 素材组 Section (H3 Material Group) -->
+                    <div class="xiaji-pane-section h3-material-section">
+                      <div class="xiaji-pane-section-header" @click="toggleSection('material')">
+                        <div class="section-title-wrap">
+                          <ChevronDown
+                            :size="14"
+                            :class="['arrow-icon', { 'is-collapsed': !openSections.material }]"
+                          />
+                          <Layers :size="15" />
+                          <span class="section-title">素材组</span>
+                        </div>
+                        <div class="section-header-actions" @click.stop>
+                          <a-button
+                            type="primary"
+                            size="small"
+                            :loading="generatingH3Prompt"
+                            @click="handleGenerateH3Prompt"
+                          >
+                            <template #icon><Sparkles :size="12" /></template>
+                            {{ generatingH3Prompt ? '生成中' : '生成 H3 提示词' }}
+                          </a-button>
+                          <span :class="['status-chip', selectedBeat.h3_prompt ? 'is-active' : 'is-idle']">
+                            <span class="chip-dot" /> {{ selectedBeat.h3_prompt ? '已生成' : '未生成' }}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div v-show="openSections.material" class="xiaji-pane-section-body">
+                        <!-- 主内容：左侧参考图片 + 右侧提示词 -->
+                        <div class="h3-material-content">
+                          <!-- 左侧：参考图片 -->
+                          <div class="h3-material-left">
+                            <div class="h3-ref-block">
+                              <div class="h3-ref-block-head">
+                                <span class="h3-ref-label">参考图片</span>
+                                <a-button size="small" @click="handleSelectExistingImages">
+                                  选已有 {{ h3RefImages.length }}/9
+                                </a-button>
+                              </div>
+                              <div class="h3-ref-grid">
+                                <div
+                                  v-for="(img, idx) in h3RefImagesVisible"
+                                  :key="img.id || idx"
+                                  class="h3-ref-img-cell"
+                                >
+                                  <img v-if="img.url" :src="img.url" :alt="`图片${idx + 1}`" />
+                                  <div v-else class="h3-ref-img-empty">
+                                    <ImageIcon :size="18" />
+                                    <span>图片{{ idx + 1 }}</span>
+                                  </div>
+                                  <div class="h3-ref-info">
+                                    <span class="h3-ref-seq">图片{{ idx + 1 }}</span>
+                                    <span v-if="img.name" class="h3-ref-name" :title="img.name">
+                                      <i v-if="img.category === 'prop'" class="h3-ref-cat-dot is-prop" title="道具" />
+                                      <i v-else-if="img.category === 'scene'" class="h3-ref-cat-dot is-scene" title="场景" />
+                                      <i v-else class="h3-ref-cat-dot is-char" title="角色" />
+                                      {{ img.name }}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    class="h3-ref-del-btn"
+                                    title="移除此参考图"
+                                    @click.stop="removeH3RefImage(idx)"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                                <a-upload
+                                  :show-upload-list="false"
+                                  accept="image/*"
+                                  :before-upload="f => handleUploadH3Image(f)"
+                                >
+                                  <div class="h3-ref-add-btn">
+                                    <Plus :size="16" />
+                                  </div>
+                                </a-upload>
+                              </div>
+                              <div v-if="h3RefImages.length > 3" class="h3-ref-expand" @click="h3ImagesExpanded = !h3ImagesExpanded">
+                                {{ h3ImagesExpanded ? '收起' : `展开更多 (+${h3RefImages.length - 3})` }}
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- 右侧：H3 提示词展示 -->
+                          <div class="h3-prompt-panel">
+                            <div class="h3-prompt-head">
+                              <span class="h3-prompt-title">提示词</span>
+                              <a-button
+                                v-if="selectedBeat.h3_prompt"
+                                type="link"
+                                size="small"
+                                @click="copyH3Prompt"
+                              >
+                                <template #icon><Copy :size="12" /></template>
+                                复制
+                              </a-button>
+                            </div>
+                            <div v-if="selectedBeat.h3_prompt" ref="promptDisplayRef" class="h3-prompt-display" v-html="renderH3Prompt(selectedBeat.h3_prompt)" />
+                            <div v-else-if="generatingH3Prompt" class="h3-prompt-loading">
+                              <a-spin size="small" />
+                              <span>正在生成 H3 提示词...</span>
+                            </div>
+                            <div v-else class="h3-prompt-empty">
+                              <span>尚未生成 H3 提示词</span>
+                              <p>点击「生成 H3 提示词」，按技能规则调用大模型生成。</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
               </div>
@@ -975,7 +1114,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
@@ -998,6 +1137,9 @@ import {
   ExternalLink,
   Video,
   ArrowLeft,
+  Boxes,
+  Layers,
+  Copy,
 } from 'lucide-vue-next'
 import {
   listEpisodes,
@@ -1009,7 +1151,9 @@ import {
   generateBeatSketch,
   generateBeatRender,
   generateBeatImagesBatch,
+  generateEpisodeRequiredAssets,
   generateEpisodeVideo,
+  generateBeatH3Prompt,
   listAssets,
   listJobs,
 } from '../../api/projects'
@@ -1031,6 +1175,8 @@ const currentEpisode = ref(null)
 const refreshingDetail = ref(false)
 const regeneratingScript = ref(false)
 const generatingEpisodeVideo = ref(false)
+const globalVideoQuality = ref('0.4')
+const globalVideoDuration = ref(8)
 
 // 当前分集工作区 Tab: shots | script | compose
 const currentTab = ref('shots')
@@ -1073,13 +1219,191 @@ const openSections = ref({
   sketch: true,
   render: true,
   video: true,
+  material: true,
 })
+
+// H3 素材组状态
+const h3RefImages = ref([])
+const h3RefVideos = ref([])
+const h3ImagesExpanded = ref(false)
+const h3ImageSize = ref('match')
+const h3Duration = ref(10)
+const generatingH3Prompt = ref(false)
+const trackedH3PromptJobId = ref(null)
+
+const h3RefImagesVisible = computed(() =>
+  h3ImagesExpanded.value ? h3RefImages.value : h3RefImages.value.slice(0, 3)
+)
+
+
+function renderH3Prompt(text) {
+  if (!text) return ''
+  // 将 H3 提示词格式化为带高亮的 HTML（支持中文与英文章节关键词与分镜标号）
+  return text
+    .replace(/(?:^|\n)(?:##\s*|###\s*)?(subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music|主体定义|摘要|保留分析|详细描述|整体声景|非叙事配乐|画面广告文案):/gm,
+      '<br><span class="h3-section-key">$1:</span>')
+    .replace(/<Picture (\d+)>/g, '<span class="h3-ref-chip-inline"><span class="h3-chip-dot"></span>图片$1</span>')
+    .replace(/<Subject (\d+)>/g, '<span class="h3-subject-tag">&lt;Subject $1&gt;</span>')
+    .replace(/\[Shot (\d+)\]/g, '<span class="h3-shot-tag">[Shot $1]</span>')
+    .replace(/\n/g, '<br>')
+    .replace(/^(?:<br>)+/, '')
+}
+
+async function handleGenerateH3Prompt() {
+  if (!selectedBeat.value || generatingH3Prompt.value) return
+  generatingH3Prompt.value = true
+  try {
+    const payload = {
+      ref_images: h3RefImages.value.map((img, i) => ({
+        index: i + 1,
+        name: img.name,
+        category: img.category,
+        url: img.url,
+      })),
+      ref_videos: h3RefVideos.value.map((item, i) => ({
+        index: i + 1,
+        name: item.name,
+        url: item.url,
+      })),
+      existing_prompt: selectedBeat.value.h3_prompt || '',
+    }
+    // 调用后端接口提交任务到「全部任务」
+    const res = await generateBeatH3Prompt(
+      props.projectId,
+      currentEpisode.value.id,
+      selectedBeat.value.id,
+      payload
+    )
+    if (res?.job_id) {
+      trackedH3PromptJobId.value = res.job_id
+      message.success({
+        content: `已提交 H3 提示词生成任务：${res.job_id}，可在「全部任务」查看进度`,
+        key: 'h3PromptGen',
+        duration: 4,
+      })
+      pollImageJobs()
+    } else if (res?.prompt) {
+      selectedBeat.value.h3_prompt = res.prompt
+      openSections.value.material = true
+      message.success({ content: '已生成电影级 H3 提示词', key: 'h3PromptGen' })
+      generatingH3Prompt.value = false
+    }
+  } catch (err) {
+    console.error('调用大模型生成 H3 提示词失败', err)
+    const errText = err?.response?.data?.detail || err?.message || '生成失败'
+    message.error({ content: `大模型生成失败: ${errText}`, key: 'h3PromptGen' })
+    generatingH3Prompt.value = false
+  }
+}
+
+function handleClearH3Material() {
+  h3RefImages.value = []
+  h3RefVideos.value = []
+  if (selectedBeat.value) selectedBeat.value.h3_prompt = ''
+  message.success('素材组已清空')
+}
+
+function getCharacterImage(char) {
+  if (!char) return ''
+  const look = getSelectedCharacterLook(char)
+  if (look?.imageUrl) return look.imageUrl
+  return char.image_url || char.extra?.avatar_url || char.extra?.reference_url || char.extra?.master_url || ''
+}
+
+function getSceneImage(scene) {
+  if (!scene) return ''
+  return scene.extra?.master_url || scene.image_url || scene.extra?.reference_url || ''
+}
+
+function getPropImage(prop) {
+  if (!prop) return ''
+  return prop.image_url || prop.extra?.reference_url || prop.extra?.turnaround_url || prop.extra?.master_url || ''
+}
+
+function getBeatSceneAsset(beat) {
+  if (!beat) return null
+  if (beat.scene_id) {
+    const found = projectScenes.value.find(s => s.id === beat.scene_id)
+    if (found) return found
+  }
+  if (beat.scene) {
+    const found = projectScenes.value.find(s => s.name === beat.scene)
+    if (found) return found
+  }
+  return projectScenes.value.length ? projectScenes.value[0] : null
+}
+
+function handleSelectExistingImages() {
+  // 从项目资产中选择已有图片：出场角色图 + 场景主视图 + 出场道具参考图
+  const beatCharIds = selectedBeat.value?.character_ids || []
+  const beatChars = beatCharIds
+    .map(id => projectCharacters.value.find(c => c.id === id))
+    .filter(Boolean)
+  let charImgs = (beatChars.length ? beatChars : projectCharacters.value)
+    .map(c => ({ id: c.id, url: getCharacterImage(c), name: c.name, category: 'character' }))
+    .filter(item => item.url)
+
+  const sceneAsset = getBeatSceneAsset(selectedBeat.value)
+  const sceneUrl = getSceneImage(sceneAsset)
+  const sceneImgs = sceneUrl ? [{
+    id: sceneAsset.id,
+    url: sceneUrl,
+    name: sceneAsset.name || '场景',
+    category: 'scene'
+  }] : []
+
+  const beatPropIds = selectedBeat.value?.prop_ids || []
+  const beatPropNames = selectedBeat.value?.props || []
+  let beatProps = beatPropIds
+    .map(id => projectProps.value.find(p => p.id === id))
+    .filter(Boolean)
+  for (const pName of beatPropNames) {
+    if (!beatProps.some(p => p.name === pName)) {
+      const found = projectProps.value.find(p => p.name === pName)
+      if (found) beatProps.push(found)
+    }
+  }
+  const propImgs = (beatProps.length ? beatProps : projectProps.value)
+    .map(p => ({ id: p.id, url: getPropImage(p), name: p.name, category: 'prop' }))
+    .filter(item => item.url)
+
+  const imgs = [...charImgs, ...sceneImgs, ...propImgs]
+  if (imgs.length) {
+    h3RefImages.value = imgs.slice(0, 9)
+    message.success(`已选入 ${Math.min(imgs.length, 9)} 张参考图片（包含出场角色、场景与道具）`)
+  } else {
+    message.info('资产库暂无可用图片，请先在资产库上传或生成角色/场景/道具图片')
+  }
+}
+
+function removeH3RefImage(idx) {
+  h3RefImages.value.splice(idx, 1)
+}
+
+function handleSelectExistingVideos() {
+  message.info('视频选择功能待接入资产库')
+}
+
+function handleUploadH3Image(file) {
+  const url = URL.createObjectURL(file)
+  h3RefImages.value.push({ id: Date.now(), url, name: file.name })
+  message.success(`已添加参考图片：${file.name}`)
+  return false
+}
+
+function copyH3Prompt() {
+  if (!selectedBeat.value?.h3_prompt) return
+  navigator.clipboard.writeText(selectedBeat.value.h3_prompt)
+    .then(() => message.success('H3 提示词已复制到剪贴板'))
+    .catch(() => message.error('复制失败'))
+}
 
 // 各种生成 Loading 状态
 const generatingBeatIds = reactive(new Set())
 const generatingRenderBeatIds = reactive(new Set())
 const batchGenerating = ref(false)
 const batchGeneratingRenders = ref(false)
+const batchGeneratingRequiredAssets = ref(false)
 const generatingVideo = ref(false)
 const currentSceneView = ref('front')
 let imageJobPollTimer = null
@@ -1118,6 +1442,22 @@ const selectedBeat = computed(() => {
   if (!currentEpisode.value?.beats?.length) return null
   return currentEpisode.value.beats.find(b => b.id === selectedBeatId.value) || currentEpisode.value.beats[0]
 })
+
+const promptDisplayRef = ref(null)
+
+watch(
+  () => [selectedBeat.value?.id, selectedBeat.value?.h3_prompt],
+  ([newBeatId], [oldBeatId]) => {
+    nextTick(() => {
+      if (promptDisplayRef.value) {
+        promptDisplayRef.value.scrollTop = 0
+      }
+    })
+    if (newBeatId && newBeatId !== oldBeatId) {
+      pollImageJobs()
+    }
+  }
+)
 
 const episodeProtagonist = computed(() => {
   const beats = currentEpisode.value?.beats || []
@@ -1220,10 +1560,23 @@ async function loadAssets() {
   try {
     const res = await listAssets(props.projectId)
     projectAssets.value = res || []
+    if (selectedBeat.value && (h3RefImages.value.length === 0 || !selectedBeat.value.h3_prompt)) {
+      initH3MaterialForBeat()
+    }
   } catch (err) {
     console.error('加载资产列表失败', err)
   }
 }
+
+watch(
+  () => projectCharacters.value,
+  (chars) => {
+    if (chars && chars.length && selectedBeat.value && h3RefImages.value.length === 0) {
+      initH3MaterialForBeat()
+    }
+  },
+  { deep: true }
+)
 
 function openEpisodeDetail(epId) {
   router.push(`/projects/${props.projectId}/workshop/${epId}`)
@@ -1264,6 +1617,9 @@ async function loadEpisodeDetail(epId) {
   } finally {
     refreshingDetail.value = false
   }
+  await nextTick()
+  h3RefImages.value = []
+  initH3MaterialForBeat()
 }
 
 async function refreshCurrentEpisode() {
@@ -1273,17 +1629,99 @@ async function refreshCurrentEpisode() {
   }
 }
 
+// 初始化当前 Beat 的 H3 素材组：自动填充参考图 + 生成默认提示词
+function initH3MaterialForBeat() {
+  if (!selectedBeat.value) return
+  const beat = selectedBeat.value
+  const beatCharIds = beat.character_ids || []
+  const beatChars = beatCharIds
+    .map(id => projectCharacters.value.find(c => c.id === id))
+    .filter(Boolean)
+
+  // 1. 参考图：出场角色参考图 + 场景主视图 + 出场道具参考图
+  if (h3RefImages.value.length === 0) {
+    let charImgs = []
+    if (beatChars.length) {
+      charImgs = beatChars
+        .map(c => ({ id: c.id, url: getCharacterImage(c), name: c.name, category: 'character' }))
+        .filter(item => item.url)
+    }
+    // 如果当前 Beat 角色未生成图片或未选角色，从项目所有角色中挑选已有图的角色
+    if (!charImgs.length && projectCharacters.value.length) {
+      charImgs = projectCharacters.value
+        .map(c => ({ id: c.id, url: getCharacterImage(c), name: c.name, category: 'character' }))
+        .filter(item => item.url)
+        .slice(0, 2)
+    }
+
+    // 场景主视图参考图 (Picture N，与视频生成任务严格一致)
+    const sceneAsset = getBeatSceneAsset(beat)
+    const sceneUrl = getSceneImage(sceneAsset)
+    const sceneImgs = sceneUrl ? [{
+      id: sceneAsset.id,
+      url: sceneUrl,
+      name: sceneAsset.name || '场景',
+      category: 'scene'
+    }] : []
+
+    // 出场道具参考图
+    const beatPropIds = beat.prop_ids || []
+    const beatPropNames = beat.props || []
+    let beatProps = beatPropIds
+      .map(id => projectProps.value.find(p => p.id === id))
+      .filter(Boolean)
+    for (const pName of beatPropNames) {
+      if (!beatProps.some(p => p.name === pName)) {
+        const found = projectProps.value.find(p => p.name === pName)
+        if (found) beatProps.push(found)
+      }
+    }
+    const propImgs = beatProps
+      .map(p => ({
+        id: p.id,
+        url: getPropImage(p),
+        name: p.name,
+        category: 'prop'
+      }))
+      .filter(item => item.url)
+
+    let source = [...charImgs, ...sceneImgs, ...propImgs]
+
+    // 如果还没有，尝试项目其它带图资产兜底
+    if (!source.length && projectAssets.value.length) {
+      source = projectAssets.value
+        .map(a => ({
+          id: a.id,
+          url: a.image_url || a.extra?.master_url || a.extra?.reference_url || a.extra?.avatar_url || '',
+          name: a.name,
+          category: a.kind
+        }))
+        .filter(item => item.url)
+        .slice(0, 9)
+    }
+    if (source.length) {
+      h3RefImages.value = source
+    }
+  }
+}
+
 function selectBeat(beat) {
   selectedBeatId.value = beat.id
+  // 切换 Beat 时自动初始化素材组：填充参考图 + 生成默认提示词
+  h3RefImages.value = []
+  nextTick(() => {
+    initH3MaterialForBeat()
+  })
 }
 
 function toggleSection(key) {
   openSections.value[key] = !openSections.value[key]
 }
 
+
 // ---------------- 分镜数据编辑与保存 ----------------
 const editableBeatFields = [
-  'heading', 'speaker', 'dialogue', 'action', 'camera', 'scene', 'scene_id', 'time_of_day',
+  'heading', 'speaker', 'dialogue', 'dialogue_turns', 'visible_text', 'action', 'camera', 'scene', 'scene_id', 'time_of_day',
   'characters', 'character_ids', 'character_look_id', 'character_look_ids', 'props', 'prop_ids', 'visual_prompt', 'video_prompt_zh', 'video_duration',
 ]
 
@@ -1310,6 +1748,10 @@ function onSceneSelectChange(val) {
     selectedBeat.value.scene = s.name
   }
   saveCurrentBeat()
+  h3RefImages.value = []
+  nextTick(() => {
+    initH3MaterialForBeat()
+  })
 }
 
 function toggleBeatCharacter(cid) {
@@ -1329,6 +1771,10 @@ function toggleBeatCharacter(cid) {
     if (episodeProtagonist.value?.id === cid) selectedBeat.value.character_look_id = undefined
   }
   saveCurrentBeat()
+  h3RefImages.value = []
+  nextTick(() => {
+    initH3MaterialForBeat()
+  })
 }
 
 function onCharacterLookChange(characterId, lookId) {
@@ -1341,6 +1787,10 @@ function onCharacterLookChange(characterId, lookId) {
     selectedBeat.value.character_look_id = lookId || undefined
   }
   saveCurrentBeat(['character_look_id', 'character_look_ids'])
+  h3RefImages.value = []
+  nextTick(() => {
+    initH3MaterialForBeat()
+  })
 }
 
 function toggleBeatProp(pid) {
@@ -1352,7 +1802,11 @@ function toggleBeatProp(pid) {
   } else {
     selectedBeat.value.prop_ids.splice(idx, 1)
   }
-  saveCurrentBeat()
+  saveCurrentBeat(['prop_ids'])
+  h3RefImages.value = []
+  nextTick(() => {
+    initH3MaterialForBeat()
+  })
 }
 
 // ---------------- GRS 分镜生图调用 ----------------
@@ -1525,6 +1979,38 @@ async function enqueueSingleRender() {
   }
 }
 
+async function enqueueRequiredAssets() {
+  if (!currentEpisode.value) return
+  batchGeneratingRequiredAssets.value = true
+  message.loading({ content: '正在索引本集主角、场景、道具…', key: 'batchRequiredAssets' })
+  try {
+    const res = await generateEpisodeRequiredAssets(props.projectId, currentEpisode.value.id, {
+      model: 'gpt-image-2',
+    })
+    const queued = res.queued || 0
+    const skippedExisting = (res.skipped || []).filter((item) => item.reason === '已有主图').length
+    const indexed = res.indexed || {}
+    const indexedCount = (indexed.characters?.length || 0) + (indexed.scenes?.length || 0) + (indexed.props?.length || 0)
+    if (!queued) {
+      message.info({
+        content: skippedExisting
+          ? `本集 ${indexedCount} 个主角/场景/道具主图已就绪，无需再提交`
+          : ((res.skipped || [])[0]?.reason || '本集没有可提交的主角、场景或道具主图任务'),
+        key: 'batchRequiredAssets',
+      })
+      return
+    }
+    message.success({
+      content: `已提交 ${queued} 个主图任务（主角/场景/道具），按最大并发 ${res.concurrency || 5} 执行，请到「全部任务」查看`,
+      key: 'batchRequiredAssets',
+    })
+  } catch (err) {
+    message.error({ content: err?.response?.data?.detail || '提交所需资源任务失败', key: 'batchRequiredAssets' })
+  } finally {
+    batchGeneratingRequiredAssets.value = false
+  }
+}
+
 async function enqueueBatch(stage) {
   if (!currentEpisode.value?.beats?.length) return
   const candidates = stage === 'sketch'
@@ -1575,7 +2061,36 @@ async function pollImageJobs() {
       if (stage === 'sketch') generatingBeatIds.add(job.payload.beat_id)
       if (stage === 'render') generatingRenderBeatIds.add(job.payload.beat_id)
     })
+
     let refresh = false
+    // 检测当前分镜的 H3 提示词任务状态
+    const currentBeatId = selectedBeat.value?.id
+    const activePromptJob = episodeJobs.find(job =>
+      (job.job_type === 'h3_prompt' || job.payload?.target_type === 'h3_prompt') &&
+      job.payload?.beat_id === currentBeatId &&
+      activeStatuses.has(job.status)
+    )
+    if (activePromptJob) {
+      generatingH3Prompt.value = true
+      trackedH3PromptJobId.value = activePromptJob.id
+    } else if (trackedH3PromptJobId.value) {
+      const trackedJob = episodeJobs.find(job => job.id === trackedH3PromptJobId.value)
+      if (trackedJob && !activeStatuses.has(trackedJob.status)) {
+        generatingH3Prompt.value = false
+        trackedH3PromptJobId.value = null
+        if (trackedJob.status === 'completed' || trackedJob.status === 'succeeded') {
+          const newPrompt = trackedJob.payload?.h3_prompt || trackedJob.payload?.result_prompt
+          if (newPrompt && selectedBeat.value && selectedBeat.value.id === trackedJob.payload?.beat_id) {
+            selectedBeat.value.h3_prompt = newPrompt
+          }
+          message.success({ content: 'H3 提示词已生成完成！', key: 'h3PromptGen' })
+          refresh = true
+        } else if (trackedJob.status === 'failed') {
+          message.error({ content: `H3 提示词生成失败: ${trackedJob.error_message || '未知错误'}`, key: 'h3PromptGen' })
+        }
+      }
+    }
+
     for (const [stage, ids] of trackedBatchJobs.entries()) {
       const relevant = episodeJobs.filter(job => ids.has(job.id))
       if (relevant.length !== ids.size || relevant.some(job => activeStatuses.has(job.status))) continue
@@ -1658,14 +2173,34 @@ async function handleGenerateEpisodeVideo() {
   if (!currentEpisode.value || generatingEpisodeVideo.value) return
   generatingEpisodeVideo.value = true
   try {
-    const res = await generateEpisodeVideo(props.projectId, currentEpisode.value.id)
+    const beats = currentEpisode.value.beats || []
+    const beatPrompts = beats
+      .map(b => ({
+        beat_id: b.id,
+        prompt: (b.h3_prompt || '').trim(),
+      }))
+      .filter(p => p.prompt.length > 20)
+
+    const payload = {
+      duration_per_beat: Number(globalVideoDuration.value) || 8,
+      quality: globalVideoQuality.value || '0.4',
+    }
+    // 当分集所有 Beat 在素材组中已有生成的 H3 提示词时，明确作为预生成提示词传入
+    if (beatPrompts.length === beats.length && beats.length > 0) {
+      payload.prompts = beatPrompts
+      payload.prompt_source = 'workshop_material'
+    }
+
+    const res = await generateEpisodeVideo(props.projectId, currentEpisode.value.id, payload)
     message.success({
       content: `视频任务已创建：${res.job_id}，可在「全部任务」中查看进度`,
       duration: 6,
     })
   } catch (err) {
     const detail = err?.response?.data?.detail || err?.message || '视频任务创建失败'
-    message.error({ content: detail, duration: 10 })
+    const queuedScenes = String(detail).includes('已自动提交场景主视图任务')
+    const notice = queuedScenes ? message.warning : message.error
+    notice({ content: detail, duration: queuedScenes ? 12 : 10 })
   } finally {
     generatingEpisodeVideo.value = false
   }
@@ -2002,6 +2537,30 @@ onUnmounted(() => {
   margin: 0;
   font-size: 12px;
   color: #64748b;
+}
+
+.xiaji-episode-head-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.head-param-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.head-param-lbl {
+  font-size: 12px;
+  color: #475569;
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 /* Tabs 深度定制：完全适配沉浸式 Flex 满高布局 */
@@ -3119,6 +3678,430 @@ onUnmounted(() => {
 .xiaji-compose-pane::-webkit-scrollbar-thumb:hover,
 .xiaji-original-lines::-webkit-scrollbar-thumb:hover,
 .xiaji-beat-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* ==================== H3 素材组 Pane ==================== */
+.h3-material-section {
+  /* 完全继承 .xiaji-pane-section 样式，无需覆盖 */
+}
+
+.h3-material-body {
+  background: #ffffff;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.h3-material-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.h3-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #7047f6;
+  letter-spacing: 0.01em;
+}
+
+.h3-material-params {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.h3-param-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.h3-param-lbl {
+  font-size: 12px;
+  color: #475569;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.h3-material-content {
+  display: flex;
+  min-height: 300px;
+  max-height: 500px;
+}
+
+/* 左侧素材区 */
+.h3-material-left {
+  width: 280px;
+  min-width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e2e8f0;
+  overflow-y: auto;
+  background: #ffffff;
+}
+
+.h3-ref-block {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.h3-ref-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.h3-ref-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.h3-ref-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.h3-ref-img-cell {
+  position: relative;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.h3-ref-img-cell img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.h3-ref-del-btn {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #ffffff;
+  border: 1.5px solid #ffffff;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s;
+  padding: 0;
+  z-index: 2;
+}
+
+.h3-ref-img-cell:hover .h3-ref-del-btn {
+  display: flex;
+}
+
+.h3-ref-del-btn:hover {
+  transform: scale(1.15);
+  background: #dc2626;
+}
+
+.h3-ref-video-thumb {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+}
+
+.h3-ref-img-empty {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #94a3b8;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.h3-ref-img-empty.is-dark {
+  background: #f1f5f9;
+}
+
+.h3-ref-img-empty:hover {
+  border-color: #8b5cf6;
+  background: #f5f3ff;
+  color: #7047f6;
+}
+
+.h3-ref-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 0 2px;
+}
+
+.h3-ref-seq {
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.h3-ref-name {
+  font-size: 10px;
+  color: #64748b;
+  max-width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.h3-ref-cat-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-right: 2px;
+  vertical-align: middle;
+}
+
+.h3-ref-cat-dot.is-char {
+  background: #3b82f6;
+}
+
+.h3-ref-cat-dot.is-scene {
+  background: #10b981;
+}
+
+.h3-ref-cat-dot.is-prop {
+  background: #f59e0b;
+}
+
+.h3-ref-add-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  border: 1px dashed #c4b5fd;
+  background: #f5f3ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7047f6;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.h3-ref-add-btn:hover {
+  border-color: #7047f6;
+  background: #ede9fe;
+}
+
+.h3-ref-expand {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #7047f6;
+  cursor: pointer;
+  text-align: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.h3-ref-expand:hover {
+  background: #f5f3ff;
+}
+
+/* 右侧提示词面板 */
+.h3-prompt-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.h3-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+  background: #f8fafc;
+}
+
+.h3-prompt-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.h3-prompt-display {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  font-size: 13px;
+  line-height: 1.85;
+  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  word-break: break-word;
+}
+
+.h3-prompt-display :deep(.h3-section-key) {
+  display: block;
+  color: #0f172a;
+  font-weight: 700;
+  font-size: 13px;
+  margin-top: 10px;
+  margin-bottom: 2px;
+}
+
+.h3-prompt-display :deep(.h3-section-key:first-child) {
+  margin-top: 0;
+}
+
+.h3-prompt-display :deep(.h3-ref-chip-inline) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 4px;
+  padding: 1px 7px 1px 5px;
+  font-size: 11.5px;
+  color: #047857;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
+.h3-prompt-display :deep(.h3-chip-dot) {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
+}
+
+.h3-prompt-display :deep(.h3-subject-tag) {
+  display: inline-flex;
+  align-items: center;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11.5px;
+  color: #dc2626;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
+.h3-prompt-display :deep(.h3-shot-tag) {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11.5px;
+  color: #475569;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.h3-prompt-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.h3-prompt-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #94a3b8;
+  padding: 24px;
+  text-align: center;
+}
+
+.h3-prompt-empty span {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.h3-prompt-empty p {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.6;
+  max-width: 280px;
+}
+
+.h3-prompt-display::-webkit-scrollbar,
+.h3-material-left::-webkit-scrollbar {
+  width: 4px;
+}
+
+.h3-prompt-display::-webkit-scrollbar-track,
+.h3-material-left::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.h3-prompt-display::-webkit-scrollbar-thumb,
+.h3-material-left::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 4px;
+}
+
+.h3-prompt-display::-webkit-scrollbar-thumb:hover,
+.h3-material-left::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.32);
 }
 </style>

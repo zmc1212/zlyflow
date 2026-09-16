@@ -1,3 +1,5 @@
 source1/*
 source2/*
 __pycache__*
+server/data/logs/*.log
+server/data/logs/*.log.*

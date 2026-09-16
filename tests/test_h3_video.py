@@ -96,7 +96,7 @@ class H3PromptTests(unittest.TestCase):
 
     @patch.object(H3PromptBuilder, "_runtime_config", return_value=("http://llm", "model", "key"))
     @patch("server.services.h3_prompt_builder.requests.post")
-    def test_stops_before_later_beats_after_two_failures(self, post, _config):
+    def test_stops_before_later_beats_after_repeated_failures(self, post, _config):
         shots = [
             {"beat_id": "beat-1", "sequence": 1},
             {"beat_id": "beat-2", "sequence": 2},
@@ -104,14 +104,16 @@ class H3PromptTests(unittest.TestCase):
         post.side_effect = [
             self._llm_response("beat-1", "bad one"),
             self._llm_response("beat-1", "bad two"),
+            self._llm_response("beat-1", "bad three"),
+            self._llm_response("beat-1", "bad four"),
         ]
         attempts = []
 
         with self.assertRaisesRegex(ValueError, "Beat 1"):
             H3PromptBuilder.build_prompts(shots, on_attempt=attempts.append)
 
-        self.assertEqual(2, post.call_count)
-        self.assertEqual(["beat-1", "beat-1"], [item["beat_id"] for item in attempts])
+        self.assertEqual(4, post.call_count)
+        self.assertEqual(["beat-1"] * 4, [item["beat_id"] for item in attempts])
 
     def test_normalizes_compact_sections_and_preserves_mandatory_literals(self):
         shot = {
@@ -128,6 +130,59 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("<Subject 1>", normalized)
         self.assertIn("<Picture 1>", normalized)
         self.assertIn("<d>[Chinese] 这里是什么地方？</d>", normalized)
+
+    def test_deterministically_enriches_a_structurally_valid_short_prompt(self):
+        shot = {
+            "beat_id": "beat-1",
+            "sequence": 1,
+            "scene": "酒馆",
+            "camera": "从门外跟入",
+            "action": "推开门后停顿",
+            "duration_seconds": 10,
+        }
+        short = rich_prompt("").replace(" ".join([
+            "The camera holds a stable medium composition while natural lighting defines the room, "
+            "the subject performs a precise visible action, and synchronized sound follows every contact."
+        ] * 24), "The camera uses natural lighting and synchronized sound.")
+
+        enriched = H3PromptBuilder._enrich_short_prompt(shot, short)
+
+        self.assertGreaterEqual(H3PromptBuilder._english_word_count(enriched), 280)
+        self.assertIn("final portion of this 10-second shot", enriched)
+        self.assertEqual([], H3PromptBuilder.validate_prompts([shot], [enriched]))
+
+    def test_multi_speaker_contract_uses_independent_ids_and_subjects(self):
+        shot = {
+            "sequence": 1,
+            "character_references": [
+                {"character_id": "niu", "character_name": "牛大"},
+                {"character_id": "client", "character_name": "路人2"},
+            ],
+            "dialogue_turns": [
+                {"speaker": "客户经理", "character_id": "client", "text": "牛总，这笔单子，算你狠。"},
+                {"speaker": "牛大", "character_id": "niu", "text": "算我准。"},
+            ],
+        }
+        speaker_map = H3PromptBuilder._speaker_map([shot])
+        contract = H3PromptBuilder._required_contract(shot, speaker_map)
+        self.assertEqual({"客户经理": "S1", "牛大": "S2"}, speaker_map)
+        self.assertIn("(S1) <Subject 2> 客户经理 says", contract)
+        self.assertIn("(S2) <Subject 1> 牛大 says", contract)
+
+    def test_rejects_invented_dialogue_and_closed_lips_during_speech(self):
+        shot = {
+            "sequence": 2,
+            "speaker": "牛大",
+            "dialogue": "今晚是该喝一杯。",
+        }
+        prompt = rich_prompt("今晚是该喝一杯。")
+        prompt = prompt.replace(
+            "overall_soundscape:",
+            "(S1) says <d>[Chinese] 好，等我一下。</d>. His lips remain closed throughout the dialogue.\noverall_soundscape:",
+        )
+        errors = H3PromptBuilder.validate_prompts([shot], [prompt])
+        self.assertTrue(any("新增对白" in error for error in errors))
+        self.assertTrue(any("闭唇" in error for error in errors))
 
 
 class ComfyWorkflowTests(unittest.TestCase):
@@ -150,12 +205,48 @@ class ComfyWorkflowTests(unittest.TestCase):
         self.assertEqual("generate", timeline["output"]["audioMode"])
         self.assertEqual(timeline["segments"], timeline["batchWorkspaces"]["r2v"]["segments"])
 
+    def test_timeline_uses_desktop_workflow_10_second_243_frame_grid(self):
+        shots = []
+        for index in range(2):
+            shots.append({
+                "beat_id": f"beat-{index + 1}",
+                "prompt": rich_prompt(),
+                "duration_seconds": 10,
+                "frame_count": 243,
+                "uploaded_refs": [
+                    {"imageFile": "char.png", "fileName": "char.png", "type": "input", "subfolder": "refs"},
+                    {"imageFile": "scene.png", "fileName": "scene.png", "type": "input", "subfolder": "refs"},
+                ],
+            })
+        timeline = ComfyVideoClient.build_timeline(shots, "r2v — Reference to Video")
+        self.assertEqual(486, timeline["totalFrames"])
+        self.assertEqual([0, 243], [item["start"] for item in timeline["segments"]])
+        self.assertTrue(all(item["frameCount"] == 243 for item in timeline["segments"]))
+        self.assertTrue(all(item["durationSec"] == 10 for item in timeline["segments"]))
+        self.assertEqual(243, timeline["gen"]["defaultFrameCount"])
+
+    def test_prompt_system_contract_uses_requested_duration(self):
+        prompt = H3PromptBuilder._system_prompt(10)
+        self.assertIn("lasting 10 seconds", prompt)
+        self.assertIn("fits 10 seconds", prompt)
+
     def test_workflow_contains_acceleration_and_audio_chain(self):
         timeline = ComfyVideoClient.build_timeline([], "r2v — Reference to Video")
         workflow = ComfyVideoClient.build_workflow(timeline, "r2v — Reference to Video", "video/test")
         self.assertEqual("PathchSageAttentionKJ", workflow["14"]["class_type"])
         self.assertEqual(["12", 1], workflow["6"]["inputs"]["audio"])
         self.assertEqual(20, workflow["12"]["inputs"]["steps"])
+
+    def test_workflow_custom_quality_and_resolution(self):
+        timeline = ComfyVideoClient.build_timeline([], "r2v — Reference to Video", width=1152, height=640)
+        self.assertEqual(1152, timeline["output"]["width"])
+        self.assertEqual(640, timeline["output"]["height"])
+        workflow = ComfyVideoClient.build_workflow(
+            timeline, "r2v — Reference to Video", "video/test", width=1152, height=640, steps=25
+        )
+        self.assertEqual(1152, workflow["12"]["inputs"]["width"])
+        self.assertEqual(640, workflow["12"]["inputs"]["height"])
+        self.assertEqual(25, workflow["12"]["inputs"]["steps"])
 
     def test_finds_nested_video_output(self):
         output = ComfyVideoClient._find_video({"7": {"videos": [{
@@ -336,6 +427,23 @@ class LookSelectionTests(unittest.TestCase):
         self.assertIn("this Beat is contemporary modern-day", prompt)
         self.assertNotIn("ancient teenage scholar", prompt)
         self.assertNotIn("17-year-old wearing an ancient robe", prompt)
+
+    def test_load_jjj_markdown_prompts(self):
+        parsed = EpisodeVideoService._parse_jjj_markdown()
+        self.assertEqual({1, 2, 3, 4, 5, 6}, set(parsed.keys()))
+        shots = [
+            {"beat_id": "b-1", "sequence": 1},
+            {"beat_id": "b-2", "sequence": 2},
+        ]
+        loaded = EpisodeVideoService._load_jjj_prompts_for_shots(1, shots)
+        self.assertIsNotNone(loaded)
+        self.assertEqual(2, len(loaded))
+        self.assertIn("subject_definitions:", loaded[0]["prompt"])
+        self.assertIn("黄河之水天上来", loaded[0]["prompt"])
+
+    def test_clean_dialogue_strips_speaker_and_quotes(self):
+        cleaned = H3PromptBuilder._clean_dialogue('李青莲：“君不见，黄河之水天上来，奔流到海不复回。”', '李青莲')
+        self.assertEqual('君不见，黄河之水天上来，奔流到海不复回。', cleaned)
 
 
 if __name__ == "__main__":

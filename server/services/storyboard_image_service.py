@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,7 @@ from .qiniu_service import QiniuService
 
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=20, thread_name_prefix="storyboard-image")
+logger = logging.getLogger("server.image")
 _DISPATCH_LOCK = threading.Lock()
 _ACTIVE: set[str] = set()
 _ACTIVE_LOCK = threading.Lock()
@@ -139,10 +141,7 @@ class StoryboardImageService:
                 "SELECT id,payload_json FROM ai_project_jobs WHERE job_type='image_generation' "
                 "AND status IN ('preparing','running','storing')"
             )
-            database_active = sum(
-                1 for row in active_rows
-                if cls._payload(row).get("target_type") in {"beat_sketch", "beat_render"}
-            )
+            database_active = len(active_rows)
             with _ACTIVE_LOCK:
                 capacity = max(0, limit - max(len(_ACTIVE), database_active))
             if not capacity:
@@ -154,8 +153,6 @@ class StoryboardImageService:
             for row in rows:
                 if capacity <= 0:
                     break
-                if cls._payload(row).get("target_type") not in {"beat_sketch", "beat_render"}:
-                    continue
                 jid = row["id"]
                 if execute_sql(
                     "UPDATE ai_project_jobs SET status='preparing',progress=10,updated_at=%s WHERE id=%s AND status='queued'",
@@ -176,8 +173,6 @@ class StoryboardImageService:
             "AND status IN ('queued','preparing','running','storing')"
         ):
             payload = cls._payload(row)
-            if payload.get("target_type") not in {"beat_sketch", "beat_render"}:
-                continue
             if row["status"] == "queued" or payload.get("remote_task_id"):
                 execute_sql("UPDATE ai_project_jobs SET status='queued',progress=0,updated_at=%s WHERE id=%s", (now_str(), row["id"]))
             else:
@@ -191,14 +186,32 @@ class StoryboardImageService:
     def retry(cls, project_id: str, job_id: str) -> dict[str, Any]:
         row = query_one("SELECT * FROM ai_project_jobs WHERE id=%s AND project_id=%s", (job_id, project_id))
         payload = cls._payload(row or {})
-        if not row or payload.get("target_type") not in {"beat_sketch", "beat_render"}:
-            raise ValueError("分镜图片任务不存在")
-        if row.get("status") not in {"failed", "completed", "succeeded"}:
-            raise ValueError("只有失败或已完成的任务可以重试")
-        return cls.enqueue(project_id, payload["episode_id"], payload["beat_id"], payload, payload["target_type"].removeprefix("beat_"))
+        target_type = str(payload.get("target_type") or "")
+        if not row:
+            raise ValueError("图片任务不存在")
+        if row.get("status") not in {"failed", "completed", "succeeded", "cancelled"}:
+            raise ValueError("只有失败、已取消或已完成的任务可以重试")
+        if target_type in {"beat_sketch", "beat_render"}:
+            return cls.enqueue(project_id, payload["episode_id"], payload["beat_id"], payload, target_type.removeprefix("beat_"))
+        if payload.get("asset_id"):
+            from .project_detail_service import ProjectDetailService
+            return ProjectDetailService.generate_asset_image(
+                project_id,
+                payload["asset_id"],
+                {
+                    "target_type": target_type or "asset",
+                    "identity_id": payload.get("identity_id"),
+                    "prompt": payload.get("prompt") or "",
+                    "model": payload.get("model") or "",
+                    "aspect_ratio": payload.get("aspect_ratio") or "",
+                },
+                enqueue_only=True,
+            )
+        raise ValueError("分镜图片任务不存在")
 
     @classmethod
     def _run(cls, job_id: str) -> None:
+        logger.info("image job start %s", job_id)
         try:
             row = query_one("SELECT * FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
             payload = cls._payload(row)
@@ -228,10 +241,12 @@ class StoryboardImageService:
             object_key, image_url = QiniuService.store_bytes("image", filename, content)
             payload.update({"grs_url": grs_url, "api_url": image_url, "object_key": object_key})
             cls._complete(job_id, payload, image_url)
+            logger.info("image job completed %s", job_id)
         except Exception as err:
             message = f"GRS 生图失败: {err}" if isinstance(err, GrsError) else str(err)
+            logger.exception("image job failed %s: %s", job_id, message)
             execute_sql(
-                "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,updated_at=%s WHERE id=%s",
+                "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,updated_at=%s WHERE id=%s AND status <> 'cancelled'",
                 (message[:4000], now_str(), job_id),
             )
         finally:
@@ -243,7 +258,36 @@ class StoryboardImageService:
     def _complete(cls, job_id: str, payload: dict[str, Any], image_url: str) -> None:
         from .project_detail_service import ProjectDetailService
 
-        stage = payload["target_type"].removeprefix("beat_")
+        target_type = str(payload.get("target_type") or "")
+        if target_type not in {"beat_sketch", "beat_render"}:
+            current = query_one("SELECT status FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
+            if str(current.get("status") or "") == "cancelled":
+                return
+            asset_id = str(payload.get("asset_id") or "")
+            project_id = str(payload.get("project_id") or "")
+            if not asset_id or not project_id:
+                raise ValueError("资产生图任务缺少 asset_id")
+            ProjectDetailService.apply_generated_asset_image(
+                project_id,
+                asset_id,
+                target_type=target_type or "asset",
+                identity_id=payload.get("identity_id"),
+                image_url=image_url,
+                object_key=str(payload.get("object_key") or ""),
+                prompt=str(payload.get("prompt") or ""),
+            )
+            ts = now_str()
+            execute_sql(
+                """
+                UPDATE ai_project_jobs SET status='completed', progress=100, result_url=%s, payload_json=%s,
+                    error_message=NULL, completed_at=%s, updated_at=%s
+                WHERE id=%s AND status <> 'cancelled'
+                """,
+                (image_url, json.dumps(payload, ensure_ascii=False), ts, ts, job_id),
+            )
+            return
+
+        stage = target_type.removeprefix("beat_")
         updates = ({"sketch_url": image_url, "sketch_prompt": payload["clean_prompt"], "status": "sketched"}
                    if stage == "sketch" else
                    {"render_url": image_url, "render_prompt": payload["clean_prompt"], "render_status": "succeeded"})
@@ -258,7 +302,7 @@ class StoryboardImageService:
                 raise
             execute_sql(
                 "UPDATE ai_project_jobs SET status='completed',progress=100,result_url=%s,payload_json=%s,"
-                "error_message=%s,completed_at=%s,updated_at=%s WHERE id=%s",
+                "error_message=%s,completed_at=%s,updated_at=%s WHERE id=%s AND status <> 'cancelled'",
                 (image_url, json.dumps(payload, ensure_ascii=False), "结果已保留，但未覆盖较新的 Beat 任务。",
                  now_str(), now_str(), job_id),
             )
@@ -266,7 +310,7 @@ class StoryboardImageService:
     @staticmethod
     def _set_state(job_id: str, payload: dict[str, Any], status: str, progress: int) -> None:
         execute_sql(
-            "UPDATE ai_project_jobs SET status=%s,progress=%s,payload_json=%s,updated_at=%s WHERE id=%s",
+            "UPDATE ai_project_jobs SET status=%s,progress=%s,payload_json=%s,updated_at=%s WHERE id=%s AND status <> 'cancelled'",
             (status, progress, json.dumps(payload, ensure_ascii=False), now_str(), job_id),
         )
 

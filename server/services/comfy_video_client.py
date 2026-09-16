@@ -73,23 +73,31 @@ class ComfyVideoClient:
         raise RuntimeError(f"参考图上传失败 {source_url}: {last_error}")
 
     @staticmethod
-    def build_timeline(shots: list[dict[str, Any]], task_type: str) -> dict[str, Any]:
+    def build_timeline(
+        shots: list[dict[str, Any]],
+        task_type: str,
+        width: int = 864,
+        height: int = 480,
+    ) -> dict[str, Any]:
         negative = (
             "camera shake, identity drift, face drift, age change, hairstyle change, "
             "costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, "
             "random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail"
         )
         segments: list[dict[str, Any]] = []
+        frame_cursor = 0
         for index, shot in enumerate(shots):
+            frame_count = int(shot.get("frame_count") or 192)
+            duration_seconds = int(shot.get("duration_seconds") or 8)
             refs = []
             for ref_index, uploaded in enumerate(shot["uploaded_refs"]):
                 refs.append({"index": ref_index, **uploaded})
             segments.append({
                 "id": str(shot["beat_id"]),
-                "start": index * 192,
-                "length": 192,
-                "frameCount": 192,
-                "durationSec": 8,
+                "start": frame_cursor,
+                "length": frame_count,
+                "frameCount": frame_count,
+                "durationSec": duration_seconds,
                 "prompt": shot["prompt"],
                 "negativePrompt": negative,
                 "taskType": task_type,
@@ -102,10 +110,12 @@ class ComfyVideoClient:
                 "referenceVideo": {
                     "videoFile": "", "fileName": "", "type": "input", "subfolder": ""
                 },
-                "_videoFrameCount": 192,
+                "_videoFrameCount": frame_count,
                 "previewFps": 24,
             })
-        total_frames = len(segments) * 192
+            frame_cursor += frame_count
+        total_frames = frame_cursor
+        default_frame_count = int(shots[0].get("frame_count") or 192) if shots else 192
         return {
             "version": 5,
             "editMode": "segment",
@@ -118,8 +128,8 @@ class ComfyVideoClient:
                 "referenceVideo": {"videoFile": "", "fileName": "", "type": "input", "subfolder": ""},
                 "continuousReference": False,
                 "genImage": {"imageFile": ""},
-                "sourceWidth": 864,
-                "sourceHeight": 480,
+                "sourceWidth": width,
+                "sourceHeight": height,
                 "refAudios": [],
                 "refVideos": [],
                 "commonEnabled": True,
@@ -128,11 +138,11 @@ class ComfyVideoClient:
             "output": {
                 "mode": "fixed",
                 "aspectRatio": "16:9 (宽屏)",
-                "megapixels": 0.4,
+                "megapixels": round((width * height) / 1_000_000, 2),
                 "multiple": 32,
-                "longEdge": 864,
-                "width": 864,
-                "height": 480,
+                "longEdge": max(width, height),
+                "width": width,
+                "height": height,
                 "maxExportFrames": 0,
                 "exportMode": "all",
                 "audioMode": "generate",
@@ -147,10 +157,10 @@ class ComfyVideoClient:
             "runSelection": [],
             "segments": segments,
             "timelineMode": "prompt_batch",
-            "width": 864,
-            "height": 480,
-            "refMaxSize": 864,
-            "gen": {"defaultFrameCount": 192},
+            "width": width,
+            "height": height,
+            "refMaxSize": max(width, height),
+            "gen": {"defaultFrameCount": default_frame_count},
             "batchDetailMode": "solo",
             "batchWorkspaces": {
                 "r2v": {
@@ -172,7 +182,14 @@ class ComfyVideoClient:
         }
 
     @staticmethod
-    def build_workflow(timeline: dict[str, Any], task_type: str, filename_prefix: str) -> dict[str, Any]:
+    def build_workflow(
+        timeline: dict[str, Any],
+        task_type: str,
+        filename_prefix: str,
+        width: int = 864,
+        height: int = 480,
+        steps: int = 20,
+    ) -> dict[str, Any]:
         total_frames = int(timeline["totalFrames"])
         return {
             "1": {"class_type": "UNETLoader", "inputs": {
@@ -197,10 +214,10 @@ class ComfyVideoClient:
             "12": {"class_type": "MiniMaxH3Director", "inputs": {
                 "model": ["15", 0], "video_vae": ["3", 0], "audio_vae": ["4", 0], "clip": ["2", 0],
                 "task_type": task_type, "global_prompt": "", "bd_grp_sample": "采样设置",
-                "cfg": 1.0, "seed": 888, "frame_rate": 24.0, "width": 864, "height": 480,
-                "ref_max_size": 864, "total_frames": total_frames,
+                "cfg": 1.0, "seed": 888, "frame_rate": 24.0, "width": width, "height": height,
+                "ref_max_size": max(width, height), "total_frames": total_frames,
                 "timeline_data": json.dumps(timeline, ensure_ascii=False),
-                "bd_grp_advanced": "高级采样", "steps": 20, "sampler": "res_multistep",
+                "bd_grp_advanced": "高级采样", "steps": steps, "sampler": "res_multistep",
                 "scheduler": "simple", "shift_video": 12.0, "shift_audio": 3.0,
                 "bd_grp_perf": "性能", "clear_vram_between_segments": False,
                 "export_source_images": False,

@@ -3,6 +3,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .cast_resolver import (
+    attach_character_prompts,
+    looks_from_description,
+    normalize_episodes_cast,
+    split_header_name,
+)
+
 
 class StandardScriptParser:
     """
@@ -30,8 +37,10 @@ class StandardScriptParser:
         visual_style = cls._extract_visual_style(text)
         character_prompts = cls._extract_character_prompts(text)
         characters = cls._extract_characters(text, character_prompts)
+        attach_character_prompts(characters, character_prompts)
         scene_library = cls._extract_scene_library(text)
         episodes = cls._extract_episodes(text)
+        normalize_episodes_cast(characters, episodes)
         production_advice = cls._extract_production_advice(text)
 
         # 道具全局汇聚去重与关联统计
@@ -191,18 +200,18 @@ class StandardScriptParser:
 
             lines = cb_str.split("\n")
             header = lines[0].replace("###", "").strip()
-            name = header
-            role = "主要角色"
+            raw_name = header
+            role = ""
             for sep in ["——", "--", "-", "—"]:
                 if sep in header:
                     parts = header.split(sep, 1)
-                    name = parts[0].strip()
+                    raw_name = parts[0].strip()
                     role = parts[1].strip()
                     break
 
+            name, aliases = split_header_name(raw_name)
             content = "\n".join(lines[1:]).strip()
 
-            # 提取固定道具
             fixed_props = []
             prop_match = re.search(r"固定道具[：:]([^\n]+)", content)
             if prop_match:
@@ -210,28 +219,32 @@ class StandardScriptParser:
                 raw_props = re.split(r"[、,，\s]+", p_text)
                 fixed_props = [p.strip() for p in raw_props if p.strip()]
 
-            # 性别与年龄
-            gender = "男"
-            if any(w in content or w in role for w in ["女", "母", "小姐", "婉", "妹", "娘", "妇"]):
-                gender = "女"
-
             age = ""
-            age_match = re.search(r"(\d+岁)", content)
+            age_match = re.search(r"(\d+\s*岁)", content)
             if age_match:
-                age = age_match.group(1)
+                age = re.sub(r"\s+", "", age_match.group(1))
 
-            prompt = character_prompts.get(name, "")
+            prompt = character_prompts.get(name, "") or character_prompts.get(raw_name, "")
             if not prompt:
                 prompt = content.replace(f"固定道具：{prop_match.group(1) if prop_match else ''}", "").strip()
 
             characters.append({
                 "name": name,
+                "aliases": [item for item in aliases if item and item != name],
                 "role": role,
-                "gender": gender,
+                "gender": "",
                 "age": age,
+                "age_group": "",
+                "role_position": "",
                 "description": content,
                 "fixed_props": fixed_props,
                 "visual_prompt": prompt,
+                "face_prompt": "",
+                "body_type": "",
+                "art_style_id": "",
+                "visual_style": "",
+                "ethnicity": "",
+                "looks": looks_from_description(content),
                 "shots_count": 0,
             })
         return characters
@@ -524,9 +537,11 @@ class StandardScriptParser:
         for c in characters:
             count = 0
             c_name = c["name"]
+            aliases = c.get("aliases") or []
+            keys = [c_name, *aliases] if isinstance(aliases, list) else [c_name, str(aliases)]
             for ep in episodes:
                 for shot in ep.get("shots", []):
                     shot_chars = " ".join(shot.get("characters", [])) + " " + shot.get("action", "") + " " + shot.get("raw_content", "")
-                    if c_name in shot_chars:
+                    if any(key and str(key) in shot_chars for key in keys):
                         count += 1
             c["shots_count"] = count

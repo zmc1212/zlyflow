@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -52,5 +53,50 @@ class CharacterContentTests(unittest.TestCase):
             LlmService.generate_character_content("现代青年")
 
 
-if __name__ == "__main__":
-    unittest.main()
+    @patch.object(LlmService, "_runtime_config", return_value=("https://llm.example/v1", "test-model", "key"))
+    @patch("server.services.llm_service.requests.post")
+    def test_enriches_imported_character_profiles(self, post: Mock, _runtime: Mock):
+        response = Mock(ok=True)
+        response.json.return_value = {
+            "choices": [{"message": {"content": json.dumps({
+                "characters": [{
+                    "name": "牛大",
+                    "role_position": "主角",
+                    "gender": "男",
+                    "age_group": "青年",
+                    "face_prompt": "男性，青年，剑眉，短发",
+                    "art_style_id": "chinese_period_drama",
+                    "visual_style": "ancient",
+                }]
+            }, ensure_ascii=False)}}]
+        }
+        post.return_value = response
+        rows = LlmService.enrich_imported_characters(
+            [{"name": "牛大", "role": "男主", "description": "销售穿越"}],
+            title="测试",
+            genre="古装",
+            project_style="chinese_period_drama",
+        )
+        self.assertEqual("主角", rows[0]["role_position"])
+        self.assertIn("牛大", post.call_args.kwargs["json"]["messages"][1]["content"])
+
+    @patch.object(LlmService, "_runtime_config", return_value=("https://llm.example/v1", "test-model", "key"))
+    @patch("server.services.llm_service.requests.post")
+    def test_enriches_one_character(self, post: Mock, _runtime: Mock):
+        response = Mock(ok=True)
+        response.json.return_value = {
+            "choices": [{"message": {"content": json.dumps({
+                "name": "牛大",
+                "gender": "男",
+                "age_group": "青年",
+                "face_prompt": "男性，青年，剑眉",
+            }, ensure_ascii=False)}}]
+        }
+        post.return_value = response
+        filled = LlmService.enrich_one_character({"name": "牛大", "role": "男主"})
+        self.assertEqual("男", filled["gender"])
+        user_msg = post.call_args.kwargs["json"]["messages"][1]["content"]
+        self.assertIn("牛大", user_msg)
+        self.assertNotIn("characters", post.call_args.kwargs["json"]["messages"][0]["content"])
+
+
