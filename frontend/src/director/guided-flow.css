@@ -270,6 +270,7 @@
 }
 .director-task-pill.is-green { background: var(--director-green-tint); color: var(--director-green); }
 .director-task-pill.is-red { background: var(--director-red-tint); color: var(--director-red); }
+.director-task-pill.is-accent { background: var(--director-accent-tint); color: var(--director-accent-ink); }
 /* 官方失败 pill：文字 + 旋转重试图标（task-rows.tsx "Failed <RetryIcon>" 原样式），
    在真实接线里作为单步重跑按钮。 */
 .director-task-retry {
@@ -322,8 +323,47 @@
   margin: 0 0 10px; font-size: 14px; line-height: 1.9; color: var(--studio-text); overflow-wrap: anywhere;
 }
 .director-stream-text p.is-blank, .director-document-story p.is-blank { margin: 0; }
-.director-stream-text p.is-scene, .director-document-story p.is-scene {
-  margin: 18px 0 10px; font-weight: 600; color: var(--studio-accent-text);
+.director-stream-text p.is-scene, .director-document-story p.is-scene,
+.director-stream-text h4.is-scene, .director-document-story h4.is-scene {
+  margin: 18px 0 10px; font-weight: 600; color: var(--studio-accent-text, var(--director-accent-ink));
+}
+.director-stream-text h4.is-episode, .director-document-story h4.is-episode,
+.director-script-ms-title, .director-script-ms-heading {
+  margin: 22px 0 10px; font-size: 16px; font-weight: 700; line-height: 1.45;
+  color: var(--director-ink, var(--studio-text));
+}
+.director-script-ms-heading { margin-top: 18px; font-size: 14px; font-weight: 650; }
+.director-stream-text p.is-plot, .director-document-story p.is-plot {
+  margin: 0 0 12px; font-size: 14px; line-height: 1.8; font-weight: 600;
+  color: var(--director-ink-2, var(--studio-text-secondary));
+}
+.director-script-shot-card {
+  margin: 12px 0 16px; padding: 10px 12px;
+  background: var(--director-surface, var(--studio-surface-raised));
+  border: 1px solid var(--director-line, var(--studio-border));
+  border-radius: 10px;
+}
+.director-script-shot-card h5.is-shot {
+  margin: 0 0 8px; font-size: 14px; font-weight: 700; line-height: 1.45;
+  color: var(--director-ink, var(--studio-text));
+}
+.director-script-shot-field {
+  margin: 0; font-size: 13px; line-height: 1.75;
+  color: var(--director-ink-2, var(--studio-text-secondary));
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.director-script-shot-field + .director-script-shot-field { margin-top: 2px; }
+.director-script-shot-field.is-dialogue {
+  margin-top: 6px; color: var(--director-ink, var(--studio-text)); font-weight: 500;
+}
+.director-script-shot-label {
+  display: inline-block; min-width: 2.5em; margin-right: 6px; font-weight: 600;
+  color: var(--director-ink-3, var(--studio-text-muted));
+}
+@media (max-width: 767px) {
+  .director-script-shot-card { padding: 9px 10px; }
+  .director-stream-text h4.is-episode, .director-document-story h4.is-episode,
+  .director-script-ms-title { font-size: 15px; }
 }
 
 .stream-caret {
@@ -434,6 +474,9 @@
 .director-block-card p {
   margin: 6px 0 0; font-size: 12px; line-height: 1.7; color: var(--studio-text-secondary); overflow-wrap: anywhere;
 }
+.director-block-card.is-episode-outline p {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .director-block-props { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; margin-top: 4px; }
 .director-prop-chip {
   align-self: flex-start; height: 24px; display: inline-flex; align-items: center;
@@ -473,6 +516,25 @@
   max-width: 260px; padding: 2px 9px; border-radius: 999px; font-size: 12px;
   background: var(--studio-primary-soft); color: var(--studio-accent-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 导演台2 记录流顶部创作路径：官方 Tool Chips 尺寸，按阶段分组。 */
+.director-direction-chips.is-path {
+  align-items: flex-start; min-width: 0; margin: 0 0 10px;
+}
+.director-direction-chips.is-path .director-direction-label {
+  line-height: 22px; color: var(--director-ink-3, var(--studio-text-muted));
+}
+.director-direction-stage {
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0;
+}
+.director-direction-stage-label {
+  font-size: 11.5px; line-height: 22px; color: var(--director-ink-3, var(--studio-text-muted)); flex-shrink: 0;
+}
+.director-direction-chips.is-path .director-direction-chip {
+  max-width: min(260px, 100%); height: 22px; padding: 0 8px; border-radius: 6px;
+  display: inline-flex; align-items: center; font-size: 11.5px; line-height: 22px;
+  background: var(--director-hover-2, var(--director-inset)); color: var(--director-ink-2);
+  box-shadow: 0 0 0 1px var(--director-line);
 }
 
 /* ---- 创意澄清（Approval Card，官方语法） ---- */
@@ -567,6 +629,7 @@
   .director-block-body { padding-left: 14px; }
   .director-approval { max-width: 100%; }
   .director-direction-chip { max-width: 150px; }
+  .director-direction-chips.is-path .director-direction-chip { max-width: 150px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -696,8 +759,10 @@
 
 .director-step-feed { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 4px; }
 /* 官方 tool-chips 行语法。行尾固定预留 30px 槽位：已完成环节的「重新生成」按钮
-   绝对定位在该槽内（hover 显现），失败行同宽——所有步骤行头保持像素一致。 */
-.director-step-row { position: relative; display: flex; align-items: center; gap: 6px; padding-right: 30px; animation: director-fade-up 300ms cubic-bezier(0.23,1,0.32,1) both; }
+   绝对定位在该槽内（hover 显现），失败行同宽——所有步骤行头保持像素一致。
+   已确认选项跟在行头下方，始终可见，不做成手风琴。 */
+.director-step-row { display: flex; flex-direction: column; align-items: stretch; animation: director-fade-up 300ms cubic-bezier(0.23,1,0.32,1) both; }
+.director-step-row-main { position: relative; display: flex; align-items: center; gap: 6px; padding-right: 30px; }
 .director-step-row-head {
   display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 30px; padding: 0 6px;
   margin: 0 -2px; background: none; border: none; border-radius: 8px; cursor: pointer;
@@ -726,6 +791,19 @@
   font-size: 11.5px; color: var(--director-ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Approval Card 收起态：与行头摘要 chip 同尺寸（高 22px / 圆角 6px / hover-2）。 */
+.director-step-row-choices {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  min-width: 0; padding: 2px 6px 6px 28px;
+}
+.director-step-row-choices.is-flush { padding-left: 0; padding-right: 0; }
+.director-step-choice-chip {
+  max-width: 100%; min-width: 0; flex: 0 1 auto; display: inline-flex; align-items: center; height: 22px; padding: 0 8px;
+  border-radius: 6px; background: var(--director-hover-2, var(--director-inset)); box-shadow: 0 0 0 1px var(--director-line);
+  font-size: 11.5px; color: var(--director-ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.director-step-choice-chip.is-muted { color: var(--director-ink-3); }
 /* 已完成环节行尾的重新生成入口：与任务栏 hover 显现按钮同一语法；
    绝对定位在步骤行尾的固定槽位内，不参与 flex 占位，失败/完成行头等宽。 */
 .director-step-regen {
@@ -819,12 +897,65 @@
 }
 .director-shot-stream-text p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--studio-text-secondary); overflow-wrap: anywhere; }
 .director-shot-stream-text p.is-dialogue { color: var(--studio-text-muted); }
+.director-shot-stream-item { display: flex; flex-direction: column; min-width: 0; }
+.director-shot-stream-row.is-expandable {
+  width: 100%; border: none; background: transparent; font: inherit; text-align: left; cursor: pointer; color: inherit;
+}
+.director-shot-stream-row.is-expandable:focus-visible { outline: 2px solid var(--director-accent); outline-offset: 1px; }
+.director-shot-stream-meta {
+  flex-shrink: 0; font-size: 11.5px; color: var(--director-ink-3); font-variant-numeric: tabular-nums;
+}
+.director-shot-stream-fold,
+.director-episode-row-fold {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms cubic-bezier(0.23,1,0.32,1);
+}
+.director-shot-stream-fold.is-open,
+.director-episode-row-fold.is-open { grid-template-rows: 1fr; }
+.director-shot-stream-fold > div,
+.director-episode-row-fold > div { min-height: 0; overflow: hidden; }
+.director-shot-stream-fold .director-shot-stream-text { padding: 0 8px 8px 56px; }
 
-/* 分镜打磨阶段面板（按秒分配/校验衔接）：阶段行 + 镜头芯片网格 */
+/* 分镜直播「集」胶囊：官方 Task Rows 行内手风琴（0fr → 1fr），不整文件复制组件 */
+.director-episode-row {
+  overflow: hidden; background: var(--director-surface); border-radius: 22px;
+  box-shadow: var(--director-shadow-card);
+  transition: border-radius 300ms cubic-bezier(0.23,1,0.32,1);
+}
+.director-episode-row.is-open,
+.director-episode-row.is-running { border-radius: 14px; }
+.director-episode-row-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 10px;
+  border: none; background: none; cursor: pointer; text-align: left; font: inherit;
+  color: var(--director-ink); transition: background-color 100ms ease;
+}
+.director-episode-row-head:hover { background: var(--director-hover); }
+.director-episode-row-head:focus-visible { outline: 2px solid var(--director-accent); outline-offset: -2px; }
+.director-episode-row-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex-shrink: 0; }
+.director-episode-row-label {
+  min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 500;
+}
+.director-episode-row-amount {
+  flex-shrink: 0; font-size: 12px; color: var(--director-ink-3); font-variant-numeric: tabular-nums;
+}
+.director-episode-row-chevron {
+  flex-shrink: 0; color: var(--director-ink-3);
+  transition: transform 200ms cubic-bezier(0.23,1,0.32,1);
+}
+.director-episode-row.is-open .director-episode-row-chevron { transform: rotate(180deg); }
+.director-episode-row-body { display: flex; flex-direction: column; gap: 2px; padding: 2px 6px 10px; }
+.director-episode-row-body .director-phase-shots { padding: 4px 4px 6px 32px; }
+
+/* 分镜打磨等待面板（尚无镜头）与集胶囊内的镜头序号芯片 */
 .director-phase-panel { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 8px; }
 .director-phase-head { display: flex; align-items: center; gap: 8px; }
 .director-phase-title { font-size: 13px; font-weight: 500; color: var(--director-ink); }
 .director-phase-shots { display: flex; flex-wrap: wrap; gap: 6px; }
+.director-phase-shots-stack { display: flex; flex-direction: column; gap: 8px; }
+.director-phase-legend { font-size: 11.5px; color: var(--director-ink-3); font-variant-numeric: tabular-nums; }
+.director-phase-episode-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.director-phase-ep-label { font-size: 11.5px; color: var(--director-ink-2); flex-shrink: 0; margin-right: 2px; }
 .director-phase-chip {
   min-width: 28px; height: 24px; padding: 0 7px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -905,6 +1036,10 @@
   .director-shot-stream-row, .director-shot-stream-text strong.is-skeleton { animation: none; }
   .director-phase-chip.is-active { animation: none; }
   .director-live-dot { animation: none; }
+  .director-episode-row { animation: none; transition: none; }
+  .director-shot-stream-fold,
+  .director-episode-row-fold,
+  .director-episode-row-chevron { transition: none; }
 }
 
 /* ---- beautifului 视觉皮肤层（仅导演台对话创作室，--director-* 独立 token） ---- */

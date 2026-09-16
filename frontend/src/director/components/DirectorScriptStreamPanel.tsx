@@ -1,12 +1,11 @@
 import { Button, Drawer } from "antd"
 import {
-  ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Clapperboard, FileText, MapPinned,
+  ArrowDown, CheckCircle2, Clapperboard, FileText, MapPinned,
   Mic2, Music2, Palette, Search, Users, XCircle,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
-  SCRIPT_ART_BLOCK_TITLE, SCRIPT_ART_CHANGE_LABEL, SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER, SCRIPT_CLARIFY_HINT,
-  SCRIPT_CLARIFY_SKIP_ALL, SCRIPT_CLARIFY_SKIP_ONE, SCRIPT_CLARIFY_SUBMIT, SCRIPT_CLARIFY_TITLE,
+  SCRIPT_ART_BLOCK_TITLE, SCRIPT_ART_CHANGE_LABEL, SCRIPT_CLARIFY_HINT, SCRIPT_CLARIFY_TITLE,
   SCRIPT_DIRECTION_LABEL, SCRIPT_HISTORY_TITLE,
   SCRIPT_JUMP_LATEST_LABEL, SCRIPT_STEP_EMPTY_LABEL, SCRIPT_STEP_REGENERATE_TITLE, SCRIPT_STEP_VIEW_LABEL,
   SCRIPT_STREAM_CANCEL_LABEL, SCRIPT_STREAM_STATE_LABELS, SCRIPT_STREAM_TITLE, SCRIPT_STREAM_WRITING_LABELS,
@@ -17,11 +16,16 @@ import { artStylePreviewUrl, flattenRecipeShots } from "../recipe-model"
 import type { TaskRowPreview } from "./DirectorTaskRows"
 import { RECIPE_AGENT_LABELS, RECIPE_AGENT_ORDER, RECIPE_AGENT_RUNNING_MESSAGES } from "../types"
 import DirectorTaskRows from "./DirectorTaskRows"
+import DirectorClarificationCard from "./DirectorClarificationCard"
+import { DirectorLiveBlock, DirectorLiveStepRow } from "./DirectorLiveStepFeed"
 import {
   streamDirectorOperationEvents,
   type AgentStreamItem,
   type DirectorOperationStreamEvent,
 } from "../director-operation-stream"
+import { parseStoryboardPhase } from "../storyboard-stream-view"
+import { ScriptLiveBlocks } from "../../director2/Director2ScriptLiveBody"
+export { parseStoryboardPhase }
 
 const AGENT_BLOCK_ICONS: Record<string, typeof FileText> = {
   research: Search,
@@ -77,43 +81,6 @@ const TRANSCRIPT_AGENTS = ["research", "script", "art_style", "characters", "loc
 const TRANSCRIPT_AGENT_SET = new Set<string>(TRANSCRIPT_AGENTS)
 
 /* 官方 task-rows.tsx RetryIcon 原路径：复用为已完成环节的「重新生成」图标。 */
-function RegenerateIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" /></svg>
-  )
-}
-
-/** 分镜打磨阶段（按秒分配/校验衔接等）的进度消息解析结果。
- *  打磨阶段同时有 storyboard_polish 命名空间的 delta 直播字幕（当前正在改写的镜头文本）。 */
-export type StoryboardPolishPhase = {
-  title: string
-  index?: number
-  total?: number
-  range?: [number, number]
-  currentShot?: number
-  chars?: number
-}
-
-export function parseStoryboardPhase(message: string | undefined | null): StoryboardPolishPhase | null {
-  if (!message) return null
-  const charsMatch = message.match(/已收 (\d+) 字/)
-  const chars = charsMatch ? Number(charsMatch[1]) : undefined
-  const rangeMatch = message.match(/第 (\d+)-(\d+) 镜/)
-  const range = rangeMatch ? [Number(rangeMatch[1]), Number(rangeMatch[2])] as [number, number] : undefined
-  const shotMatch = message.match(/正在第 (\d+) 镜/)
-  const currentShot = shotMatch ? Number(shotMatch[1]) : undefined
-  const withStep = (title: string, index: number, total: number): StoryboardPolishPhase => ({
-    title, index, total, range, currentShot, chars,
-  })
-  const timing = message.match(/^正在按秒分配对白与动作 \((\d+)\/(\d+)\)/)
-  if (timing) return withStep("按秒分配对白与动作", Number(timing[1]), Number(timing[2]))
-  const continuity = message.match(/^正在校验镜头衔接 \((\d+)\/(\d+)\)/)
-  if (continuity) return withStep("校验镜头衔接", Number(continuity[1]), Number(continuity[2]))
-  const misc = message.match(/^(正在整理镜头|正在从剧本补全对白|正在修复镜头因果衔接)/)
-  if (misc) return { title: misc[1], chars }
-  return null
-}
-
 function useIsMobile(query = "(max-width: 767px)") {
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches)
   useEffect(() => {
@@ -141,23 +108,7 @@ function itemText(item: AgentStreamItem | undefined, key: string): string {
 }
 
 function StoryParagraphs({ text, active }: { text: string; active: boolean }) {
-  const lines = text.split("\n")
-  return (
-    <>
-      {lines.map((line, index) => {
-        const isLast = index === lines.length - 1
-        const caretHere = active && isLast
-        if (!line.trim()) return caretHere ? <p key={index} className="director-stream-caret-line">{null}</p> : <p key={index} className="is-blank">&nbsp;</p>
-        const sceneMarker = line.trim().startsWith("【") && line.trim().includes("】")
-        return (
-          <p key={index} className={sceneMarker ? "is-scene" : undefined}>
-            {line}
-            {caretHere ? <span className="stream-caret" aria-hidden /> : null}
-          </p>
-        )
-      })}
-    </>
-  )
+  return <ScriptLiveBlocks text={text} caret={active} />
 }
 
 /** Chat-transcript style live view of the whole generation, plus the clarify approval cards. */
@@ -186,30 +137,11 @@ export default function DirectorScriptStreamPanel({
 
   // Clarify (approval card) state.
   const [questions, setQuestions] = useState<ClarifyQuestion[] | null>(() => initialQuestions ?? null)
-  const [questionIndex, setQuestionIndex] = useState(0)
-  const [customValue, setCustomValue] = useState("")
-  const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  const answersRef = useRef<ClarifyAnswer[]>([])
-
   // 与 Studio 的澄清作用域保持同步：作用域清空或换轮时重置问题卡与作答进度。
   // 否则旧问题卡会在新一轮澄清准备期间仍然可点，答完走的是过期作用域（表现为“选了没效果”）。
   useEffect(() => {
     setQuestions(initialQuestions ?? null)
-    setQuestionIndex(0)
-    answersRef.current = []
-    setSelectedOption(null)
-    setCustomValue("")
   }, [initialQuestions])
-
-  // 官方 Approval Card 交互：单选立即高亮，480ms 后自动翻到下一题。
-  const handleSelect = (value: string) => {
-    setSelectedOption(value)
-    setCustomValue("")
-    window.setTimeout(() => {
-      answerCurrent(value)
-      setSelectedOption(null)
-    }, 480)
-  }
 
   const targetRef = useRef(targetTexts)
   targetRef.current = targetTexts
@@ -620,32 +552,6 @@ export default function DirectorScriptStreamPanel({
           ? "以下是本次生成的完整过程记录。"
           : `${runningAgent?.message || statusText || "正在连接 AI 导演…"}${elapsed > 0 ? ` · 已进行 ${formatElapsed(elapsed)}` : ""}`
 
-  const answerCurrent = (value: string) => {
-    const list = questions
-    if (!list) return
-    const current = list[questionIndex]
-    if (!current) return
-    const next = [...answersRef.current, { id: current.id, question: current.question, answer: value }]
-    answersRef.current = next
-    setCustomValue("")
-    if (value === "保留并跳过 AI 生成" || questionIndex + 1 >= list.length) {
-      onConfirmStep(next)
-    } else {
-      setQuestionIndex(questionIndex + 1)
-    }
-  }
-
-  const skipOne = () => {
-    const list = questions
-    if (!list) return
-    setCustomValue("")
-    if (questionIndex + 1 < list.length) {
-      setQuestionIndex(questionIndex + 1)
-    } else {
-      onConfirmStep(answersRef.current)
-    }
-  }
-
   const userBubble = brief && brief.trim() ? (
     <div className="director-user-bubble" aria-label={SCRIPT_USER_BUBBLE_LABEL}>
       <span className="director-user-bubble-label">{SCRIPT_USER_BUBBLE_LABEL}</span>
@@ -679,16 +585,7 @@ export default function DirectorScriptStreamPanel({
 
   if (phase !== "pipeline") {
     const list = questions
-    const current = phase === "clarify-ask" && list ? list[questionIndex] : undefined
     const streamedQuestions = Object.keys(targetTexts).filter((key) => key.startsWith("clarify|question|")).sort()
-    const last = Boolean(list && questionIndex === list.length - 1)
-    const customAnswer = customValue.trim()
-    const hasAnswer = selectedOption !== null || customAnswer.length > 0
-    const submitArrow = () => {
-      if (selectedOption) answerCurrent(selectedOption)
-      else if (customAnswer) answerCurrent(customAnswer)
-      else skipOne()
-    }
     return (
       <div className={`director-script-stream is-clarify${terminal ? " is-terminal" : ""}`} data-stream-live={streamLive || undefined}>
         {head}
@@ -696,107 +593,8 @@ export default function DirectorScriptStreamPanel({
           <div className="director-stream-body" ref={bodyRef} onScroll={handleBodyScroll}>
             <div className="director-stream-feed" ref={feedRef}>
               {userBubble}
-              {current ? (
-            <div className="director-approval">
-              <div key={questionIndex} className="director-approval-card">
-                <div className="director-approval-question">
-                  <span>{current.question}</span>
-                </div>
-                {current.why ? <p className="director-approval-why">{current.why}</p> : null}
-                <div className="director-approval-options">
-                  {current.options.map((option) => {
-                    const on = selectedOption === option.value
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        aria-pressed={on}
-                        disabled={terminal !== null}
-                        className="director-approval-option"
-                        onClick={() => handleSelect(option.value)}
-                      >
-                        <span className={`director-approval-radio${on ? " is-on" : ""}`} aria-hidden>
-                          <span className="director-approval-radio-dot" />
-                        </span>
-                        <span className={`director-approval-option-label${on ? " is-on" : ""}`}>{option.label}</span>
-                        {option.recommended ? <em className="director-approval-recommended">推荐</em> : null}
-                      </button>
-                    )
-                  })}
-                  {/* 产品规则：每道确认题最后必须保留自定义输入，不按 allowCustom 关闭。 */}
-                  <label className="director-approval-option is-custom">
-                    <span className={`director-approval-radio${customValue.trim() ? " is-on" : ""}`} aria-hidden>
-                      <span className="director-approval-radio-dot" />
-                    </span>
-                    <span className="director-approval-option-label is-custom-label">{SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}</span>
-                    <input
-                      value={customValue}
-                      disabled={terminal !== null}
-                      aria-label={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
-                      placeholder={SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER}
-                      onChange={(event) => {
-                        setCustomValue(event.target.value)
-                        setSelectedOption(null)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && customAnswer) answerCurrent(customAnswer)
-                      }}
-                    />
-                  </label>
-                </div>
-                <div className="director-approval-footer">
-                  <span className="director-approval-pager">
-                    <button
-                      type="button"
-                      aria-label="上一题"
-                      disabled={questionIndex === 0 || terminal !== null}
-                      onClick={() => { setSelectedOption(null); setCustomValue(""); setQuestionIndex((index) => Math.max(0, index - 1)) }}
-                    >
-                      <ChevronLeft size={14} />
-                    </button>
-                    <span className="director-approval-dots">
-                      {(list || []).map((_, index) => (
-                        <button
-                          key={index}
-                          type="button"
-                          aria-label={`第 ${index + 1} 题`}
-                          aria-current={index === questionIndex || undefined}
-                          disabled={terminal !== null}
-                          className={`director-approval-dot${index === questionIndex ? " is-current" : ""}${index < questionIndex ? " is-done" : ""}`}
-                          onClick={() => { setSelectedOption(null); setCustomValue(""); setQuestionIndex(index) }}
-                        />
-                      ))}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="下一题"
-                      disabled={last || terminal !== null}
-                      onClick={() => { setSelectedOption(null); setCustomValue(""); setQuestionIndex((index) => Math.min((list?.length ?? 1) - 1, index + 1)) }}
-                    >
-                      <ChevronRight size={14} />
-                    </button>
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={hasAnswer ? "确认这个方向" : SCRIPT_CLARIFY_SKIP_ONE}
-                    title={hasAnswer ? (last ? SCRIPT_CLARIFY_SUBMIT : "下一题") : SCRIPT_CLARIFY_SKIP_ONE}
-                    disabled={terminal !== null}
-                    className={`director-approval-send${hasAnswer ? " is-armed" : ""}`}
-                    onClick={submitArrow}
-                  >
-                    <ArrowUp size={14} />
-                  </button>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="director-approval-skip-all"
-                disabled={terminal !== null}
-                onClick={() => onConfirmStep(answersRef.current)}
-              >
-                {SCRIPT_CLARIFY_SKIP_ALL}
-              </button>
-            </div>
+              {phase === "clarify-ask" && list?.length ? (
+                <DirectorClarificationCard questions={list} disabled={terminal !== null} onConfirm={onConfirmStep} />
           ) : (
             <div className="director-clarify is-waiting">
               {streamedQuestions.length ? (
@@ -1183,41 +981,20 @@ export default function DirectorScriptStreamPanel({
   const renderStepRow = (agent: string) => {
     const row = agentRows.find((item) => item.id === agent)
     const status = row?.status || "pending"
-    const failed = status === "failed"
     // 仅在非直播状态（历史回放或已终态）展示重新生成，避免与进行中的生成混淆。
     const canRegenerate = Boolean(onRegenerateAgent) && status === "completed" && settled
     return (
-      <div key={agent} className={`director-step-row is-${status}`}>
-        <button
-          type="button"
-          className="director-step-row-head"
-          title={`${RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent} · ${SCRIPT_STEP_VIEW_LABEL}`}
-          onClick={() => setViewingAgent(agent)}
-        >
-          {/* 官方 tool-chips 行首语法：状态图标与 chevron 同位叠放，hover 时图标淡出、chevron 旋入。 */}
-          <span className="director-step-row-icon" aria-hidden>
-            {failed
-              ? <XCircle size={14} className="is-failed" />
-              : <CheckCircle2 size={14} className="is-done" />}
-            <ChevronRight size={12} className="director-step-row-icon-chevron" />
-          </span>
-          <span className="director-step-row-name">{RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}</span>
-          <span className="director-step-row-chip">{blockPreview(agent)}</span>
-        </button>
-        {canRegenerate ? (
-          <button
-            type="button"
-            className="director-step-regen"
-            title={SCRIPT_STEP_REGENERATE_TITLE}
-            onClick={(event) => {
-              event.stopPropagation()
-              onRegenerateAgent?.(agent)
-            }}
-          >
-            <span className="director-step-regen-icon" aria-hidden><RegenerateIcon /></span>
-          </button>
-        ) : null}
-      </div>
+      <DirectorLiveStepRow
+        key={agent}
+        id={agent}
+        label={RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}
+        status={status}
+        preview={blockPreview(agent)}
+        viewLabel={SCRIPT_STEP_VIEW_LABEL}
+        regenerateTitle={SCRIPT_STEP_REGENERATE_TITLE}
+        onOpen={setViewingAgent}
+        onRegenerate={canRegenerate ? onRegenerateAgent : undefined}
+      />
     )
   }
 
@@ -1228,24 +1005,14 @@ export default function DirectorScriptStreamPanel({
     const body = renderBlockBody(agent)
     const BlockIcon = AGENT_BLOCK_ICONS[agent]
     return (
-      <section key={agent} className="director-block is-running is-live">
-        <div className="director-block-head">
-          <span className="director-step-spinner" aria-hidden />
-          {BlockIcon ? <BlockIcon size={13} className="director-block-icon" /> : null}
-          <span className="director-block-title">{RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}</span>
-          {row?.message && !(agent === "storyboard" && parseStoryboardPhase(row.message)) ? <span className="director-step-status">{row.message}</span> : null}
-        </div>
-        <div className="director-block-body">
-          {body || (
-            <div className="director-live-skeleton" aria-hidden>
-              <span style={{ width: "38%" }} />
-              <span style={{ width: "72%" }} />
-              <span style={{ width: "56%" }} />
-              <span style={{ width: "64%" }} />
-            </div>
-          )}
-        </div>
-      </section>
+      <DirectorLiveBlock
+        key={agent}
+        label={RECIPE_AGENT_LABELS[agent as keyof typeof RECIPE_AGENT_LABELS] || agent}
+        message={row?.message && !(agent === "storyboard" && parseStoryboardPhase(row.message)) ? row.message : undefined}
+        icon={BlockIcon}
+      >
+        {body}
+      </DirectorLiveBlock>
     )
   }
 

@@ -47,6 +47,7 @@ from .llm_minimax_skills import (
     build_storyboard_continuity_repair_prompt,
     build_storyboard_continuity_polish_prompt,
 )
+from .script_full_story import normalize_script_full_story, split_story_into_scene_texts
 
 
 ChatFn = Callable[[list[dict[str, Any]]], str]
@@ -91,6 +92,7 @@ AGENT_LABELS = {
     "research": "研究",
     "script": "脚本",
     "art_style": "美术风格",
+    "episodes": "分集",
     "storyboard": "分镜",
     "characters": "角色",
     "locations": "场景",
@@ -281,6 +283,8 @@ def _clarified_stage_text(agent_id: str, clarifications: Any) -> str:
 
 def _clarified_beat_target(clarifications: Any) -> int | None:
     """User-confirmed shot/beat count from the clarify answers; None keeps the default script scale."""
+    from .llm_minimax_skills import EPISODE_COUNT_QUESTION_ID, SHOTS_PER_EPISODE_QUESTION_ID
+
     if not isinstance(clarifications, list):
         return None
     for item in clarifications:
@@ -288,8 +292,13 @@ def _clarified_beat_target(clarifications: Any) -> int | None:
             continue
         if _text(item.get("agent")):
             continue
+        item_id = _text(item.get("id"))
+        if item_id in {SHOTS_PER_EPISODE_QUESTION_ID, EPISODE_COUNT_QUESTION_ID}:
+            continue
         question = _text(item.get("question"))
-        matched = _text(item.get("id")) == "beat_count" or (
+        if "每集" in question or "每一集" in question:
+            continue
+        matched = item_id == "beat_count" or (
             "镜头" in question and any(token in question.lower() for token in ("beat", "数量", "多少"))
         )
         if not matched:
@@ -305,6 +314,65 @@ def _clarified_beat_target(clarifications: Any) -> int | None:
             value = int(number_match.group())
         return min(120, max(3, value))
     return None
+
+
+def _clarified_episode_count(clarifications: Any) -> int | None:
+    """User-confirmed episode count from the clarify answers; None/1 keeps the single-story behavior."""
+    from .llm_minimax_skills import EPISODE_COUNT_QUESTION_ID
+
+    if not isinstance(clarifications, list):
+        return None
+    for item in clarifications:
+        if not isinstance(item, dict):
+            continue
+        if _text(item.get("agent")):
+            continue
+        question = _text(item.get("question"))
+        matched = _text(item.get("id")) == EPISODE_COUNT_QUESTION_ID or (
+            "集" in question and any(token in question for token in ("多少集", "分多少", "几集"))
+        )
+        if not matched:
+            continue
+        answer = _text(item.get("answer") or item.get("value"))
+        number_match = re.search(r"\d+", answer)
+        if not number_match:
+            continue
+        return min(50, max(1, int(number_match.group())))
+    return None
+
+
+def _clarified_shots_per_episode(clarifications: Any) -> int | None:
+    """User-confirmed default shot count per episode; None keeps agent estimation."""
+    from .llm_minimax_skills import SHOTS_PER_EPISODE_QUESTION_ID
+
+    if not isinstance(clarifications, list):
+        return None
+    for item in clarifications:
+        if not isinstance(item, dict):
+            continue
+        if _text(item.get("agent")):
+            continue
+        question = _text(item.get("question"))
+        matched = _text(item.get("id")) == SHOTS_PER_EPISODE_QUESTION_ID or (
+            "镜头" in question and ("每集" in question or "每一集" in question)
+        )
+        if not matched:
+            continue
+        answer = _text(item.get("answer") or item.get("value"))
+        number_match = re.search(r"\d+", answer)
+        if not number_match:
+            continue
+        return min(30, max(2, int(number_match.group())))
+    return None
+
+
+def _fill_default_episode_shots(outlines: list[dict[str, Any]], default_shots: int | None) -> list[dict[str, Any]]:
+    if not default_shots:
+        return outlines
+    for item in outlines:
+        if _episode_int(item.get("targetShots")) <= 0:
+            item["targetShots"] = default_shots
+    return outlines
 
 
 def _text(value: Any, fallback: str = "") -> str:
@@ -399,7 +467,8 @@ def _apply_script(recipe: dict[str, Any], data: dict[str, Any], goal: str) -> No
     script = recipe.setdefault("script", {})
     script["title"] = _text(data.get("title"), script.get("title") or goal[:24] or "未命名短片")
     script["summary"] = _text(data.get("summary"), script.get("summary") or goal)
-    script["fullStory"] = _text(data.get("fullStory") or data.get("full_story"), script.get("fullStory") or goal)
+    raw_story = _text(data.get("fullStory") or data.get("full_story"), script.get("fullStory") or goal)
+    script["fullStory"] = normalize_script_full_story(raw_story, title=script["title"])
 
 
 def _looks_like_shot(item: Any) -> bool:
@@ -1126,6 +1195,9 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
                 "continuityOut": _text(item.get("continuityOut") or item.get("continuity_out")),
                 "transitionNote": _text(item.get("transitionNote") or item.get("transition_note")),
                 "status": "idle",
+                "episodeNumber": _shot_episode_number(item),
+                "episodeTitle": _text(item.get("episodeTitle") or item.get("episode_title")),
+                "sceneTitle": _text(item.get("sceneTitle") or item.get("scene_title") or scene_item.get("title")),
                 "shotNumber": shot_number,
             })
             shot_number += 1
@@ -1135,9 +1207,27 @@ def _apply_storyboard(recipe: dict[str, Any], data: dict[str, Any], goal: str) -
             "title": _text(scene_item.get("title"), f"场 {scene_index + 1}"),
             "description": _text(scene_item.get("description")),
             "locationName": _text(scene_item.get("locationName") or scene_item.get("location_name")),
+            "episodeNumber": _shot_episode_number(scene_item),
             "shots": shots,
         })
     recipe["scenes"] = scenes
+
+
+def _shot_episode_number(item: dict[str, Any]) -> int:
+    """Episode number tagged on a shot/scenes payload entry; defaults to the single story episode."""
+    raw = item.get("episodeNumber") or item.get("episode_number") or item.get("episode")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _group_shots_by_episode(shots: list[dict[str, Any]]) -> list[tuple[int, list[dict[str, Any]]]]:
+    """Group timing payload shots by episode, preserving shot order inside each episode."""
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for shot in shots:
+        groups.setdefault(_shot_episode_number(shot), []).append(shot)
+    return sorted(groups.items())
 
 
 def _recipe_shots_timing_payload(recipe: dict[str, Any]) -> dict[str, Any]:
@@ -1151,6 +1241,7 @@ def _recipe_shots_timing_payload(recipe: dict[str, Any]) -> dict[str, Any]:
                 continue
             shots.append({
                 "shotNumber": shot.get("shotNumber"),
+                "episodeNumber": _shot_episode_number(shot),
                 "title": _text(shot.get("title")),
                 "description": _text(shot.get("description")),
                 "promptText": _text(shot.get("promptText")),
@@ -1615,20 +1706,197 @@ def _storyboard_asset_context(recipe: dict[str, Any]) -> str:
 
 
 def _split_story_into_scene_texts(full_story: str) -> list[str]:
-    import re
-    parts = re.split(r"(?=【)", full_story)
-    scenes = []
-    current_scene = ""
-    for part in parts:
-        if part.strip().startswith("【"):
-            if current_scene.strip():
-                scenes.append(current_scene.strip())
-            current_scene = part
-        else:
-            current_scene += part
-    if current_scene.strip():
-        scenes.append(current_scene.strip())
-    return scenes if scenes else [full_story]
+    return split_story_into_scene_texts(full_story)
+
+
+_EPISODE_HEADER_PATTERN = re.compile(r"^#\s*第\s*([0-9一二三四五六七八九十百]+)\s*集\s*[::]?\s*(.*)$", re.MULTILINE)
+_CHINESE_DIGITS = {"零": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def _parse_episode_number(raw: str) -> int | None:
+    value = raw.strip()
+    if value.isdigit():
+        return int(value)
+    # 支持剧本里可能出现的中文数字集号（十/二十等简单组合）。
+    if value and all(ch in _CHINESE_DIGITS or ch == "十" for ch in value):
+        if "十" not in value:
+            return _CHINESE_DIGITS.get(value[0]) if len(value) == 1 else None
+        tens, _, rest = value.partition("十")
+        tens_value = _CHINESE_DIGITS.get(tens, 1) if tens else 1
+        rest_value = _CHINESE_DIGITS.get(rest, 0) if rest else 0
+        return tens_value * 10 + rest_value
+    return None
+
+
+def _split_story_into_episodes(full_story: str) -> list[dict[str, Any]]:
+    """Split the script into episodes by ``# 第N集 标题`` headers.
+
+    A story without episode headers is returned as a single episode so the
+    single-story pipeline behavior is unchanged.
+    """
+    text = str(full_story or "")
+    matches = list(_EPISODE_HEADER_PATTERN.finditer(text))
+    if len(matches) < 2:
+        return [{"num": 1, "title": "", "text": text.strip()}]
+    episodes: list[dict[str, Any]] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        body = text[match.end():end].strip()
+        if not body:
+            body = text[match.start():end].strip()
+        episodes.append({
+            "num": _parse_episode_number(match.group(1)) or index + 1,
+            "title": match.group(2).strip(),
+            "text": body,
+        })
+    return episodes
+
+
+def _episode_label(num: int, title: str = "") -> str:
+    label = f"第 {num} 集"
+    if title:
+        label += f" · {title}"
+    return label
+
+
+def _episode_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return default
+
+
+def _episode_outlines_from_split(parsed_episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "num": _episode_int(ep.get("num"), index + 1) or (index + 1),
+            "title": _text(ep.get("title")),
+            "summary": _text(ep.get("summary")),
+            "targetShots": max(0, min(200, _episode_int(ep.get("targetShots") or ep.get("target_shots")))),
+            "text": _text(ep.get("text")),
+        }
+        for index, ep in enumerate(parsed_episodes)
+        if isinstance(ep, dict)
+    ]
+
+
+def _apply_episode_refine(
+    outlines: list[dict[str, Any]],
+    refine: dict[str, Any] | None,
+    *,
+    allow_restructure: bool,
+) -> list[dict[str, Any]]:
+    """Overlay LLM metadata onto the split outlines.
+
+    When the user has given episode-stage feedback, the model may merge/split
+    and return new ``text`` slices; those replace the original cut. Otherwise
+    only title / summary / targetShots are updated and the script cut is kept.
+    """
+    if not isinstance(refine, dict):
+        return outlines
+    rows = [row for row in _list(refine.get("episodes")) if isinstance(row, dict)]
+    if not rows:
+        return outlines
+
+    if allow_restructure:
+        rebuilt: list[dict[str, Any]] = []
+        for index, row in enumerate(rows):
+            num = _episode_int(row.get("num") or row.get("number"), index + 1) or (index + 1)
+            original = next((item for item in outlines if item["num"] == num), None)
+            if original is None and index < len(outlines):
+                original = outlines[index]
+            text = _text(row.get("text") or row.get("body")) or _text((original or {}).get("text"))
+            if not text:
+                continue
+            title = _text(row.get("title")) or _text((original or {}).get("title"))
+            target = _episode_int(row.get("targetShots") or row.get("target_shots"))
+            if target <= 0:
+                target = _episode_int((original or {}).get("targetShots"))
+            rebuilt.append({
+                "num": num,
+                "title": title,
+                "summary": _text(row.get("summary")) or _text((original or {}).get("summary")),
+                "targetShots": min(200, max(0, target)),
+                "text": text,
+            })
+        if rebuilt:
+            for index, item in enumerate(rebuilt, 1):
+                item["num"] = index
+            return rebuilt
+
+    by_num: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        num = _episode_int(row.get("num") or row.get("number"))
+        if num:
+            by_num[num] = row
+    for outline in outlines:
+        row = by_num.get(outline["num"])
+        if not isinstance(row, dict):
+            continue
+        title = _text(row.get("title"))
+        if title:
+            outline["title"] = title
+        summary = _text(row.get("summary"))
+        if summary:
+            outline["summary"] = summary
+        target = _episode_int(row.get("targetShots") or row.get("target_shots"))
+        if target > 0:
+            outline["targetShots"] = min(200, target)
+    return outlines
+
+
+def _episode_stream_payload(outlines: list[dict[str, Any]], *, multi_episode: bool) -> dict[str, Any]:
+    return {
+        "episodes": [
+            {
+                "title": _episode_label(item["num"], item.get("title") or "") + ("（单集）" if not multi_episode else ""),
+                "summary": _text(item.get("summary")),
+            }
+            for item in outlines
+        ],
+    }
+
+
+def _episodes_for_storyboard(recipe: dict[str, Any], full_story: str) -> list[dict[str, Any]]:
+    """Episode split the storyboard agent consumes: ``num`` / ``title`` / ``text``.
+
+    Prefers the structured outline produced by the ``episodes`` agent so the two
+    stages never disagree on episode boundaries. Falls back to an on-the-fly split
+    for standalone storyboard reruns or legacy recipes without an episodes outline.
+    """
+    episodes: list[dict[str, Any]] = []
+    for item in _list(recipe.get("episodes")):
+        if not isinstance(item, dict):
+            continue
+        text = _text(item.get("text"))
+        if not text:
+            continue
+        num = _episode_int(item.get("num"))
+        episodes.append({
+            "num": num or (len(episodes) + 1),
+            "title": _text(item.get("title")),
+            "summary": _text(item.get("summary")),
+            "targetShots": max(0, min(200, _episode_int(item.get("targetShots") or item.get("target_shots")))),
+            "text": text,
+        })
+    if episodes:
+        return episodes
+    return _split_story_into_episodes(full_story)
+
+
+def _storyboard_episode_lock_text(episode: dict[str, Any], *, multi_episode: bool) -> str:
+    """Tell the storyboard model to keep the already-confirmed episode cut."""
+    label = _episode_label(int(episode.get("num") or 1), _text(episode.get("title")))
+    lines = [f"本片段属于已确认的分集结构：{label}。禁止改切分集、把本集剧情并入其他集，或发明新的集。"]
+    if not multi_episode:
+        lines[0] = f"本片按已确认的单集结构拆镜：{label}。禁止再拆成多集。"
+    summary = _text(episode.get("summary"))
+    if summary:
+        lines.append("本集梗概：" + summary)
+    target = _episode_int(episode.get("targetShots"))
+    if target > 0:
+        lines.append(f"本集目标约 {target} 个镜头，可按剧情小幅浮动。")
+    return "\n" + "\n".join(lines)
 
 
 
@@ -1682,7 +1950,11 @@ def run_agent(
             tracker = _make_agent_tracker(agent_id, on_stream)
             _attach_agent_tracker(tracker, chat_fn)
             messages = [
-                {"role": "system", "content": _system(agent_id, build_script_agent_prompt(target_beats=_clarified_beat_target(clarifications)))},
+                {"role": "system", "content": _system(agent_id, build_script_agent_prompt(
+                    target_beats=_clarified_beat_target(clarifications),
+                    episode_count=_clarified_episode_count(clarifications),
+                    shots_per_episode=_clarified_shots_per_episode(clarifications),
+                ))},
                 {"role": "user", "content": _clarified_goal_text(goal, clarifications)},
             ]
             parsed = _chat_json(chat_fn, messages) if chat_fn else None
@@ -1709,6 +1981,70 @@ def run_agent(
             set_agent_status(recipe, agent_id, "completed")
             return recipe
 
+        if agent_id == "episodes":
+            script = recipe.get("script") or {}
+            full_story = script.get("fullStory") or script.get("content") or goal
+            outlines = _episode_outlines_from_split(_split_story_into_episodes(full_story))
+            default_shots = _clarified_shots_per_episode(clarifications)
+            outlines = _fill_default_episode_shots(outlines, default_shots)
+            allow_restructure = bool(_clarified_stage_text(agent_id, clarifications))
+            set_agent_status(recipe, agent_id, "running", message="正在拆分分集结构与戏剧节奏")
+            try: emit()
+            except: pass
+
+            tracker = _make_agent_tracker(agent_id, on_stream)
+            refine: dict[str, Any] | None = None
+            shot_rule = (
+                f"targetShots 必须以用户确认的每集默认 {default_shots} 个镜头为准（可上下浮动 2 个），禁止大幅偏离。"
+                if default_shots else
+                "targetShots（整数，单集通常 6~30）。"
+            )
+            if chat_fn is not None:
+                _attach_agent_tracker(tracker, chat_fn)
+                if allow_restructure:
+                    brief = [
+                        {"num": ep["num"], "title": _text(ep.get("title")), "text": _text(ep.get("text"))}
+                        for ep in outlines
+                    ]
+                    system_body = (
+                        "你是分集策划。用户对本轮分集提出了调整要求，必须落实到输出的分集列表。"
+                        "可以按用户要求合并、拆分或调整各集篇幅与顺序，但禁止新编剧情："
+                        "每集 text 必须是给定正文的切分或原样拼接。"
+                        "num 从 1 连续编号。每集给简洁标题、40~80字中文梗概、"
+                        f"{shot_rule}以及对应正文 text。"
+                        "输出 {\"episodes\":[{\"num\":1,\"title\":\"\",\"summary\":\"\",\"targetShots\":12,\"text\":\"\"}]}"
+                    )
+                else:
+                    brief = [
+                        {"num": ep["num"], "title": _text(ep.get("title")), "excerpt": _text(ep.get("text"))[:800]}
+                        for ep in outlines
+                    ]
+                    system_body = (
+                        "你是分集策划。给定已按剧本切分好的分集正文摘要，为每集精炼一个简洁标题、"
+                        "一段中文梗概（40~80字，说清本集主线冲突与看点），并估算本集适合的镜头数。"
+                        f"{shot_rule}"
+                        "禁止改写、合并、拆分或新增分集，num 必须与输入一一对应。"
+                        "输出 {\"episodes\":[{\"num\":1,\"title\":\"\",\"summary\":\"\",\"targetShots\":12}]}"
+                    )
+                refine = _chat_json(chat_fn, [
+                    {"role": "system", "content": _system(agent_id, system_body)},
+                    {"role": "user", "content": _story_context(recipe, goal)
+                        + "\n分集正文：" + json.dumps(brief, ensure_ascii=False)
+                        + _clarified_stage_text(agent_id, clarifications)},
+                ])
+                outlines = _apply_episode_refine(outlines, refine, allow_restructure=allow_restructure)
+                outlines = _fill_default_episode_shots(outlines, default_shots)
+
+            recipe["episodes"] = outlines
+            payload = _episode_stream_payload(outlines, multi_episode=len(outlines) > 1)
+            if tracker is not None:
+                if refine is None:
+                    tracker.feed(json.dumps(payload, ensure_ascii=False))
+                tracker.finish(payload)
+
+            set_agent_status(recipe, agent_id, "completed")
+            return recipe
+
         if agent_id == "storyboard":
             ans = next((str(c.get("answer") or c.get("value") or "") for c in (clarifications or []) if c.get("id") == "keep_original_storyboard"), "")
             if ans == "保留并跳过 AI 生成":
@@ -1718,7 +2054,9 @@ def run_agent(
             full_story = script.get("fullStory") or script.get("content") or goal
             # 续跑：上次失败前已拆出镜头时保留它们，跳过重拆，直接补跑对白、时长与衔接处理。
             resumed_shots = _recipe_shot_count(recipe) if resume else 0
-            scene_texts = _split_story_into_scene_texts(full_story)
+            # 优先消费 episodes agent 已定的集结构；缺失时（独立重跑分镜/旧任务）回退到就地切分。
+            episodes = _episodes_for_storyboard(recipe, full_story)
+            multi_episode = len(episodes) > 1
             all_scenes = []
             tracker = _make_agent_tracker(agent_id, on_stream)
 
@@ -1726,75 +2064,89 @@ def run_agent(
                 previous_chunk = getattr(chat_fn, "on_chunk", None)
 
                 try:
-                    for idx, scene_text in enumerate(scene_texts):
-                        msg = f"正在读剧本并构思 ({idx+1}/{len(scene_texts)}) - 剧本较长，AI需阅读约1~2分钟..."
-                        set_agent_status(recipe, agent_id, "running", message=msg)
-                        try: emit()
-                        except: pass
-                        
-                        original_full = script.get("fullStory")
-                        script["fullStory"] = scene_text
-                        
-                        user_content = (
-                            _story_context(recipe, goal)
-                            + "\n已建立的资产目录：" + _storyboard_asset_context(recipe)
-                            + "\n请根据上面的剧本片段，一次性输出本片段的全部镜头。"
-                            + "每个镜头必须从目录选择 characterBindings:[{characterId,lookId}]、locationId 和 propIds；"
-                            + "同时保留 characterNames/locationName/propNames 便于人阅读，禁止发明新 ID。"
-                            + "剧本每条对白（含自言自语）必须写入对应镜头的 dialogue，与同时发生的动作放在同一镜。"
-                            + "拆镜时按 scene ledger 草拟相邻镜的 continuityIn / continuityOut（英文）与 transitionNote（中文）；"
-                            + "后续时长与衔接润色会再校准，但不要整表留空。"
-                            + _clarified_stage_text("storyboard", clarifications)
-                        )
-                        
-                        if original_full is not None:
-                            script["fullStory"] = original_full
-                        else:
-                            script.pop("fullStory", None)
-                            
-                        def local_report(accumulated: str) -> None:
-                            n = len(accumulated or "")
-                            if n > 0:
-                                set_agent_status(recipe, agent_id, "running", message=f"正在写分镜 ({idx+1}/{len(scene_texts)}) - 已收 {n} 字")
-                                try: emit()
-                                except: pass
-
-                        if hasattr(chat_fn, "on_chunk"):
-                            if tracker is not None:
-                                tracker.begin_call()
-
-                                def combined_report(accumulated: str) -> None:
-                                    local_report(accumulated)
-                                    tracker.feed(accumulated)
-
-                                chat_fn.on_chunk = combined_report
-                            else:
-                                chat_fn.on_chunk = local_report
-
-                        raw = _chat_text(chat_fn, [
-                            {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
-                            {"role": "user", "content": user_content},
-                        ], retries=1)
-                        
-                        set_agent_status(recipe, agent_id, "running", message=f"正在整理镜头 ({idx+1}/{len(scene_texts)})")
-                        try: emit()
-                        except: pass
-                        parsed = _parse_storyboard_reply(raw, goal)
-                        
-                        if _is_collapsed_storyboard(parsed, goal):
-                            set_agent_status(recipe, agent_id, "running", message=f"镜头不完整，正在重拆 ({idx+1}/{len(scene_texts)})")
+                    for ep in episodes:
+                        ep_prefix = f"第 {ep['num']} 集 · " if multi_episode else ""
+                        scene_texts = _split_story_into_scene_texts(ep["text"])
+                        if tracker is not None:
+                            tracker.set_context(episode=ep["num"])
+                        for idx, scene_text in enumerate(scene_texts):
+                            msg = f"{ep_prefix}正在读剧本并构思 ({idx+1}/{len(scene_texts)}) - 剧本较长，AI需阅读约1~2分钟..."
+                            set_agent_status(recipe, agent_id, "running", message=msg)
                             try: emit()
                             except: pass
-                            if tracker is not None and hasattr(chat_fn, "on_chunk"):
-                                tracker.begin_call()
+
+                            original_full = script.get("fullStory")
+                            script["fullStory"] = scene_text
+
+                            user_content = (
+                                _story_context(recipe, goal)
+                                + "\n已建立的资产目录：" + _storyboard_asset_context(recipe)
+                                + _storyboard_episode_lock_text(ep, multi_episode=multi_episode)
+                                + "\n请根据上面的剧本片段，一次性输出本片段的全部镜头。"
+                                + "每个镜头必须从目录选择 characterBindings:[{characterId,lookId}]、locationId 和 propIds；"
+                                + "同时保留 characterNames/locationName/propNames 便于人阅读，禁止发明新 ID。"
+                                + "剧本每条对白（含自言自语）必须写入对应镜头的 dialogue，与同时发生的动作放在同一镜。"
+                                + "拆镜时按 scene ledger 草拟相邻镜的 continuityIn / continuityOut（英文）与 transitionNote（中文）；"
+                                + "后续时长与衔接润色会再校准，但不要整表留空。"
+                                + _clarified_stage_text("storyboard", clarifications)
+                            )
+
+                            if original_full is not None:
+                                script["fullStory"] = original_full
+                            else:
+                                script.pop("fullStory", None)
+
+                            def local_report(accumulated: str, prefix=ep_prefix, total=len(scene_texts)) -> None:
+                                n = len(accumulated or "")
+                                if n > 0:
+                                    set_agent_status(recipe, agent_id, "running", message=f"{prefix}正在写分镜 ({idx+1}/{total}) - 已收 {n} 字")
+                                    try: emit()
+                                    except: pass
+
+                            if hasattr(chat_fn, "on_chunk"):
+                                if tracker is not None:
+                                    tracker.begin_call()
+
+                                    def combined_report(accumulated: str) -> None:
+                                        local_report(accumulated)
+                                        tracker.feed(accumulated)
+
+                                    chat_fn.on_chunk = combined_report
+                                else:
+                                    chat_fn.on_chunk = local_report
+
                             raw = _chat_text(chat_fn, [
-                                {"role": "system", "content": _system(agent_id, STORYBOARD_RETRY_SYSTEM)},
+                                {"role": "system", "content": _system(agent_id, build_h3_storyboard_agent_prompt())},
                                 {"role": "user", "content": user_content},
                             ], retries=1)
+
+                            set_agent_status(recipe, agent_id, "running", message=f"{ep_prefix}正在整理镜头 ({idx+1}/{len(scene_texts)})")
+                            try: emit()
+                            except: pass
                             parsed = _parse_storyboard_reply(raw, goal)
-                            
-                        parsed_scenes = _collect_storyboard_scenes(parsed)
-                        all_scenes.extend(parsed_scenes)
+
+                            if _is_collapsed_storyboard(parsed, goal):
+                                set_agent_status(recipe, agent_id, "running", message=f"{ep_prefix}镜头不完整，正在重拆 ({idx+1}/{len(scene_texts)})")
+                                try: emit()
+                                except: pass
+                                if tracker is not None and hasattr(chat_fn, "on_chunk"):
+                                    tracker.begin_call()
+                                raw = _chat_text(chat_fn, [
+                                    {"role": "system", "content": _system(agent_id, STORYBOARD_RETRY_SYSTEM)},
+                                    {"role": "user", "content": user_content},
+                                ], retries=1)
+                                parsed = _parse_storyboard_reply(raw, goal)
+
+                            parsed_scenes = _collect_storyboard_scenes(parsed)
+                            for scene_item in parsed_scenes:
+                                if not isinstance(scene_item, dict):
+                                    continue
+                                for shot_item in scene_item.get("shots") or []:
+                                    if isinstance(shot_item, dict):
+                                        shot_item["episodeNumber"] = ep["num"]
+                                        if ep["title"]:
+                                            shot_item["episodeTitle"] = ep["title"]
+                            all_scenes.extend(parsed_scenes)
                 finally:
                     if hasattr(chat_fn, "on_chunk"):
                         chat_fn.on_chunk = previous_chunk
@@ -1827,120 +2179,132 @@ def run_agent(
                 # 按秒分配每批 2 镜：模型单次要规划的数据少，首字更快到达，
                 # 前端直播字幕更早出现；衔接校验保持 5 镜/窗（overlap 1），
                 # 改小会让每窗只剩 1 个可编辑镜头、调用次数成倍增加。
+                # 多集时逐集走「按秒分配 → 校验衔接」，跨集不建衔接窗。
                 timing_chunk_size = 2
                 continuity_window_size = 5
                 continuity_window_warnings: list[str] = []
 
-                # --- Timing Pass ---
                 timing_payload = _recipe_shots_timing_payload(recipe)
                 all_shots = [shot for scene in (timing_payload.get("scenes") or []) for shot in (scene.get("shots") or [])]
-                chunks = [all_shots[i:i + timing_chunk_size] for i in range(0, len(all_shots), timing_chunk_size)]
-                
+                episode_shot_groups = _group_shots_by_episode(all_shots)
+
                 previous_chunk = getattr(chat_fn, "on_chunk", None) if chat_fn else None
                 try:
-                    for i, chunk in enumerate(chunks):
-                        chunk_numbers = [s["shotNumber"] for s in chunk if isinstance(s.get("shotNumber"), int)]
-                        range_text = f" · 第 {chunk_numbers[0]}-{chunk_numbers[-1]} 镜" if chunk_numbers else ""
-                        set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({i+1}/{len(chunks)}){range_text}")
-                        emit()
+                    for ep_num, ep_shots in episode_shot_groups:
+                        ep_prefix = f"第 {ep_num} 集 · " if len(episode_shot_groups) > 1 else ""
 
-                        def timing_report(accumulated: str, idx=i, rng=range_text) -> None:
-                            n = len(accumulated or "")
-                            if n > 0:
-                                shot = scan_current_shot_number(accumulated)
-                                shot_text = f" · 正在第 {shot} 镜" if shot is not None else ""
-                                set_agent_status(recipe, agent_id, "running", message=f"正在按秒分配对白与动作 ({idx+1}/{len(chunks)}){rng}{shot_text} - 已收 {n} 字")
-                                try: emit()
-                                except: pass
-                        if hasattr(chat_fn, "on_chunk"):
-                            polish_tracker = _make_agent_tracker("storyboard_polish", on_stream)
-                            if polish_tracker is not None:
-                                def combined_timing_report(accumulated: str, idx=i, rng=range_text) -> None:
-                                    timing_report(accumulated, idx, rng)
-                                    polish_tracker.feed(accumulated)
-                                chat_fn.on_chunk = combined_timing_report
-                            else:
-                                chat_fn.on_chunk = timing_report
+                        # --- Timing Pass（本集）---
+                        chunks = [ep_shots[i:i + timing_chunk_size] for i in range(0, len(ep_shots), timing_chunk_size)]
+                        for i, chunk in enumerate(chunks):
+                            chunk_numbers = [s["shotNumber"] for s in chunk if isinstance(s.get("shotNumber"), int)]
+                            range_text = f" · 第 {chunk_numbers[0]}-{chunk_numbers[-1]} 镜" if chunk_numbers else ""
+                            set_agent_status(recipe, agent_id, "running", message=f"{ep_prefix}正在按秒分配对白与动作 ({i+1}/{len(chunks)}){range_text}")
+                            emit()
 
-                        chunk_payload = {"scenes": [{"shots": chunk}]}
-                        timing_raw = _chat_text(chat_fn, [
-                            {"role": "system", "content": build_shot_timing_polish_prompt()},
-                            {"role": "user", "content": json.dumps(chunk_payload, ensure_ascii=False)},
-                        ], retries=1)
-                        timing_parsed = _parse_storyboard_reply(timing_raw, goal)
-                        if _collect_storyboard_scenes(timing_parsed):
-                            _apply_shot_timing_polish(recipe, timing_parsed)
-                    
-                    # --- Continuity Pass ---
-                    cont_payload = _recipe_shots_timing_payload(recipe)
-                    all_shots = [shot for scene in (cont_payload.get("scenes") or []) for shot in (scene.get("shots") or [])]
-                    continuity_windows = _overlapping_continuity_windows(
-                        all_shots,
-                        size=continuity_window_size,
-                        overlap=1,
-                    )
-                    
-                    for i, window in enumerate(continuity_windows):
-                        editable_numbers = sorted(n for n in (window.get("editableShotNumbers") or []) if isinstance(n, int))
-                        range_text = f" · 第 {editable_numbers[0]}-{editable_numbers[-1]} 镜" if editable_numbers else ""
-                        set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({i+1}/{len(continuity_windows)}){range_text}")
-                        emit()
+                            def timing_report(accumulated: str, idx=i, rng=range_text, prefix=ep_prefix, total=len(chunks)) -> None:
+                                n = len(accumulated or "")
+                                if n > 0:
+                                    shot = scan_current_shot_number(accumulated)
+                                    shot_text = f" · 正在第 {shot} 镜" if shot is not None else ""
+                                    set_agent_status(recipe, agent_id, "running", message=f"{prefix}正在按秒分配对白与动作 ({idx+1}/{total}){rng}{shot_text} - 已收 {n} 字")
+                                    try: emit()
+                                    except: pass
+                            if hasattr(chat_fn, "on_chunk"):
+                                polish_tracker = _make_agent_tracker("storyboard_polish", on_stream)
+                                if polish_tracker is not None:
+                                    polish_tracker.set_context(episode=ep_num)
 
-                        def cont_report(accumulated: str, idx=i, rng=range_text) -> None:
-                            n = len(accumulated or "")
-                            if n > 0:
-                                shot = scan_current_shot_number(accumulated)
-                                shot_text = f" · 正在第 {shot} 镜" if shot is not None else ""
-                                set_agent_status(recipe, agent_id, "running", message=f"正在校验镜头衔接 ({idx+1}/{len(continuity_windows)}){rng}{shot_text} - 已收 {n} 字")
-                                try: emit()
-                                except: pass
-                        if hasattr(chat_fn, "on_chunk"):
-                            polish_tracker = _make_agent_tracker("storyboard_polish", on_stream)
-                            if polish_tracker is not None:
-                                def combined_cont_report(accumulated: str, idx=i, rng=range_text) -> None:
-                                    cont_report(accumulated, idx, rng)
-                                    polish_tracker.feed(accumulated)
-                                chat_fn.on_chunk = combined_cont_report
-                            else:
-                                chat_fn.on_chunk = cont_report
+                                    def combined_timing_report(accumulated: str, idx=i, rng=range_text) -> None:
+                                        timing_report(accumulated, idx, rng)
+                                        polish_tracker.feed(accumulated)
+                                    chat_fn.on_chunk = combined_timing_report
+                                else:
+                                    chat_fn.on_chunk = timing_report
 
-                        window_payload = {
-                            "scenes": [{"shots": window["shots"]}],
-                            "contextShotNumbers": window["contextShotNumbers"],
-                            "editableShotNumbers": window["editableShotNumbers"],
-                        }
-                        user_content = json.dumps(window_payload, ensure_ascii=False)
-                        patch_applied = False
-                        patch_error = ""
-                        for attempt in range(2):
-                            if attempt:
-                                user_content = (
-                                    json.dumps(window_payload, ensure_ascii=False)
-                                    + "\n上一次响应无效："
-                                    + patch_error
-                                    + "。请只返回带有正确全局 shotNumber 的合法 JSON，并覆盖全部 editableShotNumbers。"
-                                )
-                            continuity_raw = _chat_text(chat_fn, [
-                                {"role": "system", "content": build_storyboard_continuity_polish_prompt()},
-                                {"role": "user", "content": user_content},
+                            chunk_payload = {"scenes": [{"shots": chunk}]}
+                            timing_raw = _chat_text(chat_fn, [
+                                {"role": "system", "content": build_shot_timing_polish_prompt()},
+                                {"role": "user", "content": json.dumps(chunk_payload, ensure_ascii=False)},
                             ], retries=1)
-                            continuity_parsed = _parse_storyboard_reply(continuity_raw, goal)
-                            patch_applied, patch_error = _apply_continuity_patch(
-                                recipe,
-                                continuity_parsed,
-                                editable_shot_numbers=window["editableShotNumbers"],
-                                window_shot_numbers=window["windowShotNumbers"],
-                            )
-                            if patch_applied:
-                                break
-                        if not patch_applied:
-                            continuity_window_warnings.append(
-                                f"连续性窗口 {i + 1} 未应用：{patch_error or '返回格式无效'}"
-                            )
+                            timing_parsed = _parse_storyboard_reply(timing_raw, goal)
+                            if _collect_storyboard_scenes(timing_parsed):
+                                _apply_shot_timing_polish(recipe, timing_parsed)
+
+                        # --- Continuity Pass（本集）---
+                        cont_payload_shots = []
+                        for scene in (_recipe_shots_timing_payload({"scenes": recipe.get("scenes")}).get("scenes") or []):
+                            cont_payload_shots.extend(shot for shot in (scene.get("shots") or []) if _shot_episode_number(shot) == ep_num)
+                        continuity_windows = _overlapping_continuity_windows(
+                            cont_payload_shots,
+                            size=continuity_window_size,
+                            overlap=1,
+                        )
+
+                        for i, window in enumerate(continuity_windows):
+                            editable_numbers = sorted(n for n in (window.get("editableShotNumbers") or []) if isinstance(n, int))
+                            range_text = f" · 第 {editable_numbers[0]}-{editable_numbers[-1]} 镜" if editable_numbers else ""
+                            set_agent_status(recipe, agent_id, "running", message=f"{ep_prefix}正在校验镜头衔接 ({i+1}/{len(continuity_windows)}){range_text}")
+                            emit()
+
+                            def cont_report(accumulated: str, idx=i, rng=range_text, prefix=ep_prefix, total=len(continuity_windows)) -> None:
+                                n = len(accumulated or "")
+                                if n > 0:
+                                    shot = scan_current_shot_number(accumulated)
+                                    shot_text = f" · 正在第 {shot} 镜" if shot is not None else ""
+                                    set_agent_status(recipe, agent_id, "running", message=f"{prefix}正在校验镜头衔接 ({idx+1}/{total}){rng}{shot_text} - 已收 {n} 字")
+                                    try: emit()
+                                    except: pass
+                            if hasattr(chat_fn, "on_chunk"):
+                                polish_tracker = _make_agent_tracker("storyboard_polish", on_stream)
+                                if polish_tracker is not None:
+                                    polish_tracker.set_context(episode=ep_num)
+
+                                    def combined_cont_report(accumulated: str, idx=i, rng=range_text) -> None:
+                                        cont_report(accumulated, idx, rng)
+                                        polish_tracker.feed(accumulated)
+                                    chat_fn.on_chunk = combined_cont_report
+                                else:
+                                    chat_fn.on_chunk = cont_report
+
+                            window_payload = {
+                                "scenes": [{"shots": window["shots"]}],
+                                "contextShotNumbers": window["contextShotNumbers"],
+                                "editableShotNumbers": window["editableShotNumbers"],
+                            }
+                            user_content = json.dumps(window_payload, ensure_ascii=False)
+                            patch_applied = False
+                            patch_error = ""
+                            for attempt in range(2):
+                                if attempt:
+                                    user_content = (
+                                        json.dumps(window_payload, ensure_ascii=False)
+                                        + "\n上一次响应无效："
+                                        + patch_error
+                                        + "。请只返回带有正确全局 shotNumber 的合法 JSON，并覆盖全部 editableShotNumbers。"
+                                    )
+                                continuity_raw = _chat_text(chat_fn, [
+                                    {"role": "system", "content": build_storyboard_continuity_polish_prompt()},
+                                    {"role": "user", "content": user_content},
+                                ], retries=1)
+                                continuity_parsed = _parse_storyboard_reply(continuity_raw, goal)
+                                patch_applied, patch_error = _apply_continuity_patch(
+                                    recipe,
+                                    continuity_parsed,
+                                    editable_shot_numbers=window["editableShotNumbers"],
+                                    window_shot_numbers=window["windowShotNumbers"],
+                                )
+                                if patch_applied:
+                                    break
+                            if not patch_applied:
+                                continuity_window_warnings.append(
+                                    f"第 {ep_num} 集连续性窗口 {i + 1} 未应用：{patch_error or '返回格式无效'}"
+                                    if len(episode_shot_groups) > 1 else
+                                    f"连续性窗口 {i + 1} 未应用：{patch_error or '返回格式无效'}"
+                                )
                 finally:
                     if chat_fn and hasattr(chat_fn, "on_chunk"):
                         chat_fn.on_chunk = previous_chunk
-                        
+
                 enforce_recipe_shot_dialogue_timing(recipe)
                 _normalize_recipe_dialogue_fields(recipe)
             else:
@@ -1952,36 +2316,55 @@ def run_agent(
             repair_errors: list[str] = []
             resplit_required: list[dict[str, int]] = []
             if chat_fn and continuity_qa.get("status") == "warning":
-                repair_payload, requested_pairs = _continuity_repair_payload(
-                    recipe,
-                    list(continuity_qa.get("pairs") or []),
-                )
-                repair_attempted = len(requested_pairs)
-                if requested_pairs:
-                    set_agent_status(
-                        recipe,
-                        agent_id,
-                        "running",
-                        message=f"正在修复镜头因果衔接 ({repair_attempted} 处)",
-                    )
-                    emit()
+                # 多集时按 fromShot 所属集分组逐集修复；单集只有一组，行为不变。
+                episode_by_number: dict[int, int] = {}
+                for shot in _flatten_recipe_shots(recipe):
+                    if isinstance(shot, dict):
+                        try:
+                            episode_by_number[int(shot.get("shotNumber") or 0)] = _shot_episode_number(shot)
+                        except (TypeError, ValueError):
+                            continue
+                raw_pair_groups: dict[int, list[dict[str, Any]]] = {}
+                for raw_pair in list(continuity_qa.get("pairs") or []):
+                    if not isinstance(raw_pair, dict):
+                        continue
                     try:
-                        repair_raw = _chat_text(chat_fn, [
-                            {"role": "system", "content": build_storyboard_continuity_repair_prompt()},
-                            {"role": "user", "content": json.dumps(repair_payload, ensure_ascii=False)},
-                        ], retries=1)
-                        repair_parsed = parse_json_payload(repair_raw)
-                        if not isinstance(repair_parsed, dict):
-                            repair_errors.append("连续性修复响应不是合法 JSON 对象")
-                        else:
-                            repair_applied, repair_errors, resplit_required = _apply_continuity_repair(
-                                recipe,
-                                repair_parsed,
-                                requested_pairs=requested_pairs,
-                            )
-                            _normalize_recipe_dialogue_fields(recipe)
-                    except LlmTemporaryError as error:
-                        repair_errors.append(f"连续性因果修复暂时未完成：{error}")
+                        from_number = int(raw_pair.get("fromShot"))
+                    except (TypeError, ValueError):
+                        continue
+                    raw_pair_groups.setdefault(episode_by_number.get(from_number, 1), []).append(raw_pair)
+                for group_ep, group_raw_pairs in sorted(raw_pair_groups.items()):
+                    group_payload, group_requested = _continuity_repair_payload(recipe, group_raw_pairs)
+                    repair_attempted += len(group_requested)
+                    ep_prefix = f"第 {group_ep} 集 · " if multi_episode else ""
+                    if group_requested:
+                        set_agent_status(
+                            recipe,
+                            agent_id,
+                            "running",
+                            message=f"{ep_prefix}正在修复镜头因果衔接 ({len(group_requested)} 处)",
+                        )
+                        emit()
+                        try:
+                            repair_raw = _chat_text(chat_fn, [
+                                {"role": "system", "content": build_storyboard_continuity_repair_prompt()},
+                                {"role": "user", "content": json.dumps(group_payload, ensure_ascii=False)},
+                            ], retries=1)
+                            repair_parsed = parse_json_payload(repair_raw)
+                            if not isinstance(repair_parsed, dict):
+                                repair_errors.append("连续性修复响应不是合法 JSON 对象")
+                            else:
+                                group_applied, group_errors, group_resplit = _apply_continuity_repair(
+                                    recipe,
+                                    repair_parsed,
+                                    requested_pairs=group_requested,
+                                )
+                                repair_applied += group_applied
+                                repair_errors.extend(group_errors)
+                                resplit_required.extend(group_resplit)
+                                _normalize_recipe_dialogue_fields(recipe)
+                        except LlmTemporaryError as error:
+                            repair_errors.append(f"连续性因果修复暂时未完成：{error}")
 
             # Re-run the deterministic checks after a repair so the payload
             # records the remaining risk, not the stale pre-repair diagnosis.
@@ -2169,7 +2552,7 @@ def run_recipe_pipeline(
                 if is_upstream_llm_failure(error_text):
                     raise LlmBillingError(error_text) if looks_like_llm_billing(error_text) else LlmError(error_text)
                 remaining = order[order.index(agent_id) + 1 :]
-                if remaining and remaining[0] == "storyboard":
+                if remaining and remaining[0] in {"episodes", "storyboard"}:
                     continue
                 break
         current["pipelineRun"] = {"agents": order, "active": False}

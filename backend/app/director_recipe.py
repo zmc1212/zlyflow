@@ -21,21 +21,23 @@ AGENT_IDS = (
     "research",
     "script",
     "art_style",
-    "storyboard",
     "characters",
     "locations",
+    "episodes",
+    "storyboard",
     "voice",
     "music",
     "media",
 )
 PIPELINE_AGENT_ORDER = (
-    "research", "script", "art_style", "characters", "locations", "storyboard", "voice", "music", "media",
+    "research", "script", "art_style", "characters", "locations", "episodes", "storyboard", "voice", "music", "media",
 )
 AGENT_STATUSES = ("pending", "running", "completed", "failed")
 AGENT_RUNNING_MESSAGES = {
     "research": "正在核对故事设定",
     "script": "正在根据创意写剧本",
     "art_style": "正在选择美术风格",
+    "episodes": "正在拆分分集结构与戏剧节奏",
     "storyboard": "正在按已确认资产拆分镜头",
     "characters": "正在建立角色与道具设定",
     "locations": "正在建立场景设定",
@@ -47,6 +49,7 @@ AGENT_DONE_MESSAGES = {
     "research": "研究完成",
     "script": "剧本已写好",
     "art_style": "画风已选定",
+    "episodes": "分集大纲已规划",
     "storyboard": "分镜方案已写好",
     "characters": "人物方案已抽出，定妆图待生成",
     "locations": "场景方案已抽出，定妆图待生成",
@@ -376,6 +379,7 @@ def empty_recipe_payload(
         "characters": [],
         "props": [],
         "locations": [],
+        "episodes": [],
         "scenes": [],
         "agentStatus": empty_agent_status(),
         "pipelineRun": empty_pipeline_run(),
@@ -451,6 +455,13 @@ def agent_done_message(agent_id: str, recipe: dict[str, Any] | None = None) -> s
     if agent_id == "storyboard":
         count = len(flatten_recipe_shots(recipe)) if recipe else 0
         return f"已写出 {count} 个镜头" if count else AGENT_DONE_MESSAGES[agent_id]
+    if agent_id == "episodes":
+        count = len([item for item in (recipe or {}).get("episodes") or [] if isinstance(item, dict)])
+        if count == 1:
+            return "已规划 1 集大纲"
+        if count > 1:
+            return f"已规划 {count} 集大纲"
+        return AGENT_DONE_MESSAGES[agent_id]
     return AGENT_DONE_MESSAGES.get(agent_id, "已完成")
 
 
@@ -804,6 +815,34 @@ def _normalize_location(raw: Any, index: int) -> dict[str, Any]:
     }
 
 
+def _normalize_episode_outline(raw: Any, index: int) -> dict[str, Any]:
+    """One structured episode outline entry produced by the ``episodes`` agent.
+
+    Keeps the parsed ``text`` (source script slice) plus a light refinement of
+    title / summary / target shot count so the storyboard agent can consume a
+    fixed episode structure instead of re-splitting the story itself.
+    """
+    item = _as_dict(raw)
+    try:
+        num = int(item.get("num") or item.get("number") or item.get("episode") or (index + 1))
+    except (TypeError, ValueError):
+        num = index + 1
+    if num < 1:
+        num = index + 1
+    try:
+        target_shots = int(item.get("targetShots") or item.get("target_shots") or 0)
+    except (TypeError, ValueError):
+        target_shots = 0
+    target_shots = max(0, min(200, target_shots))
+    return {
+        "num": num,
+        "title": _text(item.get("title")),
+        "summary": _text(item.get("summary")),
+        "targetShots": target_shots,
+        "text": _text(item.get("text") or item.get("body")),
+    }
+
+
 def _normalize_character_bindings(value: Any) -> list[dict[str, str]]:
     bindings: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -968,6 +1007,19 @@ def _normalize_shot(raw: Any, index: int, *, scene_location: str = "") -> dict[s
     transition_note = _text(item.get("transitionNote"), item.get("transition_note") or "")
     if transition_note:
         shot["transitionNote"] = transition_note
+    episode_number_raw = item.get("episodeNumber", item.get("episode_number", item.get("episode")))
+    try:
+        episode_number = int(episode_number_raw)
+    except (TypeError, ValueError):
+        episode_number = 0
+    if episode_number > 0:
+        shot["episodeNumber"] = episode_number
+    episode_title = _text(item.get("episodeTitle"), item.get("episode_title") or "")
+    if episode_title:
+        shot["episodeTitle"] = episode_title
+    scene_title = _text(item.get("sceneTitle"), item.get("scene_title") or "")
+    if scene_title:
+        shot["sceneTitle"] = scene_title
     prompt_text_zh = _text(item.get("promptTextZh"), item.get("prompt_text_zh") or "")
     if prompt_text_zh:
         shot["promptTextZh"] = prompt_text_zh
@@ -1006,7 +1058,12 @@ def _normalize_scene(raw: Any, index: int) -> dict[str, Any]:
         description = shots[0].get("description") or ""
     if not location_name and shots:
         location_name = shots[0].get("locationName") or ""
-    return {
+    episode_number_raw = item.get("episodeNumber", item.get("episode_number", item.get("episode")))
+    try:
+        episode_number = int(episode_number_raw)
+    except (TypeError, ValueError):
+        episode_number = shots[0].get("episodeNumber") if shots else 0
+    scene: dict[str, Any] = {
         "id": _text(item.get("id")) or _new_id("scene"),
         "sceneNumber": int(item.get("sceneNumber") or item.get("scene_number") or index + 1),
         "title": title,
@@ -1014,6 +1071,9 @@ def _normalize_scene(raw: Any, index: int) -> dict[str, Any]:
         "locationName": location_name,
         "shots": shots,
     }
+    if isinstance(episode_number, int) and episode_number > 0:
+        scene["episodeNumber"] = episode_number
+    return scene
 
 
 def _copy_render_settings(source: dict[str, Any], target: dict[str, Any]) -> None:
@@ -1144,6 +1204,9 @@ def normalize_recipe_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     ]
     normalized["locations"] = [
         _normalize_location(item, index) for index, item in enumerate(_as_list(raw.get("locations")))
+    ]
+    normalized["episodes"] = [
+        _normalize_episode_outline(item, index) for index, item in enumerate(_as_list(raw.get("episodes")))
     ]
     scenes_raw = raw.get("scenes")
     if isinstance(scenes_raw, list) and scenes_raw:
@@ -1445,16 +1508,15 @@ def timeline_to_recipe(
     recipe["characters"] = characters
     recipe["locations"] = locations
     recipe["scenes"] = scenes
-    agent_status = empty_agent_status()
+    recipe["agentStatus"] = empty_agent_status()
     if recipe["script"].get("fullStory") or recipe["script"].get("title"):
-        agent_status[1]["status"] = "completed"
-    if scenes:
-        agent_status[3]["status"] = "completed"
+        set_agent_status(recipe, "script", "completed")
     if characters:
-        agent_status[4]["status"] = "completed"
+        set_agent_status(recipe, "characters", "completed")
     if locations:
-        agent_status[5]["status"] = "completed"
-    recipe["agentStatus"] = agent_status
+        set_agent_status(recipe, "locations", "completed")
+    if scenes:
+        set_agent_status(recipe, "storyboard", "completed")
     return recipe
 
 
@@ -1548,6 +1610,8 @@ def reset_recipe_following(recipe: dict[str, Any], agent_id: str) -> dict[str, A
         recipe["props"] = []
     if "locations" in following:
         recipe["locations"] = []
+    if "episodes" in following:
+        recipe["episodes"] = []
     if "storyboard" in following:
         recipe["scenes"] = []
         recipe.pop("continuityQa", None)

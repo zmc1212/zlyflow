@@ -16,14 +16,14 @@ export type ScriptStreamField = "title" | "summary" | "fullStory"
 export type AgentStreamItem = Record<string, unknown>
 
 export type DirectorOperationStreamEvent =
-  | { seq: number; event: "status"; data: { status: string; progress?: number; message?: string } }
-  | { seq: number; event: "agent"; data: { id: string; status: string; message?: string } }
+  | { seq: number; event: "status"; data: { status: string; progress?: number; message?: string; stage?: string } }
+  | { seq: number; event: "agent"; data: { id: string; status: string; message?: string; episode?: number } }
   | {
     seq: number
     event: "agent_delta"
-    data: { agent: string; field: string; index: number | null; delta: string; reset: boolean }
+    data: { agent: string; field: string; index: number | null; delta: string; reset: boolean; episode?: number }
   }
-  | { seq: number; event: "agent_item"; data: { agent: string; field: string; index: number; item: AgentStreamItem } }
+  | { seq: number; event: "agent_item"; data: { agent: string; field: string; index: number; item: AgentStreamItem; episode?: number } }
   | { seq: number; event: "done"; data: { status: string; result?: Record<string, unknown> } }
   | { seq: number; event: "cancelled"; data: { status: string; message?: string } }
   | { seq: number; event: "error"; data: { status: string; message?: string } }

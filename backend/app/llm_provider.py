@@ -396,16 +396,21 @@ class LlmProviderService:
         *,
         recipe: Any = None,
         agent: str | None = None,
+        feedback: str | None = None,
         on_stream: Any = None,
+        include_beat_count: bool = True,
+        include_shots_per_episode: bool = False,
     ) -> list[dict[str, Any]]:
         """Ask confirm questions and stream them via on_stream.
 
         agent=None asks plot-direction questions before the script agent; otherwise
         agent is a STAGE_CLARIFY_AGENT_IDS step and the questions cover that step only.
+        feedback is the user's free-text revision request for the current step; it is
+        injected as 「本轮调整诉求」 so the questions target that request.
         """
         from .director_stream import AGENT_STREAM_SPECS, AgentStreamTracker
         from .llm_minimax_skills import (
-            BEAT_COUNT_QUESTION_ID,
+            OPENING_SCALE_QUESTION_IDS,
             STAGE_CLARIFY_AGENT_IDS,
             build_clarify_questions_prompt,
             build_stage_clarify_context,
@@ -418,6 +423,7 @@ class LlmProviderService:
         if not brief:
             raise LlmError("请先填写创意简报")
         agent_id = str(agent or "").strip() or None
+        feedback_text = str(feedback or "").strip()
         if agent_id:
             if agent_id not in STAGE_CLARIFY_AGENT_IDS:
                 raise LlmError(f"该环节不支持创作确认：{agent_id}")
@@ -426,8 +432,17 @@ class LlmProviderService:
             if not user_content:
                 raise LlmError("还没有可以确认的创作内容，请先生成剧本")
         else:
-            system_prompt = build_clarify_questions_prompt()
+            system_prompt = build_clarify_questions_prompt(
+                include_beat_count=include_beat_count,
+                include_shots_per_episode=include_shots_per_episode,
+            )
             user_content = brief
+        if feedback_text:
+            system_prompt += (
+                "\n\n用户对本环节当前产出不满意，下面的「本轮调整诉求」是本轮必须围绕的调整方向。"
+                "问题必须针对这些诉求展开，禁止无视反馈另起一套空泛问题。"
+            )
+            user_content = f"{user_content}\n\n本轮调整诉求：{feedback_text}"
         client, model = self._chat_client()
         messages = [
             {"role": "system", "content": system_prompt},
@@ -466,12 +481,16 @@ class LlmProviderService:
             has_direction_question = any(
                 isinstance(item, dict)
                 and str(item.get("question") or "").strip()
-                and str(item.get("id") or "").strip() != BEAT_COUNT_QUESTION_ID
+                and str(item.get("id") or "").strip() not in OPENING_SCALE_QUESTION_IDS
                 for item in (raw_questions or [])
             )
             if not has_direction_question:
                 raise LlmError("大模型未返回有效的创作方向问题，请重试")
-            questions = normalize_clarify_questions(raw_questions)
+            questions = normalize_clarify_questions(
+                raw_questions,
+                include_beat_count=include_beat_count,
+                include_shots_per_episode=include_shots_per_episode,
+            )
             if bool(str(((recipe or {}).get("script") or {}).get("fullStory") or "").strip()):
                 questions.insert(0, {
                     "id": "keep_original_script",

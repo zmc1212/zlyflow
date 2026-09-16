@@ -4,6 +4,7 @@ import {
   SCRIPT_DOCUMENT_EDIT_DONE_LABEL, SCRIPT_DOCUMENT_EDIT_LABEL, SCRIPT_DOCUMENT_NEXT_LABEL, SCRIPT_DOCUMENT_STORY_HINT,
 } from "../action-copy"
 import DirectorScriptCoverPicker from "./DirectorScriptCoverPicker"
+import { ScriptLiveBlocks } from "../../director2/Director2ScriptLiveBody"
 
 export type ScriptDocumentValue = { title: string; summary: string; fullStory: string; coverUrl?: string | null }
 
@@ -20,16 +21,7 @@ type Props = {
 }
 
 function DocumentStory({ text }: { text: string }) {
-  const lines = text.split("\n")
-  return (
-    <>
-      {lines.map((line, index) => {
-        if (!line.trim()) return <p key={index} className="is-blank">&nbsp;</p>
-        const sceneMarker = line.trim().startsWith("【") && line.trim().includes("】")
-        return <p key={index} className={sceneMarker ? "is-scene" : undefined}>{line}</p>
-      })}
-    </>
-  )
+  return <ScriptLiveBlocks text={text} />
 }
 
 /**

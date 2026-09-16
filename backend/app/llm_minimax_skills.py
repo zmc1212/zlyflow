@@ -244,19 +244,60 @@ def build_storyboard_continuity_repair_prompt() -> str:
     ])
 
 
-def build_clarify_questions_prompt() -> str:
+def build_clarify_questions_prompt(*, include_beat_count: bool = True, include_shots_per_episode: bool = False) -> str:
     beat_option_items = "、".join(
         '{"label":"%s","value":"%s"}' % (item["label"], item["value"])
         for item in BEAT_COUNT_OPTIONS
     )
+    episode_option_items = "、".join(
+        '{"label":"%s","value":"%s"}' % (item["label"], item["value"])
+        for item in EPISODE_COUNT_OPTIONS
+    )
+    shots_option_items = "、".join(
+        '{"label":"%s","value":"%s"}' % (item["label"], item["value"])
+        for item in SHOTS_PER_EPISODE_OPTIONS
+    )
+    episode_schema = (
+        '{"id":"episode_count","question":"' + EPISODE_COUNT_QUESTION_TEXT + '","why":"","options":[{"label":"1 集 · 单集成片","value":"1","recommended":true},{"label":"3 集 · 连载短剧","value":"3"},{"label":"6 集 · 系列短剧","value":"6"},{"label":"12 集 · 完整系列","value":"12"}],"allowCustom":true}'
+    )
+    shots_schema = (
+        '{"id":"shots_per_episode","question":"' + SHOTS_PER_EPISODE_QUESTION_TEXT + '","why":"","options":[{"label":"4 个镜头 · 更紧凑","value":"4"},{"label":"6 个镜头 · 推荐单集节奏","value":"6","recommended":true},{"label":"8 个镜头 · 稍铺陈","value":"8"},{"label":"12 个镜头 · 单集更完整","value":"12"}],"allowCustom":true}'
+    )
+    direction_schema = '{"id":"q1","question":"","why":"一句话说明这个问题如何影响剧情走向","options":[{"label":"","value":"","recommended":true}],"allowCustom":true}'
+    episode_instruction = (
+        "id 固定为 \"episode_count\"，question 固定为「" + EPISODE_COUNT_QUESTION_TEXT + "」，"
+        "why 用一句话结合该创意说明分集方式如何影响叙事节奏，options 固定为：" + episode_option_items + "（value 必须用这些纯数字，不得改动），"
+        "并根据创意体量给其中一个标 recommended=true；allowCustom 固定为 true，用户可自填其他数量。"
+    )
+    why_exceptions = "episode_count"
+    if include_beat_count:
+        fixed_instruction = (
+            "方向问题之后，必须在 questions 最后输出两道固定题：倒数第二道 id 固定为 \"beat_count\"，question 固定为「" + BEAT_COUNT_QUESTION_TEXT + "」，"
+            "why 用一句话结合该创意说明镜头数量如何决定成片时长与节奏，options 固定为：" + beat_option_items + "（value 必须用这些纯数字，不得改动），并根据创意体量给其中一个标 recommended=true；"
+            "最后一道 " + episode_instruction
+        )
+        schema = '{"questions":[' + direction_schema + ',' + '{"id":"beat_count","question":"' + BEAT_COUNT_QUESTION_TEXT + '","why":"","options":[{"label":"约 8 个镜头 · 1 分钟内","value":"8"},{"label":"约 16 个镜头 · 1-2 分钟","value":"16","recommended":true},{"label":"约 30 个镜头 · 3 分钟左右","value":"30"},{"label":"约 50 个镜头 · 完整短剧","value":"50"}],"allowCustom":true},' + episode_schema + ']}'
+        why_exceptions = "beat_count 与 episode_count"
+    elif include_shots_per_episode:
+        fixed_instruction = (
+            "方向问题之后，必须在 questions 最后输出两道固定题：倒数第二道 " + episode_instruction +
+            "最后一道 id 固定为 \"shots_per_episode\"，question 固定为「" + SHOTS_PER_EPISODE_QUESTION_TEXT + "」，"
+            "why 用一句话结合该创意说明每集镜头数如何决定单集节奏与成片时长，options 固定为：" + shots_option_items + "（value 必须用这些纯数字，不得改动），"
+            "默认给 value=6 标 recommended=true（短剧单集推荐 6 个镜头），若创意体量明显更紧凑或更铺陈可改标 4/8/12；allowCustom 固定为 true，用户可自填其他数量。"
+        )
+        schema = '{"questions":[' + direction_schema + ',' + episode_schema + ',' + shots_schema + ']}'
+        why_exceptions = "episode_count 与 shots_per_episode"
+    else:
+        fixed_instruction = "方向问题之后，必须在 questions 最后输出一道固定的集数题：" + episode_instruction
+        schema = '{"questions":[' + direction_schema + ',' + episode_schema + ']}'
     return "\n\n".join([
         "你是短剧导演，正在为用户的创意做开机前的方向规划。根据用户的一句话创意，提出 2-3 个真正决定剧情走向的问题。",
-        "只问会改变剧情走向的创作方向问题，并让各题覆盖不同维度，例如：结局倒向、故事基调、主角动机、冲突升级方式、叙事视角、时空设定。禁止重复维度，禁止问画面风格、配音、台词语言等执行细节（镜头数量除外，见下）。",
+        "只问会改变剧情走向的创作方向问题，并让各题覆盖不同维度，例如：结局倒向、故事基调、主角动机、冲突升级方式、叙事视角、时空设定。禁止重复维度，禁止问画面风格、配音、台词语言等执行细节（镜头数量与集数除外，见下）。",
         "每个问题给 3-4 个具体、可直接采用的选项，其中一个标记 recommended=true（你认为最适合这个创意的方向）。选项 label 用简体中文短语，value 与 label 相同。",
         "每题必须 allowCustom=true：选项之外用户可以自己输入，禁止用 allowCustom=false 关闭自定义。",
-        "方向问题之后，必须在 questions 最后输出一道固定题：id 固定为 \"beat_count\"，question 固定为「" + BEAT_COUNT_QUESTION_TEXT + "」，why 用一句话结合该创意说明镜头数量如何决定成片时长与节奏，options 固定为：" + beat_option_items + "（value 必须用这些纯数字，不得改动），并根据创意体量给其中一个标 recommended=true；allowCustom 固定为 true，用户可自填其他数量。",
-        "问题与选项必须贴合用户创意的具体内容，禁止空泛模板问题（beat_count 的 why 除外）。",
-        '必须且仅输出一个合法 JSON 对象：{"questions":[{"id":"q1","question":"","why":"一句话说明这个问题如何影响剧情走向","options":[{"label":"","value":"","recommended":true}],"allowCustom":true},{"id":"beat_count","question":"' + BEAT_COUNT_QUESTION_TEXT + '","why":"","options":[{"label":"约 8 个镜头 · 1 分钟内","value":"8"},{"label":"约 16 个镜头 · 1-2 分钟","value":"16","recommended":true},{"label":"约 30 个镜头 · 3 分钟左右","value":"30"},{"label":"约 50 个镜头 · 完整短剧","value":"50"}],"allowCustom":true}]}',
+        fixed_instruction,
+        "问题与选项必须贴合用户创意的具体内容，禁止空泛模板问题（" + why_exceptions + " 的 why 除外）。",
+        "必须且仅输出一个合法 JSON 对象：" + schema,
     ])
 
 
@@ -271,6 +312,72 @@ BEAT_COUNT_OPTIONS: list[dict[str, str]] = [
 ]
 BEAT_COUNT_DEFAULT_RECOMMENDED = "16"
 BEAT_COUNT_QUESTION_TEXT = "这部剧拍多少个镜头（Beat）？"
+
+EPISODE_COUNT_QUESTION_ID = "episode_count"
+
+# 集数题的固定档位：value 必须是纯数字；1 集为默认推荐，保持单集故事的历史行为。
+EPISODE_COUNT_OPTIONS: list[dict[str, str]] = [
+    {"label": "1 集 · 单集成片", "value": "1"},
+    {"label": "3 集 · 连载短剧", "value": "3"},
+    {"label": "6 集 · 系列短剧", "value": "6"},
+    {"label": "12 集 · 完整系列", "value": "12"},
+]
+EPISODE_COUNT_DEFAULT_RECOMMENDED = "1"
+EPISODE_COUNT_QUESTION_TEXT = "这部剧分多少集？"
+
+SHOTS_PER_EPISODE_QUESTION_ID = "shots_per_episode"
+
+# 每集默认镜头数：value 必须是纯数字；6 镜为短剧单集推荐节奏。
+SHOTS_PER_EPISODE_OPTIONS: list[dict[str, str]] = [
+    {"label": "4 个镜头 · 更紧凑", "value": "4"},
+    {"label": "6 个镜头 · 推荐单集节奏", "value": "6"},
+    {"label": "8 个镜头 · 稍铺陈", "value": "8"},
+    {"label": "12 个镜头 · 单集更完整", "value": "12"},
+]
+SHOTS_PER_EPISODE_DEFAULT_RECOMMENDED = "6"
+SHOTS_PER_EPISODE_QUESTION_TEXT = "每一集默认拍多少个镜头？"
+
+OPENING_SCALE_QUESTION_IDS = frozenset({
+    BEAT_COUNT_QUESTION_ID,
+    EPISODE_COUNT_QUESTION_ID,
+    SHOTS_PER_EPISODE_QUESTION_ID,
+})
+
+
+def build_episode_count_question(recommended_value: str = EPISODE_COUNT_DEFAULT_RECOMMENDED) -> dict[str, Any]:
+    """Deterministic 集数 clarify question; the LLM only picks the recommended tier."""
+    recommended = str(recommended_value) if str(recommended_value) in {item["value"] for item in EPISODE_COUNT_OPTIONS} else EPISODE_COUNT_DEFAULT_RECOMMENDED
+    options = []
+    for item in EPISODE_COUNT_OPTIONS:
+        option = {"label": item["label"], "value": item["value"]}
+        if option["value"] == recommended:
+            option["recommended"] = True
+        options.append(option)
+    return {
+        "id": EPISODE_COUNT_QUESTION_ID,
+        "question": EPISODE_COUNT_QUESTION_TEXT,
+        "why": "分集决定叙事节奏：多集时每集是相对独立的故事段落，集尾留钩子，分镜会按集逐集生成。",
+        "options": options,
+        "allowCustom": True,
+    }
+
+
+def build_shots_per_episode_question(recommended_value: str = SHOTS_PER_EPISODE_DEFAULT_RECOMMENDED) -> dict[str, Any]:
+    """Deterministic 每集镜头数 clarify question; default recommended tier is 6."""
+    recommended = str(recommended_value) if str(recommended_value) in {item["value"] for item in SHOTS_PER_EPISODE_OPTIONS} else SHOTS_PER_EPISODE_DEFAULT_RECOMMENDED
+    options = []
+    for item in SHOTS_PER_EPISODE_OPTIONS:
+        option = {"label": item["label"], "value": item["value"]}
+        if option["value"] == recommended:
+            option["recommended"] = True
+        options.append(option)
+    return {
+        "id": SHOTS_PER_EPISODE_QUESTION_ID,
+        "question": SHOTS_PER_EPISODE_QUESTION_TEXT,
+        "why": "每集镜头数决定单集节奏与成片时长：每个镜头约 3-8 秒，确认后剧本、分集和分镜都会按这个默认值拆写。",
+        "options": options,
+        "allowCustom": True,
+    }
 
 
 def build_beat_count_question(recommended_value: str = BEAT_COUNT_DEFAULT_RECOMMENDED) -> dict[str, Any]:
@@ -318,33 +425,76 @@ def _normalize_clarify_item(item: Any, index: int) -> dict[str, Any] | None:
     }
 
 
-def normalize_clarify_questions(parsed_questions: Any) -> list[dict[str, Any]]:
-    """Normalize raw LLM clarify output: cap direction questions, force the beat_count question last."""
+def normalize_clarify_questions(
+    parsed_questions: Any,
+    *,
+    include_beat_count: bool = True,
+    include_shots_per_episode: bool = False,
+) -> list[dict[str, Any]]:
+    """Normalize raw clarify output; Director2 keeps episode count plus shots-per-episode."""
     questions: list[dict[str, Any]] = []
     beat_recommended = BEAT_COUNT_DEFAULT_RECOMMENDED
+    episode_recommended = EPISODE_COUNT_DEFAULT_RECOMMENDED
+    shots_recommended = SHOTS_PER_EPISODE_DEFAULT_RECOMMENDED
     if isinstance(parsed_questions, list):
         for item in parsed_questions:
             if not isinstance(item, dict):
                 continue
-            if str(item.get("id") or "").strip() == BEAT_COUNT_QUESTION_ID:
+            item_id = str(item.get("id") or "").strip()
+            if item_id == BEAT_COUNT_QUESTION_ID:
                 for option in item.get("options") or []:
                     if isinstance(option, dict) and option.get("recommended"):
                         value = str(option.get("value") or "").strip()
                         if value in {entry["value"] for entry in BEAT_COUNT_OPTIONS}:
                             beat_recommended = value
                 continue
+            if item_id == EPISODE_COUNT_QUESTION_ID:
+                for option in item.get("options") or []:
+                    if isinstance(option, dict) and option.get("recommended"):
+                        value = str(option.get("value") or "").strip()
+                        if value in {entry["value"] for entry in EPISODE_COUNT_OPTIONS}:
+                            episode_recommended = value
+                continue
+            if item_id == SHOTS_PER_EPISODE_QUESTION_ID:
+                for option in item.get("options") or []:
+                    if isinstance(option, dict) and option.get("recommended"):
+                        value = str(option.get("value") or "").strip()
+                        if value in {entry["value"] for entry in SHOTS_PER_EPISODE_OPTIONS}:
+                            shots_recommended = value
+                continue
             normalized = _normalize_clarify_item(item, len(questions))
-            if normalized:
+            if normalized and str(normalized.get("id")) not in OPENING_SCALE_QUESTION_IDS:
                 questions.append(normalized)
     questions = questions[:3]
-    questions.append(build_beat_count_question(beat_recommended))
+    if include_beat_count:
+        questions.append(build_beat_count_question(beat_recommended))
+    questions.append(build_episode_count_question(episode_recommended))
+    if include_shots_per_episode and not include_beat_count:
+        questions.append(build_shots_per_episode_question(shots_recommended))
     return questions
 
 
-# 支持单独出确认题的流水线环节；开场澄清（剧本方向）不在此列。
-STAGE_CLARIFY_AGENT_IDS = ("art_style", "characters", "locations", "storyboard", "voice", "music")
+# 支持单独出确认题的流水线环节。开场澄清（agent 为空）仍是剧本创作方向 + 集数/每集镜头数，不走本表。
+# 导演台逐步确认链：art_style / characters / locations / storyboard / voice / music。
+# 导台2逐步卡点重跑：script / assets / episodes / storyboard（storyboard 两边共用）。
+STAGE_CLARIFY_AGENT_IDS = (
+    "script",
+    "art_style",
+    "characters",
+    "locations",
+    "assets",
+    "episodes",
+    "storyboard",
+    "voice",
+    "music",
+)
 
 STAGE_CLARIFY_FOCUS: dict[str, str] = {
+    "script": (
+        "剧本方向。围绕会改变故事走向与人物弧光的维度提问，例如：主角核心欲望与阻碍、"
+        "叙事视角（跟主角近／群像并行）、结局取向（逆袭兑现／余味开放／反转代价）。"
+        "禁止再问集数或镜头数量，那些已在开场澄清锁定。"
+    ),
     "art_style": (
         "美术风格。围绕会改变整部片子观感的维度提问，例如：整体视觉基调（写实电影感／动漫／3D／插画等）、"
         "色彩与光影氛围（冷暖、饱和、明暗对比）、年代与地域质感。"
@@ -356,6 +506,14 @@ STAGE_CLARIFY_FOCUS: dict[str, str] = {
     "locations": (
         "场景设定。围绕影响空景与氛围的维度提问，例如：主要场景的氛围基调（昼夜、明暗、拥挤程度）、"
         "时代与地域特征、是否需要一个强风格化的标志性主场景。"
+    ),
+    "assets": (
+        "人物场景道具取向。围绕影响定妆、空景与关键道具记忆点的维度提问，例如：主角气质与外形记忆点、"
+        "主要场景的时代地域与明暗氛围、是否需要一件贯穿全片的标志性道具。禁止问分镜手法或配乐。"
+    ),
+    "episodes": (
+        "分集节奏与拆分。围绕影响集与集之间戏剧结构的维度提问，例如：高潮落在哪一集、"
+        "各集篇幅是否均匀、每集目标镜数偏紧凑还是铺陈、是否要把某段单独拆成一集。禁止重写人物外形或画风。"
     ),
     "storyboard": (
         "分镜手法。围绕影响镜头设计的维度提问，例如：叙事节奏（快切紧凑／舒缓铺陈）、"
@@ -372,9 +530,12 @@ STAGE_CLARIFY_FOCUS: dict[str, str] = {
 }
 
 STAGE_CLARIFY_INJECTION_TITLES: dict[str, str] = {
+    "script": "剧本方向确认",
     "art_style": "画风偏好确认",
     "characters": "角色设定确认",
     "locations": "场景设定确认",
+    "assets": "人物场景道具确认",
+    "episodes": "分集结构确认",
     "storyboard": "分镜手法确认",
     "voice": "配音风格确认",
     "music": "配乐方向确认",
@@ -426,6 +587,15 @@ def build_stage_clarify_context(recipe: Any, goal: str) -> str:
         for scene in (data.get("scenes") or [])
         if isinstance(scene, dict)
     )
+    episode_labels: list[str] = []
+    for item in (data.get("episodes") or []):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        num = item.get("num")
+        episode_labels.append(f"第{num}集 {title}" if num else title)
     rows = [
         f"用户创意：{goal}" if goal else "",
         f"片名：{script.get('title')}" if script.get("title") else "",
@@ -434,6 +604,8 @@ def build_stage_clarify_context(recipe: Any, goal: str) -> str:
         f"已选画风：{art.get('name') or art.get('name_zh')}" if (art.get("name") or art.get("name_zh")) else "",
         f"已建立角色：{'、'.join(names(data.get('characters')))}" if names(data.get("characters")) else "",
         f"已建立场景：{'、'.join(names(data.get('locations')))}" if names(data.get("locations")) else "",
+        f"已建立道具：{'、'.join(names(data.get('props')))}" if names(data.get("props")) else "",
+        f"已规划分集：{'、'.join(episode_labels)}" if episode_labels else "",
         f"已拆分镜头数：{shot_count}" if shot_count else "",
     ]
     context = "\n".join(row for row in rows if row)
@@ -441,11 +613,11 @@ def build_stage_clarify_context(recipe: Any, goal: str) -> str:
 
 
 def normalize_stage_clarify_questions(parsed_questions: Any) -> list[dict[str, Any]]:
-    """Normalize per-step clarify output; same question shape as the script round but without beat_count."""
+    """Normalize per-step clarify output; same question shape as the script round but without opening scale questions."""
     questions: list[dict[str, Any]] = []
     if isinstance(parsed_questions, list):
         for item in parsed_questions:
-            if isinstance(item, dict) and str(item.get("id") or "").strip() == BEAT_COUNT_QUESTION_ID:
+            if isinstance(item, dict) and str(item.get("id") or "").strip() in OPENING_SCALE_QUESTION_IDS:
                 continue
             normalized = _normalize_clarify_item(item, len(questions))
             if normalized:
@@ -453,26 +625,73 @@ def normalize_stage_clarify_questions(parsed_questions: Any) -> list[dict[str, A
     return questions[:3]
 
 
-def build_script_agent_prompt(target_beats: int | None = None) -> str:
-    if target_beats and target_beats > 0:
+def build_script_agent_prompt(
+    target_beats: int | None = None,
+    episode_count: int | None = None,
+    shots_per_episode: int | None = None,
+) -> str:
+    episodes = episode_count if episode_count and episode_count > 1 else 1
+    per_ep = shots_per_episode if shots_per_episode and shots_per_episode > 0 else None
+    if per_ep:
+        unit = "每一集" if episodes > 1 else "本集"
         scale_line = (
-            f"fullStory 中文，总 Beat 数量必须约为 {target_beats} 个（上下浮动不超过 2 个）。"
-            "情节按这个数量规划节奏：禁止把多个动作合并进一个 Beat 来减少数量，也禁止超出该数量继续加戏。"
-            "必须使用基于 Seedance Scene Ledger（场景账本）的节拍式写法："
+            f"fullStory 中文，{unit}默认约 {per_ep} 个镜头（上下浮动不超过 2 个）。"
+            "情节按这个数量规划节奏：禁止把多个动作合并进一个 ### 镜头 来减少数量，也禁止超出该数量继续加戏。"
+            "必须使用内容库标准 Markdown 台本，并保持 Seedance Scene Ledger 的节拍纪律："
         )
+        if episodes > 1:
+            scale_line += f"剧情分为 {episodes} 集，全剧总镜头数量约为 {per_ep * episodes} 个。"
+    elif target_beats and target_beats > 0:
+        scale_line = (
+            f"fullStory 中文，总镜头数量必须约为 {target_beats} 个（上下浮动不超过 2 个）。"
+            "情节按这个数量规划节奏：禁止把多个动作合并进一个 ### 镜头 来减少数量，也禁止超出该数量继续加戏。"
+            "必须使用内容库标准 Markdown 台本，并保持 Seedance Scene Ledger 的节拍纪律："
+        )
+        if episodes > 1:
+            scale_line += f"总镜头数量均摊到 {episodes} 集（每集约 {max(1, target_beats // episodes)} 个，可上下浮动 2 个）。"
     else:
-        scale_line = "fullStory 800-1500 字中文。必须使用基于 Seedance Scene Ledger（场景账本）的节拍式写法："
+        scale_line = "fullStory 800-1500 字中文。必须使用内容库标准 Markdown 台本，并保持 Seedance Scene Ledger 的节拍纪律："
+        if episodes > 1:
+            scale_line += f"剧情分为 {episodes} 集，每集篇幅均衡（各占约 {100 // episodes}%）。"
+    episode_rules: list[str] = []
+    if episodes > 1:
+        episode_rules = [
+            f"【多集结构】：fullStory 必须分成 {episodes} 集。每一集以单独一行「# 第X集：集名」开头（X 从 1 开始连续编号，集名 2-6 字，例如「# 第1集：伏笔」）。",
+            "每一集内部使用 ### 镜头N｜场景名 + 列表字段；集与集之间剧情连续，但每集是相对独立的故事段落，集尾必须有钩子（悬念、反转或新冲突）。",
+            "禁止把整部剧写成单集，也禁止缺少「# 第X集」标题行。",
+        ]
+    format_example = (
+        "请按以下格式输出 fullStory（JSON 字符串内必须含真实换行，禁止把镜头、对白、动作糊成一段）：\n"
+        "# 《片名》\n"
+        "## 视频定位\n"
+        "- 类型：…\n"
+        "- 单集：…\n"
+        "- 主线：一句\n"
+        "## 一、主要人物固定设定\n"
+        "角色名——定位：一句话外形与固定道具（仅供确认阅读，不替代后续资产步）\n"
+        "# 第1集：标题\n"
+        "**剧情：** 本集一句话\n"
+        "### 镜头1｜场景名\n"
+        "- 人物：…\n"
+        "- 场景：…\n"
+        "- 道具：…\n"
+        "- 动作：一个可见动作变化\n"
+        "- 镜头：运镜\n"
+        "- 台词：有对白则写原话，无对白可省略本行"
+    )
     return "\n\n".join([
         "把一句话扩成可拍的 AI 短剧剧本。输出 {\"title\":\"\",\"summary\":\"\",\"fullStory\":\"\"}。",
         scale_line,
-        "1. 【禁止传统段落式动作】：严禁把多个动作打包成一段。必须将情节拆解为独立的『动作节拍 (Beat)』。",
-        "2. 【One Playable Change】：每个 Beat 只能发生一个肉眼可见的物理变化（如：角色 A 拔剑，或角色 B 倒下）。",
-        "3. 【物理状态继承】：下一个 Beat 必须严格继承上一个 Beat 的人物站位、手持道具、环境光影和残骸。禁止凭空变出未交代的道具，禁止空间逻辑瞬移。",
+        *episode_rules,
+        "1. 【禁止传统段落式动作】：严禁把多个动作打包成一段。必须将情节拆解为独立的『镜头』，对应内容库标准剧本的 ### 镜头。",
+        "2. 【One Playable Change】：每个 ### 镜头 只能发生一个肉眼可见的物理变化（如：角色 A 拔剑，或角色 B 倒下）。一个 ### 镜头 = 原来的一个 Beat。",
+        "3. 【物理状态继承】：下一个镜头必须严格继承上一个镜头的人物站位、手持道具、环境光影和残骸。禁止凭空变出未交代的道具，禁止空间逻辑瞬移。",
         "4. 【视觉重于对白】：优先用动作、特写来推进，对白只作为辅助。",
-        "请参考以下的格式输出 fullStory：\n【场景名】\n视觉锚点：交代基础站位与环境状态。\nBeat 1：单一动作...\nBeat 2：单一动作...\n对白：...",
+        "5. 【禁止提示词】：剧本步不要写「提示词」字段或英文 H3 prompt；英文提示词由后续分镜步生成。",
+        format_example,
         "禁止只写一段摘要。不要发明未给出的品牌、产品参数或真人形象。",
         "Follow the Seedance-inspired scene-ledger method below while writing Chinese scenes:",
-        "- Each scene block should make opening visual state, one dramatic beat, and closing visual state obvious.",
+        "- Each ### 镜头 block should make opening visual state, one dramatic beat, and closing visual state obvious.",
         "- Preserve dialogue verbatim once written; later agents must not lose spoken lines.",
         "- Prefer observable action over abstract emotion labels so storyboard continuity can inherit positions, props, light, and direction.",
         load_shot_continuity_excerpt(),

@@ -37,6 +37,7 @@ export const SCRIPT_CLARIFY_CUSTOM = "自己写…"
 export const SCRIPT_CLARIFY_CUSTOM_PLACEHOLDER = "输入你的想法"
 export const SCRIPT_CLARIFY_SUBMIT = "按这个方向开拍"
 export const SCRIPT_DIRECTION_LABEL = "创作方向"
+export const SCRIPT_PATH_LABEL = "创作路径"
 
 /* 逐步确认流程：每个环节生成前 AI 先提问，回答或跳过后再生成该环节。 */
 export const STAGE_CLARIFY_TITLES: Record<string, string> = {

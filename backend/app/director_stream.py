@@ -168,6 +168,8 @@ AGENT_STREAM_SPECS: dict[str, AgentStreamSpec] = {
         AgentArraySpec("shots", ("description", "dialogue")),
     )),
     "clarify": AgentStreamSpec("clarify", arrays=(AgentArraySpec("questions", ("question", "why")),)),
+    # 分集列表：独立 episodes agent 解析集结构后逐集发标题+梗概，让「分集」阶段直播卡有真实内容。
+    "episodes": AgentStreamSpec("episodes", arrays=(AgentArraySpec("episodes", ("title", "summary")),)),
 }
 
 _SHOT_NUMBER_PATTERN = re.compile(r'"shotNumber"\s*:\s*(\d+)')
@@ -255,6 +257,9 @@ class AgentStreamTracker:
         self._counts = {array.key: 0 for array in spec.arrays}
         # (array_key, display_field) -> (global item ordinal, decoded value)
         self._active: dict[tuple[str, str], tuple[int, str]] = {}
+        # 随事件下发的稳定上下文（如多集分镜的当前集号）；begin_call 不清除，
+        # 由调用方在切换集时显式 set_context。
+        self._context: dict[str, Any] = {}
         self._done = False
 
     # -- public API -------------------------------------------------------
@@ -267,6 +272,10 @@ class AgentStreamTracker:
         self._scalars = {name: "" for name in self._spec.scalar_fields}
         self._active.clear()
         self._done = False
+
+    def set_context(self, **context: Any) -> None:
+        """Attach stable fields (e.g. ``episode=2``) to every subsequent event."""
+        self._context = dict(context)
 
     def feed(self, accumulated: str) -> None:
         if self._done or not accumulated:
@@ -380,16 +389,14 @@ class AgentStreamTracker:
     # -- emission ---------------------------------------------------------
 
     def _emit_delta(self, field_name: str, index: int | None, delta: str, reset: bool) -> None:
-        self._emit({
-            "event": "agent_delta",
-            "data": {"agent": self._spec.agent_id, "field": field_name, "index": index, "delta": delta, "reset": reset},
-        })
+        data: dict[str, Any] = {"agent": self._spec.agent_id, "field": field_name, "index": index, "delta": delta, "reset": reset}
+        data.update(self._context)
+        self._emit({"event": "agent_delta", "data": data})
 
     def _emit_item(self, field_name: str, index: int, item: dict[str, Any]) -> None:
-        self._emit({
-            "event": "agent_item",
-            "data": {"agent": self._spec.agent_id, "field": field_name, "index": index, "item": item},
-        })
+        data: dict[str, Any] = {"agent": self._spec.agent_id, "field": field_name, "index": index, "item": item}
+        data.update(self._context)
+        self._emit({"event": "agent_item", "data": data})
 
 
 class DirectorOperationEventBus:

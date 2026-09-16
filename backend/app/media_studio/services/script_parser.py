@@ -95,7 +95,7 @@ class StandardScriptParser:
             line_str = line.strip()
             if line_str.startswith("# "):
                 t = line_str.lstrip("#").strip()
-                if ("第" in t and "集" in t) or ("固定场景" in t) or ("人物一致性" in t) or ("制作建议" in t):
+                if ("第" in t and "集" in t) or ("固定场景" in t) or ("人物一致性" in t) or ("制作建议" in t) or ("主要人物" in t):
                     continue
                 return t
         return "未命名短剧剧本"
@@ -298,7 +298,24 @@ class StandardScriptParser:
                 "shots": shots,
             })
 
-        return episodes
+        if episodes:
+            return episodes
+        return cls._fallback_single_episode(text)
+
+    @classmethod
+    def _fallback_single_episode(cls, text: str) -> list[dict[str, Any]]:
+        """AI 流水线或单集故事常只有「### 镜头」而没有「# 第N集」；整篇视为第 1 集。"""
+        shots = cls._extract_shots_from_episode(text)
+        if not shots:
+            return []
+        title = cls._extract_title(text.split("\n"))
+        return [{
+            "episode_num": 1,
+            "title": title or "第 1 集",
+            "summary": "",
+            "shots_count": len(shots),
+            "shots": shots,
+        }]
 
     @classmethod
     def _extract_shots_from_episode(cls, episode_block: str) -> list[dict[str, Any]]:

@@ -1,6 +1,6 @@
 // 项目详情壳：顶部项目条 + 左侧 4 菜单 + 右侧面板 —— 逐行复刻自 dev0914 ProjectDetailView.vue
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { message } from "antd"
 import { BookOpen, Boxes, ChevronLeft, Film, ListChecks } from "lucide-react"
 import { getProject, director2ErrorDetail } from "./api"
@@ -9,6 +9,9 @@ import AssetsLibraryPane from "./panes/AssetsLibraryPane"
 import EpisodeWorkshopPane from "./panes/EpisodeWorkshopPane"
 import JobsCenterPane from "./panes/JobsCenterPane"
 import { director2ProjectPath, director2HomePath, type Director2Route } from "./paths"
+import Director2AiStudioPane from "./panes/Director2AiStudioPane"
+import { parseDirector2CreationMode, readDirector2CreationMode, storeDirector2CreationMode, type Director2CreationMode } from "./creation-mode"
+import DirectorCreationModeSwitch from "../director/components/DirectorCreationModeSwitch"
 import "./project-detail.css"
 
 const MENU_ITEMS = [
@@ -31,11 +34,14 @@ export default function Director2ProjectDetail({
   route: Extract<Director2Route, { kind: "project" }>
 }) {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const projectId = route.projectId
 
   const [project, setProject] = useState<ProjectInfo | null>(null)
-  // 剧集工坊分集详情模式判断（全屏工作台布局，去除外层多余滚动条）
+  // 剧集工坊分集详情：外壳锁死视口，左右栏各自滚动
   const [inWorkshopDetail, setInWorkshopDetail] = useState(false)
+  const [creationMode, setCreationMode] = useState<Director2CreationMode>(() => parseDirector2CreationMode(searchParams.get("mode")) ?? readDirector2CreationMode(projectId))
+  const [aiBusy, setAiBusy] = useState(false)
 
   const assetsPaneRef = useRef<{ fetchAssets: () => Promise<void> | void } | null>(null)
   const workshopPaneRef = useRef<{ fetchEpisodes: () => Promise<void> | void } | null>(null)
@@ -61,6 +67,21 @@ export default function Director2ProjectDetail({
   useEffect(() => {
     loadProjectInfo()
   }, [loadProjectInfo])
+
+  useEffect(() => {
+    const fromUrl = parseDirector2CreationMode(searchParams.get("mode"))
+    if (fromUrl) setCreationMode(fromUrl)
+  }, [searchParams])
+
+  function changeCreationMode(value: Director2CreationMode) {
+    if (aiBusy) return
+    setCreationMode(value)
+    storeDirector2CreationMode(projectId, value)
+    setSearchParams((current) => {
+      current.set("mode", value)
+      return current
+    }, { replace: true })
+  }
 
   function onAssetsTransferred() {
     assetsPaneRef.current?.fetchAssets()
@@ -95,6 +116,11 @@ export default function Director2ProjectDetail({
           </div>
 
           <div className="topbar-right">
+            <DirectorCreationModeSwitch
+              value={creationMode}
+              disabled={aiBusy}
+              onChange={(value) => changeCreationMode(value as Director2CreationMode)}
+            />
             <span className="project-id-tag">{project?.id ?? projectId}</span>
           </div>
         </div>
@@ -103,7 +129,7 @@ export default function Director2ProjectDetail({
       {/* 主体区域：左侧菜单 + 右侧工作区 */}
       <div className="project-main-body">
         {/* 左侧 4 个菜单导航 */}
-        <aside className="project-sidebar">
+        <aside className={`project-sidebar${creationMode === "agent" ? " is-hidden" : ""}`}>
           <div className="menu-list">
             {MENU_ITEMS.map(({ key, label, Icon }) => (
               <div
@@ -121,7 +147,20 @@ export default function Director2ProjectDetail({
 
         {/* 右侧子模块内容区 */}
         <section className={`project-content-pane${isWorkshopDetail ? " is-workshop-detail" : ""}`}>
-          {activeMenu === "content" && (
+          {creationMode === "agent" && (
+            <div key="ai" className="d2-fade">
+              <Director2AiStudioPane
+                csrfToken={csrfToken}
+                projectId={projectId}
+                onBusyChange={setAiBusy}
+                onNavigate={(menu) => {
+                  changeCreationMode("manual")
+                  handleMenuClick(menu)
+                }}
+              />
+            </div>
+          )}
+          {creationMode === "manual" && activeMenu === "content" && (
             <div key="content" className="d2-fade">
               <ContentLibraryPane
                 csrfToken={csrfToken}
@@ -131,12 +170,12 @@ export default function Director2ProjectDetail({
               />
             </div>
           )}
-          {activeMenu === "assets" && (
+          {creationMode === "manual" && activeMenu === "assets" && (
             <div key="assets" className="d2-fade">
               <AssetsLibraryPane ref={assetsPaneRef} csrfToken={csrfToken} projectId={projectId} />
             </div>
           )}
-          {activeMenu === "workshop" && (
+          {creationMode === "manual" && activeMenu === "workshop" && (
             <div key="workshop" className="d2-fade d2-workshop-host">
               <EpisodeWorkshopPane
                 ref={workshopPaneRef}
@@ -147,7 +186,7 @@ export default function Director2ProjectDetail({
               />
             </div>
           )}
-          {activeMenu === "jobs" && (
+          {creationMode === "manual" && activeMenu === "jobs" && (
             <div key="jobs" className="d2-fade">
               <JobsCenterPane csrfToken={csrfToken} projectId={projectId} />
             </div>

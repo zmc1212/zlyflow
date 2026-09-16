@@ -106,6 +106,23 @@ describe("director2 episode live card mapping", () => {
     expect(normalizeEpisodeLiveCard({ script_text: "整集正文" }, { fallbackIndex: 0 })).toBeNull()
   })
 
+  it("stays an outline payload and never grows episode-accordion fields", () => {
+    const card = normalizeEpisodeLiveCard({
+      num: 1,
+      title: "雨夜追踪",
+      summary: "巷口对峙后，追踪转入旧宅。",
+      targetShots: 8,
+      text: "Beat 1\n对白：站住。",
+      beats: [{ title: "开场巷口" }],
+    })
+    expect(card).toEqual({
+      title: "第 1 集 · 雨夜追踪",
+      summary: "巷口对峙后，追踪转入旧宅。",
+      targetShots: 8,
+    })
+    expect(Object.keys(card || {})).toEqual(["title", "summary", "targetShots"])
+  })
+
   it("uses fallback index only when a bare title needs 第 N 集", () => {
     expect(normalizeEpisodeLiveCard({ title: "开场", summary: "落座" }, { fallbackIndex: 0 })).toEqual({
       title: "第 1 集 · 开场",

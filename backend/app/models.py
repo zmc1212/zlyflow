@@ -699,7 +699,7 @@ class DirectorClarificationItem(BaseModel):
     id: str | None = Field(
         default=None,
         max_length=64,
-        description="问题 id；beat_count 表示镜头数量确认题，剧本 Agent 据此约束 Beat 数量",
+        description="问题 id；beat_count 表示全剧镜头数量确认题，episode_count 表示集数，shots_per_episode 表示每集默认镜头数",
     )
     agent: str | None = Field(
         default=None,

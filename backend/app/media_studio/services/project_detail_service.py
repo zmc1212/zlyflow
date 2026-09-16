@@ -43,6 +43,68 @@ def resolve_shot_scene(
 class ProjectDetailService:
     # --- 1. 内容库 Documents ---
     @classmethod
+    def _analysis_for_document_row(cls, row: dict[str, Any], *, persist: bool = False) -> dict[str, Any] | None:
+        analysis = None
+        raw_json = row.get("analysis_json")
+        if raw_json:
+            try:
+                analysis = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+            except Exception:
+                analysis = None
+        raw_text = str(row.get("raw_text") or "")
+        stale = not analysis or not (analysis.get("episodes") or [])
+        if stale and raw_text.strip():
+            parsed = StandardScriptParser.parse(raw_text)
+            if parsed.get("episodes"):
+                analysis = parsed
+                if persist and row.get("id"):
+                    execute_sql(
+                        "UPDATE ai_project_documents SET analysis_json = %s WHERE id = %s",
+                        (json.dumps(parsed, ensure_ascii=False), row["id"]),
+                    )
+            elif analysis is None:
+                analysis = parsed
+        return cls._merge_pipeline_recipe_assets(row, analysis, persist=persist)
+
+    @classmethod
+    def _latest_pipeline_recipe(cls, project_id: str | None) -> dict[str, Any] | None:
+        if not project_id:
+            return None
+        job = query_one(
+            "SELECT payload_json FROM ai_project_jobs WHERE project_id = %s AND job_type = 'ai_pipeline' ORDER BY updated_at DESC LIMIT 1",
+            (project_id,),
+        )
+        if not job:
+            return None
+        try:
+            payload = json.loads(job.get("payload_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return None
+        recipe = payload.get("recipe")
+        return recipe if isinstance(recipe, dict) else None
+
+    @classmethod
+    def _merge_pipeline_recipe_assets(cls, row: dict[str, Any], analysis: dict[str, Any] | None, *, persist: bool = False) -> dict[str, Any] | None:
+        if str(row.get("input_mode") or "") != "ai_pipeline":
+            return analysis
+        recipe = cls._latest_pipeline_recipe(row.get("project_id"))
+        if not recipe:
+            return analysis
+        from .ai_generation_service import AiGenerationService
+
+        merged = AiGenerationService.merge_recipe_assets_into_analysis(analysis or {}, recipe)
+        before = json.dumps(analysis or {}, ensure_ascii=False, sort_keys=True)
+        after = json.dumps(merged, ensure_ascii=False, sort_keys=True)
+        if persist and row.get("id") and after != before:
+            execute_sql(
+                "UPDATE ai_project_documents SET analysis_json = %s WHERE id = %s",
+                (json.dumps(merged, ensure_ascii=False), row["id"]),
+            )
+        if persist and row.get("project_id") and (merged.get("characters") or merged.get("scenes") or merged.get("props")):
+            AiGenerationService.persist_recipe_assets(str(row.get("project_id") or ""), recipe)
+        return merged
+
+    @classmethod
     def list_documents(cls, project_id: str) -> list[dict[str, Any]]:
         rows = query_all(
             "SELECT * FROM ai_project_documents WHERE project_id = %s ORDER BY updated_at DESC",
@@ -50,12 +112,7 @@ class ProjectDetailService:
         )
         items = []
         for r in rows:
-            analysis = None
-            if r.get("analysis_json"):
-                try:
-                    analysis = json.loads(r["analysis_json"])
-                except Exception:
-                    analysis = None
+            analysis = cls._analysis_for_document_row(r, persist=True)
             items.append({
                 "id": r["id"],
                 "project_id": r["project_id"],
@@ -136,11 +193,10 @@ class ProjectDetailService:
 
     @classmethod
     def transfer_assets_from_document(cls, project_id: str, doc_id: str) -> dict[str, Any]:
-        row = query_one("SELECT analysis_json FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
-        if not row or not row.get("analysis_json"):
+        row = query_one("SELECT id, analysis_json, raw_text FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
+        if not row:
             raise ValueError("文档不存在或尚未完成分析")
-
-        analysis = json.loads(row["analysis_json"])
+        analysis = cls._analysis_for_document_row(row, persist=True) or {}
         ts = now_str()
         chars = analysis.get("characters") or []
         scenes = analysis.get("scenes") or []
@@ -240,11 +296,10 @@ class ProjectDetailService:
     @classmethod
     def transfer_episodes_from_document(cls, project_id: str, doc_id: str) -> dict[str, Any]:
         """将解析出的分集与镜头批量同步到剧集工坊"""
-        row = query_one("SELECT analysis_json FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
-        if not row or not row.get("analysis_json"):
+        row = query_one("SELECT id, analysis_json, raw_text FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
+        if not row:
             raise ValueError("文档不存在或尚未完成分析")
-
-        analysis = json.loads(row["analysis_json"])
+        analysis = cls._analysis_for_document_row(row, persist=True) or {}
         episodes = analysis.get("episodes") or []
         if not episodes:
             raise ValueError("该剧本中未识别到分集或分镜头信息")

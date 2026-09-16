@@ -34,6 +34,16 @@
   background-color: #f8f9fa;
 }
 
+/* 导演台首页（复刻旧导演台首页 DirectorHome）：home 分支不带 top-nav，
+   容器直接承载 .director-home-v2（其自带 margin/边框卡片外观与内部滚动）。 */
+.director2-app.director2-app-home {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .director2-app .top-nav {
   height: 64px;
   background: #ffffff;
@@ -498,6 +508,23 @@
   min-height: 0;
   overflow: hidden;
   border-radius: 16px;
+  /* AI 创作室不挂 cinema 层，回落官方 beautifului token；
+     .director-recipe-shell 基础层硬编码浅色底/深字，这里按官方
+     page/ink 值双主题成对接管（--director-* 作用域在其子节点上，壳层读不到）。 */
+  background: #fafafb;
+  color: #1f2124;
+}
+:root[data-theme="dark"] .director2-app .director2-ai-studio {
+  background: #17181a;
+  color: #f2f3f4;
+}
+/* index.css 暗色皮肤把 .director-recipe-shell / .director-recipe-layout /
+   .director-recipe-main 用 !important 强制为 --studio-canvas，这里按官方
+   page 值以更高优先级同权重抢回，保证 AI 创作室暗色走官方 beautifului token。 */
+:root[data-theme="dark"] .director2-app .director2-ai-studio,
+:root[data-theme="dark"] .director2-app .director2-ai-studio .director-recipe-layout,
+:root[data-theme="dark"] .director2-app .director2-ai-studio .director-recipe-main {
+  background: #17181a !important;
 }
 .director2-app .director2-ai-studio .director-recipe-layout,
 .director2-app .director2-ai-studio .director-recipe-main,
@@ -508,6 +535,7 @@
 .director2-app .director2-ai-studio .director-script-stream { min-height: 0; }
 .director2-app .director2-ai-studio .director-stream-feed { min-height: 100%; }
 .director2-app .director2-ai-studio .director-completion-card { margin-top: 20px; }
+.director2-app .director2-ai-studio .director-block .director-completion-card { margin-top: 12px; margin-bottom: 4px; }
 @media (max-width: 767px) {
   .director2-app .director2-ai-studio { border-radius: 12px; }
   .director2-app .director2-ai-studio .director-recipe-main { padding: 12px 10px 0; }

@@ -150,7 +150,7 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
         {railHead}
         <ol className="director-task-rows-list">
           {relevant.map((row, index) => {
-            const canOpen = Boolean(onOpen) && (row.status === "completed" || row.status === "failed")
+            const canOpen = Boolean(onOpen) && (row.status === "completed" || row.status === "failed" || row.status === "review")
             const preview = row.status === "completed" ? previews?.[row.id] : undefined
             return (
               <li
@@ -167,6 +167,7 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                   </span>
                   <span className="director-task-row-label">{row.label}</span>
                   {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+                  {row.status === "review" ? <span className="director-task-pill is-accent">待确认</span> : null}
                   {row.status === "completed" && onRegenerate ? (
                     <button
                       type="button"
@@ -231,7 +232,7 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
       {open ? (
         <ol className="director-task-rows-list">
           {relevant.map((row, index) => {
-            const canOpen = Boolean(onOpen) && (row.status === "completed" || row.status === "failed")
+            const canOpen = Boolean(onOpen) && (row.status === "completed" || row.status === "failed" || row.status === "review")
             const preview = row.status === "completed" ? previews?.[row.id] : undefined
             return (
               <li
@@ -251,6 +252,7 @@ export default function DirectorTaskRows({ rows, running, elapsedSec, pinnedOpen
                     <span className="director-task-row-message">{row.message}</span>
                   ) : null}
                   {row.status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
+                  {row.status === "review" ? <span className="director-task-pill is-accent">待确认</span> : null}
                   {row.status === "completed" && onRegenerate ? (
                     <button
                       type="button"

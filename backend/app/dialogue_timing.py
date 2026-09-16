@@ -11,13 +11,17 @@ from .director_recipe import normalize_dialogue
 _HAN_RE = re.compile(r"[\u4e00-\u9fff]")
 _SCRIPT_FIELD_PREFIXES = frozenset({
     "地点", "人物", "动作", "对白", "场次", "场景", "时间", "镜头", "旁白", "画外音",
+    "台词", "道具", "音效", "字幕", "剧情",
 })
-_SCRIPT_SECTION_RE = re.compile(r"^(地点|人物|动作|场次|场景|时间|镜头)[：:]")
+_SCRIPT_SECTION_RE = re.compile(r"^(地点|人物|动作|场次|场景|时间|镜头|道具|音效|字幕|剧情)[：:]")
+_DIALOGUE_HEADER_RE = re.compile(r"^(对白|台词)[：:]\s*(.*)$")
+_LIST_PREFIX_RE = re.compile(r"^[-*]\s+")
 _ENTRY_LINE_RE = re.compile(
     r"^\s*([^：:\n]{1,24}?)[：:]\s*(?:(?:（([^）]*)）|\(([^)]*)\))\s*)?(.+?)\s*$"
 )
 _D_TAG_RE = re.compile(r"<d>(?:\[[^\]]+\])?\s*(.*?)</d>", re.IGNORECASE | re.DOTALL)
 _TRUNCATED_SUFFIX_RE = re.compile(r"[.。…]{2,}$")
+_WRAPPED_QUOTE_PAIRS = (("\"", "\""), ("“", "”"), ("「", "」"), ("『", "』"))
 
 
 def count_han_characters(text: str) -> int:
@@ -58,6 +62,44 @@ def estimate_shot_duration_sec(
     return max(2, min(15, int(math.ceil(max(speech, action)))))
 
 
+def _strip_wrapping_quotes(text: str) -> str:
+    value = (text or "").strip()
+    for left, right in _WRAPPED_QUOTE_PAIRS:
+        if len(value) >= 2 and value.startswith(left) and value.endswith(right):
+            return value[len(left):-len(right)].strip()
+    return value
+
+
+def _append_dialogue_entry(
+    entries: list[dict[str, str]],
+    *,
+    speaker: str = "",
+    delivery: str = "",
+    dialogue: str = "",
+) -> None:
+    spoken = _strip_wrapping_quotes(dialogue)
+    if spoken:
+        entries.append({"speaker": speaker, "delivery": delivery, "dialogue": spoken})
+
+
+def _append_dialogue_remainder(entries: list[dict[str, str]], remainder: str) -> None:
+    text = (remainder or "").strip()
+    if not text:
+        return
+    match = _ENTRY_LINE_RE.match(text)
+    if match:
+        speaker = match.group(1).strip()
+        if speaker not in _SCRIPT_FIELD_PREFIXES:
+            _append_dialogue_entry(
+                entries,
+                speaker=speaker,
+                delivery=(match.group(2) or match.group(3) or "").strip(),
+                dialogue=match.group(4) or "",
+            )
+            return
+    _append_dialogue_entry(entries, dialogue=text)
+
+
 def extract_script_dialogue_entries(text: str) -> list[dict[str, str]]:
     """Extract speaker + dialogue from Chinese screenplay-style script text."""
     if not (text or "").strip():
@@ -65,27 +107,31 @@ def extract_script_dialogue_entries(text: str) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
     in_dialogue_section = False
     for raw_line in (text or "").splitlines():
-        line = raw_line.strip()
+        line = _LIST_PREFIX_RE.sub("", raw_line.strip())
         if not line:
             continue
-        if re.match(r"^对白[：:]", line):
+        header = _DIALOGUE_HEADER_RE.match(line)
+        if header:
             in_dialogue_section = True
+            _append_dialogue_remainder(entries, header.group(2))
             continue
-        if _SCRIPT_SECTION_RE.match(line):
+        if _SCRIPT_SECTION_RE.match(line) or line.startswith("【") or re.match(r"^#{1,3}\s", line):
             in_dialogue_section = False
             continue
         match = _ENTRY_LINE_RE.match(line)
         if not match:
-            if in_dialogue_section and line and not line.startswith("【"):
-                entries.append({"speaker": "", "delivery": "", "dialogue": line})
+            if in_dialogue_section and line:
+                _append_dialogue_entry(entries, dialogue=line)
             continue
         speaker = match.group(1).strip()
         if speaker in _SCRIPT_FIELD_PREFIXES:
             continue
-        delivery = (match.group(2) or match.group(3) or "").strip()
-        dialogue = (match.group(4) or "").strip()
-        if dialogue:
-            entries.append({"speaker": speaker, "delivery": delivery, "dialogue": dialogue})
+        _append_dialogue_entry(
+            entries,
+            speaker=speaker,
+            delivery=(match.group(2) or match.group(3) or "").strip(),
+            dialogue=match.group(4) or "",
+        )
     return entries
 
 

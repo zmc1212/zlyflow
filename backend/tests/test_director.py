@@ -303,6 +303,64 @@ class DirectorRecipeModelTests(unittest.TestCase):
         for question in normalize_stage_clarify_questions(raw):
             self.assertTrue(question["allowCustom"])
 
+    def test_stage_clarify_covers_director2_review_steps(self) -> None:
+        from backend.app.llm_minimax_skills import (
+            STAGE_CLARIFY_AGENT_IDS,
+            STAGE_CLARIFY_FOCUS,
+            STAGE_CLARIFY_INJECTION_TITLES,
+            build_stage_clarify_context,
+            build_stage_clarify_prompt,
+        )
+
+        for agent_id in ("script", "assets", "episodes"):
+            self.assertIn(agent_id, STAGE_CLARIFY_AGENT_IDS)
+            self.assertIn(agent_id, STAGE_CLARIFY_FOCUS)
+            self.assertIn(agent_id, STAGE_CLARIFY_INJECTION_TITLES)
+            prompt = build_stage_clarify_prompt(agent_id)
+            self.assertIn("当前环节", prompt)
+        context = build_stage_clarify_context(
+            {
+                "script": {"title": "逆袭", "summary": "咖啡店", "fullStory": "甲走进咖啡馆。"},
+                "characters": [{"name": "甲"}],
+                "locations": [{"name": "咖啡馆"}],
+                "props": [{"name": "旧怀表"}],
+                "episodes": [{"num": 1, "title": "开场"}],
+            },
+            "都市逆袭",
+        )
+        self.assertIn("已建立道具：旧怀表", context)
+        self.assertIn("已规划分集：第1集 开场", context)
+
+    def test_run_director_clarify_injects_feedback_context(self) -> None:
+        captured = {}
+
+        class Client:
+            def chat_completion(self, messages, **kwargs):
+                captured["messages"] = messages
+                return json.dumps({
+                    "questions": [{
+                        "id": "q1",
+                        "question": "结局要更虐到什么程度？",
+                        "why": "决定重写收束",
+                        "options": [{"label": "反转代价", "value": "反转代价", "recommended": True}],
+                        "allowCustom": True,
+                    }],
+                })
+
+        provider = LlmProviderService.__new__(LlmProviderService)
+        provider._chat_client = lambda: (Client(), "mock-model")  # type: ignore[method-assign]
+        questions = provider.run_director_clarify(
+            "都市逆袭",
+            recipe={"script": {"title": "逆袭", "fullStory": "甲走进咖啡馆。"}},
+            agent="script",
+            feedback="结局太轻松，希望更虐",
+        )
+        self.assertEqual(questions[0]["id"], "q1")
+        system = captured["messages"][0]["content"]
+        user = captured["messages"][1]["content"]
+        self.assertIn("本轮调整诉求", system)
+        self.assertIn("本轮调整诉求：结局太轻松，希望更虐", user)
+
     def test_timeline_payload_converts_shots_to_scenes(self) -> None:
         timeline = {
             "aspectRatio": "16:9",
@@ -352,7 +410,7 @@ class DirectorRecipeModelTests(unittest.TestCase):
         self.assertEqual(recipe["globalMusic"], "低沉弦乐")
         self.assertEqual(len(flatten_recipe_shots(recipe)), 2)
         self.assertEqual(JobStore.director_generation_progress(recipe), ("partial", 1, 2))
-        self.assertEqual(len(recipe["agentStatus"]), 9)
+        self.assertEqual(len(recipe["agentStatus"]), 10)
         self.assertEqual(recipe["scenes"][0]["shots"][0]["camera"]["scale"], "MS")
         self.assertEqual(recipe["scenes"][0]["shots"][0]["camera"]["movement"], "zoom_in")
 
@@ -444,8 +502,14 @@ class DirectorRecipeModelTests(unittest.TestCase):
         self.assertIn("定妆图待生成", AGENT_DONE_MESSAGES["characters"])
         self.assertIn("定妆图待生成", AGENT_DONE_MESSAGES["locations"])
         self.assertEqual(AGENT_DONE_MESSAGES["storyboard"], "分镜方案已写好")
+        self.assertEqual(AGENT_DONE_MESSAGES["episodes"], "分集大纲已规划")
         self.assertEqual(agent_done_message("voice"), AGENT_DONE_MESSAGES["voice"])
         self.assertEqual(agent_done_message("storyboard"), "分镜方案已写好")
+        self.assertEqual(agent_done_message("episodes"), "分集大纲已规划")
+        self.assertEqual(
+            agent_done_message("episodes", {"kind": PAYLOAD_KIND_RECIPE, "episodes": [{"num": 1}, {"num": 2}]}),
+            "已规划 2 集大纲",
+        )
         self.assertEqual(
             agent_done_message("storyboard", {
                 "kind": PAYLOAD_KIND_RECIPE,
@@ -3007,6 +3071,9 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertIn("scene-ledger", prompt)
         self.assertIn("opening visual state", prompt)
         self.assertIn("continuityIn", prompt)
+        self.assertIn("### 镜头", prompt)
+        self.assertIn("# 第", prompt)
+        self.assertIn("禁止只写一段摘要", prompt)
 
         recipe = run_agent("script", {"kind": "director_recipe"}, goal="雨夜追人", chat_fn=chat)
         self.assertTrue(captured)
@@ -3085,8 +3152,9 @@ class DirectorAgentPipelineTests(unittest.TestCase):
             chat_fn=lambda _messages: "{}",
         )
         self.assertEqual(empty["scenes"], [])
-        self.assertEqual(empty["agentStatus"][3]["status"], "failed")
-        self.assertIn("镜头", empty["agentStatus"][3]["error"] or "")
+        empty_storyboard = next(s for s in empty["agentStatus"] if s["id"] == "storyboard")
+        self.assertEqual(empty_storyboard["status"], "failed")
+        self.assertIn("镜头", empty_storyboard["error"] or "")
 
         truncated = parse_json_object(
             '{"scenes":[{"title":"开场","shots":['
@@ -3148,7 +3216,7 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         shots = [shot for scene in recipe["scenes"] for shot in scene["shots"]]
         self.assertEqual(len(shots), 2)
         self.assertEqual(shots[0]["title"], "进门")
-        self.assertEqual(recipe["agentStatus"][3]["status"], "completed")
+        self.assertEqual(next(s for s in recipe["agentStatus"] if s["id"] == "storyboard")["status"], "completed")
 
     def test_storyboard_accepts_shot_array_and_nested_payload(self) -> None:
         from backend.app.director_agents import parse_json_object, run_agent
@@ -3170,7 +3238,7 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         )
         shots = [shot for scene in recipe["scenes"] for shot in scene["shots"]]
         self.assertEqual([shot["title"] for shot in shots], ["进门", "工位", "开会"])
-        self.assertEqual(recipe["agentStatus"][3]["status"], "completed")
+        self.assertEqual(next(s for s in recipe["agentStatus"] if s["id"] == "storyboard")["status"], "completed")
 
         parsed = parse_json_object(json.dumps({"data": {"shots": shots_payload}}, ensure_ascii=False))
         self.assertIsNotNone(parsed)
@@ -3200,7 +3268,7 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         )
         shots = [shot for scene in recipe["scenes"] for shot in scene["shots"]]
         self.assertEqual(len(shots), 3)
-        self.assertEqual(recipe["agentStatus"][3]["status"], "completed")
+        self.assertEqual(next(s for s in recipe["agentStatus"] if s["id"] == "storyboard")["status"], "completed")
         self.assertTrue(all(shot["title"] != "主镜头" for shot in shots))
 
     def test_chat_text_does_not_retry_timeout(self) -> None:
@@ -3370,7 +3438,7 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         )
         self.assertEqual(recipe["pipelineRun"]["agents"], ["script", "storyboard"])
         self.assertFalse(recipe["pipelineRun"]["active"])
-        self.assertIn("已写出 2 个镜头", recipe["agentStatus"][3]["message"])
+        self.assertIn("已写出 2 个镜头", next(s for s in recipe["agentStatus"] if s["id"] == "storyboard")["message"])
         active = [item for item in snapshots if (item.get("pipelineRun") or {}).get("active")]
         self.assertTrue(active)
         self.assertEqual(active[0]["pipelineRun"]["agents"], ["script", "storyboard"])
@@ -3579,6 +3647,238 @@ class DirectorAgentPipelineTests(unittest.TestCase):
         self.assertIn("epic cinematic", submission["prompt"])
 
 
+class EpisodesAgentTests(unittest.TestCase):
+    """Independent episodes agent: split outline, then storyboard consumes it."""
+
+    MULTI_EPISODE_STORY = (
+        "# 第1集 伏笔\n"
+        "甲走进咖啡馆，坐下点了一杯美式。\n"
+        "# 第2集 对峙\n"
+        "乙摔碎杯子，质问甲为什么出现。\n"
+        "# 第3集 反转\n"
+        "甲揭开身份：他是乙失散多年的哥哥。"
+    )
+
+    def test_pipeline_registers_episodes_before_storyboard(self) -> None:
+        from backend.app.director_recipe import AGENT_IDS, PIPELINE_AGENT_ORDER
+        from backend.app.director_stream import AGENT_STREAM_SPECS
+
+        self.assertIn("episodes", AGENT_IDS)
+        self.assertEqual(PIPELINE_AGENT_ORDER, AGENT_IDS)
+        self.assertLess(PIPELINE_AGENT_ORDER.index("episodes"), PIPELINE_AGENT_ORDER.index("storyboard"))
+        self.assertGreater(PIPELINE_AGENT_ORDER.index("episodes"), PIPELINE_AGENT_ORDER.index("locations"))
+        self.assertIn("episodes", AGENT_STREAM_SPECS)
+        self.assertEqual(AGENT_STREAM_SPECS["episodes"].arrays[0].key, "episodes")
+
+    def test_split_story_into_episodes_parses_headers_and_keeps_single_story(self) -> None:
+        from backend.app.director_agents import _split_story_into_episodes
+
+        episodes = _split_story_into_episodes(self.MULTI_EPISODE_STORY)
+        self.assertEqual([item["num"] for item in episodes], [1, 2, 3])
+        self.assertEqual([item["title"] for item in episodes], ["伏笔", "对峙", "反转"])
+        self.assertIn("美式", episodes[0]["text"])
+        self.assertIn("摔碎杯子", episodes[1]["text"])
+
+        single = _split_story_into_episodes("甲走进咖啡馆。乙摔碎杯子。")
+        self.assertEqual(len(single), 1)
+        self.assertEqual(single[0]["num"], 1)
+        self.assertEqual(single[0]["text"], "甲走进咖啡馆。乙摔碎杯子。")
+
+    def test_episodes_agent_refines_outline_without_rewriting_cut(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        events: list[dict] = []
+
+        def chat(messages: list[dict]) -> str:
+            self.assertIn("AGENT_ID: episodes", messages[0]["content"])
+            self.assertIn("禁止改写、合并、拆分", messages[0]["content"])
+            return json.dumps({
+                "episodes": [
+                    {"num": 1, "title": "初见", "summary": "甲在咖啡馆落座。", "targetShots": 8},
+                    {"num": 2, "title": "冲突", "summary": "乙当众质问甲。", "targetShots": 10},
+                    {"num": 3, "title": "相认", "summary": "甲揭开失散身份。", "targetShots": 12},
+                ],
+            }, ensure_ascii=False)
+
+        recipe = run_agent(
+            "episodes",
+            {"kind": "director_recipe", "script": {"title": "失散", "summary": "兄弟", "fullStory": self.MULTI_EPISODE_STORY}},
+            goal="失散兄弟在咖啡馆重逢",
+            chat_fn=chat,
+            on_stream=lambda event: events.append(event),
+        )
+        outlines = recipe["episodes"]
+        self.assertEqual([item["title"] for item in outlines], ["初见", "冲突", "相认"])
+        self.assertEqual([item["targetShots"] for item in outlines], [8, 10, 12])
+        self.assertIn("美式", outlines[0]["text"])
+        self.assertIn("失散多年", outlines[2]["text"])
+        self.assertEqual(next(item for item in recipe["agentStatus"] if item["id"] == "episodes")["status"], "completed")
+        item_titles = [
+            event["data"]["item"].get("title")
+            for event in events
+            if event.get("event") == "agent_item" and event.get("data", {}).get("agent") == "episodes"
+        ]
+        self.assertTrue(any("初见" in str(title) for title in item_titles))
+
+    def test_episodes_agent_without_llm_keeps_header_split(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        recipe = run_agent(
+            "episodes",
+            {"kind": "director_recipe", "script": {"fullStory": self.MULTI_EPISODE_STORY}},
+            goal="失散兄弟",
+            chat_fn=None,
+        )
+        self.assertEqual(len(recipe["episodes"]), 3)
+        self.assertEqual(recipe["episodes"][1]["title"], "对峙")
+        self.assertEqual(recipe["episodes"][1]["summary"], "")
+
+    def test_episodes_agent_fills_default_shots_per_episode(self) -> None:
+        from backend.app.director_agents import run_agent
+        from backend.app.llm_minimax_skills import SHOTS_PER_EPISODE_QUESTION_ID, SHOTS_PER_EPISODE_QUESTION_TEXT
+
+        clarifications = [{
+            "id": SHOTS_PER_EPISODE_QUESTION_ID,
+            "question": SHOTS_PER_EPISODE_QUESTION_TEXT,
+            "answer": "6",
+        }]
+
+        def chat(messages: list[dict]) -> str:
+            self.assertIn("每集默认 6 个镜头", messages[0]["content"])
+            return json.dumps({
+                "episodes": [
+                    {"num": 1, "title": "初见", "summary": "落座"},
+                    {"num": 2, "title": "冲突", "summary": "质问"},
+                    {"num": 3, "title": "相认", "summary": "身份"},
+                ],
+            }, ensure_ascii=False)
+
+        recipe = run_agent(
+            "episodes",
+            {"kind": "director_recipe", "script": {"fullStory": self.MULTI_EPISODE_STORY}},
+            goal="失散兄弟",
+            chat_fn=chat,
+            clarifications=clarifications,
+        )
+        self.assertEqual([item["targetShots"] for item in recipe["episodes"]], [6, 6, 6])
+
+        without_llm = run_agent(
+            "episodes",
+            {"kind": "director_recipe", "script": {"fullStory": self.MULTI_EPISODE_STORY}},
+            goal="失散兄弟",
+            chat_fn=None,
+            clarifications=clarifications,
+        )
+        self.assertEqual([item["targetShots"] for item in without_llm["episodes"]], [6, 6, 6])
+
+    def test_episodes_clarifications_allow_restructure(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        def chat(messages: list[dict]) -> str:
+            self.assertIn("可以按用户要求合并", messages[0]["content"])
+            self.assertIn("把后两集合并", messages[1]["content"])
+            return json.dumps({
+                "episodes": [
+                    {"num": 1, "title": "伏笔", "summary": "咖啡馆开场。", "targetShots": 8, "text": "甲走进咖啡馆，坐下点了一杯美式。"},
+                    {"num": 2, "title": "终局", "summary": "对峙后相认。", "targetShots": 18, "text": "乙摔碎杯子，质问甲为什么出现。\n甲揭开身份：他是乙失散多年的哥哥。"},
+                ],
+            }, ensure_ascii=False)
+
+        recipe = run_agent(
+            "episodes",
+            {"kind": "director_recipe", "script": {"fullStory": self.MULTI_EPISODE_STORY}},
+            goal="失散兄弟",
+            chat_fn=chat,
+            clarifications=[{
+                "agent": "episodes",
+                "question": "分集节奏",
+                "answer": "把后两集合并成一集高潮",
+            }],
+        )
+        self.assertEqual(len(recipe["episodes"]), 2)
+        self.assertEqual([item["title"] for item in recipe["episodes"]], ["伏笔", "终局"])
+        self.assertIn("摔碎杯子", recipe["episodes"][1]["text"])
+        self.assertIn("失散多年", recipe["episodes"][1]["text"])
+
+    def test_storyboard_consumes_recipe_episodes_without_resplit(self) -> None:
+        from backend.app.director_agents import run_agent
+
+        split_prompts: list[str] = []
+
+        def chat(messages: list[dict]) -> str:
+            system = messages[0]["content"]
+            user = messages[1]["content"]
+            if "一次性输出本片段的全部镜头" in user:
+                split_prompts.append(user)
+            if "You are the Shot Timing Editor" in system or "You are the continuity editor" in system:
+                return json.dumps({"scenes": []}, ensure_ascii=False)
+            if "causal continuity repair" in system:
+                return json.dumps({"repairs": []}, ensure_ascii=False)
+            episode = 1 if "美式" in user else 2
+            return json.dumps({
+                "scenes": [{
+                    "title": "咖啡馆",
+                    "shots": [{
+                        "title": f"第{episode}集镜头",
+                        "description": "对峙。",
+                        "promptText": "Two brothers face each other in a cafe.",
+                        "dialogue": "你为什么来？",
+                        "characterNames": ["甲"],
+                        "locationName": "咖啡馆",
+                        "durationSec": 5,
+                    }],
+                }],
+            }, ensure_ascii=False)
+
+        recipe = {
+            "kind": "director_recipe",
+            "script": {"title": "失散", "summary": "兄弟", "fullStory": self.MULTI_EPISODE_STORY},
+            "episodes": [
+                {"num": 1, "title": "伏笔", "summary": "开场落座", "targetShots": 6, "text": "甲走进咖啡馆，坐下点了一杯美式。"},
+                {"num": 2, "title": "终局", "summary": "合并高潮", "targetShots": 16, "text": "乙摔碎杯子，质问甲为什么出现。\n甲揭开身份：他是乙失散多年的哥哥。"},
+            ],
+        }
+        result = run_agent("storyboard", recipe, goal="失散兄弟", chat_fn=chat)
+        # Header split would walk 3集; locked outline has 2. Ignore polish/repair calls.
+        self.assertEqual(len(split_prompts), 2)
+        self.assertTrue(all("已确认的分集结构" in prompt for prompt in split_prompts))
+        self.assertTrue(any("终局" in prompt for prompt in split_prompts))
+        self.assertFalse(any("第 3 集" in prompt for prompt in split_prompts))
+        shots = [shot for scene in result["scenes"] for shot in scene["shots"]]
+        self.assertEqual([shot.get("episodeNumber") for shot in shots], [1, 2])
+        self.assertEqual(shots[1].get("episodeTitle"), "终局")
+
+    def test_pipeline_continues_to_episodes_when_locations_fail(self) -> None:
+        from backend.app.director_agents import run_recipe_pipeline
+
+        def chat(messages: list[dict]) -> str:
+            system = messages[0]["content"]
+            if "AGENT_ID: locations" in system:
+                raise ValueError("场景解析失败")
+            if "AGENT_ID: episodes" in system:
+                return json.dumps({
+                    "episodes": [{"num": 1, "title": "单集", "summary": "咖啡馆。", "targetShots": 8}],
+                }, ensure_ascii=False)
+            if "You are the Shot Timing Editor" in system or "You are the continuity editor" in system:
+                return json.dumps({"scenes": []}, ensure_ascii=False)
+            return json.dumps({
+                "shots": [{"title": "进门", "description": "推开门", "promptText": "He opens the door."}],
+            }, ensure_ascii=False)
+
+        recipe = run_recipe_pipeline(
+            {"kind": "director_recipe", "script": {"title": "测试", "summary": "", "fullStory": "甲走进咖啡馆。"}},
+            goal="都市短剧",
+            chat_fn=chat,
+            skip_research=True,
+            agents=["locations", "episodes", "storyboard"],
+        )
+        statuses = {item["id"]: item["status"] for item in recipe["agentStatus"]}
+        self.assertEqual(statuses["locations"], "failed")
+        self.assertEqual(statuses["episodes"], "completed")
+        self.assertEqual(statuses["storyboard"], "completed")
+        self.assertEqual(recipe["episodes"][0]["title"], "单集")
+
+
 class ResetRecipeFollowingTests(unittest.TestCase):
     """重新生成单环节后的级联重置：产物清空映射与 plan_pipeline + reset_following 集成。"""
 
@@ -3594,6 +3894,10 @@ class ResetRecipeFollowingTests(unittest.TestCase):
         }]
         recipe["props"] = [{"id": "prop-1", "name": "工牌", "description": "员工卡"}]
         recipe["locations"] = [{"id": "loc-1", "name": "办公室", "description": "开放工位"}]
+        recipe["episodes"] = [{
+            "num": 1, "title": "入职", "summary": "李明第一天上班。", "targetShots": 8,
+            "text": "李明走进公司。他坐下写代码。",
+        }]
         recipe["scenes"] = [{"id": "scene-1", "title": "开场", "shots": [{
             "id": "shot-1", "title": "进门", "description": "推开门", "promptText": "He opens the door.",
             "durationSec": 5, "speakerName": "李明", "voiceId": "male_young_01",
@@ -3602,7 +3906,7 @@ class ResetRecipeFollowingTests(unittest.TestCase):
         recipe["globalMusic"] = "轻快电子乐"
         recipe["globalSoundscape"] = "办公室键盘声"
         statuses = {item["id"]: dict(item) for item in recipe["agentStatus"]}
-        for agent_id in ("research", "script", "art_style", "characters", "locations", "storyboard", "voice", "music", "media"):
+        for agent_id in ("research", "script", "art_style", "characters", "locations", "episodes", "storyboard", "voice", "music", "media"):
             statuses[agent_id]["status"] = "completed"
         recipe["agentStatus"] = list(statuses.values())
         return recipe
@@ -3621,13 +3925,14 @@ class ResetRecipeFollowingTests(unittest.TestCase):
         self.assertEqual(recipe["characters"], [])
         self.assertEqual(recipe["props"], [])
         self.assertEqual(recipe["locations"], [])
+        self.assertEqual(recipe["episodes"], [])
         self.assertEqual(recipe["scenes"], [])
         self.assertNotIn("continuityQa", recipe)
         self.assertEqual(recipe["globalMusic"], "")
         self.assertEqual(recipe["globalSoundscape"], "")
         statuses = self._status_map(recipe)
         self.assertEqual(statuses["script"], "completed")
-        for agent_id in ("art_style", "characters", "locations", "storyboard", "voice", "music", "media"):
+        for agent_id in ("art_style", "characters", "locations", "episodes", "storyboard", "voice", "music", "media"):
             self.assertEqual(statuses[agent_id], "pending", agent_id)
 
     def test_reset_from_storyboard_keeps_upstream_clears_voice_music(self) -> None:
@@ -3637,6 +3942,7 @@ class ResetRecipeFollowingTests(unittest.TestCase):
         self.assertIsNotNone(recipe["artStyle"])
         self.assertEqual(len(recipe["characters"]), 1)
         self.assertEqual(recipe["locations"][0]["name"], "办公室")
+        self.assertEqual(len(recipe["episodes"]), 1)
         self.assertEqual(len(recipe["scenes"]), 1)
         self.assertEqual(recipe["characters"][0]["voiceId"], None)
         self.assertEqual(recipe["globalMusic"], "")
@@ -3644,8 +3950,31 @@ class ResetRecipeFollowingTests(unittest.TestCase):
         self.assertEqual(statuses["storyboard"], "completed")
         for agent_id in ("voice", "music", "media"):
             self.assertEqual(statuses[agent_id], "pending", agent_id)
-        for agent_id in ("research", "script", "art_style", "characters", "locations"):
+        for agent_id in ("research", "script", "art_style", "characters", "locations", "episodes"):
             self.assertEqual(statuses[agent_id], "completed", agent_id)
+
+    def test_reset_from_locations_clears_episodes_and_storyboard(self) -> None:
+        from backend.app.director_recipe import reset_recipe_following
+
+        recipe = reset_recipe_following(self._full_recipe(), "locations")
+        self.assertEqual(len(recipe["locations"]), 1)
+        self.assertEqual(recipe["episodes"], [])
+        self.assertEqual(recipe["scenes"], [])
+        statuses = self._status_map(recipe)
+        self.assertEqual(statuses["locations"], "completed")
+        self.assertEqual(statuses["episodes"], "pending")
+        self.assertEqual(statuses["storyboard"], "pending")
+
+    def test_reset_from_episodes_keeps_outline_clears_storyboard(self) -> None:
+        from backend.app.director_recipe import reset_recipe_following
+
+        recipe = reset_recipe_following(self._full_recipe(), "episodes")
+        self.assertEqual(recipe["episodes"][0]["title"], "入职")
+        self.assertEqual(recipe["scenes"], [])
+        statuses = self._status_map(recipe)
+        self.assertEqual(statuses["episodes"], "completed")
+        self.assertEqual(statuses["storyboard"], "pending")
+        self.assertEqual(statuses["locations"], "completed")
 
     def test_reset_from_music_only_resets_media_status(self) -> None:
         from backend.app.director_recipe import reset_recipe_following

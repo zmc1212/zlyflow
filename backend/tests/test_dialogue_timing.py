@@ -146,6 +146,25 @@ class StoryboardDialogueAssignmentTests(unittest.TestCase):
         self.assertEqual(entries[0]["delivery"], "自言自语")
         self.assertEqual(entries[0]["speaker"], "李元婴")
 
+    def test_extract_script_dialogue_entries_from_markdown_shot_lines(self) -> None:
+        text = """# 第1集：穿越
+### 镜头1｜图书馆
+- 人物：沈砚
+- 动作：整理古籍
+- 台词：“这篇古文，到底是谁写的……”
+### 镜头2｜破屋
+- 台词：母亲：砚儿，你终于醒了。
+### 镜头3｜门岗
+台词：保安A：站住！
+"""
+        entries = extract_script_dialogue_entries(text)
+        self.assertEqual(len(entries), 3)
+        self.assertEqual(entries[0]["dialogue"], "这篇古文，到底是谁写的……")
+        self.assertEqual(entries[1]["speaker"], "母亲")
+        self.assertIn("你终于醒了", entries[1]["dialogue"])
+        self.assertEqual(entries[2]["speaker"], "保安A")
+        self.assertEqual(entries[2]["dialogue"], "站住！")
+
     def test_enforce_shot_dialogue_timing_restores_truncated_prompt(self) -> None:
         full_line = "报警了，损失太大了，得赶紧处理。"
         shot = {

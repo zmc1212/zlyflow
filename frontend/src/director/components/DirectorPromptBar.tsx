@@ -11,6 +11,7 @@ type Props = {
   statusText?: string
   submitLabel?: string
   placeholder?: string
+  hint?: string
   onChange: (value: string) => void
   onSubmit: () => void
   onCancel?: () => void
@@ -22,7 +23,7 @@ type Props = {
  * (beautifului Prompt Bar pattern): the input lives where the answer shows up.
  */
 export default function DirectorPromptBar({
-  value, phase, statusText, submitLabel, placeholder, onChange, onSubmit, onCancel, cancelRequested = false,
+  value, phase, statusText, submitLabel, placeholder, hint, onChange, onSubmit, onCancel, cancelRequested = false,
 }: Props) {
   const composingRef = useRef(false)
   const streaming = phase === "streaming"
@@ -75,7 +76,7 @@ export default function DirectorPromptBar({
             </button>
           </div>
           <p className="director-prompt-hint">
-            {clarify ? "回答上方的问题后才会开始生成。" : SCRIPT_PROM_BAR_HINT}
+            {hint || (clarify ? "回答上方的问题后才会开始生成。" : SCRIPT_PROM_BAR_HINT)}
           </p>
         </>
       )}

@@ -72,6 +72,51 @@ export type Director2Job = {
   updated_at: string
 }
 
+export type Director2CreationMode = "agent" | "manual"
+export type Director2AiStage = "clarify" | "script" | "assets" | "episodes" | "storyboard"
+export type Director2AiStatus = "idle" | "clarifying" | "queued" | "running" | "awaiting_review" | "revising" | "succeeded" | "failed" | "cancelled"
+export type Director2ClarificationQuestion = {
+  id?: string
+  question: string
+  why?: string
+  options?: Array<{ label: string; value: string; recommended?: boolean }>
+  allowCustom?: boolean
+}
+export type Director2StageClarification = {
+  id?: string
+  question?: string
+  answer?: string
+  value?: string
+  label?: string
+  agent?: string
+  [key: string]: unknown
+}
+export type Director2AiOperation = {
+  id: string
+  project_id: string
+  kind: "clarify" | "pipeline"
+  status: Director2AiStatus
+  progress: number
+  current_stage: Director2AiStage | null
+  /** 当前暂停等待确认的阶段；仅 `awaiting_review` / `revising` 时有值。 */
+  awaiting_stage?: Director2AiStage | null
+  request: Record<string, unknown>
+  /** 各阶段「不满意」后再答的选项；旧任务可能缺失或为空对象。 */
+  stage_clarifications?: Partial<Record<string, Director2StageClarification[]>>
+  result: {
+    questions?: Director2ClarificationQuestion[]
+    completed_stages?: Director2AiStage[]
+    failed_stage?: Director2AiStage
+    message?: string
+    /** 终态任务保留的 Recipe 快照，用于刷新后查看并继续编辑已生成内容。 */
+    recipe?: Record<string, any>
+  }
+  error?: string | null
+  cancel_requested: boolean
+  created_at: string
+  updated_at: string
+}
+
 function detailOf(error: unknown, fallback: string): string {
   if (error instanceof ApiRequestError) {
     const detail = (error.body as any)?.detail
@@ -294,10 +339,17 @@ export function generateBeatImagesBatch(csrfToken: string, projectId: string, ep
   )
 }
 
-export function generateEpisodeVideo(csrfToken: string, projectId: string, epId: string): Promise<{ job_id: string; status: string }> {
+export function generateEpisodeVideo(csrfToken: string, projectId: string, epId: string, data: Record<string, unknown> = {}): Promise<{ job_id: string; status: string }> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/generate-video`,
-    jsonMutation(csrfToken),
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
+export function generateBeatVideo(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<{ job_id: string; status: string; render_scope?: string }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/generate-video`,
+    jsonMutation(csrfToken, data, "POST"),
   )
 }
 
@@ -318,4 +370,71 @@ export function retryJob(csrfToken: string, projectId: string, jobId: string): P
     `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/retry`,
     jsonMutation(csrfToken),
   )
+}
+
+export function createAiOperation(csrfToken: string, projectId: string, data: Record<string, unknown>): Promise<Director2AiOperation> {
+  return requestJson<Director2AiOperation>(
+    `/api/projects/${encodeURIComponent(projectId)}/ai/operations`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
+export function getAiOperation(projectId: string, operationId: string): Promise<Director2AiOperation> {
+  return requestJson<Director2AiOperation>(
+    `/api/projects/${encodeURIComponent(projectId)}/ai/operations/${encodeURIComponent(operationId)}`,
+  )
+}
+
+export function getActiveAiOperation(projectId: string): Promise<Director2AiOperation | null> {
+  return requestJson<Director2AiOperation | null>(
+    `/api/projects/${encodeURIComponent(projectId)}/ai/operations/active`,
+  )
+}
+
+export function cancelAiOperation(csrfToken: string, projectId: string, operationId: string): Promise<Director2AiOperation> {
+  return requestJson<Director2AiOperation>(
+    `/api/projects/${encodeURIComponent(projectId)}/ai/operations/${encodeURIComponent(operationId)}/cancel`,
+    jsonMutation(csrfToken, undefined, "POST"),
+  )
+}
+
+export function retryAiOperation(csrfToken: string, projectId: string, operationId: string): Promise<Director2AiOperation> {
+  return requestJson<Director2AiOperation>(
+    `/api/projects/${encodeURIComponent(projectId)}/ai/operations/${encodeURIComponent(operationId)}/retry`,
+    jsonMutation(csrfToken, undefined, "POST"),
+  )
+}
+
+export function advanceAiOperation(csrfToken: string, projectId: string, operationId: string): Promise<Director2AiOperation> {
+  return requestJson<Director2AiOperation>(
+    `/api/projects/${encodeURIComponent(projectId)}/ai/operations/${encodeURIComponent(operationId)}/advance`,
+    jsonMutation(csrfToken, undefined, "POST"),
+  )
+}
+
+export function reviseAiOperation(csrfToken: string, projectId: string, operationId: string, feedback: string): Promise<Director2AiOperation> {
+  return requestJson<Director2AiOperation>(
+    `/api/projects/${encodeURIComponent(projectId)}/ai/operations/${encodeURIComponent(operationId)}/revise`,
+    jsonMutation(csrfToken, { feedback }, "POST"),
+  )
+}
+
+export function rerunAiStage(
+  csrfToken: string,
+  projectId: string,
+  operationId: string,
+  clarifications: Array<{ id?: string; question: string; answer: string; label?: string }>,
+): Promise<Director2AiOperation> {
+  return requestJson<Director2AiOperation>(
+    `/api/projects/${encodeURIComponent(projectId)}/ai/operations/${encodeURIComponent(operationId)}/rerun`,
+    jsonMutation(csrfToken, { clarifications }, "POST"),
+  )
+}
+
+export function aiOperationEventsUrl(projectId: string, operationId: string): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/ai/operations/${encodeURIComponent(operationId)}/events`
+}
+
+export function listVideoWorkflowModes(): Promise<{ modes: import("./director2-video-settings").Director2WorkflowMode[] }> {
+  return requestJson("/api/modes")
 }
