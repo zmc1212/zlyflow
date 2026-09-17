@@ -2,6 +2,69 @@
 
 更新时间：2026-09-17
 
+## 2026-09-17 工坊 Ref2VA 拆开工坊模板再渲染时间轴
+
+- 变更原因：按句顺序装箱会把人物小传写进 Subject、把构图说明当运镜、把 PERFORMANCE 英文复述整段堆在开口后面，内心也会出现两句 thinks。
+- 当前基线：`<Subject n>` 只锚参考图，不抄角色小传。COMPOSITION 按 then 切开，一句运镜接一句锁定台词；LOCATION/LIGHTING/CAST LOCK 作锁定层；PERFORMANCE 里的英文台词复述、花字旁注和 Lip-sync 粘贴丢掉。音效从 SYNCHRONIZED SOUND 写入 overall_soundscape。
+- 受影响文件：`h3_prompt_builder.py`、`media_studio_test_h3_video.py`、三份主文档。
+- 兼容性：不改表结构或 API；重新点「生成 H3 提示词」覆盖旧六段。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 工坊 Ref2VA 由程序渲染 [Shot 1]
+
+- 变更原因：让模型写六段正文再靠规则修补，会出现自造场景标签、重复 thinks、开口后再推镜；继续加正则只会换皮复发。
+- 当前基线：工坊「生成 H3 提示词」和出片回退的 Ref2VA 不再调大模型写时间轴。程序按参考图写 `<Subject n>`（不抄人物小传），按剧本写入锁定 `<d>`，COMPOSITION 运镜句与台词交错，冻结放最后。LOCATION/LIGHTING/CAST LOCK 保留为锁定层，不把 PERFORMANCE 英文复述当正文。T2VA/I2VA 仍走装箱。不安装 open-h3-ir，不接官方 Context-IR。
+- 受影响文件：`h3_prompt_builder.py`、`llm_service.py`、`media_studio_test_h3_video.py`、三份主文档与 `docs/导演台流程与界面结构.md`。
+- 兼容性：不改表结构或 API；点「生成 H3 提示词」即可覆盖旧六段。厚草稿不依赖大模型。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 工坊 H3 对白按 open-h3-ir 占位渲染
+
+- 变更原因：禁止模型写 `<d>` 后再整段删 `says`、把锁定台词接到 `[Shot 1]` 末尾，会把运镜撕成 `medium-clos in a casual young female voice`，冻结也跑到开口之前。
+- 当前基线：装箱只把 `{{D1}}` token 放在对应运镜节拍，编号对照单独写、禁止抄进正文；(Sn) 必须等于 `<Subject n>`，场景只用 `<Subject n>`。`fill_speech_placeholders` 填回锁定开口/内心，清掉 `then speaks` / `spoken lip-sync —` / `speaks with` 残句、错位 hold 和 `<Location n>`。多句对白若把全部运镜堆在开口前会校验失败并重写 `[Shot 1]`。不接入 open-h3-ir 的 Comfy 节点。
+- 受影响文件：`h3_prompt_builder.py`、`media_studio_test_h3_video.py`、三份主文档、`docs/API.md` 与 `docs/导演台流程与界面结构.md`。
+- 兼容性：不改表结构或 API；重新生成即可。不安装 open-h3-ir，不新增 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 工坊 H3 对白由程序锁进 [Shot 1]
+
+- 变更原因：装箱后模型仍在英文正文里写 `<d>`，把「大爷」写成「八字」，吴耐开口留在散文里，`[Shot 1]` 合同缺句。汉字已在任意标签里就不补说话人合同。
+- 当前基线：`prepare_generated_prompt` 先删掉模型写的全部 `<d>` 和正文里的锁台词汉字，再按剧本演出顺序写入 `[Shot 1]`（开口 / 闭嘴内心交错）。Packer 禁止输出 `<d>`。校验拒绝多余标签和顺序错误。
+- 受影响文件：`h3_prompt_builder.py`、`llm_service.py`、`media_studio_test_h3_video.py`、三份主文档与 `docs/API.md`。
+- 兼容性：不改表结构；重新生成或出片复用时覆盖模型假台词。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 工坊 H3 收拢英文夹杂的复读台词
+
+- 变更原因：第一集第二镜「啊？大爷你不要房租？该不会想让我那啥吧？我是正经人，卖艺不卖身的。」生成失败。动作把一句台词拆成多段，模型装箱时夹在英文中间；校验按汉字序列判定复读，旧收拢只删连续原文，Lip-sync 英文正则又因非贪婪+可选结尾只删了前缀。
+- 当前基线：`collapse_repeated_speech` 按汉字序列从 `<d>` 以外删掉同一句；`_flexible_line_re` 允许分句之间夹非汉字。草稿清洗会删 Lip-sync 整段和 4 字以上分句。生成、落库、出片仍先 `prepare_generated_prompt` 再校验。
+- 受影响文件：`h3_prompt_builder.py`、`media_studio_test_h3_video.py`、三份主文档。
+- 兼容性：不改表结构或 API；已失败任务点「生成 H3 提示词」重试即可。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 工坊 H3 提示词按 MiniMax Design 装箱
+
+- 变更原因：工坊「生成 H3 提示词」把已有厚 `visual_prompt` 交给模型后，system 仍要求「展开 320 词」另写一场戏；校验失败再整份重写。质量在第二跳丢失，出片回退 `H3PromptBuilder.build_prompts` 也会对冲工坊结果。
+- 当前基线：Ref2VA system 改为 packer 短合同（官方 Workflow/Output Rules/Tips + Complete Example + 标签纪律）。清洗后的英文草稿放进 `SOURCE VISUAL DRAFT` 作为画面正文权威；厚草稿只装箱保住构图/光/调度/运镜/禁止项，薄草稿只补缺失的 camera/lighting/sound/时序。有参考图时 `subject_definitions` 写 appearance from `<Picture N>`，正文不再小说式重描五官。草稿或 `aspect_ratio` 已写 9:16/16:9 则原样保留。校验失败只修合同项（`Keep the same detailed_description; only fix these contract issues.`），禁止 Rewrite the complete prompt。出片回退走同一套装箱 user。词数仍是输出门槛，不再当改写压力。
+- 受影响文件：`llm_service.py`、`h3_prompt_builder.py`、`episode_video_service.py`、`EpisodeWorkshopPane.tsx`、`media_studio_test_h3_video.py`、三份主文档与 `docs/导演台流程与界面结构.md`。
+- 兼容性：不改表结构、工坊默认 16:9、导演台四步流程或 MiniMax Design 产品接入。已保存超薄 `h3_prompt` 出片时仍会装箱重写。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 工坊 Director 整集直出也可生成选中镜头
+
+- 变更原因：H3 Director 加速版（整集直出）镜头卡没有勾选，「一键生成视频」只会提交 1 个整集 Timeline；用户想先出某一镜时只能改用逐镜工作流。
+- 当前基线：「一键生成视频」在 Director 下仍是 1 个 `render_scope=episode` 任务。镜头卡始终可勾选；「生成选中」把 `beat_ids` + `force` 交给同一 `POST …/generate-video`，即使当前工作流是 Director 也按镜创建 `render_scope=shot` 的 Timeline 任务（1 镜 1 段），成片写入该 Beat `video_url`。未勾选时 Director 仍拒绝按镜切分整集。合成 Tab 在各镜都有 `video_url` 时可拼接，Director 直出的分集成片仍直接播放。
+- 受影响文件：`episode_video_service.py`、`EpisodeWorkshopPane.tsx`、`media_studio_test_h3_video.py`、三份主文档与 `docs/导演台流程与界面结构.md`。
+- 兼容性：不改表结构、端口或节点 ID；不传 `beat_ids` 的 Director 一键生成行为不变。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend test`。
+- 回滚方式：还原上述文件即可。
+
 ## 2026-09-17 工坊 H3 先补全再校验
 
 - 变更原因：模型输出常缺句号、漏 `<Picture N>`、同一句中文再抄一遍。旧链路先按原文精确匹配校验，失败则不跑 normalize；宽松正则又把标点变体计成复读，同一镜同时报 missing 和 duplicated。

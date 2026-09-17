@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
+import re
 import unittest
 from unittest.mock import Mock, patch
 
@@ -76,51 +77,31 @@ class H3PromptTests(unittest.TestCase):
         }
         return response
 
-    @patch.object(H3PromptBuilder, "_runtime_config", return_value=("http://llm", "model", "key"))
-    @patch("backend.app.media_studio.services.h3_prompt_builder.requests.post")
-    def test_builds_each_beat_independently_and_keeps_attempt_diagnostics(self, post, _config):
+    def test_builds_each_beat_independently_and_keeps_attempt_diagnostics(self):
         shots = [
             {"beat_id": "beat-1", "sequence": 1, "speaker": "沈砚", "dialogue": "第一句。"},
             {"beat_id": "beat-2", "sequence": 2, "speaker": "沈砚", "dialogue": "第二句。"},
-        ]
-        post.side_effect = [
-            self._llm_response("beat-1", "too short"),
-            self._llm_response("beat-1", rich_prompt("第一句。")),
-            self._llm_response("beat-2", rich_prompt("第二句。")),
         ]
         attempts = []
 
         prompts = H3PromptBuilder.build_prompts(shots, on_attempt=attempts.append)
 
-        self.assertEqual(3, post.call_count)
-        self.assertEqual(["failed", "passed", "passed"], [item["status"] for item in attempts])
-        self.assertEqual(["beat-1", "beat-1", "beat-2"], [item["beat_id"] for item in attempts])
+        self.assertEqual(["passed", "passed"], [item["status"] for item in attempts])
+        self.assertEqual(["beat-1", "beat-2"], [item["beat_id"] for item in attempts])
         self.assertIn("第一句。", prompts[0])
         self.assertIn("第二句。", prompts[1])
-        self.assertTrue(all(item["raw_response"] for item in attempts))
-        first_request = post.call_args_list[0].kwargs["json"]["messages"][1]["content"]
-        second_beat_request = post.call_args_list[2].kwargs["json"]["messages"][1]["content"]
-        self.assertIn('"沈砚": "S1"', first_request)
-        self.assertIn('"沈砚": "S1"', second_beat_request)
+        self.assertNotIn("第二句。", prompts[0])
+        self.assertIn("<Subject 1>", prompts[0])
+        self.assertIn("[Shot 1]", prompts[0])
 
-    @patch.object(H3PromptBuilder, "_runtime_config", return_value=("http://llm", "model", "key"))
-    @patch("backend.app.media_studio.services.h3_prompt_builder.requests.post")
-    def test_stops_before_later_beats_after_two_failures(self, post, _config):
+    def test_build_prompts_does_not_call_llm(self):
         shots = [
-            {"beat_id": "beat-1", "sequence": 1},
-            {"beat_id": "beat-2", "sequence": 2},
+            {"beat_id": "beat-1", "sequence": 1, "speaker": "沈砚", "dialogue": "第一句。"},
+            {"beat_id": "beat-2", "sequence": 2, "speaker": "沈砚", "dialogue": "第二句。"},
         ]
-        post.side_effect = [
-            self._llm_response("beat-1", "bad one"),
-            self._llm_response("beat-1", "bad two"),
-        ]
-        attempts = []
-
-        with self.assertRaisesRegex(ValueError, "Beat 1"):
-            H3PromptBuilder.build_prompts(shots, on_attempt=attempts.append)
-
-        self.assertEqual(2, post.call_count)
-        self.assertEqual(["beat-1", "beat-1"], [item["beat_id"] for item in attempts])
+        with patch("backend.app.media_studio.services.h3_prompt_builder.requests.post") as post:
+            H3PromptBuilder.build_prompts(shots)
+        post.assert_not_called()
 
     def test_normalizes_compact_sections_and_preserves_mandatory_literals(self):
         shot = {
@@ -155,8 +136,8 @@ class H3PromptTests(unittest.TestCase):
         contract = H3PromptBuilder._required_contract(shot, speaker_map)
         self.assertIn("<d>[Chinese] 该不会想让我那啥吧。</d>", contract)
         self.assertNotIn("沙丽丽：", contract)
-        self.assertIn("(S1) <Subject 2> 沙丽丽 says", contract)
-        dirty = rich_prompt("沙丽丽：“该不会想让我那啥吧。”").replace("(S1) says", "(S1) 沙丽丽 says")
+        self.assertIn("(S2) <Subject 2> 沙丽丽 says", contract)
+        dirty = rich_prompt("沙丽丽：“该不会想让我那啥吧。”").replace("(S1) says", "(S2) 沙丽丽 says")
         cleaned = H3PromptBuilder._normalize_prompt(shot, dirty, speaker_map)
         self.assertIn("<d>[Chinese] 该不会想让我那啥吧。</d>", cleaned)
         self.assertNotIn("<d>[Chinese] 沙丽丽：", cleaned)
@@ -240,14 +221,17 @@ class H3PromptTests(unittest.TestCase):
             "Ref2VA",
             "8",
         )
+        self.assertIn("SOURCE VISUAL DRAFT", text)
         self.assertIn("Photorealistic vertical 9:16 fluorescent lighting", text)
         self.assertIn("电梯低频嗡鸣、铃铛细响", text)
         self.assertIn("竖屏短剧单镜", text)
-        self.assertIn("320", text)
         self.assertIn("[Shot 1]", text)
-        self.assertIn("必须展开进画面正文", text)
+        self.assertNotIn("必须展开进画面正文", text)
         self.assertIn("8 秒时序", text)
         self.assertIn("必须在 8 秒内演完", text)
+        self.assertIn("原样保留 9:16", text)
+        self.assertIn("appearance from", text)
+        self.assertIn("Fill only missing", text)
 
         eleven = LlmService._h3_user_prompt(
             {
@@ -292,11 +276,13 @@ class H3PromptTests(unittest.TestCase):
         )
         action = (
             "竖屏短剧单镜。调度：她讨好。他嘴唇闭合扫视，内心说浓妆艳抹、昼伏夜出。"
+            f"沙丽丽：“” 吴耐（内心）：“{inner}” 吴耐：“”。"
             f"本镜对白必须口型同步：{dialogue}。收束：定格。"
         )
         visual = (
             "Photorealistic camera lighting. Lip-sync the exact Chinese line(s): "
-            f"{dialogue}. Do not translate the line onto the picture. Closed lips for inner voice."
+            f"{dialogue}. Do not translate the line onto the picture. Closed lips for inner voice. "
+            f"沙丽丽：“” 吴耐（内心）：“{inner}” 吴耐：“”."
         )
         text = LlmService._h3_user_prompt(
             {
@@ -318,10 +304,92 @@ class H3PromptTests(unittest.TestCase):
         self.assertEqual(text.count("浓妆艳抹"), 1)
         self.assertIn("旁白/内心", text)
         self.assertIn("开口对白", text)
+        self.assertIn("SOURCE VISUAL DRAFT", text)
+        source_block = text.split("旁白/内心", 1)[0]
+        self.assertNotIn(inner, source_block)
+        self.assertNotIn("：“”", text)
         self.assertNotIn("本镜对白必须口型同步", text)
         self.assertNotIn("Lip-sync the exact Chinese line(s)", text)
         self.assertNotIn("old prompt repeats", text)
         self.assertNotIn("中文视频提示拼接", text)
+
+    def test_h3_user_prompt_packs_thick_visual_draft(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        visual = (
+            "Photorealistic vertical 9:16 eight-second take, no internal cuts. "
+            "COMPOSITION AND CAMERA: medium-close two-shot, locked-off with one optional slow push-in. "
+            "LOCATION: cramped stainless-steel elevator, sickly white fluorescent. "
+            "LIGHTING: overhead fluorescent, cyan skin, no beauty rim light. "
+            "CAST LOCK: skinny 60-year-old landlord; glamorous young woman in red satin. "
+            "EIGHT-SECOND PERFORMANCE: doors shut, she shrinks into the rear-right corner, he freezes. "
+            "FORBIDDEN: no costume jump, no 16:9 letterbox, no internal cuts."
+        )
+        text = LlmService._h3_user_prompt(
+            {
+                "sequence": 1,
+                "heading": "电梯里的误会",
+                "action": "空间：不锈钢轿厢。调度：她护着手机后退。",
+                "visual_prompt": visual,
+                "audio": "电梯低频嗡鸣",
+                "dialogue": "该不会想让我那啥吧。",
+                "aspect_ratio": "9:16",
+                "ref_images": [{"index": 1, "name": "吴耐", "category": "character"}],
+            },
+            "Ref2VA",
+            "8",
+        )
+        self.assertIn("SOURCE VISUAL DRAFT", text)
+        self.assertIn("Pack and preserve", text)
+        self.assertIn("pack", text.lower())
+        self.assertIn("preserve", text.lower())
+        self.assertIn("COMPOSITION AND CAMERA", text)
+        self.assertIn("原样保留 9:16", text)
+        self.assertNotIn("rewrite-from-scratch", text.lower().replace(" ", "-"))
+        self.assertNotIn("rewrite from scratch", text.lower())
+        self.assertNotIn("必须展开进画面正文", text)
+        self.assertNotIn("Fill only missing", text)
+
+    def test_sanitize_beat_draft_strips_empty_quotes_inner_leak_and_lipsync(self):
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken_a = "大爷，我什么都可以做。"
+        spoken_b = "不用想也知道，做的是什么。"
+        dialogue = (
+            f"沙丽丽：“{spoken_a}” "
+            f"吴耐（内心）：“{inner}” "
+            f"吴耐：“{spoken_b}”"
+        )
+        original = {
+            "action": (
+                f"她讨好。沙丽丽：“” 吴耐（内心）：“{inner}” 吴耐：“”。"
+                f"本镜对白必须口型同步：{dialogue}。收束：定格。"
+            ),
+            "visual_prompt": (
+                "Photorealistic camera lighting. Lip-sync the exact Chinese line(s): "
+                f"{dialogue}. Do not translate the line onto the picture. "
+                f"沙丽丽：“” 吴耐（内心）：“{inner}” 吴耐：“”."
+            ),
+            "video_prompt_zh": f"本镜对白必须口型同步：{dialogue}。收束：定格。",
+            "dialogue": dialogue,
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "existing_prompt": f"old prompt repeats {inner} and {inner}",
+            "audio": "电梯嗡鸣",
+        }
+        draft = H3PromptBuilder.sanitize_beat_draft(original)
+        self.assertNotIn("existing_prompt", draft)
+        self.assertIn("existing_prompt", original)
+        self.assertNotIn("：“”", draft["action"])
+        self.assertNotIn("：“”", draft["visual_prompt"])
+        self.assertNotIn(inner, draft["action"])
+        self.assertNotIn(inner, draft["visual_prompt"])
+        self.assertNotIn(inner, draft["video_prompt_zh"])
+        self.assertNotIn("本镜对白必须口型同步", draft["action"])
+        self.assertNotIn("本镜对白必须口型同步", draft["video_prompt_zh"])
+        self.assertNotIn("Lip-sync the exact Chinese line(s)", draft["visual_prompt"])
+        self.assertNotIn(spoken_a.rstrip("。"), draft["visual_prompt"])
+        self.assertNotIn(spoken_b.rstrip("。"), draft["visual_prompt"])
+        self.assertIn(inner, draft["dialogue"])
+        self.assertIn("电梯嗡鸣", draft["audio"])
 
     def test_validate_rejects_duplicated_inner_line_and_lip_sync(self):
         from backend.app.media_studio.services.llm_service import LlmService
@@ -403,6 +471,7 @@ class H3PromptTests(unittest.TestCase):
             "summary:\n[reference generation + audio reference] An eight-second scene.\n"
             "retention_analysis:\nfully_preserved.\n"
             f"detailed_description:\n[Shot 1] {detail} "
+            f"(S1) 沙丽丽 says <d>[Chinese] 八字, 我什么都可以做。</d>. "
             f"(S1) 沙丽丽 says <d>{spoken_a.rstrip('。')}</d>. "
             f"He thinks {inner.rstrip('。')}. "
             f"(S2) says <d>[Chinese] {spoken_b}</d> "
@@ -435,34 +504,796 @@ class H3PromptTests(unittest.TestCase):
         self.assertEqual(prepared.count(spoken_a), 1)
         self.assertEqual(prepared.count(spoken_b), 1)
         self.assertEqual(prepared.count(inner), 1)
+        self.assertNotIn("八字", prepared)
+        tags = [
+            item.strip()
+            for item in re.findall(r"<d>\[Chinese\]\s*(.*?)</d>", prepared, flags=re.S)
+        ]
+        self.assertEqual(tags, [spoken_a, inner, spoken_b])
         self.assertIn("<Picture 1>", prepared)
         self.assertIn("<Picture 2>", prepared)
         self.assertIn("<Picture 3>", prepared)
         self.assertRegex(prepared, r"off[\s-]?screen")
 
-        with patch.object(LlmService, "_request_h3_prompt", return_value=flawed):
+        with patch.object(LlmService, "_request_h3_prompt", return_value=flawed) as request:
             generated = LlmService.generate_h3_prompt(beat_info)
+        request.assert_not_called()
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+        self.assertIn(spoken_a, generated)
+        self.assertNotIn("八字", generated)
+
+        omitted = (
+            "subject_definitions:\nTwo people stand in an elevator without reference tags.\n"
+            "summary:\n[reference generation + audio reference] An eight-second scene.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            f"detailed_description:\n[Shot 1] {detail} Someone looks around. "
+            "The shot holds long enough for complete unhurried dialogue and a natural pause.\n"
+            "overall_soundscape:\nQuiet room sound and synchronized movement.\n"
+            "non_diegetic_music:\nRestrained piano at a slow tempo with a soft ending."
+        )
+        self.assertTrue(
+            any("verbatim" in item for item in LlmService._validate_h3_prompt(omitted, "Ref2VA", beat_info))
+        )
+        recovered = H3PromptBuilder.prepare_generated_prompt(
+            omitted,
+            H3PromptBuilder.shot_from_beat_info(beat_info),
+        )
+        self.assertEqual([], LlmService._validate_h3_prompt(recovered, "Ref2VA", beat_info))
+        self.assertIn(spoken_a, recovered)
+        self.assertIn(spoken_b, recovered)
+        self.assertIn(inner, recovered)
+
+    def test_prepare_fills_dialogue_tokens_in_place_before_freeze(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "大爷，我什么都可以做。那个，那个房租下个月一定给你。"
+        spoken_b = "不用想也知道，做的是什么。"
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        beat_info = {
+            "sequence": 1,
+            "dialogue": (
+                f"沙丽丽：“{spoken_a}” "
+                f"吴耐（内心）：“{inner}” "
+                f"吴耐：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "scene_name": "电梯",
+            "ref_images": [
+                {"index": 1, "name": "吴耐", "category": "character"},
+                {"index": 2, "name": "沙丽丽", "category": "character"},
+                {"index": 3, "name": "电梯", "category": "scene"},
+            ],
+        }
+        detail = " ".join(
+            [
+                "The camera holds a stable medium composition while natural lighting defines the room, "
+                "the subject performs a precise visible action, and synchronized sound follows every contact."
+            ]
+            * 24
+        )
+        packed = (
+            "subject_definitions:\n"
+            "<Subject 1> is Wu Nai in <Picture 1>. "
+            "<Subject 2> is Sha Lili in <Picture 2>. "
+            "<Subject 3> is the elevator in <Picture 3>.\n"
+            "summary:\n[reference generation + audio reference] An elevator beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] {detail} A medium-close shot tilts up to Sha Lili's face. "
+            "{{D1}} The camera then pushes to Wu Nai's medium-close, where his lips remain closed "
+            "as he looks down her outfit. {{D2}} The camera pushes back to his face. "
+            "{{D3}} After the last syllable, the shot freezes on Wu Nai's expression for about one second.\n"
+            "overall_soundscape:\nElevator hum and synchronized movement.\n"
+            "non_diegetic_music:\nN/A"
+        )
+        prepared = H3PromptBuilder.prepare_generated_prompt(
+            packed,
+            H3PromptBuilder.shot_from_beat_info(beat_info),
+        )
+        self.assertEqual([], LlmService._validate_h3_prompt(prepared, "Ref2VA", beat_info))
+        self.assertNotIn("{{D1}}", prepared)
+        self.assertNotIn("{{D2}}", prepared)
+        self.assertNotIn("{{D3}}", prepared)
+        self.assertLess(prepared.find("tilts up"), prepared.find(spoken_a))
+        self.assertLess(prepared.find(spoken_a), prepared.find(inner))
+        self.assertLess(prepared.find(inner), prepared.find(spoken_b))
+        self.assertLess(prepared.find(spoken_b), prepared.lower().find("freezes"))
+        self.assertIn("medium-close", prepared)
+        self.assertNotIn("medium-clos in a casual", prepared)
+
+        leftover = packed.replace("{{D1}}", f"Sha Lili says <d>[Chinese] {spoken_a}</d> in a casual young female voice with a forced pleasant tone,")
+        leftover = leftover.replace("{{D2}}", "")
+        leftover = leftover.replace(
+            "{{D3}}",
+            f"Wu Nai says <d>[Chinese] {spoken_b}</d> in a cold, low-pitched male voice with a stern cadence,",
+        )
+        repaired = H3PromptBuilder.prepare_generated_prompt(
+            leftover,
+            H3PromptBuilder.shot_from_beat_info(beat_info),
+        )
+        self.assertEqual([], LlmService._validate_h3_prompt(repaired, "Ref2VA", beat_info))
+        self.assertNotIn("in a casual young female voice", repaired)
+        self.assertNotIn("in a cold, low-pitched male voice", repaired)
+        self.assertIn("medium-close", repaired)
+        self.assertLess(repaired.find(spoken_b), repaired.lower().find("freezes"))
+
+    def test_prepare_repairs_speaker_ids_glue_holds_and_location_for_any_two_hander(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "这是第一句对白。"
+        inner = "这是听者的内心独白。"
+        spoken_b = "这是第二句对白。"
+        beat_info = {
+            "sequence": 8,
+            "dialogue": (
+                f"角色乙：“{spoken_a}” "
+                f"角色甲（内心）：“{inner}” "
+                f"角色甲：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [{"name": "角色甲"}, {"name": "角色乙"}],
+            "scene_name": "走廊",
+            "ref_images": [
+                {"index": 1, "name": "角色甲", "category": "character"},
+                {"index": 2, "name": "角色乙", "category": "character"},
+                {"index": 3, "name": "走廊", "category": "scene"},
+            ],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        speaker_map = H3PromptBuilder._speaker_map([shot])
+        self.assertEqual(speaker_map["角色甲"], "S1")
+        self.assertEqual(speaker_map["角色乙"], "S2")
+        detail = " ".join(
+            [
+                "The camera holds a stable medium composition while natural lighting defines the room, "
+                "the subject performs a precise visible action, and synchronized sound follows every contact."
+            ]
+            * 24
+        )
+        packed = (
+            "subject_definitions:\n"
+            "<Subject 1> is character A in <Picture 1>. "
+            "<Subject 2> is character B in <Picture 2>. "
+            "<Location 1> is the corridor in <Picture 3>.\n"
+            "summary:\n[reference generation] A two-person beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] {detail} The camera tilts up to <Subject 2> (S2). "
+            "<Subject 2> (S2) first speaks with {{D1}}. "
+            "The camera then pushes to <Subject 1> (S1) and tilts down the outfit. "
+            "She then forces a smile before continuing with {{D2}}. "
+            "The camera holds on his face. Following this, "
+            "{{D3}} spoken by character A (S1). After the last line, the camera holds on "
+            "his expression for one second before freezing. All dialogue is lip-synced, and no music "
+            "is audible during speech.\n"
+            "overall_soundscape:\nCorridor hum and synchronized movement.\n"
+            "non_diegetic_music:\nN/A"
+        )
+        prepared = H3PromptBuilder.prepare_generated_prompt(packed, shot)
+        self.assertEqual([], LlmService._validate_h3_prompt(prepared, "Ref2VA", beat_info))
+        self.assertIn("(S2) <Subject 2> 角色乙 says", prepared)
+        self.assertIn("(S1) <Subject 1> 角色甲 says", prepared)
+        self.assertNotIn("(S1) <Subject 2>", prepared)
+        self.assertNotIn("speaks with", prepared.lower())
+        self.assertNotIn("continuing with", prepared.lower())
+        self.assertNotIn("spoken by", prepared.lower())
+        self.assertNotIn("<Location 1>", prepared)
+        self.assertIn("<Subject 3>", prepared)
+        self.assertEqual(
+            prepared.lower().count("the shot holds long enough for the complete unhurried speech"),
+            2,
+        )
+        self.assertIn("Spoken lines are lip-synced; inner voice stays off-screen", prepared)
+        self.assertLess(prepared.find(spoken_a), prepared.find(inner))
+        self.assertLess(prepared.find(inner), prepared.find(spoken_b))
+        self.assertLess(prepared.find(spoken_b), prepared.lower().find("freezing"))
+        self.assertLess(prepared.find("tilts up"), prepared.find(spoken_a))
+        self.assertLess(prepared.find(spoken_a), prepared.find("pushes to"))
+        self.assertLess(prepared.find("pushes to"), prepared.find(inner))
+
+    def test_prepare_strips_copied_slot_legends_and_wrong_speaker_cues(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "这是第一句对白。"
+        inner = "这是听者的内心独白。"
+        spoken_b = "这是第二句对白。"
+        beat_info = {
+            "sequence": 9,
+            "dialogue": (
+                f"角色乙：“{spoken_a}” "
+                f"角色甲（内心）：“{inner}” "
+                f"角色甲：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [{"name": "角色甲"}, {"name": "角色乙"}],
+            "scene_name": "走廊",
+            "ref_images": [
+                {"index": 1, "name": "角色甲", "category": "character"},
+                {"index": 2, "name": "角色乙", "category": "character"},
+                {"index": 3, "name": "走廊", "category": "scene"},
+            ],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        detail = " ".join(
+            [
+                "The camera holds a stable medium composition while natural lighting defines the room, "
+                "the subject performs a precise visible action, and synchronized sound follows every contact."
+            ]
+            * 24
+        )
+        packed = (
+            "subject_definitions:\n"
+            "<Subject 1> is character A in <Picture 1>. "
+            "<Subject 2> is character B in <Picture 2>. "
+            "<Subject 3> is the corridor in <Picture 3>.\n"
+            "summary:\n[reference generation] A two-person beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] {detail} Character A (S1) then speaks, his voice cold and knowing. "
+            "{{D1}} spoken lip-sync — Character B (S2) <Subject 2> After Character A's line, "
+            "the camera holds on his expression for one second. "
+            "In an off-screen inner voiceover, all visible characters keep their lips closed: "
+            "{{D2}}.. inner off-screen, lips closed; listener thought, not the previous speaker "
+            "continuing — Character A (S1) <Subject 1> "
+            "{{D3}}\n"
+            "overall_soundscape:\nCorridor hum and synchronized movement.\n"
+            "non_diegetic_music:\nN/A"
+        )
+        prepared = H3PromptBuilder.prepare_generated_prompt(packed, shot)
+        self.assertEqual([], LlmService._validate_h3_prompt(prepared, "Ref2VA", beat_info))
+        self.assertIn("(S2) <Subject 2> 角色乙 says", prepared)
+        self.assertIn("(S1) <Subject 1> 角色甲 says", prepared)
+        self.assertIn("(S1) <Subject 1> 角色甲 thinks", prepared)
+        self.assertNotIn("then speaks", prepared.lower())
+        self.assertNotIn("spoken lip-sync", prepared.lower())
+        self.assertNotIn("listener thought, not the previous speaker continuing", prepared.lower())
+        self.assertNotIn("After Character A's line", prepared)
+        self.assertNotIn("</d>..", prepared)
+        self.assertLess(prepared.find(spoken_a), prepared.find(inner))
+        self.assertLess(prepared.find(inner), prepared.find(spoken_b))
+
+    def test_prepare_repairs_tone_glue_truncated_names_and_clustered_inner(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "这是第一句对白。"
+        inner = "这是听者的内心独白。"
+        spoken_b = "这是第二句对白。"
+        beat_info = {
+            "sequence": 12,
+            "dialogue": (
+                f"角色乙：“{spoken_a}” "
+                f"角色甲（内心）：“{inner}” "
+                f"角色甲：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [{"name": "角色甲"}, {"name": "角色乙"}],
+            "scene_name": "走廊",
+            "ref_images": [
+                {"index": 1, "name": "角色甲", "category": "character"},
+                {"index": 2, "name": "角色乙", "category": "character"},
+                {"index": 3, "name": "走廊", "category": "scene"},
+            ],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        detail = " ".join(
+            [
+                "The camera holds a stable medium composition while natural lighting defines the room, "
+                "the subject performs a precise visible action, and synchronized sound follows every contact."
+            ]
+            * 24
+        )
+        packed = (
+            "subject_definitions:\n"
+            "<Subject 1> is the listener Alan West in <Picture 1>. "
+            "<Subject 2> is the speaker Bella Chen in <Picture 2>. "
+            "<Subject 3> is the corridor in <Picture 3>.\n"
+            "summary:\n[reference generation] A two-person beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] {detail} A medium-close shot starts at the waist, slowly tilting up to the face. "
+            "She speaks first with a casual tone, {{D1}} "
+            "She pauses slightly before continuing, The camera then slowly pushes to Alan West. "
+            "He keeps his mouth closed as his eyes travel downward. "
+            "The camera follows his gaze downward along the outfit. "
+            "After a brief moment, the camera pushes back to focus on Alan Wes{{D2}}{{D3}}\n"
+            "overall_soundscape:\nCorridor hum and synchronized movement.\n"
+            "non_diegetic_music:\nN/A"
+        )
+        prepared = H3PromptBuilder.prepare_generated_prompt(packed, shot)
+        self.assertEqual([], LlmService._validate_h3_prompt(prepared, "Ref2VA", beat_info))
+        self.assertNotIn("speaks first with a casual tone", prepared.lower())
+        self.assertNotIn("before continuing", prepared.lower())
+        self.assertNotIn("Alan Wes(S1)", prepared)
+        self.assertIn("Alan West. (S1)", prepared)
+        self.assertIn("holds on the closed mouth", prepared.lower())
+        self.assertLess(prepared.find(spoken_a), prepared.find("pushes to Alan West"))
+        self.assertLess(prepared.find("follows his gaze"), prepared.find(inner))
+        self.assertLess(prepared.find(inner), prepared.find("closed mouth"))
+        self.assertLess(prepared.find("closed mouth"), prepared.find(spoken_b))
+
+    def test_speech_contract_rejects_camera_dump_before_all_speech(self):
+        spoken_a = "这是第一句对白。"
+        inner = "这是听者的内心独白。"
+        spoken_b = "这是第二句对白。"
+        beat_info = {
+            "sequence": 10,
+            "dialogue": (
+                f"角色乙：“{spoken_a}” "
+                f"角色甲（内心）：“{inner}” "
+                f"角色甲：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [{"name": "角色甲"}, {"name": "角色乙"}],
+            "scene_name": "走廊",
+            "ref_images": [
+                {"index": 1, "name": "角色甲", "category": "character"},
+                {"index": 2, "name": "角色乙", "category": "character"},
+                {"index": 3, "name": "走廊", "category": "scene"},
+            ],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        speaker_map = H3PromptBuilder._speaker_map([shot])
+        detail = " ".join(
+            [
+                "The camera holds a stable medium composition while natural lighting defines the room, "
+                "the subject performs a precise visible action, and synchronized sound follows every contact."
+            ]
+            * 24
+        )
+        dumped = (
+            "subject_definitions:\n"
+            "<Subject 1> is character A in <Picture 1>. "
+            "<Subject 2> is character B in <Picture 2>. "
+            "<Subject 3> is the corridor in <Picture 3>.\n"
+            "summary:\n[reference generation] A two-person beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] {detail} The camera slowly tilts up to the face and pushes in slightly, "
+            "then follows his gaze down the outfit. "
+            f"(S2) <Subject 2> 角色乙 says <d>[Chinese] {spoken_a}</d>. "
+            "The shot holds long enough for the complete unhurried speech and a natural pause. "
+            f"(S1) <Subject 1> 角色甲 thinks. In an off-screen inner voiceover, "
+            f"all visible characters keep their lips closed: <d>[Chinese] {inner}</d>. "
+            f"(S1) <Subject 1> 角色甲 says <d>[Chinese] {spoken_b}</d>. "
+            "The shot holds long enough for the complete unhurried speech and a natural pause.\n"
+            "overall_soundscape:\nCorridor hum and synchronized movement.\n"
+            "non_diegetic_music:\nN/A"
+        )
+        errors = H3PromptBuilder.speech_contract_errors(dumped, shot)
+        self.assertTrue(any("interleave" in item for item in errors))
+        retry = H3PromptBuilder.packing_retry_block(errors, dumped)
+        self.assertIn("Rewrite only [Shot 1] blocking", retry)
+        self.assertIn("(S2) <Subject 2> 角色乙 says", H3PromptBuilder._required_contract(shot, speaker_map))
+
+    def test_packing_user_prompt_keeps_tokens_away_from_slot_legends(self):
+        beat_info = {
+            "sequence": 11,
+            "dialogue": "角色乙：“第一句。” 角色甲（内心）：“心里话。” 角色甲：“第二句。”",
+            "narration": "心里话。",
+            "characters": [{"name": "角色甲"}, {"name": "角色乙"}],
+            "scene_name": "走廊",
+            "ref_images": [
+                {"index": 1, "name": "角色甲", "category": "character"},
+                {"index": 2, "name": "角色乙", "category": "character"},
+                {"index": 3, "name": "走廊", "category": "scene"},
+            ],
+        }
+        user = H3PromptBuilder.build_packing_user_prompt(beat_info, "Ref2VA", 15)
+        self.assertIn("SPEECH TOKENS", user)
+        self.assertIn("SPEECH OWNERS", user)
+        self.assertIn("- {{D1}}", user)
+        self.assertIn("D1:", user)
+        self.assertNotIn("{{D1}} spoken lip-sync", user)
+        self.assertNotIn("spoken lip-sync —", user)
+        self.assertIn("禁止抄进 [Shot 1]", user)
+
+    def test_prepare_collapses_interleaved_english_spoken_fragments(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_wu = "算了，房租免了。"
+        spoken_sha = "啊？大爷你不要房租？该不会想让我那啥吧？我是正经人，卖艺不卖身的。"
+        beat_info = {
+            "sequence": 2,
+            "dialogue": f"吴耐：“{spoken_wu}” 沙丽丽：“{spoken_sha}”",
+            "action": (
+                "双人中景，吴耐挥手说算了，房租免了。沙丽丽眼睛瞪大啊一声，双手把绿手机护在胸口。"
+                "她追问大爷你不要房租，又皱眉护胸：该不会想让我那啥吧。她声明我是正经人。"
+                "她补一句卖艺不卖身的。"
+                f"本镜对白必须口型同步：吴耐：“{spoken_wu}” 沙丽丽：“{spoken_sha}”。收束：定格。"
+            ),
+            "visual_prompt": (
+                "Photorealistic camera lighting COMPOSITION AND CAMERA. "
+                "Lip-sync the exact Chinese line(s): "
+                f"吴耐：“{spoken_wu}” 沙丽丽：“{spoken_sha}”. "
+                "Do not translate the line onto the picture. SYNCHRONIZED SOUND: 电梯嗡鸣."
+            ),
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "scene_name": "电梯",
+            "ref_images": [
+                {"index": 1, "name": "吴耐", "category": "character"},
+                {"index": 2, "name": "沙丽丽", "category": "character"},
+                {"index": 3, "name": "电梯", "category": "scene"},
+            ],
+        }
+        draft = H3PromptBuilder.sanitize_beat_draft(beat_info)
+        self.assertNotIn(spoken_sha, draft["visual_prompt"])
+        self.assertNotIn("大爷你不要房租", draft["action"])
+        self.assertNotIn("卖艺不卖身的", draft["action"])
+
+        interleaved = (
+            "Sha Lili eyes wide 啊 then asks 大爷你不要房租 then "
+            "该不会想让我那啥吧 then 我是正经人 then 卖艺不卖身的"
+        )
+        flawed = (
+            rich_prompt(spoken_wu)
+            .replace("<Subject 2> is the environment anchored by <Picture 2>.", "")
+            .replace(
+                f"(S1) says <d>[Chinese] {spoken_wu}</d>.",
+                f"{interleaved} (S1) 吴耐 says <d>[Chinese] {spoken_wu}</d>. "
+                f"(S2) 沙丽丽 says <d>[Chinese] {spoken_sha}</d>.",
+            )
+        )
+        self.assertGreater(H3PromptBuilder.count_han_line(flawed, spoken_sha), 1)
+        prepared = H3PromptBuilder.prepare_generated_prompt(
+            flawed,
+            H3PromptBuilder.shot_from_beat_info(beat_info),
+        )
+        self.assertEqual([], LlmService._validate_h3_prompt(prepared, "Ref2VA", beat_info))
+        self.assertEqual(1, H3PromptBuilder.count_han_line(prepared, spoken_sha))
+        self.assertEqual(1, H3PromptBuilder.count_han_line(prepared, spoken_wu))
+        self.assertIn(f"<d>[Chinese] {spoken_sha}</d>", prepared)
+
+        with patch.object(LlmService, "_request_h3_prompt", return_value=flawed) as request:
+            generated = LlmService.generate_h3_prompt(beat_info)
+        request.assert_not_called()
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
 
-    def test_h3_system_prompt_requires_expanding_beat_context(self):
+    def test_h3_system_prompt_uses_packing_contract(self):
         from backend.app.media_studio.services.llm_service import LlmService
 
         system = LlmService._h3_system_prompt("Ref2VA", "8")
-        self.assertIn("visual_prompt", system)
-        self.assertIn("320", system)
+        self.assertIn("prompt packer", system)
+        self.assertIn("Do not write a new scene", system)
+        self.assertIn("preserve", system.lower())
+        self.assertIn("SOURCE VISUAL DRAFT", system)
         self.assertIn("[Shot 1]", system)
-        self.assertIn("one-sentence", system)
-        self.assertIn("8-second performance", system)
-        self.assertNotIn("eight-second performance", system)
+        self.assertNotIn("Write at least 320", system)
+        self.assertNotIn("展开 320", system)
+        self.assertNotIn("Expand the beat", system)
         self.assertIn("Shot timing budget", system)
         self.assertIn("do not cram dialogue + walk + turn into 5s", system)
         self.assertIn("Do NOT emit At HH:MM.SSS", system)
         self.assertIn("Never copy the same Chinese sentence twice", system)
         self.assertIn("Never lip-sync inner voice", system)
+        self.assertIn("{{D1}}", system)
+        self.assertIn("renderer substitutes", system.lower())
+        self.assertIn("do not emit", system.lower())
+        self.assertIn("Interleave", system)
+        self.assertIn("slot legends", system)
+        self.assertIn("X then speaks", system)
+        self.assertIn("speaks first with a tone", system)
+        self.assertIn("closed-mouth camera beat", system)
+        self.assertIn("(Sn) is always <Subject n>", system)
+        self.assertIn("Location", system)
+        self.assertLess(len(system.encode("utf-8")), 12 * 1024)
+        self.assertIn("subject_definitions:", system)
+        self.assertIn("<Subject 1> is the coffee-shop environment", system)
+        self.assertIn("CAST LOCK", system)
+        self.assertNotIn("This guide explains how rewrite outputs are organized", system)
 
         eleven = LlmService._h3_system_prompt("Ref2VA", "11")
         self.assertIn("11-second performance", eleven)
+        self.assertIn("lasting 11 seconds", eleven)
         self.assertIn("duration_seconds is 11", eleven)
+
+    def test_generate_h3_prompt_renders_ref2va_without_llm(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        with patch.object(LlmService, "_request_h3_prompt") as request:
+            generated = LlmService.generate_h3_prompt({
+                "dialogue": "你好。",
+                "ref_images": [{"index": 1}, {"index": 2}],
+            })
+        request.assert_not_called()
+        self.assertIn("你好。", generated)
+        self.assertIn("<Subject 1>", generated)
+        self.assertIn("[Shot 1]", generated)
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}],
+        }))
+
+    def test_render_ref2va_interleaves_one_clause_per_speech_for_any_two_hander(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "这是第一句对白。"
+        inner = "这是听者的内心独白。"
+        spoken_b = "这是第二句对白。"
+        beat_info = {
+            "sequence": 12,
+            "dialogue": (
+                f"角色乙：“{spoken_a}” "
+                f"角色甲（内心）：“{inner}” "
+                f"角色甲：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [{"name": "角色甲"}, {"name": "角色乙"}],
+            "scene_name": "走廊",
+            "visual_prompt": (
+                "Photorealistic vertical 9:16. COMPOSITION AND CAMERA: a slow tilt up to the listener. "
+                "The camera then pushes to the speaker. The camera follows the gaze down the outfit. "
+                "LIGHTING: overhead fluorescent, cyan skin. "
+                "After the last syllable the shot freezes on a readable face."
+            ),
+            "audio": "Corridor hum and synchronized movement.",
+            "ref_images": [
+                {"index": 1, "name": "角色甲", "category": "character"},
+                {"index": 2, "name": "角色乙", "category": "character"},
+                {"index": 3, "name": "走廊", "category": "scene"},
+            ],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        rendered = H3PromptBuilder.render_ref2va(shot)
+        self.assertEqual([], LlmService._validate_h3_prompt(rendered, "Ref2VA", beat_info))
+        self.assertIn("<Subject 3>", rendered)
+        self.assertNotIn("<Location", rendered)
+        self.assertNotIn("Unit Building Elevator", rendered)
+        self.assertEqual(rendered.lower().count("thinks"), 1)
+        self.assertLess(rendered.find("9:16"), rendered.find("tilt up"))
+        self.assertLess(rendered.find("tilt up"), rendered.find(spoken_a))
+        self.assertLess(rendered.find(spoken_a), rendered.find("pushes to the speaker"))
+        self.assertLess(rendered.find("pushes to the speaker"), rendered.find(inner))
+        self.assertLess(rendered.find(inner), rendered.find("follows the gaze"))
+        self.assertLess(rendered.find("follows the gaze"), rendered.find(spoken_b))
+        self.assertLess(rendered.find(spoken_b), rendered.lower().find("freezes"))
+
+    def test_render_ref2va_fills_short_framing_clauses_between_inner_and_spoken(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "大爷，我什么都可以做。"
+        inner = "浓妆艳抹，昼伏夜出。"
+        spoken_b = "不用想也知道，做的是什么。"
+        beat_info = {
+            "sequence": 1,
+            "dialogue": (
+                f"沙丽丽：“{spoken_a}” "
+                f"吴耐（内心）：“{inner}” "
+                f"吴耐：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "scene_name": "单元楼电梯",
+            "visual_prompt": (
+                "Photorealistic modern Chinese urban short drama, vertical 9:16, "
+                "one continuous 15-second take, no internal cuts. "
+                "COMPOSITION AND CAMERA: medium-close that starts at the waist and tilts up to the face. "
+                "Heads sit in the upper third of the vertical frame. "
+                "LOCATION: cramped old stainless-steel elevator cabin. "
+                "LIGHTING: overhead fluorescent, cyan skin. "
+                "After the last syllable the shot freezes on a readable face."
+            ),
+            "audio": "Elevator hum and synchronized movement.",
+            "ref_images": [
+                {"index": 1, "name": "吴耐", "category": "character"},
+                {"index": 2, "name": "沙丽丽", "category": "character"},
+                {"index": 3, "name": "单元楼电梯", "category": "scene"},
+            ],
+        }
+        generated = LlmService.generate_h3_prompt(beat_info)
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+        self.assertLess(generated.find(inner), generated.find(spoken_b))
+        self.assertRegex(
+            generated[generated.find(inner):generated.find(spoken_b)],
+            r"\b(?:tilts?|push(?:es)?|pans?|tracks?)\b",
+        )
+
+    def test_render_ref2va_keeps_picture_lock_and_drops_workshop_echo(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "大爷，我什么都可以做。那个，那个房租下个月一定给你。"
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken_b = "不用想也知道，做的是什么。"
+        beat_info = {
+            "sequence": 1,
+            "duration_seconds": 15,
+            "dialogue": (
+                f"沙丽丽：“{spoken_a}” "
+                f"吴耐（内心）：“{inner}” "
+                f"吴耐：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [
+                {
+                    "name": "吴耐",
+                    "look_desc": (
+                        "60 岁花甲男人；秃顶灰白稀疏头发。原主是收废品的穷房东，"
+                        "穿越者占据身体后获得“惊讶续命”系统，一心攒满两年寿命好返老还童。"
+                    ),
+                },
+                {
+                    "name": "沙丽丽",
+                    "look_desc": (
+                        "二十出头；波浪棕长发。夜场兼职，有好赌的父亲，交不起房租。"
+                    ),
+                },
+            ],
+            "scene_name": "单元楼电梯",
+            "visual_prompt": (
+                "Photorealistic modern Chinese urban short drama, vertical 9:16, 1080x1920, "
+                "one continuous 15-second take, no internal cuts, no timestamp labels, "
+                "no black frames, no 16:9 letterbox. "
+                "COMPOSITION AND CAMERA: medium-close that starts at the waist and tilts up to the face, "
+                "then a slow push to the landlord and a tilt down her outfit, one continuous move, no cut. "
+                "Heads sit in the upper third of the vertical frame. "
+                "Shallow depth of field on the speaking face; the environment behind must still be identifiable as this location. "
+                "LOCATION: cramped old stainless-steel elevator cabin, sickly white fluorescent. "
+                "LIGHTING: sickly overhead fluorescent, cyan skin, no beauty rim light. "
+                "CAST LOCK, do not beautify or swap faces: skinny 60-year-old Chinese landlord, "
+                "receding gray hair, wrinkled tanned skin, sparse stubble, dirty stained yellow-white tank top. "
+                "15-SECOND PERFORMANCE, chronological, all inside this single take: Elevator doors shut. "
+                "Start on Sha Lili's waist: left hand grips the stickered green iPhone. "
+                "Slow tilt up to her medium-close; optional name-card 911 tenant Sha Lili, not spoken. "
+                "She first says uncle, then I can do anything, forces a pleasing smile, pauses, "
+                "then that, that next month's rent I will definitely give you. "
+                "Push to Wu Nai's medium-close on the left; optional name-card landlord Wu Nai, not spoken. "
+                "His lips stay closed as his eyes travel down her: inner voice heavy makeup, night-owl hours; "
+                "the camera follows his gaze tilting down the red camisole and black mini skirt "
+                "while the inner voice continues red camisole, black mini skirt. "
+                "Push back to his face; he opens his mouth: no need to guess what she does. "
+                "After the last spoken syllable, freeze a readable facial reaction for about one second. "
+                "Lip-sync the exact Chinese line(s): "
+                f"沙丽丽：“{spoken_a}” 吴耐（内心）：“{inner}” 吴耐：“{spoken_b}”. "
+                "Do not translate the line onto the picture. "
+                "SYNCHRONIZED SOUND: 电梯运行低频嗡鸣、轿厢金属壁轻响、呼吸和铃铛细响. "
+                "FINISH AND FORBIDDEN: hold the last expression. No costume jump. "
+                "Episode context: 穿越上身，只剩十四天 / 我什么都可以做."
+            ),
+            "ref_images": [
+                {"index": 1, "name": "吴耐", "category": "character"},
+                {"index": 2, "name": "沙丽丽", "category": "character"},
+                {"index": 3, "name": "单元楼电梯", "category": "scene"},
+            ],
+        }
+        generated = LlmService.generate_h3_prompt(beat_info)
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+        self.assertIn("<Subject 1> is 吴耐 in <Picture 1>.", generated)
+        self.assertNotIn("惊讶续命", generated.split("detailed_description:")[0])
+        self.assertNotIn("好赌的父亲", generated.split("detailed_description:")[0])
+        self.assertEqual(generated.lower().count("thinks"), 1)
+        self.assertNotIn("I can do anything", generated)
+        self.assertNotIn("no need to guess", generated)
+        self.assertNotIn("while the .", generated)
+        self.assertNotIn("FINISH AND.", generated)
+        self.assertIn("电梯运行低频嗡鸣", generated)
+        self.assertLess(generated.find("tilts up"), generated.find(spoken_a))
+        self.assertLess(generated.find(spoken_a), generated.find(inner))
+        self.assertLess(generated.find(inner), generated.find(spoken_b))
+        self.assertRegex(generated, r"\b(?:sound|audio|ambience|ambient)\b")
+        self.assertNotIn("1. COMPOSITION", generated)
+        self.assertNotIn("The camera then a ", generated)
+        self.assertLess(generated.find("Elevator doors shut"), generated.find(spoken_a))
+        self.assertLess(generated.find("left hand grips"), generated.find(spoken_a))
+        self.assertLess(generated.find(spoken_b), generated.lower().find("freeze"))
+        self.assertNotIn("Yu Qian stays", generated)
+        self.assertNotIn("left His lips", generated)
+        self.assertNotIn("PERFORMANCE, chronological", generated)
+
+    def test_render_ref2va_keeps_sound_term_when_audio_is_chinese(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken = "帮我看看上面写的什么。"
+        beat_info = {
+            "sequence": 3,
+            "duration_seconds": 8,
+            "dialogue": f"吴耐：“{spoken}”",
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "scene_name": "9楼老旧走廊",
+            "audio": "声控灯启动的电流声、高跟鞋或布鞋踩地砖、远处电梯叮一声。",
+            "visual_prompt": (
+                "Photorealistic modern Chinese urban short drama, vertical 9:16, 1080x1920, "
+                "one continuous 8-second take, no internal cuts. "
+                "COMPOSITION AND CAMERA: over-shoulder medium, foreground shoulder frames the listener. "
+                "Heads sit in the upper third of the vertical frame. "
+                "LOCATION: old 9th-floor corridor, off-white walls, dark green dado, brass door plates. "
+                "LIGHTING: warm yellow sensor lamps, glossy-tile bounce, darker door recesses, warm skin. "
+                "CAST LOCK, do not beautify or swap faces: skinny 60-year-old Chinese landlord, "
+                "receding gray hair, wrinkled tanned skin, sparse stubble, dirty stained yellow-white tank top; "
+                "glamorous young Chinese woman, wavy chestnut hair, mole on right cheek, red satin camisole. "
+                "Wu Nai stays skinny, tanned, stained yellow-white tank top, never plump. "
+                "Sha Lili keeps the cheek mole, black bell choker, red satin camisole and black mini skirt. "
+                "HERO PROPS IN FRAME: red-stamped critical-illness notice sheet. "
+                "After the last spoken syllable, freeze a readable facial reaction for about one second. "
+                "FINISH AND FORBIDDEN: hold the last expression. No costume jump, no location jump."
+            ),
+            "ref_images": [
+                {"index": 1, "name": "吴耐", "category": "character"},
+                {"index": 2, "name": "沙丽丽", "category": "character"},
+                {"index": 3, "name": "9楼老旧走廊", "category": "scene"},
+            ],
+        }
+        generated = LlmService.generate_h3_prompt(beat_info)
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+        self.assertIn("声控灯启动的电流声", generated)
+        self.assertRegex(generated, r"\b(?:sound|audio|ambience|ambient)\b")
+
+    def test_prepare_does_not_duplicate_inner_thinks_on_rendered_ref2va(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "大爷，我什么都可以做。"
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken_b = "不用想也知道，做的是什么。"
+        beat_info = {
+            "sequence": 1,
+            "duration_seconds": 15,
+            "dialogue": (
+                f"沙丽丽：“{spoken_a}” "
+                f"吴耐（内心）：“{inner}” "
+                f"吴耐：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "scene_name": "单元楼电梯",
+            "visual_prompt": (
+                "Photorealistic vertical 9:16. "
+                "COMPOSITION AND CAMERA: medium-close that starts at the waist and tilts up to the face, "
+                "then a slow push to the landlord. "
+                "LOCATION: cramped elevator. LIGHTING: cyan skin. "
+                "After the last syllable the shot freezes on a readable face."
+            ),
+            "audio": "电梯运行低频嗡鸣。",
+            "ref_images": [
+                {"index": 1, "name": "吴耐", "category": "character"},
+                {"index": 2, "name": "沙丽丽", "category": "character"},
+                {"index": 3, "name": "单元楼电梯", "category": "scene"},
+            ],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        rendered = H3PromptBuilder.render_ref2va(shot)
+        prepared = H3PromptBuilder.prepare_generated_prompt(rendered, shot)
+        generated = LlmService.generate_h3_prompt(beat_info)
+        duplicated = "(S1) <Subject 1> 吴耐 thinks. (S1) <Subject 1> 吴耐 thinks."
+        self.assertEqual(prepared.lower().count("thinks"), 1)
+        self.assertEqual(generated.lower().count("thinks"), 1)
+        self.assertNotIn(duplicated, prepared)
+        self.assertNotIn(duplicated, generated)
+        collapsed = H3PromptBuilder.prepare_generated_prompt(
+            rendered.replace(
+                "(S1) <Subject 1> 吴耐 thinks. In an off-screen",
+                "(S1) <Subject 1> 吴耐 thinks. (S1) <Subject 1> 吴耐 thinks. In an off-screen",
+                1,
+            ),
+            shot,
+        )
+        self.assertEqual(collapsed.lower().count("thinks"), 1)
+        twice = H3PromptBuilder.prepare_generated_prompt(generated, shot)
+        self.assertEqual(twice.lower().count("thinks"), 1)
+        self.assertNotIn(duplicated, twice)
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+
+    def test_ref2va_workshop_excerpt_is_short_and_includes_official_example(self):
+        from backend.app.llm_minimax_skills import (
+            load_h3_prompt_writing_guide,
+            load_h3_prompt_writing_skill,
+            load_h3_ref2va_workshop_excerpt,
+        )
+
+        excerpt = load_h3_ref2va_workshop_excerpt()
+        self.assertLess(len(excerpt.encode("utf-8")), 12 * 1024)
+        self.assertIn("## Workflow", excerpt)
+        self.assertIn("## Output Rules", excerpt)
+        self.assertIn("## Tips", excerpt)
+        self.assertIn("subject_definitions:", excerpt)
+        self.assertIn("<Subject 1> is the coffee-shop environment", excerpt)
+        self.assertIn("CAST LOCK", excerpt)
+        self.assertNotIn("This guide explains how rewrite outputs are organized", excerpt)
+        self.assertNotIn("## 1. Overall Structure", excerpt)
+        full = "\n".join([
+            load_h3_prompt_writing_skill(),
+            load_h3_prompt_writing_guide(mode="ref"),
+            load_h3_prompt_writing_guide(mode="base"),
+        ])
+        self.assertLess(len(excerpt), len(full) // 3)
 
     def test_workshop_h3_builder_includes_director1_timing_budget(self):
         from backend.app.llm_minimax_skills import build_workshop_h3_timing_rules
@@ -1107,14 +1938,25 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
         create_job.assert_called_once()
         self.assertEqual("beat-1", create_job.call_args.kwargs["beat_id"])
 
-    def test_director_rejects_selected_beat_ids(self):
-        with patch.object(EpisodeVideoService, "create_job") as create_job:
-            with self.assertRaisesRegex(ValueError, "整集直出工作流不支持勾选镜头"):
-                EpisodeVideoService.generate_episode_videos(
-                    "p1", "e1",
-                    options={"workflow": "minimax-h3-director-accel-r2v", "beat_ids": ["beat-1"]},
-                )
-        create_job.assert_not_called()
+    def test_director_selected_ids_create_shot_timeline_jobs(self):
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=self._detail(video_urls={"beat-1": "https://cdn/b1.mp4"})), \
+             patch.object(ProjectDetailService, "list_assets", return_value=[]), \
+             patch.object(EpisodeVideoService, "_prepare_shots", return_value=self._shots()), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "create_job", side_effect=lambda *args, **kwargs: {
+                 "job_id": f"job-{kwargs['beat_id']}", "status": "queued", "render_scope": "shot",
+             }) as create_job:
+            result = EpisodeVideoService.generate_episode_videos(
+                "p1", "e1",
+                options={"workflow": "minimax-h3-director-accel-r2v", "beat_ids": ["beat-1"]},
+            )
+        self.assertEqual("shot", result["render_mode"])
+        self.assertEqual(["job-beat-1"], result["job_ids"])
+        self.assertEqual(1, result["submitted"])
+        self.assertEqual(0, result["skipped"])
+        create_job.assert_called_once()
+        self.assertEqual("beat-1", create_job.call_args.kwargs["beat_id"])
+        self.assertEqual("shot", create_job.call_args.kwargs.get("render_scope"))
 
     def test_shot_one_click_skips_in_progress_beats_and_errors_when_nothing_left(self):
         active = [{"id": "job-1", "payload_json": __import__("json").dumps({

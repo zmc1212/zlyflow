@@ -172,9 +172,7 @@ class EpisodeVideoService:
         settings = cls.resolve_generation_options(incoming)
         workflow_id = str(settings.get("workflow") or cls.DEFAULTS["workflow"])
         render_mode = episode_video_render_mode(workflow_id)
-        if render_mode == "episode":
-            if beat_ids:
-                raise ValueError("整集直出工作流不支持勾选镜头，请改用逐镜工作流，或在检视器点「生成本镜」。")
+        if render_mode == "episode" and beat_ids is None:
             created = cls.create_job(project_id, episode_id, render_scope="episode", options=incoming)
             return {
                 **created,
@@ -586,6 +584,9 @@ class EpisodeVideoService:
                     (item["description"] for item in character_references if item["character_id"] == str(protagonist.get("id") or "")),
                     "",
                 ),
+                "visual_prompt": str(beat.get("visual_prompt") or "").strip(),
+                "audio": str(beat.get("audio") or beat.get("soundscape") or "").strip(),
+                "video_prompt_zh": str(beat.get("video_prompt_zh") or "").strip(),
                 "character_references": character_references,
                 "scene_picture_index": len(character_references) + 1,
                 "reference_urls": [item["url"] for item in character_references] + [scene_url],
@@ -644,12 +645,11 @@ class EpisodeVideoService:
         saved = [str(shot.get("h3_prompt") or "").strip() for shot in source_shots]
         if not source_shots or not all(saved):
             return None
-        speaker_map = H3PromptBuilder._speaker_map(source_shots)
         prepared = [
-            H3PromptBuilder.prepare_generated_prompt(prompt, shot, speaker_map)
+            H3PromptBuilder.prepare_generated_prompt(prompt, shot)
             for shot, prompt in zip(source_shots, saved)
         ]
-        if H3PromptBuilder.validate_prompts(source_shots, prepared, speaker_map):
+        if H3PromptBuilder.validate_prompts(source_shots, prepared):
             return None
         return prepared
 

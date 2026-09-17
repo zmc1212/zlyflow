@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -789,6 +790,62 @@ def load_h3_prompt_writing_skill() -> str:
 def load_h3_prompt_writing_guide(*, mode: str = "base") -> str:
     name = "ref-en.txt" if mode == "ref" else "base-en.txt"
     return (_H3_PROMPT_WRITING_ROOT / "references" / name).read_text(encoding="utf-8").strip()
+
+
+_SKILL_EXCERPT_HEADINGS = ("Workflow", "Output Rules", "Tips")
+
+H3_REF2VA_LABEL_DISCIPLINE = """# Reference-label discipline
+- Each <Subject N> appearance must follow the matching <Picture N> still in the supplied reference_map.
+- Write one short definition line per label: who/what it is and which <Picture N> anchors it.
+- When reference images are present, do not rewrite long CAST LOCK face, body, or wardrobe portraits in detailed_description.
+- At first visibility, name <Subject N> and keep using that label; do not re-novelize five features every sentence.
+- Never invent, renumber, merge, swap, or omit a supplied <Picture N> or <Subject N>.
+- A still used only to define a reusable subject belongs inside that subject's definition, not as an extra keyframe.
+- Character pictures keep upload order; the scene/environment picture stays last unless the map says otherwise.
+- A prop with its own <Picture N> gets its own <Subject N>; do not fold it into a face description.
+- Do not paste a Chinese CAST LOCK paragraph when the still already shows the costume.
+- Identity lock is the still plus the short definition line, not a duplicated prose portrait."""
+
+
+def load_h3_prompt_writing_skill_excerpt() -> str:
+    """Workflow / Output Rules / Tips only — not the full SKILL.md handbook."""
+    text = load_h3_prompt_writing_skill()
+    matches = list(re.finditer(r"^## (.+)$", text, re.M))
+    chunks: list[str] = []
+    for index, match in enumerate(matches):
+        heading = match.group(1).strip()
+        if not any(token in heading for token in _SKILL_EXCERPT_HEADINGS):
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        chunks.append(text[match.start():end].strip())
+    return "\n\n".join(chunks)
+
+
+def load_h3_ref2va_complete_example() -> str:
+    """The official six-section Ref2VA example from references/ref-en.txt §7."""
+    guide = load_h3_prompt_writing_guide(mode="ref")
+    marker = "## 7. Complete Example"
+    idx = guide.find(marker)
+    if idx < 0:
+        raise ValueError("MiniMax H3 ref-en.txt is missing ## 7. Complete Example")
+    fenced = re.search(r"```(?:text)?\s*\n(.*?)```", guide[idx:], re.S)
+    if not fenced:
+        raise ValueError("MiniMax H3 ref-en.txt Complete Example is missing a fenced prompt")
+    example = fenced.group(1).strip()
+    if "subject_definitions:" not in example:
+        raise ValueError("MiniMax H3 Ref2VA complete example is missing subject_definitions:")
+    return example
+
+
+def load_h3_ref2va_workshop_excerpt() -> str:
+    """Short workshop Ref2VA skill: excerpt + official complete example + label discipline."""
+    return "\n\n".join([
+        load_h3_prompt_writing_skill_excerpt(),
+        "# Official Ref2VA complete example",
+        "This six-section prompt is the packing target. Copy its field names and density, not its story.",
+        load_h3_ref2va_complete_example(),
+        H3_REF2VA_LABEL_DISCIPLINE,
+    ])
 
 
 SEEDANCE_DIRECTOR_RULES = """SEEDANCE DIRECTOR RULES (CRITICAL FOR promptText):

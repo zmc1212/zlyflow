@@ -1728,3 +1728,15 @@ TTS 语音合成从 LLM 页拆出，与 LLM、VLM 并列。超级管理员在「
 ## 2026-09-16 剧集工坊时长按剧本匹配并接入 timing 预算
 
 工坊镜头秒数按对白和调度抬到能演完（MiniMax H3 2–15 秒），不再默认 5 秒。生成 H3 提示词时使用与导演台1 分镜润色相同的 Seedance timing 预算，按该秒数写单镜，不写时间码。工坊每个 Beat 卡和检视器显示该镜秒数，页头显示本集合计。已有项目打开分集时会抬高过短时长。验证：`python -m unittest backend.tests.test_dialogue_timing backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend exec vitest run src/director2/workshop-beat-duration.test.ts`。
+
+## 2026-09-17 工坊 Director 也可生成选中镜头
+
+H3 Director 加速版「一键生成视频」仍一次出整集成片。镜头卡勾选与「生成选中」在整集直出工作流同样可用：只提交勾选镜的单镜 Timeline，成片写入该镜。各镜都有视频后可在合成 Tab 拼接。验证：`python -m unittest backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend test`。
+
+## 2026-09-17 工坊 H3 收拢英文夹杂的复读台词
+
+工坊「生成 H3 提示词」不再把拆开夹在英文里的同一句中文判成复读失败。第一集第二镜这类长对白可重新生成。验证：`python -m unittest backend.tests.media_studio_test_h3_video`。
+
+## 2026-09-17 工坊 H3 提示词按画面草稿装箱
+
+工坊点「生成 H3 提示词」按本镜画面草稿和锁定台词渲染六段 Ref2VA，不再让模型写 `[Shot 1]` 时间轴。空态说明为「按本镜画面草稿和锁定台词渲染六段 Ref2VA」。验证：`python -m unittest backend.tests.media_studio_test_h3_video`。

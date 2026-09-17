@@ -436,7 +436,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const selectedBeatVideoBusy = Boolean(
       selectedBeat && (generatingVideo || generatingVideoBeatIds.has(selectedBeat.id)),
     )
-    const shotSelectMode = videoRenderMode === "shot"
     const beatCount = currentEpisode?.beats?.length || 0
     const episodeDurationSec = useMemo(
       () => sumBeatDurationSec(currentEpisode?.beats || []),
@@ -1623,45 +1622,39 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                       <div className="xiaji-shots-toolbar">
                         <div className="toolbar-left">
                           <Checkbox checked={showSketch} onChange={(e) => setShowSketch(e.target.checked)}>显示草图</Checkbox>
-                          {shotSelectMode ? (
-                            <>
-                              <Checkbox
-                                checked={allBeatsChecked}
-                                indeterminate={checkedBeatCount > 0 && !allBeatsChecked}
-                                onChange={(e) => toggleCheckAllBeats(e.target.checked)}
-                              >
-                                全选（共 {beatCount} 镜）
-                              </Checkbox>
-                              <span className="sketched-count-label">已选 {checkedBeatCount} / {beatCount} 镜</span>
-                              <Button
-                                type="link"
-                                size="small"
-                                disabled={!checkedBeatCount}
-                                onClick={() => setCheckedBeatIds(new Set())}
-                              >
-                                清空
-                              </Button>
-                            </>
-                          ) : null}
+                          <Checkbox
+                            checked={allBeatsChecked}
+                            indeterminate={checkedBeatCount > 0 && !allBeatsChecked}
+                            onChange={(e) => toggleCheckAllBeats(e.target.checked)}
+                          >
+                            全选（共 {beatCount} 镜）
+                          </Checkbox>
+                          <span className="sketched-count-label">已选 {checkedBeatCount} / {beatCount} 镜</span>
+                          <Button
+                            type="link"
+                            size="small"
+                            disabled={!checkedBeatCount}
+                            onClick={() => setCheckedBeatIds(new Set())}
+                          >
+                            清空
+                          </Button>
                           <span className="sketched-count-label">
                             {sketchedCount}/{currentEpisode.beats?.length || 0} 张草图 ·{" "}
                             {h3PromptCount}/{currentEpisode.beats?.length || 0} 条 H3 提示词
-                            {shotSelectMode ? ` · ${videoReadyCount}/${beatCount} 镜视频` : ""}
+                            {` · ${videoReadyCount}/${beatCount} 镜视频`}
                           </span>
                         </div>
                         <div className="toolbar-right">
-                          {shotSelectMode ? (
-                            <Button
-                              type="primary"
-                              size="small"
-                              loading={generatingEpisodeVideo}
-                              disabled={!checkedBeatCount}
-                              icon={<Video size={13} />}
-                              onClick={() => handleGenerateSelectedShots()}
-                            >
-                              生成选中（{checkedBeatCount}）
-                            </Button>
-                          ) : null}
+                          <Button
+                            type="primary"
+                            size="small"
+                            loading={generatingEpisodeVideo}
+                            disabled={!checkedBeatCount}
+                            icon={<Video size={13} />}
+                            onClick={() => handleGenerateSelectedShots()}
+                          >
+                            生成选中（{checkedBeatCount}）
+                          </Button>
                           <Button
                             type="primary"
                             size="small"
@@ -1687,14 +1680,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                 className={`xiaji-shot-tile${selectedBeat?.id === beat.id ? " is-selected" : ""}${checkedBeatIds.has(beat.id) ? " is-checked" : ""}`}
                               >
                                 <div className="xiaji-shot-tile-head">
-                                  {shotSelectMode ? (
-                                    <Checkbox
-                                      checked={checkedBeatIds.has(beat.id)}
-                                      aria-label={`勾选 Beat ${beat.sequence}`}
-                                      onClick={(event) => event.stopPropagation()}
-                                      onChange={(event) => toggleCheckedBeat(beat, event.target.checked)}
-                                    />
-                                  ) : null}
+                                  <Checkbox
+                                    checked={checkedBeatIds.has(beat.id)}
+                                    aria-label={`勾选 Beat ${beat.sequence}`}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onChange={(event) => toggleCheckedBeat(beat, event.target.checked)}
+                                  />
                                   <button
                                     type="button"
                                     className="xiaji-shot-tile-select"
@@ -2279,7 +2270,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                         ) : (
                                           <div className="h3-prompt-empty">
                                             <span>尚未生成 H3 提示词</span>
-                                            <p>点击「生成 H3 提示词」，按技能规则调用大模型生成。</p>
+                                            <p>点击「生成 H3 提示词」，按本镜画面草稿和锁定台词渲染六段 Ref2VA。</p>
                                           </div>
                                         )}
                                       </div>
@@ -2394,28 +2385,26 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                           <p>
                             {videoRenderMode === "episode"
                               ? (episodeFilm
-                                ? "本集已由 H3 Director 加速版一次直出，无需再合成"
-                                : "一键生成视频后，整集成片会直接写入本页，无需再点合成")
+                                ? "本集已由 H3 Director 加速版一次直出。勾选镜头点「生成选中」可单独重跑单镜。"
+                                : "「一键生成视频」一次出整集成片；勾选镜头后点「生成选中」只提交这些镜。")
                               : `已出片 ${videoReadyCount}/${currentEpisode.beats?.length || 0} · 音频通道：就绪 · 字幕 SRT：自动同步`}
                           </p>
                         </div>
                         <Space>
-                          {videoRenderMode === "shot" ? (
-                            <Button
-                              type="primary"
-                              icon={<Sparkles size={14} />}
-                              loading={composingEpisode || episodeVideoJobActive}
-                              disabled={
-                                composingEpisode
-                                || episodeVideoJobActive
-                                || !currentEpisode.beats?.length
-                                || videoReadyCount < (currentEpisode.beats?.length || 0)
-                              }
-                              onClick={() => handleComposeEpisode()}
-                            >
-                              一键合成全集成片
-                            </Button>
-                          ) : null}
+                          <Button
+                            type="primary"
+                            icon={<Sparkles size={14} />}
+                            loading={composingEpisode || episodeVideoJobActive}
+                            disabled={
+                              composingEpisode
+                              || episodeVideoJobActive
+                              || !currentEpisode.beats?.length
+                              || videoReadyCount < (currentEpisode.beats?.length || 0)
+                            }
+                            onClick={() => handleComposeEpisode()}
+                          >
+                            一键合成全集成片
+                          </Button>
                           <Button onClick={() => handleToolNotice("字幕导出")}>
                             导出字幕 SRT
                           </Button>
@@ -2434,52 +2423,33 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                         </div>
                       ) : null}
 
-                      {videoRenderMode === "shot" ? (
-                        <div className="timeline-preview-section mt-4">
-                          <h4>分镜轨道时间线预览（已出片 {videoReadyCount}/{currentEpisode.beats?.length || 0}）</h4>
-                          <div className="timeline-tiles-scroll">
-                            {(currentEpisode.beats || []).map((b) => {
-                              const busy = generatingVideoBeatIds.has(b.id)
-                              const ready = Boolean(String(b.video_url || "").trim())
-                              return (
-                                <div
-                                  key={b.id}
-                                  className={`timeline-shot-card${ready ? " is-ready" : busy ? " is-busy" : " is-missing"}`}
-                                >
-                                  <div className="shot-thumb">
-                                    {ready ? (
-                                      <video src={b.video_url || undefined} muted playsInline />
-                                    ) : b.render_url || b.sketch_url ? (
-                                      <img src={b.render_url || b.sketch_url || undefined} alt="" />
-                                    ) : (
-                                      <div className="placeholder-thumb">Shot {b.sequence}</div>
-                                    )}
-                                  </div>
-                                  <div className="shot-title">Shot {b.sequence} ({formatBeatDurationLabel(b.video_duration)})</div>
-                                  <div className="shot-status">{ready ? "已出片" : busy ? "生成中" : "未出片"}</div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="timeline-preview-section mt-4">
-                          <h4>分镜轨道时间线预览 (Timeline Track)</h4>
-                          <div className="timeline-tiles-scroll">
-                            {(currentEpisode.beats || []).map((b) => (
+                      <div className="timeline-preview-section mt-4">
+                        <h4>分镜轨道时间线预览（已出片 {videoReadyCount}/{currentEpisode.beats?.length || 0}）</h4>
+                        <div className="timeline-tiles-scroll">
+                          {(currentEpisode.beats || []).map((b) => {
+                            const busy = generatingVideoBeatIds.has(b.id)
+                            const ready = Boolean(String(b.video_url || "").trim())
+                            return (
                               <div
                                 key={b.id}
-                                className="timeline-shot-card"
+                                className={`timeline-shot-card${ready ? " is-ready" : busy ? " is-busy" : " is-missing"}`}
                               >
                                 <div className="shot-thumb">
-                                  {b.sketch_url || b.render_url ? <img src={b.render_url || b.sketch_url || undefined} alt="" /> : <div className="placeholder-thumb">Shot {b.sequence}</div>}
+                                  {ready ? (
+                                    <video src={b.video_url || undefined} muted playsInline />
+                                  ) : b.render_url || b.sketch_url ? (
+                                    <img src={b.render_url || b.sketch_url || undefined} alt="" />
+                                  ) : (
+                                    <div className="placeholder-thumb">Shot {b.sequence}</div>
+                                  )}
                                 </div>
                                 <div className="shot-title">Shot {b.sequence} ({formatBeatDurationLabel(b.video_duration)})</div>
+                                <div className="shot-status">{ready ? "已出片" : busy ? "生成中" : "未出片"}</div>
                               </div>
-                            ))}
-                          </div>
+                            )
+                          })}
                         </div>
-                      )}
+                      </div>
                     </div>
                   ),
                 },

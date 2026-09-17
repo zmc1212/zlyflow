@@ -134,7 +134,7 @@ class H3PromptJobService:
         if inner_text and inner_text not in narration:
             narration = f"{narration} {inner_text}".strip() if narration else inner_text
 
-        beat_info = {
+        beat_info = H3PromptBuilder.sanitize_beat_draft({
             "sequence": beat.get("sequence") or 1,
             "heading": beat.get("heading") or "",
             "action": beat.get("action") or "",
@@ -153,7 +153,7 @@ class H3PromptJobService:
             "visible_text": beat.get("visible_text") or "",
             "narration": narration,
             **cls._beat_context_fields(beat),
-        }
+        })
 
         seq = beat.get("sequence") or 1
         heading = beat.get("heading") or scene_name or ""
