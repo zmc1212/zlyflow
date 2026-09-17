@@ -137,6 +137,7 @@ _SPEECH_GAP_BEAT_RE = re.compile(
 _GAZE_BEAT_RE = re.compile(
     r"follows\s+(?:his|her|the)\s+(?:gaze|look)|"
     r"gaze tilting down|"
+    r"tilt(?:s|ing)?\s+down\s+with\s+(?:small|large)\s+amplitude|"
     r"tilt(?:s|ing)?\s+down\s+(?:her|his|the)\s+"
     r"(?:outfit|body|figure|clothes|camisole|skirt)|"
     r"eyes travel down",
@@ -149,13 +150,13 @@ _LAND_ON_FACE_RE = re.compile(
     re.I,
 )
 _INNER_GAZE_FALLBACK = (
-    "The camera follows the thinker's gaze down the other person and holds a vertical "
-    "medium on their torso so the clothes fill the frame; keep the thinker off-screen "
-    "or as a sliver until this inner voice ends."
+    "The camera tilts down with small amplitude at slow speed "
+    "and holds a static shot on the other person's torso until the clothes fill the vertical frame; "
+    "keep the thinker off-screen or as a sliver until this inner voice ends."
 )
 _INNER_BODY_HOLD = (
-    "Hold that torso in the vertical frame so the clothes fill the shot; "
-    "do not push to the thinker's face until this inner voice ends."
+    "Hold a static shot on that torso so the clothes fill the vertical frame; "
+    "do not push in until this inner voice ends."
 )
 _GAP_CAMERA_BEATS = (
     "The camera tilts slightly to keep the listener's face readable.",
