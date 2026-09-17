@@ -161,6 +161,12 @@ describe("director2 video settings", () => {
     expect(formatSelectedShotSubmitMessage({ render_mode: "shot", submitted: 2, skipped: 1 })).toBe(
       "已提交选中的 2 镜（跳过 1 镜正在生成）",
     )
+    expect(formatSelectedShotSubmitMessage({ render_mode: "episode", shot_count: 2, submitted: 1 })).toBe(
+      "已创建 1 个 Timeline 任务（2 镜）",
+    )
+    expect(formatSelectedShotSubmitMessage({ render_mode: "episode", shot_count: 1, submitted: 1 })).toBe(
+      "已创建 1 个单镜 Timeline 任务",
+    )
     expect(selectedShotGenerateExtra(["beat-1", "beat-1", "beat-3"])).toEqual({
       beat_ids: ["beat-1", "beat-3"],
       force: true,

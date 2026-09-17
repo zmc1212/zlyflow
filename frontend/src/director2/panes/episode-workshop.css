@@ -1871,6 +1871,41 @@
   color: var(--studio-text, #334155);
 }
 
+.d2-episode-workshop .h3-prompt-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.d2-episode-workshop .h3-prompt-panel .ant-input-textarea {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.d2-episode-workshop .h3-prompt-editor.ant-input,
+.d2-episode-workshop .h3-prompt-editor textarea {
+  flex: 1;
+  min-height: 240px;
+  height: 100% !important;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  padding: 12px 14px;
+  background: var(--studio-surface, #ffffff);
+  color: var(--studio-text, #1e293b);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.d2-episode-workshop .h3-prompt-editor.ant-input:focus,
+.d2-episode-workshop .h3-prompt-editor textarea:focus {
+  box-shadow: none;
+}
+
 .d2-episode-workshop .h3-prompt-display {
   flex: 1;
   overflow-y: auto;

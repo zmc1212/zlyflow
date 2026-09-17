@@ -244,7 +244,7 @@ class H3PromptJobService:
             )
             prompt = cls._finalize_prompt(payload, LlmService.generate_h3_prompt(payload.get("beat_info") or {}))
             duration_sec = (payload.get("beat_info") or {}).get("duration_seconds")
-            updates = {"h3_prompt": prompt}
+            updates = {"h3_prompt": prompt, "h3_prompt_source": "generated"}
             if duration_sec not in (None, ""):
                 updates["video_duration"] = str(duration_sec)
             ProjectDetailService._update_episode_beat_atomic(

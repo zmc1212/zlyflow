@@ -79,6 +79,22 @@ describe("workshop video progress mapping", () => {
     expect(hasActiveWorkshopVideoProgress({ beats: {}, episode: null })).toBe(false)
   })
 
+  it("stamps a Director selection job onto every selected beat", () => {
+    const mapped = mapWorkshopVideoProgress(
+      [job({
+        status: "preparing",
+        progress: 12,
+        payload: { render_scope: "selection", beat_id: "beat-a", beat_ids: ["beat-a", "beat-b"] },
+      })],
+      "ep-1",
+    )
+    expect(mapped.beats).toEqual({
+      "beat-a": { status: "preparing", progress: 12 },
+      "beat-b": { status: "preparing", progress: 12 },
+    })
+    expect(mapped.episode).toBeNull()
+  })
+
   it("clamps progress and uses workshop stage copy", () => {
     expect(clampWorkshopProgress(undefined)).toBe(0)
     expect(clampWorkshopProgress(141.6)).toBe(100)

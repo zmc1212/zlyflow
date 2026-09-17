@@ -2,6 +2,33 @@
 
 更新时间：2026-09-17
 
+## 2026-09-17 工坊 H3 提示词支持手动编辑
+
+- 变更原因：工坊素材组提示词面板只读，外部 AI 写好的六段无法贴回本镜。
+- 当前基线：`PUT …/beats/{beat_id}` 可写 `h3_prompt` 与 `h3_prompt_source`。素材组可编辑、粘贴并保存；系统生成仍走原任务并标记 `generated`。手动保存标记 `manual`，出片只规范化 `<Picture>`/`<Subject>` 大小写，不再 `prepare` 改写正文，也不因厚度/对白校验失败而重渲染该镜。
+- 受影响文件：`EpisodeWorkshopPane.tsx`、`episode-workshop.css`、`api.ts`、`project_detail_service.py`、`h3_prompt_job_service.py`、`episode_video_service.py`、`media_studio_test_h3_video.py`、三份主文档、`docs/API.md` 与 `docs/导演台流程与界面结构.md`。
+- 兼容性：不改表结构；旧 Beat 无 `h3_prompt_source` 时仍走生成路径的 prepare + 校验。
+- 验证命令：`python backend/tests/media_studio_test_h3_video.py`；`pnpm --dir frontend exec vitest run src/director2/h3-prompt-display.test.ts`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 内心戏画面停在被看的人身上
+
+- 变更原因：抽帧显示「浓妆艳抹 / 黑色小短裙」时画面是沙丽丽胸腰铺满竖屏（吴耐不出画）；生成片却先推吴耐近景，变成双人中景再切他的脸。
+- 当前基线：内心节拍只接下摇/钉住对方身子，并写明衣服铺满画面、思考者不出画；推思考者近景放在内心 `<d>` 之后。动作与 PERFORMANCE 按「画面停在谁身上」写，不先写「推到谁脸上」。
+- 受影响文件：`h3_prompt_builder.py`、`media_studio_test_h3_video.py`、`tmp/huajia/花甲正少年-剧本.md`、三份主文档与 `docs/导演台流程与界面结构.md`。
+- 兼容性：不改表结构或 API；重新点「生成 H3 提示词」覆盖旧六段。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-17 内心戏把视线下摇接到被看的人身上
+
+- 变更原因：镜头 1 吴耐内心「浓妆艳抹」时，程序按 FIFO 把「推房东 + 下摇衣服」捆成一句，PERFORMANCE 里「顺着他的视线下摇过红吊带和短裙」被丢掉，画面停在吴耐脸上。
+- 当前基线：内心节拍优先使用 gaze / tilt-down-outfit 运镜，可先落到思考者近景再顺着视线看到对方衣服；最后一句开口优先 push back。不是切到对方主观视角。
+- 受影响文件：`h3_prompt_builder.py`、`media_studio_test_h3_video.py`、三份主文档与 `docs/导演台流程与界面结构.md`。
+- 兼容性：不改表结构或 API；重新点「生成 H3 提示词」覆盖旧六段。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件即可。
+
 ## 2026-09-17 工坊 Ref2VA 拆开工坊模板再渲染时间轴
 
 - 变更原因：按句顺序装箱会把人物小传写进 Subject、把构图说明当运镜、把 PERFORMANCE 英文复述整段堆在开口后面，内心也会出现两句 thinks。
@@ -59,7 +86,7 @@
 ## 2026-09-17 工坊 Director 整集直出也可生成选中镜头
 
 - 变更原因：H3 Director 加速版（整集直出）镜头卡没有勾选，「一键生成视频」只会提交 1 个整集 Timeline；用户想先出某一镜时只能改用逐镜工作流。
-- 当前基线：「一键生成视频」在 Director 下仍是 1 个 `render_scope=episode` 任务。镜头卡始终可勾选；「生成选中」把 `beat_ids` + `force` 交给同一 `POST …/generate-video`，即使当前工作流是 Director 也按镜创建 `render_scope=shot` 的 Timeline 任务（1 镜 1 段），成片写入该 Beat `video_url`。未勾选时 Director 仍拒绝按镜切分整集。合成 Tab 在各镜都有 `video_url` 时可拼接，Director 直出的分集成片仍直接播放。
+- 当前基线：「一键生成视频」在 Director 下仍是 1 个 `render_scope=episode` 任务。镜头卡始终可勾选；「生成选中」把 `beat_ids` + `force` 交给同一 `POST …/generate-video`。Director 把勾选镜放进 **1 个** Timeline 任务（多镜作为同一 Comfy graph 的分段，超 6 段/1152 帧才在该任务内再切 chunk），`render_scope=selection`（一镜仍是 `shot`）。成片按镜拆开写入各 Beat `video_url`。逐镜工作流仍是每镜一个 graph 任务。未勾选时 Director 仍一次出整集。合成 Tab 在各镜都有 `video_url` 时可拼接，Director 直出的分集成片仍直接播放。
 - 受影响文件：`episode_video_service.py`、`EpisodeWorkshopPane.tsx`、`media_studio_test_h3_video.py`、三份主文档与 `docs/导演台流程与界面结构.md`。
 - 兼容性：不改表结构、端口或节点 ID；不传 `beat_ids` 的 Director 一键生成行为不变。
 - 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend test`。

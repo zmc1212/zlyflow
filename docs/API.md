@@ -127,7 +127,8 @@
 | `GET` | `/api/director/recipes/{project_id}/frames/{shot_id}/{slot}` | 读取已上传的分镜首帧或尾帧。 |
 | `POST` | `/api/director/recipes/{project_id}/render-shots` | 按镜提交所选工作流族的视频任务（T2V/I2V/R2V 仍自动匹配）。 |
 | `POST` | `/api/director/recipes/{project_id}/shots/{shot_id}/translate-prompt` | 把镜头中文正文按官方 h3-prompt-writing skill 翻译为英文 H3 正文并返回，不落库。LLM 未配置 503、缺中文正文 422、未知 shot 404。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` | 剧集工坊素材组：入队 `h3_prompt` 任务生成本镜 H3 提示词（传入 `visual_prompt` / `audio` / `video_prompt_zh`，会剥掉动作里整段粘贴的台词；内心/旁白不作为开口对白）。先按对白+调度把 `video_duration` 抬到能演完，再按该秒数由程序渲染六段 Ref2VA（`<Subject n>`、锁定 `<d>`、一句运镜接一句台词），并注入导演台1 同款 timing 预算；英文须达可出片厚度且含 camera/lighting/sound），**202** 返回 `job_id`。结果写入 beat `h3_prompt` 与匹配后的 `video_duration`。整集/逐镜视频对已保存提示词做同一套渲染再跑厚度校验，通过则复用，过薄或对白对不上才重渲染。 |
+| `PUT` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}` | 更新单条 Beat。可写 `h3_prompt` 与 `h3_prompt_source`（`manual` / `generated`）。手动保存的六段出片按原文使用。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` | 剧集工坊素材组：入队 `h3_prompt` 任务生成本镜 H3 提示词（传入 `visual_prompt` / `audio` / `video_prompt_zh`，会剥掉动作里整段粘贴的台词；内心/旁白不作为开口对白）。先按对白+调度把 `video_duration` 抬到能演完，再按该秒数由程序渲染六段 Ref2VA（`<Subject n>`、锁定 `<d>`、一句运镜接一句台词），并注入导演台1 同款 timing 预算；英文须达可出片厚度且含 camera/lighting/sound），**202** 返回 `job_id`。结果写入 beat `h3_prompt`、`h3_prompt_source=generated` 与匹配后的 `video_duration`。整集/逐镜视频对系统生成提示词做 prepare 再跑厚度校验，通过则复用；`h3_prompt_source=manual` 的镜只规范化参考标签、按原文出片。 |
 | `GET` | `/api/director/export-capabilities` | 查询本机 ffmpeg/ffprobe 与 TTS 是否可用，以及音色目录。 |
 | `POST` | `/api/director/recipes/{project_id}/tts` | 按对白调用 OpenAI 兼容 `/audio/speech` 生成逐镜 TTS；`character_id` 时写角色试听。不使用 Edge TTS。 |
 | `GET` | `/api/director/recipes/{project_id}/tts/{shot_id}` | 读取已生成的分镜 TTS 音频。 |

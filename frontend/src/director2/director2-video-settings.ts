@@ -44,6 +44,7 @@ export type Director2GenerateVideoResult = {
   render_scope?: string
   submitted?: number
   skipped?: number
+  shot_count?: number
 }
 
 export type VideoWorkflowSelectOption = { value: string; label: string }
@@ -204,6 +205,10 @@ export function formatEpisodeVideoSubmitMessage(result: Director2GenerateVideoRe
 }
 
 export function formatSelectedShotSubmitMessage(result: Director2GenerateVideoResult): string {
+  if (result.render_mode === "episode") {
+    const shots = result.shot_count ?? 1
+    return shots > 1 ? `已创建 1 个 Timeline 任务（${shots} 镜）` : "已创建 1 个单镜 Timeline 任务"
+  }
   const submitted = result.submitted ?? result.job_ids?.length ?? 0
   const skipped = result.skipped ?? 0
   if (skipped) return `已提交选中的 ${submitted} 镜（跳过 ${skipped} 镜正在生成）`

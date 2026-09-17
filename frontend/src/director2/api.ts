@@ -344,6 +344,7 @@ export type Director2Beat = {
   video_duration?: string
   status?: string
   h3_prompt?: string | null
+  h3_prompt_source?: "manual" | "generated" | string | null
   dialogue_turns?: Array<{ speaker?: string; text?: string; character_id?: string }>
   visible_text?: string | null
 }

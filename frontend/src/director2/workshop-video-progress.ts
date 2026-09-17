@@ -18,6 +18,7 @@ export type WorkshopVideoJobLike = {
   payload?: {
     episode_id?: string | null
     beat_id?: string | null
+    beat_ids?: string[] | null
     render_scope?: string | null
   } | null
 }
@@ -106,10 +107,15 @@ export function mapWorkshopVideoProgress(
 
     const progress = clampWorkshopProgress(job.progress)
     const scope = String(job.payload?.render_scope || "")
-    if (scope === "shot") {
-      const beatId = String(job.payload?.beat_id || "").trim()
-      if (!beatId || beatId in beats) continue
-      beats[beatId] = { status: job.status, progress }
+    const beatIds = [
+      ...((Array.isArray(job.payload?.beat_ids) ? job.payload.beat_ids : []) as Array<string | null | undefined>),
+      job.payload?.beat_id,
+    ].map((item) => String(item || "").trim()).filter(Boolean)
+    if (scope === "shot" || scope === "selection") {
+      for (const beatId of beatIds) {
+        if (beatId in beats) continue
+        beats[beatId] = { status: job.status, progress }
+      }
       continue
     }
     const episodeOrCompose = episodeScope(scope)

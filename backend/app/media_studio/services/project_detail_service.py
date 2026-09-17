@@ -1434,7 +1434,7 @@ class ProjectDetailService:
             "characters", "character_ids", "character_look_id", "character_look_ids", "props", "prop_ids", "visual_prompt", "sketch_prompt",
             "sketch_url", "sketch_job_id", "render_url", "render_prompt",
             "render_job_id", "render_status", "video_url", "video_prompt_zh", "video_duration", "status",
-            "h3_prompt", "dialogue_turns", "visible_text",
+            "h3_prompt", "h3_prompt_source", "dialogue_turns", "visible_text",
         ]
         updates = {key: payload[key] for key in allowed_fields if key in payload}
         target = cls._update_episode_beat_atomic(

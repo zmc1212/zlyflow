@@ -123,14 +123,39 @@ _AFTER_LINE_HOLD_RE = re.compile(
 _CAMERA_BEAT_RE = re.compile(
     r"\b(?:tilts?|push(?:es)?(?:\s+in|\s+back)?|pans?|tracks?|"
     r"doll(?:y|ies)|follows\s+(?:his|her|the)\s+(?:gaze|look)|"
+    r"eyes travel down|"
     r"pulls?\s+(?:in|back)|crane)\b",
     re.I,
 )
 _SPEECH_GAP_BEAT_RE = re.compile(
     r"\b(?:tilts?|push(?:es)?(?:\s+in|\s+back)?|pans?|tracks?|"
     r"doll(?:y|ies)|follows\s+(?:his|her|the)\s+(?:gaze|look)|"
+    r"eyes travel down|"
     r"pulls?\s+(?:in|back)|crane|(?:camera|shot)\s+holds?)\b",
     re.I,
+)
+_GAZE_BEAT_RE = re.compile(
+    r"follows\s+(?:his|her|the)\s+(?:gaze|look)|"
+    r"gaze tilting down|"
+    r"tilt(?:s|ing)?\s+down\s+(?:her|his|the)\s+"
+    r"(?:outfit|body|figure|clothes|camisole|skirt)|"
+    r"eyes travel down",
+    re.I,
+)
+_PUSH_BACK_RE = re.compile(r"\bpush(?:es)?\s+back\b", re.I)
+_LAND_ON_FACE_RE = re.compile(
+    r"\bpush(?:es)?\b.{0,80}\b(?:face|medium-close|landlord|speaker|left)\b"
+    r"|\blips stay closed\b",
+    re.I,
+)
+_INNER_GAZE_FALLBACK = (
+    "The camera follows the thinker's gaze down the other person and holds a vertical "
+    "medium on their torso so the clothes fill the frame; keep the thinker off-screen "
+    "or as a sliver until this inner voice ends."
+)
+_INNER_BODY_HOLD = (
+    "Hold that torso in the vertical frame so the clothes fill the shot; "
+    "do not push to the thinker's face until this inner voice ends."
 )
 _GAP_CAMERA_BEATS = (
     "The camera tilts slightly to keep the listener's face readable.",
@@ -229,7 +254,7 @@ _PERFORMANCE_LEAD_RE = re.compile(
     re.I,
 )
 _RUNON_CAMERA_RE = re.compile(
-    r"(?<=[a-z;:])\s+(?=(?:Push|Pull|Tilt|Pan|Track|The camera|His lips stay closed)\b)"
+    r"(?<=[a-z;:])\s+(?=(?:Push|Pull|Tilt|Pan|Track|(?:The|the)\s+camera|His lips stay closed)\b)"
 )
 _CAST_STAYS_RE = re.compile(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+stays\b")
 _CAST_ALIASES = {
@@ -239,6 +264,10 @@ _CAST_ALIASES = {
     "bai xue": ("白雪", "bai xue"),
 }
 _CAMERA_THEN_RE = re.compile(r",\s*then\s+|\s+then\s+a\s+", re.I)
+_CAMERA_AND_MOVE_RE = re.compile(
+    r"\s+and\s+(?=a\s+(?:slow\s+)?(?:tilt|push|pan|track|dolly)\b)",
+    re.I,
+)
 _SOUND_EXTRACT_RE = re.compile(
     r"SYNCHRONIZED SOUND:\s*(.+?)(?:\.\s*Dialogue sits|\.\s*Music stays|"
     r"\.\s*FINISH AND|\s*FINISH AND FORBIDDEN|\s*Episode context|$)",
@@ -1880,7 +1909,14 @@ class H3PromptBuilder:
         text = str(clause or "").strip()
         if not text:
             return []
-        parts = [item.strip(" ,;") for item in _CAMERA_THEN_RE.split(text) if item.strip(" ,;")]
+        chunks = [item.strip(" ,;") for item in _CAMERA_THEN_RE.split(text) if item.strip(" ,;")] or [text]
+        parts: list[str] = []
+        for chunk in chunks:
+            parts.extend(
+                item.strip(" ,;")
+                for item in _CAMERA_AND_MOVE_RE.split(chunk)
+                if item.strip(" ,;")
+            )
         if len(parts) < 2:
             return [text]
         beats: list[str] = []
@@ -1894,6 +1930,96 @@ class H3PromptBuilder:
                 part += "."
             beats.append(part)
         return beats or [text]
+
+    @staticmethod
+    def _is_gaze_beat(clause: str) -> bool:
+        return bool(_GAZE_BEAT_RE.search(str(clause or "")))
+
+    @staticmethod
+    def _is_push_back_beat(clause: str) -> bool:
+        return bool(_PUSH_BACK_RE.search(str(clause or "")))
+
+    @classmethod
+    def _is_land_on_face_beat(cls, clause: str) -> bool:
+        text = str(clause or "")
+        if cls._is_gaze_beat(text) or cls._is_push_back_beat(text):
+            return False
+        return bool(_LAND_ON_FACE_RE.search(text))
+
+    @staticmethod
+    def _take_matching(motion: list[str], predicate) -> str:
+        for index, clause in enumerate(motion):
+            if predicate(clause):
+                return motion.pop(index)
+        return ""
+
+    @staticmethod
+    def _take_best_matching(motion: list[str], predicate, score=None) -> str:
+        matches = [(index, clause) for index, clause in enumerate(motion) if predicate(clause)]
+        if not matches:
+            return ""
+        key = score or (lambda clause: len(clause))
+        index, clause = max(matches, key=lambda item: key(item[1]))
+        motion.pop(index)
+        return clause
+
+    @classmethod
+    def _last_spoken_land_score(cls, clause: str) -> tuple:
+        text = str(clause or "").lower()
+        rank = 0
+        if cls._is_push_back_beat(clause):
+            rank += 8
+        if re.search(r"\b(face|medium-close|close-up)\b", text):
+            rank += 4
+        if "wu nai" in text:
+            rank += 3
+        if "landlord" in text:
+            rank += 1
+        return (rank, len(clause))
+
+    @classmethod
+    def _camera_for_speech_event(
+        cls,
+        event: dict[str, Any],
+        index: int,
+        events: list[dict[str, Any]],
+        motion: list[str],
+        character_count: int,
+    ) -> str:
+        pieces: list[str] = []
+        if event.get("kind") == "inner":
+            gaze = cls._take_best_matching(motion, cls._is_gaze_beat)
+            motion[:] = [clause for clause in motion if not cls._is_gaze_beat(clause)]
+            if gaze:
+                pieces.append(gaze)
+                pieces.append(_INNER_BODY_HOLD)
+            elif character_count >= 2:
+                pieces.append(_INNER_GAZE_FALLBACK)
+        elif index == len(events) - 1:
+            back = cls._take_matching(motion, cls._is_push_back_beat)
+            if not back:
+                back = cls._take_best_matching(
+                    motion,
+                    cls._is_land_on_face_beat,
+                    score=cls._last_spoken_land_score,
+                )
+            if back:
+                pieces.append(back)
+        if not pieces and motion:
+            pieces.append(motion.pop(0))
+        cleaned: list[str] = []
+        for item in pieces:
+            text = re.sub(r"[:;.,\s]+$", "", str(item).strip())
+            if not text:
+                continue
+            if text[0].islower():
+                text = text[0].upper() + text[1:]
+            cleaned.append(cls._punctuate_clause(text))
+        clause = " ".join(cleaned)
+        if not cls._clause_covers_speech_gap(clause):
+            fallback = cls._fallback_camera_beat(index)
+            clause = f"{fallback} {clause}".strip() if clause else fallback
+        return clause
 
     @classmethod
     def _is_speech_echo_clause(cls, clause: str) -> bool:
@@ -1953,7 +2079,7 @@ class H3PromptBuilder:
         if re.match(r"^(?:SYNCHRONIZED SOUND|Episode context)\b", clause, flags=re.I):
             return
         if not clause.endswith((".", "!", "?")):
-            clause += "."
+            clause = clause.rstrip(" :;") + "."
         if _FREEZE_CLAUSE_RE.search(clause) or _FINISH_HOLD_RE.search(clause):
             buckets["freeze"].append(clause)
             return
@@ -2015,16 +2141,16 @@ class H3PromptBuilder:
         events = [
             item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()
         ]
+        character_count = len([
+            item for item in (shot.get("character_references") or [])
+            if isinstance(item, dict) and str(item.get("character_name") or "").strip()
+        ])
         body: list[str] = []
         body.extend(buckets["intro"])
         body.extend(buckets["lock"])
         body.extend(buckets["blocking"])
         for index, event in enumerate(events):
-            clause = motion.pop(0) if motion else ""
-            if not cls._clause_covers_speech_gap(clause):
-                fallback = cls._fallback_camera_beat(index)
-                clause = f"{fallback} {clause}".strip() if clause else fallback
-            body.append(clause)
+            body.append(cls._camera_for_speech_event(event, index, events, motion, character_count))
             body.append(cls._speech_contract_line(event, shot, speaker_map))
         body.extend(buckets["freeze"] or [
             "After the last syllable, the shot freezes on a readable facial reaction for about one second."

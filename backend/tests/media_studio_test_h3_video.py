@@ -1042,10 +1042,9 @@ class H3PromptTests(unittest.TestCase):
         self.assertEqual(rendered.lower().count("thinks"), 1)
         self.assertLess(rendered.find("9:16"), rendered.find("tilt up"))
         self.assertLess(rendered.find("tilt up"), rendered.find(spoken_a))
-        self.assertLess(rendered.find(spoken_a), rendered.find("pushes to the speaker"))
-        self.assertLess(rendered.find("pushes to the speaker"), rendered.find(inner))
-        self.assertLess(rendered.find(inner), rendered.find("follows the gaze"))
-        self.assertLess(rendered.find("follows the gaze"), rendered.find(spoken_b))
+        self.assertLess(rendered.find(spoken_a), rendered.find("follows the gaze"))
+        self.assertLess(rendered.find("follows the gaze"), rendered.find(inner))
+        self.assertLess(rendered.find(inner), rendered.find(spoken_b))
         self.assertLess(rendered.find(spoken_b), rendered.lower().find("freezes"))
 
     def test_render_ref2va_fills_short_framing_clauses_between_inner_and_spoken(self):
@@ -1124,23 +1123,24 @@ class H3PromptTests(unittest.TestCase):
                 "one continuous 15-second take, no internal cuts, no timestamp labels, "
                 "no black frames, no 16:9 letterbox. "
                 "COMPOSITION AND CAMERA: medium-close that starts at the waist and tilts up to the face, "
-                "then a slow push to the landlord and a tilt down her outfit, one continuous move, no cut. "
+                "then a tilt down her outfit that holds on her torso filling the vertical frame, "
+                "then a slow push to the landlord after that off-screen thought, one continuous move, no cut. "
                 "Heads sit in the upper third of the vertical frame. "
                 "Shallow depth of field on the speaking face; the environment behind must still be identifiable as this location. "
-                "LOCATION: cramped old stainless-steel elevator cabin, sickly white fluorescent. "
+                "LOCATION: already inside a closed cramped old stainless-steel elevator cabin, sickly white fluorescent; doors stay shut. "
                 "LIGHTING: sickly overhead fluorescent, cyan skin, no beauty rim light. "
                 "CAST LOCK, do not beautify or swap faces: skinny 60-year-old Chinese landlord, "
                 "receding gray hair, wrinkled tanned skin, sparse stubble, dirty stained yellow-white tank top. "
-                "15-SECOND PERFORMANCE, chronological, all inside this single take: Elevator doors shut. "
+                "15-SECOND PERFORMANCE, chronological, all inside this single take: Already inside the closed cabin. Doors stay shut. "
                 "Start on Sha Lili's waist: left hand grips the stickered green iPhone. "
                 "Slow tilt up to her medium-close; optional name-card 911 tenant Sha Lili, not spoken. "
                 "She first says uncle, then I can do anything, forces a pleasing smile, pauses, "
                 "then that, that next month's rent I will definitely give you. "
-                "Push to Wu Nai's medium-close on the left; optional name-card landlord Wu Nai, not spoken. "
-                "His lips stay closed as his eyes travel down her: inner voice heavy makeup, night-owl hours; "
-                "the camera follows his gaze tilting down the red camisole and black mini skirt "
-                "while the inner voice continues red camisole, black mini skirt. "
-                "Push back to his face; he opens his mouth: no need to guess what she does. "
+                "The camera follows his gaze tilting down the red camisole and black mini skirt "
+                "and holds a vertical medium on her torso so the clothes fill the frame. "
+                "Then push to Wu Nai's medium-close on the left; "
+                "optional name-card landlord Wu Nai, not spoken. "
+                "He opens his mouth: no need to guess what she does. "
                 "After the last spoken syllable, freeze a readable facial reaction for about one second. "
                 "Lip-sync the exact Chinese line(s): "
                 f"沙丽丽：“{spoken_a}” 吴耐（内心）：“{inner}” 吴耐：“{spoken_b}”. "
@@ -1172,8 +1172,23 @@ class H3PromptTests(unittest.TestCase):
         self.assertRegex(generated, r"\b(?:sound|audio|ambience|ambient)\b")
         self.assertNotIn("1. COMPOSITION", generated)
         self.assertNotIn("The camera then a ", generated)
-        self.assertLess(generated.find("Elevator doors shut"), generated.find(spoken_a))
+        self.assertLess(generated.find("Already inside the closed cabin"), generated.find(spoken_a))
+        self.assertNotIn("Elevator doors shut", generated)
+        self.assertNotIn("Doors just shut", generated)
         self.assertLess(generated.find("left hand grips"), generated.find(spoken_a))
+        self.assertLess(generated.find(spoken_a), generated.find("follows his gaze"))
+        self.assertLess(generated.find("follows his gaze"), generated.find(inner))
+        self.assertLess(generated.find("red camisole"), generated.find(inner))
+        self.assertNotIn("Push to Wu Nai", generated[generated.find(spoken_a):generated.find(inner)])
+        self.assertRegex(
+            generated[generated.find(inner):generated.find(spoken_b)],
+            r"(?i)(?:then )?push (?:back to his face|to Wu Nai)",
+        )
+        self.assertIn("clothes fill the shot", generated[generated.find("follows his gaze"):generated.find(inner)])
+        self.assertNotIn("the. camera", generated)
+        self.assertNotIn("Then a tilt down her outfit", generated)
+        self.assertNotIn("her:.", generated)
+        self.assertLess(generated.find(inner), generated.find(spoken_b))
         self.assertLess(generated.find(spoken_b), generated.lower().find("freeze"))
         self.assertNotIn("Yu Qian stays", generated)
         self.assertNotIn("left His lips", generated)
@@ -1353,6 +1368,50 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("<Subject 3>", usable[0])
         self.assertIn("<d>[Chinese] 只对十四天。</d>", usable[0])
         self.assertEqual([], H3PromptBuilder.validate_prompts([shot], usable))
+
+    def test_workshop_prompts_reuse_manual_prompt_verbatim(self):
+        prompt = (
+            "subject_definitions:\n<Subject 1> is A in <Picture 1>.\n"
+            "summary:\nmanual summary\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n[Shot 1] KEEP_MANUAL_CAMERA_TOKEN holds the frame.\n"
+            "overall_soundscape:\nAmbient room sound.\n"
+            "non_diegetic_music:\nN/A"
+        )
+        shot = {
+            "sequence": 1,
+            "speaker": "沈砚",
+            "dialogue": "你好。",
+            "h3_prompt": prompt,
+            "h3_prompt_source": "manual",
+        }
+        usable = EpisodeVideoService._workshop_prompts_usable([shot])
+        self.assertIsNotNone(usable)
+        self.assertIn("KEEP_MANUAL_CAMERA_TOKEN", usable[0])
+        self.assertEqual(usable[0], H3PromptBuilder.canonicalize_reference_tags(prompt))
+
+    def test_workshop_prompts_manual_does_not_block_generated_neighbor(self):
+        generated = {
+            "sequence": 1,
+            "speaker": "沈砚",
+            "dialogue": "你好。",
+            "h3_prompt": rich_prompt(),
+        }
+        manual = {
+            "sequence": 2,
+            "speaker": "沈砚",
+            "dialogue": "再见。",
+            "h3_prompt": (
+                "subject_definitions:\nmanual\nsummary:\nmanual\nretention_analysis:\nmanual\n"
+                "detailed_description:\nKEEP_SECOND_MANUAL\noverall_soundscape:\nroom\n"
+                "non_diegetic_music:\nN/A"
+            ),
+            "h3_prompt_source": "manual",
+        }
+        usable = EpisodeVideoService._workshop_prompts_usable([generated, manual])
+        self.assertIsNotNone(usable)
+        self.assertIn("你好。", usable[0])
+        self.assertIn("KEEP_SECOND_MANUAL", usable[1])
 
     def test_beat_info_prompt_finalize_injects_missing_subject(self):
         from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
@@ -1841,6 +1900,7 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
             )
         create_job.assert_called_once()
         self.assertIsNone(create_job.call_args.kwargs.get("beat_id"))
+        self.assertIsNone(create_job.call_args.kwargs.get("beat_ids"))
         self.assertEqual("episode", create_job.call_args.kwargs.get("render_scope"))
         self.assertEqual("episode", result["render_mode"])
         self.assertEqual(["job-ep"], result["job_ids"])
@@ -1938,25 +1998,37 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
         create_job.assert_called_once()
         self.assertEqual("beat-1", create_job.call_args.kwargs["beat_id"])
 
-    def test_director_selected_ids_create_shot_timeline_jobs(self):
-        with patch.object(ProjectDetailService, "get_episode_detail", return_value=self._detail(video_urls={"beat-1": "https://cdn/b1.mp4"})), \
-             patch.object(ProjectDetailService, "list_assets", return_value=[]), \
-             patch.object(EpisodeVideoService, "_prepare_shots", return_value=self._shots()), \
-             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
-             patch.object(EpisodeVideoService, "create_job", side_effect=lambda *args, **kwargs: {
-                 "job_id": f"job-{kwargs['beat_id']}", "status": "queued", "render_scope": "shot",
-             }) as create_job:
+    def test_director_selected_ids_create_one_timeline_job(self):
+        with patch.object(EpisodeVideoService, "create_job", return_value={
+            "job_id": "job-sel", "status": "queued", "render_scope": "selection", "shot_count": 2,
+        }) as create_job:
+            result = EpisodeVideoService.generate_episode_videos(
+                "p1", "e1",
+                options={"workflow": "minimax-h3-director-accel-r2v", "beat_ids": ["beat-1", "beat-2"]},
+            )
+        create_job.assert_called_once()
+        self.assertEqual(["beat-1", "beat-2"], create_job.call_args.kwargs.get("beat_ids"))
+        self.assertIsNone(create_job.call_args.kwargs.get("beat_id"))
+        self.assertEqual("selection", create_job.call_args.kwargs.get("render_scope"))
+        self.assertEqual("episode", result["render_mode"])
+        self.assertEqual(["job-sel"], result["job_ids"])
+        self.assertEqual(1, result["submitted"])
+        self.assertEqual(2, result["shot_count"])
+        self.assertEqual(0, result["skipped"])
+
+    def test_director_selected_one_id_still_one_job(self):
+        with patch.object(EpisodeVideoService, "create_job", return_value={
+            "job_id": "job-beat-1", "status": "queued", "render_scope": "shot", "shot_count": 1,
+        }) as create_job:
             result = EpisodeVideoService.generate_episode_videos(
                 "p1", "e1",
                 options={"workflow": "minimax-h3-director-accel-r2v", "beat_ids": ["beat-1"]},
             )
-        self.assertEqual("shot", result["render_mode"])
+        create_job.assert_called_once()
+        self.assertEqual(["beat-1"], create_job.call_args.kwargs.get("beat_ids"))
         self.assertEqual(["job-beat-1"], result["job_ids"])
         self.assertEqual(1, result["submitted"])
-        self.assertEqual(0, result["skipped"])
-        create_job.assert_called_once()
-        self.assertEqual("beat-1", create_job.call_args.kwargs["beat_id"])
-        self.assertEqual("shot", create_job.call_args.kwargs.get("render_scope"))
+        self.assertEqual(1, result["shot_count"])
 
     def test_shot_one_click_skips_in_progress_beats_and_errors_when_nothing_left(self):
         active = [{"id": "job-1", "payload_json": __import__("json").dumps({
@@ -1983,6 +2055,15 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
                 EpisodeVideoService._assert_can_enqueue("p1", "e1", "episode")
             with self.assertRaisesRegex(ValueError, "该分集已有进行中的视频任务"):
                 EpisodeVideoService._assert_can_enqueue("p1", "e1", "compose")
+
+    def test_selection_lock_blocks_overlapping_beats(self):
+        active = [{"id": "job-sel", "payload_json": __import__("json").dumps({
+            "render_scope": "selection", "beat_ids": ["beat-1", "beat-2"], "episode_id": "e1",
+        })}]
+        with patch.object(EpisodeVideoService, "_active_video_jobs", return_value=active):
+            EpisodeVideoService._assert_can_enqueue("p1", "e1", "shot", beat_id="beat-3")
+            with self.assertRaisesRegex(ValueError, "该镜头已有进行中的视频任务"):
+                EpisodeVideoService._assert_can_enqueue("p1", "e1", "selection", beat_ids=["beat-2", "beat-3"])
 
     def test_compose_rejects_missing_shots_and_director_direct_output(self):
         missing = self._detail(video_urls={"beat-1": "https://cdn/a.mp4"})

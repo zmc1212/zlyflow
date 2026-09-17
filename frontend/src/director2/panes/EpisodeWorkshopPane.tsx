@@ -248,6 +248,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [h3RefImages, setH3RefImages] = useState<H3RefImage[]>([])
     const [h3ImagesExpanded, setH3ImagesExpanded] = useState(false)
     const [generatingH3Prompt, setGeneratingH3Prompt] = useState(false)
+    const [h3PromptEditing, setH3PromptEditing] = useState(false)
+    const [h3PromptDraft, setH3PromptDraft] = useState("")
+    const [savingH3Prompt, setSavingH3Prompt] = useState(false)
 
     // 与 Vue 实例级可变量对应的同步 ref（供轮询与异步续体读取最新值，等价 .value 语义）
     const currentEpisodeIdRef = useRef<string | null>(episodeId ?? null)
@@ -396,6 +399,17 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       return currentEpisode.beats.find((b) => b.id === selectedBeatId) || currentEpisode.beats[0]
     }, [currentEpisode, selectedBeatId])
 
+    useEffect(() => {
+      setH3PromptEditing(false)
+      setH3PromptDraft(String(selectedBeat?.h3_prompt || ""))
+    }, [selectedBeat?.id])
+
+    useEffect(() => {
+      if (!h3PromptEditing) {
+        setH3PromptDraft(String(selectedBeat?.h3_prompt || ""))
+      }
+    }, [selectedBeat?.h3_prompt, h3PromptEditing])
+
     const episodeProtagonist = useMemo<Director2Asset | null>(() => {
       const beats = currentEpisode?.beats || []
       for (const beat of beats) {
@@ -421,6 +435,18 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       return (currentEpisode?.beats || []).filter((b) => Boolean(String(b.h3_prompt || "").trim())).length
     }, [currentEpisode])
     const h3RefImagesVisible = h3ImagesExpanded ? h3RefImages : h3RefImages.slice(0, 3)
+    const savedH3Prompt = String(selectedBeat?.h3_prompt || "")
+    const h3PromptDirty = h3PromptDraft !== savedH3Prompt
+    const showH3Editor = Boolean(h3PromptEditing || !savedH3Prompt.trim())
+    const h3StatusLabel = generatingH3Prompt
+      ? "生成中"
+      : showH3Editor && h3PromptDirty
+        ? "未保存"
+        : !savedH3Prompt.trim()
+          ? "未填写"
+          : selectedBeat?.h3_prompt_source === "manual"
+            ? "已保存"
+            : "已生成"
 
     const selectedVideoWorkflow = useMemo(
       () => videoWorkflows.find((item) => item.id === videoWorkflow) || videoWorkflows[0],
@@ -630,11 +656,57 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     }
 
     function copyH3Prompt() {
-      const beat = resolveSelectedBeat(currentEpisodeRef.current)
-      if (!beat?.h3_prompt) return
-      navigator.clipboard.writeText(beat.h3_prompt)
+      const text = h3PromptEditing ? h3PromptDraft : String(resolveSelectedBeat(currentEpisodeRef.current)?.h3_prompt || "")
+      if (!text.trim()) return
+      navigator.clipboard.writeText(text)
         .then(() => message.success("H3 提示词已复制到剪贴板"))
         .catch(() => message.error("复制失败"))
+    }
+
+    async function saveH3Prompt() {
+      const ep = currentEpisodeRef.current
+      const beat = resolveSelectedBeat(ep)
+      if (!ep || !beat || savingH3Prompt) return
+      setSavingH3Prompt(true)
+      try {
+        const nextPrompt = h3PromptDraft
+        await updateEpisodeBeat(csrfToken, projectId, ep.id, beat.id, {
+          h3_prompt: nextPrompt,
+          h3_prompt_source: nextPrompt.trim() ? "manual" : "",
+        })
+        updateBeatById(beat.id, {
+          h3_prompt: nextPrompt,
+          h3_prompt_source: nextPrompt.trim() ? "manual" : "",
+        })
+        setH3PromptEditing(false)
+        message.success("H3 提示词已保存，出片将按原文使用")
+      } catch (err) {
+        message.error(director2ErrorDetail(err, "保存 H3 提示词失败"))
+      } finally {
+        setSavingH3Prompt(false)
+      }
+    }
+
+    function cancelH3PromptEdit() {
+      setH3PromptDraft(String(resolveSelectedBeat(currentEpisodeRef.current)?.h3_prompt || ""))
+      setH3PromptEditing(false)
+    }
+
+    function requestGenerateH3Prompt() {
+      const beat = resolveSelectedBeat(currentEpisodeRef.current)
+      const saved = String(beat?.h3_prompt || "").trim()
+      const dirty = h3PromptDraft !== String(beat?.h3_prompt || "")
+      if (saved || (h3PromptEditing && dirty && h3PromptDraft.trim())) {
+        Modal.confirm({
+          title: "覆盖当前 H3 提示词？",
+          content: "系统生成会覆盖已保存或正在编辑的提示词。",
+          okText: "覆盖生成",
+          cancelText: "取消",
+          onOk: () => handleGenerateH3Prompt(),
+        })
+        return
+      }
+      void handleGenerateH3Prompt()
     }
 
     async function handleGenerateH3Prompt() {
@@ -642,6 +714,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       const beat = resolveSelectedBeat(ep)
       if (!ep || !beat || generatingH3Prompt) return
       setGeneratingH3Prompt(true)
+      setH3PromptEditing(false)
       try {
         const res = await generateBeatH3Prompt(csrfToken, projectId, ep.id, beat.id, {
           ref_images: h3RefImages.map((img, index) => ({
@@ -660,7 +733,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           })
           await pollImageJobs()
         } else if (res?.prompt) {
-          updateBeatById(beat.id, { h3_prompt: res.prompt })
+          updateBeatById(beat.id, { h3_prompt: res.prompt, h3_prompt_source: "generated" })
+          setH3PromptDraft(String(res.prompt))
+          setH3PromptEditing(false)
           setOpenSections((prev) => ({ ...prev, material: true }))
           message.success({ content: "已生成电影级 H3 提示词", key: "h3PromptGen" })
           setGeneratingH3Prompt(false)
@@ -1106,7 +1181,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
             if (SUCCEEDED_JOB_STATUSES.has(trackedJob.status)) {
               const newPrompt = trackedJob.payload?.h3_prompt || trackedJob.payload?.result_prompt
               if (newPrompt && currentBeatId && currentBeatId === trackedJob.payload?.beat_id) {
-                updateBeatById(currentBeatId, { h3_prompt: String(newPrompt) })
+                updateBeatById(currentBeatId, {
+                  h3_prompt: String(newPrompt),
+                  h3_prompt_source: "generated",
+                })
+                setH3PromptDraft(String(newPrompt))
+                setH3PromptEditing(false)
               }
               message.success({ content: "H3 提示词已生成完成！", key: "h3PromptGen" })
               refresh = true
@@ -2177,12 +2257,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                         size="small"
                                         loading={generatingH3Prompt}
                                         icon={<Sparkles size={12} />}
-                                        onClick={() => handleGenerateH3Prompt()}
+                                        onClick={() => requestGenerateH3Prompt()}
                                       >
                                         {generatingH3Prompt ? "生成中" : "生成 H3 提示词"}
                                       </Button>
-                                      <span className={`status-chip ${selectedBeat.h3_prompt ? "is-active" : "is-idle"}`}>
-                                        <span className="chip-dot" /> {selectedBeat.h3_prompt ? "已生成" : "未生成"}
+                                      <span className={`status-chip ${savedH3Prompt.trim() && !h3PromptDirty ? "is-active" : "is-idle"}`}>
+                                        <span className="chip-dot" /> {h3StatusLabel}
                                       </span>
                                     </div>
                                   </div>
@@ -2251,16 +2331,58 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                       <div className="h3-prompt-panel">
                                         <div className="h3-prompt-head">
                                           <span className="h3-prompt-title">提示词</span>
-                                          {selectedBeat.h3_prompt ? (
-                                            <Button type="link" size="small" icon={<Copy size={12} />} onClick={() => copyH3Prompt()}>
+                                          <div className="h3-prompt-head-actions">
+                                            {showH3Editor ? (
+                                              <>
+                                                <Button
+                                                  size="small"
+                                                  type="primary"
+                                                  loading={savingH3Prompt}
+                                                  disabled={generatingH3Prompt || !h3PromptDirty}
+                                                  onClick={() => void saveH3Prompt()}
+                                                >
+                                                  保存
+                                                </Button>
+                                                {savedH3Prompt.trim() ? (
+                                                  <Button size="small" disabled={generatingH3Prompt || savingH3Prompt} onClick={() => cancelH3PromptEdit()}>
+                                                    取消
+                                                  </Button>
+                                                ) : null}
+                                              </>
+                                            ) : (
+                                              <Button
+                                                size="small"
+                                                icon={<Pencil size={12} />}
+                                                disabled={generatingH3Prompt}
+                                                onClick={() => {
+                                                  setH3PromptDraft(savedH3Prompt)
+                                                  setH3PromptEditing(true)
+                                                }}
+                                              >
+                                                编辑
+                                              </Button>
+                                            )}
+                                            <Button
+                                              type="link"
+                                              size="small"
+                                              icon={<Copy size={12} />}
+                                              disabled={!String(showH3Editor ? h3PromptDraft : savedH3Prompt).trim()}
+                                              onClick={() => copyH3Prompt()}
+                                            >
                                               复制
                                             </Button>
-                                          ) : null}
+                                          </div>
                                         </div>
-                                        {selectedBeat.h3_prompt ? (
-                                          <div
-                                            className="h3-prompt-display"
-                                            dangerouslySetInnerHTML={{ __html: renderH3PromptHtml(selectedBeat.h3_prompt) }}
+                                        {showH3Editor ? (
+                                          <Input.TextArea
+                                            className="h3-prompt-editor"
+                                            value={h3PromptDraft}
+                                            disabled={generatingH3Prompt || savingH3Prompt}
+                                            placeholder={"粘贴外部 AI 写好的 MiniMax H3 六段提示词，保存后出片按原文使用。\n也可点「生成 H3 提示词」，按本镜画面草稿和锁定台词渲染。"}
+                                            onChange={(e) => {
+                                              setH3PromptEditing(true)
+                                              setH3PromptDraft(e.target.value)
+                                            }}
                                           />
                                         ) : generatingH3Prompt ? (
                                           <div className="h3-prompt-loading">
@@ -2268,10 +2390,10 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                             <span>正在生成 H3 提示词...</span>
                                           </div>
                                         ) : (
-                                          <div className="h3-prompt-empty">
-                                            <span>尚未生成 H3 提示词</span>
-                                            <p>点击「生成 H3 提示词」，按本镜画面草稿和锁定台词渲染六段 Ref2VA。</p>
-                                          </div>
+                                          <div
+                                            className="h3-prompt-display"
+                                            dangerouslySetInnerHTML={{ __html: renderH3PromptHtml(savedH3Prompt) }}
+                                          />
                                         )}
                                       </div>
                                     </div>

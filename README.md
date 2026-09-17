@@ -1731,7 +1731,7 @@ TTS 语音合成从 LLM 页拆出，与 LLM、VLM 并列。超级管理员在「
 
 ## 2026-09-17 工坊 Director 也可生成选中镜头
 
-H3 Director 加速版「一键生成视频」仍一次出整集成片。镜头卡勾选与「生成选中」在整集直出工作流同样可用：只提交勾选镜的单镜 Timeline，成片写入该镜。各镜都有视频后可在合成 Tab 拼接。验证：`python -m unittest backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend test`。
+H3 Director 加速版「一键生成视频」仍一次出整集成片。镜头卡勾选与「生成选中」在整集直出工作流同样可用：勾选的镜头进入 **1 个** Timeline 任务（全部任务里只出现一条），成片再按镜写入。逐镜工作流仍是每镜一个任务。各镜都有视频后可在合成 Tab 拼接。验证：`python -m unittest backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend test`。
 
 ## 2026-09-17 工坊 H3 收拢英文夹杂的复读台词
 
@@ -1740,3 +1740,15 @@ H3 Director 加速版「一键生成视频」仍一次出整集成片。镜头�
 ## 2026-09-17 工坊 H3 提示词按画面草稿装箱
 
 工坊点「生成 H3 提示词」按本镜画面草稿和锁定台词渲染六段 Ref2VA，不再让模型写 `[Shot 1]` 时间轴。空态说明为「按本镜画面草稿和锁定台词渲染六段 Ref2VA」。验证：`python -m unittest backend.tests.media_studio_test_h3_video`。
+
+## 2026-09-17 内心戏顺着视线下摇到对方身上
+
+工坊生成 H3 时，内心旁白会接到「顺着思考者视线下摇到对方衣服」的运镜，而不是只推思考者近景。第一镜吴耐说「浓妆艳抹」时应看到沙丽丽的红吊带和短裙。验证：`python -m unittest backend.tests.media_studio_test_h3_video`。
+
+## 2026-09-17 内心戏画面钉在被看的人身上
+
+内心「浓妆艳抹」时画面停在沙丽丽胸腰（红吊带、黑短裙铺满竖屏，吴耐不出画），推吴耐近景放到他开口之后。验证：`python -m unittest backend.tests.media_studio_test_h3_video`。
+
+## 2026-09-17 工坊 H3 提示词支持手动编辑
+
+剧集工坊素材组提示词可编辑和粘贴外部 AI 写好的六段，保存后出片按原文使用。系统「生成 H3 提示词」仍可用；再生成会确认覆盖。验证：`python backend/tests/media_studio_test_h3_video.py`。
