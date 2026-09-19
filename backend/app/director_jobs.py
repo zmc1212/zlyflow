@@ -1263,6 +1263,44 @@ def _plate_paths_for_shot(
     return paths
 
 
+def _reference_http_urls_for_shot(recipe: dict[str, Any], shot: dict[str, Any]) -> list[str]:
+    from .vision_runtime import normalize_image_urls
+
+    resolved = apply_recipe_continuity(recipe, shot)
+    urls: list[str] = []
+    for slot in recipe_assets_as_slots(recipe, resolved):
+        for key in ("previewUrl", "imageUrl", "url", "image_url"):
+            value = str(slot.get(key) or "").strip()
+            if value.startswith(("http://", "https://")):
+                urls.append(value)
+                break
+    for key in ("stillUrl", "firstFrameUrl", "endFrameUrl"):
+        value = str(resolved.get(key) or "").strip()
+        if value.startswith(("http://", "https://")):
+            urls.append(value)
+    return normalize_image_urls(urls)
+
+
+def _invoke_h3_prompt_refiner(
+    refiner: Callable[..., str],
+    draft: str,
+    mode: str,
+    on_chunk: Callable[[str], None] | None = None,
+    image_urls: list[str] | None = None,
+) -> str:
+    if image_urls:
+        try:
+            return refiner(draft, mode, on_chunk, image_urls)
+        except TypeError:
+            pass
+    if on_chunk is not None:
+        try:
+            return refiner(draft, mode, on_chunk)
+        except TypeError:
+            pass
+    return refiner(draft, mode)
+
+
 def _reference_paths_for_shot(
     store: JobStore,
     recipe: dict[str, Any],
@@ -1356,13 +1394,14 @@ def render_recipe_shots(
                         on_message(f"正在润色{shot_prefix}提示词…（{len(chunk)} 字）")
                         
                 prompt_mode = h3_prompt_mode(submission.get("plan") or {})
-                if on_message:
-                    try:
-                        polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode, prompt_progress)
-                    except TypeError:
-                        polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode)
-                else:
-                    polished_prompt = h3_prompt_refiner(str(submission["prompt"]), prompt_mode)
+                image_urls = _reference_http_urls_for_shot(recipe, resolved)
+                polished_prompt = _invoke_h3_prompt_refiner(
+                    h3_prompt_refiner,
+                    str(submission["prompt"]),
+                    prompt_mode,
+                    prompt_progress if on_message else None,
+                    image_urls,
+                )
                 polish_errors = validate_h3_polished_prompt(polished_prompt, submission.get("plan") or {})
                 if polish_errors:
                     revision_request = (
@@ -1370,7 +1409,13 @@ def render_recipe_shots(
                         "Validation feedback: " + "; ".join(polish_errors)
                         + f"\nRewrite the complete final {prompt_mode} prompt and fix every validation issue."
                     )
-                    polished_prompt = h3_prompt_refiner(revision_request, prompt_mode)
+                    polished_prompt = _invoke_h3_prompt_refiner(
+                        h3_prompt_refiner,
+                        revision_request,
+                        prompt_mode,
+                        None,
+                        image_urls,
+                    )
                     polish_errors = validate_h3_polished_prompt(polished_prompt, submission.get("plan") or {})
                 if polish_errors:
                     raise ValueError("；".join(polish_errors))

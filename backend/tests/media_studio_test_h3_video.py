@@ -12,11 +12,14 @@ from unittest.mock import Mock, patch
 
 import websocket
 
+from backend.app.llm_client import OpenAICompatibleClient
 from backend.app.media_studio.services.comfy_video_client import ComfyVideoClient
 from backend.app.media_studio.services.episode_image_prompts import beat_reference_urls, beat_render_prompt
 from backend.app.media_studio.services.episode_video_service import EpisodeVideoService
-from backend.app.media_studio.services.h3_prompt_builder import H3PromptBuilder
+from backend.app.media_studio.services.h3_prompt_builder import H3PromptBuilder, _THICKNESS_PAD
+from backend.app.media_studio.services.llm_service import LlmService
 from backend.app.media_studio.services.project_detail_service import ProjectDetailService
+from backend.app.skill_packs import HALF_NARRATED_PACK_ID
 
 
 def rich_prompt(dialogue: str = "你好。") -> str:
@@ -35,6 +38,24 @@ def rich_prompt(dialogue: str = "你好。") -> str:
         "The shot holds long enough for complete unhurried dialogue and a natural pause.\n"
         "overall_soundscape:\nQuiet room sound and synchronized movement.\n"
         "non_diegetic_music:\nRestrained piano at a slow tempo with a soft ending."
+    )
+
+
+def short_authored_en(dialogue: str = "你好。") -> str:
+    return (
+        "subject_definitions:\n"
+        "<picture 1> is the protagonist. <picture 2> is the corridor. "
+        "<picture 3> is the start frame.\n"
+        "summary:\n"
+        "[reference generation] A corridor beat.\n"
+        "retention_analysis:\n"
+        "fully_preserved.\n"
+        "detailed_description:\n"
+        f"[Shot 1] The camera tracks down the corridor. (S1) says <d>[Chinese] {dialogue}</d>.\n"
+        "overall_soundscape:\n"
+        "Corridor hum.\n"
+        "non_diegetic_music:\n"
+        "None."
     )
 
 
@@ -155,6 +176,27 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("<d>[Chinese] 该不会想让我那啥吧。</d>", cleaned)
         self.assertNotIn("<d>[Chinese] 沙丽丽：", cleaned)
 
+    @patch.object(LlmService, "_runtime_config", return_value=("https://cn3.example/v1", "gpt-5.6-sol", "sk-test"))
+    @patch.object(OpenAICompatibleClient, "chat_completion", return_value="packed prompt")
+    def test_chat_text_streams_and_lowers_gpt5_reasoning(self, mock_chat, _config):
+        text = LlmService.chat_text("sys", "user", max_tokens=6000, temperature=0.4)
+        self.assertEqual(text, "packed prompt")
+        self.assertTrue(mock_chat.call_args.kwargs["stream"])
+        self.assertEqual(mock_chat.call_args.kwargs["reasoning_effort"], "low")
+        self.assertEqual(mock_chat.call_args.kwargs["timeout"], 240.0)
+        self.assertEqual(mock_chat.call_args.kwargs["max_tokens"], 6000)
+
+    @patch.object(
+        LlmService,
+        "_runtime_config",
+        return_value=("https://api.siliconflow.cn/v1", "Qwen/Qwen2.5-7B-Instruct", "sk-test"),
+    )
+    @patch.object(OpenAICompatibleClient, "chat_completion", return_value="ok")
+    def test_chat_text_does_not_send_reasoning_effort_for_qwen(self, mock_chat, _config):
+        LlmService.chat_text("sys", "user")
+        self.assertNotIn("reasoning_effort", mock_chat.call_args.kwargs)
+        self.assertTrue(mock_chat.call_args.kwargs["stream"])
+
     def test_validate_h3_prompt_rejects_short_english(self):
         from backend.app.media_studio.services.llm_service import LlmService
 
@@ -230,7 +272,9 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("8 秒时序", text)
         self.assertIn("必须在 8 秒内演完", text)
         self.assertIn("原样保留 9:16", text)
-        self.assertIn("appearance from", text)
+        self.assertIn("只锁身份", text)
+        self.assertIn("不锁站位", text)
+        self.assertNotIn("appearance from", text)
         self.assertIn("Fill only missing", text)
 
         eleven = LlmService._h3_user_prompt(
@@ -1004,6 +1048,442 @@ class H3PromptTests(unittest.TestCase):
             "ref_images": [{"index": 1}, {"index": 2}],
         }))
 
+    def test_generate_h3_prompt_skill_pack_raises_when_author_fails(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+        from backend.app.skill_packs.recipe import HALF_NARRATED_PACK_ID
+
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        with patch.object(LlmService, "author_timestamped_zh_prompt", side_effect=RuntimeError("skip")):
+            with patch.object(LlmService, "_request_h3_prompt") as request:
+                with self.assertRaises(RuntimeError):
+                    LlmService.generate_h3_prompt(beat_info)
+        request.assert_not_called()
+        self.assertNotIn(_THICKNESS_PAD, str(beat_info.get("h3_prompt") or ""))
+        self.assertNotIn("The camera holds a stable medium composition", str(beat_info.get("h3_prompt") or ""))
+
+    def test_generate_h3_prompt_raises_when_packing_breaks_shell(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        with patch.object(LlmService, "author_timestamped_zh_prompt", side_effect=RuntimeError("skip")):
+            with patch.object(LlmService, "_request_h3_prompt") as request:
+                with self.assertRaises(RuntimeError):
+                    LlmService.generate_h3_prompt(beat_info)
+        request.assert_not_called()
+        self.assertNotIn(_THICKNESS_PAD, str(beat_info.get("h3_prompt") or ""))
+
+    def test_generate_h3_prompt_skips_second_pack_when_dual_en_valid(self):
+        from backend.app.media_studio.services.llm_service import DualShotAuthorResult, LlmService
+        from backend.app.vision_runtime import VISION_STATUS_USED, VisionCallMeta
+
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        packed = short_authored_en("你好。")
+        result = DualShotAuthorResult(
+            zh_prompt=(
+                "镜头目的：开门\n参考素材：<Picture 1>\n必须出现的视觉内容：门\n"
+                "按旁白和画面内容切镜：00:00–00:08 开口\n对白：你好。\n旁白：无\n画面要求：9:16\n负向约束：无分栏"
+            ),
+            en_prompt=packed,
+            en_valid=True,
+            vision=VisionCallMeta(status=VISION_STATUS_USED, model="gpt-5.6-sol", image_count=3, source="llm"),
+        )
+        with patch.object(LlmService, "author_timestamped_zh_prompt", return_value=result):
+            with patch.object(LlmService, "_request_h3_prompt") as request:
+                generated = LlmService.generate_h3_prompt(beat_info)
+        request.assert_not_called()
+        self.assertIn("[Shot 1]", generated)
+        self.assertIn("你好。", generated)
+        self.assertNotIn(_THICKNESS_PAD, generated)
+        self.assertEqual("used", beat_info.get("vision_status"))
+        self.assertEqual("gpt-5.6-sol", beat_info.get("vision_model"))
+        self.assertEqual(3, beat_info.get("vision_image_count"))
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+
+    def test_generate_h3_prompt_raises_when_dual_en_invalid(self):
+        from backend.app.media_studio.services.llm_service import DualShotAuthorError, DualShotAuthorResult, LlmService
+        from backend.app.vision_runtime import VISION_STATUS_USED, VisionCallMeta
+
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        result = DualShotAuthorResult(
+            zh_prompt=(
+                "镜头目的：开门\n参考素材：<Picture 1>\n必须出现的视觉内容：门\n"
+                "按旁白和画面内容切镜：00:00–00:08 开口\n对白：你好。\n旁白：无\n画面要求：9:16\n负向约束：无分栏"
+            ),
+            en_prompt="broken packing without headings",
+            en_valid=False,
+            vision=VisionCallMeta(status=VISION_STATUS_USED, model="gpt-5.6-sol", image_count=3, source="llm"),
+        )
+        with patch.object(LlmService, "author_timestamped_zh_prompt", return_value=result):
+            with patch.object(LlmService, "_request_h3_prompt") as request:
+                with self.assertRaises(DualShotAuthorError) as raised:
+                    LlmService.generate_h3_prompt(beat_info)
+        request.assert_not_called()
+        self.assertIn("英文六段", str(raised.exception))
+        self.assertNotIn(_THICKNESS_PAD, str(beat_info.get("h3_prompt") or ""))
+        self.assertNotIn("The camera holds a stable medium composition", str(beat_info.get("h3_prompt") or ""))
+
+    def test_generate_h3_prompt_skip_program_pack_keeps_authored_en(self):
+        from backend.app.media_studio.services.llm_service import DualShotAuthorResult, LlmService
+        from backend.app.vision_runtime import VISION_STATUS_USED, VisionCallMeta
+
+        authored = short_authored_en("你好。")
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        result = DualShotAuthorResult(
+            zh_prompt=(
+                "镜头目的：走廊\n参考素材：<Picture 1> <Picture 2> <Picture 3>\n必须出现的视觉内容：走廊\n"
+                "按旁白和画面内容切镜：00:00–00:08 开口\n对白：你好。\n旁白：无\n画面要求：9:16\n负向约束：无分栏"
+            ),
+            en_prompt=authored,
+            en_valid=True,
+            vision=VisionCallMeta(status=VISION_STATUS_USED, model="gpt-5.6-sol", image_count=3, source="llm"),
+        )
+        with patch.object(LlmService, "author_timestamped_zh_prompt", return_value=result):
+            with patch.object(LlmService, "_request_h3_prompt") as request:
+                generated = LlmService.generate_h3_prompt(beat_info)
+        request.assert_not_called()
+        self.assertIn("The camera tracks down the corridor", generated)
+        self.assertIn("<Picture 1>", generated)
+        self.assertNotIn("<picture 1>", generated)
+        self.assertNotIn("The camera holds a stable medium composition", generated)
+        self.assertNotIn("Already inside the closed cabin", generated)
+        self.assertNotIn(_THICKNESS_PAD, generated)
+        self.assertNotRegex(generated, r"00:00\s*[–\-]\s*00:")
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+
+    def test_prepare_appends_missing_non_diegetic_heading(self):
+        prompt = rich_prompt().replace(
+            "\nnon_diegetic_music:\nRestrained piano at a slow tempo with a soft ending.",
+            "",
+        )
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        prepared = H3PromptBuilder.prepare_generated_prompt(prompt, shot)
+        self.assertRegex(prepared, r"(?m)^subject_definitions:")
+        self.assertRegex(prepared, r"(?m)^summary:")
+        self.assertRegex(prepared, r"(?m)^retention_analysis:")
+        self.assertRegex(prepared, r"(?m)^detailed_description:")
+        self.assertRegex(prepared, r"(?m)^overall_soundscape:")
+        self.assertRegex(prepared, r"(?m)^non_diegetic_music:")
+        self.assertEqual([], LlmService._validate_h3_prompt(prepared, "Ref2VA", beat_info))
+
+    def test_generate_h3_prompt_raises_when_packing_omits_last_heading(self):
+        from backend.app.media_studio.services.llm_service import DualShotAuthorError, DualShotAuthorResult, LlmService
+        from backend.app.vision_runtime import VisionCallMeta
+
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        authored = short_authored_en("你好。").replace(
+            "\nnon_diegetic_music:\nNone.",
+            "",
+        )
+        result = DualShotAuthorResult(
+            zh_prompt=(
+                "镜头目的：走廊\n参考素材：<Picture 1> <Picture 2> <Picture 3>\n必须出现的视觉内容：走廊\n"
+                "按旁白和画面内容切镜：00:00–00:08 开口\n对白：你好。\n旁白：无\n画面要求：9:16\n负向约束：无分栏"
+            ),
+            en_prompt=authored,
+            en_valid=True,
+            vision=VisionCallMeta(status="unavailable"),
+        )
+        with patch.object(LlmService, "author_timestamped_zh_prompt", return_value=result):
+            with patch.object(LlmService, "_request_h3_prompt") as request:
+                with self.assertRaises(DualShotAuthorError) as raised:
+                    LlmService.generate_h3_prompt(beat_info)
+        request.assert_not_called()
+        self.assertIn("英文六段", str(raised.exception))
+        self.assertNotIn(_THICKNESS_PAD, str(beat_info.get("h3_prompt") or ""))
+
+    def test_overlay_packed_detail_skips_retention_shot_marker(self):
+        shell = rich_prompt("你好。")
+        packed = (
+            "retention_analysis:\n"
+            "<Subject 1> (appears in [Shot 1]): fully_preserved - identity from <Picture 1> is retained.\n"
+            "detailed_description:\n"
+            "[Shot 1] The camera holds a medium shot while lighting and ambient sound continue. "
+            "(S1) says <d>[Chinese] 你好。</d>.\n"
+            "overall_soundscape:\nQuiet room sound.\n"
+        )
+        merged = H3PromptBuilder.overlay_packed_detail(shell, packed)
+        detail = merged.split("detailed_description:", 1)[-1].split("overall_soundscape:", 1)[0]
+        self.assertIn("你好。", detail)
+        self.assertNotIn("fully_preserved", detail)
+        self.assertEqual(1, merged.count("detailed_description:"))
+        self.assertEqual(1, merged.count("overall_soundscape:"))
+
+    def test_faithful_zh_pack_keeps_design_schedule_without_coverage_inserts(self):
+        from backend.app.director_craft.coverage import CLAUSE_PUSH_IN, CLAUSE_TILT_UP
+        from backend.app.skill_packs import get_pack
+        from backend.app.skill_packs.handlers import bind_r2v_slot_images
+
+        spoken_a = "大爷，我什么都可以做。"
+        spoken_b = "您就当做好事。"
+        inner = "浓妆艳抹，黑色小短裙。"
+        zh = (
+            "镜头1，总时长11秒，内部时间从00:00开始。\n"
+            "镜头目的：上摇挂两句，下摇内心，再推近吴耐。\n\n"
+            "参考素材：\n- <Picture 1> 吴耐角色卡\n- <Picture 2> 沙丽丽角色卡\n"
+            "- <Picture 3> 电梯场景卡\n- <Picture 4> 起幅单帧锚点\n\n"
+            "必须出现的视觉内容：\n- 轿厢内站定\n- 上摇两句\n- 下摇内心再推近\n\n"
+            "按旁白和画面内容切镜：\n"
+            f"- 00:00–00:05：上摇过程中吴耐说「{spoken_a}」「{spoken_b}」。\n"
+            f"- 00:05–00:08：下摇到沙丽丽胸腰，内心「{inner}」，画内闭嘴。\n"
+            "- 00:08–00:11：推近吴耐并稳住。\n\n"
+            "对白：\n"
+            f"- 吴耐在 00:00–00:05 说：“{spoken_a}”\n"
+            f"- 吴耐在 00:00–00:05 说：“{spoken_b}”\n\n"
+            "旁白：\n"
+            f"- 00:05–00:08 内心：“{inner}”\n\n"
+            "画面要求：\n- 上摇挂两句，再下摇，再推近\n\n"
+            "负向约束：\n- 不要分栏，末槽只用起幅"
+        )
+        padding = " ".join(
+            ["Stable photoreal lighting, camera, blocking and ambient sound continue."] * 24
+        )
+        packed = (
+            "subject_definitions:\n"
+            "<Subject 1> is 吴耐 in <Picture 1>. "
+            "<Subject 2> is 沙丽丽 in <Picture 2>. "
+            "<Subject 3> is the elevator in <Picture 3>. "
+            "<Subject 4> is the start-frame still in <Picture 4>. "
+            "<Picture 4> anchors opening blocking only; do not interpolate a full 16:9 triptych.\n"
+            "summary:\n[reference generation] An eleven-second elevator beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] {padding} 00:00–00:05 The camera tilts up with small amplitude at slow speed. "
+            f"(S1) <Subject 1> 吴耐 says <d>[Chinese] {spoken_a}</d>. "
+            f"(S1) <Subject 1> 吴耐 says <d>[Chinese] {spoken_b}</d>. "
+            "00:05–00:08 The camera tilts down with small amplitude at slow speed "
+            "and holds a static shot on the chest-and-waist so the clothes fill the vertical frame. "
+            f"(S1) <Subject 1> 吴耐 thinks. In an off-screen inner voiceover, "
+            f"all visible characters keep their lips closed: <d>[Chinese] {inner}</d>. "
+            "00:08–00:11 The camera pushes in with small amplitude at slow speed "
+            "to a medium-close of Wu Nai and holds a static shot.\n"
+            "overall_soundscape:\nElevator hum and synchronized movement.\n"
+            "non_diegetic_music:\nN/A"
+        )
+        beat_info = {
+            "sequence": 1,
+            "dialogue": f"吴耐：“{spoken_a}” 吴耐：“{spoken_b}” 吴耐（内心）：“{inner}”",
+            "camera": "上摇，下摇，推近",
+            "action": "上摇说完两句，再下摇内心，再推近吴耐。已在电梯轿厢内站定。",
+            "timestamped_zh_prompt": zh,
+            "faithful_zh_pack": True,
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "scene_name": "电梯",
+            "duration_seconds": 11,
+            "ref_images": [
+                {"index": 1, "name": "吴耐", "category": "character"},
+                {"index": 2, "name": "沙丽丽", "category": "character"},
+                {"index": 3, "name": "电梯", "category": "scene"},
+                {
+                    "index": 4,
+                    "name": "起幅构图",
+                    "category": "composition",
+                    "source": "triptych.start",
+                    "role": "start",
+                    "url": "https://x/start.png",
+                },
+            ],
+        }
+        user = H3PromptBuilder.build_packing_user_prompt(beat_info, "Ref2VA", 11)
+        self.assertIn("唯一调度权威", user)
+        self.assertNotIn("必须写进对应 {{Dn}}", user)
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        rendered = H3PromptBuilder.render_ref2va(shot)
+        self.assertIn("Follow the Chinese timestamped", rendered)
+        self.assertNotIn("tilts up with small amplitude at slow speed from a waist-level medium to a medium close-up", rendered)
+        prepared = H3PromptBuilder.prepare_generated_prompt(packed, shot)
+        detail = prepared.split("detailed_description:", 1)[-1].split("overall_soundscape:", 1)[0]
+        self.assertLess(detail.lower().find("tilts up"), detail.find(spoken_a))
+        self.assertLess(detail.find(spoken_a), detail.find(spoken_b))
+        self.assertLess(detail.find(spoken_b), detail.lower().find("tilts down"))
+        self.assertLess(detail.find(inner), detail.lower().find("pushes in"))
+        self.assertEqual(1, detail.lower().count("tilts up"))
+        self.assertEqual(2, len(re.findall(r"\bsays\b", detail, flags=re.I)))
+        self.assertEqual(1, len(re.findall(r"\bthinks\b", detail, flags=re.I)))
+        self.assertNotIn("to a medium close-up of the face and holds a static shot", prepared)
+        self.assertNotIn(CLAUSE_TILT_UP, prepared)
+        self.assertEqual(1, prepared.count(CLAUSE_PUSH_IN.format(who="Wu Nai")))
+        recipe = get_pack(HALF_NARRATED_PACK_ID)
+        slots = bind_r2v_slot_images(
+            recipe,
+            {
+                "characters": [{"id": "c-wu", "name": "吴耐", "url": "https://x/wu.png"}],
+                "scene": "电梯",
+                "scene_id": "s-el",
+                "triptych_url": "https://x/triptych.png",
+                "triptych_panels": {"start": "https://x/start.png", "mid": "https://x/mid.png"},
+            },
+            [
+                {"id": "c-wu", "name": "吴耐", "extra": {"avatar_url": "https://x/wu.png"}},
+                {"id": "s-el", "name": "电梯", "extra": {"master_url": "https://x/scene.png"}},
+            ],
+        )
+        urls = [str(item.get("url") or "") for item in slots]
+        self.assertEqual("https://x/start.png", urls[-1])
+        self.assertNotIn("https://x/triptych.png", urls)
+
+    def test_faithful_zh_skips_one_line_one_landing_windows(self):
+        from backend.app.director_craft.coverage import CLAUSE_PUSH_IN, CLAUSE_TILT_UP
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "大爷，我什么都可以做。"
+        spoken_b = "那个，那个房租下个月一定给你。"
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken_c = "不用想也知道，做的是什么。"
+        zh = (
+            "镜头目的：上摇挂两句，下摇内心，再推近。\n"
+            "参考素材：\n- 角色卡\n"
+            "必须出现的视觉内容：\n- 已站定\n"
+            "按旁白和画面内容切镜：\n"
+            f"- 00:00–00:05：上摇过程中说「{spoken_a}」「{spoken_b}」。\n"
+            f"- 00:05–00:10：下摇内心「{inner}」。\n"
+            f"- 00:10–00:14：推近后说「{spoken_c}」。\n"
+            "对白：\n- 有\n"
+            "旁白：\n- 有\n"
+            "画面要求：\n- 一镜到底\n"
+            "负向约束：\n- 不要分栏"
+        )
+        padding = " ".join(
+            ["Stable photoreal lighting, camera, blocking and ambient sound continue."] * 20
+        )
+        prompt = (
+            "subject_definitions:\n"
+            "<Subject 1> is 吴耐 in <Picture 1>. <Subject 2> is 沙丽丽 in <Picture 2>. "
+            "<Subject 3> is the corridor in <Picture 3>. <Subject 4> is the start still in <Picture 4>.\n"
+            "summary:\n[reference generation] A fifteen-second landing take.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] The camera tilts up with small amplitude at slow speed. {padding} "
+            f"(S2) <Subject 2> 沙丽丽 says <d>[Chinese] {spoken_a}</d>. "
+            f"(S2) <Subject 2> 沙丽丽 says <d>[Chinese] {spoken_b}</d>. "
+            "(S1) <Subject 1> 吴耐 thinks. In an off-screen inner voiceover, "
+            f"all visible characters keep their lips closed: <d>[Chinese] {inner}</d>. "
+            f"(S1) <Subject 1> 吴耐 says <d>[Chinese] {spoken_c}</d>.\n"
+            "overall_soundscape:\nAmbient landing sound and synchronized movement.\n"
+            "non_diegetic_music:\nN/A"
+        )
+        beat_info = {
+            "dialogue": (
+                f"沙丽丽：“{spoken_a}” 沙丽丽：“{spoken_b}” "
+                f"吴耐（内心）：“{inner}” 吴耐：“{spoken_c}”"
+            ),
+            "camera": "上摇，下摇，推近",
+            "action": "已在电梯厅站定，不要开门。从腰上摇到脸。",
+            "timestamped_zh_prompt": zh,
+            "faithful_zh_pack": True,
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}, {"index": 4}],
+        }
+        errors = LlmService._validate_h3_prompt(prompt, "Ref2VA", beat_info)
+        landing = [
+            item for item in errors
+            if "tilt up" in item or "push-in" in item or "coverage subject" in item
+        ]
+        self.assertEqual([], landing, errors)
+        prepared = H3PromptBuilder.prepare_generated_prompt(
+            prompt,
+            H3PromptBuilder.shot_from_beat_info(beat_info),
+        )
+        self.assertNotIn(CLAUSE_TILT_UP, prepared)
+        self.assertNotIn(CLAUSE_PUSH_IN.format(who="Wu Nai"), prepared)
+
+    def test_prepare_generated_prompt_repairs_tilt_up_outside_speech_window(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken = "大爷，我什么都可以做。"
+        padding = " ".join(["00:00–00:05 already inside the cabin with ambient detail and lighting."] * 12)
+        prompt = rich_prompt(spoken).replace(
+            f"(S1) says <d>[Chinese] {spoken}</d>.",
+            f"The camera tilts up with small amplitude at slow speed from a waist-level medium. {padding} "
+            f"(S1) says <d>[Chinese] {spoken}</d>.",
+        )
+        beat_info = {
+            "dialogue": spoken,
+            "camera": "上摇到脸",
+            "action": "已在电梯轿厢内站定。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        self.assertIn("camera landing missing tilt up on first spoken beat", LlmService._validate_h3_prompt(prompt, "Ref2VA", beat_info))
+        repaired = H3PromptBuilder.prepare_generated_prompt(prompt, shot)
+        self.assertEqual([], LlmService._validate_h3_prompt(repaired, "Ref2VA", beat_info))
+        self.assertRegex(repaired, r"tilts?\s+up")
+
+    def test_prepare_generated_prompt_strips_elevator_doors_when_already_inside(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken = "大爷，我什么都可以做。"
+        prompt = rich_prompt(spoken).replace(
+            "[Shot 1]",
+            "[Shot 1] Already inside the closed cabin. The elevator doors close behind them. ",
+            1,
+        )
+        beat_info = {
+            "dialogue": spoken,
+            "camera": "上摇到脸",
+            "action": "已在电梯轿厢内站定，不要开门。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+        }
+        self.assertIn(
+            "already-inside take must not show doors opening",
+            LlmService._validate_h3_prompt(prompt, "Ref2VA", beat_info),
+        )
+        repaired = H3PromptBuilder.prepare_generated_prompt(
+            prompt,
+            H3PromptBuilder.shot_from_beat_info(beat_info),
+        )
+        self.assertNotIn(
+            "already-inside take must not show doors opening",
+            LlmService._validate_h3_prompt(repaired, "Ref2VA", beat_info),
+        )
+
+    def test_prepare_generated_prompt_repairs_missing_lighting_and_sound(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken = "你好。"
+        prompt = (
+            "subject_definitions:\n<Subject 1> is the referenced person.\n"
+            "summary:\n[reference generation] A short shot.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n[Shot 1] The camera holds a static shot. "
+            f"(S1) <Subject 1> says <d>[Chinese] {spoken}</d>. After the last syllable the shot freezes.\n"
+            "overall_soundscape:\nN/A\n"
+            "non_diegetic_music:\nN/A"
+        )
+        beat_info = {"dialogue": spoken, "ref_images": [{"index": 1}, {"index": 2}]}
+        repaired = H3PromptBuilder.prepare_generated_prompt(
+            prompt,
+            H3PromptBuilder.shot_from_beat_info(beat_info),
+        )
+        self.assertEqual([], LlmService._validate_h3_prompt(repaired, "Ref2VA", beat_info))
+
     def test_render_ref2va_interleaves_one_clause_per_speech_for_any_two_hander(self):
         from backend.app.media_studio.services.llm_service import LlmService
 
@@ -1040,12 +1520,14 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("<Location", rendered)
         self.assertNotIn("Unit Building Elevator", rendered)
         self.assertEqual(rendered.lower().count("thinks"), 1)
-        self.assertLess(rendered.find("9:16"), rendered.find("tilt up"))
-        self.assertLess(rendered.find("tilt up"), rendered.find(spoken_a))
-        self.assertLess(rendered.find(spoken_a), rendered.find("follows the gaze"))
-        self.assertLess(rendered.find("follows the gaze"), rendered.find(inner))
+        self.assertLess(rendered.find("9:16"), rendered.find("tilts up"))
+        self.assertLess(rendered.find("tilts up"), rendered.find(spoken_a))
+        self.assertLess(rendered.find(spoken_a), rendered.find("chest-and-waist"))
+        self.assertLess(rendered.find("chest-and-waist"), rendered.find(inner))
         self.assertLess(rendered.find(inner), rendered.find(spoken_b))
         self.assertLess(rendered.find(spoken_b), rendered.lower().find("freezes"))
+        self.assertNotIn("follows the gaze", rendered)
+        self.assertNotIn("follows his gaze", rendered)
 
     def test_render_ref2va_fills_short_framing_clauses_between_inner_and_spoken(self):
         from backend.app.media_studio.services.llm_service import LlmService
@@ -1160,8 +1642,18 @@ class H3PromptTests(unittest.TestCase):
         generated = LlmService.generate_h3_prompt(beat_info)
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
         self.assertIn("<Subject 1> is 吴耐 in <Picture 1>.", generated)
+        self.assertIn("<Picture 1> controls 吴耐 identity only", generated)
+        self.assertIn("single-person multi-view design sheet", generated)
+        self.assertIn("Do not copy the panel grid", generated)
+        self.assertIn("do not transfer pose", generated)
+        self.assertIn("do not lock blocking or standing positions", generated)
         self.assertNotIn("惊讶续命", generated.split("detailed_description:")[0])
         self.assertNotIn("好赌的父亲", generated.split("detailed_description:")[0])
+        detail = generated.split("detailed_description:", 1)[1]
+        self.assertNotIn("CAST LOCK", detail)
+        self.assertNotIn("receding gray hair", detail)
+        self.assertNotIn("do not beautify", detail)
+        self.assertNotIn("Wu Nai stays", detail)
         self.assertEqual(generated.lower().count("thinks"), 1)
         self.assertNotIn("I can do anything", generated)
         self.assertNotIn("no need to guess", generated)
@@ -1178,15 +1670,17 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("Elevator doors shut", generated)
         self.assertNotIn("Doors just shut", generated)
         self.assertLess(generated.find("left hand grips"), generated.find(spoken_a))
-        self.assertLess(generated.find(spoken_a), generated.find("follows his gaze"))
-        self.assertLess(generated.find("follows his gaze"), generated.find(inner))
+        self.assertNotIn("follows his gaze", generated)
+        self.assertNotIn("follows the gaze", generated)
+        self.assertLess(generated.find(spoken_a), generated.find("chest-and-waist"))
+        self.assertLess(generated.find("chest-and-waist"), generated.find(inner))
         self.assertLess(generated.find("red camisole"), generated.find(inner))
         self.assertNotIn("Push to Wu Nai", generated[generated.find(spoken_a):generated.find(inner)])
         self.assertRegex(
             generated[generated.find(inner):generated.find(spoken_b)],
-            r"(?i)(?:then )?push (?:back to his face|to Wu Nai)",
+            r"(?i)push(?:es)? in.{0,80}Wu Nai",
         )
-        self.assertIn("clothes fill the shot", generated[generated.find("follows his gaze"):generated.find(inner)])
+        self.assertIn("clothes fill the vertical frame", generated[generated.find(spoken_a):generated.find(inner)])
         self.assertNotIn("the. camera", generated)
         self.assertNotIn("Then a tilt down her outfit", generated)
         self.assertNotIn("her:.", generated)
@@ -1195,6 +1689,55 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("Yu Qian stays", generated)
         self.assertNotIn("left His lips", generated)
         self.assertNotIn("PERFORMANCE, chronological", generated)
+
+    def test_compile_huajia_shot1_from_chinese_action(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        spoken_a = "大爷，我什么都可以做。那个，那个房租下个月一定给你。"
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken_b = "不用想也知道，做的是什么。"
+        beat_info = {
+            "sequence": 1,
+            "duration_seconds": 15,
+            "dialogue": (
+                f"沙丽丽：“{spoken_a}” "
+                f"吴耐（内心）：“{inner}” "
+                f"吴耐：“{spoken_b}”"
+            ),
+            "narration": inner,
+            "action": (
+                "轿厢内已站定，不要开门。画面先停在沙丽丽腰部，上摇到脸口型同步；"
+                "内心时钉在她胸腰，衣服铺满竖屏；再说「做的是什么」时推近吴耐近景。"
+            ),
+            "camera": "上摇、钉胸腰、再推近",
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+            "scene_name": "单元楼电梯",
+            "audio": "电梯运行低频嗡鸣、轿厢金属壁轻响。",
+            "ref_images": [
+                {"index": 1, "name": "吴耐", "category": "character"},
+                {"index": 2, "name": "沙丽丽", "category": "character"},
+                {"index": 3, "name": "单元楼电梯", "category": "scene"},
+            ],
+        }
+        generated = LlmService.generate_h3_prompt(beat_info)
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+        self.assertIn("Already inside the closed cabin", generated)
+        self.assertIn("Doors stay shut", generated)
+        self.assertIn("<Picture 1> controls 吴耐 identity only", generated)
+        self.assertIn("single-person multi-view design sheet", generated)
+        self.assertIn("Do not copy the panel grid", generated)
+        self.assertIn("do not lock blocking or standing positions", generated)
+        self.assertNotIn("Elevator doors shut", generated)
+        self.assertNotIn("follows his gaze", generated)
+        self.assertLess(generated.find("tilts up"), generated.find(spoken_a))
+        self.assertLess(generated.find(spoken_a), generated.find("chest-and-waist"))
+        self.assertLess(generated.find("chest-and-waist"), generated.find(inner))
+        self.assertLess(generated.find(inner), generated.find(spoken_b))
+        self.assertIn(spoken_b, generated)
+        self.assertRegex(
+            generated[generated.find(inner):generated.find(spoken_b)],
+            r"(?i)push(?:es)? in.{0,80}Wu Nai",
+        )
 
     def test_render_ref2va_keeps_sound_term_when_audio_is_chinese(self):
         from backend.app.media_studio.services.llm_service import LlmService
@@ -1303,6 +1846,8 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("subject_definitions:", excerpt)
         self.assertIn("<Subject 1> is the coffee-shop environment", excerpt)
         self.assertIn("CAST LOCK", excerpt)
+        self.assertIn("multi-view design sheet", excerpt)
+        self.assertIn("panel grid", excerpt)
         self.assertNotIn("This guide explains how rewrite outputs are organized", excerpt)
         self.assertNotIn("## 1. Overall Structure", excerpt)
         full = "\n".join([
@@ -1392,6 +1937,24 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("KEEP_MANUAL_CAMERA_TOKEN", usable[0])
         self.assertEqual(usable[0], H3PromptBuilder.canonicalize_reference_tags(prompt))
 
+    def test_workshop_prompts_skip_program_pack_keeps_authored_en(self):
+        prompt = short_authored_en("你好。")
+        shot = {
+            "sequence": 1,
+            "speaker": "沈砚",
+            "dialogue": "你好。",
+            "h3_prompt": prompt,
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        usable = EpisodeVideoService._workshop_prompts_usable([shot])
+        self.assertIsNotNone(usable)
+        self.assertIn("The camera tracks down the corridor", usable[0])
+        self.assertIn("<Picture 1>", usable[0])
+        self.assertNotIn("The camera holds a stable medium composition", usable[0])
+        self.assertNotIn("Already inside the closed cabin", usable[0])
+        self.assertNotIn(_THICKNESS_PAD, usable[0])
+        self.assertEqual(usable[0], H3PromptBuilder.canonicalize_reference_tags(prompt))
+
     def test_workshop_prompts_manual_does_not_block_generated_neighbor(self):
         generated = {
             "sequence": 1,
@@ -1440,6 +2003,29 @@ class H3PromptTests(unittest.TestCase):
         shot = H3PromptJobService._beat_info_shot(payload)
         self.assertEqual([], H3PromptBuilder.validate_prompts([shot], [finalized]))
 
+    def test_beat_info_prompt_finalize_skips_prepare_when_skip_program_pack(self):
+        from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
+
+        prompt = short_authored_en("只对十四天。")
+        payload = {
+            "beat_id": "beat-1",
+            "beat_sequence": 1,
+            "beat_info": {
+                "speaker": "沙丽丽",
+                "dialogue": "只对十四天。",
+                "skill_pack_id": HALF_NARRATED_PACK_ID,
+                "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            },
+        }
+        finalized = H3PromptJobService._finalize_prompt(payload, prompt)
+        self.assertIn("The camera tracks down the corridor", finalized)
+        self.assertIn("<Picture 1>", finalized)
+        self.assertNotIn("The camera holds a stable medium composition", finalized)
+        self.assertNotIn("Already inside the closed cabin", finalized)
+        self.assertNotIn("<Subject 3>", finalized)
+        self.assertNotIn(_THICKNESS_PAD, finalized)
+        self.assertEqual(finalized, H3PromptBuilder.canonicalize_reference_tags(prompt))
+
     def test_beat_context_fields_include_visual_prompt_and_audio(self):
         from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
 
@@ -1453,6 +2039,44 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("运镜：慢推", fields["video_prompt_zh"])
         fallback = H3PromptJobService._beat_context_fields({"soundscape": "雨声"})
         self.assertEqual("雨声", fallback["audio"])
+
+    def test_h3_prompt_failure_payload_keeps_author_errors_and_vision(self):
+        from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
+        from backend.app.media_studio.services.llm_service import DualShotAuthorError
+        from backend.app.vision_runtime import VISION_STATUS_USED, VisionCallMeta
+
+        err = DualShotAuthorError(
+            "写稿未通过校验：缺 <<<ZH>>> 中文分秒稿",
+            errors=["缺 <<<ZH>>> 中文分秒稿"],
+            zh_prompt="",
+            en_prompt="subject_definitions:\nA leftover English draft.",
+            vision=VisionCallMeta(status=VISION_STATUS_USED, model="gpt-5.6-sol", image_count=3, source="llm"),
+        )
+        payload = H3PromptJobService._attach_failure_payload(
+            {"beat_info": {}, "stream": {"text": "partial"}},
+            err,
+        )
+        self.assertEqual(["缺 <<<ZH>>> 中文分秒稿"], payload["author_errors"])
+        self.assertEqual("used", payload["vision_status"])
+        self.assertEqual("gpt-5.6-sol", payload["vision_model"])
+        self.assertEqual(3, payload["vision_image_count"])
+        self.assertIn("leftover English draft", payload["author_en_draft"])
+        self.assertEqual("partial", payload["stream"]["text"])
+
+    def test_h3_prompt_failure_payload_keeps_raw_stub(self):
+        from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
+        from backend.app.media_studio.services.llm_service import DualShotAuthorError
+
+        err = DualShotAuthorError(
+            "写稿未通过校验：上轮只输出了说明句",
+            errors=["上轮只输出了说明句"],
+            zh_prompt="官方八块中文分秒稿与",
+            en_prompt="英文六段稿。",
+            raw_prompt="<<<ZH>>>\n官方八块中文分秒稿与\n<<<EN>>>\n英文六段稿。",
+        )
+        payload = H3PromptJobService._attach_failure_payload({"beat_info": {}}, err)
+        self.assertIn("<<<ZH>>>", payload["author_raw_draft"])
+        self.assertIn("官方八块", payload["author_zh_draft"])
 
 
 class ComfyWorkflowTests(unittest.TestCase):
@@ -1741,6 +2365,41 @@ class LookSelectionTests(unittest.TestCase):
             urls,
         )
 
+    def test_triptych_references_omit_avatar_when_look_sheet_exists(self):
+        assets = [{
+            "id": "char-1",
+            "kind": "character",
+            "image_url": "https://x/avatar.png",
+            "extra": {
+                "avatar_url": "https://x/avatar.png",
+                "identities": self.character["extra"]["identities"],
+            },
+        }]
+        urls = beat_reference_urls(
+            {
+                "character_ids": ["char-1"],
+                "character_look_id": "new",
+            },
+            assets,
+            stage="triptych",
+        )
+        self.assertEqual(["https://x/new.png"], urls)
+        self.assertNotIn("https://x/avatar.png", urls)
+
+    def test_triptych_references_fall_back_to_avatar_without_look_sheet(self):
+        assets = [{
+            "id": "char-1",
+            "kind": "character",
+            "image_url": "https://x/avatar.png",
+            "extra": {"avatar_url": "https://x/avatar.png", "identities": []},
+        }]
+        urls = beat_reference_urls(
+            {"character_ids": ["char-1"]},
+            assets,
+            stage="triptych",
+        )
+        self.assertEqual(["https://x/avatar.png"], urls)
+
     def test_selected_modern_look_removes_conflicting_default_description(self):
         assets = [{
             "id": "char-1",
@@ -1819,6 +2478,33 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
         shots = EpisodeVideoService._prepare_shots({"beats": [self._beat()]}, self._assets())
         self.assertEqual("scene-ready", shots[0]["scene_id"])
         self.assertEqual("https://x/scene.png", shots[0]["reference_urls"][-1])
+
+    def test_skill_pack_appends_start_panel_not_full_triptych(self):
+        beat = self._beat(
+            scene_id="scene-ready",
+            triptych_url="https://x/triptych.png",
+            triptych_panels={
+                "start": "https://x/start.png",
+                "mid": "https://x/mid.png",
+                "end": "https://x/end.png",
+            },
+        )
+        with patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=HALF_NARRATED_PACK_ID):
+            shots = EpisodeVideoService._prepare_shots(
+                {"beats": [beat], "project_id": "p1"},
+                self._assets(),
+            )
+        urls = shots[0]["reference_urls"]
+        self.assertIn("https://x/char.png", urls)
+        self.assertIn("https://x/scene.png", urls)
+        self.assertIn("https://x/start.png", urls)
+        self.assertNotIn("https://x/triptych.png", urls)
+        self.assertNotIn("https://x/mid.png", urls)
+        self.assertEqual("https://x/start.png", urls[-1])
+        sources = [item.get("source") for item in shots[0]["ref_images"]]
+        self.assertIn("characters", sources)
+        self.assertIn("scene", sources)
+        self.assertIn("triptych.start", sources)
 
     def test_binds_scene_by_name_when_scene_id_is_missing(self):
         shots = EpisodeVideoService._prepare_shots(
@@ -2069,11 +2755,13 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
 
     def test_compose_rejects_missing_shots_and_director_direct_output(self):
         missing = self._detail(video_urls={"beat-1": "https://cdn/a.mp4"})
-        with patch.object(ProjectDetailService, "get_episode_detail", return_value=missing):
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=missing), \
+             patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=""):
             with self.assertRaisesRegex(ValueError, "Beat 2"):
                 EpisodeVideoService.create_compose_job("p1", "e1")
         director = self._detail(source="director_direct")
-        with patch.object(ProjectDetailService, "get_episode_detail", return_value=director):
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=director), \
+             patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=""):
             with self.assertRaisesRegex(ValueError, "无需再合成"):
                 EpisodeVideoService.create_compose_job("p1", "e1")
 
@@ -2085,6 +2773,7 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
         })
         with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
              patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=""), \
              patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
              patch("backend.app.media_studio.services.episode_video_service._EXECUTOR") as executor:
             result = EpisodeVideoService.create_compose_job("p1", "e1")
@@ -2092,6 +2781,337 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
         self.assertTrue(result["job_id"].startswith("job-"))
         execute_sql.assert_called_once()
         executor.submit.assert_called_once()
+
+    def test_compose_rejects_half_narrated_pack_without_narration_audio(self):
+        from backend.app.skill_packs import HALF_NARRATED_PACK_ID
+
+        beats = [
+            {
+                "id": "beat-1",
+                "sequence": 1,
+                "video_url": "https://cdn/1.mp4",
+                "narration": "夜色里，城市还没睡。",
+            }
+        ]
+        detail = {"number": 1, "title": "解说集", "beats": beats, "data": {"beats": beats}}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
+             patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=HALF_NARRATED_PACK_ID):
+            with self.assertRaisesRegex(ValueError, "旁白"):
+                EpisodeVideoService.create_compose_job("p1", "e1")
+
+    def test_compose_payload_records_mix_dubbing_flag(self):
+        detail = self._detail(video_urls={
+            "beat-1": "https://cdn/1.mp4",
+            "beat-2": "https://cdn/2.mp4",
+            "beat-3": "https://cdn/3.mp4",
+        })
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=""), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR"):
+            EpisodeVideoService.create_compose_job("p1", "e1", options={"mix_dubbing": False})
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertFalse(payload["mix_dubbing"])
+
+
+class EpisodeVideoUpscaleTests(unittest.TestCase):
+    def _detail(self, *, video_urls=None):
+        video_urls = video_urls or {}
+        beats = []
+        for index in range(1, 4):
+            beat_id = f"beat-{index}"
+            beats.append({
+                "id": beat_id,
+                "sequence": index,
+                "video_url": video_urls.get(beat_id, ""),
+                "video_duration": 5,
+            })
+        return {"number": 1, "title": "测试集", "beats": beats, "data": {"beats": beats}}
+
+    def test_resolve_generation_options_coerces_string_upscale_flag(self):
+        resolved = EpisodeVideoService.resolve_generation_options({
+            "workflow": "minimax-h3-r2v",
+            "upscale_after": "true",
+        })
+        self.assertTrue(resolved["upscale_after"])
+        off = EpisodeVideoService.resolve_generation_options({
+            "workflow": "minimax-h3-r2v",
+            "upscale_after": "false",
+        })
+        self.assertFalse(off["upscale_after"])
+
+    def test_vsr_rejection_uses_connected_comfy_vram(self):
+        shot = {"sequence": 1, "duration_sec": 15}
+        options = {"workflow": "minimax-h3-t2v", "duration_per_beat": 15}
+        with patch(
+            "backend.app.media_studio.services.episode_video_service.source_video_shape",
+            return_value=(864, 480, 362),
+        ):
+            small = Mock()
+            small.vram_total_bytes.return_value = 8 * 1024 * 1024 * 1024
+            small.vram_device_name.return_value = "8GB card"
+            reason = EpisodeVideoService._vsr_rejection_for_shot(options, shot, "minimax-h3-t2v", comfy=small)
+            self.assertIsNotNone(reason)
+            self.assertIn("8 GB", reason)
+            big = Mock()
+            big.vram_total_bytes.return_value = 17170956288
+            big.vram_device_name.return_value = "NVIDIA GeForce RTX 4080"
+            self.assertIsNone(EpisodeVideoService._vsr_rejection_for_shot(options, shot, "minimax-h3-t2v", comfy=big))
+
+    def test_create_upscale_job_rejects_missing_film_and_vram(self):
+        missing = self._detail()
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=missing), \
+             patch.object(EpisodeVideoService, "_completed_video_url_for_beat", return_value=""):
+            with self.assertRaisesRegex(ValueError, "还没有成片"):
+                EpisodeVideoService.create_upscale_job("p1", "e1", "beat-1")
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=self._detail()):
+            with self.assertRaisesRegex(ValueError, "指定的镜头不存在"):
+                EpisodeVideoService.create_upscale_job("p1", "e1", "beat-missing")
+        fallback = self._detail()
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=fallback), \
+             patch.object(EpisodeVideoService, "_completed_video_url_for_beat", return_value="https://cdn/from-job.mp4"), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR"):
+            get_config.return_value.base_url = "http://127.0.0.1:8188"
+            EpisodeVideoService.create_upscale_job("p1", "e1", "beat-1")
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual("https://cdn/from-job.mp4", payload["source_video_url"])
+        ready = self._detail(video_urls={"beat-1": "https://cdn/1.mp4"})
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=ready), \
+             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value="2x 超分预估需要约 12.0 GB 显存"):
+            with self.assertRaisesRegex(ValueError, "显存"):
+                EpisodeVideoService.create_upscale_job("p1", "e1", "beat-1")
+
+    def test_create_upscale_job_blocks_in_progress_same_beat(self):
+        active = [{"id": "job-1", "payload_json": json.dumps({
+            "render_scope": "upscale", "beat_id": "beat-1", "episode_id": "e1",
+        })}]
+        with patch.object(EpisodeVideoService, "_active_video_jobs", return_value=active):
+            with self.assertRaisesRegex(ValueError, "该镜头已有进行中的视频任务"):
+                EpisodeVideoService._assert_can_enqueue("p1", "e1", "upscale", beat_id="beat-1")
+            EpisodeVideoService._assert_can_enqueue("p1", "e1", "upscale", beat_id="beat-2")
+
+    def test_create_upscale_job_enqueues_independent_scope(self):
+        ready = self._detail(video_urls={"beat-1": "https://cdn/1.mp4"})
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=ready), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient") as client_cls, \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR") as executor:
+            get_config.return_value.base_url = "http://127.0.0.1:8188"
+            result = EpisodeVideoService.create_upscale_job("p1", "e1", "beat-1")
+        self.assertEqual("upscale", result["render_scope"])
+        self.assertTrue(result["job_id"].startswith("job-"))
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual("upscale", payload["render_scope"])
+        self.assertEqual("https://cdn/1.mp4", payload["source_video_url"])
+        self.assertEqual(["beat-1"], payload["beat_ids"])
+        client_cls.return_value.ping.assert_called_once()
+        client_cls.return_value.require_rtx_vsr_node.assert_called_once()
+        executor.submit.assert_called_once()
+
+    def test_create_upscale_job_matches_legacy_beat_sequence(self):
+        ready = {
+            "number": 1,
+            "title": "测试集",
+            "beats": [{"id": "uuid-live", "sequence": 1, "video_url": "https://cdn/1.mp4", "video_duration": 5}],
+        }
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=ready), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR"):
+            get_config.return_value.base_url = "http://127.0.0.1:8188"
+            EpisodeVideoService.create_upscale_job("p1", "e1", "beat-1")
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual(["uuid-live"], payload["beat_ids"])
+
+    def test_create_upscale_job_from_video_job_stale_beat_still_enqueues_clip(self):
+        shot_row = {
+            "id": "job-shot",
+            "job_type": "video_generation",
+            "status": "completed",
+            "result_url": "https://cdn/shot.mp4",
+            "payload_json": json.dumps({
+                "render_scope": "shot",
+                "episode_id": "e1",
+                "beat_id": "stale-beat",
+                "source_shots": [{"beat_id": "stale-beat", "sequence": 1, "duration_sec": 8}],
+            }),
+        }
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=shot_row), \
+             patch.object(EpisodeVideoService, "create_upscale_job", side_effect=ValueError("指定的镜头不存在")), \
+             patch.object(ProjectDetailService, "get_episode_detail", return_value=self._detail()), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR"):
+            get_config.return_value.base_url = "http://127.0.0.1:8188"
+            result = EpisodeVideoService.create_upscale_job_from_video_job("p1", "job-shot")
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual("upscale", result["render_scope"])
+        self.assertEqual("https://cdn/shot.mp4", payload["source_video_url"])
+        self.assertEqual("job-shot", payload["source_job_id"])
+        self.assertEqual([], payload["beat_ids"])
+
+    def test_create_upscale_job_from_video_job_uses_result_and_blocks_upscale_rows(self):
+        shot_row = {
+            "id": "job-shot",
+            "job_type": "video_generation",
+            "status": "completed",
+            "result_url": "https://cdn/shot.mp4",
+            "payload_json": json.dumps({
+                "render_scope": "shot",
+                "episode_id": "e1",
+                "beat_id": "beat-1",
+                "project_id": "p1",
+            }),
+        }
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=shot_row), \
+             patch.object(EpisodeVideoService, "create_upscale_job", return_value={"job_id": "job-vsr", "render_scope": "upscale"}) as create:
+            result = EpisodeVideoService.create_upscale_job_from_video_job("p1", "job-shot")
+        self.assertEqual("job-vsr", result["job_id"])
+        create.assert_called_once()
+        self.assertEqual("https://cdn/shot.mp4", create.call_args.kwargs["source_url"])
+        self.assertEqual("job-shot", create.call_args.kwargs["source_job_id"])
+
+        vsr_row = {
+            "id": "job-vsr",
+            "job_type": "video_generation",
+            "status": "completed",
+            "result_url": "https://cdn/2x.mp4",
+            "payload_json": json.dumps({"render_scope": "upscale", "episode_id": "e1"}),
+        }
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=vsr_row):
+            with self.assertRaisesRegex(ValueError, "超分任务本身不能再超分"):
+                EpisodeVideoService.create_upscale_job_from_video_job("p1", "job-vsr")
+
+        selection_row = {
+            "id": "job-sel",
+            "job_type": "video_generation",
+            "status": "completed",
+            "result_url": "https://cdn/last.mp4",
+            "payload_json": json.dumps({
+                "render_scope": "selection",
+                "episode_id": "e1",
+                "beat_ids": ["beat-1", "beat-2"],
+            }),
+        }
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=selection_row):
+            with self.assertRaisesRegex(ValueError, "逐镜点"):
+                EpisodeVideoService.create_upscale_job_from_video_job("p1", "job-sel")
+
+    def test_create_upscale_job_from_episode_job_enqueues_without_beat(self):
+        episode_row = {
+            "id": "job-ep",
+            "job_type": "video_generation",
+            "status": "completed",
+            "result_url": "https://cdn/ep.mp4",
+            "payload_json": json.dumps({
+                "render_scope": "episode",
+                "episode_id": "e1",
+                "source_shots": [
+                    {"beat_id": "beat-1", "duration_sec": 5},
+                    {"beat_id": "beat-2", "duration_sec": 5},
+                ],
+            }),
+        }
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=episode_row), \
+             patch.object(ProjectDetailService, "get_episode_detail", return_value=self._detail()), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR"):
+            get_config.return_value.base_url = "http://127.0.0.1:8188"
+            result = EpisodeVideoService.create_upscale_job_from_video_job("p1", "job-ep")
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual("upscale", result["render_scope"])
+        self.assertEqual("https://cdn/ep.mp4", payload["source_video_url"])
+        self.assertEqual("job-ep", payload["source_job_id"])
+        self.assertEqual([], payload["beat_ids"])
+        self.assertEqual("episode", payload["render_mode"])
+
+    def test_mark_source_job_upscaled_writes_payload(self):
+        source = {"payload_json": json.dumps({"result_kind": "shot"})}
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=source), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql:
+            EpisodeVideoService._mark_source_job_upscaled("job-shot", "https://cdn/2x.mp4", "https://cdn/orig.mp4")
+        updated = json.loads(execute_sql.call_args.args[1][0])
+        self.assertEqual("https://cdn/2x.mp4", updated["upscaled_video_url"])
+        self.assertEqual("https://cdn/orig.mp4", updated["source_video_url"])
+
+    def test_auto_upscale_only_for_shot_and_selection(self):
+        comfy = Mock()
+        shots = [{"beat_id": "beat-1", "sequence": 1, "video_url": "https://cdn/orig.mp4"}]
+        episode_payload = {"render_scope": "episode", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
+        compose_payload = {"render_scope": "compose", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
+        with patch.object(EpisodeVideoService, "_upscale_source_url") as upscale, \
+             patch.object(ProjectDetailService, "update_episode_beat") as update:
+            EpisodeVideoService._auto_upscale_if_requested("job-ep", episode_payload, comfy, shots)
+            EpisodeVideoService._auto_upscale_if_requested("job-co", compose_payload, comfy, shots)
+        upscale.assert_not_called()
+        update.assert_not_called()
+        self.assertNotIn("upscaled_video_url", episode_payload)
+        self.assertNotIn("upscale_warning", episode_payload)
+
+    def test_auto_upscale_writes_url_and_keeps_original_on_failure(self):
+        comfy = Mock()
+        shots = [{"beat_id": "beat-1", "sequence": 1, "video_url": "https://cdn/orig.mp4"}]
+        payload = {"render_scope": "shot", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
+        with patch.object(EpisodeVideoService, "_upscale_source_url", return_value="https://cdn/2x.mp4"), \
+             patch.object(ProjectDetailService, "update_episode_beat") as update:
+            EpisodeVideoService._auto_upscale_if_requested("job-1", payload, comfy, shots)
+        self.assertEqual("https://cdn/2x.mp4", payload["upscaled_video_url"])
+        self.assertEqual("https://cdn/orig.mp4", shots[0]["video_url"])
+        self.assertEqual("https://cdn/2x.mp4", shots[0]["upscaled_video_url"])
+        update.assert_called_once_with("p1", "e1", "beat-1", {"upscaled_video_url": "https://cdn/2x.mp4"})
+        failed = {"render_scope": "selection", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
+        failed_shots = [{"beat_id": "beat-2", "sequence": 2, "video_url": "https://cdn/orig2.mp4"}]
+        with patch.object(EpisodeVideoService, "_upscale_source_url", side_effect=RuntimeError("显存不足")), \
+             patch.object(ProjectDetailService, "update_episode_beat") as update_failed:
+            EpisodeVideoService._auto_upscale_if_requested("job-2", failed, comfy, failed_shots)
+        self.assertEqual("https://cdn/orig2.mp4", failed_shots[0]["video_url"])
+        self.assertNotIn("upscaled_video_url", failed_shots[0])
+        self.assertIn("显存不足", failed["upscale_warning"])
+        update_failed.assert_not_called()
+
+    def test_run_job_routes_upscale_scope_without_h3(self):
+        gpu = Mock()
+        gpu.__enter__ = Mock(return_value=gpu)
+        gpu.__exit__ = Mock(return_value=False)
+        payload = {"render_scope": "upscale", "comfy_base_url": "http://127.0.0.1:8188"}
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value={"payload_json": json.dumps(payload)}), \
+             patch("backend.app.media_studio.services.episode_video_service.occupy_gpu", return_value=gpu), \
+             patch.object(EpisodeVideoService, "_run_upscale_job") as run_upscale, \
+             patch.object(EpisodeVideoService, "_run_shot_graph_job") as run_h3:
+            EpisodeVideoService._run_job("job-vsr")
+        run_upscale.assert_called_once()
+        run_h3.assert_not_called()
+        gpu.__enter__.assert_called_once()
+
+    def test_run_rtx_vsr_frees_models_before_submit(self):
+        client = ComfyVideoClient("http://127.0.0.1:8188")
+        with patch.object(client, "require_rtx_vsr_node") as require, \
+             patch.object(client, "free_resources") as free, \
+             patch.object(client, "upload_video_bytes", return_value="orig.mp4"), \
+             patch.object(client, "submit_and_wait", return_value=({}, {}, {"filename": "x.mp4"})):
+            output = client.run_rtx_vsr(b"data", preferred_name="a.mp4")
+        require.assert_called_once()
+        free.assert_called_once_with(force=True)
+        self.assertEqual("x.mp4", output["filename"])
 
 
 if __name__ == "__main__":

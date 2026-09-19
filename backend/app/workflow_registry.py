@@ -16,6 +16,20 @@ from .grs_catalog import (
 )
 from .models import JobMode
 
+_TRUE_BOOL_TEXTS = {"true", "1", "yes", "on"}
+_FALSE_BOOL_TEXTS = {"false", "0", "no", "off", ""}
+
+
+def coerce_bool_option(value: Any, *, label: str) -> bool:
+    """Accept JSON booleans and the string forms the workshop settings persist."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in _TRUE_BOOL_TEXTS:
+        return True
+    if value is None or (isinstance(value, str) and value.strip().lower() in _FALSE_BOOL_TEXTS):
+        return False
+    raise ValueError(f"{label} 必须为布尔值。")
+
 
 @dataclass(frozen=True)
 class WorkflowDefinition:
@@ -380,6 +394,13 @@ def h3_custom_steps_option() -> dict[str, Any]:
     )
 
 
+def upscale_after_option() -> dict[str, Any]:
+    return option(
+        "出片后 2x 超分", "boolean", False, group="advanced",
+        description="成片成功后卸载 H3，再用当前连接 ComfyUI 上的 RTX Video Super Resolution 放大到 2 倍。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。原片保留；超分失败不影响原片。",
+    )
+
+
 def _speed_mapping(speed: str, custom_steps: int) -> dict[str, Any]:
     if speed == H3_SPEED_CUSTOM:
         return {
@@ -685,6 +706,7 @@ H3_STANDARD_OPTION_SCHEMA = {
         ),
         "lora_strength": option("LoRA 强度", "number", 1, minimum=-100, maximum=100, step=0.01),
         "use_sage_attention": option("SageAttention", "boolean", True),
+        "upscale_after": upscale_after_option(),
     },
 }
 
@@ -717,6 +739,7 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
             ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
             description="选择实际输出尺寸；尺寸会随画面比例变化，最高为 1344×768。",
         ),
+        "upscale_after": upscale_after_option(),
         "megapixels": option(
             "内部像素面积", "number", quality_megapixels[default_quality], group="internal",
             minimum=0.1, maximum=16.0, step=0.1, unit="MP",
@@ -1038,6 +1061,25 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         catalog_group=CATALOG_GROUP_CUSTOM,
         hidden_from_catalog=True,
     ),
+    WorkflowDefinition(
+        JobMode.NVIDIA_RTX_VSR.value,
+        "RTX 2x 超分",
+        "把已成功的成片交给当前连接 ComfyUI 的 RTXVideoSuperResolution（固定 2x / ULTRA）。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
+        "collection",
+        1,
+        1,
+        ("原片",),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "width": option("原片宽", "integer", 864, group="internal", minimum=8, maximum=8192, step=1),
+                "height": option("原片高", "integer", 480, group="internal", minimum=8, maximum=8192, step=1),
+                "frames": option("原片帧数", "integer", 120, group="internal", minimum=1, maximum=16384, step=1),
+            },
+        },
+        catalog_group=CATALOG_GROUP_CUSTOM,
+        hidden_from_catalog=True,
+    ),
 )
 
 WORKFLOW_BY_ID = {definition.id: definition for definition in WORKFLOWS}
@@ -1124,6 +1166,7 @@ def resolve_director_workflow(family: str | None, route: str) -> str:
     routes = (chosen or {}).get("routes") or {}
     return str(routes.get(wanted) or routes.get("t2v") or JobMode.MINIMAX_H3_T2V.value)
 H3_WORKFLOW_IDS = {item.value for item in H3_WORKFLOWS}
+RTX_VSR_WORKFLOW_IDS = {JobMode.NVIDIA_RTX_VSR.value}
 _catalog_lookup: Callable[[str], dict[str, Any] | None] | None = None
 
 
@@ -1134,6 +1177,15 @@ def set_catalog_lookup(lookup: Callable[[str], dict[str, Any] | None] | None) ->
 
 def is_h3_workflow(mode: JobMode | str) -> bool:
     return mode_key(mode) in H3_WORKFLOW_IDS
+
+
+def is_rtx_vsr_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in RTX_VSR_WORKFLOW_IDS
+
+
+def is_local_comfy_job(mode: JobMode | str) -> bool:
+    """Creation-page ComfyUI jobs that occupy the serial video worker."""
+    return is_h3_workflow(mode) or is_rtx_vsr_workflow(mode)
 
 
 def is_t8_workflow(mode: JobMode | str) -> bool:
@@ -1192,7 +1244,10 @@ IMAGE_WORKFLOWS = {JobMode.GRS_GPT_IMAGE_2, JobMode.GRS_GPT_IMAGE_2_VIP}
 H3_QUALITY_MEGAPIXELS = H3_STANDARD_OPTION_SCHEMA["properties"]["quality"]["megapixels_by_quality"]
 H3_LEGACY_QUALITY_MEGAPIXELS = {"1K": 0.2, "2K": 0.3, "4K": 0.5}
 H3_LEGACY_MEGAPIXELS = set(H3_QUALITY_MEGAPIXELS.values()) | {0.98}
-H3_OPTION_NAMES = {"aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps", "weight_profile", "use_sage_attention"}
+H3_OPTION_NAMES = {
+    "aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps",
+    "weight_profile", "use_sage_attention", "upscale_after",
+}
 H3_ASPECT_RATIO_PART = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
 
 
@@ -1351,6 +1406,7 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
     use_sage = raw.get("use_sage_attention", True)
     if not isinstance(use_sage, bool):
         raise ValueError("SageAttention 必须为布尔值。")
+    upscale_after = coerce_bool_option(raw.get("upscale_after", False), label="出片后 2x 超分")
     return apply_h3_speed_preset({
         "aspect_ratio": aspect_ratio,
         "quality": quality,
@@ -1361,6 +1417,7 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         "custom_steps": custom_steps,
         "weight_profile": raw.get("weight_profile", H3_WEIGHT_FULL),
         "use_sage_attention": use_sage,
+        "upscale_after": upscale_after,
     }, raw)
 
 
@@ -1382,8 +1439,7 @@ def _normalize_schema_options(
         value = raw.get(name, definition.get("default"))
         value_type = definition.get("type")
         if value_type == "boolean":
-            if not isinstance(value, bool):
-                raise ValueError(f"{definition['label']} 必须为布尔值。")
+            value = coerce_bool_option(value, label=str(definition.get("label") or name))
         elif value_type == "integer":
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not float(value).is_integer():
                 raise ValueError(f"{definition['label']} 必须为整数。")

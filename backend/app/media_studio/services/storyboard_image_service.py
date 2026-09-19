@@ -18,13 +18,20 @@ _DISPATCH_LOCK = threading.Lock()
 _ACTIVE: set[str] = set()
 _ACTIVE_LOCK = threading.Lock()
 ACTIVE_STATUSES = {"preparing", "running", "storing"}
+BEAT_IMAGE_STAGES = ("sketch", "render", "triptych")
+BEAT_IMAGE_TARGETS = {f"beat_{stage}" for stage in BEAT_IMAGE_STAGES}
+STAGE_TITLES = {
+    "sketch": "镜头草图",
+    "render": "镜头渲染",
+    "triptych": "镜头三联关键帧",
+}
 
 
 class StoryboardImageService:
     @classmethod
     def enqueue(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any], stage: str) -> dict[str, Any]:
-        if stage not in {"sketch", "render"}:
-            raise ValueError("stage 必须是 sketch 或 render")
+        if stage not in BEAT_IMAGE_STAGES:
+            raise ValueError("stage 必须是 sketch、render 或 triptych")
 
         from .project_detail_service import ProjectDetailService
 
@@ -37,6 +44,10 @@ class StoryboardImageService:
             raise ValueError("这一条没有可生成的画面")
         if stage == "render" and not str(target.get("sketch_url") or "").strip():
             raise ValueError("请先生成草图")
+        if stage == "triptych" and not (target.get("character_ids") or target.get("characters")):
+            raise ValueError("请先绑定出场角色再生成三联关键帧")
+        if stage == "triptych" and not str(target.get("scene_id") or target.get("scene") or "").strip():
+            raise ValueError("请先绑定场景再生成三联关键帧")
 
         target_type = f"beat_{stage}"
         for row in query_all(
@@ -58,12 +69,16 @@ class StoryboardImageService:
         if stage == "render":
             cls._validate_render_looks(target, raw_assets)
             clean_prompt = beat_render_prompt(target, assets=prompt_assets, **style)
+        elif stage == "triptych":
+            clean_prompt = cls._triptych_prompt(project_id, target)
         else:
             clean_prompt = beat_sketch_prompt(target, assets=prompt_assets, **style)
 
         reference_urls = beat_reference_urls(target, raw_assets, stage=stage, scene_view=scene_view)
         if stage == "render" and not reference_urls:
             raise ValueError("无法读取草图文件，请重新生成草图")
+        if stage == "triptych" and not reference_urls:
+            raise ValueError("请先生成角色卡和场景卡，再生成三联关键帧")
 
         grs_model, _ = ProjectDetailService._resolve_grs_model(str(payload.get("model") or ""))
         grs_row_data = grs_row()
@@ -75,8 +90,7 @@ class StoryboardImageService:
 
         jid = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = now_str()
-        image_size = "1K"
-        aspect_ratio = "2:3"
+        aspect_ratio, image_size, width, height = cls._stage_canvas(stage)
         job_payload = {
             "model": grs_model,
             "api_endpoint": f"{grs_base_url}/v1/api/generate",
@@ -90,8 +104,8 @@ class StoryboardImageService:
             "prompt": clean_prompt,
             "clean_prompt": clean_prompt,
             "aspect_ratio": aspect_ratio,
-            "width": 768,
-            "height": 1152,
+            "width": width,
+            "height": height,
             **style,
             "reply_type": "async",
             "reference_urls": reference_urls,
@@ -103,13 +117,15 @@ class StoryboardImageService:
         execute_sql(
             "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
             "VALUES (%s,%s,'image_generation',%s,'queued',0,NULL,%s,%s,%s)",
-            (jid, project_id, f"生成{'镜头草图' if stage == 'sketch' else '镜头渲染'}: 第 {detail['number']} 集 - Beat {target.get('sequence')} ({grs_model})",
+            (jid, project_id, f"生成{STAGE_TITLES[stage]}: 第 {detail['number']} 集 - Beat {target.get('sequence')} ({grs_model})",
              json.dumps(job_payload, ensure_ascii=False), timestamp, timestamp),
         )
-        job_field = "sketch_job_id" if stage == "sketch" else "render_job_id"
+        job_field = f"{stage}_job_id"
         state_updates = {job_field: jid}
         if stage == "render":
             state_updates["render_status"] = "queued"
+        if stage == "triptych":
+            state_updates["triptych_status"] = "queued"
         ProjectDetailService._update_episode_beat_atomic(project_id, episode_id, beat_id, state_updates, initial_beats=beats)
         cls.kick()
         return {"job_id": jid, "beat_id": beat_id, "status": "queued"}
@@ -140,7 +156,7 @@ class StoryboardImageService:
             )
             database_active = sum(
                 1 for row in active_rows
-                if cls._payload(row).get("target_type") in {"beat_sketch", "beat_render"}
+                if cls._payload(row).get("target_type") in BEAT_IMAGE_TARGETS
             )
             with _ACTIVE_LOCK:
                 capacity = max(0, limit - max(len(_ACTIVE), database_active))
@@ -153,7 +169,7 @@ class StoryboardImageService:
             for row in rows:
                 if capacity <= 0:
                     break
-                if cls._payload(row).get("target_type") not in {"beat_sketch", "beat_render"}:
+                if cls._payload(row).get("target_type") not in BEAT_IMAGE_TARGETS:
                     continue
                 jid = row["id"]
                 if execute_sql(
@@ -175,7 +191,7 @@ class StoryboardImageService:
             "AND status IN ('queued','preparing','running','storing')"
         ):
             payload = cls._payload(row)
-            if payload.get("target_type") not in {"beat_sketch", "beat_render"}:
+            if payload.get("target_type") not in BEAT_IMAGE_TARGETS:
                 continue
             if row["status"] == "queued" or payload.get("remote_task_id"):
                 execute_sql("UPDATE ai_project_jobs SET status='queued',progress=0,updated_at=%s WHERE id=%s", (now_str(), row["id"]))
@@ -190,7 +206,7 @@ class StoryboardImageService:
     def retry(cls, project_id: str, job_id: str) -> dict[str, Any]:
         row = query_one("SELECT * FROM ai_project_jobs WHERE id=%s AND project_id=%s", (job_id, project_id))
         payload = cls._payload(row or {})
-        if not row or payload.get("target_type") not in {"beat_sketch", "beat_render"}:
+        if not row or payload.get("target_type") not in BEAT_IMAGE_TARGETS:
             raise ValueError("分镜图片任务不存在")
         if row.get("status") not in {"failed", "completed", "succeeded"}:
             raise ValueError("只有失败或已完成的任务可以重试")
@@ -226,6 +242,10 @@ class StoryboardImageService:
             filename, content = client.download_image(grs_url)
             object_key, image_url = QiniuService.store_bytes("image", filename, content)
             payload.update({"grs_url": grs_url, "api_url": image_url, "object_key": object_key})
+            if payload.get("target_type") == "beat_triptych":
+                from ...skill_packs.triptych import persist_panel_bytes, split_triptych_bytes
+
+                payload["triptych_panels"] = persist_panel_bytes(split_triptych_bytes(content))
             cls._complete(job_id, payload, image_url)
         except Exception as err:
             message = f"GRS 生图失败: {err}" if isinstance(err, GrsError) else str(err)
@@ -243,9 +263,21 @@ class StoryboardImageService:
         from .project_detail_service import ProjectDetailService
 
         stage = payload["target_type"].removeprefix("beat_")
-        updates = ({"sketch_url": image_url, "sketch_prompt": payload["clean_prompt"], "status": "sketched"}
-                   if stage == "sketch" else
-                   {"render_url": image_url, "render_prompt": payload["clean_prompt"], "render_status": "succeeded"})
+        if stage == "sketch":
+            updates = {"sketch_url": image_url, "sketch_prompt": payload["clean_prompt"], "status": "sketched"}
+        elif stage == "render":
+            updates = {"render_url": image_url, "render_prompt": payload["clean_prompt"], "render_status": "succeeded"}
+        else:
+            from ...skill_packs.triptych import normalize_panels
+
+            updates = {
+                "triptych_url": image_url,
+                "triptych_prompt": payload["clean_prompt"],
+                "triptych_status": "succeeded",
+            }
+            panels = payload.get("triptych_panels")
+            if isinstance(panels, dict):
+                updates["triptych_panels"] = normalize_panels(panels)
         try:
             ProjectDetailService._update_episode_beat_atomic(
                 payload["project_id"], payload["episode_id"], payload["beat_id"], updates,
@@ -280,6 +312,28 @@ class StoryboardImageService:
     def _limit() -> int:
         row = grs_row()
         return max(1, min(20, int(row.get("max_storyboard_concurrency") or 5)))
+
+    @staticmethod
+    def _stage_canvas(stage: str) -> tuple[str, str, int, int]:
+        if stage == "triptych":
+            return "16:9", "2K", 2048, 1152
+        return "2:3", "1K", 768, 1152
+
+    @classmethod
+    def _triptych_prompt(cls, project_id: str, beat: dict[str, Any]) -> str:
+        from ...skill_packs.binding import resolve_skill_pack_id
+        from ...skill_packs.recipe import HALF_NARRATED_PACK_ID, get_pack
+        from ...skill_packs.triptych import build_triptych_generation_prompt
+
+        pack_id = resolve_skill_pack_id(project_id=project_id) or HALF_NARRATED_PACK_ID
+        try:
+            recipe = get_pack(pack_id)
+        except Exception:
+            recipe = get_pack(HALF_NARRATED_PACK_ID)
+        template = recipe.reference_text("triptych-prompt.md")
+        if not template:
+            template = get_pack(HALF_NARRATED_PACK_ID).reference_text("triptych-prompt.md")
+        return build_triptych_generation_prompt(beat, template=template)
 
     @staticmethod
     def _validate_render_looks(beat: dict[str, Any], assets: list[dict[str, Any]]) -> None:

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   DIRECTOR2_DEFAULT_VIDEO_WORKFLOW,
   DIRECTOR2_VIDEO_FALLBACK_FIELDS,
+  beatHasUpscaled,
+  beatPlaybackUrl,
+  beatUpscaleDisabledReason,
   buildVideoJobOptions,
   defaultVideoOptionValues,
   episodeFilmSource,
@@ -11,6 +14,10 @@ import {
   formatSelectedShotSubmitMessage,
   generatedResolutionLabel,
   groupedVideoWorkflowOptions,
+  jobCanShowUpscaleAction,
+  jobPreviewVideoUrl,
+  jobUpscaleDisabledReason,
+  jobUpscaleHint,
   optionChoices,
   sanitizeVideoOptionValues,
   shotVideoActionLabel,
@@ -50,6 +57,7 @@ function directorAccelMode(): Director2WorkflowMode {
           speed: { label: "生成质量", type: "string", default: "balanced", ui_group: "advanced", ui_options: [{ value: "balanced", label: "均衡（20 步）" }, { value: "quality", label: "精细（25 步）" }] },
           megapixels: { label: "内部像素面积", type: "number", default: 0.4, ui_group: "internal" },
           steps: { label: "采样步数", type: "integer", default: 20, ui_group: "internal" },
+          upscale_after: { label: "出片后 2x 超分", type: "boolean", default: false, ui_group: "advanced" },
         },
       },
     }],
@@ -59,12 +67,13 @@ function directorAccelMode(): Director2WorkflowMode {
 describe("director2 video settings", () => {
   it("exposes registry primary and advanced options and hides duration plus internals", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
-    expect(fields.map((item) => item.name)).toEqual(["aspect_ratio", "weight_profile", "quality", "speed"])
+    expect(fields.map((item) => item.name)).toEqual(["aspect_ratio", "weight_profile", "quality", "speed", "upscale_after"])
     expect(defaultVideoOptionValues(fields)).toEqual({
       aspect_ratio: "16:9",
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
+      upscale_after: "false",
     })
   })
 
@@ -79,6 +88,7 @@ describe("director2 video settings", () => {
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
+      upscale_after: "false",
     })
   })
 
@@ -99,8 +109,11 @@ describe("director2 video settings", () => {
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
+      upscale_after: false,
       duration_per_beat: 8,
     })
+    expect(videoSettingsSummary(fields, { ...values, upscale_after: "true" })).toBe("16:9 · 0.4 MP · 精简 · 2x 超分")
+    expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, { ...values, upscale_after: "true" }).upscale_after).toBe(true)
   })
 
   it("lists all unhidden multi-reference R2V workflows and labels episode vs shot", () => {
@@ -185,4 +198,42 @@ describe("director2 video settings", () => {
       { video_url: "https://cdn/c.mp4" },
     ])).toBe(2)
   })
+
+  it("prefers the 2x clip for playback and disables upscale without a finished original", () => {
+    expect(beatPlaybackUrl({ video_url: "https://cdn/orig.mp4", upscaled_video_url: "https://cdn/2x.mp4" })).toBe("https://cdn/2x.mp4")
+    expect(beatHasUpscaled({ video_url: "https://cdn/orig.mp4" })).toBe(false)
+    expect(beatUpscaleDisabledReason({ video_url: "" })).toBe("成片成功后才能超分")
+    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { scope: "upscale" })).toBe("正在 2x 超分")
+    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { status: "running" })).toBe("出片进行中")
+    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" })).toBeUndefined()
+    expect(jobPreviewVideoUrl({
+      result_url: "https://cdn/orig.mp4",
+      payload: { upscaled_video_url: "https://cdn/2x.mp4" },
+    })).toBe("https://cdn/2x.mp4")
+  })
+
+  it("lets completed video jobs request 2x from the jobs center", () => {
+    const shot = {
+      id: "job-shot",
+      job_type: "video_generation",
+      status: "completed",
+      result_url: "https://cdn/shot.mp4",
+      payload: { render_scope: "shot", beat_id: "beat-1" },
+    }
+    expect(jobCanShowUpscaleAction(shot)).toBe(true)
+    expect(jobUpscaleDisabledReason(shot)).toBeUndefined()
+    expect(jobCanShowUpscaleAction({ ...shot, payload: { render_scope: "upscale" } })).toBe(false)
+    expect(jobUpscaleDisabledReason({ ...shot, status: "running" })).toBe("成片成功后才能超分")
+    expect(jobUpscaleDisabledReason({
+      ...shot,
+      payload: { render_scope: "selection", beat_ids: ["a", "b"] },
+    })).toBe("多镜任务请到剧集工坊逐镜点「超分」")
+    expect(jobUpscaleDisabledReason(shot, [{
+      id: "job-vsr",
+      status: "running",
+      payload: { render_scope: "upscale", source_job_id: "job-shot" },
+    }])).toBe("正在 2x 超分")
+    expect(jobUpscaleHint({ payload: { render_scope: "episode" } })).toContain("整段")
+  })
 })
+

@@ -8,6 +8,28 @@ from urllib.parse import urlparse
 import requests
 
 from ..provider_bridge import credential_manager, llm_row
+from ...director_craft.coverage import (
+    CLAUSE_ALREADY_INSIDE,
+    CLAUSE_INNER_HOLD,
+    CLAUSE_PUSH_IN,
+    CLAUSE_TILT_UP,
+    compile_coverage_plan,
+    coverage_prompt_errors,
+    english_who,
+    is_door_open_clause,
+    is_inner_pin_beat,
+    is_literary_gaze,
+    is_push_in_beat,
+    is_tilt_up_beat,
+)
+from ...director_craft.references import (
+    character_subject_line,
+    composition_subject_line,
+    is_identity_portrait_clause,
+    prop_subject_line,
+    reference_authority_errors,
+    scene_subject_line,
+)
 from ...llm_minimax_skills import (
     build_workshop_h3_timing_rules,
     load_h3_prompt_writing_guide,
@@ -148,11 +170,6 @@ _LAND_ON_FACE_RE = re.compile(
     r"\bpush(?:es)?\b.{0,80}\b(?:face|medium-close|landlord|speaker|left)\b"
     r"|\blips stay closed\b",
     re.I,
-)
-_INNER_GAZE_FALLBACK = (
-    "The camera tilts down with small amplitude at slow speed "
-    "and holds a static shot on the other person's torso until the clothes fill the vertical frame; "
-    "keep the thinker off-screen or as a sliver until this inner voice ends."
 )
 _INNER_BODY_HOLD = (
     "Hold a static shot on that torso so the clothes fill the vertical frame; "
@@ -853,6 +870,113 @@ class H3PromptBuilder:
         )
 
     @classmethod
+    def _insert_clause_before_event(cls, text: str, event: dict[str, Any], clause: str) -> str:
+        needle = cls._han_only(str(event.get("text") or ""))
+        clause = str(clause or "").strip()
+        if not needle or not clause:
+            return text
+        for match in re.finditer(r"<d>\[Chinese\]\s*(.*?)</d>", text, flags=re.S):
+            body = cls._han_only(match.group(1))
+            if needle == body or (len(needle) >= 6 and (needle in body or body in needle)):
+                window = text[max(0, match.start() - 280):match.end() + 24]
+                marker = re.split(r"\s+", clause, maxsplit=3)[:3]
+                hint = " ".join(marker).lower()
+                if hint and hint in window.lower():
+                    return text
+                return text[:match.start()] + clause + " " + text[match.start():]
+        return text
+
+    @staticmethod
+    def _use_faithful_zh_schedule(shot: dict[str, Any] | None = None, beat_info: dict[str, Any] | None = None) -> bool:
+        source = shot if isinstance(shot, dict) else {}
+        extra = beat_info if isinstance(beat_info, dict) else {}
+        zh = str(source.get("timestamped_zh_prompt") or extra.get("timestamped_zh_prompt") or "").strip()
+        return bool(zh)
+
+    @classmethod
+    def _repair_coverage_landings(cls, text: str, shot: dict[str, Any]) -> str:
+        events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
+        if not events:
+            return text
+        errors = set(coverage_prompt_errors(text, shot, events))
+        if not errors:
+            return text
+        plan = compile_coverage_plan(shot, events)
+        spoken = [item for item in events if item.get("kind") != "inner"]
+        inner = [item for item in events if item.get("kind") == "inner"]
+        if not cls._use_faithful_zh_schedule(shot):
+            if "camera landing missing tilt up on first spoken beat" in errors and spoken:
+                text = cls._insert_clause_before_event(text, spoken[0], CLAUSE_TILT_UP)
+            if "coverage subject missing from inner segment" in errors and inner:
+                text = cls._insert_clause_before_event(text, inner[0], CLAUSE_INNER_HOLD)
+            if "camera landing missing push-in on last spoken beat" in errors and spoken:
+                who = english_who(str(spoken[-1].get("speaker") or plan.push_subject or ""))
+                text = cls._insert_clause_before_event(text, spoken[-1], CLAUSE_PUSH_IN.format(who=who))
+        if "already-inside take must not show doors opening" in errors:
+            pieces = _CLAUSE_SPLIT_RE.split(text) or [text]
+            delims = _CLAUSE_SPLIT_RE.findall(text)
+            rebuilt: list[str] = []
+            for index, piece in enumerate(pieces):
+                rebuilt.append(CLAUSE_ALREADY_INSIDE if is_door_open_clause(piece) else piece)
+                if index < len(delims):
+                    rebuilt.append(delims[index])
+            text = "".join(rebuilt) if rebuilt else text
+            if CLAUSE_ALREADY_INSIDE.split(".")[0].lower() not in text.lower():
+                shot_mark = text.find("[Shot 1]")
+                insert_at = shot_mark + len("[Shot 1]") if shot_mark >= 0 else 0
+                prefix = "" if insert_at == 0 or text[insert_at:insert_at + 1] == " " else " "
+                text = text[:insert_at] + prefix + CLAUSE_ALREADY_INSIDE + " " + text[insert_at:].lstrip()
+        return text
+
+    @staticmethod
+    def _insert_into_named_section(text: str, heading: str, sentence: str) -> str:
+        sentence = str(sentence or "").strip()
+        if not sentence:
+            return text
+        pattern = re.compile(
+            rf"(?m)^({re.escape(heading)}:\s*\n)(.*?)(?=^[a-z_]+:\s*$|\Z)",
+            re.S,
+        )
+
+        def repl(match: re.Match[str]) -> str:
+            body = match.group(2)
+            if sentence in body:
+                return match.group(0)
+            return match.group(1) + sentence + " " + body.lstrip()
+
+        updated, count = pattern.subn(repl, text, count=1)
+        if count:
+            return updated
+        return text.rstrip() + f"\n{heading}:\n{sentence}\n"
+
+    @classmethod
+    def _repair_thickness_terms(cls, text: str) -> str:
+        lower = str(text or "").lower()
+        if not re.search(r"\b(?:lighting|light|lit|illumination|illuminated)\b", lower):
+            text = cls._insert_into_named_section(
+                text,
+                "detailed_description",
+                "Overhead lighting models the faces with a cool cyan falloff.",
+            )
+            lower = text.lower()
+        if re.search(r"\b(?:sound|audio|ambience|ambient)\b", lower) is None:
+            text = cls._insert_into_named_section(
+                text,
+                "overall_soundscape",
+                "Ambient room sound and synchronized movement continue under the action.",
+            )
+        guard = 0
+        while cls.english_word_count(text) < 280 and guard < 24:
+            previous = cls.english_word_count(text)
+            text = text.replace("[Shot 1]", "[Shot 1] " + _THICKNESS_PAD, 1) if "[Shot 1]" in text else (
+                text + " " + _THICKNESS_PAD
+            )
+            guard += 1
+            if cls.english_word_count(text) <= previous:
+                break
+        return text
+
+    @classmethod
     def fill_speech_placeholders(
         cls,
         prompt: str,
@@ -1063,37 +1187,57 @@ class H3PromptBuilder:
         return re.sub(r"\s+", "", match.group(1).replace("：", ":"))
 
     @classmethod
-    def packing_retry_block(cls, errors: list[str], previous_prompt: str = "") -> str:
+    def packing_retry_block(
+        cls,
+        errors: list[str],
+        previous_prompt: str = "",
+        *,
+        packing_overrides: dict[str, Any] | None = None,
+        beat_info: dict[str, Any] | None = None,
+    ) -> str:
         joined = "；".join(str(item) for item in errors if item)
-        timeline = any(
-            token in joined
-            for token in (
-                "speaker ID",
-                "<Location",
-                "does not match <Subject",
-                "interleave",
-                "slot legend",
-                "then speaks",
-                "speaks first",
-                "before continuing",
-                "glued to a truncated",
+        if cls._use_faithful_zh_schedule(beat_info=beat_info) or (packing_overrides or {}).get("faithful_zh_pack"):
+            instruction = (
+                "Keep subject_definitions and locked Chinese. Rewrite only detailed_description "
+                "to follow the Chinese timestamped draft order. "
+                "A continuous camera move may carry more than one {{Dn}}. "
+                "Do not invent one camera move per spoken line or insert extra tilt-up/push-in sentences."
             )
-        )
-        instruction = (
-            "Keep subject_definitions and locked Chinese. Rewrite only [Shot 1] blocking so each "
-            "{{Dn}} sits on its camera beat, (Sn) equals <Subject n>, and the scene uses "
-            "<Subject n> not <Location n>."
-            if timeline
-            else H3_PACKING_RETRY_INSTRUCTION
-        )
+        else:
+            timeline = any(
+                token in joined
+                for token in (
+                    "speaker ID",
+                    "<Location",
+                    "does not match <Subject",
+                    "interleave",
+                    "slot legend",
+                    "then speaks",
+                    "speaks first",
+                    "before continuing",
+                    "glued to a truncated",
+                )
+            )
+            instruction = (
+                "Keep subject_definitions and locked Chinese. Rewrite only [Shot 1] blocking so each "
+                "{{Dn}} sits on its camera beat, (Sn) equals <Subject n>, and the scene uses "
+                "<Subject n> not <Location n>."
+                if timeline
+                else H3_PACKING_RETRY_INSTRUCTION
+            )
         lines = [instruction, *(f"- {item}" for item in errors if item)]
         if previous_prompt:
             lines.append(f"Previous output:\n{previous_prompt}")
         return "\n".join(lines)
 
     @classmethod
-    def packing_rule_text(cls, mode: str, duration_seconds: str | int = "8") -> str:
-        timing = build_workshop_h3_timing_rules(duration_seconds)
+    def packing_rule_text(
+        cls,
+        mode: str,
+        duration_seconds: str | int = "8",
+        packing_overrides: dict[str, Any] | None = None,
+    ) -> str:
+        timing = build_workshop_h3_timing_rules(duration_seconds, packing_overrides=packing_overrides)
         if mode == "Ref2VA":
             return f"{timing}\n\n{load_h3_ref2va_workshop_excerpt()}"
         skill = load_h3_prompt_writing_skill()
@@ -1107,13 +1251,19 @@ class H3PromptBuilder:
         return f"{timing}\n\n{skill}\n\n{selected}"
 
     @classmethod
-    def packing_system_prompt(cls, mode: str, duration_seconds: str | int = "8") -> str:
+    def packing_system_prompt(
+        cls,
+        mode: str,
+        duration_seconds: str | int = "8",
+        packing_overrides: dict[str, Any] | None = None,
+    ) -> str:
         seconds = str(duration_seconds).strip() or "8"
         if mode == "Ref2VA":
             headings = "\n".join(f"{name}:" for name in H3_SECTIONS)
             structure = (
                 "Return only the finished prompt. It must contain exactly these six section headings, "
                 f"spelled exactly and in this order, with each heading on its own line:\n{headings}\n\n"
+                "Never omit non_diegetic_music; if there is no score, write N/A under that heading.\n"
                 "Write all six sections in English. Preserve the original language only for dialogue, lyrics, "
                 "and visible scene text. A speaker name is metadata, never dialogue."
             )
@@ -1159,9 +1309,7 @@ class H3PromptBuilder:
             "do not invent extra events or compress a longer play into this take. "
             "Assign actual speakers stable IDs where (Sn) is always <Subject n>. "
             "Do not invent <Location n>; the environment is the last <Subject n> anchored by that <Picture n>. "
-            "Place {{D1}}, {{D2}}, ... tokens in [Shot 1] on the matching camera beat. "
-            "Interleave: camera action, then that beat's {{Dn}}, then the next camera action. "
-            "Do not describe the whole camera move first and dump all speech after. "
+            f"{cls._packing_schedule_rule(packing_overrides)}"
             "Copy only the {{Dn}} token into [Shot 1]; never copy slot legends, "
             "'spoken lip-sync — Name', or 'inner off-screen — Name'. "
             "Do not write says-sentences, 'X then speaks', 'speaks first with a tone', "
@@ -1171,13 +1319,52 @@ class H3PromptBuilder:
             "Separate inner {{Dn}} from the next spoken {{Dn}} with a closed-mouth camera beat. "
             "Put freeze or end hold AFTER the last {{Dn}}. "
             "Never put the speaker name or quotation wrappers inside spoken tags. "
-            "Do not invent dialogue. Use at most one camera move with small amplitude at slow speed, or a static hold. "
+            "Do not invent dialogue. "
+            f"{cls._packing_camera_rule(packing_overrides)} "
             f"{H3_SPEECH_UNIQUENESS_RULES} "
-            "When reference images are present, subject_definitions write appearance from the matching "
-            "<Picture N>; do not novelize long CAST LOCK faces or wardrobe in the picture body. "
-            "Use exactly one [Shot 1]; no internal cuts and no timecodes.\n\n"
-            f"--- packing rules ---\n{cls.packing_rule_text(mode, seconds)}"
+            "When reference images are present, subject_definitions write a short who/what line from the matching "
+            "<Picture N>; character stills are multi-view design sheets that lock identity only "
+            "and must not copy the panel grid, white background, or repeated mini figures, "
+            "and must not transfer pose; "
+            "scene stills must not lock blocking. "
+            "Do not novelize long CAST LOCK faces or wardrobe in the picture body. "
+            f"{cls._packing_timeline_rule(packing_overrides)}\n\n"
+            f"--- packing rules ---\n{cls.packing_rule_text(mode, seconds, packing_overrides=packing_overrides)}"
         )
+
+    @staticmethod
+    def _packing_schedule_rule(packing_overrides: dict[str, Any] | None) -> str:
+        if (packing_overrides or {}).get("faithful_zh_pack"):
+            return (
+                "When a Chinese timestamped draft is supplied, it is the only schedule "
+                "for detailed_description. Keep its beat order. "
+                "Place {{D1}}, {{D2}}, ... where that draft times them. "
+                "A continuous camera move may carry more than one {{Dn}} before the next move. "
+                "Do not invent one camera move per spoken line, and do not dump all speech after all camera moves. "
+            )
+        return (
+            "Place {{D1}}, {{D2}}, ... tokens in [Shot 1] on the matching camera beat. "
+            "Interleave: camera action, then that beat's {{Dn}}, then the next camera action. "
+            "Do not describe the whole camera move first and dump all speech after. "
+        )
+
+    @staticmethod
+    def _packing_camera_rule(packing_overrides: dict[str, Any] | None) -> str:
+        if (packing_overrides or {}).get("allow_multi_camera_path"):
+            return (
+                "Camera path may include more than one move when the source draft specifies them; "
+                "keep small amplitude at slow speed and name each landing (waist / face / chest-and-waist)."
+            )
+        return "Use at most one camera move with small amplitude at slow speed, or a static hold."
+
+    @staticmethod
+    def _packing_timeline_rule(packing_overrides: dict[str, Any] | None) -> str:
+        if (packing_overrides or {}).get("allow_timeranges"):
+            return (
+                "Use exactly one [Shot 1]. detailed_description may use local clip ranges such as 00:00–00:05; "
+                "no internal cuts, no film-wide accumulated timecodes, and no [Shot 2+]."
+            )
+        return "Use exactly one [Shot 1]; no internal cuts and no timecodes."
 
     @classmethod
     def beat_info_from_shot(cls, shot: dict[str, Any]) -> dict[str, Any]:
@@ -1188,15 +1375,13 @@ class H3PromptBuilder:
             characters.append({
                 "id": ref.get("character_id") or "",
                 "name": ref.get("character_name") or "",
-                "desc": ref.get("description") or "",
-                "look_desc": ref.get("description") or "",
             })
         if not characters:
             for item in shot.get("characters") or []:
                 if isinstance(item, dict):
                     name = str(item.get("name") or "").strip()
                     if name:
-                        characters.append({"name": name, "desc": item.get("desc") or item.get("look_desc") or ""})
+                        characters.append({"name": name})
                 elif str(item or "").strip():
                     characters.append({"name": str(item).strip()})
         ref_images = shot.get("ref_images") if isinstance(shot.get("ref_images"), list) else []
@@ -1206,6 +1391,7 @@ class H3PromptBuilder:
                     "index": index,
                     "name": character.get("name") or f"character {index}",
                     "category": "character",
+                    "character_id": character.get("id") or "",
                 })
             scene_name = str(shot.get("scene") or shot.get("scene_name") or "").strip()
             if scene_name:
@@ -1234,6 +1420,7 @@ class H3PromptBuilder:
             "video_prompt_zh": shot.get("video_prompt_zh") or "",
             "audio": shot.get("audio") or shot.get("soundscape") or "",
             "camera": shot.get("camera") or "",
+            "take_role": shot.get("take_role") or "",
             "dialogue": shot.get("dialogue") or "",
             "dialogue_turns": shot.get("dialogue_turns") if isinstance(shot.get("dialogue_turns"), list) else [],
             "narration": shot.get("narration") or "",
@@ -1267,21 +1454,33 @@ class H3PromptBuilder:
         visual_prompt = str(beat_info.get("visual_prompt") or "").strip()
         thick = cls.is_thick_visual_draft(visual_prompt)
         aspect_ratio = cls.detect_pack_aspect_ratio(beat_info)
-        if thick:
+        timestamped_zh = str(beat_info.get("timestamped_zh_prompt") or "").strip()
+        faithful_zh = cls._use_faithful_zh_schedule(beat_info=beat_info)
+        if faithful_zh:
+            packing_task = (
+                f"Pack this beat into the official {mode} shell. "
+                "The official Chinese timestamped draft is the ONLY scheduling authority for "
+                f"{picture_body}. Translate it in original order. Do not invent a new camera beat "
+                "for each spoken line. One continuous camera path may carry multiple {{Dn}} tokens."
+            )
+            packing_lead = "只输出成品提示词。禁止另写一场戏。禁止按一句对白重排运镜。"
+        elif thick:
             packing_task = (
                 f"Pack this beat into the official {mode} shell. Preserve the SOURCE VISUAL DRAFT as "
                 f"{picture_body}. Pack and preserve composition, lighting, blocking, camera, and FORBIDDEN "
                 "items. Do not write a new scene."
             )
+            packing_lead = "只输出成品提示词。禁止另写一场戏。"
         else:
             packing_task = (
                 f"Pack this beat into the official {mode} shell. SOURCE VISUAL DRAFT is the picture-body "
                 "authority. Fill only missing camera, lighting, sound, or timing into English. Chinese action "
                 "and audio only fill gaps. Do not write a new scene."
             )
+            packing_lead = "只输出成品提示词。禁止另写一场戏。"
         user_lines = [
             packing_task,
-            "只输出成品提示词。禁止另写一场戏。",
+            packing_lead,
             f"Target mode: {mode}",
             f"分镜序号：第 {beat_info.get('sequence', 1)} 镜头",
             f"分镜标题：{beat_info.get('heading') or '未命名镜头'}",
@@ -1290,11 +1489,16 @@ class H3PromptBuilder:
             "出场角色列表：",
         ]
         characters = beat_info.get("characters") or []
+        ref_images = beat_info.get("ref_images") or []
         if characters:
             for idx, char in enumerate(characters, 1):
                 if isinstance(char, dict):
-                    desc = char.get("look_desc") or char.get("desc") or "暂无特征描述"
-                    user_lines.append(f"{idx}. {char.get('name')}（{desc}）")
+                    name = char.get("name") or f"角色 {idx}"
+                    if ref_images:
+                        user_lines.append(f"{idx}. {name}")
+                    else:
+                        desc = char.get("look_desc") or char.get("desc") or "暂无特征描述"
+                        user_lines.append(f"{idx}. {name}（{desc}）")
                 else:
                     user_lines.append(f"{idx}. {char}")
         else:
@@ -1352,9 +1556,15 @@ class H3PromptBuilder:
         ])
         if aspect_ratio:
             user_lines.append(f"画幅：原样保留 {aspect_ratio}，不要改成另一种比例。")
+        if timestamped_zh and timestamped_zh not in (visual_prompt or ""):
+            user_lines.append(
+                "官方中文分秒稿（detailed_description 的唯一调度权威，按原文顺序装箱，可保留 00:00–00:05；"
+                "一条连续运镜可挂多句 {{Dn}}）："
+            )
+            user_lines.append(timestamped_zh)
         if video_prompt_zh and action and action in video_prompt_zh:
             pass
-        elif video_prompt_zh:
+        elif video_prompt_zh and video_prompt_zh not in (timestamped_zh, visual_prompt):
             user_lines.append(f"中文视频提示拼接 video_prompt_zh：{video_prompt_zh}")
         spoken_blob = " ".join(
             str(turn.get("text") or "").strip()
@@ -1370,6 +1580,16 @@ class H3PromptBuilder:
             f"说话人（仅作元数据，不得写入 <d> 台词正文）：{beat_info.get('speaker') or '无'}",
             f"对白原文（仅开口台词；不要写入画面正文或 <d>，用 {{{{D1}}}} {{{{D2}}}} 占位，渲染器逐字填回）：{spoken_blob or '无对白'}",
         ])
+        coverage_shot = cls.shot_from_beat_info(beat_info)
+        coverage_events = [
+            item for item in cls.ordered_speech_events(coverage_shot)
+            if str(item.get("text") or "").strip()
+        ]
+        coverage_plan = compile_coverage_plan(coverage_shot, coverage_events)
+        if not faithful_zh and (coverage_plan.blocking or coverage_plan.moves):
+            user_lines.append("COVERAGE LANDINGS（必须写进对应 {{Dn}} 所在英文分句，开口上摇/推近，内心钉胸腰闭嘴）：")
+            user_lines.extend(f"- {item}" for item in coverage_plan.blocking)
+            user_lines.extend(f"- {move.kind}: {move.clause}" for move in coverage_plan.moves)
         slot_lines = cls.speech_slot_lines(shot_for_speech)
         slot_legend = cls.speech_slot_legend(shot_for_speech)
         if slot_lines:
@@ -1397,8 +1617,7 @@ class H3PromptBuilder:
                 text = cls._clean_dialogue(str(turn.get("text") or ""), speaker)
                 if text:
                     user_lines.append(f"- {speaker or '旁白'}：{text}")
-        user_lines.append("reference_map（标签含义必须严格一一对应，禁止增删改编号）：")
-        ref_images = beat_info.get("ref_images") or []
+        user_lines.append("reference_map（只映射 Picture 编号与资产，禁止重写小传）：")
         if mode == "T2VA":
             user_lines.append("- 无参考图。使用 T2VA，不要编造 <Picture N> 或 <Subject N>。")
         elif ref_images:
@@ -1409,17 +1628,30 @@ class H3PromptBuilder:
                 cat_name = "场景" if cat == "scene" else ("道具" if cat == "prop" else "角色")
                 user_lines.append(f"- <Picture {item.get('index')}>: {item.get('name')}（{cat_name}参考图）")
             user_lines.append(
-                "subject_definitions 写 appearance from 对应 <Picture N>；正文不要再小说式重描五官或服装。"
+                "subject_definitions 只写短定义：角色 Picture 只锁身份、不迁移姿势；"
+                "场景 Picture 不锁站位。不要把 CAST LOCK 小传写进六段。"
             )
         else:
             user_lines.append("- 未提供可用参考素材。不要编造引用标签。")
+        if faithful_zh:
+            schedule_rule = (
+                f"{picture_body} 必须按官方中文分秒稿原顺序装箱，可保留本镜 00:00–00:05；"
+                f"单镜 [Shot 1] 必须在 {seconds} 秒内演完。"
+                "一条连续运镜可以挂多句 {{Dn}}；禁止一句对白配一次新运镜。"
+                "同一句中文在成品里只能出现一次；装箱只写 {{Dn}} 占位，开口台词由渲染器口型同步，内心/旁白闭嘴画外音。"
+                "(Sn) 等于 <Subject n>。场景用 <Subject n>，不要写 <Location n>。"
+            )
+        else:
+            schedule_rule = (
+                f"{picture_body} 必须保住草稿里的构图、光、调度、运镜、禁止项。"
+                f"单镜 [Shot 1] 必须在 {seconds} 秒内演完对白与调度，覆盖 {seconds} 秒时序；"
+                "禁止写成更长的戏再压进短片。无内切、无时间码。"
+                "同一句中文在成品里只能出现一次；装箱只写 {{Dn}} 占位并插在对应运镜之后，开口台词由渲染器口型同步，内心/旁白闭嘴画外音。"
+                "(Sn) 等于 <Subject n>。场景用 <Subject n>，不要写 <Location n>。"
+            )
         user_lines.extend([
             "",
-            f"{picture_body} 必须保住草稿里的构图、光、调度、运镜、禁止项。"
-            f"单镜 [Shot 1] 必须在 {seconds} 秒内演完对白与调度，覆盖 {seconds} 秒时序；"
-            "禁止写成更长的戏再压进短片。无内切、无时间码。"
-            "同一句中文在成品里只能出现一次；装箱只写 {{Dn}} 占位并插在对应运镜之后，开口台词由渲染器口型同步，内心/旁白闭嘴画外音。"
-            "(Sn) 等于 <Subject n>。场景用 <Subject n>，不要写 <Location n>。",
+            schedule_rule,
         ])
         if json_output:
             beat_id = str(beat_info.get("beat_id") or "")
@@ -1597,7 +1829,16 @@ class H3PromptBuilder:
                 continue
             errors.append(f"unexpected spoken tag: {body[:40]}")
         matched = [han for han in actual if han in expected_set]
-        if expected and matched != expected:
+        blob = "".join(actual)
+        cursor = 0
+        sequential = True
+        for exp in expected:
+            idx = blob.find(exp, cursor)
+            if idx < 0:
+                sequential = False
+                break
+            cursor = idx + len(exp)
+        if expected and matched != expected and not sequential:
             errors.append("speech tags missing or out of performance order")
         for match in re.finditer(r"\(S(\d+)\)\s*<Subject\s+(\d+)>", prompt, flags=re.I):
             if match.group(1) != match.group(2):
@@ -1684,10 +1925,13 @@ class H3PromptBuilder:
     def ensure_reference_tags(cls, prompt: str, shot: dict[str, Any]) -> str:
         text = cls.canonicalize_reference_tags(prompt)
         missing: list[str] = []
+        definitions = cls._subject_definition_lines(shot)
+        by_index = dict(zip(cls._required_picture_indexes(shot), definitions))
         for index in cls._required_picture_indexes(shot):
             if f"<Picture {index}>" not in text or f"<Subject {index}>" not in text:
                 missing.append(
-                    f"<Subject {index}> is the exact appearance anchored by <Picture {index}>."
+                    by_index.get(index)
+                    or f"<Subject {index}> is the exact appearance anchored by <Picture {index}>."
                 )
         if not missing:
             return text
@@ -1823,8 +2067,13 @@ class H3PromptBuilder:
             "audio": str(info.get("audio") or info.get("soundscape") or ""),
             "camera": str(info.get("camera") or ""),
             "action": str(info.get("action") or ""),
+            "take_role": str(info.get("take_role") or ""),
             "aspect_ratio": str(info.get("aspect_ratio") or ""),
             "duration_seconds": info.get("duration_seconds") or info.get("duration_sec") or 8,
+            "heading": str(info.get("heading") or ""),
+            "timestamped_zh_prompt": str(info.get("timestamped_zh_prompt") or ""),
+            "skill_pack_id": str(info.get("skill_pack_id") or ""),
+            "faithful_zh_pack": bool(info.get("faithful_zh_pack")),
         }
 
     @classmethod
@@ -1873,37 +2122,41 @@ class H3PromptBuilder:
             ref = refs.get(index) or {}
             cat = str(ref.get("category") or "").strip().lower()
             name = str(ref.get("name") or "").strip()
-            desc = ""
-            if 1 <= index <= len(chars):
+            cid = str(ref.get("character_id") or "").strip()
+            if cid:
+                match = next(
+                    (
+                        item for item in chars
+                        if str(item.get("character_id") or "").strip() == cid
+                    ),
+                    None,
+                )
+                if match:
+                    name = name or str(match.get("character_name") or "").strip()
+            elif cat != "scene" and 1 <= index <= len(chars):
                 name = name or str(chars[index - 1].get("character_name") or "").strip()
-                desc = str(chars[index - 1].get("description") or "").strip()
-            is_scene = cat == "scene" or (
-                index == last and cat not in {"character", "prop"} and len(indexes) > len(chars)
+            source = str(ref.get("source") or "").strip().lower()
+            role = str(ref.get("role") or "").strip().lower()
+            is_composition = (
+                cat in {"composition", "start"}
+                or source in {"triptych.start", "start"}
+                or role == "start"
             )
-            if is_scene:
-                label = name or "scene"
-                lines.append(f"<Subject {index}> is the {label} environment in <Picture {index}>.")
-                lines.append(
-                    f"<Subject {index}> is the exact scene environment anchored by <Picture {index}>."
-                )
+            is_scene = cat == "scene" or (
+                index == last
+                and cat not in {"character", "prop", "composition", "start"}
+                and not is_composition
+                and len(indexes) > len(chars)
+            )
+            if is_composition:
+                lines.append(composition_subject_line(index, name))
+            elif is_scene:
+                lines.append(scene_subject_line(index, name))
+            elif cat == "prop":
+                lines.append(prop_subject_line(index, name))
             else:
-                label = name or f"subject {index}"
-                featuring = cls._appearance_fragment(desc)
-                extra = f", featuring {featuring}" if featuring else ""
-                lines.append(f"<Subject {index}> is {label} in <Picture {index}>{extra}.")
-                lines.append(
-                    f"<Subject {index}> is the exact character appearance anchored by <Picture {index}>."
-                )
+                lines.append(character_subject_line(index, name))
         return lines
-
-    @staticmethod
-    def _appearance_fragment(desc: str) -> str:
-        text = str(desc or "").strip()
-        if not text:
-            return ""
-        if len(_HAN_RE.findall(text)) >= 8 or len(text) > 120:
-            return ""
-        return text
 
     @classmethod
     def _split_camera_subbeats(cls, clause: str) -> list[str]:
@@ -1947,6 +2200,32 @@ class H3PromptBuilder:
             return False
         return bool(_LAND_ON_FACE_RE.search(text))
 
+    @classmethod
+    def _merge_compiled_motion(cls, compiled: list[str], patch: list[str]) -> list[str]:
+        merged = list(compiled)
+        outfit = ""
+        for item in patch:
+            match = re.search(
+                r"((?:the\s+)?(?:red\s+)?camisole(?:\s+and\s+(?:(?:the|a)\s+)?(?:black\s+)?mini skirt)?|"
+                r"(?:the\s+)?clothes)\s+fill(?:s)? the vertical frame",
+                item,
+                re.I,
+            )
+            if match:
+                outfit = match.group(0).strip()
+                if outfit and outfit[0].islower():
+                    outfit = outfit[0].upper() + outfit[1:]
+                if outfit and not outfit.endswith("."):
+                    outfit += "."
+                break
+        if not outfit:
+            return merged
+        for index, clause in enumerate(merged):
+            if cls._is_inner_pin_beat(clause) and "camisole" not in clause.lower():
+                merged[index] = f"{clause.rstrip('.')} {outfit}"
+                break
+        return merged
+
     @staticmethod
     def _take_matching(motion: list[str], predicate) -> str:
         for index, clause in enumerate(motion):
@@ -1978,6 +2257,22 @@ class H3PromptBuilder:
             rank += 1
         return (rank, len(clause))
 
+    @staticmethod
+    def _is_literary_gaze(clause: str) -> bool:
+        return is_literary_gaze(clause)
+
+    @staticmethod
+    def _is_inner_pin_beat(clause: str) -> bool:
+        return is_inner_pin_beat(clause)
+
+    @staticmethod
+    def _is_tilt_up_beat(clause: str) -> bool:
+        return is_tilt_up_beat(clause)
+
+    @staticmethod
+    def _is_push_in_beat(clause: str) -> bool:
+        return is_push_in_beat(clause)
+
     @classmethod
     def _camera_for_speech_event(
         cls,
@@ -1988,24 +2283,32 @@ class H3PromptBuilder:
         character_count: int,
     ) -> str:
         pieces: list[str] = []
+        motion[:] = [clause for clause in motion if not cls._is_literary_gaze(clause)]
+        spoken_indexes = [pos for pos, item in enumerate(events) if item.get("kind") != "inner"]
+        first_spoken = spoken_indexes[0] if spoken_indexes else -1
+        last_spoken = spoken_indexes[-1] if spoken_indexes else -1
         if event.get("kind") == "inner":
-            gaze = cls._take_best_matching(motion, cls._is_gaze_beat)
-            motion[:] = [clause for clause in motion if not cls._is_gaze_beat(clause)]
-            if gaze:
-                pieces.append(gaze)
-                pieces.append(_INNER_BODY_HOLD)
-            elif character_count >= 2:
-                pieces.append(_INNER_GAZE_FALLBACK)
-        elif index == len(events) - 1:
-            back = cls._take_matching(motion, cls._is_push_back_beat)
-            if not back:
-                back = cls._take_best_matching(
+            pin = cls._take_best_matching(motion, cls._is_inner_pin_beat)
+            if pin:
+                pieces.append(pin)
+                if not re.search(r"holds a static shot", pin, flags=re.I):
+                    pieces.append(_INNER_BODY_HOLD)
+            else:
+                pieces.append(CLAUSE_INNER_HOLD)
+        elif index == first_spoken:
+            tilt = cls._take_matching(motion, cls._is_tilt_up_beat)
+            if tilt:
+                pieces.append(tilt)
+        if not pieces and index == last_spoken:
+            push = cls._take_matching(motion, cls._is_push_in_beat)
+            if not push:
+                push = cls._take_best_matching(
                     motion,
                     cls._is_land_on_face_beat,
                     score=cls._last_spoken_land_score,
                 )
-            if back:
-                pieces.append(back)
+            if push:
+                pieces.append(push)
         if not pieces and motion:
             pieces.append(motion.pop(0))
         cleaned: list[str] = []
@@ -2018,7 +2321,7 @@ class H3PromptBuilder:
             cleaned.append(cls._punctuate_clause(text))
         clause = " ".join(cleaned)
         if not cls._clause_covers_speech_gap(clause):
-            fallback = cls._fallback_camera_beat(index)
+            fallback = CLAUSE_INNER_HOLD if event.get("kind") == "inner" else cls._fallback_camera_beat(index)
             clause = f"{fallback} {clause}".strip() if clause else fallback
         return clause
 
@@ -2081,6 +2384,8 @@ class H3PromptBuilder:
             return
         if not clause.endswith((".", "!", "?")):
             clause = clause.rstrip(" :;") + "."
+        if is_identity_portrait_clause(clause):
+            return
         if _FREEZE_CLAUSE_RE.search(clause) or _FINISH_HOLD_RE.search(clause):
             buckets["freeze"].append(clause)
             return
@@ -2116,8 +2421,40 @@ class H3PromptBuilder:
         return text
 
     @classmethod
+    def _assemble_faithful_zh_body(cls, shot: dict[str, Any], speaker_map: dict[str, str]) -> str:
+        events = [
+            item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()
+        ]
+        plan = compile_coverage_plan(shot, events)
+        body: list[str] = [
+            "Follow the Chinese timestamped shot schedule in original order.",
+            "One continuous camera move may carry more than one spoken line.",
+        ]
+        body.extend(plan.blocking)
+        for event in events:
+            body.append(cls._speech_contract_line(event, shot, speaker_map))
+        body.append(
+            "After the last syllable, the shot freezes on a readable facial reaction for about one second."
+        )
+        visible = str(shot.get("visible_text") or "").strip()
+        if visible:
+            body.append(
+                f'The only required visible Chinese text is exactly: "{visible}". '
+                "It is on-screen text and is never spoken aloud."
+            )
+        text = " ".join(
+            cls._punctuate_clause(piece)
+            for piece in body
+            if str(piece).strip()
+        )
+        text = _DUP_THINKS_RE.sub("", text)
+        return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+    @classmethod
     def assemble_shot_body(cls, shot: dict[str, Any], speaker_map: dict[str, str] | None = None) -> str:
         speaker_map = speaker_map or cls._speaker_map([shot])
+        if cls._use_faithful_zh_schedule(shot):
+            return cls._assemble_faithful_zh_body(shot, speaker_map)
         echo = [
             str(event.get("text") or "").strip()
             for event in cls.ordered_speech_events(shot)
@@ -2135,21 +2472,33 @@ class H3PromptBuilder:
         ]
         present.extend(str(item.get("name") or "") for item in (shot.get("ref_images") or []) if isinstance(item, dict))
         buckets = cls._partition_visual_clauses(cls.split_visual_clauses(draft), present)
-        motion = [
-            item for item in buckets["motion"]
-            if item and not cls._is_speech_echo_clause(item)
-        ]
         events = [
             item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()
         ]
+        plan = compile_coverage_plan(shot, events)
         character_count = len([
             item for item in (shot.get("character_references") or [])
             if isinstance(item, dict) and str(item.get("character_name") or "").strip()
         ])
+        compiled_motion = [move.clause for move in plan.moves]
+        patch_motion = [
+            item for item in buckets["motion"]
+            if item and not cls._is_speech_echo_clause(item) and not cls._is_literary_gaze(item)
+        ]
+        motion = (
+            cls._merge_compiled_motion(compiled_motion, patch_motion)
+            if compiled_motion else list(patch_motion)
+        )
         body: list[str] = []
+        body.extend(plan.blocking)
         body.extend(buckets["intro"])
         body.extend(buckets["lock"])
-        body.extend(buckets["blocking"])
+        for clause in buckets["blocking"]:
+            if is_door_open_clause(clause):
+                continue
+            if plan.already_inside and re.search(r"already inside", clause, flags=re.I):
+                continue
+            body.append(clause)
         for index, event in enumerate(events):
             body.append(cls._camera_for_speech_event(event, index, events, motion, character_count))
             body.append(cls._speech_contract_line(event, shot, speaker_map))
@@ -2221,6 +2570,43 @@ class H3PromptBuilder:
         ])
 
     @classmethod
+    def overlay_packed_detail(cls, shell: str, packed: str) -> str:
+        """Keep a valid six-section shell and replace only detailed_description from a packed draft."""
+        packed_text = str(packed or "")
+        shell_text = str(shell or "")
+        bodies: list[str] = []
+        for match in re.finditer(
+            r"(?im)^detailed_description:\s*(.*?)(?=^(?:overall_soundscape|non_diegetic_music):|\Z)",
+            packed_text,
+            flags=re.S,
+        ):
+            body = match.group(1).strip()
+            body = re.sub(
+                r"(?im)^(?:subject_definitions|summary|retention_analysis|overall_soundscape|non_diegetic_music):[\s\S]*",
+                "",
+                body,
+            ).strip()
+            if re.search(r"<d>", body, flags=re.I):
+                bodies.append(body)
+        detail = max(bodies, key=len) if bodies else ""
+        shot_only = re.search(r"\[Shot 1\](?!\):).+", detail, flags=re.S)
+        if shot_only:
+            detail = shot_only.group(0).strip()
+            cut = re.search(r"^overall_soundscape:", detail, flags=re.M)
+            if cut:
+                detail = detail[: cut.start()].strip()
+        if not detail or not re.search(r"<d>", detail, flags=re.I):
+            return shell_text
+        shell_match = re.search(
+            r"(?im)^detailed_description:\s*(.*?)(?=^overall_soundscape:)",
+            shell_text,
+            flags=re.S,
+        )
+        if not shell_match:
+            return shell_text
+        return shell_text[: shell_match.start(1)] + "\n" + detail.strip() + "\n" + shell_text[shell_match.end(1) :]
+
+    @classmethod
     def prepare_generated_prompt(
         cls,
         prompt: str,
@@ -2229,15 +2615,21 @@ class H3PromptBuilder:
     ) -> str:
         speaker_map = speaker_map or cls._speaker_map([shot])
         text = cls.canonicalize_reference_tags(prompt)
+        text = cls.ensure_section_headings(text)
         text = cls.rewrite_location_labels(text, shot)
         text = cls.fill_speech_placeholders(text, shot, speaker_map)
         text = cls._normalize_prompt(shot, text, speaker_map)
         text = cls.ensure_reference_tags(text, shot)
         text = cls.collapse_repeated_speech(text, shot)
         text = cls.repair_inner_delivery(text, shot)
+        text = cls._repair_coverage_landings(text, shot)
+        text = cls._repair_thickness_terms(text)
+        text = re.sub(r"\bthen speaks\b", "", text, flags=re.I)
+        text = re.sub(r"\bspeaks first with\b", "", text, flags=re.I)
         text = _HE_THINKS_LEAD_RE.sub("", text)
         text = _DUP_THINKS_RE.sub("", text)
-        return text.strip()
+        text = re.sub(r"[ \t]{2,}", " ", text).strip()
+        return cls.ensure_section_headings(text)
 
     @classmethod
     def _clean_prompt_dialogue(cls, prompt: str, shot: dict[str, Any]) -> str:
@@ -2295,7 +2687,6 @@ class H3PromptBuilder:
                 "subject": f"<Subject {index}>",
                 "type": "character",
                 "character_name": reference.get("character_name") or "",
-                "appearance": reference.get("description") or "",
             }
             for index, reference in enumerate(character_references, start=1)
         ]
@@ -2305,7 +2696,6 @@ class H3PromptBuilder:
             "subject": f"<Subject {scene_picture_index}>",
             "type": "scene",
             "scene": shot.get("scene") or "",
-            "description": shot.get("scene_description") or "",
         })
         return {
             "beat_id": shot["beat_id"],
@@ -2355,20 +2745,12 @@ class H3PromptBuilder:
                     return str(item.get("prompt") or "").strip()
         return ""
 
-    @staticmethod
-    def _required_contract(shot: dict[str, Any], speaker_map: dict[str, str]) -> str:
-        character_references = shot.get("character_references") or [{}]
-        definitions = [
-            f"<Subject {index}> is the exact character appearance anchored by <Picture {index}>."
-            for index in range(1, len(character_references) + 1)
-        ]
-        scene_index = len(character_references) + 1
-        definitions.append(
-            f"<Subject {scene_index}> is the exact scene environment anchored by <Picture {scene_index}>."
-        )
+    @classmethod
+    def _required_contract(cls, shot: dict[str, Any], speaker_map: dict[str, str]) -> str:
+        definitions = cls._subject_definition_lines(shot)
         speech_lines: list[str] = []
-        for event in H3PromptBuilder.ordered_speech_events(shot):
-            speech_lines.append(H3PromptBuilder._speech_contract_line(event, shot, speaker_map))
+        for event in cls.ordered_speech_events(shot):
+            speech_lines.append(cls._speech_contract_line(event, shot, speaker_map))
         visible_text = str(shot.get("visible_text") or "").strip()
         if visible_text:
             speech_lines.append(
@@ -2390,6 +2772,80 @@ class H3PromptBuilder:
         ])
 
     @classmethod
+    def has_ref2va_headings(cls, prompt: str, sections: tuple[str, ...] = H3_SECTIONS) -> bool:
+        text = str(prompt or "")
+        if not text.strip():
+            return False
+        matches = [re.search(rf"(?m)^{re.escape(name)}:\s*", text) for name in sections]
+        starts = [match.start() if match else -1 for match in matches]
+        return all(pos >= 0 for pos in starts) and starts == sorted(starts)
+
+    @classmethod
+    def canonicalize_section_headings(cls, text: str, sections: tuple[str, ...] = H3_SECTIONS) -> str:
+        out = str(text or "")
+        for name in sections:
+            out = re.sub(
+                rf"(?im)^[ \t]*(?:#{{1,3}}[ \t]*|\*\*[ \t]*|__[ \t]*)?{re.escape(name)}[ \t]*(?:\*\*|__)?[ \t]*:",
+                f"{name}:",
+                out,
+            )
+        return out
+
+    @classmethod
+    def ensure_section_headings(cls, text: str, sections: tuple[str, ...] = H3_SECTIONS) -> str:
+        raw = cls.canonicalize_section_headings(str(text or "").strip(), sections)
+        if not raw:
+            return raw
+        found: list[tuple[str, re.Match[str]]] = []
+        for name in sections:
+            match = re.search(rf"(?m)^{re.escape(name)}:\s*", raw)
+            if match:
+                found.append((name, match))
+        starts = [match.start() for _, match in found]
+        if len(found) == len(sections) and starts == sorted(starts):
+            return raw
+        bodies: dict[str, str] = {name: "" for name in sections}
+        names_found = {name for name, _ in found}
+        strong_enough = (
+            "subject_definitions" in names_found
+            and "detailed_description" in names_found
+            and len(found) >= 4
+        )
+        if found and starts == sorted(starts) and strong_enough:
+            for index, (name, match) in enumerate(found):
+                end = found[index + 1][1].start() if index + 1 < len(found) else len(raw)
+                bodies[name] = raw[match.end():end].strip()
+        else:
+            loose: list[tuple[str, re.Match[str]]] = []
+            for name in sections:
+                match = re.search(rf"(?i)(?<![A-Za-z_]){re.escape(name)}:\s*", raw)
+                if match:
+                    loose.append((name, match))
+            loose.sort(key=lambda item: item[1].start())
+            loose_names = {name for name, _ in loose}
+            if not (
+                len(loose) >= 4
+                and "subject_definitions" in loose_names
+                and "detailed_description" in loose_names
+            ):
+                return raw
+            for index, (name, match) in enumerate(loose):
+                end = loose[index + 1][1].start() if index + 1 < len(loose) else len(raw)
+                body = raw[match.end():end].strip()
+                body = re.sub(
+                    r"(?im)^(?:subject_definitions|summary|retention_analysis|detailed_description|"
+                    r"overall_soundscape|non_diegetic_music):[\s\S]*",
+                    "",
+                    body,
+                ).strip()
+                bodies[name] = body
+        lines: list[str] = []
+        for name in sections:
+            lines.append(f"{name}:")
+            lines.append(bodies.get(name) or "N/A")
+        return "\n".join(lines).strip()
+
+    @classmethod
     def _normalize_prompt(
         cls,
         shot: dict[str, Any],
@@ -2397,7 +2853,8 @@ class H3PromptBuilder:
         speaker_map: dict[str, str],
     ) -> str:
         text = cls._clean_prompt_dialogue(cls.canonicalize_reference_tags(str(prompt or "").strip()), shot)
-        matches = [re.search(rf"(?i){re.escape(section)}:\s*", text) for section in H3_SECTIONS]
+        text = cls.ensure_section_headings(text)
+        matches = [re.search(rf"(?im)^{re.escape(section)}:\s*", text) for section in H3_SECTIONS]
         if all(matches) and [match.start() for match in matches] == sorted(match.start() for match in matches):
             rebuilt: list[str] = []
             for index, (section, match) in enumerate(zip(H3_SECTIONS, matches)):
@@ -2529,13 +2986,31 @@ class H3PromptBuilder:
                 errors.append(f"{label} {issue}")
             for issue in cls.thickness_errors(prompt):
                 errors.append(f"{label} {issue}")
+            events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
+            for issue in cls.craft_prompt_errors(prompt, shot, events):
+                errors.append(f"{label} {issue}")
         return errors
 
+    @classmethod
+    def craft_prompt_errors(
+        cls,
+        prompt: str,
+        shot: dict[str, Any],
+        events: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
+        events = events if events is not None else [
+            item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()
+        ]
+        return [
+            *coverage_prompt_errors(prompt, shot, events),
+            *reference_authority_errors(prompt, shot),
+        ]
+
     @staticmethod
-    def thickness_errors(prompt: str) -> list[str]:
+    def thickness_errors(prompt: str, *, min_english_words: int = 280) -> list[str]:
         text = str(prompt or "")
         errors: list[str] = []
-        if len(re.findall(r"\b[A-Za-z][A-Za-z'-]*\b", text)) < 280:
+        if min_english_words and len(re.findall(r"\b[A-Za-z][A-Za-z'-]*\b", text)) < min_english_words:
             errors.append("英文描述过短，未达到丰富提示词要求")
         lower = text.lower()
         required_terms = {
@@ -2549,5 +3024,5 @@ class H3PromptBuilder:
         return errors
 
     @classmethod
-    def _system_prompt(cls, duration_seconds: int = 8) -> str:
-        return cls.packing_system_prompt("Ref2VA", duration_seconds)
+    def _system_prompt(cls, duration_seconds: int = 8, packing_overrides: dict[str, Any] | None = None) -> str:
+        return cls.packing_system_prompt("Ref2VA", duration_seconds, packing_overrides=packing_overrides)

@@ -176,6 +176,7 @@ class ProjectItem(BaseModel):
     cover_url: str | None = None
     status: str = "active"
     settings: dict[str, Any] | None = None
+    extra: dict[str, Any] | None = None
     created_at: str
     updated_at: str
 
@@ -185,6 +186,7 @@ class ProjectCreateRequest(BaseModel):
     description: str | None = ""
     cover_url: str | None = None
     settings: dict[str, Any] | None = None
+    extra: dict[str, Any] | None = None
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -193,3 +195,4 @@ class ProjectUpdateRequest(BaseModel):
     cover_url: str | None = None
     status: str | None = None
     settings: dict[str, Any] | None = None
+    extra: dict[str, Any] | None = None

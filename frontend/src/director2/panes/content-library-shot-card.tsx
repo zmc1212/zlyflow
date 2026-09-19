@@ -9,6 +9,7 @@ import {
   Users,
   Video,
 } from "lucide-react"
+import { formatShotDurationLabel } from "../shot-plan-live"
 
 export type ContentLibraryShot = {
   shot_num: number
@@ -22,6 +23,7 @@ export type ContentLibraryShot = {
   audio?: string
   subtitle?: string
   visual_prompt?: string
+  duration_sec?: number | string
 }
 
 const CHARS_PER_LINE = 16
@@ -59,17 +61,28 @@ function ShotClampText({
 export default function ContentLibraryShotCard({
   shot,
   onCopyPrompt,
+  entering = false,
+  assembling = false,
 }: {
   shot: ContentLibraryShot
   onCopyPrompt: (text: string | null | undefined) => void
+  entering?: boolean
+  assembling?: boolean
 }) {
+  const durationLabel = formatShotDurationLabel(shot.duration_sec)
+  const className = [
+    "shot-card",
+    entering ? "is-enter" : "",
+    assembling ? "is-assembling" : "",
+  ].filter(Boolean).join(" ")
   return (
-    <div className="shot-card">
+    <div className={className}>
       <div className="shot-card-header">
         <span className="shot-badge">镜头 {shot.shot_num}</span>
         <h4 className="shot-title" title={shot.title || undefined}>
           {shot.title || `镜头 ${shot.shot_num}`}
         </h4>
+        {durationLabel ? <span className="shot-duration">{durationLabel}</span> : null}
       </div>
 
       <div className="shot-meta-rows">

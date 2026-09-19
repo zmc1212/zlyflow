@@ -9,12 +9,22 @@ import {
   h3PromptResultText,
   isDirector2JobType,
   isH3PromptJob,
+  isShotPlanJob,
+  isTtsJob,
+  shotPlanDocumentId,
   videoShotPromptText,
 } from "./director2-job-types"
 
 describe("director2 job types", () => {
   it("lists the fixed tabs without an all tab", () => {
-    expect(DIRECTOR2_JOB_TYPES).toEqual(["image_generation", "video_generation", "h3_prompt", "ai_pipeline"])
+    expect(DIRECTOR2_JOB_TYPES).toEqual([
+      "image_generation",
+      "video_generation",
+      "h3_prompt",
+      "shot_plan",
+      "ai_pipeline",
+      "tts_generation",
+    ])
     expect(DIRECTOR2_DEFAULT_JOB_TYPE).toBe("image_generation")
   })
 
@@ -22,9 +32,12 @@ describe("director2 job types", () => {
     expect(director2JobTypeLabel("image_generation")).toBe("图片生成")
     expect(director2JobTypeLabel("video_generation")).toBe("视频生成")
     expect(director2JobTypeLabel("h3_prompt")).toBe("H3 提示词")
+    expect(director2JobTypeLabel("shot_plan")).toBe("镜头规划")
     expect(director2JobTypeLabel("ai_pipeline")).toBe("AI 生成")
+    expect(director2JobTypeLabel("tts_generation")).toBe("配音")
     expect(director2JobTypeLabel("weird")).toBe("weird")
     expect(isDirector2JobType("ai_pipeline")).toBe(true)
+    expect(isDirector2JobType("tts_generation")).toBe(true)
     expect(isDirector2JobType("weird")).toBe(false)
   })
 
@@ -33,17 +46,23 @@ describe("director2 job types", () => {
       { job_type: "video_generation" },
       { job_type: "image_generation" },
       { job_type: "image_generation" },
+      { job_type: "shot_plan" },
       { job_type: "ai_pipeline" },
+      { job_type: "tts_generation" },
       { job_type: "other" },
     ]
     expect(filterJobsByType(jobs, "image_generation")).toHaveLength(2)
     expect(filterJobsByType(jobs, "video_generation")).toHaveLength(1)
+    expect(filterJobsByType(jobs, "shot_plan")).toHaveLength(1)
     expect(filterJobsByType(jobs, "ai_pipeline")).toHaveLength(1)
+    expect(filterJobsByType(jobs, "tts_generation")).toHaveLength(1)
     expect(countJobsByType(jobs)).toEqual({
       image_generation: 2,
       video_generation: 1,
       h3_prompt: 0,
+      shot_plan: 1,
       ai_pipeline: 1,
+      tts_generation: 1,
     })
   })
 
@@ -51,6 +70,14 @@ describe("director2 job types", () => {
     expect(isH3PromptJob({ job_type: "h3_prompt" })).toBe(true)
     expect(isH3PromptJob({ job_type: "image_generation", payload: { target_type: "h3_prompt" } })).toBe(true)
     expect(isH3PromptJob({ job_type: "image_generation" })).toBe(false)
+    expect(isShotPlanJob({ job_type: "shot_plan" })).toBe(true)
+    expect(isShotPlanJob({ job_type: "image_generation", payload: { target_type: "shot_plan" } })).toBe(true)
+    expect(isShotPlanJob({ job_type: "h3_prompt" })).toBe(false)
+    expect(isTtsJob({ job_type: "tts_generation" })).toBe(true)
+    expect(isTtsJob({ job_type: "image_generation", payload: { target_type: "tts_generation" } })).toBe(true)
+    expect(isTtsJob({ job_type: "video_generation" })).toBe(false)
+    expect(shotPlanDocumentId({ payload: { document_id: "doc-1" } })).toBe("doc-1")
+    expect(shotPlanDocumentId({ payload: {} })).toBe("")
     expect(h3PromptResultText({ payload: { h3_prompt: "subject_definitions:\nA shot." } })).toBe(
       "subject_definitions:\nA shot.",
     )

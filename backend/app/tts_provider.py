@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from urllib.parse import urlparse
+
+import requests
 
 from .grs_provider import CredentialManager
 from .llm_client import LlmError, OpenAICompatibleClient
@@ -13,6 +16,20 @@ DEFAULT_TTS_MODEL = "tts-1"
 DEFAULT_TTS_VOICE = "alloy"
 COSYVOICE2_MODEL = "FunAudioLLM/CosyVoice2-0.5B"
 MOSS_TTSD_MODEL = "fnlp/MOSS-TTSD-v0.5"
+INDEXTTS_MODEL = "indextts-2.5"
+INDEXTTS_VOICE = "clone"
+INDEXTTS_DEFAULT_ORIGIN = "http://127.0.0.1:7866"
+INDEXTTS_DEFAULT_BASE_URL = f"{INDEXTTS_DEFAULT_ORIGIN}/v1"
+INDEXTTS_EMOTION_KEYS = (
+    "happy",
+    "angry",
+    "sad",
+    "afraid",
+    "disgusted",
+    "melancholic",
+    "surprised",
+    "calm",
+)
 
 OPENAI_VOICE_IDS = frozenset({"alloy", "echo", "fable", "onyx", "nova", "shimmer"})
 
@@ -36,13 +53,28 @@ SILICONFLOW_COSYVOICE_VOICES: tuple[dict[str, str], ...] = (
     {"id": f"{COSYVOICE2_MODEL}:diana", "label": "Diana（活泼女声）", "gender": "female"},
 )
 
+INDEXTTS_VOICES: tuple[dict[str, str], ...] = (
+    {"id": INDEXTTS_VOICE, "label": "角色参考音克隆", "gender": "unspecified"},
+)
+
 # 兼容旧常量名
 TTS_VOICES = OPENAI_TTS_VOICES
+
+
+def sidecar_origin(base_url: str = "") -> str:
+    parsed = urlparse((base_url or "").strip() or INDEXTTS_DEFAULT_BASE_URL)
+    if not parsed.scheme or not parsed.hostname:
+        return INDEXTTS_DEFAULT_ORIGIN
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://{parsed.hostname}{port}"
 
 
 def detect_tts_provider(*, base_url: str = "", model: str = "") -> str:
     lowered_url = (base_url or "").strip().lower()
     lowered_model = (model or "").strip().lower()
+    parsed = urlparse(base_url or "")
+    if parsed.port == 7866 or "7866" in lowered_url or "indextts" in lowered_url or "indextts" in lowered_model:
+        return "indextts"
     if "siliconflow" in lowered_url:
         return "siliconflow"
     if "cosyvoice" in lowered_model or "moss-ttsd" in lowered_model or lowered_model.startswith("funaudiollm/"):
@@ -53,6 +85,8 @@ def detect_tts_provider(*, base_url: str = "", model: str = "") -> str:
 
 
 def voices_for_provider(provider: str) -> list[dict[str, str]]:
+    if provider == "indextts":
+        return [dict(item) for item in INDEXTTS_VOICES]
     if provider == "siliconflow":
         return [dict(item) for item in SILICONFLOW_COSYVOICE_VOICES]
     if provider == "openai":
@@ -60,9 +94,76 @@ def voices_for_provider(provider: str) -> list[dict[str, str]]:
     return [dict(item) for item in OPENAI_TTS_VOICES]
 
 
+def emotion_vector(emotion: str | None = None, values: Any = None, *, intensity: float = 1.0) -> list[float]:
+    vector = [0.0] * len(INDEXTTS_EMOTION_KEYS)
+    if isinstance(values, str):
+        try:
+            values = json.loads(values)
+        except json.JSONDecodeError:
+            values = None
+    if isinstance(values, (list, tuple)) and len(values) == len(INDEXTTS_EMOTION_KEYS):
+        parsed: list[float] = []
+        for item in values:
+            try:
+                parsed.append(max(0.0, min(1.0, float(item))))
+            except (TypeError, ValueError):
+                parsed.append(0.0)
+        return parsed
+    key = str(emotion or "calm").strip().lower()
+    if key not in INDEXTTS_EMOTION_KEYS:
+        key = "calm"
+    try:
+        strength = max(0.0, min(1.0, float(intensity)))
+    except (TypeError, ValueError):
+        strength = 1.0
+    vector[INDEXTTS_EMOTION_KEYS.index(key)] = strength
+    return vector
+
+
+def clamp_emo_alpha(value: Any, default: float = 0.8) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(0.0, min(1.0, number))
+
+
+def clamp_duration_factor(value: Any, default: float = 1.0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(0.5, min(2.0, number))
+
+
+def free_indextts_sidecar(base_url: str = "") -> bool:
+    origin = sidecar_origin(base_url or INDEXTTS_DEFAULT_BASE_URL)
+    try:
+        response = requests.post(f"{origin}/free", timeout=8)
+        return bool(response.ok)
+    except requests.RequestException:
+        return False
+
+
+def indextts_health(base_url: str = "") -> dict[str, Any]:
+    origin = sidecar_origin(base_url or INDEXTTS_DEFAULT_BASE_URL)
+    try:
+        response = requests.get(f"{origin}/health", timeout=5)
+        payload = response.json() if response.content else {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload["http_status"] = response.status_code
+        payload["ok"] = bool(response.ok and payload.get("ready", payload.get("status") == "ok"))
+        return payload
+    except requests.RequestException as exc:
+        return {"ok": False, "status": "unreachable", "detail": str(exc), "origin": origin}
+
+
 def voice_for_gender(gender: str | None, *, base_url: str = "", model: str = "") -> str:
     provider = detect_tts_provider(base_url=base_url, model=model)
     value = (gender or "").strip().lower()
+    if provider == "indextts":
+        return INDEXTTS_VOICE
     if provider == "siliconflow":
         if value in {"male", "男"}:
             return f"{COSYVOICE2_MODEL}:benjamin"
@@ -85,6 +186,8 @@ def resolve_tts_voice(
 ) -> str:
     selected = str(voice or "").strip()
     provider = detect_tts_provider(base_url=base_url, model=model)
+    if provider == "indextts":
+        return selected or INDEXTTS_VOICE
     if provider == "siliconflow" and selected in OPENAI_VOICE_IDS:
         return voice_for_gender(gender, base_url=base_url, model=model)
     if selected:
@@ -99,13 +202,29 @@ class TtsProviderService:
 
     def _effective_config(self, config: dict[str, Any] | None = None) -> dict[str, Any]:
         settings = dict(config or self.store.get_tts_settings())
+        stored_provider = detect_tts_provider(
+            base_url=str(settings.get("base_url") or ""),
+            model=str(settings.get("model") or ""),
+        )
+        if stored_provider == "indextts":
+            settings["use_llm_credentials"] = False
+            if not str(settings.get("base_url") or "").strip():
+                settings["base_url"] = INDEXTTS_DEFAULT_BASE_URL
+            return settings
         if settings.get("use_llm_credentials"):
             llm = self.store.get_llm_settings()
             settings["base_url"] = str(llm.get("base_url") or settings.get("base_url") or "")
         return settings
 
+    def provider_name(self, config: dict[str, Any] | None = None) -> str:
+        effective = self._effective_config(config)
+        return detect_tts_provider(base_url=self.base_url(effective), model=self.model(effective))
+
+    def supports_clone(self, config: dict[str, Any] | None = None) -> bool:
+        return self.provider_name(config) == "indextts"
+
     def api_key(self, config: dict[str, Any] | None = None) -> str | None:
-        settings = config or self.store.get_tts_settings()
+        settings = self._effective_config(config)
         if settings.get("use_llm_credentials"):
             decrypted = self.credentials.decrypt(self.store.get_llm_settings().get("api_key_encrypted"))
             if decrypted:
@@ -122,7 +241,7 @@ class TtsProviderService:
         return None
 
     def base_url(self, config: dict[str, Any] | None = None) -> str:
-        settings = config or self.store.get_tts_settings()
+        settings = self._effective_config(config)
         if settings.get("use_llm_credentials"):
             return str(self.store.get_llm_settings().get("base_url") or "").rstrip("/")
         return str(settings.get("base_url") or "").rstrip("/")
@@ -164,9 +283,10 @@ class TtsProviderService:
             return False, "语音合成尚未启用，请联系超级管理员在「管理设置 → TTS」配置语音合成。"
         if not self.base_url(config):
             return False, "TTS Base URL 未配置。可勾选复用大模型凭据，或填写独立 OpenAI 兼容地址。"
-        if not is_local_base_url(self.base_url(config)) and not self.credentials.ready:
+        provider = self.provider_name(config)
+        if provider != "indextts" and not is_local_base_url(self.base_url(config)) and not self.credentials.ready:
             return False, self.credentials.error or "凭证主密钥不可用"
-        if not self.api_key(config):
+        if provider != "indextts" and not self.api_key(config):
             return False, "TTS API Key 未配置或无法解密。"
         if not self.model(config):
             return False, "未配置 TTS 模型名称。"
@@ -198,6 +318,8 @@ class TtsProviderService:
             "available": available,
             "unavailable_reason": reason,
             "voices": self.voice_catalog(config),
+            "provider": detect_tts_provider(base_url=self.base_url(config), model=self.model(config)),
+            "supports_clone": self.supports_clone(config),
         }
 
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -214,9 +336,20 @@ class TtsProviderService:
         elif not values.get("use_llm_credentials", True):
             values["base_url"] = DEFAULT_MODELSCOPE_BASE_URL
         model_name = str(values.get("model") or "").strip()
-        values["model"] = model_name or DEFAULT_TTS_MODEL
-        voice = str(values.get("voice") or "").strip()
-        values["voice"] = voice or DEFAULT_TTS_VOICE
+        provider = detect_tts_provider(
+            base_url=str(values.get("base_url") or self.base_url(self.store.get_tts_settings())),
+            model=model_name,
+        )
+        if provider == "indextts":
+            values["use_llm_credentials"] = False
+            values["model"] = model_name or INDEXTTS_MODEL
+            values["voice"] = str(values.get("voice") or INDEXTTS_VOICE).strip() or INDEXTTS_VOICE
+            if not str(values.get("base_url") or "").strip():
+                values["base_url"] = INDEXTTS_DEFAULT_BASE_URL
+        else:
+            values["model"] = model_name or DEFAULT_TTS_MODEL
+            voice = str(values.get("voice") or "").strip()
+            values["voice"] = voice or DEFAULT_TTS_VOICE
         api_key = payload.get("api_key")
         if api_key is not None and str(api_key).strip():
             if not self.credentials.ready:
@@ -247,21 +380,33 @@ class TtsProviderService:
         )
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
-        if not api_key:
+        provider = detect_tts_provider(base_url=base_url, model=model)
+        if provider != "indextts" and not api_key:
             raise ValueError("测试语音合成需要提供有效的 API Key / Token")
         if not base_url:
             raise ValueError("TTS Base URL 不能为空")
-        client = OpenAICompatibleClient(base_url=base_url, api_key=api_key)
         test_time = now()
         try:
-            audio = client.speech(text="试听。", model=model, voice=voice, timeout=30.0)
-            if not audio:
-                raise LlmError("上游返回了空音频")
-            test_status = "成功"
-            test_message = f"连接成功，收到 {len(audio)} 字节音频"
-        except Exception as exc:
+            if provider == "indextts":
+                health = indextts_health(base_url)
+                if not health.get("ok"):
+                    raise LlmError(health.get("detail") or health.get("status") or "IndexTTS 旁路未就绪")
+                test_status = "成功"
+                test_message = (
+                    f"旁路已连接（{sidecar_origin(base_url)}），"
+                    f"权重{'就绪' if health.get('ready') else '未找到'}，"
+                    f"模型{'已加载' if health.get('loaded') else '未占用显存'}"
+                )
+            else:
+                client = OpenAICompatibleClient(base_url=base_url, api_key=api_key or "ollama")
+                audio = client.speech(text="试听。", model=model, voice=voice, timeout=30.0)
+                if not audio:
+                    raise LlmError("上游返回了空音频")
+                test_status = "成功"
+                test_message = f"连接成功，收到 {len(audio)} 字节音频"
+        except Exception as extra:
             test_status = "失败"
-            test_message = str(exc)
+            test_message = str(extra)
         self.store.update_tts_settings(
             last_test_status=test_status,
             last_test_message=test_message,
@@ -275,7 +420,7 @@ class TtsProviderService:
         available, reason = self.availability()
         if not available:
             raise LlmError(reason or "语音合成服务不可用")
-        api_key = self.api_key()
+        api_key = self.api_key() or ("ollama" if is_local_base_url(self.base_url()) else None)
         if not api_key:
             raise LlmError("TTS 凭据未配置")
         return (
@@ -284,7 +429,90 @@ class TtsProviderService:
             self.voice(),
         )
 
-    def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
+    def free_sidecar(self) -> bool:
+        if not self.supports_clone():
+            return False
+        return free_indextts_sidecar(self.base_url())
+
+    def clone(
+        self,
+        text: str,
+        *,
+        spk_audio: bytes,
+        spk_filename: str = "prompt.wav",
+        lang: str | None = None,
+        emotion: str | None = None,
+        emo_vector: list[float] | None = None,
+        emo_alpha: float | None = None,
+        duration_factor: float | None = None,
+        timeout: float = 180.0,
+    ) -> bytes:
+        line = str(text or "").strip()
+        if not line:
+            raise LlmError("配音文本不能为空")
+        if not spk_audio:
+            raise LlmError("请先上传角色参考音")
+        if not self.supports_clone():
+            return self.synthesize(line)
+        origin = sidecar_origin(self.base_url())
+        files = {"spk_audio": (spk_filename or "prompt.wav", spk_audio, "application/octet-stream")}
+        data = {
+            "text": line,
+            "lang": lang or "",
+            "emotion": emotion or "calm",
+            "emo_vector": json.dumps(emotion_vector(emotion, emo_vector), ensure_ascii=False),
+            "emo_alpha": str(clamp_emo_alpha(emo_alpha)),
+            "duration_factor": str(clamp_duration_factor(duration_factor)),
+        }
+        try:
+            response = requests.post(
+                f"{origin}/v1/tts/clone",
+                files=files,
+                data=data,
+                timeout=timeout,
+            )
+        except requests.exceptions.Timeout as exc:
+            raise LlmError(f"IndexTTS 克隆超时（等待 {timeout:.0f} 秒）：{exc}") from exc
+        except requests.exceptions.RequestException as exc:
+            raise LlmError(f"无法连接 IndexTTS 旁路 {origin}：{exc}") from exc
+        if response.status_code >= 400:
+            detail = (response.text or "").strip()[:400] or f"HTTP {response.status_code}"
+            try:
+                parsed = response.json()
+                if isinstance(parsed, dict) and parsed.get("detail"):
+                    detail = str(parsed.get("detail"))
+            except Exception:
+                pass
+            raise LlmError(f"IndexTTS 克隆失败：{detail}")
+        body = response.content or b""
+        if not body:
+            raise LlmError("IndexTTS 返回了空音频")
+        return body
+
+    def synthesize(
+        self,
+        text: str,
+        *,
+        voice: str | None = None,
+        spk_audio: bytes | None = None,
+        spk_filename: str = "prompt.wav",
+        lang: str | None = None,
+        emotion: str | None = None,
+        emo_vector: list[float] | None = None,
+        emo_alpha: float | None = None,
+        duration_factor: float | None = None,
+    ) -> bytes:
+        if spk_audio and self.supports_clone():
+            return self.clone(
+                text,
+                spk_audio=spk_audio,
+                spk_filename=spk_filename,
+                lang=lang,
+                emotion=emotion,
+                emo_vector=emo_vector,
+                emo_alpha=emo_alpha,
+                duration_factor=duration_factor,
+            )
         client, model, default_voice = self.client()
         resolved = resolve_tts_voice(
             voice or default_voice,

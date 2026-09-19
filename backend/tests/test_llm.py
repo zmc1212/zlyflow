@@ -17,12 +17,17 @@ from backend.app.llm_client import (
     LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
     LLM_TEST_MAX_TOKENS,
     LLM_TEST_TIMEOUT_SECONDS,
+    LLM_TEST_USER_PROMPT,
     OpenAICompatibleClient,
     LlmBillingError,
     LlmError,
     LlmTemporaryError,
+    looks_like_short_input_probe,
+    looks_like_gateway_timeout,
     parse_model_catalog,
     parse_siliconflow_plaza_free_ids,
+    raise_llm_http_error,
+    summarize_llm_test_reply,
 )
 from backend.app.llm_provider import LlmProviderService
 from backend.app.vlm_provider import VlmProviderService
@@ -63,6 +68,37 @@ class ChatCompletionThinkingTests(unittest.TestCase):
         payload = mock_post.call_args.kwargs["json"]
         self.assertNotIn("thinking", payload)
         self.assertFalse(payload["enable_thinking"])
+
+    @patch("requests.Session.post")
+    def test_gpt5_sol_uses_max_completion_tokens_without_temperature(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient("https://cn3.heilovehei.com/v1", "sk-test")
+        client.chat_completion(
+            [{"role": "user", "content": "expand this shot"}],
+            "gpt-5.6-sol",
+            temperature=0.7,
+            max_tokens=1536,
+        )
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["max_completion_tokens"], 1536)
+        self.assertNotIn("max_tokens", payload)
+        self.assertNotIn("temperature", payload)
+        self.assertNotIn("enable_thinking", payload)
+        self.assertNotIn("thinking", payload)
+
+    @patch("requests.Session.post")
+    def test_gpt5_reasoning_effort_is_forwarded(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient("https://cn3.heilovehei.com/v1", "sk-test")
+        client.chat_completion(
+            [{"role": "user", "content": "expand this shot"}],
+            "gpt-5.6-sol",
+            max_tokens=64,
+            reasoning_effort="none",
+        )
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["reasoning_effort"], "none")
+        self.assertEqual(payload["max_completion_tokens"], 64)
 
 
 class ChatCompletionTimeoutAndStreamTests(unittest.TestCase):
@@ -186,6 +222,45 @@ class ChatCompletionTimeoutAndStreamTests(unittest.TestCase):
         self.assertEqual(text, "镜头")
         self.assertGreaterEqual(len(chunks), 1)
         self.assertEqual(chunks[-1], "镜头")
+
+    @patch("requests.Session.post")
+    def test_stream_emits_reasoning_and_strips_think_tags(self, mock_post: MagicMock) -> None:
+        from backend.app.llm_client import ThinkStreamSplitter
+
+        splitter = ThinkStreamSplitter()
+        self.assertEqual(splitter.feed("<thi"), [])
+        self.assertEqual(splitter.feed("nk>先想一步"), [("reasoning", "先想一步")])
+        self.assertEqual(splitter.feed("</th"), [])
+        self.assertEqual(splitter.feed("ink>正文"), [("content", "正文")])
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "text/event-stream"}
+        mock_response.iter_lines.return_value = [
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"看镜头\"}}]}",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"<think>内部\"}}]}",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"</think>subject_definitions:\"}}]}",
+            "data: [DONE]",
+        ]
+        mock_post.return_value = mock_response
+        deltas: list[tuple[str, str]] = []
+        text = self._client().chat_completion(
+            [{"role": "user", "content": "hi"}],
+            "gpt-5.6-sol",
+            stream=True,
+            on_delta=lambda kind, piece: deltas.append((kind, piece)),
+        )
+        self.assertEqual(text, "subject_definitions:")
+        self.assertEqual(deltas[0], ("reasoning", "看镜头"))
+        self.assertIn(("reasoning", "内部"), deltas)
+        self.assertIn(("content", "subject_definitions:"), deltas)
+
+    def test_stream_delta_parts_reads_reasoning_content(self) -> None:
+        reasoning, content = OpenAICompatibleClient._stream_delta_parts({
+            "choices": [{"delta": {"reasoning_content": "想", "content": "写"}}],
+        })
+        self.assertEqual(reasoning, "想")
+        self.assertEqual(content, "写")
 
     @patch("requests.Session.post")
     def test_stream_decodes_utf8_chinese_from_bytes(self, mock_post: MagicMock) -> None:
@@ -622,6 +697,31 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.assertEqual(data["skill_id"], "3d-animation-short")
         self.assertIn("integrated_multimodal_description", data["optimized_prompt"])
 
+    @patch("backend.app.vision_runtime.complete_authoring")
+    def test_optimize_prompt_sends_images_when_provided(self, mock_complete: MagicMock) -> None:
+        mock_complete.return_value = ("subject_definitions:\nLook at <Picture 1>.", MagicMock())
+        self.llm_provider.update({
+            "enabled": True,
+            "api_key": "test-modelscope-token",
+            "model": "gpt-5.6-sol",
+        })
+        self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
+        from backend.app.auth import csrf_token
+        res = self.client.post(
+            "/api/llm/optimize-prompt",
+            json={
+                "prompt": "雨夜城市",
+                "media_type": "video",
+                "reference_count": 1,
+                "image_urls": ["https://cdn.example/ref.png"],
+            },
+            headers={"X-CSRF-Token": csrf_token(self.employee_token)},
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("<Picture 1>", res.json()["optimized_prompt"])
+        mock_complete.assert_called_once()
+        self.assertEqual(["https://cdn.example/ref.png"], mock_complete.call_args.args[5])
+
 
 class LLMConnectionTestTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -649,6 +749,56 @@ class LLMConnectionTestTests(unittest.TestCase):
         self.assertEqual(client.test_connection("qwen2.5:7b-instruct", timeout=90.0), "收到")
         self.assertEqual(mock_chat.call_args.kwargs["timeout"], 90.0)
         self.assertEqual(mock_chat.call_args.kwargs["max_tokens"], LLM_TEST_MAX_TOKENS)
+        messages = mock_chat.call_args.args[0]
+        contents = " ".join(str(item.get("content", "")) for item in messages)
+        self.assertEqual(messages, [{"role": "user", "content": LLM_TEST_USER_PROMPT}])
+        self.assertIn("你是什么模型", contents)
+        self.assertGreater(len(LLM_TEST_USER_PROMPT), 20)
+        self.assertNotIn("请仅回复两个字", contents)
+        self.assertNotIn("分镜说明", contents)
+        self.assertNotIn("reasoning_effort", mock_chat.call_args.kwargs)
+
+    @patch.object(OpenAICompatibleClient, "list_models", return_value=["gpt-5.6-sol"])
+    @patch.object(OpenAICompatibleClient, "chat_completion", return_value="我是 gpt-5.6-sol，可以正常中文对话。")
+    def test_connection_disables_gpt5_reasoning(self, mock_chat: MagicMock, _mock_list: MagicMock) -> None:
+        client = OpenAICompatibleClient("https://cn3.heilovehei.com/v1", "sk-test")
+        self.assertEqual(
+            client.test_connection("gpt-5.6-sol", timeout=90.0),
+            "我是 gpt-5.6-sol，可以正常中文对话。",
+        )
+        self.assertEqual(mock_chat.call_args.kwargs["reasoning_effort"], "none")
+        self.assertEqual(mock_chat.call_args.kwargs["max_tokens"], LLM_TEST_MAX_TOKENS)
+
+    def test_short_input_probe_error_is_rewritten(self) -> None:
+        upstream = "Upstream rejected illegal short-input distillation or heartbeat probing."
+        self.assertTrue(looks_like_short_input_probe(upstream))
+        with self.assertRaises(LlmError) as ctx:
+            raise_llm_http_error(action="对话推理", status=400, upstream=upstream)
+        text = str(ctx.exception)
+        self.assertIn("过短的探测请求", text)
+        self.assertIn("目录接口可用", text)
+        self.assertIn(upstream, text)
+
+    def test_html_gateway_timeout_is_rewritten(self) -> None:
+        upstream = (
+            "<html><head><title>504 Gateway Time-out</title></head>"
+            "<body><center><h1>504 Gateway Time-out</h1></center>"
+            "<hr><center>nginx/1.18.0 (Ubuntu)</center></body></html>"
+        )
+        self.assertTrue(looks_like_gateway_timeout(upstream, 504))
+        with self.assertRaises(LlmTemporaryError) as ctx:
+            raise_llm_http_error(action="对话推理", status=504, upstream=upstream)
+        text = str(ctx.exception)
+        self.assertIn("网关超时", text)
+        self.assertIn("60 秒", text)
+        self.assertNotIn("<html", text)
+
+    def test_success_reply_is_summarized_for_settings_panel(self) -> None:
+        long_reply = "9:16 竖屏，都市情感短剧，" + ("夜戏细节 " * 40)
+        summary = summarize_llm_test_reply(long_reply)
+        self.assertTrue(summary.startswith("连接成功，模型已正常完成一次创作推理："))
+        self.assertLessEqual(len(summary), 120)
+        self.assertTrue(summary.endswith("…"))
 
     @patch.object(OpenAICompatibleClient, "list_models", return_value=["qwen2.5:7b-instruct"])
     @patch.object(

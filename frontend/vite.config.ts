@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
       host: env.HOST || "0.0.0.0",
       port,
       strictPort: true,
+      allowedHosts: true,
       https: useHttps
         ? {
             cert: readFileSync(certificatePath!),
@@ -31,8 +32,9 @@ export default defineConfig(({ mode }) => {
           target: `${useHttps ? "https" : "http"}://127.0.0.1:7865`,
           changeOrigin: true,
           secure: false,
-          timeout: 120000,
-          proxyTimeout: 120000,
+          // 导入剧本会逐集规划镜头，单集大模型最长约 240 秒；120 秒会先掐掉前端、后端仍在跑。
+          timeout: 900000,
+          proxyTimeout: 900000,
         },
       },
     },

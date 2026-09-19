@@ -261,5 +261,9 @@ describe("director2 stage choice mapping", () => {
       question: DIRECTOR2_SHOTS_PER_EPISODE_QUESTION.question,
     })
     expect(questions.at(-1)?.options?.find((item) => item.recommended)?.value).toBe("6")
+    expect(questions.at(-1)?.why).toContain("节奏建议")
+    expect(questions.at(-1)?.why).toContain("导入")
+    expect(questions.at(-1)?.why).toContain("出片镜")
+    expect(questions.at(-1)?.why).not.toMatch(/还会再拆|生成提示词时还会再拆/)
   })
 })

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .director_craft.coverage import COVERAGE_CONTRACT_EXCERPT
+
 
 @dataclass(frozen=True)
 class H3Skill:
@@ -150,7 +152,10 @@ def load_shot_timing_excerpt() -> str:
     ])
 
 
-def build_workshop_h3_timing_rules(duration_seconds: str | int = 8) -> str:
+def build_workshop_h3_timing_rules(
+    duration_seconds: str | int = 8,
+    packing_overrides: dict[str, Any] | None = None,
+) -> str:
     """Director-1 shot-timing budget, adapted for director-2 workshop Ref2VA.
 
     Director-1 polish rewrites storyboard promptText with At 00:XX.XXX markers.
@@ -159,6 +164,17 @@ def build_workshop_h3_timing_rules(duration_seconds: str | int = 8) -> str:
     the supplied blocking inside that many seconds.
     """
     seconds = str(duration_seconds).strip() or "8"
+    if (packing_overrides or {}).get("allow_timeranges"):
+        timeline = (
+            "Skill-pack adapter: write one [Shot 1] chronological performance. "
+            "Local clip ranges such as 00:00–00:05 in detailed_description are allowed. "
+            "Do not emit film-wide accumulated timecodes or [Shot 2+]."
+        )
+    else:
+        timeline = (
+            "Workshop adapter: write one [Shot 1] chronological performance. "
+            "Do NOT emit At HH:MM.SSS timestamps, internal cuts, or film-wide timecodes."
+        )
     return "\n".join([
         "# Shot timing budget (Seedance-inspired, adapted for MiniMax H3 workshop)",
         "The same budget director-1 uses after storyboard split:",
@@ -167,7 +183,7 @@ def build_workshop_h3_timing_rules(duration_seconds: str | int = 8) -> str:
         "- A 5s clip holds at most two action beats plus one short line; thick blocking belongs on 8–12s.",
         "- Never truncate dialogue or <d> to fit. If the beat is still too tight, the duration should already have been raised in video_duration.",
         f"This beat's duration_seconds is {seconds} (MiniMax H3 clamp 2–15). Play the full supplied blocking and complete speech inside that take.",
-        "Workshop adapter: write one [Shot 1] chronological performance. Do NOT emit At HH:MM.SSS timestamps, internal cuts, or film-wide timecodes.",
+        timeline,
         "Begin speech early enough to finish unhurriedly and hold a final reaction. Do not invent extra events to pad a short clip, and do not compress a long blocking back into 5s.",
     ])
 
@@ -397,7 +413,7 @@ def build_shots_per_episode_question(recommended_value: str = SHOTS_PER_EPISODE_
     return {
         "id": SHOTS_PER_EPISODE_QUESTION_ID,
         "question": SHOTS_PER_EPISODE_QUESTION_TEXT,
-        "why": "每集镜头数决定单集节奏与成片时长：每个镜头约 3-8 秒，确认后剧本、分集和分镜都会按这个默认值拆写。",
+        "why": "每集镜头数是单集节奏建议（需要时可超过）。剧本按这个数量规划即可；导入内容库时大模型按本集动作和对白规划出片镜数和秒数，生成 H3 提示词时不再改镜头列表。",
         "options": options,
         "allowCustom": True,
     }
@@ -673,12 +689,13 @@ def build_script_agent_prompt(
     if per_ep:
         unit = "每一集" if episodes > 1 else "本集"
         scale_line = (
-            f"fullStory 中文，{unit}默认约 {per_ep} 个镜头（上下浮动不超过 2 个）。"
-            "情节按这个数量规划节奏：禁止把多个动作合并进一个 ### 镜头 来减少数量，也禁止超出该数量继续加戏。"
+            f"fullStory 中文，{unit}默认约 {per_ep} 个镜头（节奏建议，可超过）。"
+            "这不是硬顶：剧情需要时可以超过；禁止为凑数把该拆的戏硬塞进一个 ### 镜头。"
+            "导入内容库时会再按本集动作和对白规划出片镜数和秒数；写台本时不要按口型/内心/近景关键词模板拆镜。"
             "必须使用内容库标准 Markdown 台本，并保持 Seedance Scene Ledger 的节拍纪律："
         )
         if episodes > 1:
-            scale_line += f"剧情分为 {episodes} 集，全剧总镜头数量约为 {per_ep * episodes} 个。"
+            scale_line += f"剧情分为 {episodes} 集，全剧总镜头数量约为 {per_ep * episodes} 个（建议，可超过）。"
     elif target_beats and target_beats > 0:
         scale_line = (
             f"fullStory 中文，总镜头数量必须约为 {target_beats} 个（上下浮动不超过 2 个）。"
@@ -716,10 +733,10 @@ def build_script_agent_prompt(
         "- 时长：8秒\n"
         "- 动作：竖屏短剧单镜，一镜到底。空间：老旧不锈钢轿厢，镜面金属壁反青白顶灯，空间逼仄。"
         "光线：惨白顶灯，皮肤偏青。造型锁定：清瘦花甲男人脏污背心；浓妆红裙租客抱绿色手机。"
-        "调度与表演：电梯门刚合上。她被挤在右后角护着手机；他停在左前方半步，不敢靠近。"
-        "她先扫他的污渍背心，再盯他的花甲脸，开口前肩膀一缩。口型与台词同步。"
+        "调度与表演：轿厢内已站定，不要开门。画面先停在沙丽丽腰部，上摇到脸口型同步；"
+        "内心时钉在她胸腰，衣服铺满竖屏。口型与台词同步。"
         "收束：误会说出后定格在她睁大的眼睛约一秒。\n"
-        "- 运镜：竖屏 9:16，中近景双人，只允许一次缓慢小幅推近或固定\n"
+        "- 运镜：竖屏 9:16，先上摇到脸，内心钉胸腰，最后推近\n"
         "- 台词：沙丽丽：“该不会想让我那啥吧。”\n"
         "- 音效：电梯低频嗡鸣、轿厢金属轻响、呼吸和铃铛细响\n"
         "- 提示词：Photorealistic vertical 9:16 eight-second take, no internal cuts. "
@@ -738,14 +755,15 @@ def build_script_agent_prompt(
         "2. 【单镜时长必须匹配内容】：一个 ### 镜头 = 一条可提交的 MiniMax H3 单镜（2–15 秒）。禁止默认写成 5 秒。"
         "必须写「时长」字段（整数秒）。时长 ≥ 对白说完 + 调度演完：有空间/调度/收束的厚动作默认 8 秒；对白 ≥12 字或两段以上调度用 8–12 秒；仍塞不下则拆镜，禁止砍对白或压缩表演。"
         "只有真正短的静帧/一拍动作才能短于 8 秒；有对白时不得短于 6 秒。"
-        "- 动作 必须写清空间、光线、锁定造型、站位距离、按时间顺序的表演、口型、收束表情；不要再写成一句话动作摘要。",
+        "- 动作 必须写清空间、光线、锁定造型、站位距离、按时间顺序的表演、口型、收束表情，并写明画面停在谁身上；不要再写成一句话动作摘要。",
         "3. 【物理状态继承】：下一个镜头必须严格继承上一个镜头的人物站位、手持道具、环境光影和残骸。禁止凭空变出未交代的道具，禁止空间逻辑瞬移。",
         "4. 【视觉重于对白】：优先用动作、特写来推进，对白只作为辅助。",
         "5. 【画面提示词】：每个镜头必须写「提示词」字段。这是画面/调度英文（构图、光影、服装锁定、与「时长」秒数匹配的表演、禁止项），必须含 lighting / camera / 表演，词数明显长于一句话。"
         "这不是工坊那份六段 Ref2VA；六段 H3 仍由「生成 H3 提示词」产出。",
-        "6. 【最低厚度】：- 动作 必须同时含空间、调度、收束；- 运镜 写竖屏比例、景别、是否一次慢推；- 音效 写同期环境与动作声；- 时长 必须能演完本镜。"
+        "6. 【最低厚度】：- 动作 必须同时含空间、调度、收束，并写「画面停在谁身上」；- 运镜 写竖屏比例与上摇/下摇/推近/固定；- 音效 写同期环境与动作声；- 时长 必须能演完本镜。"
         "无对白可省略台词行，不可省略动作、运镜、音效、提示词、时长。",
         format_example,
+        COVERAGE_CONTRACT_EXCERPT,
         "禁止只写一段摘要。不要发明未给出的品牌、产品参数或真人形象。",
         "Follow the Seedance-inspired scene-ledger method below while writing Chinese scenes:",
         "- Each ### 镜头 is one MiniMax H3 take whose 时长 fits the spoken line and blocking (default 8s, clamped 2–15). Opening spatial state, chronological performance, lip-sync, and a closing freeze must all fit that duration.",
@@ -797,6 +815,8 @@ _SKILL_EXCERPT_HEADINGS = ("Workflow", "Output Rules", "Tips")
 H3_REF2VA_LABEL_DISCIPLINE = """# Reference-label discipline
 - Each <Subject N> appearance must follow the matching <Picture N> still in the supplied reference_map.
 - Write one short definition line per label: who/what it is and which <Picture N> anchors it.
+- Character <Picture N> is a single-person multi-view design sheet: it controls that person's identity only (face, hair, wardrobe); do not copy the panel grid, white background, or repeated mini figures into the shot; do not transfer pose or blocking from the still.
+- Scene <Picture N> supplies the environment only; do not lock standing positions or blocking from the still.
 - When reference images are present, do not rewrite long CAST LOCK face, body, or wardrobe portraits in detailed_description.
 - At first visibility, name <Subject N> and keep using that label; do not re-novelize five features every sentence.
 - Never invent, renumber, merge, swap, or omit a supplied <Picture N> or <Subject N>.
@@ -1033,6 +1053,7 @@ def build_h3_system_prompt(
     reference_count: int = 0,
     media_type: str = "video",
     workflow_name: str | None = None,
+    skill_pack_id: str | None = None,
 ) -> str:
     """Build a specialized system prompt integrating MiniMax H3 skills and multimodal prompt rules."""
     if media_type != "video":
@@ -1073,7 +1094,36 @@ For the target video, at 0.00 seconds into the target video, <Picture 1> (from [
     if reference_count >= 2:
         guides.append(load_h3_prompt_writing_guide(mode="ref"))
     official = "\n\n".join(guides)
+    pack_overlay = ""
+    if skill_pack_id:
+        from .skill_packs import craft_overlay_for_stage, get_pack
 
+        pack_overlay = craft_overlay_for_stage("optimize", skill_pack_id)
+        recipe = get_pack(skill_pack_id)
+        if recipe.packing_overrides.allow_timeranges:
+            pack_overlay = (
+                (pack_overlay + "\n\n") if pack_overlay else ""
+            ) + (
+                "This skill pack polishes official Ref2VA six-section English. "
+                "detailed_description may use local clip ranges such as 00:00–00:05. "
+                "Do not generate a triptych image in this optimize-prompt path."
+            )
+        if recipe.packing_overrides.allow_multi_camera_path:
+            pack_overlay = (
+                (pack_overlay + "\n\n") if pack_overlay else ""
+            ) + (
+                "Camera path may include more than one move when the source draft specifies them; "
+                "keep small amplitude at slow speed and name each landing."
+            )
+        if recipe.packing_overrides.faithful_zh_pack:
+            pack_overlay = (
+                (pack_overlay + "\n\n") if pack_overlay else ""
+            ) + (
+                "If a Chinese timestamped draft is present, pack detailed_description in that order. "
+                "Do not assign a new camera move to each spoken line."
+            )
+
+    overlay_block = f"\n\n{pack_overlay}" if pack_overlay else ""
     return f"""Follow the official MiniMax H3 h3-prompt-writing skill. You rewrite the user's idea into a production-ready H3 prompt.
 
 Current style skill: [{selected_skill.name}] ({selected_skill.description})
@@ -1082,7 +1132,7 @@ Current style skill: [{selected_skill.name}] ({selected_skill.description})
 {mode_alignment_instruction}
 
 {official}
-
+{overlay_block}
 Output only the final prompt text. No preamble, no markdown fences."""
 
 

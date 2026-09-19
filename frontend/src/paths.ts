@@ -26,6 +26,7 @@ export const ROUTE_PATTERNS = {
   directorProject: "/director/:projectId",
   directorBatch: "/director/batch/:projectId",
   directorReplication: "/director/replication/:projectId",
+  directorHypit: "/director/hypit/:projectId",
   director2Project: "/director2/projects/:projectId",
   director2ProjectMenu: "/director2/projects/:projectId/:menu",
   director2ProjectEpisode: "/director2/projects/:projectId/workshop/:episodeId",
@@ -45,6 +46,7 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.generateVideoJob,
   ROUTE_PATTERNS.directorBatch,
   ROUTE_PATTERNS.directorReplication,
+  ROUTE_PATTERNS.directorHypit,
   ROUTE_PATTERNS.directorProject,
   PATHS.director,
   ROUTE_PATTERNS.director2Project,
@@ -101,6 +103,10 @@ export function directorBatchPath(projectId: string) {
 
 export function directorReplicationPath(projectId: string) {
   return `${PATHS.director}/replication/${encodeURIComponent(projectId)}`
+}
+
+export function directorHypitPath(projectId: string) {
+  return `${PATHS.director}/hypit/${encodeURIComponent(projectId)}`
 }
 
 export function adminTabPath(tab: AdminTab) {

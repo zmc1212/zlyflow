@@ -5,6 +5,8 @@ import mimetypes
 import re
 import secrets
 import time
+import urllib.request
+from urllib.error import URLError
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -24,6 +26,22 @@ from .minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from .minimax_h3_workflow import build_minimax_h3_workflow
 from .models import JobMode
 from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, StoredResource, resource_object_url
+from .rtx_vsr_workflow import (
+    RTX_VSR_NODE_TYPE,
+    RTX_VSR_PHASE,
+    UPSCALE_OUTPUT_LABEL,
+    VSR_OUTPUT_NODE,
+    build_rtx_vsr_workflow,
+    comfy_has_rtx_vsr_node,
+    comfy_vram_device_name,
+    comfy_vram_total_bytes,
+    explain_comfy_prompt_rejection,
+    original_video_output,
+    rtx_vsr_node_missing_message,
+    source_video_shape,
+    vsr_memory_rejection,
+    wants_upscale,
+)
 from .video_depth_workflow import DEPTH_OUTPUT_NODE, build_depth_video_workflow
 from .wan_vace_depth_workflow import VACE_OUTPUT_NODE, build_vace_depth_workflow
 from .workflow_registry import (
@@ -34,6 +52,7 @@ from .workflow_registry import (
     T8_WORKFLOWS,
     generation_output_label,
     generation_stage,
+    is_rtx_vsr_workflow,
     normalize_options,
 )
 
@@ -88,13 +107,13 @@ LOADER_CLASS_TYPES = frozenset({
     "UNETLoader", "CLIPLoader", "VAELoader", "CheckpointLoaderSimple",
     "LoraLoaderModelOnly", "LoraLoaderBypassModelOnly", "LoraLoader",
     "ReservedVRAMSetter", "MiniMaxH3MemoryEfficientSageAttentionPatch",
-    "PathchSageAttentionKJ", "LoadImage", "VRAMCleanup", "RAMCleanup",
+    "PathchSageAttentionKJ", "LoadImage", "LoadVideo", "VRAMCleanup", "RAMCleanup",
     "MiniMaxH3DirectorGroupImageToVideo", "MiniMaxH3DirectorGroupReferenceToVideo",
 })
 SAMPLER_CLASS_TYPES = frozenset({
     "SamplerCustomAdvanced", "KSampler", "KSamplerAdvanced",
     "MiniMaxH3MultiRateSamplerEXPT8", "MiniMaxH3DualClockSamplerT8",
-    "MiniMaxH3Director",
+    "MiniMaxH3Director", RTX_VSR_NODE_TYPE,
 })
 DECODE_CLASS_TYPES = frozenset({
     "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo",
@@ -265,9 +284,59 @@ class ComfyService:
     def health(self) -> dict:
         try:
             response = requests.get(f"{self.comfy_url}/system_stats", timeout=3)
-            return {"reachable": response.ok, "url": self.comfy_url}
+            stats = response.json() if response.ok else {}
+            return {
+                "reachable": response.ok,
+                "url": self.comfy_url,
+                "vram_total": comfy_vram_total_bytes(stats if isinstance(stats, dict) else {}),
+                "gpu": comfy_vram_device_name(stats if isinstance(stats, dict) else {}),
+            }
         except requests.RequestException as error:
-            return {"reachable": False, "url": self.comfy_url, "error": str(error)}
+            return {
+                "reachable": False,
+                "url": self.comfy_url,
+                "error": str(error),
+                "vram_total": None,
+                "gpu": None,
+            }
+
+    def system_stats(self) -> dict:
+        try:
+            response = requests.get(f"{self.comfy_url}/system_stats", timeout=5)
+            if not response.ok:
+                return {}
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def reject_vsr_memory(self, mode: JobMode, options: dict | None) -> str | None:
+        shape = source_video_shape(mode, options)
+        if shape is None:
+            return None
+        stats = self.system_stats()
+        return vsr_memory_rejection(
+            *shape,
+            vram_total=comfy_vram_total_bytes(stats),
+            device_name=comfy_vram_device_name(stats),
+        )
+
+    def object_info(self, class_type: str = "") -> dict:
+        suffix = f"/{class_type}" if class_type else ""
+        try:
+            response = requests.get(f"{self.comfy_url}/object_info{suffix}", timeout=12)
+            if not response.ok:
+                return {}
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def require_rtx_vsr_node(self) -> None:
+        if not comfy_has_rtx_vsr_node(self.object_info(RTX_VSR_NODE_TYPE)):
+            raise legacy.ComfyError(
+                rtx_vsr_node_missing_message(self.comfy_url, comfy_vram_device_name(self.system_stats()))
+            )
 
     def upload_image(self, local_path: str, tag: str) -> str:
         source = Path(local_path)
@@ -349,7 +418,12 @@ class ComfyService:
         except requests.RequestException as error:
             raise ComfyUnavailable("ComfyUI 或 FRP 当前不可用，任务尚未提交。") from error
         if not response.ok:
-            raise legacy.ComfyError(f"ComfyUI 拒绝工作流: {response.text}")
+            raise legacy.ComfyError(explain_comfy_prompt_rejection(
+                response.status_code,
+                response.text,
+                comfy_url=self.comfy_url,
+                device_name=comfy_vram_device_name(self.system_stats()),
+            ))
         prompt_id = response.json().get("prompt_id")
         if not prompt_id:
             raise legacy.ComfyError("ComfyUI 未返回任务 ID。")
@@ -440,7 +514,7 @@ class ComfyService:
         except requests.RequestException:
             return
 
-    def free_resources(self) -> bool:
+    def free_resources(self, *, force: bool = False) -> bool:
         """Unload ComfyUI models and drop caches when its queue is idle.
 
         ComfyUI keeps UNET/CLIP/VAE in VRAM and RAM after a prompt so the next
@@ -449,11 +523,18 @@ class ComfyService:
 
         POST /free only sets flags, and the prompt worker may wait up to 1000s
         when idle. A tiny VRAMCleanup prompt wakes that loop immediately.
+
+        force=True is for RTX VSR: 12GB cards must unload H3 even when the
+        workbench still has the next job queued. Comfy's own queue is still
+        respected unless live queue lookup failed.
         """
         live = self.live_queue_ids()
         if live is None:
-            return False
-        running_ids, pending_ids = live
+            if not force:
+                return False
+            running_ids, pending_ids = set(), set()
+        else:
+            running_ids, pending_ids = live
         if running_ids or pending_ids:
             return False
         posted_free = False
@@ -701,6 +782,8 @@ class ComfyService:
         cloud_url = resource_object_url(self.resource_storage, resource.key)
         if cloud_url:
             payload["cloud_url"] = cloud_url
+        if resource.local_path is not None:
+            payload["_local_path"] = str(resource.local_path)
         return payload
 
     def delete_output_source(self, source_info: dict | None) -> bool:
@@ -793,10 +876,116 @@ class ComfyService:
         )
         return [self.output_payload(output, "video", "VACE 复刻视频")]
 
+    def local_path_for_output(self, output: dict) -> Path:
+        extra = output.get("_local_path")
+        if extra and Path(str(extra)).is_file():
+            return Path(str(extra))
+        key = str(output.get("path") or "").strip()
+        resolved = self.resource_storage.resolve(key) if key else None
+        if resolved is not None:
+            return resolved
+        for folder in (self.settings.staging_dir, getattr(self.settings, "results_dir", self.settings.staging_dir)):
+            candidate = Path(folder) / Path(key).name
+            if key and candidate.is_file():
+                return candidate
+        source_info = output.get("_comfy_source")
+        if isinstance(source_info, dict):
+            response = self.open_output_stream(source_info)
+            try:
+                content = response.content
+            finally:
+                response.close()
+            dest = self.settings.staging_dir / f"vsr_{secrets.token_hex(8)}{Path(key).suffix or '.mp4'}"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
+            return dest
+        getter = getattr(self.resource_storage, "download_url", None)
+        url = getter(key) if callable(getter) and key else None
+        url = url or output.get("cloud_url")
+        if url:
+            dest = self.settings.staging_dir / f"vsr_{secrets.token_hex(8)}{Path(key).suffix or '.mp4'}"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with urllib.request.urlopen(str(url), timeout=120) as response:
+                    dest.write_bytes(response.read())
+            except (OSError, URLError, TimeoutError, ValueError) as error:
+                dest.unlink(missing_ok=True)
+                raise legacy.ComfyError(f"下载原片失败，无法超分: {error}") from error
+            return dest
+        raise legacy.ComfyError("找不到可用于超分的原片文件")
+
+    def append_rtx_vsr_if_requested(
+        self, mode: JobMode, outputs: list[dict], options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None],
+        save_partial_outputs: Callable[[list[dict]], None],
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> list[dict]:
+        if not wants_upscale(options):
+            return outputs
+        save_partial_outputs(outputs)
+        reason = self.reject_vsr_memory(mode, options)
+        if reason:
+            update_stage(f"原片已完成，已跳过 2x 超分：{reason}", 100)
+            return outputs
+        try:
+            return outputs + [self.run_rtx_vsr_output(
+                outputs, options, update_stage, on_submitted, is_cancelled, source_mode=mode,
+            )]
+        except ComfyCancelled:
+            raise
+        except Exception as error:
+            update_stage(f"原片已完成，2x 超分失败：{error}", 100)
+            return outputs
+
+    def run_rtx_vsr_output(
+        self, outputs: list[dict], options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None = None,
+        *,
+        source_mode: JobMode | None = None,
+        source_path: str | None = None,
+    ) -> dict:
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        check_mode = source_mode if source_mode is not None else JobMode.NVIDIA_RTX_VSR
+        reason = self.reject_vsr_memory(check_mode, options)
+        if reason:
+            raise legacy.ComfyError(reason)
+        if getattr(self, "comfy_url", None):
+            self.require_rtx_vsr_node()
+        if source_path:
+            local = Path(source_path)
+            if not local.is_file():
+                raise legacy.ComfyError("找不到可用于超分的原片文件")
+        else:
+            original = original_video_output(outputs)
+            if original is None:
+                raise legacy.ComfyError("没有可超分的原片视频")
+            local = self.local_path_for_output(original)
+        update_stage("正在卸载生成模型", 96)
+        self.free_resources(force=True)
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        update_stage("正在 2x 超分", 97)
+        uploaded = self.upload_video(str(local), "rtx_vsr_source")
+        record = self.run_workflow(
+            build_rtx_vsr_workflow(uploaded), "正在 2x 超分", update_stage,
+            on_submitted=on_submitted, phase=RTX_VSR_PHASE, is_cancelled=is_cancelled,
+        )
+        output = self.download(
+            legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr",
+        )
+        return self.output_payload(output, "video", UPSCALE_OUTPUT_LABEL)
+
     def completed_outputs(self, mode: JobMode, record: dict) -> list[dict]:
         if mode in H3_WORKFLOWS:
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
             return [self.output_payload(output, "video", generation_output_label(mode))]
+        if is_rtx_vsr_workflow(mode):
+            output = self.download(legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr")
+            return [self.output_payload(output, "video", UPSCALE_OUTPUT_LABEL)]
         if mode is JobMode.IMAGE:
             output = self.download(legacy.output_file(record, legacy.T2I_OUTPUT_NODE, ("images",)), "text_to_image")
             return [self.output_payload(output, "image", "生成图片")]
@@ -813,15 +1002,38 @@ class ComfyService:
         existing_outputs: list[dict], update_stage: Callable[[str, int | None], None],
         on_submitted: Callable[[str, str, str], None], save_partial_outputs: Callable[[list[dict]], None],
         is_cancelled: Callable[[], bool] | None = None,
+        options: dict | None = None,
     ) -> list[dict]:
         self.last_execution_elapsed_ms = None
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
+        if phase == RTX_VSR_PHASE:
+            try:
+                record = self.wait_for_existing(
+                    prompt_id, client_id, update_stage, "正在恢复 2x 超分", (96, 100), is_cancelled,
+                )
+                vsr = self.download(
+                    legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr",
+                )
+                payload = self.output_payload(vsr, "video", UPSCALE_OUTPUT_LABEL)
+            except ComfyCancelled:
+                raise
+            except Exception as error:
+                if existing_outputs:
+                    update_stage(f"原片已完成，2x 超分失败：{error}", 100)
+                    return existing_outputs
+                raise
+            if is_rtx_vsr_workflow(mode):
+                return [payload]
+            return existing_outputs + [payload]
         if phase == "generation":
             record = self.wait_for_existing(
                 prompt_id, client_id, update_stage, "已重新连接 ComfyUI 任务", is_cancelled=is_cancelled,
             )
-            return self.completed_outputs(mode, record)
+            outputs = self.completed_outputs(mode, record)
+            return self.append_rtx_vsr_if_requested(
+                mode, outputs, options, update_stage, on_submitted, save_partial_outputs, is_cancelled,
+            )
 
         resolved_prompt = resolve_reference_prompt(prompt, 3)
         if phase == "flux-first-frame":
@@ -860,6 +1072,13 @@ class ComfyService:
         self.last_execution_elapsed_ms = None
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
+        if is_rtx_vsr_workflow(mode):
+            if not references:
+                raise legacy.ComfyError("超分需要原片视频。")
+            return [self.run_rtx_vsr_output(
+                [], options, update_stage, on_submitted, is_cancelled,
+                source_mode=mode, source_path=references[0],
+            )]
         if mode in H3_WORKFLOWS:
             resolved_prompt = resolve_minimax_picture_prompt(prompt, len(references))
             update_stage("正在上传参考素材" if references else "正在提交文生视频任务")
@@ -889,7 +1108,10 @@ class ComfyService:
                 workflow, generation_stage(mode), update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
             )
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
-            return [self.output_payload(output, "video", generation_output_label(mode))]
+            outputs = [self.output_payload(output, "video", generation_output_label(mode))]
+            return self.append_rtx_vsr_if_requested(
+                mode, outputs, options, update_stage, on_submitted, save_partial_outputs, is_cancelled,
+            )
 
         resolved_prompt = resolve_reference_prompt(prompt, len(references))
         if mode is JobMode.IMAGE:

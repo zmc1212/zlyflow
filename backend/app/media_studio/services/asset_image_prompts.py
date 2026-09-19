@@ -114,6 +114,12 @@ def _animation_medium_phrase(visual_style: str) -> str:
     return "stylized 2D animated character rendering"
 
 
+IDENTITY_SHEET_ASPECT_RATIO = "16:9"
+IDENTITY_SHEET_IMAGE_SIZE = "2K"
+IDENTITY_SHEET_WIDTH = 2048
+IDENTITY_SHEET_HEIGHT = 1152
+
+
 def look_costume_text(look: dict[str, Any]) -> str:
     return str(look.get("appearance_details") or look.get("description") or "").strip()
 
@@ -127,6 +133,90 @@ If any text in this prompt names different clothing, age, or hairstyle, IGNORE t
 """.strip()
 
 
+def identity_lock_reference_urls(
+    extra: dict[str, Any] | None,
+    *,
+    current_identity_id: str | None = None,
+    asset_image_url: str = "",
+    follow_source_photos: bool = False,
+) -> list[str]:
+    """原片由 apply_source_references 前置。这里只收其他已出图设定板；两档都没有时才回退旧头像。"""
+    extra = extra if isinstance(extra, dict) else {}
+    wanted = str(current_identity_id or "").strip()
+    sheets: list[str] = []
+    for item in extra.get("identities") or []:
+        if not isinstance(item, dict):
+            continue
+        if wanted and str(item.get("id") or "").strip() == wanted:
+            continue
+        url = str(item.get("image_url") or "").strip()
+        if url:
+            sheets.append(url)
+    if sheets:
+        return [sheets[0]]
+    if follow_source_photos:
+        return []
+    avatar = str(extra.get("avatar_url") or asset_image_url or "").strip()
+    return [avatar] if avatar else []
+
+
+def _character_design_sheet_layout() -> str:
+    return """
+LAYOUT (16:9 character design sheet / 角色设定板, Chinese production layout, NO text on image):
+This is ONE complete unlabeled design sheet, not a headshot, not a 4-panel turnaround, not a UI mockup.
+
+LEFT COLUMN (main visual, roughly half the width): three full-body standing views of the SAME person in the SAME outfit
+- 正面全身 standing, facing camera, head to shoes
+- 左侧或 3/4 全身 standing, body rotated about 45 degrees
+- 背面全身 standing, facing away, showing back of hair and clothing
+
+TOP RIGHT (six head / hair studies of the SAME person, same hair, no labels):
+- 正脸
+- 俯视发缝 (crown / hair part from above)
+- 后脑
+- 侧脸
+- 高位 3/4
+- 3/4 脸
+
+BOTTOM RIGHT (six costume detail crops matching the ACTUAL clothes; do NOT invent a skirt if this outfit is trousers):
+- 上衣面料
+- 下装腰部
+- 下摆（裙摆 / 袍摆 / 裤脚，whichever this outfit actually has）
+- 腰饰 (belt / waist construction)
+- 手或标志配饰
+- 鞋履
+
+PRESENTATION:
+- One person, one outfit only
+- Plain solid white seamless background throughout
+- No readable text, numbers, arrows, captions, panel titles, watermarks, or UI chrome
+""".strip()
+
+
+def _identity_reference_role(*, follow_source_photos: bool, has_identity_reference: bool) -> str:
+    if follow_source_photos:
+        return """
+REFERENCE ROLE (CRITICAL):
+Attached original-footage screenshots lock this character's face, age, hair, body, AND visible clothing.
+This output is a COMPLETE 16:9 production design sheet, not another headshot or identity portrait.
+Copy identity from the photos into every cell. Do not invent a different person.
+If an older design sheet is also attached, photos still win for wardrobe; the older sheet only helps lock the face.
+""".strip()
+    if has_identity_reference:
+        return """
+REFERENCE ROLE (CRITICAL):
+REFERENCE 1 locks identity only: face, hair, body type, age, and likeness.
+This output is a COMPLETE production design sheet for the CURRENT wardrobe, not another headshot.
+Do not copy the previous sheet's grid, white-background collage, or repeated mini-figures into the new clothing.
+Clothes, fabrics, and accessories MUST follow CHARACTER DETAILS below, not the clothing in REFERENCE 1.
+""".strip()
+    return """
+INPUT:
+No identity image is attached. Invent the first design sheet from CHARACTER DETAILS and the project style preset.
+Keep one consistent person across every cell.
+""".strip()
+
+
 def character_look_prompt(
     asset: dict[str, Any],
     look: dict[str, Any],
@@ -137,6 +227,7 @@ def character_look_prompt(
     ethnicity: str = "",
     has_costume_reference: bool = False,
     follow_source_photos: bool = False,
+    has_identity_reference: bool = False,
 ) -> str:
     extra = extra if isinstance(extra, dict) else {}
     visual_id = normalize_visual_style(
@@ -148,123 +239,139 @@ def character_look_prompt(
     tag = _character_tag(name)
     costume = look_costume_text(look)
     costume_block = ""
+    details = ""
     if follow_source_photos:
         costume_block = source_photo_wardrobe_rules()
-        details = ""
-        anchor = "original-footage screenshots as IDENTITY AND COSTUME ANCHOR"
     elif has_costume_reference:
         costume_block = """
 COSTUME REFERENCE IMAGE (CRITICAL):
 A second reference image is provided showing the target costume/clothing.
 - MATCH the clothing, fabric, accessories, colors, and styling from the costume reference image EXACTLY
 - The costume reference takes PRIORITY over the text description for visual details
-- Combine the FACE from the identity anchor (first reference) with the CLOTHING from the costume reference (second reference)
+- Combine the FACE from the identity reference with the CLOTHING from the costume reference
 """
-        details = ""
-        anchor = "reference image as IDENTITY ANCHOR"
     else:
         details = costume
-        anchor = "reference image as IDENTITY ANCHOR"
-    if is_animation_visual_style(visual_id) or visual_id in {"anime", "guoman_fantasy"}:
-        medium = _animation_medium_phrase(visual_id)
-        return f"""Animated character turnaround / identity sheet. Neutral presentation setup.
-PLAIN SOLID WHITE or LIGHT GRAY background ONLY — no environment, no scenery, no props. {visual}
-
-Using the {anchor} for {tag} ({name}),
-create a 4-panel animated character reference sheet arranged LEFT to RIGHT:
-
-- Panel 1 (LEFT): FACE CLOSEUP — head and shoulders, filling the panel
-- Panel 2 (CENTER-LEFT): FRONT full body — head to feet, standing pose, facing camera
-- Panel 3 (CENTER-RIGHT): THREE-QUARTER VIEW full body — head to feet, body rotated about 45 degrees
-- Panel 4 (RIGHT): BACK VIEW full body — head to feet, facing away from camera
-
-IDENTITY LOCKING (CRITICAL):
-Preserve the same character identity EXACTLY from the reference image:
-- face shape and proportions
-- eye shape and spacing
-- nose and mouth shape
+    lock_from_image = bool(has_identity_reference or follow_source_photos or has_costume_reference)
+    face = gender = body = ""
+    if not follow_source_photos:
+        face = str(extra.get("face_prompt") or extra.get("avatar_prompt") or "").strip()
+        gender = str(extra.get("gender") or "").strip()
+        body = str(extra.get("body_type") or "").strip()
+    character_details = "\n".join(
+        part
+        for part in (
+            f"GENDER / 性别: {gender}" if gender else "",
+            f"BODY TYPE / 身形: {body}" if body else "",
+            face,
+            details,
+        )
+        if part
+    )
+    layout = _character_design_sheet_layout()
+    ref_block = _identity_reference_role(
+        follow_source_photos=follow_source_photos,
+        has_identity_reference=lock_from_image,
+    )
+    identity_lock = (
+        f"""IDENTITY LOCKING (CRITICAL):
+Preserve the same character identity for {tag} ({name}):
+- face shape and proportions, eyes, nose, mouth
 - hairline, hairstyle, and silhouette
 - skin tone and age impression
-- Preserve the reference identity exactly; do not change face structure, skin tone, hair identity, or silhouette.
+- body type
+Do not change face structure. Do not copy a previous sheet's panel grid as a nested collage."""
+        if lock_from_image
+        else f"""IDENTITY LOCKING:
+Invent one consistent identity for {tag} ({name}) and keep that same person in every cell.
+Do not draw a second character."""
+    )
+    if is_animation_visual_style(visual_id) or visual_id in {"anime", "guoman_fantasy"}:
+        medium = _animation_medium_phrase(visual_id)
+        medium_rules = (
+            f"- Final medium must be {medium}\n"
+            "- Do not mix rendering families or switch back to realistic actor rendering"
+        )
+        header = "Animated character production design sheet. Neutral presentation setup."
+    else:
+        medium_rules = (
+            "- The rendering medium follows the project style preset, not the reference image\n"
+            "- Do NOT create beauty-retouched, glamorized, cosmetic-ad, or fashion-editorial output"
+        )
+        header = "Character production design sheet. Neutral studio setup."
+    return f"""{header}
+PLAIN SOLID WHITE background ONLY — no environment, no scenery, no props. {visual}
 
-CHARACTER DETAILS (CRITICAL - use this for clothing and appearance):
-{details}
+Create a complete 16:9 design sheet for {tag} ({name}).
+
+{layout}
+
+{ref_block}
+
+{identity_lock}
+
+CHARACTER DETAILS (clothing and appearance for THIS look):
+{character_details}
 {costume_block}
+
 PRESENTATION RULES:
-- Final medium must be {medium}
-- All 4 panels must keep the same character, same outfit, same hair, same proportions
-- Panel 1 must visually match Panel 2's head area
-- Panels 2-4 must show a complete figure from head to feet
-- Plain neutral production-reference background only
+{medium_rules}
+- Same person, same outfit, same hair in every cell
+- Left full-body views must show complete figures from head to shoes
+- Bottom-right details must match the actual garments, not a generic skirt template
 
 STRICT REQUIREMENTS (MUST AVOID):
-- Do not allow facial feature drift from reference
-- Do not mix rendering families or switch back to realistic actor rendering
+- Do not output a single portrait or another 1:1 headshot
 - Do not include multiple characters
-- No text, labels, or panel numbers on the image
-- Do not add environment scenery, props, or poster composition
+- No text, labels, panel numbers, or UI on the image
+- Do not add environment scenery or poster composition
 """.strip()
 
-    return f"""Character identity reference sheet. Neutral studio setup.
-PLAIN SOLID WHITE or LIGHT GRAY background ONLY — no environment, no scenery, no props. {visual}
 
-Using the {anchor} for {tag} ({name}),
-create a 4-panel character reference sheet arranged LEFT to RIGHT:
-
-- Panel 1 (LEFT): FACE CLOSEUP — head and shoulders, filling the panel. This is a zoomed-in crop of Panel 2's head: SAME hairstyle, SAME visible clothing (neckline, collar, shoulders)
-- Panel 2 (CENTER-LEFT): FRONT full body — head to feet, standing pose, facing camera
-- Panel 3 (CENTER-RIGHT): THREE-QUARTER VIEW full body — head to feet, body rotated approximately 45 degrees from the left, both eyes still visible, standing pose
-- Panel 4 (RIGHT): BACK VIEW full body — head to feet, facing away from camera, showing back of head and body
-
-IDENTITY LOCKING (CRITICAL):
-Preserve the facial structure, facial proportions, and overall likeness
-of {tag} EXACTLY as in the reference image, allowing NO alteration,
-stylization, or reinterpretation of the face under any circumstance.
-
-MUST PRESERVE (from reference):
-- Facial structure and bone structure
-- Eye shape, size, spacing, color
-- Nose shape and size
-- Lip shape and fullness
-- Skin tone
-- Hair color, style, texture
-- Preserve the reference identity exactly; do not change face structure, skin tone, hair identity, or silhouette.
-
-DO NOT PRESERVE FROM REFERENCE:
-- Beauty-filter smoothing or retouching
-- Plastic / waxy / overly perfect skin treatment
-- Any rendering finish that conflicts with the selected project style preset
-- The final rendering medium should follow the project style preset, not the reference image
-
-CHARACTER DETAILS (CRITICAL - use this for clothing and appearance):
-{details}
-{costume_block}
-BACKGROUND (CRITICAL — STRICTLY ENFORCED):
-- ALL 4 panels MUST have a PLAIN SOLID-COLOR background (white, light gray, or soft neutral gradient)
-- Do NOT render ANY environment: no rooms, no furniture, no walls, no floors, no scenery
-- This is a production character identity reference sheet, not a fashion catalog, not a glossy poster
-
-FULL BODY FRAMING (Panels 2-4):
-- MUST show COMPLETE figure from top of head to bottom of feet including shoes
-- Standing in neutral pose on a visible ground line
-- Ample space above head and below feet
-- Do NOT crop any body part
-
-CONSISTENCY:
-- ALL 4 panels = SAME person, SAME outfit, SAME hair
-- Panel 1 is a ZOOMED-IN CROP of Panel 2's head area — hairstyle, neckline, collar, and shoulder clothing MUST be identical
-- Panel 1 face MUST match Panels 2-3 face exactly
-- Panel 4 shows the SAME person from behind — SAME hair, SAME outfit, SAME body proportions
-- Only viewing angle changes between Panel 2 (front), Panel 3 (three-quarter), and Panel 4 (back)
-
-STRICT REQUIREMENTS (MUST AVOID):
-- Do not allow ANY facial feature drift from reference.
-- Do not mix styles or reinterpret the character.
-- Do not include multiple characters.
-- No text, labels, or panel numbers on the image
-- Do NOT create beauty-retouched, glamorized, cosmetic-ad, or fashion-editorial output
-- Keep the project style consistent across all 4 panels
-""".strip()
+def build_identity_generation(
+    asset: dict[str, Any],
+    look: dict[str, Any],
+    extra: dict[str, Any] | None = None,
+    *,
+    prompt: str = "",
+    follow_source_photos: bool = False,
+    style: str = "",
+    visual_style: str = "",
+    ethnicity: str = "",
+    has_costume_reference: bool = False,
+) -> dict[str, Any]:
+    extra = extra if isinstance(extra, dict) else {}
+    costume = look_costume_text(look) or (prompt or "").strip()
+    if not costume and not follow_source_photos:
+        raise ValueError("请先填写外观描述，造型图需要服装关键词")
+    packed = {**look, "appearance_details": costume, "description": costume}
+    reference_urls = identity_lock_reference_urls(
+        extra,
+        current_identity_id=str(look.get("id") or ""),
+        asset_image_url=str(asset.get("image_url") or ""),
+        follow_source_photos=follow_source_photos,
+    )
+    clean_prompt = character_look_prompt(
+        asset,
+        packed,
+        extra,
+        style=style,
+        visual_style=visual_style,
+        ethnicity=ethnicity,
+        has_costume_reference=has_costume_reference,
+        follow_source_photos=follow_source_photos,
+        has_identity_reference=bool(reference_urls) or follow_source_photos,
+    )
+    return {
+        "costume": costume,
+        "reference_urls": reference_urls,
+        "clean_prompt": clean_prompt,
+        "aspect_ratio": IDENTITY_SHEET_ASPECT_RATIO,
+        "image_size": IDENTITY_SHEET_IMAGE_SIZE,
+        "width": IDENTITY_SHEET_WIDTH,
+        "height": IDENTITY_SHEET_HEIGHT,
+        "ident_name": str(look.get("name") or "").strip() or "角色造型",
+    }
 
 
 def _scene_asset(asset: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:

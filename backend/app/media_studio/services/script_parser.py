@@ -296,6 +296,7 @@ class StandardScriptParser:
                 "summary": summary,
                 "shots_count": len(shots),
                 "shots": shots,
+                "body": match.group(0).strip(),
             })
 
         if episodes:
@@ -315,6 +316,7 @@ class StandardScriptParser:
             "summary": "",
             "shots_count": len(shots),
             "shots": shots,
+            "body": text.strip(),
         }]
 
     @classmethod

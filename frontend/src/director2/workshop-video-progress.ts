@@ -15,17 +15,20 @@ export type WorkshopVideoJobLike = {
   job_type?: string | null
   status: string
   progress?: number | null
-  payload?: {
+    payload?: {
     episode_id?: string | null
     beat_id?: string | null
     beat_ids?: string[] | null
     render_scope?: string | null
+    runtime_stage?: string | null
   } | null
 }
 
 export type WorkshopShotVideoProgress = {
   status: string
   progress: number
+  scope?: string
+  stage?: string
 }
 
 export type WorkshopEpisodeVideoScope = "episode" | "compose"
@@ -52,7 +55,8 @@ export function clampWorkshopProgress(value: unknown): number {
 }
 
 /** 工坊已有阶段文案：排队中 / 准备素材 / 生成中 / 保存结果。 */
-export function workshopVideoStageLabel(status: string): string {
+export function workshopVideoStageLabel(status: string, extra?: { scope?: string; stage?: string }): string {
+  if (status === "upscaling" || extra?.scope === "upscale" || extra?.stage === "upscaling") return "2x 超分中"
   if (status === "queued") return "排队中"
   if (
     status === "preparing"
@@ -68,10 +72,14 @@ export function workshopVideoStageLabel(status: string): string {
   return ""
 }
 
-export function workshopVideoOverlayLabel(status: string, progress: number): string {
-  const stage = workshopVideoStageLabel(status)
+export function workshopVideoOverlayLabel(
+  status: string,
+  progress: number,
+  extra?: { scope?: string; stage?: string },
+): string {
+  const stage = workshopVideoStageLabel(status, extra)
   if (!stage) return ""
-  if (status === "running") return `${stage} ${clampWorkshopProgress(progress)}%`
+  if (status === "running" || status === "upscaling") return `${stage} ${clampWorkshopProgress(progress)}%`
   return stage
 }
 
@@ -111,10 +119,15 @@ export function mapWorkshopVideoProgress(
       ...((Array.isArray(job.payload?.beat_ids) ? job.payload.beat_ids : []) as Array<string | null | undefined>),
       job.payload?.beat_id,
     ].map((item) => String(item || "").trim()).filter(Boolean)
-    if (scope === "shot" || scope === "selection") {
+    if (scope === "shot" || scope === "selection" || scope === "upscale") {
       for (const beatId of beatIds) {
         if (beatId in beats) continue
-        beats[beatId] = { status: job.status, progress }
+        beats[beatId] = {
+          status: job.status,
+          progress,
+          scope,
+          stage: String(job.payload?.runtime_stage || ""),
+        }
       }
       continue
     }

@@ -1,4 +1,4 @@
-import { Button, Collapse, Popover, Select, Space } from "antd"
+import { Button, Collapse, Popover, Select, Space, Switch } from "antd"
 import { SlidersHorizontal } from "lucide-react"
 import { useMemo, useState } from "react"
 import {
@@ -31,8 +31,22 @@ export default function Director2VideoSettingsPopover({
   const summary = `生成设置 · ${videoSettingsSummary(fields, values)}`
 
   function renderField(field: Director2VideoOptionField) {
-    const choices = optionChoices(field, values)
     const current = values[field.name] || String(field.definition.default)
+    if (field.definition.type === "boolean") {
+      return (
+        <label className="d2-video-settings-field is-switch" key={field.name}>
+          <span>{field.definition.label}</span>
+          <Switch
+            aria-label={field.definition.label}
+            checked={current === "true"}
+            onChange={(checked) => onChange(field.name, checked ? "true" : "false")}
+            size="small"
+          />
+          {field.definition.description ? <em>{field.definition.description}</em> : null}
+        </label>
+      )
+    }
+    const choices = optionChoices(field, values)
     const options = choices.some((item) => item.value === current)
       ? choices
       : [...choices, { value: current, label: `${current}（已有设置）` }]

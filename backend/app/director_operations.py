@@ -9,6 +9,7 @@ from .director_jobs import create_queued_job, render_recipe_shots, revert_orphan
 from .director_project_service import persist_recipe_execution
 from .director_recipe import (
     AGENT_IDS,
+    PAYLOAD_KIND_HYPIT_REPLICATION,
     PAYLOAD_KIND_RECIPE,
     PAYLOAD_KIND_REPLICATION,
     normalize_recipe_payload,
@@ -128,6 +129,10 @@ class DirectorOperationService:
                 result = await self._run_analyze_reference(operation)
             elif operation["kind"] == "replicate_shots":
                 result = await self._run_replicate(operation)
+            elif operation["kind"] == "hypit_transcribe":
+                result = await asyncio.to_thread(self._hypit_transcribe_thread, operation)
+            elif operation["kind"] == "hypit_compile":
+                result = await asyncio.to_thread(self._hypit_compile_thread, operation)
             else:
                 raise ValueError(f"不支持的导演操作：{operation['kind']}")
             self._check_cancelled(operation_id)
@@ -763,3 +768,191 @@ class DirectorOperationService:
             job_ids.append(job["id"])
             persist(payload, progress=10 + int((index + 1) / max(1, len(shots)) * 80))
         return {"job_ids": job_ids, "project_revision": record["revision"]}
+
+    def _hypit_transcribe_thread(self, operation: dict[str, Any]) -> dict[str, Any]:
+        from datetime import datetime, timezone
+
+        from .director_hypit import (
+            HypitError,
+            find_hypit_source_file,
+            find_hypit_transcript_file,
+            hypit_workspace,
+            normalize_hypit_payload,
+            run_hypit,
+            summarize_transcript,
+        )
+
+        operation_id = operation["id"]
+        record = self.store.get_director_project(operation["project_id"])
+        if payload_kind(record.get("payload")) != PAYLOAD_KIND_HYPIT_REPLICATION:
+            raise ValueError("只有 Hypit 复刻工程可以执行拉片转写")
+        payload = normalize_hypit_payload(record["payload"])
+        owner_user_id = operation["owner_user_id"]
+        project_id = operation["project_id"]
+        content_revision = int(record["content_revision"])
+        request = operation.get("request") or {}
+        language = str(request.get("language") or payload.get("language") or "zh")
+        if language not in {"zh", "en"}:
+            language = "zh"
+
+        source = find_hypit_source_file(owner_user_id, project_id)
+        if source is None:
+            raise ValueError("请先上传参考片再开始拉片转写")
+        workspace = hypit_workspace(owner_user_id, project_id)
+        transcript_path = workspace / "notes" / "transcript.json"
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+
+        def persist(current: dict[str, Any], *, progress: int | None = None, message: str | None = None) -> None:
+            nonlocal content_revision
+            self._check_cancelled(operation_id)
+            saved = self.store.update_director_project(
+                project_id, payload=current,
+                expected_content_revision=content_revision, content_update=True,
+            )
+            content_revision = int(saved["content_revision"])
+            if progress is not None:
+                self.store.update_director_operation(operation_id, progress=progress)
+                data: dict[str, Any] = {"status": "running", "progress": progress}
+                if message:
+                    data["message"] = message
+                self._emit(operation_id, {"event": "status", "data": data})
+
+        payload["transcript"]["status"] = "running"
+        payload["transcript"]["error"] = None
+        persist(payload, progress=8, message="正在用本机 WhisperX 转写并对齐")
+        try:
+            run_hypit(
+                "transcribe",
+                [str(source), "--language", language, "--to", str(transcript_path)],
+                workspace=workspace,
+                timeout=1800,
+                on_output=lambda text: persist(payload, progress=40, message=text[-180:]),
+            )
+        except HypitError as error:
+            payload["transcript"]["status"] = "failed"
+            payload["transcript"]["error"] = str(error)
+            persist(payload, progress=100, message=str(error))
+            raise
+        saved_transcript = find_hypit_transcript_file(owner_user_id, project_id) or transcript_path
+        word_count, duration = summarize_transcript(saved_transcript)
+        payload["language"] = language
+        payload["workspacePath"] = str(workspace)
+        payload["transcript"] = {
+            "status": "done",
+            "path": str(saved_transcript),
+            "url": f"/api/director/hypit/{project_id}/transcript",
+            "wordCount": word_count,
+            "durationSec": duration,
+            "error": None,
+        }
+        persist(
+            payload,
+            progress=100,
+            message=f"转写完成，{word_count} 个词 · {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC",
+        )
+        return {
+            "word_count": word_count,
+            "duration_sec": duration,
+            "transcript_url": payload["transcript"]["url"],
+        }
+
+    def _hypit_compile_thread(self, operation: dict[str, Any]) -> dict[str, Any]:
+        from contextlib import nullcontext
+
+        from .director_hypit import (
+            HypitError,
+            find_hypit_svrun,
+            hypit_comfy_is_local,
+            hypit_comfy_url,
+            hypit_workspace,
+            normalize_hypit_payload,
+            parse_build_id,
+            run_hypit,
+            svrun_output_name,
+        )
+        from .gpu_runtime import occupy_gpu
+
+        operation_id = operation["id"]
+        record = self.store.get_director_project(operation["project_id"])
+        if payload_kind(record.get("payload")) != PAYLOAD_KIND_HYPIT_REPLICATION:
+            raise ValueError("只有 Hypit 复刻工程可以执行编译")
+        payload = normalize_hypit_payload(record["payload"])
+        owner_user_id = operation["owner_user_id"]
+        project_id = operation["project_id"]
+        content_revision = int(record["content_revision"])
+        workspace = hypit_workspace(owner_user_id, project_id)
+
+        def persist(current: dict[str, Any], *, progress: int | None = None, message: str | None = None) -> None:
+            nonlocal content_revision
+            self._check_cancelled(operation_id)
+            saved = self.store.update_director_project(
+                project_id, payload=current,
+                expected_content_revision=content_revision, content_update=True,
+            )
+            content_revision = int(saved["content_revision"])
+            if progress is not None:
+                self.store.update_director_operation(operation_id, progress=progress)
+                data: dict[str, Any] = {"status": "running", "progress": progress}
+                if message:
+                    data["message"] = message
+                self._emit(operation_id, {"event": "status", "data": data})
+
+        svrun = find_hypit_svrun(workspace)
+        if svrun is None:
+            missing = (
+                "工程目录还没有 .svrun。打开项目目录，用 Coding Agent 按 Hypit Skill 写 SVML 后再编译。"
+                "工作台 LLM 不能代替 Agent 写 SVML。"
+            )
+            payload["compile"] = {"status": "failed", "buildId": None, "error": missing}
+            persist(payload, progress=100, message=missing)
+            raise ValueError(missing)
+
+        payload["compile"] = {"status": "running", "buildId": None, "error": None}
+        persist(payload, progress=6, message="正在检查 Hypit Source")
+        build_id = None
+        dest = workspace / "notes" / "final.mp4"
+        try:
+            relative = svrun.relative_to(workspace).as_posix()
+            run_hypit("check", [relative], workspace=workspace, timeout=120)
+            persist(payload, progress=18, message="正在 plan（本机 Profile，无 HypiHub）")
+            run_hypit("plan", [relative], workspace=workspace, timeout=300)
+            comfy_url = hypit_comfy_url()
+            persist(payload, progress=28, message=f"正在编译；H3 画面走 {comfy_url}")
+            gpu = occupy_gpu("comfy") if hypit_comfy_is_local() else nullcontext()
+            with gpu:
+                log = run_hypit(
+                    "build",
+                    [relative, "--follow", "--title", f"hypit-{project_id[:8]}"],
+                    workspace=workspace,
+                    timeout=7200,
+                    on_output=lambda text: persist(payload, progress=55, message=text[-180:]),
+                )
+            build_id = parse_build_id(log)
+            dest = workspace / "notes" / "final.mp4"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if build_id:
+                persist(payload, progress=88, message=f"正在导出 {build_id}")
+                run_hypit(
+                    "get",
+                    [build_id, "--output", svrun_output_name(svrun), "--to", str(dest)],
+                    workspace=workspace,
+                    timeout=120,
+                )
+            if not dest.is_file():
+                raise HypitError("编译完成但没有导出 final.mp4")
+        except HypitError as error:
+            payload["compile"] = {"status": "failed", "buildId": None, "error": str(error)}
+            persist(payload, progress=100, message=str(error))
+            raise
+        payload["workspacePath"] = str(workspace)
+        payload["compile"] = {"status": "done", "buildId": build_id, "error": None}
+        payload["result"] = {
+            "path": str(dest),
+            "url": f"/api/director/hypit/{project_id}/result",
+            "buildId": build_id,
+        }
+        persist(payload, progress=100, message="成片已导出")
+        return {
+            "build_id": build_id,
+            "result_url": payload["result"]["url"],
+        }

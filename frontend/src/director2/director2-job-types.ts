@@ -4,7 +4,9 @@ export const DIRECTOR2_JOB_TYPES = [
   "image_generation",
   "video_generation",
   "h3_prompt",
+  "shot_plan",
   "ai_pipeline",
+  "tts_generation",
 ] as const
 
 export type Director2JobType = (typeof DIRECTOR2_JOB_TYPES)[number]
@@ -13,7 +15,9 @@ export const DIRECTOR2_JOB_TYPE_LABELS: Record<Director2JobType, string> = {
   image_generation: "图片生成",
   video_generation: "视频生成",
   h3_prompt: "H3 提示词",
+  shot_plan: "镜头规划",
   ai_pipeline: "AI 生成",
+  tts_generation: "配音",
 }
 
 export const DIRECTOR2_DEFAULT_JOB_TYPE: Director2JobType = "image_generation"
@@ -24,11 +28,31 @@ export type Director2JobTypeSource = {
     target_type?: string | null
     h3_prompt?: string | null
     result_prompt?: string | null
+    document_id?: string | null
+    filename?: string | null
+    episode_total?: number | null
+    planned_episodes?: number | null
+    failed_episodes?: number | null
+    line_ids?: string[] | null
+    episode_id?: string | null
+    scope?: string | null
   } | null
 }
 
 export function isH3PromptJob(job: Director2JobTypeSource | null | undefined): boolean {
   return job?.job_type === "h3_prompt" || job?.payload?.target_type === "h3_prompt"
+}
+
+export function isShotPlanJob(job: Director2JobTypeSource | null | undefined): boolean {
+  return job?.job_type === "shot_plan" || job?.payload?.target_type === "shot_plan"
+}
+
+export function isTtsJob(job: Director2JobTypeSource | null | undefined): boolean {
+  return job?.job_type === "tts_generation" || job?.payload?.target_type === "tts_generation"
+}
+
+export function shotPlanDocumentId(job: Director2JobTypeSource | null | undefined): string {
+  return String(job?.payload?.document_id || "").trim()
 }
 
 export function h3PromptResultText(job: Director2JobTypeSource | null | undefined): string {
@@ -63,7 +87,9 @@ export function countJobsByType(jobs: Director2JobTypeSource[]): Record<Director
     image_generation: 0,
     video_generation: 0,
     h3_prompt: 0,
+    shot_plan: 0,
     ai_pipeline: 0,
+    tts_generation: 0,
   } satisfies Record<Director2JobType, number>
   for (const job of jobs) {
     if (isDirector2JobType(job.job_type)) counts[job.job_type] += 1

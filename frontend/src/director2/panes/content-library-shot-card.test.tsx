@@ -54,4 +54,27 @@ describe("content library shot cards", () => {
     expect(html).toContain("中近景")
     expect(html).not.toContain("展开全部")
   })
+
+  it("shows planned duration on the card", () => {
+    const html = renderToStaticMarkup(
+      <ContentLibraryShotCard
+        shot={{ shot_num: 3, title: "开口", duration_sec: 8 }}
+        assembling
+        onCopyPrompt={() => undefined}
+      />,
+    )
+    expect(html).toContain("8 秒")
+    expect(html).toContain("is-assembling")
+  })
+
+  it("shows a numeric duration even when the live JSON still has a string", () => {
+    const html = renderToStaticMarkup(
+      <ContentLibraryShotCard
+        shot={{ shot_num: 4, title: "迈步", duration_sec: "10秒" }}
+        onCopyPrompt={() => undefined}
+      />,
+    )
+    expect(html).toContain("10 秒")
+    expect(html).toContain("shot-duration")
+  })
 })

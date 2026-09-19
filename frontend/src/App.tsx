@@ -16,6 +16,14 @@ import {
 } from "./local-resource-store"
 import type { ImageResult } from "./media/ImageStudioModule"
 import type { VideoResult } from "./media/VideoStudioModule"
+import {
+  activeUpscaleJob,
+  canRequestJobUpscale,
+  extraUpscaleResults,
+  hasOriginalVideo,
+  isRtxVsrJob,
+  upscaleDisabledReason,
+} from "./video-upscale"
 import JianyingExportModal from "./media/JianyingExportModal"
 import type { JianyingMediaItem } from "./media/jianying-draft-builder"
 import { createLocalId } from "./lib/utils"
@@ -123,6 +131,28 @@ function cacheStorageCapability(capability: StorageCapability) {
   }
 }
 type ReferenceAsset = { id: string; file: File; preview: string }
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ""))
+    reader.onerror = () => reject(reader.error || new Error("无法读取参考图"))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function referenceImageUrls(assets: ReferenceAsset[], limit = 8): Promise<string[]> {
+  const urls: string[] = []
+  for (const asset of assets.slice(0, limit)) {
+    try {
+      const dataUrl = await readFileAsDataUrl(asset.file)
+      if (dataUrl.startsWith("data:image/")) urls.push(dataUrl)
+    } catch {
+      /* skip unreadable local files */
+    }
+  }
+  return urls
+}
 type MediaPreview = {
   kind: PreviewMediaKind
   src: string
@@ -800,12 +830,20 @@ export default function App({
     },
     [optionDefinitions, optionValues],
   )
-  const resultsForRound = (round: JobRound) => round.generation_items.flatMap((item) => item.outputs.map((output, outputIndex) => ({
-    generationItemId: item.id,
-    outputIndex,
-    output,
-    src: outputPreviewSrc(output, localMediaUrls[output.path]),
-  })))
+  const resultsForRound = (round: JobRound) => {
+    const own = round.generation_items.flatMap((item) => item.outputs.map((output, outputIndex) => ({
+      jobId: selectedJob?.id,
+      generationItemId: item.id,
+      outputIndex,
+      output,
+      src: outputPreviewSrc(output, localMediaUrls[output.path]),
+    })))
+    const extras = selectedJob ? extraUpscaleResults(selectedJob, allJobs).map((item) => ({
+      ...item,
+      src: outputPreviewSrc(item.output, localMediaUrls[item.output.path]),
+    })) : []
+    return [...own, ...extras]
+  }
 
   useEffect(() => {
     if (workflows.length && !workflows.some((item) => item.id === workflowId)) setWorkflowId(workflows[0].id)
@@ -1019,6 +1057,17 @@ export default function App({
     },
   })
 
+  const upscaleMutation = useMutation({
+    mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${jobId}/upscale`, {
+      method: "POST", headers: { "X-CSRF-Token": csrfToken },
+    }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
+      messageApi.success("已提交 2x 超分")
+    },
+    onError: (error: Error) => messageApi.error(error.message),
+  })
+
   const cancelMutation = useMutation({
     mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${jobId}/cancel`, {
       method: "POST", headers: { "X-CSRF-Token": csrfToken },
@@ -1079,6 +1128,7 @@ export default function App({
         throw new Error("请先输入简短的画面描述或想法")
       }
       const targetSkillId = (typeof skillIdOverride === "string" ? skillIdOverride : undefined) || selectedSkillId
+      const imageUrls = await referenceImageUrls(references)
       return requestJson<{ original_prompt: string; optimized_prompt: string; skill_id?: string }>(
         "/api/llm/optimize-prompt",
         jsonMutation(csrfToken, {
@@ -1088,6 +1138,7 @@ export default function App({
           skill_id: mediaType === "video" ? targetSkillId : undefined,
           reference_count: references.length,
           workflow_id: workflowId,
+          image_urls: imageUrls.length ? imageUrls : undefined,
         }),
       )
     },
@@ -1939,6 +1990,8 @@ export default function App({
               const canGenerateAgain = selectedJob.status === "succeeded" || selectedJob.status === "partial"
               const canRetryRound = round.status === "partial" || round.status === "failed" || round.status === "interrupted" || round.status === "cancelled"
               const canCancelRound = round.status === "queued" || round.status === "running" || round.status === "interrupted"
+              const relatedUpscale = activeUpscaleJob(allJobs, selectedJob.id)
+              const showUpscale = mediaType === "video" && !isRtxVsrJob(selectedJob) && hasOriginalVideo(selectedJob) && !isInspectingOtherUser
               const failedItems = round.generation_items.filter((item) => item.status === "failed" || item.status === "interrupted" || item.status === "cancelled")
               const cover = roundResults[0]?.output
               const wait = waitCaption({
@@ -1985,7 +2038,7 @@ export default function App({
                 </div>}
 
                 {roundResults.length > 0 && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
-                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onSave={(result) => directoryState === "granted" ? void deliverOutput(selectedJob, result.generationItemId, result.outputIndex, result.output) : void connectDirectory()} />}
+                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} upscale={showUpscale ? { disabled: !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending, pending: upscaleMutation.isPending || Boolean(relatedUpscale), hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || "用本机 RTX 放大到 2 倍，原片保留", onClick: () => upscaleMutation.mutate(selectedJob.id) } : undefined} upscaleStage={relatedUpscale?.stage} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onSave={(result) => { const job = allJobs.find((item) => item.id === result.jobId) ?? selectedJob; directoryState === "granted" ? void deliverOutput(job, result.generationItemId, result.outputIndex, result.output) : void connectDirectory() }} />}
                 </Suspense>}
 
                 {failedItems.length > 0 && mediaType === "image" && <ul className="mt-3 space-y-2 text-xs leading-5 text-red-600">

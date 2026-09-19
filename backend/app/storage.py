@@ -112,6 +112,12 @@ class JobStore:
             if self._db.dialect == "mysql":
                 self._db.apply_mysql_schema(connection)
                 self._ensure_job_list_indexes(connection)
+                self._ensure_column(
+                    connection,
+                    "vlm_provider_settings",
+                    "use_llm_credentials",
+                    "TINYINT(1) NOT NULL DEFAULT 0",
+                )
                 self._seed_runtime_defaults(connection, migrate_legacy=False)
                 return
             connection.execute(
@@ -258,6 +264,7 @@ class JobStore:
                 CREATE TABLE IF NOT EXISTS vlm_provider_settings (
                     id INTEGER PRIMARY KEY CHECK(id = 1),
                     enabled INTEGER NOT NULL DEFAULT 0,
+                    use_llm_credentials INTEGER NOT NULL DEFAULT 0,
                     base_url TEXT NOT NULL DEFAULT 'https://open.bigmodel.cn/api/paas/v4',
                     api_key_encrypted TEXT,
                     model TEXT NOT NULL DEFAULT 'glm-4v-flash',
@@ -362,6 +369,12 @@ class JobStore:
                 self._ensure_column(connection, table, "execution_elapsed_ms", "INTEGER")
             self._ensure_column(connection, "grs_provider_settings", "models", "TEXT NOT NULL DEFAULT 'gpt-image-2'")
             self._ensure_column(connection, "grs_provider_settings", "vip_models", "TEXT NOT NULL DEFAULT 'gpt-image-2-vip'")
+            self._ensure_column(
+                connection,
+                "vlm_provider_settings",
+                "use_llm_credentials",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
             self._ensure_job_list_indexes(connection)
             self._seed_runtime_defaults(connection, migrate_legacy=True)
 
@@ -1286,6 +1299,7 @@ class JobStore:
             return {
                 "id": 1,
                 "enabled": False,
+                "use_llm_credentials": False,
                 "base_url": "https://open.bigmodel.cn/api/paas/v4",
                 "api_key_encrypted": None,
                 "model": "glm-4v-flash",
@@ -1296,16 +1310,19 @@ class JobStore:
             }
         data = dict(row)
         data["enabled"] = bool(data["enabled"])
+        data["use_llm_credentials"] = bool(data.get("use_llm_credentials", 0))
         return data
 
     def update_vlm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {
-            "enabled", "base_url", "api_key_encrypted", "model",
+            "enabled", "use_llm_credentials", "base_url", "api_key_encrypted", "model",
             "last_test_status", "last_test_message", "last_test_at",
         }
         merged = dict(values) if isinstance(values, dict) else {}
         merged.update(kwargs)
         updates = {key: value for key, value in merged.items() if key in allowed}
+        if "use_llm_credentials" in updates:
+            updates["use_llm_credentials"] = int(bool(updates["use_llm_credentials"]))
         updates["updated_at"] = now()
         assignment = ", ".join(f"{key} = ?" for key in updates)
         with self.connection() as connection:
@@ -1521,6 +1538,16 @@ class JobStore:
 
     @classmethod
     def director_generation_progress(cls, payload: dict[str, Any]) -> tuple[str, int, int]:
+        from .director_recipe import PAYLOAD_KIND_HYPIT_REPLICATION, payload_kind
+
+        if payload_kind(payload) == PAYLOAD_KIND_HYPIT_REPLICATION:
+            result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+            transcript = payload.get("transcript") if isinstance(payload.get("transcript"), dict) else {}
+            if result.get("url") or result.get("path"):
+                return "complete", 1, 1
+            if transcript.get("status") == "done" or payload.get("sourceVideo"):
+                return "partial", 0, 1
+            return "pending", 0, 0
         shots = cls._payload_shots(payload)
         total = len(shots)
         generated = sum(1 for shot in shots if cls._shot_is_generated(shot))

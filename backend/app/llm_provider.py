@@ -10,6 +10,7 @@ from .llm_client import (
     LLM_TEST_TIMEOUT_SECONDS,
     OpenAICompatibleClient,
     LlmError,
+    summarize_llm_test_reply,
 )
 from .storage import JobStore, now
 
@@ -138,7 +139,7 @@ class LlmProviderService:
         try:
             reply = client.test_connection(model=model, timeout=LLM_TEST_TIMEOUT_SECONDS)
             test_status = "成功"
-            test_message = f"连接成功，模型响应：{reply}"
+            test_message = summarize_llm_test_reply(reply)
         except Exception as exc:
             test_status = "失败"
             test_message = str(exc)
@@ -175,8 +176,10 @@ class LlmProviderService:
         media_type: str = "video",
         workflow_name: str | None = None,
         skill_id: str | None = None,
+        skill_pack_id: str | None = None,
         reference_count: int = 0,
         workflow_id: str | None = None,
+        image_urls: list[str] | None = None,
     ) -> str:
         available, reason = self.availability()
         if not available:
@@ -187,12 +190,51 @@ class LlmProviderService:
         if not api_key:
             raise LlmError("大模型凭据未配置")
 
+        from .llm_minimax_skills import build_h3_system_prompt
+        from .vision_runtime import complete_authoring, normalize_image_urls
+
+        urls = normalize_image_urls(image_urls)
+        if urls:
+            system_instruction = build_h3_system_prompt(
+                skill_id=skill_id,
+                reference_count=max(reference_count, len(urls)),
+                media_type=media_type,
+                workflow_name=workflow_name,
+                skill_pack_id=skill_pack_id,
+            )
+            user_content = f"原始创意需求：{prompt.strip()}"
+            if workflow_name:
+                user_content += f"\n当前工作流名称：{workflow_name}"
+            if workflow_id:
+                user_content += f"\n当前工作流 ID：{workflow_id}"
+            user_content += f"\n已上传参考图数量：{len(urls)} 张"
+            text, _meta = complete_authoring(
+                config,
+                self.store.get_vlm_settings(),
+                self.credentials.decrypt,
+                system_instruction,
+                user_content,
+                urls,
+                max_tokens=1536,
+                temperature=0.7,
+                timeout=60.0,
+            )
+            optimized = str(text or "").strip()
+            if optimized.startswith("```") and optimized.endswith("```"):
+                lines = optimized.splitlines()
+                if len(lines) >= 3:
+                    optimized = "\n".join(lines[1:-1]).strip()
+            if not optimized:
+                raise LlmError("大模型未返回优化后的提示词")
+            return optimized
+
         client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
         return client.optimize_prompt(
             prompt,
             media_type=media_type,
             workflow_name=workflow_name,
             skill_id=skill_id,
+            skill_pack_id=skill_pack_id,
             reference_count=reference_count,
             workflow_id=workflow_id,
             model=config["model"],
@@ -474,13 +516,34 @@ class LlmProviderService:
             on_progress=on_progress,
         )
 
-    def polish_director_h3_prompt(self, draft_prompt: str, mode: str, on_chunk: Callable[[str], None] | None = None) -> str:
+    def polish_director_h3_prompt(
+        self,
+        draft_prompt: str,
+        mode: str,
+        on_chunk: Callable[[str], None] | None = None,
+        image_urls: list[str] | None = None,
+    ) -> str:
         """Use the configured LLM after the final H3 input mode and reference order are known."""
         from .llm_minimax_skills import build_h3_final_prompt_polish_prompt
+        from .vision_runtime import complete_authoring, normalize_image_urls
 
         draft = str(draft_prompt or "").strip()
         if not draft:
             raise LlmError("没有可润色的 H3 提示词")
+        urls = normalize_image_urls(image_urls)
+        if urls:
+            text, _meta = complete_authoring(
+                self.store.get_llm_settings(),
+                self.store.get_vlm_settings(),
+                self.credentials.decrypt,
+                build_h3_final_prompt_polish_prompt(mode),
+                f"Requested final prompt:\n\n{draft}",
+                urls,
+                max_tokens=8192,
+                temperature=0.35,
+                timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
+            )
+            return text.strip()
         client, model = self._chat_client()
         return client.chat_completion(
             [

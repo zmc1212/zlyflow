@@ -58,3 +58,8 @@ def vlm_row() -> dict[str, Any]:
 def qiniu_row() -> dict[str, Any]:
     """七牛云配置（工作台 qiniu_provider_settings）。"""
     return query_one("SELECT * FROM qiniu_provider_settings WHERE id = 1") or {}
+
+
+def tts_row() -> dict[str, Any]:
+    """TTS 配置（工作台 tts_provider_settings）。"""
+    return query_one("SELECT * FROM tts_provider_settings WHERE id = 1") or {}

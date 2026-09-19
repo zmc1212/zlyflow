@@ -10,7 +10,7 @@ export const MAX_SOURCE_REFERENCES = 9
 export const MAX_SOURCE_REFERENCE_BYTES = 10 * 1024 * 1024
 
 const HINTS: Record<string, string> = {
-  character: "从原片截正脸或半身，生成头像和造型时会按这些图锁五官与年龄。",
+  character: "从原片截正脸或半身，生成设定板时会按这些图锁五官、发型与服装。",
   scene: "从原片截空镜，生成主视角时会按这些图对齐空间、光线和陈设。",
   prop: "从原片截道具特写，生成概念图时会按这些图对齐外形和材质。",
 }

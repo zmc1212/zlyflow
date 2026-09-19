@@ -352,8 +352,9 @@ def beat_reference_urls(
     by_id = {item["id"]: item for item in assets if item.get("id")}
     urls: list[str] = []
     scene = resolve_scene_asset(beat, assets)
-    if stage == "render":
-        _append_https(urls, beat.get("sketch_url"))
+    if stage in {"render", "triptych"}:
+        if stage == "render":
+            _append_https(urls, beat.get("sketch_url"))
         character_ids = [str(item) for item in (beat.get("character_ids") or [])]
         selected_ids = beat.get("character_look_ids") if isinstance(beat.get("character_look_ids"), dict) else {}
         legacy_look_id = str(beat.get("character_look_id") or "").strip()
@@ -372,7 +373,10 @@ def beat_reference_urls(
                 ),
                 None,
             )
-            _append_https(urls, (selected_look or {}).get("image_url"))
+            look_url = (selected_look or {}).get("image_url")
+            _append_https(urls, look_url)
+            if stage == "triptych" and not str(look_url or "").strip():
+                _append_https(urls, extra.get("avatar_url") or (asset or {}).get("image_url"))
         if scene:
             extra = scene.get("extra") if isinstance(scene.get("extra"), dict) else {}
             if scene_view == "reverse":

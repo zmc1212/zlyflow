@@ -31,8 +31,15 @@ import {
   uploadAssetSourceReference,
   deleteAssetSourceReference,
   inferAssetPromptsFromReferences,
+  uploadAssetVoice,
+  applyAssetVoicePreset,
+  deleteAssetVoice,
+  previewAssetVoice,
+  listVoiceExtractSources,
+  extractAssetVoiceFromShot,
   director2ErrorDetail,
   type Director2Asset,
+  type VoiceExtractSource,
 } from "../api"
 import CharacterWorkspace from "./assets/CharacterWorkspace"
 import SceneWorkspace from "./assets/SceneWorkspace"
@@ -41,6 +48,7 @@ import CreateAssetModal from "./assets/CreateAssetModal"
 import EditSceneModal from "./assets/EditSceneModal"
 import EditPropModal from "./assets/EditPropModal"
 import IdentityModal from "./assets/IdentityModal"
+import VoiceExtractModal from "./assets/VoiceExtractModal"
 import {
   ASSET_TABS,
   kindLabel,
@@ -51,6 +59,7 @@ import {
   getAssetDisplayAvatar,
   getAssetGradient,
   copyText,
+  identityLookEnqueueBlocker,
   type AssetIdentity,
   type GenerateImageResult,
 } from "./assets/shared"
@@ -59,6 +68,7 @@ import type { SceneDraft } from "./assets/EditSceneModal"
 import type { PropDraft } from "./assets/EditPropModal"
 import type { IdentityFormState } from "./assets/IdentityModal"
 import { MAX_SOURCE_REFERENCE_BYTES, remainingSourceReferenceSlots, sourceReferencesOf } from "../asset-source-references"
+import { MAX_VOICE_AUDIO_BYTES, hasRefAudio, isVoiceAudioFile, voiceOf } from "../voice-profile"
 import { useMediaPreview } from "../media-preview"
 import "./assets-library.css"
 
@@ -112,9 +122,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const suppressAutoSaveRef = useRef(false)
 
   // 各生成动作的独立 Loading 状态
-  const [generatingAvatar, setGeneratingAvatar] = useState(false)
   const [generatingIdentityId, setGeneratingIdentityId] = useState<string | null>(null)
-  const [batchGeneratingAvatars, setBatchGeneratingAvatars] = useState(false)
   const [batchGeneratingLooks, setBatchGeneratingLooks] = useState(false)
   const [batchGeneratingSceneMasters, setBatchGeneratingSceneMasters] = useState(false)
   const [batchGeneratingSceneReverses, setBatchGeneratingSceneReverses] = useState(false)
@@ -126,6 +134,13 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const [generatingReverse, setGeneratingReverse] = useState(false)
   const [uploadingSourceRef, setUploadingSourceRef] = useState(false)
   const [inferringSourcePrompts, setInferringSourcePrompts] = useState(false)
+  const [uploadingVoice, setUploadingVoice] = useState(false)
+  const [previewingVoice, setPreviewingVoice] = useState(false)
+  const [applyingVoicePreset, setApplyingVoicePreset] = useState(false)
+  const [voiceExtractOpen, setVoiceExtractOpen] = useState(false)
+  const [extractSources, setExtractSources] = useState<VoiceExtractSource[]>([])
+  const [loadingExtractSources, setLoadingExtractSources] = useState(false)
+  const [extractingVoice, setExtractingVoice] = useState(false)
   const [generatingPano, setGeneratingPano] = useState(false)
   const [generatingProp, setGeneratingProp] = useState(false)
   const [generatingPropTurnaround, setGeneratingPropTurnaround] = useState(false)
@@ -133,7 +148,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
 
   const batchGenerationActive = useMemo(
     () => [
-      batchGeneratingAvatars,
       batchGeneratingLooks,
       batchGeneratingSceneMasters,
       batchGeneratingSceneReverses,
@@ -143,7 +157,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       batchGeneratingPropDetails,
     ].some((state) => state),
     [
-      batchGeneratingAvatars,
       batchGeneratingLooks,
       batchGeneratingSceneMasters,
       batchGeneratingSceneReverses,
@@ -346,6 +359,11 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAsset])
 
+  useEffect(() => {
+    setVoiceExtractOpen(false)
+    setExtractSources([])
+  }, [selectedAsset?.id])
+
   function selectAsset(ast: Director2Asset) {
     flushAutoSave()
     const copy = JSON.parse(JSON.stringify(ast)) as Director2Asset
@@ -353,9 +371,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
 
     if (copy.kind === "character") {
       if (!copy.extra.identities) copy.extra.identities = []
-      if (!copy.extra.avatar_prompt) {
-        copy.extra.avatar_prompt = `${copy.name}，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k`
-      }
     } else if (copy.kind === "scene") {
       if (!copy.extra.environment_prompt) {
         copy.extra.environment_prompt = copy.visual_prompt || `${copy.name}，电影级实景空间，宋式古典建筑美学，自然光影，8k`
@@ -437,42 +452,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         applySelected(null)
       }
     }, 50)
-  }
-
-  // 1. 生成角色头像 (1:1)
-  async function handleGenerateAvatar() {
-    const sel = selectedAssetRef.current
-    if (!sel) return
-    const extra = sel.extra || {}
-    const prompt = (extra.avatar_prompt || sel.name).trim()
-    setGeneratingAvatar(true)
-    try {
-      const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
-        target_type: "avatar",
-        prompt,
-        model: "gpt-image-2",
-        aspect_ratio: "1:1",
-        ...characterStylePayload(sel),
-      })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      const refCount = Number(res.source_reference_count || sourceReferencesOf(cur).length)
-      message.success(refCount > 0 ? `「${cur.name}」头像已按 ${refCount} 张原片参考图生成` : `「${cur.name}」头像生成成功！`)
-      if (res.asset) {
-        applyGeneratedAsset(cur.id, res)
-      } else if (res.image_url) {
-        const imageUrl = res.image_url
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), avatar_url: imageUrl },
-          image_url: imageUrl,
-        }))
-      }
-    } catch (err) {
-      message.error(director2ErrorDetail(err, "头像生图失败"))
-    } finally {
-      setGeneratingAvatar(false)
-    }
   }
 
   function applyGeneratedAsset(assetId: string, res: GenerateImageResult) {
@@ -558,6 +537,139 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     }
   }
 
+  async function handleUploadVoice(file: File) {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    if (!isVoiceAudioFile(file)) {
+      message.warning("请上传 wav / mp3 / m4a / flac / ogg")
+      return
+    }
+    if (file.size > MAX_VOICE_AUDIO_BYTES) {
+      message.warning("参考音不能超过 20 MB")
+      return
+    }
+    setUploadingVoice(true)
+    try {
+      const updated = await uploadAssetVoice(csrfToken, projectId, sel.id, file)
+      applyServerAsset(updated)
+      message.success("已绑定角色参考音")
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "上传参考音失败"))
+    } finally {
+      setUploadingVoice(false)
+    }
+  }
+
+  async function handleApplyVoicePreset(presetId: string) {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    setApplyingVoicePreset(true)
+    try {
+      const updated = await applyAssetVoicePreset(csrfToken, projectId, sel.id, presetId)
+      applyServerAsset(updated)
+      message.success("已绑定内置短剧声线")
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "绑定内置声线失败"))
+    } finally {
+      setApplyingVoicePreset(false)
+    }
+  }
+
+  async function handleDeleteVoice() {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    try {
+      const updated = await deleteAssetVoice(csrfToken, projectId, sel.id)
+      applyServerAsset(updated)
+      message.success("已删除角色参考音")
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "删除参考音失败"))
+    }
+  }
+
+  async function handlePreviewVoice() {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    const voice = voiceOf(sel.extra)
+    if (!hasRefAudio(sel.extra)) {
+      message.warning("请先绑定角色参考音")
+      return
+    }
+    setPreviewingVoice(true)
+    try {
+      const result = await previewAssetVoice(csrfToken, projectId, sel.id, {
+        default_emotion: voice.default_emotion,
+        emo_alpha: voice.emo_alpha,
+        duration_factor: voice.duration_factor,
+      })
+      applyServerAsset(result.asset)
+      message.success("试听已生成")
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "试听失败"))
+    } finally {
+      setPreviewingVoice(false)
+    }
+  }
+
+  async function handleOpenVoiceExtract() {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    setVoiceExtractOpen(true)
+    setLoadingExtractSources(true)
+    try {
+      const payload = await listVoiceExtractSources(projectId, sel.id)
+      setExtractSources(payload.sources || [])
+    } catch (err) {
+      setExtractSources([])
+      message.error(director2ErrorDetail(err, "列出成片失败"))
+    } finally {
+      setLoadingExtractSources(false)
+    }
+  }
+
+  async function submitVoiceExtract(payload: {
+    episode_id: string
+    beat_id: string
+    start_sec: number
+    end_sec: number
+  }) {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    setExtractingVoice(true)
+    try {
+      const updated = await extractAssetVoiceFromShot(csrfToken, projectId, sel.id, payload)
+      applyServerAsset(updated)
+      setVoiceExtractOpen(false)
+      message.success("已从成片提取角色参考音")
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "从成片提取失败"))
+    } finally {
+      setExtractingVoice(false)
+    }
+  }
+
+  function handleExtractVoiceFromShot(payload: {
+    episode_id: string
+    beat_id: string
+    start_sec: number
+    end_sec: number
+  }) {
+    const sel = selectedAssetRef.current
+    if (!sel) return
+    if (hasRefAudio(sel.extra)) {
+      Modal.confirm({
+        title: "覆盖已绑定的参考音？",
+        content: "从成片提取会替换当前参考音，并清除内置声线绑定。",
+        okText: "覆盖并提取",
+        cancelText: "取消",
+        className: "d2-assets-library",
+        onOk: () => submitVoiceExtract(payload),
+      })
+      return
+    }
+    void submitVoiceExtract(payload)
+  }
+
   function characterStylePayload(ast: Director2Asset | null) {
     const extra = ast?.extra || {}
     return {
@@ -569,94 +681,35 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     }
   }
 
-  function hasCharacterAvatar(ast: Director2Asset | null | undefined) {
-    return Boolean(ast?.extra?.avatar_url || ast?.image_url)
-  }
-
-  async function handleBatchGenerateAvatars() {
-    const chars = assetsRef.current.filter((a) => a.kind === "character")
-    const targets = chars.filter((a) => !hasCharacterAvatar(a))
-    if (!targets.length) {
-      message.info(chars.length ? "所有角色已有头像，无需再生成" : "暂无角色可生成头像")
-      return
-    }
-    setBatchGeneratingAvatars(true)
-    let ok = 0
-    const failed: string[] = []
-    message.loading({ content: `开始一键生成 ${targets.length} 个头像…`, key: "batchAvatars" })
-    try {
-      for (let i = 0; i < targets.length; i += 1) {
-        const ast = targets[i]
-        message.loading({
-          content: `正在生成头像 (${i + 1}/${targets.length})：${ast.name}`,
-          key: "batchAvatars",
-        })
-        try {
-          const extra = ast.extra || {}
-          const res = (await generateAssetImage(csrfToken, projectId, ast.id, {
-            target_type: "avatar",
-            prompt: (extra.avatar_prompt || ast.name || "").trim(),
-            model: "gpt-image-2",
-            aspect_ratio: "1:1",
-            ...characterStylePayload(ast),
-          })) as GenerateImageResult
-          applyGeneratedAsset(ast.id, res)
-          ok += 1
-        } catch (err) {
-          failed.push(`${ast.name}: ${director2ErrorDetail(err, "失败")}`)
-        }
-      }
-      if (failed.length) {
-        message.warning({
-          content: `头像完成 ${ok}/${targets.length}，失败：${failed.slice(0, 3).join("；")}`,
-          key: "batchAvatars",
-          duration: 6,
-        })
-      } else {
-        message.success({ content: `已一键生成 ${ok} 个头像`, key: "batchAvatars" })
-      }
-    } finally {
-      setBatchGeneratingAvatars(false)
-    }
-  }
-
   async function handleBatchGenerateLooks() {
     const chars = assetsRef.current.filter((a) => a.kind === "character")
     const jobs: Array<{ ast: Director2Asset; ident: AssetIdentity; costume: string }> = []
-    let skippedNoAvatar = 0
     let skippedNoCostume = 0
     for (const ast of chars) {
-      if (!hasCharacterAvatar(ast) && !sourceReferencesOf(ast).length) {
-        skippedNoAvatar += 1
-        continue
-      }
       for (const ident of (ast.extra?.identities as AssetIdentity[]) || []) {
-        const costume = (ident.description || ident.appearance_details || "").trim()
-        if (!costume) {
+        const blocker = identityLookEnqueueBlocker(ast, ident)
+        if (blocker) {
           skippedNoCostume += 1
           continue
         }
         if (ident.image_url) continue
+        const costume = (ident.description || ident.appearance_details || "").trim()
         jobs.push({ ast, ident, costume })
       }
     }
     if (!jobs.length) {
-      if (skippedNoAvatar && !chars.some((a) => hasCharacterAvatar(a) || sourceReferencesOf(a).length)) {
-        message.info("请先生成头像或上传原片参考图，造型图需要身份锚点")
-      } else {
-        message.info("所有已有头像或参考图的角色造型图已就绪（或缺少外观描述）")
-      }
+      message.info("所有角色设定板已就绪（或缺少外观描述且无原片截图）")
       return
     }
     setBatchGeneratingLooks(true)
     let ok = 0
     const failed: string[] = []
-    message.loading({ content: `开始一键生成 ${jobs.length} 张造型图…`, key: "batchLooks" })
+    message.loading({ content: `开始一键生成 ${jobs.length} 张设定板…`, key: "batchLooks" })
     try {
       for (let i = 0; i < jobs.length; i += 1) {
         const { ast, ident, costume } = jobs[i]
         message.loading({
-          content: `正在生成造型图 (${i + 1}/${jobs.length})：${ast.name} · ${ident.name}`,
+          content: `正在生成设定板 (${i + 1}/${jobs.length})：${ast.name} · ${ident.name}`,
           key: "batchLooks",
         })
         try {
@@ -674,19 +727,15 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           failed.push(`${ast.name}/${ident.name}: ${director2ErrorDetail(err, "失败")}`)
         }
       }
-      const skipHint = [
-        skippedNoAvatar ? `${skippedNoAvatar} 个角色尚无头像已跳过` : "",
-        skippedNoCostume ? `${skippedNoCostume} 个造型缺外观描述已跳过` : "",
-      ].filter(Boolean).join("，")
-      const skipSuffix = skipHint ? `，${skipHint}` : ""
+      const skipSuffix = skippedNoCostume ? `，${skippedNoCostume} 个造型缺外观描述已跳过` : ""
       if (failed.length) {
         message.warning({
-          content: `造型图完成 ${ok}/${jobs.length}${skipSuffix}，失败：${failed.slice(0, 3).join("；")}`,
+          content: `设定板完成 ${ok}/${jobs.length}${skipSuffix}，失败：${failed.slice(0, 3).join("；")}`,
           key: "batchLooks",
           duration: 6,
         })
       } else {
-        message.success({ content: `已一键生成 ${ok} 张造型图${skipSuffix}`, key: "batchLooks" })
+        message.success({ content: `已一键生成 ${ok} 张设定板${skipSuffix}`, key: "batchLooks" })
       }
     } finally {
       setBatchGeneratingLooks(false)
@@ -874,21 +923,16 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     })
   }
 
-  // 2. 生成角色造型 (对齐 source1 look：16:9 四宫格)
+  // 2. 生成角色设定板 (16:9 / 2K)
   async function handleGenerateIdentityImage(ident: AssetIdentity) {
     const sel = selectedAssetRef.current
     if (!sel || !ident) return
-    const extra = sel.extra || {}
+    const blocker = identityLookEnqueueBlocker(sel, ident)
+    if (blocker) {
+      message.warning(blocker)
+      return
+    }
     const costume = (ident.description || ident.appearance_details || "").trim()
-    const hasSourceRefs = sourceReferencesOf(sel).length > 0
-    if (!costume && !hasSourceRefs) {
-      message.warning("请先填写外观描述，或上传原片截图作为服装参考")
-      return
-    }
-    if (!(extra.avatar_url || sel.image_url || sourceReferencesOf(sel).length)) {
-      message.warning("请先生成头像，或上传原片截图作为身份参考")
-      return
-    }
     setGeneratingIdentityId(ident.id || null)
     try {
       const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
@@ -1463,7 +1507,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         <div className="header-copy">
           <h2 className="sub-pane-title">资产库</h2>
           <p className="sub-pane-subtitle">
-            严格参考 source2 影视工业流水线：管理角色肖像与身份造型、场景三大机位（Master主视角 / Reverse反打背面 / Pano 360全景）及道具特写参考。
+            管理角色设定板与身份造型、场景三大机位（Master主视角 / Reverse反打背面 / Pano 360全景）及道具特写参考。
           </p>
         </div>
 
@@ -1488,23 +1532,14 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         <div className="batch-generate-bar">
           <Button
             type="primary"
-            loading={batchGeneratingAvatars}
-            disabled={batchGenerationActive && !batchGeneratingAvatars}
-            icon={<Sparkles size={15} />}
-            onClick={handleBatchGenerateAvatars}
-          >
-            一键生成所有头像
-          </Button>
-          <Button
-            type="primary"
             loading={batchGeneratingLooks}
             disabled={batchGenerationActive && !batchGeneratingLooks}
             icon={<Shirt size={15} />}
             onClick={handleBatchGenerateLooks}
           >
-            一键生成所有造型图
+            一键生成所有设定板
           </Button>
-          <span className="batch-generate-hint">仅处理尚未出图的角色头像 / 已有头像的造型图，任务中心可查看进度</span>
+          <span className="batch-generate-hint">仅处理尚未出图的造型；无外观描述且无原片截图的会跳过，任务中心可查看进度</span>
         </div>
       ) : currentTab === "scene" ? (
         <div className="batch-generate-bar">
@@ -1761,9 +1796,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                       onFieldChange={patchSelectedField}
                       onExtraChange={patchSelectedExtra}
                       onIdentityChange={patchSelectedIdentity}
-                      generatingAvatar={generatingAvatar}
                       generatingIdentityId={generatingIdentityId}
-                      onGenerateAvatar={handleGenerateAvatar}
                       onGenerateIdentity={handleGenerateIdentityImage}
                       onRemoveIdentity={handleRemoveIdentity}
                       onOpenAddIdentity={openAddIdentityModal}
@@ -1772,6 +1805,15 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                       onUploadSourceRefs={handleUploadSourceRefs}
                       onRemoveSourceRef={handleRemoveSourceRef}
                       onInferSourcePrompts={handleInferSourcePrompts}
+                      uploadingVoice={uploadingVoice}
+                      previewingVoice={previewingVoice}
+                      applyingVoicePreset={applyingVoicePreset}
+                      onUploadVoice={handleUploadVoice}
+                      onApplyVoicePreset={handleApplyVoicePreset}
+                      onDeleteVoice={handleDeleteVoice}
+                      onPreviewVoice={handlePreviewVoice}
+                      extractingVoice={extractingVoice}
+                      onExtractVoiceFromShot={handleOpenVoiceExtract}
                     />
                   ) : selectedAsset.kind === "scene" ? (
                     <SceneWorkspace
@@ -1904,6 +1946,15 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         saving={savingPropModal}
         onCancel={() => setEditPropModalVisible(false)}
         onConfirm={handleSavePropModal}
+      />
+
+      <VoiceExtractModal
+        open={voiceExtractOpen}
+        sources={extractSources}
+        loadingSources={loadingExtractSources}
+        submitting={extractingVoice}
+        onCancel={() => setVoiceExtractOpen(false)}
+        onSubmit={handleExtractVoiceFromShot}
       />
     </div>
   )

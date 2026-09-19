@@ -1,6 +1,7 @@
 export const DIRECTOR2_DEFAULT_VIDEO_WORKFLOW = "minimax-h3-director-accel-r2v"
 export const DIRECTOR2_VIDEO_SETTINGS_STORAGE_PREFIX = "director2-episode-video-settings:"
 export const DIRECTOR2_EPISODE_HIDDEN_OPTIONS = new Set(["duration", "custom_steps"])
+export const DIRECTOR2_BOOLEAN_VIDEO_OPTIONS = new Set(["upscale_after"])
 
 export type Director2OptionVisibility = "primary" | "advanced" | "internal"
 
@@ -128,6 +129,17 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
         { value: "balanced", label: "均衡（20 步）" },
         { value: "quality", label: "精细（25 步）" },
       ],
+    },
+  },
+  {
+    name: "upscale_after",
+    ui_group: "advanced",
+    definition: {
+      label: "出片后 2x 超分",
+      type: "boolean",
+      default: false,
+      ui_group: "advanced",
+      description: "逐镜成片成功后卸载 H3，再用本机 RTX 放大到 2 倍。整集直出和拼接片不会自动超分。",
     },
   },
 ]
@@ -298,6 +310,10 @@ export function sanitizeVideoOptionValues(
   for (const field of fields) {
     const value = incoming[field.name]
     if (value == null || value === "") continue
+    if (field.definition.type === "boolean" || DIRECTOR2_BOOLEAN_VIDEO_OPTIONS.has(field.name)) {
+      next[field.name] = value === "true" || value === "1" ? "true" : "false"
+      continue
+    }
     const allowed = optionChoices(field, { ...defaults, ...incoming }).map((item) => item.value)
     if (!allowed.length || allowed.includes(value)) next[field.name] = value
   }
@@ -338,6 +354,7 @@ export function videoSettingsSummary(fields: Director2VideoOptionField[], values
   if (qualityChoice) parts.push(qualityChoice.label.split(" · ")[0])
   else if (quality) parts.push(`${quality} MP`)
   if (weightLabel) parts.push(weightLabel.replace(/（.*?）/g, "").trim() || weightLabel)
+  if (values.upscale_after === "true") parts.push("2x 超分")
   return parts.join(" · ")
 }
 
@@ -346,9 +363,142 @@ export function buildVideoJobOptions(
   values: Record<string, string>,
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  return {
-    workflow: workflowId,
-    ...values,
-    ...extra,
+  const options: Record<string, unknown> = { workflow: workflowId }
+  for (const [name, value] of Object.entries(values)) {
+    options[name] = DIRECTOR2_BOOLEAN_VIDEO_OPTIONS.has(name) ? value === "true" : value
   }
+  return { ...options, ...extra }
+}
+
+export function beatHasVideo(beat: { video_url?: string | null } | null | undefined): boolean {
+  return Boolean(String(beat?.video_url || "").trim())
+}
+
+export function beatHasUpscaled(beat: { upscaled_video_url?: string | null } | null | undefined): boolean {
+  return Boolean(String(beat?.upscaled_video_url || "").trim())
+}
+
+export function beatPlaybackUrl(beat: {
+  video_url?: string | null
+  upscaled_video_url?: string | null
+} | null | undefined): string {
+  return String(beat?.upscaled_video_url || beat?.video_url || "").trim()
+}
+
+export function beatUpscaleDisabledReason(
+  beat: { video_url?: string | null } | null | undefined,
+  progress?: { scope?: string | null; stage?: string | null; status?: string | null } | null,
+): string | undefined {
+  if (!beatHasVideo(beat)) return "成片成功后才能超分"
+  if (progress?.scope === "upscale" || progress?.stage === "upscaling" || progress?.status === "upscaling") {
+    return "正在 2x 超分"
+  }
+  if (progress) return "出片进行中"
+  return undefined
+}
+
+export function jobUpscaledVideoUrl(job: {
+  result_url?: string | null
+  payload?: Record<string, unknown> | null
+} | null | undefined): string {
+  const payload = job?.payload || {}
+  return String(payload.upscaled_video_url || "").trim()
+}
+
+export function jobSourceVideoUrl(job: {
+  result_url?: string | null
+  payload?: Record<string, unknown> | null
+} | null | undefined): string {
+  const payload = job?.payload || {}
+  const source = String(payload.source_video_url || "").trim()
+  if (source) return source
+  if (String(payload.render_scope || "") === "upscale") return ""
+  return String(job?.result_url || "").trim()
+}
+
+export function jobPreviewVideoUrl(job: {
+  result_url?: string | null
+  payload?: Record<string, unknown> | null
+} | null | undefined): string {
+  return jobUpscaledVideoUrl(job) || String(job?.result_url || "").trim()
+}
+
+const VIDEO_JOB_ACTIVE_STATUSES = new Set([
+  "queued",
+  "preparing",
+  "prompt_generation",
+  "uploading",
+  "comfy_queued",
+  "running",
+  "assembling",
+  "downloading",
+  "upscaling",
+])
+
+function jobBeatIds(job: {
+  payload?: Record<string, unknown> | null
+} | null | undefined): string[] {
+  const payload = job?.payload || {}
+  const ids = new Set<string>()
+  const one = String(payload.beat_id || "").trim()
+  if (one) ids.add(one)
+  const listed = payload.beat_ids
+  if (Array.isArray(listed)) {
+    for (const item of listed) {
+      const id = String(item || "").trim()
+      if (id) ids.add(id)
+    }
+  }
+  return [...ids]
+}
+
+export function jobCanShowUpscaleAction(job: {
+  job_type?: string
+  payload?: Record<string, unknown> | null
+} | null | undefined): boolean {
+  if (job?.job_type !== "video_generation") return false
+  return String(job.payload?.render_scope || "") !== "upscale"
+}
+
+export function jobUpscaleHint(job: {
+  payload?: Record<string, unknown> | null
+} | null | undefined): string {
+  const scope = String(job?.payload?.render_scope || "")
+  if (scope === "episode" || scope === "compose") {
+    return "提交整段 2x 超分。过长可能因显存被拒绝，原片仍保留。"
+  }
+  return "用当前连接的 ComfyUI 做 RTX 2x 超分，原片保留"
+}
+
+export function jobUpscaleDisabledReason(
+  job: {
+    id?: string
+    job_type?: string
+    status?: string
+    result_url?: string | null
+    payload?: Record<string, unknown> | null
+  } | null | undefined,
+  jobs: Array<{
+    id?: string
+    status?: string
+    payload?: Record<string, unknown> | null
+  }> = [],
+): string | undefined {
+  if (!jobCanShowUpscaleAction(job)) return "超分任务本身不能再超分"
+  if (job?.status !== "completed" && job?.status !== "succeeded") return "成片成功后才能超分"
+  if (!jobSourceVideoUrl(job) && !String(job?.result_url || "").trim()) return "该任务还没有成片"
+  const scope = String(job?.payload?.render_scope || "")
+  const beatIds = jobBeatIds(job)
+  if (scope === "selection" && beatIds.length > 1) return "多镜任务请到剧集工坊逐镜点「超分」"
+  const sourceId = String(job?.id || "")
+  const inFlight = jobs.some((other) => {
+    if (!VIDEO_JOB_ACTIVE_STATUSES.has(String(other.status || ""))) return false
+    const payload = other.payload || {}
+    if (String(payload.source_job_id || "") === sourceId) return true
+    if (String(payload.render_scope || "") !== "upscale") return false
+    const otherBeats = jobBeatIds(other)
+    return beatIds.length === 1 && otherBeats.includes(beatIds[0])
+  })
+  if (inFlight) return "正在 2x 超分"
+  return undefined
 }

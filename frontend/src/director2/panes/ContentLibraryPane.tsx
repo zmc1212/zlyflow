@@ -1,7 +1,8 @@
 // 内容库面板 —— 逐行复刻自 dev0914 z-admin/src/views/project/ContentLibraryPane.vue
 // Vue → React 对应：ref→useState、computed→useMemo、onMounted→useEffect；
 // ant-design-vue 组件 → antd 同名组件；API 调用首参补 csrfToken。
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   Button,
   Col,
@@ -10,13 +11,16 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Radio,
   Row,
   Select,
   Space,
   Spin,
   Tabs,
   Tag,
+  Tooltip,
   Upload,
+  Alert,
   message,
 } from "antd"
 import {
@@ -31,16 +35,42 @@ import {
 } from "lucide-react"
 import DirectorAssetSummaryCard from "../../director/components/DirectorAssetSummaryCard"
 import { normalizeDirectorAssetCard } from "../../director/components/director-asset-card"
+import { contentLibraryHeaderTagText } from "./content-library-header"
 import ContentLibraryShotCard from "./content-library-shot-card"
+import ShotPlanSlimProgress from "./shot-plan-slim-progress"
 import {
   listDocuments,
+  listEpisodes,
+  listJobs,
   createDocument,
   deleteDocument,
+  enqueueDocumentShotPlan,
   transferAssetsFromDoc,
   transferEpisodesFromDoc,
   director2ErrorDetail,
   type Director2Document,
 } from "../api"
+import {
+  applyShotPlanJobSnapshot,
+  applyShotPlanStreamEvent,
+  documentCanPlanShots,
+  documentShotPlanHeaderTag,
+  doneForEpisode,
+  emptyShotPlanLiveState,
+  episodeShotPlanError,
+  isAssemblingShotPlan,
+  isCurrentPlanningEpisode,
+  isDocumentShotPlanning,
+  isQueuedPlanningEpisode,
+  markShotPlanLiveFinished,
+  shotPlanEpisodeBadge,
+  shotPlanProgressLabel,
+  shotPlanSourceForEpisode,
+  shotPlanStatusCopy,
+  shotsForEpisode,
+  sumShotDurationSec,
+} from "../shot-plan-live"
+import { streamH3PromptJobEvents } from "../workshop-prompt-stream"
 import "./content-library.css"
 import "../../director/components/director-asset-card.css"
 
@@ -54,6 +84,7 @@ interface ContentLibraryPaneProps {
 // 剧本解析结果形状（原版为 JS 未标注，按模板取值字段补全）
 type DocAnalysis = {
   summary?: string
+  logs?: string[]
   positioning?: {
     genre?: string
     worldview?: string
@@ -66,6 +97,7 @@ type DocAnalysis = {
     title: string
     summary?: string
     shots_count?: number
+    shots_source?: string
     shots?: Array<{
       shot_num: number
       title?: string
@@ -78,6 +110,7 @@ type DocAnalysis = {
       audio?: string
       subtitle?: string
       visual_prompt?: string
+      duration_sec?: number | string
     }>
   }>
   characters?: Array<{
@@ -133,9 +166,22 @@ export default function ContentLibraryPane({
   const [transferringEp, setTransferringEp] = useState(false)
   const [importModalVisible, setImportModalVisible] = useState(false)
   const [formatModalVisible, setFormatModalVisible] = useState(false)
+  const [syncModalVisible, setSyncModalVisible] = useState(false)
+  const [syncMode, setSyncMode] = useState<"overwrite" | "append">("overwrite")
+  const [workshopEpisodeCount, setWorkshopEpisodeCount] = useState(0)
   const [selectedScriptFileName, setSelectedScriptFileName] = useState("")
   const [activeTab, setActiveTab] = useState<AnalysisTabKey>("episodes")
   const [activeEpisodeKeys, setActiveEpisodeKeys] = useState<string[]>(["1"])
+  const [planningShots, setPlanningShots] = useState(false)
+  const [hideShotPlanProgress, setHideShotPlanProgress] = useState(false)
+  const [shotPlanLive, setShotPlanLive] = useState(() => emptyShotPlanLiveState())
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedDocIdRef = useRef<string | null>(null)
+  const shotPlanBannerRef = useRef<HTMLDivElement | null>(null)
+  const episodeHeaderRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const shotPlanToastJobRef = useRef("")
+  const urlDocId = searchParams.get("doc")
+  const urlTab = searchParams.get("tab")
   const [importForm, setImportForm] = useState<ImportFormState>({
     filename: "",
     spine_template: "drama",
@@ -144,11 +190,22 @@ export default function ContentLibraryPane({
     input_mode: "paste",
   })
 
-  // 计算所有镜头的总数
+  const headerGenreTag = contentLibraryHeaderTagText(selectedDoc?.analysis?.positioning?.genre)
+  const headerWorldviewTag = contentLibraryHeaderTagText(selectedDoc?.analysis?.positioning?.worldview)
+  const planning = isDocumentShotPlanning(selectedDoc)
+  const planningJobId = String(selectedDoc?.shot_plan_job_id || "")
+  const canPlanShots = documentCanPlanShots(selectedDoc)
+  const shotPlanHeaderTag = documentShotPlanHeaderTag(selectedDoc)
   const totalShotsCount = useMemo(() => {
     if (!selectedDoc?.analysis?.episodes) return 0
-    return selectedDoc.analysis.episodes.reduce((acc, ep) => acc + (ep.shots?.length || 0), 0)
-  }, [selectedDoc])
+    return selectedDoc.analysis.episodes.reduce(
+      (acc, ep) => acc + shotsForEpisode(ep, shotPlanLive, planning).length,
+      0,
+    )
+  }, [selectedDoc, shotPlanLive, planning])
+  const rawPlanStatus = shotPlanStatusCopy(shotPlanLive, planning)
+  const planStatus = hideShotPlanProgress ? null : rawPlanStatus
+  const liveDocIdRef = useRef<string | null>(null)
 
   function copyText(txt: string | null | undefined) {
     if (!txt) return
@@ -159,24 +216,46 @@ export default function ContentLibraryPane({
     })
   }
 
-  const loadDocs = useCallback(async () => {
-    setLoading(true)
+  const loadDocs = useCallback(async (opts?: { selectId?: string; silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     try {
       const res = await listDocuments(projectId)
       const list = (res || []) as unknown as LibraryDocument[]
       setDocuments(list)
-      if (list.length > 0) {
-        setSelectedDoc(list[0])
-        setActiveEpisodeKeys(["1"])
-      } else {
-        setSelectedDoc(null)
-      }
+      const preferred = opts?.selectId || urlDocId || selectedDocIdRef.current
+      const next = (preferred && list.find((doc) => doc.id === preferred)) || list[0] || null
+      setSelectedDoc(next)
+      if (opts?.selectId) setActiveEpisodeKeys(["1"])
     } catch {
-      message.error("加载文档列表失败")
+      if (!opts?.silent) message.error("加载文档列表失败")
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
-  }, [projectId])
+  }, [projectId, urlDocId])
+
+  function rememberSelectedDoc(doc: LibraryDocument) {
+    selectedDocIdRef.current = doc.id
+    setSelectedDoc(doc)
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set("doc", doc.id)
+      return next
+    }, { replace: true })
+  }
+
+  const revealEpisodesWorkspace = useCallback((episodeNum?: number | null) => {
+    setActiveTab("episodes")
+    if (episodeNum != null) setActiveEpisodeKeys([String(episodeNum)])
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      if (selectedDocIdRef.current) next.set("doc", selectedDocIdRef.current)
+      next.set("tab", "episodes")
+      return next
+    }, { replace: true })
+    window.requestAnimationFrame(() => {
+      shotPlanBannerRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+    })
+  }, [setSearchParams])
 
   function openImportModal() {
     setImportForm({
@@ -224,13 +303,21 @@ export default function ContentLibraryPane({
     }
     setImporting(true)
     try {
-      await createDocument(csrfToken, projectId, {
+      const created = await createDocument(csrfToken, projectId, {
         ...importForm,
         input_mode: importForm.input_mode || "paste",
       })
-      message.success("剧本文档导入并解析成功，已拆解镜头、人物、道具与场景")
       setImportModalVisible(false)
-      await loadDocs()
+      selectedDocIdRef.current = created.id
+      revealEpisodesWorkspace(1)
+      if (created.shot_plan_job_id) {
+        setShotPlanLive(emptyShotPlanLiveState(created.shot_plan_job_id))
+        message.success("剧本文档已导入，正在本页规划出片镜头")
+      } else {
+        message.success("剧本文档已导入")
+      }
+      setSelectedDoc(created as LibraryDocument)
+      await loadDocs({ selectId: created.id })
     } catch (err) {
       message.error(director2ErrorDetail(err, "导入失败"))
     } finally {
@@ -263,17 +350,58 @@ export default function ContentLibraryPane({
     }
   }
 
-  async function handleTransferEpisodes() {
+  async function runEpisodeTransfer(mode: "overwrite" | "append") {
     if (!selectedDoc) return
     setTransferringEp(true)
     try {
-      const res = await transferEpisodesFromDoc(csrfToken, projectId, selectedDoc.id)
-      message.success(`已同步至剧集工坊：共 ${res.transferred_episodes} 集、${res.transferred_shots} 个分镜`)
+      const res = await transferEpisodesFromDoc(csrfToken, projectId, selectedDoc.id, mode)
+      const replaced = Number(res.replaced_episodes || 0)
+      const created = Number(res.created_episodes || 0)
+      const skipped = Number(res.skipped_episodes || 0)
+      const deleted = Number(res.deleted_episodes || 0)
+      const shots = Number(res.transferred_shots || 0)
+      if (mode === "overwrite") {
+        message.success(
+          `已覆盖剧集工坊：重写 ${replaced} 集、新建 ${created} 集、共 ${shots} 个镜头`
+          + (deleted ? `，并删除 ${deleted} 集旧数据` : ""),
+        )
+      } else {
+        message.success(
+          `已只补新集：新建 ${created} 集、${shots} 个镜头`
+          + (skipped ? `，跳过已有 ${skipped} 集` : ""),
+        )
+      }
+      setSyncModalVisible(false)
       onEpisodesTransferred()
     } catch (err) {
       message.error(director2ErrorDetail(err, "同步至剧集工坊失败"))
     } finally {
       setTransferringEp(false)
+    }
+  }
+
+  async function handleTransferEpisodes() {
+    if (!selectedDoc) return
+    if (isDocumentShotPlanning(selectedDoc)) {
+      message.warning("镜头规划完成后才能同步至剧集工坊")
+      return
+    }
+    const parsedEpisodes = selectedDoc.analysis?.episodes?.length || 0
+    if (!parsedEpisodes) {
+      message.warning("这份剧本还没有识别到分集或镜头，无法同步")
+      return
+    }
+    try {
+      const workshop = await listEpisodes(projectId)
+      if (!workshop.length) {
+        await runEpisodeTransfer("overwrite")
+        return
+      }
+      setWorkshopEpisodeCount(workshop.length)
+      setSyncMode("overwrite")
+      setSyncModalVisible(true)
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "读取剧集工坊失败"))
     }
   }
 
@@ -291,20 +419,138 @@ export default function ContentLibraryPane({
   async function quickImportSample() {
     setImporting(true)
     try {
-      await createDocument(csrfToken, projectId, {
+      const created = await createDocument(csrfToken, projectId, {
         filename: "《寒门硕士：穿越古代逆袭记》第一季——AI视频详细分镜版",
         spine_template: "drama",
         visual_style: "chinese_period_drama",
         raw_text: SAMPLE_SCRIPT,
       })
-      message.success("已导入《寒门硕士》标准分镜剧本并完成结构化解析")
-      await loadDocs()
+      selectedDocIdRef.current = created.id
+      revealEpisodesWorkspace(1)
+      if (created.shot_plan_job_id) {
+        setShotPlanLive(emptyShotPlanLiveState(created.shot_plan_job_id))
+        message.success("已导入《寒门硕士》，正在本页规划出片镜头")
+      } else {
+        message.success("已导入《寒门硕士》")
+      }
+      setSelectedDoc(created as LibraryDocument)
+      await loadDocs({ selectId: created.id })
     } catch {
       message.error("导入范例失败")
     } finally {
       setImporting(false)
     }
   }
+
+  async function handlePlanShots() {
+    if (!selectedDoc) return
+    setPlanningShots(true)
+    try {
+      const res = await enqueueDocumentShotPlan(csrfToken, projectId, selectedDoc.id)
+      const jobId = String(res.job_id || "")
+      revealEpisodesWorkspace(selectedDoc.analysis?.episodes?.[0]?.episode_num || 1)
+      if (jobId) {
+        setShotPlanLive(emptyShotPlanLiveState(jobId))
+        setSelectedDoc((prev) => (prev ? { ...prev, status: "planning", shot_plan_job_id: jobId } : prev))
+      }
+      message.success(res.duplicate ? "已有进行中的镜头规划，进度在本页，也可到全部任务查看" : "已开始规划出片镜头，进度在本页分集列表上方")
+      await loadDocs({ selectId: selectedDoc.id, silent: true })
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "规划出片镜头失败"))
+    } finally {
+      setPlanningShots(false)
+    }
+  }
+
+  useEffect(() => {
+    selectedDocIdRef.current = selectedDoc?.id ?? null
+  }, [selectedDoc?.id])
+
+  useEffect(() => {
+    setHideShotPlanProgress(false)
+  }, [selectedDoc?.id, planningJobId])
+
+  useEffect(() => {
+    if (selectedDoc?.id === liveDocIdRef.current) return
+    liveDocIdRef.current = selectedDoc?.id ?? null
+    if (!planningJobId) setShotPlanLive(emptyShotPlanLiveState())
+  }, [selectedDoc?.id, planningJobId])
+
+  useEffect(() => {
+    const allowed: AnalysisTabKey[] = ["episodes", "characters", "scenes", "props", "globals", "raw"]
+    if (allowed.includes(urlTab as AnalysisTabKey)) setActiveTab(urlTab as AnalysisTabKey)
+  }, [urlTab])
+
+  useEffect(() => {
+    if (!planningJobId) return
+    revealEpisodesWorkspace()
+  }, [planningJobId, revealEpisodesWorkspace])
+
+  useEffect(() => {
+    if (!planningJobId) {
+      setShotPlanLive((prev) => markShotPlanLiveFinished(prev))
+      return undefined
+    }
+    setShotPlanLive((prev) => (prev.jobId === planningJobId ? prev : emptyShotPlanLiveState(planningJobId)))
+    const controller = new AbortController()
+    let active = true
+    void streamH3PromptJobEvents(projectId, planningJobId, (event) => {
+      if (!active) return
+      setShotPlanLive((prev) => (prev.jobId === planningJobId ? applyShotPlanStreamEvent(prev, event) : prev))
+      if (event.event === "done") {
+        if (shotPlanToastJobRef.current !== planningJobId) {
+          shotPlanToastJobRef.current = planningJobId
+          message.success({ content: "镜头规划完成，可以同步至剧集工坊", duration: 6 })
+        }
+      }
+      if (event.event === "error") {
+        const detail = event.data && typeof event.data === "object" && "message" in event.data
+          ? String((event.data as { message?: string }).message || "镜头规划未完成")
+          : "镜头规划未完成"
+        message.error(detail)
+      }
+      if (event.event === "episode_done" || event.event === "done" || event.event === "error") {
+        void loadDocs({ silent: true, selectId: selectedDocIdRef.current || undefined })
+      }
+    }, {
+      signal: controller.signal,
+      shouldContinue: () => active,
+    })
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [planningJobId, projectId, loadDocs])
+
+  useEffect(() => {
+    if (!planning || !planningJobId) return undefined
+    const timer = window.setInterval(() => {
+      void (async () => {
+        await loadDocs({ silent: true })
+        try {
+          const jobs = await listJobs(projectId)
+          const job = jobs.find((item) => item.id === planningJobId)
+          if (job?.payload) {
+            setShotPlanLive((prev) => (
+              prev.jobId === planningJobId ? applyShotPlanJobSnapshot(prev, job.payload) : prev
+            ))
+          }
+        } catch {
+          /* 轮询只作 SSE 兜底 */
+        }
+      })()
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [planning, planningJobId, projectId, loadDocs])
+
+  useEffect(() => {
+    if (!shotPlanLive.working || shotPlanLive.episodeNum == null) return
+    const key = String(shotPlanLive.episodeNum)
+    setActiveEpisodeKeys([key])
+    window.requestAnimationFrame(() => {
+      episodeHeaderRefs.current[key]?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+    })
+  }, [shotPlanLive.working, shotPlanLive.episodeNum])
 
   useEffect(() => {
     loadDocs()
@@ -317,7 +563,7 @@ export default function ContentLibraryPane({
         <div>
           <h2 className="sub-pane-title">内容库</h2>
           <p className="sub-pane-subtitle">
-            导入标准分镜剧本，系统自动高精度拆解分集、镜头、人物、道具、场景及全局视觉设定，并支持全链路协同流转。
+            导入标准分镜剧本：集数按文稿「# 第N集」划分，镜头数和秒数由大模型按本集动作、对白规划；同时拆解人物、道具、场景及全局视觉设定。
           </p>
         </div>
 
@@ -339,7 +585,7 @@ export default function ContentLibraryPane({
               <FileText size={40} />
             </div>
             <h3>暂无导入的剧本文档</h3>
-            <p>支持导入符合《短剧详细分镜规范》的标准文档，系统将自动识别镜头、角色、道具与场景要素。</p>
+            <p>支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。</p>
             <Space>
               <Button type="primary" onClick={openImportModal}>立即导入剧本</Button>
               <Button onClick={quickImportSample}>一键导入《寒门硕士》标准范例</Button>
@@ -357,7 +603,7 @@ export default function ContentLibraryPane({
                   <div
                     key={doc.id}
                     className={`doc-item${selectedDoc && selectedDoc.id === doc.id ? " active" : ""}`}
-                    onClick={() => setSelectedDoc(doc)}
+                    onClick={() => rememberSelectedDoc(doc)}
                   >
                     <div className="doc-item-title">
                       <FileText size={16} className="doc-icon" />
@@ -367,6 +613,10 @@ export default function ContentLibraryPane({
                       <Tag color="purple">
                         {doc.analysis?.episodes?.length ? `${doc.analysis.episodes.length} 集` : "单篇"}
                       </Tag>
+                      {(() => {
+                        const tag = documentShotPlanHeaderTag(doc)
+                        return tag ? <Tag color={tag.color}>{tag.text}</Tag> : null
+                      })()}
                       <span className="time">{doc.created_at.slice(5, 16)}</span>
                     </div>
                   </div>
@@ -380,25 +630,18 @@ export default function ContentLibraryPane({
                 {/* 概览栏 */}
                 <div className="detail-top-card">
                   <div className="detail-top-header">
-                    <div>
-                      <h3 className="detail-title">{selectedDoc.filename}</h3>
+                    <div className="detail-top-info">
+                      <h3 className="detail-title" title={selectedDoc.filename}>{selectedDoc.filename}</h3>
                       <div className="detail-tags">
                         <Tag color="purple">{selectedDoc.spine_template === "drama" ? "精品分镜剧" : "解说剧模板"}</Tag>
-                        {selectedDoc.analysis?.positioning?.genre && (
-                          <Tag color="blue">
-                            {selectedDoc.analysis.positioning.genre}
-                          </Tag>
-                        )}
-                        {selectedDoc.analysis?.positioning?.worldview && (
-                          <Tag color="cyan">
-                            {selectedDoc.analysis.positioning.worldview}
-                          </Tag>
-                        )}
+                        {shotPlanHeaderTag ? <Tag color={shotPlanHeaderTag.color}>{shotPlanHeaderTag.text}</Tag> : null}
+                        {headerGenreTag ? <Tag color="blue" title={headerGenreTag}>{headerGenreTag}</Tag> : null}
+                        {headerWorldviewTag ? <Tag color="cyan" title={headerWorldviewTag}>{headerWorldviewTag}</Tag> : null}
                         <span className="char-count">约 {selectedDoc.file_size} 字符</span>
                       </div>
                     </div>
 
-                    <Space>
+                    <Space className="detail-top-actions" wrap>
                       <Button
                         type="primary"
                         loading={transferring}
@@ -409,14 +652,31 @@ export default function ContentLibraryPane({
                         转入资产库
                       </Button>
 
-                      <Button
-                        loading={transferringEp}
-                        className="sync-ep-btn"
-                        onClick={handleTransferEpisodes}
-                        icon={<Film size={15} />}
-                      >
-                        同步至剧集工坊
-                      </Button>
+                      {canPlanShots ? (
+                        <Button
+                          type="primary"
+                          ghost
+                          loading={planningShots}
+                          onClick={handlePlanShots}
+                          icon={<Sparkles size={15} />}
+                        >
+                          规划出片镜头
+                        </Button>
+                      ) : null}
+
+                      <Tooltip title={planning ? "镜头规划完成后才能同步至剧集工坊" : undefined}>
+                        <span>
+                          <Button
+                            loading={transferringEp}
+                            className="sync-ep-btn"
+                            onClick={handleTransferEpisodes}
+                            icon={<Film size={15} />}
+                            disabled={planning}
+                          >
+                            同步至剧集工坊
+                          </Button>
+                        </span>
+                      </Tooltip>
 
                       <Popconfirm
                         title="确认删除该剧本文档？"
@@ -439,11 +699,39 @@ export default function ContentLibraryPane({
                   )}
                 </div>
 
+                  {planStatus?.kind === "working" ? (
+                    <div ref={shotPlanBannerRef} className="shot-plan-slim-wrap">
+                      <ShotPlanSlimProgress
+                        live={shotPlanLive}
+                        onDismiss={() => setHideShotPlanProgress(true)}
+                      />
+                    </div>
+                  ) : planStatus?.kind === "error" ? (
+                    <div ref={shotPlanBannerRef} className="shot-plan-slim-wrap is-error">
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={planStatus.title}
+                        description={planStatus.description}
+                        closable
+                        onClose={() => setHideShotPlanProgress(true)}
+                      />
+                    </div>
+                  ) : null}
+
                 {/* 结构化多维展示 Tab */}
                 <div className="analysis-tabs-wrap">
                   <Tabs
                     activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as AnalysisTabKey)}
+                    onChange={(key) => {
+                      const nextTab = key as AnalysisTabKey
+                      setActiveTab(nextTab)
+                      setSearchParams((current) => {
+                        const next = new URLSearchParams(current)
+                        next.set("tab", nextTab)
+                        return next
+                      }, { replace: true })
+                    }}
                     type="card"
                     items={[
                       {
@@ -452,6 +740,7 @@ export default function ContentLibraryPane({
                           <span className="tab-label">
                             <Film size={15} />
                             分集与镜头 ({selectedDoc.analysis?.episodes?.length || 0}集 / {totalShotsCount}镜)
+                            {planning ? ` · ${shotPlanProgressLabel(shotPlanLive)}` : ""}
                           </span>
                         ),
                         children: !selectedDoc.analysis?.episodes?.length ? (
@@ -465,34 +754,76 @@ export default function ContentLibraryPane({
                               onChange={(keys) => setActiveEpisodeKeys(Array.isArray(keys) ? keys : [keys])}
                               bordered={false}
                               className="episodes-collapse"
-                              items={selectedDoc.analysis.episodes.map((ep) => ({
+                              items={selectedDoc.analysis.episodes.map((ep) => {
+                                const liveShots = shotsForEpisode(ep, shotPlanLive, planning)
+                                const source = shotPlanSourceForEpisode(ep, shotPlanLive)
+                                const liveDone = doneForEpisode(ep.episode_num, shotPlanLive)
+                                const planError = episodeShotPlanError(
+                                  ep.episode_num,
+                                  selectedDoc.analysis?.logs,
+                                  liveDone?.error,
+                                )
+                                const currentPlanning = isCurrentPlanningEpisode(ep.episode_num, shotPlanLive, planning)
+                                const queued = isQueuedPlanningEpisode(ep.episode_num, shotPlanLive, planning)
+                                const assembling = currentPlanning && isAssemblingShotPlan(shotPlanLive)
+                                const episodeBadge = shotPlanEpisodeBadge({
+                                  source,
+                                  planningCurrent: currentPlanning,
+                                  queued,
+                                  planError,
+                                  shotCount: liveShots.length,
+                                  durationSec: sumShotDurationSec(liveShots),
+                                })
+                                const showShotCountChip = episodeBadge.color !== "success"
+                                return {
                                 key: String(ep.episode_num),
+                                className: currentPlanning ? "is-planning-episode" : queued ? "is-queued-episode" : "",
                                 label: (
-                                  <div className="ep-collapse-header">
+                                  <div
+                                    className="ep-collapse-header"
+                                    data-shot-plan-episode={ep.episode_num}
+                                    ref={(node) => {
+                                      episodeHeaderRefs.current[String(ep.episode_num)] = node
+                                    }}
+                                  >
                                     <div className="ep-title-group">
                                       <span className="ep-badge">第 {ep.episode_num} 集</span>
                                       <span className="ep-main-title">{ep.title}</span>
-                                      <Tag color="blue">{ep.shots_count || ep.shots?.length || 0} 个分镜</Tag>
+                                      {showShotCountChip ? (
+                                        <Tag color="blue">{liveShots.length || 0} 个分镜</Tag>
+                                      ) : null}
+                                      <Tag color={episodeBadge.color}>{episodeBadge.text}</Tag>
                                     </div>
                                     {ep.summary && (
                                       <span className="ep-header-summary" title={ep.summary}>
                                         {ep.summary}
                                       </span>
                                     )}
+                                    {planError ? (
+                                      <span className="ep-plan-error" title={planError}>{planError}</span>
+                                    ) : null}
                                   </div>
                                 ),
                                 children: (
-                                  <div className="shots-grid">
-                                    {(ep.shots || []).map((shot) => (
+                                  <div className="episode-shots-block">
+                                    {currentPlanning && liveShots.length === 0 ? (
+                                      <div className="shots-assembling-empty">正在写出本集镜头…</div>
+                                    ) : null}
+                                    <div className="shots-grid">
+                                      {liveShots.map((shot, shotIndex) => (
                                       <ContentLibraryShotCard
-                                        key={shot.shot_num}
+                                        key={`${ep.episode_num}-${shot.shot_num}-${source || "live"}`}
                                         shot={shot}
+                                        entering={shotPlanLive.lastCompletedEpisodeNum === ep.episode_num && source === "llm"}
+                                        assembling={Boolean(assembling && shotIndex === liveShots.length - 1)}
                                         onCopyPrompt={copyText}
                                       />
-                                    ))}
+                                      ))}
+                                    </div>
                                   </div>
                                 ),
-                              }))}
+                                }
+                              })}
                             />
                           </div>
                         ),
@@ -684,7 +1015,7 @@ export default function ContentLibraryPane({
         open={importModalVisible}
         title="导入剧本文档 (支持标准分镜格式)"
         confirmLoading={importing}
-        okText="确认并深度解析"
+        okText={importing ? "正在解析切集…" : "确认导入"}
         cancelText="取消"
         width={720}
         destroyOnHidden
@@ -760,6 +1091,52 @@ export default function ContentLibraryPane({
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        open={syncModalVisible}
+        title="同步至剧集工坊"
+        okText={
+          transferringEp
+            ? "正在写入工坊…"
+            : syncMode === "overwrite"
+              ? "覆盖并同步"
+              : "只补新集"
+        }
+        cancelText="取消"
+        confirmLoading={transferringEp}
+        okButtonProps={{ danger: syncMode === "overwrite" }}
+        cancelButtonProps={{ disabled: transferringEp }}
+        maskClosable={!transferringEp}
+        onOk={() => runEpisodeTransfer(syncMode)}
+        onCancel={() => {
+          if (!transferringEp) setSyncModalVisible(false)
+        }}
+        className="d2-content-library"
+      >
+        <p>
+          当前文档《{selectedDoc?.filename || "未命名剧本"}》共{" "}
+          {selectedDoc?.analysis?.episodes?.length || 0} 集 / {totalShotsCount} 个出片镜头。
+          工坊里已有 {workshopEpisodeCount} 集。
+        </p>
+        <Radio.Group
+          value={syncMode}
+          onChange={(event) => setSyncMode(event.target.value)}
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <Radio value="overwrite">
+            <strong>覆盖已有集数</strong>
+            <div style={{ color: "var(--studio-text-secondary)", marginTop: 4 }}>
+              同一部剧重新导入时选这项。按本剧本重写对应集的镜头，并删除这份剧本里没有的旧集。已生成的草图、视频不会带到新镜头上。
+            </div>
+          </Radio>
+          <Radio value="append">
+            <strong>只补新集</strong>
+            <div style={{ color: "var(--studio-text-secondary)", marginTop: 4 }}>
+              工坊已有的第 N 集保持不动，只创建还没有的集。适合内容库里多份不同剧本。
+            </div>
+          </Radio>
+        </Radio.Group>
       </Modal>
 
       {/* 剧本规范说明弹窗 */}

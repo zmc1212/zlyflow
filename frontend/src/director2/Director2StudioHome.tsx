@@ -1,17 +1,18 @@
 // 导演台首页 —— 逐像素复刻旧导演台首页（frontend/src/director/DirectorHome.tsx），
 // 复用 index.css 中 .director-home-v2 / .dh-* 全局样式（浅/暗 token 已成对配置），不复制样式。
-// 差异：工程列表接导演台2 创作项目（/api/projects）；「短视频批量 / 参考片复刻」入口
+// 差异：工程列表接导演台2 创作项目（/api/projects）；「短视频批量 / 参考片复刻 / Hypit 复刻」入口
 // 仍走旧导演台的创建接口并跳转对应工作台；导演台2 暂无复制接口，卡片仅保留打开/删除。
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Button, Empty, Popconfirm, Spin, message } from "antd"
-import { ArrowLeft, ChevronRight, Clapperboard, Clock3, Image as ImageIcon, Play, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, ChevronRight, Clapperboard, Clock3, Image as ImageIcon, Play, Plus, Shapes, Trash2 } from "lucide-react"
 import ThemeToggle from "../components/ThemeToggle"
 import { createProject, deleteProject, director2ErrorDetail, listProjects, type Director2Project } from "./api"
 import { director2ProjectPath } from "./paths"
-import { directorBatchPath, directorReplicationPath } from "../paths"
+import { directorBatchPath, directorHypitPath, directorReplicationPath } from "../paths"
 import { createDirectorProjectRecord } from "../director/director-api"
 import { createEmptyBatch } from "../director/types"
+import { createEmptyHypit } from "../director/hypit-model"
 import { createEmptyReplication } from "../director/replication-model"
 
 const RECENT_VISIBLE_COUNT = 6
@@ -79,6 +80,20 @@ export default function Director2StudioHome({ csrfToken, onExitDirector }: Direc
     }
   }
 
+  async function handleCreateHypit() {
+    try {
+      const created = await createDirectorProjectRecord({
+        title: "Hypit 复刻",
+        summary: "",
+        source_script: "",
+        payload: createEmptyHypit(),
+      }, csrfToken)
+      navigate(directorHypitPath(created.id))
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "创建失败")
+    }
+  }
+
   function handleOpen(item: Director2Project) {
     navigate(director2ProjectPath(item.id, "content"))
   }
@@ -129,6 +144,11 @@ export default function Director2StudioHome({ csrfToken, onExitDirector }: Direc
         <button type="button" className="dh-entry-card is-replication" onClick={handleCreateReplication}>
           <span className="dh-entry-icon is-replication"><ImageIcon size={18} /></span>
           <span className="dh-entry-copy"><strong>参考片复刻</strong><small>分析参考片，批量转绘</small></span>
+          <span className="dh-entry-go"><ChevronRight size={18} /></span>
+        </button>
+        <button type="button" className="dh-entry-card is-hypit" onClick={handleCreateHypit}>
+          <span className="dh-entry-icon is-hypit"><Shapes size={18} /></span>
+          <span className="dh-entry-copy"><strong>Hypit 复刻</strong><small>拆结构、换内容、合字幕图形</small></span>
           <span className="dh-entry-go"><ChevronRight size={18} /></span>
         </button>
       </section>

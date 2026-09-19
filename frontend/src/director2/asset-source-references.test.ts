@@ -53,6 +53,7 @@ describe("asset source references", () => {
   })
 
   it("uses kind-specific hints", () => {
+    expect(sourceReferenceHint("character")).toContain("设定板")
     expect(sourceReferenceHint("character")).toContain("正脸")
     expect(sourceReferenceHint("scene")).toContain("空镜")
     expect(sourceReferenceHint("prop")).toContain("道具特写")

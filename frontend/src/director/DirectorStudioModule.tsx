@@ -3,17 +3,19 @@ import { message } from "antd"
 import { useLocation, useMatch, useNavigate } from "react-router-dom"
 import { User } from "../api"
 import { DirectoryHandleLike } from "../local-resource-store"
-import { directorBatchPath, directorProjectPath, directorReplicationPath, PATHS, ROUTE_PATTERNS } from "../paths"
+import { directorBatchPath, directorHypitPath, directorProjectPath, directorReplicationPath, PATHS, ROUTE_PATTERNS } from "../paths"
 import DirectorBatchStudio from "./DirectorBatchStudio"
 import DirectorHome from "./DirectorHome"
 import DirectorRecipeStudio from "./DirectorRecipeStudio"
 import DirectorDesignMockup from "./DirectorDesignMockup"
+import DirectorHypitStudio from "./DirectorHypitStudio"
 import DirectorReplicationStudio from "./DirectorReplicationStudio"
 import {
   convertDirectorProjectToRecipe, copyDirectorProject, createDirectorProjectRecord,
   deleteDirectorProject, listDirectorProjects, DirectorProjectListItem,
 } from "./director-api"
 import { createEmptyBatch, createEmptyRecipe } from "./types"
+import { createEmptyHypit } from "./hypit-model"
 import { createEmptyReplication } from "./replication-model"
 
 interface DirectorStudioModuleProps {
@@ -36,9 +38,10 @@ export default function DirectorStudioModule({
   const location = useLocation()
   const batchMatch = useMatch(ROUTE_PATTERNS.directorBatch)
   const replicationMatch = useMatch(ROUTE_PATTERNS.directorReplication)
+  const hypitMatch = useMatch(ROUTE_PATTERNS.directorHypit)
   const recipeMatch = useMatch(ROUTE_PATTERNS.directorProject)
-  const activeProjectId = batchMatch?.params.projectId ?? replicationMatch?.params.projectId ?? recipeMatch?.params.projectId
-  const view = batchMatch ? "batch" : replicationMatch ? "replication" : recipeMatch ? "recipe" : "home"
+  const activeProjectId = batchMatch?.params.projectId ?? replicationMatch?.params.projectId ?? hypitMatch?.params.projectId ?? recipeMatch?.params.projectId
+  const view = batchMatch ? "batch" : replicationMatch ? "replication" : hypitMatch ? "hypit" : recipeMatch ? "recipe" : "home"
 
   const listQuery = useQuery({
     queryKey: ["director-projects"],
@@ -99,6 +102,21 @@ export default function DirectorStudioModule({
     }
   }
 
+  async function handleCreateHypit() {
+    try {
+      const created = await createDirectorProjectRecord({
+        title: "Hypit 复刻",
+        summary: "",
+        source_script: "",
+        payload: createEmptyHypit(),
+      }, csrfToken)
+      navigate(directorHypitPath(created.id))
+      await refreshList()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "创建失败")
+    }
+  }
+
   async function handleOpen(item: DirectorProjectListItem) {
     try {
       if (item.kind === "batch_run") {
@@ -107,6 +125,10 @@ export default function DirectorStudioModule({
       }
       if (item.kind === "shot_replication") {
         navigate(directorReplicationPath(item.id))
+        return
+      }
+      if (item.kind === "hypit_replication") {
+        navigate(directorHypitPath(item.id))
         return
       }
       if (item.kind === "timeline") {
@@ -152,6 +174,7 @@ export default function DirectorStudioModule({
           onCreateDirector={handleCreateDirector}
           onCreateBatch={handleCreateBatch}
           onCreateReplication={handleCreateReplication}
+          onCreateHypit={handleCreateHypit}
           onOpen={handleOpen}
           onCopy={handleCopy}
           onDelete={handleDelete}
@@ -170,6 +193,13 @@ export default function DirectorStudioModule({
           projectId={activeProjectId}
           csrfToken={csrfToken}
           allJobs={allJobs}
+          onBack={goHome}
+          onExitDirector={onExitDirector}
+        />
+      ) : view === "hypit" ? (
+        <DirectorHypitStudio
+          projectId={activeProjectId}
+          csrfToken={csrfToken}
           onBack={goHome}
           onExitDirector={onExitDirector}
         />

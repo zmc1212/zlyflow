@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Button, Empty, Popconfirm, Spin } from "antd"
-import { ArrowLeft, ChevronRight, Clapperboard, Clock3, Copy, Film, Image as ImageIcon, Layers, Play, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, ChevronRight, Clapperboard, Clock3, Copy, Film, Image as ImageIcon, Layers, Play, Plus, Shapes, Trash2 } from "lucide-react"
 import ThemeToggle from "../components/ThemeToggle"
 import { DirectorGenerationStatus, DirectorPayloadKind, DirectorProjectListItem } from "./director-api"
 
@@ -10,7 +10,10 @@ function generationLabel(status: DirectorGenerationStatus) {
   return status === "complete" ? { text: "已完成", tone: "done" } : status === "partial" ? { text: "部分完成", tone: "partial" } : { text: "待生成", tone: "pending" }
 }
 function kindLabel(kind: DirectorPayloadKind) {
-  return kind === "batch_run" ? { text: "短视频批量", Icon: Layers } : kind === "shot_replication" ? { text: "参考片复刻", Icon: ImageIcon } : { text: "导演创作", Icon: Clapperboard }
+  if (kind === "batch_run") return { text: "短视频批量", Icon: Layers }
+  if (kind === "shot_replication") return { text: "参考片复刻", Icon: ImageIcon }
+  if (kind === "hypit_replication") return { text: "Hypit 复刻", Icon: Shapes }
+  return { text: "导演创作", Icon: Clapperboard }
 }
 function pad(value: number) { return String(value).padStart(2, "0") }
 function formatUpdatedAt(value: string) {
@@ -18,9 +21,9 @@ function formatUpdatedAt(value: string) {
   return Number.isNaN(date.getTime()) ? value : `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-interface DirectorHomeProps { items: DirectorProjectListItem[]; loading: boolean; onCreateDirector: () => void; onCreateBatch: () => void; onCreateReplication?: () => void; onOpen: (item: DirectorProjectListItem) => void; onCopy: (projectId: string) => void; onDelete: (projectId: string) => void; onExitDirector?: () => void }
+interface DirectorHomeProps { items: DirectorProjectListItem[]; loading: boolean; onCreateDirector: () => void; onCreateBatch: () => void; onCreateReplication?: () => void; onCreateHypit?: () => void; onOpen: (item: DirectorProjectListItem) => void; onCopy: (projectId: string) => void; onDelete: (projectId: string) => void; onExitDirector?: () => void }
 
-export default function DirectorHome({ items, loading, onCreateDirector, onCreateBatch, onCreateReplication, onOpen, onCopy, onDelete, onExitDirector }: DirectorHomeProps) {
+export default function DirectorHome({ items, loading, onCreateDirector, onCreateBatch, onCreateReplication, onCreateHypit, onOpen, onCopy, onDelete, onExitDirector }: DirectorHomeProps) {
   const [showAll, setShowAll] = useState(false)
   const canToggleAll = items.length > RECENT_VISIBLE_COUNT
   const visibleItems = showAll ? items : items.slice(0, RECENT_VISIBLE_COUNT)
@@ -60,6 +63,11 @@ export default function DirectorHome({ items, loading, onCreateDirector, onCreat
         {onCreateReplication ? <button type="button" className="dh-entry-card is-replication" onClick={onCreateReplication}>
           <span className="dh-entry-icon is-replication"><ImageIcon size={18} /></span>
           <span className="dh-entry-copy"><strong>参考片复刻</strong><small>分析参考片，批量转绘</small></span>
+          <span className="dh-entry-go"><ChevronRight size={18} /></span>
+        </button> : <span className="dh-entry-card is-placeholder" aria-hidden="true" />}
+        {onCreateHypit ? <button type="button" className="dh-entry-card is-hypit" onClick={onCreateHypit}>
+          <span className="dh-entry-icon is-hypit"><Shapes size={18} /></span>
+          <span className="dh-entry-copy"><strong>Hypit 复刻</strong><small>拆结构、换内容、合字幕图形</small></span>
           <span className="dh-entry-go"><ChevronRight size={18} /></span>
         </button> : <span className="dh-entry-card is-placeholder" aria-hidden="true" />}
       </section>

@@ -430,7 +430,16 @@ def _chat_json(chat_fn: ChatFn, messages: list[dict[str, Any]], *, retries: int 
 
 
 def _system(agent_id: str, body: str) -> str:
-    return f"AGENT_ID: {agent_id}\n{body}\n必须且仅输出一个合法 JSON 对象，不要解释。"
+    overlay = ""
+    try:
+        from .skill_packs import active_skill_pack_id, craft_overlay_for_agent
+
+        if active_skill_pack_id():
+            overlay = str(craft_overlay_for_agent(agent_id) or "").strip()
+    except Exception:
+        overlay = ""
+    extra = f"\n\n{overlay}" if overlay else ""
+    return f"AGENT_ID: {agent_id}\n{body}{extra}\n必须且仅输出一个合法 JSON 对象，不要解释。"
 
 
 def _camera(raw: Any) -> dict[str, str]:
@@ -1995,7 +2004,7 @@ def run_agent(
             tracker = _make_agent_tracker(agent_id, on_stream)
             refine: dict[str, Any] | None = None
             shot_rule = (
-                f"targetShots 必须以用户确认的每集默认 {default_shots} 个镜头为准（可上下浮动 2 个），禁止大幅偏离。"
+                f"targetShots 以用户确认的每集默认 {default_shots} 个镜头为节奏建议，可以超过；不要为了整齐而砍戏。"
                 if default_shots else
                 "targetShots（整数，单集通常 6~30）。"
             )

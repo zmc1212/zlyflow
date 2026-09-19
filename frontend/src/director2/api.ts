@@ -9,6 +9,7 @@ export type Director2Project = {
   cover_url: string | null
   status: string
   settings: Record<string, unknown> | null
+  extra: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
@@ -24,6 +25,7 @@ export type Director2Document = {
   visual_style: string
   raw_text: string | null
   analysis: Record<string, unknown> | null
+  shot_plan_job_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -136,7 +138,21 @@ export function listProjects(): Promise<Director2Project[]> {
   return requestJson<Director2Project[]>("/api/projects")
 }
 
-export function createProject(csrfToken: string, data: { name: string; description?: string; cover_url?: string | null; settings?: Record<string, unknown> | null }): Promise<Director2Project> {
+export type Director2SkillPack = {
+  id: string
+  name: string
+  surfaces: string[]
+  visual_lock: string
+  workshop_shot: string[]
+  packing_overrides: Record<string, boolean>
+  confirm_format: Record<string, unknown>
+}
+
+export function listSkillPacks(): Promise<{ packs: Director2SkillPack[] }> {
+  return requestJson<{ packs: Director2SkillPack[] }>("/api/skill-packs")
+}
+
+export function createProject(csrfToken: string, data: { name: string; description?: string; cover_url?: string | null; settings?: Record<string, unknown> | null; extra?: Record<string, unknown> | null }): Promise<Director2Project> {
   return requestJson<Director2Project>("/api/projects", jsonMutation(csrfToken, data, "POST"))
 }
 
@@ -164,6 +180,17 @@ export function createDocument(csrfToken: string, projectId: string, data: { fil
   )
 }
 
+export function enqueueDocumentShotPlan(
+  csrfToken: string,
+  projectId: string,
+  docId: string,
+): Promise<{ job_id: string; document_id?: string; status?: string; duplicate?: boolean }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/shot-plan`,
+    jsonMutation(csrfToken),
+  )
+}
+
 export function deleteDocument(csrfToken: string, projectId: string, docId: string): Promise<{ status: string }> {
   return requestJson<{ status: string }>(
     `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}`,
@@ -178,10 +205,15 @@ export function transferAssetsFromDoc(csrfToken: string, projectId: string, docI
   )
 }
 
-export function transferEpisodesFromDoc(csrfToken: string, projectId: string, docId: string): Promise<Record<string, any>> {
+export function transferEpisodesFromDoc(
+  csrfToken: string,
+  projectId: string,
+  docId: string,
+  mode: "overwrite" | "append" = "overwrite",
+): Promise<Record<string, any>> {
   return requestJson<Record<string, any>>(
     `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/transfer-episodes`,
-    jsonMutation(csrfToken),
+    jsonMutation(csrfToken, { mode }),
   )
 }
 
@@ -265,6 +297,104 @@ export function inferAssetPromptsFromReferences(
   )
 }
 
+export function uploadAssetVoice(
+  csrfToken: string,
+  projectId: string,
+  assetId: string,
+  file: File,
+): Promise<Director2Asset> {
+  const form = new FormData()
+  form.set("file", file)
+  return requestJson<Director2Asset>(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/voice`,
+    { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
+  )
+}
+
+export function applyAssetVoicePreset(
+  csrfToken: string,
+  projectId: string,
+  assetId: string,
+  presetId: string,
+): Promise<Director2Asset> {
+  return requestJson<Director2Asset>(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/voice/preset`,
+    jsonMutation(csrfToken, { preset_id: presetId }, "POST"),
+  )
+}
+
+export type VoiceBankPreset = {
+  id: string
+  file: string
+  label: string
+  gender: string
+  role: string
+  group: string
+  group_order: number
+  default_emotion: string
+  description: string
+  audio_url: string
+}
+
+export function listVoiceBank(): Promise<{ voices: VoiceBankPreset[] }> {
+  return requestJson<{ voices: VoiceBankPreset[] }>("/api/voice-bank")
+}
+
+export function deleteAssetVoice(
+  csrfToken: string,
+  projectId: string,
+  assetId: string,
+): Promise<Director2Asset> {
+  return requestJson<Director2Asset>(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/voice`,
+    jsonMutation(csrfToken, undefined, "DELETE"),
+  )
+}
+
+export function previewAssetVoice(
+  csrfToken: string,
+  projectId: string,
+  assetId: string,
+  data: Record<string, unknown> = {},
+): Promise<{ asset: Director2Asset; preview_url: string; duration_sec: number }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/voice/preview`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
+export type VoiceExtractSource = {
+  episode_id: string
+  episode_num: number
+  title: string
+  beat_id: string
+  seq: string
+  line_preview: string
+  duration_sec: number
+  video_url: string
+}
+
+export function listVoiceExtractSources(
+  projectId: string,
+  assetId: string,
+): Promise<{ sources: VoiceExtractSource[] }> {
+  return requestJson<{ sources: VoiceExtractSource[] }>(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/voice/extract-sources`,
+  )
+}
+
+export function extractAssetVoiceFromShot(
+  csrfToken: string,
+  projectId: string,
+  assetId: string,
+  data: { episode_id: string; beat_id: string; start_sec: number; end_sec: number },
+): Promise<Director2Asset> {
+  return requestJson<Director2Asset>(
+    `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/voice/extract`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
 // --- 剧集工坊 Episodes ---
 export function listEpisodes(projectId: string): Promise<Director2Episode[]> {
   return requestJson<Director2Episode[]>(`/api/projects/${encodeURIComponent(projectId)}/episodes`)
@@ -340,13 +470,28 @@ export type Director2Beat = {
   render_job_id?: string | null
   render_status?: string
   video_url?: string | null
+  upscaled_video_url?: string | null
   video_prompt_zh?: string
   video_duration?: string
   status?: string
   h3_prompt?: string | null
   h3_prompt_source?: "manual" | "generated" | string | null
+  parent_beat_id?: string | null
+  take_role?: string | null
+  story_shot?: number | null
+  merge_as_one?: boolean | null
+  take_source?: Record<string, unknown> | null
   dialogue_turns?: Array<{ speaker?: string; text?: string; character_id?: string }>
   visible_text?: string | null
+  triptych_url?: string | null
+  triptych_panels?: { start?: string; mid?: string; end?: string } | null
+  triptych_job_id?: string | null
+  triptych_status?: string | null
+  timestamped_zh_prompt?: string | null
+  vision_status?: string | null
+  vision_model?: string | null
+  vision_image_count?: number | null
+  vision_source?: string | null
 }
 
 export function getEpisodeDetail(projectId: string, epId: string): Promise<Director2EpisodeDetail> {
@@ -376,6 +521,13 @@ export function generateBeatRender(csrfToken: string, projectId: string, epId: s
   )
 }
 
+export function generateBeatTriptych(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<Record<string, any>> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/generate-triptych`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
 export function generateBeatImagesBatch(csrfToken: string, projectId: string, epId: string, data: Record<string, unknown>): Promise<Record<string, any>> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/generate-images`,
@@ -383,7 +535,7 @@ export function generateBeatImagesBatch(csrfToken: string, projectId: string, ep
   )
 }
 
-export function generateBeatH3Prompt(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<{ job_id?: string; beat_id?: string; status?: string; prompt?: string; duplicate?: boolean }> {
+export function generateBeatH3Prompt(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<{ job_id?: string; beat_id?: string; beat_ids?: string[]; job_ids?: string[]; status?: string; prompt?: string; duplicate?: boolean; split?: boolean; merged?: boolean }> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/h3-prompt`,
     jsonMutation(csrfToken, data, "POST"),
@@ -409,6 +561,13 @@ export function generateBeatVideo(csrfToken: string, projectId: string, epId: st
   )
 }
 
+export function upscaleBeatVideo(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<{ job_id: string; status: string; render_scope?: string }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/upscale`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
 export function composeEpisodeVideo(
   csrfToken: string,
   projectId: string,
@@ -417,6 +576,46 @@ export function composeEpisodeVideo(
 ): Promise<{ job_id: string; status: string; render_scope?: string; render_mode?: string }> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/compose`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
+export function getEpisodeDubbing(projectId: string, epId: string): Promise<import("./dubbing-track").DubbingTrack> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/dubbing`)
+}
+
+export function syncEpisodeDubbing(
+  csrfToken: string,
+  projectId: string,
+  epId: string,
+): Promise<import("./dubbing-track").DubbingTrack> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/dubbing/sync`,
+    jsonMutation(csrfToken, undefined, "POST"),
+  )
+}
+
+export function patchDubbingLine(
+  csrfToken: string,
+  projectId: string,
+  epId: string,
+  lineId: string,
+  data: Record<string, unknown>,
+): Promise<import("./dubbing-track").DubbingTrack> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/dubbing/lines/${encodeURIComponent(lineId)}`,
+    jsonMutation(csrfToken, data, "PATCH"),
+  )
+}
+
+export function generateEpisodeDubbing(
+  csrfToken: string,
+  projectId: string,
+  epId: string,
+  data: { line_id?: string; line_ids?: string[] } = {},
+): Promise<import("./dubbing-track").DubbingGenerateResult> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/dubbing/generate`,
     jsonMutation(csrfToken, data, "POST"),
   )
 }
@@ -437,6 +636,18 @@ export function retryJob(csrfToken: string, projectId: string, jobId: string): P
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/retry`,
     jsonMutation(csrfToken),
+  )
+}
+
+export function upscaleProjectVideoJob(
+  csrfToken: string,
+  projectId: string,
+  jobId: string,
+  data: Record<string, unknown> = {},
+): Promise<{ job_id: string; status: string; render_scope?: string }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/upscale`,
+    jsonMutation(csrfToken, data, "POST"),
   )
 }
 

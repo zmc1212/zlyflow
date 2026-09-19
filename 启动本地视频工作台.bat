@@ -49,6 +49,9 @@ if defined ZLY_AI_VIDEO_STUDIO_SSL_CERTFILE (
 
 where pnpm >nul 2>nul || goto :pnpm_not_found
 
+call :ensure_lan_firewall
+call :detect_lan_ipv4
+
 set "WEBUI_PID="
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":7865 .*LISTENING"') do set "WEBUI_PID=%%P"
 if defined WEBUI_PID (
@@ -85,13 +88,14 @@ if errorlevel 1 goto :vite_port_in_use
 goto :open_browser
 
 :start_vite
-start "ZLY AI Video Studio Vite" /d "%CD%\frontend" cmd.exe /d /k "pnpm dev --host 127.0.0.1 --port 5173 --strictPort"
+start "ZLY AI Video Studio Vite" /d "%CD%\frontend" cmd.exe /d /k "pnpm dev --host 0.0.0.0 --port 5173 --strictPort"
 
 powershell -NoProfile -Command "$deadline = [DateTime]::UtcNow.AddSeconds(10); do { if (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1) { exit 0 }; Start-Sleep -Milliseconds 250 } while ([DateTime]::UtcNow -lt $deadline); exit 1"
 if errorlevel 1 goto :vite_start_failed
 for /f %%P in ('powershell -NoProfile -Command "(Get-NetTCPConnection -LocalPort 5173 -State Listen | Select-Object -First 1 -ExpandProperty OwningProcess)"') do set "VITE_LISTENING_PID=%%P"
 
 :open_browser
+call :print_listen_urls
 start "" "%WEBUI_SCHEME%://127.0.0.1:5173/"
 if defined BACKEND_ALREADY_RUNNING (
     echo FastAPI is already running on port 7865. Opened the Vite workbench at 5173.
@@ -107,6 +111,25 @@ if defined VITE_LISTENING_PID taskkill /pid %VITE_LISTENING_PID% /t /f >nul 2>nu
 
 if not "%WEBUI_EXIT_CODE%"=="0" pause
 exit /b %WEBUI_EXIT_CODE%
+
+:ensure_lan_firewall
+powershell -NoProfile -Command "foreach ($port in 5173,7865) { $name = 'ZLY AI Video Studio LAN ' + $port; if (-not (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Private,Domain -ErrorAction SilentlyContinue | Out-Null } }" >nul 2>nul
+exit /b 0
+
+:detect_lan_ipv4
+set "LAN_IPV4="
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$cfg = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -ne 'Disconnected' } | Select-Object -First 1; if ($cfg) { @($cfg.IPv4Address)[0].IPAddress }"`) do set "LAN_IPV4=%%I"
+exit /b 0
+
+:print_listen_urls
+echo Local:  %WEBUI_SCHEME%://127.0.0.1:5173
+if defined LAN_IPV4 (
+    echo LAN:    %WEBUI_SCHEME%://%LAN_IPV4%:5173
+    echo API:    %WEBUI_SCHEME%://%LAN_IPV4%:7865
+) else (
+    echo LAN:    use this computer IPv4 with port 5173
+)
+exit /b 0
 
 :path_error
 echo Cannot open the workspace directory.

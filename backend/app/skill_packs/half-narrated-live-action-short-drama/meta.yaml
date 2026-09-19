@@ -1,0 +1,31 @@
+# Hub official v1.0.1 — see SOURCE.md
+id: half-narrated-live-action-short-drama
+name: 半解说真人短剧
+version: "1.0.1"
+surfaces: [director2, workshop, optimize]
+visual_lock: photoreal-live-action-short-drama
+director2_overlay:
+  script: inject_craft
+  assets: inject_craft
+  episodes: inject_craft
+  storyboard: inject_craft
+workshop_shot:
+  - generate_shot_triptych
+  - extract_triptych_panels
+  - write_timestamped_zh_prompt
+  - polish_ref2va
+  - bind_r2v_slots
+r2v_slots:
+  - source: characters
+  - source: scene
+  - source: triptych.start
+packing_overrides:
+  allow_timeranges: true
+  allow_multi_camera_path: true
+  faithful_zh_pack: true
+  skip_program_pack: true  # temporary: ship GPT English six-section; set false to restore local packing
+confirm_format:
+  aspect_ratio: "9:16"
+  duration_min: 5
+  duration_max: 15
+  resolution: user-confirmed

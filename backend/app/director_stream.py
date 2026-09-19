@@ -415,6 +415,10 @@ class DirectorOperationEventBus:
 
     # -- emission ---------------------------------------------------------
 
+    def bind_loop(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
+        """Remember the FastAPI event loop so worker threads can publish safely."""
+        self._loop = loop or asyncio.get_running_loop()
+
     def emit(self, operation_id: str, event: dict[str, Any]) -> None:
         """Publish an event; safe to call from worker threads."""
         loop = self._loop

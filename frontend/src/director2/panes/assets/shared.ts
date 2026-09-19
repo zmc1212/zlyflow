@@ -3,6 +3,7 @@ import { message } from "antd"
 import { MapPin, Package, Users } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import type { Director2Asset } from "../../api"
+import { hasSourceReferences } from "../../asset-source-references"
 
 // 造型身份（原版 identities 数组元素为 JS 对象，这里按取值字段补全类型）
 export type AssetIdentity = {
@@ -75,10 +76,20 @@ export function getSubRoleDisplay(ast: Director2Asset): string {
   return ast.extra?.owner || "随行道具"
 }
 
+export function firstCharacterLookImageUrl(ast: Director2Asset | null | undefined): string {
+  if (!ast) return ""
+  const looks = (ast.extra?.identities as AssetIdentity[] | undefined) || []
+  for (const look of looks) {
+    const url = String(look?.image_url || "").trim()
+    if (url) return url
+  }
+  return ""
+}
+
 export function getAssetDisplayAvatar(ast: Director2Asset): string {
   if (!ast) return ""
-  if (ast.kind === "character" && ast.extra?.avatar_url) {
-    return ast.extra.avatar_url
+  if (ast.kind === "character") {
+    return firstCharacterLookImageUrl(ast) || ast.extra?.avatar_url || ast.image_url || ""
   }
   if (ast.kind === "scene" && (ast.extra?.master_url || ast.image_url)) {
     return ast.extra?.master_url || ast.image_url
@@ -87,6 +98,18 @@ export function getAssetDisplayAvatar(ast: Director2Asset): string {
     return ast.extra?.reference_url || ast.extra?.turnaround_url || ast.extra?.detail_url || ast.image_url || ""
   }
   return ast.image_url || ""
+}
+
+export function identityLookEnqueueBlocker(
+  asset: Director2Asset | null | undefined,
+  ident: AssetIdentity | null | undefined,
+): string {
+  if (!asset || !ident) return "找不到该造型"
+  const costume = String(ident.description || ident.appearance_details || "").trim()
+  if (!costume && !hasSourceReferences(asset)) {
+    return "请先填写外观描述，或上传原片截图作为服装参考"
+  }
+  return ""
 }
 
 export function getAssetGradient(name: string): { background: string } {

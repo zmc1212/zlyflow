@@ -72,6 +72,9 @@ class Director2AiActiveJobTests(unittest.TestCase):
         self.assertEqual(shots["question"], "每一集默认拍多少个镜头？")
         self.assertEqual([item["value"] for item in shots["options"]], ["4", "6", "8", "12"])
         self.assertEqual([item["value"] for item in shots["options"] if item.get("recommended")], ["6"])
+        self.assertIn("导入", shots["why"])
+        self.assertIn("出片镜", shots["why"])
+        self.assertNotIn("还会再拆", shots["why"])
 
     def test_public_clarify_result_migrates_stale_beat_question(self) -> None:
         row = {

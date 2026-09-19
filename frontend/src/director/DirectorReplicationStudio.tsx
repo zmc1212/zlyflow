@@ -81,7 +81,12 @@ export default function DirectorReplicationStudio({
   })
   const llmStatusQuery = useQuery({
     queryKey: ["llm-status"],
-    queryFn: () => requestJson<{ available: boolean; supports_vision: boolean; model?: string | null }>("/api/llm/status"),
+    queryFn: () => requestJson<{
+      available: boolean
+      supports_vision: boolean
+      model?: string | null
+      analysis_vision?: { available?: boolean; model?: string | null }
+    }>("/api/llm/status"),
     staleTime: 60_000,
   })
 
@@ -389,7 +394,7 @@ export default function DirectorReplicationStudio({
                 {analysis.status === "failed" && analysis.error ? (
                   <Alert type="error" showIcon message="拉片失败" description={analysis.error} />
                 ) : null}
-                {!analyzing && llmStatusQuery.data && !llmStatusQuery.data.supports_vision ? (
+                {!analyzing && llmStatusQuery.data && !(llmStatusQuery.data.analysis_vision?.available ?? llmStatusQuery.data.supports_vision) ? (
                   <Alert
                     type="warning"
                     showIcon

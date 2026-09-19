@@ -10,9 +10,11 @@ from .llm_client import (
     LlmError,
     catalog_provider_key,
     normalize_api_key,
+    summarize_llm_test_reply,
 )
 from .llm_provider import is_local_base_url, model_supports_vision
 from .storage import JobStore, now
+from .vision_runtime import overlay_vlm_credentials, resolve_analysis_endpoint
 
 
 DEFAULT_VLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
@@ -27,6 +29,10 @@ ZHIPU_VISION_CATALOG = [
 ]
 VLM_UNAVAILABLE_MESSAGE = "视觉模型尚未启用。请在管理设置 → VLM 视觉模型 中配置后再使用看图功能。"
 VLM_NOT_VISION_MESSAGE = "当前视觉模型名称无法识别为看图模型。请在管理设置 → VLM 视觉模型 中改用名称含 VL/Vision 的模型，例如 glm-4.6v-flash。"
+ANALYSIS_UNAVAILABLE_MESSAGE = (
+    "视觉分析不可用。请在管理设置 → VLM 视觉模型 配置看图模型；"
+    "或在 LLM 页使用名称可看图的多模态模型。"
+)
 
 
 def _mask_api_key(api_key: str | None) -> str | None:
@@ -42,22 +48,33 @@ class VlmProviderService:
         self.store = store
         self.credentials = CredentialManager(credential_key)
 
-    def api_key(self) -> str | None:
-        decrypted = self.credentials.decrypt(self.store.get_vlm_settings().get("api_key_encrypted"))
-        if not decrypted:
-            config = self.store.get_vlm_settings()
-            if is_local_base_url(config.get("base_url", "")):
-                return "ollama"
-        return decrypted
+    def _effective_config(self, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        settings = dict(config or self.store.get_vlm_settings())
+        if settings.get("use_llm_credentials"):
+            return overlay_vlm_credentials(settings, self.store.get_llm_settings())
+        return settings
+
+    def api_key(self, config: dict[str, Any] | None = None) -> str | None:
+        settings = self._effective_config(config)
+        decrypted = self.credentials.decrypt(settings.get("api_key_encrypted"))
+        if decrypted:
+            return decrypted
+        if is_local_base_url(self.base_url(config)):
+            return "ollama"
+        return None
+
+    def base_url(self, config: dict[str, Any] | None = None) -> str:
+        settings = self._effective_config(config)
+        return str(settings.get("base_url") or "").rstrip("/")
 
     def availability(self) -> tuple[bool, str | None]:
         config = self.store.get_vlm_settings()
         if not config["enabled"]:
             return False, VLM_UNAVAILABLE_MESSAGE
-        if not is_local_base_url(config.get("base_url", "")) and not self.credentials.ready:
+        if not is_local_base_url(self.base_url(config)) and not self.credentials.ready:
             return False, self.credentials.error or "凭证主密钥不可用"
-        if not self.api_key():
-            return False, "视觉模型 API Key / Token 未配置或无法解密。"
+        if not self.api_key(config):
+            return False, "视觉模型 API Key / Token 未配置或无法解密。可勾选复用大模型凭据。"
         if not config.get("model"):
             return False, "未配置视觉模型名称 (Model Name)。"
         if not model_supports_vision(config.get("model")):
@@ -66,14 +83,15 @@ class VlmProviderService:
 
     def public_config(self) -> dict[str, Any]:
         config = self.store.get_vlm_settings()
-        api_key = self.api_key()
+        api_key = self.api_key(config)
         available, reason = self.availability()
         return {
             "enabled": config["enabled"],
-            "base_url": config["base_url"],
+            "use_llm_credentials": bool(config.get("use_llm_credentials")),
+            "base_url": self.base_url(config),
             "model": config["model"],
             "api_key_masked": _mask_api_key(api_key),
-            "has_api_key": bool(config.get("api_key_encrypted")),
+            "has_api_key": bool(api_key),
             "credential_ready": self.credentials.ready,
             "last_test_status": config.get("last_test_status"),
             "last_test_message": config.get("last_test_message"),
@@ -105,22 +123,26 @@ class VlmProviderService:
             if not self.credentials.ready:
                 raise ValueError(self.credentials.error or "凭证主密钥不可用")
             values["api_key_encrypted"] = self.credentials.encrypt(api_key)
+        if "use_llm_credentials" in payload:
+            values["use_llm_credentials"] = bool(payload.get("use_llm_credentials"))
 
         self.store.update_vlm_settings(**values)
         return self.public_config()
 
     def test(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         config = self.store.get_vlm_settings()
-        base_url = (payload.get("base_url") if payload else None) or config["base_url"]
+        reuse = bool((payload or {}).get("use_llm_credentials", config.get("use_llm_credentials")))
+        base_url = (payload.get("base_url") if payload else None) or self.base_url({**config, "use_llm_credentials": reuse})
+        if reuse:
+            base_url = self.base_url({**config, "use_llm_credentials": True})
         model = (payload.get("model") if payload else None) or config["model"]
         submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
-        api_key = submitted_key or self.api_key()
+        api_key = submitted_key or self.api_key({**config, "use_llm_credentials": reuse})
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
 
         if not api_key:
-            config = self.store.get_vlm_settings()
-            if config.get("api_key_encrypted") and not submitted_key:
+            if config.get("api_key_encrypted") and not submitted_key and not reuse:
                 raise ValueError("已保存的视觉模型 Key 无法解密，请重新填写 API Key 后保存再测试。")
             raise ValueError("测试连接需要提供有效的 API Key / Token")
         if not base_url:
@@ -135,7 +157,7 @@ class VlmProviderService:
         try:
             reply = client.test_connection(model=model, timeout=LLM_TEST_TIMEOUT_SECONDS)
             test_status = "成功"
-            test_message = f"连接成功，模型响应：{reply}"
+            test_message = summarize_llm_test_reply(reply)
         except Exception as exc:
             test_status = "失败"
             test_message = str(exc)
@@ -151,9 +173,12 @@ class VlmProviderService:
 
     def list_catalog(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         config = self.store.get_vlm_settings()
-        base_url = (payload.get("base_url") if payload else None) or config["base_url"]
+        reuse = bool((payload or {}).get("use_llm_credentials", config.get("use_llm_credentials")))
+        base_url = (payload.get("base_url") if payload else None) or self.base_url({**config, "use_llm_credentials": reuse})
+        if reuse:
+            base_url = self.base_url({**config, "use_llm_credentials": True})
         submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
-        api_key = submitted_key or self.api_key()
+        api_key = submitted_key or self.api_key({**config, "use_llm_credentials": reuse})
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
         if not api_key:
@@ -183,6 +208,13 @@ class VlmProviderService:
             "message": message,
         }
 
+    def _analysis_endpoint(self):
+        return resolve_analysis_endpoint(
+            self.store.get_llm_settings(),
+            self.store.get_vlm_settings(),
+            self.credentials.decrypt,
+        )
+
     def analyze_subject(
         self,
         *,
@@ -190,19 +222,15 @@ class VlmProviderService:
         kind: str,
         name: str,
     ) -> str:
-        available, reason = self.availability()
-        if not available:
-            raise LlmError(reason or VLM_UNAVAILABLE_MESSAGE)
-        config = self.store.get_vlm_settings()
-        api_key = self.api_key()
-        if not api_key:
-            raise LlmError("视觉模型凭据未配置")
-        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
+        endpoint = self._analysis_endpoint()
+        if endpoint is None:
+            raise LlmError(ANALYSIS_UNAVAILABLE_MESSAGE)
+        client = OpenAICompatibleClient(base_url=endpoint.base_url, api_key=endpoint.api_key)
         return client.analyze_subject(
             image_data_url=image_data_url,
             kind=kind,
             name=name,
-            model=config["model"],
+            model=endpoint.model,
         )
 
     def analyze_video_shot(
@@ -213,29 +241,18 @@ class VlmProviderService:
         duration_sec: float,
         art_style: str = "",
     ) -> dict[str, Any]:
-        available, reason = self.availability()
-        if not available:
-            raise LlmError(reason or VLM_UNAVAILABLE_MESSAGE)
-        config = self.store.get_vlm_settings()
-        api_key = self.api_key()
-        if not api_key:
-            raise LlmError("视觉模型凭据未配置")
-        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
+        endpoint = self._analysis_endpoint()
+        if endpoint is None:
+            raise LlmError(ANALYSIS_UNAVAILABLE_MESSAGE)
+        client = OpenAICompatibleClient(base_url=endpoint.base_url, api_key=endpoint.api_key)
         return client.analyze_video_shot(
             frames=frames,
             shot_number=shot_number,
             duration_sec=duration_sec,
             art_style=art_style,
-            model=config["model"],
+            model=endpoint.model,
         )
 
     def vision_model_name(self) -> str | None:
-        available, _reason = self.availability()
-        if not available:
-            return None
-        try:
-            config = self.store.get_vlm_settings()
-        except Exception:
-            return None
-        model = str(config.get("model") or "")
-        return model if model_supports_vision(model) else None
+        endpoint = self._analysis_endpoint()
+        return endpoint.model if endpoint is not None else None

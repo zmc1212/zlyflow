@@ -8,15 +8,37 @@ from ..db import execute_sql, now_str, query_all, query_one
 from ..models import ProjectCreateRequest, ProjectItem, ProjectUpdateRequest
 
 
+def _settings_and_extra(
+    settings: dict[str, Any] | None,
+    extra: dict[str, Any] | None,
+    *,
+    current_settings: dict[str, Any] | None = None,
+    current_extra: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    from ...skill_packs import persist_project_settings
+
+    merged = persist_project_settings(
+        settings,
+        extra,
+        current_settings=current_settings,
+        current_extra=current_extra,
+    )
+    extra_out = dict(merged.get("extra") or {}) if isinstance(merged.get("extra"), dict) else {}
+    return merged, extra_out
+
+
 class ProjectService:
     @staticmethod
     def _to_project_item(row: dict[str, Any]) -> ProjectItem:
         settings = None
+        extra = None
         if row.get("settings_json"):
             try:
                 settings = json.loads(row["settings_json"])
             except Exception:
                 settings = None
+        if isinstance(settings, dict) and isinstance(settings.get("extra"), dict):
+            extra = dict(settings["extra"])
 
         return ProjectItem(
             id=row["id"],
@@ -25,6 +47,7 @@ class ProjectService:
             cover_url=row.get("cover_url"),
             status=row.get("status") or "active",
             settings=settings,
+            extra=extra,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -49,7 +72,8 @@ class ProjectService:
 
         project_id = f"proj-{uuid.uuid4().hex[:16]}"
         timestamp = now_str()
-        settings_str = json.dumps(payload.settings, ensure_ascii=False) if payload.settings else "{}"
+        settings, _extra = _settings_and_extra(payload.settings, payload.extra)
+        settings_str = json.dumps(settings, ensure_ascii=False) if settings else "{}"
 
         execute_sql(
             """
@@ -87,8 +111,16 @@ class ProjectService:
         timestamp = now_str()
 
         settings_str = None
-        if payload.settings is not None:
-            settings_str = json.dumps(payload.settings, ensure_ascii=False)
+        if payload.settings is not None or payload.extra is not None:
+            current_settings = current.settings if isinstance(current.settings, dict) else {}
+            current_extra = current.extra if isinstance(current.extra, dict) else {}
+            merged, _extra = _settings_and_extra(
+                payload.settings,
+                payload.extra,
+                current_settings=current_settings,
+                current_extra=current_extra,
+            )
+            settings_str = json.dumps(merged, ensure_ascii=False)
 
         if settings_str is not None:
             execute_sql(

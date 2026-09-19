@@ -79,11 +79,21 @@
 
 .d2-jobs-center .result-thumb-btn,
 .d2-jobs-center .preview-media-btn {
+  position: relative;
   display: inline-flex;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.d2-jobs-center .result-upscale-tag {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  margin: 0;
+  line-height: 16px;
+  font-size: 10px;
 }
 
 .d2-jobs-center .result-thumb:hover {

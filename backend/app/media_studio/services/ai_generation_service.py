@@ -604,14 +604,18 @@ class AiGenerationService:
             self._check_cancelled(operation_id)
             self._emit(operation_id, event)
 
-        updated = self.llm_provider.run_director_recipe(
-            recipe, goal=goal, agents=agents, skip_research=True,
-            on_progress=on_progress, on_stream=on_stream, clarifications=clarifications, resume=False,
-        )
+        from ...skill_packs import resolve_skill_pack_id, skill_pack_scope
+
+        project_id = str((payload.get("request") or {}).get("project_id") or request.get("project_id") or "")
+        pack_id = resolve_skill_pack_id(payload=request, project_id=project_id or None)
+        with skill_pack_scope(pack_id):
+            updated = self.llm_provider.run_director_recipe(
+                recipe, goal=goal, agents=agents, skip_research=True,
+                on_progress=on_progress, on_stream=on_stream, clarifications=clarifications, resume=False,
+            )
         self._check_cancelled(operation_id)
         normalized = normalize_recipe_payload(updated)
         payload["recipe"] = normalized
-        project_id = str((payload.get("request") or {}).get("project_id") or request.get("project_id") or "")
         self._adapt_recipe(project_id, normalized, stage)
         self._check_cancelled(operation_id)
         # 该 leg 结束：暂停等确认。stage 未加入 completed_stages（那是 advance 的职责），
@@ -1202,6 +1206,7 @@ class AiGenerationService:
             "video_prompt_zh": video_prompt_zh,
             "video_duration": str(AiGenerationService._shot_duration_seconds(shot)),
             "status": "draft",
+            "story_shot": sequence,
         }
 
     async def stream(self, operation_id: str, project_id: str, request: Any, since: int = 0):

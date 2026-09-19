@@ -15,7 +15,14 @@ PAYLOAD_KIND_TIMELINE = "timeline"
 PAYLOAD_KIND_RECIPE = "director_recipe"
 PAYLOAD_KIND_BATCH = "batch_run"
 PAYLOAD_KIND_REPLICATION = "shot_replication"
-PAYLOAD_KINDS = (PAYLOAD_KIND_TIMELINE, PAYLOAD_KIND_RECIPE, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_REPLICATION)
+PAYLOAD_KIND_HYPIT_REPLICATION = "hypit_replication"
+PAYLOAD_KINDS = (
+    PAYLOAD_KIND_TIMELINE,
+    PAYLOAD_KIND_RECIPE,
+    PAYLOAD_KIND_BATCH,
+    PAYLOAD_KIND_REPLICATION,
+    PAYLOAD_KIND_HYPIT_REPLICATION,
+)
 
 AGENT_IDS = (
     "research",
@@ -348,7 +355,12 @@ def split_display_and_prompt(
 def payload_kind(payload: dict[str, Any] | None) -> str:
     raw = _as_dict(payload)
     kind = _text(raw.get("kind"))
-    if kind in (PAYLOAD_KIND_RECIPE, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_REPLICATION):
+    if kind in (
+        PAYLOAD_KIND_RECIPE,
+        PAYLOAD_KIND_BATCH,
+        PAYLOAD_KIND_REPLICATION,
+        PAYLOAD_KIND_HYPIT_REPLICATION,
+    ):
         return kind
     return PAYLOAD_KIND_TIMELINE
 
@@ -1353,6 +1365,10 @@ def normalize_director_payload(payload: dict[str, Any] | None) -> dict[str, Any]
         from .director_replication import normalize_replication_payload
 
         return normalize_replication_payload(raw)
+    if kind == PAYLOAD_KIND_HYPIT_REPLICATION:
+        from .director_hypit import normalize_hypit_payload
+
+        return normalize_hypit_payload(raw)
     return raw
 
 

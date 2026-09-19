@@ -10,7 +10,7 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 import requests
 import websocket
 
-from ...comfy_service import ComfyService, interpret_comfy_progress
+from ...comfy_service import ComfyService, IDLE_CLEANUP_WORKFLOW, interpret_comfy_progress
 from ...minimax_h3_director_accel_workflow import (
     build_minimax_h3_director_accel_workflow,
     director_accel_unet,
@@ -20,6 +20,15 @@ from ...minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from ...minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from ...minimax_h3_workflow import AUDIO_VAE, TEXT_ENCODER, VIDEO_VAE, build_minimax_h3_workflow
 from ...models import JobMode
+from ...rtx_vsr_workflow import (
+    build_rtx_vsr_workflow,
+    comfy_has_rtx_vsr_node,
+    comfy_vram_device_name,
+    comfy_vram_total_bytes,
+    explain_comfy_prompt_rejection,
+    RTX_VSR_NODE_TYPE,
+    rtx_vsr_node_missing_message,
+)
 from ...workflow_registry import (
     DIRECTOR_ACCEL_WORKFLOWS,
     DUAL_ACCEL_WORKFLOWS,
@@ -54,13 +63,48 @@ class ComfyVideoClient:
         self.base_url = str(base_url or "").strip().rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
+        self._system_stats: dict[str, Any] | None = None
 
     def ping(self) -> None:
         try:
             stats = self.session.get(f"{self.base_url}/system_stats", timeout=8)
             stats.raise_for_status()
+            payload = stats.json()
+            self._system_stats = payload if isinstance(payload, dict) else {}
+        except requests.RequestException as err:
+            self._system_stats = None
+            raise ValueError(f"无法连接 ComfyUI {self.base_url}: {err}") from err
+        except ValueError:
+            self._system_stats = {}
+
+    def vram_total_bytes(self) -> int | None:
+        if self._system_stats is None:
+            try:
+                self.ping()
+            except ValueError:
+                return None
+        return comfy_vram_total_bytes(self._system_stats or {})
+
+    def vram_device_name(self) -> str:
+        if self._system_stats is None:
+            try:
+                self.ping()
+            except ValueError:
+                return ""
+        return comfy_vram_device_name(self._system_stats or {})
+
+    def require_rtx_vsr_node(self) -> None:
+        try:
+            response = self.session.get(
+                f"{self.base_url}/object_info/{RTX_VSR_NODE_TYPE}", timeout=12,
+            )
+            payload = response.json() if response.ok else {}
         except requests.RequestException as err:
             raise ValueError(f"无法连接 ComfyUI {self.base_url}: {err}") from err
+        except ValueError:
+            payload = {}
+        if not comfy_has_rtx_vsr_node(payload if isinstance(payload, dict) else {}):
+            raise ValueError(rtx_vsr_node_missing_message(self.base_url, self.vram_device_name()))
 
     def preflight(self, *, require_director: bool = True) -> str:
         self.ping()
@@ -403,7 +447,12 @@ class ComfyVideoClient:
             timeout=60,
         )
         if not response.ok:
-            raise RuntimeError(f"ComfyUI 提交失败，HTTP {response.status_code}: {response.text[:1000]}")
+            raise RuntimeError(explain_comfy_prompt_rejection(
+                response.status_code,
+                response.text,
+                comfy_url=self.base_url,
+                device_name=comfy_vram_device_name(self._system_stats or {}),
+            ))
         data = response.json()
         if data.get("node_errors"):
             raise RuntimeError("ComfyUI 节点校验失败: " + json.dumps(data["node_errors"], ensure_ascii=False))
@@ -586,3 +635,90 @@ class ComfyVideoClient:
         response = self.session.get(self.view_url(output), timeout=600)
         response.raise_for_status()
         return response.content
+
+    def queue_busy(self) -> bool | None:
+        try:
+            response = self.session.get(f"{self.base_url}/queue", timeout=8)
+            if not response.ok:
+                return None
+            payload = response.json()
+        except (ValueError, requests.RequestException):
+            return None
+        running = payload.get("queue_running") or []
+        pending = payload.get("queue_pending") or []
+        return bool(running or pending)
+
+    def wait_until_idle(self, *, timeout_seconds: int = 600) -> None:
+        started = time.monotonic()
+        while time.monotonic() - started < timeout_seconds:
+            busy = self.queue_busy()
+            if busy is False:
+                return
+            time.sleep(1)
+        raise TimeoutError("ComfyUI 队列仍忙，无法开始 2x 超分")
+
+    def free_resources(self, *, force: bool = True) -> bool:
+        busy = self.queue_busy()
+        if busy and not force:
+            return False
+        if busy:
+            self.wait_until_idle()
+        posted_free = False
+        try:
+            response = self.session.post(
+                f"{self.base_url}/free",
+                json={"unload_models": True, "free_memory": True},
+                timeout=15,
+            )
+            posted_free = bool(response.ok)
+        except requests.RequestException:
+            posted_free = False
+        try:
+            self.submit(IDLE_CLEANUP_WORKFLOW)
+            self.wait_until_idle(timeout_seconds=120)
+            return True
+        except Exception:
+            return posted_free
+
+    def upload_video_bytes(
+        self,
+        content: bytes,
+        *,
+        preferred_name: str,
+        subfolder: str = "rtx-vsr",
+    ) -> str:
+        if not content:
+            raise RuntimeError("超分原片为空")
+        uploaded = self.session.post(
+            f"{self.base_url}/upload/image",
+            files={"image": (preferred_name, content, "video/mp4")},
+            data={"subfolder": subfolder, "type": "input", "overwrite": "true"},
+            timeout=120,
+        )
+        uploaded.raise_for_status()
+        data = uploaded.json()
+        name = str(data.get("name") or preferred_name)
+        remote_subfolder = str(data.get("subfolder") or subfolder).strip("/")
+        return f"{remote_subfolder}/{name}" if remote_subfolder else name
+
+    def run_rtx_vsr(
+        self,
+        content: bytes,
+        *,
+        preferred_name: str,
+        progress: Callable[[int], None] | None = None,
+        on_submitted: Callable[[dict[str, Any]], None] | None = None,
+        filename_prefix: str | None = None,
+    ) -> dict[str, str]:
+        self.require_rtx_vsr_node()
+        self.free_resources(force=True)
+        uploaded = self.upload_video_bytes(content, preferred_name=preferred_name)
+        workflow = build_rtx_vsr_workflow(uploaded)
+        if filename_prefix:
+            self._set_output_prefix(workflow, filename_prefix)
+        _submitted, _history, output = self.submit_and_wait(
+            workflow,
+            progress=progress,
+            on_submitted=on_submitted,
+        )
+        return output

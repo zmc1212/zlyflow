@@ -3,10 +3,11 @@
 // a-table bodyCell 自定义渲染 → columns render；a-* 组件 → antd 同名组件；
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Button, Modal, Progress, Space, Table, Tabs, Tag, message } from "antd"
+import { useNavigate } from "react-router-dom"
+import { Alert, Button, Modal, Progress, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
 import type { TableProps } from "antd"
 import { RefreshCw, ExternalLink, Copy } from "lucide-react"
-import { listJobs, retryJob, type Director2Job } from "../api"
+import { director2ErrorDetail, listJobs, retryJob, upscaleProjectVideoJob, type Director2Job } from "../api"
 import {
   DIRECTOR2_DEFAULT_JOB_TYPE,
   DIRECTOR2_JOB_TYPES,
@@ -16,9 +17,14 @@ import {
   filterJobsByType,
   h3PromptResultText,
   isH3PromptJob,
+  isShotPlanJob,
+  isTtsJob,
+  shotPlanDocumentId,
   videoShotPromptText,
   type Director2JobType,
 } from "../director2-job-types"
+import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "../paths"
+import { jobCanShowUpscaleAction, jobPreviewVideoUrl, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl } from "../director2-video-settings"
 import { useMediaPreview } from "../media-preview"
 import "./jobs-center.css"
 
@@ -52,6 +58,7 @@ type LlmAttemptPayload = {
 type StatusTag = { color: string; text: string }
 
 export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneProps) {
+  const navigate = useNavigate()
   const { openMediaPreview } = useMediaPreview()
   const [jobs, setJobs] = useState<Director2Job[]>([])
   const [loading, setLoading] = useState(false)
@@ -59,6 +66,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   const [selectedJob, setSelectedJob] = useState<Director2Job | null>(null)
   const [activeJobType, setActiveJobType] = useState<Director2JobType>(DIRECTOR2_DEFAULT_JOB_TYPE)
   const [page, setPage] = useState(1)
+  const [upscalingJobId, setUpscalingJobId] = useState<string | null>(null)
   const hasInitializedTab = useRef(false)
 
   // 与 Vue 实例级可变量（selectedJob）对应的同步 ref，供异步续体（fetchJobs 轮询）读取最新值
@@ -108,40 +116,81 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       title: "结果",
       key: "result",
       width: 80,
-      render: (_, record) =>
-        record.result_url ? (
+      render: (_, record) => {
+        const previewUrl = isVideoJob(record) ? jobPreviewVideoUrl(record) : record.result_url
+        const upscaled = isVideoJob(record) && Boolean(jobUpscaledVideoUrl(record))
+        return previewUrl ? (
+          isTtsJob(record) ? (
+            <audio src={record.result_url} className="result-thumb" preload="metadata" controls />
+          ) : (
           <button
             type="button"
             className="result-thumb-btn"
-            aria-label="预览结果"
+            aria-label={upscaled ? "预览 2x 超分结果" : "预览结果"}
             onClick={() => openMediaPreview({
-              src: record.result_url,
+              src: previewUrl,
               kind: record.job_type === "video_generation" ? "video" : "image",
-              title: record.title || "生成结果",
+              title: upscaled ? `${record.title || "生成结果"} · 2x` : record.title || "生成结果",
             })}
           >
             {record.job_type === "video_generation" ? (
-              <video src={record.result_url} className="result-thumb" muted preload="metadata" />
+              <>
+                <video src={previewUrl} className="result-thumb" muted preload="metadata" />
+                {upscaled ? <Tag color="purple" className="result-upscale-tag">2x</Tag> : null}
+              </>
             ) : (
               <img src={record.result_url} className="result-thumb" alt="结果图" />
             )}
           </button>
+          )
         ) : isH3PromptJob(record) && (record.status === "completed" || record.status === "succeeded") ? (
           <Tag color="cyan">提示词就绪</Tag>
+        ) : isShotPlanJob(record) && (record.status === "completed" || record.status === "succeeded") ? (
+          <Tag color="purple">镜头已规划</Tag>
+        ) : isTtsJob(record) && (record.status === "completed" || record.status === "succeeded") ? (
+          <Tag color="green">配音就绪</Tag>
+        ) : isShotPlanJob(record) && ["queued", "preparing", "running"].includes(record.status) ? (
+          <Tag color="processing">规划中</Tag>
         ) : (
           <span className="text-muted">—</span>
-        ),
+        )
+      }
     },
     { title: "创建时间", dataIndex: "created_at", width: 160 },
     {
       title: "操作",
       key: "action",
-      width: 140,
+      width: 260,
       render: (_, record) => (
         <Space>
           <Button size="small" type="primary" ghost onClick={() => openDetail(record)}>
             查看详情
           </Button>
+          {jobCanShowUpscaleAction(record) ? (
+            <Tooltip title={jobUpscaleDisabledReason(record, jobs) || jobUpscaleHint(record)}>
+              <span>
+                <Button
+                  size="small"
+                  disabled={Boolean(jobUpscaleDisabledReason(record, jobs)) || upscalingJobId === record.id}
+                  loading={upscalingJobId === record.id}
+                  onClick={() => void handleUpscaleJob(record)}
+                  aria-label={`2x 超分 ${record.title || record.id}`}
+                >
+                  超分
+                </Button>
+              </span>
+            </Tooltip>
+          ) : null}
+          {isShotPlanJob(record) && shotPlanDocumentId(record) ? (
+            <Button size="small" type="link" onClick={() => openContentDocument(record)}>
+              打开文档
+            </Button>
+          ) : null}
+          {isTtsJob(record) && record.payload?.episode_id ? (
+            <Button size="small" type="link" onClick={() => openWorkshopDubbing(record)}>
+              打开配音
+            </Button>
+          ) : null}
           {record.status === "failed" ? (
             <Button size="small" type="link" onClick={() => handleRetry(record.id)}>
               重试
@@ -185,6 +234,24 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     navigator.clipboard.writeText(text)
       .then(() => message.success("H3 提示词已复制到剪贴板"))
       .catch(() => message.error("复制失败"))
+  }
+
+  function openWorkshopDubbing(job: Director2Job) {
+    const episodeId = String(job.payload?.episode_id || "").trim()
+    if (!episodeId) {
+      message.warning("该配音任务没有关联分集")
+      return
+    }
+    navigate(director2WorkshopEpisodePath(projectId, episodeId, "dubbing"))
+  }
+
+  function openContentDocument(job: Director2Job) {
+    const docId = shotPlanDocumentId(job)
+    if (!docId) {
+      message.warning("该任务没有关联内容库文档")
+      return
+    }
+    navigate(director2ContentLibraryDocPath(projectId, docId))
   }
 
   function videoShots(job: Director2Job): VideoShotPayload[] {
@@ -267,6 +334,25 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
   }
 
+  async function handleUpscaleJob(job: Director2Job) {
+    const reason = jobUpscaleDisabledReason(job, jobs)
+    if (reason) {
+      message.warning(reason)
+      return
+    }
+    setUpscalingJobId(job.id)
+    try {
+      message.loading({ content: "正在提交 2x 超分...", key: "jobUpscale" })
+      const res = await upscaleProjectVideoJob(csrfToken, projectId, job.id)
+      message.success({ content: `超分任务已进入队列：${res.job_id}`, key: "jobUpscale", duration: 6 })
+      await fetchJobs(true)
+    } catch (err) {
+      message.error({ content: director2ErrorDetail(err, "超分任务创建失败"), key: "jobUpscale", duration: 10 })
+    } finally {
+      setUpscalingJobId(null)
+    }
+  }
+
   // 最新闭包 trampoline：1 秒静默轮询读取最新渲染的 fetchJobs（等价 Vue 闭包读响应式值）
   const fetchJobsRef = useRef(fetchJobs)
   useEffect(() => {
@@ -292,7 +378,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
         <div>
           <h2 className="sub-pane-title">全部任务</h2>
           <p className="sub-pane-subtitle">
-            监控项目下所有异步生图、大模型剧本分析、分镜渲染与视频合成任务的执行进度。
+            监控项目下生图、视频、H3 提示词、镜头规划、AI 生成与配音任务。
           </p>
         </div>
 
@@ -376,6 +462,33 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                 </div>
               </div>
             </div>
+
+            {isTtsJob(selectedJob) ? (
+              <div className="detail-section">
+                <div className="detail-section-title">配音参数</div>
+                <div className="detail-grid">
+                  <div className="detail-row">
+                    <span className="detail-key">范围</span>
+                    <span className="detail-val">{selectedJob.payload?.scope === "line" ? "单句" : "本集批量"}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-key">台词</span>
+                    <span className="detail-val">{(selectedJob.payload?.line_ids || []).length || 0} 句</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-key">成功 / 失败</span>
+                    <span className="detail-val">
+                      {(selectedJob.payload?.completed_ids || []).length || 0} / {(selectedJob.payload?.failed_ids || []).length || 0}
+                    </span>
+                  </div>
+                </div>
+                {selectedJob.payload?.episode_id ? (
+                  <Button size="small" type="link" onClick={() => openWorkshopDubbing(selectedJob)}>
+                    打开工坊配音轨
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
 
             {isVideoJob(selectedJob) ? (
               <div className="detail-section">
@@ -513,8 +626,36 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               </div>
             ) : null}
 
+            {isShotPlanJob(selectedJob) ? (
+              <div className="detail-section">
+                <div className="detail-section-title">分集与镜头</div>
+                <div className="detail-grid">
+                  <div className="detail-row">
+                    <span className="detail-key">内容库文档</span>
+                    <span className="detail-val">{selectedJob.payload?.filename || shotPlanDocumentId(selectedJob) || "—"}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-key">规划进度</span>
+                    <span className="detail-val">
+                      {Number(selectedJob.payload?.planned_episodes || selectedJob.payload?.episodes_done?.length || 0)}
+                      {" / "}
+                      {Number(selectedJob.payload?.episode_total || 0)} 集
+                      {Number(selectedJob.payload?.failed_episodes || 0) ? `，失败 ${selectedJob.payload.failed_episodes} 集` : ""}
+                    </span>
+                  </div>
+                </div>
+                {shotPlanDocumentId(selectedJob) ? (
+                  <Button type="primary" ghost onClick={() => openContentDocument(selectedJob)}>
+                    打开内容库文档
+                  </Button>
+                ) : (
+                  <div className="text-muted">任务没有关联文档，无法跳回内容库。</div>
+                )}
+              </div>
+            ) : null}
+
             {/* 调用参数 */}
-            {!isVideoJob(selectedJob) && selectedJob.payload && Object.keys(selectedJob.payload).length ? (
+            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.payload && Object.keys(selectedJob.payload).length ? (
               <div className="detail-section">
                 <div className="detail-section-title">⚙️ 调用参数</div>
                 <div className="detail-grid">
@@ -596,7 +737,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 参考图 */}
-            {!isVideoJob(selectedJob) ? (
+            {!isVideoJob(selectedJob) && !isShotPlanJob(selectedJob) ? (
               <div className="detail-section">
                 <div className="detail-section-title">🖼 传入参考图 (images)</div>
                 {referenceUrls(selectedJob).length ? (
@@ -653,7 +794,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* Prompt */}
-            {!isH3PromptJob(selectedJob) && (selectedJob.payload?.prompt || selectedJob.payload?.clean_prompt) ? (
+            {!isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && (selectedJob.payload?.prompt || selectedJob.payload?.clean_prompt) ? (
               <div className="detail-section">
                 <div className="detail-section-title">✍️ 生图提示词 (Prompt)</div>
                 {selectedJob.payload?.prompt ? (
@@ -672,7 +813,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* GRS 请求体 */}
-            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) ? (
+            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) ? (
               <div className="detail-section">
                 <div className="detail-section-title">📤 提交给 GRS 的完整参数</div>
                 <div className="prompt-block">
@@ -695,12 +836,61 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 结果图片 */}
-            {selectedJob.result_url ? (
+            {isVideoJob(selectedJob) && (jobPreviewVideoUrl(selectedJob) || selectedJob.result_url) ? (
+              <div className="detail-section">
+                <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? " · 含 2x 超分" : ""}</div>
+                <div className="result-preview">
+                  {jobUpscaledVideoUrl(selectedJob) ? (
+                    <>
+                      <p className="prompt-label">2x 超分</p>
+                      <video src={jobUpscaledVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
+                    </>
+                  ) : (
+                    <video src={jobPreviewVideoUrl(selectedJob) || selectedJob.result_url} className="result-video" controls preload="metadata" />
+                  )}
+                  {jobSourceVideoUrl(selectedJob) && jobSourceVideoUrl(selectedJob) !== jobUpscaledVideoUrl(selectedJob) ? (
+                    <>
+                      <p className="prompt-label mt-3">原片</p>
+                      <video src={jobSourceVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
+                    </>
+                  ) : null}
+                  {typeof selectedJob.payload?.upscale_warning === "string" && selectedJob.payload.upscale_warning ? (
+                    <Alert type="warning" showIcon className="mt-3" message={String(selectedJob.payload.upscale_warning)} />
+                  ) : null}
+                  {jobCanShowUpscaleAction(selectedJob) ? (
+                    <Tooltip title={jobUpscaleDisabledReason(selectedJob, jobs) || jobUpscaleHint(selectedJob)}>
+                      <span>
+                        <Button
+                          className="mt-3"
+                          disabled={Boolean(jobUpscaleDisabledReason(selectedJob, jobs)) || upscalingJobId === selectedJob.id}
+                          loading={upscalingJobId === selectedJob.id}
+                          onClick={() => void handleUpscaleJob(selectedJob)}
+                          aria-label="2x 超分"
+                        >
+                          2x 超分
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="result-open-link"
+                    onClick={() => openMediaPreview({
+                      src: jobPreviewVideoUrl(selectedJob) || selectedJob.result_url,
+                      kind: "video",
+                      title: jobUpscaledVideoUrl(selectedJob) ? `${selectedJob.title || "生成结果"} · 2x` : selectedJob.title || "生成结果",
+                    })}
+                  >
+                    <ExternalLink size={13} /> 预览原文件
+                  </button>
+                </div>
+              </div>
+            ) : selectedJob.result_url ? (
               <div className="detail-section">
                 <div className="detail-section-title">🖼️ 生成结果</div>
                 <div className="result-preview">
-                  {isVideoJob(selectedJob) ? (
-                    <video src={selectedJob.result_url} className="result-video" controls preload="metadata" />
+                  {isTtsJob(selectedJob) ? (
+                    <audio src={selectedJob.result_url} className="result-video" controls preload="metadata" />
                   ) : (
                     <img
                       src={selectedJob.result_url}
@@ -712,17 +902,19 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                       })}
                     />
                   )}
+                  {isTtsJob(selectedJob) ? null : (
                   <button
                     type="button"
                     className="result-open-link"
                     onClick={() => openMediaPreview({
                       src: selectedJob.result_url,
-                      kind: isVideoJob(selectedJob) ? "video" : "image",
+                      kind: "image",
                       title: selectedJob.title || "生成结果",
                     })}
                   >
                     <ExternalLink size={13} /> 预览原文件
                   </button>
+                  )}
                 </div>
               </div>
             ) : null}

@@ -1,0 +1,119 @@
+{
+  "license": "bilibili Model Use License Agreement",
+  "license_url": "https://github.com/index-tts/index-tts/blob/main/LICENSE",
+  "source_name": "IndexTTS official examples",
+  "source_url": "https://huggingface.co/spaces/IndexTeam/IndexTTS-2-Demo",
+  "note": "官方未公布说话人姓名。下列中文短剧角色名是工作台按示例台词做的听感归档，便于配音台选用，不是 bilibili 官方角色授权。剪映、魔音工坊、配音秀等商业音色包不能放进仓库。",
+  "voices": [
+    {
+      "id": "specialist",
+      "file": "voice_04.wav",
+      "label": "沉稳男主",
+      "gender": "male",
+      "role": "主角",
+      "group": "男声",
+      "default_emotion": "calm",
+      "description": "专业、沉着，适合霸总、军师、猎人口吻。"
+    },
+    {
+      "id": "narrator",
+      "file": "voice_05.wav",
+      "label": "解说旁白",
+      "gender": "male",
+      "role": "旁白",
+      "group": "旁白",
+      "default_emotion": "calm",
+      "description": "长句口播，适合半解说短剧画外音。"
+    },
+    {
+      "id": "salesman",
+      "file": "voice_03.wav",
+      "label": "热心男配",
+      "gender": "male",
+      "role": "配角",
+      "group": "男声",
+      "default_emotion": "happy",
+      "description": "推销口吻，适合店员、介绍人、热心路人。"
+    },
+    {
+      "id": "comic-uncle",
+      "file": "voice_06.wav",
+      "label": "中年男配",
+      "gender": "male",
+      "role": "配角",
+      "group": "男声",
+      "default_emotion": "happy",
+      "description": "京片感中年男，适合舅父、媒人、喜剧配角。"
+    },
+    {
+      "id": "strict-father",
+      "file": "voice_07.wav",
+      "label": "严父",
+      "gender": "male",
+      "role": "配角",
+      "group": "男声",
+      "default_emotion": "angry",
+      "description": "低沉训诫，适合父亲、长辈、反派压迫。"
+    },
+    {
+      "id": "sweet-heroine",
+      "file": "voice_09.wav",
+      "label": "甜妹女主",
+      "gender": "female",
+      "role": "主角",
+      "group": "女声",
+      "default_emotion": "happy",
+      "description": "软糯撒娇，适合甜宠女主。"
+    },
+    {
+      "id": "tragic-heroine",
+      "file": "voice_11.wav",
+      "label": "深情女主",
+      "gender": "female",
+      "role": "主角",
+      "group": "女声",
+      "default_emotion": "melancholic",
+      "description": "压抑长句，适合虐文女主、回忆杀。"
+    },
+    {
+      "id": "lonely-woman",
+      "file": "voice_08.wav",
+      "label": "忧郁女配",
+      "gender": "female",
+      "role": "配角",
+      "group": "女声",
+      "default_emotion": "sad",
+      "description": "孤独旁白感，适合失意女配、内心独白。"
+    },
+    {
+      "id": "frightened-girl",
+      "file": "voice_12.wav",
+      "label": "受惊少女",
+      "gender": "female",
+      "role": "配角",
+      "group": "女声",
+      "default_emotion": "afraid",
+      "description": "急促呼救，适合受惊、逃亡、悬疑。"
+    },
+    {
+      "id": "young-male-en",
+      "file": "voice_01.wav",
+      "label": "青年男声（英）",
+      "gender": "male",
+      "role": "配角",
+      "group": "外语",
+      "default_emotion": "calm",
+      "description": "IndexTTS 默认英文男声参考，适合双语短剧。"
+    },
+    {
+      "id": "young-female-en",
+      "file": "voice_02.wav",
+      "label": "青年女声（英）",
+      "gender": "female",
+      "role": "配角",
+      "group": "外语",
+      "default_emotion": "angry",
+      "description": "英文戏剧女声，适合质问、对峙。"
+    }
+  ]
+}

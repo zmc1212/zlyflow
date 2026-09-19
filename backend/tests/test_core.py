@@ -35,6 +35,7 @@ from backend.app.wan_vace_depth_workflow import (
 from backend.app.director_replication import (
     empty_replication_payload, normalize_replication_payload,
 )
+from backend.app.director_hypit import empty_hypit_payload, normalize_hypit_payload
 from backend.app.workflow_registry import (
     CATALOG_GROUP_CUSTOM, CATALOG_GROUP_DUAL_ACCEL, CATALOG_GROUP_LIGHTX2V, CATALOG_GROUP_OFFICIAL_H3,
     DUAL_ACCEL_LORA_NAME, H3_FL2VA_FULL, H3_FL2VA_PRUNED, H3_REF2VA_FULL, H3_REF2VA_PRUNED, LIGHTX2V_FL2V_4STEP_LORA,
@@ -547,7 +548,7 @@ class ApiDocumentationTests(unittest.TestCase):
         )
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "advanced"},
-            {"quality"},
+            {"quality", "upscale_after"},
         )
         self.assertEqual(t8_options["megapixels"]["ui_group"], "internal")
         self.assertEqual(t8_options["quality"]["enum"], ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.98"])
@@ -559,7 +560,8 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(t8_options["video_steps"]["ui_group"], "internal")
         self.assertTrue(
             all(
-                workflow.id.startswith("minimax-h3-") or workflow.id == JobMode.WAN_VACE_DEPTH_V2V.value
+                workflow.id.startswith("minimax-h3-")
+                or workflow.id in {JobMode.WAN_VACE_DEPTH_V2V.value, JobMode.NVIDIA_RTX_VSR.value}
                 for workflow in WORKFLOWS
             )
         )
@@ -645,6 +647,18 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(shot["durationSec"], 3.0)
         self.assertEqual(shot["status"], "idle")
         self.assertEqual(shot["takes"][0]["status"], "succeeded")
+
+    def test_hypit_replication_payload_normalization(self) -> None:
+        payload = normalize_hypit_payload(empty_hypit_payload(title="结构"))
+        self.assertEqual(payload["kind"], "hypit_replication")
+        self.assertEqual(payload["language"], "zh")
+        self.assertEqual(payload["transcript"]["status"], "idle")
+        payload["brief"] = " 换字幕 "
+        payload["language"] = "en"
+        normalized = normalize_hypit_payload(payload)
+        self.assertEqual(normalized["brief"], "换字幕")
+        self.assertEqual(normalized["language"], "en")
+        self.assertIsNone(normalized["result"]["url"])
 
     def test_lightx2v_t2v_uses_euler_sigma_shift_and_one_megapixel_defaults(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {})
@@ -2014,6 +2028,29 @@ class WorkerTests(unittest.TestCase):
             self.assertFalse(ComfyService(Settings()).free_resources())
         self.assertEqual(posts, [])
 
+    def test_free_resources_force_still_skips_when_comfy_queue_is_busy(self) -> None:
+        class FakeResponse:
+            ok = True
+
+            def json(self):
+                return {"queue_running": [[0, "run-1", {}, {}, []]], "queue_pending": []}
+
+        posts: list[tuple[str, dict]] = []
+
+        class FakeRequests:
+            @staticmethod
+            def get(url, **kwargs):
+                return FakeResponse()
+
+            @staticmethod
+            def post(url, **kwargs):
+                posts.append((url, kwargs.get("json") or {}))
+                return FakeResponse()
+
+        with patch("backend.app.comfy_service.requests", FakeRequests):
+            self.assertFalse(ComfyService(Settings()).free_resources(force=True))
+        self.assertEqual(posts, [])
+
     def test_worker_releases_comfy_resources_after_last_job(self) -> None:
         class FakeComfy:
             freed = False
@@ -2078,6 +2115,26 @@ class WorkerTests(unittest.TestCase):
             comfy = FakeComfy()
             asyncio.run(start_and_stop(JobWorker(store, comfy)))
             self.assertTrue(comfy.freed)
+
+    def test_worker_skips_idle_free_while_tts_occupies_gpu(self) -> None:
+        from backend.app.gpu_runtime import occupy_gpu
+
+        class FakeComfy:
+            freed = False
+
+            def free_resources(self):
+                self.freed = True
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            comfy = FakeComfy()
+            worker = JobWorker(store, comfy)
+            with patch("backend.app.gpu_runtime.free_comfy", return_value=True), \
+                 patch("backend.app.gpu_runtime.free_indextts", return_value=True):
+                with occupy_gpu("tts"):
+                    asyncio.run(worker.release_comfy_resources_if_idle())
+            self.assertFalse(comfy.freed)
 
 
 if __name__ == "__main__":

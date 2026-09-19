@@ -36,8 +36,8 @@ describe("workshop video progress mapping", () => {
       "ep-1",
     )
     expect(mapped.beats).toEqual({
-      "beat-a": { status: "running", progress: 42 },
-      "beat-b": { status: "preparing", progress: 10 },
+      "beat-a": { status: "running", progress: 42, scope: "shot", stage: "" },
+      "beat-b": { status: "preparing", progress: 10, scope: "shot", stage: "" },
     })
     expect(mapped.episode).toBeNull()
   })
@@ -73,7 +73,7 @@ describe("workshop video progress mapping", () => {
       "ep-1",
     )
     expect(mapped.beats).toEqual({
-      "beat-c": { status: "queued", progress: 0 },
+      "beat-c": { status: "queued", progress: 0, scope: "shot", stage: "" },
     })
     expect(hasActiveWorkshopVideoProgress(mapped)).toBe(true)
     expect(hasActiveWorkshopVideoProgress({ beats: {}, episode: null })).toBe(false)
@@ -89,8 +89,8 @@ describe("workshop video progress mapping", () => {
       "ep-1",
     )
     expect(mapped.beats).toEqual({
-      "beat-a": { status: "preparing", progress: 12 },
-      "beat-b": { status: "preparing", progress: 12 },
+      "beat-a": { status: "preparing", progress: 12, scope: "selection", stage: "" },
+      "beat-b": { status: "preparing", progress: 12, scope: "selection", stage: "" },
     })
     expect(mapped.episode).toBeNull()
   })
@@ -107,6 +107,22 @@ describe("workshop video progress mapping", () => {
     expect(workshopVideoStageLabel("storing")).toBe("保存结果")
     expect(workshopVideoOverlayLabel("running", 42)).toBe("生成中 42%")
     expect(workshopVideoOverlayLabel("queued", 0)).toBe("排队中")
-    expect(workshopVideoOverlayLabel("preparing", 10)).toBe("准备素材")
+    expect(workshopVideoOverlayLabel("upscaling", 97)).toBe("2x 超分中 97%")
+    expect(workshopVideoOverlayLabel("running", 98, { scope: "upscale" })).toBe("2x 超分中 98%")
+  })
+
+  it("maps a dedicated beat upscale job onto that shot", () => {
+    const mapped = mapWorkshopVideoProgress(
+      [job({
+        status: "upscaling",
+        progress: 97,
+        payload: { render_scope: "upscale", beat_id: "beat-a", runtime_stage: "upscaling" },
+      })],
+      "ep-1",
+    )
+    expect(mapped.beats).toEqual({
+      "beat-a": { status: "upscaling", progress: 97, scope: "upscale", stage: "upscaling" },
+    })
+    expect(mapped.episode).toBeNull()
   })
 })

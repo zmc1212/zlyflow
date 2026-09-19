@@ -37,7 +37,7 @@ export default function AssetSourceReferenceStrip({
   const hint = sourceReferenceHint(asset.kind)
   const canUpload = remaining > 0 && !uploading
   const inferCopy = asset.kind === "character"
-    ? "会覆盖头像提示词、面部提示词、描述和当前造型的服装描述。"
+    ? "会覆盖面部提示词、描述和当前造型的服装描述。"
     : asset.kind === "scene"
       ? "会覆盖主视角、反打和全景提示词。"
       : "会覆盖道具概念图提示词和描述。"

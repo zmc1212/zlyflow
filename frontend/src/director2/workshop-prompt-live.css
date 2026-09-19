@@ -1,0 +1,202 @@
+/* 工坊 / 内容库共用：Thinking + Streaming Text。token 对齐 beautifului globals.css */
+.workshop-prompt-live {
+  --director-page: #fafafb;
+  --director-surface: #ffffff;
+  --director-inset: #f7f8f9;
+  --director-hover: #f4f5f6;
+  --director-hover-2: #e7e9eb;
+  --director-ink: #1f2124;
+  --director-ink-2: #62656b;
+  --director-ink-3: #9a9da3;
+  --director-line: #ecedef;
+  --director-line-strong: #e0e2e5;
+  --director-accent: #0285ff;
+  --director-green: #189a4d;
+  --director-green-tint: #e8f5ed;
+  overflow: auto;
+  padding: 10px 14px 16px;
+  background: var(--director-surface);
+  color: var(--director-ink);
+}
+[data-theme="dark"] .workshop-prompt-live {
+  --director-page: #17181a;
+  --director-surface: #232427;
+  --director-inset: #1f2022;
+  --director-hover: #2a2b2e;
+  --director-hover-2: #313236;
+  --director-ink: #f2f3f4;
+  --director-ink-2: #a5a8ad;
+  --director-ink-3: #6c6f75;
+  --director-line: #2e3033;
+  --director-line-strong: #3a3c40;
+  --director-accent: #3d9aff;
+  --director-green: #3dbb72;
+  --director-green-tint: #3dbb7224;
+}
+.workshop-prompt-live .workshop-think-head {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--director-ink-2);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color 100ms ease;
+}
+.workshop-prompt-live .workshop-think-head:hover {
+  background: var(--director-hover-2);
+}
+.workshop-prompt-live .workshop-think-spinner {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--director-line-strong);
+  border-top-color: var(--director-ink-2);
+  animation: workshop-stream-spin 700ms linear infinite;
+}
+.workshop-prompt-live .workshop-think-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--director-green);
+  box-shadow: 0 0 0 3px var(--director-green-tint);
+}
+.workshop-prompt-live .workshop-think-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  background-image: linear-gradient(90deg, var(--director-ink-3) 35%, var(--director-ink) 50%, var(--director-ink-3) 65%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: workshop-shimmer-text 1.4s linear infinite;
+}
+.workshop-prompt-live .workshop-think-done {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--director-ink-2);
+}
+.workshop-prompt-live .workshop-think-chevron {
+  display: inline-flex;
+  color: var(--director-ink-3);
+  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.workshop-prompt-live .workshop-think-chevron.is-open {
+  transform: rotate(180deg);
+}
+.workshop-prompt-live .workshop-think-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.workshop-prompt-live .workshop-think-fold.is-open {
+  grid-template-rows: 1fr;
+}
+.workshop-prompt-live .workshop-think-fold > div {
+  min-height: 0;
+  overflow: hidden;
+}
+.workshop-prompt-live .workshop-think-trace {
+  position: relative;
+  margin: 2px 0 10px 11px;
+  padding: 0 0 4px 14px;
+  border-left: 1px solid var(--director-line-strong);
+}
+.workshop-prompt-live .workshop-think-row {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--director-ink-2);
+  animation: workshop-fade-up 320ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.workshop-prompt-live .workshop-pixel-loader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 12px 4px;
+}
+.workshop-prompt-live .workshop-pixel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
+}
+.workshop-prompt-live .workshop-pixel-grid span {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--director-ink);
+  opacity: 0.15;
+  animation: workshop-pixel-on 650ms ease-in-out infinite;
+}
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(1) { animation-delay: 0ms; }
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(2) { animation-delay: 90ms; }
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(3) { animation-delay: 180ms; }
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(4) { animation-delay: 270ms; }
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(5) { animation-delay: 90ms; }
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(6) { animation-delay: 360ms; }
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(7) { animation-delay: 180ms; }
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(8) { animation-delay: 270ms; }
+.workshop-prompt-live .workshop-pixel-grid span:nth-child(9) { animation-delay: 450ms; }
+.workshop-prompt-live .workshop-pixel-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: transparent;
+  background-image: linear-gradient(90deg, var(--director-ink-3) 35%, var(--director-ink) 50%, var(--director-ink-3) 65%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: workshop-shimmer-text 1.4s linear infinite;
+}
+.workshop-prompt-live .workshop-stream-text {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--director-ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.workshop-prompt-live .workshop-stream-token {
+  animation: workshop-stream-in 280ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.workshop-prompt-live .workshop-stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 1.5px;
+  border-radius: 1px;
+  background: var(--director-ink);
+  vertical-align: text-bottom;
+  translate: 0 -0.5px;
+  animation: workshop-caret-blink 1s step-end infinite;
+}
+@keyframes workshop-stream-spin { to { transform: rotate(1turn); } }
+@keyframes workshop-shimmer-text { 0% { background-position: 150%; } to { background-position: -50%; } }
+@keyframes workshop-fade-up { 0% { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes workshop-stream-in { 0% { opacity: 0; filter: blur(4px); } to { opacity: 1; filter: blur(0); } }
+@keyframes workshop-caret-blink { 0%, to { opacity: 1; } 50% { opacity: 0; } }
+@keyframes workshop-pixel-on { 0%, 100% { opacity: 0.15; } 18%, 42% { opacity: 1; } 62% { opacity: 0.15; } }
+@media (prefers-reduced-motion: reduce) {
+  .workshop-prompt-live .workshop-think-spinner,
+  .workshop-prompt-live .workshop-think-status,
+  .workshop-prompt-live .workshop-pixel-grid span,
+  .workshop-prompt-live .workshop-pixel-label,
+  .workshop-prompt-live .workshop-stream-token,
+  .workshop-prompt-live .workshop-stream-caret {
+    animation: none !important;
+  }
+}

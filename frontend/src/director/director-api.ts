@@ -28,7 +28,7 @@ export type DirectorExportCapabilities = {
 }
 
 export type DirectorGenerationStatus = "pending" | "partial" | "complete"
-export type DirectorPayloadKind = "timeline" | "director_recipe" | "batch_run" | "shot_replication"
+export type DirectorPayloadKind = "timeline" | "director_recipe" | "batch_run" | "shot_replication" | "hypit_replication"
 
 export type DirectorProjectListItem = {
   id: string
@@ -59,6 +59,8 @@ export type DirectorOperationKind =
   | "shot_render_prepare"
   | "analyze_reference_video"
   | "replicate_shots"
+  | "hypit_transcribe"
+  | "hypit_compile"
 export type DirectorOperationStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled"
 
 export type DirectorClarificationInput = { id?: string; agent?: string; question: string; answer: string }
@@ -603,6 +605,52 @@ export function createReplicationOperation(
   return requestJson<DirectorOperationResponse>(
     `/api/director/replications/${encodeURIComponent(projectId)}/operations`,
     jsonMutation(csrfToken, body),
+  )
+}
+
+export function createHypitOperation(
+  projectId: string,
+  body: {
+    kind: "hypit_transcribe" | "hypit_compile"
+    language?: "zh" | "en"
+  },
+  csrfToken: string,
+) {
+  return requestJson<DirectorOperationResponse>(
+    `/api/director/hypit/${encodeURIComponent(projectId)}/operations`,
+    jsonMutation(csrfToken, body),
+  )
+}
+
+export async function uploadHypitSourceVideo(
+  projectId: string,
+  body: { file: File; expected_content_revision?: number },
+  csrfToken: string,
+) {
+  const form = new FormData()
+  form.set("file", body.file)
+  if (body.expected_content_revision) {
+    form.set("expected_content_revision", String(body.expected_content_revision))
+  }
+  const response = await fetch(
+    `/api/director/hypit/${encodeURIComponent(projectId)}/source-video`,
+    { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
+  )
+  if (response.status === 401) notifyUnauthorized()
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? ""
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => "")
+    throw new ApiRequestError(response.status, payload, "上传参考片失败")
+  }
+  return response.json() as Promise<DirectorProjectResponse>
+}
+
+export function revealHypitWorkspace(projectId: string, csrfToken: string) {
+  return requestJson<{ path: string }>(
+    `/api/director/hypit/${encodeURIComponent(projectId)}/reveal`,
+    jsonMutation(csrfToken, {}),
   )
 }
 

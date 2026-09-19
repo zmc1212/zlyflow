@@ -16,7 +16,9 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "accepts_negative_prompt": ("支持负面提示词", "该工作流是否接受 negative_prompt 字段。"),
     "api_key": ("API 密钥", "供应商 API 密钥；仅在保存或测试连接时提交，接口不会回显原始值。"),
     "api_key_masked": ("已脱敏 API 密钥", "已保存 API 密钥的脱敏展示值；不含可用的完整密钥。"),
-    "authenticated": ("是否已登录", "当前请求是否携带有效的工作台会话。"),
+    "attach_images": ("是否附图", "当前写稿或分析路径是否会把参考图作为 image_url 发给模型；7B 等纯文本模型为 false。"),
+    "authoring_vision": ("写稿看图路由", "工坊写稿、生成页优化、导演台最终润色使用的看图路径：LLM 名称可看图时走 LLM，否则走 VLM。"),
+    "analysis_vision": ("分析看图路由", "资产反推、主体分析和复刻台拉片使用的看图路径：默认 VLM，VLM 未开且 LLM 可看图时回退 LLM。"),
     "available": ("当前可用", "当前配置及连通性是否允许使用该能力。"),
     "base_url": ("服务地址", "上游服务的 API 根地址，必须包含协议。"),
     "bucket": ("存储桶", "七牛云中用于保存交付文件的 Bucket 名称。"),
@@ -46,6 +48,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "enabled": ("已启用", "是否启用该供应商或存储能力。"),
     "elapsed_ms": ("等待耗时（毫秒）", "从任务发起到进入终态的墙上时钟毫秒数；排队或生成中为 null，由前端按 created_at 实时计时。"),
     "error": ("错误信息", "生成项、轮次或任务失败时的错误摘要；成功时为 null。"),
+    "extra": ("项目扩展字段", "导台2项目 settings_json.extra。skill_pack_id 绑定技能包配方；空或省略表示默认程序装箱。"),
     "execution_elapsed_ms": ("ComfyUI 推理耗时（毫秒）", "从 ComfyUI 历史记录 execution_start 到 execution_success 的推理耗时；没有历史时间戳时为 null。"),
     "executor": ("执行器", "实际执行任务的后端，例如 comfyui 或 grs。"),
     "finished_at": ("结束时间", "任务进入完成、失败、中断或停止等终态时的 ISO 8601 时间；进行中为 null。交付或改名不会覆盖此值。"),
@@ -62,7 +65,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "has_secret_key": ("已配置 Secret Key", "是否已保存七牛 Secret Key；不会泄露具体内容。"),
     "icon": ("图标", "前端展示该提示词技能时使用的图标标识。"),
     "id": ("ID", "该资源在工作台中的唯一标识。"),
-    "image_size": ("图片尺寸", "仅图片工作流使用的画布尺寸；具体可选值由 GET /api/modes 返回。"),
+    "image_urls": ("参考图地址", "提示词优化可选附图，最多 8 张 HTTP(S) 或 data URL；解析器可看图时带图调用，否则只把张数写入文字。"),
     "image_sizes": ("可用图片尺寸", "当前图片模式允许使用的画布尺寸列表。"),
     "index": ("序号", "从 1 开始的业务序号；参考图序号同时决定其在提示词中的对应顺序。"),
     "input": ("收到的值", "未通过校验的原始输入值。"),
@@ -131,6 +134,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "sequence": ("轮次序号", "同一任务下从 1 开始递增的生成轮次序号。"),
     "setup_required": ("需要初始化", "是否尚未创建首位超级管理员；仅为 true 时可从工作站本机调用初始化接口。"),
     "skill_id": ("提示词技能 ID", "要应用的 MiniMax H3 提示词技能标识；null 表示使用通用优化。"),
+    "skill_pack_id": ("技能包 ID", "导演台项目 extra.skill_pack_id 绑定的制作配方；空字符串表示默认程序装箱。不是生成页 H3 风格芯片。"),
     "skills": ("提示词技能列表", "当前可选的 MiniMax H3 提示词优化技能。"),
     "source": ("来源图片信息", "由图片转视频创建时，记录所引用的来源任务、生成项和输出序号。"),
     "source_generation_item_id": ("来源生成项 ID", "图片转视频时被引用图片所在的生成项 ID，须与 source_job_id 对应。"),
@@ -139,13 +143,14 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "style_id": ("画风 ID", "导演台画风目录中的唯一标识，例如 as_1001。"),
     "stage": ("处理阶段", "任务当前所在的执行阶段，例如 queued、uploading、generating 或 completed。"),
     "status": ("状态", "任务、轮次或生成项的状态：queued 排队中，running 处理中，succeeded 成功，failed 失败，interrupted 已中断，cancelled 用户已停止，partial 部分成功。"),
-    "supports_h3_options": ("支持 H3 参数", "该工作流是否通过 options JSON 接收 MiniMax H3 参数。"),
+    "supports_vision": ("是否可看图", "GET /api/llm/status 中表示写稿路径能否附图（authoring_vision.attach_images），不再表示仅 VLM 是否启用。管理页 LLM/VLM 配置里仍表示当前模型名称是否可识别为视觉模型。"),
     "supports_timeline": ("支持 Timeline", "该视频工作流是否走 MiniMaxH3Director Timeline。"),
     "supports_multi_segment": ("支持多段 Timeline", "是否可一次提交多个镜头段；与 supports_timeline 同时为真时剧集工坊为一键整集直出。"),
     "temporary_server_staging": ("使用临时服务端暂存", "资源交付前是否先在服务端临时暂存；交付确认后可能被清理。"),
     "title": ("任务标题", "调用方为便于检索而设置的任务标题；最长 120 个字符，null 表示未设置。"),
     "type": ("字段类型", "工作流参数的基础 JSON 类型。"),
     "unavailable_reason": ("不可用原因", "当前能力不可用时返回的人类可读原因；可用时为 null。"),
+    "use_llm_credentials": ("复用大模型凭据", "TTS 与 VLM 可选开关：为 true 时使用 LLM 页的 Base URL 与 API Key，模型名称仍在本页填写。VLM 默认关闭，以免覆盖已有智谱配置。"),
     "unit": ("单位", "参数展示时使用的可选单位，例如 秒。"),
     "updated_at": ("更新时间", "记录最后更新时的 ISO 8601 时间字符串（UTC）。"),
     "url": ("访问地址", "当前用户可访问的受控资源预览地址。"),
@@ -215,7 +220,8 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("get", "/api/jobs/{job_id}"): "需要登录。获取当前用户任务、轮次、生成项和输出的最新状态；推荐用于创建任务后的轮询。",
     ("patch", "/api/jobs/{job_id}"): "需要登录和 X-CSRF-Token。仅更新任务标题和置顶状态；未提供的字段保持不变。",
     ("delete", "/api/jobs/{job_id}"): "需要登录和 X-CSRF-Token。仅可删除已结束任务；排队中或运行中的任务返回 409。",
-    ("post", "/api/jobs/{job_id}/retry"): "需要登录和 X-CSRF-Token。重新提交符合条件的 MiniMax H3 失败、中断或已停止任务；ComfyUI 恢复后中断视频也会自动重提，用户停止的任务不会自动重提。接口成功时返回 202。",
+    ("post", "/api/jobs/{job_id}/retry"): "需要登录和 X-CSRF-Token。重新提交符合条件的 MiniMax H3 或 RTX 超分失败、中断或已停止任务；ComfyUI 恢复后中断视频也会自动重提，用户停止的任务不会自动重提。接口成功时返回 202。",
+    ("post", "/api/jobs/{job_id}/upscale"): "需要登录和 X-CSRF-Token。对已成功的成片新建独立 nvidia-rtx-vsr 任务（固定 2x / ULTRA）。同一原片已有进行中的超分时返回 409；显存预估过大时返回 422。超分失败不影响原片。接口成功时返回 202。",
     ("post", "/api/jobs/{job_id}/cancel"): "需要登录和 X-CSRF-Token。停止排队中、生成中或已中断的任务。视频任务会向固定 ComfyUI 发送 interrupt 或从队列删除对应 prompt_id，并禁止自动重提。图片任务停止本地等待，云端 GRS 可能仍会继续。成功时返回更新后的任务。",
     ("get", "/api/jobs/{job_id}/references/{reference_index}"): "需要登录。以图片二进制流预览任务的指定参考图；reference_index 从 1 开始。",
     ("get", "/api/jobs/{job_id}/rounds/{round_id}/references/{reference_index}"): "需要登录。以图片二进制流预览指定历史轮次的参考图；reference_index 从 1 开始。",
@@ -231,7 +237,7 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/jobs/{job_id}/generations/{generation_item_id}/outputs/{output_index}/delivered"): "需要登录和 X-CSRF-Token。确认指定生成项输出已写入员工电脑，并按当前存储策略清理临时副本。",
     ("get", "/api/director/art-styles"): "需要登录。返回 9 类 34 条画风目录；promptPrefix 对齐 OpenDirector 种子，imageUrl 为同源 /api/director/art-styles/{id}/preview。画风 id 必须选自该目录。",
     ("get", "/api/director/art-styles/{style_id}/preview"): "需要登录。返回画风 JPEG 预览。优先读本地缓存，缺失时由服务端从 OpenDirector CDN（files.seme.cc/styles/style_NN.jpg）拉取并缓存。未知 id 返回 404。",
-    ("get", "/api/director/projects"): "需要登录。只返回当前用户的导演工程摘要，不含剧本文档和时间轴/Recipe payload。kind 为 timeline、director_recipe 或 batch_run。",
+    ("get", "/api/director/projects"): "需要登录。只返回当前用户的导演工程摘要，不含剧本文档和时间轴/Recipe payload。kind 为 timeline、director_recipe、batch_run、shot_replication 或 hypit_replication。",
     ("post", "/api/director/projects"): "需要登录和 X-CSRF-Token。创建导演工程，可同时写入 source_script 与 payload。payload.kind=director_recipe 时按 Recipe 校验画风目录；缺省 kind 为旧时间轴。服务端剥离 data URL。",
     ("post", "/api/director/projects/migrate"): "需要登录和 X-CSRF-Token。将浏览器 localStorage 中的导演工程一次性迁入 SQLite；相同 ID 跳过，避免重复。",
     ("get", "/api/director/projects/{project_id}"): "需要登录。读取当前用户的完整工程，包括 source_script 与 payload。无权访问时按 404 处理。",
@@ -251,8 +257,36 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/director/recipes/{project_id}/insert-library-assets"): "需要登录和 X-CSRF-Token。把选中的库资产复制进 Recipe：人物/道具进 characters（道具 type=object），场景进 locations。写入 libraryAssetId，不建立系列分集。",
     ("post", "/api/director/recipes/{project_id}/generate-assets"): "需要登录和 X-CSRF-Token。为角色/场景提交 GRS 定妆图任务，结果写入 imageJobId。",
     ("post", "/api/director/recipes/{project_id}/generate-stills"): "需要登录和 X-CSRF-Token。为分镜提交 GRS 静帧，提示词用本镜描述+画风，参考图复用人物/场景定妆。结果写入 stillJobId / stillUrl。",
+    ("get", "/api/skill-packs"): "需要登录。列出导演台技能包配方（含空 id 的默认程序装箱）。Plaza 短剧模板走 extra.skill_pack_id，不是生成页 H3 风格芯片。未知 id 在创建/更新项目或优化提示词时返回 400。",
+    ("post", "/api/projects"): "需要登录和 X-CSRF-Token。创建导台2项目。可选 extra.skill_pack_id 绑定技能包，写入 settings_json.extra。",
+    ("put", "/api/projects/{project_id}"): "需要登录和 X-CSRF-Token。更新导台2项目。可单独提交 extra 合并进 settings.extra；只改 settings 时保留已有 extra。skill_pack_id 必须是 GET /api/skill-packs 中的 id。",
+    ("get", "/api/projects/{project_id}/documents"): "需要登录。列出内容库文档。analysis.episodes 含程序切集结果：episode_num、body（本集 Markdown）、shots（出片镜，含 duration_sec）；规划成功时 shots_source=llm。进行中的镜头规划会带 shot_plan_job_id，文档 status 为 planning。",
+    ("post", "/api/projects/{project_id}/documents"): "需要登录和 X-CSRF-Token。导入或粘贴剧本文档。JSON：raw_text，可选 filename / spine_template / visual_style / input_mode（缺省 paste）。程序按「# 第N集」切集（不改集号），每集写入 body 后立刻返回 200；粘贴/文件导入再入队 shot_plan 后台任务，响应带 shot_plan_job_id，文档 status=planning。input_mode=ai_pipeline 不入队。某集规划失败则保留解析器镜头并写入 analysis.logs。",
+    ("post", "/api/projects/{project_id}/documents/{doc_id}/shot-plan"): "需要登录和 X-CSRF-Token。为未规划或规划失败的内容库文档入队 shot_plan 任务（与导入同一套）。AI 流水线文档或已全部 shots_source=llm 时返回 400。已有进行中任务则返回原 job_id 并标 duplicate。202 返回 job_id。",
+    ("post", "/api/projects/{project_id}/documents/{doc_id}/transfer-episodes"): "需要登录和 X-CSRF-Token。把内容库该文档的分集/出片镜头写入剧集工坊。JSON {mode}：overwrite（缺省）重写已有集的 beats 并删除剧本里没有的旧集；append 只补尚未存在的集号。只拷贝文档里已有的出片镜，不再在同步时调大模型规划。",
     ("put", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}"): "需要登录和 X-CSRF-Token。更新当前分镜字段。可写 h3_prompt 与 h3_prompt_source（manual/generated）。手动保存的提示词出片按原文使用。",
-    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt"): "需要登录和 X-CSRF-Token。为当前分镜入队 h3_prompt 任务，把 Beat 的 visual_prompt / audio / video_prompt_zh 一并交给程序渲染六段 Ref2VA（会剥掉动作里整段粘贴的台词，内心/旁白不作为开口对白）。先按对白+调度把 video_duration 抬到能演完。202 返回 job_id。结果写入 beat.h3_prompt、h3_prompt_source=generated 与匹配后的 video_duration。出片对系统生成提示词做 prepare 再跑厚度校验，通过则复用；手动保存（h3_prompt_source=manual）的镜按原文出片。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt"): "需要登录和 X-CSRF-Token。为当前分镜入队一个 h3_prompt 任务，不再按口型/内心/近景规则拆镜。未绑技能包时按 Beat 的动作/运镜/台词编译六段 Ref2VA（会剥掉动作里整段粘贴的台词，内心/旁白不作为开口对白）。绑定半解说包时由 LLM 一次写官方八块中文分秒稿（VLM/可看图 LLM 可用时看角色卡/场景卡/三联）和英文六段；配方临时 skip_program_pack=true 时出片英文用 GPT 六段原文（只规范化 Picture/Subject 标签），不再程序灌水、中文时间码或轿厢句，也不走第二次装箱；中文分秒仍回写 timestamped_zh_prompt。中文或英文未通过校验则任务 failed，payload 含 author_errors / vision_* 与残稿，不覆盖 Beat，不回退无时间码骨架。R2V 为角色设定板+场景卡+三联起幅。设定板只锁身份/发型/服装，禁止抄分格、白底、重复小人。工坊若已有拆开的出片镜，payload.merge_as_one=true 则合并回一条再生成。h3_prompt_source=manual 的镜按原文出片。202 返回 job_id。生成过程可通过 GET /api/projects/{project_id}/jobs/{job_id}/events 直播思考与正文。",
+    ("get", "/api/projects/{project_id}/jobs"): "需要登录。列出项目任务，含 image_generation / video_generation / h3_prompt / shot_plan / ai_pipeline / tts_generation。shot_plan 的 payload.document_id 用于跳回内容库该文档。",
+    ("get", "/api/voice-bank"): "需要登录。返回内置短剧配音声线目录（IndexTTS 官方示例参考音 + 产品侧角色名）。",
+    ("get", "/api/voice-bank/{preset_id}/audio"): "需要登录。读取内置声线 wav。未知 id 404。",
+    ("post", "/api/projects/{project_id}/assets/{asset_id}/generate"): "需要登录和 X-CSRF-Token。JSON target_type：identity 为角色设定板（16:9、2K、2048x1152），不要求已有头像；无外观描述且无原片时 400。参考图：原片 > 其他已出图设定板（排除当前 look）> 仅当两档都没有时才用旧 avatar_url。avatar 仍可用但不在界面露出。头像/场景/道具分辨率仍为 1K。",
+    ("post", "/api/projects/{project_id}/assets/{asset_id}/voice"): "需要登录和 X-CSRF-Token。multipart 上传角色参考音，写入 extra.voice.ref_audio_url。",
+    ("post", "/api/projects/{project_id}/assets/{asset_id}/voice/preset"): "需要登录和 X-CSRF-Token。JSON {preset_id} 绑定内置短剧声线，写入 extra.voice.preset_id 与 ref_audio_url。",
+    ("delete", "/api/projects/{project_id}/assets/{asset_id}/voice"): "需要登录和 X-CSRF-Token。清除角色参考音。",
+    ("post", "/api/projects/{project_id}/assets/{asset_id}/voice/preview"): "需要登录和 X-CSRF-Token。按当前角色声线合成试听，写入 extra.voice.preview_url。",
+    ("get", "/api/projects/{project_id}/assets/{asset_id}/voice/extract-sources"): "需要登录。列出该角色有开口对白且已有 H3 原片 video_url 的镜头，供框选提取参考音。只读解析 data_json，不回写 beats。",
+    ("post", "/api/projects/{project_id}/assets/{asset_id}/voice/extract"): "需要登录和 X-CSRF-Token。JSON {episode_id, beat_id, start_sec, end_sec}，按用户框选的 1–15 秒从 H3 原片抽 16kHz mono wav，写入 extra.voice.ref_audio_url 并清空 preset_id。同步执行，不入队。缺区间/过短/过长/越界/无音轨/缺 ffmpeg 返回 400。",
+    ("get", "/api/projects/{project_id}/episodes/{episode_id}/dubbing"): "需要登录。读取本集台词轨（Beat 开口/内心/旁白展开，合并已保存的 dubbing_lines）。响应含 compose_blocked / compose_block_reason：半解说包旁白未配音时合成禁用。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/sync"): "需要登录和 X-CSRF-Token。从分镜同步台词轨并写回 beats[].dubbing_lines。",
+    ("patch", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/lines/{line_id}"): "需要登录和 X-CSRF-Token。更新单句配音导演参数。改文本会清空已生成音频。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/generate"): "需要登录和 X-CSRF-Token。单句或批量入队 tts_generation。可选 line_id / line_ids；缺省本集全部。202 返回 job_id。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/generate-video"): "需要登录和 X-CSRF-Token。按当前工作流一键生成整集或逐镜视频。JSON 可带注册表 options，含 advanced 布尔 upscale_after。仅 render_scope=shot|selection 会在原片写入后自动 2x 超分；episode 整集直出和 compose 拼接片不自动超分。超分失败保留原片 video_url。202 返回 job_id。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video"): "需要登录和 X-CSRF-Token。为单个 Beat 入队逐镜视频。可带 options.upscale_after；成片成功后先 POST /free 再跑 RTX 2x。原片写入 beat.video_url，超分写入 beat.upscaled_video_url。202 返回 job_id。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/compose"): "需要登录和 X-CSRF-Token。拼接各镜视频为分集成片。JSON 可选 mix_dubbing（缺省 true）：内心/旁白叠到成片，mix=replace 的开口句静音原声。半解说包旁白未配音时 400。202 返回 job_id。不因 upscale_after 自动超分。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale"): "需要登录和 X-CSRF-Token。对本镜已成功的成片提交独立 2x 超分（RTX Video Super Resolution，固定 2x / ULTRA）。先 POST /free 卸载 H3。原片 video_url 不变，结果写入 beat.upscaled_video_url。同一镜头已有进行中的视频或超分时 409；无成片、相对当前连接 GPU 显存预估过大、或该 ComfyUI 未安装 RTXVideoSuperResolution 时 422。超分失败不影响原片。202 返回 job_id。整集直出和拼接片不会因 options.upscale_after 自动超分。",
+    ("post", "/api/projects/{project_id}/jobs/{job_id}/upscale"): "需要登录和 X-CSRF-Token。对导演台2 已成功的 video_generation 成片提交独立 2x 超分。原片 result_url 不变，结果写入 payload.upscaled_video_url；有关联镜头时同时写 beat.upscaled_video_url。超分任务本身、未完成、多镜 selection 返回 422；同一成片进行中超分 409；相对当前连接 GPU 显存预估过大或未安装 RTXVideoSuperResolution 时 422。整集直出/拼接片可手动提交，过长可能被显存门闸拒绝。202 返回 job_id。",
+    ("get", "/api/projects/{project_id}/jobs/{job_id}/events"): "需要登录。以 text/event-stream 按 job_type 推送任务事件。h3_prompt：status / reasoning / delta / done / error。shot_plan：status（第几集/共几集）/ reasoning / delta（本集 JSON 正文）/ episode_done（该集 shots 已写入 analysis_json）/ done / error。可带 since 或 Last-Event-ID 断点续传。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych"): "需要登录和 X-CSRF-Token。为当前分镜入队 16:9 三联关键帧母图（内部三格 9:16）。参考图为选中造型设定板 + 场景卡；已有造型图时不再追加 avatar_url。完成后写入 beat.triptych_url，并裁切起幅到 triptych_panels.start 供本地 H3 素材组使用；整张三联不作为 Picture 4。202 返回 job_id。",
     ("post", "/api/projects/{project_id}/ai/operations"): "需要登录和 X-CSRF-Token。创建导台2 AI 生成操作；首期支持 clarify 创意澄清和 pipeline 剧本、资产文本、分集与 Beat 分镜流水线。",
     ("get", "/api/projects/{project_id}/ai/operations/{operation_id}"): "需要登录。读取当前用户导台2 AI 操作的阶段、进度、结果和错误。",
     ("get", "/api/projects/{project_id}/ai/operations/{operation_id}/events"): "需要登录。以 SSE 推送导台2 AI 操作的阶段进度、流式消息和终态事件。",
@@ -280,6 +314,12 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("get", "/api/director/recipes/{project_id}/export.edl"): "需要登录。下载 CMX 3600 EDL。",
     ("post", "/api/director/batches"): "需要登录和 X-CSRF-Token。主题裂变成多条脚本并并行排队所选工作流族的文生视频，不强制角色参考图。可选 video_workflow_family，缺省 official_h3。",
     ("post", "/api/director/batches/{project_id}/render"): "需要登录和 X-CSRF-Token。对已有批量工程按 item_ids 重新排队该工程所选工作流族的文生；空列表表示全部条目。",
+    ("post", "/api/director/hypit/{project_id}/source-video"): "需要登录和 X-CSRF-Token。multipart 上传 Hypit 复刻参考片（mp4/mov/webm ≤2GB），写入 data/hypit/{user}/{project}/samples。与 VACE 复刻台 source-video 分离。",
+    ("get", "/api/director/hypit/{project_id}/source"): "需要登录。读取 Hypit 复刻参考片。",
+    ("get", "/api/director/hypit/{project_id}/transcript"): "需要登录。读取本机 WhisperX 转写 JSON。",
+    ("get", "/api/director/hypit/{project_id}/result"): "需要登录。读取 Hypit CLI 编译成片。",
+    ("post", "/api/director/hypit/{project_id}/reveal"): "需要登录和 X-CSRF-Token。在本机打开 data/hypit/{user}/{project}，供 Agent 改 SVML 后重跑。",
+    ("post", "/api/director/hypit/{project_id}/operations"): "需要登录和 X-CSRF-Token。kind=hypit_transcribe 本机 WhisperX 拉片；kind=hypit_compile 子进程 hypit check/plan/build。不接受 analyze_reference_video / replicate_shots。H3 画面走 hypit.runtime.json 的 comfy.h3（默认 http://192.168.10.54:8188），不占用本机 8188。仅当该地址是回环时才 occupy_gpu(comfy)。CLI 报告保留 Hypit 品牌。",
 }
 
 
@@ -318,12 +358,12 @@ def _provider_operation_detail(method: str, path: str) -> str | None:
         if path.endswith("/skills"):
             return "需要登录。返回提示词优化可选择的 MiniMax H3 技能。"
         if path.endswith("/status"):
-            return "需要登录。查询文本大模型是否已正确配置、当前是否可用；supports_vision 表示独立 VLM 视觉模型是否可用。"
+            return "需要登录。查询文本大模型是否已正确配置、当前是否可用；supports_vision 表示写稿路径能否附图（LLM 名称可看图或回退到已启用的 VLM），详见 authoring_vision / analysis_vision。"
         if path.endswith("/analyze-subject"):
-            return "需要登录和 X-CSRF-Token。上传主体参考图，由独立配置的视觉模型提取外貌描述；VLM 未启用时返回 503。"
+            return "需要登录和 X-CSRF-Token。上传主体参考图提取外貌描述；默认走 VLM，VLM 未启用且 LLM 可看图时回退 LLM，否则 503。"
         if path.endswith("/split-script"):
             return "需要登录和 X-CSRF-Token。将剧本或故事拆成结构化分镜头，不会创建生成任务。"
-        return "需要登录和 X-CSRF-Token。按目标媒体、工作流和可选技能优化提示词；不会创建生成任务。"
+        return "需要登录和 X-CSRF-Token。按目标媒体、工作流、可选 H3 风格技能和可选技能包优化提示词；可附带最多 8 张参考图 URL。写稿解析器可看图时带图优化，否则只写张数。不会创建生成任务。"
     if path.startswith("/api/vlm/"):
         return "需要登录。查询独立视觉模型是否已启用且可用。"
     return None
@@ -340,7 +380,7 @@ def _add_examples(operation: dict[str, Any], method: str, path: str) -> None:
     if (method, path) == ("post", "/api/auth/login"):
         operation.setdefault("requestBody", {}).setdefault("content", {}).setdefault("application/json", {}).setdefault("example", {"username": "zhangsan", "password": "请使用真实密码"})
     elif (method, path) == ("post", "/api/llm/optimize-prompt"):
-        operation.setdefault("requestBody", {}).setdefault("content", {}).setdefault("application/json", {}).setdefault("example", {"prompt": "雨夜城市中一辆汽车驶过霓虹灯", "media_type": "video", "workflow_id": "minimax-h3-t2v", "reference_count": 0})
+        operation.setdefault("requestBody", {}).setdefault("content", {}).setdefault("application/json", {}).setdefault("example", {"prompt": "雨夜城市中一辆汽车驶过霓虹灯", "media_type": "video", "workflow_id": "minimax-h3-t2v", "reference_count": 0, "image_urls": []})
     elif (method, path) == ("post", "/api/jobs"):
         content = operation.get("requestBody", {}).get("content", {}).get("multipart/form-data")
         if content is not None:

@@ -35,6 +35,7 @@ from .director_catalog import (
     ensure_art_style_preview,
     find_art_style,
 )
+from .voice_bank import VoiceBankError, ensure_voice_prompt, list_voice_presets
 from .director_export import (
     DirectorExportError,
     export_timeline_documents,
@@ -66,7 +67,8 @@ from .director_library import (
 )
 from .director_compiler import iter_recipe_shots
 from .director_recipe import (
-    AGENT_IDS, DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_RECIPE, PAYLOAD_KIND_REPLICATION,
+    AGENT_IDS, DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_HYPIT_REPLICATION,
+    PAYLOAD_KIND_RECIPE, PAYLOAD_KIND_REPLICATION,
     empty_batch_payload, empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload,
     payload_kind, set_agent_status,
 )
@@ -74,6 +76,11 @@ from .director_replication import (
     ReplicationError, empty_replication_payload, find_replication_artifact_file,
     find_replication_depth_file, find_replication_source_file, normalize_replication_payload,
     save_replication_source, validate_source_video,
+)
+from .director_hypit import (
+    HypitError, find_hypit_result_file, find_hypit_source_file, find_hypit_transcript_file,
+    normalize_hypit_payload, reveal_hypit_workspace, save_hypit_source,
+    validate_hypit_source_video,
 )
 from .video_analysis import VideoAnalysisError, probe_video as probe_source_video
 from .director_project_service import merge_recipe_creative, merge_recipe_execution, persist_recipe_execution
@@ -84,18 +91,19 @@ from .llm_client import LlmError, is_upstream_llm_failure
 from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
 from .llm_provider import LlmProviderService
 from .tts_provider import TtsProviderService
-from .vlm_provider import VlmProviderService
+from .vlm_provider import ANALYSIS_UNAVAILABLE_MESSAGE, VlmProviderService
+from .vision_runtime import llm_status_vision_fields
 from .models import (
     AuthStatusResponse, BrowserDirectOutputResponse, ChangePasswordRequest, ComfyProviderResponse,
     ComfyProviderTestRequest, ComfyProviderUpdateRequest, CreateUserRequest, HealthResponse, JobResponse,
     DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsImageModelCreateRequest,
     GrsImageModelsResponse, GrsImageModelsUpdateRequest, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
-    LibraryItemResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest, SetupAdminRequest, JobStatus,
+    LibraryItemResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest, SetupAdminRequest, JobMode, JobStatus,
     QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateUserRequest, UserResponse, UserRole,
     JobMetadataUpdateRequest,
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
     VlmProviderUpdateRequest, VlmProviderTestRequest, VlmModelCatalogRequest, VlmStatusResponse,
-    PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse,
+    PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse, SkillPackListResponse,
     ScriptSplitRequest, ScriptSplitResponse,
     DirectorContinuityRepairRequest,
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
@@ -115,17 +123,20 @@ from .media_studio.routers.project_router import register_project_routes
 from .media_studio.services.ai_generation_service import AiGenerationService
 from .media_studio.services.episode_video_service import EpisodeVideoService
 from .media_studio.services.h3_prompt_job_service import H3PromptJobService
+from .media_studio.services.shot_plan_job_service import ShotPlanJobService
 from .media_studio.services.storyboard_image_service import StoryboardImageService
+from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
 from .qiniu_provider import QiniuProviderService
 from .request_log import RequestLogMiddleware, write_request_log
 
 from .resource_storage import create_resource_storage, resource_object_url
 from .storage import DirectorProjectConflictError, FINISHED_STATUSES, JobStore, elapsed_ms_between
 from .worker import JobWorker
+from .rtx_vsr_workflow import original_video_locator, source_video_shape, vsr_memory_rejection
 from .workflow_registry import (
-    WORKFLOWS, is_h3_workflow, is_image_workflow, normalize_options, option_visible,
-    quality_for_megapixels, set_catalog_lookup, validate_option_relationships, validate_references,
-    workflow_for,
+    WORKFLOWS, is_h3_workflow, is_image_workflow, is_local_comfy_job, is_rtx_vsr_workflow,
+    normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
+    validate_option_relationships, validate_references, workflow_for,
 )
 
 
@@ -540,6 +551,7 @@ def public_job(job: dict) -> dict:
     for output_index, raw_output in enumerate(job.get("outputs", [])):
         output = dict(raw_output)
         output.pop("_comfy_source", None)
+        output.pop("_local_path", None)
         attach_output_cloud_url(output)
         if output_exposes_download(output):
             output["download_url"] = public_output_download_url(
@@ -573,6 +585,7 @@ def public_job(job: dict) -> dict:
             for output_index, raw_output in enumerate(item.get("outputs", [])):
                 output = dict(raw_output)
                 output.pop("_comfy_source", None)
+                output.pop("_local_path", None)
                 attach_output_cloud_url(output)
                 if output_exposes_download(output):
                     output["download_url"] = public_output_download_url(
@@ -590,6 +603,31 @@ def public_job(job: dict) -> dict:
     data["rounds"] = public_rounds
     data.pop("owner_user_id", None)
     return data
+
+
+_UPSCALE_ACTIVE_STATUSES = {
+    JobStatus.QUEUED.value, JobStatus.RUNNING.value, JobStatus.INTERRUPTED.value,
+}
+
+
+def active_upscale_job_for(store: JobStore, owner_user_id: str | None, source_job_id: str) -> dict | None:
+    for job in store.list_jobs(owner_user_id, 200):
+        if not is_rtx_vsr_workflow(job.get("mode") or ""):
+            continue
+        source = job.get("source") or {}
+        if source.get("job_id") != source_job_id:
+            continue
+        if job.get("status") in _UPSCALE_ACTIVE_STATUSES:
+            return job
+    return None
+
+
+def vsr_job_options_from_source(source_job: dict) -> dict:
+    shape = source_video_shape(source_job.get("mode") or "", source_job.get("options") or {})
+    if shape is None:
+        return {}
+    width, height, frames = shape
+    return {"width": width, "height": height, "frames": frames}
 
 
 def request_parameters(job: dict) -> list[dict]:
@@ -713,6 +751,8 @@ async def lifespan(app: FastAPI):
     EpisodeVideoService.recover_orphaned_jobs()
     StoryboardImageService.recover_interrupted_jobs()
     H3PromptJobService.recover_interrupted_jobs()
+    ShotPlanJobService.recover_interrupted_jobs()
+    TtsGenerationJobService.recover_interrupted_jobs()
     AiGenerationService.recover_orphaned_jobs()
     await worker.start()
     yield
@@ -745,6 +785,7 @@ app = FastAPI(
         {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
         {"name": "导演台", "description": "员工隔离的导演工程库：Recipe 双引擎、画风目录、9 Agent 流水线与批量短视频。"},
         {"name": "复刻台", "description": "参考片拉片复刻：上传成片，自动分镜反推提示词与深度视频，用 Wan VACE 深度控制批量转绘。"},
+        {"name": "Hypit 复刻", "description": "拆爆款结构（台词、字幕、B-roll、图形）并本机编译 SVML；与 VACE 锁运镜转绘并列，不混 payload。"},
         {"name": "导台2", "description": "AI Media Studio：按项目组织的内容库、资产库、剧集工坊与全部任务（复刻自 dev0914）。"},
     ],
     lifespan=lifespan,
@@ -1405,19 +1446,35 @@ def get_llm_skills(_: Annotated[dict, Depends(current_user)]) -> dict:
     return {"skills": list_h3_skills_payload()}
 
 
+@app.get("/api/skill-packs", response_model=SkillPackListResponse, tags=["导演台"], summary="列出导演台技能包配方")
+def get_skill_packs(_: Annotated[dict, Depends(current_user)]) -> dict:
+    from .skill_packs import list_pack_catalog
+
+    return {"packs": list_pack_catalog()}
+
+
 @app.get("/api/llm/status", response_model=LlmStatusResponse, tags=["大模型"], summary="查询大模型服务可用状态")
 def get_llm_status(_: Annotated[dict, Depends(current_user)]) -> dict:
     available, reason = app.state.llm_provider.availability()
     config = app.state.llm_provider.public_config()
     vlm = getattr(app.state, "vlm_provider", None)
     vlm_available = False
+    vlm_model = None
     if vlm is not None:
         vlm_available, _vlm_reason = vlm.availability()
+        vlm_config = vlm.public_config()
+        vlm_model = vlm_config.get("model")
+    vision = llm_status_vision_fields(
+        llm_available=available,
+        llm_model=config.get("model"),
+        vlm_available=vlm_available,
+        vlm_model=vlm_model,
+    )
     return {
         "available": available,
         "message": reason,
-        "supports_vision": vlm_available,
         "model": config.get("model"),
+        **vision,
     }
 
 
@@ -1445,6 +1502,14 @@ async def optimize_prompt_endpoint(
     if not available:
         raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
 
+    pack_id = str(payload.skill_pack_id or "").strip() or None
+    if pack_id:
+        from .skill_packs import UnknownSkillPackError, validate_skill_pack_id
+
+        try:
+            validate_skill_pack_id(pack_id)
+        except UnknownSkillPackError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
     try:
         optimized = await asyncio.to_thread(
             app.state.llm_provider.optimize_prompt,
@@ -1452,8 +1517,10 @@ async def optimize_prompt_endpoint(
             media_type=payload.media_type,
             workflow_name=payload.workflow_name,
             skill_id=payload.skill_id,
+            skill_pack_id=pack_id,
             reference_count=payload.reference_count or 0,
             workflow_id=payload.workflow_id,
+            image_urls=payload.image_urls,
         )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
@@ -1463,13 +1530,14 @@ async def optimize_prompt_endpoint(
 
     app.state.auth_store.audit(
         "optimize_prompt", "llm", actor_user_id=user["id"], target_id="prompt",
-        detail=f"media_type={payload.media_type}; skill_id={payload.skill_id or 'default'}; refs={payload.reference_count or 0}",
+        detail=f"media_type={payload.media_type}; skill_id={payload.skill_id or 'default'}; skill_pack_id={pack_id or 'default'}; refs={payload.reference_count or 0}",
         ip_address=client_ip(request),
     )
     return {
         "original_prompt": payload.prompt,
         "optimized_prompt": optimized,
         "skill_id": payload.skill_id,
+        "skill_pack_id": pack_id,
     }
 
 
@@ -1491,9 +1559,8 @@ async def analyze_subject_endpoint(
     kind: Annotated[str, Form()] = "character",
     name: Annotated[str, Form()] = "主体",
 ) -> dict:
-    available, reason = app.state.vlm_provider.availability()
-    if not available:
-        raise HTTPException(status_code=503, detail=reason or "视觉模型尚未启用或不可用")
+    if app.state.vlm_provider.vision_model_name() is None:
+        raise HTTPException(status_code=503, detail=ANALYSIS_UNAVAILABLE_MESSAGE)
     content = await image.read()
     if not content:
         raise HTTPException(status_code=422, detail="请上传主体参考图后再提取外貌")
@@ -1607,6 +1674,35 @@ def director_art_style_preview(style_id: str, user: Annotated[dict, Depends(curr
     return FileResponse(
         path,
         media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
+@app.get("/api/voice-bank", tags=["导演台2"], summary="读取内置短剧配音声线")
+def list_builtin_voice_bank(user: Annotated[dict, Depends(current_user)]) -> dict:
+    del user
+    return {"voices": list_voice_presets()}
+
+
+@app.get(
+    "/api/voice-bank/{preset_id}/audio",
+    tags=["导演台2"],
+    summary="读取内置声线参考音",
+    responses={200: {"content": {"audio/wav": {}}}},
+)
+def builtin_voice_audio(preset_id: str, user: Annotated[dict, Depends(current_user)]) -> FileResponse:
+    del user
+    try:
+        path = ensure_voice_prompt(preset_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="内置声线不存在")
+    except VoiceBankError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except OSError as error:
+        raise HTTPException(status_code=502, detail=f"内置参考音暂不可用：{error}") from error
+    return FileResponse(
+        path,
+        media_type="audio/wav",
         headers={"Cache-Control": "private, max-age=86400"},
     )
 
@@ -2443,6 +2539,209 @@ async def create_replication_operation(
     app.state.director_operations.start(operation["id"])
     app.state.auth_store.audit(
         "create_replication_operation", "director", actor_user_id=user["id"], target_id=project_id,
+        detail=f"{payload.kind}:{operation['id']}", ip_address=client_ip(request),
+    )
+    return public_director_operation(operation)
+
+
+# ---------------------------------------------------------------------------
+# Hypit 复刻（hypit_replication）：参考片上传 / WhisperX 拉片 / CLI 编译
+# ---------------------------------------------------------------------------
+
+
+def hypit_project_or_404(store: JobStore, project_id: str, user: dict) -> dict:
+    record = director_project_or_404(store, project_id, user)
+    if payload_kind(record.get("payload")) != PAYLOAD_KIND_HYPIT_REPLICATION:
+        raise HTTPException(status_code=422, detail="只有 Hypit 复刻工程可以使用该接口")
+    return record
+
+
+def _bind_hypit_source(payload: dict, *, path: str, url: str, name: str, probe) -> dict:
+    current = normalize_hypit_payload(payload)
+    current["sourceVideo"] = {
+        "path": path,
+        "url": url,
+        "name": name,
+        "width": probe.width,
+        "height": probe.height,
+        "fps": round(probe.fps, 3),
+        "durationSec": round(probe.duration, 3),
+    }
+    current["workspacePath"] = str(Path(path).parents[1])
+    current["transcript"] = {
+        **current["transcript"],
+        "status": "idle",
+        "path": None,
+        "url": None,
+        "wordCount": 0,
+        "durationSec": 0.0,
+        "error": None,
+    }
+    current["compile"] = {"status": "idle", "buildId": None, "error": None}
+    current["result"] = {"path": None, "url": None, "buildId": None}
+    return current
+
+
+@app.post(
+    "/api/director/hypit/{project_id}/source-video",
+    response_model=DirectorProjectResponse,
+    tags=["Hypit 复刻"],
+    summary="上传 Hypit 复刻参考片",
+)
+async def upload_hypit_source_video(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    file: Annotated[UploadFile, File(description="参考片视频文件（mp4/mov/webm，≤2GB）")],
+    expected_content_revision: Annotated[
+        int | None,
+        Form(ge=1, description="客户端最后读取的创作内容版本；不匹配时返回 409。"),
+    ] = None,
+) -> dict:
+    record = hypit_project_or_404(app.state.store, project_id, user)
+    try:
+        suffix = validate_hypit_source_video(file.filename or "", file.size)
+    except HypitError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    staging = settings.staging_dir / f"hypit-source-{secrets.token_urlsafe(6)}{suffix}"
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    await save_upload(file, staging)
+    try:
+        try:
+            probe = probe_source_video(staging)
+        except VideoAnalysisError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        original_name = file.filename or f"source{suffix}"
+        saved_path, public_url = save_hypit_source(
+            user["id"], project_id, source=staging, original_name=original_name,
+        )
+        try:
+            saved = app.state.store.update_director_project(
+                project_id,
+                payload=_bind_hypit_source(
+                    record.get("payload") or {},
+                    path=str(saved_path),
+                    url=public_url,
+                    name=original_name,
+                    probe=probe,
+                ),
+                expected_content_revision=expected_content_revision,
+                content_update=True,
+            )
+        except DirectorProjectConflictError as error:
+            raise director_content_conflict_http(error) from error
+    finally:
+        staging.unlink(missing_ok=True)
+    app.state.auth_store.audit(
+        "upload_hypit_source", "director", actor_user_id=user["id"], target_id=project_id,
+        ip_address=client_ip(request),
+    )
+    return public_director_project(saved)
+
+
+@app.get(
+    "/api/director/hypit/{project_id}/source",
+    tags=["Hypit 复刻"],
+    summary="读取 Hypit 复刻参考片",
+)
+def download_hypit_source(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    hypit_project_or_404(app.state.store, project_id, user)
+    path = find_hypit_source_file(user["id"], project_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="尚未上传参考片")
+    return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+@app.get(
+    "/api/director/hypit/{project_id}/transcript",
+    tags=["Hypit 复刻"],
+    summary="读取 Hypit 拉片转写 JSON",
+)
+def download_hypit_transcript(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    hypit_project_or_404(app.state.store, project_id, user)
+    path = find_hypit_transcript_file(user["id"], project_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="尚未完成拉片转写")
+    return FileResponse(path, media_type="application/json", filename=path.name)
+
+
+@app.get(
+    "/api/director/hypit/{project_id}/result",
+    tags=["Hypit 复刻"],
+    summary="读取 Hypit 编译成片",
+)
+def download_hypit_result(
+    project_id: str,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    hypit_project_or_404(app.state.store, project_id, user)
+    path = find_hypit_result_file(user["id"], project_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="尚未编译成片")
+    return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+@app.post(
+    "/api/director/hypit/{project_id}/reveal",
+    tags=["Hypit 复刻"],
+    summary="在资源管理器中打开 Hypit 工程目录",
+)
+def reveal_hypit_project(
+    project_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    hypit_project_or_404(app.state.store, project_id, user)
+    try:
+        revealed = reveal_hypit_workspace(user["id"], project_id)
+    except OSError as error:
+        raise HTTPException(status_code=500, detail=f"无法打开工程目录：{error}") from error
+    app.state.auth_store.audit(
+        "reveal_hypit_workspace", "director", actor_user_id=user["id"], target_id=project_id,
+        ip_address=client_ip(request),
+    )
+    return {"path": str(revealed)}
+
+
+@app.post(
+    "/api/director/hypit/{project_id}/operations",
+    response_model=DirectorOperationResponse,
+    status_code=202,
+    tags=["Hypit 复刻"],
+    summary="创建 Hypit 复刻长操作（hypit_transcribe / hypit_compile）",
+)
+async def create_hypit_operation(
+    project_id: str,
+    payload: DirectorOperationCreateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    hypit_project_or_404(app.state.store, project_id, user)
+    if payload.kind not in {"hypit_transcribe", "hypit_compile"}:
+        raise HTTPException(status_code=422, detail="Hypit 复刻仅支持拉片转写与编译，不能走 VACE 转绘")
+    if payload.kind == "hypit_transcribe":
+        source = find_hypit_source_file(user["id"], project_id)
+        if source is None:
+            raise HTTPException(status_code=422, detail="请先上传参考片")
+    body = payload.model_dump(exclude_none=True)
+    try:
+        operation = app.state.store.create_director_operation(
+            project_id=project_id,
+            owner_user_id=user["id"],
+            kind=payload.kind,
+            request=body,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.director_operations.start(operation["id"])
+    app.state.auth_store.audit(
+        "create_hypit_operation", "director", actor_user_id=user["id"], target_id=project_id,
         detail=f"{payload.kind}:{operation['id']}", ip_address=client_ip(request),
     )
     return public_director_operation(operation)
@@ -3623,6 +3922,8 @@ async def create_job(
         definition = workflow_for(mode)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="工作流不存在") from error
+    if is_rtx_vsr_workflow(mode):
+        raise HTTPException(status_code=422, detail="请对已成功的视频调用超分接口，不要直接创建 nvidia-rtx-vsr 任务")
     try:
         raw_options = json.loads(options) if options is not None else {}
         if not isinstance(raw_options, dict):
@@ -3829,12 +4130,109 @@ def delete_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> di
 )
 async def retry_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
     existing = job_or_404(app.state.store, job_id, user, include_references=True)
-    if not is_h3_workflow(existing["mode"]):
+    if not is_local_comfy_job(existing["mode"]):
         raise HTTPException(status_code=409, detail="当前工作流不支持重新提交")
     job = app.state.store.retry_terminal(job_id)
     if job is None:
         raise HTTPException(status_code=409, detail="仅已中断、已停止或失败且未在 ComfyUI 执行的任务可以重新提交")
     await app.state.worker.enqueue(job_id)
+    return public_job(job)
+
+
+@app.post(
+    "/api/jobs/{job_id}/upscale",
+    status_code=202,
+    response_model=JobResponse,
+    tags=["任务"],
+    summary="对已成功的成片提交 2x 超分",
+    description="根据已成功视频输出新建独立的 nvidia-rtx-vsr 任务。接跑前 worker 会强制 POST /free 卸载 H3。同一原片已有进行中的超分时返回 409。超分失败不影响原片。",
+)
+async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+    source = job_or_404(app.state.store, job_id, user)
+    if is_rtx_vsr_workflow(source["mode"]):
+        raise HTTPException(status_code=422, detail="该任务已经是超分结果")
+    if source.get("status") != JobStatus.SUCCEEDED.value:
+        raise HTTPException(status_code=409, detail="仅已成功出片的视频可以超分")
+    located = original_video_locator(source)
+    if located is None:
+        raise HTTPException(status_code=422, detail="没有可超分的原片视频")
+    original, generation_item_id, output_index = located
+    owner_id = source.get("owner_user_id") or user["id"]
+    active = active_upscale_job_for(app.state.store, owner_id, job_id)
+    if active is not None:
+        raise HTTPException(status_code=409, detail="该成片已有进行中的 2x 超分")
+    vsr_options = vsr_job_options_from_source(source)
+    if vsr_options:
+        comfy = getattr(app.state.worker, "comfy", None)
+        if comfy is not None and hasattr(comfy, "reject_vsr_memory"):
+            reason = comfy.reject_vsr_memory(source["mode"], source.get("options") or vsr_options)
+        else:
+            reason = vsr_memory_rejection(
+                vsr_options["width"],
+                vsr_options["height"],
+                vsr_options["frames"],
+            )
+        if reason:
+            raise HTTPException(status_code=422, detail=reason)
+    try:
+        generation_options = normalize_options(JobMode.NVIDIA_RTX_VSR, vsr_options)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    comfy = getattr(app.state.worker, "comfy", None)
+    if comfy is not None and hasattr(comfy, "require_rtx_vsr_node"):
+        try:
+            comfy.require_rtx_vsr_node()
+        except Exception as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+    try:
+        if comfy is not None:
+            local = Path(comfy.local_path_for_output(original))
+        else:
+            extra = original.get("_local_path")
+            local = Path(str(extra)) if extra else Path()
+        if not local.is_file():
+            raise FileNotFoundError(local)
+    except Exception as error:
+        raise HTTPException(status_code=422, detail=f"找不到可用于超分的原片文件: {error}") from error
+
+    new_job_id = secrets.token_urlsafe(9).replace("-", "").replace("_", "")
+    upload_dir = settings.uploads_dir / user["id"] / new_job_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    destination = upload_dir / f"1_{safe_name(local.name or 'source.mp4')}"
+    try:
+        shutil.copy2(local, destination)
+    except OSError as error:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=f"复制原片失败: {error}") from error
+
+    source_title = str(source.get("title") or source.get("prompt") or "成片").strip()
+    title = f"{source_title[:80]} · 2x超分"
+    prompt = str(source.get("prompt") or "").strip() or "2x 超分"
+    store: JobStore = app.state.store
+    try:
+        job = await asyncio.to_thread(
+            store.create,
+            new_job_id,
+            JobMode.NVIDIA_RTX_VSR,
+            prompt,
+            "",
+            None,
+            [str(destination)],
+            generation_options,
+            submitted_options=generation_options,
+            owner_user_id=user["id"],
+            title=title,
+            source={
+                "job_id": job_id,
+                "generation_item_id": generation_item_id,
+                "output_index": output_index,
+            },
+        )
+    except Exception:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise
+    await app.state.worker.enqueue(new_job_id)
     return public_job(job)
 
 

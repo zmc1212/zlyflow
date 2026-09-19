@@ -16,6 +16,19 @@ type LlmConfig = {
   last_test_status?: string | null
   last_test_message?: string | null
   last_test_at?: string | null
+  supports_vision?: boolean
+}
+
+function modelLooksLikeVision(model: string): boolean {
+  const lowered = model.trim().toLowerCase()
+  if (!lowered) return false
+  return [
+    "vl", "vision", "gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "o4-mini",
+    "gemini", "claude-3", "claude-4", "claude-sonnet", "claude-opus", "claude-haiku",
+    "llava", "pixtral", "minimax-vl", "glm-4v", "glm-4.1v", "glm-4.5v", "glm-4.6v",
+    "glm-5v", "internvl", "phi-4-multimodal", "phi-3.5-vision", "gemma-3", "gemma-4",
+    "minicpm-v", "step-1v", "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen-vl",
+  ].some((marker) => lowered.includes(marker))
 }
 
 type CatalogModel = {
@@ -266,7 +279,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
         <div>
           <h2 className="text-base font-semibold text-[#111827]">LLM 大模型服务</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            通用 OpenAI 兼容协议，用于创作提示词一键润色、拆剧本和导演台文本对话。看图反推、原片提示词与复刻台拉片请到「VLM 视觉模型」单独配置。魔搭会扣除账户魔粒；不想扣费请用硅基流动免费 7B 或本机 Ollama。
+            通用 OpenAI 兼容协议，用于创作提示词一键润色、拆剧本和导演台文本对话。名称可看图的多模态模型（如 gpt-5.6-sol）会在工坊写稿时带参考图调用；看图反推、原片提示词与复刻台拉片请到「VLM 视觉模型」单独配置。魔搭会扣除账户魔粒；不想扣费请用硅基流动免费 7B 或本机 Ollama。
           </p>
         </div>
       </div>
@@ -369,6 +382,19 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                   ? "展开下拉框可看到本机已安装模型，名称须与服务端完全一致。"
                   : "展开下拉框可看到推荐或已拉取的模型，也可直接输入模型 ID。"}
             </p>
+            {modelLooksLikeVision(model) ? (
+              <Alert
+                className="mt-2"
+                type="info"
+                showIcon
+                message="工坊写稿会带参考图调用此模型"
+                description="当前名称可识别为多模态。剧集工坊生成 H3 提示词时会把角色卡、场景卡和三联一并送给该模型，不必再抄到 VLM 页。"
+              />
+            ) : (
+              <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
+                当前模型名称不能看图。工坊写稿不会发送 image_url，最多把参考图地址当文字；7B 等纯文本模型也是如此。
+              </p>
+            )}
           </div>
 
           <div>
@@ -447,7 +473,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                   ? "魔搭不再提供独立于账户余额的免费次数池。调用会扣魔粒；工作台已对 DeepSeek-V4 关闭思考模式以降低单次消耗，但无法阻止扣费。"
                   : selectedPreset === "siliconflow"
                     ? "会拉取硅基流动全部模型，再用名称或标记里的 Free 文字筛选免费项。Qwen2.5-7B-Instruct 等免费模型不扣魔搭魔粒。"
-                    : "请按所选平台的官方文档配置 Base URL、模型名和 API Key。拉取列表只验证目录接口；「测试连接」会真实调用当前模型。GPT-5 / R1 等推理模型或中转站首字可能需要几十秒，请等按钮转完（最多 90 秒）。"}
+                    : "请按所选平台的官方文档配置 Base URL、模型名和 API Key。拉取列表只验证目录接口；「测试连接」会问一句「你是什么模型」，模型有回复即成功。GPT-5 测试时关闭思考。部分中转站会拦截过短探测，列表能拉到但对话失败时请以测试结果为准。"}
             </p>
           </div>
         </aside>

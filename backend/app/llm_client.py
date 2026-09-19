@@ -7,6 +7,7 @@ import json
 import re
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any
 from urllib.parse import urlparse
 import requests
@@ -14,7 +15,137 @@ import requests
 LLM_CONNECT_TIMEOUT_SECONDS = 20.0
 LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
 LLM_TEST_TIMEOUT_SECONDS = 90.0
-LLM_TEST_MAX_TOKENS = 256
+LLM_TEST_MAX_TOKENS = 128
+LLM_TEST_USER_PROMPT = (
+    "你好，你是什么模型？请用一两句话介绍自己，并确认可以正常进行中文对话。"
+)
+
+_LLM_STREAM_DELTA: ContextVar[Callable[[str, str], None] | None] = ContextVar(
+    "llm_stream_delta",
+    default=None,
+)
+_LLM_STREAM_STATUS: ContextVar[Callable[[dict[str, Any]], None] | None] = ContextVar(
+    "llm_stream_status",
+    default=None,
+)
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+_THINK_CLOSE_ALT = "/think"
+
+
+class LlmStreamHook:
+    """Temporarily attach live reasoning/content callbacks for the current task."""
+
+    def __init__(
+        self,
+        *,
+        on_delta: Callable[[str, str], None] | None = None,
+        on_status: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        self._on_delta = on_delta
+        self._on_status = on_status
+        self._delta_token = None
+        self._status_token = None
+
+    def __enter__(self) -> LlmStreamHook:
+        self._delta_token = _LLM_STREAM_DELTA.set(self._on_delta)
+        self._status_token = _LLM_STREAM_STATUS.set(self._on_status)
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        if self._delta_token is not None:
+            _LLM_STREAM_DELTA.reset(self._delta_token)
+        if self._status_token is not None:
+            _LLM_STREAM_STATUS.reset(self._status_token)
+
+
+def emit_llm_stream_status(phase: str, message: str, *, reset: bool = False) -> None:
+    hook = _LLM_STREAM_STATUS.get()
+    if hook is None:
+        return
+    hook({"phase": phase, "message": message, "reset": reset})
+
+
+def _maybe_partial_tag(buffer: str, tag: str) -> bool:
+    lowered = buffer.lower()
+    for size in range(1, len(tag)):
+        if lowered.endswith(tag[:size]):
+            return True
+    return False
+
+
+class ThinkStreamSplitter:
+    """Split streamed model text into reasoning vs visible content.
+
+    Handles ``<think>…</think>`` and the truncated ``/think`` closer used by
+    some relays. Incomplete tags stay buffered across chunks.
+    """
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._in_think = False
+
+    def feed(self, chunk: str) -> list[tuple[str, str]]:
+        if not chunk:
+            return []
+        self._buffer += chunk
+        out: list[tuple[str, str]] = []
+        while self._buffer:
+            if self._in_think:
+                close_at, close_len = self._next_close(self._buffer)
+                if close_at < 0:
+                    if _maybe_partial_tag(self._buffer, _THINK_CLOSE) or _maybe_partial_tag(self._buffer, _THINK_CLOSE_ALT):
+                        keep = max(len(_THINK_CLOSE), len(_THINK_CLOSE_ALT))
+                        if len(self._buffer) > keep:
+                            out.append(("reasoning", self._buffer[:-keep]))
+                            self._buffer = self._buffer[-keep:]
+                        break
+                    out.append(("reasoning", self._buffer))
+                    self._buffer = ""
+                    break
+                if close_at:
+                    out.append(("reasoning", self._buffer[:close_at]))
+                self._buffer = self._buffer[close_at + close_len:]
+                self._in_think = False
+                continue
+            open_at = self._buffer.lower().find(_THINK_OPEN)
+            if open_at < 0:
+                if _maybe_partial_tag(self._buffer, _THINK_OPEN):
+                    keep = len(_THINK_OPEN)
+                    if len(self._buffer) > keep:
+                        out.append(("content", self._buffer[:-keep]))
+                        self._buffer = self._buffer[-keep:]
+                    break
+                out.append(("content", self._buffer))
+                self._buffer = ""
+                break
+            if open_at:
+                out.append(("content", self._buffer[:open_at]))
+            self._buffer = self._buffer[open_at + len(_THINK_OPEN):]
+            self._in_think = True
+        return [(kind, text) for kind, text in out if text]
+
+    def flush(self) -> list[tuple[str, str]]:
+        if not self._buffer:
+            return []
+        kind = "reasoning" if self._in_think else "content"
+        text = self._buffer
+        self._buffer = ""
+        return [(kind, text)] if text else []
+
+    @staticmethod
+    def _next_close(buffer: str) -> tuple[int, int]:
+        lowered = buffer.lower()
+        close_at = lowered.find(_THINK_CLOSE)
+        alt_at = lowered.find(_THINK_CLOSE_ALT)
+        candidates: list[tuple[int, int]] = []
+        if close_at >= 0:
+            candidates.append((close_at, len(_THINK_CLOSE)))
+        if alt_at >= 0:
+            candidates.append((alt_at, len(_THINK_CLOSE_ALT)))
+        if not candidates:
+            return -1, 0
+        return min(candidates, key=lambda item: item[0])
 
 
 class LlmError(RuntimeError):
@@ -61,6 +192,15 @@ _FILTER_HINTS = (
     "content_filter", "content management", "content_policy", "moderation",
     "responsibleai", "unsafe content", "违规", "敏感内容",
 )
+_SHORT_INPUT_PROBE_HINTS = (
+    "illegal short-input",
+    "short-input distillation",
+    "heartbeat probing",
+    "heartbeat probe",
+    "distillation or heartbeat",
+    "短输入",
+    "心跳探测",
+)
 
 
 def looks_like_llm_billing(text: str | None) -> bool:
@@ -87,6 +227,25 @@ def looks_like_llm_content_filter(text: str | None) -> bool:
     return _hint_in(text, _FILTER_HINTS)
 
 
+def looks_like_short_input_probe(text: str | None) -> bool:
+    return _hint_in(text, _SHORT_INPUT_PROBE_HINTS)
+
+
+def looks_like_gateway_timeout(text: str | None, status: int | None = None) -> bool:
+    if status == 504:
+        return True
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    return (
+        "gateway time-out" in lowered
+        or "gateway timeout" in lowered
+        or "504 gateway" in lowered
+        or (status in {502, 503} and ("<html" in lowered or "nginx" in lowered))
+    )
+
+
 def append_upstream_log(summary: str, upstream: str | None) -> str:
     snippet = (upstream or "").strip()[:400]
     if not snippet:
@@ -103,6 +262,35 @@ def format_llm_billing_error(*, upstream: str, status: int | None = None, action
         f"大模型上游余额不足或欠费{http}，请到供应商控制台充值后再试。",
         upstream,
     )
+
+
+def format_llm_gateway_timeout_error(*, upstream: str = "", status: int | None = None) -> str:
+    del upstream
+    http = f"（HTTP {status}）" if status else ""
+    return (
+        f"大模型中转站网关超时{http}。"
+        "当前模型写长提示词经常超过中转站等待时间（常见 60 秒）。"
+        "请稍后重试，或在管理设置换成响应更快的对话模型。"
+    )
+
+
+def format_llm_short_input_probe_error(*, upstream: str, status: int | None = None) -> str:
+    http = f"（HTTP {status}）" if status else ""
+    return append_upstream_log(
+        f"大模型中转站拦截了过短的探测请求{http}。"
+        "拉取模型列表成功只说明目录接口可用，不代表可以对话。"
+        "请再点一次「测试连接」。若仍失败，该模型的对话通道可能被上游关闭。",
+        upstream,
+    )
+
+
+def summarize_llm_test_reply(reply: str, *, limit: int = 80) -> str:
+    snippet = " ".join((reply or "").split())
+    if not snippet:
+        return "连接成功，模型已正常完成一次创作推理。"
+    if len(snippet) > limit:
+        snippet = snippet[:limit].rstrip() + "…"
+    return f"连接成功，模型已正常完成一次创作推理：{snippet}"
 
 
 def repair_utf8_mojibake(text: str) -> str:
@@ -151,6 +339,8 @@ def is_upstream_llm_failure(error: BaseException | str) -> bool:
         or looks_like_llm_auth(text)
         or looks_like_llm_model_missing(text)
         or looks_like_llm_content_filter(text)
+        or looks_like_short_input_probe(text)
+        or looks_like_gateway_timeout(text)
         or "上游返回" in text
     )
 
@@ -161,6 +351,10 @@ def raise_llm_http_error(*, action: str, status: int, upstream: str) -> None:
         raise LlmBillingError(format_llm_billing_error(upstream=msg, status=status, action=action))
     if looks_like_llm_content_filter(msg):
         raise LlmError(append_upstream_log(f"大模型拒绝了本次内容（HTTP {status}），请修改后再试。", msg))
+    if looks_like_short_input_probe(msg):
+        raise LlmError(format_llm_short_input_probe_error(upstream=msg, status=status))
+    if looks_like_gateway_timeout(msg, status):
+        raise LlmTemporaryError(format_llm_gateway_timeout_error(upstream=msg, status=status))
     if status in {401, 403} or looks_like_llm_auth(msg):
         detail = f"大模型鉴权失败（HTTP {status}），请检查管理设置中的 API Key。"
         if "令牌" in msg or "验证不正确" in msg:
@@ -247,6 +441,17 @@ def normalize_api_key(api_key: str | None) -> str | None:
 
 def is_zhipu_base_url(base_url: str) -> bool:
     return catalog_provider_key(base_url) == "zhipu"
+
+
+def is_openai_reasoning_chat_model(model: str) -> bool:
+    """GPT-5 / o-series Chat Completions reject temperature and max_tokens."""
+    lowered = (model or "").strip().lower()
+    if not lowered:
+        return False
+    if "gpt-5" in lowered:
+        return True
+    name = lowered.rsplit("/", 1)[-1]
+    return name.startswith(("o1", "o3", "o4"))
 
 
 def looks_like_zhipu_api_key(api_key: str) -> bool:
@@ -651,19 +856,28 @@ class OpenAICompatibleClient:
         timeout: float | tuple[float, float] = 60.0,
         stream: bool = False,
         on_chunk: Callable[[str], None] | None = None,
+        on_delta: Callable[[str, str], None] | None = None,
+        reasoning_effort: str | None = None,
     ) -> str:
         url = f"{self.base_url}/chat/completions"
         connect_timeout, read_timeout = normalize_http_timeout(timeout)
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+        }
+        if is_openai_reasoning_chat_model(model):
+            # 官方 GPT-5 / o 系列不接受 temperature、max_tokens；中转站常把这类 400
+            # 包装成 short-input / heartbeat probing。
+            payload["max_completion_tokens"] = max_tokens
+            if reasoning_effort:
+                payload["reasoning_effort"] = reasoning_effort
+        else:
+            payload["temperature"] = temperature
+            payload["max_tokens"] = max_tokens
             # 关闭 Qwen3 / Qwen2.5 思考模式（enable_thinking=False），
             # 不支持此参数的模型会忽略该字段，不影响兼容性
-            "enable_thinking": False,
-            **self._thinking_control_fields(model),
-        }
+            payload["enable_thinking"] = False
+            payload.update(self._thinking_control_fields(model))
         if stream:
             payload["stream"] = True
         try:
@@ -694,6 +908,7 @@ class OpenAICompatibleClient:
                     response,
                     stream=True,
                     on_chunk=on_chunk,
+                    on_delta=on_delta or _LLM_STREAM_DELTA.get(),
                     read_timeout=read_timeout,
                 )
             else:
@@ -721,6 +936,7 @@ class OpenAICompatibleClient:
         *,
         stream: bool,
         on_chunk: Callable[[str], None] | None = None,
+        on_delta: Callable[[str, str], None] | None = None,
         read_timeout: float | None = None,
     ) -> str:
         if response.status_code >= 400:
@@ -733,7 +949,7 @@ class OpenAICompatibleClient:
         if stream:
             try:
                 response.encoding = "utf-8"
-                return self._read_sse_chat(response, on_chunk=on_chunk)
+                return self._read_sse_chat(response, on_chunk=on_chunk, on_delta=on_delta)
             except requests.exceptions.RequestException as exc:
                 # urllib3 wraps a streaming ReadTimeoutError in ConnectionError
                 # after the response headers have already been received.  Treat
@@ -757,10 +973,13 @@ class OpenAICompatibleClient:
         self,
         response: requests.Response,
         on_chunk: Callable[[str], None] | None = None,
+        on_delta: Callable[[str, str], None] | None = None,
     ) -> str:
         pieces: list[str] = []
         last_emit = 0.0
         last_n = 0
+        splitter = ThinkStreamSplitter()
+        delta_hook = on_delta or _LLM_STREAM_DELTA.get()
 
         def notify(force: bool = False) -> None:
             nonlocal last_emit, last_n
@@ -774,6 +993,16 @@ class OpenAICompatibleClient:
             last_emit = now
             last_n = n
             on_chunk(text)
+
+        def emit_parts(parts: list[tuple[str, str]]) -> None:
+            for kind, piece in parts:
+                if not piece:
+                    continue
+                if delta_hook is not None:
+                    delta_hook(kind, piece)
+                if kind == "content":
+                    pieces.append(piece)
+                    notify()
 
         for raw_line in response.iter_lines(decode_unicode=False):
             if raw_line is None:
@@ -796,10 +1025,12 @@ class OpenAICompatibleClient:
             if not isinstance(data, dict):
                 continue
             self._raise_if_embedded_stream_error(data)
-            delta = self._stream_delta_text(data)
-            if delta:
-                pieces.append(delta)
-                notify()
+            reasoning, content = self._stream_delta_parts(data)
+            if reasoning and delta_hook is not None:
+                delta_hook("reasoning", reasoning)
+            if content:
+                emit_parts(splitter.feed(content))
+        emit_parts(splitter.flush())
         if not pieces:
             raise LlmError("大模型返回的内容为空")
         notify(force=True)
@@ -815,27 +1046,56 @@ class OpenAICompatibleClient:
             raise LlmAuthError(append_upstream_log("大模型鉴权失败，请检查管理设置中的 API Key。", embedded_error))
         if looks_like_llm_content_filter(embedded_error):
             raise LlmError(append_upstream_log("大模型拒绝了本次内容，请修改后再试。", embedded_error))
+        if looks_like_short_input_probe(embedded_error):
+            raise LlmError(format_llm_short_input_probe_error(upstream=embedded_error))
         raise LlmError(append_upstream_log("大模型返回错误。", embedded_error))
 
     @staticmethod
-    def _stream_delta_text(data: dict[str, Any]) -> str:
+    def _coerce_stream_text(value: Any) -> str:
+        if value is None or isinstance(value, (bool, int, float)):
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return str(value.get("content") or value.get("text") or "")
+        if isinstance(value, list):
+            parts = [OpenAICompatibleClient._coerce_stream_text(item) for item in value]
+            return "".join(part for part in parts if part)
+        return str(value)
+
+    @classmethod
+    def _stream_delta_parts(cls, data: dict[str, Any]) -> tuple[str, str]:
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
-            return ""
+            return "", ""
         first = choices[0]
         if not isinstance(first, dict):
-            return ""
+            return "", ""
         delta = first.get("delta")
-        if isinstance(delta, dict):
-            content = delta.get("content")
-            if content:
-                return str(content)
-        message = first.get("message")
-        if isinstance(message, dict) and message.get("content"):
-            return str(message["content"])
-        if first.get("text"):
-            return str(first["text"])
-        return ""
+        if not isinstance(delta, dict):
+            delta = {}
+        reasoning = "".join(
+            cls._coerce_stream_text(delta.get(key))
+            for key in ("reasoning_content", "reasoning", "thinking")
+        )
+        content = cls._coerce_stream_text(delta.get("content"))
+        if not content:
+            message = first.get("message")
+            if isinstance(message, dict):
+                if not reasoning:
+                    reasoning = "".join(
+                        cls._coerce_stream_text(message.get(key))
+                        for key in ("reasoning_content", "reasoning", "thinking")
+                    )
+                content = cls._coerce_stream_text(message.get("content"))
+            if not content:
+                content = cls._coerce_stream_text(first.get("text"))
+        return reasoning, content
+
+    @classmethod
+    def _stream_delta_text(cls, data: dict[str, Any]) -> str:
+        _reasoning, content = cls._stream_delta_parts(data)
+        return content
 
     @staticmethod
     def _thinking_control_fields(model: str) -> dict[str, Any]:
@@ -885,6 +1145,8 @@ class OpenAICompatibleClient:
         embedded_error = _payload_error_text(data)
         if looks_like_llm_billing(embedded_error):
             raise LlmBillingError(format_llm_billing_error(upstream=embedded_error, action="对话推理"))
+        if looks_like_short_input_probe(embedded_error):
+            raise LlmError(format_llm_short_input_probe_error(upstream=embedded_error))
 
         # 1. 标准 OpenAI 格式: data["choices"][0]["message"]["content"]
         choices = data.get("choices")
@@ -931,6 +1193,8 @@ class OpenAICompatibleClient:
                 raise LlmBillingError(format_llm_billing_error(upstream=embedded_error, action="对话推理"))
             if looks_like_llm_auth(embedded_error):
                 raise LlmAuthError(append_upstream_log("大模型鉴权失败，请检查管理设置中的 API Key。", embedded_error))
+            if looks_like_short_input_probe(embedded_error):
+                raise LlmError(format_llm_short_input_probe_error(upstream=embedded_error))
             raise LlmError(append_upstream_log("大模型返回错误。", embedded_error))
 
         # 5. 若无法解析，输出清晰响应摘要以便排查
@@ -947,16 +1211,20 @@ class OpenAICompatibleClient:
                 "请把模型名称改成与 ollama list / 平台目录完全一致。"
             )
         messages = [
-            {"role": "user", "content": "你好，请仅回复两个字：收到。"}
+            {"role": "user", "content": LLM_TEST_USER_PROMPT},
         ]
         try:
-            # 推理模型会先消耗思考 token；8 个 completion token 经常写不出可见回复。
+            # 一句略长的身份询问即可；有回复就算连通。GPT-5 测试时关掉思考，避免空等。
+            extra: dict[str, Any] = {}
+            if is_openai_reasoning_chat_model(model):
+                extra["reasoning_effort"] = "none"
             return self.chat_completion(
                 messages,
                 model=model,
-                temperature=0.1,
+                temperature=0.7,
                 max_tokens=LLM_TEST_MAX_TOKENS,
                 timeout=timeout,
+                **extra,
             )
         except LlmTemporaryError as error:
             if is_llm_timeout_error(error):
@@ -1015,6 +1283,7 @@ class OpenAICompatibleClient:
         media_type: str = "video",
         workflow_name: str | None = None,
         skill_id: str | None = None,
+        skill_pack_id: str | None = None,
         reference_count: int = 0,
         workflow_id: str | None = None,
         model: str,
@@ -1030,6 +1299,7 @@ class OpenAICompatibleClient:
             reference_count=reference_count,
             media_type=media_type,
             workflow_name=workflow_name,
+            skill_pack_id=skill_pack_id,
         )
         user_content = f"原始创意需求：{clean_prompt}"
         if workflow_name:

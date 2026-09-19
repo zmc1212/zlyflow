@@ -1,13 +1,21 @@
-// 角色专属工作区（板块一：角色基础头像 + 板块二：身份与造型设定）——
-// 逐行复刻自 AssetsLibraryPane.vue 模板 A 区（v-if="selectedAsset.kind === 'character'"）。
-// 原版通过 v-model 直接深改 selectedAsset 并由深度 watch 触发自动保存；
-// React 中改为 onFieldChange / onExtraChange / onIdentityChange 回调上抛，由父组件统一更新状态与自动保存。
-import { Button, Input, Popconfirm, Select, Space, message } from "antd"
-import { Maximize2, Plus, Shirt, Sparkles, Trash2, User } from "lucide-react"
-import type { Director2Asset } from "../../api"
+// 角色专属工作区（角色定义 + 参考音 + 身份与造型设定板）——
+// 原片参考条仍可锁真人脸；造型图为 16:9 设定板，不再单独生成 1:1 头像。
+import { Button, Input, Popconfirm, Select, Slider, Space, Upload, message } from "antd"
+import { Maximize2, Mic, Plus, Shirt, Sparkles, Trash2, User } from "lucide-react"
+import { useEffect, useState } from "react"
+import { listVoiceBank, type Director2Asset } from "../../api"
 import { hasSourceReferences } from "../../asset-source-references"
+import { groupedVoicePresetOptions, type VoicePreset } from "../../voice-bank"
+import {
+  INDEXTTS_EMOTIONS,
+  MAX_VOICE_AUDIO_BYTES,
+  VOICE_AUDIO_ACCEPT,
+  hasRefAudio,
+  isVoiceAudioFile,
+  voiceOf,
+} from "../../voice-profile"
 import { useMediaPreview } from "../../media-preview"
-import { copyText, getAssetGradient, type AssetIdentity } from "./shared"
+import { copyText, type AssetIdentity } from "./shared"
 import AssetSourceReferenceStrip from "./AssetSourceReferenceStrip"
 
 interface CharacterWorkspaceProps {
@@ -15,9 +23,7 @@ interface CharacterWorkspaceProps {
   onFieldChange: (patch: Partial<Director2Asset>) => void
   onExtraChange: (patch: Record<string, any>) => void
   onIdentityChange: (idx: number, patch: Record<string, any>) => void
-  generatingAvatar: boolean
   generatingIdentityId: string | null
-  onGenerateAvatar: () => void
   onGenerateIdentity: (ident: AssetIdentity) => void
   onRemoveIdentity: (idx: number) => void
   onOpenAddIdentity: () => void
@@ -26,6 +32,25 @@ interface CharacterWorkspaceProps {
   onUploadSourceRefs: (files: File[]) => void
   onRemoveSourceRef: (refId: string) => void
   onInferSourcePrompts?: () => void
+  uploadingVoice?: boolean
+  previewingVoice?: boolean
+  applyingVoicePreset?: boolean
+  onUploadVoice?: (file: File) => void
+  onApplyVoicePreset?: (presetId: string) => void
+  onDeleteVoice?: () => void
+  onPreviewVoice?: () => void
+  extractingVoice?: boolean
+  onExtractVoiceFromShot?: () => void
+}
+
+function useVoiceBank() {
+  const [voices, setVoices] = useState<VoicePreset[]>([])
+  useEffect(() => {
+    void listVoiceBank()
+      .then((payload) => setVoices(payload.voices || []))
+      .catch(() => setVoices([]))
+  }, [])
+  return voices
 }
 
 const ROLE_POSITION_OPTIONS = [
@@ -90,9 +115,7 @@ export default function CharacterWorkspace({
   onFieldChange,
   onExtraChange,
   onIdentityChange,
-  generatingAvatar,
   generatingIdentityId,
-  onGenerateAvatar,
   onGenerateIdentity,
   onRemoveIdentity,
   onOpenAddIdentity,
@@ -101,80 +124,39 @@ export default function CharacterWorkspace({
   onUploadSourceRefs,
   onRemoveSourceRef,
   onInferSourcePrompts,
+  uploadingVoice,
+  previewingVoice,
+  applyingVoicePreset,
+  onUploadVoice,
+  onApplyVoicePreset,
+  onDeleteVoice,
+  onPreviewVoice,
+  extractingVoice,
+  onExtractVoiceFromShot,
 }: CharacterWorkspaceProps) {
   const { openMediaPreview } = useMediaPreview()
-  const avatarUrl = asset.extra?.avatar_url || asset.image_url
-
-  function resetAvatarPrompt() {
-    onExtraChange({
-      avatar_prompt: `${asset.name}，面部肖像特写，五官分明，眼神清澈坚毅，中国古代少年，极简中性灰色背景，柔和电影级布光，8k`,
-    })
-    message.success("已重置为推荐特写提示词")
-  }
+  const voice = voiceOf(asset.extra)
+  const bound = hasRefAudio(asset.extra)
+  const voiceBank = useVoiceBank()
 
   return (
     <div className="character-workspace-layout">
-      {/* 板块一：角色基础头像区 (PortraitBlock 1:1) */}
-      <div className="section-card portrait-section-card">
+      <div className="section-card character-definition-card">
         <div className="section-header">
           <div className="section-title-wrap">
             <div className="section-icon-badge avatar-badge">
               <User size={16} />
             </div>
             <div>
-              <h4 className="section-title">角色基础头像 (Portrait 1:1)</h4>
+              <h4 className="section-title">角色定义</h4>
               <p className="section-desc">
-                用于剧集人物列表、对话头像、角色演员表与特写识别，1:1 正方形纯净背景特写。
+                填写姓名、五官与身形。有原片截图时生成设定板会按截图锁脸和服装。
               </p>
             </div>
           </div>
         </div>
 
-        <div className="portrait-content-grid">
-          {/* 左侧：1:1 头像预览与生成按钮 */}
-          <div className="portrait-preview-col">
-            <div className="avatar-box">
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  className="avatar-img-view"
-                  alt={`${asset.name} 头像`}
-                  onClick={() => openMediaPreview({ src: avatarUrl, title: `${asset.name} 头像` })}
-                />
-              ) : (
-                <div className="avatar-placeholder" style={getAssetGradient(asset.name)}>
-                  <span className="placeholder-char">{asset.name?.slice(0, 1) || "?"}</span>
-                  <span className="placeholder-tip">暂无头像</span>
-                </div>
-              )}
-
-              {avatarUrl ? (
-                <button
-                  type="button"
-                  className="float-view-btn"
-                  title="放大查看"
-                  aria-label={`放大查看${asset.name}头像`}
-                  onClick={() => openMediaPreview({ src: avatarUrl, title: `${asset.name} 头像` })}
-                >
-                  <Maximize2 size={13} />
-                </button>
-              ) : null}
-            </div>
-
-            <div className="avatar-actions">
-              <Button
-                type="primary"
-                className="avatar-gen-btn"
-                loading={generatingAvatar}
-                icon={<Sparkles size={15} />}
-                onClick={onGenerateAvatar}
-              >
-                {asset.extra?.avatar_url || asset.image_url ? "重新生成头像" : "✨ 生成头像"}
-              </Button>
-                {hasSourceReferences(asset) ? (
-                <span className="avatar-ref-hint">将按原片截图锁五官和服装，不跟旧提示词加衣服</span>
-              ) : null}
-            </div>
+        <div className="character-definition-body">
             <AssetSourceReferenceStrip
               asset={asset}
               uploading={uploadingSourceRef}
@@ -183,39 +165,6 @@ export default function CharacterWorkspace({
               onRemove={onRemoveSourceRef}
               onInferPrompts={onInferSourcePrompts}
             />
-          </div>
-
-          {/* 右侧：头像生图提示词与容貌小传 */}
-          <div className="portrait-prompt-col">
-            <div className="prompt-field-wrap">
-              <div className="field-title-bar">
-                <span className="field-label">
-                  <Sparkles size={14} className="text-purple" />
-                  头像生图特写提示词 (Avatar Visual Prompt)
-                </span>
-                <Space>
-                  <Button type="link" size="small" onClick={resetAvatarPrompt}>
-                    重置为推荐
-                  </Button>
-                  <Button type="link" size="small" onClick={() => copyText(asset.extra?.avatar_prompt)}>
-                    复制 Prompt
-                  </Button>
-                </Space>
-              </div>
-              {asset.extra ? (
-                <Input.TextArea
-                  value={asset.extra.avatar_prompt}
-                  rows={3}
-                  placeholder="描述面容特征、发型、眼神气质、特写镜头感..."
-                  className="custom-textarea"
-                  onChange={(event) => onExtraChange({ avatar_prompt: event.target.value })}
-                />
-              ) : null}
-              <span className="field-hint">
-                💡 头像将强化人物五官和肖像眼神表现，生成 1024x1024 高清特写。有原片截图时会优先按参考图锁身份。
-              </span>
-            </div>
-
 
             <div className="char-definition-form">
               <div className="def-form-title">
@@ -384,7 +333,108 @@ export default function CharacterWorkspace({
                 </div>
               </div>
             </div>
+        </div>
+      </div>
 
+      <div className="section-card voice-section-card">
+        <div className="section-header">
+          <div className="section-title-wrap">
+            <div className="section-icon-badge voice-badge">
+              <Mic size={16} />
+            </div>
+            <div>
+              <h4 className="section-title">角色参考音</h4>
+              <p className="section-desc">
+                可先选内置短剧声线，上传一句干净口播，或从成片框选该角色单独说话的片段。配音台用 IndexTTS 克隆。旁白角色同样适用。
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="voice-profile-grid">
+          <div className="voice-bind-col">
+            {bound ? (
+              <audio className="voice-audio" src={voice.ref_audio_url} controls preload="metadata" />
+            ) : (
+              <p className="voice-unbound">尚未绑定参考音，可先选内置短剧声线。</p>
+            )}
+            <Select
+              placeholder="选用内置短剧声线"
+              value={voice.preset_id || undefined}
+              options={groupedVoicePresetOptions(voiceBank)}
+              onChange={(value) => { if (value) onApplyVoicePreset?.(value) }}
+              loading={applyingVoicePreset}
+              disabled={!onApplyVoicePreset}
+              showSearch
+              optionFilterProp="label"
+              size="small"
+              style={{ width: "100%" }}
+            />
+            <Space wrap>
+              <Upload
+                accept={VOICE_AUDIO_ACCEPT}
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  if (!isVoiceAudioFile(file)) {
+                    message.warning("请上传 wav / mp3 / m4a / flac / ogg")
+                    return Upload.LIST_IGNORE
+                  }
+                  if (file.size > MAX_VOICE_AUDIO_BYTES) {
+                    message.warning("参考音不能超过 20 MB")
+                    return Upload.LIST_IGNORE
+                  }
+                  onUploadVoice?.(file)
+                  return false
+                }}
+              >
+                <Button loading={uploadingVoice}>{bound ? "更换参考音" : "上传参考音"}</Button>
+              </Upload>
+              <Button loading={extractingVoice} onClick={() => onExtractVoiceFromShot?.()}>
+                从成片提取
+              </Button>
+              {bound ? (
+                <Popconfirm title="删除角色参考音？" okText="删除" cancelText="取消" onConfirm={() => onDeleteVoice?.()}>
+                  <Button danger>删除</Button>
+                </Popconfirm>
+              ) : null}
+              <Button loading={previewingVoice} disabled={!bound} onClick={() => onPreviewVoice?.()}>
+                试听声线
+              </Button>
+            </Space>
+            {voice.preview_url ? (
+              <audio className="voice-audio" src={voice.preview_url} controls preload="metadata" />
+            ) : null}
+          </div>
+          <div className="voice-director-col">
+            <div className="def-field">
+              <label className="def-label">默认情绪</label>
+              <Select
+                value={voice.default_emotion}
+                size="small"
+                style={{ width: "100%" }}
+                options={INDEXTTS_EMOTIONS.map((item) => ({ value: item.id, label: item.label }))}
+                onChange={(value) => onExtraChange({ voice: { ...voice, default_emotion: value } })}
+              />
+            </div>
+            <div className="def-field">
+              <label className="def-label">情绪强度 {voice.emo_alpha.toFixed(2)}</label>
+              <Slider
+                min={0}
+                max={1}
+                step={0.05}
+                value={voice.emo_alpha}
+                onChange={(value) => onExtraChange({ voice: { ...voice, emo_alpha: value } })}
+              />
+            </div>
+            <div className="def-field">
+              <label className="def-label">语速 {voice.duration_factor.toFixed(2)}x</label>
+              <Slider
+                min={0.5}
+                max={2}
+                step={0.05}
+                value={voice.duration_factor}
+                onChange={(value) => onExtraChange({ voice: { ...voice, duration_factor: value } })}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -404,7 +454,7 @@ export default function CharacterWorkspace({
                 </span>
               </div>
               <p className="section-desc">
-                角色随剧情经历不同时期与社会身份。每套造型具备独立立绘形象与服装 Prompt，用于分镜头精准视觉赋予。
+                每套造型生成一张 16:9 设定板（左三视图、右上头型、右下服装细节），用于分镜头锁脸锁装。
               </p>
             </div>
           </div>
@@ -459,7 +509,7 @@ export default function CharacterWorkspace({
                     ) : (
                       <div className="ident-img-empty">
                         <Shirt size={28} className="empty-shirt-icon" />
-                        <span className="empty-shirt-text">尚未生成造型图</span>
+                        <span className="empty-shirt-text">尚未生成设定板</span>
                       </div>
                     )}
 
@@ -483,7 +533,7 @@ export default function CharacterWorkspace({
                     icon={<Sparkles size={14} />}
                     onClick={() => onGenerateIdentity(ident)}
                   >
-                    {ident.image_url ? "重新生成造型图" : "✨ 生成造型图"}
+                    {ident.image_url ? "重新生成设定板" : "✨ 生成设定板"}
                   </Button>
                   {hasSourceReferences(asset) ? (
                     <span className="avatar-ref-hint">将按原片截图的服装生成，忽略下方旧衣装描述</span>

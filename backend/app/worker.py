@@ -8,6 +8,7 @@ from pathlib import Path, PureWindowsPath
 
 from .comfy_service import ComfyCancelled, ComfyQueuePrompt, ComfyService, ComfyUnavailable
 from .config import settings
+from .gpu_runtime import idle_run, occupy_gpu
 from .grs_client import (
     FAILED_STATUSES, SUCCESS_STATUSES, GrsClient, GrsConnectionError, GrsError, GrsTemporaryError,
     with_grs_billing_caution,
@@ -16,7 +17,7 @@ from .grs_provider import GrsProviderService
 from .models import JobMode, JobStatus
 from .resource_storage import ResourceStorage, resource_object_url
 from .storage import JobStore
-from .workflow_registry import grs_request_size, is_h3_workflow, is_image_workflow
+from .workflow_registry import grs_request_size, is_h3_workflow, is_image_workflow, is_local_comfy_job
 
 
 GRS_PROGRESS_HORIZON_SECONDS = 120.0
@@ -113,7 +114,7 @@ class JobWorker:
                     self.store.with_statuses,
                     JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.INTERRUPTED,
                 )
-                if not any(is_h3_workflow(job["mode"]) for job in jobs):
+                if not any(is_local_comfy_job(job["mode"]) for job in jobs):
                     continue
                 recovered = await asyncio.to_thread(self.recover)
                 for job_id in recovered:
@@ -209,7 +210,7 @@ class JobWorker:
         active_jobs = self.store.with_statuses(JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.INTERRUPTED)
         supported_jobs = []
         for job in active_jobs:
-            if is_h3_workflow(job["mode"]):
+            if is_local_comfy_job(job["mode"]):
                 supported_jobs.append(job)
                 continue
             if is_image_workflow(job["mode"]):
@@ -274,18 +275,20 @@ class JobWorker:
         """Ask ComfyUI to unload models after the last local video job.
 
         Consecutive queued H3 jobs keep models loaded. Image/GRS jobs do not
-        occupy ComfyUI VRAM and are ignored here.
+        occupy ComfyUI VRAM and are ignored here. Skip `/free` while IndexTTS
+        or another Comfy job holds `occupy_gpu`, so director2 H3/TTS cannot be
+        unloaded mid-run by the generate-page worker.
         """
         if not self.queue.empty() or self.queued_job_ids:
             return
         jobs = await asyncio.to_thread(self.store.with_statuses, JobStatus.QUEUED, JobStatus.RUNNING)
-        if any(is_h3_workflow(job["mode"]) for job in jobs):
+        if any(is_local_comfy_job(job["mode"]) for job in jobs):
             return
         free = getattr(self.comfy, "free_resources", None)
         if not callable(free):
             return
         try:
-            await asyncio.to_thread(free)
+            await asyncio.to_thread(idle_run, free)
         except Exception:
             return
 
@@ -328,34 +331,38 @@ class JobWorker:
             return self.store.is_cancelled(job_id)
 
         try:
-            if job.get("comfy_prompt_id"):
-                outputs = await asyncio.to_thread(
-                    self.comfy.resume,
-                    JobMode(job["mode"]),
-                    job["prompt"],
-                    job["comfy_prompt_id"],
-                    job.get("comfy_client_id"),
-                    job.get("comfy_phase") or "generation",
-                    job["outputs"],
-                    update_stage,
-                    on_submitted,
-                    save_partial_outputs,
-                    is_cancelled=is_cancelled,
-                )
-            else:
-                outputs = await asyncio.to_thread(
-                    self.comfy.run,
-                    JobMode(job["mode"]),
-                    job["references"],
-                    job["prompt"],
-                    job["negative_prompt"],
-                    job["image_size"],
-                    job["options"],
-                    update_stage,
-                    on_submitted,
-                    save_partial_outputs,
-                    is_cancelled=is_cancelled,
-                )
+            def run_comfy():
+                # Claim the card: IndexTTS /free first, then keep the lock until
+                # this H3/Comfy job finishes so director2 TTS cannot start on VRAM.
+                with occupy_gpu("comfy"):
+                    if job.get("comfy_prompt_id"):
+                        return self.comfy.resume(
+                            JobMode(job["mode"]),
+                            job["prompt"],
+                            job["comfy_prompt_id"],
+                            job.get("comfy_client_id"),
+                            job.get("comfy_phase") or "generation",
+                            job["outputs"],
+                            update_stage,
+                            on_submitted,
+                            save_partial_outputs,
+                            is_cancelled=is_cancelled,
+                            options=job.get("options"),
+                        )
+                    return self.comfy.run(
+                        JobMode(job["mode"]),
+                        job["references"],
+                        job["prompt"],
+                        job["negative_prompt"],
+                        job["image_size"],
+                        job["options"],
+                        update_stage,
+                        on_submitted,
+                        save_partial_outputs,
+                        is_cancelled=is_cancelled,
+                    )
+
+            outputs = await asyncio.to_thread(run_comfy)
             if self.store.is_cancelled(job_id):
                 return
             self.store.clear_comfy_execution(job_id)

@@ -1633,6 +1633,8 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
         response = self.client.get("/api/llm/status")
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["supports_vision"])
+        self.assertFalse(response.json()["authoring_vision"]["attach_images"])
+        self.assertFalse(response.json()["analysis_vision"]["available"])
 
         self.vlm_provider.update({
             "enabled": True,
@@ -1642,6 +1644,8 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
         })
         response = self.client.get("/api/llm/status")
         self.assertTrue(response.json()["supports_vision"])
+        self.assertEqual("vlm", response.json()["authoring_vision"]["source"])
+        self.assertEqual("vlm", response.json()["analysis_vision"]["source"])
 
     def test_analyze_subject_requires_vision_model(self) -> None:
         self.llm_provider.update({
@@ -1871,6 +1875,48 @@ class DirectorProjectApiTests(unittest.TestCase):
         self.assertEqual(updated.status_code, 200, updated.text)
         self.assertEqual(updated.json()["kind"], "shot_replication")
         self.assertEqual(len(updated.json()["payload"]["shots"]), 1)
+
+        deleted = self.client.delete(f"/api/director/projects/{body['id']}", headers=self._headers())
+        self.assertEqual(deleted.status_code, 204)
+
+    def test_hypit_replication_project_crud_and_kind_roundtrip(self) -> None:
+        payload = {
+            "kind": "hypit_replication",
+            "schemaVersion": 1,
+            "title": "Hypit 复刻",
+            "brief": "换产品名",
+            "language": "zh",
+        }
+        created = self.client.post(
+            "/api/director/projects",
+            headers=self._headers(),
+            json={"title": "Hypit 复刻", "payload": payload},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        body = created.json()
+        self.assertEqual(body["kind"], "hypit_replication")
+        self.assertEqual(body["payload"]["brief"], "换产品名")
+        self.assertNotIn("shots", body["payload"])
+        self.assertNotEqual(body["payload"].get("kind"), "shot_replication")
+
+        listed = self.client.get("/api/director/projects")
+        self.assertEqual(listed.status_code, 200)
+        kinds = {item["kind"] for item in listed.json()}
+        self.assertIn("hypit_replication", kinds)
+
+        uploaded = self.client.post(
+            f"/api/director/replications/{body['id']}/source-video",
+            headers=self._headers(),
+            files={"file": ("clip.mp4", b"not-a-video", "video/mp4")},
+        )
+        self.assertEqual(uploaded.status_code, 422, uploaded.text)
+
+        hypit_ops = self.client.post(
+            f"/api/director/hypit/{body['id']}/operations",
+            headers=self._headers(),
+            json={"kind": "analyze_reference_video"},
+        )
+        self.assertEqual(hypit_ops.status_code, 422, hypit_ops.text)
 
         deleted = self.client.delete(f"/api/director/projects/{body['id']}", headers=self._headers())
         self.assertEqual(deleted.status_code, 204)

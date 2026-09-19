@@ -4,7 +4,7 @@ from typing import Annotated, Any, Callable
 
 import json
 
-from fastapi import Depends, File, HTTPException, Path, Query, Request, UploadFile
+from fastapi import Body, Depends, File, HTTPException, Path, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..models import ProjectCreateRequest, ProjectItem, ProjectUpdateRequest
@@ -219,6 +219,17 @@ def register_project_routes(
             raise HTTPException(status_code=404, detail="文档不存在或已被删除")
         return {"status": "ok", "id": doc_id}
 
+    @app.post("/api/projects/{project_id}/documents/{doc_id}/shot-plan", status_code=202, summary="为内容库文档入队镜头规划任务")
+    def enqueue_document_shot_plan(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        doc_id: Annotated[str, Path(description="项目文档 ID")],
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return ProjectDetailService.enqueue_document_shot_plan(project_id, doc_id)
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
     @app.post("/api/projects/{project_id}/documents/{doc_id}/transfer-assets", summary="将文档提取的角色场景道具转入资产库")
     def transfer_assets(project_id: Annotated[str, Path(description="项目 ID")], doc_id: Annotated[str, Path(description="项目文档 ID")], user: dict = Depends(mutating_user)):
         try:
@@ -227,9 +238,15 @@ def register_project_routes(
             raise HTTPException(status_code=400, detail=str(err))
 
     @app.post("/api/projects/{project_id}/documents/{doc_id}/transfer-episodes", summary="将文档提取的分集与分镜同步至剧集工坊")
-    def transfer_episodes(project_id: Annotated[str, Path(description="项目 ID")], doc_id: Annotated[str, Path(description="项目文档 ID")], user: dict = Depends(mutating_user)):
+    def transfer_episodes(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        doc_id: Annotated[str, Path(description="项目文档 ID")],
+        payload: dict | None = Body(default=None),
+        user: dict = Depends(mutating_user),
+    ):
         try:
-            return ProjectDetailService.transfer_episodes_from_document(project_id, doc_id)
+            mode = str((payload or {}).get("mode") or "overwrite")
+            return ProjectDetailService.transfer_episodes_from_document(project_id, doc_id, mode=mode)
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
@@ -321,6 +338,95 @@ def register_project_routes(
         except (ValueError, RuntimeError) as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
 
+    @app.post("/api/projects/{project_id}/assets/{asset_id}/voice", summary="上传角色参考音")
+    async def upload_asset_voice(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        file: UploadFile = File(...),
+        user: dict = Depends(mutating_user),
+    ):
+        content = await file.read()
+        try:
+            return ProjectDetailService.upload_asset_voice(
+                project_id,
+                asset_id,
+                filename=file.filename or "",
+                content=content,
+                content_type=file.content_type or "",
+            )
+        except (ValueError, RuntimeError) as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/assets/{asset_id}/voice/preset", summary="绑定内置短剧声线")
+    def apply_asset_voice_preset(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return ProjectDetailService.apply_asset_voice_preset(
+                project_id,
+                asset_id,
+                str((payload or {}).get("preset_id") or ""),
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.delete("/api/projects/{project_id}/assets/{asset_id}/voice", summary="删除角色参考音")
+    def delete_asset_voice(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return ProjectDetailService.delete_asset_voice(project_id, asset_id)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/assets/{asset_id}/voice/preview", summary="用当前角色声线合成试听")
+    def preview_asset_voice(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return ProjectDetailService.preview_asset_voice(project_id, asset_id, payload or {})
+        except (ValueError, RuntimeError) as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.get("/api/projects/{project_id}/assets/{asset_id}/voice/extract-sources", summary="列出可从成片提取角色参考音的镜头")
+    def list_voice_extract_sources(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        user: dict = Depends(current_user),
+    ):
+        try:
+            return ProjectDetailService.list_voice_extract_sources(project_id, asset_id)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/assets/{asset_id}/voice/extract", summary="从成片框选片段提取角色参考音")
+    def extract_asset_voice_from_shot(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        asset_id: Annotated[str, Path(description="资产 ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
+        body = payload or {}
+        try:
+            return ProjectDetailService.extract_asset_voice_from_shot(
+                project_id,
+                asset_id,
+                episode_id=str(body.get("episode_id") or ""),
+                beat_id=str(body.get("beat_id") or ""),
+                start_sec=body.get("start_sec"),
+                end_sec=body.get("end_sec"),
+            )
+        except (ValueError, RuntimeError) as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
     # --- 3. 剧集工坊 Episodes ---
     @app.get("/api/projects/{project_id}/episodes", summary="获取项目剧集工坊列表")
     def list_episodes(project_id: Annotated[str, Path(description="项目 ID")], user: dict = Depends(current_user)):
@@ -375,6 +481,13 @@ def register_project_routes(
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych", status_code=202, summary="生成 16:9 三联关键帧母图并裁切起幅")
+    def generate_beat_triptych(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
+        try:
+            return ProjectDetailService.generate_beat_triptych(project_id, episode_id, beat_id, payload or {})
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
     @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt", status_code=202, summary="生成或优化本镜 H3 视频提示词")
     def generate_beat_h3_prompt(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
         try:
@@ -422,6 +535,57 @@ def register_project_routes(
             raise HTTPException(status_code=500, detail=f"创建单镜视频任务失败: {err}")
 
     @app.post(
+        "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale",
+        status_code=202,
+        summary="对本镜已成功成片提交 2x 超分",
+    )
+    def upscale_beat_video(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        episode_id: Annotated[str, Path(description="分集 ID")],
+        beat_id: Annotated[str, Path(description="Beat ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return EpisodeVideoService.create_upscale_job(
+                project_id, episode_id, beat_id, options=payload or {},
+            )
+        except ValueError as err:
+            text = str(err)
+            if "进行中" in text:
+                raise HTTPException(status_code=409, detail=text) from err
+            if "显存" in text or "成片" in text or "不存在" in text or "未安装" in text:
+                raise HTTPException(status_code=422, detail=text) from err
+            raise HTTPException(status_code=400, detail=text) from err
+        except Exception as err:
+            raise HTTPException(status_code=500, detail=f"创建超分任务失败: {err}") from err
+
+    @app.post(
+        "/api/projects/{project_id}/jobs/{job_id}/upscale",
+        status_code=202,
+        summary="对已成功的视频任务提交 2x 超分",
+    )
+    def upscale_project_video_job(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        job_id: Annotated[str, Path(description="视频任务 ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return EpisodeVideoService.create_upscale_job_from_video_job(
+                project_id, job_id, options=payload or {},
+            )
+        except ValueError as err:
+            text = str(err)
+            if "进行中" in text:
+                raise HTTPException(status_code=409, detail=text) from err
+            if "显存" in text or "成片" in text or "不存在" in text or "不能再超分" in text or "未安装" in text:
+                raise HTTPException(status_code=422, detail=text) from err
+            raise HTTPException(status_code=400, detail=text) from err
+        except Exception as err:
+            raise HTTPException(status_code=500, detail=f"创建超分任务失败: {err}") from err
+
+    @app.post(
         "/api/projects/{project_id}/episodes/{episode_id}/compose",
         status_code=202,
         summary="拼接各镜视频为分集成片",
@@ -434,10 +598,114 @@ def register_project_routes(
         except Exception as err:
             raise HTTPException(status_code=500, detail=f"创建合成任务失败: {err}")
 
+    @app.get("/api/projects/{project_id}/episodes/{episode_id}/dubbing", summary="读取本集台词轨")
+    def get_episode_dubbing(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        episode_id: Annotated[str, Path(description="分集 ID")],
+        user: dict = Depends(current_user),
+    ):
+        from ..services.dubbing_service import DubbingService
+        try:
+            return DubbingService.get_track(project_id, episode_id)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/dubbing/sync", summary="从分镜同步台词轨")
+    def sync_episode_dubbing(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        episode_id: Annotated[str, Path(description="分集 ID")],
+        user: dict = Depends(mutating_user),
+    ):
+        from ..services.dubbing_service import DubbingService
+        try:
+            return DubbingService.sync(project_id, episode_id)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.patch("/api/projects/{project_id}/episodes/{episode_id}/dubbing/lines/{line_id}", summary="更新单句配音导演参数")
+    def patch_dubbing_line(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        episode_id: Annotated[str, Path(description="分集 ID")],
+        line_id: Annotated[str, Path(description="台词 ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
+        from ..services.dubbing_service import DubbingService
+        try:
+            return DubbingService.patch_line(project_id, episode_id, line_id, payload or {})
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post(
+        "/api/projects/{project_id}/episodes/{episode_id}/dubbing/generate",
+        status_code=202,
+        summary="单句或批量生成配音",
+    )
+    def generate_episode_dubbing(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        episode_id: Annotated[str, Path(description="分集 ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
+        from ..services.tts_generation_job_service import TtsGenerationJobService
+        try:
+            body = payload or {}
+            line_ids = body.get("line_ids") if isinstance(body.get("line_ids"), list) else None
+            if body.get("line_id") and not line_ids:
+                line_ids = [str(body.get("line_id"))]
+            return TtsGenerationJobService.enqueue(project_id, episode_id, line_ids=line_ids)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
     # --- 4. 全部任务 Jobs ---
     @app.get("/api/projects/{project_id}/jobs", summary="获取项目生成任务列表")
     def list_jobs(project_id: Annotated[str, Path(description="项目 ID")], user: dict = Depends(current_user)):
         return ProjectDetailService.list_jobs(project_id)
+
+    @app.get("/api/projects/{project_id}/jobs/{job_id}/events", summary="订阅项目任务事件")
+    async def stream_project_job(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        job_id: Annotated[str, Path(description="任务 ID")],
+        request: Request,
+        since: Annotated[int, Query(description="只重放 seq 大于该值的缓冲事件")] = 0,
+        user: dict = Depends(current_user),
+    ):
+        from ..db import query_one
+        from ..services.h3_prompt_job_service import H3PromptJobService
+        from ..services.shot_plan_job_service import ShotPlanJobService
+
+        async def event_stream():
+            try:
+                last_event_id = int(request.headers.get("last-event-id") or 0)
+            except ValueError:
+                last_event_id = 0
+            resume_from = max(since, last_event_id)
+            row = query_one(
+                "SELECT job_type FROM ai_project_jobs WHERE id=%s AND project_id=%s",
+                (job_id, project_id),
+            ) or {}
+            job_type = str(row.get("job_type") or "")
+            if job_type == "h3_prompt":
+                streamer = H3PromptJobService.stream
+            elif job_type == "shot_plan":
+                streamer = ShotPlanJobService.stream
+            elif not job_type:
+                yield sse_frame({"event": "error", "terminal": True, "data": {"status": "failed", "message": "任务不存在"}})
+                return
+            else:
+                yield sse_frame({"event": "error", "terminal": True, "data": {"status": "failed", "message": "该任务类型不支持事件订阅"}})
+                return
+            try:
+                async for event in streamer(job_id, project_id, request, since=resume_from):
+                    yield sse_frame(event)
+            except ValueError as err:
+                yield sse_frame({"event": "error", "terminal": True, "data": {"status": "failed", "message": str(err)}})
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/api/projects/{project_id}/jobs", summary="创建任务")
     def create_job(project_id: Annotated[str, Path(description="项目 ID")], payload: dict, user: dict = Depends(mutating_user)):

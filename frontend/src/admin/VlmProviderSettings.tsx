@@ -6,6 +6,7 @@ import { jsonMutation, requestJson } from "../api"
 
 type VlmConfig = {
   enabled: boolean
+  use_llm_credentials?: boolean
   base_url: string
   model: string
   api_key_masked?: string | null
@@ -126,6 +127,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
   })
 
   const [enabled, setEnabled] = useState(false)
+  const [useLlm, setUseLlm] = useState(false)
   const [baseUrl, setBaseUrl] = useState("https://open.bigmodel.cn/api/paas/v4")
   const [model, setModel] = useState("glm-4.6v-flash")
   const [apiKey, setApiKey] = useState("")
@@ -136,6 +138,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
   useEffect(() => {
     if (!query.data) return
     setEnabled(query.data.enabled)
+    setUseLlm(Boolean(query.data.use_llm_credentials))
     setBaseUrl(query.data.base_url)
     setModel(query.data.model)
     setSelectedPreset(presetFromBaseUrl(query.data.base_url))
@@ -161,6 +164,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
           csrfToken,
           {
             enabled,
+            use_llm_credentials: useLlm,
             base_url: baseUrl,
             model,
             api_key: apiKey.trim() || null,
@@ -183,6 +187,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
           base_url: baseUrl,
           model,
           api_key: apiKey.trim() || null,
+          use_llm_credentials: useLlm,
         }),
       ),
     onSuccess: () => {
@@ -199,6 +204,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
           base_url: baseUrl,
           api_key: apiKey.trim() || null,
           free_only: false,
+          use_llm_credentials: useLlm,
         }),
       ),
     onSuccess: (data) => {
@@ -249,7 +255,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
         <div>
           <h2 className="text-base font-semibold text-[#111827]">VLM 视觉模型</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            只用于看图：资产库「根据原片反推提示词」、参考图提取外貌、复刻台拉片。文本润色与导演对话仍走「LLM 大模型」，两套配置互不影响。
+            只用于反推 / 拉片 / 主体分析（便宜看图）。工坊写稿与生成页润色若 LLM 名称可看图，会直接带图调用大模型页，不必把同一套 Key 再抄到这里。可选复用大模型凭据。
           </p>
         </div>
       </div>
@@ -272,6 +278,14 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               <p className="mt-0.5 text-xs text-[#6b7280]">开启后资产库反推与复刻台拉片才能自动看图。</p>
             </div>
             <Switch checked={enabled} onChange={setEnabled} />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-[#111827]">复用大模型凭据</p>
+              <p className="mt-0.5 text-xs text-[#6b7280]">使用 LLM 大模型页的 Base URL 与 API Key，模型名称仍在本页选择视觉模型。</p>
+            </div>
+            <Switch checked={useLlm} onChange={setUseLlm} />
           </div>
 
           <div>
@@ -302,6 +316,15 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             />
           ) : null}
 
+          {useLlm ? (
+            <Alert
+              type="info"
+              showIcon
+              message="Base URL 与 API Key 来自 LLM 大模型页"
+              description={`当前生效地址：${query.data?.base_url || "未配置"}。请在下方继续选择名称含 VL/Vision 的视觉模型。`}
+            />
+          ) : (
+            <>
           <div>
             <div className="flex items-center justify-between">
               <label className="block text-xs font-medium text-[#4b5563]">Base URL (接口地址)</label>
@@ -324,6 +347,8 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               placeholder="https://open.bigmodel.cn/api/paas/v4"
             />
           </div>
+            </>
+          )}
 
           <div>
             <div className="flex items-center justify-between gap-3">
@@ -359,6 +384,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             </p>
           </div>
 
+          {!useLlm ? (
           <div>
             <label className="block text-xs font-medium text-[#4b5563]">API Key / Access Token</label>
             <Input.Password
@@ -375,10 +401,11 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             {selectedPreset === "zhipu" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
                 请从 open.bigmodel.cn 的 API Keys 页面复制完整 Key（格式通常为 <code>id.secret</code>）。
-                不要填 LLM 页里的硅基流动 <code>sk-</code> Key；保存后再测连接更稳妥。
+                不要填 LLM 页里的硅基流动 <code>sk-</code> Key；同一套多模态通吃请改勾选「复用大模型凭据」。
               </p>
             ) : null}
           </div>
+          ) : null}
 
           {error ? <Alert type="error" showIcon message={error.message} /> : null}
 

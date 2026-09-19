@@ -25,6 +25,7 @@ class JobMode(str, Enum):
     MINIMAX_H3_DIRECTOR_ACCEL_R2V = "minimax-h3-director-accel-r2v"
     MINIMAX_H3_T8_ALL_REFERENCE = "minimax-h3-t8-all-reference"
     MINIMAX_H3_T8_DUAL_CLOCK = "minimax-h3-t8-dual-clock"
+    NVIDIA_RTX_VSR = "nvidia-rtx-vsr"
     WAN_VACE_DEPTH_V2V = "wan21-vace-depth-v2v"
     GRS_GPT_IMAGE_2 = "grs-gpt-image-2"
     GRS_GPT_IMAGE_2_VIP = "grs-gpt-image-2-vip"
@@ -465,6 +466,14 @@ class LlmProviderResponse(BaseModel):
     last_test_message: str | None = None
     last_test_at: str | None = None
     supports_vision: bool = False
+    use_llm_credentials: bool = False
+
+
+class VisionRouteStatus(BaseModel):
+    available: bool = False
+    model: str | None = None
+    attach_images: bool = False
+    source: str | None = None
 
 
 class LlmStatusResponse(BaseModel):
@@ -472,10 +481,13 @@ class LlmStatusResponse(BaseModel):
     message: str | None = None
     supports_vision: bool = False
     model: str | None = None
+    authoring_vision: VisionRouteStatus = Field(default_factory=VisionRouteStatus)
+    analysis_vision: VisionRouteStatus = Field(default_factory=VisionRouteStatus)
 
 
 class VlmProviderUpdateRequest(BaseModel):
     enabled: bool = False
+    use_llm_credentials: bool = False
     base_url: str = Field(default="https://open.bigmodel.cn/api/paas/v4", max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     model: str = Field(default="glm-4.6v-flash", max_length=255)
@@ -485,12 +497,14 @@ class VlmProviderTestRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=255)
+    use_llm_credentials: bool | None = None
 
 
 class VlmModelCatalogRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     free_only: bool = False
+    use_llm_credentials: bool | None = None
 
 
 class VlmStatusResponse(BaseModel):
@@ -504,14 +518,21 @@ class PromptOptimizeRequest(BaseModel):
     media_type: Literal["video", "image"] = Field(default="video", description="生成目标媒体类型")
     workflow_name: str | None = Field(default=None, max_length=128, description="当前选择的工作流名称")
     skill_id: str | None = Field(default=None, max_length=64, description="指定 MiniMax 技能风格 ID")
+    skill_pack_id: str | None = Field(default=None, max_length=128, description="导演台技能包 ID；空表示默认程序装箱")
     reference_count: int | None = Field(default=0, ge=0, le=10, description="当前参考图数量")
     workflow_id: str | None = Field(default=None, max_length=64, description="当前工作流 ID")
+    image_urls: list[str] | None = Field(
+        default=None,
+        max_length=8,
+        description="可选参考图 URL 或 data URL；最多 8 张，与 H3 一致。名称可看图时带图优化，否则只把张数写进文字。",
+    )
 
 
 class PromptOptimizeResponse(BaseModel):
     original_prompt: str
     optimized_prompt: str
     skill_id: str | None = None
+    skill_pack_id: str | None = None
 
 
 class AnalyzeSubjectResponse(BaseModel):
@@ -530,6 +551,20 @@ class SkillItem(BaseModel):
 
 class SkillsListResponse(BaseModel):
     skills: list[SkillItem]
+
+
+class SkillPackItem(BaseModel):
+    id: str
+    name: str
+    surfaces: list[str] = Field(default_factory=list)
+    visual_lock: str = ""
+    workshop_shot: list[str] = Field(default_factory=list)
+    packing_overrides: dict[str, bool] = Field(default_factory=dict)
+    confirm_format: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillPackListResponse(BaseModel):
+    packs: list[SkillPackItem]
 
 
 class DirectorShotItem(BaseModel):
@@ -570,7 +605,9 @@ class DirectorContinuityRepairRequest(BaseModel):
 
 
 DirectorGenerationStatus = Literal["pending", "partial", "complete"]
-DirectorPayloadKind = Literal["timeline", "director_recipe", "batch_run", "shot_replication"]
+DirectorPayloadKind = Literal[
+    "timeline", "director_recipe", "batch_run", "shot_replication", "hypit_replication"
+]
 
 
 class DirectorArtStyleCategory(BaseModel):
@@ -738,7 +775,15 @@ class DirectorClarificationItem(BaseModel):
 
 
 class DirectorOperationCreateRequest(BaseModel):
-    kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare", "analyze_reference_video", "replicate_shots"]
+    kind: Literal[
+        "plan_pipeline",
+        "plan_clarify",
+        "shot_render_prepare",
+        "analyze_reference_video",
+        "replicate_shots",
+        "hypit_transcribe",
+        "hypit_compile",
+    ]
     goal: str | None = Field(default=None, max_length=8000)
     agents: list[str] | None = Field(default=None)
     agent: str | None = Field(
@@ -786,12 +831,24 @@ class DirectorOperationCreateRequest(BaseModel):
         le=0.95,
         description="analyze_reference_video 专用：smart 模式的镜头切换判定阈值。",
     )
+    language: Literal["zh", "en"] | None = Field(
+        default=None,
+        description="hypit_transcribe 专用：WhisperX 对齐语言，默认读取工程 payload.language。",
+    )
 
 
 class DirectorOperationResponse(BaseModel):
     id: str
     project_id: str
-    kind: Literal["plan_pipeline", "plan_clarify", "shot_render_prepare", "analyze_reference_video", "replicate_shots"]
+    kind: Literal[
+        "plan_pipeline",
+        "plan_clarify",
+        "shot_render_prepare",
+        "analyze_reference_video",
+        "replicate_shots",
+        "hypit_transcribe",
+        "hypit_compile",
+    ]
     status: Literal["queued", "running", "succeeded", "failed", "interrupted", "cancelled"]
     progress: int = Field(ge=0, le=100)
     request: dict[str, Any] = Field(default_factory=dict)
@@ -910,6 +967,8 @@ class TtsProviderResponse(BaseModel):
     last_test_message: str | None = None
     last_test_at: str | None = None
     voices: list[TtsVoiceItem] = Field(default_factory=list)
+    provider: str = "custom"
+    supports_clone: bool = False
 
 
 class DirectorTtsRequest(BaseModel):

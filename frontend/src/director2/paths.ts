@@ -37,3 +37,24 @@ export function director2ProjectPath(projectId: string, menu: string, episodeId?
   if (menu === "workshop" && episodeId) return `${base}/workshop/${encodeURIComponent(episodeId)}`
   return `${base}/${menu}`
 }
+
+export function director2WorkshopEpisodePath(
+  projectId: string,
+  episodeId: string,
+  tab?: string | null,
+): string {
+  const path = director2ProjectPath(projectId, "workshop", episodeId)
+  const key = String(tab || "").trim()
+  if (!key) return path
+  const params = new URLSearchParams()
+  params.set("tab", key)
+  return `${path}?${params.toString()}`
+}
+
+export function director2ContentLibraryDocPath(projectId: string, docId: string): string {
+  const params = new URLSearchParams()
+  params.set("mode", "manual")
+  params.set("doc", docId)
+  params.set("tab", "episodes")
+  return `${director2ProjectPath(projectId, "content")}?${params.toString()}`
+}

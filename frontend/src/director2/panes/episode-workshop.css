@@ -492,6 +492,7 @@
 }
 
 .d2-episode-workshop .xiaji-shot-tile-ready,
+.d2-episode-workshop .xiaji-shot-tile-upscaled,
 .d2-episode-workshop .xiaji-shot-tile-busy-label {
   flex-shrink: 0;
   white-space: nowrap;
@@ -509,6 +510,33 @@
   color: var(--studio-accent-text, #435ce8);
   background: var(--studio-primary-soft, rgba(67, 92, 232, 0.1));
   font-variant-numeric: tabular-nums;
+}
+
+.d2-episode-workshop .xiaji-shot-tile-upscaled {
+  color: var(--studio-accent-text, #435ce8);
+  background: var(--studio-primary-soft, rgba(67, 92, 232, 0.12));
+}
+
+.d2-episode-workshop .xiaji-shot-playback {
+  margin: 0 12px 8px;
+  padding: 8px;
+  border: 1px solid var(--studio-border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--studio-surface-raised, #f8f9fa);
+}
+
+.d2-episode-workshop .xiaji-shot-playback video {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  border-radius: 6px;
+  background: #111;
+}
+
+.d2-episode-workshop .xiaji-shot-playback p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--studio-text-muted, #5c6370);
 }
 
 .d2-episode-workshop .xiaji-shot-tile.is-selected .xiaji-shot-tile-num {
@@ -1579,11 +1607,195 @@
   padding-right: 4px;
 }
 
+.d2-episode-workshop .xiaji-dubbing-workbench {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  height: 100%;
+  gap: 10px;
+}
+
+.d2-episode-workshop .dubbing-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--studio-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--studio-surface, #fff);
+}
+
+.d2-episode-workshop .dubbing-toolbar .toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--studio-text, #171a1f);
+}
+
+.d2-episode-workshop .dubbing-toolbar em,
+.d2-episode-workshop .dubbing-col header em {
+  font-style: normal;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 12px;
+}
+
+.d2-episode-workshop .dubbing-unbound-alert {
+  flex-shrink: 0;
+}
+
+.d2-episode-workshop .xiaji-dubbing-grid {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 280px;
+  gap: 10px;
+  min-height: 0;
+  flex: 1 1 0%;
+}
+
+.d2-episode-workshop .dubbing-col {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--studio-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--studio-surface, #fff);
+  padding: 10px;
+}
+
+.d2-episode-workshop .dubbing-col header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.d2-episode-workshop .dubbing-col h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.d2-episode-workshop .dubbing-chars ul,
+.d2-episode-workshop .dubbing-lines ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.d2-episode-workshop .dubbing-chars li,
+.d2-episode-workshop .dubbing-lines li {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.d2-episode-workshop .dubbing-chars li.is-unbound {
+  background: color-mix(in srgb, #f59e0b 14%, var(--studio-surface, #fff));
+}
+
+.d2-episode-workshop .dubbing-chars li.is-selected,
+.d2-episode-workshop .dubbing-lines li.is-selected {
+  border-color: var(--studio-focus, #7c3aed);
+  background: color-mix(in srgb, #7c3aed 10%, var(--studio-surface, #fff));
+}
+
+.d2-episode-workshop .char-body,
+.d2-episode-workshop .line-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.d2-episode-workshop .char-body audio,
+.d2-episode-workshop .director-form audio,
+.d2-episode-workshop .line-wave {
+  width: 100%;
+  height: 32px;
+}
+
+.d2-episode-workshop .char-dot,
+.d2-episode-workshop .line-seq {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.d2-episode-workshop .dubbing-chars strong,
+.d2-episode-workshop .line-meta strong {
+  display: block;
+  font-size: 13px;
+}
+
+.d2-episode-workshop .dubbing-chars em {
+  font-size: 11px;
+}
+
+.d2-episode-workshop .dubbing-lines li {
+  cursor: pointer;
+  border-color: var(--studio-border, #e5e7eb);
+}
+
+.d2-episode-workshop .line-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.d2-episode-workshop .line-body p {
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--studio-text, #171a1f);
+}
+
+.d2-episode-workshop .line-error,
+.d2-episode-workshop .empty-hint,
+.d2-episode-workshop .mix-hint {
+  font-size: 12px;
+  color: var(--studio-text-muted, #64748b);
+}
+
+.d2-episode-workshop .line-error {
+  color: #b91c1c;
+}
+
+.d2-episode-workshop .director-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.d2-episode-workshop .director-form label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .d2-episode-workshop .xiaji-dubbing-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 优雅精致的极细滚动条设计 */
 .d2-episode-workshop .xiaji-pane-scroll-area::-webkit-scrollbar,
 .d2-episode-workshop .xiaji-shots-grid-pane::-webkit-scrollbar,
 .d2-episode-workshop .xiaji-script-grid::-webkit-scrollbar,
 .d2-episode-workshop .xiaji-compose-pane::-webkit-scrollbar,
+.d2-episode-workshop .dubbing-col::-webkit-scrollbar,
 .d2-episode-workshop .xiaji-original-lines::-webkit-scrollbar,
 .d2-episode-workshop .xiaji-beat-list::-webkit-scrollbar {
   width: 6px;
@@ -1594,6 +1806,7 @@
 .d2-episode-workshop .xiaji-shots-grid-pane::-webkit-scrollbar-track,
 .d2-episode-workshop .xiaji-script-grid::-webkit-scrollbar-track,
 .d2-episode-workshop .xiaji-compose-pane::-webkit-scrollbar-track,
+.d2-episode-workshop .dubbing-col::-webkit-scrollbar-track,
 .d2-episode-workshop .xiaji-original-lines::-webkit-scrollbar-track,
 .d2-episode-workshop .xiaji-beat-list::-webkit-scrollbar-track {
   background: transparent;
@@ -1603,6 +1816,7 @@
 .d2-episode-workshop .xiaji-shots-grid-pane::-webkit-scrollbar-thumb,
 .d2-episode-workshop .xiaji-script-grid::-webkit-scrollbar-thumb,
 .d2-episode-workshop .xiaji-compose-pane::-webkit-scrollbar-thumb,
+.d2-episode-workshop .dubbing-col::-webkit-scrollbar-thumb,
 .d2-episode-workshop .xiaji-original-lines::-webkit-scrollbar-thumb,
 .d2-episode-workshop .xiaji-beat-list::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.16);
@@ -1613,6 +1827,7 @@
 .d2-episode-workshop .xiaji-shots-grid-pane::-webkit-scrollbar-thumb:hover,
 .d2-episode-workshop .xiaji-script-grid::-webkit-scrollbar-thumb:hover,
 .d2-episode-workshop .xiaji-compose-pane::-webkit-scrollbar-thumb:hover,
+.d2-episode-workshop .dubbing-col::-webkit-scrollbar-thumb:hover,
 .d2-episode-workshop .xiaji-original-lines::-webkit-scrollbar-thumb:hover,
 .d2-episode-workshop .xiaji-beat-list::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.32);
@@ -1647,11 +1862,15 @@
   font-weight: 600;
 }
 
-.d2-video-settings-popover .d2-video-settings-field > em {
-  font-size: 11px;
-  font-style: normal;
-  color: var(--studio-text-muted, #64748b);
-  line-height: 1.4;
+.d2-video-settings-popover .d2-video-settings-field.is-switch {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 12px;
+}
+
+.d2-video-settings-popover .d2-video-settings-field.is-switch > em {
+  grid-column: 1 / -1;
 }
 
 .d2-episode-workshop .h3-material-content {
@@ -1683,6 +1902,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 10px;
 }
 
@@ -1865,10 +2086,24 @@
   background: var(--studio-canvas, #f8fafc);
 }
 
+.d2-episode-workshop .h3-prompt-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .d2-episode-workshop .h3-prompt-title {
   font-size: 12px;
   font-weight: 600;
   color: var(--studio-text, #334155);
+}
+
+.d2-episode-workshop .h3-prompt-vision {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--studio-muted, #64748b);
+  line-height: 1.4;
 }
 
 .d2-episode-workshop .h3-prompt-head-actions {
@@ -2034,5 +2269,210 @@
 
 [data-theme="dark"] .d2-episode-workshop .h3-prompt-display .h3-subject-tag {
   color: #fca5a5;
+}
+
+/* 工坊生成提示词直播：官方 thinking + streaming-text 语法，token 对齐 beautifului globals.css */
+.d2-episode-workshop .workshop-prompt-live {
+  --director-page: #fafafb;
+  --director-surface: #ffffff;
+  --director-inset: #f7f8f9;
+  --director-hover: #f4f5f6;
+  --director-hover-2: #e7e9eb;
+  --director-ink: #1f2124;
+  --director-ink-2: #62656b;
+  --director-ink-3: #9a9da3;
+  --director-line: #ecedef;
+  --director-line-strong: #e0e2e5;
+  --director-accent: #0285ff;
+  --director-green: #189a4d;
+  --director-green-tint: #e8f5ed;
+  flex: 1;
+  min-height: 240px;
+  overflow: auto;
+  padding: 10px 14px 16px;
+  background: var(--director-surface);
+  color: var(--director-ink);
+}
+[data-theme="dark"] .d2-episode-workshop .workshop-prompt-live {
+  --director-page: #17181a;
+  --director-surface: #232427;
+  --director-inset: #1f2022;
+  --director-hover: #2a2b2e;
+  --director-hover-2: #313236;
+  --director-ink: #f2f3f4;
+  --director-ink-2: #a5a8ad;
+  --director-ink-3: #6c6f75;
+  --director-line: #2e3033;
+  --director-line-strong: #3a3c40;
+  --director-accent: #3d9aff;
+  --director-green: #3dbb72;
+  --director-green-tint: #3dbb7224;
+}
+.d2-episode-workshop .workshop-think-head {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--director-ink-2);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color 100ms ease;
+}
+.d2-episode-workshop .workshop-think-head:hover {
+  background: var(--director-hover-2);
+}
+.d2-episode-workshop .workshop-think-spinner {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--director-line-strong);
+  border-top-color: var(--director-ink-2);
+  animation: workshop-stream-spin 700ms linear infinite;
+}
+.d2-episode-workshop .workshop-think-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--director-green);
+  box-shadow: 0 0 0 3px var(--director-green-tint);
+}
+.d2-episode-workshop .workshop-think-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  background-image: linear-gradient(90deg, var(--director-ink-3) 35%, var(--director-ink) 50%, var(--director-ink-3) 65%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: workshop-shimmer-text 1.4s linear infinite;
+}
+.d2-episode-workshop .workshop-think-done {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--director-ink-2);
+}
+.d2-episode-workshop .workshop-think-chevron {
+  display: inline-flex;
+  color: var(--director-ink-3);
+  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.d2-episode-workshop .workshop-think-chevron.is-open {
+  transform: rotate(180deg);
+}
+.d2-episode-workshop .workshop-think-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.d2-episode-workshop .workshop-think-fold.is-open {
+  grid-template-rows: 1fr;
+}
+.d2-episode-workshop .workshop-think-fold > div {
+  min-height: 0;
+  overflow: hidden;
+}
+.d2-episode-workshop .workshop-think-trace {
+  position: relative;
+  margin: 2px 0 10px 11px;
+  padding: 0 0 4px 14px;
+  border-left: 1px solid var(--director-line-strong);
+}
+.d2-episode-workshop .workshop-think-row {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--director-ink-2);
+  animation: workshop-fade-up 320ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.d2-episode-workshop .workshop-pixel-loader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 12px 4px;
+}
+.d2-episode-workshop .workshop-pixel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
+}
+.d2-episode-workshop .workshop-pixel-grid span {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--director-ink);
+  opacity: 0.15;
+  animation: workshop-pixel-on 650ms ease-in-out infinite;
+}
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(1) { animation-delay: 0ms; }
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(2) { animation-delay: 90ms; }
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(3) { animation-delay: 180ms; }
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(4) { animation-delay: 270ms; }
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(5) { animation-delay: 90ms; }
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(6) { animation-delay: 360ms; }
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(7) { animation-delay: 180ms; }
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(8) { animation-delay: 270ms; }
+.d2-episode-workshop .workshop-pixel-grid span:nth-child(9) { animation-delay: 450ms; }
+.d2-episode-workshop .workshop-pixel-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: transparent;
+  background-image: linear-gradient(90deg, var(--director-ink-3) 35%, var(--director-ink) 50%, var(--director-ink-3) 65%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: workshop-shimmer-text 1.4s linear infinite;
+}
+.d2-episode-workshop .workshop-stream-text {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--director-ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.d2-episode-workshop .workshop-stream-token {
+  animation: workshop-stream-in 280ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.d2-episode-workshop .workshop-stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 1.5px;
+  border-radius: 1px;
+  background: var(--director-ink);
+  vertical-align: text-bottom;
+  translate: 0 -0.5px;
+  animation: workshop-caret-blink 1s step-end infinite;
+}
+@keyframes workshop-stream-spin { to { transform: rotate(1turn); } }
+@keyframes workshop-shimmer-text { 0% { background-position: 150%; } to { background-position: -50%; } }
+@keyframes workshop-fade-up { 0% { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes workshop-stream-in { 0% { opacity: 0; filter: blur(4px); } to { opacity: 1; filter: blur(0); } }
+@keyframes workshop-caret-blink { 0%, to { opacity: 1; } 50% { opacity: 0; } }
+@keyframes workshop-pixel-on { 0%, 100% { opacity: 0.15; } 18%, 42% { opacity: 1; } 62% { opacity: 0.15; } }
+@media (prefers-reduced-motion: reduce) {
+  .d2-episode-workshop .workshop-think-spinner,
+  .d2-episode-workshop .workshop-think-status,
+  .d2-episode-workshop .workshop-pixel-grid span,
+  .d2-episode-workshop .workshop-pixel-label,
+  .d2-episode-workshop .workshop-stream-token,
+  .d2-episode-workshop .workshop-stream-caret {
+    animation: none !important;
+  }
 }
 

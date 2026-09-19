@@ -19,6 +19,8 @@ type TtsConfig = {
   last_test_message?: string | null
   last_test_at?: string | null
   voices: { id: string; label: string; gender?: string }[]
+  provider?: string
+  supports_clone?: boolean
 }
 
 type VoiceOption = { id: string; label: string; gender?: string }
@@ -58,7 +60,19 @@ const OPENAI_VOICES: VoiceOption[] = [
 
 const PROVIDER_PRESETS: TtsPreset[] = [
   {
-    label: "SiliconFlow 硅基流动（CosyVoice2，推荐）",
+    label: "本机 IndexTTS-2.5（角色克隆，推荐配音台）",
+    value: "indextts",
+    baseUrl: "http://127.0.0.1:7866/v1",
+    model: "indextts-2.5",
+    voice: "clone",
+    docUrl: "",
+    recommendedModels: [
+      { name: "IndexTTS-2.5（本机旁路）", id: "indextts-2.5" },
+    ],
+    voices: [{ id: "clone", label: "角色参考音克隆" }],
+  },
+  {
+    label: "SiliconFlow 硅基流动（CosyVoice2，无 GPU 时降级）",
     value: "siliconflow",
     baseUrl: "https://api.siliconflow.cn/v1",
     model: COSYVOICE2_MODEL,
@@ -100,6 +114,7 @@ const OPENAI_LEGACY_MODELS = new Set(["tts-1", "tts-1-hd", "alloy", "echo", "fab
 function presetFromConfig(baseUrl: string, model: string) {
   const lowered = baseUrl.toLowerCase()
   const loweredModel = model.toLowerCase()
+  if (lowered.includes("7866") || lowered.includes("indextts") || loweredModel.includes("indextts")) return "indextts"
   if (lowered.includes("siliconflow")) return "siliconflow"
   if (loweredModel.includes("cosyvoice") || loweredModel.includes("moss-ttsd") || loweredModel.startsWith("funaudiollm/")) {
     return "siliconflow"
@@ -168,7 +183,12 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
     setSelectedPreset(value)
     const preset = PROVIDER_PRESETS.find((item) => item.value === value)
     if (!preset || value === "custom") return
-    if (!useLlm) setBaseUrl(preset.baseUrl)
+    if (value === "indextts") {
+      setUseLlm(false)
+      setBaseUrl(preset.baseUrl)
+    } else if (!useLlm) {
+      setBaseUrl(preset.baseUrl)
+    }
     setModel(preset.model)
     setVoice(preset.voice)
   }
@@ -208,7 +228,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
         <div>
           <h2 className="text-base font-semibold text-[#111827]">TTS 语音合成</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            导演台配音调用 OpenAI 兼容 <code>/audio/speech</code>。推荐硅基流动 CosyVoice2（与 LLM 同 Key 时可复用凭据）；也可接 OpenAI 官方或自定义网关。不绑定 Edge TTS。
+            导演台2 配音台走本机 IndexTTS-2.5 旁路（参考音克隆 + 情绪/语速）。无 GPU 或旁路未启动时，可降级硅基 CosyVoice2 系统音色。测试连接对 IndexTTS 只打 <code>/health</code>，不会真正合成。
           </p>
         </div>
       </div>
@@ -236,9 +256,13 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-[#111827]">复用大模型凭据</p>
-              <p className="mt-0.5 text-xs text-[#6b7280]">使用 LLM 大模型页的 Base URL 与 API Key。LLM 为硅基流动时可直接复用同一 Key。</p>
+              <p className="mt-0.5 text-xs text-[#6b7280]">
+                {selectedPreset === "indextts"
+                  ? "本机 IndexTTS 旁路不需要 API Key，也不复用大模型凭据。"
+                  : "使用 LLM 大模型页的 Base URL 与 API Key。LLM 为硅基流动时可直接复用同一 Key。"}
+              </p>
             </div>
-            <Switch checked={useLlm} onChange={setUseLlm} />
+            <Switch checked={useLlm} disabled={selectedPreset === "indextts"} onChange={setUseLlm} />
           </div>
 
           <div>
@@ -251,6 +275,15 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
             />
           </div>
 
+          {selectedPreset === "indextts" ? (
+            <Alert
+              type="info"
+              showIcon
+              message="旁路服务默认 http://127.0.0.1:7866"
+              description="权重放在工作台父级「整合包及模型/index-tts/checkpoints」，不要装进 FastAPI 虚拟环境。双击仓库根目录「启动 IndexTTS 旁路.bat」。H3 出片前会卸载 IndexTTS；配音前会对 ComfyUI POST /free。"
+            />
+          ) : null}
+
           {selectedPreset === "siliconflow" ? (
             <Alert
               type="info"
@@ -260,7 +293,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
             />
           ) : null}
 
-          {useLlm ? (
+          {useLlm && selectedPreset !== "indextts" ? (
             <Alert
               type="info"
               showIcon
@@ -291,9 +324,10 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
                     setBaseUrl(event.target.value)
                     setSelectedPreset(presetFromConfig(event.target.value, model))
                   }}
-                  placeholder="https://api.siliconflow.cn/v1"
+                  placeholder={selectedPreset === "indextts" ? "http://127.0.0.1:7866/v1" : "https://api.siliconflow.cn/v1"}
                 />
               </div>
+              {selectedPreset === "indextts" ? null : (
               <div>
                 <label className="block text-xs font-medium text-[#4b5563]">API Key</label>
                 <Input.Password
@@ -304,6 +338,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
                   placeholder={query.data?.api_key_masked || "独立 TTS 密钥，复用大模型时可留空"}
                 />
               </div>
+              )}
             </>
           )}
 
@@ -344,6 +379,10 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
             {selectedPreset === "siliconflow" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
                 硅基流动音色 ID 格式为 <code>模型:角色名</code>。导演台男/女声默认会映射到 Benjamin / Bella。
+              </p>
+            ) : selectedPreset === "indextts" ? (
+              <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
+                配音台按角色资产参考音克隆，不使用系统音色列表。情绪八维与语速在工坊「配音」Tab 逐句设置。
               </p>
             ) : null}
           </div>
@@ -388,7 +427,9 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
               <Sparkles size={14} /> 配置说明
             </span>
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
-              {selectedPreset === "siliconflow"
+              {selectedPreset === "indextts"
+                ? "测试连接只检查旁路 /health 与权重目录，不会占用显存合成。请先启动 IndexTTS 旁路。"
+                : selectedPreset === "siliconflow"
                 ? "与 LLM 同用硅基流动时，勾选复用凭据即可，无需重复填 Key。CosyVoice2 支持中文、英文及多种方言。"
                 : selectedPreset === "openai"
                   ? "OpenAI 官方 tts-1 按字符计费，音色为 alloy / nova 等 6 种。"
