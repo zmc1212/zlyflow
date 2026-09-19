@@ -556,6 +556,9 @@ class SkillsListResponse(BaseModel):
 class SkillPackItem(BaseModel):
     id: str
     name: str
+    summary: str = ""
+    author: str = ""
+    cover: str = ""
     surfaces: list[str] = Field(default_factory=list)
     visual_lock: str = ""
     workshop_shot: list[str] = Field(default_factory=list)
@@ -687,6 +690,10 @@ class DirectorProjectListItem(BaseModel):
 class DirectorProjectResponse(DirectorProjectListItem):
     source_script: str
     payload: dict[str, Any] = Field(default_factory=dict)
+    active_operation: dict[str, Any] | None = Field(
+        default=None,
+        description="该工程当前排队或运行中的导演操作；没有则为 null。",
+    )
 
 
 class DirectorProjectMigrateRequest(BaseModel):

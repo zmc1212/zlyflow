@@ -1820,7 +1820,11 @@ def get_director_project(project_id: str, user: Annotated[dict, Depends(current_
     elif kind == PAYLOAD_KIND_BATCH:
         record = dict(record)
         record["payload"] = sync_batch_items(app.state.store, record["payload"])
-    return public_director_project(record)
+    data = public_director_project(record)
+    active = app.state.store.get_active_director_operation(project_id)
+    if active is not None:
+        data["active_operation"] = public_director_operation(active)
+    return data
 
 
 @app.put(
@@ -2577,7 +2581,7 @@ def _bind_hypit_source(payload: dict, *, path: str, url: str, name: str, probe) 
         "durationSec": 0.0,
         "error": None,
     }
-    current["compile"] = {"status": "idle", "buildId": None, "error": None}
+    current["compile"] = {"status": "idle", "buildId": None, "operationId": None, "error": None}
     current["result"] = {"path": None, "url": None, "buildId": None}
     return current
 

@@ -2,6 +2,105 @@
 
 更新时间：2026-09-19
 
+## 2026-09-19 工坊内心戏改用官方 H3 画外音句式
+
+- 变更原因：半解说包 `skip_program_pack` 把 GPT 英文六段原文送进本地 H3 后，内心对白常被写成 `says: <d>…</d>`，模型按开口对白驱动口型。
+- 当前基线：写稿合同要求内心使用 MiniMax 官方 `says in an off-screen voiceover`，并把 `while … lips remain completely closed` 写在 `</d>` 后面。出片前对内心做外科修补（不灌水），`skip_program_pack` 也校验这条交付；仍写成口型同步 `says:` 则任务失败。程序装箱同样按官方句式渲染内心。不改表结构、端口或 ComfyUI。
+- 受影响文件：`h3_prompt_builder.py`、`llm_service.py`、`h3_prompt_job_service.py`、`episode_video_service.py`、`skill_packs/handlers.py`、`director_craft/coverage.py`、测试与四份主文档、`docs/API.md`。
+- 兼容性：手动粘贴六段仍按原文出片。未绑技能包仍走程序装箱。H3 对内心独白本身仍非 100% 保证。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video backend.tests.test_skill_packs`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 写稿按句校验长对白，英文缺 [Shot 1] 时程序补上
+
+- 变更原因：第一集镜头二台词是「吴耐免租 + 沙丽丽四句连问」写在同一引号里。模型已把各句拆进不同分秒和对白行，但校验把整段当一句做汉字连续匹配，说话人标签插在中间就报「台词未逐字出现 / 多轮对白必须拆进不同时间段」；英文六段标题齐全却常用 `00:00-00:03:` 而不写 `[Shot 1]`，`skip_program_pack` 不再装箱注入，任务直接失败。
+- 当前基线：`split_speech_atoms` 按问号/句号切开同一人连续多句（过短叹词并入下一句）。中文八块和英文六段都按句校验原文。写稿 user 列出切开后的各句。`normalize_authored_ref2va` 在 `detailed_description` 开头补 `[Shot 1]`（已有则不重复）。真缺句、整段挤在同一时间码仍失败。不改表结构、端口或 ComfyUI。
+- 受影响文件：`h3_prompt_builder.py`、`skill_packs/handlers.py`、`llm_service.py`、测试与四份主文档、`docs/API.md`。
+- 兼容性：半解说包 `skip_program_pack` 仍出 GPT 英文；未绑包仍走程序装箱。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 制作配方选择页使用官方动态封面
+
+- 变更原因：首页「选择制作配方」还是文字单选，需要对齐 MiniMax Design Skill Hub 的视频封面卡，并接入官方封面数据。
+- 当前基线：半解说包 `meta.yaml` 写入 Hub 同源 `cover` mp4（`cdn.hailuoai.com`）与 `author`。`GET /api/skill-packs` 透出 `cover` / `author`；只接受 `http(s)` 地址，视频热链播放，不拷进仓库。选择页为两列卡片：有封面则静音循环播放，未绑定配方用渐变占位。后续新包在各自 `meta.yaml` 填 `cover` 即可，前端不写死列表。不接入其它 Plaza 包。
+- 受影响文件：半解说包 `meta.yaml` / `SOURCE.md`、`skill_packs/recipe.py`、`models.py`、`SkillPackPickerModal.tsx`、首页、测试与四份主文档、`docs/API.md`。
+- 兼容性：旧客户端忽略新字段。不改表结构、端口或 ComfyUI。封面来自 Hub 已公开 CDN，不爬 Design 客户端。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs`；`pnpm --dir frontend exec vitest run src/director2/skill-pack.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 半解说包写稿补齐六段 `name:` 标题
+
+- 变更原因：GPT 英文六段常写成行首 `subject_definitions`（无冒号）或中文冒号；`skip_program_pack` 只规范化 `<Picture>` 后立刻按 `^name:\s*` 校验，任务报 `required section headings are missing or out of order`。系统提示原先列出的也是无冒号名称。
+- 当前基线：`canonicalize_section_headings` 把行首六段名（可 Markdown、可无冒号/中文冒号）收成 ASCII `name:`。半解说包写稿、润色、落库与出片走 `normalize_authored_ref2va`（标签 + 标题）。不灌水、不 `ensure` 填 N/A；后两段真缺失仍失败。双稿合同要求独占一行并带英文冒号。
+- 受影响文件：`h3_prompt_builder.py`、`llm_service.py`、`skill_packs/handlers.py`、`h3_prompt_job_service.py`、`episode_video_service.py`、测试与四份主文档、`docs/API.md`。
+- 兼容性：不改表结构、端口或 ComfyUI。未绑技能包仍走 `prepare`。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 导演台新建工程时选择技能包
+
+- 变更原因：配方已按项目 `extra.skill_pack_id` 执行，但首页直接建「未命名导演工程」，界面没有选择器；后续还要接入更多 Plaza 类配方。
+- 当前基线：`GET /api/skill-packs` 带 `summary`。首页「新建导演工程」先选配方（默认半解说真人短剧，可选不绑定），再写入 extra。项目顶栏 Select 可改。未绑定不再把三联生图提示偷偷回退半解说模板。后续新包只需放入 `backend/app/skill_packs/`，前端不写死列表。内容库「骨架模板」仍不是技能包。
+- 受影响文件：`skill_packs/recipe.py`、半解说 `meta.yaml`、`storyboard_image_service.py`、`models.py`、首页/项目壳前端、测试与四份主文档、`docs/API.md`。
+- 兼容性：旧工程 extra 为空仍走默认程序装箱。不改表结构、端口或 ComfyUI。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_storyboard_images`；`pnpm --dir frontend exec vitest run src/director2/skill-pack.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 三联三格裁切全部作为 R2V 参考图
+
+- 变更原因：写稿已看整张 16:9 三联，但出片只上传左格起幅；中格/右格已裁好却不出片。本地 H3 仍不能吃整张母图，否则会把三格插值成一条宽画面。
+- 当前基线：半解说包 `r2v_slots` 为角色设定板 + 场景卡 + `triptych.start|mid|end`。有 URL 才追加；槽位不够（最多 9）时先丢中格、再丢结果，起幅尽量保留。提示词把三张 9:16 裁切写成同一镜时间路标（00:00 构图锚 / 主动作 / 落幅），禁止分栏、禁止三格同框、禁止把 16:9 母图当 `<Picture n>`。写稿附图仍含整张 `triptych_url`。旧镜只有左格时 `extract_triptych_panels` 会按母图补裁中/右格。工坊素材组追加三张裁切并过滤母图。
+- 受影响文件：半解说包 `meta.yaml` / `SOURCE.md` / `SKILL.md`、`skill_packs/handlers.py`、`director_craft/references.py`、`h3_prompt_builder.py`、`h3_prompt_job_service.py`、`EpisodeWorkshopPane.tsx`、`workshop-r2v-refs.ts`、测试与四份主文档、`docs/API.md`。
+- 兼容性：未绑技能包仍走默认角色+场景参考图。不改表结构、端口或 ComfyUI。禁止上传整张 16:9。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_h3_coverage`；`pnpm --dir frontend exec vitest run src/director2/workshop-r2v-refs.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 工坊生成 H3 前先出三联，已有稿可重新生成
+
+- 变更原因：用户先点「生成 H3 提示词」、后补三联时，写稿看不到三联；生成后提示词栏只剩「编辑 / 复制」，不容易再生成。
+- 当前基线：工坊点生成 H3 时若本镜无三联（或 `triptych_status` 仍为 queued/running），弹出确认并只入队三联生图，完成后由用户查看再手动生成提示词。生成/重新生成只在素材组「提示词」栏，分区标题只留状态芯片（及拆镜时的「合并为一条生成」）。后端 `h3_prompt` 任务仍不自动 `enqueue_images`。不改表结构、端口或 ComfyUI。
+- 受影响文件：`EpisodeWorkshopPane.tsx`、`workshop-h3-gate.ts`、对应测试与四份主文档。
+- 兼容性：已有三联的镜头直接写稿；覆盖已保存提示词仍确认。
+- 验证命令：`pnpm --dir frontend exec vitest run src/director2/workshop-h3-gate.test.ts src/director2/workshop-prompt-live.test.ts`；5173 打开工坊第一镜自查门禁与重新生成按钮。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 Hypit 在 16GB 卡上改用精简 H3 权重
+
+- 变更原因：4080 16GB 上 Hypit 默认打完整 `ref2va_int8_convrot`（Turbo LoRA 需要 AdaLN 2688 维），权重暂存约 32GB，动态换入要近一小时。不是 4080 不能跑 H3。
+- 当前基线：提交前读 Comfy `/system_stats`。显存不到 20GB（含读不到）用 `minimax_h3_*_pruned_int8_convrot`，20 步、不上官方 Turbo LoRA。≥20GB 仍用完整权重 + 4 步 Turbo。可用 `ZLY_HYPIT_H3_WEIGHT_PROFILE=full|pruned` 覆盖。画质档仍是 `h3Quality`。不改本机 VACE/导演台2 Comfy。
+- 受影响文件：`packages/provider-comfy-h3`、四份主文档。
+- 兼容性：24GB+ 行为不变。16GB 单段会比 4 步 Turbo 慢（约十几分钟级），但不再做 32GB 换入。54 上 Comfy 若升级到 PyTorch cu130，int8_convrot / nvfp4 会更快。
+- 验证命令：在 `D:\zlyun\hypit-poc\packages\provider-comfy-h3` 执行 `npm test`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 Hypit 编译回收孤儿执行器，Comfy 丢 prompt 即失败
+
+- 变更原因：`hypit build --follow` 的父进程被工作台中断或热重载杀掉后，带 `--execution-root` 的执行器仍会卡在 `waiting-history`，占死 `comfy.h3` 并发槽；Comfy 重启后队列和 history 都没有该 prompt，旧逻辑永不失败。手工杀 PID 只能解一次。
+- 当前基线：`@zly/provider-comfy-h3` 在 prompt 不在 `/queue` 且 `/history` 缺失超过 45s 时返回 `COMFY_H3_LOST`（旧 `startedAt` 在 Comfy 重启后会立刻失败）。工作台 `run_hypit` 改为 `Popen`，登记 PID；取消、超时、`CancelledError`、`stop()` 都会 `taskkill /T` 并回收没有活着的 `hypit build --follow` 的执行器。下一次 `hypit_compile` 先按工程目录回收遗留 `build` 与无主执行器，不杀池化 `_worker`（`--ready-file`）。不改本机工作台 Comfy，不新开 8188。
+- 受影响文件：`backend/app/director_hypit.py`、`director_operations.py`、`packages/provider-comfy-h3`、四份主文档。
+- 兼容性：API 与 payload 不变。Comfy HTTP 在大模型加载期间超时仍走 `comfy-unreachable` 等待，不按丢 prompt 处理。仍在 `/queue` 里的卡死任务不是孤儿进程，需在 Comfy 侧中断。
+- 验证命令：`python -m unittest backend.tests.test_director_hypit -q`；在 `D:\zlyun\hypit-poc\packages\provider-comfy-h3` 执行 `npm test`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 Hypit 复刻页可选 H3 画质档
+
+- 变更原因：768P（0.98 MP / 768×1344）在 16GB 4080 上会卡死；MP 只写在 `hypit.runtime.json`，页面没有入口。
+- 当前基线：`hypit_replication.h3Quality` 为语义三档 `safe`（0.6 MP / 608×1056，默认）、`balanced`（0.7 MP / 640×1152）、`official`（0.98 MP / 768×1344）。前端用 Ant Design Select 显示像素尺寸，不提供原始 MP 数字框。编译时写入工程 `notes/hypit.runtime.overlay.json`（`dataRoot` 改绝对路径）并设置 `ZLY_HYPIT_H3_MEGAPIXELS`；`@zly/provider-comfy-h3` 每次 submit 读取该环境变量。不改工作台本机 Comfy 默认档。
+- 受影响文件：`backend/app/director_hypit.py`、`director_operations.py`、`DirectorHypitStudio.tsx`、`hypit-model.ts`、`packages/provider-comfy-h3`、四份主文档。
+- 兼容性：旧工程缺字段时归一为 `safe`。SVML 仍可写 `resolution="768P"`，实际像素由画质档决定。
+- 验证命令：`python -m unittest backend.tests.test_director_hypit -q`；`pnpm --dir frontend exec vitest run src/director/hypit-model.test.ts`；在 `D:\zlyun\hypit-poc\packages\provider-comfy-h3` 执行 `npm test`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-19 导演台并入 `/director`，九阶段 Recipe 界面下线
+
+- 变更原因：侧栏「导演台」实际打开的是原 `/director2` 项目壳，「导演台2」才是旧九阶段 `/director`。产品只保留一套导演台。
+- 当前基线：`DIRECTOR2_PREFIX` 改为 `"/director"`。侧栏只留「导演台」。`/director` 为首页；`/director/projects/:id/{content|assets|workshop|jobs}` 为导演创作；`/director/batch|replication|hypit/:id` 路径不改。`/director2/*` `Navigate` 到对应 `/director/*`。旧 `/director/:recipeId` 回首页。首页合并 `/api/projects` 与三项 `/api/director/projects`（过滤 recipe / timeline）。前端删除九阶段 Recipe 页面与专属组件（`DirectorRecipeStudio`、时间线、`opencut-timeline` 等）。本轮不重命名 `frontend/src/director2/`，不改后端 `surface: "director2"`，不拆除 `/api/director/recipes/*`。`/api/jobs` 轮询只在生成页和三条工作室开启。
+- 受影响文件：`frontend/src/paths.ts`、`frontend/src/router.tsx`、`frontend/src/App.tsx`、`frontend/src/director2/paths.ts`、`Director2StudioHome.tsx`、`DirectorStudioModule.tsx`、`frontend/src/director/` 九阶段专属文件（删除）、四份主文档。
+- 兼容性：三项工作室与 `/assets`、生成页 URL 不变；旧 `/director2` 书签可跳转；旧 Recipe 书签不再打开九阶段界面。
+- 验证命令：`pnpm --dir frontend exec vitest run`；5173 自查首页、四类入口、重定向与生成/资产页。
+- 回滚方式：从 Git 恢复删除的 Recipe 文件与路径前缀。
+
 ## 2026-09-19 Hypit H3 768P 不再用 0.2 MP 预览档
 
 - 变更原因：沙丽丽护肤复刻成片出现横竖条纹。H3 原片只有 352×608（`megapixels: 0.2`），Hyperframes 再 cover 到 720×1280，YUV 4:2:0 色度块被拉大成网格。
@@ -86,7 +185,7 @@
 ## 2026-09-19 Hypit 复刻第四入口（POC 出门后）
 
 - 变更原因：本机 Hypit POC 已通过（无 HypiHub doctor、WhisperX 中文对齐、Chromium 图形成片、ComfyUI 8188 H3 A-roll）。需要与 VACE 参考片复刻并列的结构复刻入口，而不是把 Hypit 填进 `shot_replication`。
-- 当前基线：新 payload kind `hypit_replication`，路由 `/director/hypit/:projectId`。导演台与导演台2 首页第四张卡「Hypit 复刻」文案为拆结构、换内容、合字幕图形。后端子进程调本机 `hypit` CLI（默认 `D:\zlyun\hypit-poc`，工程目录 `data/hypit/{user}/{project}`），不 vendoring monorepo。拉片 `hypit_transcribe`（WhisperX），编译 `hypit_compile`（check/plan/build）；H3 走现有 8188，编译期间 `occupy_gpu("comfy")`。没有 `.svrun` 时提示用 Coding Agent 写 SVML。VACE `analyze_reference_video` / `replicate_shots` / `/director/replication/:id` 零改动。CLI 报告保留 Hypit 名称。
+- 当前基线：新 payload kind `hypit_replication`，路由 `/director/hypit/:projectId`。导演台与导演台2 首页第四张卡「Hypit 复刻」文案为拆结构、换内容、合字幕图形。后端子进程调本机 `hypit` CLI（默认 `D:\zlyun\hypit-poc`，工程目录 `data/hypit/{user}/{project}`），不 vendoring monorepo。拉片 `hypit_transcribe`（WhisperX），编译 `hypit_compile`（check/plan/build，`Popen` 可取消；开始前回收本工程遗留执行器）；H3 走现有 8188，编译期间仅本机 Comfy 才 `occupy_gpu("comfy")`。没有 `.svrun` 时提示用 Coding Agent 写 SVML。VACE `analyze_reference_video` / `replicate_shots` / `/director/replication/:id` 零改动。CLI 报告保留 Hypit 名称。
 - 受影响文件：`director_hypit.py`、`director_recipe.py`、`director_operations.py`、`main.py`、`models.py`、`storage.py`、导演台首页/工作台前端、测试与三份主文档、`docs/API.md`、`docs/导演台流程与界面结构.md`。
 - 兼容性：不改表结构、端口或 ComfyUI 节点。不新开 8188。旧 `shot_replication` 工程不受影响。
 - 验证命令：`python -m unittest backend.tests.test_director_hypit backend.tests.test_core backend.tests.test_director`；`pnpm --dir frontend exec vitest run src/director/hypit-model.test.ts`。
@@ -131,7 +230,7 @@
 ## 2026-09-18 半解说包 H3 写稿失败不再静默降级
 
 - 变更原因：绑定半解说包后，「生成 H3 提示词」任务会完成，但落库的是骨架八块 + `render_ref2va` 灌水句。双稿系统提示词拼了装箱器「只出英文、不要 `<d>`」，解析把纯英文当中文空稿，裸 `except` 再填骨架并伪造成功。
-- 当前基线：`build_dual_author_system` 不再拼接 `packing_system_prompt`。半解说包 `skip_program_pack` 时，中文八块与英文六段都必须通过校验才写回 Beat；出片英文只规范化 `<Picture>` / `<Subject>`，不再 `render_ref2va`、不再灌水句。LLM 或校验失败则 `h3_prompt` 任务 `failed`，`payload` 保留 `author_errors`、`vision_*` 与截断残稿，不覆盖上一版 `h3_prompt` / `timestamped_zh_prompt`，禁止骨架填空当成功。工坊失败 toast 显示真实原因，直播残稿保留，状态芯片为「生成失败」。`fill_timestamped_zh_prompt` 只给模板单测，不进入工坊成功路径。未绑技能包仍走默认程序装箱。
+- 当前基线：`build_dual_author_system` 不再拼接 `packing_system_prompt`。半解说包 `skip_program_pack` 时，中文八块与英文六段都必须通过校验才写回 Beat；出片英文规范化 `<Picture>` / `<Subject>` 和六段 `name:` 标题，不再 `render_ref2va`、不再灌水句。LLM 或校验失败则 `h3_prompt` 任务 `failed`，`payload` 保留 `author_errors`、`vision_*` 与截断残稿，不覆盖上一版 `h3_prompt` / `timestamped_zh_prompt`，禁止骨架填空当成功。工坊失败 toast 显示真实原因，直播残稿保留，状态芯片为「生成失败」。`fill_timestamped_zh_prompt` 只给模板单测，不进入工坊成功路径。未绑技能包仍走默认程序装箱。
 - 受影响文件：`skill_packs/handlers.py`、`runner.py`、`llm_service.py`、`h3_prompt_job_service.py`、工坊前端直播/失败态、对应测试与三份主文档、`docs/API.md`。
 - 兼容性：不改表结构、端口或 ComfyUI。默认配方不受影响。
 - 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_llm`；`pnpm --dir frontend exec vitest run src/director2/workshop-prompt-live.test.ts src/director2/workshop-vision-status.test.ts`。
@@ -185,7 +284,7 @@
 ## 2026-09-18 半解说包暂时旁路本地 H3 装箱
 
 - 变更原因：中文八块分秒是 Hub 给 MiniMax Design 的导演文档，不是本地 `MiniMaxH3Director` 出片格式。`polish_ref2va` / `prepare_generated_prompt` 会把 GPT 英文六段盖成骨架 + 中文 `00:00–` + 灌水句 + 轿厢句。
-- 当前基线：配方 `packing_overrides.skip_program_pack`。半解说包临时为 `true`。打开后：`polish_ref2va` 只有合法 `authored_en_prompt`（六段标题且校验通过）才出片，不再 `render_ref2va` + 灌时间码；英文缺失、无六段标题或校验失败则任务失败，不回退无时间码骨架、不覆盖 Beat。`generate_h3_prompt` 与双稿写稿不再 `prepare` / overlay / 第二次装箱 LLM。工坊 `h3_prompt` 落库与出片只规范化 `<Picture>` / `<Subject>`。校验放宽到六段标题、台词逐字、`<Picture n>`，280 英文词不再挡短稿。中文分秒仍写入 `timestamped_zh_prompt`。未绑技能包仍走默认程序装箱。把 `meta.yaml` 该行改回 `false` 即恢复。
+- 当前基线：配方 `packing_overrides.skip_program_pack`。半解说包临时为 `true`。打开后：`polish_ref2va` 只有合法 `authored_en_prompt`（六段标题且校验通过）才出片，不再 `render_ref2va` + 灌时间码；英文缺失、无六段标题或校验失败则任务失败，不回退无时间码骨架、不覆盖 Beat。`generate_h3_prompt` 与双稿写稿不再 `prepare` / overlay / 第二次装箱 LLM。工坊 `h3_prompt` 落库与出片规范化 `<Picture>` / `<Subject>` 和六段 `name:` 标题。校验放宽到六段标题、台词逐字、`<Picture n>`，280 英文词不再挡短稿。中文分秒仍写入 `timestamped_zh_prompt`。未绑技能包仍走默认程序装箱。把 `meta.yaml` 该行改回 `false` 即恢复。
 - 受影响文件：`skill_packs/recipe.py`、`handlers.py`、半解说包 `meta.yaml`、`llm_service.py`、`h3_prompt_job_service.py`、`episode_video_service.py`、对应测试与三份主文档、`docs/API.md`。
 - 兼容性：不改四阶段 ID、表结构、端口或 ComfyUI。默认配方不受影响。
 - 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video backend.tests.test_skill_packs`。
@@ -552,16 +651,16 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 | `frontend/src/router.tsx` | `BrowserRouter` 路由表：登录/改密、管理设置、创作台壳 |
 | `frontend/src/auth/AuthScreens.tsx` | 登录、首次超级管理员初始化与强制改密界面 |
 | `frontend/src/admin/AdminSettings.tsx` | 管理设置（账号 / AI 供应商 / LLM / VLM / TTS / 媒体存储） |
-| `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成/导演台（/director2）/导演台2（/director）/资产、图/视频与选中任务；工作流、参考图草稿仍在组件 state |
+| `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成 / 导演台（`/director` 首页与项目壳，`/director/batch|replication|hypit` 三项工作室）/ 资产；图/视频与选中任务；工作流、参考图草稿仍在组件 state |
 | `frontend/src/xiaji/XiajiStudioModule.tsx` | 导台2：项目内内容库、资产库、剧集工坊、全部任务 |
 | `frontend/src/xiaji/XiajiHome.tsx` | 导台2 项目列表与新建 |
 | `frontend/src/xiaji/XiajiAssetsModule.tsx` | 导台2 资产库：角色/场景/道具/声线定义与生成 |
 | `frontend/src/xiaji/XiajiWorkshopModule.tsx` | 导台2 剧集工坊：规划落库、脚本 Beat、镜头与成片合成 |
 | `frontend/src/xiaji/XiajiShotsWorkbench.tsx` | 导台2 镜头工作台：左 Beat 网格、右文案/单帧/参考图 |
-| `frontend/src/director/DirectorRecipeStudio.tsx` | 导演创作工作面：方案/剪辑双视图共用同一份 `director_recipe`；`?stage=` 与桌面 `?view=` |
-| `frontend/src/director/components/DirectorStageNav.tsx` | 方案视图左栏四组任务导航（故事与风格 / 视觉素材 / 镜头设计 / 声音与交付）与 readiness 徽标 |
-| `frontend/src/director/components/DirectorTimelineView.tsx` | 桌面剪辑视图：素材栏 + 预览/串播 + 镜头轨 + Inspector |
-| `frontend/src/director/types.ts` | Recipe 类型、`recipeReadiness` 派生、`?view=` / `?stage=` 解析 |
+| `frontend/src/director2/Director2StudioHome.tsx` | 导演台首页：四入口 + 合并最近工程 |
+| `frontend/src/director2/Director2ProjectDetail.tsx` | 导演创作项目壳：内容库 / 资产库 / 剧集工坊 / 全部任务 |
+| `frontend/src/director/DirectorStudioModule.tsx` | 短视频批量 / 参考片复刻 / Hypit 复刻装配 |
+| `frontend/src/director/types.ts` | 批量/画风辅助与 Recipe 类型兼容层（九阶段 UI 已下线） |
 | `frontend/src/local-resource-store.ts` | 目录句柄/资源索引 IndexedDB 持久化及本地文件读写 |
 | `desktop/client/` | ZLYUN AI 客户端本地启动页与品牌图标 |
 | `desktop/src-tauri/` | Tauri Windows 壳、可信 origin capability 与受限本地资源命令 |
@@ -599,7 +698,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 | `backend/app/media_studio/services/dubbing_service.py` | 导演台2 台词轨展开、单句导演参数、配音生成调度 |
 | `backend/app/director_export.py` | 逐镜 TTS、BGM、ffmpeg 成片、FCPXML/EDL；失败镜头不进入成片 |
 | `backend/app/director_agents.py` | 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；独立 `episodes` agent 写集大纲，分镜优先消费已确认结构；分镜读取官方 h3-prompt-writing，并依次做时长润色与 Seedance 风格衔接润色；配音/配乐写可播放媒体元数据；绑定技能包时 `_system` 注入 `inject_craft` |
-| `backend/app/skill_packs/` | 技能包配方（Hub 官方 Markdown + `meta.yaml`）与步骤注册表；工坊一次写官方八块中文分秒稿和英文六段；半解说包临时 `skip_program_pack` 出片用 GPT 英文、不程序装箱；R2V 绑角色卡+场景卡+起幅；导台2 四阶段按官方标题 `inject_craft`；项目 `extra.skill_pack_id` 绑定 |
+| `backend/app/skill_packs/` | 技能包配方（Hub 官方 Markdown + `meta.yaml` + `summary`）与步骤注册表；首页/顶栏绑定项目 `extra.skill_pack_id`；工坊一次写官方八块中文分秒稿和英文六段；半解说包临时 `skip_program_pack` 出片用 GPT 英文、不程序装箱；R2V 绑角色卡+场景卡+三联三格 9:16 裁切（不送 16:9 母图）；导台2 四阶段按官方标题 `inject_craft` |
 | `backend/app/media_studio/services/ai_generation_service.py` | 导台2 项目级 AI 流水：澄清 → 四步卡点（`awaiting_review` / `advance` / `revise` / `rerun_stage`）；`retry(stage=…)` 可从已完成的更早阶段重跑并作废后续步骤；结果适配写入内容库/资产库/剧集工坊；阶段生成套 `skill_pack_scope` |
 | `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能、官方 prompt-writing、shot-timing 与 shot-continuity 加载器，供生成页优化和导演台分镜共用 |
 | `backend/app/script_full_story.py` | 剧本 `fullStory` 规范化与按 `【` / `### 镜头` 切场景，供导演台与导台2 共用 |

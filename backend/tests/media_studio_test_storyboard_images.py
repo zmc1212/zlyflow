@@ -131,6 +131,17 @@ class StoryboardDispatcherTests(unittest.TestCase):
         StoryboardImageService.kick()
         self.assertEqual(1, executor.submit.call_count)
 
+    @patch("backend.app.skill_packs.binding.resolve_skill_pack_id", return_value="")
+    def test_unbound_triptych_prompt_does_not_force_half_narrated(self, _resolve):
+        prompt = StoryboardImageService._triptych_prompt("p1", {"action": "她转身关门", "camera": "固定机位"})
+        self.assertIn("OUTPUT CANVAS", prompt)
+        self.assertNotIn("Generate ONE 16:9 keyframe master image", prompt)
+
+    @patch("backend.app.skill_packs.binding.resolve_skill_pack_id", return_value="half-narrated-live-action-short-drama")
+    def test_bound_triptych_prompt_uses_pack_template(self, _resolve):
+        prompt = StoryboardImageService._triptych_prompt("p1", {"action": "她转身关门", "camera": "固定机位"})
+        self.assertIn("Generate ONE 16:9 keyframe master image", prompt)
+
 
 class TransferEpisodesTests(unittest.TestCase):
     def setUp(self) -> None:

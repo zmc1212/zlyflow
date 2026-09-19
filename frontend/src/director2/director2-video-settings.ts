@@ -342,6 +342,17 @@ export function saveVideoSettings(projectId: string, values: Record<string, stri
   }
 }
 
+export function playbackAspectRatio(values?: Record<string, string> | null): string {
+  const raw = String(values?.aspect_ratio || "").trim()
+  return raw || "16:9"
+}
+
+export function playbackAspectIsPortrait(aspect?: string | null): boolean {
+  const match = String(aspect || "").match(/(\d+(?:\.\d+)?)\s*[:/x×]\s*(\d+(?:\.\d+)?)/i)
+  if (!match) return false
+  return Number(match[2]) > Number(match[1])
+}
+
 export function videoSettingsSummary(fields: Director2VideoOptionField[], values: Record<string, string>): string {
   const aspect = values.aspect_ratio || "16:9"
   const qualityField = fields.find((item) => item.name === "quality")

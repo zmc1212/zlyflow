@@ -6,6 +6,7 @@ export type MediaPreviewTarget = {
   src: string
   title: string
   description?: string
+  aspectRatio?: string
 }
 
 export type OpenMediaPreviewInput = {
@@ -13,6 +14,7 @@ export type OpenMediaPreviewInput = {
   title?: string
   description?: string
   kind?: PreviewMediaKind
+  aspectRatio?: string
 }
 
 export function asMediaPreviewTarget(input: OpenMediaPreviewInput): MediaPreviewTarget | null {
@@ -21,7 +23,8 @@ export function asMediaPreviewTarget(input: OpenMediaPreviewInput): MediaPreview
   const kind = input.kind || "image"
   const title = (input.title || "").trim() || (kind === "video" ? "视频预览" : "图片预览")
   const description = input.description?.trim() || undefined
-  return { kind, src, title, description }
+  const aspectRatio = input.aspectRatio?.trim() || undefined
+  return { kind, src, title, description, aspectRatio }
 }
 
 type MediaPreviewContextValue = {
@@ -52,6 +55,7 @@ export function MediaPreviewProvider({ children }: { children: ReactNode }) {
           src={preview.src}
           title={preview.title}
           description={preview.description}
+          aspectRatio={preview.aspectRatio}
           onClose={() => setPreview(null)}
         />
       ) : null}

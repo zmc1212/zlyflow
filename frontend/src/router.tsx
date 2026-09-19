@@ -1,9 +1,15 @@
 import { lazy, Suspense } from "react"
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom"
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import AdminSettings from "./admin/AdminSettings"
 import type { AuthStatus } from "./api"
 import { CenteredStatus, CredentialScreen, PasswordChangeScreen } from "./auth/AuthScreens"
-import { PATHS, ROUTE_PATTERNS, STUDIO_ROUTE_PATHS } from "./paths"
+import {
+  DIRECTOR2_REDIRECT_ROUTE_PATHS,
+  director2RedirectTarget,
+  PATHS,
+  ROUTE_PATTERNS,
+  STUDIO_ROUTE_PATHS,
+} from "./paths"
 
 const App = lazy(() => import("./App"))
 
@@ -26,6 +32,11 @@ export {
   studioWorkspaceFromPath,
 } from "./paths"
 export type { AdminTab, GenerateMediaType, LoginRedirectState, StudioWorkspace } from "./paths"
+
+function Director2Redirect() {
+  const location = useLocation()
+  return <Navigate to={director2RedirectTarget(location)} replace />
+}
 
 export function AppRoutes({
   auth,
@@ -74,6 +85,10 @@ export function AppRoutes({
         }
       />
       <Route path={PATHS.home} element={<Navigate to={PATHS.generateVideo} replace />} />
+      {DIRECTOR2_REDIRECT_ROUTE_PATHS.map((path) => (
+        <Route key={path} path={path} element={<Director2Redirect />} />
+      ))}
+      <Route path={ROUTE_PATTERNS.directorLegacyRecipe} element={<Navigate to={PATHS.director} replace />} />
       <Route
         element={
           studioSession ? (

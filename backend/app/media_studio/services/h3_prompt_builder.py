@@ -64,6 +64,8 @@ _INNER_MARK_RE = re.compile(
     re.I,
 )
 _HAN_RE = re.compile(r"[\u4e00-\u9fff]")
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[？。！!?])")
+_SHOT1_LEAD_RE = re.compile(r"^(\s*)(?:\[\s*shot\s*1\s*\]|shot\s*1)\s*:?\s*", re.I)
 _LIPSYNC_ZH_RE = re.compile(r"本镜对白必须口型同步：.*?(?=收束：|本集情境：|$)", re.S)
 _LIPSYNC_EN_RE = re.compile(
     r"Lip-sync the exact Chinese line\(s\):.*?(?:Do not translate the line onto the picture\.|(?=\s*(?:A visible body action|SYNCHRONIZED SOUND|FINISH AND FORBIDDEN|$)))",
@@ -71,7 +73,39 @@ _LIPSYNC_EN_RE = re.compile(
 )
 _LIP_SYNC_HINT_RE = re.compile(r"(lip[\s-]?sync|says|口型同步|开口)", re.I)
 _CLOSED_MOUTH_HINT_RE = re.compile(
-    r"(off[\s-]?screen|voice[\s-]?over|inner voice|嘴唇闭合|闭嘴|closed lips|mouths? stay(?:s)? closed)",
+    r"(off[\s-]?screen|voice[\s-]?over|inner voice|嘴唇闭合|闭嘴|"
+    r"closed lips|lips remain(?:\s+completely)?\s+closed|mouths? stay(?:s)? closed)",
+    re.I,
+)
+OFFICIAL_OFFSCREEN_VOICEOVER = "says in an off-screen voiceover"
+OFFICIAL_CLOSED_MOUTH_AFTER = " while all visible characters' lips remain completely closed."
+_OFFICIAL_VO_TAIL_RE = re.compile(
+    r"says\s+in\s+an\s+off-screen\s+voiceover\s*:?\s*$",
+    re.I,
+)
+_LIPSYNC_SAYS_TAIL_RE = re.compile(
+    r"(lip[\s-]?sync|\bsays\b)(?!\s+in\s+an\s+off-screen\s+voiceover)\s*:?\s*$",
+    re.I,
+)
+_CLOSED_AFTER_D_RE = re.compile(
+    r"^\s*[,.]?\s*while\s+[^.!?\n]{0,120}?lips remain(?:\s+completely)?\s+closed\.?",
+    re.I,
+)
+_OLD_INNER_LEAD_RE = re.compile(
+    r"(?:"
+    r"(?:\bthinks\.?\s+)?"
+    r"in an off-screen inner voiceover, all visible characters keep their lips closed:\s*"
+    r"|\bthinks\.?\s*"
+    r")$",
+    re.I,
+)
+_BARE_SAYS_TAIL_RE = re.compile(r"\bsays\s*:?\s*$", re.I)
+_SPEECH_LEAD_TAIL_RE = re.compile(
+    r"(?:"
+    r"(?:\(\w+\)\s+)?(?:<Subject\s+\d+>\s+)?"
+    r"[^\n<>]{0,48}?\b(?:says(?:\s+in\s+an\s+off-screen\s+voiceover)?|thinks)\s*:?\s*"
+    r"|in an off-screen inner voiceover, all visible characters keep their lips closed:\s*"
+    r")$",
     re.I,
 )
 _D_TAG_SPLIT_RE = re.compile(r"(<d>.*?</d>)", re.S)
@@ -97,8 +131,11 @@ _FREEZE_TAIL_RE = re.compile(
     re.I,
 )
 _INNER_PREFIX_RE = re.compile(
-    r"(?:(?:\(\w+\)\s+)?(?:<Subject\s+\d+>\s+)?[^\n<>]{0,24}?\bthinks\.?\s+)?"
-    r"in an off-screen inner voiceover, all visible characters keep their lips closed:\s*",
+    r"(?:(?:\(\w+\)\s+)?(?:<Subject\s+\d+>\s+)?[^\n<>]{0,48}?\bthinks\.?\s+)?"
+    r"(?:"
+    r"in an off-screen inner voiceover, all visible characters keep their lips closed:\s*"
+    r"|says\s+in\s+an\s+off-screen\s+voiceover\s*:?\s*"
+    r")",
     re.I,
 )
 _SPEECH_LEADIN_RE = re.compile(
@@ -188,8 +225,9 @@ _DUP_HOLD_RE = re.compile(
 )
 H3_SPEECH_UNIQUENESS_RULES = (
     "Spoken character lines appear exactly once, inside <d>[Chinese] ...</d>, with lip-sync. "
-    "Inner voice / narration / 内心 / 旁白 appear exactly once as an off-screen voiceover; "
-    "every visible mouth stays closed. Never lip-sync inner voice. "
+    "Inner voice / narration / 内心 / 旁白 appear exactly once as "
+    f"'{OFFICIAL_OFFSCREEN_VOICEOVER}: <d>[Chinese] ...</d>{OFFICIAL_CLOSED_MOUTH_AFTER.strip()}'. "
+    "Never lip-sync inner voice with bare says:. "
     "Never copy the same Chinese sentence twice. Do not paste script quotes from the action "
     "or visual_prompt fields into the picture body once they already appear in <d>. "
     "Speaker names and 内心/旁白 labels are metadata, never spoken inside <d>."
@@ -394,6 +432,23 @@ class H3PromptBuilder:
         return value
 
     @classmethod
+    def split_speech_atoms(cls, text: str) -> list[str]:
+        """同一人连续多句按问号/句号切开；过短的叹词并入下一句。"""
+        value = cls._strip_wrapping_quotes(str(text or "").strip())
+        if not value:
+            return []
+        parts = [item.strip() for item in _SENTENCE_SPLIT_RE.split(value) if str(item).strip()]
+        if len(parts) <= 1:
+            return [value]
+        merged: list[str] = []
+        for part in parts:
+            if merged and len(cls._han_only(merged[-1])) < 4:
+                merged[-1] = f"{merged[-1]}{part}"
+            else:
+                merged.append(part)
+        return [item for item in merged if item] or [value]
+
+    @classmethod
     def _parse_script_turns(cls, dialogue: str, extra_names: list[str] | None = None) -> list[dict[str, str]]:
         turns: list[dict[str, str]] = []
         for speaker, spoken in _SCRIPT_TURN_RE.findall(str(dialogue or "")):
@@ -539,9 +594,8 @@ class H3PromptBuilder:
         if event.get("kind") == "inner":
             speaker = speaker or "旁白"
             return (
-                f"{identity}{speaker} thinks. In an off-screen inner voiceover, "
-                "all visible characters keep their lips closed: "
-                f"<d>[Chinese] {text}</d>."
+                f"{identity}{speaker} {OFFICIAL_OFFSCREEN_VOICEOVER}: "
+                f"<d>[Chinese] {text}</d>{OFFICIAL_CLOSED_MOUTH_AFTER}"
             )
         return (
             f"{identity}{speaker} says <d>[Chinese] {text}</d>. "
@@ -645,8 +699,8 @@ class H3PromptBuilder:
             prefix = text[max(0, start - 140):start]
             says = re.search(
                 r"(?:\(\w+\)\s+)?(?:<Subject\s+\d+>\s+)?"
-                r"[^\n<>]{0,40}?\b(?:says|thinks)\s*"
-                r"(?:in an off-screen inner voiceover:\s*)?$",
+                r"[^\n<>]{0,48}?\b(?:says(?:\s+in\s+an\s+off-screen\s+voiceover)?|thinks)\s*"
+                r"(?:in an off-screen (?:inner )?voiceover:\s*)?$",
                 prefix,
                 flags=re.I,
             )
@@ -665,7 +719,10 @@ class H3PromptBuilder:
                 start = max(0, match.start() - 140) + inner_pref.start()
             suffix = text[end:end + 180]
             extra = 0
-            voice = _VOICE_DIR_RE.match(suffix)
+            closed = _CLOSED_AFTER_D_RE.match(suffix)
+            if closed:
+                extra = closed.end()
+            voice = _VOICE_DIR_RE.match(suffix[extra:])
             if voice:
                 extra = voice.end()
             hold = _HOLD_LINE_RE.match(suffix[extra:])
@@ -731,6 +788,9 @@ class H3PromptBuilder:
         if not last_d:
             return text
         insert_at = last_d.end()
+        closed = _CLOSED_AFTER_D_RE.match(detail[insert_at:])
+        if closed:
+            insert_at += closed.end()
         hold = _HOLD_LINE_RE.match(detail[insert_at:])
         if hold:
             insert_at += hold.end()
@@ -837,8 +897,9 @@ class H3PromptBuilder:
                     continue
                 visual = re.sub(
                     r"\s*(?:\(\w+\)\s*)?(?:<Subject\s+\d+>\s*)?"
-                    r"[^\n<>]{0,24}?\b(?:says|thinks)\.?\s*"
-                    r"(?:In an off-screen inner voiceover,[^:]{0,80}:\s*)?",
+                    r"[^\n<>]{0,24}?\b(?:says(?:\s+in\s+an\s+off-screen\s+voiceover)?|thinks)\.?\s*"
+                    r"(?:In an off-screen inner voiceover,[^:]{0,80}:\s*)?"
+                    r"(?:while [^.!?]{0,80}?lips remain(?:\s+completely)?\s+closed\.?)?",
                     " ",
                     gap,
                     flags=re.I,
@@ -883,7 +944,12 @@ class H3PromptBuilder:
                 hint = " ".join(marker).lower()
                 if hint and hint in window.lower():
                     return text
-                return text[:match.start()] + clause + " " + text[match.start():]
+                prefix = text[max(0, match.start() - 180):match.start()]
+                lead = _SPEECH_LEAD_TAIL_RE.search(prefix)
+                insert_at = match.start()
+                if lead:
+                    insert_at = match.start() - len(prefix) + lead.start()
+                return text[:insert_at] + clause + " " + text[insert_at:]
         return text
 
     @staticmethod
@@ -1315,7 +1381,8 @@ class H3PromptBuilder:
             "Do not write says-sentences, 'X then speaks', 'speaks first with a tone', "
             "'before continuing', 'speaks with', 'continuing with', or 'spoken by'. "
             "Do not emit <d> tags or Chinese dialogue; the renderer substitutes locked speech into those tokens. "
-            "Inner {{Dn}} is the listener's off-screen thought with closed lips, never the previous speaker continuing. "
+            "Inner {{Dn}} is the listener's off-screen thought; the renderer fills "
+            f"{OFFICIAL_OFFSCREEN_VOICEOVER} plus closed lips after </d>, never bare says:. "
             "Separate inner {{Dn}} from the next spoken {{Dn}} with a closed-mouth camera beat. "
             "Put freeze or end hold AFTER the last {{Dn}}. "
             "Never put the speaker name or quotation wrappers inside spoken tags. "
@@ -1611,7 +1678,10 @@ class H3PromptBuilder:
         if visible_text:
             user_lines.append(f"画面可见文字（原样保留，不得朗读）：{visible_text}")
         if inner_turns:
-            user_lines.append("旁白/内心（画外音，可见人物嘴唇保持闭合，禁止口型同步，成品里中文只出现一次）：")
+            user_lines.append(
+                "旁白/内心（画外音；渲染器写成 says in an off-screen voiceover，"
+                "</d> 后立刻 lips remain completely closed，禁止口型同步 says:，成品里中文只出现一次）："
+            )
             for turn in inner_turns:
                 speaker = str(turn.get("speaker") or "").strip()
                 text = cls._clean_dialogue(str(turn.get("text") or ""), speaker)
@@ -1782,33 +1852,57 @@ class H3PromptBuilder:
                 continue
             if len(_HAN_RE.findall(line)) >= 6 and cls.count_han_line(prompt, line) > 1:
                 errors.append(f"inner/narration line duplicated: {line[:40]}")
-            locations: list[tuple[int, int]] = []
+        return errors
+
+    @classmethod
+    def _d_tag_spans_for_line(cls, prompt: str, line: str) -> list[tuple[int, int]]:
+        needle = cls._han_only(line)
+        locations: list[tuple[int, int]] = []
+        if needle:
             for match in re.finditer(r"<d>(?:\[[^\]]+\]\s*)?(.*?)</d>", prompt, flags=re.S):
-                if cls._han_only(line) and cls._han_only(line) in cls._han_only(match.group(1)):
+                if needle in cls._han_only(match.group(1)):
                     locations.append((match.start(), match.end()))
-            if not locations:
-                locations = [(match.start(), match.end()) for match in cls._flexible_line_re(line).finditer(prompt)]
+        return locations
+
+    @classmethod
+    def inner_delivery_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
+        errors: list[str] = []
+        text = str(prompt or "")
+        for turn in cls._inner_turns(shot):
+            line = str(turn.get("text") or "").strip()
+            if not line:
+                continue
+            locations = cls._d_tag_spans_for_line(text, line)
             if not locations:
                 continue
-            closed = False
+            official = False
             lip_synced = False
+            closed_after = False
             for start, end in locations:
-                prefix = prompt[max(0, start - 100):start]
-                around = prompt[max(0, start - 160):end + 40]
-                if _CLOSED_MOUTH_HINT_RE.search(around):
-                    closed = True
-                if re.search(r"(lip[\s-]?sync|says|口型同步)\s*$", prefix.strip(), re.I):
-                    if not _CLOSED_MOUTH_HINT_RE.search(prefix):
-                        lip_synced = True
+                prefix = text[max(0, start - 160):start]
+                suffix = text[end:end + 140]
+                if _OFFICIAL_VO_TAIL_RE.search(prefix):
+                    official = True
+                if _LIPSYNC_SAYS_TAIL_RE.search(prefix.strip()):
+                    lip_synced = True
+                if _CLOSED_AFTER_D_RE.match(suffix) or re.search(
+                    r"lips remain(?:\s+completely)?\s+closed",
+                    suffix[:90],
+                    flags=re.I,
+                ):
+                    closed_after = True
             if lip_synced:
                 errors.append(f"inner voice must not be lip-synced: {line[:40]}")
-            elif not closed:
-                errors.append(f"inner voice missing closed-mouth/off-screen delivery: {line[:40]}")
+            elif not official:
+                errors.append(f"inner voice missing off-screen voiceover delivery: {line[:40]}")
+            elif not closed_after:
+                errors.append(f"inner voice missing closed-mouth after <d>: {line[:40]}")
         return errors
 
     @classmethod
     def speech_contract_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
         errors = cls.speech_uniqueness_errors(prompt, shot)
+        errors.extend(cls.inner_delivery_errors(prompt, shot))
         events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
         expected = [cls._han_only(str(item.get("text") or "")) for item in events]
         expected = [item for item in expected if item]
@@ -1987,34 +2081,48 @@ class H3PromptBuilder:
     @classmethod
     def repair_inner_delivery(cls, prompt: str, shot: dict[str, Any]) -> str:
         text = str(prompt or "")
-        offscreen = "In an off-screen inner voiceover, all visible characters keep their lips closed: "
         for turn in cls._inner_turns(shot):
             line = str(turn.get("text") or "").strip()
             if not line:
                 continue
-            tag = f"<d>[Chinese] {line}</d>"
-            idx = text.find(tag)
-            if idx < 0:
-                for match in re.finditer(r"<d>(?:\[[^\]]+\]\s*)?(.*?)</d>", text, flags=re.S):
-                    if cls._han_only(line) and cls._han_only(line) in cls._han_only(match.group(1)):
-                        idx = match.start()
-                        tag = match.group(0)
-                        break
-            if idx < 0:
+            locations = cls._d_tag_spans_for_line(text, line)
+            if not locations:
                 continue
-            prefix = text[max(0, idx - 120):idx]
-            around = text[max(0, idx - 160):idx + len(tag) + 40]
-            says_match = re.search(
-                r"(?:\(\w+\)\s+)?(?:<Subject\s+\d+>\s+)?[^\n<>]{0,48}?\bsays\s+$",
+            start, end = locations[0]
+            tag = text[start:end]
+            prefix = text[:start]
+            suffix = text[end:]
+            old_lead = _OLD_INNER_LEAD_RE.search(prefix)
+            if old_lead:
+                prefix = prefix[: old_lead.start()]
+            prefix = re.sub(
+                r"in an off-screen inner voiceover, all visible characters keep their lips closed:\s*",
+                " ",
                 prefix,
                 flags=re.I,
             )
-            if says_match and not _CLOSED_MOUTH_HINT_RE.search(prefix):
-                start = idx - len(says_match.group(0))
-                text = text[:start] + offscreen + text[idx:]
-                continue
-            if not _CLOSED_MOUTH_HINT_RE.search(around):
-                text = text[:idx] + offscreen + text[idx:]
+            prefix = re.sub(
+                r"(?:says\s+in\s+an\s+off-screen\s+voiceover\s*:?\s*)+$",
+                "",
+                prefix,
+                flags=re.I,
+            )
+            if _BARE_SAYS_TAIL_RE.search(prefix) and not _OFFICIAL_VO_TAIL_RE.search(prefix):
+                prefix = _BARE_SAYS_TAIL_RE.sub("", prefix)
+            prefix = prefix.rstrip() + f" {OFFICIAL_OFFSCREEN_VOICEOVER}: "
+            if not _CLOSED_AFTER_D_RE.match(suffix):
+                rest = suffix.lstrip(" \t")
+                if rest.startswith("."):
+                    rest = rest[1:].lstrip()
+                suffix = OFFICIAL_CLOSED_MOUTH_AFTER.rstrip(".") + ". " + rest
+            text = prefix + tag + suffix
+        return re.sub(r"[ \t]{2,}", " ", text)
+
+    @classmethod
+    def canonicalize_authored_ref2va(cls, prompt: str, shot: dict[str, Any] | None = None) -> str:
+        text = cls.normalize_authored_ref2va(prompt)
+        if isinstance(shot, dict):
+            text = cls.repair_inner_delivery(text, shot)
         return text
 
     @classmethod
@@ -2137,19 +2245,26 @@ class H3PromptBuilder:
                 name = name or str(chars[index - 1].get("character_name") or "").strip()
             source = str(ref.get("source") or "").strip().lower()
             role = str(ref.get("role") or "").strip().lower()
+            if not role:
+                if source in {"triptych.mid", "mid"} or source.endswith(".mid"):
+                    role = "mid"
+                elif source in {"triptych.end", "end"} or source.endswith(".end"):
+                    role = "end"
+                elif source in {"triptych.start", "start"} or source.endswith(".start"):
+                    role = "start"
             is_composition = (
-                cat in {"composition", "start"}
-                or source in {"triptych.start", "start"}
-                or role == "start"
+                cat in {"composition", "start", "mid", "end"}
+                or source in {"triptych.start", "triptych.mid", "triptych.end", "start", "mid", "end"}
+                or role in {"start", "mid", "end"}
             )
             is_scene = cat == "scene" or (
                 index == last
-                and cat not in {"character", "prop", "composition", "start"}
+                and cat not in {"character", "prop", "composition", "start", "mid", "end"}
                 and not is_composition
                 and len(indexes) > len(chars)
             )
             if is_composition:
-                lines.append(composition_subject_line(index, name))
+                lines.append(composition_subject_line(index, name, role or "start"))
             elif is_scene:
                 lines.append(scene_subject_line(index, name))
             elif cat == "prop":
@@ -2773,7 +2888,7 @@ class H3PromptBuilder:
 
     @classmethod
     def has_ref2va_headings(cls, prompt: str, sections: tuple[str, ...] = H3_SECTIONS) -> bool:
-        text = str(prompt or "")
+        text = cls.canonicalize_section_headings(str(prompt or ""))
         if not text.strip():
             return False
         matches = [re.search(rf"(?m)^{re.escape(name)}:\s*", text) for name in sections]
@@ -2783,13 +2898,44 @@ class H3PromptBuilder:
     @classmethod
     def canonicalize_section_headings(cls, text: str, sections: tuple[str, ...] = H3_SECTIONS) -> str:
         out = str(text or "")
+        markup = r"(?:#{1,3}[ \t]*|\*\*[ \t]*|__[ \t]*)?"
+        close = r"(?:[ \t]*(?:\*\*|__))?"
         for name in sections:
+            escaped = re.escape(name)
             out = re.sub(
-                rf"(?im)^[ \t]*(?:#{{1,3}}[ \t]*|\*\*[ \t]*|__[ \t]*)?{re.escape(name)}[ \t]*(?:\*\*|__)?[ \t]*:",
+                rf"(?im)^[ \t]*{markup}{escaped}{close}[ \t]*[:：][ \t]*",
+                f"{name}:",
+                out,
+            )
+            out = re.sub(
+                rf"(?im)^[ \t]*{markup}{escaped}{close}[ \t]*$",
                 f"{name}:",
                 out,
             )
         return out
+
+    @classmethod
+    def ensure_shot_1_mark(cls, text: str) -> str:
+        raw = str(text or "")
+        if "[Shot 1]" in raw:
+            return raw
+        heading = re.search(r"(?im)^detailed_description:", raw)
+        if not heading:
+            return raw
+        start = heading.end()
+        rest = raw[start:]
+        lead = _SHOT1_LEAD_RE.match(rest)
+        if lead:
+            return raw[:start] + lead.group(1) + "[Shot 1] " + rest[lead.end():]
+        if rest.startswith("\n"):
+            return raw[:start] + "\n[Shot 1] " + rest[1:]
+        return raw[:start] + "\n[Shot 1] " + rest
+
+    @classmethod
+    def normalize_authored_ref2va(cls, text: str) -> str:
+        return cls.ensure_shot_1_mark(
+            cls.canonicalize_section_headings(cls.canonicalize_reference_tags(str(text or "").strip()))
+        )
 
     @classmethod
     def ensure_section_headings(cls, text: str, sections: tuple[str, ...] = H3_SECTIONS) -> str:

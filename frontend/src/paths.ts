@@ -23,10 +23,15 @@ export const PATHS = {
 export const ROUTE_PATTERNS = {
   generateImageJob: "/generate/image/:jobId",
   generateVideoJob: "/generate/video/:jobId",
-  directorProject: "/director/:projectId",
+  directorLegacyRecipe: "/director/:projectId",
   directorBatch: "/director/batch/:projectId",
   directorReplication: "/director/replication/:projectId",
   directorHypit: "/director/hypit/:projectId",
+  directorProject: "/director/projects/:projectId",
+  directorProjectMenu: "/director/projects/:projectId/:menu",
+  directorProjectEpisode: "/director/projects/:projectId/workshop/:episodeId",
+  director2: "/director2",
+  director2Splat: "/director2/*",
   director2Project: "/director2/projects/:projectId",
   director2ProjectMenu: "/director2/projects/:projectId/:menu",
   director2ProjectEpisode: "/director2/projects/:projectId/workshop/:episodeId",
@@ -48,20 +53,28 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.directorReplication,
   ROUTE_PATTERNS.directorHypit,
   ROUTE_PATTERNS.directorProject,
+  ROUTE_PATTERNS.directorProjectMenu,
+  ROUTE_PATTERNS.directorProjectEpisode,
   PATHS.director,
+  PATHS.assets,
+] as const
+
+export const DIRECTOR2_REDIRECT_ROUTE_PATHS = [
+  ROUTE_PATTERNS.director2,
   ROUTE_PATTERNS.director2Project,
   ROUTE_PATTERNS.director2ProjectMenu,
   ROUTE_PATTERNS.director2ProjectEpisode,
-  PATHS.director2,
-  PATHS.assets,
+  ROUTE_PATTERNS.director2Splat,
 ] as const
 
 export type LoginRedirectState = {
   from?: Pick<Location, "pathname" | "search" | "hash">
 }
 
-export type StudioWorkspace = "generate" | "director" | "director2" | "assets"
+export type StudioWorkspace = "generate" | "director" | "assets"
 export type GenerateMediaType = "image" | "video"
+
+const DIRECTOR_LEGACY_STUDIO_SEGMENTS = new Set(["batch", "replication", "hypit"])
 
 export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
   const base = mediaType === "image" ? PATHS.generateImage : PATHS.generateVideo
@@ -70,9 +83,25 @@ export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
 
 export function studioWorkspaceFromPath(pathname: string): StudioWorkspace {
   if (pathname === PATHS.assets) return "assets"
-  if (pathname === PATHS.director2 || pathname.startsWith(`${PATHS.director2}/`)) return "director2"
   if (pathname === PATHS.director || pathname.startsWith(`${PATHS.director}/`)) return "director"
+  if (pathname === PATHS.director2 || pathname.startsWith(`${PATHS.director2}/`)) return "director"
   return "generate"
+}
+
+export function isDirectorLegacyStudioPath(pathname: string): boolean {
+  const prefix = `${PATHS.director}/`
+  if (!pathname.startsWith(prefix)) return false
+  const segment = pathname.slice(prefix.length).split("/")[0]
+  return DIRECTOR_LEGACY_STUDIO_SEGMENTS.has(segment)
+}
+
+export function director2RedirectTarget(location: Pick<Location, "pathname" | "search" | "hash">): string {
+  const { pathname, search = "", hash = "" } = location
+  if (pathname === PATHS.director2) return `${PATHS.director}${search}${hash}`
+  if (pathname.startsWith(`${PATHS.director2}/`)) {
+    return `${PATHS.director}${pathname.slice(PATHS.director2.length)}${search}${hash}`
+  }
+  return `${PATHS.director}${search}${hash}`
 }
 
 export function parseGeneratePath(pathname: string): { mediaType: GenerateMediaType; jobId?: string } | null {

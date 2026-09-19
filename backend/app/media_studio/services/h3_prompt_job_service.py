@@ -155,7 +155,7 @@ class H3PromptJobService:
                 if not isinstance(item, dict):
                     continue
                 url = str(item.get("url") or "").strip()
-                if url == full_triptych and item.get("source") != "triptych.start" and item.get("role") != "start":
+                if url == full_triptych:
                     continue
                 cleaned.append(item)
             ref_images = cleaned
@@ -544,7 +544,7 @@ class H3PromptJobService:
         beat_info = payload.get("beat_info") if isinstance(payload.get("beat_info"), dict) else {}
         pack_id = str(beat_info.get("skill_pack_id") or payload.get("skill_pack_id") or "").strip()
         if skip_program_pack_enabled(pack_id):
-            return H3PromptBuilder.canonicalize_reference_tags(prompt)
+            return H3PromptBuilder.canonicalize_authored_ref2va(prompt, cls._beat_info_shot(payload))
         shot = cls._beat_info_shot(payload)
         speaker_map = H3PromptBuilder._speaker_map([shot])
         return H3PromptBuilder.prepare_generated_prompt(prompt, shot, speaker_map)

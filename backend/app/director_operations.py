@@ -56,6 +56,7 @@ class DirectorOperationService:
         self.resource_storage = resource_storage
         self.events = DirectorOperationEventBus()
         self._agent_snapshots: dict[str, dict[str, tuple[str, str]]] = {}
+        self._hypit_proc_pids: dict[str, int] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         self._stopping = False
 
@@ -64,8 +65,21 @@ class DirectorOperationService:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
+    def _register_hypit_pid(self, operation_id: str, pid: int) -> None:
+        self._hypit_proc_pids[operation_id] = pid
+
+    def _kill_hypit_pid(self, operation_id: str) -> None:
+        from .director_hypit import kill_process_tree, reap_unattached_execution_workers
+
+        pid = self._hypit_proc_pids.pop(operation_id, None)
+        if pid:
+            kill_process_tree(pid)
+        reap_unattached_execution_workers(ignore_build_pids={pid} if pid else None)
+
     async def stop(self) -> None:
         self._stopping = True
+        for operation_id in list(self._hypit_proc_pids):
+            self._kill_hypit_pid(operation_id)
         tasks = list(self._tasks)
         for task in tasks:
             task.cancel()
@@ -148,6 +162,7 @@ class DirectorOperationService:
         except DirectorOperationCancelled as error:
             if operation is not None:
                 self._revert_orphaned_render_submissions(operation)
+                self._kill_hypit_pid(operation_id)
             self.store.update_director_operation(
                 operation_id, status="cancelled", error=str(error), update_error=True,
             )
@@ -156,6 +171,7 @@ class DirectorOperationService:
             try:
                 if operation is not None:
                     self._revert_orphaned_render_submissions(operation)
+                    self._kill_hypit_pid(operation_id)
                 self.store.update_director_operation(
                     operation_id,
                     status="interrupted",
@@ -177,6 +193,7 @@ class DirectorOperationService:
             self._emit(operation_id, terminal_event_for_status("failed", message=str(error)))
         finally:
             self._agent_snapshots.pop(operation_id, None)
+            self._hypit_proc_pids.pop(operation_id, None)
 
     def _revert_orphaned_render_submissions(self, operation: dict[str, Any]) -> None:
         if operation.get("kind") != "shot_render_prepare":
@@ -779,6 +796,7 @@ class DirectorOperationService:
             hypit_workspace,
             normalize_hypit_payload,
             run_hypit,
+            stamp_hypit_job_progress,
             summarize_transcript,
         )
 
@@ -805,6 +823,12 @@ class DirectorOperationService:
         def persist(current: dict[str, Any], *, progress: int | None = None, message: str | None = None) -> None:
             nonlocal content_revision
             self._check_cancelled(operation_id)
+            stamp_hypit_job_progress(
+                current.setdefault("transcript", {}),
+                progress=progress,
+                message=message,
+                operation_id=operation_id if current.get("transcript", {}).get("status") == "running" else None,
+            )
             saved = self.store.update_director_project(
                 project_id, payload=current,
                 expected_content_revision=content_revision, content_update=True,
@@ -826,11 +850,14 @@ class DirectorOperationService:
                 [str(source), "--language", language, "--to", str(transcript_path)],
                 workspace=workspace,
                 timeout=1800,
+                cancel_check=lambda: self._cancel_requested(operation_id),
+                on_pid=lambda pid: self._register_hypit_pid(operation_id, pid),
                 on_output=lambda text: persist(payload, progress=40, message=text[-180:]),
             )
         except HypitError as error:
             payload["transcript"]["status"] = "failed"
             payload["transcript"]["error"] = str(error)
+            payload["transcript"]["operationId"] = None
             persist(payload, progress=100, message=str(error))
             raise
         saved_transcript = find_hypit_transcript_file(owner_user_id, project_id) or transcript_path
@@ -844,6 +871,9 @@ class DirectorOperationService:
             "wordCount": word_count,
             "durationSec": duration,
             "error": None,
+            "operationId": None,
+            "progress": 100,
+            "message": f"转写完成，{word_count} 个词",
         }
         persist(
             payload,
@@ -864,11 +894,15 @@ class DirectorOperationService:
             find_hypit_svrun,
             hypit_comfy_is_local,
             hypit_comfy_url,
+            hypit_h3_quality_preset,
             hypit_workspace,
             normalize_hypit_payload,
             parse_build_id,
             run_hypit,
             svrun_output_name,
+            reap_hypit_compile_orphans,
+            stamp_hypit_job_progress,
+            write_hypit_compile_runtime,
         )
         from .gpu_runtime import occupy_gpu
 
@@ -885,6 +919,13 @@ class DirectorOperationService:
         def persist(current: dict[str, Any], *, progress: int | None = None, message: str | None = None) -> None:
             nonlocal content_revision
             self._check_cancelled(operation_id)
+            compile_job = current.setdefault("compile", {})
+            stamp_hypit_job_progress(
+                compile_job,
+                progress=progress,
+                message=message,
+                operation_id=operation_id if compile_job.get("status") == "running" else None,
+            )
             saved = self.store.update_director_project(
                 project_id, payload=current,
                 expected_content_revision=content_revision, content_update=True,
@@ -903,28 +944,67 @@ class DirectorOperationService:
                 "工程目录还没有 .svrun。打开项目目录，用 Coding Agent 按 Hypit Skill 写 SVML 后再编译。"
                 "工作台 LLM 不能代替 Agent 写 SVML。"
             )
-            payload["compile"] = {"status": "failed", "buildId": None, "error": missing}
+            payload["compile"] = {
+                "status": "failed", "buildId": None, "operationId": None, "error": missing,
+                "progress": 100, "message": missing,
+            }
             persist(payload, progress=100, message=missing)
             raise ValueError(missing)
 
-        payload["compile"] = {"status": "running", "buildId": None, "error": None}
+        payload["compile"] = {
+            "status": "running", "buildId": None, "operationId": operation_id, "error": None,
+            "progress": 0, "message": "正在检查 Hypit Source",
+        }
         persist(payload, progress=6, message="正在检查 Hypit Source")
         build_id = None
         dest = workspace / "notes" / "final.mp4"
         try:
+            reaped = reap_hypit_compile_orphans(workspace)
+            if reaped:
+                persist(payload, progress=8, message=f"已清理 {len(reaped)} 个遗留 Hypit 进程，避免占住 H3")
             relative = svrun.relative_to(workspace).as_posix()
-            run_hypit("check", [relative], workspace=workspace, timeout=120)
+            quality = hypit_h3_quality_preset(payload.get("h3Quality"))
+            megapixels = float(quality["megapixels"])
+            overlay = write_hypit_compile_runtime(workspace, megapixels=megapixels)
+            runtime_args = ["--runtime", str(overlay)]
+            extra_env = {"ZLY_HYPIT_H3_MEGAPIXELS": f"{megapixels:g}"}
+            cancel_check = lambda: self._cancel_requested(operation_id)
+            on_pid = lambda pid: self._register_hypit_pid(operation_id, pid)
+            run_hypit(
+                "check",
+                [relative],
+                workspace=workspace,
+                timeout=120,
+                cancel_check=cancel_check,
+                on_pid=on_pid,
+            )
             persist(payload, progress=18, message="正在 plan（本机 Profile，无 HypiHub）")
-            run_hypit("plan", [relative], workspace=workspace, timeout=300)
+            run_hypit(
+                "plan",
+                [relative, *runtime_args],
+                workspace=workspace,
+                timeout=300,
+                extra_env=extra_env,
+                cancel_check=cancel_check,
+                on_pid=on_pid,
+            )
             comfy_url = hypit_comfy_url()
-            persist(payload, progress=28, message=f"正在编译；H3 画面走 {comfy_url}")
+            size_label = f"{quality['width']}×{quality['height']}"
+            persist(
+                payload,
+                progress=28,
+                message=f"正在编译；H3 走 {comfy_url} 出 {quality['label']} {size_label}，请勿重复点击",
+            )
             gpu = occupy_gpu("comfy") if hypit_comfy_is_local() else nullcontext()
             with gpu:
                 log = run_hypit(
                     "build",
-                    [relative, "--follow", "--title", f"hypit-{project_id[:8]}"],
+                    [relative, "--follow", "--title", f"hypit-{project_id[:8]}", *runtime_args],
                     workspace=workspace,
                     timeout=7200,
+                    extra_env=extra_env,
+                    cancel_check=cancel_check,
+                    on_pid=on_pid,
                     on_output=lambda text: persist(payload, progress=55, message=text[-180:]),
                 )
             build_id = parse_build_id(log)
@@ -937,15 +1017,23 @@ class DirectorOperationService:
                     [build_id, "--output", svrun_output_name(svrun), "--to", str(dest)],
                     workspace=workspace,
                     timeout=120,
+                    cancel_check=cancel_check,
+                    on_pid=on_pid,
                 )
             if not dest.is_file():
                 raise HypitError("编译完成但没有导出 final.mp4")
         except HypitError as error:
-            payload["compile"] = {"status": "failed", "buildId": None, "error": str(error)}
+            payload["compile"] = {
+                "status": "failed", "buildId": None, "operationId": None, "error": str(error),
+                "progress": 100, "message": str(error),
+            }
             persist(payload, progress=100, message=str(error))
             raise
         payload["workspacePath"] = str(workspace)
-        payload["compile"] = {"status": "done", "buildId": build_id, "error": None}
+        payload["compile"] = {
+            "status": "done", "buildId": build_id, "operationId": None, "error": None,
+            "progress": 100, "message": "成片已导出",
+        }
         payload["result"] = {
             "path": str(dest),
             "url": f"/api/director/hypit/{project_id}/result",

@@ -282,7 +282,7 @@ def is_door_open_clause(clause: str) -> bool:
 _HAN_RE = re.compile(r"[\u4e00-\u9fff]")
 _D_TAG_RE = re.compile(r"<d>\[Chinese\]\s*(.*?)</d>", re.S)
 _INNER_CLOSED_RE = re.compile(
-    r"off-screen|voice[\s-]?over|thinks|closed lips|lips closed|mouths? stay",
+    r"off-screen|voice[\s-]?over|thinks|closed lips|lips closed|lips remain|mouths? stay",
     re.I,
 )
 _INNER_SAYS_RE = re.compile(r"\bsays\b|lip[\s-]?sync", re.I)
@@ -349,7 +349,7 @@ def _speech_windows(prompt: str, events: list[dict[str, Any]]) -> list[tuple[dic
         if match is None:
             continue
         start = max(0, match.start() - 280)
-        windows.append((event, str(prompt or "")[start:match.end() + 24]))
+        windows.append((event, str(prompt or "")[start:match.end() + 90]))
     return windows
 
 

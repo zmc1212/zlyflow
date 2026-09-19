@@ -322,17 +322,15 @@ class StoryboardImageService:
     @classmethod
     def _triptych_prompt(cls, project_id: str, beat: dict[str, Any]) -> str:
         from ...skill_packs.binding import resolve_skill_pack_id
-        from ...skill_packs.recipe import HALF_NARRATED_PACK_ID, get_pack
+        from ...skill_packs.recipe import get_pack
         from ...skill_packs.triptych import build_triptych_generation_prompt
 
-        pack_id = resolve_skill_pack_id(project_id=project_id) or HALF_NARRATED_PACK_ID
+        pack_id = resolve_skill_pack_id(project_id=project_id)
         try:
             recipe = get_pack(pack_id)
         except Exception:
-            recipe = get_pack(HALF_NARRATED_PACK_ID)
+            recipe = get_pack("")
         template = recipe.reference_text("triptych-prompt.md")
-        if not template:
-            template = get_pack(HALF_NARRATED_PACK_ID).reference_text("triptych-prompt.md")
         return build_triptych_generation_prompt(beat, template=template)
 
     @staticmethod

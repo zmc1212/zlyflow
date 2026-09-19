@@ -85,6 +85,12 @@
 .director2-app .topbar-right {
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+
+.director2-app .project-skill-pack-select {
+  min-width: 188px;
+  max-width: 240px;
 }
 
 .director2-app .project-id-tag {

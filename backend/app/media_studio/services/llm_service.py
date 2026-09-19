@@ -387,7 +387,10 @@ class LlmService:
             if last_en:
                 packed_info["timestamped_zh_prompt"] = last_zh
                 if skip_pack:
-                    last_en = H3PromptBuilder.canonicalize_reference_tags(last_en)
+                    last_en = H3PromptBuilder.canonicalize_authored_ref2va(
+                        last_en,
+                        H3PromptBuilder.shot_from_beat_info(packed_info),
+                    )
                     if is_stub_en_prompt(last_en):
                         en_errors = [
                             "上轮英文块只写了说明句，必须从 subject_definitions: 写到 non_diegetic_music:，并保留 [Shot 1] 与 <Picture n>"
@@ -564,7 +567,20 @@ class LlmService:
         if any(pos < 0 for pos in starts) or starts != sorted(starts):
             errors.append("required section headings are missing or out of order")
         expected: list[str] = []
+        seen_lines: set[str] = set()
         shot_for_speech = H3PromptBuilder.shot_from_beat_info(beat_info)
+
+        def add_expected(raw: Any, speaker: Any = "") -> None:
+            cleaned = cls._clean_h3_dialogue(raw, speaker)
+            if not cleaned:
+                return
+            for atom in H3PromptBuilder.split_speech_atoms(cleaned):
+                key = H3PromptBuilder._han_only(atom) or atom
+                if not key or key in seen_lines:
+                    continue
+                seen_lines.add(key)
+                expected.append(atom)
+
         spoken = list(beat_info.get("dialogue_turns") or []) or H3PromptBuilder._dialogue_turns(shot_for_speech)
         if isinstance(spoken, list):
             for turn in spoken:
@@ -572,13 +588,9 @@ class LlmService:
                     continue
                 if H3PromptBuilder._is_inner_speaker(str(turn.get("speaker") or ""), str(turn.get("delivery") or "")):
                     continue
-                cleaned = cls._clean_h3_dialogue(turn.get("text"), turn.get("speaker"))
-                if cleaned:
-                    expected.append(cleaned)
+                add_expected(turn.get("text"), turn.get("speaker"))
         for turn in H3PromptBuilder._inner_turns(shot_for_speech):
-            cleaned = cls._clean_h3_dialogue(turn.get("text"), turn.get("speaker"))
-            if cleaned and cleaned not in expected:
-                expected.append(cleaned)
+            add_expected(turn.get("text"), turn.get("speaker"))
         for line in expected:
             if not H3PromptBuilder.prompt_contains_line(text, line):
                 errors.append(f"dialogue not preserved verbatim: {line[:80]}")
@@ -596,7 +608,9 @@ class LlmService:
         if "[Shot 1]" not in text:
             errors.append("missing [Shot 1]")
         skip_pack = cls._skip_program_pack(beat_info)
-        if not skip_pack:
+        if skip_pack:
+            errors.extend(H3PromptBuilder.inner_delivery_errors(text, shot_for_speech))
+        else:
             errors.extend(H3PromptBuilder.thickness_errors(text))
             errors.extend(H3PromptBuilder.speech_contract_errors(text, shot_for_speech))
             errors.extend(H3PromptBuilder.craft_prompt_errors(text, shot_for_speech))
@@ -655,7 +669,7 @@ class LlmService:
                         zh_prompt=str(beat_info.get("timestamped_zh_prompt") or ""),
                         en_prompt=authored_en,
                     )
-                prompt = H3PromptBuilder.canonicalize_reference_tags(authored_en)
+                prompt = H3PromptBuilder.canonicalize_authored_ref2va(authored_en, shot)
                 errors = cls._validate_h3_prompt(prompt, mode, beat_info)
                 if errors:
                     raise DualShotAuthorError(

@@ -1,7 +1,7 @@
-// 导演台2（AI Media Studio）路由解析
+// 导演台（AI Media Studio）路由解析
 // 原版 dev0914 是独立 hash 路由（/、/projects/:id/...、/settings），
-// 复刻后映射到工作台路径 /director2 前缀下，页面结构保持一致。
-export const DIRECTOR2_PREFIX = "/director2"
+// 复刻后映射到工作台路径 /director 前缀下；旧书签 /director2 由 router 重定向到这里。
+export const DIRECTOR2_PREFIX = "/director"
 
 export type Director2Route =
   | { kind: "home" }
@@ -10,7 +10,7 @@ export type Director2Route =
 const MENU_SEGMENTS = new Set(["content", "assets", "workshop", "jobs"])
 
 export function parseDirector2Path(pathname: string): Director2Route {
-  const rest = pathname.startsWith(DIRECTOR2_PREFIX)
+  const rest = pathname === DIRECTOR2_PREFIX || pathname.startsWith(`${DIRECTOR2_PREFIX}/`)
     ? pathname.slice(DIRECTOR2_PREFIX.length)
     : pathname
   const segments = rest.split("/").filter(Boolean)

@@ -1,6 +1,9 @@
 # Hub official v1.0.1 — see SOURCE.md
 id: half-narrated-live-action-short-drama
 name: 半解说真人短剧
+summary: 将故事或剧本制作成由旁白推进、角色对白补充的真人短剧单集，并确认视频分辨率。
+author: MiniMax Design
+cover: "https://cdn.hailuoai.com/hailuo-video-web/public_assets/b5efbc58-d361-49b1-9381-2b20863831a4.mp4"
 version: "1.0.1"
 surfaces: [director2, workshop, optimize]
 visual_lock: photoreal-live-action-short-drama
@@ -19,6 +22,8 @@ r2v_slots:
   - source: characters
   - source: scene
   - source: triptych.start
+  - source: triptych.mid
+  - source: triptych.end
 packing_overrides:
   allow_timeranges: true
   allow_multi_camera_path: true

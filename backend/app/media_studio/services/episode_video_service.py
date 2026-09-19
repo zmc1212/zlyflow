@@ -1126,8 +1126,10 @@ class EpisodeVideoService:
         saved = str(shot.get("h3_prompt") or "").strip()
         if not saved:
             return None
-        if cls._is_manual_h3_prompt(shot) or cls._skip_program_pack(shot):
-            return H3PromptBuilder.canonicalize_reference_tags(saved)
+        if cls._is_manual_h3_prompt(shot):
+            return H3PromptBuilder.normalize_authored_ref2va(saved)
+        if cls._skip_program_pack(shot):
+            return H3PromptBuilder.canonicalize_authored_ref2va(saved, shot)
         prepared = H3PromptBuilder.prepare_generated_prompt(saved, shot)
         if H3PromptBuilder.validate_prompts([shot], [prepared]):
             return None

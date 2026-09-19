@@ -1824,6 +1824,16 @@ class JobStore:
             raise KeyError(operation_id)
         return self._director_operation_row_to_dict(row)
 
+    def get_active_director_operation(self, project_id: str) -> dict[str, Any] | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                """SELECT * FROM director_operations
+                WHERE project_id = ? AND status IN ('queued', 'running')
+                ORDER BY created_at DESC LIMIT 1""",
+                (project_id,),
+            ).fetchone()
+        return None if row is None else self._director_operation_row_to_dict(row)
+
     def update_director_operation(
         self,
         operation_id: str,

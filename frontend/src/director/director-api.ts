@@ -51,6 +51,7 @@ export type DirectorProjectListItem = {
 export type DirectorProjectResponse = DirectorProjectListItem & {
   source_script: string
   payload: Record<string, unknown>
+  active_operation?: DirectorOperationResponse | null
 }
 
 export type DirectorOperationKind =

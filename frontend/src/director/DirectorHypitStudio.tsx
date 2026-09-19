@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, Button, Card, Input, Progress, Segmented, Space, Typography, Upload, message } from "antd"
+import { Alert, Button, Card, Input, Progress, Segmented, Select, Space, Typography, Upload, message } from "antd"
 import { ArrowLeft, FolderOpen, RefreshCw, Upload as UploadIcon } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import ThemeToggle from "../components/ThemeToggle"
 import {
   createHypitOperation,
+  getDirectorOperation,
   getDirectorProject,
   revealHypitWorkspace,
   updateDirectorProjectRecord,
@@ -12,10 +13,18 @@ import {
 } from "./director-api"
 import { DirectorMobileHeader } from "./DirectorMobileChrome"
 import { streamDirectorOperationEvents } from "./director-operation-stream"
-import { isHypitPayload, normalizeHypitPayload } from "./hypit-model"
-import type { HypitPayload } from "./hypit-model"
+import {
+  HYPIT_H3_QUALITIES,
+  conflictingDirectorOperationId,
+  hypitOperationMessage,
+  hypitResumeFromProject,
+  hypitStatusLineFromPayload,
+  isHypitPayload,
+  normalizeHypitPayload,
+} from "./hypit-model"
+import type { HypitH3Quality, HypitPayload } from "./hypit-model"
 
-const HINT = "拆爆款结构（台词、字幕、B-roll、图形），不是锁运镜转绘。拉片走本机 WhisperX；写 SVML 仍需 Coding Agent（工作台对话不能代替）；编译走本机 Hypit CLI。若 Source 里有 H3 镜头，画面走局域网 ComfyUI http://192.168.10.54:8188，不占用本机 8188、也不会新开实例。"
+const HINT = "拆爆款结构（台词、字幕、B-roll、图形），不是锁运镜转绘。拉片走本机 WhisperX；写 SVML 仍需 Coding Agent（工作台对话不能代替）；编译走本机 Hypit CLI。H3 画面走局域网 ComfyUI http://192.168.10.54:8188。画质在「改什么」里选，默认 16GB 稳妥；官方 768P 在 16GB 卡上会卡死。"
 
 function formatTime(seconds: number): string {
   const total = Math.max(0, Math.round(seconds * 10) / 10)
@@ -43,11 +52,12 @@ export default function DirectorHypitStudio({
   const saveTimerRef = useRef<number | null>(null)
   const dirtyRef = useRef(false)
   const revisionRef = useRef(1)
+  const attachedOpRef = useRef<string | null>(null)
 
   const projectQuery = useQuery({
     queryKey: ["director-project", projectId],
     queryFn: () => getDirectorProject(projectId),
-    refetchInterval: operationId ? 1500 : false,
+    refetchInterval: operationId || payload.transcript.status === "running" || payload.compile.status === "running" ? 1500 : false,
   })
 
   useEffect(() => {
@@ -57,9 +67,26 @@ export default function DirectorHypitStudio({
       message.error("这个工程不是 Hypit 复刻，请从首页第四张卡进入")
       return
     }
-    setPayload(normalizeHypitPayload(record.payload))
+    const next = normalizeHypitPayload(record.payload)
+    setPayload(next)
     setRevision(record.content_revision)
     revisionRef.current = record.content_revision
+
+    const resume = hypitResumeFromProject(record)
+    if (resume && attachedOpRef.current !== resume.operationId) {
+      attachedOpRef.current = resume.operationId
+      setOperationId(resume.operationId)
+      setStatusLine((current) => current ?? { progress: resume.progress, message: resume.message })
+    }
+    const stored = hypitStatusLineFromPayload(next)
+    const failed = next.compile.status === "failed" || next.transcript.status === "failed"
+    if (stored && (resume || failed)) {
+      setStatusLine((current) => {
+        if (!current) return stored
+        if (stored.progress > current.progress) return stored
+        return current
+      })
+    }
   }, [projectQuery.data])
 
   useEffect(() => {
@@ -71,10 +98,12 @@ export default function DirectorHypitStudio({
         setStatusLine({ progress: event.data.progress ?? 0, message: event.data.message })
       }
       if (event.event === "done") {
+        attachedOpRef.current = null
         setOperationId(null)
         void queryClient.invalidateQueries({ queryKey: ["director-project", projectId] })
       }
       if (event.event === "error" || event.event === "cancelled") {
+        attachedOpRef.current = null
         setOperationId(null)
         setStatusLine({ progress: 100, message: event.data.message || "操作失败" })
         message.error(event.data.message || "操作失败")
@@ -140,9 +169,25 @@ export default function DirectorHypitStudio({
         kind,
         language: payload.language,
       }, csrfToken)
+      attachedOpRef.current = operation.id
       setOperationId(operation.id)
-      setStatusLine({ progress: operation.progress, message: kind === "hypit_transcribe" ? "正在拉片转写" : "正在编译" })
+      setStatusLine({ progress: operation.progress, message: hypitOperationMessage(kind) })
     } catch (error) {
+      const existing = conflictingDirectorOperationId(error)
+      if (existing) {
+        attachedOpRef.current = existing
+        setOperationId(existing)
+        try {
+          const current = await getDirectorOperation(existing)
+          setStatusLine({
+            progress: current.progress,
+            message: hypitOperationMessage(current.kind),
+          })
+        } catch {
+          setStatusLine({ progress: 0, message: "正在恢复未完成的任务" })
+        }
+        return
+      }
       message.error(error instanceof Error ? error.message : "操作失败")
     } finally {
       setStarting(false)
@@ -159,7 +204,13 @@ export default function DirectorHypitStudio({
   }
 
   const hasSource = Boolean(payload.sourceVideo?.url)
-  const busy = starting || Boolean(operationId)
+  const resume = hypitResumeFromProject(projectQuery.data)
+  const live = Boolean(operationId) || Boolean(resume)
+  const storedProgress = hypitStatusLineFromPayload(payload)
+  const staleRunning = (payload.transcript.status === "running" || payload.compile.status === "running") && !live
+  const progressView = staleRunning ? null : (statusLine ?? storedProgress)
+  const jobRunning = live
+  const busy = starting || live
   const mobileTitle = payload.title || "Hypit 复刻"
 
   return (
@@ -236,6 +287,23 @@ export default function DirectorHypitStudio({
                     ]}
                   />
                 </label>
+                <label className="replication-field">
+                  H3 画质
+                  <Select
+                    value={payload.h3Quality}
+                    disabled={busy}
+                    onChange={(value) => queueSave({ ...payload, h3Quality: value as HypitH3Quality })}
+                    options={HYPIT_H3_QUALITIES.map((item) => ({
+                      value: item.value,
+                      label: `${item.label} · ${item.width}×${item.height}`,
+                      title: item.hint,
+                    }))}
+                  />
+                  <span className="replication-note">
+                    {HYPIT_H3_QUALITIES.find((item) => item.value === payload.h3Quality)?.hint
+                      ?? "合成画布仍是 720×1280，这里只改 H3 原片尺寸。"}
+                  </span>
+                </label>
                 <Button type="primary" disabled={!hasSource || busy} loading={busy && payload.transcript.status === "running"} onClick={() => void startOperation("hypit_transcribe")}>
                   开始拉片
                 </Button>
@@ -248,10 +316,17 @@ export default function DirectorHypitStudio({
           </div>
 
           <div className="replication-list">
-            {statusLine ? (
+            {progressView ? (
               <div className="replication-progress">
-                <Progress percent={statusLine.progress} status={payload.compile.status === "failed" || payload.transcript.status === "failed" ? "exception" : "active"} />
-                <p className="replication-note">{statusLine.message}</p>
+                <Progress
+                  percent={progressView.progress}
+                  status={payload.compile.status === "failed" || payload.transcript.status === "failed"
+                    ? "exception"
+                    : payload.compile.status === "done" && !jobRunning && !operationId
+                      ? "success"
+                      : "active"}
+                />
+                <p className="replication-note">{progressView.message}</p>
               </div>
             ) : null}
             {payload.transcript.error ? <Alert type="error" showIcon message={payload.transcript.error} /> : null}

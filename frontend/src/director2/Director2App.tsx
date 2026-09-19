@@ -4,7 +4,7 @@
 // 本模块内 antd 组件恢复 antd（ant-design-vue 4 同源）默认亮色主题：
 // 工作台全局 ConfigProvider 的主色/控件高度/圆角会破坏原版视觉，故在模块根部覆写。
 import { useMemo } from "react"
-import { useLocation, useNavigate } from "react-router-dom"
+import { Navigate, useLocation, useNavigate } from "react-router-dom"
 import { ConfigProvider, theme as antdTheme } from "antd"
 import { Sparkles } from "lucide-react"
 import Director2StudioHome from "./Director2StudioHome"
@@ -35,8 +35,16 @@ export default function Director2App({ csrfToken, onExitDirector }: { csrfToken:
   const location = useLocation()
   const navigate = useNavigate()
   const route = useMemo(() => parseDirector2Path(location.pathname), [location.pathname])
+  const leftoverRecipe = useMemo(() => {
+    const segments = location.pathname.split("/").filter(Boolean)
+    return segments[0] === "director" && segments.length === 2 && !["projects", "batch", "replication", "hypit"].includes(segments[1])
+  }, [location.pathname])
 
   const isHome = route.kind === "home"
+
+  if (leftoverRecipe) {
+    return <Navigate to={director2HomePath()} replace />
+  }
 
   // 首页（复刻旧导演台首页）不套 director2AntdTheme：
   // 旧首页样式走全局 --dh-*/--studio-* 双主题 token，antd 控件也需继承工作台全局主题，

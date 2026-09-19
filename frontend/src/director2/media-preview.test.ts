@@ -14,6 +14,7 @@ describe("asMediaPreviewTarget", () => {
       src: "https://cdn.example/a.jpg",
       title: "图片预览",
       description: undefined,
+      aspectRatio: undefined,
     })
   })
 
@@ -23,11 +24,13 @@ describe("asMediaPreviewTarget", () => {
       kind: "video",
       title: "生成结果",
       description: "  MiniMax H3  ",
+      aspectRatio: " 9:16 ",
     })).toEqual({
       kind: "video",
       src: "https://cdn.example/a.mp4",
       title: "生成结果",
       description: "MiniMax H3",
+      aspectRatio: "9:16",
     })
   })
 })

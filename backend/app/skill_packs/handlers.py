@@ -72,12 +72,12 @@ STAGE_CRAFT_FOCUS = {
     ),
     "optimize": (
         "按官方第 8 / 8.1 步一次看图写出中文八块分秒稿和英文六段 Ref2VA，不要按一句对白重排运镜。"
-        "R2V 只送角色卡、场景卡和三联起幅，不要把整张三联送进本地 H3。"
+        "写稿可看整张 16:9 三联写运镜；R2V 只送角色卡、场景卡和三联三张 9:16 裁切（起幅/中格/结果），不要把整张三联送进本地 H3。"
         "角色卡是多视图设定板，只锁身份，禁止把分格抄进镜头。"
     ),
     "workshop": (
-        "按官方第 8 / 8.1 步看着本镜剧本与三联一次写出中文八块和英文六段。"
-        "末槽只用起幅单帧，中格/右格用文字分秒演。"
+        "按官方第 8 / 8.1 步看着本镜剧本与整张三联一次写出中文八块和英文六段。"
+        "R2V 上传起幅/中格/结果三张 9:16 裁切作同一镜时间路标，不是新人物；禁止把 16:9 母图当参考图。"
         "角色卡是多视图设定板，只锁身份，禁止把分格抄进镜头。"
     ),
 }
@@ -92,6 +92,57 @@ def _character_picture_label(name: str = "") -> str:
     who = str(name or "").strip()
     head = f"{who}角色卡" if who else "角色卡"
     return f"{head}，{_CHARACTER_SHEET_LOCK}"
+
+
+_R2V_SLOT_LIMIT = 9
+_COMPOSITION_DROP_ORDER = ("mid", "end")
+_TRIPTYCH_PANEL_NAMES = {
+    "start": "起幅构图",
+    "mid": "中格构图",
+    "end": "结果构图",
+}
+
+
+def _triptych_role_from_source(source: str) -> str:
+    key = str(source or "").strip().lower()
+    if key in {"triptych.mid", "mid"} or key.endswith(".mid"):
+        return "mid"
+    if key in {"triptych.end", "end"} or key.endswith(".end"):
+        return "end"
+    return "start"
+
+
+def _triptych_panel_label(shot_no: str, role: str) -> str:
+    if role == "mid":
+        return (
+            f"镜头{shot_no}中格（三联中格 9:16 裁切），同一镜主动作时段构图路标；"
+            "不是新人物；成片始终单一 9:16"
+        )
+    if role == "end":
+        return (
+            f"镜头{shot_no}结果（三联右格 9:16 裁切），同一镜落幅构图路标；"
+            "不是新人物；成片始终单一 9:16"
+        )
+    return (
+        f"镜头{shot_no}起幅（三联左格 9:16 裁切），同一镜 00:00 构图锚；"
+        "这是时间路标不是新人物；禁止分栏、禁止把三格同时摆进画面、禁止把 16:9 母图当参考图"
+    )
+
+
+def _fit_r2v_slots(
+    identity: list[dict[str, Any]],
+    composition: list[dict[str, Any]],
+    limit: int = _R2V_SLOT_LIMIT,
+) -> list[dict[str, Any]]:
+    remaining = limit - len(identity)
+    if remaining <= 0:
+        return identity[:limit]
+    kept = list(composition)
+    for role in _COMPOSITION_DROP_ORDER:
+        if len(kept) <= remaining:
+            break
+        kept = [item for item in kept if item.get("role") != role]
+    return identity + kept[:remaining]
 
 
 _HEADING_RE = re.compile(r"^#{2,3}\s+(.+)$", re.M)
@@ -109,7 +160,10 @@ _OFFICIAL_BLOCK_TITLES = (
 )
 ZH_BLOCK_MARK = "<<<ZH>>>"
 EN_BLOCK_MARK = "<<<EN>>>"
-_EN_HEADING_RE = re.compile(r"(?im)^subject_definitions:\s*")
+_EN_HEADING_RE = re.compile(
+    r"(?im)^[ \t]*(?:#{1,3}[ \t]*|\*\*[ \t]*|__[ \t]*)?subject_definitions"
+    r"(?:[ \t]*(?:\*\*|__))?[ \t]*(?:[:：].*|$)"
+)
 _REF2VA_HEADINGS = (
     "subject_definitions",
     "summary",
@@ -223,19 +277,27 @@ def generate_shot_triptych(ctx: StepContext) -> StepContext:
 def extract_triptych_panels(ctx: StepContext) -> StepContext:
     beat = ctx.merged_beat()
     existing = normalize_panels(beat.get("triptych_panels"))
-    if public_panel_url(existing.get("start")):
+    has_start = bool(public_panel_url(existing.get("start")))
+    missing_later = not public_panel_url(existing.get("mid")) or not public_panel_url(existing.get("end"))
+    if has_start and not missing_later:
         ctx.data["triptych_panels"] = existing
         return ctx
     source = str(ctx.data.get("triptych_path") or beat.get("triptych_path") or "").strip()
     raw = ctx.data.get("triptych_bytes")
     remote = str(ctx.data.get("triptych_url") or beat.get("triptych_url") or "").strip()
     panels_bytes: dict[str, bytes] = {}
-    if isinstance(raw, (bytes, bytearray)) and raw:
-        panels_bytes = split_triptych_bytes(bytes(raw))
-    elif source:
-        panels_bytes = split_triptych_path(source)
-    elif remote.startswith(("http://", "https://")):
-        panels_bytes = split_triptych_url(remote)
+    try:
+        if isinstance(raw, (bytes, bytearray)) and raw:
+            panels_bytes = split_triptych_bytes(bytes(raw))
+        elif source:
+            panels_bytes = split_triptych_path(source)
+        elif remote.startswith(("http://", "https://")):
+            panels_bytes = split_triptych_url(remote)
+    except Exception:
+        if has_start:
+            ctx.data["triptych_panels"] = existing
+            return ctx
+        raise
     if not panels_bytes:
         ctx.data["triptych_panels"] = existing
         return ctx
@@ -332,7 +394,7 @@ def polish_ref2va(ctx: StepContext) -> StepContext:
                 zh_prompt=str(ctx.data.get("timestamped_zh_prompt") or ""),
                 en_prompt=authored,
             )
-        prompt = H3PromptBuilder.canonicalize_reference_tags(authored)
+        prompt = H3PromptBuilder.normalize_authored_ref2va(authored)
     else:
         prompt = H3PromptBuilder.render_ref2va(shot)
         zh_prompt = str(
@@ -392,11 +454,14 @@ def build_timestamped_zh_author_system(recipe: PackRecipe, template: str) -> str
         "- 时间码从本镜 00:00 起，覆盖到总时长；按旁白、对白和画面内容切内部分秒。\n"
         "- 禁止把全部台词塞进中间一段。多轮开口、内心、听完再反应必须落在不同的 00:00– 时间段。\n"
         "- 一条连续运镜路径上可以挂多句台词（例如上摇过程说完两句，再下摇内心，再推近）。\n"
-        "- 内心/旁白时段画内人物闭嘴，不要口型同步。\n"
-        "- 台词必须逐字，不得改写、概括或翻译。\n"
+        "- 内心/旁白时段画内人物闭嘴，不要口型同步。"
+        "英文六段必须用 says in an off-screen voiceover，并在 </d> 后写 while ... lips remain completely closed；"
+        "禁止内心用 says:。\n"
+        "- 台词必须逐字，不得改写、概括或翻译。同一人连续多句按问号/句号切开后每句都要出现；可以挂在相邻时间段，禁止改写成半句。\n"
         "- 参考图使用 <Picture n>，与 R2V 上传顺序一致。角色图是单人多视图设定板，只锁脸、发型和服装，不锁姿势；禁止把分格、白底或重复小人带进镜头。\n"
-        "- 末槽写明起幅单帧锚点，中格/右格用文字分秒演；不要把整张三联送进本地 H3。\n"
-        f"- 成片必须是单一 {aspect}，禁止分栏。\n"
+        "- R2V 槽位是角色设定板、场景卡，再是本镜起幅/中格/结果三张 9:16 裁切；这三张是同一镜的时间路标（00:00 构图锚 / 主动作构图 / 落幅构图），不是新人物。\n"
+        "- 写稿附图可以看整张 16:9 三联来写运镜；禁止把整张 16:9 母图写成 <Picture n>。\n"
+        f"- 成片必须是单一 {aspect}，禁止分栏、禁止把三格同时摆进画面。\n"
         "- 禁止只输出「官方八块中文分秒稿与英文六段稿」这种说明句。"
     )
     return "\n\n".join(
@@ -408,16 +473,23 @@ def build_timestamped_zh_author_system(recipe: PackRecipe, template: str) -> str
 def build_dual_author_system(recipe: PackRecipe, template: str, *, duration_seconds: str | int = "8") -> str:
     zh_system = build_timestamped_zh_author_system(recipe, template)
     seconds = str(duration_seconds).strip() or "8"
-    headings = " / ".join(_REF2VA_HEADINGS)
+    headings = " / ".join(f"{name}:" for name in _REF2VA_HEADINGS)
     dual_rules = (
         "一次性输出两块，不要 JSON，不要前言后语，不要 Markdown 围栏。\n"
         f"必须先写 {ZH_BLOCK_MARK}，然后是官方八块中文分秒稿。\n"
-        f"再写 {EN_BLOCK_MARK}，然后是 MiniMax H3 Ref2VA 英文六段，标题必须齐全且按此顺序：{headings}。\n"
+        f"再写 {EN_BLOCK_MARK}，然后是 MiniMax H3 Ref2VA 英文六段；每个标题必须独占一行并带英文冒号，顺序为：{headings}。\n"
+        "禁止写成无冒号的 subject_definitions，也禁止用中文冒号或 Markdown 标题代替。\n"
         f"英文六段覆盖本镜 {seconds} 秒。detailed_description 必须跟随中文分秒的运镜顺序；"
         "上摇/下摇/短推可以挂多句台词，禁止一句对白一个运镜，禁止硬插 tilt-up / push-in。\n"
-        "开口台词写入 <d>[Chinese] ...</d>，保持中文原文；内心/旁白闭嘴画外，不要口型同步。\n"
+        "开口台词写入 <d>[Chinese] ...</d>，保持中文原文，用 Name (Sn) says:。"
+        "内心/旁白禁止口型同步 says:，必须用 MiniMax 官方画外音句式，闭嘴写在 </d> 后面：\n"
+        "An off-screen inner voice (not produced by the on-screen mouth) "
+        "says in an off-screen voiceover: <d>[Chinese] 原文</d> "
+        "while all visible characters' lips remain completely closed.\n"
+        "禁止：Name says: <d>内心原文</d>；禁止 thinks. In an off-screen inner voiceover。\n"
+        "内心时段镜头不要顶在思考者嘴上。\n"
         "身份只锁 <Picture n> 的脸、发型和服装，不锁姿势；禁止把设定板分格、白底或重复小人带进镜头；场景卡不锁站位。\n"
-        "本地 H3 仍只吃角色卡、场景卡和起幅，不要把整张三联写进 R2V 槽位。\n"
+        "写稿附图可以看整张 16:9 三联来写运镜；R2V 只上传三张 9:16 裁切作时间路标，不要把整张三联写进 R2V 槽位。\n"
         "禁止装箱器口吻：不要只输出英文成品稿；不要禁止对话标签；"
         "不要用占位符代替逐字中文台词；不要灌水凑词；不要省略中文八块。\n"
         "可见回复必须是两块完整正文，不要先写计划或摘要，"
@@ -463,27 +535,34 @@ def build_timestamped_zh_author_user(
                 or ""
             ).strip()
             lines.append(f"- {item.get('name') or '角色'}" + (f"：{desc}" if desc else ""))
+    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
+
     spoken, inner = _zh_speech_turns(beat)
     if spoken:
-        lines.append("开口对白（开口 vs 内心已拆开，必须逐字写入对应时间段）：")
+        lines.append("开口对白（开口 vs 内心已拆开；同一人连续多句已按句切开，必须逐字写入对应时间段）：")
         for turn in spoken:
             speaker = str(turn.get("speaker") or "").strip() or "角色"
-            lines.append(f"- {speaker}（开口）：{turn.get('text')}")
+            for atom in H3PromptBuilder.split_speech_atoms(str(turn.get("text") or "")):
+                lines.append(f"- {speaker}（开口）：{atom}")
     else:
         lines.append("开口对白：本镜可无开口对白。")
     if inner:
-        lines.append("内心/旁白（画内闭嘴）：")
+        lines.append("内心/旁白（画内闭嘴；英文必须 says in an off-screen voiceover，</d> 后立刻 lips remain completely closed）：")
         for turn in inner:
             speaker = str(turn.get("speaker") or "").strip() or "旁白"
-            lines.append(f"- {speaker}（内心/旁白）：{turn.get('text')}")
+            for atom in H3PromptBuilder.split_speech_atoms(str(turn.get("text") or "")):
+                lines.append(f"- {speaker}（内心/旁白）：{atom}")
     narration = str(beat.get("narration") or "").strip()
     if narration and not any(narration == str(item.get("text") or "") for item in inner):
         lines.append(f"旁白原文：{narration}")
     if planned:
-        lines.append("R2V 槽位（本地 H3 上传顺序；末槽只是起幅单帧）：")
+        lines.append("R2V 槽位（本地 H3 上传顺序；身份优先，随后是起幅/中格/结果 9:16 裁切）：")
         for item in planned:
             lines.append(f"- <Picture {item['index']}> {item['label']}")
-    lines.append("三联左/中/右职责：左格=空间建立，中格=主动作，右格=结果或情绪收束。中格/右格用文字分秒演，不要把整张三联当参考图。")
+    lines.append(
+        "这三张裁切是同一镜的时间路标，不是新人物：起幅=00:00 构图锚，中格=主动作构图，结果=落幅构图。"
+        "成片始终单一 9:16；禁止分栏、禁止把三格同时摆进画面。"
+    )
     previous = str(
         info.get("previous_shot")
         or info.get("previous_shot_summary")
@@ -495,7 +574,7 @@ def build_timestamped_zh_author_user(
         lines.append(f"上一镜承接：{previous}")
     image_notes = collect_zh_author_image_urls(recipe, beat, assets)
     if image_notes:
-        lines.append("附图顺序（若已随请求发送）：角色卡、场景卡，然后是整张三联母图或左/中/右裁切，供看图写分秒。")
+        lines.append("写稿附图（供看图写运镜，不是 R2V 上传顺序）：角色卡、场景卡，然后是整张 16:9 三联母图。")
         for index, url in enumerate(image_notes, 1):
             lines.append(f"- 图{index}: {url}")
     lines.append(
@@ -590,12 +669,13 @@ def validate_timestamped_zh_prompt(
         index = item.get("index")
         if index and not re.search(rf"<Picture\s+{re.escape(str(index))}\s*>", draft, flags=re.I):
             errors.append(f"缺少 <Picture {index}>")
-    spoken, inner = _zh_speech_turns(beat)
-    required = [str(item.get("text") or "").strip() for item in (*spoken, *inner) if str(item.get("text") or "").strip()]
+    required = _required_speech_atoms(beat)
     han_draft = _han_only(draft)
     for line in required:
         han = _han_only(line)
         if han and han not in han_draft:
+            errors.append(f"台词未逐字出现：{line[:80]}")
+        elif not han and line not in draft:
             errors.append(f"台词未逐字出现：{line[:80]}")
     errors.extend(_speech_split_errors(draft, required))
     return errors
@@ -639,7 +719,7 @@ def extract_ref2va_prompt(text: str) -> str:
     if draft.startswith("```"):
         draft = re.sub(r"^```(?:text|markdown|md)?\s*", "", draft)
         draft = re.sub(r"\s*```$", "", draft).strip()
-    match = re.search(r"(?im)^subject_definitions:\s*", draft)
+    match = _EN_HEADING_RE.search(draft)
     if match:
         draft = draft[match.start() :]
     return draft.strip()
@@ -712,15 +792,19 @@ def expand_r2v_slot_plan(
     beat: dict[str, Any],
     assets: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    slots: list[dict[str, Any]] = []
+    identity: list[dict[str, Any]] = []
+    composition: list[dict[str, Any]] = []
     by_id = {str(item.get("id") or ""): item for item in assets if item.get("id")}
+    full_triptych = str(beat.get("triptych_url") or "").strip()
+    shot_no = str(beat.get("story_shot") or beat.get("sequence") or beat.get("id") or "1").strip() or "1"
+    panels = normalize_panels(beat.get("triptych_panels"))
     for spec in recipe.r2v_slots:
         if spec.is_full_triptych:
             continue
         if spec.source == "characters":
             for character in _beat_characters(beat, by_id):
                 name = character.get("name") or "角色"
-                slots.append({
+                identity.append({
                     "source": "characters",
                     "category": "character",
                     "name": name,
@@ -731,7 +815,7 @@ def expand_r2v_slot_plan(
         elif spec.source == "scene":
             scene = _beat_scene(beat, by_id)
             scene_name = scene.get("name") or str(beat.get("scene") or "场景")
-            slots.append({
+            identity.append({
                 "source": "scene",
                 "category": "scene",
                 "name": scene_name,
@@ -739,40 +823,23 @@ def expand_r2v_slot_plan(
                 "url": scene.get("url") or "",
                 "scene_id": scene.get("id") or beat.get("scene_id") or "",
             })
-        elif spec.source in {"triptych.start", "start"}:
-            panels = normalize_panels(beat.get("triptych_panels"))
-            start_url = public_panel_url(panels.get("start"))
-            if not start_url:
+        elif spec.source in {"triptych.start", "start", "triptych.mid", "mid", "triptych.end", "end"}:
+            role = _triptych_role_from_source(spec.source)
+            url = public_panel_url(panels.get(role))
+            if not url or url == full_triptych:
                 continue
-            shot_no = str(beat.get("story_shot") or beat.get("sequence") or beat.get("id") or "1").strip() or "1"
-            slots.append({
-                "source": "triptych.start",
+            composition.append({
+                "source": f"triptych.{role}" if spec.source in {"start", "mid", "end"} else spec.source,
                 "category": "composition",
-                "name": "起幅构图",
-                "label": (
-                    f"镜头{shot_no}起幅单帧（三联左格裁切），提供构图锚点；"
-                    "中格/右格用文字分秒演，不要把整张三联送进本地 H3"
-                ),
-                "url": start_url,
-                "role": "start",
-            })
-        elif spec.source in {"triptych.mid", "mid", "triptych.end", "end"}:
-            key = "mid" if "mid" in spec.source else "end"
-            panels = normalize_panels(beat.get("triptych_panels"))
-            slots.append({
-                "source": spec.source,
-                "category": "composition",
-                "name": "中格" if key == "mid" else "结果构图",
-                "label": f"三联{key}格，默认不送进 R2V。",
-                "url": public_panel_url(panels.get(key)),
-                "role": key,
+                "name": _TRIPTYCH_PANEL_NAMES[role],
+                "label": _triptych_panel_label(shot_no, role),
+                "url": url,
+                "role": role,
             })
         else:
             continue
-    indexed: list[dict[str, Any]] = []
-    for index, item in enumerate(slots[:9], 1):
-        indexed.append({**item, "index": index})
-    return indexed
+    slots = _fit_r2v_slots(identity, composition)
+    return [{**item, "index": index} for index, item in enumerate(slots, 1)]
 
 
 def bind_r2v_slot_images(
@@ -785,11 +852,9 @@ def bind_r2v_slot_images(
     bound: list[dict[str, Any]] = []
     for item in planned:
         url = public_panel_url(item.get("url"))
-        if item.get("source") == "triptych.start" and url and url == full_triptych:
+        if url == full_triptych:
             continue
         if item.get("source") in {"triptych", "triptych.full"}:
-            continue
-        if url == full_triptych and item.get("role") not in {"start", "mid", "end"}:
             continue
         bound.append({**item, "url": url})
     return bound
@@ -817,9 +882,7 @@ def slot_contains_full_triptych(slots: list[dict[str, Any]], triptych_url: str) 
         source = str(item.get("source") or "")
         if source in {"triptych", "triptych.full", "triptych_url"}:
             return True
-        if source == "triptych.start":
-            continue
-        if str(item.get("url") or "").strip() == url and item.get("role") not in {"start", "mid", "end"}:
+        if str(item.get("url") or "").strip() == url:
             return True
     return False
 
@@ -1045,11 +1108,12 @@ def _official_prompt_blocks(
         "画面要求": (
             f"- {camera}\n"
             "- 真人实拍短剧摄影，空间轴线稳定\n"
-            "- 起幅图只作构图锚点；中格/右格用文字分秒演"
+            "- 用三张 9:16 裁切对齐起幅→主动作→落幅；运镜从整张三联写出"
         ),
         "负向约束": (
             "- 不要插画、CG、文字、水印、美颜滤镜、人物消失、瞬移、反射重影\n"
-            "- 不要把整张三联参考图送进本地 H3；成片必须是单一 9:16，不许分栏\n"
+            "- 不要把整张三联参考图送进本地 H3；这三张裁切是时间路标不是新人物；"
+            "成片必须是单一 9:16，不许分栏、不许把三格同时摆进画面\n"
             f"- 技能包：{recipe.name}"
         ),
     }
@@ -1150,6 +1214,22 @@ def _zh_speech_turns(beat: dict[str, Any]) -> tuple[list[dict[str, Any]], list[d
     return H3PromptBuilder.split_spoken_and_inner(shot)
 
 
+def _required_speech_atoms(beat: dict[str, Any]) -> list[str]:
+    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
+
+    spoken, inner = _zh_speech_turns(beat)
+    lines: list[str] = []
+    seen: set[str] = set()
+    for item in (*spoken, *inner):
+        for atom in H3PromptBuilder.split_speech_atoms(str(item.get("text") or "")):
+            key = _han_only(atom) or atom
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            lines.append(atom)
+    return lines
+
+
 def _timerange_span_errors(text: str, seconds: int) -> list[str]:
     spans = [
         (int(start), int(end))
@@ -1203,6 +1283,6 @@ def _fallback_zh_template() -> str:
 {{end_range}} 落到结果构图并稳住。
 【运镜】{{camera}}
 【对白与旁白】{{dialogue}}
-内心/旁白闭嘴画外音，不要口型同步。
+内心/旁白闭嘴画外音，英文用 says in an off-screen voiceover，不要口型同步 says:。
 【声音】环境声与动作同步，不要抢台词。
 【禁止】不要把三联参考图画成一条胶片；不要姓名牌、字幕、水印。技能包：{{pack_name}}。"""

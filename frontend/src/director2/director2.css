@@ -34,7 +34,7 @@
   background-color: #f8f9fa;
 }
 
-/* 导演台首页（复刻旧导演台首页 DirectorHome）：home 分支不带 top-nav，
+/* 导演台首页：home 分支不带 top-nav，
    容器直接承载 .director-home-v2（其自带 margin/边框卡片外观与内部滚动）。 */
 .director2-app.director2-app-home {
   height: 100%;

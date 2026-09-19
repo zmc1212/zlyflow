@@ -481,7 +481,7 @@ def register_project_routes(
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
-    @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych", status_code=202, summary="生成 16:9 三联关键帧母图并裁切起幅")
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych", status_code=202, summary="生成 16:9 三联关键帧母图并裁切起幅/中格/结果")
     def generate_beat_triptych(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
         try:
             return ProjectDetailService.generate_beat_triptych(project_id, episode_id, beat_id, payload or {})

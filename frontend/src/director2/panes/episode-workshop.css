@@ -518,23 +518,109 @@
 }
 
 .d2-episode-workshop .xiaji-shot-playback {
-  margin: 0 12px 8px;
-  padding: 8px;
-  border: 1px solid var(--studio-border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  min-width: 0;
+}
+
+.d2-episode-workshop .xiaji-shot-playback.is-stage {
+  container-type: size;
+  flex: 1 1 0%;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 4px 12px;
+}
+
+.d2-episode-workshop .xiaji-shot-playback-frame {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: var(--media-aspect-w, 16) / var(--media-aspect-h, 9);
+  background: var(--studio-media, #111);
   border-radius: 8px;
-  background: var(--studio-surface-raised, #f8f9fa);
+  overflow: hidden;
+  border: 1px solid var(--studio-border, #e2e8f0);
+}
+
+.d2-episode-workshop .xiaji-shot-playback.is-stage .xiaji-shot-playback-frame {
+  flex: 0 0 auto;
+  width: min(100%, calc((100cqh - 40px) * var(--media-aspect-w, 16) / var(--media-aspect-h, 9)));
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100cqh - 40px);
+  aspect-ratio: var(--media-aspect-w, 16) / var(--media-aspect-h, 9);
+}
+
+.d2-episode-workshop .xiaji-shot-playback.is-portrait .xiaji-shot-playback-frame {
+  height: 100%;
+  width: auto;
+}
+
+.d2-episode-workshop .xiaji-shot-playback.is-landscape .xiaji-shot-playback-frame {
+  width: 100%;
+  height: auto;
+}
+
+.d2-episode-workshop .xiaji-shot-playback.is-stage.is-portrait .xiaji-shot-playback-frame,
+.d2-episode-workshop .xiaji-shot-playback.is-stage.is-landscape .xiaji-shot-playback-frame {
+  width: min(100%, calc((100cqh - 40px) * var(--media-aspect-w, 16) / var(--media-aspect-h, 9)));
+  height: auto;
+  max-height: calc(100cqh - 40px);
 }
 
 .d2-episode-workshop .xiaji-shot-playback video {
   display: block;
   width: 100%;
-  max-height: 220px;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.d2-episode-workshop .xiaji-shot-playback.is-stage video {
+  position: absolute;
+  inset: 0;
+}
+
+.d2-episode-workshop .xiaji-shot-playback-expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
   border-radius: 6px;
-  background: #111;
+  color: #f3f5f7;
+  background: rgba(15, 23, 42, 0.62);
+  cursor: pointer;
+}
+
+.d2-episode-workshop .xiaji-shot-playback-expand:hover {
+  background: rgba(15, 23, 42, 0.82);
+}
+
+.d2-episode-workshop .xiaji-shot-playback-meta {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .d2-episode-workshop .xiaji-shot-playback p {
-  margin: 6px 0 0;
+  margin: 0;
   font-size: 12px;
   color: var(--studio-text-muted, #5c6370);
 }
@@ -643,6 +729,14 @@
   background: var(--studio-primary-soft, rgba(91, 101, 230, 0.18));
 }
 
+[data-theme="dark"] .d2-episode-workshop .xiaji-shot-playback {
+  background: transparent;
+}
+
+[data-theme="dark"] .d2-episode-workshop .xiaji-inspector-tabs {
+  background: var(--studio-surface, #171a20);
+}
+
 /* 分栏拖拽手柄 */
 .d2-episode-workshop .xiaji-shots-gutter {
   position: relative;
@@ -730,6 +824,86 @@
   background: #f1f5f9;
   border-color: #94a3b8;
   color: #0f172a;
+}
+
+.d2-episode-workshop .xiaji-inspector-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+  padding: 0 12px 12px;
+}
+
+.d2-episode-workshop .xiaji-inspector-tabs > .ant-tabs-nav {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.d2-episode-workshop .xiaji-inspector-tabs > .ant-tabs-body-holder,
+.d2-episode-workshop .xiaji-inspector-tabs > .ant-tabs-content-holder {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+
+.d2-episode-workshop .xiaji-inspector-tabs .ant-tabs-body,
+.d2-episode-workshop .xiaji-inspector-tabs .ant-tabs-content,
+.d2-episode-workshop .xiaji-inspector-tabs .ant-tabs-content-active,
+.d2-episode-workshop .xiaji-inspector-tabs .ant-tabs-tabpane-active {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.d2-episode-workshop .xiaji-inspector-tabs .ant-tabs-content-hidden,
+.d2-episode-workshop .xiaji-inspector-tabs .ant-tabs-tabpane-hidden {
+  display: none !important;
+}
+
+.d2-episode-workshop .xiaji-inspector-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.d2-episode-workshop .xiaji-inspector-tabs .ant-tabs-tab {
+  padding-inline: 10px;
+}
+
+.d2-episode-workshop .xiaji-inspector-tab-label .status-chip {
+  font-size: 10px;
+  padding: 1px 7px;
+}
+
+.d2-episode-workshop .xiaji-inspector-pane {
+  flex: 1 1 0%;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px 4px 24px 0;
+}
+
+.d2-episode-workshop .xiaji-inspector-pane.is-material {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 8px 0 0;
+}
+
+.d2-episode-workshop .xiaji-inspector-pane.is-film {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 8px 4px 12px 0;
 }
 
 .d2-episode-workshop .xiaji-pane-scroll-area {
@@ -1092,9 +1266,8 @@
 
 .d2-episode-workshop .sketch-main-card {
   position: relative;
-  width: 320px;
-  max-width: calc(100% - 110px);
-  aspect-ratio: 16 / 9;
+  width: min(220px, calc(100% - 110px));
+  aspect-ratio: 2 / 3;
   background: #f8fafc;
   border-radius: 8px;
   overflow: hidden;
@@ -1141,8 +1314,8 @@
 
 .d2-episode-workshop .sketch-thumb-card {
   position: relative;
-  width: 96px;
-  aspect-ratio: 16 / 9;
+  width: 72px;
+  aspect-ratio: 2 / 3;
   background: #f8fafc;
   border-radius: 6px;
   border: 1px solid #e2e8f0;
@@ -1792,6 +1965,7 @@
 
 /* 优雅精致的极细滚动条设计 */
 .d2-episode-workshop .xiaji-pane-scroll-area::-webkit-scrollbar,
+.d2-episode-workshop .xiaji-inspector-pane::-webkit-scrollbar,
 .d2-episode-workshop .xiaji-shots-grid-pane::-webkit-scrollbar,
 .d2-episode-workshop .xiaji-script-grid::-webkit-scrollbar,
 .d2-episode-workshop .xiaji-compose-pane::-webkit-scrollbar,
@@ -1803,6 +1977,7 @@
 }
 
 .d2-episode-workshop .xiaji-pane-scroll-area::-webkit-scrollbar-track,
+.d2-episode-workshop .xiaji-inspector-pane::-webkit-scrollbar-track,
 .d2-episode-workshop .xiaji-shots-grid-pane::-webkit-scrollbar-track,
 .d2-episode-workshop .xiaji-script-grid::-webkit-scrollbar-track,
 .d2-episode-workshop .xiaji-compose-pane::-webkit-scrollbar-track,
@@ -1813,6 +1988,7 @@
 }
 
 .d2-episode-workshop .xiaji-pane-scroll-area::-webkit-scrollbar-thumb,
+.d2-episode-workshop .xiaji-inspector-pane::-webkit-scrollbar-thumb,
 .d2-episode-workshop .xiaji-shots-grid-pane::-webkit-scrollbar-thumb,
 .d2-episode-workshop .xiaji-script-grid::-webkit-scrollbar-thumb,
 .d2-episode-workshop .xiaji-compose-pane::-webkit-scrollbar-thumb,
@@ -1824,6 +2000,7 @@
 }
 
 .d2-episode-workshop .xiaji-pane-scroll-area::-webkit-scrollbar-thumb:hover,
+.d2-episode-workshop .xiaji-inspector-pane::-webkit-scrollbar-thumb:hover,
 .d2-episode-workshop .xiaji-shots-grid-pane::-webkit-scrollbar-thumb:hover,
 .d2-episode-workshop .xiaji-script-grid::-webkit-scrollbar-thumb:hover,
 .d2-episode-workshop .xiaji-compose-pane::-webkit-scrollbar-thumb:hover,
@@ -1875,8 +2052,9 @@
 
 .d2-episode-workshop .h3-material-content {
   display: flex;
-  min-height: 300px;
-  max-height: 500px;
+  flex: 1 1 0%;
+  min-height: 0;
+  height: 100%;
   border: 1px solid var(--studio-border, #e2e8f0);
   border-radius: 8px;
   overflow: hidden;
@@ -2080,9 +2258,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 10px 14px 8px;
   border-bottom: 1px solid var(--studio-border, #f1f5f9);
   flex-shrink: 0;
+  flex-wrap: wrap;
   background: var(--studio-canvas, #f8fafc);
 }
 
@@ -2109,8 +2289,10 @@
 .d2-episode-workshop .h3-prompt-head-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .d2-episode-workshop .h3-prompt-panel .ant-input-textarea {
@@ -2122,7 +2304,7 @@
 .d2-episode-workshop .h3-prompt-editor.ant-input,
 .d2-episode-workshop .h3-prompt-editor textarea {
   flex: 1;
-  min-height: 240px;
+  min-height: 0;
   height: 100% !important;
   resize: none;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;

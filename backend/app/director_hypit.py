@@ -14,6 +14,8 @@ import secrets
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -22,6 +24,14 @@ from .config import settings
 HYPIT_SCHEMA_VERSION = 1
 HYPIT_JOB_STATUSES = ("idle", "running", "done", "failed")
 HYPIT_LANGUAGES = ("zh", "en")
+# Semantic canvas presets. Do not expose a raw MP number box; labels show pixels.
+# 9:16 sizes match provider-comfy-h3 h3Dimensions (32-pixel grid).
+HYPIT_H3_QUALITY_DEFAULT = "safe"
+HYPIT_H3_QUALITIES: dict[str, dict[str, Any]] = {
+    "safe": {"megapixels": 0.6, "width": 608, "height": 1056, "label": "16GB 稳妥"},
+    "balanced": {"megapixels": 0.7, "width": 640, "height": 1152, "label": "均衡"},
+    "official": {"megapixels": 0.98, "width": 768, "height": 1344, "label": "官方 768P"},
+}
 _MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024
 _ALLOWED_SOURCE_SUFFIXES = {".mp4", ".mov", ".webm", ".m4v"}
 _BUILD_ID_RE = re.compile(r"bld_[A-Za-z0-9_]+", re.IGNORECASE)
@@ -47,6 +57,32 @@ def _number(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def normalize_h3_quality(value: Any) -> str:
+    key = _text(value)
+    return key if key in HYPIT_H3_QUALITIES else HYPIT_H3_QUALITY_DEFAULT
+
+
+def hypit_h3_quality_preset(value: Any) -> dict[str, Any]:
+    return HYPIT_H3_QUALITIES[normalize_h3_quality(value)]
+
+
+def stamp_hypit_job_progress(
+    job: dict[str, Any],
+    *,
+    progress: int | None = None,
+    message: str | None = None,
+    operation_id: str | None = None,
+) -> dict[str, Any]:
+    """Write live progress onto transcript/compile so a later page load can resume the bar."""
+    if progress is not None:
+        job["progress"] = max(0, min(100, int(progress)))
+    if message is not None:
+        job["message"] = _text(message) or None
+    if operation_id is not None:
+        job["operationId"] = _text(operation_id) or None
+    return job
+
+
 def empty_hypit_payload(*, title: str = "") -> dict[str, Any]:
     return {
         "kind": "hypit_replication",
@@ -54,6 +90,7 @@ def empty_hypit_payload(*, title: str = "") -> dict[str, Any]:
         "title": title,
         "brief": "",
         "language": "zh",
+        "h3Quality": HYPIT_H3_QUALITY_DEFAULT,
         "workspacePath": None,
         "sourceVideo": None,
         "transcript": {
@@ -63,11 +100,17 @@ def empty_hypit_payload(*, title: str = "") -> dict[str, Any]:
             "wordCount": 0,
             "durationSec": 0.0,
             "error": None,
+            "operationId": None,
+            "progress": 0,
+            "message": None,
         },
         "compile": {
             "status": "idle",
             "buildId": None,
+            "operationId": None,
             "error": None,
+            "progress": 0,
+            "message": None,
         },
         "result": {
             "path": None,
@@ -85,6 +128,7 @@ def normalize_hypit_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     language = _text(raw.get("language")) or "zh"
     base["brief"] = _text(raw.get("brief"))
     base["language"] = language if language in HYPIT_LANGUAGES else "zh"
+    base["h3Quality"] = normalize_h3_quality(raw.get("h3Quality"))
     base["workspacePath"] = _text(raw.get("workspacePath")) or None
 
     source_video = _as_dict(raw.get("sourceVideo"))
@@ -107,6 +151,9 @@ def normalize_hypit_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
         "wordCount": int(_number(transcript.get("wordCount"), 0)),
         "durationSec": round(_number(transcript.get("durationSec"), 0), 3),
         "error": _text(transcript.get("error")) or None,
+        "operationId": _text(transcript.get("operationId")) or None,
+        "progress": max(0, min(100, int(_number(transcript.get("progress"), 0)))),
+        "message": _text(transcript.get("message")) or None,
     }
 
     compile_info = _as_dict(raw.get("compile")) or base["compile"]
@@ -114,7 +161,10 @@ def normalize_hypit_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     base["compile"] = {
         "status": c_status if c_status in HYPIT_JOB_STATUSES else "idle",
         "buildId": _text(compile_info.get("buildId")) or None,
+        "operationId": _text(compile_info.get("operationId")) or None,
         "error": _text(compile_info.get("error")) or None,
+        "progress": max(0, min(100, int(_number(compile_info.get("progress"), 0)))),
+        "message": _text(compile_info.get("message")) or None,
     }
 
     result = _as_dict(raw.get("result")) or base["result"]
@@ -257,6 +307,214 @@ def hypit_argv(*args: str) -> list[str]:
     return [npx, "--no", "--", "hypit", *args]
 
 
+def classify_hypit_command(command: str) -> str | None:
+    """Classify a process command line: build, execution-worker, pool-worker, or None."""
+    text = command or ""
+    if "hypit" not in text.lower():
+        return None
+    if "--execution-root" in text:
+        return "execution-worker"
+    if "_worker" in text:
+        return "pool-worker"
+    if re.search(r"hypit(?:\.cmd|\.mjs)?[\"']?\s+build\b", text, re.IGNORECASE):
+        return "build"
+    return None
+
+
+def command_mentions_path(command: str, path: Path) -> bool:
+    resolved = str(path)
+    variants = (
+        resolved.lower(),
+        resolved.replace("\\", "/").lower(),
+        resolved.replace("/", "\\").lower(),
+    )
+    hay = command.lower().replace("/", "\\")
+    return any(item.replace("/", "\\") in hay for item in variants)
+
+
+def pids_to_reap_for_workspace(
+    processes: list[tuple[int, str]],
+    workspace: Path,
+    *,
+    ignore_pids: set[int] | None = None,
+) -> list[int]:
+    """Leftover `hypit build` for this project, plus execution workers if no other build is live."""
+    ignore = ignore_pids or set()
+    builds_here: list[int] = []
+    other_builds = False
+    execution: list[int] = []
+    for pid, command in processes:
+        if pid in ignore:
+            continue
+        kind = classify_hypit_command(command)
+        if kind == "build" and command_mentions_path(command, workspace):
+            builds_here.append(pid)
+        elif kind == "build":
+            other_builds = True
+        elif kind == "execution-worker":
+            execution.append(pid)
+    pids = list(builds_here)
+    if not other_builds:
+        pids.extend(execution)
+    return sorted(set(pids))
+
+
+def pids_of_unattached_execution_workers(
+    processes: list[tuple[int, str]],
+    *,
+    ignore_build_pids: set[int] | None = None,
+) -> list[int]:
+    """Execution workers that are still polling after every `hypit build --follow` has died."""
+    ignore = ignore_build_pids or set()
+    if any(
+        pid not in ignore and classify_hypit_command(command) == "build"
+        for pid, command in processes
+    ):
+        return []
+    return [
+        pid
+        for pid, command in processes
+        if classify_hypit_command(command) == "execution-worker"
+    ]
+
+
+def list_os_processes() -> list[tuple[int, str]]:
+    try:
+        return _list_os_processes()
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+
+
+def _list_os_processes() -> list[tuple[int, str]]:
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["wmic", "process", "get", "ProcessId,CommandLine", "/FORMAT:LIST"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            encoding="utf-8",
+            errors="replace",
+        )
+        rows: list[tuple[int, str]] = []
+        pid: int | None = None
+        command = ""
+        for raw in (completed.stdout or "").splitlines():
+            line = raw.strip()
+            if not line:
+                if pid is not None:
+                    rows.append((pid, command))
+                pid = None
+                command = ""
+                continue
+            if line.lower().startswith("commandline="):
+                command = line.split("=", 1)[1]
+            elif line.lower().startswith("processid="):
+                try:
+                    pid = int(line.split("=", 1)[1])
+                except ValueError:
+                    pid = None
+        if pid is not None:
+            rows.append((pid, command))
+        return rows
+    completed = subprocess.run(
+        ["ps", "-ax", "-o", "pid=", "-o", "args="],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        encoding="utf-8",
+        errors="replace",
+    )
+    rows = []
+    for raw in (completed.stdout or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        pid_text, _, rest = line.partition(" ")
+        try:
+            rows.append((int(pid_text), rest.strip()))
+        except ValueError:
+            continue
+    return rows
+
+
+def kill_process_tree(pid: int) -> None:
+    if pid <= 0:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            timeout=15,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        return
+
+
+def reap_hypit_compile_orphans(
+    workspace: Path,
+    *,
+    processes: list[tuple[int, str]] | None = None,
+    ignore_pids: set[int] | None = None,
+) -> list[int]:
+    """Kill leftover Hypit build/executors that would block the next compile's H3 slot."""
+    snapshot = list_os_processes() if processes is None else processes
+    pids = pids_to_reap_for_workspace(snapshot, workspace, ignore_pids=ignore_pids)
+    for pid in pids:
+        kill_process_tree(pid)
+    return pids
+
+
+def reap_unattached_execution_workers(
+    *,
+    processes: list[tuple[int, str]] | None = None,
+    ignore_build_pids: set[int] | None = None,
+) -> list[int]:
+    snapshot = list_os_processes() if processes is None else processes
+    pids = pids_of_unattached_execution_workers(
+        snapshot, ignore_build_pids=ignore_build_pids,
+    )
+    for pid in pids:
+        kill_process_tree(pid)
+    return pids
+
+
+def write_hypit_compile_runtime(workspace: Path, *, megapixels: float) -> Path:
+    """Copy the POC runtime and override H3 megapixels for this compile only."""
+    source = hypit_runtime_path()
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {"format": "hypit.runtime-local@1", "endpoints": {}, "bindings": {}}
+    if not isinstance(payload, dict):
+        payload = {"format": "hypit.runtime-local@1", "endpoints": {}, "bindings": {}}
+    data_root = payload.get("dataRoot")
+    if isinstance(data_root, str) and data_root.strip() and not Path(data_root).is_absolute():
+        payload["dataRoot"] = str((hypit_poc_root() / data_root).resolve())
+    endpoints = payload.get("endpoints")
+    if not isinstance(endpoints, dict):
+        endpoints = {}
+        payload["endpoints"] = endpoints
+    comfy = endpoints.get("comfy.h3")
+    if not isinstance(comfy, dict):
+        comfy = {"use": "@zly/provider-comfy-h3", "config": {}}
+        endpoints["comfy.h3"] = comfy
+    config = comfy.get("config")
+    if not isinstance(config, dict):
+        config = {}
+        comfy["config"] = config
+    config["megapixels"] = float(megapixels)
+    dest = workspace / "notes" / "hypit.runtime.overlay.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return dest
+
+
 def run_hypit(
     subcommand: str,
     extra: list[str],
@@ -264,6 +522,9 @@ def run_hypit(
     workspace: Path,
     timeout: int,
     on_output: Callable[[str], None] | None = None,
+    extra_env: dict[str, str] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    on_pid: Callable[[int], None] | None = None,
 ) -> str:
     argv = hypit_argv(subcommand, *extra)
     if "--workspace" not in argv:
@@ -275,23 +536,66 @@ def run_hypit(
         argv = ["cmd.exe", "/c", *argv]
     env = os.environ.copy()
     env.setdefault("HF_HUB_DISABLE_XET", "1")
-    completed = subprocess.run(
+    if extra_env:
+        env.update(extra_env)
+    proc = subprocess.Popen(
         argv,
         cwd=str(cwd),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=timeout,
         env=env,
         shell=False,
     )
-    combined = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
-    if on_output and combined:
-        on_output(combined[-800:])
-    if completed.returncode != 0:
-        raise HypitError(combined[-1200:] or f"hypit {subcommand} 失败（exit {completed.returncode}）")
-    return combined
+    if on_pid is not None:
+        on_pid(proc.pid)
+    chunks: list[str] = []
+
+    def reader() -> None:
+        stream = proc.stdout
+        if stream is None:
+            return
+        for line in stream:
+            chunks.append(line)
+            if on_output is None:
+                continue
+            try:
+                on_output("".join(chunks)[-800:])
+            except Exception:
+                continue
+
+    thread = threading.Thread(target=reader, name=f"hypit-{subcommand}-stdout", daemon=True)
+    thread.start()
+    deadline = time.monotonic() + max(1, int(timeout))
+    cancelled = False
+    try:
+        while proc.poll() is None:
+            if cancel_check is not None and cancel_check():
+                cancelled = True
+                kill_process_tree(proc.pid)
+                break
+            if time.monotonic() > deadline:
+                kill_process_tree(proc.pid)
+                thread.join(timeout=5)
+                raise HypitError(f"hypit {subcommand} 超时（{timeout}s），已结束后台进程")
+            time.sleep(0.4)
+        thread.join(timeout=8)
+        combined = "".join(chunks).strip()
+        if cancelled:
+            reap_unattached_execution_workers(ignore_build_pids={proc.pid})
+            raise HypitError("操作已取消，已结束后台 Hypit 进程")
+        if proc.returncode not in (0, None):
+            reap_unattached_execution_workers(ignore_build_pids={proc.pid})
+            raise HypitError(combined[-1200:] or f"hypit {subcommand} 失败（exit {proc.returncode}）")
+        if on_output and combined:
+            on_output(combined[-800:])
+        return combined
+    finally:
+        if proc.poll() is None:
+            kill_process_tree(proc.pid)
+            reap_unattached_execution_workers(ignore_build_pids={proc.pid})
 
 
 def summarize_transcript(path: Path) -> tuple[int, float]:

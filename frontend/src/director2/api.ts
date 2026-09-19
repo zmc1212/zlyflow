@@ -141,6 +141,9 @@ export function listProjects(): Promise<Director2Project[]> {
 export type Director2SkillPack = {
   id: string
   name: string
+  summary?: string
+  author?: string
+  cover?: string
   surfaces: string[]
   visual_lock: string
   workshop_shot: string[]

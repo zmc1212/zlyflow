@@ -59,6 +59,20 @@ def short_authored_en(dialogue: str = "你好。") -> str:
     )
 
 
+def colonless_authored_en(dialogue: str = "你好。") -> str:
+    text = short_authored_en(dialogue)
+    for name in (
+        "subject_definitions",
+        "summary",
+        "retention_analysis",
+        "detailed_description",
+        "overall_soundscape",
+        "non_diegetic_music",
+    ):
+        text = re.sub(rf"(?m)^{name}:", name, text)
+    return text
+
+
 class H3PromptTests(unittest.TestCase):
     def test_valid_prompt_contract(self):
         shot = {"sequence": 1, "speaker": "沈砚", "dialogue": "你好。"}
@@ -459,8 +473,8 @@ class H3PromptTests(unittest.TestCase):
 
         accepted = rich_prompt(spoken).replace(
             f"<d>[Chinese] {spoken}</d>",
-            "In an off-screen inner voiceover, all visible characters keep their lips closed: "
-            f"<d>[Chinese] {inner}</d>. (S1) says "
+            f"says in an off-screen voiceover: <d>[Chinese] {inner}</d> "
+            "while all visible characters' lips remain completely closed. (S1) says "
             f"<d>[Chinese] {spoken}</d>",
         )
         self.assertEqual(
@@ -475,6 +489,88 @@ class H3PromptTests(unittest.TestCase):
             ),
         )
 
+    def test_inner_delivery_rejects_bare_says(self):
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken = "不用想也知道，做的是什么。"
+        prompt = rich_prompt(spoken).replace(
+            f"<d>[Chinese] {spoken}</d>",
+            f"(S1) says <d>[Chinese] {inner}</d>. (S1) says <d>[Chinese] {spoken}</d>",
+        )
+        shot = H3PromptBuilder.shot_from_beat_info({
+            "dialogue": f"吴耐（内心）：“{inner}” 吴耐：“{spoken}”",
+        })
+        errors = H3PromptBuilder.inner_delivery_errors(prompt, shot)
+        self.assertTrue(any("lip-synced" in item for item in errors))
+
+    def test_repair_inner_delivery_uses_official_voiceover_after_d(self):
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken = "不用想也知道，做的是什么。"
+        shot = H3PromptBuilder.shot_from_beat_info({
+            "dialogue": f"吴耐（内心）：“{inner}” 吴耐：“{spoken}”",
+            "characters": [{"name": "吴耐"}],
+        })
+        prompt = rich_prompt(spoken).replace(
+            f"<d>[Chinese] {spoken}</d>",
+            f"(S1) 吴耐 says <d>[Chinese] {inner}</d>. (S1) says <d>[Chinese] {spoken}</d>",
+        )
+        repaired = H3PromptBuilder.repair_inner_delivery(prompt, shot)
+        inner_tag = f"<d>[Chinese] {inner}</d>"
+        idx = repaired.find(inner_tag)
+        self.assertGreater(idx, 0)
+        prefix = repaired[max(0, idx - 80):idx]
+        suffix = repaired[idx + len(inner_tag): idx + len(inner_tag) + 90]
+        self.assertRegex(prefix, r"says in an off-screen voiceover\s*:")
+        self.assertRegex(suffix, r"lips remain(?:\s+completely)? closed")
+        self.assertEqual([], H3PromptBuilder.inner_delivery_errors(repaired, shot))
+
+    def test_skip_program_pack_validate_rejects_bare_inner_says(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        inner = "这是听者的内心独白。"
+        spoken = "这是开口对白。"
+        prompt = short_authored_en(spoken).replace(
+            f"(S1) says <d>[Chinese] {spoken}</d>.",
+            f"(S1) says <d>[Chinese] {inner}</d>. (S1) says <d>[Chinese] {spoken}</d>.",
+        )
+        errors = LlmService._validate_h3_prompt(
+            H3PromptBuilder.normalize_authored_ref2va(prompt),
+            "Ref2VA",
+            {
+                "dialogue": f"角色甲（内心）：“{inner}” 角色甲：“{spoken}”",
+                "skill_pack_id": HALF_NARRATED_PACK_ID,
+                "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            },
+        )
+        self.assertTrue(any("lip-synced" in item or "off-screen voiceover" in item for item in errors))
+
+    def test_skip_program_pack_repairs_inner_says(self):
+        from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
+
+        inner = "这是听者的内心独白。"
+        spoken = "这是开口对白。"
+        prompt = short_authored_en(spoken).replace(
+            f"(S1) says <d>[Chinese] {spoken}</d>.",
+            f"(S1) says <d>[Chinese] {inner}</d>. (S1) says <d>[Chinese] {spoken}</d>.",
+        )
+        payload = {
+            "beat_id": "beat-1",
+            "beat_sequence": 1,
+            "beat_info": {
+                "dialogue": f"角色甲（内心）：“{inner}” 角色甲：“{spoken}”",
+                "skill_pack_id": HALF_NARRATED_PACK_ID,
+                "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            },
+        }
+        finalized = H3PromptJobService._finalize_prompt(payload, prompt)
+        inner_tag = f"<d>[Chinese] {inner}</d>"
+        idx = finalized.find(inner_tag)
+        self.assertGreater(idx, 0)
+        prefix = finalized[max(0, idx - 80):idx]
+        suffix = finalized[idx + len(inner_tag): idx + len(inner_tag) + 90]
+        self.assertRegex(prefix, r"says in an off-screen voiceover\s*:")
+        self.assertRegex(suffix, r"lips remain(?:\s+completely)? closed")
+        self.assertNotIn(_THICKNESS_PAD, finalized)
+
     def test_normalize_does_not_append_second_copy_of_existing_inner_line(self):
         inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
         spoken = "不用想也知道，做的是什么。"
@@ -485,8 +581,8 @@ class H3PromptTests(unittest.TestCase):
         }
         prompt = rich_prompt(spoken).replace(
             f"<d>[Chinese] {spoken}</d>",
-            "In an off-screen inner voiceover, all visible characters keep their lips closed: "
-            f"<d>[Chinese] {inner}</d>. (S1) says "
+            "says in an off-screen voiceover: "
+            f"<d>[Chinese] {inner}</d> while all visible characters' lips remain completely closed. (S1) says "
             f"<d>[Chinese] {spoken}</d>",
         )
         normalized = H3PromptBuilder._normalize_prompt(shot, prompt, {"吴耐": "S1"})
@@ -787,8 +883,7 @@ class H3PromptTests(unittest.TestCase):
         prepared = H3PromptBuilder.prepare_generated_prompt(packed, shot)
         self.assertEqual([], LlmService._validate_h3_prompt(prepared, "Ref2VA", beat_info))
         self.assertIn("(S2) <Subject 2> 角色乙 says", prepared)
-        self.assertIn("(S1) <Subject 1> 角色甲 says", prepared)
-        self.assertIn("(S1) <Subject 1> 角色甲 thinks", prepared)
+        self.assertIn("(S1) <Subject 1> 角色甲 says in an off-screen voiceover", prepared)
         self.assertNotIn("then speaks", prepared.lower())
         self.assertNotIn("spoken lip-sync", prepared.lower())
         self.assertNotIn("listener thought, not the previous speaker continuing", prepared.lower())
@@ -1170,6 +1265,70 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotRegex(generated, r"00:00\s*[–\-]\s*00:")
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
 
+    def test_canonicalize_section_headings_adds_ascii_colons(self):
+        raw = colonless_authored_en("你好。").replace("subject_definitions\n", "**subject_definitions**\n", 1)
+        raw = raw.replace("summary\n", "summary：\n", 1)
+        normalized = H3PromptBuilder.normalize_authored_ref2va(raw)
+        self.assertRegex(normalized, r"(?m)^subject_definitions:")
+        self.assertRegex(normalized, r"(?m)^summary:")
+        self.assertRegex(normalized, r"(?m)^non_diegetic_music:")
+        self.assertTrue(H3PromptBuilder.has_ref2va_headings(raw))
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        self.assertEqual([], LlmService._validate_h3_prompt(normalized, "Ref2VA", beat_info))
+
+    def test_ensure_shot_1_is_idempotent(self):
+        raw = colonless_authored_en("你好。")
+        once = H3PromptBuilder.normalize_authored_ref2va(raw)
+        twice = H3PromptBuilder.normalize_authored_ref2va(once)
+        self.assertEqual(1, twice.count("[Shot 1]"))
+        self.assertEqual(once, twice)
+
+    def test_has_ref2va_headings_rejects_truncated_colonless_draft(self):
+        truncated = colonless_authored_en("你好。").split("overall_soundscape")[0]
+        self.assertFalse(H3PromptBuilder.has_ref2va_headings(truncated))
+        self.assertIn(
+            "required section headings are missing or out of order",
+            LlmService._validate_h3_prompt(
+                H3PromptBuilder.normalize_authored_ref2va(truncated),
+                "Ref2VA",
+                {
+                    "dialogue": "你好。",
+                    "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+                    "skill_pack_id": HALF_NARRATED_PACK_ID,
+                },
+            ),
+        )
+
+    def test_generate_h3_prompt_skip_program_pack_accepts_colonless_headings(self):
+        from backend.app.media_studio.services.llm_service import DualShotAuthorResult, LlmService
+        from backend.app.vision_runtime import VISION_STATUS_USED, VisionCallMeta
+
+        authored = colonless_authored_en("你好。")
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}, {"index": 3}],
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+        }
+        result = DualShotAuthorResult(
+            zh_prompt=(
+                "镜头目的：走廊\n参考素材：<Picture 1> <Picture 2> <Picture 3>\n必须出现的视觉内容：走廊\n"
+                "按旁白和画面内容切镜：00:00–00:08 开口\n对白：你好。\n旁白：无\n画面要求：9:16\n负向约束：无分栏"
+            ),
+            en_prompt=authored,
+            en_valid=True,
+            vision=VisionCallMeta(status=VISION_STATUS_USED, model="gpt-5.6-sol", image_count=3, source="llm"),
+        )
+        with patch.object(LlmService, "author_timestamped_zh_prompt", return_value=result):
+            generated = LlmService.generate_h3_prompt(beat_info)
+        self.assertRegex(generated, r"(?m)^subject_definitions:")
+        self.assertRegex(generated, r"(?m)^non_diegetic_music:")
+        self.assertIn("The camera tracks down the corridor", generated)
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+
     def test_prepare_appends_missing_non_diegetic_heading(self):
         prompt = rich_prompt().replace(
             "\nnon_diegetic_music:\nRestrained piano at a slow tempo with a soft ending.",
@@ -1325,8 +1484,9 @@ class H3PromptTests(unittest.TestCase):
         self.assertLess(detail.find(spoken_b), detail.lower().find("tilts down"))
         self.assertLess(detail.find(inner), detail.lower().find("pushes in"))
         self.assertEqual(1, detail.lower().count("tilts up"))
-        self.assertEqual(2, len(re.findall(r"\bsays\b", detail, flags=re.I)))
-        self.assertEqual(1, len(re.findall(r"\bthinks\b", detail, flags=re.I)))
+        self.assertEqual(1, len(re.findall(r"says in an off-screen voiceover", detail, flags=re.I)))
+        self.assertEqual(2, len(re.findall(r"\bsays\b(?!\s+in\s+an\s+off-screen)", detail, flags=re.I)))
+        self.assertEqual(0, len(re.findall(r"\bthinks\b", detail, flags=re.I)))
         self.assertNotIn("to a medium close-up of the face and holds a static shot", prepared)
         self.assertNotIn(CLAUSE_TILT_UP, prepared)
         self.assertEqual(1, prepared.count(CLAUSE_PUSH_IN.format(who="Wu Nai")))
@@ -1346,8 +1506,10 @@ class H3PromptTests(unittest.TestCase):
             ],
         )
         urls = [str(item.get("url") or "") for item in slots]
-        self.assertEqual("https://x/start.png", urls[-1])
+        self.assertIn("https://x/start.png", urls)
+        self.assertIn("https://x/mid.png", urls)
         self.assertNotIn("https://x/triptych.png", urls)
+        self.assertEqual("https://x/mid.png", urls[-1])
 
     def test_faithful_zh_skips_one_line_one_landing_windows(self):
         from backend.app.director_craft.coverage import CLAUSE_PUSH_IN, CLAUSE_TILT_UP
@@ -1519,7 +1681,8 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("<Subject 3>", rendered)
         self.assertNotIn("<Location", rendered)
         self.assertNotIn("Unit Building Elevator", rendered)
-        self.assertEqual(rendered.lower().count("thinks"), 1)
+        self.assertEqual(rendered.lower().count("says in an off-screen voiceover"), 1)
+        self.assertEqual(rendered.lower().count("thinks"), 0)
         self.assertLess(rendered.find("9:16"), rendered.find("tilts up"))
         self.assertLess(rendered.find("tilts up"), rendered.find(spoken_a))
         self.assertLess(rendered.find(spoken_a), rendered.find("chest-and-waist"))
@@ -1654,7 +1817,8 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("receding gray hair", detail)
         self.assertNotIn("do not beautify", detail)
         self.assertNotIn("Wu Nai stays", detail)
-        self.assertEqual(generated.lower().count("thinks"), 1)
+        self.assertEqual(generated.lower().count("says in an off-screen voiceover"), 1)
+        self.assertEqual(generated.lower().count("thinks"), 0)
         self.assertNotIn("I can do anything", generated)
         self.assertNotIn("no need to guess", generated)
         self.assertNotIn("while the .", generated)
@@ -1812,22 +1976,24 @@ class H3PromptTests(unittest.TestCase):
         rendered = H3PromptBuilder.render_ref2va(shot)
         prepared = H3PromptBuilder.prepare_generated_prompt(rendered, shot)
         generated = LlmService.generate_h3_prompt(beat_info)
-        duplicated = "(S1) <Subject 1> 吴耐 thinks. (S1) <Subject 1> 吴耐 thinks."
-        self.assertEqual(prepared.lower().count("thinks"), 1)
-        self.assertEqual(generated.lower().count("thinks"), 1)
+        duplicated = "says in an off-screen voiceover: says in an off-screen voiceover:"
+        self.assertEqual(prepared.lower().count("says in an off-screen voiceover"), 1)
+        self.assertEqual(generated.lower().count("says in an off-screen voiceover"), 1)
+        self.assertEqual(prepared.lower().count("thinks"), 0)
+        self.assertEqual(generated.lower().count("thinks"), 0)
         self.assertNotIn(duplicated, prepared)
         self.assertNotIn(duplicated, generated)
         collapsed = H3PromptBuilder.prepare_generated_prompt(
             rendered.replace(
-                "(S1) <Subject 1> 吴耐 thinks. In an off-screen",
-                "(S1) <Subject 1> 吴耐 thinks. (S1) <Subject 1> 吴耐 thinks. In an off-screen",
+                "says in an off-screen voiceover:",
+                "says in an off-screen voiceover: says in an off-screen voiceover:",
                 1,
             ),
             shot,
         )
-        self.assertEqual(collapsed.lower().count("thinks"), 1)
+        self.assertEqual(collapsed.lower().count("says in an off-screen voiceover"), 1)
         twice = H3PromptBuilder.prepare_generated_prompt(generated, shot)
-        self.assertEqual(twice.lower().count("thinks"), 1)
+        self.assertEqual(twice.lower().count("says in an off-screen voiceover"), 1)
         self.assertNotIn(duplicated, twice)
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
 
@@ -2479,7 +2645,7 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
         self.assertEqual("scene-ready", shots[0]["scene_id"])
         self.assertEqual("https://x/scene.png", shots[0]["reference_urls"][-1])
 
-    def test_skill_pack_appends_start_panel_not_full_triptych(self):
+    def test_skill_pack_appends_panel_crops_not_full_triptych(self):
         beat = self._beat(
             scene_id="scene-ready",
             triptych_url="https://x/triptych.png",
@@ -2498,13 +2664,16 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
         self.assertIn("https://x/char.png", urls)
         self.assertIn("https://x/scene.png", urls)
         self.assertIn("https://x/start.png", urls)
+        self.assertIn("https://x/mid.png", urls)
+        self.assertIn("https://x/end.png", urls)
         self.assertNotIn("https://x/triptych.png", urls)
-        self.assertNotIn("https://x/mid.png", urls)
-        self.assertEqual("https://x/start.png", urls[-1])
+        self.assertEqual("https://x/end.png", urls[-1])
         sources = [item.get("source") for item in shots[0]["ref_images"]]
         self.assertIn("characters", sources)
         self.assertIn("scene", sources)
         self.assertIn("triptych.start", sources)
+        self.assertIn("triptych.mid", sources)
+        self.assertIn("triptych.end", sources)
 
     def test_binds_scene_by_name_when_scene_id_is_missing(self):
         shots = EpisodeVideoService._prepare_shots(

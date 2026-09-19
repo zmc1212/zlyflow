@@ -49,6 +49,9 @@ class R2VSlot:
 class PackRecipe:
     id: str
     name: str
+    summary: str = ""
+    author: str = ""
+    cover: str = ""
     surfaces: tuple[str, ...] = ()
     visual_lock: str = ""
     director2_overlay: dict[str, str] = field(default_factory=dict)
@@ -106,6 +109,7 @@ def default_recipe() -> PackRecipe:
     return PackRecipe(
         id=DEFAULT_PACK_ID,
         name="默认程序装箱",
+        summary="不注入 Plaza 制作配方，工坊用程序装箱六段。",
         surfaces=("workshop",),
         workshop_shot=("render_ref2va_default",),
         packing_overrides=PackingOverrides(),
@@ -128,6 +132,9 @@ def recipe_from_mapping(data: dict[str, Any], *, root: Path | None = None) -> Pa
     recipe = PackRecipe(
         id=pack_id,
         name=str(data.get("name") or pack_id).strip() or pack_id,
+        summary=str(data.get("summary") or data.get("description") or "").strip(),
+        author=str(data.get("author") or data.get("author-cn") or data.get("author-en") or "").strip(),
+        cover=_http_url(data.get("cover") or data.get("cover_url") or data.get("cover-en")),
         surfaces=_string_tuple(data.get("surfaces")),
         visual_lock=str(data.get("visual_lock") or "").strip(),
         director2_overlay=overlay,
@@ -207,6 +214,9 @@ def pack_payload(pack: PackRecipe) -> dict[str, Any]:
     return {
         "id": pack.id,
         "name": pack.name,
+        "summary": pack.summary,
+        "author": pack.author,
+        "cover": pack.cover,
         "surfaces": list(pack.surfaces),
         "visual_lock": pack.visual_lock,
         "workshop_shot": list(pack.workshop_shot),
@@ -237,6 +247,13 @@ def packing_overrides_of(pack_id: str | None = None) -> dict[str, bool]:
 
 def skip_program_pack_enabled(pack_id: str | None = None) -> bool:
     return bool(packing_overrides_of(pack_id).get("skip_program_pack"))
+
+
+def _http_url(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.startswith(("https://", "http://")):
+        return text
+    return ""
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

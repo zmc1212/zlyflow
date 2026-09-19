@@ -19,6 +19,8 @@ import {
   jobUpscaleDisabledReason,
   jobUpscaleHint,
   optionChoices,
+  playbackAspectIsPortrait,
+  playbackAspectRatio,
   sanitizeVideoOptionValues,
   shotVideoActionLabel,
   selectedShotGenerateExtra,
@@ -97,6 +99,15 @@ describe("director2 video settings", () => {
     expect(quality).toBeTruthy()
     expect(generatedResolutionLabel(quality!.definition, "0.4", "16:9")).toBe("864 × 480")
     expect(optionChoices(quality!, { aspect_ratio: "16:9" })[0].label).toContain("864 × 480")
+  })
+
+  it("reads the playback frame ratio from generation settings", () => {
+    expect(playbackAspectRatio(undefined)).toBe("16:9")
+    expect(playbackAspectRatio({})).toBe("16:9")
+    expect(playbackAspectRatio({ aspect_ratio: " 9:16 " })).toBe("9:16")
+    expect(playbackAspectIsPortrait("9:16")).toBe(true)
+    expect(playbackAspectIsPortrait("16:9")).toBe(false)
+    expect(playbackAspectIsPortrait("1:1")).toBe(false)
   })
 
   it("summarizes and serializes job options without duration", () => {
