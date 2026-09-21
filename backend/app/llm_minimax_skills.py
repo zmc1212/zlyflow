@@ -209,6 +209,12 @@ def load_shot_continuity_excerpt() -> str:
     ])
 
 
+def load_import_shot_continuity_excerpt() -> str:
+    """Director-2 content-library import: Chinese shot_plan handoff contract."""
+    path = _SHOT_CONTINUITY_SKILL_ROOT / "references" / "import-shot-plan-continuity.md"
+    return path.read_text(encoding="utf-8").strip()
+
+
 # Backward-compatible alias used by older tests/imports.
 SEEDANCE_CONTINUITY_EXCERPT = load_shot_continuity_excerpt()
 
@@ -816,7 +822,9 @@ H3_REF2VA_LABEL_DISCIPLINE = """# Reference-label discipline
 - Each <Subject N> appearance must follow the matching <Picture N> still in the supplied reference_map.
 - Write one short definition line per label: who/what it is and which <Picture N> anchors it.
 - Character <Picture N> is a single-person multi-view design sheet: it controls that person's identity only (face, hair, wardrobe); do not copy the panel grid, white background, or repeated mini figures into the shot; do not transfer pose or blocking from the still.
-- Scene <Picture N> supplies the environment only; do not lock standing positions or blocking from the still.
+- Prop <Picture N> is a multi-view prop design sheet: it controls that object's identity only (shape, materials, construction); do not copy the panel grid, white background, or repeated mini objects into the shot; do not transfer pose from the still. If the scene still also shows that object or similar set dressing (lamp, book, computer, notebook), follow the prop sheet.
+- Scene <Picture N> supplies the environment only; do not lock standing positions or blocking from the still; do not let generic furniture or practicals in the scene still replace a named prop that has its own Picture.
+- Composition / triptych-panel <Picture N> locks blocking and crop only. If clothing, hair, or face disagrees with the character design sheet, follow the character sheet.
 - When reference images are present, do not rewrite long CAST LOCK face, body, or wardrobe portraits in detailed_description.
 - At first visibility, name <Subject N> and keep using that label; do not re-novelize five features every sentence.
 - Never invent, renumber, merge, swap, or omit a supplied <Picture N> or <Subject N>.

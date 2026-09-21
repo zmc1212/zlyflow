@@ -15,6 +15,7 @@ Unknowns: [facts that still need confirmation — do not invent]
 
 For the `script` agent, fold these into Chinese `fullStory` scene blocks so later splitting inherits them.
 For the `storyboard` agent, map opening → `continuityIn`, closing → `continuityOut`, and name the cut in `transitionNote`.
+For director-2 imported `shot_plan` JSON, use the Chinese contract in `import-shot-plan-continuity.md` (`opening_state` / `closing_state` / `transition_note`) instead of English `continuityIn` / `continuityOut`.
 
 ## Clip handoff pattern
 
@@ -70,3 +71,6 @@ After polishing an ordered shot list:
 | Boundary state is a plot summary | Rewrite as visible frame facts |
 | Opening beat fights `continuityIn` | Align the first `At 00:00.000` action with the opening state |
 | Only visual I2V is used, no text handoff | Keep both: text continuity for every cut, optional end-frame anchor when the user enables it |
+| Import shot 2 stands up to catch a falling book | Same-scene match cut: inherit the seated landing; never invent 站起 |
+
+Director-2 import planners should load `import-shot-plan-continuity.md` rather than this whole English Recipe guide.

@@ -1,6 +1,6 @@
 # ZLY AI Studio｜创作工作台
 
-> 导演台支持项目级「AI 生成 / 手动编辑」模式；首页新建导演工程时弹出带动态封面的制作配方卡（半解说包热链 Hub 官方封面 mp4），项目顶栏可改，绑定写入 `extra.skill_pack_id`（步骤注册表执行，不是生成页 H3 风格芯片）。半解说真人短剧包使用 Hub 官方 v1.0.1 原文；绑定后剧本/定妆/分镜只注入官方对应章节（对白与画面双通道、16:9 白底角色/场景卡、镜头合同），不改四阶段 ID。工坊一次多模态请求同时写官方 H3 八块中文分秒稿和英文六段（LLM 名称可看图时带角色卡/场景卡/三联；7B 不发 image_url）；半解说包临时 `skip_program_pack` 出片用 GPT 英文六段原文（规范化标签、六段 `name:` 标题，并补 `[Shot 1]`；内心改成官方 `says in an off-screen voiceover` 并在 `</d>` 后闭嘴），不再程序灌水、中文时间码或轿厢句；同一人连续多句按句校验；内心口型同步 `says:` 会先修补；写稿未通过校验则任务失败、不覆盖上一版提示词，工坊保留残稿并显示原因；说明句 stub 会打回重写。可生成 16:9 三联关键帧，本地 H3 只送角色卡、场景卡和裁切后的起幅/中格/结果三张 9:16，不把整张三联当参考图。AI 从创意澄清后按「剧本 / 角色·场景·道具 / 分集 / 分镜」四步生成，每步暂停确认，采纳后进入下一步，不满意可对话反馈并只重跑当前步；记录流顶部按选项真正影响的步骤回显创作路径，完成步骤会回显询问卡里选过的选项（开机确认题会挂到剧本 / 角色 / 分集 / 分镜对应行）。剧本确认卡按内容库标准剧本规范排版（定位/人物常驻，集标题折叠为胶囊、点开再看镜头卡与对白），刷新后从已保存剧本回填。结果回写导演台现有内容库、资产库和剧集工坊。资产库可为角色/场景/道具上传原片截图；有截图时生成形象按照片锁五官和服装，不再跟旧提示词加衣服。角色/场景/道具在切换到手动编辑后会出现在内容库的人物、场景、道具页。澄清问答走共用对话层组件（选项自动翻页、自定义输入、跳过本题/全部）；手动模式保持原有逐项生成流程。同一项目同时只允许一个进行中的 AI 任务（含待确认与调整中），打开工作区会自动恢复其进度；后端重启把遗留的中断任务标记为失败，可一键重试本阶段。侧栏只留一个「导演台」，入口为 `/director`；旧 `/director2` 会跳到对应新路径。九阶段 Recipe 界面已下线。
+> 导演台支持项目级「AI 生成 / 手动编辑」模式；首页新建导演工程时弹出带动态封面的制作配方卡（半解说包热链 Hub 官方封面 mp4），项目顶栏可改，绑定写入 `extra.skill_pack_id`（步骤注册表执行，不是生成页 H3 风格芯片）。半解说真人短剧包使用 Hub 官方 v1.0.1 原文；绑定后剧本/定妆/分镜只注入官方对应章节（对白与画面双通道、16:9 白底角色/场景卡、镜头合同），不改四阶段 ID。工坊一次多模态请求同时写官方 H3 八块中文分秒稿和英文六段（LLM 名称可看图时带角色卡/场景卡/三联；7B 不发 image_url）；最终视频 Picture 槽位只包含本镜角色设定板与绑定道具设定板，场景卡和三联只转写为环境、构图、动作和时间段文字，不上传视频模型，零权威参考自动走 T2V。半解说包临时 `skip_program_pack` 出片用 GPT 英文六段原文（规范化标签、六段 `name:` 标题，并补 `[Shot 1]`；内心改成官方 `says in an off-screen voiceover` 并在 `</d>` 后闭嘴），不再程序灌水、中文时间码或轿厢句；写稿合同写清开口 / 角色内心 / 第三人称旁白三通道与编号表演顺序，无旁白时禁止用内心或开口句充数；同一人连续多句按句校验；内心口型同步 `says:` 会先修补；半解说包另校验台词去重与 `<d>` 表演顺序；写稿未通过校验则任务失败、不覆盖上一版提示词，工坊保留残稿并显示原因；说明句 stub 会打回重写。导入确认成片画幅后写入 `extra.workshop_aspect_ratio`，工坊生成设置、H3 写稿和出片共用；可生成 16:9 三联关键帧并保留为上游构图依据。未指定造型时按本镜时代选设定板并写入 `character_look_ids`；三联必须带该造型，过期会提示重生成。旧自动 H3 稿或上下文变化会在素材组标记过期并阻止出片，合法手写稿只校验 Picture 编号。AI 从创意澄清后按「剧本 / 角色·场景·道具 / 分集 / 分镜」四步生成，每步暂停确认，采纳后进入下一步，不满意可对话反馈并只重跑当前步；记录流顶部按选项真正影响的步骤回显创作路径，完成步骤会回显询问卡里选过的选项（开机确认题会挂到剧本 / 角色 / 分集 / 分镜对应行）。剧本确认卡按内容库标准剧本规范排版（定位/人物常驻，集标题折叠为胶囊、点开再看镜头卡与对白），刷新后从已保存剧本回填。结果回写导演台现有内容库、资产库和剧集工坊。资产库可为角色/场景/道具上传原片截图；有截图时生成形象按照片锁五官和服装，不再跟旧提示词加衣服。角色/场景/道具在切换到手动编辑后会出现在内容库的人物、场景、道具页。澄清问答走共用对话层组件（选项自动翻页、自定义输入、跳过本题/全部）；手动模式保持原有逐项生成流程。同一项目同时只允许一个进行中的 AI 任务（含待确认与调整中），打开工作区会自动恢复其进度；后端重启把遗留的中断任务标记为失败，可一键重试本阶段。侧栏只留一个「导演台」，入口为 `/director`；旧 `/director2` 会跳到对应新路径。九阶段 Recipe 界面已下线。工坊成片 Tab 列出本镜全部成功抽卡，预览后「采用此版」才写入正式成片；重新出片默认采用最新，合成仍只读采用版。
 
 工作台使用 React + TypeScript 前端和 FastAPI 后端，在同一界面提供 GRS 图片生成与本机 ComfyUI 视频生成。工作台提供员工账号、角色权限、任务隔离、多轮创作和浏览器本地资源交付；监听本机与局域网 IPv4 地址的 `7865` 端口，ComfyUI 默认 `http://127.0.0.1:8188`，超级管理员可在「管理设置 → AI 供应商」修改连接地址，不会把 ComfyUI 暴露到局域网或公网。账号、任务和导演工程存储在 `docs/存储配置.md` 中的远程 MySQL；媒体默认使用管理设置中的七牛云。unittest 仍使用临时 SQLite。环境变量前缀与包名继续保留 `zly-ai-video-studio` 兼容标识。
 
@@ -78,7 +78,7 @@ exit
 
 `ZLY_AI_VIDEO_STUDIO_SECURE_COOKIES=true` 已由 Compose 固定启用，因此必须先完成受信任 HTTPS 反向代理再让员工访问。
 
-更新镜像时执行 `docker compose build --pull && docker compose up -d`。SQLite 与上传素材保存在 Docker 命名卷 `zly-ai-video-studio-data`；完成的视频不写入该数据卷，工作台在用户保存时从 ComfyUI `/view` 实时转发到员工电脑。ComfyUI `output` 保留在其运行的电脑上，由该电脑按保留策略清理。停止并删除工作台容器不会删除数据库和上传素材；需要完整回滚时执行 `docker compose down`，恢复旧镜像并 `docker compose up -d`，不要执行 `docker compose down -v`。
+更新镜像时执行 `docker compose build --pull && docker compose up -d`。账号、任务和导演台2 表在 MySQL（`ai-media`）中；命名卷 `zly-ai-video-studio-data` 只保存上传素材、凭证和一次性 SQLite 迁移源。完成的视频不写入该数据卷，工作台在用户保存时从 ComfyUI `/view` 实时转发到员工电脑。ComfyUI `output` 保留在其运行的电脑上，由该电脑按保留策略清理。停止并删除工作台容器不会删除数据库和上传素材；需要完整回滚时执行 `docker compose down`，恢复旧镜像并 `docker compose up -d`，不要执行 `docker compose down -v`。
 
 ### ComfyUI 宿主机浏览器直连交付
 
@@ -100,7 +100,7 @@ Start-ComfyUI.cmd --enable-cors-header https://comfyui.zlyun168.com
 - 图片与视频任务统一为“任务 → 轮次 → 生成项”；同任务不混合媒介，图片结果可创建有关联的新视频任务并预填首帧。
 - MiniMax H3 提示词技能体系与大模型智能优化：结合 MiniMax-H3 官方开源技能规范（三维运镜语法、多模态时序结构、环境音效与背景配乐），融合 OpenAI 兼容大模型（魔搭按魔粒计费；硅基流动 7B / 本机 Ollama 可零云端消耗），提供电影级通用、极简电商广告、3D动画短片、立体纸艺定格、品牌宣传、音乐短片、双人游戏片头、纸拼贴与手绘发光实景等 9 大细分风格技能的一键智能优化。
 - MiniMax H3 Web AI 导演台（Director Studio）：进入导演台先选导演创作或短视频批量。导演创作用 9 Agent 生成可编辑 Recipe。工程页顶栏常驻「AI 生成 / 手动编辑」创作模式切换（`?mode=manual`，工程级记忆、刷新保持；AI 写作进行中禁用）：手动编辑模式下剧本阶段与普通阶段同布局（显示左侧阶段导航与任务头，可随时跳转其他环节），直接以「手动编辑剧本」表单编辑（隐藏 Prompt Bar / 澄清卡 / 继续生成），画风「生成创作方案」、「根据剧本生成分镜」等 AI 写作入口隐藏，角色/场景/道具可「新增」空白卡片手动填写，分镜可「新建空白镜头」或导入 Markdown，配乐阶段可编辑「配乐方案 / 环境声方案」文本；定妆、渲染、配音、合成等执行类操作保持可用，手动内容即时计入阶段就绪度，切回 AI 生成时引导链自动跳过已完成环节。方案视图左栏是四组任务（故事与风格 / 视觉素材 / 镜头设计 / 声音与交付），右侧只显示当前任务；当前任务写在 `/director/:projectId?stage=`，刷新和后退保持位置。桌面顶栏可切「方案 | 剪辑」（`?view=plan|timeline`，默认方案）；手机只保留方案视图（镜头横条 + 抽屉）。任务徽标由前端从 payload 派生（剧本、画风、分镜、定妆图、Takes、ttsUrl、muxStatus），不看 `agentStatus`。顶栏「生成创作方案」只写剧本/画风/分镜/人物场景/声音方案，不会生成视频或配音音频；剧本创作阶段为全屏 Agent 对话界面（无左侧导航与页签，顶栏只留返回/工程名/主题/串播/更多）：点击发送后先进入创意澄清——AI 根据创意流式提出 2-3 个剧情走向问题和 1 道镜头数量题（Approval Card 逐题作答，可选推荐项、自己写或跳过；镜头数量题固定提供约 8/16/30/50 个镜头四档并支持自填任意数量），答完自动按所选方向与确认的镜头数量生成剧本（剧本 Beat 数量随之受控，单独重跑剧本也沿用本次确认的方向与数量）；随后进入逐步确认链——画风、角色、场景、分镜手法、配音、配乐每个环节生成前，AI 结合已有剧本再流式提出 2-3 个确认题（同样可选推荐项、自己写或跳过，画风选项对齐画风目录），确认后只生成该环节并继续下一环节，已产出环节自动跳过，中途失败或取消即停链，刷新/中断后可在成稿区用「继续生成：XX」恢复，全部环节完成后出完成卡；失败完成卡提供「重试<环节名>」按钮——分镜重试为续跑（保留已产出镜头，只补跑对白补全、按秒时长与衔接校验，不重头拆镜；无镜头时回落完整重拆），任务栏失败行的重试 pill 行为一致；对话顶部为垂直生成任务面板（每步一行状态图标+实时消息+总进度条+耗时，完成后折叠可回看），分镜按镜头行实时打印（完成镜头收成一行镜号+标题，当前镜头展开流式全文；打磨阶段切换为阶段进度面板——镜头芯片随「正在第 N 镜」逐镜推进高亮，当前镜头被润色的画面描述与对白实时流式打印，已收字数动态计数），画风以卡片展示并可弹层更换，完成后由记录流 footer 提供完成卡与「继续生成」引导；点「进入视觉素材」等引导切换到保留左侧导航的编辑工作台，侧栏点「剧本」随时回对话。生成中剧本任务区为直播工作区（桌面端为左右两栏：左侧 248px 任务栏只负责进度全景——每环节一行状态 + 顶部进度条与耗时，行可点开抽屉；右侧整块为时间线）：已完成环节压缩为单行记录（状态图标 + 环节名 + 结果摘要，点击弹出抽屉查看该环节完整产出，失败行可直接重试；行尾悬停出现「重新生成」按钮，弹窗可选「仅重做本环节」或「重做本环节并清空后续环节」（会列出受影响环节，级联清空后自动从下一环节继续逐步引导重做；生成失败或取消不会清空后续），并可选「直接重新生成」或「调整要求后重新生成」（重新回答该环节确认题后再生成；脚本/研究/媒体仅直接重生成）），任务栏已完成行提供同样的重新生成入口，重新生成分镜时提示已有镜头媒体关联可能失效（原任务媒体不会被删除），当前正在生成的环节是唯一的全宽直播卡片（无流式产出的环节显示骨架占位），流式内容始终自动贴底跟随（向上滚动即暂停跟随并浮现「回到底部」，新环节开始自动跳回最新处），创意气泡与创作方向 chips 按对话顺序排在时间线开头，刷新页面可恢复观看；手机上任务面板保持折叠摘要置于时间线上方；完成后停留展示完成卡与成稿文档（各环节产出仍可从记录行或任务栏抽屉回看），用「编辑剧本」显式切回表单微调或「进入视觉素材」继续，未生成时显示居中欢迎区（含示例创意点击填入）；创意输入采用对话式 Prompt Bar 固定在内容区底部（Enter 发送，生成中变为状态条并承担取消，画风等其他阶段保留原入口），发送后创意以气泡显示在对话顶部；全部定妆、全部出片、生成全部配音、导出成片仍在各任务区，提交前弹出数量与预计消耗。短视频批量页主题输入同样移至底部 Prompt Bar，原表单卡只保留生成参数。9 Agent（含研究/媒体）只在折叠的「AI 运行详情」里。点击「镜头设计」会按当前剧本一次性生成全部镜头（没有完整故事时先写脚本再拆镜），不再回退成单条「主镜头」；生成中主区显示镜头占位卡和人话阶段（读剧本/整理镜头），进度按本次实际步骤计数，不把大模型原文或思考过程打到画布上。自动分镜按 MiniMax H3 官方 `h3-prompt-writing` skill 写镜头正文、运镜和对白；提交时编译为 T2VA 三段式或 Ref2VA 六段式提示词。定妆走 GRS，分镜视频走本机所选工作流。员工级资产库保存人物/场景/道具（图 + 提示词），可在不同工程插入；不建系列分集。镜头设计页（阶段内以「设计 / 制作」切换：设计=编辑镜头序列与提示词，制作=生成设置与逐镜出片）为左镜头列表 + 右 Inspector（手机为横向条 + 抽屉）。桌面「剪辑」视图是同一份 Recipe 的素材栏 + 预览/串播 + 镜头轨 + Inspector，可改标题、描述、对白、时长、角色、场景和机位；默认预览档，可切终稿。画风默认 6 张推荐。保存约 800ms 防抖并显示状态。分镜页可改工作流（LightX2V / 八步双加速 / 官方 MiniMax H3 等）、画面比例、分辨率（0.4 / 1.0 / 2.0 MP）和生成速度；文生、首尾帧、多参考仍按镜头素材自动匹配。16GB 显卡建议 0.4 MP。参考图在提交时自动装箱最多 9 张。短视频批量按主题裂变多条脚本，并按所选工作流并行文生。手机上 Recipe/批量有返回工程库的头栏和底部主按钮（随当前任务切换）；镜头与批量条目显示中文状态，失败可就地重试。工程保存在 SQLite（员工隔离）。旧时间轴工程打开时转为 Recipe。Analyze 仅在大模型支持视觉时根据参考图提取外貌。成片可串播、导出剪映草稿，也可在「成片」任务里用本机 ffmpeg 合成 MP4 并下载 FCPXML/EDL。配音走 OpenAI 兼容 TTS（可复用大模型凭据，不使用 Edge TTS）；本机需安装 ffmpeg/ffprobe 才能导出工作台内成片。
-- MiniMax H3：官方文生 / 首尾帧 / 多参考（采样前预留 3 GB 显存并启用 H3 显存高效 Sage），以及自定义「全能参考（多速率）」和「双时钟加速」。另接入 LightX2V 文生 / 首尾帧 / 多参考（默认 1.0 MP、4 步 euler），以及「八步双加速」文生 / 首尾帧 / 多参考（默认 0.4 MP、8 步，FL2V Turbo LoRA + KJ Sage + H3 Sage）。创作页工作流下拉按 LightX2V、八步双加速、官方 MiniMax H3、自定义分组。可选择生成速度：快速 4 步、均衡 8 步、高质量 20 步，或自定义 1–40 步（八步双加速默认即为 8 步档）。创建栏可切换模型体积：完整（32 GB，可挂加速 LoRA）或精简（20 GB，关闭加速 LoRA，适合 32 GB 内存）。更多设置可勾选「出片后 2x 超分」；已成功的视频结果卡也可点「超分」。剧集工坊生成设置同样有该开关：逐镜或选中镜成片后可自动或手动超分，整集直出与拼接片不自动超分；镜头卡优先播 2x 并标明「2x」。导演台2「全部任务 → 视频生成」已成功成片可点「超分」。超分使用当前连接 ComfyUI 上的 RTX Video Super Resolution（固定 2 倍），该实例必须已安装 `Nvidia_RTX_Nodes_ComfyUI`；提交前按该机 `/system_stats` 总显存估额度，原片保留，失败不影响成片。尺寸、时长、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
+- MiniMax H3：官方文生 / 首尾帧 / 多参考（采样前预留 3 GB 显存并启用 H3 显存高效 Sage），以及自定义「全能参考（多速率）」和「双时钟加速」。另接入 LightX2V 文生 / 首尾帧 / 多参考（默认 1.0 MP、4 步 euler），以及「八步双加速」文生 / 首尾帧 / 多参考（默认 0.4 MP、8 步，FL2V Turbo LoRA + KJ Sage + H3 Sage）。创作页工作流下拉按 LightX2V、八步双加速、官方 MiniMax H3、自定义分组。可选择生成速度：快速 4 步、均衡 8 步、高质量 20 步，或自定义 1–40 步（八步双加速默认即为 8 步档）。创建栏可切换模型体积：完整（32 GB，可挂加速 LoRA）或精简（20 GB，关闭加速 LoRA，适合 32 GB 内存）。更多设置可选「出片后超分」关闭 / 2x / 4x；已成功的视频结果卡也可点「超分」再选倍数。剧集工坊生成设置同样有该选项：逐镜或选中镜成片后可自动或手动超分，整集直出与拼接片不自动超分；镜头卡优先播超分版并标明倍数。导演台2「全部任务 → 视频生成」已成功成片可点「超分」选 2x 或 4x。超分使用当前连接 ComfyUI 上的 RTX Video Super Resolution（一次放大到目标倍数），该实例必须已安装 `Nvidia_RTX_Nodes_ComfyUI`；提交前按该机 `/system_stats` 总显存估额度，原片保留，失败不影响成片。尺寸、时长、采样、音频、模型、显存与编码参数由后端 schema 动态显示并在任务详情完整回显。
 
 
 - 串行任务队列、任务状态、SQLite 任务记录与本地作品库。排队中或生成中的任务可在工作台点「停止生成」：视频会中断固定 ComfyUI 上的对应 prompt 并标记为「已停止」，不会自动重新提交；图片只停止本地等待。本地视频队列空闲后，工作台会通知 ComfyUI 卸载模型并释放显存/内存；若还有下一条视频在排队则保持加载。
@@ -796,7 +796,7 @@ pnpm --dir desktop run build
 <ComfyUI Python> backend/tests/test_core.py
 ```
 
-可选环境变量：`ZLY_AI_VIDEO_STUDIO_DATA_DIR` 指定 SQLite、上传和旧版兼容暂存目录；`ZLY_AI_VIDEO_STUDIO_RESOURCE_PROVIDER` 选择已注册的资源 provider（当前为 `browser-stream`）；`ZLY_AI_VIDEO_STUDIO_SSL_CERTFILE` 与 `ZLY_AI_VIDEO_STUDIO_SSL_KEYFILE` 同时设置时启用 HTTPS 和安全 Cookie。未知 provider 会在启动时直接报错，不会静默回退到服务器长期存储。
+可选环境变量：`ZLY_AI_VIDEO_STUDIO_DATA_DIR` 指定上传、暂存和一次性 SQLite 迁移文件目录（Docker 也使用该目录，但不会因此改走 SQLite）；`ZLY_AI_VIDEO_STUDIO_DB_BACKEND=sqlite` 仅用于 unittest。`ZLY_AI_VIDEO_STUDIO_RESOURCE_PROVIDER` 选择已注册的资源 provider（当前为 `browser-stream`）；`ZLY_AI_VIDEO_STUDIO_SSL_CERTFILE` 与 `ZLY_AI_VIDEO_STUDIO_SSL_KEYFILE` 同时设置时启用 HTTPS 和安全 Cookie。未知 provider 会在启动时直接报错，不会静默回退到服务器长期存储。
 
 ## API 文档
 
@@ -1678,7 +1678,7 @@ AI 创作确认新增「分集数」问题（默认 1 集），选择多集后�
 
 ## 2026-09-19 半解说包双稿不再把说明句当正文
 
-工坊写稿不再把「请先输出官方八块…」写成可被模型复述的收束句；系统提示不再灌工作坊 SKILL 章节。GPT-5 看图写作关闭推理占位（`reasoning_effort=none`），完成额度 16000。若模型仍只回说明句，会打回重写，失败原因不再展开缺标题清单。验证：`python -m unittest backend.tests.test_skill_packs backend.tests.test_vision_runtime backend.tests.media_studio_test_h3_video`。
+工坊写稿不再把「请先输出官方八块…」写成可被模型复述的收束句；系统提示不再灌工作坊 SKILL 章节。GPT-5 看图写作使用 LLM 管理设置中的推理程度（默认 `low`，`auto` 时不发送），完成额度 16000。若模型仍只回说明句，会打回重写，失败原因不再展开缺标题清单。验证：`python -m unittest backend.tests.test_skill_packs backend.tests.test_vision_runtime backend.tests.media_studio_test_h3_video`。
 
 ## 2026-09-19 工坊生成 H3 前先出三联，已有稿可重新生成
 
@@ -1689,6 +1689,66 @@ AI 创作确认新增「分集数」问题（默认 1 集），选择多集后�
 - 用户可见行为：点「新建导演工程」先选制作配方（默认半解说真人短剧）。进项目后顶栏可改。该工程的剧本、定妆、工坊都跟这个配方。内容库骨架模板不是这项。
 - 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_storyboard_images`；`pnpm --dir frontend exec vitest run src/director2/skill-pack.test.ts`。
 - 回滚方式：还原上述改动。
+
+## 2026-09-20 导入分镜可强制重规划，开场姿势跟上一镜落幅
+
+- 用户可见行为：内容库已规划的剧本可点「重新规划镜头」。确认后覆盖这份剧本的出片镜，工坊已出片的 Take 不会自动删，需要再同步工坊或按镜重生成。新规划会写清每镜开场/落幅姿势；同场接书不会无故改成站着。
+- 验证命令：`python -m unittest backend.tests.test_episode_shot_planner backend.tests.test_shot_plan_job -q`；`pnpm --dir frontend exec vitest run src/director2/shot-plan-live.test.ts src/director2/panes/content-library-copy.test.ts`。
+- 回滚方式：还原镜头规划接口与内容库按钮相关文件。
+
+## 2026-09-20 无参考图的角色设定板按文生图出图
+
+- 用户可见行为：资产库给还没有原片或旧造型图的角色点「生成设定板」时，按文字外观直接出 16:9 设定板，不再被 GRS 当成改图并要求上传原图。
+- 验证命令：`python -m unittest backend.tests.test_asset_source_references -q`。
+- 回滚方式：还原 `asset_image_prompts.py` 与对应测试。
+
+## 2026-09-20 穿越角色出片前补时代造型
+
+- 用户可见行为：穿越剧主角只有古代设定板时，现代图书馆镜头不再只报「缺少造型图」。资产库会多出「现代26岁」空槽，报错会写明本镜时代和要生成哪套。工坊检视器未选造型且时代对不上时也会提示。指定已有造型仍可强制出片。
+- 验证命令：`python -m unittest backend.tests.test_character_looks backend.tests.media_studio_test_h3_video.LookSelectionTests backend.tests.media_studio_test_h3_video.EpisodeVideoPrepareShotsTests -q`；`pnpm --dir frontend exec vitest run src/director2/workshop-look-era.test.ts`。
+- 回滚方式：还原造型匹配与工坊提示相关文件。
+
+## 2026-09-20 远程 ComfyUI 超分要装 Nvidia RTX 节点
+
+超分跑在管理设置里那台 ComfyUI 上，不是工作台本机。远程机需要 NVIDIA RTX，在其 `custom_nodes` 安装 [Nvidia_RTX_Nodes_ComfyUI](https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI)（可从本机整合包拷贝同名目录），再用启动该 ComfyUI 的 Python 执行 `python -m pip install -U --no-build-isolation nvidia-vfx==0.1.0.1 --index-url https://pypi.nvidia.com`（正式 Windows wheel 在 NVIDIA 源；pypi.org 只有 2.7KB 空壳，会报 `wheel_stub.buildapi`），然后完全重启。不要另开第二套 ComfyUI。`LoadVideo` / `CreateVideo` / `SaveVideo` 不用另装。重启后访问 `{Comfy地址}/object_info/RTXVideoSuperResolution` 应能看到节点。验证：`python -m unittest backend.tests.test_rtx_vsr`。
+
+## 2026-09-20 导入剧本后工程按剧本名改名
+
+- 用户可见行为：导入剧本后，若工程还叫「未命名导演工程」，顶栏会改成剧本文件名或文内标题。点顶栏标题旁的铅笔可随时改名。已经改过的名字不会被覆盖。
+- 验证命令：`python -m unittest backend.tests.test_project_name backend.tests.media_studio_test_storyboard_images.CreateDocumentShotPlanTests -q`；`pnpm --dir frontend exec vitest run src/director2/project-name.test.ts`。
+- 回滚方式：还原项目名相关前后端文件。
+
+## 2026-09-20 超分可选 2x / 4x
+
+生成设置「出片后超分」改为关闭 / 2x / 4x。工坊、全部任务、创作页结果卡点「超分」弹出 Dropdown 选倍数，一次放大到目标，默认 2x。全部任务列表缩略图仍播原片。验证：`python -m unittest backend.tests.test_rtx_vsr backend.tests.media_studio_test_h3_video.EpisodeVideoUpscaleTests -q`；`pnpm --dir frontend exec vitest run src/director2/director2-video-settings.test.ts src/video-upscale.test.ts`。
+
+## 2026-09-20 资产库一键生成时列表每条显示进度
+
+- 用户可见行为：资产库点一键生成后，左侧每条立刻出现进度条（排队 / 正在生成百分比），不再只靠顶部提示、等图片突然出现。单条生成同样在该行显示进度。
+- 验证命令：`pnpm --dir frontend exec vitest run src/director2/asset-row-generation.test.ts`。
+- 回滚方式：还原资产库列表进度相关前端文件。
+
+## 2026-09-20 全部任务不再把整库草稿每秒拉下来
+
+- 用户可见行为：点「全部任务」不应再让整个导演台卡住。列表仍按类型刷新；点开一条才加载完整提示词/草稿。进行中大约 2 秒刷新，空闲大约 8 秒。
+- 验证命令：`python -m unittest backend.tests.test_job_list_payload`。
+- 回滚方式：还原任务列表相关前后端文件。
+
+## 2026-09-20 导入确认成片画幅后再规划镜头
+
+内容库导入只切集落库，不再立刻规划。弹出成片画幅确认（剧本写了竖屏/横屏/9:16 会预填建议），写入项目 extra 后才入队镜头规划。工坊改生成设置会同步同一 extra；生成 H3 / 三联请求带当前比例。规划、写稿、出片都认这份确认值，原文竖屏不能覆盖镜头卡或写稿合同。未确认时文档显示「待确认画幅」。验证：`python -m unittest backend.tests.test_workshop_aspect backend.tests.test_skill_packs backend.tests.test_episode_shot_planner backend.tests.media_studio_test_storyboard_images -q`；`pnpm --dir frontend exec vitest run src/director2/workshop-aspect.test.ts src/director2/shot-plan-live.test.ts`。
+
+## 2026-09-20 写稿不再把内心当成旁白原文交给模型
+
+生成 H3 提示词时，角色内心只出现在表演顺序/对白里。本镜没有第三人称旁白就锁死「本镜无第三人称旁白」，不再把内心句子写成「旁白原文」。请再生成镜头一提示词后再出片。
+
+## 2026-09-20 镜头一须再生成提示词：拦 00:00 内心，不再误杀小数时间码
+
+镜头一若重新生成失败，工坊会保留上一版提示词，出片仍可能从第一秒念内心。这次放行小数时间码和标题乱码，只拦通道用错、以及第 1 句不是内心时写在 00:00 起幅的内心。请再点一次「生成 H3 提示词」，成功后再出片。
+
+## 2026-09-20 内心与旁白按三通道写稿，禁止开场旁白塞内心
+
+工坊生成 H3 提示词时，开口只进对白、角色内心只进对白并标（内心）、第三人称旁白只抄旁白原文。本镜没有旁白就写「本镜无第三人称旁白」，不要用内心或开口句凑块。每句中文只进一个 `<d>`，顺序跟表演清单走。半解说包会拦通道用错、台词复读和 `<d>` 顺序错误；旧稿不会自动改，镜头一需重新生成后再出片。
 
 ## 2026-09-19 工坊内心戏改用官方 H3 画外音句式
 
@@ -1934,3 +1994,43 @@ H3 Director 加速版「一键生成视频」仍一次出整集成片。镜头�
 ## 2026-09-19 写稿按句校验长对白并补 [Shot 1]
 
 同一人写在同一引号里的连续多句按问号/句号切开后逐字校验，不再把整段当一句。英文六段缺 `[Shot 1]` 时程序补上。验证：`python -m unittest backend.tests.test_skill_packs`。
+
+## 2026-09-20 服务器启动补建导演台2 表，DATA_DIR 不再改走 SQLite
+
+Docker 部署后健康检查失败，日志为 `Table 'ai-media.ai_project_jobs' doesn't exist`。原因是 Compose 固定设置 `ZLY_AI_VIDEO_STUDIO_DATA_DIR`，`runtime_database()` 把这当成 SQLite；导演台2 仍连 MySQL，且启动未重放 `sql/013_media_studio_init.sql`。现改为：生产默认 MySQL；启动先 `ensure_schema()` 再恢复孤儿任务；unittest 仍用 SQLite。验证：`python -m unittest backend.tests.test_media_studio_schema`。
+
+## 2026-09-20 工坊按时代选造型，道具占满剩余槽
+
+现代图书馆镜不再误传古代长衫卡；写稿/三联/出片统一按时代选设定板并写入 `character_look_ids`。三联锁定造型，过期提示重生成。道具设定板占满 9 槽剩余位，桌面陈设跟道具卡。验证：`python -m unittest backend.tests.test_character_looks backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video.LookSelectionTests backend.tests.media_studio_test_h3_video.EpisodeVideoPrepareShotsTests -q`；`pnpm --dir frontend exec vitest run src/director2/workshop-look-era.test.ts src/director2/workshop-r2v-refs.test.ts`。
+
+## 2026-09-20 内容库重新规划镜头改为按集选择
+
+内容库已规划剧本的「重新规划镜头」按钮改为稳定可见的明确边框按钮；点击后先在 Ant Design 弹窗选择某一集，默认只选第一集，只有明确选择「全部分集（谨慎使用）」才会全量覆盖。`shot-plan` 请求新增可选 `episode_num`，任务 payload 与重试会保留目标集。验证：`python -m unittest backend.tests.test_episode_shot_planner backend.tests.media_studio_test_storyboard_images`；`pnpm --dir frontend exec vitest run src/director2/panes/content-library-copy.test.ts`。
+
+## 2026-09-21 镜头规划收紧逐镜道具范围
+
+- 变更原因：第 1 集穿越镜头在重新规划时把上一镜的电脑、台灯、笔记本整组带入，工坊参考图与 H3 提示词因此可能生成两个电脑。
+- 变更内容：规划提示改为按原始剧本 `body` 的逐镜道具白名单生成；强制重规划也不再把上一次 LLM 结果当作道具权威；落库前裁掉跨镜头继承的道具。H3 装箱只允许当前镜头道具，并在同时出现电脑/笔记本时明确“纸质笔记本、最多一台电脑”。
+- 受影响文件：`backend/app/media_studio/services/episode_shot_planner.py`、`backend/app/media_studio/services/h3_prompt_builder.py`、相关后端测试。
+- 兼容性：不改数据库表、API、ComfyUI 节点或已有视频；已生成的旧镜头需重新规划对应集并重新生成 H3/视频才会使用新范围。
+- 验证命令：`python -m unittest backend.tests.test_episode_shot_planner backend.tests.media_studio_test_h3_video`、`pnpm --dir frontend build`。
+- 回滚方式：还原上述后端与测试文件；已写入的历史镜头数据无需迁移。
+
+## 2026-09-21 LLM 推理程度可配置
+
+- 日期：2026-09-21。
+- 变更原因：管理设置只能选择模型，`gpt-5.6-sol` 等 GPT-5 / o 系列的正式创作请求把推理程度固定在代码中，无法按任务质量、耗时与消耗调整。
+- 变更内容：「管理设置 → LLM 大模型」在可识别的 GPT-5 / o 系列模型下显示“推理程度”，支持自动、关闭、minimal、low、medium、high、xhigh、max、ultra；保存后用于提示词优化、拆剧本、导演 Agent、工坊写稿、带图写稿与角色内容生成。连接测试仍固定 `none`。
+- 受影响文件：`frontend/src/admin/LlmProviderSettings.tsx`、`backend/app/{models,storage,llm_client,llm_provider,vision_runtime}.py`、`backend/app/media_studio/services/llm_service.py`、`sql/001_init_mysql.sql`、相关测试与文档。
+- 兼容性：`llm_provider_settings` 新增 `reasoning_effort`，启动时自动为 SQLite/MySQL 旧库补列；默认 `low` 保持升级前工坊行为，`auto` 表示不发送参数；非 GPT-5 / o 模型不会收到该字段。不改端口、ComfyUI 节点或模型路径。
+- 验证命令：`python -m unittest backend.tests.test_llm backend.tests.media_studio_test_character_content`、`pnpm --dir frontend build`；在 `http://127.0.0.1:5173/admin/llm` 检查保存与刷新回显。
+- 回滚方式：还原上述代码、SQL 与文档；数据库新增列可保留，旧代码会忽略该列。
+
+## 2026-09-21 H3 写稿参考与最终视频参考隔离
+
+- 变更原因：剧集工坊曾把场景卡和三联起幅/中格/落幅与角色设定板一起上传给 H3 R2V；三联中的偏差人脸会在镜头中途接管身份，场景卡也可能以参考图构图突然闪回。
+- 当前行为：H3 写稿仍可查看角色、场景、道具和三联，以获取环境、构图、调度与动作节奏；最终视频槽位只上传本镜角色设定板和绑定道具设定板，角色优先、道具补齐、去重后最多 9 张。场景卡、三联母图和三张裁切格只用于写稿，不进入视频任务。没有角色或道具参考时自动走 T2V。
+- 提示词兼容：Beat JSON 新增 `h3_reference_policy = "identity-props-v2"` 与 `h3_prompt_context_fingerprint`。旧自动稿或上下文变化后的自动稿标记为过期，出片前提示按新规则重新生成；手写稿不要求版本标记，但 `<Picture n>` / `<Subject n>` 必须落在实际槽位内。历史任务与已完成 Take 不回写、不删除。
+- 受影响文件：`backend/app/skill_packs/handlers.py`、`backend/app/media_studio/services/{h3_prompt_job_service,llm_service,h3_prompt_builder,episode_video_service,project_detail_service}.py`、`frontend/src/director2/{api,workshop-r2v-refs}.ts`、`frontend/src/director2/panes/EpisodeWorkshopPane.tsx` 及相关测试。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video backend.tests.test_skill_packs`；`pnpm --dir frontend exec vitest run src/director2/workshop-r2v-refs.test.ts`；`pnpm --dir frontend build`；在 `http://127.0.0.1:5173` 检查桌面和移动端的“最终视频参考”“写稿参考”、过期提示与重新生成入口。
+- 回滚方式：还原上述前后端、测试和文档文件；Beat JSON 的新增键可保留，旧版本会忽略，不需要数据库迁移。

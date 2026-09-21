@@ -118,6 +118,10 @@ IDENTITY_SHEET_ASPECT_RATIO = "16:9"
 IDENTITY_SHEET_IMAGE_SIZE = "2K"
 IDENTITY_SHEET_WIDTH = 2048
 IDENTITY_SHEET_HEIGHT = 1152
+PROP_SHEET_ASPECT_RATIO = IDENTITY_SHEET_ASPECT_RATIO
+PROP_SHEET_IMAGE_SIZE = IDENTITY_SHEET_IMAGE_SIZE
+PROP_SHEET_WIDTH = IDENTITY_SHEET_WIDTH
+PROP_SHEET_HEIGHT = IDENTITY_SHEET_HEIGHT
 
 
 def look_costume_text(look: dict[str, Any]) -> str:
@@ -193,7 +197,12 @@ PRESENTATION:
 """.strip()
 
 
-def _identity_reference_role(*, follow_source_photos: bool, has_identity_reference: bool) -> str:
+def _identity_reference_role(
+    *,
+    follow_source_photos: bool,
+    has_identity_reference: bool,
+    has_costume_reference: bool = False,
+) -> str:
     if follow_source_photos:
         return """
 REFERENCE ROLE (CRITICAL):
@@ -210,10 +219,17 @@ This output is a COMPLETE production design sheet for the CURRENT wardrobe, not 
 Do not copy the previous sheet's grid, white-background collage, or repeated mini-figures into the new clothing.
 Clothes, fabrics, and accessories MUST follow CHARACTER DETAILS below, not the clothing in REFERENCE 1.
 """.strip()
+    if has_costume_reference:
+        return """
+REFERENCE ROLE:
+A costume photograph is provided. Match that clothing, fabric, and accessories.
+Invent the face, hair, and body from CHARACTER DETAILS.
+This output is a COMPLETE 16:9 production design sheet, not a headshot.
+""".strip()
     return """
-INPUT:
-No identity image is attached. Invent the first design sheet from CHARACTER DETAILS and the project style preset.
-Keep one consistent person across every cell.
+GENERATION MODE: text-to-image.
+Create a brand-new 16:9 character design sheet from CHARACTER DETAILS and the project style preset.
+Invent one consistent person and keep that same person in every cell.
 """.strip()
 
 
@@ -271,7 +287,8 @@ A second reference image is provided showing the target costume/clothing.
     layout = _character_design_sheet_layout()
     ref_block = _identity_reference_role(
         follow_source_photos=follow_source_photos,
-        has_identity_reference=lock_from_image,
+        has_identity_reference=has_identity_reference,
+        has_costume_reference=has_costume_reference and not follow_source_photos,
     )
     identity_lock = (
         f"""IDENTITY LOCKING (CRITICAL):
@@ -292,13 +309,26 @@ Do not draw a second character."""
             f"- Final medium must be {medium}\n"
             "- Do not mix rendering families or switch back to realistic actor rendering"
         )
-        header = "Animated character production design sheet. Neutral presentation setup."
+        header = (
+            "TEXT-TO-IMAGE animated character production design sheet. Neutral presentation setup."
+            if not lock_from_image
+            else "Animated character production design sheet. Neutral presentation setup."
+        )
     else:
+        medium_line = (
+            "- The rendering medium follows the project style preset, not the attached photograph"
+            if lock_from_image
+            else "- The rendering medium follows the project style preset"
+        )
         medium_rules = (
-            "- The rendering medium follows the project style preset, not the reference image\n"
+            f"{medium_line}\n"
             "- Do NOT create beauty-retouched, glamorized, cosmetic-ad, or fashion-editorial output"
         )
-        header = "Character production design sheet. Neutral studio setup."
+        header = (
+            "TEXT-TO-IMAGE character production design sheet. Neutral studio setup."
+            if not lock_from_image
+            else "Character production design sheet. Neutral studio setup."
+        )
     return f"""{header}
 PLAIN SOLID WHITE background ONLY — no environment, no scenery, no props. {visual}
 
@@ -642,6 +672,7 @@ def prop_view_prompt(
     style: str = "",
     visual_style: str = "",
     has_master_reference: bool = False,
+    follow_source_photos: bool = False,
 ) -> str:
     packed = _prop_asset(asset, extra)
     extra = extra if isinstance(extra, dict) else {}
@@ -654,7 +685,65 @@ def prop_view_prompt(
         return _prop_detail_prompt(
             packed, extra, style=style, visual_style=visual_style, has_master_reference=has_master_reference
         )
-    return _prop_master_prompt(packed, extra, style=style, visual_style=visual_style)
+    return _prop_master_prompt(
+        packed,
+        extra,
+        style=style,
+        visual_style=visual_style,
+        follow_source_photos=follow_source_photos,
+    )
+
+
+def prop_appearance_text(asset: dict[str, Any], extra: dict[str, Any] | None = None) -> str:
+    packed = _prop_asset(asset, extra)
+    definition = packed.get("definition") if isinstance(packed.get("definition"), dict) else {}
+    return str(definition.get("visual_prompt") or definition.get("description") or "").strip()
+
+
+def prop_sheet_url(asset: dict[str, Any] | None) -> str:
+    if not isinstance(asset, dict):
+        return ""
+    extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
+    for value in (extra.get("reference_url"), asset.get("image_url"), extra.get("turnaround_url")):
+        url = str(value or "").strip()
+        if url:
+            return url
+    return ""
+
+
+def build_prop_sheet_generation(
+    asset: dict[str, Any],
+    extra: dict[str, Any] | None = None,
+    *,
+    prompt: str = "",
+    follow_source_photos: bool = False,
+    style: str = "",
+    visual_style: str = "",
+) -> dict[str, Any]:
+    extra = extra if isinstance(extra, dict) else {}
+    appearance = prop_appearance_text(asset, extra) or (prompt or "").strip()
+    if not appearance and not follow_source_photos:
+        raise ValueError("请先填写外观描述，设定板需要道具外形关键词")
+    packed_extra = {**extra}
+    if appearance and not str(packed_extra.get("visual_prompt") or "").strip():
+        packed_extra["visual_prompt"] = appearance
+    clean_prompt = prop_view_prompt(
+        asset,
+        "master",
+        packed_extra,
+        style=style,
+        visual_style=visual_style,
+        follow_source_photos=follow_source_photos,
+    )
+    return {
+        "appearance": appearance,
+        "reference_urls": [],
+        "clean_prompt": clean_prompt,
+        "aspect_ratio": PROP_SHEET_ASPECT_RATIO,
+        "image_size": PROP_SHEET_IMAGE_SIZE,
+        "width": PROP_SHEET_WIDTH,
+        "height": PROP_SHEET_HEIGHT,
+    }
 
 
 def _prop_asset(asset: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -730,23 +819,76 @@ MUST AVOID:
 - Do NOT add busy or distracting backgrounds"""
 
 
-def _prop_master_prompt(asset: dict[str, Any], extra: dict[str, Any], *, style: str = "", visual_style: str = "") -> str:
-    return f"""Generate ONE isolated FRONT product photograph of this story prop.
+def _prop_design_sheet_layout() -> str:
+    return """
+LAYOUT (16:9 prop design sheet / 道具设定板, NO text on image):
+This is ONE complete unlabeled design sheet, not a single front product photo, not a collage of random objects.
+
+LEFT COLUMN (main visual, roughly half the width): three views of the SAME object
+- 正面 front, the most characteristic face
+- 3/4 three-quarter view
+- 背面 back view
+
+TOP RIGHT: material and construction close-ups of THIS same object (grain, joints, seams, fasteners, surface finish)
+BOTTOM RIGHT: signature details of THIS same object (wear, unique marks, emblem shapes as unreadable texture)
+
+PRESENTATION:
+- One object only, same silhouette, materials, and wear in every cell
+- Plain solid white seamless background throughout
+- No readable text, numbers, arrows, captions, panel titles, watermarks, or UI chrome
+""".strip()
+
+
+def _prop_sheet_reference_role(*, follow_source_photos: bool) -> str:
+    if follow_source_photos:
+        return """
+REFERENCE ROLE (CRITICAL):
+Attached original-footage screenshots lock this prop's shape, materials, color, and wear.
+This output is a COMPLETE 16:9 production design sheet, not another single product photo.
+Copy object identity from the photos into every cell.
+""".strip()
+    return """
+GENERATION MODE: text-to-image.
+Create a brand-new 16:9 prop design sheet from PROP DESCRIPTION and the project style preset.
+Invent one consistent object and keep that same object in every cell.
+""".strip()
+
+
+def _prop_master_prompt(
+    asset: dict[str, Any],
+    extra: dict[str, Any],
+    *,
+    style: str = "",
+    visual_style: str = "",
+    follow_source_photos: bool = False,
+) -> str:
+    name = str(asset.get("name") or "").strip() or "未命名道具"
+    header = (
+        "TEXT-TO-IMAGE prop production design sheet. Neutral studio setup."
+        if not follow_source_photos
+        else "Prop production design sheet. Neutral studio setup."
+    )
+    return f"""{header}
+PLAIN SOLID WHITE background ONLY — no environment, no scenery, no people. {_prop_style_block(asset, extra, style=style, visual_style=visual_style)}
+
+Create a complete 16:9 design sheet for {name}.
+
+{_prop_design_sheet_layout()}
+
+{_prop_sheet_reference_role(follow_source_photos=follow_source_photos)}
 
 {_prop_text_block(asset)}
 
-{_prop_style_block(asset, extra, style=style, visual_style=visual_style)}
+PRESENTATION RULES:
+- Same object, same materials, same wear in every cell
+- Left views must show the complete silhouette
+- Right-side details must match this object, not a generic product template
 
-PURPOSE:
-- This is the primary visual master (主视图): the FRONT / most characteristic face of the prop.
-- Straight-on frontal view of a SINGLE object, showing its face/main side.
-- Not a 3-PANEL sheet, not a collage, not a 4-panel grid, not a macro crop of one fragment.
-
-COMPOSITION:
-- 16:9 overall. Object centered, filling approximately 70% of the frame.
-- One finished product shot only.
-
-{_prop_studio_rules(multi_panel=False)}
+STRICT REQUIREMENTS (MUST AVOID):
+- Do not output a single centered product hero shot
+- Do not include people, hands, or a second object
+- No text, labels, panel numbers, or UI on the image
+- Do not add environment scenery or poster composition
 """.strip()
 
 

@@ -1,9 +1,9 @@
 // 项目详情壳：顶部项目条 + 左侧 4 菜单 + 右侧面板 —— 逐行复刻自 dev0914 ProjectDetailView.vue
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Select, message } from "antd"
+import { Select, Typography, message } from "antd"
 import { BookOpen, Boxes, ChevronLeft, Film, ListChecks } from "lucide-react"
-import { getProject, listSkillPacks, updateProject, director2ErrorDetail, type Director2Project, type Director2SkillPack } from "./api"
+import { getProject, listDocuments, listSkillPacks, updateProject, director2ErrorDetail, type Director2Project, type Director2SkillPack } from "./api"
 import ContentLibraryPane from "./panes/ContentLibraryPane"
 import AssetsLibraryPane from "./panes/AssetsLibraryPane"
 import EpisodeWorkshopPane from "./panes/EpisodeWorkshopPane"
@@ -19,6 +19,7 @@ import {
   selectValueForPackId,
   skillPackSelectOptions,
 } from "./skill-pack"
+import { isPlaceholderDirectorProjectName, MAX_DIRECTOR_PROJECT_NAME_LEN, sanitizeDirectorProjectName } from "./project-name"
 import "./project-detail.css"
 
 const MENU_ITEMS = [
@@ -42,10 +43,12 @@ export default function Director2ProjectDetail({
   const [project, setProject] = useState<Director2Project | null>(null)
   const [skillPacks, setSkillPacks] = useState<Director2SkillPack[]>([])
   const [savingPack, setSavingPack] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   // 剧集工坊分集详情：外壳锁死视口，左右栏各自滚动
   const [inWorkshopDetail, setInWorkshopDetail] = useState(false)
   const [creationMode, setCreationMode] = useState<Director2CreationMode>(() => parseDirector2CreationMode(searchParams.get("mode")) ?? readDirector2CreationMode(projectId))
   const [aiBusy, setAiBusy] = useState(false)
+  const prevAiBusyRef = useRef(false)
 
   const assetsPaneRef = useRef<{ fetchAssets: () => Promise<void> | void } | null>(null)
   const workshopPaneRef = useRef<{ fetchEpisodes: () => Promise<void> | void } | null>(null)
@@ -61,16 +64,38 @@ export default function Director2ProjectDetail({
   const loadProjectInfo = useCallback(async () => {
     try {
       const data = await getProject(projectId)
-      setProject(data)
+      if (!isPlaceholderDirectorProjectName(data.name)) {
+        setProject(data)
+        return
+      }
+      const docs = await listDocuments(projectId)
+      const fromDoc = sanitizeDirectorProjectName(docs[0]?.filename)
+      if (!fromDoc || isPlaceholderDirectorProjectName(fromDoc)) {
+        setProject(data)
+        return
+      }
+      try {
+        const updated = await updateProject(csrfToken, projectId, { name: fromDoc })
+        setProject(updated)
+      } catch {
+        setProject(data)
+      }
     } catch (err) {
       message.error(director2ErrorDetail(err, "未找到该项目"))
       navigate(director2HomePath())
     }
-  }, [projectId, navigate])
+  }, [projectId, navigate, csrfToken])
 
   useEffect(() => {
     loadProjectInfo()
   }, [loadProjectInfo])
+
+  useEffect(() => {
+    if (prevAiBusyRef.current && !aiBusy) {
+      void loadProjectInfo()
+    }
+    prevAiBusyRef.current = aiBusy
+  }, [aiBusy, loadProjectInfo])
 
   useEffect(() => {
     let cancelled = false
@@ -84,6 +109,26 @@ export default function Director2ProjectDetail({
     const fromUrl = parseDirector2CreationMode(searchParams.get("mode"))
     if (fromUrl) setCreationMode(fromUrl)
   }, [searchParams])
+
+  async function saveProjectName(next: string) {
+    if (!project || renaming) return
+    const name = sanitizeDirectorProjectName(next)
+    if (!name) {
+      message.warning("工程名称不能为空")
+      return
+    }
+    if (name === project.name) return
+    setRenaming(true)
+    try {
+      const updated = await updateProject(csrfToken, projectId, { name })
+      setProject(updated)
+      message.success("已更新工程名称")
+    } catch (error) {
+      message.error(director2ErrorDetail(error, "更新工程名称失败"))
+    } finally {
+      setRenaming(false)
+    }
+  }
 
   async function changeSkillPack(selectValue: string) {
     if (savingPack || aiBusy) return
@@ -139,7 +184,23 @@ export default function Director2ProjectDetail({
             </a>
             <div className="divider" />
             <div className="project-info">
-              <h1 className="project-title">{project?.name || "加载中..."}</h1>
+              <Typography.Title
+                level={4}
+                className="project-title"
+                editable={
+                  project && !renaming
+                    ? {
+                        tooltip: "修改工程名称",
+                        triggerType: ["icon", "text"],
+                        maxLength: MAX_DIRECTOR_PROJECT_NAME_LEN,
+                        autoSize: { minRows: 1, maxRows: 1 },
+                        onChange: (value) => { void saveProjectName(value) },
+                      }
+                    : false
+                }
+              >
+                {project?.name || "加载中..."}
+              </Typography.Title>
               <span className="project-badge">进行中</span>
             </div>
           </div>
@@ -205,8 +266,10 @@ export default function Director2ProjectDetail({
               <ContentLibraryPane
                 csrfToken={csrfToken}
                 projectId={projectId}
+                projectExtra={project?.extra ?? null}
                 onAssetsTransferred={onAssetsTransferred}
                 onEpisodesTransferred={onEpisodesTransferred}
+                onProjectUpdated={loadProjectInfo}
               />
             </div>
           )}
@@ -222,6 +285,7 @@ export default function Director2ProjectDetail({
                 csrfToken={csrfToken}
                 projectId={projectId}
                 episodeId={route.episodeId}
+                projectExtra={project?.extra ?? null}
                 onDetailModeChange={setInWorkshopDetail}
               />
             </div>

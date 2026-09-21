@@ -313,6 +313,64 @@
   background: #7047f6;
 }
 
+.d2-assets-library .asset-list-item.is-generating {
+  align-items: flex-start;
+}
+
+.d2-assets-library .item-avatar-progress {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--studio-media, #111827) 46%, transparent);
+}
+
+.d2-assets-library .item-avatar-progress .ant-spin .ant-spin-dot-item {
+  background-color: #f3f5f7;
+}
+
+.d2-assets-library .item-gen-progress {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.d2-assets-library .item-gen-progress .ant-progress {
+  margin-bottom: 0;
+  line-height: 1;
+}
+
+.d2-assets-library .item-gen-progress .ant-progress-inner {
+  background: var(--studio-surface-raised, #f4f6f8);
+}
+
+.d2-assets-library .item-gen-progress .ant-progress-bg {
+  background: var(--studio-primary, #435ce8);
+}
+
+.d2-assets-library .item-gen-progress em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--studio-accent-text, #7047f6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.d2-assets-library .item-gen-progress.is-queued em {
+  color: var(--studio-text-muted, #6b7280);
+  font-weight: 500;
+}
+
+.d2-assets-library .item-gen-progress.is-failed em {
+  color: var(--studio-danger, #dc2626);
+}
+
 /* 右侧详情与生成工作区 */
 .d2-assets-library .asset-detail-workspace {
   flex: 1;
@@ -1160,11 +1218,38 @@
   color: #4b5563;
 }
 
-/* ================== C. 道具工作区样式 (三重视角：参考图 + 三视图 + 细节特写) ================== */
+/* ================== C. 道具工作区样式 (单张 16:9 设定板) ================== */
 .d2-assets-library .prop-workspace-layout {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.d2-assets-library .prop-legacy-thumbs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.d2-assets-library .prop-legacy-thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 88px;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.d2-assets-library .prop-legacy-thumb img {
+  width: 100%;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px 6px 0 0;
 }
 
 .d2-assets-library .prop-three-columns-grid {

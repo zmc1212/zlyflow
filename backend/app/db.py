@@ -40,14 +40,37 @@ _PLACEHOLDER = re.compile(r"\?")
 _SQLITE_BEGIN = re.compile(r"^BEGIN(\s+(DEFERRED|IMMEDIATE|EXCLUSIVE))?$", re.IGNORECASE)
 
 
-def load_app_env(env_override: str | None = None) -> str:
-    """Load .env.dev or .env.prod (or .env) according to APP_ENV / ENVIRONMENT / ENV."""
+def is_isolated_sqlite_runtime(
+    backend: str | None = None,
+    argv: list[str] | None = None,
+    *,
+    unittest_loaded: bool | None = None,
+) -> bool:
+    """Unittest and explicit sqlite backend keep a local file; Docker/server stay on MySQL."""
     import sys
 
-    is_test = (
-        "unittest" in sys.modules
-        or any("unittest" in str(arg).lower() or "pytest" in str(arg).lower() for arg in sys.argv)
+    chosen = (backend if backend is not None else os.getenv("ZLY_AI_VIDEO_STUDIO_DB_BACKEND", "mysql")).strip().lower()
+    if chosen == "sqlite":
+        return True
+    if unittest_loaded is None:
+        unittest_loaded = "unittest" in sys.modules or "pytest" in sys.modules
+    args = sys.argv if argv is None else argv
+    return unittest_loaded or any(
+        "unittest" in str(arg).lower() or "pytest" in str(arg).lower() for arg in args
     )
+
+
+def skip_mysql_ddl_statement(statement: str) -> bool:
+    """Skip SQLite-only DDL when replaying sql/*.sql against MySQL."""
+    upper = statement.strip().upper()
+    if upper.startswith("PRAGMA") or upper.startswith("CREATE INDEX"):
+        return True
+    return upper.startswith("CREATE TABLE") and "TEXT PRIMARY KEY" in upper
+
+
+def load_app_env(env_override: str | None = None) -> str:
+    """Load .env.dev or .env.prod (or .env) according to APP_ENV / ENVIRONMENT / ENV."""
+    is_test = is_isolated_sqlite_runtime()
     raw_env = (
         env_override
         or os.getenv("APP_ENV")
@@ -360,10 +383,7 @@ class DbConnection:
             return
         for statement in _split_statements(script):
             stripped = statement.strip()
-            upper = stripped.upper()
-            if upper.startswith("PRAGMA") or upper.startswith("CREATE INDEX"):
-                continue
-            if upper.startswith("CREATE TABLE") and "TEXT PRIMARY KEY" in upper:
+            if skip_mysql_ddl_statement(stripped):
                 continue
             rewritten = rewrite_sql(stripped.rstrip(";"), self.dialect)
             with self._raw.cursor() as cursor:

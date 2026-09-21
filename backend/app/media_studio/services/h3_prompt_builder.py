@@ -518,9 +518,46 @@ class H3PromptBuilder:
         return spoken
 
     @classmethod
+    def third_person_narration(cls, shot: dict[str, Any]) -> str:
+        """Beat.narration 只保留第三人称/第一人称旁白；角色内心不算旁白原文。"""
+        narration = str(shot.get("narration") or "").strip()
+        if not narration:
+            return ""
+        inner_texts: list[str] = []
+        script_only = {
+            "dialogue": shot.get("dialogue"),
+            "speaker": shot.get("speaker"),
+            "dialogue_turns": shot.get("dialogue_turns"),
+            "narration": "",
+            "characters": shot.get("characters") or [],
+        }
+        _spoken, inner_turns = cls.split_spoken_and_inner(script_only)
+        for turn in inner_turns:
+            text = str(turn.get("text") or "").strip()
+            if text:
+                inner_texts.append(text)
+        extra_names = cls._known_speaker_names(shot)
+        for item in cls._parse_script_turns(str(shot.get("dialogue") or ""), extra_names):
+            if not cls._is_inner_speaker(str(item.get("speaker") or "")):
+                continue
+            text = str(item.get("text") or "").strip()
+            if text:
+                inner_texts.append(text)
+        leftover = narration
+        for inner in inner_texts:
+            if inner and inner in leftover:
+                leftover = leftover.replace(inner, "")
+                continue
+            inner_han = cls._han_only(inner)
+            leftover_han = cls._han_only(leftover)
+            if len(inner_han) >= 4 and leftover_han == inner_han:
+                return ""
+        return leftover.strip()
+
+    @classmethod
     def _inner_turns(cls, shot: dict[str, Any]) -> list[dict[str, Any]]:
         _spoken, inner = cls.split_spoken_and_inner(shot)
-        narration = str(shot.get("narration") or "").strip()
+        narration = cls.third_person_narration(shot)
         if narration:
             existing = {str(item.get("text") or "").strip() for item in inner}
             if narration not in existing and not any(
@@ -1240,8 +1277,10 @@ class H3PromptBuilder:
 
     @classmethod
     def detect_pack_aspect_ratio(cls, beat_info: dict[str, Any]) -> str:
-        explicit = re.sub(r"\s+", "", str(beat_info.get("aspect_ratio") or "").replace("：", ":"))
-        if explicit in {"9:16", "16:9"}:
+        from ...skill_packs.aspect import normalize_aspect_ratio
+
+        explicit = normalize_aspect_ratio(beat_info.get("aspect_ratio"))
+        if explicit:
             return explicit
         blob = " ".join(
             str(beat_info.get(key) or "")
@@ -1250,7 +1289,7 @@ class H3PromptBuilder:
         match = _ASPECT_RATIO_RE.search(blob)
         if not match:
             return ""
-        return re.sub(r"\s+", "", match.group(1).replace("：", ":"))
+        return normalize_aspect_ratio(match.group(1)) or re.sub(r"\s+", "", match.group(1).replace("：", ":"))
 
     @classmethod
     def packing_retry_block(
@@ -1373,8 +1412,10 @@ class H3PromptBuilder:
             "camera, and FORBIDDEN items. Keep the draft's "
             f"{seconds}-second performance as one [Shot 1] lasting {seconds} seconds; "
             "do not invent extra events or compress a longer play into this take. "
+            "The first visible frame at 00:00 must agree with the supplied OPENING STATE / previous-shot landing pose. "
+            "Do not invent a standing reset when the opening state is seated. "
             "Assign actual speakers stable IDs where (Sn) is always <Subject n>. "
-            "Do not invent <Location n>; the environment is the last <Subject n> anchored by that <Picture n>. "
+            "Do not invent <Location n> or a scene Picture; describe the environment only from the supplied scene text. "
             f"{cls._packing_schedule_rule(packing_overrides)}"
             "Copy only the {{Dn}} token into [Shot 1]; never copy slot legends, "
             "'spoken lip-sync — Name', or 'inner off-screen — Name'. "
@@ -1393,7 +1434,9 @@ class H3PromptBuilder:
             "<Picture N>; character stills are multi-view design sheets that lock identity only "
             "and must not copy the panel grid, white background, or repeated mini figures, "
             "and must not transfer pose; "
-            "scene stills must not lock blocking. "
+            "prop stills are multi-view design sheets that lock object identity only "
+            "(shape, materials, construction) and must not copy the panel grid, white background, "
+            "or repeated mini objects into the shot, and must not transfer pose. "
             "Do not novelize long CAST LOCK faces or wardrobe in the picture body. "
             f"{cls._packing_timeline_rule(packing_overrides)}\n\n"
             f"--- packing rules ---\n{cls.packing_rule_text(mode, seconds, packing_overrides=packing_overrides)}"
@@ -1451,21 +1494,15 @@ class H3PromptBuilder:
                         characters.append({"name": name})
                 elif str(item or "").strip():
                     characters.append({"name": str(item).strip()})
-        ref_images = shot.get("ref_images") if isinstance(shot.get("ref_images"), list) else []
-        if not ref_images:
+        has_explicit_refs = "ref_images" in shot
+        ref_images = list(shot.get("ref_images") or []) if isinstance(shot.get("ref_images"), list) else []
+        if not has_explicit_refs:
             for index, character in enumerate(characters, 1):
                 ref_images.append({
                     "index": index,
                     "name": character.get("name") or f"character {index}",
                     "category": "character",
                     "character_id": character.get("id") or "",
-                })
-            scene_name = str(shot.get("scene") or shot.get("scene_name") or "").strip()
-            if scene_name:
-                ref_images.append({
-                    "index": len(ref_images) + 1,
-                    "name": scene_name,
-                    "category": "scene",
                 })
             for prop in shot.get("props") or []:
                 if not isinstance(prop, dict):
@@ -1478,7 +1515,7 @@ class H3PromptBuilder:
                     "name": name,
                     "category": "prop",
                 })
-        return cls.sanitize_beat_draft({
+        info = {
             "beat_id": shot.get("beat_id") or "",
             "sequence": shot.get("sequence") or 1,
             "heading": shot.get("heading") or "",
@@ -1497,11 +1534,17 @@ class H3PromptBuilder:
             "props": shot.get("props") if isinstance(shot.get("props"), list) else [],
             "scene_name": shot.get("scene") or shot.get("scene_name") or "",
             "scene_desc": shot.get("scene_description") or shot.get("scene_desc") or "",
-            "ref_images": ref_images,
             "aspect_ratio": shot.get("aspect_ratio") or "",
             "duration_seconds": shot.get("duration_seconds") or shot.get("duration_sec") or 8,
             "time_of_day": shot.get("time_of_day") or "日间",
-        })
+            "opening_state": shot.get("opening_state") or "",
+            "closing_state": shot.get("closing_state") or "",
+            "transition_note": shot.get("transition_note") or "",
+            "previous_shot": shot.get("previous_shot") or shot.get("previous_shot_summary") or "",
+        }
+        if has_explicit_refs or ref_images:
+            info["ref_images"] = ref_images
+        return cls.sanitize_beat_draft(info)
 
     @classmethod
     def build_packing_user_prompt(
@@ -1578,6 +1621,23 @@ class H3PromptBuilder:
                     user_lines.append(f"{idx}. {prop.get('name')}（{prop.get('desc') or '特征完好'}）")
                 else:
                     user_lines.append(f"{idx}. {prop}")
+            prop_names = [
+                str(item.get("name") or "").strip() if isinstance(item, dict) else str(item or "").strip()
+                for item in props
+            ]
+            prop_names = [item for item in prop_names if item]
+            normalized_prop_names = {re.sub(r"\s+", "", item).lower() for item in prop_names}
+            user_lines.append(
+                "道具范围合同：成片只允许出现上述当前镜头道具；SOURCE VISUAL DRAFT、场景卡或上一镜承接里提到的其它桌面陈设都不得新增为主体、参考物或第二个同类物件。"
+            )
+            if "电脑" in normalized_prop_names and "笔记本" in normalized_prop_names:
+                user_lines.append(
+                    "语义消歧：当前镜头最多出现一台电脑；“笔记本”指纸质笔记本，不是笔记本电脑，也不能生成第二台电脑。"
+                )
+        else:
+            user_lines.append(
+                "道具范围合同：当前镜头没有锁定道具；不要从 SOURCE VISUAL DRAFT、场景卡或上一镜承接中补出命名桌面物件。"
+            )
         cleaned_dialogue = cls._clean_dialogue(str(beat_info.get("dialogue") or ""), str(beat_info.get("speaker") or ""))
         audio = str(beat_info.get("audio") or beat_info.get("soundscape") or "").strip()
         shot_for_speech = {
@@ -1614,6 +1674,9 @@ class H3PromptBuilder:
         inner_turns = cls._inner_turns(shot_for_speech)
         action = str(beat_info.get("action") or "").strip()
         video_prompt_zh = str(beat_info.get("video_prompt_zh") or "").strip()
+        opening_state = str(beat_info.get("opening_state") or "").strip()
+        closing_state = str(beat_info.get("closing_state") or "").strip()
+        previous_shot = str(beat_info.get("previous_shot") or beat_info.get("previous_shot_summary") or "").strip()
         user_lines.extend([
             "SOURCE VISUAL DRAFT（画面正文权威，装箱进 "
             f"{picture_body}，中文动作和 audio 只补缺口）：",
@@ -1621,6 +1684,15 @@ class H3PromptBuilder:
             f"画面动作与细节要求（中文动作，只补草稿缺口，不要复述台词原文）：{action or '画面进行中'}",
             f"音效 / audio（写入 overall_soundscape 与同期声，只补缺口）：{audio or '无'}",
         ])
+        if previous_shot:
+            user_lines.append(f"上一镜承接（00:00 必须继承，禁止无故改成另一种身体状态）：{previous_shot}")
+        if opening_state:
+            user_lines.append(
+                "OPENING STATE at 00:00 (must match this pose; do not stand up if this says seated): "
+                f"{opening_state}"
+            )
+        if closing_state:
+            user_lines.append(f"CLOSING STATE (final frame the next clip inherits): {closing_state}")
         if aspect_ratio:
             user_lines.append(f"画幅：原样保留 {aspect_ratio}，不要改成另一种比例。")
         if timestamped_zh and timestamped_zh not in (visual_prompt or ""):
@@ -1695,11 +1767,13 @@ class H3PromptBuilder:
                 if not isinstance(item, dict):
                     continue
                 cat = item.get("category")
-                cat_name = "场景" if cat == "scene" else ("道具" if cat == "prop" else "角色")
+                cat_name = "道具" if cat == "prop" else "角色"
                 user_lines.append(f"- <Picture {item.get('index')}>: {item.get('name')}（{cat_name}参考图）")
             user_lines.append(
-                "subject_definitions 只写短定义：角色 Picture 只锁身份、不迁移姿势；"
-                "场景 Picture 不锁站位。不要把 CAST LOCK 小传写进六段。"
+                "subject_definitions 只写短定义：角色 Picture 只锁身份、不抄分格/白底/重复小人、不迁移姿势；"
+                "道具 Picture 只锁外形与材质、不抄分格/白底/重复小物件。"
+                "场景卡和三联只可转成环境、构图、动作和时间段文字，禁止创建对应 Picture。"
+                "不要把 CAST LOCK 小传写进六段。"
             )
         else:
             user_lines.append("- 未提供可用参考素材。不要编造引用标签。")
@@ -1855,6 +1929,48 @@ class H3PromptBuilder:
         return errors
 
     @classmethod
+    def _speech_tag_order_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
+        events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
+        expected = [cls._han_only(str(item.get("text") or "")) for item in events]
+        expected = [item for item in expected if item]
+        if not expected:
+            return []
+        bodies = [
+            cls._clean_dialogue(value, extra_names=cls._known_speaker_names(shot)).strip()
+            for value in re.findall(r"<d>(?:\[[^\]]+\]\s*)?(.*?)</d>", prompt, flags=re.S)
+            if str(value or "").strip()
+        ]
+        expected_set = set(expected)
+        actual = [cls._han_only(item) for item in bodies]
+        actual = [item for item in actual if item]
+        errors: list[str] = []
+        for body, han in zip(bodies, actual):
+            if han in expected_set:
+                continue
+            if any(len(exp) >= 6 and (han in exp or exp in han) for exp in expected_set):
+                continue
+            errors.append(f"unexpected spoken tag: {body[:40]}")
+        matched = [han for han in actual if han in expected_set]
+        blob = "".join(actual)
+        cursor = 0
+        sequential = True
+        for exp in expected:
+            idx = blob.find(exp, cursor)
+            if idx < 0:
+                sequential = False
+                break
+            cursor = idx + len(exp)
+        if expected and matched != expected and not sequential:
+            errors.append("speech tags missing or out of performance order")
+        return errors
+
+    @classmethod
+    def speech_schedule_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
+        errors = cls.speech_uniqueness_errors(prompt, shot)
+        errors.extend(cls._speech_tag_order_errors(prompt, shot))
+        return errors
+
+    @classmethod
     def _d_tag_spans_for_line(cls, prompt: str, line: str) -> list[tuple[int, int]]:
         needle = cls._han_only(line)
         locations: list[tuple[int, int]] = []
@@ -1901,39 +2017,11 @@ class H3PromptBuilder:
 
     @classmethod
     def speech_contract_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
-        errors = cls.speech_uniqueness_errors(prompt, shot)
+        errors = cls.speech_schedule_errors(prompt, shot)
         errors.extend(cls.inner_delivery_errors(prompt, shot))
         events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
-        expected = [cls._han_only(str(item.get("text") or "")) for item in events]
-        expected = [item for item in expected if item]
-        if not expected:
+        if not events:
             return errors
-        bodies = [
-            cls._clean_dialogue(value, extra_names=cls._known_speaker_names(shot)).strip()
-            for value in re.findall(r"<d>\[Chinese\]\s*(.*?)</d>", prompt, flags=re.S)
-            if str(value or "").strip()
-        ]
-        expected_set = set(expected)
-        actual = [cls._han_only(item) for item in bodies]
-        actual = [item for item in actual if item]
-        for body, han in zip(bodies, actual):
-            if han in expected_set:
-                continue
-            if any(len(exp) >= 6 and (han in exp or exp in han) for exp in expected_set):
-                continue
-            errors.append(f"unexpected spoken tag: {body[:40]}")
-        matched = [han for han in actual if han in expected_set]
-        blob = "".join(actual)
-        cursor = 0
-        sequential = True
-        for exp in expected:
-            idx = blob.find(exp, cursor)
-            if idx < 0:
-                sequential = False
-                break
-            cursor = idx + len(exp)
-        if expected and matched != expected and not sequential:
-            errors.append("speech tags missing or out of performance order")
         for match in re.finditer(r"\(S(\d+)\)\s*<Subject\s+(\d+)>", prompt, flags=re.I):
             if match.group(1) != match.group(2):
                 errors.append(
@@ -2010,7 +2098,7 @@ class H3PromptBuilder:
                 indexes.append(int(item["index"]))
             except (TypeError, ValueError):
                 continue
-        if indexes:
+        if "ref_images" in shot:
             return sorted(set(indexes))
         n_chars = max(len(shot.get("character_references") or [{}]), 1)
         return list(range(1, n_chars + 2))
@@ -2182,6 +2270,10 @@ class H3PromptBuilder:
             "timestamped_zh_prompt": str(info.get("timestamped_zh_prompt") or ""),
             "skill_pack_id": str(info.get("skill_pack_id") or ""),
             "faithful_zh_pack": bool(info.get("faithful_zh_pack")),
+            "opening_state": str(info.get("opening_state") or "").strip(),
+            "closing_state": str(info.get("closing_state") or "").strip(),
+            "transition_note": str(info.get("transition_note") or "").strip(),
+            "previous_shot": str(info.get("previous_shot") or info.get("previous_shot_summary") or "").strip(),
         }
 
     @classmethod
@@ -2796,22 +2888,38 @@ class H3PromptBuilder:
             "character_name": shot.get("character_name") or "protagonist",
             "description": shot.get("character_description") or "",
         }]
-        reference_map = [
-            {
-                "picture": f"<Picture {index}>",
-                "subject": f"<Subject {index}>",
-                "type": "character",
-                "character_name": reference.get("character_name") or "",
-            }
-            for index, reference in enumerate(character_references, start=1)
-        ]
-        scene_picture_index = len(reference_map) + 1
-        reference_map.append({
-            "picture": f"<Picture {scene_picture_index}>",
-            "subject": f"<Subject {scene_picture_index}>",
-            "type": "scene",
-            "scene": shot.get("scene") or "",
-        })
+        if "ref_images" in shot:
+            reference_map = []
+            for item in shot.get("ref_images") or []:
+                if not isinstance(item, dict) or item.get("index") in (None, ""):
+                    continue
+                index = int(item["index"])
+                category = str(item.get("category") or "reference")
+                reference_map.append({
+                    "picture": f"<Picture {index}>",
+                    "subject": f"<Subject {index}>",
+                    "type": category,
+                    "character_name": item.get("name") if category == "character" else "",
+                    "prop_name": item.get("name") if category == "prop" else "",
+                    "label": item.get("label") or "",
+                })
+        else:
+            reference_map = [
+                {
+                    "picture": f"<Picture {index}>",
+                    "subject": f"<Subject {index}>",
+                    "type": "character",
+                    "character_name": reference.get("character_name") or "",
+                }
+                for index, reference in enumerate(character_references, start=1)
+            ]
+            scene_picture_index = len(reference_map) + 1
+            reference_map.append({
+                "picture": f"<Picture {scene_picture_index}>",
+                "subject": f"<Subject {scene_picture_index}>",
+                "type": "scene",
+                "scene": shot.get("scene") or "",
+            })
         return {
             "beat_id": shot["beat_id"],
             "sequence": shot["sequence"],
@@ -3068,11 +3176,17 @@ class H3PromptBuilder:
                 positions.append(match.start() if match else -1)
             if any(pos < 0 for pos in positions) or positions != sorted(positions):
                 errors.append(f"{label} 六段标题缺失或顺序错误")
-            character_references = shot.get("character_references") or [{}]
-            picture_count = len(character_references) + 1
             required_tokens = ["[Shot 1]"]
-            for picture_index in range(1, picture_count + 1):
-                required_tokens.extend((f"<Picture {picture_index}>", f"<Subject {picture_index}>"))
+            if "ref_images" in shot:
+                from ...skill_packs.handlers import h3_picture_reference_errors
+
+                for error in h3_picture_reference_errors(prompt, shot.get("ref_images") or []):
+                    errors.append(f"{label} {error}")
+            else:
+                character_references = shot.get("character_references") or [{}]
+                picture_count = len(character_references) + 1
+                for picture_index in range(1, picture_count + 1):
+                    required_tokens.extend((f"<Picture {picture_index}>", f"<Subject {picture_index}>"))
             for token in required_tokens:
                 if token.startswith("<"):
                     name, _, rest = token[1:].partition(" ")

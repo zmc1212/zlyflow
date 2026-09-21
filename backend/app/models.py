@@ -425,6 +425,7 @@ class LlmProviderUpdateRequest(BaseModel):
     base_url: str = Field(default="https://api-inference.modelscope.cn/v1", max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     model: str = Field(default="Qwen/Qwen2.5-72B-Instruct", max_length=128)
+    reasoning_effort: Literal["auto", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] = "low"
 
 
 class LlmProviderTestRequest(BaseModel):
@@ -457,6 +458,7 @@ class LlmProviderResponse(BaseModel):
     enabled: bool
     base_url: str
     model: str
+    reasoning_effort: str = "low"
     api_key_masked: str | None = None
     has_api_key: bool
     credential_ready: bool

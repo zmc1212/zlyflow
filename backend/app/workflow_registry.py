@@ -15,6 +15,7 @@ from .grs_catalog import (
     builtin_entry,
 )
 from .models import JobMode
+from .rtx_vsr_workflow import normalize_upscale_after_choice
 
 _TRUE_BOOL_TEXTS = {"true", "1", "yes", "on"}
 _FALSE_BOOL_TEXTS = {"false", "0", "no", "off", ""}
@@ -396,8 +397,15 @@ def h3_custom_steps_option() -> dict[str, Any]:
 
 def upscale_after_option() -> dict[str, Any]:
     return option(
-        "出片后 2x 超分", "boolean", False, group="advanced",
-        description="成片成功后卸载 H3，再用当前连接 ComfyUI 上的 RTX Video Super Resolution 放大到 2 倍。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。原片保留；超分失败不影响原片。",
+        "出片后超分", "string", "off", group="advanced",
+        enum=["off", "2", "4"],
+        ui_control="select",
+        ui_options=[
+            {"value": "off", "label": "关闭"},
+            {"value": "2", "label": "2x（推荐）"},
+            {"value": "4", "label": "4x"},
+        ],
+        description="成片成功后卸载 H3，再用当前连接 ComfyUI 上的 RTX Video Super Resolution 一次放大到目标倍数。2x 为推荐；4x 显存占用更高。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。原片保留；超分失败不影响原片。工坊仅逐镜/选中镜会自动接跑。",
     )
 
 
@@ -1063,8 +1071,8 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     ),
     WorkflowDefinition(
         JobMode.NVIDIA_RTX_VSR.value,
-        "RTX 2x 超分",
-        "把已成功的成片交给当前连接 ComfyUI 的 RTXVideoSuperResolution（固定 2x / ULTRA）。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
+        "RTX 超分",
+        "把已成功的成片交给当前连接 ComfyUI 的 RTXVideoSuperResolution（2x 或 4x / ULTRA，一次到位）。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI，并用同一 Python 从 https://pypi.nvidia.com 安装 nvidia-vfx==0.1.0.1。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
         "collection",
         1,
         1,
@@ -1075,6 +1083,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
                 "width": option("原片宽", "integer", 864, group="internal", minimum=8, maximum=8192, step=1),
                 "height": option("原片高", "integer", 480, group="internal", minimum=8, maximum=8192, step=1),
                 "frames": option("原片帧数", "integer", 120, group="internal", minimum=1, maximum=16384, step=1),
+                "scale": option("超分倍数", "integer", 2, group="internal", enum=[2, 4], minimum=2, maximum=4, step=2),
             },
         },
         catalog_group=CATALOG_GROUP_CUSTOM,
@@ -1406,7 +1415,7 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
     use_sage = raw.get("use_sage_attention", True)
     if not isinstance(use_sage, bool):
         raise ValueError("SageAttention 必须为布尔值。")
-    upscale_after = coerce_bool_option(raw.get("upscale_after", False), label="出片后 2x 超分")
+    upscale_after = normalize_upscale_after_choice(raw.get("upscale_after", "off"))
     return apply_h3_speed_preset({
         "aspect_ratio": aspect_ratio,
         "quality": quality,
@@ -1437,6 +1446,8 @@ def _normalize_schema_options(
             normalized[name] = minimum + secrets.randbelow(maximum - minimum + 1)
             continue
         value = raw.get(name, definition.get("default"))
+        if name == "upscale_after":
+            value = normalize_upscale_after_choice(value)
         value_type = definition.get("type")
         if value_type == "boolean":
             value = coerce_bool_option(value, label=str(definition.get("label") or name))

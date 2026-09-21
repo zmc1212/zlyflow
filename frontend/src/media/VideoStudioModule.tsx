@@ -1,8 +1,9 @@
-import { Button, Tooltip } from "antd"
+import { Button } from "antd"
 import { HardDrive, LoaderCircle, Maximize2 } from "lucide-react"
 import { useEffect, useMemo, useState, type CSSProperties } from "react"
+import UpscaleScaleButton from "../UpscaleScaleButton"
 import { mediaAspectVars, parseMediaAspect, type MediaAspectSize } from "../lib/utils"
-import { UPSCALE_OUTPUT_LABEL, isUpscaleOutput } from "../video-upscale"
+import { isUpscaleOutput, type VsrScale } from "../video-upscale"
 
 type Output = {
   kind: "image" | "video"; path: string; label: string
@@ -22,7 +23,7 @@ export type VideoUpscaleAction = {
   disabled: boolean
   pending?: boolean
   hint?: string
-  onClick: () => void
+  onSelect: (scale: VsrScale) => void
 }
 
 function VideoResultCard({
@@ -85,11 +86,13 @@ function VideoResultCard({
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {upscale ? (
-            <Tooltip title={upscale.hint}>
-              <Button size="small" disabled={upscale.disabled || upscale.pending} loading={Boolean(upscale.pending)} onClick={upscale.onClick} aria-label="2x 超分">
-                超分
-              </Button>
-            </Tooltip>
+            <UpscaleScaleButton
+              disabled={upscale.disabled || upscale.pending}
+              loading={Boolean(upscale.pending)}
+              hint={upscale.hint}
+              placement="topRight"
+              onSelect={upscale.onSelect}
+            />
           ) : null}
           {result.output.delivery_status !== "local" && result.output.download_url ? (
             <button type="button" disabled={pendingSave === result.output.path} onClick={() => onSave(result)} className="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-[#7047f6] px-2.5 text-xs text-white disabled:opacity-45">
@@ -133,7 +136,7 @@ export default function VideoStudioModule({
               type={featured?.output.path === result.output.path ? "primary" : "default"}
               onClick={() => setFeaturedPath(result.output.path)}
             >
-              {result.output.label === UPSCALE_OUTPUT_LABEL ? "2x 超分" : "原片"}
+              {isUpscaleOutput(result.output) ? result.output.label : "原片"}
             </Button>
           ))}
         </div>

@@ -655,7 +655,7 @@ class ComfyVideoClient:
             if busy is False:
                 return
             time.sleep(1)
-        raise TimeoutError("ComfyUI 队列仍忙，无法开始 2x 超分")
+        raise TimeoutError("ComfyUI 队列仍忙，无法开始超分")
 
     def free_resources(self, *, force: bool = True) -> bool:
         busy = self.queue_busy()
@@ -706,6 +706,7 @@ class ComfyVideoClient:
         content: bytes,
         *,
         preferred_name: str,
+        scale: int = 2,
         progress: Callable[[int], None] | None = None,
         on_submitted: Callable[[dict[str, Any]], None] | None = None,
         filename_prefix: str | None = None,
@@ -713,7 +714,7 @@ class ComfyVideoClient:
         self.require_rtx_vsr_node()
         self.free_resources(force=True)
         uploaded = self.upload_video_bytes(content, preferred_name=preferred_name)
-        workflow = build_rtx_vsr_workflow(uploaded)
+        workflow = build_rtx_vsr_workflow(uploaded, scale=scale)
         if filename_prefix:
             self._set_output_prefix(workflow, filename_prefix)
         _submitted, _history, output = self.submit_and_wait(

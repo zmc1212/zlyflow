@@ -119,6 +119,7 @@ from .models import (
     DirectorTranslatePromptRequest,
 )
 
+from .media_studio.db import ensure_schema
 from .media_studio.routers.project_router import register_project_routes
 from .media_studio.services.ai_generation_service import AiGenerationService
 from .media_studio.services.episode_video_service import EpisodeVideoService
@@ -132,7 +133,7 @@ from .request_log import RequestLogMiddleware, write_request_log
 from .resource_storage import create_resource_storage, resource_object_url
 from .storage import DirectorProjectConflictError, FINISHED_STATUSES, JobStore, elapsed_ms_between
 from .worker import JobWorker
-from .rtx_vsr_workflow import original_video_locator, source_video_shape, vsr_memory_rejection
+from .rtx_vsr_workflow import original_video_locator, source_video_shape, vsr_memory_rejection, vsr_scale_from_options, vsr_scale_label
 from .workflow_registry import (
     WORKFLOWS, is_h3_workflow, is_image_workflow, is_local_comfy_job, is_rtx_vsr_workflow,
     normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
@@ -622,12 +623,13 @@ def active_upscale_job_for(store: JobStore, owner_user_id: str | None, source_jo
     return None
 
 
-def vsr_job_options_from_source(source_job: dict) -> dict:
+def vsr_job_options_from_source(source_job: dict, request_body: dict | None = None) -> dict:
     shape = source_video_shape(source_job.get("mode") or "", source_job.get("options") or {})
+    scale = vsr_scale_from_options(request_body or {})
     if shape is None:
-        return {}
+        return {"scale": scale}
     width, height, frames = shape
-    return {"width": width, "height": height, "frames": frames}
+    return {"width": width, "height": height, "frames": frames, "scale": scale}
 
 
 def request_parameters(job: dict) -> list[dict]:
@@ -748,6 +750,7 @@ async def lifespan(app: FastAPI):
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
     store.interrupt_stale_director_pipelines()
     store.interrupt_stale_director_operations()
+    ensure_schema()
     EpisodeVideoService.recover_orphaned_jobs()
     StoryboardImageService.recover_interrupted_jobs()
     H3PromptJobService.recover_interrupted_jobs()
@@ -4148,10 +4151,10 @@ async def retry_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) 
     status_code=202,
     response_model=JobResponse,
     tags=["任务"],
-    summary="对已成功的成片提交 2x 超分",
-    description="根据已成功视频输出新建独立的 nvidia-rtx-vsr 任务。接跑前 worker 会强制 POST /free 卸载 H3。同一原片已有进行中的超分时返回 409。超分失败不影响原片。",
+    summary="对已成功的成片提交超分",
+    description="根据已成功视频输出新建独立的 nvidia-rtx-vsr 任务。JSON 可选 scale=2 或 4，缺省 2x。接跑前 worker 会强制 POST /free 卸载 H3。同一原片已有进行中的超分时返回 409。超分失败不影响原片。",
 )
-async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)], payload: dict | None = None) -> dict:
     source = job_or_404(app.state.store, job_id, user)
     if is_rtx_vsr_workflow(source["mode"]):
         raise HTTPException(status_code=422, detail="该任务已经是超分结果")
@@ -4164,18 +4167,25 @@ async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]
     owner_id = source.get("owner_user_id") or user["id"]
     active = active_upscale_job_for(app.state.store, owner_id, job_id)
     if active is not None:
-        raise HTTPException(status_code=409, detail="该成片已有进行中的 2x 超分")
-    vsr_options = vsr_job_options_from_source(source)
+        raise HTTPException(status_code=409, detail="该成片已有进行中的超分")
+    try:
+        scale = vsr_scale_from_options(payload or {})
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    vsr_options = vsr_job_options_from_source(source, payload)
+    check_options = dict(source.get("options") or vsr_options)
+    check_options["scale"] = scale
     if vsr_options:
         comfy = getattr(app.state.worker, "comfy", None)
         if comfy is not None and hasattr(comfy, "reject_vsr_memory"):
-            reason = comfy.reject_vsr_memory(source["mode"], source.get("options") or vsr_options)
+            reason = comfy.reject_vsr_memory(source["mode"], check_options)
         else:
             reason = vsr_memory_rejection(
                 vsr_options["width"],
                 vsr_options["height"],
                 vsr_options["frames"],
-            )
+                scale=scale,
+            ) if vsr_options.get("width") else None
         if reason:
             raise HTTPException(status_code=422, detail=reason)
     try:
@@ -4211,8 +4221,9 @@ async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]
         raise HTTPException(status_code=422, detail=f"复制原片失败: {error}") from error
 
     source_title = str(source.get("title") or source.get("prompt") or "成片").strip()
-    title = f"{source_title[:80]} · 2x超分"
-    prompt = str(source.get("prompt") or "").strip() or "2x 超分"
+    scale_label = vsr_scale_label(scale)
+    title = f"{source_title[:80]} · {scale_label}超分"
+    prompt = str(source.get("prompt") or "").strip() or f"{scale_label} 超分"
     store: JobStore = app.state.store
     try:
         job = await asyncio.to_thread(

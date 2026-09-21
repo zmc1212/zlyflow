@@ -1,5 +1,25 @@
 export const RTX_VSR_MODE = "nvidia-rtx-vsr"
 export const UPSCALE_OUTPUT_LABEL = "2x 超分"
+export type VsrScale = 2 | 4
+
+export const VSR_SCALE_MENU: Array<{ key: string; scale: VsrScale; label: string }> = [
+  { key: "2", scale: 2, label: "2x（推荐）" },
+  { key: "4", scale: 4, label: "4x" },
+]
+
+export function parseVsrScale(value: unknown, fallback: VsrScale = 2): VsrScale {
+  if (value === 4 || value === "4" || value === "4x") return 4
+  if (value === 2 || value === "2" || value === "2x" || value === true || value === "true") return 2
+  return fallback
+}
+
+export function vsrScaleLabel(scale: unknown): string {
+  return `${parseVsrScale(scale)}x`
+}
+
+export function upscaleOutputLabel(scale: unknown = 2): string {
+  return `${vsrScaleLabel(scale)} 超分`
+}
 
 export type UpscaleOutputLike = {
   kind: "image" | "video"
@@ -38,7 +58,7 @@ export function isRtxVsrJob(job: Pick<UpscaleJobLike, "mode"> | null | undefined
 }
 
 export function isUpscaleOutput(output: Pick<UpscaleOutputLike, "label"> | null | undefined): boolean {
-  return output?.label === UPSCALE_OUTPUT_LABEL
+  return String(output?.label || "").includes("超分")
 }
 
 export function hasOriginalVideo(job: UpscaleJobLike | null | undefined): boolean {

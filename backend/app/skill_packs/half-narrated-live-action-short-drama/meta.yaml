@@ -20,10 +20,7 @@ workshop_shot:
   - bind_r2v_slots
 r2v_slots:
   - source: characters
-  - source: scene
-  - source: triptych.start
-  - source: triptych.mid
-  - source: triptych.end
+  - source: props
 packing_overrides:
   allow_timeranges: true
   allow_multi_camera_path: true

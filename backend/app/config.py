@@ -89,10 +89,12 @@ class Settings:
         return mysql_settings_from_env_or_docs()
 
     def runtime_database(self):
-        from .db import MysqlDatabase, open_database
+        from .db import MysqlDatabase, is_isolated_sqlite_runtime, open_database
 
         backend = os.getenv("ZLY_AI_VIDEO_STUDIO_DB_BACKEND", "mysql").strip().lower()
-        if backend == "sqlite" or self.data_dir_override:
+        # DATA_DIR only relocates uploads/staging/sqlite-migration files.
+        # Docker always sets it, so it must not switch production onto SQLite.
+        if is_isolated_sqlite_runtime(backend):
             return open_database(self.database_path)
         return MysqlDatabase(self.mysql_config)
 

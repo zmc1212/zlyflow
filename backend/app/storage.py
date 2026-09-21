@@ -114,6 +114,12 @@ class JobStore:
                 self._ensure_job_list_indexes(connection)
                 self._ensure_column(
                     connection,
+                    "llm_provider_settings",
+                    "reasoning_effort",
+                    "VARCHAR(16) NOT NULL DEFAULT 'low'",
+                )
+                self._ensure_column(
+                    connection,
                     "vlm_provider_settings",
                     "use_llm_credentials",
                     "TINYINT(1) NOT NULL DEFAULT 0",
@@ -255,6 +261,7 @@ class JobStore:
                     base_url TEXT NOT NULL DEFAULT 'https://api-inference.modelscope.cn/v1',
                     api_key_encrypted TEXT,
                     model TEXT NOT NULL DEFAULT 'Qwen/Qwen2.5-Coder-32B-Instruct',
+                    reasoning_effort TEXT NOT NULL DEFAULT 'low',
                     last_test_status TEXT,
                     last_test_message TEXT,
                     last_test_at TEXT,
@@ -369,6 +376,7 @@ class JobStore:
                 self._ensure_column(connection, table, "execution_elapsed_ms", "INTEGER")
             self._ensure_column(connection, "grs_provider_settings", "models", "TEXT NOT NULL DEFAULT 'gpt-image-2'")
             self._ensure_column(connection, "grs_provider_settings", "vip_models", "TEXT NOT NULL DEFAULT 'gpt-image-2-vip'")
+            self._ensure_column(connection, "llm_provider_settings", "reasoning_effort", "TEXT NOT NULL DEFAULT 'low'")
             self._ensure_column(
                 connection,
                 "vlm_provider_settings",
@@ -1280,7 +1288,7 @@ class JobStore:
 
     def update_llm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {
-            "enabled", "base_url", "api_key_encrypted", "model",
+            "enabled", "base_url", "api_key_encrypted", "model", "reasoning_effort",
             "last_test_status", "last_test_message", "last_test_at",
         }
         merged = dict(values) if isinstance(values, dict) else {}

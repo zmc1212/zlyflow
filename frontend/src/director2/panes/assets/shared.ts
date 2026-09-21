@@ -112,6 +112,17 @@ export function identityLookEnqueueBlocker(
   return ""
 }
 
+export function propSheetEnqueueBlocker(asset: Director2Asset | null | undefined): string {
+  if (!asset) return "找不到该道具"
+  const appearance = String(
+    asset.extra?.visual_prompt || asset.visual_prompt || asset.extra?.description || asset.description || "",
+  ).trim()
+  if (!appearance && !hasSourceReferences(asset)) {
+    return "请先填写外观描述，或上传原片截图作为外形参考"
+  }
+  return ""
+}
+
 export function getAssetGradient(name: string): { background: string } {
   const gradients = [
     "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",

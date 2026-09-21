@@ -1,10 +1,9 @@
 """分镜草图 / 渲染图 Prompt，对齐 source1/app/xiaji_episode_prompts.py。"""
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from .asset_image_prompts import composed_style_line, ethnicity_instruction
+from .asset_image_prompts import composed_style_line, ethnicity_instruction, prop_sheet_url
 from .visual_styles import (
     is_animation_visual_style,
     normalize_visual_style,
@@ -123,16 +122,12 @@ def _beat_action_line(beat: dict[str, Any]) -> str:
 
 
 def _is_modern_beat(beat: dict[str, Any], selected_look: dict[str, Any] | None = None) -> bool:
-    context = " ".join(
-        str(beat.get(key) or "")
-        for key in ("heading", "scene", "action", "visual_prompt", "speaker", "characters")
-    )
+    from .character_looks import beat_context, is_modern_context, look_text
+
+    context = beat_context(beat)
     if selected_look:
-        context += " " + " ".join(
-            str(selected_look.get(key) or "")
-            for key in ("name", "appearance_details", "description")
-        )
-    return bool(re.search(r"现代|当代|21世纪|大学|图书馆|电脑|白领|硕士", context))
+        context += " " + look_text(selected_look)
+    return is_modern_context(context)
 
 
 def beat_sketch_prompt(
@@ -336,6 +331,44 @@ def beat_render_prompt(
     return ". ".join(part.strip(" .") for part in parts if str(part).strip())
 
 
+_TRIPTYCH_REF_LIMIT = 9
+
+
+def _beat_prop_sheets(
+    beat: dict[str, Any],
+    assets: list[dict[str, Any]],
+    *,
+    limit: int = _TRIPTYCH_REF_LIMIT,
+) -> list[dict[str, Any]]:
+    by_id = {str(item.get("id") or ""): item for item in assets if item.get("id")}
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(asset: dict[str, Any] | None) -> None:
+        if not isinstance(asset, dict) or len(result) >= limit:
+            return
+        url = prop_sheet_url(asset)
+        key = str(asset.get("id") or url).strip()
+        if not url or (key and key in seen):
+            return
+        if key:
+            seen.add(key)
+        result.append({"id": asset.get("id") or "", "url": url, "name": asset.get("name") or "道具"})
+
+    for pid in beat.get("prop_ids") or []:
+        add(by_id.get(str(pid)))
+    for name in beat.get("props") or []:
+        label = str(name or "").strip()
+        if not label:
+            continue
+        match = next(
+            (item for item in assets if item.get("kind") == "prop" and str(item.get("name") or "").strip() == label),
+            None,
+        )
+        add(match)
+    return result
+
+
 def _append_https(urls: list[str], value: Any) -> None:
     url = str(value or "").strip()
     if url.startswith(("http://", "https://")) and url not in urls:
@@ -355,33 +388,25 @@ def beat_reference_urls(
     if stage in {"render", "triptych"}:
         if stage == "render":
             _append_https(urls, beat.get("sketch_url"))
+        from .character_looks import character_look_image_url, looks_with_images
+
         character_ids = [str(item) for item in (beat.get("character_ids") or [])]
-        selected_ids = beat.get("character_look_ids") if isinstance(beat.get("character_look_ids"), dict) else {}
-        legacy_look_id = str(beat.get("character_look_id") or "").strip()
         for asset_id in character_ids:
             asset = by_id.get(asset_id)
-            extra = asset.get("extra") if isinstance((asset or {}).get("extra"), dict) else {}
-            identities = extra.get("identities") or []
-            selected_look_id = str(selected_ids.get(asset_id) or "").strip()
-            if not selected_look_id and legacy_look_id:
-                if any(str((look or {}).get("id") or "") == legacy_look_id for look in identities):
-                    selected_look_id = legacy_look_id
-            selected_look = next(
-                (
-                    look for look in identities
-                    if isinstance(look, dict) and str(look.get("id") or "") == selected_look_id
-                ),
-                None,
-            )
-            look_url = (selected_look or {}).get("image_url")
+            look_url = character_look_image_url(asset, beat)
             _append_https(urls, look_url)
-            if stage == "triptych" and not str(look_url or "").strip():
-                _append_https(urls, extra.get("avatar_url") or (asset or {}).get("image_url"))
+            if stage == "triptych" and not str(look_url or "").strip() and asset and not looks_with_images(asset):
+                extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
+                _append_https(urls, extra.get("avatar_url") or asset.get("image_url"))
         if scene:
             extra = scene.get("extra") if isinstance(scene.get("extra"), dict) else {}
             if scene_view == "reverse":
                 _append_https(urls, extra.get("reverse_url"))
             _append_https(urls, extra.get("master_url") or scene.get("image_url"))
+        if stage == "triptych":
+            remaining = max(0, 9 - len(urls))
+            for prop in _beat_prop_sheets(beat, assets, limit=remaining):
+                _append_https(urls, prop.get("url"))
         return urls[:9]
     if scene:
         extra = scene.get("extra") if isinstance(scene.get("extra"), dict) else {}

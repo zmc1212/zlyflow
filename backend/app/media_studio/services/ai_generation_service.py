@@ -1063,7 +1063,32 @@ class AiGenerationService:
                 else:
                     ProjectDetailService.create_asset(project_id, {"kind": kind, "name": name, "role": role, "description": description, "visual_prompt": prompt})
                 written += 1
+        cls._sync_recipe_character_era_looks(project_id, recipe)
         return written
+
+    @classmethod
+    def _sync_recipe_character_era_looks(cls, project_id: str, recipe: dict[str, Any]) -> None:
+        asset_rows = query_all(
+            "SELECT id, kind, name, image_url, extra_json FROM ai_project_assets WHERE project_id=%s AND kind=%s",
+            (project_id, "character"),
+        )
+        char_map = asset_name_id_map(asset_rows, "character")
+        beats: list[dict[str, Any]] = []
+        for shot in flatten_recipe_shots(recipe):
+            if not isinstance(shot, dict):
+                continue
+            chars = shot.get("characterNames") or shot.get("characters") or []
+            beats.append({
+                "character_ids": match_named_asset_ids(chars if isinstance(chars, list) else [chars], char_map),
+                "characters": chars,
+                "speaker": shot.get("speaker") or "",
+                "heading": shot.get("title") or shot.get("heading") or "",
+                "scene": shot.get("locationName") or shot.get("scene") or "",
+                "action": shot.get("description") or shot.get("action") or "",
+                "visual_prompt": shot.get("promptText") or shot.get("visual_prompt") or "",
+            })
+        if beats:
+            ProjectDetailService.sync_character_era_looks(project_id, beats=beats)
 
     def _adapt_recipe(self, project_id: str | None, recipe: dict[str, Any], stage: str) -> None:
         if not project_id:
@@ -1077,6 +1102,9 @@ class AiGenerationService:
             execute_sql("UPDATE ai_project_documents SET filename=%s,file_size=%s,raw_text=%s,analysis_json=%s,visual_style=%s,updated_at=%s WHERE id=%s", (script.get("title") or "AI 生成剧本", len(raw_text.encode("utf-8")), raw_text, json.dumps(analysis, ensure_ascii=False), str((recipe.get("artStyle") or {}).get("name_zh") or ""), ts, existing_doc["id"]))
         else:
             execute_sql("INSERT INTO ai_project_documents (id,project_id,filename,file_size,input_mode,status,spine_template,visual_style,raw_text,analysis_json,created_at,updated_at) VALUES (%s,%s,%s,%s,'ai_pipeline','ready','drama',%s,%s,%s,%s,%s)", (f"doc-{uuid.uuid4().hex[:12]}", project_id, script.get("title") or "AI 生成剧本", len(raw_text.encode("utf-8")), str((recipe.get("artStyle") or {}).get("name_zh") or ""), raw_text, json.dumps(analysis, ensure_ascii=False), ts, ts))
+
+        from .project_service import maybe_rename_unnamed_project
+        maybe_rename_unnamed_project(project_id, script.get("title") or analysis.get("title"))
 
         self.persist_recipe_assets(project_id, recipe)
         if stage in {"episodes", "storyboard"}:
@@ -1154,6 +1182,7 @@ class AiGenerationService:
                         "INSERT INTO ai_project_episodes (id,project_id,episode_num,title,status,script_text,shots_count,data_json,created_at,updated_at) VALUES (%s,%s,%s,%s,'script_ready',%s,%s,%s,%s,%s)",
                         (eid, project_id, ep_num, title, script_text, shots_count, json.dumps(data, ensure_ascii=False), ts, ts),
                     )
+            ProjectDetailService.sync_character_era_looks(project_id)
 
     @staticmethod
     def _beat_payload(

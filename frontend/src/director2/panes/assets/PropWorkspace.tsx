@@ -1,8 +1,8 @@
-// 道具专属工作区（严格参考 source2 prop-asset-card：参考图 + 转面三视图 + 细节特写 + 属性卡）——
-// 逐行复刻自 AssetsLibraryPane.vue 模板 C 区（v-else-if="selectedAsset.kind === 'prop'"）。
+// 道具专属工作区：一张 16:9 设定板（左三视 / 右上材质 / 右下细节），交互对齐角色造型卡。
 import { Button, Col, Form, Input, Row, Select } from "antd"
-import { Edit3, Eye, Layers, Package, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react"
+import { Edit3, Maximize2, Package, Sparkles, Trash2, Upload } from "lucide-react"
 import type { Director2Asset } from "../../api"
+import { hasSourceReferences } from "../../asset-source-references"
 import { useMediaPreview } from "../../media-preview"
 import { copyText, getPropTypeLabel, PROP_TYPE_OPTIONS } from "./shared"
 import AssetSourceReferenceStrip from "./AssetSourceReferenceStrip"
@@ -12,11 +12,7 @@ interface PropWorkspaceProps {
   onFieldChange: (patch: Partial<Director2Asset>) => void
   onExtraChange: (patch: Record<string, any>) => void
   generatingProp: boolean
-  generatingPropTurnaround: boolean
-  generatingPropDetail: boolean
   onGenerateReference: () => void
-  onGenerateTurnaround: () => void
-  onGenerateDetail: () => void
   onDeletePropImage: (slot: "reference" | "turnaround" | "detail") => void
   onManualUrl: (target: string) => void
   onOpenEditProp: () => void
@@ -32,11 +28,7 @@ export default function PropWorkspace({
   onFieldChange,
   onExtraChange,
   generatingProp,
-  generatingPropTurnaround,
-  generatingPropDetail,
   onGenerateReference,
-  onGenerateTurnaround,
-  onGenerateDetail,
   onDeletePropImage,
   onManualUrl,
   onOpenEditProp,
@@ -47,10 +39,13 @@ export default function PropWorkspace({
   onInferSourcePrompts,
 }: PropWorkspaceProps) {
   const { openMediaPreview } = useMediaPreview()
+  const sheetUrl = String(asset.extra?.reference_url || asset.image_url || "").trim()
+  const turnaroundUrl = String(asset.extra?.turnaround_url || "").trim()
+  const detailUrl = String(asset.extra?.detail_url || "").trim()
+
   return (
     <div className="prop-workspace-layout">
       <div className="section-card">
-        {/* 道具头部：标题 + Meta Badges + Owner 归属 + 状态 Chips (与 source2 CardHeader 一致) */}
         <div className="section-header prop-header-row">
           <div className="section-title-wrap">
             <div className="section-icon-badge prop-badge">
@@ -62,14 +57,8 @@ export default function PropWorkspace({
                 <span className="meta-chip type-chip prop-chip">
                   {getPropTypeLabel(asset.extra?.prop_type)}
                 </span>
-                <span className={`meta-chip${asset.extra?.reference_url || asset.image_url ? " ok" : ""}`}>
-                  参考图: {asset.extra?.reference_url || asset.image_url ? "已生成" : "缺失"}
-                </span>
-                <span className={`meta-chip${asset.extra?.turnaround_url ? " ok" : ""}`}>
-                  三视图: {asset.extra?.turnaround_url ? "已生成" : "缺失"}
-                </span>
-                <span className={`meta-chip${asset.extra?.detail_url ? " ok" : ""}`}>
-                  细节特写: {asset.extra?.detail_url ? "已生成" : "缺失"}
+                <span className={`meta-chip${sheetUrl ? " ok" : ""}`}>
+                  设定板: {sheetUrl ? "已生成" : "缺失"}
                 </span>
               </div>
               {asset.extra?.owner || asset.role ? (
@@ -78,7 +67,8 @@ export default function PropWorkspace({
                 </div>
               ) : null}
               <p className="section-desc">
-                {asset.description || asset.extra?.visual_prompt || "影视工业全景道具资产：配备 16:9 参考图、转面图 (三视图) 及细节微距特写。"}
+                {asset.description
+                  || "一张 16:9 道具设定板：左为正 / 3/4 / 背，右上材质结构，右下标志细节。出片只锁外形与材质，不把分格抄进镜头。"}
               </p>
             </div>
           </div>
@@ -90,44 +80,50 @@ export default function PropWorkspace({
           </div>
         </div>
 
-        {/* 道具三重视角插槽网格 (参考图 16:9 + 转面三视图 16:9 + 细节特写 16:9) */}
-        <div className="prop-three-columns-grid">
-          {/* 1. 参考图插槽 (Reference Image 16:9) */}
-          <div className="prop-slot-column">
-            <div className="asset-image-slot">
-              <div className="slot-preview-frame">
-                {asset.extra?.reference_url || asset.image_url ? (
-                  <img
-                    src={asset.extra?.reference_url || asset.image_url}
-                    className="slot-image"
-                    alt="Prop Reference"
-                    onClick={() => openMediaPreview({ src: asset.extra?.reference_url || asset.image_url, title: `${asset.name} 概念参考图` })}
-                  />
-                ) : (
-                  <div className="slot-empty-state">
-                    <Package size={22} className="slot-empty-icon" />
-                    <span className="slot-empty-text">无参考图 (No Reference)</span>
-                  </div>
-                )}
+        <div className="ident-card-body prop-sheet-body">
+          <div className="ident-image-col">
+            <div className="ident-img-frame">
+              {sheetUrl ? (
+                <img
+                  src={sheetUrl}
+                  className="ident-img-view"
+                  alt={`${asset.name} 设定板`}
+                  onClick={() => openMediaPreview({ src: sheetUrl, title: `${asset.name} 道具设定板` })}
+                />
+              ) : (
+                <div className="ident-img-empty">
+                  <Package size={28} className="empty-shirt-icon" />
+                  <span className="empty-shirt-text">尚未生成设定板</span>
+                </div>
+              )}
 
-                <span className="slot-overlay-badge prop-tag">参考图 (Reference)</span>
+              {sheetUrl ? (
+                <button
+                  type="button"
+                  className="float-view-btn"
+                  title="放大查看"
+                  aria-label={`放大查看${asset.name}设定板`}
+                  onClick={() => openMediaPreview({ src: sheetUrl, title: `${asset.name} 道具设定板` })}
+                >
+                  <Maximize2 size={13} />
+                </button>
+              ) : null}
 
-                {asset.extra?.reference_url || asset.image_url ? (
-                  <div className="slot-actions-bar">
-                    <button
-                      type="button"
-                      className="slot-icon-btn delete-btn"
-                      title="删除参考图"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onDeletePropImage("reference")
-                      }}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              {sheetUrl ? (
+                <div className="slot-actions-bar">
+                  <button
+                    type="button"
+                    className="slot-icon-btn delete-btn"
+                    title="删除设定板"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onDeletePropImage("reference")
+                    }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="slot-actions-row">
@@ -137,19 +133,21 @@ export default function PropWorkspace({
                 icon={<Upload size={12} />}
                 onClick={() => onManualUrl("prop_reference")}
               >
-                上传参考图
+                上传设定板
               </Button>
               <Button
-                size="small"
                 type="primary"
-                className="slot-btn generate-btn prop-btn"
+                className="ident-gen-btn"
                 loading={generatingProp}
-                icon={<RefreshCw size={12} />}
+                icon={<Sparkles size={14} />}
                 onClick={onGenerateReference}
               >
-                {asset.extra?.reference_url || asset.image_url ? "重新生成参考图" : "生成参考图"}
+                {sheetUrl ? "重新生成设定板" : "生成设定板"}
               </Button>
             </div>
+            {hasSourceReferences(asset) ? (
+              <span className="avatar-ref-hint">将按原片截图的外形与材质生成，忽略下方旧外观描述</span>
+            ) : null}
             <AssetSourceReferenceStrip
               asset={asset}
               uploading={uploadingSourceRef}
@@ -158,177 +156,54 @@ export default function PropWorkspace({
               onRemove={onRemoveSourceRef}
               onInferPrompts={onInferSourcePrompts}
             />
+            {turnaroundUrl || detailUrl ? (
+              <div className="prop-legacy-thumbs">
+                {turnaroundUrl ? (
+                  <button
+                    type="button"
+                    className="prop-legacy-thumb"
+                    title="历史三视图（仅回退预览）"
+                    onClick={() => openMediaPreview({ src: turnaroundUrl, title: `${asset.name} 历史三视图` })}
+                  >
+                    <img src={turnaroundUrl} alt="历史三视图" />
+                    <span>历史三视图</span>
+                  </button>
+                ) : null}
+                {detailUrl ? (
+                  <button
+                    type="button"
+                    className="prop-legacy-thumb"
+                    title="历史细节图（仅回退预览）"
+                    onClick={() => openMediaPreview({ src: detailUrl, title: `${asset.name} 历史细节图` })}
+                  >
+                    <img src={detailUrl} alt="历史细节图" />
+                    <span>历史细节图</span>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
 
-            <div className="slot-prompt-wrap">
+          <div className="ident-info-col">
+            <div className="ident-field">
               <div className="field-title-bar">
-                <span className="slot-prompt-lbl">概念参考图提示词 (Visual Prompt)</span>
-                <Button type="link" size="small" className="mini-link-btn" onClick={() => copyText(asset.extra?.visual_prompt || asset.visual_prompt)}>
+                <label className="ident-field-label">外形与材质 (Appearance)</label>
+                <Button
+                  type="link"
+                  size="small"
+                  className="mini-link-btn"
+                  onClick={() => copyText(asset.extra?.visual_prompt || asset.visual_prompt)}
+                >
                   复制
                 </Button>
               </div>
               {asset.extra ? (
                 <Input.TextArea
                   value={asset.extra.visual_prompt}
-                  rows={3}
-                  placeholder="描述道具的主体外观形态、材质包浆、使用痕迹与电影级光影..."
+                  rows={4}
+                  placeholder="描述主体外形、材质包浆、使用痕迹与标志细节..."
                   className="custom-textarea"
                   onChange={(event) => onExtraChange({ visual_prompt: event.target.value })}
-                />
-              ) : null}
-            </div>
-          </div>
-
-          {/* 2. 转面图 / 三视图插槽 (Turnaround 16:9) */}
-          <div className="prop-slot-column">
-            <div className="asset-image-slot">
-              <div className="slot-preview-frame">
-                {asset.extra?.turnaround_url ? (
-                  <img
-                    src={asset.extra.turnaround_url}
-                    className="slot-image"
-                    alt="Turnaround"
-                    onClick={() => openMediaPreview({ src: asset.extra?.turnaround_url, title: `${asset.name} 转面三视图` })}
-                  />
-                ) : (
-                  <div className="slot-empty-state">
-                    <Layers size={22} className="slot-empty-icon" />
-                    <span className="slot-empty-text">无三视图 (No Turnaround)</span>
-                  </div>
-                )}
-
-                <span className="slot-overlay-badge turnaround-tag">转面图 (三视图)</span>
-
-                {asset.extra?.turnaround_url ? (
-                  <div className="slot-actions-bar">
-                    <button
-                      type="button"
-                      className="slot-icon-btn delete-btn"
-                      title="删除转面图"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onDeletePropImage("turnaround")
-                      }}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="slot-actions-row">
-              <Button
-                size="small"
-                className="slot-btn"
-                icon={<Upload size={12} />}
-                onClick={() => onManualUrl("prop_turnaround")}
-              >
-                上传三视图
-              </Button>
-              <Button
-                size="small"
-                type="primary"
-                className="slot-btn generate-btn turnaround-action-btn"
-                loading={generatingPropTurnaround}
-                icon={<Sparkles size={12} />}
-                onClick={onGenerateTurnaround}
-              >
-                {asset.extra?.turnaround_url ? "重新生成三视图" : "生成三视图"}
-              </Button>
-            </div>
-
-            <div className="slot-prompt-wrap">
-              <div className="field-title-bar">
-                <span className="slot-prompt-lbl">三视图转面设计提示词 (Turnaround)</span>
-                <Button type="link" size="small" className="mini-link-btn" onClick={() => copyText(asset.extra?.turnaround_prompt)}>
-                  复制
-                </Button>
-              </div>
-              {asset.extra ? (
-                <Input.TextArea
-                  value={asset.extra.turnaround_prompt}
-                  rows={3}
-                  placeholder="描述器物的正视图、侧视图、背视图多角度展开与工业结构图纸..."
-                  className="custom-textarea"
-                  onChange={(event) => onExtraChange({ turnaround_prompt: event.target.value })}
-                />
-              ) : null}
-            </div>
-          </div>
-
-          {/* 3. 细节特写插槽 (Detail Close-up 16:9) */}
-          <div className="prop-slot-column">
-            <div className="asset-image-slot">
-              <div className="slot-preview-frame">
-                {asset.extra?.detail_url ? (
-                  <img
-                    src={asset.extra.detail_url}
-                    className="slot-image"
-                    alt="Detail"
-                    onClick={() => openMediaPreview({ src: asset.extra?.detail_url, title: `${asset.name} 细节特写` })}
-                  />
-                ) : (
-                  <div className="slot-empty-state">
-                    <Eye size={22} className="slot-empty-icon" />
-                    <span className="slot-empty-text">无细节特写 (No Detail)</span>
-                  </div>
-                )}
-
-                <span className="slot-overlay-badge detail-tag">细节特写 (Detail)</span>
-
-                {asset.extra?.detail_url ? (
-                  <div className="slot-actions-bar">
-                    <button
-                      type="button"
-                      className="slot-icon-btn delete-btn"
-                      title="删除特写图"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onDeletePropImage("detail")
-                      }}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="slot-actions-row">
-              <Button
-                size="small"
-                className="slot-btn"
-                icon={<Upload size={12} />}
-                onClick={() => onManualUrl("prop_detail")}
-              >
-                上传特写图
-              </Button>
-              <Button
-                size="small"
-                type="primary"
-                className="slot-btn generate-btn detail-action-btn"
-                loading={generatingPropDetail}
-                icon={<Sparkles size={12} />}
-                onClick={onGenerateDetail}
-              >
-                {asset.extra?.detail_url ? "重新生成特写" : "生成细节特写"}
-              </Button>
-            </div>
-
-            <div className="slot-prompt-wrap">
-              <div className="field-title-bar">
-                <span className="slot-prompt-lbl">微距特写提示词 (Detail Prompt)</span>
-                <Button type="link" size="small" className="mini-link-btn" onClick={() => copyText(asset.extra?.detail_prompt)}>
-                  复制
-                </Button>
-              </div>
-              {asset.extra ? (
-                <Input.TextArea
-                  value={asset.extra.detail_prompt}
-                  rows={3}
-                  placeholder="描述材质纹理（红木包浆、铜扣生锈、青玉通透）、刻字铭文与微距开刃磨损..."
-                  className="custom-textarea"
-                  onChange={(event) => onExtraChange({ detail_prompt: event.target.value })}
                 />
               ) : null}
             </div>
@@ -336,12 +211,10 @@ export default function PropWorkspace({
         </div>
       </div>
 
-      {/* 道具属性与背景故事卡片 */}
       <div className="section-card">
         <div className="field-title-bar" style={{ marginBottom: 12 }}>
           <h4 className="section-title">道具属性、所属角色与剧本出处</h4>
         </div>
-        {/* 原版此处为裸 a-form-item（无 a-form 包裹），antd React Form.Item 同样支持独立使用 */}
         <Row gutter={14}>
           <Col span={8}>
             <Form.Item label="道具名称" required>

@@ -65,12 +65,28 @@ class StoryboardImageService:
             scene_view = "front"
         style = ProjectDetailService._project_visual_settings(project_id, payload)
         raw_assets = ProjectDetailService.list_assets(project_id)
+        look_ids = ProjectDetailService.persist_beat_looks(project_id, episode_id, target, raw_assets)
         prompt_assets = [asset_to_prompt_dict(row) for row in raw_assets]
         if stage == "render":
-            cls._validate_render_looks(target, raw_assets)
+            cls._validate_character_looks(target, raw_assets)
             clean_prompt = beat_render_prompt(target, assets=prompt_assets, **style)
         elif stage == "triptych":
-            clean_prompt = cls._triptych_prompt(project_id, target)
+            cls._validate_character_looks(target, raw_assets, require_look=True)
+            ProjectDetailService.persist_beat_looks(
+                project_id,
+                episode_id,
+                target,
+                raw_assets,
+                extra={"triptych_look_ids": look_ids or dict(target.get("character_look_ids") or {})},
+            )
+            from .shot_handoff import find_previous_shot
+
+            clean_prompt = cls._triptych_prompt(
+                project_id,
+                target,
+                payload,
+                previous_beat=find_previous_shot(beats, target),
+            )
         else:
             clean_prompt = beat_sketch_prompt(target, assets=prompt_assets, **style)
 
@@ -114,6 +130,14 @@ class StoryboardImageService:
                 "aspectRatio": aspect_ratio, "imageSize": image_size, "replyType": "async",
             },
         }
+        if stage == "triptych":
+            from ...skill_packs.aspect import WORKSHOP_ASPECT_KEY, resolve_workshop_aspect_ratio
+
+            job_payload[WORKSHOP_ASPECT_KEY] = resolve_workshop_aspect_ratio(
+                request=payload,
+                project_id=project_id,
+            )
+            job_payload["triptych_look_ids"] = look_ids or dict(target.get("character_look_ids") or {})
         execute_sql(
             "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
             "VALUES (%s,%s,'image_generation',%s,'queued',0,NULL,%s,%s,%s)",
@@ -191,14 +215,25 @@ class StoryboardImageService:
             "AND status IN ('queued','preparing','running','storing')"
         ):
             payload = cls._payload(row)
-            if payload.get("target_type") not in BEAT_IMAGE_TARGETS:
-                continue
-            if row["status"] == "queued" or payload.get("remote_task_id"):
+            target_type = payload.get("target_type")
+            # Beat images run in the dispatcher and can be resumed when the
+            # upstream task id was persisted. Asset-image generation is a
+            # synchronous request, so an active row after process restart can
+            # only be an orphan and must be surfaced as failed.
+            if target_type in BEAT_IMAGE_TARGETS and (
+                row["status"] == "queued" or payload.get("remote_task_id")
+            ):
                 execute_sql("UPDATE ai_project_jobs SET status='queued',progress=0,updated_at=%s WHERE id=%s", (now_str(), row["id"]))
             else:
                 execute_sql(
                     "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,updated_at=%s WHERE id=%s",
-                    ("服务重启时任务尚未记录上游任务 ID，为避免重复扣费，请手动重试。", now_str(), row["id"]),
+                    (
+                        "服务重启时任务未完成，为避免重复扣费，请手动重试。"
+                        if target_type in BEAT_IMAGE_TARGETS
+                        else "服务重启时图片任务被中断，请手动重试。",
+                        now_str(),
+                        row["id"],
+                    ),
                 )
         cls.kick()
 
@@ -278,6 +313,8 @@ class StoryboardImageService:
             panels = payload.get("triptych_panels")
             if isinstance(panels, dict):
                 updates["triptych_panels"] = normalize_panels(panels)
+            if isinstance(payload.get("triptych_look_ids"), dict):
+                updates["triptych_look_ids"] = payload["triptych_look_ids"]
         try:
             ProjectDetailService._update_episode_beat_atomic(
                 payload["project_id"], payload["episode_id"], payload["beat_id"], updates,
@@ -320,7 +357,14 @@ class StoryboardImageService:
         return "2:3", "1K", 768, 1152
 
     @classmethod
-    def _triptych_prompt(cls, project_id: str, beat: dict[str, Any]) -> str:
+    def _triptych_prompt(
+        cls,
+        project_id: str,
+        beat: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+        previous_beat: dict[str, Any] | None = None,
+    ) -> str:
+        from ...skill_packs.aspect import resolve_workshop_aspect_ratio
         from ...skill_packs.binding import resolve_skill_pack_id
         from ...skill_packs.recipe import get_pack
         from ...skill_packs.triptych import build_triptych_generation_prompt
@@ -331,22 +375,39 @@ class StoryboardImageService:
         except Exception:
             recipe = get_pack("")
         template = recipe.reference_text("triptych-prompt.md")
-        return build_triptych_generation_prompt(beat, template=template)
+        aspect = resolve_workshop_aspect_ratio(
+            request=payload,
+            project_id=project_id,
+            recipe=recipe,
+        )
+        return build_triptych_generation_prompt(
+            beat,
+            template=template,
+            aspect_ratio=aspect,
+            previous_beat=previous_beat,
+        )
 
     @staticmethod
-    def _validate_render_looks(beat: dict[str, Any], assets: list[dict[str, Any]]) -> None:
+    def _validate_character_looks(
+        beat: dict[str, Any],
+        assets: list[dict[str, Any]],
+        *,
+        require_look: bool = True,
+    ) -> None:
         if not beat.get("character_ids"):
             return
+        from .character_looks import character_look_image_url, missing_look_message
+
         by_id = {str(asset.get("id") or ""): asset for asset in assets}
-        selected_ids = beat.get("character_look_ids") if isinstance(beat.get("character_look_ids"), dict) else {}
-        legacy = str(beat.get("character_look_id") or "")
-        invalid = []
+        missing: list[str] = []
         for character_id in map(str, beat.get("character_ids") or []):
             character = by_id.get(character_id) or {}
-            identities = (character.get("extra") or {}).get("identities") or []
-            selected = str(selected_ids.get(character_id) or legacy)
-            look = next((item for item in identities if str((item or {}).get("id") or "") == selected), None)
-            if not str((look or {}).get("image_url") or "").startswith(("http://", "https://")):
-                invalid.append(str(character.get("name") or character_id))
-        if invalid:
-            raise ValueError("请为当前分镜的出场角色选择有效服饰造型：" + "、".join(invalid))
+            look_url = character_look_image_url(character, beat)
+            if require_look and not look_url.startswith(("http://", "https://")):
+                missing.append(missing_look_message(
+                    character,
+                    beat,
+                    int(beat.get("sequence") or 0),
+                ))
+        if missing:
+            raise ValueError("\n".join(missing))

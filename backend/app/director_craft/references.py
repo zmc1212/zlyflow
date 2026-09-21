@@ -31,7 +31,8 @@ def scene_subject_line(index: int, name: str) -> str:
     return (
         f"<Subject {index}> is the {label} environment in <Picture {index}>. "
         f"<Picture {index}> supplies the setting only; "
-        "do not lock blocking or standing positions."
+        "do not lock blocking or standing positions. "
+        "Named desktop or handheld props that have their own Picture override matching set dressing in this still."
     )
 
 
@@ -39,17 +40,25 @@ def prop_subject_line(index: int, name: str) -> str:
     label = str(name or "").strip() or f"prop {index}"
     return (
         f"<Subject {index}> is {label} in <Picture {index}>. "
-        f"<Picture {index}> controls {label} identity only; do not transfer pose."
+        f"<Picture {index}> is a multi-view prop design sheet; "
+        f"<Picture {index}> controls {label} identity only: lock shape, materials, and construction. "
+        "Do not copy the panel grid, white background, or repeated mini objects into the shot; "
+        "do not transfer pose. "
+        f"If the scene still also shows a {label} or similar set dressing, follow <Picture {index}>."
     )
 
 
 def composition_subject_line(index: int, name: str, role: str = "start") -> str:
     key = str(role or "start").strip().lower()
+    identity_lock = (
+        "if clothing, hair, or face disagrees with the character design sheet, follow the character sheet; "
+    )
     if key in {"mid", "middle"}:
         return (
             f"<Subject {index}> is the same-shot main-action composition landmark in <Picture {index}>, "
             "not a new character. "
             f"<Picture {index}> locks blocking during the main-action window; "
+            f"{identity_lock}"
             "do not interpolate a full 16:9 triptych; do not show all three panels at once; "
             "the finished clip stays a single 9:16 frame."
         )
@@ -58,6 +67,7 @@ def composition_subject_line(index: int, name: str, role: str = "start") -> str:
             f"<Subject {index}> is the same-shot closing composition landmark in <Picture {index}>, "
             "not a new character. "
             f"<Picture {index}> locks the result/hold framing; "
+            f"{identity_lock}"
             "do not interpolate a full 16:9 triptych; do not show all three panels at once; "
             "the finished clip stays a single 9:16 frame."
         )
@@ -65,7 +75,9 @@ def composition_subject_line(index: int, name: str, role: str = "start") -> str:
     return (
         f"<Subject {index}> is the {label} still in <Picture {index}>, "
         "a 00:00 composition landmark of this same shot, not a new character. "
-        f"<Picture {index}> anchors opening blocking only; do not interpolate a full 16:9 triptych; "
+        f"<Picture {index}> anchors opening blocking only; "
+        f"{identity_lock}"
+        "do not interpolate a full 16:9 triptych; "
         "do not show all three panels at once; the finished clip stays a single 9:16 frame."
     )
 

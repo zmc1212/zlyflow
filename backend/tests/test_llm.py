@@ -31,6 +31,7 @@ from backend.app.llm_client import (
 )
 from backend.app.llm_provider import LlmProviderService
 from backend.app.vlm_provider import VlmProviderService
+from backend.app.vision_runtime import complete_authoring
 from backend.app.main import app, session_cookie_scheme
 from backend.app.models import UserRole
 from backend.app.storage import JobStore
@@ -85,6 +86,7 @@ class ChatCompletionThinkingTests(unittest.TestCase):
         self.assertNotIn("temperature", payload)
         self.assertNotIn("enable_thinking", payload)
         self.assertNotIn("thinking", payload)
+        self.assertNotIn("reasoning_effort", payload)
 
     @patch("requests.Session.post")
     def test_gpt5_reasoning_effort_is_forwarded(self, mock_post: MagicMock) -> None:
@@ -99,6 +101,40 @@ class ChatCompletionThinkingTests(unittest.TestCase):
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(payload["reasoning_effort"], "none")
         self.assertEqual(payload["max_completion_tokens"], 64)
+
+    @patch("requests.Session.post")
+    def test_gpt5_uses_client_default_reasoning_effort(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient(
+            "https://cn3.heilovehei.com/v1",
+            "sk-test",
+            reasoning_effort="high",
+        )
+        client.chat_completion(
+            [{"role": "user", "content": "expand this shot"}],
+            "gpt-5.6-sol",
+            max_tokens=64,
+        )
+        self.assertEqual(mock_post.call_args.kwargs["json"]["reasoning_effort"], "high")
+
+    @patch("backend.app.vision_runtime.chat_on_endpoint", return_value="draft")
+    def test_authoring_uses_configured_llm_reasoning_effort(self, mock_chat: MagicMock) -> None:
+        text, _meta = complete_authoring(
+            {
+                "enabled": 1,
+                "base_url": "https://llm.example/v1",
+                "model": "gpt-5.6-sol",
+                "api_key": "sk-llm",
+                "reasoning_effort": "high",
+            },
+            {"enabled": 0},
+            None,
+            "system",
+            "user",
+            ["https://cdn.example/char.png"],
+        )
+        self.assertEqual("draft", text)
+        self.assertEqual("high", mock_chat.call_args.kwargs["reasoning_effort"])
 
 
 class ChatCompletionTimeoutAndStreamTests(unittest.TestCase):
@@ -505,6 +541,7 @@ class LLMProviderTests(unittest.TestCase):
         self.assertFalse(cfg["enabled"])
         self.assertEqual(cfg["base_url"], "https://api-inference.modelscope.cn/v1")
         self.assertEqual(cfg["model"], "Qwen/Qwen2.5-72B-Instruct")
+        self.assertEqual(cfg["reasoning_effort"], "low")
         self.assertFalse(cfg["has_api_key"])
         self.assertTrue(cfg["credential_ready"])
 
@@ -514,6 +551,7 @@ class LLMProviderTests(unittest.TestCase):
             "base_url": "https://api-inference.modelscope.cn/v1",
             "api_key": "ms-secret-token-12345678",
             "model": "Qwen/Qwen2.5-72B-Instruct",
+            "reasoning_effort": "high",
         })
         cfg = self.provider.public_config()
         self.assertTrue(cfg["enabled"])
@@ -521,7 +559,12 @@ class LLMProviderTests(unittest.TestCase):
         self.assertTrue(cfg["api_key_masked"].startswith("ms-"))
         self.assertTrue(cfg["api_key_masked"].endswith("78"))
         self.assertTrue(cfg["available"])
+        self.assertEqual(cfg["reasoning_effort"], "high")
         self.assertEqual(self.provider.api_key(), "ms-secret-token-12345678")
+
+    def test_rejects_unknown_reasoning_effort(self) -> None:
+        with self.assertRaisesRegex(ValueError, "推理程度"):
+            self.provider.update({"reasoning_effort": "extreme"})
 
     @patch("requests.Session.post")
     def test_optimize_prompt_video(self, mock_post: MagicMock) -> None:
@@ -615,6 +658,24 @@ class LLMAppEndpointsTests(unittest.TestCase):
         res = self.client.get("/api/admin/providers/llm")
         self.assertEqual(res.status_code, 200)
         self.assertIn("base_url", res.json())
+
+    def test_admin_updates_reasoning_effort(self) -> None:
+        from backend.app.auth import csrf_token
+
+        self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
+        res = self.client.put(
+            "/api/admin/providers/llm",
+            json={
+                "enabled": False,
+                "base_url": "https://cn3.example/v1",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "high",
+            },
+            headers={"X-CSRF-Token": csrf_token(self.admin_token)},
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["reasoning_effort"], "high")
+        self.assertEqual(self.job_store.get_llm_settings()["reasoning_effort"], "high")
 
     @patch("requests.Session.get")
     def test_admin_lists_siliconflow_free_models(self, mock_get: MagicMock) -> None:

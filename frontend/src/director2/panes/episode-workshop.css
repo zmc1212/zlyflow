@@ -906,6 +906,60 @@
   padding: 8px 4px 12px 0;
 }
 
+.d2-episode-workshop .xiaji-film-takes {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-height: 72px;
+  min-height: 0;
+  padding: 6px 2px 2px 0;
+}
+
+.d2-episode-workshop .xiaji-film-takes-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+
+.d2-episode-workshop .xiaji-film-takes-strip .ant-btn.ant-btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 28px;
+  padding: 5px 12px;
+}
+
+.d2-episode-workshop .xiaji-film-takes-strip .ant-tag {
+  margin-inline-end: 0;
+  height: 20px;
+  line-height: 20px;
+  padding-inline: 6px;
+  border-radius: 4px;
+}
+
+.d2-episode-workshop .xiaji-film-takes-strip .ant-btn-primary .ant-tag {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.22);
+  border-color: transparent;
+}
+
+.xiaji-film-take-adopt-tooltip .ant-tooltip-inner {
+  padding: 6px 8px;
+}
+
+.xiaji-film-take-adopt-tooltip .xiaji-film-takes-adopt {
+  pointer-events: auto;
+}
+
 .d2-episode-workshop .xiaji-pane-scroll-area {
   flex: 1 1 0%;
   min-height: 0;
@@ -1142,6 +1196,14 @@
 
 .d2-episode-workshop .look-empty-hint {
   margin-top: 0;
+}
+
+.d2-episode-workshop .look-era-hint {
+  margin: 6px 0 0;
+  color: var(--studio-warning);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .d2-episode-workshop .form-row-two {

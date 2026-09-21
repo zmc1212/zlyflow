@@ -56,6 +56,32 @@ class CharacterContentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "缺少容貌服装描述或生图提示词"):
             LlmService.generate_character_content("现代青年")
 
+    @patch("backend.app.media_studio.services.llm_service.llm_row", return_value={"reasoning_effort": "high"})
+    @patch.object(LlmService, "_runtime_config", return_value=("https://llm.example/v1", "gpt-5.6-sol", "key"))
+    @patch("backend.app.media_studio.services.llm_service.requests.post")
+    def test_gpt5_character_content_uses_configured_reasoning(
+        self,
+        post: Mock,
+        _runtime: Mock,
+        _llm_row: Mock,
+    ):
+        response = Mock(ok=True)
+        response.json.return_value = {
+            "choices": [{"message": {"content": (
+                '{"description":"26岁，短发，白衬衫与深色长裤",'
+                '"visual_prompt":"26岁中国男性，短发，白衬衫，深色长裤，单人全身设定图"}'
+            )}}]
+        }
+        post.return_value = response
+
+        LlmService.generate_character_content("现代青年")
+
+        request_body = post.call_args.kwargs["json"]
+        self.assertEqual("high", request_body["reasoning_effort"])
+        self.assertEqual(1200, request_body["max_completion_tokens"])
+        self.assertNotIn("temperature", request_body)
+        self.assertNotIn("max_tokens", request_body)
+
 
 if __name__ == "__main__":
     unittest.main()

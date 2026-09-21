@@ -25,6 +25,7 @@ export type ShotPlanDocumentLike = {
   status?: string | null
   shot_plan_job_id?: string | null
   input_mode?: string | null
+  needs_shot_plan?: boolean
   analysis?: {
     logs?: string[] | null
     episodes?: Array<{
@@ -186,6 +187,10 @@ export function applyShotPlanJobSnapshot(
   return next
 }
 
+export function isAwaitingAspectDocument(doc: ShotPlanDocumentLike | null | undefined): boolean {
+  return String(doc?.status || "") === "awaiting_aspect"
+}
+
 export function isDocumentShotPlanning(doc: ShotPlanDocumentLike | null | undefined): boolean {
   return Boolean(doc?.shot_plan_job_id) || String(doc?.status || "") === "planning"
 }
@@ -199,6 +204,16 @@ export function documentCanPlanShots(doc: ShotPlanDocumentLike | null | undefine
   return episodes.some((episode) => String(episode.shots_source || "").toLowerCase() !== "llm")
 }
 
+export function documentCanReplanShots(doc: ShotPlanDocumentLike | null | undefined): boolean {
+  if (!doc) return false
+  if (String(doc.input_mode || "").toLowerCase() === "ai_pipeline") return false
+  if (isDocumentShotPlanning(doc)) return false
+  if (isAwaitingAspectDocument(doc)) return false
+  const episodes = doc.analysis?.episodes || []
+  if (!episodes.length) return false
+  return episodes.some((episode) => String(episode.shots_source || "").toLowerCase() === "llm")
+}
+
 export type ShotPlanBadge = {
   color?: "processing" | "success" | "error" | "warning"
   text: string
@@ -208,6 +223,7 @@ export function documentShotPlanHeaderTag(doc: ShotPlanDocumentLike | null | und
   if (!doc) return null
   if (String(doc.input_mode || "").toLowerCase() === "ai_pipeline") return null
   if (isDocumentShotPlanning(doc)) return { color: "processing", text: "规划中" }
+  if (isAwaitingAspectDocument(doc)) return { color: "warning", text: "待确认画幅" }
   const episodes = doc.analysis?.episodes || []
   if (!episodes.length) return null
   const llmCount = episodes.filter((episode) => String(episode.shots_source || "").toLowerCase() === "llm").length
@@ -542,7 +558,9 @@ export function episodeShotPlanError(
   episodeNum: number | null | undefined,
   logs: string[] | null | undefined,
   liveError?: string | null,
+  currentSource?: string | null,
 ): string | null {
+  if (String(currentSource || "").toLowerCase() === "llm") return null
   if (liveError && String(liveError).trim()) {
     const text = String(liveError).trim()
     if (text.includes("规划失败") || text.includes("保留解析器")) return text

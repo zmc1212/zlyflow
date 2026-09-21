@@ -1,6 +1,6 @@
 ---
 name: shot-continuity-handoff
-description: Plan and polish adjacent MiniMax H3 shot handoffs so a storyboard reads as one continuous edit while every clip stays independently renderable. Use when writing scripts, splitting storyboards, or refining continuityIn / continuityOut / transitionNote.
+description: Plan and polish adjacent MiniMax H3 shot handoffs so a storyboard reads as one continuous edit while every clip stays independently renderable. Use when writing scripts, splitting storyboards, refining continuityIn / continuityOut / transitionNote, or planning imported episode shot_plan JSON with Chinese opening_state / closing_state / transition_note.
 compatibility: Local skill for ZLY AI Video Studio director agents. No external API. Methodology inspired by Seedance 2.5 scene ledgers and start/end-state prompt packs, adapted to H3 independent clips.
 ---
 
@@ -12,6 +12,7 @@ compatibility: Local skill for ZLY AI Video Studio director agents. No external 
 - Splitting a full script into ordered shots (`storyboard` first pass).
 - Polishing adjacent cuts after timing is locked (`storyboard` continuity pass).
 - Checking that compiled H3 prompts still open and close on inheritables states.
+- Planning imported scripts in director-2 content library (`shot_plan` JSON with Chinese handoff fields).
 
 ## Workflow
 
@@ -35,6 +36,19 @@ compatibility: Local skill for ZLY AI Video Studio director agents. No external 
 | `transitionNote` | Chinese | Human-facing bridge name (match action / match look / direction / sound / hard cut) |
 | `promptText` | English | Independently renderable H3 body; opening and final beats must agree with the boundary states |
 | `usePreviousEndFrame` | boolean | Optional visual I2V anchor; never force it during LLM polish |
+
+Director-2 **import / content-library** `shot_plan` uses Chinese fields instead of Recipe English boundaries:
+
+| Field | Language | Role |
+| --- | --- | --- |
+| `opening_state` | Chinese | Visible pose at this clip's `00:00` |
+| `closing_state` | Chinese | Final-frame pose the next clip must inherit |
+| `transition_note` | Chinese | 动作匹配切 / 视线匹配切 / 方向匹配切 / 声音桥 / 硬切换场 |
+| `action` | Chinese | Independently renderable blocking; must embed `开场：` and `收束：` so workshop copy still locks pose if a downstream step misses the new fields |
+
+Do not emit `continuityIn` / `continuityOut` on the import path.
+
+Read `references/import-shot-plan-continuity.md` for the Chinese contract, merge-first rule, and the library sit-then-catch example.
 
 ## Output rules
 

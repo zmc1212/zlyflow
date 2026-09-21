@@ -4,10 +4,10 @@
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Alert, Button, Modal, Progress, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
+import { Alert, Button, Modal, Progress, Space, Table, Tabs, Tag, message } from "antd"
 import type { TableProps } from "antd"
 import { RefreshCw, ExternalLink, Copy } from "lucide-react"
-import { director2ErrorDetail, listJobs, retryJob, upscaleProjectVideoJob, type Director2Job } from "../api"
+import { director2ErrorDetail, getJob, listJobs, retryJob, upscaleProjectVideoJob, type Director2Job } from "../api"
 import {
   DIRECTOR2_DEFAULT_JOB_TYPE,
   DIRECTOR2_JOB_TYPES,
@@ -24,7 +24,8 @@ import {
   type Director2JobType,
 } from "../director2-job-types"
 import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "../paths"
-import { jobCanShowUpscaleAction, jobPreviewVideoUrl, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl } from "../director2-video-settings"
+import { jobCanShowUpscaleAction, jobPreviewVideoUrl, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaleScale, jobUpscaledVideoUrl } from "../director2-video-settings"
+import UpscaleScaleButton from "../../UpscaleScaleButton"
 import { useMediaPreview } from "../media-preview"
 import "./jobs-center.css"
 
@@ -57,6 +58,21 @@ type LlmAttemptPayload = {
 
 type StatusTag = { color: string; text: string }
 
+const JOBS_POLL_MS = 2000
+const JOBS_IDLE_POLL_MS = 8000
+const ACTIVE_JOB_STATUSES = new Set([
+  "queued",
+  "preparing",
+  "prompt_generation",
+  "uploading",
+  "comfy_queued",
+  "running",
+  "assembling",
+  "downloading",
+  "storing",
+  "upscaling",
+])
+
 export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneProps) {
   const navigate = useNavigate()
   const { openMediaPreview } = useMediaPreview()
@@ -68,6 +84,9 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   const [page, setPage] = useState(1)
   const [upscalingJobId, setUpscalingJobId] = useState<string | null>(null)
   const hasInitializedTab = useRef(false)
+  const fetchInFlightRef = useRef(false)
+  const selectedFullPayloadRef = useRef<Record<string, any> | null>(null)
+  const pollDelayRef = useRef(JOBS_POLL_MS)
 
   // 与 Vue 实例级可变量（selectedJob）对应的同步 ref，供异步续体（fetchJobs 轮询）读取最新值
   const selectedJobRef = useRef<Director2Job | null>(null)
@@ -119,27 +138,28 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       render: (_, record) => {
         const previewUrl = isVideoJob(record) ? jobPreviewVideoUrl(record) : record.result_url
         const upscaled = isVideoJob(record) && Boolean(jobUpscaledVideoUrl(record))
+        const scaleTag = jobUpscaleScale(record)
         return previewUrl ? (
           isTtsJob(record) ? (
-            <audio src={record.result_url} className="result-thumb" preload="metadata" controls />
+            <audio src={record.result_url ?? undefined} className="result-thumb" preload="metadata" controls />
           ) : (
           <button
             type="button"
             className="result-thumb-btn"
-            aria-label={upscaled ? "预览 2x 超分结果" : "预览结果"}
+            aria-label={upscaled ? `预览 ${scaleTag} 超分结果` : "预览结果"}
             onClick={() => openMediaPreview({
               src: previewUrl,
               kind: record.job_type === "video_generation" ? "video" : "image",
-              title: upscaled ? `${record.title || "生成结果"} · 2x` : record.title || "生成结果",
+              title: upscaled ? `${record.title || "生成结果"} · ${scaleTag}` : record.title || "生成结果",
             })}
           >
             {record.job_type === "video_generation" ? (
               <>
                 <video src={previewUrl} className="result-thumb" muted preload="metadata" />
-                {upscaled ? <Tag color="purple" className="result-upscale-tag">2x</Tag> : null}
+                {upscaled ? <Tag color="purple" className="result-upscale-tag">{scaleTag}</Tag> : null}
               </>
             ) : (
-              <img src={record.result_url} className="result-thumb" alt="结果图" />
+              <img src={record.result_url ?? undefined} className="result-thumb" alt="结果图" />
             )}
           </button>
           )
@@ -167,19 +187,13 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             查看详情
           </Button>
           {jobCanShowUpscaleAction(record) ? (
-            <Tooltip title={jobUpscaleDisabledReason(record, jobs) || jobUpscaleHint(record)}>
-              <span>
-                <Button
-                  size="small"
-                  disabled={Boolean(jobUpscaleDisabledReason(record, jobs)) || upscalingJobId === record.id}
-                  loading={upscalingJobId === record.id}
-                  onClick={() => void handleUpscaleJob(record)}
-                  aria-label={`2x 超分 ${record.title || record.id}`}
-                >
-                  超分
-                </Button>
-              </span>
-            </Tooltip>
+            <UpscaleScaleButton
+              disabled={Boolean(jobUpscaleDisabledReason(record, jobs)) || upscalingJobId === record.id}
+              loading={upscalingJobId === record.id}
+              hint={jobUpscaleDisabledReason(record, jobs) || jobUpscaleHint(record)}
+              onSelect={(scale) => void handleUpscaleJob(record, scale)}
+              ariaLabel={`超分 ${record.title || record.id}`}
+            />
           ) : null}
           {isShotPlanJob(record) && shotPlanDocumentId(record) ? (
             <Button size="small" type="link" onClick={() => openContentDocument(record)}>
@@ -297,29 +311,49 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     return JSON.stringify(body, null, 2)
   }
 
-  function openDetail(job: Director2Job) {
+  async function openDetail(job: Director2Job) {
+    selectedFullPayloadRef.current = null
     applySelectedJob(job)
     setDetailVisible(true)
+    try {
+      const full = await getJob(projectId, job.id)
+      selectedFullPayloadRef.current = full.payload
+      if (selectedJobRef.current?.id === full.id) applySelectedJob(full)
+    } catch {
+      /* 列表瘦 payload 仍可展示状态与结果 */
+    }
   }
 
   async function fetchJobs(silent = false) {
+    if (fetchInFlightRef.current) return
+    fetchInFlightRef.current = true
     if (!silent) setLoading(true)
     try {
       const res = await listJobs(projectId)
       const list = res || []
       setJobs(list)
+      pollDelayRef.current = list.some((job) => ACTIVE_JOB_STATUSES.has(job.status))
+        ? JOBS_POLL_MS
+        : JOBS_IDLE_POLL_MS
       if (!hasInitializedTab.current) {
         hasInitializedTab.current = true
         setActiveJobType(defaultJobTypeTab(list))
         setPage(1)
       }
       if (selectedJobRef.current) {
-        const found = list.find((job) => job.id === selectedJobRef.current?.id) || selectedJobRef.current
-        applySelectedJob(found)
+        const found = list.find((job) => job.id === selectedJobRef.current?.id)
+        if (found) {
+          const fullPayload = selectedJobRef.current.id === found.id ? selectedFullPayloadRef.current : null
+          applySelectedJob({
+            ...found,
+            payload: fullPayload ? { ...fullPayload, ...found.payload } : found.payload,
+          })
+        }
       }
     } catch {
       if (!silent) message.error("加载任务列表失败")
     } finally {
+      fetchInFlightRef.current = false
       if (!silent) setLoading(false)
     }
   }
@@ -334,7 +368,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
   }
 
-  async function handleUpscaleJob(job: Director2Job) {
+  async function handleUpscaleJob(job: Director2Job, scale: 2 | 4) {
     const reason = jobUpscaleDisabledReason(job, jobs)
     if (reason) {
       message.warning(reason)
@@ -342,8 +376,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
     setUpscalingJobId(job.id)
     try {
-      message.loading({ content: "正在提交 2x 超分...", key: "jobUpscale" })
-      const res = await upscaleProjectVideoJob(csrfToken, projectId, job.id)
+      message.loading({ content: `正在提交 ${scale}x 超分...`, key: "jobUpscale" })
+      const res = await upscaleProjectVideoJob(csrfToken, projectId, job.id, { scale })
       message.success({ content: `超分任务已进入队列：${res.job_id}`, key: "jobUpscale", duration: 6 })
       await fetchJobs(true)
     } catch (err) {
@@ -353,7 +387,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
   }
 
-  // 最新闭包 trampoline：1 秒静默轮询读取最新渲染的 fetchJobs（等价 Vue 闭包读响应式值）
+  // 最新闭包 trampoline：进行中 2 秒、空闲 8 秒，且等上次请求结束再排下次
   const fetchJobsRef = useRef(fetchJobs)
   useEffect(() => {
     fetchJobsRef.current = fetchJobs
@@ -363,10 +397,21 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     hasInitializedTab.current = false
     setActiveJobType(DIRECTOR2_DEFAULT_JOB_TYPE)
     setPage(1)
+    let pollTimer = 0
+    let cancelled = false
+    const schedule = () => {
+      pollTimer = window.setTimeout(() => {
+        void (async () => {
+          await fetchJobsRef.current(true)
+          if (!cancelled) schedule()
+        })()
+      }, pollDelayRef.current)
+    }
     fetchJobs()
-    const pollTimer = window.setInterval(() => fetchJobsRef.current(true), 1000)
+    schedule()
     return () => {
-      window.clearInterval(pollTimer)
+      cancelled = true
+      window.clearTimeout(pollTimer)
     }
     // 对应原版 onMounted + onUnmounted；projectId 变化时重新拉列表并重置默认 Tab
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -420,7 +465,10 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
         width="860px"
         footer={null}
         destroyOnHidden
-        onCancel={() => setDetailVisible(false)}
+        onCancel={() => {
+          selectedFullPayloadRef.current = null
+          setDetailVisible(false)
+        }}
         className="d2-jobs-center"
       >
         {selectedJob ? (
@@ -457,7 +505,12 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                 <div className="detail-row">
                   <span className="detail-key">执行进度</span>
                   <span className="detail-val">
-                    <Progress percent={selectedJob.progress} size="small" style={{ width: 200 }} />
+                      <Progress
+                        percent={selectedJob.progress}
+                        size="small"
+                        status={selectedJob.status === "failed" ? "exception" : selectedJob.progress === 100 ? "success" : "active"}
+                        style={{ width: 200 }}
+                      />
                   </span>
                 </div>
               </div>
@@ -838,15 +891,15 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             {/* 结果图片 */}
             {isVideoJob(selectedJob) && (jobPreviewVideoUrl(selectedJob) || selectedJob.result_url) ? (
               <div className="detail-section">
-                <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? " · 含 2x 超分" : ""}</div>
+                <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? ` · 含 ${jobUpscaleScale(selectedJob)} 超分` : ""}</div>
                 <div className="result-preview">
                   {jobUpscaledVideoUrl(selectedJob) ? (
                     <>
-                      <p className="prompt-label">2x 超分</p>
+                      <p className="prompt-label">{jobUpscaleScale(selectedJob)} 超分</p>
                       <video src={jobUpscaledVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
                     </>
                   ) : (
-                    <video src={jobPreviewVideoUrl(selectedJob) || selectedJob.result_url} className="result-video" controls preload="metadata" />
+                    <video src={jobPreviewVideoUrl(selectedJob) || selectedJob.result_url || undefined} className="result-video" controls preload="metadata" />
                   )}
                   {jobSourceVideoUrl(selectedJob) && jobSourceVideoUrl(selectedJob) !== jobUpscaledVideoUrl(selectedJob) ? (
                     <>
@@ -858,27 +911,22 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                     <Alert type="warning" showIcon className="mt-3" message={String(selectedJob.payload.upscale_warning)} />
                   ) : null}
                   {jobCanShowUpscaleAction(selectedJob) ? (
-                    <Tooltip title={jobUpscaleDisabledReason(selectedJob, jobs) || jobUpscaleHint(selectedJob)}>
-                      <span>
-                        <Button
-                          className="mt-3"
-                          disabled={Boolean(jobUpscaleDisabledReason(selectedJob, jobs)) || upscalingJobId === selectedJob.id}
-                          loading={upscalingJobId === selectedJob.id}
-                          onClick={() => void handleUpscaleJob(selectedJob)}
-                          aria-label="2x 超分"
-                        >
-                          2x 超分
-                        </Button>
-                      </span>
-                    </Tooltip>
+                    <UpscaleScaleButton
+                      className="mt-3"
+                      size="middle"
+                      disabled={Boolean(jobUpscaleDisabledReason(selectedJob, jobs)) || upscalingJobId === selectedJob.id}
+                      loading={upscalingJobId === selectedJob.id}
+                      hint={jobUpscaleDisabledReason(selectedJob, jobs) || jobUpscaleHint(selectedJob)}
+                      onSelect={(scale) => void handleUpscaleJob(selectedJob, scale)}
+                    />
                   ) : null}
                   <button
                     type="button"
                     className="result-open-link"
                     onClick={() => openMediaPreview({
-                      src: jobPreviewVideoUrl(selectedJob) || selectedJob.result_url,
+                      src: jobUpscaledVideoUrl(selectedJob) || jobPreviewVideoUrl(selectedJob) || selectedJob.result_url,
                       kind: "video",
-                      title: jobUpscaledVideoUrl(selectedJob) ? `${selectedJob.title || "生成结果"} · 2x` : selectedJob.title || "生成结果",
+                      title: jobUpscaledVideoUrl(selectedJob) ? `${selectedJob.title || "生成结果"} · ${jobUpscaleScale(selectedJob)}` : selectedJob.title || "生成结果",
                     })}
                   >
                     <ExternalLink size={13} /> 预览原文件

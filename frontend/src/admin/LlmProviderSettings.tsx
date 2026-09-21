@@ -8,6 +8,7 @@ type LlmConfig = {
   enabled: boolean
   base_url: string
   model: string
+  reasoning_effort: string
   api_key_masked?: string | null
   has_api_key: boolean
   credential_ready: boolean
@@ -17,6 +18,25 @@ type LlmConfig = {
   last_test_message?: string | null
   last_test_at?: string | null
   supports_vision?: boolean
+}
+
+const REASONING_EFFORT_OPTIONS = [
+  { value: "auto", label: "自动（不发送参数）" },
+  { value: "none", label: "关闭（none）" },
+  { value: "minimal", label: "极低（minimal）" },
+  { value: "low", label: "低（low，推荐）" },
+  { value: "medium", label: "中（medium）" },
+  { value: "high", label: "高（high）" },
+  { value: "xhigh", label: "很高（xhigh）" },
+  { value: "max", label: "最高（max）" },
+  { value: "ultra", label: "超高（ultra）" },
+]
+
+function modelSupportsReasoningEffort(model: string): boolean {
+  const lowered = model.trim().toLowerCase()
+  if (lowered.includes("gpt-5")) return true
+  const name = lowered.split("/").at(-1) || ""
+  return /^(o1|o3|o4)/.test(name)
 }
 
 function modelLooksLikeVision(model: string): boolean {
@@ -151,6 +171,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   const [enabled, setEnabled] = useState(false)
   const [baseUrl, setBaseUrl] = useState("https://api-inference.modelscope.cn/v1")
   const [model, setModel] = useState("Qwen/Qwen2.5-7B-Instruct")
+  const [reasoningEffort, setReasoningEffort] = useState("low")
   const [apiKey, setApiKey] = useState("")
   const [selectedPreset, setSelectedPreset] = useState("modelscope")
   const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([])
@@ -161,6 +182,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
     setEnabled(query.data.enabled)
     setBaseUrl(query.data.base_url)
     setModel(query.data.model)
+    setReasoningEffort(query.data.reasoning_effort || "low")
 
     const matched = PROVIDER_PRESETS.find(
       (p) => p.baseUrl && query.data.base_url.startsWith(p.baseUrl.replace(/\/v1$/, "")),
@@ -170,7 +192,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
     } else {
       setSelectedPreset("custom")
     }
-  }, [query.data?.enabled, query.data?.base_url, query.data?.model, query.data?.has_api_key])
+  }, [query.data?.enabled, query.data?.base_url, query.data?.model, query.data?.reasoning_effort, query.data?.has_api_key])
 
   const handlePresetChange = (presetValue: string) => {
     setSelectedPreset(presetValue)
@@ -193,6 +215,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
           enabled,
           base_url: baseUrl,
           model,
+          reasoning_effort: reasoningEffort,
           api_key: apiKey || null,
         }, "PUT"),
       ),
@@ -397,6 +420,21 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
             )}
           </div>
 
+          {modelSupportsReasoningEffort(model) ? (
+            <div>
+              <label className="block text-xs font-medium text-[#4b5563]">推理程度</label>
+              <Select
+                className="mt-1.5 w-full"
+                value={reasoningEffort}
+                onChange={setReasoningEffort}
+                options={REASONING_EFFORT_OPTIONS}
+              />
+              <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
+                仅对 GPT-5 / o 系列发送 <code>reasoning_effort</code>。等级越高通常推理更充分，但响应更慢、消耗更多；不确定中转站是否兼容时请选择“自动”。
+              </p>
+            </div>
+          ) : null}
+
           <div>
             <label className="block text-xs font-medium text-[#4b5563]">API Key / Access Token</label>
             <Input.Password
@@ -448,6 +486,12 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                 <dt className="text-[#6b7280]">当前模型</dt>
                 <dd className="mt-1 font-mono font-medium text-[#111827] break-all">{query.data?.model || "未配置"}</dd>
               </div>
+              {modelSupportsReasoningEffort(query.data?.model || "") ? (
+                <div>
+                  <dt className="text-[#6b7280]">推理程度</dt>
+                  <dd className="mt-1 font-medium text-[#111827]">{query.data?.reasoning_effort || "low"}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-[#6b7280]">最近连通性测试</dt>
                 <dd className="mt-1 font-medium text-[#111827]">

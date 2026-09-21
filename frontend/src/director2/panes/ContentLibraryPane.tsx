@@ -41,12 +41,13 @@ import ShotPlanSlimProgress from "./shot-plan-slim-progress"
 import {
   listDocuments,
   listEpisodes,
-  listJobs,
+  getJob,
   createDocument,
   deleteDocument,
   enqueueDocumentShotPlan,
   transferAssetsFromDoc,
   transferEpisodesFromDoc,
+  updateProject,
   director2ErrorDetail,
   type Director2Document,
 } from "../api"
@@ -54,11 +55,13 @@ import {
   applyShotPlanJobSnapshot,
   applyShotPlanStreamEvent,
   documentCanPlanShots,
+  documentCanReplanShots,
   documentShotPlanHeaderTag,
   doneForEpisode,
   emptyShotPlanLiveState,
   episodeShotPlanError,
   isAssemblingShotPlan,
+  isAwaitingAspectDocument,
   isCurrentPlanningEpisode,
   isDocumentShotPlanning,
   isQueuedPlanningEpisode,
@@ -71,14 +74,24 @@ import {
   sumShotDurationSec,
 } from "../shot-plan-live"
 import { streamH3PromptJobEvents } from "../workshop-prompt-stream"
+import {
+  DEFAULT_WORKSHOP_ASPECT,
+  WORKSHOP_ASPECT_OPTIONS,
+  aspectConfirmDescription,
+  documentNeedsAspectConfirm,
+  workshopAspectFromExtra,
+  type WorkshopAspectHint,
+} from "../workshop-aspect"
 import "./content-library.css"
 import "../../director/components/director-asset-card.css"
 
 interface ContentLibraryPaneProps {
   csrfToken: string
   projectId: string
+  projectExtra?: Record<string, unknown> | null
   onAssetsTransferred: () => void
   onEpisodesTransferred: () => void
+  onProjectUpdated?: () => void
 }
 
 // 剧本解析结果形状（原版为 JS 未标注，按模板取值字段补全）
@@ -155,8 +168,10 @@ type AnalysisTabKey = "episodes" | "characters" | "scenes" | "props" | "globals"
 export default function ContentLibraryPane({
   csrfToken,
   projectId,
+  projectExtra,
   onAssetsTransferred,
   onEpisodesTransferred,
+  onProjectUpdated,
 }: ContentLibraryPaneProps) {
   const [documents, setDocuments] = useState<LibraryDocument[]>([])
   const [selectedDoc, setSelectedDoc] = useState<LibraryDocument | null>(null)
@@ -173,6 +188,12 @@ export default function ContentLibraryPane({
   const [activeTab, setActiveTab] = useState<AnalysisTabKey>("episodes")
   const [activeEpisodeKeys, setActiveEpisodeKeys] = useState<string[]>(["1"])
   const [planningShots, setPlanningShots] = useState(false)
+  const [aspectModalOpen, setAspectModalOpen] = useState(false)
+  const [aspectConfirmDoc, setAspectConfirmDoc] = useState<LibraryDocument | null>(null)
+  const [chosenAspect, setChosenAspect] = useState(DEFAULT_WORKSHOP_ASPECT)
+  const [confirmingAspect, setConfirmingAspect] = useState(false)
+  const [replanModalOpen, setReplanModalOpen] = useState(false)
+  const [replanEpisodeNum, setReplanEpisodeNum] = useState<number | "all">("all")
   const [hideShotPlanProgress, setHideShotPlanProgress] = useState(false)
   const [shotPlanLive, setShotPlanLive] = useState(() => emptyShotPlanLiveState())
   const [searchParams, setSearchParams] = useSearchParams()
@@ -194,7 +215,8 @@ export default function ContentLibraryPane({
   const headerWorldviewTag = contentLibraryHeaderTagText(selectedDoc?.analysis?.positioning?.worldview)
   const planning = isDocumentShotPlanning(selectedDoc)
   const planningJobId = String(selectedDoc?.shot_plan_job_id || "")
-  const canPlanShots = documentCanPlanShots(selectedDoc)
+  const canPlanShots = documentCanPlanShots(selectedDoc) || isAwaitingAspectDocument(selectedDoc)
+  const canReplanShots = documentCanReplanShots(selectedDoc)
   const shotPlanHeaderTag = documentShotPlanHeaderTag(selectedDoc)
   const totalShotsCount = useMemo(() => {
     if (!selectedDoc?.analysis?.episodes) return 0
@@ -310,14 +332,15 @@ export default function ContentLibraryPane({
       setImportModalVisible(false)
       selectedDocIdRef.current = created.id
       revealEpisodesWorkspace(1)
-      if (created.shot_plan_job_id) {
-        setShotPlanLive(emptyShotPlanLiveState(created.shot_plan_job_id))
-        message.success("剧本文档已导入，正在本页规划出片镜头")
+      setSelectedDoc(created as LibraryDocument)
+      await loadDocs({ selectId: created.id })
+      onProjectUpdated?.()
+      if (documentNeedsAspectConfirm(created) || isAwaitingAspectDocument(created)) {
+        openAspectConfirm(created as LibraryDocument)
+        message.success("剧本文档已导入，请确认成片画幅后再规划镜头")
       } else {
         message.success("剧本文档已导入")
       }
-      setSelectedDoc(created as LibraryDocument)
-      await loadDocs({ selectId: created.id })
     } catch (err) {
       message.error(director2ErrorDetail(err, "导入失败"))
     } finally {
@@ -427,14 +450,15 @@ export default function ContentLibraryPane({
       })
       selectedDocIdRef.current = created.id
       revealEpisodesWorkspace(1)
-      if (created.shot_plan_job_id) {
-        setShotPlanLive(emptyShotPlanLiveState(created.shot_plan_job_id))
-        message.success("已导入《寒门硕士》，正在本页规划出片镜头")
+      setSelectedDoc(created as LibraryDocument)
+      await loadDocs({ selectId: created.id })
+      onProjectUpdated?.()
+      if (documentNeedsAspectConfirm(created) || isAwaitingAspectDocument(created)) {
+        openAspectConfirm(created as LibraryDocument)
+        message.success("已导入《寒门硕士》，请确认成片画幅后再规划镜头")
       } else {
         message.success("已导入《寒门硕士》")
       }
-      setSelectedDoc(created as LibraryDocument)
-      await loadDocs({ selectId: created.id })
     } catch {
       message.error("导入范例失败")
     } finally {
@@ -442,24 +466,81 @@ export default function ContentLibraryPane({
     }
   }
 
+  function openAspectConfirm(doc: LibraryDocument) {
+    const extraAspect = workshopAspectFromExtra(projectExtra)
+    const suggested = extraAspect || doc.aspect_hint?.suggested || DEFAULT_WORKSHOP_ASPECT
+    setAspectConfirmDoc(doc)
+    setChosenAspect(suggested)
+    setAspectModalOpen(true)
+  }
+
   async function handlePlanShots() {
     if (!selectedDoc) return
+    openAspectConfirm(selectedDoc)
+  }
+
+  async function startDocumentShotPlan(
+    doc: LibraryDocument,
+    aspect?: string,
+    force = false,
+    episodeNum?: number,
+  ) {
     setPlanningShots(true)
     try {
-      const res = await enqueueDocumentShotPlan(csrfToken, projectId, selectedDoc.id)
+      const res = await enqueueDocumentShotPlan(csrfToken, projectId, doc.id, aspect, force, episodeNum)
       const jobId = String(res.job_id || "")
-      revealEpisodesWorkspace(selectedDoc.analysis?.episodes?.[0]?.episode_num || 1)
+      revealEpisodesWorkspace(episodeNum ?? doc.analysis?.episodes?.[0]?.episode_num ?? 1)
       if (jobId) {
         setShotPlanLive(emptyShotPlanLiveState(jobId))
         setSelectedDoc((prev) => (prev ? { ...prev, status: "planning", shot_plan_job_id: jobId } : prev))
       }
-      message.success(res.duplicate ? "已有进行中的镜头规划，进度在本页，也可到全部任务查看" : "已开始规划出片镜头，进度在本页分集列表上方")
-      await loadDocs({ selectId: selectedDoc.id, silent: true })
+      message.success(
+        res.duplicate
+          ? "已有进行中的镜头规划，进度在本页，也可到全部任务查看"
+          : force
+            ? "已开始重新规划出片镜头，完成后请再同步工坊"
+            : "已开始规划出片镜头，进度在本页分集列表上方",
+      )
+      await loadDocs({ selectId: doc.id, silent: true })
+      return true
     } catch (err) {
-      message.error(director2ErrorDetail(err, "规划出片镜头失败"))
+      message.error(director2ErrorDetail(err, force ? "重新规划镜头失败" : "规划出片镜头失败"))
+      return false
     } finally {
       setPlanningShots(false)
     }
+  }
+
+  async function confirmAspectAndPlan() {
+    const doc = aspectConfirmDoc || selectedDoc
+    if (!doc) return
+    const aspect = chosenAspect || DEFAULT_WORKSHOP_ASPECT
+    setConfirmingAspect(true)
+    try {
+      await updateProject(csrfToken, projectId, { extra: { workshop_aspect_ratio: aspect } })
+      const started = await startDocumentShotPlan(doc, aspect)
+      if (started) setAspectModalOpen(false)
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "规划出片镜头失败"))
+    } finally {
+      setConfirmingAspect(false)
+    }
+  }
+
+  function openReplanModal() {
+    if (!selectedDoc) return
+    const episodes = selectedDoc.analysis?.episodes || []
+    const firstPlanned = episodes.find((episode) => String(episode.shots_source || "").toLowerCase() === "llm")
+    setReplanEpisodeNum(firstPlanned?.episode_num ?? episodes[0]?.episode_num ?? "all")
+    setReplanModalOpen(true)
+  }
+
+  async function confirmReplanShots() {
+    if (!selectedDoc) return
+    const aspect = workshopAspectFromExtra(projectExtra) || undefined
+    const episodeNum = replanEpisodeNum === "all" ? undefined : replanEpisodeNum
+    const started = await startDocumentShotPlan(selectedDoc, aspect, true, episodeNum)
+    if (started) setReplanModalOpen(false)
   }
 
   useEffect(() => {
@@ -528,8 +609,7 @@ export default function ContentLibraryPane({
       void (async () => {
         await loadDocs({ silent: true })
         try {
-          const jobs = await listJobs(projectId)
-          const job = jobs.find((item) => item.id === planningJobId)
+          const job = await getJob(projectId, planningJobId)
           if (job?.payload) {
             setShotPlanLive((prev) => (
               prev.jobId === planningJobId ? applyShotPlanJobSnapshot(prev, job.payload) : prev
@@ -664,6 +744,17 @@ export default function ContentLibraryPane({
                         </Button>
                       ) : null}
 
+                      {canReplanShots ? (
+                        <Button
+                          className="replan-shot-btn"
+                          loading={planningShots}
+                          icon={<Sparkles size={15} />}
+                          onClick={openReplanModal}
+                        >
+                          重新规划镜头
+                        </Button>
+                      ) : null}
+
                       <Tooltip title={planning ? "镜头规划完成后才能同步至剧集工坊" : undefined}>
                         <span>
                           <Button
@@ -762,6 +853,7 @@ export default function ContentLibraryPane({
                                   ep.episode_num,
                                   selectedDoc.analysis?.logs,
                                   liveDone?.error,
+                                  source,
                                 )
                                 const currentPlanning = isCurrentPlanningEpisode(ep.episode_num, shotPlanLive, planning)
                                 const queued = isQueuedPlanningEpisode(ep.episode_num, shotPlanLive, planning)
@@ -1137,6 +1229,73 @@ export default function ContentLibraryPane({
             </div>
           </Radio>
         </Radio.Group>
+      </Modal>
+
+      <Modal
+        open={aspectModalOpen}
+        title="确认成片画幅"
+        okText="确认并规划镜头"
+        cancelText="稍后再说"
+        confirmLoading={confirmingAspect}
+        okButtonProps={{ disabled: confirmingAspect || !chosenAspect }}
+        cancelButtonProps={{ disabled: confirmingAspect }}
+        maskClosable={!confirmingAspect}
+        onOk={confirmAspectAndPlan}
+        onCancel={() => {
+          if (!confirmingAspect) setAspectModalOpen(false)
+        }}
+        className="d2-content-library"
+      >
+        <p style={{ marginBottom: 12 }}>
+          {aspectConfirmDescription(
+            (aspectConfirmDoc?.aspect_hint || selectedDoc?.aspect_hint) as WorkshopAspectHint | null,
+            chosenAspect,
+          )}
+        </p>
+        <Form layout="vertical">
+          <Form.Item label="成片画幅" required>
+            <Select
+              value={chosenAspect}
+              onChange={(value) => setChosenAspect(String(value))}
+              options={WORKSHOP_ASPECT_OPTIONS}
+              disabled={confirmingAspect}
+            />
+          </Form.Item>
+        </Form>
+        </Modal>
+
+      <Modal
+        open={replanModalOpen}
+        title="重新规划哪一集？"
+        okText="开始重新规划"
+        cancelText="取消"
+        confirmLoading={planningShots}
+        okButtonProps={{ danger: true, disabled: planningShots || replanEpisodeNum == null }}
+        cancelButtonProps={{ disabled: planningShots }}
+        maskClosable={!planningShots}
+        onOk={confirmReplanShots}
+        onCancel={() => {
+          if (!planningShots) setReplanModalOpen(false)
+        }}
+        className="d2-content-library"
+      >
+        <p>
+          重新规划会覆盖所选分集已有的出片镜头；工坊中已经生成的 Take 不会自动删除。
+          默认只重规划一集，确需全部重算时再选择“全部分集”。
+        </p>
+        <Select
+          aria-label="重新规划分集"
+          value={replanEpisodeNum}
+          onChange={(value) => setReplanEpisodeNum(value as number | "all")}
+          style={{ width: "100%" }}
+          options={[
+            ...(selectedDoc?.analysis?.episodes || []).map((episode) => ({
+              value: episode.episode_num,
+              label: `第 ${episode.episode_num} 集${episode.title ? ` · ${episode.title}` : ""}`,
+            })),
+            { value: "all", label: "全部分集（谨慎使用）" },
+          ]}
+        />
       </Modal>
 
       {/* 剧本规范说明弹窗 */}

@@ -200,6 +200,18 @@
   border: none;
 }
 
+.d2-content-library .replan-shot-btn {
+  color: var(--studio-primary, #7047f6);
+  border-color: var(--studio-primary, #7047f6);
+  background: var(--studio-surface, #ffffff);
+}
+.d2-content-library .replan-shot-btn:hover,
+.d2-content-library .replan-shot-btn:focus-visible {
+  color: var(--studio-primary-hover, #5b35d5);
+  border-color: var(--studio-primary-hover, #5b35d5);
+  background: var(--studio-primary-soft, rgba(112, 71, 246, 0.08));
+}
+
 .d2-content-library .sync-ep-btn {
   background: #ffffff;
   color: #7047f6;

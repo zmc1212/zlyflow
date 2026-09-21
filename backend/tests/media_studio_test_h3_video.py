@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 import websocket
 
-from backend.app.llm_client import OpenAICompatibleClient
+from backend.app.llm_client import LlmTemporaryError, OpenAICompatibleClient
 from backend.app.media_studio.services.comfy_video_client import ComfyVideoClient
 from backend.app.media_studio.services.episode_image_prompts import beat_reference_urls, beat_render_prompt
 from backend.app.media_studio.services.episode_video_service import EpisodeVideoService
@@ -20,6 +20,15 @@ from backend.app.media_studio.services.h3_prompt_builder import H3PromptBuilder,
 from backend.app.media_studio.services.llm_service import LlmService
 from backend.app.media_studio.services.project_detail_service import ProjectDetailService
 from backend.app.skill_packs import HALF_NARRATED_PACK_ID
+from backend.app.skill_packs.handlers import (
+    H3_REFERENCE_POLICY,
+    bind_r2v_slot_images,
+    h3_authoring_context_images,
+    h3_picture_reference_errors,
+    h3_prompt_context_fingerprint,
+    h3_prompt_reference_state,
+)
+from backend.app.skill_packs.recipe import get_pack
 
 
 def rich_prompt(dialogue: str = "你好。") -> str:
@@ -126,7 +135,8 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("第一句。", prompts[0])
         self.assertIn("第二句。", prompts[1])
         self.assertNotIn("第二句。", prompts[0])
-        self.assertIn("<Subject 1>", prompts[0])
+        self.assertNotIn("<Picture 1>", prompts[0])
+        self.assertNotIn("<Subject 1>", prompts[0])
         self.assertIn("[Shot 1]", prompts[0])
 
     def test_build_prompts_does_not_call_llm(self):
@@ -211,6 +221,37 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("reasoning_effort", mock_chat.call_args.kwargs)
         self.assertTrue(mock_chat.call_args.kwargs["stream"])
 
+    @patch.object(
+        LlmService,
+        "_runtime_config",
+        return_value=("https://api.example/v1", "Qwen/Qwen2.5-7B-Instruct", "sk-test"),
+    )
+    @patch.object(
+        OpenAICompatibleClient,
+        "chat_completion",
+        side_effect=[
+            LlmTemporaryError("读取大模型流式响应失败：upstream connection reset without close handshake"),
+            "planned shots",
+        ],
+    )
+    def test_chat_text_retries_stream_connection_reset_once(self, mock_chat, _config):
+        self.assertEqual(LlmService.chat_text("sys", "user"), "planned shots")
+        self.assertEqual(mock_chat.call_count, 2)
+
+    def test_embedded_stream_connection_reset_is_temporary(self):
+        client = OpenAICompatibleClient(base_url="https://api.example/v1", api_key="sk-test")
+        with self.assertRaisesRegex(LlmTemporaryError, "upstream connection reset without close handshake"):
+            client._raise_if_embedded_stream_error(
+                {"error": "upstream connection reset without close handshake; please retry"}
+            )
+
+    def test_embedded_json_connection_reset_is_temporary(self):
+        client = OpenAICompatibleClient(base_url="https://api.example/v1", api_key="sk-test")
+        with self.assertRaisesRegex(LlmTemporaryError, "upstream connection reset without close handshake"):
+            client._extract_response_content(
+                {"error": "upstream connection reset without close handshake; please retry"}
+            )
+
     def test_validate_h3_prompt_rejects_short_english(self):
         from backend.app.media_studio.services.llm_service import LlmService
 
@@ -287,7 +328,7 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("必须在 8 秒内演完", text)
         self.assertIn("原样保留 9:16", text)
         self.assertIn("只锁身份", text)
-        self.assertIn("不锁站位", text)
+        self.assertIn("场景卡和三联只可转成", text)
         self.assertNotIn("appearance from", text)
         self.assertIn("Fill only missing", text)
 
@@ -322,6 +363,9 @@ class H3PromptTests(unittest.TestCase):
         self.assertEqual(inner[0]["speaker"], "吴耐")
         self.assertEqual(inner[0]["text"], "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。")
         self.assertEqual([item["text"] for item in H3PromptBuilder._dialogue_turns(shot)], [item["text"] for item in spoken])
+        stuffed = {**shot, "narration": inner[0]["text"]}
+        self.assertEqual("", H3PromptBuilder.third_person_narration(stuffed))
+        self.assertTrue(any("内心" in str(item.get("speaker") or "") for item in H3PromptBuilder._raw_script_turns(shot)))
 
     def test_h3_user_prompt_does_not_echo_inner_line_repeatedly(self):
         from backend.app.media_studio.services.llm_service import LlmService
@@ -407,6 +451,12 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("rewrite from scratch", text.lower())
         self.assertNotIn("必须展开进画面正文", text)
         self.assertNotIn("Fill only missing", text)
+
+    def test_detect_pack_aspect_ratio_keeps_confirmed_values(self):
+        self.assertEqual("16:9", H3PromptBuilder.detect_pack_aspect_ratio({"aspect_ratio": "16:9"}))
+        self.assertEqual("1:1", H3PromptBuilder.detect_pack_aspect_ratio({"aspect_ratio": "1:1"}))
+        self.assertEqual("21:9", H3PromptBuilder.detect_pack_aspect_ratio({"aspect_ratio": "21 : 9"}))
+        self.assertEqual("9:16", H3PromptBuilder.detect_pack_aspect_ratio({"aspect_ratio": "9:16"}))
 
     def test_sanitize_beat_draft_strips_empty_quotes_inner_leak_and_lipsync(self):
         inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
@@ -542,6 +592,69 @@ class H3PromptTests(unittest.TestCase):
             },
         )
         self.assertTrue(any("lip-synced" in item or "off-screen voiceover" in item for item in errors))
+
+    def test_skip_program_pack_rejects_shot1_duplicate_and_out_of_order(self):
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken_a = "大爷，我什么都可以做。"
+        spoken_b = "那个，那个房租下个月一定给你。"
+        spoken_c = "不用想也知道，做的是什么。"
+        wrong = (
+            "subject_definitions:\n"
+            "<Picture 1> Wu. <Picture 2> Sha. <Picture 3> corridor. "
+            "<Picture 4> start. <Picture 5> mid. <Picture 6> end.\n"
+            "summary:\nA corridor beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            "[Shot 1] A third-person voiceover says in an off-screen voiceover: "
+            f"<d>[Chinese] {inner}</d> while all visible characters' lips remain completely closed. "
+            f"Sha Lili (S2) says: <d>[Chinese] {spoken_a}</d> "
+            f"Sha Lili (S2) says: <d>[Chinese] {spoken_b}</d> "
+            "An off-screen inner voice says in an off-screen voiceover: "
+            f"<d>[Chinese] {spoken_c}</d> while all visible characters' lips remain completely closed. "
+            f"Wu Nai (S1) says: <d>[Chinese] {spoken_c}</d>\n"
+            "overall_soundscape:\nQuiet corridor.\n"
+            "non_diegetic_music:\nNone.\n"
+        )
+        fixed = (
+            "subject_definitions:\n"
+            "<Picture 1> Wu. <Picture 2> Sha. <Picture 3> corridor. "
+            "<Picture 4> start. <Picture 5> mid. <Picture 6> end.\n"
+            "summary:\nA corridor beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] Sha Lili (S2) says: <d>[Chinese] {spoken_a}</d> "
+            f"Sha Lili (S2) says: <d>[Chinese] {spoken_b}</d> "
+            "An off-screen inner voice (not produced by the on-screen mouth) "
+            f"says in an off-screen voiceover: <d>[Chinese] {inner}</d> "
+            "while all visible characters' lips remain completely closed. "
+            f"Wu Nai (S1) says: <d>[Chinese] {spoken_c}</d>\n"
+            "overall_soundscape:\nQuiet corridor.\n"
+            "non_diegetic_music:\nNone.\n"
+        )
+        beat_info = {
+            "dialogue": (
+                f"沙丽丽：“{spoken_a}{spoken_b}” "
+                f"吴耐（内心）：“{inner}” "
+                f"吴耐：“{spoken_c}”"
+            ),
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+            "ref_images": [{"index": i} for i in range(1, 7)],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        wrong_errors = LlmService._validate_h3_prompt(wrong, "Ref2VA", beat_info)
+        self.assertTrue(any("duplicated" in item for item in wrong_errors))
+        self.assertTrue(any("performance order" in item for item in wrong_errors))
+        self.assertTrue(any("duplicated" in item for item in H3PromptBuilder.speech_schedule_errors(wrong, shot)))
+        leftover = fixed.replace(
+            f"Wu Nai (S1) says: <d>[Chinese] {spoken_c}</d>",
+            f"Wu Nai (S1) then speaks: <d>[Chinese] {spoken_c}</d>",
+        )
+        skip_errors = LlmService._validate_h3_prompt(leftover, "Ref2VA", beat_info)
+        self.assertEqual([], skip_errors)
+        self.assertTrue(
+            any("then speaks" in item for item in H3PromptBuilder.speech_contract_errors(leftover, shot))
+        )
+        self.assertEqual([], LlmService._validate_h3_prompt(fixed, "Ref2VA", beat_info))
 
     def test_skip_program_pack_repairs_inner_says(self):
         from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
@@ -1027,6 +1140,29 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("spoken lip-sync —", user)
         self.assertIn("禁止抄进 [Shot 1]", user)
 
+    def test_packing_user_prompt_blocks_stale_props_and_disambiguates_notebook(self):
+        user = H3PromptBuilder.build_packing_user_prompt(
+            {
+                "sequence": 2,
+                "scene_name": "现代大学图书馆深夜",
+                "visual_prompt": "同一张书桌上的古籍滑落，电脑、台灯和笔记本仍在画面边缘。",
+                "props": ["古籍"],
+            },
+            "Ref2VA",
+            8,
+        )
+        self.assertIn("成片只允许出现上述当前镜头道具", user)
+        self.assertIn("不得新增为主体", user)
+        self.assertNotIn("笔记本指纸质笔记本", user)
+
+        user_with_notebook = H3PromptBuilder.build_packing_user_prompt(
+            {"props": ["古籍", "电脑", "笔记本"]},
+            "Ref2VA",
+            8,
+        )
+        self.assertIn("最多出现一台电脑", user_with_notebook)
+        self.assertIn("笔记本”指纸质笔记本", user_with_notebook)
+
     def test_prepare_collapses_interleaved_english_spoken_fragments(self):
         from backend.app.media_studio.services.llm_service import LlmService
 
@@ -1472,6 +1608,8 @@ class H3PromptTests(unittest.TestCase):
         }
         user = H3PromptBuilder.build_packing_user_prompt(beat_info, "Ref2VA", 11)
         self.assertIn("唯一调度权威", user)
+        self.assertIn("场景卡和三联只可转成", user)
+        self.assertIn("禁止创建对应 Picture", user)
         self.assertNotIn("必须写进对应 {{Dn}}", user)
         shot = H3PromptBuilder.shot_from_beat_info(beat_info)
         rendered = H3PromptBuilder.render_ref2va(shot)
@@ -1506,10 +1644,11 @@ class H3PromptTests(unittest.TestCase):
             ],
         )
         urls = [str(item.get("url") or "") for item in slots]
-        self.assertIn("https://x/start.png", urls)
-        self.assertIn("https://x/mid.png", urls)
+        self.assertNotIn("https://x/scene.png", urls)
+        self.assertNotIn("https://x/start.png", urls)
+        self.assertNotIn("https://x/mid.png", urls)
         self.assertNotIn("https://x/triptych.png", urls)
-        self.assertEqual("https://x/mid.png", urls[-1])
+        self.assertEqual(["https://x/wu.png"], urls)
 
     def test_faithful_zh_skips_one_line_one_landing_windows(self):
         from backend.app.director_craft.coverage import CLAUSE_PUSH_IN, CLAUSE_TILT_UP
@@ -2165,9 +2304,10 @@ class H3PromptTests(unittest.TestCase):
             },
         }
         finalized = H3PromptJobService._finalize_prompt(payload, prompt)
-        self.assertIn("<Subject 3>", finalized)
+        self.assertNotIn("<Subject 3>", finalized)
         shot = H3PromptJobService._beat_info_shot(payload)
-        self.assertEqual([], H3PromptBuilder.validate_prompts([shot], [finalized]))
+        errors = H3PromptBuilder.validate_prompts([shot], [finalized])
+        self.assertTrue(any("未上传" in error or "T2V" in error for error in errors))
 
     def test_beat_info_prompt_finalize_skips_prepare_when_skip_program_pack(self):
         from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
@@ -2205,6 +2345,49 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("运镜：慢推", fields["video_prompt_zh"])
         fallback = H3PromptJobService._beat_context_fields({"soundscape": "雨声"})
         self.assertEqual("雨声", fallback["audio"])
+
+    def test_previous_shot_handoff_and_packing_user_include_opening_state(self):
+        from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
+
+        beats = [
+            {
+                "id": "b1",
+                "sequence": 1,
+                "scene": "大学图书馆",
+                "action": "开场：坐在书桌前。收束：古籍滑向桌沿。",
+                "closing_state": "仍坐书桌前，古籍滑向桌沿",
+                "transition_note": "动作匹配切",
+            },
+            {
+                "id": "b2",
+                "sequence": 2,
+                "scene": "大学图书馆",
+                "action": "开场：仍坐在书桌前。伸手接书。",
+                "opening_state": "仍坐在同一书桌前",
+                "transition_note": "动作匹配切",
+            },
+        ]
+        handoff = H3PromptJobService._previous_shot_for_beat(beats, beats[1])
+        self.assertIn("落幅姿势：仍坐书桌前", handoff)
+        self.assertIn("切型：动作匹配切", handoff)
+        self.assertEqual("", H3PromptJobService._previous_shot_for_beat(beats, beats[0]))
+        user = H3PromptBuilder.build_packing_user_prompt(
+            {
+                "sequence": 2,
+                "action": beats[1]["action"],
+                "opening_state": beats[1]["opening_state"],
+                "previous_shot": handoff,
+                "scene_name": "大学图书馆",
+                "ref_images": [{"index": 1, "name": "沈砚", "category": "character"}],
+            },
+            "Ref2VA",
+            8,
+        )
+        self.assertIn("上一镜承接", user)
+        self.assertIn("OPENING STATE at 00:00", user)
+        self.assertIn("仍坐在同一书桌前", user)
+        system = H3PromptBuilder.packing_system_prompt("Ref2VA", 8)
+        self.assertIn("OPENING STATE", system)
 
     def test_h3_prompt_failure_payload_keeps_author_errors_and_vision(self):
         from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
@@ -2502,7 +2685,7 @@ class LookSelectionTests(unittest.TestCase):
             assets,
             stage="render",
         )
-        self.assertEqual(["https://x/sketch.png", "https://x/new.png"], urls)
+        self.assertEqual(["https://x/sketch.png", "https://x/mother.png", "https://x/new.png"], urls)
 
     def test_render_references_include_one_selected_look_per_character(self):
         assets = [
@@ -2530,6 +2713,51 @@ class LookSelectionTests(unittest.TestCase):
             ["https://x/sketch.png", "https://x/mother.png", "https://x/new.png"],
             urls,
         )
+
+    def test_render_references_use_era_matched_look_without_explicit_id(self):
+        assets = [{
+            "id": "char-1",
+            "kind": "character",
+            "image_url": "https://x/avatar.png",
+            "extra": {
+                "avatar_url": "https://x/avatar.png",
+                "identities": self.character["extra"]["identities"],
+            },
+        }]
+        urls = beat_reference_urls(
+            {
+                "character_ids": ["char-1"],
+                "scene": "现代大学图书馆",
+                "sketch_url": "https://x/sketch.png",
+            },
+            assets,
+            stage="render",
+        )
+        self.assertEqual(["https://x/sketch.png", "https://x/new.png"], urls)
+        self.assertNotIn("https://x/old.png", urls)
+
+    def test_triptych_references_use_era_matched_look_without_explicit_id(self):
+        assets = [{
+            "id": "char-1",
+            "kind": "character",
+            "image_url": "https://x/avatar.png",
+            "extra": {
+                "avatar_url": "https://x/avatar.png",
+                "identities": self.character["extra"]["identities"],
+            },
+        }]
+        urls = beat_reference_urls(
+            {
+                "character_ids": ["char-1"],
+                "scene": "现代大学图书馆",
+                "speaker": "现代26岁沈砚",
+            },
+            assets,
+            stage="triptych",
+        )
+        self.assertEqual(["https://x/new.png"], urls)
+        self.assertNotIn("https://x/old.png", urls)
+        self.assertNotIn("https://x/avatar.png", urls)
 
     def test_triptych_references_omit_avatar_when_look_sheet_exists(self):
         assets = [{
@@ -2566,6 +2794,52 @@ class LookSelectionTests(unittest.TestCase):
         )
         self.assertEqual(["https://x/avatar.png"], urls)
 
+    def test_triptych_references_append_prop_sheets_after_scene(self):
+        assets = [
+            {
+                "id": "char-1",
+                "kind": "character",
+                "extra": {"identities": [{"id": "new", "image_url": "https://x/new.png"}]},
+            },
+            {
+                "id": "scene-1",
+                "kind": "scene",
+                "extra": {"master_url": "https://x/scene.png"},
+            },
+            {
+                "id": "prop-1",
+                "kind": "prop",
+                "name": "旧木书箱",
+                "extra": {"reference_url": "https://x/box.png"},
+            },
+            {
+                "id": "prop-2",
+                "kind": "prop",
+                "name": "铜锁",
+                "image_url": "https://x/lock.png",
+            },
+            {
+                "id": "prop-3",
+                "kind": "prop",
+                "name": "无图",
+                "extra": {},
+            },
+        ]
+        urls = beat_reference_urls(
+            {
+                "character_ids": ["char-1"],
+                "character_look_id": "new",
+                "scene_id": "scene-1",
+                "prop_ids": ["prop-1", "prop-3", "prop-2"],
+            },
+            assets,
+            stage="triptych",
+        )
+        self.assertEqual(
+            ["https://x/new.png", "https://x/scene.png", "https://x/box.png", "https://x/lock.png"],
+            urls,
+        )
+
     def test_selected_modern_look_removes_conflicting_default_description(self):
         assets = [{
             "id": "char-1",
@@ -2599,6 +2873,72 @@ class LookSelectionTests(unittest.TestCase):
         self.assertIn("this Beat is contemporary modern-day", prompt)
         self.assertNotIn("ancient teenage scholar", prompt)
         self.assertNotIn("17-year-old wearing an ancient robe", prompt)
+
+
+class H3ReferencePolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.recipe = get_pack(HALF_NARRATED_PACK_ID)
+
+    def test_video_slots_exclude_scene_and_triptych_and_cap_at_nine(self):
+        props = [
+            {
+                "id": f"prop-{index}",
+                "kind": "prop",
+                "name": f"道具 {index}",
+                "extra": {"reference_url": f"https://x/prop-{index}.png"},
+            }
+            for index in range(10)
+        ]
+        assets = [
+            {"id": "scene-1", "kind": "scene", "name": "图书馆", "extra": {"master_url": "https://x/scene.png"}},
+            *props,
+        ]
+        beat = {
+            "id": "beat-2",
+            "characters": [{"id": "char-1", "name": "沈砚", "url": "https://x/shenyan.png"}],
+            "scene": "图书馆",
+            "scene_id": "scene-1",
+            "prop_ids": [item["id"] for item in props],
+            "triptych_url": "https://x/triptych.png",
+            "triptych_panels": {
+                "start": "https://x/start.png",
+                "mid": "https://x/mid.png",
+                "end": "https://x/end.png",
+            },
+        }
+
+        slots = bind_r2v_slot_images(self.recipe, beat, assets)
+        context = h3_authoring_context_images(self.recipe, beat, assets)
+
+        self.assertEqual(9, len(slots))
+        self.assertEqual(list(range(1, 10)), [item["index"] for item in slots])
+        self.assertEqual("character", slots[0]["category"])
+        self.assertTrue(all(item["category"] in {"character", "prop"} for item in slots))
+        context_urls = [item["url"] for item in context]
+        self.assertIn("https://x/scene.png", context_urls)
+        self.assertIn("https://x/triptych.png", context_urls)
+        self.assertIn("https://x/start.png", context_urls)
+
+    def test_picture_validation_and_reference_states(self):
+        refs = [
+            {"index": 1, "category": "character", "url": "https://x/shenyan.png"},
+            {"index": 2, "category": "prop", "url": "https://x/book.png"},
+        ]
+        fingerprint = h3_prompt_context_fingerprint({}, refs, [])
+        valid_prompt = "<Picture 1> keeps identity. <Picture 2> keeps the book."
+        self.assertEqual([], h3_picture_reference_errors(valid_prompt, refs))
+        self.assertTrue(h3_picture_reference_errors(valid_prompt + " <Picture 6>", refs))
+
+        current = {
+            "h3_prompt": valid_prompt,
+            "h3_prompt_source": "generated",
+            "h3_reference_policy": H3_REFERENCE_POLICY,
+            "h3_prompt_context_fingerprint": fingerprint,
+        }
+        self.assertEqual("current", h3_prompt_reference_state(current, refs, fingerprint)[0])
+        self.assertEqual("stale", h3_prompt_reference_state({**current, "h3_reference_policy": "old"}, refs, fingerprint)[0])
+        self.assertEqual("manual", h3_prompt_reference_state({"h3_prompt": valid_prompt, "h3_prompt_source": "manual"}, refs, fingerprint)[0])
+        self.assertEqual("invalid", h3_prompt_reference_state({"h3_prompt": "<Picture 3>", "h3_prompt_source": "manual"}, refs, fingerprint)[0])
 
 
 class EpisodeVideoPrepareShotsTests(unittest.TestCase):
@@ -2640,10 +2980,84 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
             })
         return assets
 
+    def test_zero_authoritative_references_switches_to_t2v(self):
+        beat = self._beat(character_ids=[], scene_id="scene-ready")
+        shots = EpisodeVideoService._prepare_shots(
+            {"beats": [beat]},
+            self._assets(),
+        )
+        self.assertEqual([], shots[0]["ref_images"])
+        self.assertEqual([], shots[0]["reference_urls"])
+
+    def test_second_shot_equivalent_uploads_only_character_and_book(self):
+        beat = self._beat(
+            scene_id="scene-ready",
+            prop_ids=["book"],
+            triptych_url="https://x/triptych.png",
+            triptych_panels={
+                "start": "https://x/start.png",
+                "mid": "https://x/mid.png",
+                "end": "https://x/end.png",
+            },
+        )
+        assets = self._assets() + [{
+            "id": "book",
+            "kind": "prop",
+            "name": "古籍",
+            "extra": {"reference_url": "https://x/book.png"},
+        }]
+        shots = EpisodeVideoService._prepare_shots(
+            {"beats": [beat], "project_id": "p1"},
+            assets,
+        )
+        self.assertEqual(
+            ["https://x/char.png", "https://x/book.png"],
+            shots[0]["reference_urls"],
+        )
+        self.assertEqual(["character", "prop"], [item["category"] for item in shots[0]["ref_images"]])
+
+    def test_stale_generated_prompt_is_blocked_before_enqueue(self):
+        beat = self._beat(
+            scene_id="scene-ready",
+            h3_prompt="<Picture 1> old generated prompt",
+            h3_prompt_source="generated",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            EpisodeVideoService._prepare_shots(
+                {"beats": [beat], "project_id": "p1"},
+                self._assets(),
+            )
+        self.assertIn("旧参考图规则", str(ctx.exception))
+
+    def test_manual_prompt_rejects_removed_picture_number(self):
+        beat = self._beat(
+            scene_id="scene-ready",
+            h3_prompt="<Picture 1> identity. <Picture 2> old scene.",
+            h3_prompt_source="manual",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            EpisodeVideoService._prepare_shots(
+                {"beats": [beat], "project_id": "p1"},
+                self._assets(),
+            )
+        self.assertIn("手写提示词", str(ctx.exception))
+
+    def test_legal_manual_prompt_remains_usable(self):
+        beat = self._beat(
+            scene_id="scene-ready",
+            h3_prompt="<Picture 1> keeps the bound character identity.",
+            h3_prompt_source="manual",
+        )
+        shots = EpisodeVideoService._prepare_shots(
+            {"beats": [beat], "project_id": "p1"},
+            self._assets(),
+        )
+        self.assertEqual("manual", shots[0]["h3_prompt_reference_state"])
+
     def test_falls_back_to_same_name_scene_with_master_view(self):
         shots = EpisodeVideoService._prepare_shots({"beats": [self._beat()]}, self._assets())
         self.assertEqual("scene-ready", shots[0]["scene_id"])
-        self.assertEqual("https://x/scene.png", shots[0]["reference_urls"][-1])
+        self.assertEqual(["https://x/char.png"], shots[0]["reference_urls"])
 
     def test_skill_pack_appends_panel_crops_not_full_triptych(self):
         beat = self._beat(
@@ -2662,18 +3076,47 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
             )
         urls = shots[0]["reference_urls"]
         self.assertIn("https://x/char.png", urls)
-        self.assertIn("https://x/scene.png", urls)
-        self.assertIn("https://x/start.png", urls)
-        self.assertIn("https://x/mid.png", urls)
-        self.assertIn("https://x/end.png", urls)
+        self.assertNotIn("https://x/scene.png", urls)
+        self.assertNotIn("https://x/start.png", urls)
+        self.assertNotIn("https://x/mid.png", urls)
+        self.assertNotIn("https://x/end.png", urls)
         self.assertNotIn("https://x/triptych.png", urls)
-        self.assertEqual("https://x/end.png", urls[-1])
+        self.assertEqual(["https://x/char.png"], urls)
         sources = [item.get("source") for item in shots[0]["ref_images"]]
-        self.assertIn("characters", sources)
-        self.assertIn("scene", sources)
-        self.assertIn("triptych.start", sources)
-        self.assertIn("triptych.mid", sources)
-        self.assertIn("triptych.end", sources)
+        self.assertEqual(["characters"], sources)
+
+    def test_keeps_four_prop_sheets_when_slots_remain(self):
+        beat = self._beat(
+            scene_id="scene-ready",
+            prop_ids=["p1", "p2", "p3", "p4"],
+            triptych_url="https://x/triptych.png",
+            triptych_panels={
+                "start": "https://x/start.png",
+                "mid": "https://x/mid.png",
+                "end": "https://x/end.png",
+            },
+        )
+        assets = self._assets() + [
+            {"id": "p1", "kind": "prop", "name": "古籍", "extra": {"reference_url": "https://x/book.png"}},
+            {"id": "p2", "kind": "prop", "name": "电脑", "extra": {"reference_url": "https://x/pc.png"}},
+            {"id": "p3", "kind": "prop", "name": "台灯", "extra": {"reference_url": "https://x/lamp.png"}},
+            {"id": "p4", "kind": "prop", "name": "笔记本", "extra": {"reference_url": "https://x/nb.png"}},
+        ]
+        with patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=HALF_NARRATED_PACK_ID):
+            shots = EpisodeVideoService._prepare_shots(
+                {"beats": [beat], "project_id": "p1"},
+                assets,
+            )
+        urls = shots[0]["reference_urls"]
+        for url in (
+            "https://x/book.png",
+            "https://x/pc.png",
+            "https://x/lamp.png",
+            "https://x/nb.png",
+        ):
+            self.assertIn(url, urls)
+        self.assertEqual(5, len(urls))
+        self.assertEqual("https://x/nb.png", urls[-1])
 
     def test_binds_scene_by_name_when_scene_id_is_missing(self):
         shots = EpisodeVideoService._prepare_shots(
@@ -2682,14 +3125,12 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
         )
         self.assertEqual("scene-ready", shots[0]["scene_id"])
 
-    def test_still_fails_when_no_scene_has_a_master_view(self):
-        with self.assertRaises(ValueError) as ctx:
-            EpisodeVideoService._prepare_shots(
-                {"beats": [self._beat()]},
-                self._assets(ready_scene=False),
-            )
-        self.assertIn("开元楼走廊", str(ctx.exception))
-        self.assertIn("主视图", str(ctx.exception))
+    def test_scene_without_master_view_is_text_only(self):
+        shots = EpisodeVideoService._prepare_shots(
+            {"beats": [self._beat()]},
+            self._assets(ready_scene=False),
+        )
+        self.assertEqual(["https://x/char.png"], shots[0]["reference_urls"])
 
     def test_selected_beats_skip_other_beats_missing_looks(self):
         character = {
@@ -2843,6 +3284,7 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
         with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
              patch.object(ProjectDetailService, "list_assets", return_value=[character, scene]), \
              patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "_persist_shot_looks"), \
              patch.object(EpisodeVideoService, "create_job", return_value={
                  "job_id": "job-beat-1", "status": "queued", "render_scope": "shot",
              }) as create_job:
@@ -3003,12 +3445,17 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
             "workflow": "minimax-h3-r2v",
             "upscale_after": "true",
         })
-        self.assertTrue(resolved["upscale_after"])
+        self.assertEqual(resolved["upscale_after"], "2")
         off = EpisodeVideoService.resolve_generation_options({
             "workflow": "minimax-h3-r2v",
             "upscale_after": "false",
         })
-        self.assertFalse(off["upscale_after"])
+        self.assertEqual(off["upscale_after"], "off")
+        four = EpisodeVideoService.resolve_generation_options({
+            "workflow": "minimax-h3-r2v",
+            "upscale_after": "4",
+        })
+        self.assertEqual(four["upscale_after"], "4")
 
     def test_vsr_rejection_uses_connected_comfy_vram(self):
         shot = {"sequence": 1, "duration_sec": 15}
@@ -3082,9 +3529,27 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         self.assertEqual("upscale", payload["render_scope"])
         self.assertEqual("https://cdn/1.mp4", payload["source_video_url"])
         self.assertEqual(["beat-1"], payload["beat_ids"])
+        self.assertEqual(2, payload["upscale_scale"])
         client_cls.return_value.ping.assert_called_once()
         client_cls.return_value.require_rtx_vsr_node.assert_called_once()
         executor.submit.assert_called_once()
+
+    def test_create_upscale_job_accepts_4x_scale(self):
+        ready = self._detail(video_urls={"beat-1": "https://cdn/1.mp4"})
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=ready), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR"):
+            get_config.return_value.base_url = "http://127.0.0.1:8188"
+            EpisodeVideoService.create_upscale_job("p1", "e1", "beat-1", options={"scale": 4})
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual(4, payload["upscale_scale"])
+        self.assertIn("4x 超分", payload["model"])
+        title = execute_sql.call_args.args[1][2]
+        self.assertIn("4x 超分", title)
 
     def test_create_upscale_job_matches_legacy_beat_sequence(self):
         ready = {
@@ -3246,7 +3711,14 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         self.assertEqual("https://cdn/2x.mp4", payload["upscaled_video_url"])
         self.assertEqual("https://cdn/orig.mp4", shots[0]["video_url"])
         self.assertEqual("https://cdn/2x.mp4", shots[0]["upscaled_video_url"])
-        update.assert_called_once_with("p1", "e1", "beat-1", {"upscaled_video_url": "https://cdn/2x.mp4"})
+        self.assertEqual("p1", update.call_args.args[0])
+        self.assertEqual("e1", update.call_args.args[1])
+        self.assertEqual("beat-1", update.call_args.args[2])
+        self.assertEqual("https://cdn/2x.mp4", update.call_args.args[3]["upscaled_video_url"])
+        takes = update.call_args.args[3]["video_takes"]
+        self.assertEqual(1, len(takes))
+        self.assertEqual("https://cdn/orig.mp4", takes[0]["url"])
+        self.assertEqual("https://cdn/2x.mp4", takes[0]["upscaled_url"])
         failed = {"render_scope": "selection", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
         failed_shots = [{"beat_id": "beat-2", "sequence": 2, "video_url": "https://cdn/orig2.mp4"}]
         with patch.object(EpisodeVideoService, "_upscale_source_url", side_effect=RuntimeError("显存不足")), \
@@ -3281,6 +3753,144 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         require.assert_called_once()
         free.assert_called_once_with(force=True)
         self.assertEqual("x.mp4", output["filename"])
+
+
+class EpisodeVideoTakesTests(unittest.TestCase):
+    def test_archive_old_url_before_adopting_latest(self):
+        beat = {
+            "id": "beat-1",
+            "video_url": "https://cdn/old.mp4",
+            "upscaled_video_url": "https://cdn/old-2x.mp4",
+            "video_takes": [],
+        }
+        updates = EpisodeVideoService._archive_and_adopt_beat_video(
+            beat, url="https://cdn/new.mp4", job_id="job-2", scope="shot",
+        )
+        self.assertEqual("https://cdn/new.mp4", updates["video_url"])
+        self.assertIsNone(updates["upscaled_video_url"])
+        urls = [item["url"] for item in updates["video_takes"]]
+        self.assertEqual(["https://cdn/old.mp4", "https://cdn/new.mp4"], urls)
+        self.assertEqual("https://cdn/old-2x.mp4", updates["video_takes"][0]["upscaled_url"])
+        self.assertEqual("take-job-2-beat-1", updates["video_take_id"])
+
+    def test_write_selected_archives_old_url_and_adopts_latest(self):
+        beat = {"id": "beat-1", "video_url": "https://cdn/old.mp4", "upscaled_video_url": "https://cdn/old-2x.mp4"}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value={"beats": [beat]}), \
+             patch.object(ProjectDetailService, "update_episode_beat") as update:
+            EpisodeVideoService._write_selected_beat_videos(
+                {"project_id": "p1", "episode_id": "e1", "render_scope": "shot"},
+                [{"beat_id": "beat-1", "sequence": 1}],
+                "https://cdn/new.mp4",
+                job_id="job-9",
+            )
+        fields = update.call_args.args[3]
+        self.assertEqual("https://cdn/new.mp4", fields["video_url"])
+        self.assertIsNone(fields["upscaled_video_url"])
+        self.assertEqual(
+            ["https://cdn/old.mp4", "https://cdn/new.mp4"],
+            [item["url"] for item in fields["video_takes"]],
+        )
+        self.assertEqual("https://cdn/old-2x.mp4", fields["video_takes"][0]["upscaled_url"])
+
+    def test_upscale_attaches_to_adopted_take_not_new_take(self):
+        beat = {
+            "id": "beat-1",
+            "video_url": "https://cdn/orig.mp4",
+            "video_takes": [{"id": "take-1", "url": "https://cdn/orig.mp4", "scope": "shot"}],
+        }
+        updates = EpisodeVideoService._attach_upscaled_to_adopted_take(beat, "https://cdn/2x.mp4")
+        self.assertEqual("https://cdn/2x.mp4", updates["upscaled_video_url"])
+        self.assertEqual(1, len(updates["video_takes"]))
+        self.assertEqual("https://cdn/orig.mp4", updates["video_takes"][0]["url"])
+        self.assertEqual("https://cdn/2x.mp4", updates["video_takes"][0]["upscaled_url"])
+
+    def test_adopt_then_compose_uses_adopted_url(self):
+        beats = [
+            {
+                "id": "beat-1",
+                "sequence": 1,
+                "video_url": "https://cdn/new.mp4",
+                "upscaled_video_url": "https://cdn/new-2x.mp4",
+                "video_takes": [
+                    {"id": "t1", "url": "https://cdn/old.mp4", "scope": "shot", "upscaled_url": "https://cdn/old-2x.mp4"},
+                    {"id": "t2", "url": "https://cdn/new.mp4", "scope": "shot", "upscaled_url": "https://cdn/new-2x.mp4"},
+                ],
+            },
+            {"id": "beat-2", "sequence": 2, "video_url": "https://cdn/b2.mp4"},
+            {"id": "beat-3", "sequence": 3, "video_url": "https://cdn/b3.mp4"},
+        ]
+        adopted = EpisodeVideoService._adopt_take_updates(beats[0], "https://cdn/old.mp4")
+        self.assertEqual("https://cdn/old.mp4", adopted["video_url"])
+        self.assertEqual("https://cdn/old-2x.mp4", adopted["upscaled_video_url"])
+        self.assertEqual(2, len(adopted["video_takes"]))
+        beats[0] = {**beats[0], **adopted}
+        detail = {"number": 1, "title": "t", "beats": beats, "data": {}}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=""), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR"):
+            EpisodeVideoService.create_compose_job("p1", "e1")
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual("https://cdn/old.mp4", payload["source_shots"][0]["video_url"])
+
+    def test_adopt_rejects_url_that_is_not_this_shot(self):
+        beat = {"id": "beat-1", "video_url": "https://cdn/a.mp4", "video_takes": [{"id": "t1", "url": "https://cdn/a.mp4", "scope": "shot"}]}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value={"beats": [beat]}), \
+             patch.object(EpisodeVideoService, "_list_completed_video_jobs", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "不属于"):
+                EpisodeVideoService.adopt_beat_video_take("p1", "e1", "beat-1", {"url": "https://cdn/other.mp4"})
+
+    def test_collect_excludes_episode_compose_upscale_and_splits_selection(self):
+        beat = {"id": "beat-1", "video_url": "https://cdn/a.mp4"}
+        jobs = [
+            {
+                "id": "job-ep",
+                "job_type": "video_generation",
+                "status": "completed",
+                "result_url": "https://cdn/episode.mp4",
+                "created_at": "2026-09-20 01:00:00",
+                "payload_json": {"episode_id": "e1", "render_scope": "episode", "beat_id": "beat-1"},
+            },
+            {
+                "id": "job-sel",
+                "job_type": "video_generation",
+                "status": "completed",
+                "result_url": "https://cdn/timeline.mp4",
+                "created_at": "2026-09-20 02:00:00",
+                "payload_json": {
+                    "episode_id": "e1",
+                    "render_scope": "selection",
+                    "beat_ids": ["beat-1", "beat-2"],
+                    "shots": [
+                        {"beat_id": "beat-1", "video_url": "https://cdn/sel-1.mp4"},
+                        {"beat_id": "beat-2", "video_url": "https://cdn/sel-2.mp4"},
+                    ],
+                },
+            },
+            {
+                "id": "job-vsr",
+                "job_type": "video_generation",
+                "status": "completed",
+                "result_url": "https://cdn/a-2x.mp4",
+                "created_at": "2026-09-20 03:00:00",
+                "payload_json": {
+                    "episode_id": "e1",
+                    "render_scope": "upscale",
+                    "source_video_url": "https://cdn/a.mp4",
+                    "upscaled_video_url": "https://cdn/a-2x.mp4",
+                },
+            },
+        ]
+        takes = EpisodeVideoService.collect_beat_video_takes(beat, jobs, "e1")
+        urls = [item["url"] for item in takes]
+        self.assertIn("https://cdn/a.mp4", urls)
+        self.assertIn("https://cdn/sel-1.mp4", urls)
+        self.assertNotIn("https://cdn/episode.mp4", urls)
+        self.assertNotIn("https://cdn/timeline.mp4", urls)
+        self.assertNotIn("https://cdn/a-2x.mp4", urls)
+        adopted = next(item for item in takes if item["url"] == "https://cdn/a.mp4")
+        self.assertEqual("https://cdn/a-2x.mp4", adopted["upscaled_url"])
 
 
 if __name__ == "__main__":

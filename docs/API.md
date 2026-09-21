@@ -1,6 +1,6 @@
 # ZLY AI Video Studio API 文档
 
-更新日期：2026-09-19
+更新日期：2026-09-20
 
 ## 使用方式
 
@@ -43,7 +43,7 @@
 | `GET` | `/api/modes` | 获取工作流能力注册表、图片尺寸和提示词预设。 |
 | `GET` | `/api/modes/{mode_id}` | 获取一个工作流在 `POST /api/jobs` 中的完整参数契约。 |
 | `POST` | `/api/jobs` | 提交一个生成任务。 |
-| `POST` | `/api/jobs/{job_id}/upscale` | 对已成功成片提交独立 2x 超分任务。 |
+| `POST` | `/api/jobs/{job_id}/upscale` | 对已成功成片提交独立超分任务。JSON 可选 `scale` 为 `2` 或 `4`，缺省 2x。 |
 | `GET` | `/api/jobs` | 按创建时间倒序读取任务列表。 |
 | `GET` | `/api/jobs/{job_id}` | 查询单个任务的进度、状态和输出。 |
 | `POST` | `/api/jobs/{job_id}/cancel` | 停止排队中、生成中或已中断的任务。 |
@@ -131,14 +131,15 @@
 | `POST` | `/api/director/recipes/{project_id}/render-shots` | 按镜提交所选工作流族的视频任务（T2V/I2V/R2V 仍自动匹配）。 |
 | `POST` | `/api/director/recipes/{project_id}/shots/{shot_id}/translate-prompt` | 把镜头中文正文按官方 h3-prompt-writing skill 翻译为英文 H3 正文并返回，不落库。LLM 未配置 503、缺中文正文 422、未知 shot 404。 |
 | `POST` | `/api/projects` | 创建导台2项目。可选 `extra.skill_pack_id` 绑定技能包，写入 `settings_json.extra`。未知 id 返回 400。 |
-| `PUT` | `/api/projects/{project_id}` | 更新导台2项目。可单独提交 `extra` 合并进 `settings.extra`；只改 `settings` 时保留已有 extra。 |
-| `GET` | `/api/projects/{project_id}/documents` | 列出内容库文档。`analysis.episodes[]` 含程序切集结果：`episode_num`、`body`（本集 Markdown）、`shots`（出片镜，含 `duration_sec`）、规划成功时 `shots_source=llm`。进行中的镜头规划带 `shot_plan_job_id`，文档 `status` 为 `planning`。 |
-| `POST` | `/api/projects/{project_id}/documents` | 导入或粘贴剧本文档。JSON：`raw_text`，可选 `filename` / `spine_template` / `visual_style` / `input_mode`（缺省 `paste`）。程序按 `# 第N集` 切集（不改集号），每集写入 `body` 后立刻返回 200；粘贴/文件导入再入队 `shot_plan`，响应带 `shot_plan_job_id`，文档 `status=planning`。`input_mode=ai_pipeline` 不入队。某集规划失败则保留解析器镜头并写入 `analysis.logs`。 |
-| `POST` | `/api/projects/{project_id}/documents/{doc_id}/shot-plan` | 为未规划或规划失败的旧稿入队同一套 `shot_plan` 任务。**202** 返回 `job_id`。AI 流水线或已全部 `shots_source=llm` 返回 400；已有进行中任务返回原 `job_id` 并标 `duplicate`。 |
-| `GET` | `/api/projects/{project_id}/jobs` | 列出项目任务，含 `image_generation` / `video_generation` / `h3_prompt` / `shot_plan` / `ai_pipeline` / `tts_generation`。`shot_plan` 的 `payload.document_id` 用于跳回内容库该文档。 |
+| `PUT` | `/api/projects/{project_id}` | 更新导台2项目。可改 `name`。可单独提交 `extra` 合并进 `settings.extra`；只改 `settings` 时保留已有 extra。 |
+| `GET` | `/api/projects/{project_id}/documents` | 列出内容库文档。`analysis.episodes[]` 含程序切集结果：`episode_num`、`body`（本集 Markdown）、`shots`（出片镜，含 `duration_sec`、`opening_state`、`closing_state`、`transition_note`）、规划成功时 `shots_source=llm`。进行中的镜头规划带 `shot_plan_job_id`，文档 `status` 为 `planning`。导入后未确认画幅时 `status` 为 `awaiting_aspect`，并带 `aspect_hint`（`suggested` / `hits` / `conflicts`）。 |
+| `POST` | `/api/projects/{project_id}/documents` | 导入或粘贴剧本文档。JSON：`raw_text`，可选 `filename` / `spine_template` / `visual_style` / `input_mode`（缺省 `paste`）。程序按 `# 第N集` 切集（不改集号），每集写入 `body` 后立刻返回 200，**不**自动入队 `shot_plan`。需要规划时文档 `status=awaiting_aspect`，响应带 `aspect_hint` 与 `needs_shot_plan`。`input_mode=ai_pipeline` 不规划。工程名仍为默认「未命名导演工程」时按文档名或剧目标题自动改名，响应可带 `project_name`。 |
+| `POST` | `/api/projects/{project_id}/documents/{doc_id}/shot-plan` | 确认成片画幅后入队 `shot_plan`。JSON 可选 `aspect_ratio`，写入 `settings.extra.workshop_aspect_ratio` 并作为规划权威画幅。JSON 可选 `force: true` 覆盖已 `shots_source=llm` 的出片镜（不删工坊 Take）。**202** 返回 `job_id`。AI 流水线返回 400；未 `force` 且已全部 `shots_source=llm` 仍 400；已有进行中任务返回原 `job_id` 并标 `duplicate`。 |
+| `GET` | `/api/projects/{project_id}/jobs` | 列出项目任务，含 `image_generation` / `video_generation` / `h3_prompt` / `shot_plan` / `ai_pipeline` / `tts_generation`。列表 `payload` 只保留工坊/表格需要的字段（镜号、状态、结果 URL、精简 `shots`/`stream`），不含草稿、`request_body`、原始 `payload_json`。`shot_plan` 的 `payload.document_id` 用于跳回内容库该文档。 |
+| `GET` | `/api/projects/{project_id}/jobs/{job_id}` | 读取单条任务的完整 `payload`（含草稿、提示词、`request_body`）。不存在 **404**。 |
 | `GET` | `/api/voice-bank` | 读取内置短剧配音声线目录（IndexTTS 官方示例）。 |
 | `GET` | `/api/voice-bank/{preset_id}/audio` | 读取内置声线 wav。未知 id **404**。 |
-| `POST` | `/api/projects/{project_id}/assets/{asset_id}/generate` | 资产生图。JSON `target_type`：`identity` 为角色设定板（16:9、2K、`2048x1152`），不要求已有头像；无外观描述且无原片参考图时 **400**。参考图顺序：原片 > 其他已出图造型（排除当前 look）> 仅当两档都没有时才用旧 `avatar_url`。`avatar` 仍可用但不在界面露出。头像 / 场景 / 道具分辨率仍为 1K。 |
+| `POST` | `/api/projects/{project_id}/assets/{asset_id}/generate` | 资产生图。JSON `target_type`：`identity` 为角色设定板（16:9、2K、`2048x1152`），不要求已有头像；无外观描述且无原片参考图时 **400**。无原片/旧设定板/头像时按纯文生图提交（prompt 标明 text-to-image，不写未附图或改图）。参考图顺序：原片 > 其他已出图造型（排除当前 look）> 仅当两档都没有时才用旧 `avatar_url`。`prop_reference` 为道具设定板（同样 16:9、2K、`2048x1152`）；无外观描述且无原片 **400**；无原片时 prompt 标明 text-to-image。`prop_turnaround` / `prop_detail` 仍可用但不在界面露出。`avatar` 仍可用但不在界面露出。头像 / 场景分辨率仍为 1K。 |
 | `POST` | `/api/projects/{project_id}/assets/{asset_id}/voice` | multipart 上传角色参考音，写入 `extra.voice.ref_audio_url`。非角色或空文件 400。 |
 | `POST` | `/api/projects/{project_id}/assets/{asset_id}/voice/preset` | JSON `{ preset_id }` 绑定内置短剧声线。未知 id 400。 |
 | `DELETE` | `/api/projects/{project_id}/assets/{asset_id}/voice` | 清除角色参考音。 |
@@ -149,16 +150,17 @@
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/sync` | 从分镜同步台词轨并写回 `beats[].dubbing_lines`。 |
 | `PATCH` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/lines/{line_id}` | 更新单句文本/情绪/强度/语速/混音。改文本会清空已生成音频。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/generate` | 单句或批量入队 `tts_generation`。JSON 可选 `line_id` / `line_ids`；缺省生成本集全部。**202** 返回 `job_id`。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/generate-video` | 按工作流入队整集或逐镜视频。JSON 可带注册表 options，含 `upscale_after`。仅逐镜/选中镜会在原片写入后自动 2x 超分；整集直出不自动超分。**202** 返回 `job_id`。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video` | 单镜入队。可带 `upscale_after`；超分失败仍保留原片。**202**。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/generate-video` | 按工作流入队整集或逐镜视频。最终 R2V 只上传本镜角色设定板与绑定道具设定板，角色优先、最多 9 张；场景卡、三联母图与三张裁切格仅供写稿，不上传视频模型，零参考镜头走 T2V。入队时按本镜时代写入 `character_look_ids`。JSON 可带注册表 options，含 `upscale_after=off\|2\|4`。仅逐镜/选中镜会在原片写入后自动按选定倍数超分；整集直出不自动超分。**202** 返回 `job_id`。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video` | 单镜入队。R2V 顺序同上。可带 `upscale_after`；超分失败仍保留原片。成功后原片写入 `video_url` 并归档到 `video_takes`（默认采用最新）。**202**。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/compose` | 拼接各镜 `video_url` 为分集成片。JSON 可选 `mix_dubbing`（缺省 true）：内心/旁白叠到对应镜，`mix=replace` 的开口句静音该镜 H3 原声。半解说包旁白未配音 **400**。**202** 返回 `job_id`。不因 `upscale_after` 自动超分。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale` | 对本镜已成功成片提交独立 2x 超分。原片 `video_url` 不变，结果写入 `upscaled_video_url`。进行中任务 **409**；无成片或相对当前连接 GPU 显存预估过大 **422**。**202** 返回 `job_id`。 |
-| `POST` | `/api/projects/{project_id}/jobs/{job_id}/upscale` | 对导演台2「全部任务」里已成功的视频生成任务提交 2x 超分。用该任务 `result_url` 作原片；有关联单镜则写回 Beat。超分任务本身 / 未完成 / 多镜 selection **422**；同一成片进行中超分 **409**；相对当前连接 GPU 显存过大 **422**。整集直出和拼接片可手动点，过长可能被拒绝。**202**。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/video-takes/adopt` | 采用本镜一条成功成片为正式原片。JSON `{ url }` 或 `{ job_id }`。校验确属本镜 `shot`/`selection` 成功抽卡后写 `video_url`；该 Take 已有 2x 则同步 `upscaled_video_url`，否则清空。采用的那条留在 `video_takes`。不属于本镜 **400**。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale` | 对本镜已成功成片提交独立超分。JSON 可选 `scale` 为 `2` 或 `4`，缺省 2x。原片 `video_url` 不变，结果写入 `upscaled_video_url` 并挂到当前采用 Take，超分不单独成 Take。进行中任务 **409**；无成片或相对当前连接 GPU 显存预估过大 **422**。**202** 返回 `job_id`。 |
+| `POST` | `/api/projects/{project_id}/jobs/{job_id}/upscale` | 对导演台2「全部任务」里已成功的视频生成任务提交超分。JSON 可选 `scale` 为 `2` 或 `4`，缺省 2x。用该任务 `result_url` 作原片；有关联单镜则写回 Beat。超分任务本身 / 未完成 / 多镜 selection **422**；同一成片进行中超分 **409**；相对当前连接 GPU 显存过大 **422**。整集直出和拼接片可手动点，过长可能被拒绝。**202**。 |
 | `POST` | `/api/projects/{project_id}/documents/{doc_id}/transfer-episodes` | 把内容库该文档的分集/出片镜头写入剧集工坊。JSON `{ mode }`：`overwrite`（缺省）按本剧本重写已有集的 `data_json.beats` 并删除剧本里没有的旧集；`append` 跳过已有集号只补新集。只拷贝文档里已有的出片镜，同步时不再调大模型规划。成功返回 `mode`、`replaced_episodes`、`created_episodes`、`skipped_episodes`、`deleted_episodes`、`transferred_shots`。未知 mode 或未识别到分集返回 400。 |
-| `PUT` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}` | 更新单条 Beat。可写 `h3_prompt` 与 `h3_prompt_source`（`manual` / `generated`），以及 `timestamped_zh_prompt`。手动保存的六段出片按原文使用。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` | 剧集工坊素材组：为当前分镜入队 **一个** `h3_prompt` 任务，不再按口型/内心/近景规则拆镜。未绑技能包时程序从本镜动作/运镜/台词编译六段 Ref2VA。绑定半解说包时由 LLM 一次写出中文八块分秒稿（时间码从本镜 `00:00` 起；可看图时看角色卡/场景卡/整张三联）和英文六段；配方临时 `skip_program_pack=true` 时出片英文用 GPT 六段原文（规范化 `<Picture>` / `<Subject>`、六段 `name:` 标题，并在 `detailed_description` 补 `[Shot 1]`；内心改成官方 `says in an off-screen voiceover` 且 `</d>` 后闭嘴），不再程序灌水、中文时间码或轿厢句，也不走第二次装箱 LLM；同一人连续多句按问号/句号切开后逐字校验；内心口型同步 `says:` 会先修补再校验；中文分秒仍写入 `timestamped_zh_prompt`。说明句 stub（例如只回「官方八块中文分秒稿与」）会打回重写，失败文案不再展开缺标题清单。看图写作对 GPT-5 / o 使用 `reasoning_effort=none`、`max_tokens=16000`。中文或英文未通过校验则任务 `failed`，`payload` 含 `author_errors` / `vision_*` / `author_raw_draft` 与残稿，不覆盖 Beat，不回退无时间码骨架。R2V 参考图为角色设定板 + 场景卡 + 三联起幅/中格/结果三张 9:16 裁切（不送整张三联）。设定板只锁身份/发型/服装，禁止把分格、白底、重复小人带进镜头。完成后把 `h3_prompt` 与 `timestamped_zh_prompt` 写回 Beat。工坊若已有拆开的出片镜，body 可带 `merge_as_one=true` 合并回一条再生成。`h3_prompt_source=manual` 的镜按原文出片。**202** 返回 `job_id`。生成过程通过 `GET /api/projects/{project_id}/jobs/{job_id}/events` 直播思考与正文。 |
+| `PUT` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}` | 更新单条 Beat。可写 `h3_prompt` 与 `h3_prompt_source`（`manual` / `generated`），以及 `timestamped_zh_prompt`。手动保存的六段出片按原文使用。服务端可写 `video_takes`；前端选用成片请走 `…/video-takes/adopt`，不要直接改 `video_url`。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` | 剧集工坊素材组：为当前分镜入队 **一个** `h3_prompt` 任务，不再按口型/内心/近景规则拆镜。JSON 可选 `aspect_ratio`，写入 `beat_info` 作为写稿权威画幅（否则读 `extra.workshop_aspect_ratio` / 配方缺省）。未绑技能包时程序从本镜动作/运镜/台词编译六段 Ref2VA。绑定半解说包时由 LLM 一次写出中文八块分秒稿（时间码从本镜 `00:00` 起；可看图时看角色卡/场景卡/整张三联）和英文六段；配方临时 `skip_program_pack=true` 时出片英文用 GPT 六段原文（规范化 `<Picture>` / `<Subject>`、六段 `name:` 标题，并在 `detailed_description` 补 `[Shot 1]`；内心改成官方 `says in an off-screen voiceover` 且 `</d>` 后闭嘴），不再程序灌水、中文时间码或轿厢句，也不走第二次装箱 LLM；写稿合同写清开口 / 角色内心 / 第三人称旁白三通道与编号表演顺序，无旁白时禁止用内心或开口句充数，也不再把内心折进旁白原文交给模型；内心挂在触发画面时段，表演顺序第 1 句不是内心时禁止写在 00:00 起幅；中文分秒接受小数时间码与标题首字乱码，英文 `<d>` 可省略 `[Chinese]`；同一人连续多句按问号/句号切开后逐字校验；内心口型同步 `says:` 会先修补再校验；半解说包另校验台词去重与 `<d>` 表演顺序；中文分秒仍写入 `timestamped_zh_prompt`。说明句 stub（例如只回「官方八块中文分秒稿与」）会打回重写，失败文案不再展开缺标题清单。看图写作对 GPT-5 / o 使用管理设置保存的 `reasoning_effort`（默认 `low`，`auto` 时不发送）、`max_tokens=16000`。中文或英文未通过校验则任务 `failed`，`payload` 含 `author_errors` / `vision_*` / `author_raw_draft` 与残稿，不覆盖 Beat，不回退无时间码骨架。R2V 参考图为角色设定板 + 场景卡 + 有绑定则道具设定板（占满 9 槽剩余位，不硬限 2 张）+ 三联起幅/中格/结果三张成片画幅构图（不送整张三联）。设定板只锁身份/发型/服装，道具设定板只锁外形与材质并覆盖场景卡同名陈设，禁止把分格、白底、重复小人/小物件带进镜头。工坊若已有拆开的出片镜，`payload.merge_as_one=true` 则合并回一条再生成。`h3_prompt_source=manual` 的镜按原文出片。**202** 返回 `job_id`。生成过程可通过 `GET /api/projects/{project_id}/jobs/{job_id}/events` 直播思考与正文。 |
 | `GET` | `/api/projects/{project_id}/jobs/{job_id}/events` | 按 `job_type` 订阅任务 SSE。`h3_prompt`：`status` / `reasoning` / `delta` / `done` / `error`。`shot_plan`：另有 `episode_done`（该集 `shots` 已写入 `analysis_json`），`status` 含第几集/共几集。可用 `since` 或 `Last-Event-ID` 续传。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych` | 为当前分镜入队 16:9 三联关键帧母图（内含三格 9:16，默认 2K）。参考图为选中造型设定板 + 场景卡；已有造型图时不再追加 `avatar_url`。完成后写入 `triptych_url`，裁切起幅/中格/结果到 `triptych_panels.start|mid|end` 供本地 H3 素材组使用；整张三联不作为 `<Picture n>`。**202** 返回 `job_id`。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych` | 为当前分镜入队 16:9 三联关键帧母图（内部三等分裁切，默认 2K）。JSON 可选 `aspect_ratio`，写入提示词里的成片画幅构图标签。参考图为时代匹配的造型设定板 + 场景卡 + 本镜道具设定板（占满 9 槽剩余位）；已有造型图时不再追加 `avatar_url`，缺对应时代造型则拒绝入队。完成后写入 `triptych_url` 与 `triptych_look_ids`，裁切起幅/中格/结果到 `triptych_panels.start|mid|end` 供本地 H3 素材组使用；整张三联不作为 `<Picture n>`。**202** 返回 `job_id`。 |
 | `GET` | `/api/director/export-capabilities` | 查询本机 ffmpeg/ffprobe 与 TTS 是否可用，以及音色目录。 |
 | `POST` | `/api/director/recipes/{project_id}/tts` | 按对白调用 OpenAI 兼容 `/audio/speech` 生成逐镜 TTS；`character_id` 时写角色试听。不使用 Edge TTS。 |
 | `GET` | `/api/director/recipes/{project_id}/tts/{shot_id}` | 读取已生成的分镜 TTS 音频。 |
@@ -406,17 +408,18 @@ Invoke-RestMethod -Method Post `
 
 ### `POST /api/jobs/{job_id}/upscale`
 
-对已成功的视频成片新建独立 `nvidia-rtx-vsr` 任务（固定 2x / ULTRA）。原片任务不变；超分结果是新任务的输出。同一原片已有排队中、生成中或已中断的超分时返回 `409`。按原片宽×高×帧数预估显存，与当前连接 ComfyUI `/system_stats` 的总显存比较，过大时返回 `422`（读不到显存则不编造限额）。当前连接的 ComfyUI 若未安装 `RTXVideoSuperResolution`（包名 `Nvidia_RTX_Nodes_ComfyUI`）也返回 `422`。不要通过 `POST /api/jobs` 直接创建 `nvidia-rtx-vsr`（该工作流 `hidden_from_catalog`）。H3 系列也可在创建时把 `options.upscale_after` 设为 `true`，成片成功后同一任务会先 `POST /free` 再接跑超分，失败仍保留原片。
+对已成功的视频成片新建独立 `nvidia-rtx-vsr` 任务（2x 或 4x / ULTRA，一次到位）。JSON 可选 `{ "scale": 2 }` 或 `{ "scale": 4 }`，缺省 2x。原片任务不变；超分结果是新任务的输出。同一原片已有排队中、生成中或已中断的超分时返回 `409`。按原片宽×高×帧数×选定倍数预估显存，与当前连接 ComfyUI `/system_stats` 的总显存比较，过大时返回 `422`（读不到显存则不编造限额）。当前连接的 ComfyUI 若未安装 `RTXVideoSuperResolution`（包名 `Nvidia_RTX_Nodes_ComfyUI`，需 `nvidia-vfx==0.1.0.1`）也返回 `422`。不要通过 `POST /api/jobs` 直接创建 `nvidia-rtx-vsr`（该工作流 `hidden_from_catalog`）。H3 系列也可在创建时把 `options.upscale_after` 设为 `"2"` 或 `"4"`（旧布尔 `true` 视为 2x），成片成功后同一任务会先 `POST /free` 再接跑超分，失败仍保留原片。
 
 ```powershell
 Invoke-RestMethod -Method Post `
-  -Headers @{"X-CSRF-Token" = "<login response csrf_token>"} `
+  -Headers @{"X-CSRF-Token" = "<login response csrf_token>"; "Content-Type" = "application/json"} `
+  -Body '{"scale":2}' `
   http://127.0.0.1:7865/api/jobs/WvhSEuCWne1d/upscale
 ```
 
 ## 导台2 项目内容库（`/api/projects`）
 
-导演台2 内容库走 `POST /api/projects/{project_id}/documents`，不是 `/api/xiaji/documents`。集边界只认台本 `# 第N集`（无集头则整篇第 1 集）；剧本里的 `### 镜头` 只当素材。粘贴/文件导入立刻落库并入队 `shot_plan`，逐集调用大模型规划出片镜数和秒数（H3 合同 5–15 秒），成功则 `shots_source=llm`。旧稿可 `POST …/documents/{doc_id}/shot-plan`。过程通过 `GET …/jobs/{job_id}/events` 直播；内容库按集显示瘦进度，当前集用残缺 JSON 解析出的镜头卡逐张出现（思考默认折叠，不展示 JSON），`episode_done` 后换成归一化结果，规划中禁止同步工坊。全部任务有「镜头规划」Tab，可按 `payload.document_id` 跳回 `/director2/projects/:id/content?mode=manual&doc=:docId&tab=episodes`。AI 流水线回写的文档（`input_mode=ai_pipeline`）不二次规划。`POST …/transfer-episodes` 把文档已有出片镜写入剧集工坊，同步时不再调大模型。`POST …/h3-prompt` 点哪条入队一个任务，不再按口型/内心/近景规则改镜头列表。工坊 `POST …/generate-video` 可带 `options.upscale_after`：仅逐镜/选中镜在原片写入后自动 2x 超分；整集直出和 `POST …/compose` 不自动超分。已出片镜头可 `POST …/beats/{beat_id}/upscale`，结果写入 `upscaled_video_url`。全部任务已成功视频可 `POST …/jobs/{job_id}/upscale`。
+导演台2 内容库走 `POST /api/projects/{project_id}/documents`，不是 `/api/xiaji/documents`。集边界只认台本 `# 第N集`（无集头则整篇第 1 集）；剧本里的 `### 镜头` 只当素材。粘贴/文件导入立刻落库并扫描 `aspect_hint`，文档 `status=awaiting_aspect`，**不**自动入队 `shot_plan`。确认成片画幅后 `POST …/documents/{doc_id}/shot-plan`（JSON 可选 `aspect_ratio`，可选 `force: true` 覆盖已规划镜头）写入 `settings.extra.workshop_aspect_ratio` 再逐集规划（H3 合同 5–15 秒，写入 `opening_state` / `closing_state` / `transition_note`），成功则 `shots_source=llm`。规划 prompt 以确认画幅为权威。过程通过 `GET …/jobs/{job_id}/events` 直播；内容库按集显示瘦进度，当前集用残缺 JSON 解析出的镜头卡逐张出现（思考默认折叠，不展示 JSON），`episode_done` 后换成归一化结果，规划中禁止同步工坊。全部任务有「镜头规划」Tab，可按 `payload.document_id` 跳回 `/director2/projects/:id/content?mode=manual&doc=:docId&tab=episodes`。AI 流水线回写的文档（`input_mode=ai_pipeline`）不二次规划。未 `force` 且已全部 `shots_source=llm` 仍 400。`POST …/transfer-episodes` 把文档已有出片镜写入剧集工坊，同步时不再调大模型规划。`POST …/h3-prompt` 点哪条入队一个任务，按 `sequence` 填 `previous_shot`（落幅姿势 + 切型），不再按口型/内心/近景规则改镜头列表。工坊 `POST …/generate-video` 可带 `options.upscale_after=off|2|4`：仅逐镜/选中镜在原片写入后自动按选定倍数超分；整集直出和 `POST …/compose` 不自动超分。逐镜/选中镜成功后把旧原片归档进 `video_takes`，`video_url` 默认采用最新；成片 Tab 用 `POST …/beats/{beat_id}/video-takes/adopt` 选用历史抽卡。已出片镜头可 `POST …/beats/{beat_id}/upscale`（JSON 可选 `scale`），结果写入 `upscaled_video_url` 并挂到当前采用 Take。全部任务已成功视频可 `POST …/jobs/{job_id}/upscale`（同样可选 `scale`）。
 
 ## 导台2 内容库与资产库
 

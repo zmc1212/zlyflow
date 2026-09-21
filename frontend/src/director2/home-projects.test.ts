@@ -50,7 +50,7 @@ describe("director home project merge", () => {
       ],
     )
     expect(merged.map((item) => item.id)).toEqual(["b1", "s1", "r1", "h1"])
-    expect(merged.every((item) => item.kind !== "director_recipe" && item.kind !== "timeline")).toBe(true)
+    expect(merged.map((item) => item.kind)).toEqual(["batch_run", "studio", "shot_replication", "hypit_replication"])
   })
 
   it("labels leftover studios for the recent-project chips", () => {

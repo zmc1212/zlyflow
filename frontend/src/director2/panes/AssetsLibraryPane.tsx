@@ -4,13 +4,11 @@
 // 自动保存队列（700ms 防抖 + 串行队列 + beforeunload keepalive）行为与原版一致。
 // 角色/场景/道具工作区与各弹窗已按原版内部分区下沉到 ./assets/ 子组件。
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
-import { Button, Form, Input, Modal, Popconfirm, Space, Spin, Tag, message } from "antd"
+import { Button, Form, Input, Modal, Popconfirm, Progress, Space, Spin, Tag, message } from "antd"
 import {
   Boxes,
   Compass,
   Edit3,
-  Eye,
-  Layers,
   MapPin,
   Package,
   Plus,
@@ -60,6 +58,7 @@ import {
   getAssetGradient,
   copyText,
   identityLookEnqueueBlocker,
+  propSheetEnqueueBlocker,
   type AssetIdentity,
   type GenerateImageResult,
 } from "./assets/shared"
@@ -68,6 +67,20 @@ import type { SceneDraft } from "./assets/EditSceneModal"
 import type { PropDraft } from "./assets/EditPropModal"
 import type { IdentityFormState } from "./assets/IdentityModal"
 import { MAX_SOURCE_REFERENCE_BYTES, remainingSourceReferenceSlots, sourceReferencesOf } from "../asset-source-references"
+import {
+  assetRowGenDisplayLabel,
+  assetRowProgressPercent,
+  assetRowProgressStatus,
+  clearAssetRow,
+  hasGeneratingAssetRow,
+  hasLaterJobForAsset,
+  lookBatchProgressLabel,
+  markAssetRowFailed,
+  markAssetRowGenerating,
+  seedQueuedAssetRows,
+  tickGeneratingAssetRows,
+  type AssetRowGenState,
+} from "../asset-row-generation"
 import { MAX_VOICE_AUDIO_BYTES, hasRefAudio, isVoiceAudioFile, voiceOf } from "../voice-profile"
 import { useMediaPreview } from "../media-preview"
 import "./assets-library.css"
@@ -93,6 +106,7 @@ type BatchGenerateOptions = {
   hasOutput: (a: Director2Asset) => boolean
   hasReference?: (a: Director2Asset) => boolean
   referenceHint?: string
+  skipHint?: string
   buildPayload?: (a: Director2Asset) => Record<string, unknown>
 }
 
@@ -128,8 +142,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const [batchGeneratingSceneReverses, setBatchGeneratingSceneReverses] = useState(false)
   const [batchGeneratingScenePanos, setBatchGeneratingScenePanos] = useState(false)
   const [batchGeneratingPropReferences, setBatchGeneratingPropReferences] = useState(false)
-  const [batchGeneratingPropTurnarounds, setBatchGeneratingPropTurnarounds] = useState(false)
-  const [batchGeneratingPropDetails, setBatchGeneratingPropDetails] = useState(false)
   const [generatingMaster, setGeneratingMaster] = useState(false)
   const [generatingReverse, setGeneratingReverse] = useState(false)
   const [uploadingSourceRef, setUploadingSourceRef] = useState(false)
@@ -143,8 +155,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const [extractingVoice, setExtractingVoice] = useState(false)
   const [generatingPano, setGeneratingPano] = useState(false)
   const [generatingProp, setGeneratingProp] = useState(false)
-  const [generatingPropTurnaround, setGeneratingPropTurnaround] = useState(false)
-  const [generatingPropDetail, setGeneratingPropDetail] = useState(false)
+  const [rowGenByAssetId, setRowGenByAssetId] = useState<Record<string, AssetRowGenState>>({})
 
   const batchGenerationActive = useMemo(
     () => [
@@ -153,8 +164,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       batchGeneratingSceneReverses,
       batchGeneratingScenePanos,
       batchGeneratingPropReferences,
-      batchGeneratingPropTurnarounds,
-      batchGeneratingPropDetails,
     ].some((state) => state),
     [
       batchGeneratingLooks,
@@ -162,10 +171,24 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       batchGeneratingSceneReverses,
       batchGeneratingScenePanos,
       batchGeneratingPropReferences,
-      batchGeneratingPropTurnarounds,
-      batchGeneratingPropDetails,
     ],
   )
+
+  const rowGenActive = useMemo(() => hasGeneratingAssetRow(rowGenByAssetId), [rowGenByAssetId])
+
+  useEffect(() => {
+    if (!rowGenActive) return
+    const timer = window.setInterval(() => {
+      setRowGenByAssetId((prev) => tickGeneratingAssetRows(prev))
+    }, 900)
+    return () => window.clearInterval(timer)
+  }, [rowGenActive])
+
+  useEffect(() => {
+    const generating = Object.values(rowGenByAssetId).some((state) => state.status === "generating")
+    if (!generating) return
+    document.querySelector(".d2-assets-library .asset-list-item.is-generating")?.scrollIntoView({ block: "nearest" })
+  }, [rowGenByAssetId])
 
   const [submitting, setSubmitting] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
@@ -463,6 +486,23 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     }
   }
 
+  function beginAssetRowGenerating(assetId: string, label: string) {
+    setRowGenByAssetId((prev) => markAssetRowGenerating(prev, assetId, label))
+  }
+
+  function finishAssetRow(assetId: string, failed = false, failLabel = "生成失败") {
+    setRowGenByAssetId((prev) => (failed ? markAssetRowFailed(prev, assetId, failLabel) : clearAssetRow(prev, assetId)))
+  }
+
+  async function withAssetRowGenerating<T>(assetId: string, label: string, task: () => Promise<T>): Promise<T> {
+    beginAssetRowGenerating(assetId, label)
+    try {
+      return await task()
+    } finally {
+      finishAssetRow(assetId)
+    }
+  }
+
   function applyServerAsset(asset: Director2Asset) {
     replaceAssetInList(asset.id, asset)
     if (autoSaveQueuedSnapshotRef.current?.id === asset.id) {
@@ -704,10 +744,12 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     setBatchGeneratingLooks(true)
     let ok = 0
     const failed: string[] = []
+    setRowGenByAssetId(seedQueuedAssetRows(jobs.map((job) => job.ast.id), "设定板"))
     message.loading({ content: `开始一键生成 ${jobs.length} 张设定板…`, key: "batchLooks" })
     try {
       for (let i = 0; i < jobs.length; i += 1) {
         const { ast, ident, costume } = jobs[i]
+        beginAssetRowGenerating(ast.id, lookBatchProgressLabel(jobs, i))
         message.loading({
           content: `正在生成设定板 (${i + 1}/${jobs.length})：${ast.name} · ${ident.name}`,
           key: "batchLooks",
@@ -723,8 +765,10 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           })) as GenerateImageResult
           applyGeneratedAsset(ast.id, res)
           ok += 1
+          if (!hasLaterJobForAsset(jobs, i, ast.id)) finishAssetRow(ast.id)
         } catch (err) {
           failed.push(`${ast.name}/${ident.name}: ${director2ErrorDetail(err, "失败")}`)
+          if (!hasLaterJobForAsset(jobs, i, ast.id)) finishAssetRow(ast.id, true, "设定板失败")
         }
       }
       const skipSuffix = skippedNoCostume ? `，${skippedNoCostume} 个造型缺外观描述已跳过` : ""
@@ -739,6 +783,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       }
     } finally {
       setBatchGeneratingLooks(false)
+      setRowGenByAssetId({})
     }
   }
 
@@ -752,6 +797,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     hasOutput,
     hasReference = () => true,
     referenceHint = "",
+    skipHint = "缺少前置图片已跳过",
     buildPayload = () => ({}),
   }: BatchGenerateOptions) {
     const kindAssets = assetsRef.current.filter((a) => a.kind === kind)
@@ -773,10 +819,12 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     setLoadingState(true)
     let ok = 0
     const failed: string[] = []
+    setRowGenByAssetId(seedQueuedAssetRows(targets.map((ast) => ast.id), label))
     message.loading({ content: `开始一键生成 ${targets.length} 张${label}…`, key: messageKey })
     try {
       for (let i = 0; i < targets.length; i += 1) {
         const ast = targets[i]
+        beginAssetRowGenerating(ast.id, `正在生成${label}`)
         message.loading({
           content: `正在生成${label} (${i + 1}/${targets.length})：${ast.name}`,
           key: messageKey,
@@ -790,12 +838,14 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           })) as GenerateImageResult
           applyGeneratedAsset(ast.id, res)
           ok += 1
+          finishAssetRow(ast.id)
         } catch (err) {
           failed.push(`${ast.name}: ${director2ErrorDetail(err, "失败")}`)
+          finishAssetRow(ast.id, true, `${label}失败`)
         }
       }
 
-      const skipSuffix = skipped ? `，${skipped} 个缺少前置图片已跳过` : ""
+      const skipSuffix = skipped ? `，${skipped} 个${skipHint}` : ""
       if (failed.length) {
         message.warning({
           content: `${label}完成 ${ok}/${targets.length}${skipSuffix}，失败：${failed.slice(0, 3).join("；")}`,
@@ -807,6 +857,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       }
     } finally {
       setLoadingState(false)
+      setRowGenByAssetId({})
     }
   }
 
@@ -885,40 +936,13 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       kind: "prop",
       setLoading: setBatchGeneratingPropReferences,
       messageKey: "batchPropReferences",
-      label: "参考图",
+      label: "设定板",
       targetType: "prop_reference",
       aspectRatio: "16:9",
       hasOutput: hasPropReference,
-      buildPayload: propStylePayload,
-    })
-  }
-
-  function handleBatchGeneratePropTurnarounds() {
-    return runBatchAssetGeneration({
-      kind: "prop",
-      setLoading: setBatchGeneratingPropTurnarounds,
-      messageKey: "batchPropTurnarounds",
-      label: "三视图",
-      targetType: "prop_turnaround",
-      aspectRatio: "16:9",
-      hasOutput: (ast) => Boolean(ast.extra?.turnaround_url),
-      hasReference: hasPropReference,
-      referenceHint: "请先生成道具参考图，三视图需要将参考图作为参考",
-      buildPayload: propStylePayload,
-    })
-  }
-
-  function handleBatchGeneratePropDetails() {
-    return runBatchAssetGeneration({
-      kind: "prop",
-      setLoading: setBatchGeneratingPropDetails,
-      messageKey: "batchPropDetails",
-      label: "细节图",
-      targetType: "prop_detail",
-      aspectRatio: "16:9",
-      hasOutput: (ast) => Boolean(ast.extra?.detail_url),
-      hasReference: hasPropReference,
-      referenceHint: "请先生成道具参考图，细节图需要将参考图作为参考",
+      hasReference: (ast) => !propSheetEnqueueBlocker(ast),
+      referenceHint: "请先填写外观描述，或上传原片截图作为外形参考",
+      skipHint: "缺外观描述且无原片已跳过",
       buildPayload: propStylePayload,
     })
   }
@@ -935,14 +959,16 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     const costume = (ident.description || ident.appearance_details || "").trim()
     setGeneratingIdentityId(ident.id || null)
     try {
-      const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
-        target_type: "identity",
-        identity_id: ident.id,
-        prompt: costume,
-        model: "gpt-image-2",
-        aspect_ratio: "16:9",
-        ...characterStylePayload(sel),
-      })) as GenerateImageResult
+      const res = (await withAssetRowGenerating(sel.id, `正在生成设定板 · ${ident.name || "造型"}`, () =>
+        generateAssetImage(csrfToken, projectId, sel.id, {
+          target_type: "identity",
+          identity_id: ident.id,
+          prompt: costume,
+          model: "gpt-image-2",
+          aspect_ratio: "16:9",
+          ...characterStylePayload(sel),
+        }),
+      )) as GenerateImageResult
       const cur = selectedAssetRef.current
       if (!cur) return
       const refCount = Number(res.source_reference_count || sourceReferencesOf(cur).length)
@@ -981,11 +1007,13 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     const prompt = (sel.extra?.environment_prompt || sel.visual_prompt || sel.name).trim()
     setGeneratingMaster(true)
     try {
-      const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
-        target_type: "scene_master",
-        prompt,
-        aspect_ratio: "16:9",
-      })) as GenerateImageResult
+      const res = (await withAssetRowGenerating(sel.id, "正在生成正面", () =>
+        generateAssetImage(csrfToken, projectId, sel.id, {
+          target_type: "scene_master",
+          prompt,
+          aspect_ratio: "16:9",
+        }),
+      )) as GenerateImageResult
       const cur = selectedAssetRef.current
       if (!cur) return
       message.success(`场景「${cur.name}」Master 主视角生成成功！`)
@@ -1020,13 +1048,15 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     }
     setGeneratingReverse(true)
     try {
-      const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
-        target_type: "scene_reverse",
-        model: "gpt-image-2",
-        aspect_ratio: "16:9",
-        visual_style: extra.visual_style || "",
-        art_style_id: extra.art_style_id || "",
-      })) as GenerateImageResult
+      const res = (await withAssetRowGenerating(sel.id, "正在生成背面", () =>
+        generateAssetImage(csrfToken, projectId, sel.id, {
+          target_type: "scene_reverse",
+          model: "gpt-image-2",
+          aspect_ratio: "16:9",
+          visual_style: extra.visual_style || "",
+          art_style_id: extra.art_style_id || "",
+        }),
+      )) as GenerateImageResult
       const cur = selectedAssetRef.current
       if (!cur) return
       message.success(`场景「${cur.name}」Reverse 背面反打视角生成成功！`)
@@ -1059,13 +1089,15 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     }
     setGeneratingPano(true)
     try {
-      const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
-        target_type: "scene_pano",
-        model: "gpt-image-2",
-        aspect_ratio: "2:1",
-        visual_style: extra.visual_style || "",
-        art_style_id: extra.art_style_id || "",
-      })) as GenerateImageResult
+      const res = (await withAssetRowGenerating(sel.id, "正在生成360图", () =>
+        generateAssetImage(csrfToken, projectId, sel.id, {
+          target_type: "scene_pano",
+          model: "gpt-image-2",
+          aspect_ratio: "2:1",
+          visual_style: extra.visual_style || "",
+          art_style_id: extra.art_style_id || "",
+        }),
+      )) as GenerateImageResult
       const cur = selectedAssetRef.current
       if (!cur) return
       message.success(`场景「${cur.name}」360° 全景图生成成功！`)
@@ -1086,23 +1118,30 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     }
   }
 
-  // 6. 生成道具主视图（对齐 source1：16:9 产品静物正面）
+  // 6. 生成道具设定板（16:9 / 2K 多视图）
   async function handleGeneratePropReference() {
     const sel = selectedAssetRef.current
     if (!sel) return
+    const blocker = propSheetEnqueueBlocker(sel)
+    if (blocker) {
+      message.warning(blocker)
+      return
+    }
     const extra = sel.extra || {}
     setGeneratingProp(true)
     try {
-      const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
-        target_type: "prop_reference",
-        model: "gpt-image-2",
-        aspect_ratio: "16:9",
-        visual_style: extra.visual_style || "",
-        art_style_id: extra.art_style_id || "",
-      })) as GenerateImageResult
+      const res = (await withAssetRowGenerating(sel.id, "正在生成设定板", () =>
+        generateAssetImage(csrfToken, projectId, sel.id, {
+          target_type: "prop_reference",
+          model: "gpt-image-2",
+          aspect_ratio: "16:9",
+          visual_style: extra.visual_style || "",
+          art_style_id: extra.art_style_id || "",
+        }),
+      )) as GenerateImageResult
       const cur = selectedAssetRef.current
       if (!cur) return
-      message.success(`道具「${cur.name}」参考图生成成功！`)
+      message.success(`道具「${cur.name}」设定板生成成功！`)
       if (res.image_url) {
         const imageUrl = res.image_url
         mutateSelected((prev) => ({
@@ -1116,87 +1155,9 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         }
       }
     } catch (err) {
-      message.error(director2ErrorDetail(err, "道具参考图生成失败"))
+      message.error(director2ErrorDetail(err, "道具设定板生成失败"))
     } finally {
       setGeneratingProp(false)
-    }
-  }
-
-  // 7. 生成道具转面三视图（对齐 source1：16:9 1x3 + 主视图 REFERENCE 1）
-  async function handleGeneratePropTurnaround() {
-    const sel = selectedAssetRef.current
-    if (!sel) return
-    const extra = sel.extra || {}
-    const master = (extra.reference_url || sel.image_url || "").trim()
-    if (!master) {
-      message.warning("请先生成或上传主视图，转面三视图需要把它作为 REFERENCE 1 传入")
-      return
-    }
-    setGeneratingPropTurnaround(true)
-    try {
-      const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
-        target_type: "prop_turnaround",
-        model: "gpt-image-2",
-        aspect_ratio: "16:9",
-        visual_style: extra.visual_style || "",
-        art_style_id: extra.art_style_id || "",
-      })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      message.success(`道具「${cur.name}」三视图生成成功！`)
-      if (res.image_url) {
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), turnaround_url: res.image_url },
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
-    } catch (err) {
-      message.error(director2ErrorDetail(err, "三视图生成失败"))
-    } finally {
-      setGeneratingPropTurnaround(false)
-    }
-  }
-
-  // 8. 生成道具细节特写（对齐 source1：16:9 微距 + 主视图 REFERENCE 1）
-  async function handleGeneratePropDetail() {
-    const sel = selectedAssetRef.current
-    if (!sel) return
-    const extra = sel.extra || {}
-    const master = (extra.reference_url || sel.image_url || "").trim()
-    if (!master) {
-      message.warning("请先生成或上传主视图，细节特写需要把它作为 REFERENCE 1 传入")
-      return
-    }
-    setGeneratingPropDetail(true)
-    try {
-      const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
-        target_type: "prop_detail",
-        model: "gpt-image-2",
-        aspect_ratio: "16:9",
-        visual_style: extra.visual_style || "",
-        art_style_id: extra.art_style_id || "",
-      })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      message.success(`道具「${cur.name}」细节特写生成成功！`)
-      if (res.image_url) {
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), detail_url: res.image_url },
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
-    } catch (err) {
-      message.error(director2ErrorDetail(err, "细节特写生成失败"))
-    } finally {
-      setGeneratingPropDetail(false)
     }
   }
 
@@ -1507,7 +1468,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         <div className="header-copy">
           <h2 className="sub-pane-title">资产库</h2>
           <p className="sub-pane-subtitle">
-            管理角色设定板与身份造型、场景三大机位（Master主视角 / Reverse反打背面 / Pano 360全景）及道具特写参考。
+            管理角色设定板与身份造型、场景三大机位（Master主视角 / Reverse反打背面 / Pano 360全景）及道具设定板。
           </p>
         </div>
 
@@ -1539,7 +1500,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           >
             一键生成所有设定板
           </Button>
-          <span className="batch-generate-hint">仅处理尚未出图的造型；无外观描述且无原片截图的会跳过，任务中心可查看进度</span>
+          <span className="batch-generate-hint">仅处理尚未出图的造型；无外观描述且无原片截图的会跳过。列表每条会显示排队和生成进度</span>
         </div>
       ) : currentTab === "scene" ? (
         <div className="batch-generate-bar">
@@ -1570,7 +1531,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           >
             一键生成所有360图
           </Button>
-          <span className="batch-generate-hint">仅处理尚未出图的场景；背面和 360 图需已有正面图</span>
+          <span className="batch-generate-hint">仅处理尚未出图的场景；背面和 360 图需已有正面图。列表每条会显示排队和生成进度</span>
         </div>
       ) : currentTab === "prop" ? (
         <div className="batch-generate-bar">
@@ -1581,27 +1542,9 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
             icon={<Sparkles size={15} />}
             onClick={handleBatchGeneratePropReferences}
           >
-            一键生成所有参考图
+            一键生成所有设定板
           </Button>
-          <Button
-            type="primary"
-            loading={batchGeneratingPropTurnarounds}
-            disabled={batchGenerationActive && !batchGeneratingPropTurnarounds}
-            icon={<Layers size={15} />}
-            onClick={handleBatchGeneratePropTurnarounds}
-          >
-            一键生成所有三视图
-          </Button>
-          <Button
-            type="primary"
-            loading={batchGeneratingPropDetails}
-            disabled={batchGenerationActive && !batchGeneratingPropDetails}
-            icon={<Eye size={15} />}
-            onClick={handleBatchGeneratePropDetails}
-          >
-            一键生成所有细节图
-          </Button>
-          <span className="batch-generate-hint">仅处理尚未出图的道具；三视图和细节图需已有参考图</span>
+          <span className="batch-generate-hint">仅处理尚未出图的道具；无外观描述且无原片截图的会跳过。列表每条会显示排队和生成进度</span>
         </div>
       ) : null}
 
@@ -1655,11 +1598,15 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                     暂无{kindLabel(currentTab)}数据
                   </div>
                 ) : null}
-                {filteredAssets.map((ast) => (
+                {filteredAssets.map((ast) => {
+                  const rowGen = rowGenByAssetId[ast.id]
+                  const rowLabel = rowGen ? assetRowGenDisplayLabel(rowGen) : ""
+                  return (
                   <div
                     key={ast.id}
-                    className={`asset-list-item${selectedAsset && selectedAsset.id === ast.id ? " active" : ""}`}
+                    className={`asset-list-item${selectedAsset && selectedAsset.id === ast.id ? " active" : ""}${rowGen ? " is-generating" : ""}`}
                     onClick={() => selectAsset(ast)}
+                    aria-busy={Boolean(rowGen && rowGen.status !== "failed")}
                   >
                     {/* 缩略图或单字头像 */}
                     <div className={`item-avatar ${ast.kind}`} style={getAssetGradient(ast.name)}>
@@ -1675,6 +1622,11 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                         </span>
                       )}
                       {getAssetDisplayAvatar(ast) ? <span className="has-image-dot" title="已有视觉图" /> : null}
+                      {rowGen?.status === "generating" ? (
+                        <span className="item-avatar-progress">
+                          <Spin size="small" />
+                        </span>
+                      ) : null}
                     </div>
 
                     {/* 名称与定位 */}
@@ -1704,12 +1656,25 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                           </span>
                         ) : null}
                       </div>
+                      {rowGen ? (
+                        <div className={`item-gen-progress is-${rowGen.status}`}>
+                          <Progress
+                            percent={assetRowProgressPercent(rowGen)}
+                            size="small"
+                            status={assetRowProgressStatus(rowGen.status)}
+                            showInfo={false}
+                            aria-label={rowLabel}
+                          />
+                          <em>{rowLabel}</em>
+                        </div>
+                      ) : null}
                     </div>
 
                     {/* 选中激活指示条 */}
                     {selectedAsset && selectedAsset.id === ast.id ? <div className="item-active-bar" /> : null}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 
@@ -1842,11 +1807,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                       onFieldChange={patchSelectedField}
                       onExtraChange={patchSelectedExtra}
                       generatingProp={generatingProp}
-                      generatingPropTurnaround={generatingPropTurnaround}
-                      generatingPropDetail={generatingPropDetail}
                       onGenerateReference={handleGeneratePropReference}
-                      onGenerateTurnaround={handleGeneratePropTurnaround}
-                      onGenerateDetail={handleGeneratePropDetail}
                       onDeletePropImage={handleDeletePropImage}
                       onManualUrl={triggerManualUrlInput}
                       onOpenEditProp={openEditPropModal}

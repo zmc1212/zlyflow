@@ -56,6 +56,9 @@ class H3PromptJobService:
                 return {"job_id": row["id"], "beat_id": beat_id, "status": row["status"], "duplicate": True}
 
         assets = ProjectDetailService.list_assets(project_id)
+        ProjectDetailService.persist_beat_looks(project_id, episode_id, beat, assets)
+        from .character_looks import character_look_image_url, select_character_look
+
         assets_by_id = {str(item.get("id") or ""): item for item in assets if item.get("id")}
         beat_chars: list[dict[str, Any]] = []
         extra_names: list[str] = []
@@ -63,20 +66,15 @@ class H3PromptJobService:
             asset = assets_by_id.get(str(cid))
             if not asset:
                 continue
-            extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
-            identities = extra.get("identities") if isinstance(extra.get("identities"), list) else []
-            look_ids = beat.get("character_look_ids") if isinstance(beat.get("character_look_ids"), dict) else {}
-            selected_look_id = look_ids.get(str(cid)) or beat.get("character_look_id")
-            selected_look = next((item for item in identities if item.get("id") == selected_look_id), None)
-            look_url = ""
-            if isinstance(selected_look, dict):
-                look_url = str(selected_look.get("image_url") or "").strip()
+            look = select_character_look(asset, beat)
+            look_url = character_look_image_url(asset, beat)
             name = asset.get("name") or "角色"
             extra_names.append(str(name))
             beat_chars.append({
                 "id": cid,
                 "name": name,
                 "url": look_url,
+                "look_id": str((look or {}).get("id") or ""),
             })
 
         scene_id = beat.get("scene_id")
@@ -98,21 +96,47 @@ class H3PromptJobService:
             ).strip()
 
         beat_props: list[dict[str, Any]] = []
+        seen_prop_ids: set[str] = set()
+        from ...skill_packs.handlers import (
+            H3_REFERENCE_POLICY,
+            bind_r2v_slot_images,
+            h3_authoring_context_images,
+            h3_prompt_context_fingerprint,
+            prop_sheet_url,
+        )
+
+        def append_prop(asset: dict[str, Any] | None, pid: str = "", name: str = "") -> None:
+            row = asset if isinstance(asset, dict) else {}
+            url = prop_sheet_url(row)
+            if not url:
+                return
+            key = str(pid or row.get("id") or "").strip()
+            if key and key in seen_prop_ids:
+                return
+            label = str(name or row.get("name") or "道具").strip() or "道具"
+            if key:
+                seen_prop_ids.add(key)
+            beat_props.append({"id": key, "name": label, "url": url})
+
         for pid in beat.get("prop_ids") or []:
-            asset = assets_by_id.get(str(pid))
-            if not asset:
+            append_prop(assets_by_id.get(str(pid)), str(pid))
+        for name in beat.get("props") or []:
+            label = str(name or "").strip()
+            if not label:
                 continue
-            beat_props.append({
-                "id": pid,
-                "name": asset.get("name") or "道具",
-            })
+            found = next(
+                (item for item in assets if item.get("kind") == "prop" and item.get("name") == label),
+                None,
+            )
+            append_prop(found, str((found or {}).get("id") or ""), label)
 
         from ...skill_packs import resolve_skill_pack_id
-        from ...skill_packs.handlers import bind_r2v_slot_images
+        from ...skill_packs.aspect import resolve_workshop_aspect_ratio
         from ...skill_packs.recipe import get_pack
 
         pack_id = resolve_skill_pack_id(payload=req, beat=beat, project_id=project_id)
         recipe = get_pack(pack_id)
+        aspect = resolve_workshop_aspect_ratio(request=req, project_id=project_id, recipe=recipe)
         bind_beat = {
             **beat,
             "character_ids": [],
@@ -120,45 +144,18 @@ class H3PromptJobService:
             "scene": scene_name,
             "scene_id": str(scene_id or beat.get("scene_id") or ""),
         }
-        if not recipe.is_default and recipe.r2v_slots:
-            ref_images = bind_r2v_slot_images(recipe, bind_beat, assets)
-        elif "ref_images" in req:
-            ref_images = req.get("ref_images") or []
-        else:
-            ref_images = []
-            for index, character in enumerate(beat_chars, 1):
-                ref_images.append({
-                    "index": index,
-                    "name": character["name"],
-                    "category": "character",
-                    "character_id": character.get("id") or "",
-                    "url": character.get("url") or "",
-                })
-            if scene_name:
-                ref_images.append({
-                    "index": len(ref_images) + 1,
-                    "name": scene_name,
-                    "category": "scene",
-                    "url": scene_url,
-                })
-            for prop in beat_props:
-                ref_images.append({
-                    "index": len(ref_images) + 1,
-                    "name": prop["name"],
-                    "category": "prop",
-                    "prop_id": prop.get("id") or "",
-                })
-        full_triptych = str(beat.get("triptych_url") or "").strip()
-        if full_triptych:
-            cleaned = []
-            for item in ref_images:
-                if not isinstance(item, dict):
-                    continue
-                url = str(item.get("url") or "").strip()
-                if url == full_triptych:
-                    continue
-                cleaned.append(item)
-            ref_images = cleaned
+        ref_images = bind_r2v_slot_images(recipe, bind_beat, assets, aspect_ratio=aspect)
+        authoring_context_images = h3_authoring_context_images(
+            recipe,
+            bind_beat,
+            assets,
+            aspect_ratio=aspect,
+        )
+        context_fingerprint = h3_prompt_context_fingerprint(
+            bind_beat,
+            ref_images,
+            authoring_context_images,
+        )
 
         duration_sec = resolve_shot_duration_sec(beat)
         if str(beat.get("video_duration") or "") != str(duration_sec):
@@ -178,17 +175,11 @@ class H3PromptJobService:
             "narration": beat.get("narration"),
             "characters": extra_names,
         }
-        spoken_turns, inner_turns = H3PromptBuilder.split_spoken_and_inner(speech_shot)
-        if not spoken_turns:
-            spoken_turns = H3PromptBuilder._dialogue_turns(speech_shot)
-        narration = str(beat.get("narration") or "").strip()
-        inner_text = " ".join(
-            str(turn.get("text") or "").strip()
-            for turn in inner_turns
-            if str(turn.get("text") or "").strip()
-        )
-        if inner_text and inner_text not in narration:
-            narration = f"{narration} {inner_text}".strip() if narration else inner_text
+        script_turns = H3PromptBuilder._raw_script_turns(speech_shot)
+        spoken_turns, _inner_turns = H3PromptBuilder.split_spoken_and_inner(speech_shot)
+        if not script_turns:
+            script_turns = list(spoken_turns)
+        narration = H3PromptBuilder.third_person_narration(speech_shot)
 
         from ...skill_packs import resolve_skill_pack_id
 
@@ -210,18 +201,26 @@ class H3PromptJobService:
             "characters": beat_chars,
             "props": beat_props,
             "ref_images": ref_images,
+            "authoring_context_images": authoring_context_images,
+            "h3_reference_policy": H3_REFERENCE_POLICY,
+            "h3_prompt_context_fingerprint": context_fingerprint,
             "ref_videos": req.get("ref_videos") or [],
-            "dialogue_turns": spoken_turns,
+            "dialogue_turns": script_turns,
             "visible_text": beat.get("visible_text") or "",
             "narration": narration,
             "triptych_url": beat.get("triptych_url") or "",
             "triptych_panels": beat.get("triptych_panels") or {},
             "timestamped_zh_prompt": beat.get("timestamped_zh_prompt") or "",
             "skill_pack_id": pack_id,
+            "aspect_ratio": aspect,
             "project_id": project_id,
             "episode_id": episode_id,
             "beat_id": beat_id,
             **cls._beat_context_fields(beat),
+            "opening_state": str(beat.get("opening_state") or "").strip(),
+            "closing_state": str(beat.get("closing_state") or "").strip(),
+            "transition_note": str(beat.get("transition_note") or "").strip(),
+            "previous_shot": cls._previous_shot_for_beat(beats, beat),
         })
 
         seq = beat.get("sequence") or 1
@@ -244,6 +243,13 @@ class H3PromptJobService:
             "beat_heading": heading,
             "beat_info": beat_info,
             "reference_urls": [item.get("url") for item in ref_images if isinstance(item, dict) and item.get("url")],
+            "authoring_context_urls": [
+                item.get("url")
+                for item in authoring_context_images
+                if isinstance(item, dict) and item.get("url")
+            ],
+            "h3_reference_policy": H3_REFERENCE_POLICY,
+            "h3_prompt_context_fingerprint": context_fingerprint,
         }
         execute_sql(
             "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
@@ -471,11 +477,19 @@ class H3PromptJobService:
 
             with LlmStreamHook(on_delta=on_delta, on_status=on_status):
                 prompt = cls._finalize_prompt(payload, LlmService.generate_h3_prompt(payload.get("beat_info") or {}))
-            duration_sec = (payload.get("beat_info") or {}).get("duration_seconds")
-            updates = {"h3_prompt": prompt, "h3_prompt_source": "generated"}
+            beat_info = payload.get("beat_info") if isinstance(payload.get("beat_info"), dict) else {}
+            duration_sec = beat_info.get("duration_seconds")
+            updates = {
+                "h3_prompt": prompt,
+                "h3_prompt_source": "generated",
+                "h3_reference_policy": payload.get("h3_reference_policy") or beat_info.get("h3_reference_policy"),
+                "h3_prompt_context_fingerprint": (
+                    payload.get("h3_prompt_context_fingerprint")
+                    or beat_info.get("h3_prompt_context_fingerprint")
+                ),
+            }
             if duration_sec not in (None, ""):
                 updates["video_duration"] = str(duration_sec)
-            beat_info = payload.get("beat_info") if isinstance(payload.get("beat_info"), dict) else {}
             zh_prompt = str(beat_info.get("timestamped_zh_prompt") or "").strip()
             if zh_prompt:
                 updates["timestamped_zh_prompt"] = zh_prompt
@@ -559,11 +573,22 @@ class H3PromptJobService:
         )
 
     @staticmethod
+    def _previous_shot_for_beat(beats: list[dict[str, Any]], beat: dict[str, Any]) -> str:
+        from .shot_handoff import find_previous_shot, format_previous_shot_handoff
+
+        previous = find_previous_shot(beats, beat)
+        return format_previous_shot_handoff(previous, beat)
+
+    @staticmethod
     def _beat_context_fields(beat: dict[str, Any]) -> dict[str, str]:
         return {
             "visual_prompt": str(beat.get("visual_prompt") or "").strip(),
             "audio": str(beat.get("audio") or beat.get("soundscape") or "").strip(),
             "video_prompt_zh": str(beat.get("video_prompt_zh") or beat.get("timestamped_zh_prompt") or "").strip(),
+            "opening_state": str(beat.get("opening_state") or "").strip(),
+            "closing_state": str(beat.get("closing_state") or "").strip(),
+            "transition_note": str(beat.get("transition_note") or "").strip(),
+            "previous_shot": str(beat.get("previous_shot") or "").strip(),
         }
 
     @staticmethod

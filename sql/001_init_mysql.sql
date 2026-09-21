@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS llm_provider_settings (
     base_url VARCHAR(512) NOT NULL DEFAULT 'https://api-inference.modelscope.cn/v1',
     api_key_encrypted TEXT NULL,
     model VARCHAR(255) NOT NULL DEFAULT 'Qwen/Qwen2.5-Coder-32B-Instruct',
+    reasoning_effort VARCHAR(16) NOT NULL DEFAULT 'low',
     last_test_status VARCHAR(32) NULL,
     last_test_message TEXT NULL,
     last_test_at VARCHAR(64) NULL,

@@ -46,5 +46,6 @@ describe("CharacterWorkspace portrait UI", () => {
     expect(html).not.toContain("avatar_prompt")
     expect(html).toContain("生成设定板")
     expect(html).toContain("身份与造型设定")
+    expect(html.indexOf("身份与造型设定")).toBeLessThan(html.indexOf("角色定义"))
   })
 })

@@ -324,6 +324,25 @@ def is_llm_timeout_error(error: BaseException | str) -> bool:
     return "超时" in text or "timed out" in lowered or "read timeout" in lowered
 
 
+def is_llm_transient_error(error: BaseException | str) -> bool:
+    """Return whether an LLM failure is safe to retry once at the request layer."""
+    text = str(error)
+    lowered = text.lower()
+    if is_llm_timeout_error(error):
+        return True
+    return any(
+        marker in lowered
+        for marker in (
+            "connection reset",
+            "connection aborted",
+            "remote end closed",
+            "without close handshake",
+            "streaming response failed",
+            "读取大模型流式响应失败",
+        )
+    )
+
+
 def normalize_http_timeout(timeout: float | tuple[float, float]) -> tuple[float, float]:
     if isinstance(timeout, (tuple, list)) and len(timeout) >= 2:
         return (float(timeout[0]), float(timeout[1]))
@@ -736,10 +755,12 @@ class OpenAICompatibleClient:
         api_key: str,
         *,
         session: requests.Session | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = normalize_api_key(api_key) or api_key
         self.session = session or requests.Session()
+        self.reasoning_effort = reasoning_effort
 
     @property
     def headers(self) -> dict[str, str]:
@@ -869,8 +890,9 @@ class OpenAICompatibleClient:
             # 官方 GPT-5 / o 系列不接受 temperature、max_tokens；中转站常把这类 400
             # 包装成 short-input / heartbeat probing。
             payload["max_completion_tokens"] = max_tokens
-            if reasoning_effort:
-                payload["reasoning_effort"] = reasoning_effort
+            effective_reasoning_effort = reasoning_effort or self.reasoning_effort
+            if effective_reasoning_effort:
+                payload["reasoning_effort"] = effective_reasoning_effort
         else:
             payload["temperature"] = temperature
             payload["max_tokens"] = max_tokens
@@ -1048,6 +1070,8 @@ class OpenAICompatibleClient:
             raise LlmError(append_upstream_log("大模型拒绝了本次内容，请修改后再试。", embedded_error))
         if looks_like_short_input_probe(embedded_error):
             raise LlmError(format_llm_short_input_probe_error(upstream=embedded_error))
+        if is_llm_transient_error(embedded_error):
+            raise LlmTemporaryError(append_upstream_log("大模型连接临时中断。", embedded_error))
         raise LlmError(append_upstream_log("大模型返回错误。", embedded_error))
 
     @staticmethod
@@ -1195,6 +1219,8 @@ class OpenAICompatibleClient:
                 raise LlmAuthError(append_upstream_log("大模型鉴权失败，请检查管理设置中的 API Key。", embedded_error))
             if looks_like_short_input_probe(embedded_error):
                 raise LlmError(format_llm_short_input_probe_error(upstream=embedded_error))
+            if is_llm_transient_error(embedded_error):
+                raise LlmTemporaryError(append_upstream_log("大模型连接临时中断。", embedded_error))
             raise LlmError(append_upstream_log("大模型返回错误。", embedded_error))
 
         # 5. 若无法解析，输出清晰响应摘要以便排查

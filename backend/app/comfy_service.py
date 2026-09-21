@@ -29,7 +29,6 @@ from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, Store
 from .rtx_vsr_workflow import (
     RTX_VSR_NODE_TYPE,
     RTX_VSR_PHASE,
-    UPSCALE_OUTPUT_LABEL,
     VSR_OUTPUT_NODE,
     build_rtx_vsr_workflow,
     comfy_has_rtx_vsr_node,
@@ -39,7 +38,9 @@ from .rtx_vsr_workflow import (
     original_video_output,
     rtx_vsr_node_missing_message,
     source_video_shape,
+    upscale_output_label,
     vsr_memory_rejection,
+    vsr_scale_from_options,
     wants_upscale,
 )
 from .video_depth_workflow import DEPTH_OUTPUT_NODE, build_depth_video_workflow
@@ -317,6 +318,7 @@ class ComfyService:
         stats = self.system_stats()
         return vsr_memory_rejection(
             *shape,
+            scale=vsr_scale_from_options(options),
             vram_total=comfy_vram_total_bytes(stats),
             device_name=comfy_vram_device_name(stats),
         )
@@ -924,9 +926,11 @@ class ComfyService:
         if not wants_upscale(options):
             return outputs
         save_partial_outputs(outputs)
+        scale = vsr_scale_from_options(options)
+        label = upscale_output_label(scale)
         reason = self.reject_vsr_memory(mode, options)
         if reason:
-            update_stage(f"原片已完成，已跳过 2x 超分：{reason}", 100)
+            update_stage(f"原片已完成，已跳过 {label}：{reason}", 100)
             return outputs
         try:
             return outputs + [self.run_rtx_vsr_output(
@@ -935,7 +939,7 @@ class ComfyService:
         except ComfyCancelled:
             raise
         except Exception as error:
-            update_stage(f"原片已完成，2x 超分失败：{error}", 100)
+            update_stage(f"原片已完成，{label}失败：{error}", 100)
             return outputs
 
     def run_rtx_vsr_output(
@@ -964,28 +968,30 @@ class ComfyService:
             if original is None:
                 raise legacy.ComfyError("没有可超分的原片视频")
             local = self.local_path_for_output(original)
+        scale = vsr_scale_from_options(options)
+        label = upscale_output_label(scale)
         update_stage("正在卸载生成模型", 96)
         self.free_resources(force=True)
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
-        update_stage("正在 2x 超分", 97)
+        update_stage(f"正在 {label}", 97)
         uploaded = self.upload_video(str(local), "rtx_vsr_source")
         record = self.run_workflow(
-            build_rtx_vsr_workflow(uploaded), "正在 2x 超分", update_stage,
+            build_rtx_vsr_workflow(uploaded, scale=scale), f"正在 {label}", update_stage,
             on_submitted=on_submitted, phase=RTX_VSR_PHASE, is_cancelled=is_cancelled,
         )
         output = self.download(
             legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr",
         )
-        return self.output_payload(output, "video", UPSCALE_OUTPUT_LABEL)
+        return self.output_payload(output, "video", label)
 
-    def completed_outputs(self, mode: JobMode, record: dict) -> list[dict]:
+    def completed_outputs(self, mode: JobMode, record: dict, options: dict | None = None) -> list[dict]:
         if mode in H3_WORKFLOWS:
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
             return [self.output_payload(output, "video", generation_output_label(mode))]
         if is_rtx_vsr_workflow(mode):
             output = self.download(legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr")
-            return [self.output_payload(output, "video", UPSCALE_OUTPUT_LABEL)]
+            return [self.output_payload(output, "video", upscale_output_label(vsr_scale_from_options(options)))]
         if mode is JobMode.IMAGE:
             output = self.download(legacy.output_file(record, legacy.T2I_OUTPUT_NODE, ("images",)), "text_to_image")
             return [self.output_payload(output, "image", "生成图片")]
@@ -1008,19 +1014,20 @@ class ComfyService:
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
         if phase == RTX_VSR_PHASE:
+            label = upscale_output_label(vsr_scale_from_options(options))
             try:
                 record = self.wait_for_existing(
-                    prompt_id, client_id, update_stage, "正在恢复 2x 超分", (96, 100), is_cancelled,
+                    prompt_id, client_id, update_stage, f"正在恢复 {label}", (96, 100), is_cancelled,
                 )
                 vsr = self.download(
                     legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr",
                 )
-                payload = self.output_payload(vsr, "video", UPSCALE_OUTPUT_LABEL)
+                payload = self.output_payload(vsr, "video", label)
             except ComfyCancelled:
                 raise
             except Exception as error:
                 if existing_outputs:
-                    update_stage(f"原片已完成，2x 超分失败：{error}", 100)
+                    update_stage(f"原片已完成，{label}失败：{error}", 100)
                     return existing_outputs
                 raise
             if is_rtx_vsr_workflow(mode):
@@ -1030,7 +1037,7 @@ class ComfyService:
             record = self.wait_for_existing(
                 prompt_id, client_id, update_stage, "已重新连接 ComfyUI 任务", is_cancelled=is_cancelled,
             )
-            outputs = self.completed_outputs(mode, record)
+            outputs = self.completed_outputs(mode, record, options)
             return self.append_rtx_vsr_if_requested(
                 mode, outputs, options, update_stage, on_submitted, save_partial_outputs, is_cancelled,
             )

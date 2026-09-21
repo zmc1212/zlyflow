@@ -5,9 +5,15 @@ import {
   applyPromptStreamEvent,
   emptyPromptLiveState,
 } from "./workshop-prompt-stream"
-import { shouldShowWorkshopPromptLive, workshopFailedLiveText, workshopH3StatusLabel } from "./workshop-h3-status"
+import { isWorkshopPromptLiveForBeat, shouldShowWorkshopPromptLive, workshopFailedLiveText, workshopH3StatusLabel } from "./workshop-h3-status"
 
 describe("workshop prompt live stream", () => {
+  it("does not attach a live prompt to a different selected beat", () => {
+    expect(isWorkshopPromptLiveForBeat("beat-1", "beat-2")).toBe(false)
+    expect(isWorkshopPromptLiveForBeat("beat-2", "beat-2")).toBe(true)
+    expect(isWorkshopPromptLiveForBeat(null, "beat-2")).toBe(false)
+  })
+
   it("keeps thinking and visible text on separate channels", () => {
     let state = emptyPromptLiveState("job-1")
     state = applyPromptStreamEvent(state, {

@@ -27,9 +27,9 @@ export function workshopBeatLabel(beat: WorkshopBeatLabelSource | null | undefin
   return role ? `镜头${story} · ${role}` : `镜头${story}`
 }
 
-export function workshopBeatHasSplitTakes<T extends WorkshopBeatLabelSource & { id?: string }>(
-  beat: T | null | undefined,
-  beats: T[] | null | undefined,
+export function workshopBeatHasSplitTakes(
+  beat: (WorkshopBeatLabelSource & { id?: string }) | null | undefined,
+  beats: Array<WorkshopBeatLabelSource & { id?: string }> | null | undefined,
 ): boolean {
   if (!beat) return false
   if (String(beat.take_role || "").trim() || String(beat.parent_beat_id || "").trim()) return true

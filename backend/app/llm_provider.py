@@ -18,6 +18,12 @@ from .storage import JobStore, now
 
 DEFAULT_MODELSCOPE_BASE_URL = "https://api-inference.modelscope.cn/v1"
 DEFAULT_MODELSCOPE_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
+REASONING_EFFORTS = {"auto", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
+
+
+def configured_reasoning_effort(config: dict[str, Any]) -> str | None:
+    value = str(config.get("reasoning_effort") or "low").strip().lower()
+    return None if value == "auto" else value
 
 VISION_MODEL_MARKERS = (
     "vl", "vision", "gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "o4-mini",
@@ -83,6 +89,7 @@ class LlmProviderService:
             "enabled": config["enabled"],
             "base_url": config["base_url"],
             "model": config["model"],
+            "reasoning_effort": str(config.get("reasoning_effort") or "low"),
             "api_key_masked": masked,
             "has_api_key": bool(config.get("api_key_encrypted")),
             "credential_ready": self.credentials.ready,
@@ -108,6 +115,11 @@ class LlmProviderService:
         if not model_name:
             model_name = DEFAULT_MODELSCOPE_MODEL
         values["model"] = model_name
+
+        reasoning_effort = str(values.get("reasoning_effort") or "low").strip().lower()
+        if reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError("推理程度不受支持")
+        values["reasoning_effort"] = reasoning_effort
 
         api_key = payload.get("api_key")
         if api_key is not None and str(api_key).strip():
@@ -228,7 +240,11 @@ class LlmProviderService:
                 raise LlmError("大模型未返回优化后的提示词")
             return optimized
 
-        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
+        client = OpenAICompatibleClient(
+            base_url=config["base_url"],
+            api_key=api_key,
+            reasoning_effort=configured_reasoning_effort(config),
+        )
         return client.optimize_prompt(
             prompt,
             media_type=media_type,
@@ -258,7 +274,11 @@ class LlmProviderService:
         if not api_key:
             raise LlmError("大模型凭据未配置")
 
-        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
+        client = OpenAICompatibleClient(
+            base_url=config["base_url"],
+            api_key=api_key,
+            reasoning_effort=configured_reasoning_effort(config),
+        )
         return client.split_script(
             script,
             shot_count=shot_count,
@@ -336,7 +356,11 @@ class LlmProviderService:
         api_key = self.api_key()
         if not api_key:
             raise LlmError("大模型凭据未配置")
-        return OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key), config["model"]
+        return OpenAICompatibleClient(
+            base_url=config["base_url"],
+            api_key=api_key,
+            reasoning_effort=configured_reasoning_effort(config),
+        ), config["model"]
 
     def run_director_recipe(
         self,

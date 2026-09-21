@@ -345,6 +345,13 @@ def complete_authoring(
     temperature: float = 0.3,
     timeout: float = 240.0,
 ) -> tuple[str, VisionCallMeta]:
+    llm_reasoning_effort = str((llm_row or {}).get("reasoning_effort") or "low").strip().lower()
+
+    def effort_for(candidate: VisionEndpoint) -> str | None:
+        if candidate.source != "llm":
+            return "none"
+        return None if llm_reasoning_effort == "auto" else llm_reasoning_effort
+
     urls = normalize_image_urls(image_urls)
     endpoint = resolve_authoring_endpoint(llm_row, vlm_row, decrypt_fn)
     text_endpoint = resolve_text_endpoint(llm_row, decrypt_fn)
@@ -361,6 +368,7 @@ def complete_authoring(
                 max_tokens=max_tokens,
                 temperature=temperature,
                 timeout=timeout,
+                reasoning_effort=effort_for(endpoint),
             )
             return text, VisionCallMeta(
                 status=VISION_STATUS_USED,
@@ -384,6 +392,7 @@ def complete_authoring(
                 max_tokens=max_tokens,
                 temperature=temperature,
                 timeout=timeout,
+                reasoning_effort=effort_for(fallback),
             )
             return text, VisionCallMeta(
                 status=VISION_STATUS_FAILED_TEXT_FALLBACK,
@@ -412,6 +421,7 @@ def complete_authoring(
         max_tokens=max_tokens,
         temperature=temperature,
         timeout=timeout,
+        reasoning_effort=effort_for(fallback),
     )
     return text, VisionCallMeta(
         status=VISION_STATUS_UNAVAILABLE,

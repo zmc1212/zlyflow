@@ -26,6 +26,15 @@ export type Director2Document = {
   raw_text: string | null
   analysis: Record<string, unknown> | null
   shot_plan_job_id?: string | null
+  aspect_hint?: {
+    suggested?: string
+    hits?: string[]
+    conflicts?: string[]
+    explicit?: string[]
+    source?: string
+  } | null
+  needs_shot_plan?: boolean
+  project_name?: string | null
   created_at: string
   updated_at: string
 }
@@ -187,10 +196,17 @@ export function enqueueDocumentShotPlan(
   csrfToken: string,
   projectId: string,
   docId: string,
+  aspectRatio?: string,
+  force = false,
+  episodeNum?: number,
 ): Promise<{ job_id: string; document_id?: string; status?: string; duplicate?: boolean }> {
+  const body: Record<string, unknown> = {}
+  if (aspectRatio) body.aspect_ratio = aspectRatio
+  if (force) body.force = true
+  if (episodeNum != null) body.episode_num = episodeNum
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/shot-plan`,
-    jsonMutation(csrfToken),
+    jsonMutation(csrfToken, Object.keys(body).length ? body : undefined),
   )
 }
 
@@ -474,11 +490,25 @@ export type Director2Beat = {
   render_status?: string
   video_url?: string | null
   upscaled_video_url?: string | null
+  upscale_scale?: number | null
+  video_take_id?: string | null
+  video_takes?: Array<{
+    id?: string
+    job_id?: string
+    url?: string
+    created_at?: string
+    scope?: string
+    upscaled_url?: string
+  }>
   video_prompt_zh?: string
   video_duration?: string
   status?: string
   h3_prompt?: string | null
   h3_prompt_source?: "manual" | "generated" | string | null
+  h3_reference_policy?: string | null
+  h3_prompt_context_fingerprint?: string | null
+  h3_prompt_reference_state?: "current" | "stale" | "manual" | "invalid" | "missing" | string | null
+  h3_prompt_reference_reason?: string | null
   parent_beat_id?: string | null
   take_role?: string | null
   story_shot?: number | null
@@ -490,6 +520,7 @@ export type Director2Beat = {
   triptych_panels?: { start?: string; mid?: string; end?: string } | null
   triptych_job_id?: string | null
   triptych_status?: string | null
+  triptych_look_ids?: Record<string, string> | null
   timestamped_zh_prompt?: string | null
   vision_status?: string | null
   vision_model?: string | null
@@ -571,6 +602,19 @@ export function upscaleBeatVideo(csrfToken: string, projectId: string, epId: str
   )
 }
 
+export function adoptBeatVideoTake(
+  csrfToken: string,
+  projectId: string,
+  epId: string,
+  beatId: string,
+  data: { url?: string; job_id?: string },
+): Promise<{ status: string; beat: Director2Beat }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/video-takes/adopt`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
 export function composeEpisodeVideo(
   csrfToken: string,
   projectId: string,
@@ -626,6 +670,12 @@ export function generateEpisodeDubbing(
 // --- 全部任务 Jobs ---
 export function listJobs(projectId: string): Promise<Director2Job[]> {
   return requestJson<Director2Job[]>(`/api/projects/${encodeURIComponent(projectId)}/jobs`)
+}
+
+export function getJob(projectId: string, jobId: string): Promise<Director2Job> {
+  return requestJson<Director2Job>(
+    `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`,
+  )
 }
 
 export function createJob(csrfToken: string, projectId: string, data: Record<string, unknown>): Promise<Director2Job> {

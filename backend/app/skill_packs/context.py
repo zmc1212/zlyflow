@@ -29,7 +29,14 @@ def active_skill_pack_id() -> str | None:
     return _active_pack_id.get()
 
 
-def craft_overlay_for_stage(stage: str, pack_id: str | None = None) -> str:
+def craft_overlay_for_stage(
+    stage: str,
+    pack_id: str | None = None,
+    *,
+    aspect_ratio: str | None = None,
+    extra: dict | None = None,
+    project_id: str | None = None,
+) -> str:
     from .handlers import inject_craft_text
     from .recipe import get_pack
 
@@ -41,12 +48,31 @@ def craft_overlay_for_stage(stage: str, pack_id: str | None = None) -> str:
         step = step or ("inject_craft" if "optimize" in recipe.surfaces else "")
     if step != "inject_craft":
         return ""
-    return inject_craft_text(recipe, stage)
+    return inject_craft_text(
+        recipe,
+        stage,
+        aspect_ratio=aspect_ratio,
+        extra=extra,
+        project_id=project_id,
+    )
 
 
-def craft_overlay_for_agent(agent_id: str, pack_id: str | None = None) -> str:
+def craft_overlay_for_agent(
+    agent_id: str,
+    pack_id: str | None = None,
+    *,
+    aspect_ratio: str | None = None,
+    extra: dict | None = None,
+    project_id: str | None = None,
+) -> str:
     stage = AGENT_TO_STAGE.get(str(agent_id or "").strip(), str(agent_id or "").strip())
-    return craft_overlay_for_stage(stage, pack_id)
+    return craft_overlay_for_stage(
+        stage,
+        pack_id,
+        aspect_ratio=aspect_ratio,
+        extra=extra,
+        project_id=project_id,
+    )
 
 
 def packing_system_prompt_for(

@@ -1057,12 +1057,10 @@ export default function App({
   })
 
   const upscaleMutation = useMutation({
-    mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${jobId}/upscale`, {
-      method: "POST", headers: { "X-CSRF-Token": csrfToken },
-    }),
-    onSuccess: () => {
+    mutationFn: async ({ jobId, scale }: { jobId: string; scale: 2 | 4 }) => api<Job>(`/api/jobs/${jobId}/upscale`, jsonMutation(csrfToken, { scale })),
+    onSuccess: (_job, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
-      messageApi.success("已提交 2x 超分")
+      messageApi.success(`已提交 ${variables.scale}x 超分`)
     },
     onError: (error: Error) => messageApi.error(error.message),
   })
@@ -2032,7 +2030,7 @@ export default function App({
                 </div>}
 
                 {roundResults.length > 0 && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
-                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} upscale={showUpscale ? { disabled: !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending, pending: upscaleMutation.isPending || Boolean(relatedUpscale), hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || "用本机 RTX 放大到 2 倍，原片保留", onClick: () => upscaleMutation.mutate(selectedJob.id) } : undefined} upscaleStage={relatedUpscale?.stage} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onSave={(result) => { const job = allJobs.find((item) => item.id === result.jobId) ?? selectedJob; directoryState === "granted" ? void deliverOutput(job, result.generationItemId, result.outputIndex, result.output) : void connectDirectory() }} />}
+                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} upscale={showUpscale ? { disabled: !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending, pending: upscaleMutation.isPending || Boolean(relatedUpscale), hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || "点开后选 2x 或 4x，原片保留", onSelect: (scale) => upscaleMutation.mutate({ jobId: selectedJob.id, scale }) } : undefined} upscaleStage={relatedUpscale?.stage} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onSave={(result) => { const job = allJobs.find((item) => item.id === result.jobId) ?? selectedJob; directoryState === "granted" ? void deliverOutput(job, result.generationItemId, result.outputIndex, result.output) : void connectDirectory() }} />}
                 </Suspense>}
 
                 {failedItems.length > 0 && mediaType === "image" && <ul className="mt-3 space-y-2 text-xs leading-5 text-red-600">

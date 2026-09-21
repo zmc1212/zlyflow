@@ -1,5 +1,5 @@
-// 角色专属工作区（角色定义 + 参考音 + 身份与造型设定板）——
-// 原片参考条仍可锁真人脸；造型图为 16:9 设定板，不再单独生成 1:1 头像。
+// 角色专属工作区（身份与造型设定板 + 角色定义 + 参考音）——
+// 设定板图放最上方，避免被长表单顶下去；原片参考条仍可锁真人脸。
 import { Button, Input, Popconfirm, Select, Slider, Space, Upload, message } from "antd"
 import { Maximize2, Mic, Plus, Shirt, Sparkles, Trash2, User } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -141,6 +141,142 @@ export default function CharacterWorkspace({
 
   return (
     <div className="character-workspace-layout">
+      {/* 设定板图放最上方，避免被角色定义长表单顶出首屏 */}
+      <div className="section-card identities-section-card">
+        <div className="section-header">
+          <div className="section-title-wrap">
+            <div className="section-icon-badge costume-badge">
+              <Shirt size={16} />
+            </div>
+            <div>
+              <div className="title-with-badge">
+                <h4 className="section-title">身份与造型设定 (Identities & Costumes)</h4>
+                <span className="identity-count-tag">
+                  {asset.extra?.identities?.length || 0} 套服装造型
+                </span>
+              </div>
+              <p className="section-desc">
+                每套造型生成一张 16:9 设定板（左三视图、右上头型、右下服装细节），用于分镜头锁脸锁装。
+              </p>
+            </div>
+          </div>
+
+          <Button type="primary" className="add-costume-btn" icon={<Plus size={14} />} onClick={onOpenAddIdentity}>
+            新增身份/造型
+          </Button>
+        </div>
+
+        <div className="identities-grid">
+          {((asset.extra?.identities as AssetIdentity[]) || []).map((ident, idx) => (
+            <div
+              key={ident.id || idx}
+              className="identity-card"
+            >
+              <div className="ident-card-header">
+                <div className="ident-name-row">
+                  <span className="ident-index-badge">造型 {idx + 1}</span>
+                  <input
+                    value={ident.name}
+                    className="ident-name-input"
+                    placeholder="造型名称 (例如：伴读常服)"
+                    onChange={(event) => onIdentityChange(idx, { name: event.target.value })}
+                  />
+                </div>
+
+                <Popconfirm
+                  title="确定删除此套造型设定？"
+                  okText="删除"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => onRemoveIdentity(idx)}
+                >
+                  <Button size="small" type="text" danger className="delete-ident-btn" icon={<Trash2 size={13} />} />
+                </Popconfirm>
+              </div>
+
+              <div className="ident-card-body">
+                <div className="ident-image-col">
+                  <div className="ident-img-frame">
+                    {ident.image_url ? (
+                      <img
+                        src={ident.image_url}
+                        className="ident-img-view"
+                        alt={`${ident.name || "造型"}`}
+                        onClick={() => openMediaPreview({ src: ident.image_url, title: `${asset.name} · ${ident.name || "造型图"}` })}
+                      />
+                    ) : (
+                      <div className="ident-img-empty">
+                        <Shirt size={28} className="empty-shirt-icon" />
+                        <span className="empty-shirt-text">尚未生成设定板</span>
+                      </div>
+                    )}
+
+                    {ident.image_url ? (
+                      <button
+                        type="button"
+                        className="float-view-btn"
+                        title="放大查看"
+                        aria-label={`放大查看${ident.name || "造型图"}`}
+                        onClick={() => openMediaPreview({ src: ident.image_url, title: `${asset.name} · ${ident.name || "造型图"}` })}
+                      >
+                        <Maximize2 size={13} />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <Button
+                    type="primary"
+                    className="ident-gen-btn"
+                    loading={generatingIdentityId === ident.id}
+                    icon={<Sparkles size={14} />}
+                    onClick={() => onGenerateIdentity(ident)}
+                  >
+                    {ident.image_url ? "重新生成设定板" : "✨ 生成设定板"}
+                  </Button>
+                  {hasSourceReferences(asset) ? (
+                    <span className="avatar-ref-hint">将按原片截图的服装生成，忽略下方旧衣装描述</span>
+                  ) : null}
+                </div>
+
+                <div className="ident-info-col">
+                  <div className="ident-field">
+                    <label className="ident-field-label">服装与外观特征 (Appearance)</label>
+                    <Input.TextArea
+                      value={ident.description}
+                      rows={2}
+                      placeholder="如：洗得发白的青灰粗布长衫、腰束旧布带、旧布鞋..."
+                      className="custom-textarea"
+                      onChange={(event) => onIdentityChange(idx, { description: event.target.value })}
+                    />
+                  </div>
+
+                  <div className="ident-field">
+                    <div className="field-title-bar">
+                      <label className="ident-field-label">AI 造型生图提示词 (Visual Prompt)</label>
+                      <Button
+                        type="link"
+                        size="small"
+                        className="mini-link-btn"
+                        onClick={() => copyText(ident.visual_prompt)}
+                      >
+                        复制
+                      </Button>
+                    </div>
+                    <Input.TextArea
+                      value={ident.visual_prompt}
+                      rows={3}
+                      placeholder="用于生成该造型立绘的详细提示词..."
+                      className="custom-textarea"
+                      onChange={(event) => onIdentityChange(idx, { visual_prompt: event.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="section-card character-definition-card">
         <div className="section-header">
           <div className="section-title-wrap">
@@ -436,147 +572,6 @@ export default function CharacterWorkspace({
               />
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* 板块二：角色身份与造型设定 (IdentitiesGridSection - 参考 source2) */}
-      <div className="section-card identities-section-card">
-        <div className="section-header">
-          <div className="section-title-wrap">
-            <div className="section-icon-badge costume-badge">
-              <Shirt size={16} />
-            </div>
-            <div>
-              <div className="title-with-badge">
-                <h4 className="section-title">身份与造型设定 (Identities & Costumes)</h4>
-                <span className="identity-count-tag">
-                  {asset.extra?.identities?.length || 0} 套服装造型
-                </span>
-              </div>
-              <p className="section-desc">
-                每套造型生成一张 16:9 设定板（左三视图、右上头型、右下服装细节），用于分镜头锁脸锁装。
-              </p>
-            </div>
-          </div>
-
-          <Button type="primary" className="add-costume-btn" icon={<Plus size={14} />} onClick={onOpenAddIdentity}>
-            新增身份/造型
-          </Button>
-        </div>
-
-        {/* 造型卡片网格 */}
-        <div className="identities-grid">
-          {((asset.extra?.identities as AssetIdentity[]) || []).map((ident, idx) => (
-            <div
-              key={ident.id || idx}
-              className="identity-card"
-            >
-              {/* 卡片顶部：造型名称与操作 */}
-              <div className="ident-card-header">
-                <div className="ident-name-row">
-                  <span className="ident-index-badge">造型 {idx + 1}</span>
-                  <input
-                    value={ident.name}
-                    className="ident-name-input"
-                    placeholder="造型名称 (例如：伴读常服)"
-                    onChange={(event) => onIdentityChange(idx, { name: event.target.value })}
-                  />
-                </div>
-
-                <Popconfirm
-                  title="确定删除此套造型设定？"
-                  okText="删除"
-                  cancelText="取消"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={() => onRemoveIdentity(idx)}
-                >
-                  <Button size="small" type="text" danger className="delete-ident-btn" icon={<Trash2 size={13} />} />
-                </Popconfirm>
-              </div>
-
-              {/* 卡片主体：左图 (16:9 四宫格造型图) + 右文 */}
-              <div className="ident-card-body">
-                {/* 左边：造型图展示与独立生图按钮 (16:9，对齐 source1 look sheet) */}
-                <div className="ident-image-col">
-                  <div className="ident-img-frame">
-                    {ident.image_url ? (
-                      <img
-                        src={ident.image_url}
-                        className="ident-img-view"
-                        alt={`${ident.name || "造型"}`}
-                        onClick={() => openMediaPreview({ src: ident.image_url, title: `${asset.name} · ${ident.name || "造型图"}` })}
-                      />
-                    ) : (
-                      <div className="ident-img-empty">
-                        <Shirt size={28} className="empty-shirt-icon" />
-                        <span className="empty-shirt-text">尚未生成设定板</span>
-                      </div>
-                    )}
-
-                    {ident.image_url ? (
-                      <button
-                        type="button"
-                        className="float-view-btn"
-                        title="放大查看"
-                        aria-label={`放大查看${ident.name || "造型图"}`}
-                        onClick={() => openMediaPreview({ src: ident.image_url, title: `${asset.name} · ${ident.name || "造型图"}` })}
-                      >
-                        <Maximize2 size={13} />
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <Button
-                    type="primary"
-                    className="ident-gen-btn"
-                    loading={generatingIdentityId === ident.id}
-                    icon={<Sparkles size={14} />}
-                    onClick={() => onGenerateIdentity(ident)}
-                  >
-                    {ident.image_url ? "重新生成设定板" : "✨ 生成设定板"}
-                  </Button>
-                  {hasSourceReferences(asset) ? (
-                    <span className="avatar-ref-hint">将按原片截图的服装生成，忽略下方旧衣装描述</span>
-                  ) : null}
-                </div>
-
-                {/* 右边：外观描述与专属提示词 */}
-                <div className="ident-info-col">
-                  <div className="ident-field">
-                    <label className="ident-field-label">服装与外观特征 (Appearance)</label>
-                    <Input.TextArea
-                      value={ident.description}
-                      rows={2}
-                      placeholder="如：洗得发白的青灰粗布长衫、腰束旧布带、旧布鞋..."
-                      className="custom-textarea"
-                      onChange={(event) => onIdentityChange(idx, { description: event.target.value })}
-                    />
-                  </div>
-
-                  <div className="ident-field">
-                    <div className="field-title-bar">
-                      <label className="ident-field-label">AI 造型生图提示词 (Visual Prompt)</label>
-                      <Button
-                        type="link"
-                        size="small"
-                        className="mini-link-btn"
-                        onClick={() => copyText(ident.visual_prompt)}
-                      >
-                        复制
-                      </Button>
-                    </div>
-                    <Input.TextArea
-                      value={ident.visual_prompt}
-                      rows={3}
-                      placeholder="用于生成该造型立绘的详细提示词..."
-                      className="custom-textarea"
-                      onChange={(event) => onIdentityChange(idx, { visual_prompt: event.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

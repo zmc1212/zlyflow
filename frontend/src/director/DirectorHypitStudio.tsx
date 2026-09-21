@@ -139,7 +139,13 @@ export default function DirectorHypitStudio({
     }
   }
 
-  async function customUpload(options: { file: File | Blob; onSuccess?: (body: unknown) => void; onError?: (error: Error) => void }) {
+  async function customUpload(options: { file: File | Blob | string; onSuccess?: (body: unknown) => void; onError?: (error: Error) => void }) {
+    if (typeof options.file === "string") {
+      const failed = new Error("无效的参考片文件")
+      options.onError?.(failed)
+      message.error(failed.message)
+      return
+    }
     const file = options.file instanceof File ? options.file : new File([options.file], "source.mp4")
     try {
       const saved = await uploadHypitSourceVideo(projectId, {

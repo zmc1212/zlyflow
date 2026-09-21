@@ -1,7 +1,7 @@
 export const DIRECTOR2_DEFAULT_VIDEO_WORKFLOW = "minimax-h3-director-accel-r2v"
 export const DIRECTOR2_VIDEO_SETTINGS_STORAGE_PREFIX = "director2-episode-video-settings:"
 export const DIRECTOR2_EPISODE_HIDDEN_OPTIONS = new Set(["duration", "custom_steps"])
-export const DIRECTOR2_BOOLEAN_VIDEO_OPTIONS = new Set(["upscale_after"])
+export const DIRECTOR2_BOOLEAN_VIDEO_OPTIONS = new Set<string>()
 
 export type Director2OptionVisibility = "primary" | "advanced" | "internal"
 
@@ -135,11 +135,17 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
     name: "upscale_after",
     ui_group: "advanced",
     definition: {
-      label: "出片后 2x 超分",
-      type: "boolean",
-      default: false,
+      label: "出片后超分",
+      type: "string",
+      default: "off",
+      enum: ["off", "2", "4"],
       ui_group: "advanced",
-      description: "逐镜成片成功后卸载 H3，再用本机 RTX 放大到 2 倍。整集直出和拼接片不会自动超分。",
+      ui_options: [
+        { value: "off", label: "关闭" },
+        { value: "2", label: "2x（推荐）" },
+        { value: "4", label: "4x" },
+      ],
+      description: "逐镜成片成功后卸载 H3，再用本机 RTX 一次放大到目标倍数。整集直出和拼接片不会自动超分。",
     },
   },
 ]
@@ -310,11 +316,17 @@ export function sanitizeVideoOptionValues(
   for (const field of fields) {
     const value = incoming[field.name]
     if (value == null || value === "") continue
+    const allowed = optionChoices(field, { ...defaults, ...incoming }).map((item) => item.value)
+    if (field.name === "upscale_after") {
+      if (value === "true" || value === "1") next[field.name] = "2"
+      else if (value === "false" || value === "0") next[field.name] = "off"
+      else if (!allowed.length || allowed.includes(value)) next[field.name] = value
+      continue
+    }
     if (field.definition.type === "boolean" || DIRECTOR2_BOOLEAN_VIDEO_OPTIONS.has(field.name)) {
       next[field.name] = value === "true" || value === "1" ? "true" : "false"
       continue
     }
-    const allowed = optionChoices(field, { ...defaults, ...incoming }).map((item) => item.value)
     if (!allowed.length || allowed.includes(value)) next[field.name] = value
   }
   return next
@@ -365,7 +377,8 @@ export function videoSettingsSummary(fields: Director2VideoOptionField[], values
   if (qualityChoice) parts.push(qualityChoice.label.split(" · ")[0])
   else if (quality) parts.push(`${quality} MP`)
   if (weightLabel) parts.push(weightLabel.replace(/（.*?）/g, "").trim() || weightLabel)
-  if (values.upscale_after === "true") parts.push("2x 超分")
+  if (values.upscale_after === "4") parts.push("4x 超分")
+  else if (values.upscale_after === "2" || values.upscale_after === "true") parts.push("2x 超分")
   return parts.join(" · ")
 }
 
@@ -376,17 +389,84 @@ export function buildVideoJobOptions(
 ): Record<string, unknown> {
   const options: Record<string, unknown> = { workflow: workflowId }
   for (const [name, value] of Object.entries(values)) {
+    if (name === "upscale_after") {
+      options[name] = value === "true" ? "2" : value === "false" ? "off" : value
+      continue
+    }
     options[name] = DIRECTOR2_BOOLEAN_VIDEO_OPTIONS.has(name) ? value === "true" : value
   }
   return { ...options, ...extra }
 }
 
+export type BeatVideoTake = {
+  id: string
+  job_id?: string
+  url: string
+  created_at?: string
+  scope?: "shot" | "selection"
+  upscaled_url?: string
+}
+
+export type BeatVideoTakeInput = {
+  id?: string
+  job_id?: string
+  url?: string
+  created_at?: string
+  scope?: string
+  upscaled_url?: string
+}
+
+export type BeatFilmSource = {
+  id?: string
+  video_url?: string | null
+  upscaled_video_url?: string | null
+  video_take_id?: string | null
+  video_takes?: BeatVideoTakeInput[] | null
+}
+
+export type Director2VideoJobLike = {
+  id?: string
+  job_type?: string
+  status?: string
+  result_url?: string | null
+  created_at?: string
+  payload?: Record<string, unknown> | null
+}
+
+const SHOT_TAKE_SCOPES = new Set(["shot", "selection"])
+const EXCLUDED_TAKE_SCOPES = new Set(["episode", "compose", "upscale"])
+const SUCCESS_VIDEO_STATUSES = new Set(["completed", "succeeded"])
+
 export function beatHasVideo(beat: { video_url?: string | null } | null | undefined): boolean {
   return Boolean(String(beat?.video_url || "").trim())
 }
 
-export function beatHasUpscaled(beat: { upscaled_video_url?: string | null } | null | undefined): boolean {
+export function takePlaybackUrl(take: BeatVideoTake | null | undefined): string {
+  return String(take?.upscaled_url || take?.url || "").trim()
+}
+
+export function beatHasFilmTakes(
+  beat: BeatFilmSource | null | undefined,
+  jobs: Director2VideoJobLike[] | null | undefined,
+  episodeId: string,
+): boolean {
+  return collectBeatVideoTakes(beat, jobs, episodeId).length > 0
+}
+
+export function beatHasUpscaled(beat: {
+  video_url?: string | null
+  upscaled_video_url?: string | null
+} | null | undefined): boolean {
   return Boolean(String(beat?.upscaled_video_url || "").trim())
+}
+
+export function beatUpscaleLabel(beat: {
+  upscaled_video_url?: string | null
+  upscale_scale?: number | string | null
+} | null | undefined): string {
+  if (!beatHasUpscaled(beat)) return ""
+  if (beat?.upscale_scale === 4 || beat?.upscale_scale === "4") return "4x"
+  return "2x"
 }
 
 export function beatPlaybackUrl(beat: {
@@ -402,7 +482,7 @@ export function beatUpscaleDisabledReason(
 ): string | undefined {
   if (!beatHasVideo(beat)) return "成片成功后才能超分"
   if (progress?.scope === "upscale" || progress?.stage === "upscaling" || progress?.status === "upscaling") {
-    return "正在 2x 超分"
+    return "正在超分"
   }
   if (progress) return "出片进行中"
   return undefined
@@ -431,7 +511,17 @@ export function jobPreviewVideoUrl(job: {
   result_url?: string | null
   payload?: Record<string, unknown> | null
 } | null | undefined): string {
-  return jobUpscaledVideoUrl(job) || String(job?.result_url || "").trim()
+  return String(job?.result_url || "").trim()
+}
+
+export function jobUpscaleScale(job: {
+  payload?: Record<string, unknown> | null
+} | null | undefined): 2 | 4 | undefined {
+  const payload = job?.payload || {}
+  if (payload.upscale_scale === 4 || payload.upscale_scale === "4") return 4
+  if (payload.upscale_scale === 2 || payload.upscale_scale === "2") return 2
+  if (jobUpscaledVideoUrl(job) || String(payload.render_scope || "") === "upscale") return 2
+  return undefined
 }
 
 const VIDEO_JOB_ACTIVE_STATUSES = new Set([
@@ -476,9 +566,9 @@ export function jobUpscaleHint(job: {
 } | null | undefined): string {
   const scope = String(job?.payload?.render_scope || "")
   if (scope === "episode" || scope === "compose") {
-    return "提交整段 2x 超分。过长可能因显存被拒绝，原片仍保留。"
+    return "点开后选 2x 或 4x。整段过长可能因显存被拒绝，原片仍保留。"
   }
-  return "用当前连接的 ComfyUI 做 RTX 2x 超分，原片保留"
+  return "点开后选 2x 或 4x，用当前连接的 ComfyUI 做 RTX 超分，原片保留"
 }
 
 export function jobUpscaleDisabledReason(
@@ -510,6 +600,166 @@ export function jobUpscaleDisabledReason(
     const otherBeats = jobBeatIds(other)
     return beatIds.length === 1 && otherBeats.includes(beatIds[0])
   })
-  if (inFlight) return "正在 2x 超分"
+  if (inFlight) return "正在超分"
   return undefined
+}
+
+function jobMentionsBeat(payload: Record<string, unknown>, beatId: string): boolean {
+  if (String(payload.beat_id || "").trim() === beatId) return true
+  const listed = payload.beat_ids
+  if (Array.isArray(listed) && listed.some((item) => String(item || "").trim() === beatId)) return true
+  for (const key of ["source_shots", "shots"] as const) {
+    const shots = payload[key]
+    if (!Array.isArray(shots)) continue
+    if (shots.some((shot) => shot && typeof shot === "object" && String((shot as { beat_id?: unknown }).beat_id || "").trim() === beatId)) {
+      return true
+    }
+  }
+  return false
+}
+
+function localTakeId(url: string, beatId = ""): string {
+  let hash = 0
+  const seed = `${beatId}|${url}`
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) | 0
+  }
+  return `take-local-${(hash >>> 0).toString(16)}`
+}
+
+function jobShotVideoUrl(job: Director2VideoJobLike, beatId: string): string {
+  const payload = job.payload || {}
+  const scope = String(payload.render_scope || "")
+  if (EXCLUDED_TAKE_SCOPES.has(scope)) return ""
+  if (!jobMentionsBeat(payload, beatId)) return ""
+  const shots = Array.isArray(payload.shots) ? payload.shots : []
+  const matched = shots.find((shot) => (
+    shot && typeof shot === "object" && String((shot as { beat_id?: unknown }).beat_id || "").trim() === beatId
+  )) as { video_url?: unknown } | undefined
+  const shotUrl = String(matched?.video_url || "").trim()
+  if (shotUrl) return shotUrl
+  const splitUrls = Array.isArray(payload.shot_video_urls) ? payload.shot_video_urls : []
+  if (splitUrls.length) {
+    const sources = Array.isArray(payload.source_shots) ? payload.source_shots : shots
+    const order = (sources.length ? sources : []).map((shot) => (
+      shot && typeof shot === "object" ? String((shot as { beat_id?: unknown }).beat_id || "").trim() : ""
+    )).filter(Boolean)
+    const listed = Array.isArray(payload.beat_ids)
+      ? payload.beat_ids.map((item) => String(item || "").trim()).filter(Boolean)
+      : []
+    const ids = order.includes(beatId) ? order : listed
+    const index = ids.indexOf(beatId)
+    if (index >= 0 && splitUrls[index]) return String(splitUrls[index] || "").trim()
+  }
+  const mentioned = [
+    String(payload.beat_id || "").trim(),
+    ...(Array.isArray(payload.beat_ids) ? payload.beat_ids.map((item) => String(item || "").trim()) : []),
+    ...shots.map((shot) => (
+      shot && typeof shot === "object" ? String((shot as { beat_id?: unknown }).beat_id || "").trim() : ""
+    )),
+  ].filter(Boolean)
+  const unique = new Set(mentioned)
+  if (unique.size <= 1) return jobSourceVideoUrl(job)
+  return ""
+}
+
+function earlierStamp(left?: string, right?: string): string {
+  const a = String(left || "").trim()
+  const b = String(right || "").trim()
+  if (a && b) return a < b ? a : b
+  return a || b
+}
+
+export function collectBeatVideoTakes(
+  beat: BeatFilmSource | null | undefined,
+  jobs: Director2VideoJobLike[] | null | undefined,
+  episodeId: string,
+): BeatVideoTake[] {
+  const beatId = String(beat?.id || "").trim()
+  const episode = String(episodeId || "").trim()
+  const merged = new Map<string, BeatVideoTake>()
+
+  const upsert = (incoming: BeatVideoTake) => {
+    const url = String(incoming.url || "").trim()
+    if (!url) return
+    const current = merged.get(url)
+    if (!current) {
+      merged.set(url, { ...incoming, url })
+      return
+    }
+    merged.set(url, {
+      ...current,
+      id: current.id || incoming.id,
+      job_id: current.job_id || incoming.job_id,
+      created_at: earlierStamp(current.created_at, incoming.created_at),
+      scope: current.scope || incoming.scope,
+      upscaled_url: incoming.upscaled_url || current.upscaled_url,
+    })
+  }
+
+  for (const item of beat?.video_takes || []) {
+    const url = String(item?.url || "").trim()
+    const scope = String(item?.scope || "shot")
+    if (!url || (scope && !SHOT_TAKE_SCOPES.has(scope))) continue
+    upsert({
+      id: String(item.id || "").trim() || localTakeId(url, beatId),
+      job_id: String(item.job_id || "").trim() || undefined,
+      url,
+      created_at: String(item.created_at || "").trim() || undefined,
+      scope: scope === "selection" ? "selection" : "shot",
+      upscaled_url: String(item.upscaled_url || "").trim() || undefined,
+    })
+  }
+
+  const adopted = String(beat?.video_url || "").trim()
+  const adoptedUpscaled = String(beat?.upscaled_video_url || "").trim()
+  if (adopted) {
+    upsert({
+      id: String(beat?.video_take_id || "").trim() || localTakeId(adopted, beatId),
+      url: adopted,
+      scope: "shot",
+      upscaled_url: adoptedUpscaled || undefined,
+    })
+  }
+
+  for (const job of jobs || []) {
+    if (job.job_type && job.job_type !== "video_generation") continue
+    const payload = job.payload || {}
+    if (String(payload.episode_id || "") !== episode) continue
+    const scope = String(payload.render_scope || "")
+    if (scope === "upscale") {
+      const source = String(payload.source_video_url || "").trim()
+      const upscaled = String(payload.upscaled_video_url || job.result_url || "").trim()
+      const current = source ? merged.get(source) : undefined
+      if (current && upscaled) current.upscaled_url = upscaled
+      continue
+    }
+    if (!SUCCESS_VIDEO_STATUSES.has(String(job.status || ""))) continue
+    if (!beatId || !jobMentionsBeat(payload, beatId)) continue
+    const url = jobShotVideoUrl(job, beatId)
+    if (!url) continue
+    upsert({
+      id: job.id ? `take-${job.id}-${beatId}` : localTakeId(url, beatId),
+      job_id: job.id,
+      url,
+      created_at: String(job.created_at || "").trim() || undefined,
+      scope: scope === "selection" ? "selection" : "shot",
+    })
+  }
+
+  if (adopted && adoptedUpscaled) {
+    const current = merged.get(adopted)
+    if (current && !current.upscaled_url) current.upscaled_url = adoptedUpscaled
+  }
+
+  return [...merged.values()].sort((left, right) => {
+    const leftAt = left.created_at || ""
+    const rightAt = right.created_at || ""
+    if (leftAt !== rightAt) {
+      if (!leftAt) return -1
+      if (!rightAt) return 1
+      return leftAt.localeCompare(rightAt)
+    }
+    return left.url.localeCompare(right.url)
+  })
 }

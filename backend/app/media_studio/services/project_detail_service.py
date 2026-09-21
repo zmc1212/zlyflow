@@ -5,13 +5,24 @@ import re
 import uuid
 from typing import Any, Optional
 
-from ..db import execute_sql, now_str, query_all, query_one, transaction_cursor
+from ..db import db_cursor, execute_sql, now_str, query_all, query_one, transaction_cursor
+from .job_payload import (
+    JOB_LIST_COLUMNS,
+    collect_infer_asset_ids,
+    parse_job_payload,
+    serialize_job_row,
+)
 from .asset_image_prompts import (
     IDENTITY_SHEET_ASPECT_RATIO,
     IDENTITY_SHEET_HEIGHT,
     IDENTITY_SHEET_IMAGE_SIZE,
     IDENTITY_SHEET_WIDTH,
+    PROP_SHEET_ASPECT_RATIO,
+    PROP_SHEET_HEIGHT,
+    PROP_SHEET_IMAGE_SIZE,
+    PROP_SHEET_WIDTH,
     build_identity_generation,
+    build_prop_sheet_generation,
     character_portrait_prompt,
     prop_view_prompt,
     scene_view_prompt,
@@ -30,6 +41,7 @@ from .asset_source_references import (
     sniff_image_suffix,
     source_reference_urls,
 )
+from .character_looks import ensure_era_identities
 from .episode_image_prompts import (
     asset_to_prompt_dict,
     beat_reference_urls,
@@ -38,10 +50,12 @@ from .episode_image_prompts import (
 )
 from .grs_client import GrsClient, GrsError
 from .episode_shot_planner import document_needs_shot_plan
+from ...skill_packs.aspect import document_aspect_hint, persist_workshop_aspect_ratio
 from .llm_service import LlmService
 from ..provider_bridge import credential_manager, grs_row
 from .qiniu_service import QiniuService
 from .script_parser import StandardScriptParser
+from .project_service import maybe_rename_unnamed_project, resolve_document_filename
 from .voice_profile import (
     MAX_VOICE_AUDIO_BYTES,
     clone_voice_id,
@@ -182,8 +196,17 @@ class ProjectDetailService:
             (project_id,),
         )
         from .shot_plan_job_service import ShotPlanJobService
+        from ...skill_packs.binding import load_project, skill_pack_id_of
+        from ...skill_packs.recipe import get_pack
 
         job_ids = ShotPlanJobService.active_job_ids_by_document(project_id)
+        project = None
+        recipe = None
+        try:
+            project = load_project(project_id)
+            recipe = get_pack(skill_pack_id_of(project))
+        except Exception:
+            project, recipe = None, None
         items = []
         for r in rows:
             analysis = cls._analysis_for_document_row(r, persist=True)
@@ -199,6 +222,11 @@ class ProjectDetailService:
                 "raw_text": r["raw_text"],
                 "analysis": analysis,
                 "shot_plan_job_id": job_ids.get(r["id"]),
+                "aspect_hint": document_aspect_hint(
+                    str(r.get("raw_text") or ""),
+                    project=project,
+                    recipe=recipe,
+                ),
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
             })
@@ -218,14 +246,11 @@ class ProjectDetailService:
         timestamp = now_str()
         file_size = len(raw_text.encode("utf-8"))
 
-        # 只跑解析器立刻落库；粘贴/文件导入再入队 shot_plan，不在本请求里堵大模型。
+        # 只跑解析器立刻落库；粘贴/文件导入先确认成片画幅，再入队 shot_plan。
         analysis = StandardScriptParser.parse(raw_text)
         should_plan = document_needs_shot_plan(analysis, input_mode=input_mode)
-        doc_status = "planning" if should_plan else "ready"
-
-        # 若未提供文件名或为默认名称，自动优先采用解析出的剧目主标题
-        if (not filename or filename.startswith("未命名") or filename == "新建剧本文档") and analysis.get("title"):
-            filename = analysis["title"]
+        doc_status = "awaiting_aspect" if should_plan else "ready"
+        filename = resolve_document_filename(filename, analysis.get("title") if isinstance(analysis, dict) else None)
 
         execute_sql(
             """
@@ -249,21 +274,6 @@ class ProjectDetailService:
             ),
         )
 
-        shot_plan_job_id = None
-        if should_plan:
-            from .shot_plan_job_service import ShotPlanJobService
-
-            try:
-                job = ShotPlanJobService.enqueue(project_id, doc_id)
-                shot_plan_job_id = job.get("job_id")
-            except Exception:
-                execute_sql(
-                    "UPDATE ai_project_documents SET status = 'ready', updated_at = %s WHERE id = %s AND project_id = %s",
-                    (now_str(), doc_id, project_id),
-                )
-                doc_status = "ready"
-                raise
-
         return {
             "id": doc_id,
             "project_id": project_id,
@@ -275,16 +285,34 @@ class ProjectDetailService:
             "visual_style": visual_style,
             "raw_text": raw_text,
             "analysis": analysis,
-            "shot_plan_job_id": shot_plan_job_id,
+            "shot_plan_job_id": None,
+            "aspect_hint": document_aspect_hint(raw_text, project_id=project_id),
+            "needs_shot_plan": should_plan,
+            "project_name": maybe_rename_unnamed_project(project_id, filename),
             "created_at": timestamp,
             "updated_at": timestamp,
         }
 
     @classmethod
-    def enqueue_document_shot_plan(cls, project_id: str, doc_id: str) -> dict[str, Any]:
+    def enqueue_document_shot_plan(
+        cls,
+        project_id: str,
+        doc_id: str,
+        aspect_ratio: str | None = None,
+        force: bool = False,
+        episode_num: int | None = None,
+    ) -> dict[str, Any]:
         from .shot_plan_job_service import ShotPlanJobService
 
-        return ShotPlanJobService.enqueue(project_id, doc_id)
+        kwargs: dict[str, Any] = {}
+        if aspect_ratio:
+            persist_workshop_aspect_ratio(project_id, aspect_ratio)
+            kwargs["aspect_ratio"] = aspect_ratio
+        if force:
+            kwargs["force"] = True
+        if episode_num is not None:
+            kwargs["episode_num"] = episode_num
+        return ShotPlanJobService.enqueue(project_id, doc_id, **kwargs)
 
     @classmethod
     def persist_shot_plan_episode(
@@ -553,6 +581,11 @@ class ProjectDetailService:
                 "status": "draft",
                 "story_shot": s_num,
                 "source_episode_id": episode_id,
+                "opening_state": str(shot.get("opening_state") or "").strip(),
+                "closing_state": str(shot.get("closing_state") or "").strip(),
+                "transition_note": str(
+                    shot.get("transition_note") or shot.get("transitionNote") or ""
+                ).strip(),
             }
             cls._apply_resolved_beat_duration(beat)
             beats.append(beat)
@@ -768,7 +801,56 @@ class ProjectDetailService:
                 "SELECT * FROM ai_project_assets WHERE project_id = %s ORDER BY updated_at DESC",
                 (project_id,),
             )
-        return [cls._hydrate_asset(r) for r in rows]
+        assets = [cls._hydrate_asset(r) for r in rows]
+        if any(item.get("kind") == "character" for item in assets):
+            cls.sync_character_era_looks(project_id, assets)
+        return assets
+
+    @classmethod
+    def _project_beats(cls, project_id: str) -> list[dict[str, Any]]:
+        rows = query_all(
+            "SELECT data_json FROM ai_project_episodes WHERE project_id = %s",
+            (project_id,),
+        )
+        beats: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                data = json.loads(row.get("data_json") or "{}")
+            except Exception:
+                data = {}
+            for beat in data.get("beats") or []:
+                if isinstance(beat, dict):
+                    beats.append(beat)
+        return beats
+
+    @classmethod
+    def sync_character_era_looks(
+        cls,
+        project_id: str,
+        assets: list[dict[str, Any]] | None = None,
+        beats: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        if assets is None:
+            rows = query_all(
+                "SELECT * FROM ai_project_assets WHERE project_id = %s AND kind = %s",
+                (project_id, "character"),
+            )
+            assets = [cls._hydrate_asset(row) for row in rows]
+        resolved_beats = beats if beats is not None else cls._project_beats(project_id)
+        if not resolved_beats:
+            return assets
+        ts = now_str()
+        for asset in assets:
+            if asset.get("kind") != "character":
+                continue
+            if not ensure_era_identities(asset, resolved_beats):
+                continue
+            extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
+            execute_sql(
+                "UPDATE ai_project_assets SET extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (json.dumps(extra, ensure_ascii=False), ts, asset.get("id"), project_id),
+            )
+        return assets
 
     @classmethod
     def create_asset(cls, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1002,11 +1084,19 @@ class ProjectDetailService:
             )
             job_title = f"生成场景360全景图: {row['name']} ({grs_model})"
         elif target_type == "prop_reference":
-            aspect_ratio = payload.get("aspect_ratio") or "16:9"
-            clean_prompt = prop_view_prompt(
-                row, "master", extra, style=art_style_id, visual_style=visual_style
+            spec = build_prop_sheet_generation(
+                row,
+                extra,
+                prompt=prompt,
+                follow_source_photos=follow_source_photos,
+                style=art_style_id,
+                visual_style=visual_style,
             )
-            job_title = f"生成道具参考图: {row['name']} ({grs_model})"
+            aspect_ratio = spec["aspect_ratio"]
+            reference_urls = list(spec["reference_urls"])
+            clean_prompt = spec["clean_prompt"]
+            prompt = spec["appearance"] or prompt
+            job_title = f"生成道具设定板: {row['name']} ({grs_model})"
         elif target_type == "prop_turnaround":
             aspect_ratio = payload.get("aspect_ratio") or "16:9"
             master_url = (extra.get("reference_url") or row.get("image_url") or "").strip()
@@ -1066,6 +1156,10 @@ class ProjectDetailService:
             aspect_ratio = IDENTITY_SHEET_ASPECT_RATIO
             image_size = IDENTITY_SHEET_IMAGE_SIZE
             w, h = IDENTITY_SHEET_WIDTH, IDENTITY_SHEET_HEIGHT
+        elif target_type == "prop_reference":
+            aspect_ratio = PROP_SHEET_ASPECT_RATIO
+            image_size = PROP_SHEET_IMAGE_SIZE
+            w, h = PROP_SHEET_WIDTH, PROP_SHEET_HEIGHT
         else:
             image_size = "1K"
             w, h = dim_map.get(aspect_ratio, (1024, 1024))
@@ -1723,6 +1817,28 @@ class ProjectDetailService:
                 (json.dumps(data, ensure_ascii=False), len(beats), episode_id),
             )
 
+        from ...skill_packs import resolve_skill_pack_id
+        from ...skill_packs.handlers import (
+            bind_r2v_slot_images,
+            h3_authoring_context_images,
+            h3_prompt_context_fingerprint,
+            h3_prompt_reference_state,
+        )
+        from ...skill_packs.recipe import get_pack
+
+        hydrated_assets = [cls._hydrate_asset(dict(row)) for row in assets_rows]
+        for beat in beats:
+            try:
+                recipe = get_pack(resolve_skill_pack_id(beat=beat, project_id=project_id))
+                video_refs = bind_r2v_slot_images(recipe, beat, hydrated_assets)
+                authoring_context = h3_authoring_context_images(recipe, beat, hydrated_assets)
+                fingerprint = h3_prompt_context_fingerprint(beat, video_refs, authoring_context)
+                state, reason = h3_prompt_reference_state(beat, video_refs, fingerprint)
+            except Exception as err:
+                state, reason = "invalid", f"无法计算当前参考图状态：{err}"
+            beat["h3_prompt_reference_state"] = state
+            beat["h3_prompt_reference_reason"] = reason
+
         links = []
         for a in assets_rows:
             links.append({
@@ -1767,10 +1883,13 @@ class ProjectDetailService:
             "heading", "speaker", "dialogue", "action", "camera", "scene", "scene_id", "time_of_day",
             "characters", "character_ids", "character_look_id", "character_look_ids", "props", "prop_ids", "visual_prompt", "sketch_prompt",
             "sketch_url", "sketch_job_id", "render_url", "render_prompt",
-            "render_job_id", "render_status", "video_url", "upscaled_video_url", "video_prompt_zh", "video_duration", "status",
+            "render_job_id", "render_status", "video_url", "upscaled_video_url", "upscale_scale", "video_take_id", "video_takes",
+            "video_prompt_zh", "video_duration", "status",
             "h3_prompt", "h3_prompt_source", "dialogue_turns", "visible_text",
+            "h3_reference_policy", "h3_prompt_context_fingerprint",
             "parent_beat_id", "take_role", "story_shot", "merge_as_one", "take_source",
             "triptych_url", "triptych_panels", "triptych_job_id", "triptych_prompt", "triptych_status",
+            "triptych_look_ids",
             "timestamped_zh_prompt",
             "vision_status", "vision_model", "vision_image_count", "vision_source",
             "authored_en_valid",
@@ -1784,6 +1903,27 @@ class ProjectDetailService:
             initial_beats=beats,
         )
         return {"status": "ok", "beat": target}
+
+    @classmethod
+    def persist_beat_looks(
+        cls,
+        project_id: str,
+        episode_id: str,
+        beat: dict[str, Any],
+        assets: list[dict[str, Any]],
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        from .character_looks import apply_resolved_looks_to_beat
+
+        look_ids = apply_resolved_looks_to_beat(beat, assets)
+        updates = dict(extra or {})
+        if look_ids:
+            updates["character_look_ids"] = look_ids
+        beat_id = str(beat.get("id") or "")
+        if updates and beat_id:
+            cls._update_episode_beat_atomic(project_id, episode_id, beat_id, updates)
+            beat.update(updates)
+        return look_ids
 
     @classmethod
     def _update_episode_beat_atomic(
@@ -1986,32 +2126,24 @@ class ProjectDetailService:
             scene_view = "front"
         style = cls._project_visual_settings(project_id, payload)
         raw_assets = cls.list_assets(project_id)
+        cls.persist_beat_looks(project_id, episode_id, target, raw_assets)
         prompt_assets = [asset_to_prompt_dict(row) for row in raw_assets]
         if stage == "render" and target.get("character_ids"):
+            from .character_looks import character_look_image_url, missing_look_message
+
             assets_by_id = {str(asset.get("id") or ""): asset for asset in raw_assets}
-            selected_ids = target.get("character_look_ids") if isinstance(target.get("character_look_ids"), dict) else {}
-            legacy_look_id = str(target.get("character_look_id") or "").strip()
             invalid_characters: list[str] = []
             for character_id in [str(item) for item in (target.get("character_ids") or [])]:
                 character = assets_by_id.get(character_id) or {}
-                extra = character.get("extra") if isinstance(character.get("extra"), dict) else {}
-                identities = extra.get("identities") or []
-                selected_look_id = str(selected_ids.get(character_id) or "").strip()
-                if not selected_look_id and legacy_look_id:
-                    if any(str((look or {}).get("id") or "") == legacy_look_id for look in identities):
-                        selected_look_id = legacy_look_id
-                selected_look = next(
-                    (
-                        look for look in identities
-                        if isinstance(look, dict) and str(look.get("id") or "") == selected_look_id
-                    ),
-                    None,
-                )
-                selected_look_url = str((selected_look or {}).get("image_url") or "").strip()
-                if not selected_look_url.startswith(("http://", "https://")):
-                    invalid_characters.append(str(character.get("name") or character_id))
+                look_url = character_look_image_url(character, target)
+                if not look_url.startswith(("http://", "https://")):
+                    invalid_characters.append(missing_look_message(
+                        character,
+                        target,
+                        int(target.get("sequence") or 0),
+                    ))
             if invalid_characters:
-                raise ValueError("请为当前分镜的出场角色选择有效服饰造型：" + "、".join(invalid_characters))
+                raise ValueError("\n".join(invalid_characters))
         if stage == "sketch":
             clean_prompt = beat_sketch_prompt(
                 target,
@@ -2186,78 +2318,44 @@ class ProjectDetailService:
     # --- 4. 全部任务 Jobs ---
     @classmethod
     def list_jobs(cls, project_id: str) -> list[dict[str, Any]]:
-        rows = query_all(
-            "SELECT * FROM ai_project_jobs WHERE project_id = %s ORDER BY updated_at DESC",
-            (project_id,),
+        with db_cursor() as cursor:
+            cursor.execute(
+                f"SELECT {JOB_LIST_COLUMNS} FROM ai_project_jobs WHERE project_id = %s ORDER BY updated_at DESC",
+                (project_id,),
+            )
+            rows = list(cursor.fetchall() or [])
+            payloads = [parse_job_payload(row.get("payload_json")) for row in rows]
+            asset_ids = collect_infer_asset_ids(payloads)
+            assets_by_id: dict[str, dict[str, Any]] = {}
+            if asset_ids:
+                placeholders = ",".join(["%s"] * len(asset_ids))
+                cursor.execute(
+                    f"SELECT id, image_url, extra_json FROM ai_project_assets WHERE id IN ({placeholders})",
+                    tuple(asset_ids),
+                )
+                for asset in cursor.fetchall() or []:
+                    assets_by_id[str(asset["id"])] = asset
+        return [serialize_job_row(row, slim=True, assets_by_id=assets_by_id) for row in rows]
+
+    @classmethod
+    def get_job(cls, project_id: str, job_id: str) -> dict[str, Any] | None:
+        row = query_one(
+            f"SELECT {JOB_LIST_COLUMNS} FROM ai_project_jobs WHERE id = %s AND project_id = %s",
+            (job_id, project_id),
         )
-        result = []
-        for row in rows:
-            r = dict(row)
-            if r.get("payload_json"):
-                try:
-                    r["payload"] = json.loads(r["payload_json"])
-                except Exception:
-                    r["payload"] = {}
-            else:
-                r["payload"] = {}
-            payload = r["payload"]
-            refs = [
-                u for u in (payload.get("reference_urls") or payload.get("images") or [])
-                if isinstance(u, str) and u.startswith(("http://", "https://"))
-            ]
-            if not refs and payload.get("target_type") == "identity" and payload.get("asset_id"):
-                asset = query_one(
-                    "SELECT image_url, extra_json FROM ai_project_assets WHERE id = %s",
-                    (payload.get("asset_id"),),
-                )
-                extra = {}
-                if asset and asset.get("extra_json"):
-                    try:
-                        extra = json.loads(asset["extra_json"]) or {}
-                    except Exception:
-                        extra = {}
-                inferred = str((extra.get("avatar_url") if extra else "") or (asset or {}).get("image_url") or "").strip()
-                if inferred:
-                    refs = [inferred]
-                    payload["reference_urls_inferred"] = True
-            if not refs and payload.get("target_type") in {"scene_reverse", "scene_pano"} and payload.get("asset_id"):
-                asset = query_one(
-                    "SELECT image_url, extra_json FROM ai_project_assets WHERE id = %s",
-                    (payload.get("asset_id"),),
-                )
-                extra = {}
-                if asset and asset.get("extra_json"):
-                    try:
-                        extra = json.loads(asset["extra_json"]) or {}
-                    except Exception:
-                        extra = {}
-                master = str((extra.get("master_url") if extra else "") or (asset or {}).get("image_url") or "").strip()
-                reverse = str((extra.get("reverse_url") if extra else "") or "").strip()
-                if master:
-                    refs = [master]
-                    if payload.get("target_type") == "scene_pano" and reverse:
-                        refs.append(reverse)
-                    payload["reference_urls_inferred"] = True
-            if not refs and payload.get("target_type") in {"prop_turnaround", "prop_detail"} and payload.get("asset_id"):
-                asset = query_one(
-                    "SELECT image_url, extra_json FROM ai_project_assets WHERE id = %s",
-                    (payload.get("asset_id"),),
-                )
-                extra = {}
-                if asset and asset.get("extra_json"):
-                    try:
-                        extra = json.loads(asset["extra_json"]) or {}
-                    except Exception:
-                        extra = {}
-                master = str((extra.get("reference_url") if extra else "") or (asset or {}).get("image_url") or "").strip()
-                if master:
-                    refs = [master]
-                    payload["reference_urls_inferred"] = True
-            payload["reference_urls"] = refs
-            if isinstance(payload.get("request_body"), dict) and not payload["request_body"].get("images"):
-                payload["request_body"]["images"] = refs
-            result.append(r)
-        return result
+        if not row:
+            return None
+        payload = parse_job_payload(row.get("payload_json"))
+        asset_ids = collect_infer_asset_ids([payload])
+        assets_by_id: dict[str, dict[str, Any]] = {}
+        if asset_ids:
+            placeholders = ",".join(["%s"] * len(asset_ids))
+            for asset in query_all(
+                f"SELECT id, image_url, extra_json FROM ai_project_assets WHERE id IN ({placeholders})",
+                tuple(asset_ids),
+            ):
+                assets_by_id[str(asset["id"])] = asset
+        return serialize_job_row(row, slim=False, assets_by_id=assets_by_id)
 
     @classmethod
     def create_job(cls, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:

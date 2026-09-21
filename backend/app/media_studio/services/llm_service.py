@@ -13,7 +13,7 @@ from ...llm_client import (
     LlmTemporaryError,
     OpenAICompatibleClient,
     emit_llm_stream_status,
-    is_llm_timeout_error,
+    is_llm_transient_error,
     is_openai_reasoning_chat_model,
 )
 from ...llm_provider import model_supports_vision
@@ -28,9 +28,14 @@ from ...vision_runtime import (
 )
 from .asset_prompt_inference import infer_system_prompt, infer_user_text, parse_infer_payload
 from .episode_shot_planner import (
+    CONTINUITY_REFINE_MIN_SHOTS,
+    apply_continuity_window_revision,
+    build_shot_continuity_refine_system_prompt,
+    build_shot_continuity_refine_user_prompt,
     build_shot_plan_system_prompt,
     build_shot_plan_user_prompt,
     normalize_planned_shots,
+    overlapping_shot_windows,
     parse_shot_plan_response,
 )
 from .h3_prompt_builder import H3PromptBuilder
@@ -168,37 +173,44 @@ class LlmService:
         if len(brief) > 1000:
             raise ValueError("角色需求不能超过 1000 个字符。")
         base_url, model, api_key = cls._runtime_config()
+        request_body: dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是影视角色视觉设定师。根据用户的简洁需求生成可直接用于角色资产库的中文内容。"
+                        "description 必须清楚描述性别、年龄感、脸型五官、肤色、发型、身形、气质，以及服装款式、"
+                        "内外层次、颜色、面料、鞋履、配饰和时代特征；不得混入互相冲突的时代、年龄或服装。"
+                        "visual_prompt 必须是单人全身角色设定图提示词，完整复述关键容貌与服装，要求从头到脚、"
+                        "自然站姿、中性纯色背景、五官清晰、服装细节清晰、无文字、无拼图、无其他人物。"
+                        "只返回 JSON 对象，格式严格为："
+                        '{"description":"...","visual_prompt":"..."}'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"角色名称：{str(name or '').strip() or '未命名'}\n"
+                        f"角色定位：{str(role or '').strip() or '未指定'}\n"
+                        f"简洁需求：{brief}"
+                    ),
+                },
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        if is_openai_reasoning_chat_model(model):
+            request_body["max_completion_tokens"] = 1200
+            effort = str(llm_row().get("reasoning_effort") or "low").strip().lower()
+            if effort != "auto":
+                request_body["reasoning_effort"] = effort
+        else:
+            request_body["temperature"] = 0.4
+            request_body["max_tokens"] = 1200
         response = requests.post(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "你是影视角色视觉设定师。根据用户的简洁需求生成可直接用于角色资产库的中文内容。"
-                            "description 必须清楚描述性别、年龄感、脸型五官、肤色、发型、身形、气质，以及服装款式、"
-                            "内外层次、颜色、面料、鞋履、配饰和时代特征；不得混入互相冲突的时代、年龄或服装。"
-                            "visual_prompt 必须是单人全身角色设定图提示词，完整复述关键容貌与服装，要求从头到脚、"
-                            "自然站姿、中性纯色背景、五官清晰、服装细节清晰、无文字、无拼图、无其他人物。"
-                            "只返回 JSON 对象，格式严格为："
-                            '{"description":"...","visual_prompt":"..."}'
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"角色名称：{str(name or '').strip() or '未命名'}\n"
-                            f"角色定位：{str(role or '').strip() or '未指定'}\n"
-                            f"简洁需求：{brief}"
-                        ),
-                    },
-                ],
-                "temperature": 0.4,
-                "max_tokens": 1200,
-                "response_format": {"type": "json_object"},
-            },
+            json=request_body,
             timeout=120,
         )
         if not response.ok:
@@ -254,10 +266,11 @@ class LlmService:
         timeout: float = 240.0,
     ) -> str:
         base_url, model, api_key = cls._runtime_config()
+        effort = str(llm_row().get("reasoning_effort") or "low").strip().lower()
         client = OpenAICompatibleClient(base_url=base_url, api_key=api_key)
         extra: dict[str, Any] = {}
-        if is_openai_reasoning_chat_model(model):
-            extra["reasoning_effort"] = "low"
+        if is_openai_reasoning_chat_model(model) and effort != "auto":
+            extra["reasoning_effort"] = effort
         last_error: Exception | None = None
         for attempt in range(2):
             try:
@@ -275,7 +288,7 @@ class LlmService:
                 ).strip()
             except LlmTemporaryError as err:
                 last_error = err
-                if attempt == 0 and (is_llm_timeout_error(err) or "网关超时" in str(err)):
+                if attempt == 0 and is_llm_transient_error(err):
                     continue
                 raise RuntimeError(str(err)) from err
             except LlmError as err:
@@ -286,7 +299,7 @@ class LlmService:
         raise RuntimeError(str(last_error or "大模型请求失败"))
 
     @classmethod
-    def plan_episode_shots(cls, episode: dict[str, Any]) -> list[dict[str, Any]]:
+    def plan_episode_shots(cls, episode: dict[str, Any], *, aspect_ratio: str | None = None) -> list[dict[str, Any]]:
         """按本集动作与对白规划出片镜头，单镜 5–15 秒。只处理这一集。"""
         if not isinstance(episode, dict):
             raise ValueError("本集数据无效，无法规划镜头。")
@@ -295,15 +308,50 @@ class LlmService:
         if not has_body and not has_shots:
             raise ValueError("本集没有可供规划的动作或对白。")
         raw = cls.chat_text(
-            build_shot_plan_system_prompt(),
-            build_shot_plan_user_prompt(episode),
+            build_shot_plan_system_prompt(aspect_ratio=aspect_ratio),
+            build_shot_plan_user_prompt(episode, aspect_ratio=aspect_ratio),
             max_tokens=4000,
             temperature=0.2,
         )
-        shots = normalize_planned_shots(parse_shot_plan_response(raw))
+        shots = normalize_planned_shots(parse_shot_plan_response(raw), aspect_ratio=aspect_ratio)
         if not shots:
             raise ValueError("大模型未返回可出片镜头。")
+        if len(shots) >= CONTINUITY_REFINE_MIN_SHOTS:
+            try:
+                shots = cls.refine_episode_shot_continuity(shots, aspect_ratio=aspect_ratio)
+            except Exception:
+                pass
         return shots
+
+    @classmethod
+    def refine_episode_shot_continuity(
+        cls,
+        shots: list[dict[str, Any]],
+        *,
+        aspect_ratio: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """重叠窗口修订跨镜姿势；失败时保留上一轮结果。"""
+        result = [dict(item) for item in shots]
+        windows = overlapping_shot_windows(result)
+        if not windows:
+            return result
+        system = build_shot_continuity_refine_system_prompt(aspect_ratio=aspect_ratio)
+        for window in windows:
+            try:
+                raw = cls.chat_text(
+                    system,
+                    build_shot_continuity_refine_user_prompt(window),
+                    max_tokens=3000,
+                    temperature=0.1,
+                )
+                result = apply_continuity_window_revision(
+                    result,
+                    parse_shot_plan_response(raw),
+                    editable_shot_nums=set(window.get("editable_shot_nums") or []),
+                )
+            except Exception:
+                continue
+        return result
 
     @classmethod
     def chat_vision(
@@ -344,8 +392,21 @@ class LlmService:
         info = dict(beat_info or {})
         template = str(template or "").strip() or str(recipe.reference_text("h3-video-prompt-template.md") or "")
         seconds = str(info.get("duration_seconds") or beat.get("duration_seconds") or beat.get("video_duration") or "8")
-        system_prompt = build_dual_author_system(recipe, template, duration_seconds=seconds)
-        user_prompt = build_timestamped_zh_author_user(recipe, beat, assets, beat_info=info)
+        aspect_ratio = info.get("aspect_ratio") or beat.get("aspect_ratio")
+        system_prompt = build_dual_author_system(
+            recipe,
+            template,
+            duration_seconds=seconds,
+            aspect_ratio=aspect_ratio,
+            beat_info=info,
+        )
+        user_prompt = build_timestamped_zh_author_user(
+            recipe,
+            beat,
+            assets,
+            beat_info=info,
+            aspect_ratio=aspect_ratio,
+        )
         image_urls = collect_zh_author_image_urls(recipe, beat, assets)
         last_errors: list[str] = []
         last_zh = ""
@@ -598,11 +659,9 @@ class LlmService:
         if visible_text and not H3PromptBuilder.prompt_contains_line(text, visible_text):
             errors.append("visible text not preserved verbatim")
         if mode == "Ref2VA":
-            for item in beat_info.get("ref_images") or []:
-                if not isinstance(item, dict) or not item.get("index"):
-                    continue
-                if not re.search(rf"<Picture\s+{re.escape(str(item.get('index')))}\s*>", text, flags=re.I):
-                    errors.append(f"missing <Picture {item.get('index')}>")
+            from ...skill_packs.handlers import h3_picture_reference_errors
+
+            errors.extend(h3_picture_reference_errors(text, beat_info.get("ref_images") or []))
         if mode == "T2VA" and re.search(r"<(?:Picture|Subject|Video|Audio) \d+>", text):
             errors.append("T2VA prompt must not invent reference labels")
         if "[Shot 1]" not in text:
@@ -610,6 +669,7 @@ class LlmService:
         skip_pack = cls._skip_program_pack(beat_info)
         if skip_pack:
             errors.extend(H3PromptBuilder.inner_delivery_errors(text, shot_for_speech))
+            errors.extend(H3PromptBuilder.speech_schedule_errors(text, shot_for_speech))
         else:
             errors.extend(H3PromptBuilder.thickness_errors(text))
             errors.extend(H3PromptBuilder.speech_contract_errors(text, shot_for_speech))

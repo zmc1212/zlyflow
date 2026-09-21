@@ -7,6 +7,13 @@ export type WorkshopH3StatusInput = {
   source?: string | null
 }
 
+export function isWorkshopPromptLiveForBeat(
+  liveBeatId: string | null | undefined,
+  selectedBeatId: string | null | undefined,
+): boolean {
+  return Boolean(liveBeatId && selectedBeatId && liveBeatId === selectedBeatId)
+}
+
 export function workshopH3StatusLabel(input: WorkshopH3StatusInput): string {
   if (input.generating) return "生成中"
   if (input.failed && !input.editing) return "生成失败"

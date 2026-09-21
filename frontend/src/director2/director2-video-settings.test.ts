@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest"
 import {
   DIRECTOR2_DEFAULT_VIDEO_WORKFLOW,
   DIRECTOR2_VIDEO_FALLBACK_FIELDS,
+  beatHasFilmTakes,
   beatHasUpscaled,
   beatPlaybackUrl,
   beatUpscaleDisabledReason,
+  beatUpscaleLabel,
+  collectBeatVideoTakes,
   buildVideoJobOptions,
   defaultVideoOptionValues,
   episodeFilmSource,
@@ -18,6 +21,7 @@ import {
   jobPreviewVideoUrl,
   jobUpscaleDisabledReason,
   jobUpscaleHint,
+  jobUpscaleScale,
   optionChoices,
   playbackAspectIsPortrait,
   playbackAspectRatio,
@@ -59,7 +63,15 @@ function directorAccelMode(): Director2WorkflowMode {
           speed: { label: "生成质量", type: "string", default: "balanced", ui_group: "advanced", ui_options: [{ value: "balanced", label: "均衡（20 步）" }, { value: "quality", label: "精细（25 步）" }] },
           megapixels: { label: "内部像素面积", type: "number", default: 0.4, ui_group: "internal" },
           steps: { label: "采样步数", type: "integer", default: 20, ui_group: "internal" },
-          upscale_after: { label: "出片后 2x 超分", type: "boolean", default: false, ui_group: "advanced" },
+          upscale_after: {
+            label: "出片后超分", type: "string", default: "off", ui_group: "advanced",
+            enum: ["off", "2", "4"],
+            ui_options: [
+              { value: "off", label: "关闭" },
+              { value: "2", label: "2x（推荐）" },
+              { value: "4", label: "4x" },
+            ],
+          },
         },
       },
     }],
@@ -75,7 +87,7 @@ describe("director2 video settings", () => {
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
-      upscale_after: "false",
+      upscale_after: "off",
     })
   })
 
@@ -90,7 +102,7 @@ describe("director2 video settings", () => {
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
-      upscale_after: "false",
+      upscale_after: "off",
     })
   })
 
@@ -120,11 +132,13 @@ describe("director2 video settings", () => {
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
-      upscale_after: false,
+      upscale_after: "off",
       duration_per_beat: 8,
     })
-    expect(videoSettingsSummary(fields, { ...values, upscale_after: "true" })).toBe("16:9 · 0.4 MP · 精简 · 2x 超分")
-    expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, { ...values, upscale_after: "true" }).upscale_after).toBe(true)
+    expect(videoSettingsSummary(fields, { ...values, upscale_after: "2" })).toBe("16:9 · 0.4 MP · 精简 · 2x 超分")
+    expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, { ...values, upscale_after: "2" }).upscale_after).toBe("2")
+    expect(videoSettingsSummary(fields, { ...values, upscale_after: "4" })).toBe("16:9 · 0.4 MP · 精简 · 4x 超分")
+    expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, { ...values, upscale_after: "4" }).upscale_after).toBe("4")
   })
 
   it("lists all unhidden multi-reference R2V workflows and labels episode vs shot", () => {
@@ -210,17 +224,21 @@ describe("director2 video settings", () => {
     ])).toBe(2)
   })
 
-  it("prefers the 2x clip for playback and disables upscale without a finished original", () => {
+  it("prefers the upscaled clip for workshop playback and keeps the jobs-list thumbnail on the original", () => {
     expect(beatPlaybackUrl({ video_url: "https://cdn/orig.mp4", upscaled_video_url: "https://cdn/2x.mp4" })).toBe("https://cdn/2x.mp4")
     expect(beatHasUpscaled({ video_url: "https://cdn/orig.mp4" })).toBe(false)
+    expect(beatUpscaleLabel({ upscaled_video_url: "https://cdn/4x.mp4", upscale_scale: 4 })).toBe("4x")
     expect(beatUpscaleDisabledReason({ video_url: "" })).toBe("成片成功后才能超分")
-    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { scope: "upscale" })).toBe("正在 2x 超分")
+    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { scope: "upscale" })).toBe("正在超分")
     expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { status: "running" })).toBe("出片进行中")
     expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" })).toBeUndefined()
     expect(jobPreviewVideoUrl({
       result_url: "https://cdn/orig.mp4",
-      payload: { upscaled_video_url: "https://cdn/2x.mp4" },
-    })).toBe("https://cdn/2x.mp4")
+      payload: { upscaled_video_url: "https://cdn/2x.mp4", upscale_scale: 2 },
+    })).toBe("https://cdn/orig.mp4")
+    expect(jobUpscaleScale({
+      payload: { upscaled_video_url: "https://cdn/4x.mp4", upscale_scale: 4 },
+    })).toBe(4)
   })
 
   it("lets completed video jobs request 2x from the jobs center", () => {
@@ -243,8 +261,94 @@ describe("director2 video settings", () => {
       id: "job-vsr",
       status: "running",
       payload: { render_scope: "upscale", source_job_id: "job-shot" },
-    }])).toBe("正在 2x 超分")
+    }])).toBe("正在超分")
     expect(jobUpscaleHint({ payload: { render_scope: "episode" } })).toContain("整段")
+  })
+
+  it("collects beat takes from video_takes and jobs, oldest first, without duplicates", () => {
+    const takes = collectBeatVideoTakes(
+      {
+        id: "beat-1",
+        video_url: "https://cdn/new.mp4",
+        video_takes: [
+          { id: "take-old", url: "https://cdn/old.mp4", created_at: "2026-09-20 01:00:00", scope: "shot" },
+          { id: "take-new", url: "https://cdn/new.mp4", created_at: "2026-09-20 03:00:00", scope: "shot" },
+        ],
+      },
+      [{
+        id: "job-old",
+        job_type: "video_generation",
+        status: "completed",
+        result_url: "https://cdn/old.mp4",
+        created_at: "2026-09-20 01:00:00",
+        payload: { episode_id: "e1", render_scope: "shot", beat_id: "beat-1" },
+      }],
+      "e1",
+    )
+    expect(takes.map((item) => item.url)).toEqual(["https://cdn/old.mp4", "https://cdn/new.mp4"])
+    expect(takes[0].job_id).toBe("job-old")
+  })
+
+  it("uses the per-shot url from a multi-shot job instead of the timeline result", () => {
+    const takes = collectBeatVideoTakes(
+      { id: "beat-1" },
+      [{
+        id: "job-sel",
+        job_type: "video_generation",
+        status: "completed",
+        result_url: "https://cdn/timeline.mp4",
+        created_at: "2026-09-20 02:00:00",
+        payload: {
+          episode_id: "e1",
+          render_scope: "selection",
+          beat_ids: ["beat-1", "beat-2"],
+          shots: [
+            { beat_id: "beat-1", video_url: "https://cdn/sel-1.mp4" },
+            { beat_id: "beat-2", video_url: "https://cdn/sel-2.mp4" },
+          ],
+        },
+      }],
+      "e1",
+    )
+    expect(takes.map((item) => item.url)).toEqual(["https://cdn/sel-1.mp4"])
+  })
+
+  it("attaches upscale jobs to the matching original and excludes episode or compose results", () => {
+    const takes = collectBeatVideoTakes(
+      { id: "beat-1", video_url: "https://cdn/orig.mp4" },
+      [
+        {
+          id: "job-ep",
+          job_type: "video_generation",
+          status: "completed",
+          result_url: "https://cdn/episode.mp4",
+          payload: { episode_id: "e1", render_scope: "episode", beat_id: "beat-1" },
+        },
+        {
+          id: "job-co",
+          job_type: "video_generation",
+          status: "completed",
+          result_url: "https://cdn/compose.mp4",
+          payload: { episode_id: "e1", render_scope: "compose", beat_ids: ["beat-1"] },
+        },
+        {
+          id: "job-vsr",
+          job_type: "video_generation",
+          status: "completed",
+          result_url: "https://cdn/2x.mp4",
+          payload: {
+            episode_id: "e1",
+            render_scope: "upscale",
+            source_video_url: "https://cdn/orig.mp4",
+            upscaled_video_url: "https://cdn/2x.mp4",
+          },
+        },
+      ],
+      "e1",
+    )
+    expect(takes.map((item) => item.url)).toEqual(["https://cdn/orig.mp4"])
+    expect(takes[0].upscaled_url).toBe("https://cdn/2x.mp4")
+    expect(beatHasFilmTakes({ id: "beat-1", video_url: "https://cdn/orig.mp4" }, [], "e1")).toBe(true)
   })
 })
 

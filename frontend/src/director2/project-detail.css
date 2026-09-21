@@ -33,6 +33,8 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .director2-app .back-link {
@@ -63,14 +65,38 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
-.director2-app .project-title {
+.director2-app .project-title,
+.director2-app .project-title.ant-typography {
   font-size: 16px;
   font-weight: 700;
   color: #0f172a;
   margin: 0;
   letter-spacing: -0.2px;
+  line-height: 24px;
+  max-width: min(48vw, 640px);
+}
+
+.director2-app .project-title.ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.director2-app .project-title .ant-typography-edit,
+.director2-app .project-title .ant-typography-edit-content {
+  color: #64748b;
+}
+
+.director2-app .project-title .ant-typography-edit {
+  margin-inline-start: 6px;
+}
+
+.director2-app .project-title .ant-typography-edit:hover {
+  color: #0f172a;
 }
 
 .director2-app .project-badge {

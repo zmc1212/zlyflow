@@ -37,6 +37,8 @@ describe("creation-page RTX upscale helpers", () => {
     })
     expect(isRtxVsrJob(running)).toBe(true)
     expect(isUpscaleOutput({ label: UPSCALE_OUTPUT_LABEL })).toBe(true)
+    expect(isUpscaleOutput({ label: "4x 超分" })).toBe(true)
+    expect(isUpscaleOutput({ label: "MiniMax H3 视频" })).toBe(false)
     expect(hasOriginalVideo(source)).toBe(true)
     expect(relatedUpscaleJobs([source, running], "src-1")).toEqual([running])
     expect(activeUpscaleJob([source, running], "src-1")?.id).toBe("vsr-1")

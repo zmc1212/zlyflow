@@ -4,11 +4,13 @@ import {
   applyShotPlanStreamEvent,
   assemblingShotsFromLive,
   documentCanPlanShots,
+  documentCanReplanShots,
   documentShotPlanHeaderTag,
   emptyShotPlanLiveState,
   episodeShotPlanError,
   formatShotDurationLabel,
   isAssemblingShotPlan,
+  isAwaitingAspectDocument,
   isCurrentPlanningEpisode,
   isDocumentShotPlanning,
   isQueuedPlanningEpisode,
@@ -103,6 +105,12 @@ describe("shot plan live merge", () => {
     expect(episodeShotPlanError(2, ["解析完毕", "第2集镜头规划失败，已保留解析器镜头：timeout"])).toContain(
       "第2集镜头规划失败",
     )
+    expect(episodeShotPlanError(
+      2,
+      ["第2集镜头规划失败，已保留解析器镜头：timeout"],
+      null,
+      "llm",
+    )).toBeNull()
   })
 
   it("does not let a stale job snapshot overwrite a longer live buffer", () => {
@@ -167,6 +175,52 @@ describe("shot plan live merge", () => {
       analysis: { episodes: [{ episode_num: 1 }] },
     })).toBe(false)
     expect(documentCanPlanShots({ status: "planning", analysis: { episodes: [{ episode_num: 1 }] } })).toBe(false)
+    expect(isAwaitingAspectDocument({ status: "awaiting_aspect" })).toBe(true)
+    expect(isDocumentShotPlanning({ status: "awaiting_aspect" })).toBe(false)
+    expect(documentCanPlanShots({
+      status: "awaiting_aspect",
+      input_mode: "paste",
+      analysis: { episodes: [{ episode_num: 1, shots_source: "" }] },
+    })).toBe(true)
+    expect(documentCanReplanShots({
+      status: "ready",
+      input_mode: "paste",
+      analysis: { episodes: [{ episode_num: 1, shots_source: "llm" }] },
+    })).toBe(true)
+    expect(documentCanReplanShots({
+      status: "ready",
+      input_mode: "paste",
+      analysis: {
+        episodes: [
+          { episode_num: 1, shots_source: "llm" },
+          { episode_num: 2, shots_source: "" },
+        ],
+      },
+    })).toBe(true)
+    expect(documentCanReplanShots({
+      status: "ready",
+      input_mode: "paste",
+      analysis: { episodes: [{ episode_num: 1, shots_source: "" }] },
+    })).toBe(false)
+    expect(documentCanReplanShots({
+      status: "awaiting_aspect",
+      input_mode: "paste",
+      analysis: { episodes: [{ episode_num: 1, shots_source: "llm" }] },
+    })).toBe(false)
+    expect(documentCanReplanShots({
+      status: "planning",
+      input_mode: "paste",
+      analysis: { episodes: [{ episode_num: 1, shots_source: "llm" }] },
+    })).toBe(false)
+    expect(documentCanReplanShots({
+      status: "ready",
+      input_mode: "ai_pipeline",
+      analysis: { episodes: [{ episode_num: 1, shots_source: "llm" }] },
+    })).toBe(false)
+    expect(documentShotPlanHeaderTag({
+      status: "awaiting_aspect",
+      analysis: { episodes: [{ episode_num: 1, shots_source: null }] },
+    })).toEqual({ color: "warning", text: "待确认画幅" })
   })
 
   it("labels parser shots as unplanned instead of hiding the tag", () => {

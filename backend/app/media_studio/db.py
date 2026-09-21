@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import threading
 from contextlib import contextmanager
 from typing import Any, Generator
 
@@ -8,6 +9,12 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 from ..db import mysql_settings_from_env_or_docs
+
+_schema_lock = threading.Lock()
+_schema_ready = False
+_pool_lock = threading.Lock()
+_pool: list[Any] = []
+_POOL_SIZE = 16
 
 
 def now_str() -> str:
@@ -19,7 +26,24 @@ def get_mysql_config() -> dict[str, Any]:
     return mysql_settings_from_env_or_docs()
 
 
-def get_mysql_connection(*, autocommit: bool = True) -> pymysql.Connection:
+def ensure_schema(*, force: bool = False) -> None:
+    """Replay sql/*.sql (including ai_project_jobs) before any media_studio query."""
+    global _schema_ready
+    with _schema_lock:
+        if _schema_ready:
+            return
+        from ..db import MysqlDatabase, is_isolated_sqlite_runtime
+
+        if is_isolated_sqlite_runtime() and not force:
+            _schema_ready = True
+            return
+        database = MysqlDatabase(get_mysql_config())
+        with database.connection() as connection:
+            database.apply_mysql_schema(connection)
+        _schema_ready = True
+
+
+def _connect_mysql(*, autocommit: bool = True) -> pymysql.Connection:
     cfg = get_mysql_config()
     return pymysql.connect(
         host=cfg["host"],
@@ -33,14 +57,52 @@ def get_mysql_connection(*, autocommit: bool = True) -> pymysql.Connection:
     )
 
 
+def get_mysql_connection(*, autocommit: bool = True) -> pymysql.Connection:
+    ensure_schema()
+    if not autocommit:
+        return _connect_mysql(autocommit=False)
+    with _pool_lock:
+        while _pool:
+            candidate = _pool.pop()
+            try:
+                candidate.ping(reconnect=True)
+                return candidate
+            except Exception:
+                try:
+                    candidate.close()
+                except Exception:
+                    pass
+    return _connect_mysql(autocommit=True)
+
+
+def release_mysql_connection(conn: Any, *, reuse: bool = True) -> None:
+    if not reuse:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return
+    with _pool_lock:
+        if len(_pool) < _POOL_SIZE:
+            _pool.append(conn)
+            return
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
 @contextmanager
 def db_cursor() -> Generator[DictCursor, None, None]:
     conn = get_mysql_connection()
     try:
         with conn.cursor() as cursor:
             yield cursor
-    finally:
-        conn.close()
+    except Exception:
+        release_mysql_connection(conn, reuse=False)
+        raise
+    else:
+        release_mysql_connection(conn)
 
 
 @contextmanager

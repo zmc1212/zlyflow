@@ -4,6 +4,7 @@ import {
   firstCharacterLookImageUrl,
   getAssetDisplayAvatar,
   identityLookEnqueueBlocker,
+  propSheetEnqueueBlocker,
   type AssetIdentity,
 } from "./shared"
 
@@ -61,6 +62,41 @@ describe("identity look enqueue", () => {
       identityLookEnqueueBlocker(
         character({ source_references: [{ id: "ref-1", url: "https://cdn.example/face.jpg" }] }),
         ident,
+      ),
+    ).toBe("")
+  })
+})
+
+function propAsset(extra: Record<string, unknown> = {}, description: string | null = null): Director2Asset {
+  return {
+    id: "prop-1",
+    project_id: "proj-1",
+    kind: "prop",
+    name: "旧木书箱",
+    role: null,
+    description,
+    visual_prompt: null,
+    image_url: null,
+    voice_id: null,
+    extra,
+    created_at: "",
+    updated_at: "",
+  }
+}
+
+describe("prop sheet enqueue", () => {
+  it("blocks when there is no appearance and no source photos", () => {
+    expect(propSheetEnqueueBlocker(propAsset({}))).toContain("外观描述")
+  })
+
+  it("allows generating when visual prompt is filled", () => {
+    expect(propSheetEnqueueBlocker(propAsset({ visual_prompt: "红木箱铜扣" }))).toBe("")
+  })
+
+  it("allows empty appearance when source photos exist", () => {
+    expect(
+      propSheetEnqueueBlocker(
+        propAsset({ source_references: [{ id: "ref-1", url: "https://cdn.example/box.jpg" }] }),
       ),
     ).toBe("")
   })

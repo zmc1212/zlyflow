@@ -7,6 +7,7 @@ import { ArrowLeft, ChevronRight, Clapperboard, Clock3, Copy, Image as ImageIcon
 import ThemeToggle from "../components/ThemeToggle"
 import { createProject, deleteProject, director2ErrorDetail, listProjects, listSkillPacks, type Director2SkillPack } from "./api"
 import { director2ProjectPath } from "./paths"
+import { DEFAULT_DIRECTOR_PROJECT_NAME } from "./project-name"
 import SkillPackPickerModal from "./SkillPackPickerModal"
 import { createProjectSkillPackExtra, defaultCreateSkillPackId } from "./skill-pack"
 import { directorBatchPath, directorHypitPath, directorReplicationPath } from "../paths"
@@ -98,7 +99,7 @@ export default function Director2StudioHome({ csrfToken, onExitDirector }: Direc
     setCreatingProject(true)
     try {
       const created = await createProject(csrfToken, {
-        name: "未命名导演工程",
+        name: DEFAULT_DIRECTOR_PROJECT_NAME,
         extra: createProjectSkillPackExtra(packId),
       })
       setPackPickerOpen(false)

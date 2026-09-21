@@ -1,11 +1,69 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any
 
 from ..db import execute_sql, now_str, query_all, query_one
 from ..models import ProjectCreateRequest, ProjectItem, ProjectUpdateRequest
+
+DEFAULT_DIRECTOR_PROJECT_NAME = "未命名导演工程"
+MAX_PROJECT_NAME_LEN = 80
+_PLACEHOLDER_DOCUMENT_FILENAMES = {
+    "剧本文档",
+    "新建剧本文档",
+    "AI 生成剧本",
+}
+_FILE_SUFFIX = re.compile(r"\.(md|markdown|txt|docx)$", re.IGNORECASE)
+
+
+def normalize_project_title(title: str | None) -> str:
+    text = re.sub(r"\s+", " ", str(title or "").strip())
+    text = _FILE_SUFFIX.sub("", text).strip()
+    if len(text) > MAX_PROJECT_NAME_LEN:
+        text = text[:MAX_PROJECT_NAME_LEN].rstrip()
+    return text
+
+
+def is_placeholder_project_name(name: str | None) -> bool:
+    text = str(name or "").strip()
+    return (not text) or text == DEFAULT_DIRECTOR_PROJECT_NAME or text.startswith("未命名")
+
+
+def is_placeholder_document_filename(filename: str | None) -> bool:
+    text = str(filename or "").strip()
+    if not text or text.startswith("未命名"):
+        return True
+    return text in _PLACEHOLDER_DOCUMENT_FILENAMES
+
+
+def resolve_document_filename(filename: str | None, analysis_title: str | None) -> str:
+    parsed = normalize_project_title(analysis_title)
+    if parsed and is_placeholder_project_name(parsed):
+        parsed = ""
+    name = normalize_project_title(filename)
+    if is_placeholder_document_filename(name) and parsed:
+        return parsed
+    return name or parsed or "剧本文档"
+
+
+def maybe_rename_unnamed_project(project_id: str, title: str | None) -> str | None:
+    """If the project still has the default/placeholder name, adopt the script title."""
+    next_name = normalize_project_title(title)
+    if not next_name or is_placeholder_project_name(next_name):
+        return None
+    row = query_one("SELECT id, name FROM ai_projects WHERE id = %s", (project_id,))
+    if not row:
+        return None
+    current = str(row.get("name") or "")
+    if not is_placeholder_project_name(current) or current.strip() == next_name:
+        return None
+    execute_sql(
+        "UPDATE ai_projects SET name = %s, updated_at = %s WHERE id = %s",
+        (next_name, now_str(), project_id),
+    )
+    return next_name
 
 
 def _settings_and_extra(
@@ -66,7 +124,7 @@ class ProjectService:
 
     @classmethod
     def create_project(cls, payload: ProjectCreateRequest) -> ProjectItem:
-        name = payload.name.strip()
+        name = normalize_project_title(payload.name)
         if not name:
             raise ValueError("项目名称不能为空")
 
@@ -101,7 +159,7 @@ class ProjectService:
         if not current:
             raise ValueError(f"未找到 ID 为 {project_id} 的项目")
 
-        name = payload.name.strip() if payload.name is not None else current.name
+        name = normalize_project_title(payload.name) if payload.name is not None else current.name
         if not name:
             raise ValueError("项目名称不能为空")
 

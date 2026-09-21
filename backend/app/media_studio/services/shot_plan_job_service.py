@@ -35,8 +35,17 @@ _ACTIVE_STATUSES = ("queued", "preparing", "running")
 
 class ShotPlanJobService:
     @classmethod
-    def enqueue(cls, project_id: str, doc_id: str) -> dict[str, Any]:
+    def enqueue(
+        cls,
+        project_id: str,
+        doc_id: str,
+        aspect_ratio: str | None = None,
+        *,
+        force: bool = False,
+        episode_num: int | None = None,
+    ) -> dict[str, Any]:
         from .project_detail_service import ProjectDetailService
+        from ...skill_packs.aspect import resolve_workshop_aspect_ratio
 
         row = query_one(
             "SELECT * FROM ai_project_documents WHERE id = %s AND project_id = %s",
@@ -47,7 +56,12 @@ class ShotPlanJobService:
         if is_ai_pipeline_document(row.get("input_mode")):
             raise ValueError("AI 流水线文档不需要二次规划出片镜头")
         analysis = ProjectDetailService._analysis_for_document_row(row) or {}
-        indexes = shot_plan_episode_indexes(analysis, input_mode=row.get("input_mode"))
+        indexes = shot_plan_episode_indexes(
+            analysis,
+            input_mode=row.get("input_mode"),
+            force=force,
+            episode_num=episode_num,
+        )
         if not indexes:
             raise ValueError("没有需要规划的分集")
 
@@ -70,6 +84,7 @@ class ShotPlanJobService:
         title = f"规划出片镜头: {filename}"
         jid = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = now_str()
+        resolved_aspect = resolve_workshop_aspect_ratio(request=aspect_ratio, project_id=project_id)
         job_payload = {
             "target_type": JOB_TYPE,
             "project_id": project_id,
@@ -78,6 +93,9 @@ class ShotPlanJobService:
             "episode_indexes": indexes,
             "episode_total": len(indexes),
             "episodes_done": [],
+            "aspect_ratio": resolved_aspect,
+            "force": bool(force),
+            "episode_num": episode_num,
         }
         execute_sql(
             "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
@@ -308,7 +326,13 @@ class ShotPlanJobService:
         doc_id = str(payload.get("document_id") or "").strip()
         if not doc_id:
             raise ValueError("任务缺少文档")
-        return cls.enqueue(project_id, doc_id)
+        return cls.enqueue(
+            project_id,
+            doc_id,
+            aspect_ratio=payload.get("aspect_ratio"),
+            force=bool(payload.get("force")),
+            episode_num=int(payload["episode_num"]) if payload.get("episode_num") is not None else None,
+        )
 
     @classmethod
     def _run(cls, job_id: str) -> None:
@@ -333,16 +357,26 @@ class ShotPlanJobService:
                 raise ValueError("文档不存在")
             analysis = ProjectDetailService._analysis_for_document_row(doc) or {}
             episodes = [item for item in (analysis.get("episodes") or []) if isinstance(item, dict)]
+            force = bool(payload.get("force"))
             raw_indexes = payload.get("episode_indexes")
             if not isinstance(raw_indexes, list) or not raw_indexes:
-                raw_indexes = shot_plan_episode_indexes(analysis, input_mode=doc.get("input_mode"))
+                raw_indexes = shot_plan_episode_indexes(
+                    analysis,
+                    input_mode=doc.get("input_mode"),
+                    force=force,
+                    episode_num=int(payload["episode_num"]) if payload.get("episode_num") is not None else None,
+                )
             targets: list[int] = []
             for raw_index in raw_indexes:
                 try:
                     index = int(raw_index)
                 except (TypeError, ValueError):
                     continue
-                if 0 <= index < len(episodes) and needs_episode_shot_plan(episodes[index], input_mode=doc.get("input_mode")):
+                if 0 <= index < len(episodes) and needs_episode_shot_plan(
+                    episodes[index],
+                    input_mode=doc.get("input_mode"),
+                    force=force,
+                ):
                     targets.append(index)
             total = len(targets)
             payload["episode_total"] = total
@@ -431,7 +465,11 @@ class ShotPlanJobService:
                 if index >= len(episodes):
                     continue
                 episode = episodes[index]
-                if not needs_episode_shot_plan(episode, input_mode=doc.get("input_mode")):
+                if not needs_episode_shot_plan(
+                    episode,
+                    input_mode=doc.get("input_mode"),
+                    force=bool(payload.get("force")),
+                ):
                     continue
                 ep_num = episode.get("episode_num")
                 current["episode_num"] = ep_num
@@ -463,8 +501,15 @@ class ShotPlanJobService:
                 }, force=True)
                 try:
                     with LlmStreamHook(on_delta=on_delta, on_status=on_status):
-                        planned_shots = LlmService.plan_episode_shots(episode)
-                    updated = apply_episode_shot_plan(episode, planned_shots)
+                        planned_shots = LlmService.plan_episode_shots(
+                            episode,
+                            aspect_ratio=payload.get("aspect_ratio"),
+                        )
+                    updated = apply_episode_shot_plan(
+                        episode,
+                        planned_shots,
+                        aspect_ratio=payload.get("aspect_ratio"),
+                    )
                     shot_count = len(updated.get("shots") or [])
                     log_line = (
                         f"第{updated.get('episode_num') if updated.get('episode_num') is not None else ep_num}"

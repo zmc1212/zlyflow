@@ -1,6 +1,141 @@
 ﻿# ZLY AI Video Studio 架构快照
 
-更新时间：2026-09-19
+更新时间：2026-09-20
+
+## 2026-09-20 导入分镜写入开场/落幅衔接，已规划文档可强制重跑
+
+- 变更原因：内容库导入只按 5–15 秒拆镜，不写开场/落幅姿势；H3 的 `previous_shot` 槽位也没填。已规划文档 `shots_source=llm` 时接口 400，无法用新合同重跑。
+- 当前基线：导入 `shot_plan` 注入 `shot_continuity_skill` 中文合同，镜头 JSON 带 `opening_state` / `closing_state` / `transition_note`，并把开场姿势写进 `action`。同场因果切时下一镜 00:00 继承上一镜落幅，禁止无故改成站姿。H3 入队按 `sequence` 填 `previous_shot`；同场匹配切的三联左格继承上一镜右格姿势。`POST …/shot-plan` 可选 `force: true` 覆盖已规划出片镜（AI 流水线仍拒绝）。内容库已规划文档显示「重新规划镜头」，确认后覆盖本集出片镜；工坊已出片 Take 不自动删除，需再同步或按镜重生成。
+- 受影响文件：`episode_shot_planner.py`、`shot_plan_job_service.py`、`project_detail_service.py`、`project_router.py`、`h3_prompt_job_service.py`、`h3_prompt_builder.py`、`storyboard_image_service.py`、`shot_handoff.py`、内容库前端、`docs/API.md` 与四份主文档。
+- 兼容性：不改表结构、端口或 ComfyUI。不传 `force` 时已全部 `shots_source=llm` 仍 400。不接上一镜视频尾帧 I2V。
+- 验证命令：`python -m unittest backend.tests.test_episode_shot_planner backend.tests.test_shot_plan_job backend.tests.media_studio_test_h3_video.H3PromptTests.test_previous_shot_handoff_and_packing_user_include_opening_state backend.tests.media_studio_test_storyboard_images.StoryboardDispatcherTests.test_triptych_prompt_left_panel_inherits_previous_landing backend.tests.media_studio_test_storyboard_images.CreateDocumentShotPlanTests.test_enqueue_document_shot_plan_passes_force -q`；`pnpm --dir frontend exec vitest run src/director2/shot-plan-live.test.ts src/director2/panes/content-library-copy.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 工坊造型/三联/道具槽对齐，避免古代卡出片现代镜
+
+- 变更原因：第 1 集第 1 镜是现代大学图书馆的 26 岁沈砚，素材组却上传古代长衫卡；台灯/电脑/书籍道具卡被 2 张上限丢掉，场景卡台灯又压过道具卡。
+- 当前基线：写稿、三联、出片都用 `select_character_look` / `character_look_image_url`，不再回退到另一时代的第一套设定板；推断结果写入 `character_look_ids`。三联必须带该造型，并快照 `triptych_look_ids`；工坊在造型对不上时警告重生成。半解说 R2V 道具槽占满 9 槽剩余位（不再硬限 2 张）；空角色/场景 URL 不占 `<Picture n>`。提示词规定桌面陈设以道具卡为准，构图服装与角色卡冲突时跟角色卡。不改表结构、端口或 ComfyUI。
+- 受影响文件：`character_looks.py`、handlers / 写稿出片 / 三联、工坊检视器、半解说模板与四份主文档。
+- 兼容性：显式 `character_look_ids` 仍优先；旧三联没有快照时显示过期警告。
+- 验证命令：`python -m unittest backend.tests.test_character_looks backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video.LookSelectionTests backend.tests.media_studio_test_h3_video.EpisodeVideoPrepareShotsTests -q`；`pnpm --dir frontend exec vitest run src/director2/workshop-look-era.test.ts src/director2/workshop-r2v-refs.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 穿越角色补现代/古代造型槽并写清出片缺图原因
+
+- 变更原因：寒门硕士穿越剧第 1 集 Beat 1 是现代大学图书馆的 26 岁沈砚，资产库却只有 17 岁古代长衫设定板。出片前置检查只报「缺少符合时代/年龄/服装的造型图」，用户不知道要补哪一套。
+- 当前基线：扫描分镜时代后，角色若缺对应造型槽会自动补一条空设定板（如「沈砚 (现代26岁)」）。自动匹配仍拒绝用古代板出现代镜；用户在检视器指定造型则可覆盖。报错写明本镜时代、现有板和要去资产库生成的造型名。工坊未选造型且时代对不上时显示提示。不改表结构、端口或 ComfyUI。
+- 受影响文件：`character_looks.py`、`episode_video_service.py`、`project_detail_service.py`、`ai_generation_service.py`、工坊检视器与四份主文档。
+- 兼容性：显式 `character_look_ids` 仍优先；只有一套且无时代冲突时仍用该套。
+- 验证命令：`python -m unittest backend.tests.test_character_looks backend.tests.media_studio_test_h3_video.LookSelectionTests backend.tests.media_studio_test_h3_video.EpisodeVideoPrepareShotsTests -q`；`pnpm --dir frontend exec vitest run src/director2/workshop-look-era.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 道具设定板并接入 H3 出片
+
+- 变更原因：工坊能预览道具，但半解说包 R2V 默认不上传道具图；三列参考/三视/细节也无法像角色设定板那样用一张多视图卡锁物体身份。
+- 当前基线：道具 `prop_reference` 出 16:9 / 2K / `2048×1152` 设定板（左正/3/4/背，右上材质结构，右下标志细节，纯白无字）。无外观描述且无原片 **400**；无原片时 prompt 标明 text-to-image。仍写入 `extra.reference_url` 与顶层 `image_url`。`prop_turnaround` / `prop_detail` API 保留，界面不再作为主路径。半解说 `r2v_slots` 在 scene 后增加 `props`：按 `prop_ids`（再回退 `props` 名）解析 URL（`reference_url` → `image_url` → `turnaround_url`），无 URL 不占槽，每镜最多 2 张；槽位满时仍先丢中格再丢结果。写稿附图、三联 GRS 参考、`prop_subject_line` 与 H3 packing（system / user / `H3_REF2VA_LABEL_DISCIPLINE`）与角色设定板同一套「只锁外形、不抄分格/白底/重复小物件」。场景仍用正面主视图，不改成设定板。
+- 受影响文件：`asset_image_prompts.py`、`project_detail_service.py`、半解说 `meta.yaml` / handlers / 写稿出片 / 三联参考、资产库道具工作区、测试与四份主文档。
+- 兼容性：不改表结构、端口或 ComfyUI。旧单张正面 `reference_url` 仍可作 `<Picture n>`。
+- 验证命令：`python -m unittest backend.tests.test_asset_source_references backend.tests.test_skill_packs backend.tests.test_h3_coverage backend.tests.media_studio_test_h3_video.LookSelectionTests -q`；`pnpm --dir frontend exec vitest run src/director2/workshop-r2v-refs.test.ts src/director2/panes/assets/PropWorkspace.test.tsx src/director2/panes/assets/shared.test.ts src/director2/panes/assets-library-copy.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 资产库一键生成时列表每条显示进度
+
+- 变更原因：一键生成只靠顶部 toast，列表条目突然出现缩略图，看不出哪些在排队、哪条正在出图。
+- 当前基线：资产库左侧列表在一键生成（角色设定板、场景正/背/360、道具参考/三视/细节）和右侧单条生图时，按资产 ID 显示 Ant Design 进度条。开始时所有待处理条目为排队；当前条目为生成中（等待同步 GRS 期间缓升到约 92%），完成后进度消失并换缩略图。角色多套造型共用一行，文案带 `1/2 · 造型名`。不改生图接口、表结构或 ComfyUI。
+- 受影响文件：`AssetsLibraryPane.tsx`、`asset-row-generation.ts`、资产库样式、测试与四份主文档。
+- 兼容性：生图仍同步等待；未点一键生成的列表不变。
+- 验证命令：`pnpm --dir frontend exec vitest run src/director2/asset-row-generation.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 无参考图的角色设定板按文生图提交 GRS
+
+- 变更原因：资产库给「沈砚」等角色出 16:9 设定板时，提示词写了「未附图 / not the reference image」。GPT Image 把请求当成改图，GRS `violation` 要求上传原图。
+- 当前基线：没有原片、旧设定板或头像时，identity prompt 标明 `text-to-image`，不再提 attached / upload / reference image。有锁图时仍写 REFERENCE 1。不改 GRS 协议、端口或 ComfyUI。
+- 受影响文件：`asset_image_prompts.py`、`backend/tests/test_asset_source_references.py` 与四份主文档。
+- 兼容性：有参考图的造型生成不变。
+- 验证命令：`python -m unittest backend.tests.test_asset_source_references -q`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 导演工程按剧本名自动命名，顶栏可改
+
+- 变更原因：首页新建仍叫「未命名导演工程」，导入剧本只改文档名；顶栏标题不可编辑。
+- 当前基线：`POST /api/projects/{id}/documents` 在工程名仍是默认/「未命名*」时按文档名或解析标题改 `ai_projects.name`，响应可带 `project_name`；已有自定义名不覆盖。打开仍为未命名且已有文档的工程时，顶栏也会按第一份文档名补写。AI 流水线写出剧本时同样处理。顶栏 `Typography.Title` 可编辑，走既有 `PUT /api/projects/{id}` 的 `name`。
+- 受影响文件：`project_service.py`、`project_detail_service.py`、`ai_generation_service.py`、项目壳/内容库前端、测试与四份主文档。
+- 兼容性：不改表结构、端口或 ComfyUI。旧客户端忽略 `project_name`。
+- 验证命令：`python -m unittest backend.tests.test_project_name backend.tests.media_studio_test_storyboard_images.CreateDocumentShotPlanTests -q`；`pnpm --dir frontend exec vitest run src/director2/project-name.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 超分可选 2x / 4x
+
+- 变更原因：固定 2x 不能满足 4x 需求；Tooltip 放不下选项，弹窗又太重。
+- 当前基线：RTX VSR 一次放大到目标倍数（2 或 4，默认 2x，ULTRA）。生成设置「出片后超分」为 `off` / `2` / `4`（旧布尔 `true` 视为 2x）。全部任务、工坊、创作页结果卡的「超分」用 Ant Design Dropdown 点选 2x/4x，不弹 Modal。Graph `resize_type.scale` 按选定倍数写入；显存门闸按该倍数估算。任务标题、输出标签、镜头卡标记随倍数变化。全部任务列表缩略图仍播原片，超分结果看独立超分任务或详情。不把 2x 结果再 2x。
+- 受影响文件：`rtx_vsr_workflow.py`、`workflow_registry.py`、`comfy_service.py`、`episode_video_service.py`、`main.py`、工坊/任务中心/创作页前端、测试与四份主文档、`docs/API.md`。
+- 兼容性：不改 H3 节点 ID。无 `scale` 的旧客户端仍按 2x。
+- 验证命令：`python -m unittest backend.tests.test_rtx_vsr backend.tests.media_studio_test_h3_video.EpisodeVideoUpscaleTests -q`；`pnpm --dir frontend exec vitest run src/director2/director2-video-settings.test.ts src/video-upscale.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 远程 ComfyUI 超分需安装 Nvidia RTX 节点
+
+- 变更原因：连着局域网 ComfyUI 提交 2x 超分时返回 `missing_node_type`（节点 22 `RTXVideoSuperResolution`）。该包只在本机整合包，远程实例没有。
+- 当前基线：超分仍只打当前管理设置里的那一台 ComfyUI，不新开实例。远程机需要 NVIDIA RTX，并在其 `custom_nodes` 安装 [Nvidia_RTX_Nodes_ComfyUI](https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI)，用启动该 ComfyUI 的 Python 安装 `nvidia-vfx==0.1.0.1`（`--index-url https://pypi.nvidia.com --no-build-isolation`，不要用 pypi.org 的 2.7KB 空壳源码包）后完全重启。`LoadVideo` / `GetVideoComponents` / `CreateVideo` / `SaveVideo` 是核心节点，不用另装。缺节点文案带上 clone/pip 与 `/object_info/RTXVideoSuperResolution` 自检地址。
+- 受影响文件：`rtx_vsr_workflow.py`、`backend/tests/test_rtx_vsr.py`、三份主文档。
+- 兼容性：不改 H3 节点 ID，不往工作台目录装 custom_nodes。
+- 验证命令：`python -m unittest backend.tests.test_rtx_vsr`；远程重启后 `GET {ComfyURL}/object_info/RTXVideoSuperResolution` 含该节点。
+- 回滚方式：还原上述文件。远程机卸载则删除其 `custom_nodes/Nvidia_RTX_Nodes_ComfyUI` 并 `pip uninstall nvidia-vfx`。
+
+## 2026-09-20 导演台2 任务列表瘦 payload，避免占满连接
+
+- 变更原因：线上点「全部任务」后 `GET /api/projects/{id}/jobs` 把每条任务的 LONGTEXT `payload_json` 和 N+1 资产查询打进同步线程池，其它 API 一起排队。
+- 当前基线：列表返回瘦 `payload`（镜号、结果 URL、精简 `shots`/`stream`，不含草稿/`request_body`/`payload_json`）。`GET /api/projects/{id}/jobs/{job_id}` 返回完整 payload。全部任务轮询进行中 2 秒、空闲 8 秒且禁止重叠。内容库规划兜底改为拉单条任务。`media_studio.db` 对 autocommit 查询复用最多 16 条 MySQL 连接。
+- 受影响文件：`backend/app/media_studio/services/job_payload.py`、`project_detail_service.py`、`routers/project_router.py`、`media_studio/db.py`、前端任务中心/工坊/内容库、`backend/tests/test_job_list_payload.py` 与四份主文档。
+- 兼容性：不改表结构。列表 JSON 不再带原始 `payload_json` 和超长草稿。
+- 验证命令：`python -m unittest backend.tests.test_job_list_payload`。
+- 回滚方式：还原上述文件并重新部署。
+
+## 2026-09-20 导入确认成片画幅，规划/写稿/出片共用
+
+- 变更原因：出片比例在工坊 localStorage，写稿锁死 9:16，导入立刻规划会把剧本里的竖屏写进镜头卡。
+- 当前基线：成片画幅解析顺序为本次请求 `aspect_ratio` > 项目 `settings.extra.workshop_aspect_ratio` > 配方 `confirm_format.aspect_ratio` > `9:16`；横竖语文案随比例（高>宽竖屏、宽>高横屏、相等方形）。内容库导入仍立刻切集落库，但不再自动入队 `shot_plan`；文档 `status=awaiting_aspect`，响应带 `aspect_hint`（扫描原文 `9:16`/`16:9`/`1:1`/`3:4`/`4:3`/`21:9` 与竖屏/横屏/方形）。用户确认后写入 extra 再 `POST …/shot-plan`（body 可带 `aspect_ratio`）。工坊改生成设置除 localStorage 外写入同一 extra；`POST …/h3-prompt` 与 `POST …/generate-triptych` 请求体带 `aspect_ratio`，入队写入 `beat_info.aspect_ratio`。写稿 system/user、槽位标签、骨架、`inject_craft` 用解析结果；user 复制镜头目的/运镜时覆盖旧 heading 画幅用语，不改库里 Beat 原文。三联母图仍 16:9 三等分裁切，标签按成片比例说（不再写死 9:16 裁切）。规划 system/user 写明确认画幅为权威。`ai_pipeline` 仍不规划。角色/场景设定板仍 16:9 白底。
+- 受影响文件：`skill_packs/aspect.py`、`handlers.py`、`triptych.py`、`h3_prompt_job_service.py`、`episode_shot_planner.py`、`project_detail_service.py`、工坊/内容库前端、测试与四份主文档、`docs/API.md`。
+- 兼容性：不改表结构、端口或 ComfyUI。旧客户端仍可直接 `POST …/shot-plan`（无 body 则用 extra/配方缺省）。半解说配方 yaml 缺省仍是 9:16。
+- 验证命令：`python -m unittest backend.tests.test_workshop_aspect backend.tests.test_skill_packs backend.tests.test_episode_shot_planner backend.tests.media_studio_test_storyboard_images backend.tests.test_shot_plan_job backend.tests.media_studio_test_h3_video -q`；`pnpm --dir frontend exec vitest run src/director2/workshop-aspect.test.ts src/director2/shot-plan-live.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 工坊成片多 Take 选用
+
+- 变更原因：重新出片会覆盖 `beat.video_url` 并清空超分，历史成功抽卡仍在任务里但成片 Tab / 合成只认最新一条。
+- 当前基线：逐镜/选中镜写入时把旧原片归档进 `beat.video_takes`（`data_json`，不新建表），`video_url` 默认采用最新。成片 Tab 列出本镜全部成功 Take，预览任意一条，`POST …/video-takes/adopt` 才把它变成正式成片。合成、配音提取、顶栏超分仍只读采用版 `video_url`。2x 挂在对应原片 Take 的 `upscaled_url`，不单独成 Take。整集直出 / 拼接不进单镜条带。历史任务由工坊已有 `listJobs` 按镜回填。不改 H3 节点，不引入已下线的 Recipe `shot.takes`。
+- 受影响文件：`episode_video_service.py`、`project_detail_service.py`、`project_router.py`、工坊成片 Tab、`director2-video-settings.ts`、测试与四份主文档、`docs/API.md`。
+- 兼容性：旧镜没有 `video_takes` 时由任务列表回填；未采用预览不影响镜头卡「已出片」和合成。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video.EpisodeVideoTakesTests backend.tests.media_studio_test_h3_video.EpisodeVideoUpscaleTests -q`；`pnpm --dir frontend exec vitest run src/director2/director2-video-settings.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 写稿不再把角色内心塞进旁白原文
+
+- 变更原因：工坊入队 H3 时把内心折进 `beat_info.narration`，user 同时写「内心不要进旁白」和「旁白原文必须抄内心」。5.6 按合同把内心写进了中文旁白块。
+- 当前基线：`dialogue_turns` 保留完整台词（含（内心））；`narration` 只留第三人称/第一人称旁白。写稿 user / 八块骨架 / 通道校验都用 `third_person_narration`，内心与旁白原文相同则视为无旁白。不改表结构、端口或 ComfyUI。镜头一需再生成 H3 提示词。
+- 受影响文件：`h3_prompt_job_service.py`、`h3_prompt_builder.py`、`skill_packs/handlers.py`、官方模板、测试与四份主文档。
+- 兼容性：真旁白仍进旁白块。程序装箱仍从对白里的（内心）取内心。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_h3_coverage -q`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 镜头一写稿失败改为拦通道与 00:00 内心，不再误杀小数时间码
+
+- 变更原因：工坊重新生成镜头一 H3 时，正确挂在下摇看衣的草稿因小数时间码、`00:00:15`、缺 `[Chinese]`、UTF-8 流把「参」打成 U+FFFD 而失败，Beat 仍是旧稿（内心从 00:00 起念），用户按旧稿出片。
+- 当前基线：中文薄校验接受 `00:02.50`、`00:00:15` 和标题首字乱码；英文 `<d>` 可省略 `[Chinese]`。表演顺序第 1 句不是内心时，禁止内心原文出现在任何 00:00 起幅时间段。无旁白时仍禁止旁白块抄内心。半解说包不恢复 thickness / packing leftover。写稿失败仍不覆盖上一版提示词。不改表结构、端口或 ComfyUI。工坊需再生成镜头一 H3 提示词后再出片。
+- 受影响文件：`skill_packs/handlers.py`、`h3_prompt_builder.py`、测试与四份主文档、`docs/API.md`。
+- 兼容性：镜头二多句切开仍通过。旧的 00:00 内心稿不会自动改。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_h3_coverage -q`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 内心与旁白改由写稿合同约束三通道
+
+- 变更原因：镜头一不是画外音关键字失效，而是模型为填满「旁白」把内心提前到 00:00，又把开口判断句复制进第二个 `<d>`。复杂时间码规则已经误杀过镜头二。
+- 当前基线：双稿 system/user 写清开口 / 角色内心 / 第三人称旁白三通道，并按 `ordered_speech_events` + `split_speech_atoms` 给出编号表演顺序。无 `narration` 时八块「旁白」固定写「本镜无第三人称旁白」，内心只进对白并标（内心）。中文薄校验：内心进第三人称/第一人称旁白、开口被标成内心、无旁白却用台词充数。半解说包 `skip_program_pack` 在既有内心交付校验之外增加 `speech_schedule_errors`（台词去重 + `<d>` 表演顺序），不打开 thickness / packing leftover。不改表结构、端口或 ComfyUI。工坊需重新生成镜头一 H3 提示词后再出片。
+- 受影响文件：`skill_packs/handlers.py`、`h3-video-prompt-template.md`、`h3_prompt_builder.py`、`llm_service.py`、测试与四份主文档、`docs/API.md`。
+- 兼容性：手动粘贴六段仍按原文出片。未绑技能包仍走程序装箱。镜头二多句切开不被新规则误杀。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_h3_coverage -q`。
+- 回滚方式：还原上述文件。
 
 ## 2026-09-19 工坊内心戏改用官方 H3 画外音句式
 
@@ -203,7 +338,7 @@
 ## 2026-09-19 半解说包双稿不再把说明句当正文
 
 - 变更原因：失败已冒泡后，GPT-5 仍把「请先输出 <<<ZH>>> 官方八块中文分秒稿」当成整篇回复；系统提示还灌入 SKILL.md 工作坊章节，`reasoning_effort=low` 又把 `max_completion_tokens` 花在隐藏推理上，校验于是报出一整串缺标题。
-- 当前基线：双稿 system 只保留八块填空骨架，不再 `inject_craft` 工作坊章节。用户提示改为「直接输出两块正文」，禁止复述说明句。中英文 stub（如「官方八块中文分秒稿与」「英文六段稿。」）打回重写，错误只有一句，不再展开缺标题清单。看图写作 `chat_on_endpoint` 对 GPT-5 / o 使用 `reasoning_effort=none`，双稿 `max_tokens=16000`。失败 payload 可带 `author_raw_draft`。半解说包仍 fail-hard，不回退骨架。
+- 当前基线：双稿 system 只保留八块填空骨架，不再 `inject_craft` 工作坊章节。用户提示改为「直接输出两块正文」，禁止复述说明句。中英文 stub（如「官方八块中文分秒稿与」「英文六段稿。」）打回重写，错误只有一句，不再展开缺标题清单。看图写作 `chat_on_endpoint` 对 GPT-5 / o 使用 LLM 管理设置中的推理程度（默认 `low`，`auto` 时不发送），双稿 `max_tokens=16000`。失败 payload 可带 `author_raw_draft`。半解说包仍 fail-hard，不回退骨架。
 - 受影响文件：`skill_packs/handlers.py`、`llm_service.py`、`vision_runtime.py`、对应测试与三份主文档、`docs/API.md`。
 - 兼容性：不改表结构、端口或 ComfyUI。`LlmService.chat_text` 仍用 `reasoning_effort=low`。未绑技能包仍走默认程序装箱。
 - 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.test_vision_runtime backend.tests.media_studio_test_h3_video`。
@@ -681,7 +816,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 | `backend/app/resource_storage.py` | 可替换资源 provider 契约、browser-stream 引用实现与旧版 browser-local 暂存兼容 |
 | `backend/app/workflow_registry.py` | 工作流能力、参考图上下限、H3 参数校验 |
 | `backend/app/minimax_h3_workflow.py` | 根据上传参考图动态生成 H3 API graph |
-| `backend/app/rtx_vsr_workflow.py` | 独立 RTX 2x 超分 API graph（不占用 H3 节点 ID） |
+| `backend/app/rtx_vsr_workflow.py` | 独立 RTX 超分 API graph（2x/4x，不占用 H3 节点 ID） |
 | `backend/app/minimax_h3_t8_workflow.py` | 生成全能参考多速率与双时钟 T8 API graph |
 | `backend/app/comfy_provider.py` | 超级管理员可配置的 ComfyUI 连接地址、连接测试与运行时解析 |
 | `backend/app/comfy_service.py` | 上传素材、提交 ComfyUI prompt、轮询、下载结果；队列空闲时 `POST /free` 卸载模型 |
@@ -698,7 +833,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 | `backend/app/media_studio/services/dubbing_service.py` | 导演台2 台词轨展开、单句导演参数、配音生成调度 |
 | `backend/app/director_export.py` | 逐镜 TTS、BGM、ffmpeg 成片、FCPXML/EDL；失败镜头不进入成片 |
 | `backend/app/director_agents.py` | 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；独立 `episodes` agent 写集大纲，分镜优先消费已确认结构；分镜读取官方 h3-prompt-writing，并依次做时长润色与 Seedance 风格衔接润色；配音/配乐写可播放媒体元数据；绑定技能包时 `_system` 注入 `inject_craft` |
-| `backend/app/skill_packs/` | 技能包配方（Hub 官方 Markdown + `meta.yaml` + `summary`）与步骤注册表；首页/顶栏绑定项目 `extra.skill_pack_id`；工坊一次写官方八块中文分秒稿和英文六段；半解说包临时 `skip_program_pack` 出片用 GPT 英文、不程序装箱；R2V 绑角色卡+场景卡+三联三格 9:16 裁切（不送 16:9 母图）；导台2 四阶段按官方标题 `inject_craft` |
+| `backend/app/skill_packs/` | 技能包配方（Hub 官方 Markdown + `meta.yaml` + `summary`）与步骤注册表；首页/顶栏绑定项目 `extra.skill_pack_id`；工坊一次写官方八块中文分秒稿和英文六段；半解说包临时 `skip_program_pack` 出片用 GPT 英文、不程序装箱；R2V 绑角色卡+场景卡+有绑定则道具设定板+三联三格成片画幅构图（不送 16:9 母图）；导台2 四阶段按官方标题 `inject_craft` |
 | `backend/app/media_studio/services/ai_generation_service.py` | 导台2 项目级 AI 流水：澄清 → 四步卡点（`awaiting_review` / `advance` / `revise` / `rerun_stage`）；`retry(stage=…)` 可从已完成的更早阶段重跑并作废后续步骤；结果适配写入内容库/资产库/剧集工坊；阶段生成套 `skill_pack_scope` |
 | `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能、官方 prompt-writing、shot-timing 与 shot-continuity 加载器，供生成页优化和导演台分镜共用 |
 | `backend/app/script_full_story.py` | 剧本 `fullStory` 规范化与按 `【` / `### 镜头` 切场景，供导演台与导台2 共用 |
@@ -752,9 +887,9 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 - 八步双加速：`minimax-h3-dual-accel-t2v`（0 张）、`minimax-h3-dual-accel-i2v`（1-2 张首尾帧）、`minimax-h3-dual-accel-r2v`（1-9 张参考图）。复用参考 JSON 的加速链：`LoraLoaderModelOnly`（`minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors`，强度 1.0）→ `PathchSageAttentionKJ`（`auto` / 禁止 compile）→ `MiniMaxH3MemoryEfficientSageAttentionPatch`，默认 0.4 MP、8 步 `res_multistep` 与 video/audio Shift 12/3。不接入 `MiniMaxH3Director` 节点；文生/首尾帧用全量 INT8 FL2VA，多参考用全量 INT8 Ref2VA。
 - 官方 MiniMax H3：`minimax-h3-t2v`、`minimax-h3-i2v`、`minimax-h3-r2v`。动态 API graph 在既有节点 1–15 之后接入 `ReservedVRAMSetter`（预留 3 GB 并在采样前清缓存）与 `MiniMaxH3MemoryEfficientSageAttentionPatch`，避免 16GB 显卡在 `SamplerCustomAdvanced` 的 INT8 QKV 上 OOM。既有节点 ID 不变。
 - 自定义：`minimax-h3-t8-all-reference`（0-9 张；无图 `T2VA`+FL2VA，有图 `Ref2VA`+Ref2VA，`MiniMaxH3MultiRateSamplerEXPT8`）、`minimax-h3-t8-dual-clock`（0-1 张；无图 `T2VA`，单图 `I2VA` 首帧，`MiniMaxH3DualClockSamplerT8`）。
-- 隐藏：`nvidia-rtx-vsr` 不出现在创作页模型列表。把已成功成片交给当前连接 ComfyUI 的 `RTXVideoSuperResolution`（固定 2x / ULTRA），由创作页「出片后 2x 超分」、`POST /api/jobs/{job_id}/upscale`、工坊逐镜 `upscale_after` / `POST …/beats/{id}/upscale`，或全部任务 `POST …/projects/{id}/jobs/{job_id}/upscale` 触发。整集直出与拼接片不自动超分，可在全部任务手动点。显存门闸读当前连接 GPU 的 `vram_total`，过长可能被拒绝。
+- 隐藏：`nvidia-rtx-vsr` 不出现在创作页模型列表。把已成功成片交给当前连接 ComfyUI 的 `RTXVideoSuperResolution`（2x 或 4x / ULTRA，一次到位），由创作页「出片后超分」、`POST /api/jobs/{job_id}/upscale`（JSON 可选 `scale`）、工坊逐镜 `upscale_after=off|2|4` / `POST …/beats/{id}/upscale`，或全部任务 `POST …/projects/{id}/jobs/{job_id}/upscale` 触发。整集直出与拼接片不自动超分，可在全部任务手动点。显存门闸读当前连接 GPU 的 `vram_total`，过长或 4x 可能被拒绝。
 
-H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`、`weight_profile`，以及自定义时的 `custom_steps`，可选 `upscale_after`。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。`weight_profile` 为 `full`（默认，约 32 GB 全量 INT8，可挂加速 LoRA）或 `pruned`（约 20 GB 精简 INT8，强制关闭加速 LoRA，步数仍由 `speed` 决定）。`upscale_after` 为更多设置中的布尔开关，成片成功后卸载 H3 再跑独立 2x 超分（工坊仅逐镜/选中镜自动接跑）。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
+H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`、`weight_profile`，以及自定义时的 `custom_steps`，可选 `upscale_after`。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。`weight_profile` 为 `full`（默认，约 32 GB 全量 INT8，可挂加速 LoRA）或 `pruned`（约 20 GB 精简 INT8，强制关闭加速 LoRA，步数仍由 `speed` 决定）。`upscale_after` 为更多设置中的 `off` / `2` / `4`（旧布尔 `true` 视为 2x），成片成功后卸载 H3 再跑独立超分（工坊仅逐镜/选中镜自动接跑）。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
 
 两个 T8 模式的 options schema 同样由 `workflow_registry.py` 提供，覆盖任务类型、比例、画质预设、内部像素、对齐倍数、时长、种子、音频策略、采样步数、video/audio shift、模型、LoRA、SageAttention、显存策略和 H.264 编码参数。每项使用 `ui_group=primary|advanced|internal` 声明产品可见性；前端只生成主参数与“更多设置”，内部参数由后端默认值托管。随机种子每次由后端自动生成，不接受用户指定。SQLite 保存标准化 options 与显式提交字段；`request_parameters` 返回当前生效的有效值和 `visibility`，并遵守 `ui_visible_when`（例如未选自定义时不回显 `custom_steps`），前端将内部值折叠到“运行参数”。输出文件前缀、`save_output=true` 与 graph 连线属于集成协议，不允许调用方覆盖。
 
@@ -2580,3 +2715,49 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：无表结构或接口变化；取消进行中的 worker 仍不能用旧快照清掉标记。
 - 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`。
 - 回滚方式：还原上述文件即可。
+
+## 2026-09-20 服务器启动补建导演台2 表，DATA_DIR 不再改走 SQLite
+
+- 变更原因：`deploy-server-image.sh` 健康检查失败，容器反复退出，日志 `pymysql.err.ProgrammingError: (1146, "Table 'ai-media.ai_project_jobs' doesn't exist")`，栈在 `EpisodeVideoService.recover_orphaned_jobs()`。
+- 当前基线：Compose 的 `ZLY_AI_VIDEO_STUDIO_DATA_DIR` 只用于上传/暂存/凭证/SQLite 迁移源，不再把生产后端切到 SQLite。`ZLY_AI_VIDEO_STUDIO_DB_BACKEND` 默认 `mysql`，unittest 仍隔离 SQLite。`media_studio.db.ensure_schema()` 在首次 MySQL 连接和 FastAPI lifespan（恢复孤儿任务之前）重放 `sql/*.sql`，含 `ai_project_jobs` 等 `ai_*` 表。
+- 受影响文件：`backend/app/config.py`、`backend/app/db.py`、`backend/app/media_studio/db.py`、`backend/app/main.py`、`compose.yaml`、`.env.example`、`backend/tests/test_media_studio_schema.py` 与三份主文档。
+- 兼容性：已有 `ai-media` 库用 `CREATE TABLE IF NOT EXISTS` 补表，不改既有行。旧 Docker 卷里的 SQLite 仍可由 `deploy-server-image.sh` 的迁移步骤导入 MySQL。
+- 验证命令：`python -m unittest backend.tests.test_media_studio_schema`。
+- 回滚方式：还原上述文件并重新导出镜像；缺表时也可对目标库手动执行 `sql/013_media_studio_init.sql`。
+
+## 2026-09-20 内容库镜头重规划按集执行
+
+- 变更原因：原「重新规划镜头」一次 force 覆盖整份剧本，修改单集时会无谓重算全量；按钮使用默认 ghost 样式时在主题下也可能与背景融为一体。
+- 当前基线：内容库按钮使用明确边框样式；确认弹窗默认选单集，并提供需显式选择的「全部分集（谨慎使用）」。`POST /api/projects/{project_id}/documents/{doc_id}/shot-plan` 新增可选 `episode_num`，由 `shot_plan_episode_indexes` 过滤目标集；任务 payload、重试和 worker 回退均保留该范围。
+- 受影响文件：`frontend/src/director2/panes/ContentLibraryPane.tsx`、`content-library.css`、`api.ts`、`backend/app/media_studio/routers/project_router.py`、`project_detail_service.py`、`shot_plan_job_service.py`、`episode_shot_planner.py`、测试与 API 文档。
+- 兼容性：不传 `episode_num` 的旧客户端继续按原逻辑规划所有需要规划的分集；不改数据库表结构、端口或 ComfyUI 协议。
+- 验证命令：`python -m unittest backend.tests.test_episode_shot_planner backend.tests.media_studio_test_storyboard_images`；`pnpm --dir frontend exec vitest run src/director2/panes/content-library-copy.test.ts`；5173 内容库页面检查浅色/暗色主题按钮可见性与按集弹窗。
+- 回滚方式：还原上述前后端与文档文件即可；已写入的任务 payload 仍可被旧代码按文档级逻辑处理。
+
+## 2026-09-21 镜头规划与 H3 道具范围收敛
+
+- 当前基线：`ShotPlanJobService` 规划前使用 episode `body` 解析出的原始分镜作为逐镜道具权威；`apply_episode_shot_plan` 在归一化后移除跨镜头继承的 `props`。H3 装箱提示再次声明当前镜头道具白名单，场景/上一镜文本不得新增命名道具；“电脑 + 笔记本”组合明确为一台电脑与一本纸质笔记本。
+- 原因：同场连续镜头只应继承姿势、视线、灯光和空间关系，旧规划把整组桌面道具带入并造成重复电脑。
+- 受影响文件：`backend/app/media_studio/services/episode_shot_planner.py`、`backend/app/media_studio/services/h3_prompt_builder.py`、对应测试与主文档。
+- 兼容性：无 API、数据库、端口、节点或模型路径变更；已有规划/提示词/视频不会自动迁移，需按集重新规划并重新生成。
+- 验证命令：`python -m unittest backend.tests.test_episode_shot_planner backend.tests.media_studio_test_h3_video`；`pnpm --dir frontend build`。
+- 回滚方式：还原上述文件即可。
+
+## 2026-09-21 LLM 推理程度配置链路
+
+- 当前基线：`llm_provider_settings.reasoning_effort` 是 LLM 推理程度的持久化来源，缺省 `low`。管理 API 与 LLM 设置页读写该字段；`OpenAICompatibleClient` 提供客户端默认值，工坊与 `complete_authoring` 显式透传，角色内容生成按 GPT-5 请求格式组装。只有 `is_openai_reasoning_chat_model()` 识别的 GPT-5 / o 系列发送参数；`auto` 映射为不发送，连接测试单次覆盖为 `none`。
+- 变更原因：`gpt-5.6-sol` 正式写稿曾固定 `low`，其他导演调用又未统一传入，管理配置无法控制真实请求。
+- 受影响文件：`backend/app/models.py`、`storage.py`、`llm_client.py`、`llm_provider.py`、`vision_runtime.py`、`media_studio/services/llm_service.py`、`frontend/src/admin/LlmProviderSettings.tsx`、`sql/001_init_mysql.sql`、测试和文档。
+- 兼容性：SQLite 与 MySQL 初始化时通过 `ensure_column` 为旧表补 `reasoning_effort VARCHAR/TEXT NOT NULL DEFAULT 'low'`；已有行自动取 `low`，无需离线迁移。API 新字段有默认值，旧客户端兼容；VLM/TTS、端口、节点 ID、模型目录与任务协议不变。
+- 验证命令：`python -m unittest backend.tests.test_llm backend.tests.media_studio_test_character_content`；`pnpm --dir frontend build`；5173 管理页桌面/移动端交互检查。
+- 回滚方式：还原上述代码、SQL 和文档；保留数据库列不会影响旧版本，必要时可在维护窗口手工删除。
+
+## 2026-09-21 H3 写稿上下文与出片槽位分层
+
+- 当前基线：`h3_authoring_context_images()` 只向写稿模型提供场景卡、三联母图和三联格，约束其仅提取环境、构图、调度和节奏；`bind_r2v_slot_images()` 是最终视频槽位的唯一组装入口，只收集本镜角色设定板和绑定道具设定板，角色优先、URL 去重、最多 9 张。H3 写稿与视频入队均重新调用该函数，`ref_images`、`reference_urls` 和 ComfyUI timeline 使用同一顺序；空槽位使用 T2V。
+- 提示词合同：`<Picture n>` / `<Subject n>` 只能引用最终槽位且不得越界，场景与三联必须转成文字。自动写稿校验失败沿现有通道重试；Beat 保存 `h3_reference_policy = "identity-props-v2"` 与 `h3_prompt_context_fingerprint`，详情只读计算 `current/stale/manual/invalid/missing`。旧自动稿或指纹变化稿禁止入队，合法手写稿只做编号校验。
+- 变更原因：原单链路同时上传角色、场景、道具和三联，三联偏差人脸与场景卡构图会成为强视觉条件，造成镜头中途身份接管和参考图式跳变。
+- 受影响文件：`backend/app/skill_packs/handlers.py`、`backend/app/media_studio/services/{h3_prompt_job_service,llm_service,h3_prompt_builder,episode_video_service,project_detail_service}.py`、`frontend/src/director2/{api,workshop-r2v-refs}.ts`、`frontend/src/director2/panes/EpisodeWorkshopPane.tsx`、相关测试与主文档。
+- 兼容性：不新增路由、数据库表、ComfyUI 节点或模型；Beat JSON 只新增可忽略字段。历史任务和已完成 Take 保持原快照，不回写、不删除；重新出片前由用户按提示重新生成过期自动稿。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video backend.tests.test_skill_packs`；`pnpm --dir frontend exec vitest run src/director2/workshop-r2v-refs.test.ts`；`pnpm --dir frontend build`；5173 工坊桌面/移动端检查。
+- 回滚方式：还原上述前后端、测试和文档文件；无需迁移数据库或处理已有媒体，新增 Beat JSON 字段可留存。
