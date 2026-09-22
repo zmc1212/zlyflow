@@ -461,6 +461,111 @@ export type Director2EpisodeDetail = {
   episode_video_url?: string | null
   episode_video_source?: string | null
   episode_video_job_id?: string | null
+  prompt_authoring?: PromptAuthoringState
+}
+
+export type PromptReferenceSlot = {
+  index: number
+  token: string
+  asset_id: string
+  look_id?: string | null
+  image_url: string
+  kind: string
+  name: string
+}
+
+export type PromptSections = {
+  subject_definitions?: string
+  summary: string
+  retention_analysis: string
+  detailed_description: string
+  overall_soundscape: string
+  non_diegetic_music: string
+}
+
+export type FullReferencePromptRecord = {
+  kind: "full_reference"
+  template_version: string
+  workflow_id?: string
+  language: "zh-CN" | "en"
+  source_fingerprint: string
+  reference_slots: PromptReferenceSlot[]
+  beat_id: string
+  sections: PromptSections
+  prompt_text: string
+  status: "current" | "stale"
+  rewrite_mode?: "strict" | "expand"
+  aspect_ratio?: string
+}
+
+export type DirectorPromptSegment = {
+  id: string
+  index: number
+  title: string
+  frame_count: number
+  duration_seconds: number
+  source_beat_ids: string[]
+  source_units?: Array<{
+    id: string
+    source_beat_id: string
+    source_shot_number: number
+    generated_shot_number: number
+    chunk_index: number
+    chunk_count: number
+    start_sec: number
+    end_sec: number
+    duration_seconds: number
+    required_events: string[]
+    dialogue_owner: string[]
+    start_state: string
+    handoff_state: string
+  }>
+  shots: Array<{ shot_number: number; source_beat_id?: string | null }>
+  sections: PromptSections
+  prompt_text: string
+  continuity_from_prev: boolean
+  video_url?: string
+}
+
+export type DirectorPromptPart = {
+  id: string
+  index: number
+  frame_count: number
+  handoff_from_previous_part?: string | {
+    segment_id: string
+    state: string
+    description_tail: string
+  }
+  segments: DirectorPromptSegment[]
+  renders?: Array<{ job_id: string; segment_ids: string[]; url: string; created_at: string }>
+}
+
+export type DirectorPromptPlan = {
+  kind: "director_segments"
+  id: string
+  revision: number
+  schema_version?: number
+  planning_strategy?: "atomic_units" | string
+  unit_planner_version?: string
+  template_version: string
+  workflow_id: string
+  language: "zh-CN" | "en"
+  rewrite_mode?: "strict" | "expand"
+  aspect_ratio?: string
+  source_fingerprint: string
+  reference_slots: PromptReferenceSlot[]
+  common_setting: { subject_definitions: string; prompt_text: string }
+  parts: DirectorPromptPart[]
+  status: "current" | "stale"
+  invalid_reason?: string
+}
+
+export type PromptPreview = FullReferencePromptRecord | DirectorPromptPlan
+
+export type PromptAuthoringState = {
+  schema_version?: number
+  full_reference?: Record<string, FullReferencePromptRecord>
+  director_plan?: DirectorPromptPlan
 }
 
 export type Director2Beat = {
@@ -569,10 +674,24 @@ export function generateBeatImagesBatch(csrfToken: string, projectId: string, ep
   )
 }
 
-export function generateBeatH3Prompt(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<{ job_id?: string; beat_id?: string; beat_ids?: string[]; job_ids?: string[]; status?: string; prompt?: string; duplicate?: boolean; split?: boolean; merged?: boolean }> {
+export function createPromptPreview(csrfToken: string, projectId: string, epId: string, data: Record<string, unknown>): Promise<{ job_id: string; status: string; duplicate?: boolean; source_fingerprint?: string; recommended_segment_count?: number }> {
   return requestJson(
-    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/h3-prompt`,
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/prompt-previews`,
     jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
+export function applyPromptPreview(csrfToken: string, projectId: string, epId: string, jobId: string, data: Record<string, unknown>): Promise<{ status: string; prompt_authoring: PromptAuthoringState }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/prompt-previews/${encodeURIComponent(jobId)}/apply`,
+    jsonMutation(csrfToken, data, "POST"),
+  )
+}
+
+export function patchDirectorPromptPlan(csrfToken: string, projectId: string, epId: string, data: Record<string, unknown>): Promise<DirectorPromptPlan> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/prompt-plan`,
+    jsonMutation(csrfToken, data, "PATCH"),
   )
 }
 

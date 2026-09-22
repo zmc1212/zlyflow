@@ -43,6 +43,7 @@ export type WorkshopPromptStreamEvent =
       planned_episodes?: number
       failed_episodes?: number
       episodes_done?: Array<Record<string, unknown>>
+      preview?: Record<string, unknown>
     }
   }
   | { seq: number; event: "error"; data: { status?: string; message?: string } }

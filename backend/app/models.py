@@ -248,6 +248,8 @@ class ModeResponse(BaseModel):
     accepts_negative_prompt: bool
     accepts_image_size: bool
     supports_h3_options: bool = False
+    prompt_profile: str = "none"
+    prompt_template_version: str | None = None
     request_content_type: str = "multipart/form-data"
     parameters: list[WorkflowParameterResponse] = Field(default_factory=list)
     media_type: MediaType = MediaType.VIDEO
@@ -259,6 +261,9 @@ class ModeResponse(BaseModel):
     catalog_group_order: int = 100
     supports_timeline: bool = False
     supports_multi_segment: bool = False
+    max_segments: int | None = None
+    max_total_frames: int | None = None
+    supports_segment_continuity: bool = False
 
 
 class ComfyHealthResponse(BaseModel):
@@ -421,6 +426,7 @@ class LibraryItemResponse(MediaOutput):
 
 
 class LlmProviderUpdateRequest(BaseModel):
+    profile_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     enabled: bool = False
     base_url: str = Field(default="https://api-inference.modelscope.cn/v1", max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
@@ -429,12 +435,14 @@ class LlmProviderUpdateRequest(BaseModel):
 
 
 class LlmProviderTestRequest(BaseModel):
+    profile_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     base_url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=128)
 
 
 class LlmModelCatalogRequest(BaseModel):
+    profile_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     base_url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     free_only: bool = True
@@ -455,6 +463,7 @@ class LlmModelCatalogResponse(BaseModel):
 
 
 class LlmProviderResponse(BaseModel):
+    profile_id: str = "custom"
     enabled: bool
     base_url: str
     model: str
@@ -469,6 +478,25 @@ class LlmProviderResponse(BaseModel):
     last_test_at: str | None = None
     supports_vision: bool = False
     use_llm_credentials: bool = False
+
+
+class ProviderProfileResponse(BaseModel):
+    profile_id: str
+    configured: bool = True
+    base_url: str
+    model: str
+    reasoning_effort: str = "low"
+    use_llm_credentials: bool = False
+    api_key_masked: str | None = None
+    has_api_key: bool = False
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    last_test_at: str | None = None
+
+
+class ProviderProfilesResponse(BaseModel):
+    active_profile_id: str
+    profiles: list[ProviderProfileResponse]
 
 
 class VisionRouteStatus(BaseModel):
@@ -488,14 +516,16 @@ class LlmStatusResponse(BaseModel):
 
 
 class VlmProviderUpdateRequest(BaseModel):
+    profile_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     enabled: bool = False
     use_llm_credentials: bool = False
     base_url: str = Field(default="https://open.bigmodel.cn/api/paas/v4", max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
-    model: str = Field(default="glm-4.6v-flash", max_length=255)
+    model: str = Field(default="glm-4v-flash", max_length=255)
 
 
 class VlmProviderTestRequest(BaseModel):
+    profile_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     base_url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=255)
@@ -503,6 +533,7 @@ class VlmProviderTestRequest(BaseModel):
 
 
 class VlmModelCatalogRequest(BaseModel):
+    profile_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     base_url: str | None = Field(default=None, max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     free_only: bool = False

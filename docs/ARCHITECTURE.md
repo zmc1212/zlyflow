@@ -1,6 +1,18 @@
 ﻿# ZLY AI Video Studio 架构快照
 
-更新时间：2026-09-20
+更新时间：2026-09-22
+
+## 2026-09-22 导演台 H3 双模板与 Director 出片方案
+
+- 变更原因：旧工坊 H3 链路同时叠加 skill pack、看图写稿、程序装箱、多轮修补和提交时补写，提示词正文不可预测；Director Timeline 又把多个 Beat 合并到一次 ComfyUI 请求，无法继续用“一 Beat 一提示词”表示。
+- 当前基线：`prompt_templates.py` 仅提供版本化 `prompt-master/full-reference@1` 与 `prompt-master/continuous-story@1`；`PromptExpansionService` 统一创建 `prompt_expansion` 预览任务、SSE、同模板最多一次结构重试、严格解析、来源指纹、确认保存和方案乐观锁。六段式保存到 `data_json.prompt_authoring.full_reference[beat_id]` 并同步已确认正文到 Beat；Director 保存公共设定与 `parts[].segments[]`，只写 `source_beat_ids` 溯源，不覆盖 Beat。
+- 工作流协议：`WorkflowDefinition` 与 `/api/modes` 新增 `prompt_profile`、`prompt_template_version`；普通 H3 为 `full_reference`，H3 Director Timeline 为 `director_segments`。Director 能力沿用注册表 `max_segments=6`、`max_total_frames=1152`，自动拆 Part，保证每 Part 2–6 段且不超过帧限。
+- API：新增 `POST /api/projects/{project_id}/episodes/{episode_id}/prompt-previews`、`POST .../prompt-previews/{job_id}/apply`、`PATCH .../prompt-plan`。`generate-video` 的 Director 整集请求带 `render_scope=episode` 与 `director_plan_revision`；局部请求带 `render_scope=selection`、`part_id`、连续 `segment_ids`。跨 Part、非连续、过期或版本冲突均拒绝。
+- 视频协议：普通模式只消费手写稿或确认保存的六段式；Director 将公共主体定义写入 Comfy `global_prompt`，段内第 2 段起使用 `continuityFromPrev`，Part 边界强制断开。视频提交与 worker 不调用 LLM。
+- 兼容性：不新增数据库列、不修改既有 ComfyUI 节点 ID、端口或媒体。手写旧稿继续可用于普通工作流；可识别的旧自动稿标为 `legacy_stale`，必须重生成。旧任务与视频不迁移。
+- 受影响文件：`workflow_registry.py`、`prompt_templates.py`、`prompt_expansion_service.py`、`project_router.py`、`project_detail_service.py`、`episode_video_service.py`、`comfy_video_client.py`、`timeline_rendering.py`、工坊前端（含 `project-detail.css` 移动端项目壳）、测试与四份主文档。
+- 验证命令：`python -m pytest backend/tests/media_studio_test_prompt_expansion.py backend/tests/test_timeline_rendering.py backend/tests/media_studio_test_h3_video.py -q`；`pnpm --dir frontend test`；`pnpm --dir frontend build`；在 `http://127.0.0.1:5173/director/projects/:projectId/workshop/:episodeId` 验证桌面/移动端与浅色/暗色。
+- 回滚方式：还原上述文件即可；`data_json.prompt_authoring` 可由旧代码忽略，无需数据库迁移。已生成媒体不删除。
 
 ## 2026-09-20 导入分镜写入开场/落幅衔接，已规划文档可强制重跑
 
@@ -2761,3 +2773,23 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不新增路由、数据库表、ComfyUI 节点或模型；Beat JSON 只新增可忽略字段。历史任务和已完成 Take 保持原快照，不回写、不删除；重新出片前由用户按提示重新生成过期自动稿。
 - 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video backend.tests.test_skill_packs`；`pnpm --dir frontend exec vitest run src/director2/workshop-r2v-refs.test.ts`；`pnpm --dir frontend build`；5173 工坊桌面/移动端检查。
 - 回滚方式：还原上述前后端、测试和文档文件；无需迁移数据库或处理已有媒体，新增 Beat JSON 字段可留存。
+
+## 2026-09-22 LLM / VLM 预设配置档案
+
+- 当前基线：`llm_provider_settings`、`vlm_provider_settings` 仍是运行时唯一当前配置，并通过 `profile_id` 标记当前快速服务。`llm_provider_profiles`、`vlm_provider_profiles` 按稳定预设 ID 保存 URL、模型、加密 Key、最近测试状态及 LLM 推理程度/VLM 凭据复用开关。
+- 数据流：管理页同时读取当前配置与 profiles。选择预设只更新本地表单；保存时后端在同一事务中 upsert profile 并完整同步到单例行。测试和模型目录按请求 `profile_id` 解析对应历史凭据，不修改当前激活预设。
+- 迁移：首次发现 profile 表为空时，根据旧单例 Base URL 推断 `modelscope`、`dashscope`、`siliconflow` 等 ID，未知地址归入 `custom`，原加密 Key 原样迁移。SQLite 在初始化脚本建表补列，MySQL 由 `sql/015_provider_profiles.sql` 与 `ensure_column` 完成。
+- API：当前 LLM/VLM 响应新增 `profile_id`；新增两个 `/profiles` 只读接口，响应仅含脱敏 Key 与 `has_api_key`。更新、测试和模型目录请求的 `profile_id` 可选，保证旧客户端兼容。
+- 受影响文件：`backend/app/{storage,models,llm_provider,vlm_provider,main,api_documentation}.py`、`frontend/src/admin/{LlmProviderSettings,VlmProviderSettings}.tsx`、SQL、测试与主文档。
+- 验证命令：`python -m unittest backend.tests.test_llm backend.tests.test_vlm`、`python -m unittest discover -s backend/tests`、`pnpm --dir frontend build`；5173 管理页检查桌面/移动端切换、脱敏回显与未保存不生效。
+- 回滚方式：还原上述代码和文档；新表可保留供再次升级。完全删除前先将目标 profile 同步到单例表，避免回退后使用错误服务。
+
+## 2026-09-22 Director 连续剧情动作单元分段去重
+
+- 变更原因：Director 将一个较长 Beat 拆成多个输出段时，旧规划器把完整 `action/dialogue` 复制到每个段，并复用同一个 `[Shot N]`，导致模型通过“时间回响/重新演出”重复剧情；普通 Prompt Master 单 Beat 路径不受影响。
+- 当前基线：`director_segments` 使用 `schema_version=2` 与 `planning_strategy=atomic_units`。规划器为每个源 Beat 生成不重叠的 `source_units`，保存 `source_beat_id`、原始镜头号、全局唯一 `generated_shot_number`、起止时间、事件归属、对白归属、起始状态和交接状态。后台先生成结构化动作归属，再按 unit 写六段式 Director 提示词；Part 间传递结构化 `segment_id/state/description_tail`，不再截取上一段正文作为唯一连续性依据。
+- 提示词合同：每个 `[Shot N]` 在整集方案内唯一；动作和对白只能落在所属 unit；Director 的 `expand` 只允许补全运镜、表演连接和声画细节，禁止新增剧情或用回放/倒放/回响填充时长。生成后校验事件/对白覆盖、镜头号、时间区间和重播语义，冲突只定向修复一次，仍失败则不保存方案。
+- 兼容性：旧 Director 方案（缺少 `schema_version=2`、`atomic_units` 或 `source_units`）标记为 `stale`，出片接口阻止继续使用并要求重新生成；不改写历史提示词、任务、媒体或数据库结构。`full_reference` / `prompt_master_full_reference` 保持原单 Beat 六段式行为。
+- 受影响文件：`backend/app/media_studio/services/{prompt_templates,prompt_expansion_service,episode_video_service}.py`、`frontend/src/director2/api.ts`、`backend/tests/media_studio_test_prompt_expansion.py` 与四份主文档。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_prompt_expansion -q`；`python -m unittest backend.tests.test_director backend.tests.test_director2_ai_generation -q`；`pnpm --dir frontend build`；5173 工坊页检查旧方案过期提示、新方案段落和桌面/移动端布局。
+- 回滚方式：还原上述前后端、测试和文档文件；无需数据库迁移。旧 `prompt_authoring.director_plan` 可保留，回滚版本可继续读取原结构。

@@ -4,6 +4,8 @@
 CREATE TABLE IF NOT EXISTS vlm_provider_settings (
     id TINYINT NOT NULL PRIMARY KEY,
     enabled TINYINT(1) NOT NULL DEFAULT 0,
+    profile_id VARCHAR(64) NOT NULL DEFAULT 'zhipu',
+    use_llm_credentials TINYINT(1) NOT NULL DEFAULT 0,
     base_url VARCHAR(512) NOT NULL DEFAULT 'https://open.bigmodel.cn/api/paas/v4',
     api_key_encrypted TEXT NULL,
     model VARCHAR(255) NOT NULL DEFAULT 'glm-4v-flash',

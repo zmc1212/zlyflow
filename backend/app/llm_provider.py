@@ -12,13 +12,14 @@ from .llm_client import (
     LlmError,
     summarize_llm_test_reply,
 )
-from .storage import JobStore, now
+from .storage import JobStore, now, provider_profile_id
 
 
 
 DEFAULT_MODELSCOPE_BASE_URL = "https://api-inference.modelscope.cn/v1"
 DEFAULT_MODELSCOPE_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
 REASONING_EFFORTS = {"auto", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
+LLM_PROFILE_IDS = {"modelscope", "dashscope", "siliconflow", "deepseek", "ollama", "lmstudio", "custom"}
 
 
 def configured_reasoning_effort(config: dict[str, Any]) -> str | None:
@@ -53,13 +54,28 @@ class LlmProviderService:
         self.store = store
         self.credentials = CredentialManager(credential_key)
 
-    def api_key(self) -> str | None:
-        decrypted = self.credentials.decrypt(self.store.get_llm_settings().get("api_key_encrypted"))
+    def api_key(self, config: dict[str, Any] | None = None) -> str | None:
+        settings = config or self.store.get_llm_settings()
+        decrypted = self.credentials.decrypt(settings.get("api_key_encrypted"))
         if not decrypted:
-            config = self.store.get_llm_settings()
-            if is_local_base_url(config.get("base_url", "")):
+            if is_local_base_url(settings.get("base_url", "")):
                 return "ollama"  # 本地服务默认虚拟 key
         return decrypted
+
+    @staticmethod
+    def _mask_api_key(api_key: str | None) -> str | None:
+        if not api_key:
+            return None
+        if len(api_key) <= 5:
+            return "*****"
+        return f"{api_key[:3]}{'*' * max(5, min(16, len(api_key) - 5))}{api_key[-2:]}"
+
+    def _profile_for_payload(self, payload: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+        current = self.store.get_llm_settings()
+        requested = str((payload or {}).get("profile_id") or "").strip()
+        profile_id = requested or str(current.get("profile_id") or provider_profile_id(current.get("base_url")))
+        profile = self.store.get_llm_profile(profile_id) if requested else None
+        return profile_id, (profile or {}) if requested else current
 
     def availability(self) -> tuple[bool, str | None]:
         config = self.store.get_llm_settings()
@@ -78,19 +94,13 @@ class LlmProviderService:
         config = self.store.get_llm_settings()
         api_key = self.api_key()
         available, reason = self.availability()
-        masked = None
-        if api_key:
-            masked = (
-                f"{api_key[:3]}{'*' * max(5, min(16, len(api_key) - 5))}{api_key[-2:]}"
-                if len(api_key) > 5
-                else "*****"
-            )
         return {
+            "profile_id": str(config.get("profile_id") or provider_profile_id(config.get("base_url"))),
             "enabled": config["enabled"],
             "base_url": config["base_url"],
             "model": config["model"],
             "reasoning_effort": str(config.get("reasoning_effort") or "low"),
-            "api_key_masked": masked,
+            "api_key_masked": self._mask_api_key(api_key),
             "has_api_key": bool(config.get("api_key_encrypted")),
             "credential_ready": self.credentials.ready,
             "last_test_status": config.get("last_test_status"),
@@ -101,8 +111,30 @@ class LlmProviderService:
             "supports_vision": model_supports_vision(config.get("model")),
         }
 
+    def profiles_config(self) -> dict[str, Any]:
+        current = self.store.get_llm_settings()
+        rows = []
+        for profile in self.store.list_llm_profiles():
+            api_key = self.api_key(profile)
+            rows.append({
+                "profile_id": profile["profile_id"],
+                "configured": True,
+                "base_url": profile["base_url"],
+                "model": profile["model"],
+                "reasoning_effort": str(profile.get("reasoning_effort") or "low"),
+                "api_key_masked": self._mask_api_key(api_key),
+                "has_api_key": bool(profile.get("api_key_encrypted")),
+                "last_test_status": profile.get("last_test_status"),
+                "last_test_message": profile.get("last_test_message"),
+                "last_test_at": profile.get("last_test_at"),
+            })
+        return {
+            "active_profile_id": str(current.get("profile_id") or provider_profile_id(current.get("base_url"))),
+            "profiles": rows,
+        }
+
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
-        values = {key: value for key, value in payload.items() if key != "api_key"}
+        values = {key: value for key, value in payload.items() if key not in {"api_key", "profile_id"}}
         base_url_str = str(values.get("base_url", "")).strip()
         if not base_url_str:
             base_url_str = DEFAULT_MODELSCOPE_BASE_URL
@@ -121,21 +153,25 @@ class LlmProviderService:
             raise ValueError("推理程度不受支持")
         values["reasoning_effort"] = reasoning_effort
 
+        profile_id = str(payload.get("profile_id") or provider_profile_id(values["base_url"])).strip()
+        if profile_id not in LLM_PROFILE_IDS:
+            raise ValueError("未知的 LLM 服务预设")
+
         api_key = payload.get("api_key")
         if api_key is not None and str(api_key).strip():
             if not self.credentials.ready:
                 raise ValueError(self.credentials.error or "凭证主密钥不可用")
             values["api_key_encrypted"] = self.credentials.encrypt(str(api_key).strip())
 
-        self.store.update_llm_settings(**values)
+        self.store.update_llm_profile(profile_id, values, activate=True)
         return self.public_config()
 
 
     def test(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        config = self.store.get_llm_settings()
-        base_url = (payload.get("base_url") if payload else None) or config["base_url"]
-        model = (payload.get("model") if payload else None) or config["model"]
-        api_key = payload.get("api_key") if payload and payload.get("api_key") is not None else self.api_key()
+        profile_id, config = self._profile_for_payload(payload)
+        base_url = (payload.get("base_url") if payload else None) or config.get("base_url")
+        model = (payload.get("model") if payload else None) or config.get("model")
+        api_key = payload.get("api_key") if payload and payload.get("api_key") is not None else self.api_key(config)
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
 
@@ -156,21 +192,25 @@ class LlmProviderService:
             test_status = "失败"
             test_message = str(exc)
 
-        self.store.update_llm_settings(
-            last_test_status=test_status,
-            last_test_message=test_message,
-            last_test_at=test_time,
-        )
+        active_id = str(self.store.get_llm_settings().get("profile_id") or "")
+        self.store.update_llm_profile(profile_id, {
+            "base_url": base_url,
+            "model": model,
+            "reasoning_effort": config.get("reasoning_effort") or "low",
+            "last_test_status": test_status,
+            "last_test_message": test_message,
+            "last_test_at": test_time,
+        }, activate=profile_id == active_id)
         if test_status != "成功":
 
             raise LlmError(f"大模型连接测试失败：{test_message}")
         return self.public_config()
 
     def list_catalog(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        config = self.store.get_llm_settings()
-        base_url = (payload.get("base_url") if payload else None) or config["base_url"]
+        _profile_id, config = self._profile_for_payload(payload)
+        base_url = (payload.get("base_url") if payload else None) or config.get("base_url")
         submitted_key = payload.get("api_key") if payload else None
-        api_key = submitted_key.strip() if isinstance(submitted_key, str) and submitted_key.strip() else self.api_key()
+        api_key = submitted_key.strip() if isinstance(submitted_key, str) and submitted_key.strip() else self.api_key(config)
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
         if not api_key:

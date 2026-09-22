@@ -27,6 +27,32 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+LLM_PROFILE_BASE_URLS = {
+    "modelscope": "https://api-inference.modelscope.cn/v1",
+    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "siliconflow": "https://api.siliconflow.cn/v1",
+    "deepseek": "https://api.deepseek.com/v1",
+    "ollama": "http://127.0.0.1:11434/v1",
+    "lmstudio": "http://127.0.0.1:1234/v1",
+}
+VLM_PROFILE_BASE_URLS = {
+    "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "modelscope": "https://api-inference.modelscope.cn/v1",
+    "siliconflow": "https://api.siliconflow.cn/v1",
+    "ollama": "http://127.0.0.1:11434/v1",
+}
+
+
+def provider_profile_id(base_url: str | None, *, vision: bool = False) -> str:
+    normalized = str(base_url or "").strip().rstrip("/").lower()
+    catalog = VLM_PROFILE_BASE_URLS if vision else LLM_PROFILE_BASE_URLS
+    for profile_id, known_url in catalog.items():
+        if normalized == known_url.rstrip("/").lower():
+            return profile_id
+    return "custom"
+
+
 TERMINAL_STATUSES = {
     JobStatus.SUCCEEDED.value,
     JobStatus.FAILED.value,
@@ -120,9 +146,21 @@ class JobStore:
                 )
                 self._ensure_column(
                     connection,
+                    "llm_provider_settings",
+                    "profile_id",
+                    "VARCHAR(64) NOT NULL DEFAULT 'modelscope'",
+                )
+                self._ensure_column(
+                    connection,
                     "vlm_provider_settings",
                     "use_llm_credentials",
                     "TINYINT(1) NOT NULL DEFAULT 0",
+                )
+                self._ensure_column(
+                    connection,
+                    "vlm_provider_settings",
+                    "profile_id",
+                    "VARCHAR(64) NOT NULL DEFAULT 'zhipu'",
                 )
                 self._seed_runtime_defaults(connection, migrate_legacy=False)
                 return
@@ -258,6 +296,7 @@ class JobStore:
                 CREATE TABLE IF NOT EXISTS llm_provider_settings (
                     id INTEGER PRIMARY KEY CHECK(id = 1),
                     enabled INTEGER NOT NULL DEFAULT 0,
+                    profile_id TEXT NOT NULL DEFAULT 'modelscope',
                     base_url TEXT NOT NULL DEFAULT 'https://api-inference.modelscope.cn/v1',
                     api_key_encrypted TEXT,
                     model TEXT NOT NULL DEFAULT 'Qwen/Qwen2.5-Coder-32B-Instruct',
@@ -271,10 +310,35 @@ class JobStore:
                 CREATE TABLE IF NOT EXISTS vlm_provider_settings (
                     id INTEGER PRIMARY KEY CHECK(id = 1),
                     enabled INTEGER NOT NULL DEFAULT 0,
+                    profile_id TEXT NOT NULL DEFAULT 'zhipu',
                     use_llm_credentials INTEGER NOT NULL DEFAULT 0,
                     base_url TEXT NOT NULL DEFAULT 'https://open.bigmodel.cn/api/paas/v4',
                     api_key_encrypted TEXT,
                     model TEXT NOT NULL DEFAULT 'glm-4v-flash',
+                    last_test_status TEXT,
+                    last_test_message TEXT,
+                    last_test_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS llm_provider_profiles (
+                    profile_id TEXT PRIMARY KEY,
+                    base_url TEXT NOT NULL,
+                    api_key_encrypted TEXT,
+                    model TEXT NOT NULL,
+                    reasoning_effort TEXT NOT NULL DEFAULT 'low',
+                    last_test_status TEXT,
+                    last_test_message TEXT,
+                    last_test_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS vlm_provider_profiles (
+                    profile_id TEXT PRIMARY KEY,
+                    use_llm_credentials INTEGER NOT NULL DEFAULT 0,
+                    base_url TEXT NOT NULL,
+                    api_key_encrypted TEXT,
+                    model TEXT NOT NULL,
                     last_test_status TEXT,
                     last_test_message TEXT,
                     last_test_at TEXT,
@@ -383,6 +447,18 @@ class JobStore:
                 "use_llm_credentials",
                 "INTEGER NOT NULL DEFAULT 0",
             )
+            self._ensure_column(
+                connection,
+                "llm_provider_settings",
+                "profile_id",
+                "TEXT NOT NULL DEFAULT 'modelscope'",
+            )
+            self._ensure_column(
+                connection,
+                "vlm_provider_settings",
+                "profile_id",
+                "TEXT NOT NULL DEFAULT 'zhipu'",
+            )
             self._ensure_job_list_indexes(connection)
             self._seed_runtime_defaults(connection, migrate_legacy=True)
 
@@ -411,6 +487,7 @@ class JobStore:
             VALUES (1, 0, 'https://open.bigmodel.cn/api/paas/v4', 'glm-4v-flash', ?)""",
             (now(),),
         )
+        self._seed_provider_profiles(connection)
         connection.execute(
             """INSERT OR IGNORE INTO comfy_provider_settings
             (id, base_url, updated_at)
@@ -446,6 +523,45 @@ class JobStore:
             (self.DIRECTOR_OPERATIONS_MIGRATION, now()),
         )
         self._ensure_grs_image_models(connection)
+
+    def _seed_provider_profiles(self, connection: DbConnection) -> None:
+        llm_count = connection.execute("SELECT COUNT(*) AS total FROM llm_provider_profiles").fetchone()
+        if not llm_count or int(llm_count["total"] or 0) == 0:
+            current = connection.execute("SELECT * FROM llm_provider_settings WHERE id = 1").fetchone()
+            if current:
+                data = dict(current)
+                profile_id = provider_profile_id(data.get("base_url"))
+                connection.execute("UPDATE llm_provider_settings SET profile_id = ? WHERE id = 1", (profile_id,))
+                connection.execute(
+                    """INSERT OR IGNORE INTO llm_provider_profiles
+                    (profile_id, base_url, api_key_encrypted, model, reasoning_effort,
+                     last_test_status, last_test_message, last_test_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        profile_id, data["base_url"], data.get("api_key_encrypted"), data["model"],
+                        data.get("reasoning_effort") or "low", data.get("last_test_status"),
+                        data.get("last_test_message"), data.get("last_test_at"), now(),
+                    ),
+                )
+
+        vlm_count = connection.execute("SELECT COUNT(*) AS total FROM vlm_provider_profiles").fetchone()
+        if not vlm_count or int(vlm_count["total"] or 0) == 0:
+            current = connection.execute("SELECT * FROM vlm_provider_settings WHERE id = 1").fetchone()
+            if current:
+                data = dict(current)
+                profile_id = provider_profile_id(data.get("base_url"), vision=True)
+                connection.execute("UPDATE vlm_provider_settings SET profile_id = ? WHERE id = 1", (profile_id,))
+                connection.execute(
+                    """INSERT OR IGNORE INTO vlm_provider_profiles
+                    (profile_id, use_llm_credentials, base_url, api_key_encrypted, model,
+                     last_test_status, last_test_message, last_test_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        profile_id, int(bool(data.get("use_llm_credentials"))), data["base_url"],
+                        data.get("api_key_encrypted"), data["model"], data.get("last_test_status"),
+                        data.get("last_test_message"), data.get("last_test_at"), now(),
+                    ),
+                )
 
     def _ensure_job_list_indexes(self, connection: DbConnection) -> None:
         self._db.ensure_index(connection, "jobs", "idx_jobs_pinned_created", "pinned, created_at")
@@ -1288,7 +1404,7 @@ class JobStore:
 
     def update_llm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {
-            "enabled", "base_url", "api_key_encrypted", "model", "reasoning_effort",
+            "enabled", "profile_id", "base_url", "api_key_encrypted", "model", "reasoning_effort",
             "last_test_status", "last_test_message", "last_test_at",
         }
         merged = dict(values) if isinstance(values, dict) else {}
@@ -1299,6 +1415,73 @@ class JobStore:
         with self.connection() as connection:
             connection.execute(f"UPDATE llm_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
         return self.get_llm_settings()
+
+    def get_llm_profile(self, profile_id: str) -> dict | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM llm_provider_profiles WHERE profile_id = ?",
+                (profile_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_llm_profiles(self) -> list[dict]:
+        with self.connection() as connection:
+            rows = connection.execute("SELECT * FROM llm_provider_profiles ORDER BY profile_id").fetchall()
+        return [dict(row) for row in rows]
+
+    def update_llm_profile(self, profile_id: str, values: dict[str, Any], *, activate: bool = False) -> dict:
+        allowed = {
+            "base_url", "api_key_encrypted", "model", "reasoning_effort",
+            "last_test_status", "last_test_message", "last_test_at",
+        }
+        updates = {key: value for key, value in values.items() if key in allowed}
+        updates["updated_at"] = now()
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT profile_id FROM llm_provider_profiles WHERE profile_id = ?",
+                (profile_id,),
+            ).fetchone()
+            if row:
+                assignment = ", ".join(f"{key} = ?" for key in updates)
+                connection.execute(
+                    f"UPDATE llm_provider_profiles SET {assignment} WHERE profile_id = ?",
+                    (*updates.values(), profile_id),
+                )
+            else:
+                required = {
+                    "base_url": values.get("base_url", ""),
+                    "api_key_encrypted": values.get("api_key_encrypted"),
+                    "model": values.get("model", ""),
+                    "reasoning_effort": values.get("reasoning_effort", "low"),
+                    "last_test_status": values.get("last_test_status"),
+                    "last_test_message": values.get("last_test_message"),
+                    "last_test_at": values.get("last_test_at"),
+                    "updated_at": updates["updated_at"],
+                }
+                connection.execute(
+                    """INSERT INTO llm_provider_profiles
+                    (profile_id, base_url, api_key_encrypted, model, reasoning_effort,
+                     last_test_status, last_test_message, last_test_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (profile_id, *required.values()),
+                )
+            if activate:
+                saved = connection.execute(
+                    "SELECT * FROM llm_provider_profiles WHERE profile_id = ?",
+                    (profile_id,),
+                ).fetchone()
+                saved_data = dict(saved) if saved else {}
+                current_updates = {key: saved_data.get(key) for key in allowed}
+                if "enabled" in values:
+                    current_updates["enabled"] = values["enabled"]
+                current_updates["profile_id"] = profile_id
+                current_updates["updated_at"] = updates["updated_at"]
+                assignment = ", ".join(f"{key} = ?" for key in current_updates)
+                connection.execute(
+                    f"UPDATE llm_provider_settings SET {assignment} WHERE id = 1",
+                    tuple(current_updates.values()),
+                )
+        return self.get_llm_profile(profile_id) or {}
 
     def get_vlm_settings(self) -> dict:
         with self.connection() as connection:
@@ -1323,7 +1506,7 @@ class JobStore:
 
     def update_vlm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {
-            "enabled", "use_llm_credentials", "base_url", "api_key_encrypted", "model",
+            "enabled", "profile_id", "use_llm_credentials", "base_url", "api_key_encrypted", "model",
             "last_test_status", "last_test_message", "last_test_at",
         }
         merged = dict(values) if isinstance(values, dict) else {}
@@ -1336,6 +1519,86 @@ class JobStore:
         with self.connection() as connection:
             connection.execute(f"UPDATE vlm_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
         return self.get_vlm_settings()
+
+    def get_vlm_profile(self, profile_id: str) -> dict | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM vlm_provider_profiles WHERE profile_id = ?",
+                (profile_id,),
+            ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        data["use_llm_credentials"] = bool(data.get("use_llm_credentials"))
+        return data
+
+    def list_vlm_profiles(self) -> list[dict]:
+        with self.connection() as connection:
+            rows = connection.execute("SELECT * FROM vlm_provider_profiles ORDER BY profile_id").fetchall()
+        result = []
+        for row in rows:
+            data = dict(row)
+            data["use_llm_credentials"] = bool(data.get("use_llm_credentials"))
+            result.append(data)
+        return result
+
+    def update_vlm_profile(self, profile_id: str, values: dict[str, Any], *, activate: bool = False) -> dict:
+        allowed = {
+            "use_llm_credentials", "base_url", "api_key_encrypted", "model",
+            "last_test_status", "last_test_message", "last_test_at",
+        }
+        updates = {key: value for key, value in values.items() if key in allowed}
+        if "use_llm_credentials" in updates:
+            updates["use_llm_credentials"] = int(bool(updates["use_llm_credentials"]))
+        updates["updated_at"] = now()
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT profile_id FROM vlm_provider_profiles WHERE profile_id = ?",
+                (profile_id,),
+            ).fetchone()
+            if row:
+                assignment = ", ".join(f"{key} = ?" for key in updates)
+                connection.execute(
+                    f"UPDATE vlm_provider_profiles SET {assignment} WHERE profile_id = ?",
+                    (*updates.values(), profile_id),
+                )
+            else:
+                required = {
+                    "use_llm_credentials": int(bool(values.get("use_llm_credentials"))),
+                    "base_url": values.get("base_url", ""),
+                    "api_key_encrypted": values.get("api_key_encrypted"),
+                    "model": values.get("model", ""),
+                    "last_test_status": values.get("last_test_status"),
+                    "last_test_message": values.get("last_test_message"),
+                    "last_test_at": values.get("last_test_at"),
+                    "updated_at": updates["updated_at"],
+                }
+                connection.execute(
+                    """INSERT INTO vlm_provider_profiles
+                    (profile_id, use_llm_credentials, base_url, api_key_encrypted, model,
+                     last_test_status, last_test_message, last_test_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (profile_id, *required.values()),
+                )
+            if activate:
+                saved = connection.execute(
+                    "SELECT * FROM vlm_provider_profiles WHERE profile_id = ?",
+                    (profile_id,),
+                ).fetchone()
+                saved_data = dict(saved) if saved else {}
+                current_updates = {key: saved_data.get(key) for key in allowed}
+                if "enabled" in values:
+                    current_updates["enabled"] = values["enabled"]
+                if "use_llm_credentials" in current_updates:
+                    current_updates["use_llm_credentials"] = int(bool(current_updates["use_llm_credentials"]))
+                current_updates["profile_id"] = profile_id
+                current_updates["updated_at"] = updates["updated_at"]
+                assignment = ", ".join(f"{key} = ?" for key in current_updates)
+                connection.execute(
+                    f"UPDATE vlm_provider_settings SET {assignment} WHERE id = 1",
+                    tuple(current_updates.values()),
+                )
+        return self.get_vlm_profile(profile_id) or {}
 
     def get_tts_settings(self) -> dict:
         with self.connection() as connection:

@@ -78,6 +78,10 @@ class StoryboardPromptTests(unittest.TestCase):
         self.assertEqual("scene-home", detail["beats"][0]["scene_id"])
         self.assertEqual("出租屋", detail["beats"][1]["scene"])
         self.assertEqual("scene-home", detail["beats"][1]["scene_id"])
+        asset_query = query_all.call_args.args[0]
+        self.assertIn("description", asset_query)
+        self.assertIn("visual_prompt", asset_query)
+        self.assertIn("ORDER BY updated_at DESC", asset_query)
         execute_sql.assert_called_once()
 
     def test_asset_name_map_prefers_the_copy_with_an_image(self):

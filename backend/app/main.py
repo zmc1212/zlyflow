@@ -102,6 +102,7 @@ from .models import (
     QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateUserRequest, UserResponse, UserRole,
     JobMetadataUpdateRequest,
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
+    ProviderProfilesResponse,
     VlmProviderUpdateRequest, VlmProviderTestRequest, VlmModelCatalogRequest, VlmStatusResponse,
     PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse, SkillPackListResponse,
     ScriptSplitRequest, ScriptSplitResponse,
@@ -124,6 +125,7 @@ from .media_studio.routers.project_router import register_project_routes
 from .media_studio.services.ai_generation_service import AiGenerationService
 from .media_studio.services.episode_video_service import EpisodeVideoService
 from .media_studio.services.h3_prompt_job_service import H3PromptJobService
+from .media_studio.services.prompt_expansion_service import PromptExpansionService
 from .media_studio.services.shot_plan_job_service import ShotPlanJobService
 from .media_studio.services.storyboard_image_service import StoryboardImageService
 from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
@@ -754,6 +756,7 @@ async def lifespan(app: FastAPI):
     EpisodeVideoService.recover_orphaned_jobs()
     StoryboardImageService.recover_interrupted_jobs()
     H3PromptJobService.recover_interrupted_jobs()
+    PromptExpansionService.recover_interrupted_jobs()
     ShotPlanJobService.recover_interrupted_jobs()
     TtsGenerationJobService.recover_interrupted_jobs()
     AiGenerationService.recover_orphaned_jobs()
@@ -1282,6 +1285,11 @@ def get_llm_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
     return app.state.llm_provider.public_config()
 
 
+@app.get("/api/admin/providers/llm/profiles", response_model=ProviderProfilesResponse, tags=["管理后台"], summary="获取 LLM 预设配置")
+def get_llm_provider_profiles(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.llm_provider.profiles_config()
+
+
 @app.put("/api/admin/providers/llm", response_model=LlmProviderResponse, tags=["管理后台"], summary="更新 LLM 大模型配置")
 def update_llm_provider(
     payload: LlmProviderUpdateRequest, request: Request,
@@ -1341,6 +1349,11 @@ async def list_llm_models(
 @app.get("/api/admin/providers/vlm", response_model=LlmProviderResponse, tags=["管理后台"], summary="获取 VLM 视觉模型配置")
 def get_vlm_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
     return app.state.vlm_provider.public_config()
+
+
+@app.get("/api/admin/providers/vlm/profiles", response_model=ProviderProfilesResponse, tags=["管理后台"], summary="获取 VLM 预设配置")
+def get_vlm_provider_profiles(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.vlm_provider.profiles_config()
 
 
 @app.put("/api/admin/providers/vlm", response_model=LlmProviderResponse, tags=["管理后台"], summary="更新 VLM 视觉模型配置")

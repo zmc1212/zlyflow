@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS qiniu_provider_settings (
 CREATE TABLE IF NOT EXISTS llm_provider_settings (
     id TINYINT NOT NULL PRIMARY KEY,
     enabled TINYINT(1) NOT NULL DEFAULT 0,
+    profile_id VARCHAR(64) NOT NULL DEFAULT 'modelscope',
     base_url VARCHAR(512) NOT NULL DEFAULT 'https://api-inference.modelscope.cn/v1',
     api_key_encrypted TEXT NULL,
     model VARCHAR(255) NOT NULL DEFAULT 'Qwen/Qwen2.5-Coder-32B-Instruct',

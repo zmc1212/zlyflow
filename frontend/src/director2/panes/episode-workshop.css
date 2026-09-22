@@ -2720,3 +2720,216 @@
   }
 }
 
+/* 双模板提示词工作台 */
+.d2-episode-workshop .prompt-authoring-panel {
+  display: grid;
+  gap: 14px;
+  margin: 12px 16px 0;
+  padding: 16px;
+  border: 1px solid var(--studio-border, #e2e8f0);
+  border-radius: 12px;
+  background: var(--studio-surface, #ffffff);
+  color: var(--studio-text, #171a1f);
+  box-shadow: 0 8px 24px color-mix(in srgb, #111827 6%, transparent);
+}
+
+.d2-episode-workshop .prompt-authoring-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.d2-episode-workshop .prompt-authoring-header p {
+  margin: 6px 0 0;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 13px;
+}
+
+.d2-episode-workshop .prompt-reference-editor,
+.d2-episode-workshop .director-plan-view,
+.d2-episode-workshop .director-preview-modal,
+.d2-episode-workshop .director-segment-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.d2-episode-workshop .prompt-authoring-panel > * {
+  min-width: 0;
+}
+
+.d2-episode-workshop .prompt-reference-order {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.d2-episode-workshop .prompt-reference-order > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--studio-border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--studio-canvas, #f8f9fa);
+}
+
+.d2-episode-workshop .prompt-reference-order > div > span:not(.ant-tag) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--studio-text, #171a1f);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.d2-episode-workshop .prompt-authoring-sections {
+  display: grid;
+  gap: 8px;
+}
+
+.d2-episode-workshop .prompt-authoring-sections > section {
+  padding: 10px 12px;
+  border: 1px solid var(--studio-border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--studio-canvas, #f8f9fa);
+}
+
+.d2-episode-workshop .prompt-authoring-sections p {
+  margin: 5px 0 0;
+  color: var(--studio-text-muted, #5c6370);
+  white-space: pre-wrap;
+}
+
+.d2-prompt-plan-modal .director-plan-editor,
+.d2-prompt-plan-modal .director-plan-editor-segments,
+.d2-prompt-plan-modal .director-plan-editor-segments .ant-card-body {
+  display: grid;
+  gap: 12px;
+}
+
+.d2-prompt-plan-modal .director-plan-editor > label,
+.d2-prompt-plan-modal .director-plan-editor-segments label {
+  display: grid;
+  gap: 6px;
+  color: var(--studio-text, #171a1f);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.d2-prompt-plan-modal .director-plan-editor .ant-collapse-content,
+.d2-prompt-plan-modal .director-plan-editor .ant-card {
+  background: var(--studio-surface, #ffffff);
+}
+
+:root[data-theme="dark"] .d2-episode-workshop .prompt-authoring-panel :is(
+  .ant-select-selector,
+  .ant-input,
+  .ant-input-number,
+  .ant-collapse,
+  .ant-collapse-content,
+  .ant-card
+) {
+  border-color: var(--studio-border, #343a46) !important;
+  background: var(--studio-field, #1e2229) !important;
+  color: var(--studio-text, #f3f5f7) !important;
+}
+
+:root[data-theme="dark"] .d2-episode-workshop .prompt-authoring-panel :is(
+  .ant-select-selection-item,
+  .ant-select-selection-placeholder,
+  .ant-select-arrow,
+  .ant-input-number-input,
+  .ant-collapse-header,
+  .ant-card-head,
+  .ant-card-body,
+  .ant-empty-description
+) {
+  color: var(--studio-text, #f3f5f7) !important;
+}
+
+:root[data-theme="dark"] .d2-episode-workshop .prompt-authoring-panel .ant-select-multiple .ant-select-selection-item {
+  border-color: var(--studio-border, #343a46) !important;
+  background: var(--studio-surface-raised, #252a33) !important;
+  color: var(--studio-text, #f3f5f7) !important;
+}
+
+:root[data-theme="dark"] .d2-episode-workshop .prompt-authoring-panel :is(
+  .ant-select-selection-item-remove,
+  .ant-btn-text
+) {
+  color: var(--studio-text-secondary, #c7ccd4) !important;
+}
+
+:root[data-theme="dark"] .d2-episode-workshop .prompt-authoring-panel .ant-tag {
+  border-color: var(--studio-border-strong, #4b5361);
+  background: var(--studio-primary-soft, rgba(124, 92, 255, 0.2));
+  color: var(--studio-accent-text, #b7a7ff);
+}
+
+:root[data-theme="dark"] :is(.d2-prompt-preview-modal, .d2-prompt-plan-modal) :is(
+  .ant-modal-content,
+  .ant-modal-header,
+  .ant-collapse,
+  .ant-collapse-content,
+  .ant-card,
+  .ant-input,
+  .ant-input-number
+) {
+  border-color: var(--studio-border, #343a46) !important;
+  background: var(--studio-surface, #171a20) !important;
+  color: var(--studio-text, #f3f5f7) !important;
+}
+
+:root[data-theme="dark"] :is(.d2-prompt-preview-modal, .d2-prompt-plan-modal) :is(
+  .ant-modal-title,
+  .ant-collapse-header,
+  .ant-card-head,
+  .ant-card-body,
+  .ant-input-number-input,
+  .ant-typography
+) {
+  color: var(--studio-text, #f3f5f7) !important;
+}
+
+@media (max-width: 760px) {
+  .d2-episode-workshop .prompt-authoring-panel {
+    margin: 10px 8px 0;
+    padding: 12px;
+  }
+
+  .d2-episode-workshop .prompt-authoring-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .d2-episode-workshop .prompt-authoring-header > .ant-space {
+    width: 100%;
+  }
+
+  .d2-episode-workshop .prompt-authoring-header > .ant-space .ant-select,
+  .d2-episode-workshop .prompt-authoring-header > .ant-space .ant-input-number,
+  .d2-episode-workshop .prompt-authoring-header > .ant-space .ant-btn {
+    flex: 1 1 132px;
+  }
+
+  .d2-episode-workshop .prompt-reference-order {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Director 方案位于 Tabs 之前，让分集根节点承担外层纵向滚动，避免方案变高后裁掉下方工作区。 */
+@media (min-width: 761px) {
+  .d2-episode-workshop.workshop-container.in-episode-detail .xiaji-episode {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .d2-episode-workshop.workshop-container.in-episode-detail .episode-tabs {
+    height: max(560px, calc(100vh - 220px));
+    flex: 0 0 auto;
+  }
+}
+

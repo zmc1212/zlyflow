@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
 
 type LlmConfig = {
+  profile_id: string
   enabled: boolean
   base_url: string
   model: string
@@ -18,6 +19,24 @@ type LlmConfig = {
   last_test_message?: string | null
   last_test_at?: string | null
   supports_vision?: boolean
+}
+
+type ProviderProfile = {
+  profile_id: string
+  configured: boolean
+  base_url: string
+  model: string
+  reasoning_effort: string
+  api_key_masked?: string | null
+  has_api_key: boolean
+  last_test_status?: string | null
+  last_test_message?: string | null
+  last_test_at?: string | null
+}
+
+type ProviderProfilesResponse = {
+  active_profile_id: string
+  profiles: ProviderProfile[]
 }
 
 const REASONING_EFFORT_OPTIONS = [
@@ -167,6 +186,10 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
     queryKey: ["llm-provider"],
     queryFn: () => requestJson<LlmConfig>("/api/admin/providers/llm"),
   })
+  const profilesQuery = useQuery({
+    queryKey: ["llm-provider-profiles"],
+    queryFn: () => requestJson<ProviderProfilesResponse>("/api/admin/providers/llm/profiles"),
+  })
 
   const [enabled, setEnabled] = useState(false)
   const [baseUrl, setBaseUrl] = useState("https://api-inference.modelscope.cn/v1")
@@ -184,34 +207,32 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
     setModel(query.data.model)
     setReasoningEffort(query.data.reasoning_effort || "low")
 
-    const matched = PROVIDER_PRESETS.find(
-      (p) => p.baseUrl && query.data.base_url.startsWith(p.baseUrl.replace(/\/v1$/, "")),
-    )
-    if (matched) {
-      setSelectedPreset(matched.value)
-    } else {
-      setSelectedPreset("custom")
-    }
+    setSelectedPreset(query.data.profile_id || "custom")
   }, [query.data?.enabled, query.data?.base_url, query.data?.model, query.data?.reasoning_effort, query.data?.has_api_key])
 
   const handlePresetChange = (presetValue: string) => {
     setSelectedPreset(presetValue)
     const found = PROVIDER_PRESETS.find((p) => p.value === presetValue)
-    if (found && found.value !== "custom") {
-      setBaseUrl(found.baseUrl)
-      setModel(found.model)
-    }
+    const saved = profilesQuery.data?.profiles.find((profile) => profile.profile_id === presetValue)
+    setBaseUrl(saved?.base_url ?? found?.baseUrl ?? "")
+    setModel(saved?.model ?? found?.model ?? "")
+    setReasoningEffort(saved?.reasoning_effort || "low")
+    setApiKey("")
     setCatalogModels([])
     autoFetchedFor.current = ""
   }
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["llm-provider"] })
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["llm-provider"] }),
+    queryClient.invalidateQueries({ queryKey: ["llm-provider-profiles"] }),
+  ])
 
   const save = useMutation({
     mutationFn: () =>
       requestJson<LlmConfig>(
         "/api/admin/providers/llm",
         jsonMutation(csrfToken, {
+          profile_id: selectedPreset,
           enabled,
           base_url: baseUrl,
           model,
@@ -231,6 +252,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
       requestJson<LlmConfig>(
         "/api/admin/providers/llm/test",
         jsonMutation(csrfToken, {
+          profile_id: selectedPreset,
           base_url: baseUrl,
           model,
           api_key: apiKey || null,
@@ -247,6 +269,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
       requestJson<CatalogResponse>(
         "/api/admin/providers/llm/models",
         jsonMutation(csrfToken, {
+          profile_id: selectedPreset,
           base_url: baseUrl,
           api_key: apiKey || null,
           free_only: selectedPreset === "siliconflow" || selectedPreset === "ollama" || selectedPreset === "lmstudio",
@@ -263,16 +286,18 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   })
 
   useEffect(() => {
+    const selectedProfile = profilesQuery.data?.profiles.find((profile) => profile.profile_id === selectedPreset)
     const canFetchLocal = selectedPreset === "ollama" || selectedPreset === "lmstudio"
-    const canFetchCloud = selectedPreset === "siliconflow" && Boolean(query.data?.has_api_key || apiKey)
+    const canFetchCloud = selectedPreset === "siliconflow" && Boolean(selectedProfile?.has_api_key || apiKey)
     if (!canFetchLocal && !canFetchCloud) return
-    const key = `${selectedPreset}|${baseUrl}|${query.data?.has_api_key ? "saved" : "none"}`
+    const key = `${selectedPreset}|${baseUrl}|${selectedProfile?.has_api_key ? "saved" : "none"}`
     if (autoFetchedFor.current === key) return
     autoFetchedFor.current = key
     catalog.mutate()
-  }, [selectedPreset, baseUrl, query.data?.has_api_key])
+  }, [selectedPreset, baseUrl, profilesQuery.data, apiKey])
 
   const currentPreset = PROVIDER_PRESETS.find((p) => p.value === selectedPreset)
+  const selectedProfile = profilesQuery.data?.profiles.find((profile) => profile.profile_id === selectedPreset)
   const modelOptions = useMemo(() => {
     const seen = new Set<string>()
     const rows: { value: string; label: string }[] = []
@@ -291,7 +316,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
     return rows
   }, [catalogModels, model, currentPreset])
 
-  const error = save.error ?? test.error ?? catalog.error ?? query.error
+  const error = save.error ?? test.error ?? catalog.error ?? query.error ?? profilesQuery.error
 
   return (
     <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
@@ -366,6 +391,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://api-inference.modelscope.cn/v1"
+              autoComplete="new-password"
             />
           </div>
 
@@ -445,8 +471,9 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               placeholder={
                 selectedPreset === "ollama" || selectedPreset === "lmstudio"
                   ? "本地服务可留空"
-                  : query.data?.api_key_masked || "输入平台生成的 API Key / Token"
+                  : selectedProfile?.api_key_masked || "输入平台生成的 API Key / Token"
               }
+              autoComplete="new-password"
             />
             {selectedPreset === "ollama" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">

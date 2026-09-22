@@ -13,12 +13,13 @@ from .llm_client import (
     summarize_llm_test_reply,
 )
 from .llm_provider import is_local_base_url, model_supports_vision
-from .storage import JobStore, now
+from .storage import JobStore, now, provider_profile_id
 from .vision_runtime import overlay_vlm_credentials, resolve_analysis_endpoint
 
 
 DEFAULT_VLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
-DEFAULT_VLM_MODEL = "glm-4.6v-flash"
+DEFAULT_VLM_MODEL = "glm-4v-flash"
+VLM_PROFILE_IDS = {"zhipu", "dashscope", "modelscope", "siliconflow", "ollama", "custom"}
 
 ZHIPU_VISION_CATALOG = [
     {"id": "glm-4.6v-flash", "label": "GLM-4.6V-Flash（免费）", "free": True},
@@ -28,7 +29,7 @@ ZHIPU_VISION_CATALOG = [
     {"id": "glm-4v-plus", "label": "GLM-4V-Plus", "free": False},
 ]
 VLM_UNAVAILABLE_MESSAGE = "视觉模型尚未启用。请在管理设置 → VLM 视觉模型 中配置后再使用看图功能。"
-VLM_NOT_VISION_MESSAGE = "当前视觉模型名称无法识别为看图模型。请在管理设置 → VLM 视觉模型 中改用名称含 VL/Vision 的模型，例如 glm-4.6v-flash。"
+VLM_NOT_VISION_MESSAGE = "当前视觉模型名称无法识别为看图模型。请在管理设置 → VLM 视觉模型 中改用名称含 VL/Vision 的模型，例如 glm-4v-flash。"
 ANALYSIS_UNAVAILABLE_MESSAGE = (
     "视觉分析不可用。请在管理设置 → VLM 视觉模型 配置看图模型；"
     "或在 LLM 页使用名称可看图的多模态模型。"
@@ -53,6 +54,13 @@ class VlmProviderService:
         if settings.get("use_llm_credentials"):
             return overlay_vlm_credentials(settings, self.store.get_llm_settings())
         return settings
+
+    def _profile_for_payload(self, payload: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+        current = self.store.get_vlm_settings()
+        requested = str((payload or {}).get("profile_id") or "").strip()
+        profile_id = requested or str(current.get("profile_id") or provider_profile_id(current.get("base_url"), vision=True))
+        profile = self.store.get_vlm_profile(profile_id) if requested else None
+        return profile_id, (profile or {}) if requested else current
 
     def api_key(self, config: dict[str, Any] | None = None) -> str | None:
         settings = self._effective_config(config)
@@ -86,6 +94,7 @@ class VlmProviderService:
         api_key = self.api_key(config)
         available, reason = self.availability()
         return {
+            "profile_id": str(config.get("profile_id") or provider_profile_id(config.get("base_url"), vision=True)),
             "enabled": config["enabled"],
             "use_llm_credentials": bool(config.get("use_llm_credentials")),
             "base_url": self.base_url(config),
@@ -101,8 +110,30 @@ class VlmProviderService:
             "supports_vision": model_supports_vision(config.get("model")),
         }
 
+    def profiles_config(self) -> dict[str, Any]:
+        current = self.store.get_vlm_settings()
+        rows = []
+        for profile in self.store.list_vlm_profiles():
+            stored_key = self.credentials.decrypt(profile.get("api_key_encrypted"))
+            rows.append({
+                "profile_id": profile["profile_id"],
+                "configured": True,
+                "base_url": profile["base_url"],
+                "model": profile["model"],
+                "use_llm_credentials": bool(profile.get("use_llm_credentials")),
+                "api_key_masked": _mask_api_key(stored_key),
+                "has_api_key": bool(profile.get("api_key_encrypted")),
+                "last_test_status": profile.get("last_test_status"),
+                "last_test_message": profile.get("last_test_message"),
+                "last_test_at": profile.get("last_test_at"),
+            })
+        return {
+            "active_profile_id": str(current.get("profile_id") or provider_profile_id(current.get("base_url"), vision=True)),
+            "profiles": rows,
+        }
+
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
-        values = {key: value for key, value in payload.items() if key != "api_key"}
+        values = {key: value for key, value in payload.items() if key not in {"api_key", "profile_id"}}
         base_url_str = str(values.get("base_url", "")).strip()
         if not base_url_str:
             base_url_str = DEFAULT_VLM_BASE_URL
@@ -118,6 +149,10 @@ class VlmProviderService:
             raise ValueError(VLM_NOT_VISION_MESSAGE)
         values["model"] = model_name
 
+        profile_id = str(payload.get("profile_id") or provider_profile_id(values["base_url"], vision=True)).strip()
+        if profile_id not in VLM_PROFILE_IDS:
+            raise ValueError("未知的 VLM 服务预设")
+
         api_key = normalize_api_key(payload.get("api_key"))
         if api_key:
             if not self.credentials.ready:
@@ -126,16 +161,16 @@ class VlmProviderService:
         if "use_llm_credentials" in payload:
             values["use_llm_credentials"] = bool(payload.get("use_llm_credentials"))
 
-        self.store.update_vlm_settings(**values)
+        self.store.update_vlm_profile(profile_id, values, activate=True)
         return self.public_config()
 
     def test(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        config = self.store.get_vlm_settings()
+        profile_id, config = self._profile_for_payload(payload)
         reuse = bool((payload or {}).get("use_llm_credentials", config.get("use_llm_credentials")))
         base_url = (payload.get("base_url") if payload else None) or self.base_url({**config, "use_llm_credentials": reuse})
         if reuse:
             base_url = self.base_url({**config, "use_llm_credentials": True})
-        model = (payload.get("model") if payload else None) or config["model"]
+        model = (payload.get("model") if payload else None) or config.get("model")
         submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
         api_key = submitted_key or self.api_key({**config, "use_llm_credentials": reuse})
         if not api_key and is_local_base_url(base_url or ""):
@@ -162,17 +197,21 @@ class VlmProviderService:
             test_status = "失败"
             test_message = str(exc)
 
-        self.store.update_vlm_settings(
-            last_test_status=test_status,
-            last_test_message=test_message,
-            last_test_at=test_time,
-        )
+        active_id = str(self.store.get_vlm_settings().get("profile_id") or "")
+        self.store.update_vlm_profile(profile_id, {
+            "use_llm_credentials": reuse,
+            "base_url": base_url,
+            "model": model,
+            "last_test_status": test_status,
+            "last_test_message": test_message,
+            "last_test_at": test_time,
+        }, activate=profile_id == active_id)
         if test_status != "成功":
             raise LlmError(f"视觉模型连接测试失败：{test_message}")
         return self.public_config()
 
     def list_catalog(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        config = self.store.get_vlm_settings()
+        _profile_id, config = self._profile_for_payload(payload)
         reuse = bool((payload or {}).get("use_llm_credentials", config.get("use_llm_credentials")))
         base_url = (payload.get("base_url") if payload else None) or self.base_url({**config, "use_llm_credentials": reuse})
         if reuse:
@@ -200,7 +239,7 @@ class VlmProviderService:
                     seen.add(row["id"])
         message = catalog.get("message")
         if not vision_models:
-            message = "上游目录中没有名称含 VL/Vision 的视觉模型。可手填 glm-4.6v-flash、qwen3-vl-flash 或 Qwen/Qwen3-VL-8B-Instruct。"
+            message = "上游目录中没有名称含 VL/Vision 的视觉模型。可手填 glm-4v-flash、qwen3-vl-flash 或 Qwen/Qwen3-VL-8B-Instruct。"
         return {
             "models": vision_models,
             "provider": catalog.get("provider") or "custom",

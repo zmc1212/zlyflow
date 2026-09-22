@@ -1771,8 +1771,12 @@ class ProjectDetailService:
 
         beats = data.get("beats") or []
 
-        # 获取项目资产供反查关联
-        assets_rows = query_all("SELECT id, kind, name, image_url, extra_json FROM ai_project_assets WHERE project_id = %s", (project_id,))
+        # 获取项目资产供反查关联；指纹计算必须与预览阶段使用同一组字段和排序。
+        assets_rows = query_all(
+            "SELECT id, kind, name, description, visual_prompt, image_url, extra_json "
+            "FROM ai_project_assets WHERE project_id = %s ORDER BY updated_at DESC",
+            (project_id,),
+        )
         char_map = asset_name_id_map(assets_rows, "character")
         scene_map = asset_name_id_map(assets_rows, "scene")
         prop_map = asset_name_id_map(assets_rows, "prop")
@@ -1817,25 +1821,36 @@ class ProjectDetailService:
                 (json.dumps(data, ensure_ascii=False), len(beats), episode_id),
             )
 
-        from ...skill_packs import resolve_skill_pack_id
-        from ...skill_packs.handlers import (
-            bind_r2v_slot_images,
-            h3_authoring_context_images,
-            h3_prompt_context_fingerprint,
-            h3_prompt_reference_state,
-        )
-        from ...skill_packs.recipe import get_pack
-
         hydrated_assets = [cls._hydrate_asset(dict(row)) for row in assets_rows]
+        from .prompt_expansion_service import PromptExpansionService
+
+        prompt_authoring = PromptExpansionService.hydrated_authoring_state(
+            project_id,
+            ep,
+            data,
+            beats,
+            hydrated_assets,
+        )
+        data = dict(data)
+        data["prompt_authoring"] = prompt_authoring
+        full_reference = (
+            prompt_authoring.get("full_reference")
+            if isinstance(prompt_authoring.get("full_reference"), dict)
+            else {}
+        )
         for beat in beats:
-            try:
-                recipe = get_pack(resolve_skill_pack_id(beat=beat, project_id=project_id))
-                video_refs = bind_r2v_slot_images(recipe, beat, hydrated_assets)
-                authoring_context = h3_authoring_context_images(recipe, beat, hydrated_assets)
-                fingerprint = h3_prompt_context_fingerprint(beat, video_refs, authoring_context)
-                state, reason = h3_prompt_reference_state(beat, video_refs, fingerprint)
-            except Exception as err:
-                state, reason = "invalid", f"无法计算当前参考图状态：{err}"
+            record = full_reference.get(str(beat.get("id") or ""))
+            if isinstance(record, dict):
+                state = str(record.get("status") or "stale")
+                reason = "提示词与当前剧本、资产和工作流一致" if state == "current" else "剧本、资产或工作流已变化，请重新生成六段式提示词"
+            elif str(beat.get("h3_prompt") or "").strip():
+                source = str(beat.get("h3_prompt_source") or "").strip()
+                if source in {"generated", "legacy_generated"}:
+                    state, reason = "legacy_stale", "该提示词由旧写词系统生成，必须使用双模板重新生成"
+                else:
+                    state, reason = "manual", "手写提示词可继续用于普通单视频工作流"
+            else:
+                state, reason = "missing", "尚未生成提示词"
             beat["h3_prompt_reference_state"] = state
             beat["h3_prompt_reference_reason"] = reason
 
@@ -1869,6 +1884,7 @@ class ProjectDetailService:
             "beats": beats,
             "links": links,
             "data": data,
+            "prompt_authoring": prompt_authoring,
             "episode_video_url": data.get("episode_video_url") or "",
             "episode_video_source": data.get("episode_video_source") or "",
             "episode_video_job_id": data.get("episode_video_job_id") or "",
@@ -2390,8 +2406,10 @@ class ProjectDetailService:
             from .episode_video_service import EpisodeVideoService
             return EpisodeVideoService.retry_job(project_id, job_id)
         if row and row.get("job_type") == "h3_prompt":
-            from .h3_prompt_job_service import H3PromptJobService
-            return H3PromptJobService.retry(project_id, job_id)
+            raise ValueError("旧 H3 写词任务不能重试，请在工坊使用双模板重新生成")
+        if row and row.get("job_type") == "prompt_expansion":
+            from .prompt_expansion_service import PromptExpansionService
+            return PromptExpansionService.retry(project_id, job_id)
         if row and row.get("job_type") == "shot_plan":
             from .shot_plan_job_service import ShotPlanJobService
             return ShotPlanJobService.retry(project_id, job_id)

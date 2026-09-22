@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -562,9 +563,84 @@ class LLMProviderTests(unittest.TestCase):
         self.assertEqual(cfg["reasoning_effort"], "high")
         self.assertEqual(self.provider.api_key(), "ms-secret-token-12345678")
 
+    def test_profiles_restore_saved_key_model_and_reasoning(self) -> None:
+        self.provider.update({
+            "profile_id": "siliconflow",
+            "enabled": True,
+            "base_url": "https://api.siliconflow.cn/v1",
+            "api_key": "sk-siliconflow-history",
+            "model": "Qwen/Qwen3-8B",
+            "reasoning_effort": "low",
+        })
+        self.provider.update({
+            "profile_id": "custom",
+            "enabled": True,
+            "base_url": "https://custom.example/v1",
+            "api_key": "sk-custom-history",
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "high",
+        })
+
+        profiles = {row["profile_id"]: row for row in self.provider.profiles_config()["profiles"]}
+        self.assertEqual(self.provider.public_config()["profile_id"], "custom")
+        self.assertEqual(profiles["siliconflow"]["model"], "Qwen/Qwen3-8B")
+        self.assertTrue(profiles["siliconflow"]["has_api_key"])
+        self.assertNotIn("sk-siliconflow-history", str(profiles))
+
+        self.provider.update({
+            "profile_id": "siliconflow",
+            "enabled": True,
+            "base_url": profiles["siliconflow"]["base_url"],
+            "api_key": None,
+            "model": profiles["siliconflow"]["model"],
+            "reasoning_effort": profiles["siliconflow"]["reasoning_effort"],
+        })
+        self.assertEqual(self.provider.public_config()["profile_id"], "siliconflow")
+        self.assertEqual(self.provider.api_key(), "sk-siliconflow-history")
+
     def test_rejects_unknown_reasoning_effort(self) -> None:
         with self.assertRaisesRegex(ValueError, "推理程度"):
-            self.provider.update({"reasoning_effort": "extreme"})
+                self.provider.update({"reasoning_effort": "extreme"})
+
+    def test_legacy_singleton_is_migrated_to_matching_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "legacy.db"
+            encrypted = Fernet(self.credential_key.encode("ascii")).encrypt(b"sk-legacy-silicon").decode("ascii")
+            connection = sqlite3.connect(db_path)
+            try:
+                connection.execute(
+                    """CREATE TABLE llm_provider_settings (
+                    id INTEGER PRIMARY KEY CHECK(id = 1), enabled INTEGER NOT NULL DEFAULT 0,
+                    base_url TEXT NOT NULL, api_key_encrypted TEXT, model TEXT NOT NULL,
+                    last_test_status TEXT, last_test_message TEXT, last_test_at TEXT, updated_at TEXT NOT NULL)"""
+                )
+                connection.execute(
+                    """INSERT INTO llm_provider_settings
+                    (id, enabled, base_url, api_key_encrypted, model, updated_at)
+                    VALUES (1, 1, ?, ?, ?, ?)""",
+                    ("https://api.siliconflow.cn/v1", encrypted, "Qwen/Qwen3-8B", "legacy"),
+                )
+                connection.execute(
+                    """CREATE TABLE vlm_provider_settings (
+                    id INTEGER PRIMARY KEY CHECK(id = 1), enabled INTEGER NOT NULL DEFAULT 0,
+                    base_url TEXT NOT NULL, api_key_encrypted TEXT, model TEXT NOT NULL,
+                    last_test_status TEXT, last_test_message TEXT, last_test_at TEXT, updated_at TEXT NOT NULL)"""
+                )
+                connection.execute(
+                    """INSERT INTO vlm_provider_settings
+                    (id, enabled, base_url, model, updated_at)
+                    VALUES (1, 0, ?, ?, ?)""",
+                    ("https://open.bigmodel.cn/api/paas/v4", "glm-4v-flash", "legacy"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            migrated_store = JobStore(db_path)
+            migrated_provider = LlmProviderService(migrated_store, self.credential_key)
+            self.assertEqual(migrated_store.get_llm_settings()["profile_id"], "siliconflow")
+            self.assertEqual(migrated_provider.api_key(), "sk-legacy-silicon")
+            self.assertEqual(migrated_store.get_llm_profile("siliconflow")["model"], "Qwen/Qwen3-8B")
 
     @patch("requests.Session.post")
     def test_optimize_prompt_video(self, mock_post: MagicMock) -> None:
@@ -677,6 +753,20 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.assertEqual(res.json()["reasoning_effort"], "high")
         self.assertEqual(self.job_store.get_llm_settings()["reasoning_effort"], "high")
 
+    def test_admin_lists_llm_profiles_without_plaintext_keys(self) -> None:
+        self.llm_provider.update({
+            "profile_id": "siliconflow",
+            "enabled": True,
+            "base_url": "https://api.siliconflow.cn/v1",
+            "model": "Qwen/Qwen2.5-7B-Instruct",
+            "api_key": "sk-profile-secret",
+        })
+        self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
+        res = self.client.get("/api/admin/providers/llm/profiles")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["active_profile_id"], "siliconflow")
+        self.assertNotIn("sk-profile-secret", res.text)
+
     @patch("requests.Session.get")
     def test_admin_lists_siliconflow_free_models(self, mock_get: MagicMock) -> None:
         mock_response = MagicMock()
@@ -690,21 +780,31 @@ class LLMAppEndpointsTests(unittest.TestCase):
         }
         mock_get.return_value = mock_response
         self.llm_provider.update({
+            "profile_id": "siliconflow",
             "enabled": True,
             "base_url": "https://api.siliconflow.cn/v1",
             "api_key": "sk-siliconflow-test-key",
             "model": "Qwen/Qwen2.5-7B-Instruct",
         })
+        self.llm_provider.update({
+            "profile_id": "custom",
+            "enabled": True,
+            "base_url": "https://custom.example/v1",
+            "api_key": "sk-current-custom-key",
+            "model": "custom-chat",
+        })
         from backend.app.auth import csrf_token
         self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
         res = self.client.post(
             "/api/admin/providers/llm/models",
-            json={"base_url": "https://api.siliconflow.cn/v1", "free_only": True},
+            json={"profile_id": "siliconflow", "base_url": "https://api.siliconflow.cn/v1", "free_only": True},
             headers={"X-CSRF-Token": csrf_token(self.admin_token)},
         )
         self.assertEqual(res.status_code, 200)
         ids = [item["id"] for item in res.json()["models"]]
         self.assertEqual(ids, ["Qwen/Qwen2.5-7B-Instruct"])
+        auth_headers = [call.kwargs.get("headers", {}).get("Authorization") for call in mock_get.call_args_list]
+        self.assertIn("Bearer sk-siliconflow-test-key", auth_headers)
 
     def test_list_h3_skills_api(self) -> None:
         self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)

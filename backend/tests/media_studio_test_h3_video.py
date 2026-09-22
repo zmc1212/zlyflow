@@ -201,8 +201,9 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("<d>[Chinese] 沙丽丽：", cleaned)
 
     @patch.object(LlmService, "_runtime_config", return_value=("https://cn3.example/v1", "gpt-5.6-sol", "sk-test"))
+    @patch("backend.app.media_studio.services.llm_service.llm_row", return_value={"reasoning_effort": "low"})
     @patch.object(OpenAICompatibleClient, "chat_completion", return_value="packed prompt")
-    def test_chat_text_streams_and_lowers_gpt5_reasoning(self, mock_chat, _config):
+    def test_chat_text_streams_and_lowers_gpt5_reasoning(self, mock_chat, _llm_row, _config):
         text = LlmService.chat_text("sys", "user", max_tokens=6000, temperature=0.4)
         self.assertEqual(text, "packed prompt")
         self.assertTrue(mock_chat.call_args.kwargs["stream"])
@@ -2174,7 +2175,7 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("do not cram dialogue + walk + turn into 5s", prompt)
         self.assertIn("lasting 11 seconds", prompt)
 
-    def test_workshop_prompts_reject_thin_saved_prompt(self):
+    def test_workshop_prompts_keep_saved_prompt_without_legacy_rewriter(self):
         shot = {
             "sequence": 1,
             "speaker": "沈砚",
@@ -2182,7 +2183,10 @@ class H3PromptTests(unittest.TestCase):
             "h3_prompt": "subject_definitions:\nthis saved prompt is longer than thirty characters but still too thin",
         }
         self.assertGreater(len(shot["h3_prompt"]), 30)
-        self.assertIsNone(EpisodeVideoService._workshop_prompts_usable([shot]))
+        self.assertEqual(
+            [shot["h3_prompt"]],
+            EpisodeVideoService._workshop_prompts_usable([shot]),
+        )
 
     def test_workshop_prompts_accept_rich_saved_prompt(self):
         prompt = rich_prompt()
@@ -2193,7 +2197,7 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("你好。", usable[0])
         self.assertIn("[Shot 1]", usable[0])
 
-    def test_workshop_prompts_normalize_missing_subject_before_reuse(self):
+    def test_workshop_prompts_do_not_run_legacy_normalizer_before_reuse(self):
         prompt = (
             rich_prompt("只对十四天。")
             .replace(
@@ -2217,9 +2221,9 @@ class H3PromptTests(unittest.TestCase):
         self.assertTrue(any("中文对白标签" in item for item in raw_errors))
         usable = EpisodeVideoService._workshop_prompts_usable([shot])
         self.assertIsNotNone(usable)
-        self.assertIn("<Subject 3>", usable[0])
-        self.assertIn("<d>[Chinese] 只对十四天。</d>", usable[0])
-        self.assertEqual([], H3PromptBuilder.validate_prompts([shot], usable))
+        self.assertEqual(prompt, usable[0])
+        self.assertNotIn("<Subject 3>", usable[0])
+        self.assertNotIn("<d>[Chinese] 只对十四天。</d>", usable[0])
 
     def test_workshop_prompts_reuse_manual_prompt_verbatim(self):
         prompt = (
@@ -2254,11 +2258,10 @@ class H3PromptTests(unittest.TestCase):
         usable = EpisodeVideoService._workshop_prompts_usable([shot])
         self.assertIsNotNone(usable)
         self.assertIn("The camera tracks down the corridor", usable[0])
-        self.assertIn("<Picture 1>", usable[0])
         self.assertNotIn("The camera holds a stable medium composition", usable[0])
         self.assertNotIn("Already inside the closed cabin", usable[0])
         self.assertNotIn(_THICKNESS_PAD, usable[0])
-        self.assertEqual(usable[0], H3PromptBuilder.canonicalize_reference_tags(prompt))
+        self.assertEqual(prompt, usable[0])
 
     def test_workshop_prompts_manual_does_not_block_generated_neighbor(self):
         generated = {
@@ -2980,16 +2983,16 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
             })
         return assets
 
-    def test_zero_authoritative_references_switches_to_t2v(self):
+    def test_scene_reference_remains_available_without_character_reference(self):
         beat = self._beat(character_ids=[], scene_id="scene-ready")
         shots = EpisodeVideoService._prepare_shots(
             {"beats": [beat]},
             self._assets(),
         )
-        self.assertEqual([], shots[0]["ref_images"])
-        self.assertEqual([], shots[0]["reference_urls"])
+        self.assertEqual(["https://x/scene.png"], shots[0]["reference_urls"])
+        self.assertEqual("scene-ready", shots[0]["ref_images"][0]["asset_id"])
 
-    def test_second_shot_equivalent_uploads_only_character_and_book(self):
+    def test_default_reference_order_is_character_scene_then_prop(self):
         beat = self._beat(
             scene_id="scene-ready",
             prop_ids=["book"],
@@ -3011,10 +3014,9 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
             assets,
         )
         self.assertEqual(
-            ["https://x/char.png", "https://x/book.png"],
+            ["https://x/char.png", "https://x/scene.png", "https://x/book.png"],
             shots[0]["reference_urls"],
         )
-        self.assertEqual(["character", "prop"], [item["category"] for item in shots[0]["ref_images"]])
 
     def test_stale_generated_prompt_is_blocked_before_enqueue(self):
         beat = self._beat(
@@ -3027,20 +3029,23 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
                 {"beats": [beat], "project_id": "p1"},
                 self._assets(),
             )
-        self.assertIn("旧参考图规则", str(ctx.exception))
+        self.assertIn("提示词已过期", str(ctx.exception))
 
-    def test_manual_prompt_rejects_removed_picture_number(self):
+    def test_manual_prompt_can_reference_default_scene_slot(self):
         beat = self._beat(
             scene_id="scene-ready",
             h3_prompt="<Picture 1> identity. <Picture 2> old scene.",
             h3_prompt_source="manual",
         )
-        with self.assertRaises(ValueError) as ctx:
-            EpisodeVideoService._prepare_shots(
-                {"beats": [beat], "project_id": "p1"},
-                self._assets(),
-            )
-        self.assertIn("手写提示词", str(ctx.exception))
+        shots = EpisodeVideoService._prepare_shots(
+            {"beats": [beat], "project_id": "p1"},
+            self._assets(),
+        )
+        self.assertEqual("manual", shots[0]["h3_prompt_reference_state"])
+        self.assertEqual(
+            ["https://x/char.png", "https://x/scene.png"],
+            shots[0]["reference_urls"],
+        )
 
     def test_legal_manual_prompt_remains_usable(self):
         beat = self._beat(
@@ -3057,9 +3062,12 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
     def test_falls_back_to_same_name_scene_with_master_view(self):
         shots = EpisodeVideoService._prepare_shots({"beats": [self._beat()]}, self._assets())
         self.assertEqual("scene-ready", shots[0]["scene_id"])
-        self.assertEqual(["https://x/char.png"], shots[0]["reference_urls"])
+        self.assertEqual(
+            ["https://x/char.png", "https://x/scene.png"],
+            shots[0]["reference_urls"],
+        )
 
-    def test_skill_pack_appends_panel_crops_not_full_triptych(self):
+    def test_legacy_skill_pack_does_not_rewrite_reference_slots(self):
         beat = self._beat(
             scene_id="scene-ready",
             triptych_url="https://x/triptych.png",
@@ -3069,21 +3077,18 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
                 "end": "https://x/end.png",
             },
         )
-        with patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=HALF_NARRATED_PACK_ID):
-            shots = EpisodeVideoService._prepare_shots(
-                {"beats": [beat], "project_id": "p1"},
-                self._assets(),
-            )
+        shots = EpisodeVideoService._prepare_shots(
+            {"beats": [beat], "project_id": "p1"},
+            self._assets(),
+        )
         urls = shots[0]["reference_urls"]
         self.assertIn("https://x/char.png", urls)
-        self.assertNotIn("https://x/scene.png", urls)
+        self.assertIn("https://x/scene.png", urls)
         self.assertNotIn("https://x/start.png", urls)
         self.assertNotIn("https://x/mid.png", urls)
         self.assertNotIn("https://x/end.png", urls)
         self.assertNotIn("https://x/triptych.png", urls)
-        self.assertEqual(["https://x/char.png"], urls)
-        sources = [item.get("source") for item in shots[0]["ref_images"]]
-        self.assertEqual(["characters"], sources)
+        self.assertEqual(["https://x/char.png", "https://x/scene.png"], urls)
 
     def test_keeps_four_prop_sheets_when_slots_remain(self):
         beat = self._beat(
@@ -3102,11 +3107,10 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
             {"id": "p3", "kind": "prop", "name": "台灯", "extra": {"reference_url": "https://x/lamp.png"}},
             {"id": "p4", "kind": "prop", "name": "笔记本", "extra": {"reference_url": "https://x/nb.png"}},
         ]
-        with patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=HALF_NARRATED_PACK_ID):
-            shots = EpisodeVideoService._prepare_shots(
-                {"beats": [beat], "project_id": "p1"},
-                assets,
-            )
+        shots = EpisodeVideoService._prepare_shots(
+            {"beats": [beat], "project_id": "p1"},
+            assets,
+        )
         urls = shots[0]["reference_urls"]
         for url in (
             "https://x/book.png",
@@ -3115,7 +3119,7 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
             "https://x/nb.png",
         ):
             self.assertIn(url, urls)
-        self.assertEqual(5, len(urls))
+        self.assertEqual(6, len(urls))
         self.assertEqual("https://x/nb.png", urls[-1])
 
     def test_binds_scene_by_name_when_scene_id_is_missing(self):
@@ -3297,37 +3301,36 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
         create_job.assert_called_once()
         self.assertEqual("beat-1", create_job.call_args.kwargs["beat_id"])
 
-    def test_director_selected_ids_create_one_timeline_job(self):
+    def test_director_rejects_original_beat_selection(self):
+        with patch.object(EpisodeVideoService, "create_job") as create_job:
+            with self.assertRaisesRegex(ValueError, "不再按原 Beat"):
+                EpisodeVideoService.generate_episode_videos(
+                    "p1", "e1",
+                    options={"workflow": "minimax-h3-director-accel-r2v", "beat_ids": ["beat-1", "beat-2"]},
+                )
+        create_job.assert_not_called()
+
+    def test_director_plan_selection_creates_one_timeline_job(self):
         with patch.object(EpisodeVideoService, "create_job", return_value={
             "job_id": "job-sel", "status": "queued", "render_scope": "selection", "shot_count": 2,
         }) as create_job:
             result = EpisodeVideoService.generate_episode_videos(
                 "p1", "e1",
-                options={"workflow": "minimax-h3-director-accel-r2v", "beat_ids": ["beat-1", "beat-2"]},
+                options={
+                    "workflow": "minimax-h3-director-accel-r2v",
+                    "render_scope": "selection",
+                    "part_id": "part-1",
+                    "segment_ids": ["seg-1", "seg-2"],
+                    "director_plan_revision": 4,
+                },
             )
         create_job.assert_called_once()
-        self.assertEqual(["beat-1", "beat-2"], create_job.call_args.kwargs.get("beat_ids"))
-        self.assertIsNone(create_job.call_args.kwargs.get("beat_id"))
         self.assertEqual("selection", create_job.call_args.kwargs.get("render_scope"))
-        self.assertEqual("episode", result["render_mode"])
+        self.assertEqual("part-1", create_job.call_args.kwargs["options"]["part_id"])
+        self.assertEqual(["seg-1", "seg-2"], create_job.call_args.kwargs["options"]["segment_ids"])
         self.assertEqual(["job-sel"], result["job_ids"])
         self.assertEqual(1, result["submitted"])
         self.assertEqual(2, result["shot_count"])
-        self.assertEqual(0, result["skipped"])
-
-    def test_director_selected_one_id_still_one_job(self):
-        with patch.object(EpisodeVideoService, "create_job", return_value={
-            "job_id": "job-beat-1", "status": "queued", "render_scope": "shot", "shot_count": 1,
-        }) as create_job:
-            result = EpisodeVideoService.generate_episode_videos(
-                "p1", "e1",
-                options={"workflow": "minimax-h3-director-accel-r2v", "beat_ids": ["beat-1"]},
-            )
-        create_job.assert_called_once()
-        self.assertEqual(["beat-1"], create_job.call_args.kwargs.get("beat_ids"))
-        self.assertEqual(["job-beat-1"], result["job_ids"])
-        self.assertEqual(1, result["submitted"])
-        self.assertEqual(1, result["shot_count"])
 
     def test_shot_one_click_skips_in_progress_beats_and_errors_when_nothing_left(self):
         active = [{"id": "job-1", "payload_json": __import__("json").dumps({

@@ -413,17 +413,12 @@ class H3PromptJobService:
 
     @classmethod
     def recover_interrupted_jobs(cls) -> None:
-        for row in query_all(
-            "SELECT id,status FROM ai_project_jobs WHERE job_type='h3_prompt' "
-            "AND status IN ('queued','preparing','running')"
-        ):
-            if row["status"] == "queued":
-                continue
-            execute_sql(
-                "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,updated_at=%s WHERE id=%s",
-                ("服务重启时提示词任务已中断，请点击重试。", now_str(), row["id"]),
-            )
-        cls.kick()
+        # Legacy authoring must never resume after the dual-template migration.
+        execute_sql(
+            "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,updated_at=%s "
+            "WHERE job_type='h3_prompt' AND status IN ('queued','preparing','running')",
+            ("旧 H3 写词链路已停用，请在工坊使用双模板重新生成。", now_str()),
+        )
 
     @classmethod
     def retry(cls, project_id: str, job_id: str) -> dict[str, Any]:

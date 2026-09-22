@@ -503,8 +503,39 @@ def register_project_routes(
 
     @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt", status_code=202, summary="生成或优化本镜 H3 视频提示词")
     def generate_beat_h3_prompt(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
+        from ..services.prompt_expansion_service import PromptExpansionService
         try:
-            return ProjectDetailService.generate_beat_h3_prompt(project_id, episode_id, beat_id, payload or {})
+            request_payload = dict(payload or {})
+            request_payload["target"] = {"kind": "beat", "beat_id": beat_id}
+            return PromptExpansionService.enqueue(project_id, episode_id, request_payload)
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/prompt-previews", status_code=202, summary="创建双模板提示词预览")
+    def create_prompt_preview(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict = None, user: dict = Depends(mutating_user)):
+        from ..services.prompt_expansion_service import PromptExpansionService
+        try:
+            return PromptExpansionService.enqueue(project_id, episode_id, payload or {})
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/prompt-previews/{job_id}/apply", summary="确认保存提示词预览")
+    def apply_prompt_preview(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], job_id: Annotated[str, Path(description="任务 ID")], payload: dict = None, user: dict = Depends(mutating_user)):
+        from ..services.prompt_expansion_service import PromptExpansionService
+        try:
+            return PromptExpansionService.apply_preview(project_id, episode_id, job_id, payload or {})
+        except RuntimeError as err:
+            raise HTTPException(status_code=409, detail=str(err))
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+    @app.patch("/api/projects/{project_id}/episodes/{episode_id}/prompt-plan", summary="更新已保存的 Director 出片方案")
+    def patch_prompt_plan(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.prompt_expansion_service import PromptExpansionService
+        try:
+            return PromptExpansionService.patch_director_plan(project_id, episode_id, payload or {})
+        except RuntimeError as err:
+            raise HTTPException(status_code=409, detail=str(err))
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
@@ -716,6 +747,7 @@ def register_project_routes(
     ):
         from ..db import query_one
         from ..services.h3_prompt_job_service import H3PromptJobService
+        from ..services.prompt_expansion_service import PromptExpansionService
         from ..services.shot_plan_job_service import ShotPlanJobService
 
         async def event_stream():
@@ -731,6 +763,8 @@ def register_project_routes(
             job_type = str(row.get("job_type") or "")
             if job_type == "h3_prompt":
                 streamer = H3PromptJobService.stream
+            elif job_type == "prompt_expansion":
+                streamer = PromptExpansionService.stream
             elif job_type == "shot_plan":
                 streamer = ShotPlanJobService.stream
             elif not job_type:

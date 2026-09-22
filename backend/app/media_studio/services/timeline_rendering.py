@@ -122,6 +122,8 @@ def plan_timeline_chunks(
     for shot in shots:
         shot_frames = frame_count(shot)
         exceeds = current and (
+            bool(shot.get("part_boundary"))
+            or
             len(current) >= max(1, capabilities.max_segments)
             or frames + shot_frames > max(1, capabilities.max_total_frames)
         )

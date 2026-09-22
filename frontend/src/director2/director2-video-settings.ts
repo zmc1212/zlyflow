@@ -23,6 +23,10 @@ export type Director2WorkflowMode = {
   media_type?: string
   supports_timeline?: boolean
   supports_multi_segment?: boolean
+  prompt_profile?: "full_reference" | "director_segments" | "none"
+  prompt_template_version?: string | null
+  max_segments?: number | null
+  max_total_frames?: number | null
   reference_mode?: string
   max_references?: number
   hidden_from_catalog?: boolean

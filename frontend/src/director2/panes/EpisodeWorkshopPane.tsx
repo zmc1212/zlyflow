@@ -64,7 +64,6 @@ import {
   generateBeatRender,
   generateBeatTriptych,
   generateBeatImagesBatch,
-  generateBeatH3Prompt,
   generateBeatVideo,
   generateEpisodeVideo,
   upscaleBeatVideo,
@@ -93,6 +92,7 @@ import {
   type WorkshopPromptLiveState,
 } from "../workshop-prompt-stream"
 import Director2VideoSettingsPopover from "./Director2VideoSettingsPopover"
+import PromptAuthoringPanel from "./PromptAuthoringPanel"
 import UpscaleScaleButton from "../../UpscaleScaleButton"
 import DubbingWorkbench from "./DubbingWorkbench"
 import { parseWorkshopTab, type WorkshopTabKey } from "../dubbing-track"
@@ -135,13 +135,8 @@ import {
   sumBeatDurationSec,
 } from "../workshop-beat-duration"
 import { workshopBeatHasSplitTakes, workshopBeatLabel } from "../workshop-beat-label"
+import { WORKSHOP_H3_TRIPTYCH_GATE } from "../workshop-h3-gate"
 import {
-  WORKSHOP_H3_TRIPTYCH_GATE,
-  workshopH3GenerateLabel,
-  workshopH3PromptGate,
-} from "../workshop-h3-gate"
-import {
-  H3_REFERENCE_REGENERATE_LABEL,
   authoringContextImages,
   h3ReferenceWarning,
   videoReferenceImages,
@@ -612,10 +607,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       selectedBeat?.id && (selectedBeatGeneratingH3Prompt || activeH3PromptBeatIds.has(selectedBeat.id)),
     )
     const h3GenerateBusy = selectedBeatH3JobActive || selectedTriptychGenerating
-    const h3GenerateLabel = workshopH3GenerateLabel({
-      generating: selectedBeatH3JobActive,
-      hasPrompt: Boolean(savedH3Prompt.trim()),
-    })
     const playbackAspect = playbackAspectRatio(videoOptions)
     const playbackAspectSize = playbackMeasured || parseMediaAspect(playbackAspect)
     const playbackPortrait = Boolean(playbackAspectSize && playbackAspectSize.height > playbackAspectSize.width)
@@ -828,122 +819,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     function cancelH3PromptEdit() {
       setH3PromptDraft(String(resolveSelectedBeat(currentEpisodeRef.current)?.h3_prompt || ""))
       setH3PromptEditing(false)
-    }
-
-    function requestGenerateH3Prompt(extra: Record<string, unknown> = {}) {
-      const beat = resolveSelectedBeat(currentEpisodeRef.current)
-      if (beat?.id && (activeH3PromptBeatIds.has(beat.id) || (generatingH3Prompt && h3LiveBeatId === beat.id))) {
-        return
-      }
-      const gate = workshopH3PromptGate(beat, {
-        triptychGenerating: Boolean(beat?.id && generatingTriptychBeatIdsRef.current.has(beat.id)),
-      })
-      if (gate === "need_cast") {
-        message.warning(WORKSHOP_H3_TRIPTYCH_GATE.needCast)
-        return
-      }
-      if (gate === "triptych_running") {
-        message.warning(WORKSHOP_H3_TRIPTYCH_GATE.triptychRunning)
-        return
-      }
-      if (gate === "need_triptych") {
-        Modal.confirm({
-          title: WORKSHOP_H3_TRIPTYCH_GATE.confirmTitle,
-          content: WORKSHOP_H3_TRIPTYCH_GATE.confirmContent,
-          okText: WORKSHOP_H3_TRIPTYCH_GATE.confirmOk,
-          cancelText: "取消",
-          onOk: () => generateSingleBeatTriptych({ fromPromptGate: true }),
-        })
-        return
-      }
-      const saved = String(beat?.h3_prompt || "").trim()
-      const dirty = h3PromptDraft !== String(beat?.h3_prompt || "")
-      if (extra.merge_as_one) {
-        Modal.confirm({
-          title: "合并为一条生成？",
-          content: saved
-            ? "将同一剧情镜下的出片镜合并回一条，再生成一份 H3 提示词。系统生成会覆盖已保存或正在编辑的提示词。"
-            : "将同一剧情镜下的出片镜合并回一条，再生成一份 H3 提示词。适合仍想赌一镜到底的情况。",
-          okText: "合并生成",
-          cancelText: "取消",
-          onOk: () => handleGenerateH3Prompt(extra),
-        })
-        return
-      }
-      if (saved || (h3PromptEditing && dirty && h3PromptDraft.trim())) {
-        Modal.confirm({
-          title: "覆盖当前 H3 提示词？",
-          content: "系统生成会覆盖已保存或正在编辑的提示词。请确认本镜三联画面无误后再生成。",
-          okText: "覆盖生成",
-          cancelText: "取消",
-          onOk: () => handleGenerateH3Prompt(extra),
-        })
-        return
-      }
-      void handleGenerateH3Prompt(extra)
-    }
-
-    function requestMergeH3Prompt() {
-      requestGenerateH3Prompt({ merge_as_one: true })
-    }
-
-    async function handleGenerateH3Prompt(extra: Record<string, unknown> = {}) {
-      const ep = currentEpisodeRef.current
-      const beat = resolveSelectedBeat(ep)
-      if (!ep || !beat || activeH3PromptBeatIds.has(beat.id) || (generatingH3Prompt && h3LiveBeatId === beat.id)) return
-      setGeneratingH3Prompt(true)
-      setH3PromptEditing(false)
-      setH3JobMeta(null)
-      setH3LiveBeatId(beat.id)
-      setH3Live(emptyPromptLiveState("pending"))
-      try {
-        const res = await generateBeatH3Prompt(csrfToken, projectId, ep.id, beat.id, {
-          aspect_ratio: videoOptions.aspect_ratio || undefined,
-          ...extra,
-        })
-        if (res?.job_id || res?.job_ids?.length) {
-          const jobIds = (res.job_ids || []).filter(Boolean)
-          const incomingJobIds = jobIds.length ? jobIds : (res.job_id ? [res.job_id] : [])
-          trackedH3PromptJobIdsRef.current = [...new Set([
-            ...trackedH3PromptJobIdsRef.current,
-            ...incomingJobIds,
-          ])]
-          const liveJobId = String(res.job_id || incomingJobIds[0] || "")
-          if (liveJobId) setH3Live(emptyPromptLiveState(liveJobId))
-          if (res.split || res.merged) {
-            await loadEpisodeDetail(ep.id)
-            if (res.beat_id) applySelectedBeatId(res.beat_id)
-          }
-          message.success({
-            content: res.split
-              ? `已按控制拆成 ${res.beat_ids?.length || jobIds.length} 条出片镜并开始生成 H3 提示词`
-              : res.merged
-                ? `已合并为一条并开始生成：${res.job_id}`
-                : `已提交 H3 提示词生成任务：${res.job_id}，可在「全部任务」查看进度`,
-            key: "h3PromptGen",
-            duration: 4,
-          })
-          await pollImageJobs()
-        } else if (res?.prompt) {
-          updateBeatById(beat.id, { h3_prompt: res.prompt, h3_prompt_source: "generated" })
-          setH3PromptDraft(String(res.prompt))
-          setH3PromptEditing(false)
-          setInspectorTab("material")
-          message.success({ content: "已生成电影级 H3 提示词", key: "h3PromptGen" })
-          setGeneratingH3Prompt(trackedH3PromptJobIdsRef.current.length > 0)
-          setH3Live((prev) => ({ ...prev, working: false, jobId: "" }))
-        }
-      } catch (err) {
-        message.error({ content: `大模型生成失败: ${director2ErrorDetail(err, "生成失败")}`, key: "h3PromptGen" })
-        setGeneratingH3Prompt(trackedH3PromptJobIdsRef.current.length > 0)
-        setH3Live((prev) => ({
-          ...prev,
-          working: false,
-          failed: true,
-          jobId: prev.jobId === "pending" ? "" : prev.jobId,
-          message: director2ErrorDetail(err, "生成失败"),
-        }))
-      }
     }
 
     // ---------------- 剧集列表与详情流转 ----------------
@@ -1711,11 +1586,19 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       if (!ep || generatingEpisodeVideo) return
       setGeneratingEpisodeVideo(true)
       try {
+        const directorPlan = ep.prompt_authoring?.director_plan
+        if (selectedVideoWorkflow?.prompt_profile === "director_segments" && (!directorPlan || directorPlan.status === "stale")) {
+          message.warning("请先生成并保存当前有效的 Director 出片方案")
+          return
+        }
+        const extra = selectedVideoWorkflow?.prompt_profile === "director_segments"
+          ? { render_scope: "episode", director_plan_revision: directorPlan!.revision }
+          : undefined
         const res = await generateEpisodeVideo(
           csrfToken,
           projectId,
           ep.id,
-          buildVideoJobOptions(videoWorkflow, videoOptions),
+          buildVideoJobOptions(videoWorkflow, videoOptions, extra),
         )
         rememberVideoJobIds(res.job_ids?.length ? res.job_ids : [res.job_id])
         message.success({
@@ -2100,7 +1983,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                   onChange={handleVideoOptionChange}
                 />
                 <Button loading={generatingEpisodeVideo || episodeVideoJobActive} icon={<Video size={14} />} onClick={() => handleGenerateEpisodeVideo()}>
-                  一键生成视频
+                  {selectedVideoWorkflow?.prompt_profile === "director_segments" ? "生成 Director 全集" : "一键生成视频"}
                 </Button>
                 <Button loading={refreshingDetail} icon={<RefreshCw size={14} />} onClick={() => refreshCurrentEpisode()}>
                   刷新数据
@@ -2110,6 +1993,19 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 </Button>
               </Space>
             </header>
+
+            <PromptAuthoringPanel
+              csrfToken={csrfToken}
+              projectId={projectId}
+              episode={currentEpisode}
+              selectedBeat={selectedBeat}
+              assets={projectAssets}
+              workflow={selectedVideoWorkflow}
+              workflowId={videoWorkflow}
+              videoOptions={videoOptions}
+              onRefresh={() => loadEpisodeDetail(currentEpisode.id)}
+              onVideoJob={rememberVideoJobIds}
+            />
 
             {/* 四大核心 Tab: 镜头 | 剧本 | 配音 | 合成 */}
             <Tabs
@@ -2136,22 +2032,26 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                       <div className="xiaji-shots-toolbar">
                         <div className="toolbar-left">
                           <Checkbox checked={showSketch} onChange={(e) => setShowSketch(e.target.checked)}>显示草图</Checkbox>
-                          <Checkbox
-                            checked={allBeatsChecked}
-                            indeterminate={checkedBeatCount > 0 && !allBeatsChecked}
-                            onChange={(e) => toggleCheckAllBeats(e.target.checked)}
-                          >
-                            全选（共 {beatCount} 镜）
-                          </Checkbox>
-                          <span className="sketched-count-label">已选 {checkedBeatCount} / {beatCount} 镜</span>
-                          <Button
-                            type="link"
-                            size="small"
-                            disabled={!checkedBeatCount}
-                            onClick={() => setCheckedBeatIds(new Set())}
-                          >
-                            清空
-                          </Button>
+                          {selectedVideoWorkflow?.prompt_profile !== "director_segments" ? (
+                            <>
+                              <Checkbox
+                                checked={allBeatsChecked}
+                                indeterminate={checkedBeatCount > 0 && !allBeatsChecked}
+                                onChange={(e) => toggleCheckAllBeats(e.target.checked)}
+                              >
+                                全选（共 {beatCount} 镜）
+                              </Checkbox>
+                              <span className="sketched-count-label">已选 {checkedBeatCount} / {beatCount} 镜</span>
+                              <Button
+                                type="link"
+                                size="small"
+                                disabled={!checkedBeatCount}
+                                onClick={() => setCheckedBeatIds(new Set())}
+                              >
+                                清空
+                              </Button>
+                            </>
+                          ) : null}
                           <span className="sketched-count-label">
                             {sketchedCount}/{currentEpisode.beats?.length || 0} 张草图 ·{" "}
                             {h3PromptCount}/{currentEpisode.beats?.length || 0} 条 H3 提示词
@@ -2159,16 +2059,18 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                           </span>
                         </div>
                         <div className="toolbar-right">
-                          <Button
-                            type="primary"
-                            size="small"
-                            loading={generatingEpisodeVideo}
-                            disabled={!checkedBeatCount}
-                            icon={<Video size={13} />}
-                            onClick={() => handleGenerateSelectedShots()}
-                          >
-                            生成选中（{checkedBeatCount}）
-                          </Button>
+                          {selectedVideoWorkflow?.prompt_profile !== "director_segments" ? (
+                            <Button
+                              type="primary"
+                              size="small"
+                              loading={generatingEpisodeVideo}
+                              disabled={!checkedBeatCount}
+                              icon={<Video size={13} />}
+                              onClick={() => handleGenerateSelectedShots()}
+                            >
+                              生成选中（{checkedBeatCount}）
+                            </Button>
+                          ) : null}
                           <Button
                             type="primary"
                             size="small"
@@ -2194,12 +2096,14 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                 className={`xiaji-shot-tile${selectedBeat?.id === beat.id ? " is-selected" : ""}${checkedBeatIds.has(beat.id) ? " is-checked" : ""}`}
                               >
                                 <div className="xiaji-shot-tile-head">
-                                  <Checkbox
-                                    checked={checkedBeatIds.has(beat.id)}
-                                    aria-label={`勾选 ${workshopBeatLabel(beat)}`}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onChange={(event) => toggleCheckedBeat(beat, event.target.checked)}
-                                  />
+                                  {selectedVideoWorkflow?.prompt_profile !== "director_segments" ? (
+                                    <Checkbox
+                                      checked={checkedBeatIds.has(beat.id)}
+                                      aria-label={`勾选 ${workshopBeatLabel(beat)}`}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onChange={(event) => toggleCheckedBeat(beat, event.target.checked)}
+                                    />
+                                  ) : null}
                                   <button
                                     type="button"
                                     className="xiaji-shot-tile-select"
@@ -2317,15 +2221,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                     setInspectorTab(key)
                                   }
                                 }}
-                                tabBarExtraContent={inspectorTab === "material" && selectedBeatSplit ? (
-                                  <Button
-                                    size="small"
-                                    disabled={h3GenerateBusy}
-                                    onClick={() => requestMergeH3Prompt()}
-                                  >
-                                    合并为一条生成
-                                  </Button>
-                                ) : null}
                                 items={[
                                   ...(selectedBeatTakes.length ? [{
                                     key: "film",
@@ -2530,15 +2425,18 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                       <div className="form-row-two">
                                         <div className="form-group">
                                           <label className="form-label">镜头时长 (Duration)</label>
-                                          <InputNumber
-                                            min={2}
-                                            max={15}
-                                            value={beatDurationSec(selectedBeat.video_duration)}
-                                            addonAfter="秒"
-                                            style={{ width: "100%" }}
-                                            onChange={(value) => patchSelectedBeat({ video_duration: String(beatDurationSec(value)) })}
-                                            onBlur={() => saveCurrentBeat()}
-                                          />
+                                          <Space.Compact block>
+                                            <InputNumber
+                                              aria-label="镜头时长"
+                                              min={2}
+                                              max={15}
+                                              value={beatDurationSec(selectedBeat.video_duration)}
+                                              style={{ flex: 1 }}
+                                              onChange={(value) => patchSelectedBeat({ video_duration: String(beatDurationSec(value)) })}
+                                              onBlur={() => saveCurrentBeat()}
+                                            />
+                                            <Input aria-label="秒单位" value="秒" readOnly tabIndex={-1} style={{ width: 44, textAlign: "center" }} />
+                                          </Space.Compact>
                                         </div>
                                         <div className="form-group">
                                           <label className="form-label">场景与镜头标题 (Heading)</label>
@@ -2838,17 +2736,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                             showIcon
                                             message={h3ReferenceWarningState.title}
                                             description={h3ReferenceWarningState.description}
-                                            action={(
-                                              <Button
-                                                size="small"
-                                                type="primary"
-                                                loading={selectedBeatGeneratingH3Prompt}
-                                                disabled={h3GenerateBusy}
-                                                onClick={() => requestGenerateH3Prompt()}
-                                              >
-                                                {H3_REFERENCE_REGENERATE_LABEL}
-                                              </Button>
-                                            )}
                                             style={{ marginBottom: 8 }}
                                           />
                                         ) : null}
@@ -2971,16 +2858,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                             ) : null}
                                           </div>
                                           <div className="h3-prompt-head-actions">
-                                            <Button
-                                              size="small"
-                                              type="primary"
-                                              icon={<Sparkles size={12} />}
-                                              loading={selectedBeatGeneratingH3Prompt}
-                                              disabled={h3GenerateBusy}
-                                              onClick={() => requestGenerateH3Prompt()}
-                                            >
-                                              {h3GenerateLabel}
-                                            </Button>
                                             {showH3Editor ? (
                                               <>
                                                 <Button

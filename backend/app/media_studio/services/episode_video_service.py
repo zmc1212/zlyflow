@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 import shutil
 import subprocess
@@ -19,7 +20,6 @@ from .comfy_service import ComfyService
 from .comfy_video_client import ComfyVideoClient
 from .character_looks import apply_resolved_looks_to_beat, missing_look_message, select_character_look
 from .episode_image_prompts import resolve_scene_asset, scene_master_url
-from .h3_prompt_builder import H3PromptBuilder
 from .project_detail_service import ProjectDetailService
 from .qiniu_service import QiniuService
 from .timeline_rendering import (
@@ -209,6 +209,100 @@ class EpisodeVideoService:
                 ids.append(beat_id)
         return ids
 
+    @staticmethod
+    def _requested_segment_ids(options: dict[str, Any] | None) -> list[str] | None:
+        if not options or "segment_ids" not in options:
+            return None
+        raw = options.get("segment_ids")
+        if not isinstance(raw, list):
+            raise ValueError("segment_ids 必须是 Director 段 ID 列表")
+        return list(dict.fromkeys(str(item or "").strip() for item in raw if str(item or "").strip()))
+
+    @classmethod
+    def _director_plan_shots(
+        cls,
+        detail: dict[str, Any],
+        options: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
+        authoring = detail.get("prompt_authoring") if isinstance(detail.get("prompt_authoring"), dict) else {}
+        plan = authoring.get("director_plan") if isinstance(authoring.get("director_plan"), dict) else None
+        if not plan:
+            raise ValueError("请先使用“连续剧情（导演台）”生成并保存 Director 出片方案")
+        if (
+            int(plan.get("schema_version") or 0) != 2
+            or str(plan.get("planning_strategy") or "") != "atomic_units"
+            or any(not isinstance(segment.get("source_units"), list) or not segment.get("source_units")
+                   for part in plan.get("parts") or [] for segment in part.get("segments") or [])
+        ):
+            raise ValueError("Director 方案结构已升级，请重新生成")
+        if str(plan.get("status") or "") != "current":
+            raise ValueError("Director 出片方案已过期，请根据当前剧本和资产重新生成")
+        requested_revision = options.get("director_plan_revision")
+        if requested_revision not in (None, "") and int(requested_revision) != int(plan.get("revision") or 0):
+            raise ValueError("Director 出片方案版本已变化，请刷新页面后重试")
+
+        render_scope = str(options.get("render_scope") or "episode")
+        if render_scope not in {"episode", "selection"}:
+            raise ValueError("Director 工作流只支持整集或 Director 段选区生成")
+        parts = plan.get("parts") if isinstance(plan.get("parts"), list) else []
+        selected_segments: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        if render_scope == "selection":
+            part_id = str(options.get("part_id") or "").strip()
+            segment_ids = cls._requested_segment_ids(options)
+            if not part_id or not segment_ids:
+                raise ValueError("局部生成必须选择同一 Part 内的 Director 段")
+            part = next((item for item in parts if str(item.get("id") or "") == part_id), None)
+            if not part:
+                raise ValueError("指定的 Director Part 不存在")
+            segments = part.get("segments") if isinstance(part.get("segments"), list) else []
+            index_by_id = {str(item.get("id") or ""): index for index, item in enumerate(segments)}
+            if any(segment_id not in index_by_id for segment_id in segment_ids):
+                raise ValueError("选中的 Director 段不存在或不属于同一 Part")
+            indexes = sorted(index_by_id[segment_id] for segment_id in segment_ids)
+            if indexes != list(range(indexes[0], indexes[-1] + 1)):
+                raise ValueError("局部生成只允许选择同一 Part 内连续的 Director 段")
+            selected_segments = [(part, segments[index]) for index in indexes]
+        else:
+            for part in parts:
+                for segment in part.get("segments") or []:
+                    selected_segments.append((part, segment))
+        if not selected_segments:
+            raise ValueError("Director 出片方案没有可生成的段")
+
+        reference_urls = [
+            str(item.get("image_url") or "").strip()
+            for item in plan.get("reference_slots") or []
+            if str(item.get("image_url") or "").strip()
+        ]
+        shots: list[dict[str, Any]] = []
+        previous_part_id = ""
+        for sequence, (part, segment) in enumerate(selected_segments, start=1):
+            part_id = str(part.get("id") or "")
+            part_boundary = bool(previous_part_id and part_id != previous_part_id)
+            shots.append({
+                "beat_id": str(segment.get("id") or f"director-segment-{sequence}"),
+                "sequence": sequence,
+                "heading": str(segment.get("title") or f"Director 段 {sequence}"),
+                "prompt": str(segment.get("prompt_text") or "").strip(),
+                "h3_prompt": str(segment.get("prompt_text") or "").strip(),
+                "h3_prompt_source": "prompt_master_director",
+                "reference_urls": reference_urls,
+                "duration_sec": float(segment.get("duration_seconds") or 8),
+                "duration_seconds": float(segment.get("duration_seconds") or 8),
+                "frame_count": int(segment.get("frame_count") or 192),
+                "continuity": {"partId": part_id, "segmentId": segment.get("id")},
+                "continuity_from_prev": sequence > 1 and not part_boundary and render_scope == "episode",
+                "part_boundary": part_boundary,
+                "director_part_id": part_id,
+                "source_beat_ids": segment.get("source_beat_ids") or [],
+            })
+            previous_part_id = part_id
+        if render_scope == "selection":
+            shots[0]["continuity_from_prev"] = False
+            for index in range(1, len(shots)):
+                shots[index]["continuity_from_prev"] = True
+        return shots, plan, render_scope
+
     @classmethod
     def generate_episode_videos(
         cls,
@@ -222,6 +316,25 @@ class EpisodeVideoService:
         incoming.pop("beat_ids", None)
         settings = cls.resolve_generation_options(incoming)
         workflow_id = str(settings.get("workflow") or cls.DEFAULTS["workflow"])
+        definition = workflow_for(workflow_id)
+        if definition.prompt_profile == "director_segments":
+            if beat_ids is not None:
+                raise ValueError("Director 工作流不再按原 Beat 选择，请选择 Director 出片方案中的段")
+            render_scope = str(incoming.get("render_scope") or "episode")
+            created = cls.create_job(
+                project_id,
+                episode_id,
+                render_scope=render_scope,
+                options=incoming,
+            )
+            return {
+                **created,
+                "render_mode": "episode",
+                "job_ids": [created["job_id"]],
+                "submitted": 1,
+                "shot_count": created.get("shot_count") or 1,
+                "skipped": 0,
+            }
         render_mode = episode_video_render_mode(workflow_id)
         if render_mode == "episode":
             if beat_ids is not None and not beat_ids:
@@ -516,9 +629,12 @@ class EpisodeVideoService:
         workflow_id = str(settings.get("workflow") or cls.DEFAULTS["workflow"])
         render_mode = episode_video_render_mode(workflow_id)
         try:
-            model_name = workflow_for(workflow_id).name
+            definition = workflow_for(workflow_id)
+            model_name = definition.name
         except KeyError:
+            definition = None
             model_name = "MiniMax H3"
+        director_prompt_profile = bool(definition and definition.prompt_profile == "director_segments")
 
         selected_ids: list[str] = []
         if beat_id:
@@ -531,14 +647,15 @@ class EpisodeVideoService:
                     seen.add(item_id)
                     selected_ids.append(item_id)
 
-        if selected_ids:
+        if director_prompt_profile:
+            render_scope = str((options or {}).get("render_scope") or render_scope or "episode")
+        elif selected_ids:
             render_scope = "shot" if len(selected_ids) == 1 else "selection"
         elif render_mode == "shot":
             raise ValueError("逐镜工作流必须指定 Beat，请使用一键生成或「生成本镜」")
         else:
             render_scope = "episode"
 
-        llm = H3PromptBuilder.ensure_available()
         comfy_config = ComfyService.get_config()
         comfy = ComfyVideoClient(comfy_config.base_url)
         task_type = comfy.preflight(require_director=uses_director_timeline(workflow_id))
@@ -552,15 +669,23 @@ class EpisodeVideoService:
 
         detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
         assets = ProjectDetailService.list_assets(project_id)
-        shots = cls._prepare_shots(detail, assets, beat_ids=selected_ids or None)
-        cls._persist_shot_looks(project_id, episode_id, shots)
+        director_plan = None
+        if director_prompt_profile:
+            shots, director_plan, render_scope = cls._director_plan_shots(detail, options or {})
+        else:
+            shots = cls._prepare_shots(detail, assets, beat_ids=selected_ids or None)
+            cls._persist_shot_looks(project_id, episode_id, shots)
+            if cls._workshop_prompts_usable(shots) is None:
+                raise ValueError("视频生成前置检查失败：存在缺失或过期的 H3 提示词，请先使用六段式模板生成并保存")
         if selected_ids and not shots:
             raise ValueError("指定的 Beat 不存在或无法生成视频")
         if options:
             settings["render_pass"] = str(options.get("render_pass") or "final")
         jid = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = now_str()
-        if render_scope == "shot":
+        if director_prompt_profile and render_scope == "selection":
+            scope_label = f"Director 选中 {len(shots)} 段"
+        elif render_scope == "shot":
             scope_label = f"Beat {shots[0].get('sequence')}"
         elif render_scope == "selection":
             sequences = "、".join(str(shot.get("sequence") or "") for shot in shots)
@@ -585,13 +710,23 @@ class EpisodeVideoService:
             "shot_count": len(shots),
             "total_frames": sum(int(shot.get("frame_count") or 192) for shot in shots),
             "total_duration_seconds": sum(float(shot.get("duration_sec") or 8) for shot in shots),
-            "llm_model": llm["model"],
             "comfy_base_url": comfy_config.base_url,
             "task_type": task_type,
             "source_shots": shots,
             "shots": [],
             "render_plan": {"status": "queued", "chunks": [], "assembly": None},
         }
+        if director_plan:
+            payload.update({
+                "prompt_profile": "director_segments",
+                "director_plan_id": director_plan.get("id"),
+                "director_plan_revision": director_plan.get("revision"),
+                "part_id": (options or {}).get("part_id"),
+                "segment_ids": (options or {}).get("segment_ids") or [],
+                "global_prompt": (director_plan.get("common_setting") or {}).get("subject_definitions") or "",
+                "continuity_enabled": True,
+                "prompt_source": "prompt_master_director",
+            })
         execute_sql(
             """
             INSERT INTO ai_project_jobs
@@ -1367,58 +1502,59 @@ class EpisodeVideoService:
                     "description": str(look.get("appearance_details") or look.get("description") or ""),
                     "url": character_url,
                 })
-            from ...skill_packs.handlers import (
-                bind_r2v_slot_images,
-                h3_authoring_context_images,
-                h3_prompt_context_fingerprint,
-                h3_prompt_reference_state,
-            )
-
-            pack_id = ""
-            recipe = None
-            try:
-                from ...skill_packs import get_pack, resolve_skill_pack_id
-
-                pack_id = resolve_skill_pack_id(
-                    beat=beat,
-                    project_id=str(detail.get("project_id") or ""),
-                ) or ""
-                recipe = get_pack(pack_id)
-            except Exception:
-                recipe = None
-            bind_beat = {
-                **beat,
-                "character_ids": [],
-                "characters": [
-                    {
-                        "id": item.get("character_id"),
-                        "name": item.get("character_name"),
-                        "url": item.get("url"),
-                    }
-                    for item in character_references
-                ],
-                "scene": str(beat.get("scene") or (scene or {}).get("name") or ""),
-                "scene_id": str((scene or {}).get("id") or beat.get("scene_id") or ""),
-            }
-            ref_images = bind_r2v_slot_images(recipe, bind_beat, assets) if recipe is not None else []
+            prompt_authoring = detail.get("prompt_authoring") if isinstance(detail.get("prompt_authoring"), dict) else {}
+            prompt_records = prompt_authoring.get("full_reference") if isinstance(prompt_authoring.get("full_reference"), dict) else {}
+            prompt_record = prompt_records.get(str(beat.get("id") or ""))
+            ref_images: list[dict[str, Any]] = []
+            if isinstance(prompt_record, dict):
+                for slot in prompt_record.get("reference_slots") or []:
+                    url = str(slot.get("image_url") or "").strip()
+                    if url:
+                        ref_images.append({
+                            "index": int(slot.get("index") or len(ref_images) + 1),
+                            "url": url,
+                            "name": str(slot.get("name") or "参考图"),
+                            "asset_id": str(slot.get("asset_id") or ""),
+                        })
+                reference_state = str(prompt_record.get("status") or "stale")
+                reference_reason = "六段式提示词已过期，请重新生成" if reference_state != "current" else ""
+            else:
+                fallback_refs: list[tuple[str, str, str]] = [
+                    (item["url"], item["character_name"], item["character_id"])
+                    for item in character_references if item.get("url")
+                ]
+                if scene_url:
+                    fallback_refs.append((scene_url, str((scene or {}).get("name") or "场景"), str((scene or {}).get("id") or "")))
+                for prop_id in beat.get("prop_ids") or []:
+                    prop = by_id.get(str(prop_id)) or {}
+                    extra = prop.get("extra") if isinstance(prop.get("extra"), dict) else {}
+                    url = str(extra.get("reference_url") or extra.get("master_url") or prop.get("image_url") or "").strip()
+                    if url:
+                        fallback_refs.append((url, str(prop.get("name") or "道具"), str(prop.get("id") or "")))
+                for index, (url, name, asset_id) in enumerate(fallback_refs[:9], start=1):
+                    ref_images.append({"index": index, "url": url, "name": name, "asset_id": asset_id})
+                explicit_state = str(beat.get("h3_prompt_reference_state") or "").strip()
+                prompt_source = str(beat.get("h3_prompt_source") or "").strip()
+                if explicit_state:
+                    reference_state = explicit_state
+                elif str(beat.get("h3_prompt") or "").strip() and prompt_source in {"generated", "legacy_generated"}:
+                    reference_state = "legacy_stale"
+                else:
+                    reference_state = "manual" if beat.get("h3_prompt") else "missing"
+                reference_reason = str(beat.get("h3_prompt_reference_reason") or "")
             reference_urls = [str(item.get("url") or "") for item in ref_images if item.get("url")]
-            authoring_context = (
-                h3_authoring_context_images(recipe, bind_beat, assets)
-                if recipe is not None
-                else []
-            )
-            context_fingerprint = h3_prompt_context_fingerprint(
-                bind_beat,
-                ref_images,
-                authoring_context,
-            )
-            reference_state, reference_reason = h3_prompt_reference_state(
-                beat,
-                ref_images,
-                context_fingerprint,
-            )
-            if str(beat.get("h3_prompt") or "").strip() and reference_state in {"stale", "invalid"}:
-                missing.append(f"Beat {sequence} {reference_reason}")
+            if str(beat.get("h3_prompt") or "").strip() and reference_state in {"stale", "legacy_stale", "invalid"}:
+                missing.append(f"Beat {sequence} {reference_reason or '提示词已过期，请重新生成'}")
+            if str(beat.get("h3_prompt") or "").strip() and reference_state == "manual":
+                used_pictures = {
+                    int(value)
+                    for value in re.findall(r"<Picture\s+(\d+)>", str(beat.get("h3_prompt") or ""), flags=re.I)
+                }
+                invalid_pictures = sorted(value for value in used_pictures if value < 1 or value > len(reference_urls))
+                if invalid_pictures:
+                    missing.append(
+                        f"Beat {sequence} 手写提示词引用了不存在的参考图：{invalid_pictures}"
+                    )
             shot = {
                 "beat_id": str(beat.get("id") or f"beat-{sequence}"),
                 "sequence": sequence,
@@ -1430,7 +1566,7 @@ class EpisodeVideoService:
                 "visible_text": str(beat.get("visible_text") or "").strip(),
                 "h3_prompt": str(beat.get("h3_prompt") or "").strip(),
                 "h3_prompt_source": str(beat.get("h3_prompt_source") or "").strip(),
-                "skill_pack_id": pack_id,
+                "skill_pack_id": "",
                 "narration": str(beat.get("narration") or beat.get("voiceover") or "").strip(),
                 "speaker": str(beat.get("speaker") or "").strip(),
                 "characters": [item["character_name"] for item in character_references],
@@ -1456,8 +1592,8 @@ class EpisodeVideoService:
                 "scene_picture_index": None,
                 "reference_urls": reference_urls,
                 "ref_images": ref_images,
-                "h3_reference_policy": beat.get("h3_reference_policy") or "",
-                "h3_prompt_context_fingerprint": beat.get("h3_prompt_context_fingerprint") or "",
+                "h3_reference_policy": "prompt_master_slots" if isinstance(prompt_record, dict) else "manual_fallback",
+                "h3_prompt_context_fingerprint": (prompt_record or {}).get("source_fingerprint") or beat.get("h3_prompt_context_fingerprint") or "",
                 "h3_prompt_reference_state": reference_state,
                 "duration_sec": duration_seconds(beat),
                 "duration_seconds": duration_seconds(beat),
@@ -1505,29 +1641,13 @@ class EpisodeVideoService:
         return select_character_look(character, beat)
 
     @classmethod
-    @staticmethod
-    def _is_manual_h3_prompt(shot: dict[str, Any]) -> bool:
-        return str(shot.get("h3_prompt_source") or "").strip().lower() == "manual"
-
-    @classmethod
-    def _skip_program_pack(cls, shot: dict[str, Any]) -> bool:
-        from ...skill_packs import skip_program_pack_enabled
-
-        return skip_program_pack_enabled(str(shot.get("skill_pack_id") or "").strip())
-
-    @classmethod
     def _workshop_prompt_for_shot(cls, shot: dict[str, Any]) -> str | None:
         saved = str(shot.get("h3_prompt") or "").strip()
         if not saved:
             return None
-        if cls._is_manual_h3_prompt(shot):
-            return H3PromptBuilder.normalize_authored_ref2va(saved)
-        if cls._skip_program_pack(shot):
-            return H3PromptBuilder.canonicalize_authored_ref2va(saved, shot)
-        prepared = H3PromptBuilder.prepare_generated_prompt(saved, shot)
-        if H3PromptBuilder.validate_prompts([shot], [prepared]):
+        if str(shot.get("h3_prompt_reference_state") or "") in {"stale", "legacy_stale", "invalid"}:
             return None
-        return prepared
+        return saved
 
     @classmethod
     def _workshop_prompts_usable(cls, source_shots: list[dict[str, Any]]) -> list[str] | None:
@@ -1572,26 +1692,13 @@ class EpisodeVideoService:
             task_type = comfy.preflight(require_director=timeline_job)
             source_shots = payload.get("source_shots") or []
 
-            payload["llm_attempts"] = []
             payload["prompt_generation_progress"] = {"completed": 0, "total": len(source_shots)}
             saved_prompts = cls._workshop_prompts_usable(source_shots)
-            if saved_prompts is not None:
-                prompts = saved_prompts
-                payload["prompt_source"] = "workshop_material"
-                payload["prompt_generation_progress"]["completed"] = len(source_shots)
-            else:
-                payload["prompt_source"] = "configured_llm"
-                cls._set_state(job_id, payload, "prompt_generation", 20)
-
-                def record_attempt(attempt: dict[str, Any]) -> None:
-                    payload["llm_attempts"].append(attempt)
-                    if attempt.get("status") == "passed":
-                        payload["prompt_generation_progress"]["completed"] += 1
-                    total = max(1, int(payload["prompt_generation_progress"]["total"]))
-                    completed = int(payload["prompt_generation_progress"]["completed"])
-                    cls._set_state(job_id, payload, "prompt_generation", 20 + (completed * 9 // total))
-
-                prompts = H3PromptBuilder.build_prompts(source_shots, on_attempt=record_attempt)
+            if saved_prompts is None:
+                raise ValueError("视频任务不会自动调用大模型：请先在工坊生成并保存有效提示词")
+            prompts = saved_prompts
+            payload["prompt_source"] = payload.get("prompt_source") or "workshop_material"
+            payload["prompt_generation_progress"]["completed"] = len(source_shots)
 
             generated_shots = [{**shot, "prompt": prompt} for shot, prompt in zip(source_shots, prompts)]
             payload["shots"] = generated_shots
@@ -1625,7 +1732,12 @@ class EpisodeVideoService:
             payload["render_plan"]["status"] = "succeeded"
             payload["render_plan"]["total_duration"] = payload.get("total_duration_seconds")
             payload["result_kind"] = "episode_video" if payload.get("render_scope") == "episode" else "shot_video"
-            if payload.get("render_scope") in {"shot", "selection"} and generated_shots:
+            if payload.get("prompt_profile") == "director_segments" and payload.get("render_scope") == "selection":
+                try:
+                    cls._write_director_selection_result(payload, result_url, job_id)
+                except Exception as selection_update_error:
+                    payload["director_selection_update_warning"] = str(selection_update_error)
+            elif payload.get("render_scope") in {"shot", "selection"} and generated_shots:
                 try:
                     cls._write_selected_beat_videos(payload, generated_shots, result_url, job_id=job_id)
                 except Exception as beat_update_error:
@@ -1637,7 +1749,7 @@ class EpisodeVideoService:
                         payload["project_id"],
                         payload["episode_id"],
                         url=result_url,
-                        source="director_direct",
+                        source="director_plan" if payload.get("prompt_profile") == "director_segments" else "director_direct",
                         job_id=job_id,
                     )
                 except Exception as episode_update_error:
@@ -2040,6 +2152,51 @@ class EpisodeVideoService:
             data["episode_video_job_id"] = job_id
             cursor.execute(
                 "UPDATE ai_project_episodes SET data_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+                (json.dumps(data, ensure_ascii=False), timestamp, episode_id, project_id),
+            )
+
+    @classmethod
+    def _write_director_selection_result(
+        cls,
+        payload: dict[str, Any],
+        result_url: str,
+        job_id: str,
+    ) -> None:
+        project_id = str(payload.get("project_id") or "")
+        episode_id = str(payload.get("episode_id") or "")
+        revision = int(payload.get("director_plan_revision") or 0)
+        part_id = str(payload.get("part_id") or "")
+        segment_ids = [str(item) for item in payload.get("segment_ids") or []]
+        timestamp = now_str()
+        with transaction_cursor() as cursor:
+            cursor.execute(
+                "SELECT data_json FROM ai_project_episodes WHERE id=%s AND project_id=%s FOR UPDATE",
+                (episode_id, project_id),
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError("分集不存在")
+            try:
+                data = json.loads(row.get("data_json") or "{}")
+            except (TypeError, json.JSONDecodeError) as err:
+                raise ValueError("分集数据格式无效") from err
+            authoring = data.get("prompt_authoring") if isinstance(data.get("prompt_authoring"), dict) else {}
+            plan = authoring.get("director_plan") if isinstance(authoring.get("director_plan"), dict) else None
+            if not plan or int(plan.get("revision") or 0) != revision:
+                raise ValueError("Director 方案已更新，当前局部生成结果未自动绑定")
+            part = next((item for item in plan.get("parts") or [] if str(item.get("id") or "") == part_id), None)
+            if not part:
+                raise ValueError("Director Part 不存在")
+            renders = part.get("renders") if isinstance(part.get("renders"), list) else []
+            renders.append({"job_id": job_id, "segment_ids": segment_ids, "url": result_url, "created_at": timestamp})
+            part["renders"] = renders[-20:]
+            if len(segment_ids) == 1:
+                segment = next((item for item in part.get("segments") or [] if str(item.get("id") or "") == segment_ids[0]), None)
+                if segment:
+                    segment["video_url"] = result_url
+                    segment["video_job_id"] = job_id
+            cursor.execute(
+                "UPDATE ai_project_episodes SET data_json=%s,updated_at=%s WHERE id=%s AND project_id=%s",
                 (json.dumps(data, ensure_ascii=False), timestamp, episode_id, project_id),
             )
 

@@ -4,6 +4,17 @@
 
 工作台使用 React + TypeScript 前端和 FastAPI 后端，在同一界面提供 GRS 图片生成与本机 ComfyUI 视频生成。工作台提供员工账号、角色权限、任务隔离、多轮创作和浏览器本地资源交付；监听本机与局域网 IPv4 地址的 `7865` 端口，ComfyUI 默认 `http://127.0.0.1:8188`，超级管理员可在「管理设置 → AI 供应商」修改连接地址，不会把 ComfyUI 暴露到局域网或公网。账号、任务和导演工程存储在 `docs/存储配置.md` 中的远程 MySQL；媒体默认使用管理设置中的七牛云。unittest 仍使用临时 SQLite。环境变量前缀与包名继续保留 `zly-ai-video-studio` 兼容标识。
 
+## 导演台 H3 双模板
+
+剧集工坊的 H3 自动写词只保留两条路径，具体路径由 `/api/modes` 返回的 `prompt_profile` 决定，前端不按工作流 ID 猜测：
+
+- 普通单视频工作流使用「Minimax 六段式通用提示词」。选择一个 Beat，整理参考资产顺序，先生成预览，确认后才保存到该 Beat；手写 `h3_prompt` 仍可继续出片。
+- H3 Director Timeline 工作流使用「连续剧情（导演台）」。整集生成公共主体定义与独立 Director 段，Director 段可追溯到多个 Beat，但不会覆盖 Beat。超过 6 段或 1152 帧时自动拆为多个 Part；Part 是视频拼接边界。
+- 所有自动写词均为“生成预览 → 用户确认 → 原子保存”。剧本、Beat、资产、画幅、工作流或模板版本变化会使已保存方案过期；过期方案禁止出片。提交视频不会调用 LLM。
+- 面板支持浅色/暗色和移动宽度；≤760px 时项目侧栏收为图标栏，模板操作与引用排序改为单列，不产生横向滚动。
+
+相关接口为 `POST .../prompt-previews`、`POST .../prompt-previews/{job_id}/apply` 与 `PATCH .../prompt-plan`。数据保存在分集 `data_json.prompt_authoring`，不新增数据库列。
+
 ## 启动
 
 1. 启动固定目录 `D:\zlyun\ZLY AI Video Studio\整合包及模型\comfyui-integrate-v1.3\comfyui-integrate\Comfyui` 下的 ComfyUI，默认地址为 `http://127.0.0.1:8188`。若端口或映射地址不同，以超级管理员在「管理设置 → AI 供应商」填写实际地址，或设置环境变量 `ZLY_AI_VIDEO_STUDIO_COMFY_URL`（首次启动写入数据库）。
@@ -2034,3 +2045,23 @@ Docker 部署后健康检查失败，日志为 `Table 'ai-media.ai_project_jobs'
 - 受影响文件：`backend/app/skill_packs/handlers.py`、`backend/app/media_studio/services/{h3_prompt_job_service,llm_service,h3_prompt_builder,episode_video_service,project_detail_service}.py`、`frontend/src/director2/{api,workshop-r2v-refs}.ts`、`frontend/src/director2/panes/EpisodeWorkshopPane.tsx` 及相关测试。
 - 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video backend.tests.test_skill_packs`；`pnpm --dir frontend exec vitest run src/director2/workshop-r2v-refs.test.ts`；`pnpm --dir frontend build`；在 `http://127.0.0.1:5173` 检查桌面和移动端的“最终视频参考”“写稿参考”、过期提示与重新生成入口。
 - 回滚方式：还原上述前后端、测试和文档文件；Beat JSON 的新增键可保留，旧版本会忽略，不需要数据库迁移。
+
+## 2026-09-22 LLM / VLM 快速服务预设记忆
+
+- 变更原因：LLM、VLM 原先各只有一条当前配置，切换到自定义 OpenAI 兼容接口并保存后会覆盖硅基流动等预设的 Key 与模型。
+- 当前行为：每个内置快速服务和各自的 `custom` 独立保存 URL、模型、加密 Key 与专属参数。切换下拉框只回填历史配置，点击“保存配置”后才正式切换运行服务；Key 只显示脱敏值。
+- 数据与 API：新增 `llm_provider_profiles`、`vlm_provider_profiles`，当前单例配置增加 `profile_id`；新增 `GET /api/admin/providers/{llm|vlm}/profiles`，保存、测试和模型目录请求支持 `profile_id`。
+- 兼容性：启动时自动把旧单例配置按 Base URL 迁移到对应预设，无法识别时归入 `custom`；未传 `profile_id` 的旧客户端继续按 Base URL 推断。端口、ComfyUI、任务和媒体协议不变。
+- 受影响文件：`backend/app/{storage,models,llm_provider,vlm_provider,main}.py`、`frontend/src/admin/{LlmProviderSettings,VlmProviderSettings}.tsx`、`sql/015_provider_profiles.sql`、相关测试和主文档。
+- 验证命令：`python -m unittest backend.tests.test_llm backend.tests.test_vlm`、`python -m unittest discover -s backend/tests`、`pnpm --dir frontend build`；在 5173 管理页检查桌面与移动端预设往返回填。
+- 回滚方式：还原上述代码、SQL 和文档；新 profile 表可保留，旧版本不会读取。若需完全回滚，应先把目标 profile 写回单例设置，再删除 profile 表与 `profile_id` 列。
+
+## 2026-09-22 Director 连续剧情分段去重
+
+- 变更原因：较长 Beat 被 Director 拆段时，旧链路把完整动作和对白复制到多个段，导致模型用“回响/再次演出”等方式重复剧情。
+- 当前行为：Director 使用 `schema_version=2` / `planning_strategy=atomic_units`，先把原始 Beat 拆成不重叠的 `source_units`，再生成可独立出片的六段式提示词。每个动作单元拥有唯一生成镜头号、时间范围、事件/对白归属和结构化交接状态；写稿必须逐项原样落地 `required_events`，Part 间只传递交接状态。
+- 校验与失败策略：生成结果会校验时间连续性、事件/对白唯一归属、整集 Shot 唯一性和重播语义，最多定向修复一次；仍不通过时任务失败且不保存方案。
+- 兼容性：旧 Director 方案标记过期并禁止出片，需重新生成；Prompt Master 普通单 Beat 生成、H3 工作流、数据库结构和已有媒体不受影响。
+- 受影响文件：`backend/app/media_studio/services/{prompt_templates,prompt_expansion_service,episode_video_service}.py`、`frontend/src/director2/api.ts`、`backend/tests/media_studio_test_prompt_expansion.py` 与四份主文档。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_prompt_expansion -q`、`python -m unittest backend.tests.test_director backend.tests.test_director2_ai_generation -q`、`pnpm --dir frontend build`，并在 5173 工坊检查新旧方案状态。
+- 回滚方式：还原上述前后端、测试和文档文件；无需数据库迁移，历史 `director_plan` 可保留。

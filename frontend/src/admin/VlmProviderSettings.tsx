@@ -39,7 +39,7 @@ const PROVIDER_PRESETS = [
     label: "智谱 GLM（推荐免费视觉）",
     value: "zhipu",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    model: "glm-4.6v-flash",
+    model: "glm-4v-flash",
     docUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
     recommendedModels: [
       { name: "GLM-4.6V-Flash（免费，推荐）", id: "glm-4.6v-flash" },
@@ -129,7 +129,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
   const [enabled, setEnabled] = useState(false)
   const [useLlm, setUseLlm] = useState(false)
   const [baseUrl, setBaseUrl] = useState("https://open.bigmodel.cn/api/paas/v4")
-  const [model, setModel] = useState("glm-4.6v-flash")
+  const [model, setModel] = useState("glm-4v-flash")
   const [apiKey, setApiKey] = useState("")
   const [selectedPreset, setSelectedPreset] = useState("zhipu")
   const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([])
@@ -303,7 +303,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               type="warning"
               showIcon
               message="魔搭会扣除账户魔粒"
-              description="VL 模型同样按魔粒计费。不想扣费请改用智谱 glm-4.6v-flash，或本机 Ollama。"
+              description="VL 模型同样按魔粒计费。不想扣费请改用智谱 glm-4v-flash，或本机 Ollama。"
             />
           ) : null}
 
@@ -345,6 +345,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://open.bigmodel.cn/api/paas/v4"
+              autoComplete="new-password"
             />
           </div>
             </>
@@ -397,6 +398,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
                   ? "本地服务可留空"
                   : query.data?.api_key_masked || "输入平台生成的 API Key / Token"
               }
+              autoComplete="new-password"
             />
             {selectedPreset === "zhipu" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">

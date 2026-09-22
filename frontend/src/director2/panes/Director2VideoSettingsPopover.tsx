@@ -84,7 +84,7 @@ export default function Director2VideoSettingsPopover({
           items={[{
             key: "advanced",
             label: "更多设置",
-            children: <Space direction="vertical" className="w-full">{advanced.map(renderField)}</Space>,
+            children: <Space orientation="vertical" className="w-full">{advanced.map(renderField)}</Space>,
           }]}
         />
       ) : null}

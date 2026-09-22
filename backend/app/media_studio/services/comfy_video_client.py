@@ -221,7 +221,7 @@ class ComfyVideoClient:
                 "refAudios": [],
                 "refVideos": [],
                 "genImage": {"imageFile": "", "fileName": ""},
-                "continuityFromPrev": False,
+                "continuityFromPrev": bool(shot.get("continuity_from_prev")),
                 "refImageSize": "match",
                 "referenceVideo": {
                     "videoFile": "", "fileName": "", "type": "input", "subfolder": ""
@@ -237,7 +237,7 @@ class ComfyVideoClient:
             "frameRate": 24,
             "global": {
                 "taskType": task_type,
-                "prompt": "",
+                "prompt": str((options or {}).get("global_prompt") or ""),
                 "refs": [],
                 "referenceVideo": {"videoFile": "", "fileName": "", "type": "input", "subfolder": ""},
                 "continuousReference": False,
@@ -262,7 +262,7 @@ class ComfyVideoClient:
                 "audioMode": str((options or {}).get("audio_mode") or "generate"),
                 "exportSourceImages": False,
                 "refImageSize": "match",
-                "continuityEnabled": False,
+                "continuityEnabled": bool((options or {}).get("continuity_enabled")),
                 "continuityOverlapFrames": 5,
                 "continuityMode": "guide",
                 "continuityRedraw": 0.65,
@@ -286,7 +286,7 @@ class ComfyVideoClient:
                     "globalCommon": {
                         "commonEnabled": True,
                         "commonCollapsed": True,
-                        "prompt": "",
+                        "prompt": str((options or {}).get("global_prompt") or ""),
                         "refs": [],
                         "refAudios": [],
                         "refVideos": [],
@@ -367,7 +367,9 @@ class ComfyVideoClient:
             }},
             "12": {"class_type": "MiniMaxH3Director", "inputs": {
                 "model": ["15", 0], "video_vae": ["3", 0], "audio_vae": ["4", 0], "clip": ["2", 0],
-                "task_type": task_type, "global_prompt": "", "bd_grp_sample": "采样设置",
+                "task_type": task_type,
+                "global_prompt": str((timeline.get("global") or {}).get("prompt") or values.get("global_prompt") or ""),
+                "bd_grp_sample": "采样设置",
                 "cfg": cfg, "seed": seed, "frame_rate": 24.0,
                 "width": canvas["width"], "height": canvas["height"],
                 "ref_max_size": canvas["long_edge"], "total_frames": total_frames,
