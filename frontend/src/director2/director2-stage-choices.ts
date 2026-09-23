@@ -28,11 +28,16 @@ export const DIRECTOR2_SHOTS_PER_EPISODE_QUESTION: Director2ClarificationQuestio
 
 export function ensureDirector2OpeningQuestions(
   questions: Director2ClarificationQuestion[] | null | undefined,
+  storyDevelopment = false,
 ): Director2ClarificationQuestion[] {
-  const items = (questions || []).filter((item) => item && item.id !== "beat_count")
+  const items = (questions || []).filter((item) => item && item.id !== "beat_count" && (!storyDevelopment || item.id !== "shots_per_episode"))
   const ids = new Set(items.map((item) => String(item.id || "")))
   if (!ids.has("episode_count")) items.push(DIRECTOR2_EPISODE_COUNT_QUESTION)
-  if (!ids.has("shots_per_episode")) items.push(DIRECTOR2_SHOTS_PER_EPISODE_QUESTION)
+  if (storyDevelopment) {
+    if (!ids.has("duration_seconds")) items.push({ id: "duration_seconds", question: "每集希望多长？", why: "时长决定剧情容量，稍后在全剧策划中集中确认。原稿已有时长可跳过沿用。", options: [
+      { label: "30 秒", value: "30" }, { label: "60 秒", value: "60", recommended: true }, { label: "120 秒", value: "120" },
+    ], allowCustom: true })
+  } else if (!ids.has("shots_per_episode")) items.push(DIRECTOR2_SHOTS_PER_EPISODE_QUESTION)
   return items
 }
 

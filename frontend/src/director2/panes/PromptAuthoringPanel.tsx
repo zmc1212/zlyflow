@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   Button,
@@ -16,6 +16,8 @@ import {
   message,
 } from "antd"
 import { ArrowDown, ArrowUp, Copy, Film, Sparkles } from "lucide-react"
+import { ApiRequestError } from "../../api"
+import { directorPlanNeedsReview, directorRevisionStopMessage } from "../director-plan-quality"
 import {
   applyPromptPreview,
   createPromptPreview,
@@ -23,9 +25,12 @@ import {
   generateEpisodeVideo,
   getJob,
   patchDirectorPromptPlan,
+  reviseDirectorPromptPlan,
+  retryJob,
   type Director2Asset,
   type Director2Beat,
   type Director2EpisodeDetail,
+  type Director2Job,
   type DirectorPromptPlan,
   type PromptPreview,
   type PromptReferenceSlot,
@@ -33,9 +38,26 @@ import {
 } from "../api"
 import { buildVideoJobOptions, type Director2WorkflowMode } from "../director2-video-settings"
 import { sumBeatDurationSec } from "../workshop-beat-duration"
-import { streamH3PromptJobEvents } from "../workshop-prompt-stream"
+import { WorkshopPromptLive } from "../WorkshopPromptLive"
+import {
+  applyPromptStreamEvent,
+  emptyPromptLiveState,
+  streamH3PromptJobEvents,
+  type PromptPreviewFailure,
+  type WorkshopPromptLiveState,
+} from "../workshop-prompt-stream"
 
 type ReferenceCandidate = PromptReferenceSlot & { key: string }
+
+class PromptPreviewTaskError extends Error {
+  failure: PromptPreviewFailure | null
+
+  constructor(messageText: string, failure: PromptPreviewFailure | null = null) {
+    super(messageText)
+    this.name = "PromptPreviewTaskError"
+    this.failure = failure
+  }
+}
 
 interface PromptAuthoringPanelProps {
   csrfToken: string
@@ -48,6 +70,18 @@ interface PromptAuthoringPanelProps {
   videoOptions: Record<string, string>
   onRefresh: () => Promise<void>
   onVideoJob?: (jobIds: string[]) => void
+  selectedUnitId?: string
+  jobs?: Director2Job[]
+  shotWorkflows?: Director2WorkflowMode[]
+  onChooseShotWorkflow?: (id: string) => void
+}
+
+export function findActivePromptPreview(jobs: Director2Job[], episodeId: string, profile: string, beatId?: string) {
+  return jobs.find(job => job.job_type === "prompt_expansion"
+    && ["queued", "preparing", "running", "storing"].includes(job.status)
+    && job.payload?.episode_id === episodeId
+    && job.payload?.prompt_profile === profile
+    && (profile === "director_segments" || job.payload?.beat_id === beatId))
 }
 
 const SECTION_LABELS: Array<[keyof PromptSections, string]> = [
@@ -94,6 +128,10 @@ export function formatDirectorPromptPlanForClipboard(plan: DirectorPromptPlan): 
   }
 
   return blocks.filter(Boolean).join("\n\n")
+}
+
+export function isValidatedPromptPreview(preview: PromptPreview | null | undefined): boolean {
+  return Boolean(preview && (preview.kind !== "director_segments" || preview.validation_status === "valid"))
 }
 
 function assetImage(asset: Director2Asset): string {
@@ -197,6 +235,10 @@ export default function PromptAuthoringPanel({
   videoOptions,
   onRefresh,
   onVideoJob,
+  selectedUnitId,
+  jobs = [],
+  shotWorkflows = [],
+  onChooseShotWorkflow,
 }: PromptAuthoringPanelProps) {
   const profile = workflow?.prompt_profile || "none"
   const candidates = useMemo(() => referenceCandidates(assets), [assets])
@@ -211,12 +253,73 @@ export default function PromptAuthoringPanel({
   const [creating, setCreating] = useState(false)
   const [applying, setApplying] = useState(false)
   const [previewJobId, setPreviewJobId] = useState("")
+  const [previewLive, setPreviewLive] = useState<WorkshopPromptLiveState>(() => emptyPromptLiveState())
   const [preview, setPreview] = useState<PromptPreview | null>(null)
   const [selectedPartId, setSelectedPartId] = useState("")
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([])
   const [generatingSelection, setGeneratingSelection] = useState(false)
   const [editingPlan, setEditingPlan] = useState<DirectorPromptPlan | null>(null)
   const [savingPlan, setSavingPlan] = useState(false)
+  const [expandedParts, setExpandedParts] = useState<string[]>([])
+  const [revisionSource, setRevisionSource] = useState<{ plan: DirectorPromptPlan; jobId?: string } | null>(null)
+  const [revisionFeedback, setRevisionFeedback] = useState("")
+  const [revisionTargets, setRevisionTargets] = useState<string[]>([])
+  const lifecycle = useRef(new AbortController())
+  const observedJobs = useRef(new Set<string>())
+
+  useEffect(() => {
+    const controller = new AbortController()
+    lifecycle.current = controller
+    message.destroy("prompt-preview")
+    return () => {
+      controller.abort()
+      message.destroy("prompt-preview")
+    }
+  }, [])
+
+  useEffect(() => {
+    if (creating) return
+    const active = findActivePromptPreview(jobs, episode.id, profile, selectedBeat?.id)
+    if (!active || observedJobs.current.has(active.id)) return
+    observedJobs.current.add(active.id)
+    const signal = lifecycle.current.signal
+    setPreviewJobId(active.id)
+    setPreviewLive({ ...emptyPromptLiveState(active.id), message: "正在恢复提示词预览直播" })
+    setCreating(true)
+    void waitForPreview(active.id).then(completed => {
+      if (signal.aborted) return
+      setPreview(completed)
+      message.success({ content: "提示词预览已完成，请确认后保存", key: "prompt-preview" })
+    }).catch(error => {
+      if (!signal.aborted) showPreviewFailure(error)
+    }).finally(() => {
+      if (!signal.aborted) setCreating(false)
+    })
+  }, [jobs, episode.id, profile, selectedBeat?.id, creating])
+
+  const recentPreview = jobs.find(job => job.job_type === "prompt_expansion"
+    && ["completed", "succeeded"].includes(job.status)
+    && job.payload?.episode_id === episode.id
+    && job.payload?.prompt_profile === profile
+    && (profile === "director_segments" || job.payload?.beat_id === selectedBeat?.id))
+
+  async function openRecentPreview() {
+    if (!recentPreview) return
+    const signal = lifecycle.current.signal
+    setCreating(true)
+    setPreviewJobId(recentPreview.id)
+    try {
+      const job = await getJob(projectId, recentPreview.id)
+      if (signal.aborted) return
+      const result = job.payload?.preview as PromptPreview | undefined
+      if (!result || !isValidatedPromptPreview(result)) throw new Error("此预览未通过最终校验")
+      setPreview(result)
+    } catch (error) {
+      if (!signal.aborted) message.error(director2ErrorDetail(error, "读取预览失败"))
+    } finally {
+      if (!signal.aborted) setCreating(false)
+    }
+  }
 
   useEffect(() => {
     setSelectedKeys(defaultKeys)
@@ -233,6 +336,10 @@ export default function PromptAuthoringPanel({
   }, [candidates, selectedKeys])
   const slots = useMemo(() => normalizeSlots(selectedCandidates), [selectedCandidates])
   const savedPlan = episode.prompt_authoring?.director_plan
+  useEffect(() => {
+    const part = savedPlan?.parts.find(p => p.segments.some(s => s.id === selectedUnitId))
+    if (part) setExpandedParts([part.id])
+  }, [selectedUnitId, savedPlan?.id, savedPlan?.revision])
   const savedBeatPrompt = selectedBeat ? episode.prompt_authoring?.full_reference?.[selectedBeat.id] : undefined
 
   async function copyDirectorPlan(plan: DirectorPromptPlan) {
@@ -247,33 +354,161 @@ export default function PromptAuthoringPanel({
   async function waitForPreview(jobId: string): Promise<PromptPreview> {
     let streamedPreview: PromptPreview | undefined
     let streamedError = ""
-    await streamH3PromptJobEvents(projectId, jobId, (event) => {
-      if (event.event === "done" && event.data.preview) {
-        streamedPreview = event.data.preview as PromptPreview
-      } else if (event.event === "error") {
-        streamedError = String(event.data.message || "提示词预览任务失败")
+    let streamedFailure: PromptPreviewFailure | null = null
+    let terminalJob: Awaited<ReturnType<typeof getJob>> | null = null
+    let stopPolling = false
+    const streamAbort = new AbortController()
+    const signal = lifecycle.current.signal
+    const abort = () => streamAbort.abort()
+    signal.addEventListener("abort", abort, { once: true })
+    // A server restart can leave an SSE connection open without a terminal
+    // event. The persisted job row is authoritative in that case.
+    const pollJob = async () => {
+      while (!stopPolling) {
+        await new Promise((resolve) => setTimeout(resolve, 15_000))
+        if (stopPolling || signal.aborted) return
+        try {
+          const job = await getJob(projectId, jobId)
+          if (["completed", "succeeded", "failed", "cancelled", "interrupted"].includes(job.status)) {
+            terminalJob = job
+            streamAbort.abort()
+            return
+          }
+        } catch {
+          // SSE remains the primary source; a transient poll failure is safe.
+        }
       }
-    })
-    if (streamedPreview) return streamedPreview
+    }
+    void pollJob()
+    try {
+      await streamH3PromptJobEvents(projectId, jobId, (event) => {
+        if (signal.aborted) return
+        setPreviewLive((current) => applyPromptStreamEvent(
+          current.jobId === jobId ? current : emptyPromptLiveState(jobId),
+          event,
+        ))
+        if (event.event === "done" && event.data.preview) {
+          streamedPreview = event.data.preview as PromptPreview
+        } else if (event.event === "error") {
+          streamedError = String(event.data.message || "提示词预览任务失败")
+          streamedFailure = {
+            code: String(event.data.code || "PROMPT_PREVIEW_FAILED"),
+            stage: String(event.data.stage || "generation"),
+            part_id: event.data.part_id ? String(event.data.part_id) : null,
+            segment_ids: Array.isArray(event.data.segment_ids) ? event.data.segment_ids.map(String) : [],
+            attempt: Number(event.data.attempt || 0),
+            retryable: event.data.retryable !== false,
+            message: streamedError,
+            detail: event.data.detail ? String(event.data.detail) : undefined,
+          }
+        }
+      }, { signal: streamAbort.signal })
+    } finally {
+      stopPolling = true
+      streamAbort.abort()
+      signal.removeEventListener("abort", abort)
+    }
+    if (signal.aborted) throw new DOMException("Preview listener disposed", "AbortError")
+    if (streamedPreview) {
+      if (isValidatedPromptPreview(streamedPreview)) return streamedPreview
+      throw new PromptPreviewTaskError("Director 预览未通过最终校验，不能打开或保存")
+    }
 
-    const job = await getJob(projectId, jobId)
+    const job = terminalJob || await getJob(projectId, jobId)
     if (["completed", "succeeded"].includes(job.status)) {
       const result = job.payload?.preview as PromptPreview | undefined
-      if (result) return result
+      if (result && isValidatedPromptPreview(result)) return result
+      if (result?.kind === "director_segments") {
+        throw new PromptPreviewTaskError("Director 预览未通过最终校验，不能打开或保存")
+      }
       throw new Error("任务已完成，但没有返回提示词预览")
     }
     if (["failed", "cancelled", "interrupted"].includes(job.status)) {
-      throw new Error(job.error_message || streamedError || "提示词预览任务失败")
+      const payloadFailure = job.payload?.failure as PromptPreviewFailure | undefined
+      const failure = payloadFailure || streamedFailure
+      throw new PromptPreviewTaskError(
+        failure?.message || streamedError || job.error_message || "提示词预览任务失败",
+        failure || null,
+      )
     }
-    throw new Error(streamedError || "提示词预览事件流已中断，请到全部任务查看状态")
+    throw new PromptPreviewTaskError(streamedError || "提示词预览事件流已中断，请到全部任务查看状态", streamedFailure)
+  }
+
+  function showPreviewFailure(error: unknown) {
+    const body = error instanceof ApiRequestError ? error.body as { detail?: unknown } : null
+    const apiFailure = body?.detail && typeof body.detail === "object" && "code" in body.detail ? body.detail as PromptPreviewFailure : null
+    const structured = error instanceof PromptPreviewTaskError ? error.failure : apiFailure
+    const detail = structured?.message || director2ErrorDetail(error, "提示词预览生成失败")
+    setPreviewLive((current) => ({
+      ...current,
+      working: false,
+      failed: true,
+      failure: structured,
+      message: detail,
+    }))
+    if (profile === "director_segments" && structured) {
+      message.destroy("prompt-preview")
+    } else {
+      message.error({ content: detail, key: "prompt-preview", duration: 8 })
+    }
+  }
+
+  function openRevision(plan: DirectorPromptPlan, jobId?: string) {
+    setRevisionSource({ plan, jobId })
+    setRevisionFeedback("")
+    const issues = plan.creative_review?.issues.map(issue => issue.segment_id).filter(Boolean) || []
+    setRevisionTargets([...new Set(issues.length ? issues : plan.parts.flatMap(part => part.segments.map(segment => segment.id)))])
+    setPreview(null)
+  }
+
+  async function revisePlan(reviewOnly = false) {
+    if (!revisionSource) return
+    const feedback = revisionFeedback.trim()
+    if (!reviewOnly && (!feedback || !revisionTargets.length)) {
+      message.warning("请填写修改意见并选择返修段落")
+      return
+    }
+    const source = revisionSource
+    const signal = lifecycle.current.signal
+    setCreating(true)
+    setPreviewLive({ ...emptyPromptLiveState("creating-revision"), message: "正在创建方案返修任务" })
+    try {
+      const result = await reviseDirectorPromptPlan(csrfToken, projectId, episode.id, {
+        base_job_id: source.jobId,
+        expected_plan_id: source.plan.id,
+        expected_revision: source.plan.revision,
+        feedback: reviewOnly ? "" : feedback,
+        segment_ids: reviewOnly ? [] : revisionTargets,
+      })
+      if (signal.aborted) return
+      setRevisionSource(null)
+      observedJobs.current.add(result.job_id)
+      setPreviewJobId(result.job_id)
+      setPreviewLive({ ...emptyPromptLiveState(result.job_id), message: "正在按意见返修并复验" })
+      const completed = await waitForPreview(result.job_id)
+      if (!signal.aborted) {
+        setPreview(completed)
+        message.success("新版本已生成，请查看问题与修改差异后保存")
+      }
+    } catch (error) {
+      if (!signal.aborted) showPreviewFailure(error)
+    } finally {
+      if (!signal.aborted) setCreating(false)
+    }
   }
 
   async function createPreview() {
+    const signal = lifecycle.current.signal
     if (profile === "full_reference" && !selectedBeat) {
       message.warning("请先选择一个分镜")
       return
     }
     setCreating(true)
+    setPreview(null)
+    setPreviewLive({
+      ...emptyPromptLiveState("creating-preview"),
+      message: "正在创建提示词预览任务",
+    })
     try {
       const result = await createPromptPreview(csrfToken, projectId, episode.id, {
         workflow_id: workflowId,
@@ -286,15 +521,40 @@ export default function PromptAuthoringPanel({
         target_segment_count: profile === "director_segments" ? segmentCount : undefined,
         reference_slots: slots,
       })
+      if (signal.aborted) return
+      observedJobs.current.add(result.job_id)
       setPreviewJobId(result.job_id)
-      message.loading({ content: "正在使用提示词大师模板生成预览…", key: "prompt-preview", duration: 0 })
+      setPreviewLive({ ...emptyPromptLiveState(result.job_id), message: "正在使用提示词大师模板生成预览…" })
       const completed = await waitForPreview(result.job_id)
       setPreview(completed)
       message.success({ content: "提示词预览已完成，请确认后保存", key: "prompt-preview" })
     } catch (error) {
-      message.error({ content: director2ErrorDetail(error, "提示词预览生成失败"), key: "prompt-preview", duration: 8 })
+      if (!signal.aborted) showPreviewFailure(error)
     } finally {
-      setCreating(false)
+      if (!signal.aborted) setCreating(false)
+    }
+  }
+
+  async function retryFailedPreview() {
+    const signal = lifecycle.current.signal
+    if (!previewJobId || !previewLive.failure?.retryable) return
+    setCreating(true)
+    setPreview(null)
+    try {
+      const result = await retryJob(csrfToken, projectId, previewJobId)
+      if (signal.aborted) return
+      const nextJobId = String(result.job_id || "")
+      if (!nextJobId) throw new Error("重试任务未返回 job_id")
+      setPreviewJobId(nextJobId)
+      observedJobs.current.add(nextJobId)
+      setPreviewLive({ ...emptyPromptLiveState(nextJobId), message: "正在从失败检查点恢复" })
+      const completed = await waitForPreview(nextJobId)
+      setPreview(completed)
+      message.success({ content: "失败部分已修复，预览通过最终校验", key: "prompt-preview" })
+    } catch (error) {
+      if (!signal.aborted) showPreviewFailure(error)
+    } finally {
+      if (!signal.aborted) setCreating(false)
     }
   }
 
@@ -457,8 +717,61 @@ export default function PromptAuthoringPanel({
           <Button type="primary" icon={<Sparkles size={14} />} loading={creating} onClick={createPreview}>
             生成预览
           </Button>
+          {recentPreview && <Button disabled={creating} onClick={() => void openRecentPreview()}>查看最近预览</Button>}
         </Space>
       </header>
+
+      {(creating || previewLive.failed) && previewLive.jobId ? (
+        <Card
+          size="small"
+          className="prompt-preview-live-card"
+          title="提示词预览直播"
+          extra={<Tag color={previewLive.failed ? "error" : "processing"}>{previewLive.failed ? "生成失败" : "实时生成中"}</Tag>}
+          role="status"
+          aria-live="polite"
+          aria-label="提示词预览实时进度"
+        >
+          <WorkshopPromptLive state={previewLive} showStage={profile === "director_segments"} />
+          {previewLive.failure ? (
+            <Space direction="vertical" size={10} style={{ width: "100%", marginTop: 12 }}>
+              <Typography.Text type="secondary">
+                {previewLive.failure.part_id ? `失败位置：${previewLive.failure.part_id}` : `失败阶段：${previewLive.failure.stage}`}
+                {previewLive.failure.segment_ids.length ? ` · ${previewLive.failure.segment_ids.join("、")}` : ""}
+              </Typography.Text>
+              {previewLive.failure.stage === "preflight" ? <Alert type="warning" showIcon title="请先处理以下冲突" description={<span style={{ whiteSpace: "pre-wrap" }}>{previewLive.failure.detail}</span>} /> : null}
+              <Space wrap>
+                <Button
+                  type="primary"
+                  disabled={!previewLive.failure.retryable}
+                  loading={creating}
+                  onClick={() => void retryFailedPreview()}
+                >
+                  重试失败部分
+                </Button>
+                <Button disabled={creating} onClick={() => void createPreview()}>重新生成全部</Button>
+                {profile === "director_segments" && onChooseShotWorkflow && shotWorkflows.length ? <Select
+                  aria-label="改用逐镜生成" placeholder="改用逐镜生成…" disabled={creating}
+                  options={shotWorkflows.map(mode => ({ value: mode.id, label: mode.name }))}
+                  onChange={onChooseShotWorkflow} style={{ minWidth: 220 }}
+                /> : null}
+              </Space>
+              <Collapse
+                ghost
+                size="small"
+                items={[{
+                  key: "technical-detail",
+                  label: "技术详情",
+                  children: (
+                    <Typography.Paragraph copyable style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
+                      {JSON.stringify(previewLive.failure, null, 2)}
+                    </Typography.Paragraph>
+                  ),
+                }]}
+              />
+            </Space>
+          ) : null}
+        </Card>
+      ) : null}
 
       {maxReferences > 0 ? (
         <div className="prompt-reference-editor">
@@ -512,9 +825,13 @@ export default function PromptAuthoringPanel({
               编辑方案
             </Button>
             <Typography.Text type="secondary">版本 {savedPlan.revision}</Typography.Text>
+            {savedPlan.director_design ? <Button disabled={creating || savedPlan.status !== "current"} onClick={() => openRevision(savedPlan)}>按意见返修 / 重新审稿</Button> : null}
           </Space>
+          <DirectorDesignReview plan={savedPlan} />
           <Card size="small" title="公共主体定义"><Typography.Paragraph>{savedPlan.common_setting.subject_definitions}</Typography.Paragraph></Card>
           <Collapse
+            activeKey={expandedParts}
+            onChange={keys => setExpandedParts(Array.isArray(keys) ? keys.map(String) : [String(keys)])}
             items={savedPlan.parts.map((part) => ({
               key: part.id,
               label: `Part ${part.index} · ${part.segments.length} 段 · ${Math.round(part.frame_count / 24)} 秒`,
@@ -531,7 +848,7 @@ export default function PromptAuthoringPanel({
                         <Tag>{segment.duration_seconds}s</Tag>
                       </Space>
                     )}>
-                      <SectionsView sections={segment.sections} includeSubject={false} />
+                      {(!selectedUnitId || selectedUnitId === segment.id) ? <SectionsView sections={segment.sections} includeSubject={false} /> : <Typography.Text type="secondary">在画面列表选中此段查看提示词；可勾选连续段重做。</Typography.Text>}
                     </Card>
                   ))}
                 </div>
@@ -541,7 +858,7 @@ export default function PromptAuthoringPanel({
           <Button
             icon={<Film size={14} />}
             loading={generatingSelection}
-            disabled={savedPlan.status !== "current" || !selectedSegmentIds.length}
+            disabled={savedPlan.status !== "current" || !selectedSegmentIds.length || directorPlanNeedsReview(savedPlan)}
             onClick={() => generateSelection(savedPlan)}
           >
             生成选中 Director 段（{selectedSegmentIds.length}）
@@ -556,7 +873,7 @@ export default function PromptAuthoringPanel({
         rootClassName="d2-prompt-preview-modal"
         width={920}
         title={preview?.kind === "director_segments" ? "确认 Director 出片方案" : "确认六段式提示词"}
-        okText="确认保存"
+        okText={preview?.kind === "director_segments" && directorPlanNeedsReview(preview) ? "保存待修订方案" : "确认保存"}
         cancelText="返回调整"
         confirmLoading={applying}
         onOk={() => applyPreview(false)}
@@ -566,6 +883,8 @@ export default function PromptAuthoringPanel({
           <SectionsView sections={preview.sections} />
         ) : preview?.kind === "director_segments" ? (
           <div className="director-preview-modal">
+            <DirectorDesignReview plan={preview} />
+            <Button disabled={creating} onClick={() => openRevision(preview, previewJobId)}>按意见返修 / 重新审稿</Button>
             <Card size="small" title="公共主体定义"><Typography.Paragraph>{preview.common_setting.subject_definitions}</Typography.Paragraph></Card>
             <Collapse
               defaultActiveKey={preview.parts[0]?.id}
@@ -581,6 +900,26 @@ export default function PromptAuthoringPanel({
             />
           </div>
         ) : null}
+      </Modal>
+
+      <Modal open={Boolean(revisionSource)} title="Director 方案返修" width={760}
+        okText="按意见返修并复验" cancelText="取消" confirmLoading={creating} onOk={() => void revisePlan()}
+        cancelButtonProps={{ disabled: creating }} onCancel={() => { if (!creating) setRevisionSource(null) }}>
+        <Space orientation="vertical" size={16} style={{ width: "100%" }}>
+          <Typography.Paragraph>保留剧情事实、对白、时长、起止状态和公共设定，只修改所选段落的摄影、表演与正文。新版本需确认保存。</Typography.Paragraph>
+          <div style={{ width: "100%" }}>
+            <Typography.Text strong>返修段落</Typography.Text>
+            <Select aria-label="返修段落" mode="multiple" style={{ width: "100%" }} value={revisionTargets} onChange={setRevisionTargets} disabled={creating}
+              options={revisionSource?.plan.parts.flatMap(part => part.segments.map(segment => ({ value: segment.id, label: `Part ${part.index} · ${segment.title}` })))} />
+          </div>
+          <div style={{ width: "100%" }}>
+            <Typography.Text strong>修改意见</Typography.Text>
+            <Input.TextArea aria-label="修改意见" value={revisionFeedback} onChange={event => setRevisionFeedback(event.target.value)}
+              maxLength={4000} showCount autoSize={{ minRows: 4, maxRows: 10 }} disabled={creating}
+              placeholder="例如：第二段只保留一次缓慢推进，删去重复机位描述；纸张声清晰，配乐不要盖过动作声。" />
+          </div>
+          <Button disabled={creating} onClick={() => void revisePlan(true)}>仅重新审稿并自动修复可处理的问题</Button>
+        </Space>
       </Modal>
 
       <Modal
@@ -671,4 +1010,26 @@ export default function PromptAuthoringPanel({
       </Modal>
     </section>
   )
+}
+
+function DirectorDesignReview({ plan }: { plan: DirectorPromptPlan }) {
+  if (!plan.director_design) return null
+  return <Card size="small" title="为什么这样拍">
+    <Typography.Paragraph>{plan.director_design.dramatic_intent}</Typography.Paragraph>
+    <Typography.Paragraph>{plan.director_design.visual_strategy}</Typography.Paragraph>
+    <Space wrap><Tag color="success">结构校验通过</Tag><Tag>{!plan.creative_review || plan.quality_status === "not_reviewed" ? "当前正文尚未重新审稿" : plan.creative_review.issues.length ? "创作质量待人工审阅" : "自动审稿完成，尚未验证成片"}</Tag></Space>
+    {directorPlanNeedsReview(plan) ? <Alert type="warning" showIcon title="当前方案可保存，复验并解决阻断问题后才能出片" /> : null}
+    {directorRevisionStopMessage(plan.revision_stop_reason) ? <Alert type="info" showIcon title={directorRevisionStopMessage(plan.revision_stop_reason)} /> : null}
+    {plan.target_segment_count && plan.actual_segment_count !== plan.target_segment_count ? <Typography.Paragraph type="secondary">偏好 {plan.target_segment_count} 段；按完整动作与转场规划为 {plan.actual_segment_count} 段。</Typography.Paragraph> : null}
+    {plan.director_design.quality_notes?.map((note, i) => <Typography.Paragraph key={i}>{note}</Typography.Paragraph>)}
+    {plan.creative_review?.issues.map((issue, i) => <Alert key={issue.id || i} type={issue.severity === "advisory" ? "info" : "warning"} showIcon title={`${issue.severity === "advisory" ? "建议" : "待解决"}${issue.segment_id ? ` · ${issue.segment_id}` : ""}：${issue.evidence}`} description={issue.suggestion} />)}
+    {plan.revision_requirements?.length ? <Collapse size="small" items={[{ key: "requirements", label: "已保留的修改意见", children: plan.revision_requirements.map((item, i) => <Typography.Paragraph key={i}>{item.feedback}</Typography.Paragraph>) }]} /> : null}
+    {plan.revision_history?.some(round => round.round > 0) ? <Collapse size="small" items={plan.revision_history.filter(round => round.round > 0).map((round, i) => ({
+      key: String(i), label: `第 ${round.round} 轮 · ${round.status === "accepted" ? "已采用" : "未采用，保留上一版"} · 解决 ${round.resolved?.length || 0} 项 / 遗留 ${round.remaining?.length || 0} 项 / 新增 ${round.new?.length || 0} 项`,
+      children: <>{round.detail && <Typography.Paragraph>{round.detail}</Typography.Paragraph>}{round.changes?.map(change => <Card size="small" key={change.segment_id} title={change.segment_id}>
+        <Typography.Text strong>修改前</Typography.Text><Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>{change.before}</Typography.Paragraph>
+        <Typography.Text strong>修改后{round.status !== "accepted" ? "（未采用）" : ""}</Typography.Text><Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>{change.after}</Typography.Paragraph>
+      </Card>)}</>,
+    }))} /> : null}
+  </Card>
 }

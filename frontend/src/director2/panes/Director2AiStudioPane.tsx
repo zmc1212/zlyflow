@@ -49,6 +49,7 @@ import {
 } from "../director2-ai-operation-state"
 import { normalizeEpisodeLiveCard, type Director2EpisodeLiveCard } from "../director2-episode-live-card"
 import Director2ScriptLiveBody from "../Director2ScriptLiveBody"
+import ScriptDevelopmentPanel from "./ScriptDevelopmentPanel"
 import { resolveDirector2ScriptLiveSource, scriptLiveSourceHasContent } from "../director2-script-live-view"
 import "../../director/guided-flow.css"
 import "../../director/components/director-asset-card.css"
@@ -159,8 +160,8 @@ export default function Director2AiStudioPane({
   }, [contentSummary])
   const questionMode = operation?.kind === "clarify" && operation.status === "succeeded" && questions.length > 0
   const openingQuestions = useMemo(
-    () => (operation?.kind === "clarify" || operation?.current_stage === "clarify" ? ensureDirector2OpeningQuestions(questions) : questions),
-    [operation?.kind, operation?.current_stage, questions],
+    () => (operation?.kind === "clarify" || operation?.current_stage === "clarify" ? ensureDirector2OpeningQuestions(questions, !!operation.script_development_version) : questions),
+    [operation?.kind, operation?.current_stage, operation?.script_development_version, questions],
   )
   const openingClarify = operation?.kind === "pipeline" && operation.current_stage === "clarify" && (operation.status === "revising" || Boolean(questions.length && operation.status === "clarifying"))
   const stageQuestionMode = operation?.status === "revising" && questions.length > 0
@@ -249,7 +250,7 @@ export default function Director2AiStudioPane({
     if (restoredGoal) setBrief((current) => current || restoredGoal)
     if (next.result.questions) {
       const opening = next.kind === "clarify" || next.current_stage === "clarify"
-      setQuestions(opening ? ensureDirector2OpeningQuestions(next.result.questions) : next.result.questions)
+      setQuestions(opening ? ensureDirector2OpeningQuestions(next.result.questions, !!next.script_development_version) : next.result.questions)
     } else if (next.status !== "revising" && next.status !== "clarifying") setQuestions([])
     const liveMessage = next.result.message?.trim()
     if (liveMessage && next.current_stage) {
@@ -885,6 +886,10 @@ export default function Director2AiStudioPane({
                           })}
                           {stageQuestionMode ? <DirectorClarificationCard questions={openingClarify || operation.current_stage === "clarify" ? openingQuestions : questions} disabled={busy} onConfirm={(nextAnswers) => { void rerunCurrent(nextAnswers) }} /> : null}
                           {awaitingReview && currentStage ? (
+                            currentStage.key === "script" && operation.script_development_document_id ? <>
+                              <ScriptDevelopmentPanel projectId={projectId} documentId={operation.script_development_document_id} csrfToken={csrfToken} onAdopted={() => { void acceptStage() }} />
+                              <Button loading={busy} onClick={() => void acceptStage()}>已采纳剧本，继续资产阶段</Button>
+                            </> :
                             <DirectorReviewBlock
                               label={currentStage.label}
                               message={stageMessages[currentStage.key] || operation.result.message || "该阶段已生成，请确认"}

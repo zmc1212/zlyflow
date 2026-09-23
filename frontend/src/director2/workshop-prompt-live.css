@@ -89,6 +89,14 @@
   font-weight: 500;
   color: var(--director-ink-2);
 }
+.workshop-prompt-live .workshop-think-error {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--studio-danger);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .workshop-prompt-live .workshop-think-chevron {
   display: inline-flex;
   color: var(--director-ink-3);

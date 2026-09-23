@@ -14,8 +14,8 @@ from typing import Any
 
 
 FULL_REFERENCE_TEMPLATE_VERSION = "prompt-master/full-reference@1"
-DIRECTOR_TEMPLATE_VERSION = "prompt-master/continuous-story@2"
-DIRECTOR_UNIT_PLANNER_VERSION = "prompt-master/atomic-units@1"
+DIRECTOR_TEMPLATE_VERSION = "prompt-master/continuous-story@5"
+DIRECTOR_UNIT_PLANNER_VERSION = "prompt-master/story-design@5"
 
 ZH_FULL_SECTIONS = (
     ("subject_definitions", "主体定义"),
@@ -129,6 +129,7 @@ def build_director_unit_planning_prompts(
     language: str,
     beats: list[dict[str, Any]],
     units: list[dict[str, Any]],
+    source_facts: dict[str, dict[str, list[dict[str, str]]]],
 ) -> tuple[str, str]:
     """Build the structured allocation prompt used before prose generation.
 
@@ -139,34 +140,41 @@ def build_director_unit_planning_prompts(
     lang = normalize_language(language)
     if lang == "en":
         system = """You are the Director atomic-unit planner. Return JSON only.
-Create one object for every provided unit id. Assign each source Beat's events and dialogue to exactly one unit; never invent plot, characters, dialogue or events. Keep dialogue_owner text verbatim. required_events must be concise source-grounded event descriptions and must not repeat across units. start_state and handoff_state must describe visible continuity only. For adjacent units from the same Beat, copy the previous handoff_state verbatim into the next start_state.
-JSON shape: {\"units\":[{\"unit_id\":\"...\",\"required_events\":[\"...\"],\"dialogue_owner\":[\"...\"],\"start_state\":\"...\",\"handoff_state\":\"...\"}]}"""
+Create one object for every provided unit id. Units are listed in story order; the ordinal is local to its Beat. Assign only the provided event_ids and dialogue_ids to units from the same source Beat. Every fact id must be assigned exactly once; never copy or rewrite fact text and never invent ids. Provide start_state only on the first unit of each Beat, and one handoff_state for every unit. The program derives all subsequent start states by copying the previous handoff.
+JSON shape: {\"units\":[{\"unit_id\":\"...\",\"event_ids\":[\"event-id\"],\"dialogue_ids\":[\"dialogue-id\"],\"start_state\":\"...\",\"handoff_state\":\"...\"}]}"""
         beat_label = "Beat"
         unit_label = "Unit"
     else:
         system = """你是 Director 连续剧情的动作单元规划器。只返回 JSON，不要 Markdown 或解释。
-为每个提供的 unit_id 返回一个对象。将原始 Beat 中的动作事件和对白逐项分配给且只分配给一个 unit；不得编造新剧情、人物、对白或事件。dialogue_owner 必须逐字保留原对白。required_events 只能是来源明确支持的简短动作事件，且不得跨单元重复。start_state 和 handoff_state 只描述可见的连续状态；同一 Beat 的相邻单元必须把上一单元的 handoff_state 原样复制为下一单元的 start_state。
-JSON 结构：{\"units\":[{\"unit_id\":\"...\",\"required_events\":[\"...\"],\"dialogue_owner\":[\"...\"],\"start_state\":\"...\",\"handoff_state\":\"...\"}]}"""
+为每个 unit_id 返回一个对象。单元按剧情先后列出，单元序号仅相对于各自 Beat；不要跨 Beat 比较时间。只能把同一 Beat 已提供的 event_ids 和 dialogue_ids 分配给动作单元。每个事实 ID 必须且只能出现一次；禁止复写事实正文、编造事实或编造 ID。每个 Beat 只在首单元提供一次 start_state；每个单元提供一个 handoff_state。后续 start_state 由程序直接复制上一单元 handoff_state。
+JSON 结构：{\"units\":[{\"unit_id\":\"...\",\"event_ids\":[\"event-id\"],\"dialogue_ids\":[\"dialogue-id\"],\"start_state\":\"...\",\"handoff_state\":\"...\"}]}"""
         beat_label = "Beat"
         unit_label = "单元"
 
     beat_text = []
     for beat in beats:
+        beat_id = str(beat.get("id") or "")
+        facts = source_facts.get(beat_id) or {"events": [], "dialogues": []}
         beat_text.append(
-            f"{beat_label} {beat.get('id') or ''} / source shot {beat.get('source_shot_number') or beat.get('story_shot') or beat.get('sequence') or ''}:\n"
+            f"{beat_label} {beat_id} / source shot {beat.get('source_shot_number') or beat.get('story_shot') or beat.get('sequence') or ''}:\n"
             f"heading: {beat.get('heading') or beat.get('scene') or ''}\n"
-            f"action: {beat.get('action') or beat.get('visual_prompt') or ''}\n"
             f"camera: {beat.get('camera') or ''}\n"
-            f"dialogue: {beat.get('dialogue') or ''}\n"
+            f"event_facts: {json.dumps(facts.get('events') or [], ensure_ascii=False)}\n"
+            f"dialogue_facts: {json.dumps(facts.get('dialogues') or [], ensure_ascii=False)}\n"
             f"audio: {beat.get('audio') or ''}"
         )
     unit_text = []
+    unit_counts: dict[str, int] = {}
+    unit_ordinals: dict[str, int] = {}
     for unit in units:
+        beat_id = str(unit.get("source_beat_id") or "")
+        unit_counts[beat_id] = unit_counts.get(beat_id, 0) + 1
+    for unit in units:
+        beat_id = str(unit.get("source_beat_id") or "")
+        unit_ordinals[beat_id] = unit_ordinals.get(beat_id, 0) + 1
         unit_text.append(
-            f"{unit_label} {unit.get('id')}: source_beat_id={unit.get('source_beat_id')}, "
-            f"source_shot_number={unit.get('source_shot_number')}, "
-            f"generated_shot_number={unit.get('generated_shot_number')}, "
-            f"time={unit.get('start_sec', 0):g}-{unit.get('end_sec', 0):g}s"
+            f"{unit_label} {unit.get('id')}: source_beat_id={beat_id}, "
+            f"beat_unit_order={unit_ordinals[beat_id]}/{unit_counts[beat_id]}"
         )
     user = (
         f"Output language: {'English' if lang == 'en' else '简体中文'}\n\n"
@@ -182,8 +190,14 @@ def parse_director_unit_plan(
     expected_units: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     source = str(text or "").strip()
-    if source.startswith("```"):
-        source = re.sub(r"^```(?:json)?\s*|\s*```$", "", source, flags=re.I | re.S).strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", source, flags=re.I | re.S)
+    if match:
+        source = match.group(1).strip()
+    else:
+        start = source.find("{")
+        end = source.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            source = source[start:end+1]
     try:
         payload = json.loads(source)
     except (TypeError, ValueError) as err:
@@ -192,23 +206,24 @@ def parse_director_unit_plan(
     if not isinstance(rows, list):
         raise PromptTemplateError("动作单元规划缺少 units 数组")
     expected_ids = [str(item.get("id") or "").strip() for item in expected_units]
-    actual_ids = [str(item.get("unit_id") or "").strip() for item in rows]
-    if actual_ids != expected_ids:
-        raise PromptTemplateError("动作单元必须按计划顺序逐一返回且不能重复")
+    rows_by_id = {str(row.get("unit_id") or "").strip(): row for row in rows if isinstance(row, dict)}
+    actual_ids = set(rows_by_id.keys())
+    if actual_ids != set(expected_ids) or len(rows_by_id) != len(rows):
+        raise PromptTemplateError("动作单元规划的 unit_id 缺失、重复或包含未知值")
     parsed: dict[str, dict[str, Any]] = {}
-    for row, expected in zip(rows, expected_units):
-        if not isinstance(row, dict):
-            raise PromptTemplateError("动作单元对象格式无效")
-        events = [str(value or "").strip() for value in row.get("required_events") or [] if str(value or "").strip()]
-        dialogue = [str(value or "").strip() for value in row.get("dialogue_owner") or [] if str(value or "").strip()]
-        if not events:
-            raise PromptTemplateError(f"动作单元 {expected.get('id')} 缺少 required_events")
-        if len(events) != len(dict.fromkeys(events)):
-            raise PromptTemplateError(f"动作单元 {expected.get('id')} 的事件重复")
+    for expected in expected_units:
+        expected_id = str(expected.get("id") or "").strip()
+        row = rows_by_id.get(expected_id)
+        if not isinstance(row.get("event_ids"), list) or not isinstance(row.get("dialogue_ids"), list):
+            raise PromptTemplateError(f"动作单元 {expected_id} 缺少 event_ids 或 dialogue_ids 数组")
+        event_ids = [str(value or "").strip() for value in row["event_ids"] if str(value or "").strip()]
+        dialogue_ids = [str(value or "").strip() for value in row["dialogue_ids"] if str(value or "").strip()]
+        if len(event_ids) != len(set(event_ids)) or len(dialogue_ids) != len(set(dialogue_ids)):
+            raise PromptTemplateError(f"动作单元 {expected_id} 包含重复事实 ID")
         parsed[expected["id"]] = {
             "id": expected["id"],
-            "required_events": events,
-            "dialogue_owner": dialogue,
+            "event_ids": event_ids,
+            "dialogue_ids": dialogue_ids,
             "start_state": str(row.get("start_state") or "").strip(),
             "handoff_state": str(row.get("handoff_state") or "").strip(),
         }
@@ -223,6 +238,8 @@ def build_director_prompts(
     segment_sources: list[dict[str, Any]],
     reference_slots: list[dict[str, Any]],
     previous_handoff: str | dict[str, Any] = "",
+    director_context: dict[str, Any] | None = None,
+    common_setting: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     lang = normalize_language(language)
     n = len(segment_sources)
@@ -230,21 +247,18 @@ def build_director_prompts(
         raise PromptTemplateError("连续剧情每个 Part 必须包含 2–8 个提示词组")
     expand = str(rewrite_mode or "expand").strip().lower() == "expand"
     if lang == "en":
-        system = f"""You write MiniMax H3 Director continuous stories. Output exactly two parts and nothing else.
-Part 1 separator: ===== Public Settings =====. It contains only subject_definitions:.
-Part 2 contains exactly {n} groups with separators ===== Prompt Group k ===== for k=1..{n}.
-Each group contains only summary:, retention_analysis:, detailed_description:, overall_soundscape:, non_diegetic_music: in that order. Never repeat subject_definitions inside a group.
-Preserve every provided [Shot N] exactly once in ascending order inside that group's detailed_description. Include every assigned required_events phrase verbatim exactly once. Describe only those assigned events; never replay an event or dialogue from a previous group.
-Group 2+ detailed_description must start with "No hard cut. Immediately following the previous section."
+        system = f"""You write MiniMax H3 Director creative expansions. Return one JSON object and nothing else.
+JSON shape: {{"common_setting":{{"subject_definitions":"..."}},"segments":[{{"segment_id":"...","unit_ids":["..."],"summary":"...","retention_analysis":"...","detailed_description":"...","overall_soundscape":"...","non_diegetic_music":"..."}}]}}.
+Return exactly {n} segment objects. segment_id and unit_ids must exactly match the supplied plan, in order. Every creative field must be non-empty. Never repeat subject_definitions inside a segment.
+Do not output [Shot N] markers, fixed continuity prefixes, source event text, or verbatim dialogue. The program injects those facts after generation. Write only camera, performance, lighting, environment and sound expansion grounded in the assigned facts; never replay a previous group's event or dialogue.
 Every detailed_description ends on a stable handoff pose. Timestamps reset to 00:00 in every group. Keep cast, wardrobe, space and music continuous; groups before the last must not fade out. Do not use replay, rewind, time echo, sensory echo or a second performance to fill time.
 Never invent a <Picture N>. Do not use Markdown fences or commentary."""
     else:
-        system = f"""你负责创作 MiniMax H3 Director 连续剧情。只输出两部分，不得输出其他内容。
-第一部分分隔行：===== 公共设定 =====，其中只能写“主体定义:”。
-第二部分严格输出 {n} 个组，分隔行依次为 ===== 提示词组 k =====（k=1..{n}）。
-每组只能按顺序写：摘要、保留分析、详细描述、整体声景、非叙事配乐；组内禁止重复主体定义。
-每组“详细描述”必须按升序保留该段提供的全部 [Shot N]，每个编号只出现一次；该段分配的每条 required_events 必须原样出现且只出现一次，只能描述这些已分配事件，不得重演上一组已完成的动作或对白。
-第 2 组起“详细描述:”第一句必须是“无硬切。紧接上一段。”；每组时间码从 00:00 起算，详细描述以稳定交接姿态收束并以“不要乱说话”结束。
+        system = f"""你负责创作 MiniMax H3 Director 创意扩写。只返回一个 JSON 对象，不得输出其他内容。
+JSON 结构：{{"common_setting":{{"subject_definitions":"..."}},"segments":[{{"segment_id":"...","unit_ids":["..."],"summary":"...","retention_analysis":"...","detailed_description":"...","overall_soundscape":"...","non_diegetic_music":"..."}}]}}。
+严格返回 {n} 个 segment；segment_id 与 unit_ids 必须按顺序和输入计划完全一致。每个创意字段都必须填写非空、具体的正文，segment 内禁止重复主体定义。
+禁止输出 [Shot N]、固定连续性开头、动作事实原文或对白原文；这些内容由程序在生成后注入。只补充与已分配事实一致的运镜、表演、光线、环境和声画细节，不得重演上一组事件或对白。
+每组时间码从 00:00 起算，详细描述以稳定交接姿态收束并以“不要乱说话”结束。
 人物、服装、空间和配乐主题跨组连续；最后一组之前不得淡出。禁止时间回响、感知回响、回放、倒放、重新醒来或重复表演来填充时长。不得编造 <Picture N>。禁止 Markdown 代码围栏、寒暄和解释。"""
 
     segment_text = []
@@ -252,16 +266,19 @@ Never invent a <Picture N>. Do not use Markdown fences or commentary."""
         unit_lines = []
         for unit in segment.get("source_units") or []:
             unit_lines.append(
-                f"[Shot {unit.get('generated_shot_number') or idx}] "
-                f"unit_id={unit.get('id')}; source_shot={unit.get('source_shot_number')}; "
+                f"unit_id={unit.get('id')}; generated_shot={unit.get('generated_shot_number') or idx}; source_shot={unit.get('source_shot_number')}; "
                 f"time={unit.get('start_sec', 0):g}-{unit.get('end_sec', 0):g}s\n"
-                f"required_events: {'；'.join(unit.get('required_events') or [])}\n"
-                f"dialogue_owner: {'；'.join(unit.get('dialogue_owner') or []) or '无'}\n"
+                f"event_facts: {json.dumps(unit.get('event_refs') or [], ensure_ascii=False)}\n"
+                f"dialogue_facts: {json.dumps(unit.get('dialogue_refs') or [], ensure_ascii=False)}\n"
                 f"start_state: {unit.get('start_state') or '延续上一段可见状态'}\n"
                 f"handoff_state: {unit.get('handoff_state') or '以本段最后动作后的稳定状态收束'}"
+                f"\nDramatic purpose: {unit.get('purpose') or ''}; shot_size: {unit.get('shot_size') or ''}; "
+                f"camera: {unit.get('camera') or ''}; movement: {unit.get('movement') or ''}; "
+                f"performance: {unit.get('performance') or ''}; dialogue_timing: {unit.get('dialogue_timing') or ''}"
             )
         segment_text.append(
-            f"第 {idx} 段（目标约 {segment.get('duration_seconds') or 5:g} 秒）：\n"
+            f"segment_id={segment.get('id')}; unit_ids={json.dumps([unit.get('id') for unit in segment.get('source_units') or []], ensure_ascii=False)}; "
+            f"目标约 {segment.get('duration_seconds') or 5:g} 秒：\n"
             + ("\n".join(unit_lines) or "缺少动作单元分配，禁止自行补写剧情。")
         )
     mode = "只允许补全必要的运镜、表演连接和声画细节；不得新增剧情事件" if expand else "严格遵循提供的动作单元事实，不编造"
@@ -282,7 +299,7 @@ Reference media:
 Planned continuous segments:
 {chr(10).join(segment_text)}
 
-Return Public Settings and exactly {n} Prompt Groups."""
+Return the JSON object with exactly {n} segments."""
     else:
         user = f"""输出语言：简体中文
 画幅：{aspect_ratio}
@@ -295,7 +312,11 @@ Return Public Settings and exactly {n} Prompt Groups."""
 计划的连续段落：
 {chr(10).join(segment_text)}
 
-输出一次公共设定和严格 {n} 个提示词组。"""
+返回包含公共设定和严格 {n} 个 segments 的 JSON 对象。"""
+    if director_context:
+        user += "\n\n导演设计与本集上下文（创意描写逐镜服务于戏剧目的）：\n" + json.dumps(director_context, ensure_ascii=False)
+    if common_setting:
+        user += "\n\n已锁定公共设定，由程序显式复用，common_setting 可省略。逐段描写必须遵守以下人物服装、光线与视觉风格，不得另创：\n" + json.dumps(common_setting, ensure_ascii=False)
     return system, user
 
 
@@ -314,16 +335,15 @@ def _parse_sections(
         spec = spec[:1]
     matches: list[tuple[int, int, str, str]] = []
     for key, label in spec:
-        found = list(re.finditer(rf"(?im)^\s*{re.escape(label)}\s*[:：]\s*", source))
+        # 兼容 LLM 输出的 Markdown 符号，如 **摘要**:、### 摘要:、- 摘要: 等
+        found = list(re.finditer(rf"(?im)^[#*\-\s\d\.]*{re.escape(label)}[*]*\s*[:：]\s*", source))
         if len(found) != 1:
             raise PromptTemplateError(f"章节“{label}”必须且只能出现一次")
         match = found[0]
         matches.append((match.start(), match.end(), key, label))
     if [item[0] for item in matches] != sorted(item[0] for item in matches):
         raise PromptTemplateError("提示词章节顺序不正确")
-    first_prefix = source[: matches[0][0]].strip()
-    if first_prefix:
-        raise PromptTemplateError("章节前存在额外内容")
+    # LLM 有时会在第一个章节前输出导言——静默丢弃，不报错
     sections: dict[str, str] = {}
     normalized: list[str] = []
     for idx, (_, end, key, label) in enumerate(matches):
@@ -373,6 +393,78 @@ def parse_full_reference(text: str, language: str, reference_slots: list[dict[st
     return {"sections": parsed.sections, "prompt_text": parsed.prompt_text}
 
 
+def parse_director_creative_output(
+    text: str,
+    language: str,
+    reference_slots: list[dict[str, Any]],
+    expected_segments: list[dict[str, Any]],
+    locked_common_setting: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Parse model-owned creative prose while keeping structural facts program-owned."""
+    source = str(text or "").strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", source, flags=re.I | re.S)
+    if match:
+        source = match.group(1).strip()
+    else:
+        start = source.find("{")
+        end = source.rfind("}")
+        if start != -1 and end > start:
+            source = source[start:end + 1]
+    try:
+        payload = json.loads(source)
+    except (TypeError, ValueError) as err:
+        raise PromptTemplateError("Director 创意扩写不是合法 JSON") from err
+    common = locked_common_setting or (payload.get("common_setting") if isinstance(payload, dict) else None)
+    rows = payload.get("segments") if isinstance(payload, dict) else None
+    if not isinstance(common, dict) or not isinstance(rows, list):
+        raise PromptTemplateError("Director 创意扩写缺少 common_setting 或 segments")
+    subject = str(common.get("subject_definitions") or "").strip()
+    if not subject:
+        raise PromptTemplateError("Director 公共主体定义不能为空")
+
+    expected_ids = [str(item.get("id") or "").strip() for item in expected_segments]
+    rows_by_id = {str(row.get("segment_id") or "").strip(): row for row in rows if isinstance(row, dict)}
+    if len(rows_by_id) != len(rows) or set(rows_by_id) != set(expected_ids):
+        raise PromptTemplateError("Director segment_id 缺失、重复或包含未知值")
+
+    lang = normalize_language(language)
+    section_spec = _section_spec(lang, include_subject=False)
+    groups: list[dict[str, Any]] = []
+    for segment in expected_segments:
+        segment_id = str(segment.get("id") or "").strip()
+        row = rows_by_id[segment_id]
+        expected_unit_ids = [str(unit.get("id") or "").strip() for unit in segment.get("source_units") or []]
+        actual_unit_ids = [str(value or "").strip() for value in row.get("unit_ids") or []]
+        if actual_unit_ids != expected_unit_ids:
+            raise PromptTemplateError(f"Director 段 {segment_id} 的 unit_ids 与计划不一致")
+        sections: dict[str, str] = {}
+        for key, _label in section_spec:
+            value = str(row.get(key) or "").strip()
+            if not value:
+                raise PromptTemplateError(f"Director 段 {segment_id} 缺少 {key}")
+            sections[key] = value
+        detail = sections["detailed_description"]
+        fixed_continuity = "No hard cut. Immediately following the previous section." if lang == "en" else "无硬切。紧接上一段。"
+        detail = re.sub(r"\[Shot\s+\d+]", "", detail, flags=re.I)
+        detail = detail.replace(fixed_continuity, "").strip()
+        if not detail:
+            raise PromptTemplateError(f"Director 段 {segment_id} 缺少创意扩写正文")
+        sections["detailed_description"] = detail
+        prompt_text = "\n\n".join(f"{label}: {sections[key]}" for key, label in section_spec)
+        _validate_language(prompt_text, lang)
+        _validate_references(prompt_text, reference_slots, subject_source=subject)
+        groups.append({"sections": sections, "prompt_text": prompt_text, "shot_numbers": []})
+
+    subject_label = "subject_definitions" if lang == "en" else "主体定义"
+    common_prompt = f"{subject_label}: {subject}"
+    _validate_language(common_prompt, lang)
+    _validate_references(common_prompt, reference_slots)
+    return {
+        "common_setting": {"subject_definitions": subject, "prompt_text": common_prompt},
+        "groups": groups,
+    }
+
+
 def parse_director_output(
     text: str,
     language: str,
@@ -407,19 +499,35 @@ def parse_director_output(
         end = group_matches[idx + 1].start() if idx + 1 < len(group_matches) else len(source)
         body = source[match.end() : end].strip()
         parsed = _parse_sections(body, lang, include_subject=False)
-        if idx > 0:
-            detail = parsed.sections["detailed_description"].lstrip()
-            required = "No hard cut. Immediately following the previous section." if lang == "en" else "无硬切。紧接上一段。"
-            if not detail.startswith(required):
-                raise PromptTemplateError(f"提示词组 {idx + 1} 未以规定的连续性语句开头")
+        detail = parsed.sections["detailed_description"].strip()
+        required = "No hard cut. Immediately following the previous section." if lang == "en" else "无硬切。紧接上一段。"
+        had_continuity = detail.startswith(required)
+        if had_continuity:
+            detail = detail[len(required):].lstrip()
+        if expected_shots is not None and idx < len(expected_shots):
+            detail = re.sub(r"\[Shot\s+\d+]", "", detail, flags=re.I).strip()
+            expected = list(dict.fromkeys(int(value) for value in expected_shots[idx]))
+            shot_block = "\n".join(f"[Shot {value}]" for value in expected)
+            detail_parts = ([required] if idx > 0 or had_continuity else []) + [shot_block, detail]
+            detail = "\n".join(value for value in detail_parts if value)
+        elif idx > 0 or had_continuity:
+            detail = f"{required}\n{detail}"
+        parsed.sections["detailed_description"] = detail
+        parsed = ParsedSections(
+            sections=parsed.sections,
+            prompt_text="\n\n".join(
+                f"{label}: {parsed.sections[key]}"
+                for key, label in _section_spec(lang, include_subject=False)
+            ),
+        )
         _validate_references(parsed.prompt_text, reference_slots, subject_source=public.sections["subject_definitions"])
         shot_numbers = [int(value) for value in re.findall(r"\[Shot\s+(\d+)]", parsed.prompt_text, flags=re.I)]
+
         if not shot_numbers:
             raise PromptTemplateError(f"提示词组 {idx + 1} 缺少 [Shot N] 镜头编号")
         if shot_numbers != sorted(set(shot_numbers)):
             raise PromptTemplateError(f"提示词组 {idx + 1} 的 [Shot N] 必须唯一且递增")
         if expected_shots is not None and idx < len(expected_shots):
-            expected = list(dict.fromkeys(int(value) for value in expected_shots[idx]))
             if shot_numbers != expected:
                 raise PromptTemplateError(
                     f"提示词组 {idx + 1} 的镜头编号应为 {expected}，实际为 {shot_numbers}"

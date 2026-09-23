@@ -44,6 +44,7 @@ export type DirectorEpisodeCapsuleProps = {
   open: boolean
   index: number
   shotCount: number
+  amountLabel?: string
   onToggle: (key: string, currentlyOpen: boolean) => void
   children: ReactNode
   /** Extra class on the fold body (e.g. `is-script` for manuscript padding). */
@@ -60,6 +61,7 @@ export default function DirectorEpisodeCapsule({
   open,
   index,
   shotCount,
+  amountLabel,
   onToggle,
   children,
   bodyClassName,
@@ -83,7 +85,7 @@ export default function DirectorEpisodeCapsule({
           <EpisodeStatusBadge status={status} order={episodeNumber} />
         </span>
         <span className="director-episode-row-label">{title}</span>
-        <span className="director-episode-row-amount">{episodeShotCountLabel(shotCount)}</span>
+        <span className="director-episode-row-amount">{amountLabel ?? episodeShotCountLabel(shotCount)}</span>
         {status === "completed" ? <span className="director-task-pill is-green">已完成</span> : null}
         <ChevronDown size={14} className="director-episode-row-chevron" aria-hidden />
       </button>

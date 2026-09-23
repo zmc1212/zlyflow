@@ -229,14 +229,19 @@ class EpisodeVideoService:
         if not plan:
             raise ValueError("请先使用“连续剧情（导演台）”生成并保存 Director 出片方案")
         if (
-            int(plan.get("schema_version") or 0) != 2
+            int(plan.get("schema_version") or 0) not in {3, 4}
             or str(plan.get("planning_strategy") or "") != "atomic_units"
+            or str(plan.get("validation_status") or "") != "valid"
+            or not isinstance(plan.get("source_facts"), dict)
+            or not plan.get("source_facts")
             or any(not isinstance(segment.get("source_units"), list) or not segment.get("source_units")
                    for part in plan.get("parts") or [] for segment in part.get("segments") or [])
         ):
             raise ValueError("Director 方案结构已升级，请重新生成")
         if str(plan.get("status") or "") != "current":
             raise ValueError("Director 出片方案已过期，请根据当前剧本和资产重新生成")
+        from .director_plan_quality import assert_ready_for_video
+        assert_ready_for_video(plan)
         requested_revision = options.get("director_plan_revision")
         if requested_revision not in (None, "") and int(requested_revision) != int(plan.get("revision") or 0):
             raise ValueError("Director 出片方案版本已变化，请刷新页面后重试")
@@ -379,10 +384,12 @@ class EpisodeVideoService:
         job_ids: list[str] = []
         skipped = 0
         skip_existing = beat_ids is None and not force
+        from .production_state import summary as production_summary
+        adopted = production_summary(detail, mode="shot")["adopted"]
         for shot in shots:
             beat_id = str(shot.get("beat_id") or "")
             beat = beats_by_id.get(beat_id) or {}
-            if skip_existing and str(beat.get("video_url") or "").strip():
+            if skip_existing and beat_id in adopted:
                 skipped += 1
                 continue
             if beat_id in active_beat_ids:
@@ -727,6 +734,13 @@ class EpisodeVideoService:
                 "continuity_enabled": True,
                 "prompt_source": "prompt_master_director",
             })
+        from .production_service import ProductionService
+        # Persist the exact source/plan identity before dispatch; workers never infer it later.
+        if not director_prompt_profile:
+            detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
+        payload["production_context"] = ProductionService.generation_context(
+            detail, "director" if director_prompt_profile else "shot",
+        )
         execute_sql(
             """
             INSERT INTO ai_project_jobs
@@ -758,6 +772,8 @@ class EpisodeVideoService:
         episode_id: str,
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if options and "expected_revision" in options:
+            return cls._create_production_export(project_id, episode_id, options)
         detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
         data = detail.get("data") if isinstance(detail.get("data"), dict) else {}
         beats = sorted(detail.get("beats") or [], key=lambda item: int(item.get("sequence") or 0))
@@ -822,6 +838,24 @@ class EpisodeVideoService:
         )
         _EXECUTOR.submit(cls._run_job, jid)
         return {"job_id": jid, "status": "queued", "render_scope": "compose", "render_mode": "shot"}
+
+    @classmethod
+    def _create_production_export(cls, project_id: str, episode_id: str, options: dict) -> dict:
+        from .production_service import ProductionService
+        cls._assert_can_enqueue(project_id, episode_id, "compose")
+        snapshot = ProductionService.export_snapshot(project_id, episode_id, options)
+        jid = f"job-{uuid.uuid4().hex[:12]}"
+        timestamp = now_str()
+        payload = {"project_id": project_id, "episode_id": episode_id, "render_scope": "compose",
+                   "render_mode": "production", "target_type": "episode_video", "model": "ffmpeg production",
+                   "production_snapshot": snapshot, "render_plan": {"status": "queued"}}
+        execute_sql(
+            "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
+            "VALUES (%s,%s,'video_generation',%s,'queued',0,NULL,%s,%s,%s)",
+            (jid, project_id, "导出本集采用版成片", json.dumps(payload, ensure_ascii=False), timestamp, timestamp),
+        )
+        _EXECUTOR.submit(cls._run_job, jid)
+        return {"job_id": jid, "status": "queued", "render_scope": "compose", "render_mode": "production"}
 
     @classmethod
     def _assert_dubbing_ready_for_compose(
@@ -1375,6 +1409,10 @@ class EpisodeVideoService:
         beat_ids: list[str] | None = None,
         source_job_id: str | None = None,
     ) -> None:
+        episode = query_one("SELECT data_json FROM ai_project_episodes WHERE id=%s AND project_id=%s", (episode_id, project_id)) or {}
+        episode_data = json.loads(episode.get("data_json") or "{}")
+        if episode_data.get("script_stale"):
+            raise ValueError("已采纳新剧本，请先重新规划镜头并同步至工坊")
         active = cls._active_video_jobs(project_id, episode_id)
         requested = {str(item).strip() for item in (beat_ids or []) if str(item or "").strip()}
         if beat_id:
@@ -1732,7 +1770,12 @@ class EpisodeVideoService:
             payload["render_plan"]["status"] = "succeeded"
             payload["render_plan"]["total_duration"] = payload.get("total_duration_seconds")
             payload["result_kind"] = "episode_video" if payload.get("render_scope") == "episode" else "shot_video"
-            if payload.get("prompt_profile") == "director_segments" and payload.get("render_scope") == "selection":
+            if payload.get("production_context"):
+                cls._auto_upscale_if_requested(job_id, payload, comfy, generated_shots)
+                if payload.get("render_scope") == "episode":
+                    from .production_service import ProductionService
+                    ProductionService.record_export(payload, job_id, result_url, direct=True)
+            elif payload.get("prompt_profile") == "director_segments" and payload.get("render_scope") == "selection":
                 try:
                     cls._write_director_selection_result(payload, result_url, job_id)
                 except Exception as selection_update_error:
@@ -1743,7 +1786,7 @@ class EpisodeVideoService:
                 except Exception as beat_update_error:
                     payload["beat_update_warning"] = str(beat_update_error)
                 cls._auto_upscale_if_requested(job_id, payload, comfy, generated_shots)
-            if payload.get("render_scope") == "episode":
+            if payload.get("render_scope") == "episode" and not payload.get("production_context"):
                 try:
                     cls._write_episode_video(
                         payload["project_id"],
@@ -1885,6 +1928,9 @@ class EpisodeVideoService:
             chunk_outputs.append(output)
             cls._set_state(job_id, payload, "running", 95)
 
+        if payload.get("production_context") and payload.get("render_scope") != "selection":
+            for chunk, output in zip(chunks, chunk_outputs):
+                cls._record_production_output(payload, job_id, chunk, output, comfy)
         result_url = comfy.view_url(chunk_outputs[0])
         if len(chunk_outputs) > 1:
             payload["render_plan"]["assembly"] = {"status": "running", "method": "ffmpeg_concat"}
@@ -1903,6 +1949,10 @@ class EpisodeVideoService:
                     _, result_url = QiniuService.store_bytes("video", chunk_outputs[0]["filename"], content)
             except Exception as upload_error:
                 payload["storage_warning"] = str(upload_error)
+        if payload.get("production_context") and payload.get("render_scope") == "selection":
+            # A continuous selection is one candidate, even when the renderer used several chunks.
+            cls._record_production_output(payload, job_id, generated_shots, chunk_outputs[0], comfy,
+                                          url=result_url, content=merged if len(chunk_outputs) > 1 else None)
         return result_url
 
     @classmethod
@@ -1954,7 +2004,10 @@ class EpisodeVideoService:
                     _, result_url = QiniuService.store_bytes("video", output["filename"], content)
             except Exception as upload_error:
                 payload["storage_warning"] = str(upload_error)
-            if len(generated_shots) > 1:
+            if payload.get("production_context"):
+                shot["video_url"] = result_url
+                cls._record_production_output(payload, job_id, [shot], output, comfy, url=result_url)
+            elif len(generated_shots) > 1:
                 try:
                     updates = cls._persist_shot_original_video(
                         payload["project_id"],
@@ -1974,6 +2027,9 @@ class EpisodeVideoService:
 
     @classmethod
     def _run_compose_job(cls, job_id: str, payload: dict[str, Any]) -> None:
+        if payload.get("production_snapshot"):
+            cls._run_production_export(job_id, payload)
+            return
         from .dubbing_lines import expand_episode_lines
         from .dubbing_mix import contributing_lines_for_beat, mix_dubbing_enabled, mix_shot_with_lines
 
@@ -2049,6 +2105,47 @@ class EpisodeVideoService:
         if not content:
             raise RuntimeError("配音下载为空")
         return content
+
+    @classmethod
+    def _record_production_output(cls, payload, job_id, shots, output, comfy, url=None, content=None):
+        from .production_service import ProductionService
+        from .production_media import measure
+        content = content if content is not None else comfy.download_output(output)
+        # Match the frame counts actually submitted by the timeline compiler, not draft durations.
+        submitted = {}
+        reports = []
+        for chunk in (payload.get("render_plan") or {}).get("chunks", []):
+            for segment in (chunk.get("timeline") or {}).get("segments", []):
+                submitted[str(segment.get("shotId") or "")] = int(segment.get("frameCount") or 0)
+            if chunk.get("director_report"):
+                reports.append(chunk["director_report"])
+        measured = measure(content, [{**s, "frame_count": submitted.get(str(s["beat_id"]), s.get("frame_count"))} for s in shots])
+        measured["submitted_frames"] = [submitted.get(str(s["beat_id"]), s.get("frame_count")) for s in shots]
+        measured["director_report"] = "\n".join(reports)
+        if not url:
+            if QiniuService.get_config().available:
+                _, url = QiniuService.store_bytes("video", output["filename"], content)
+            else:
+                url = comfy.view_url(output)
+        ProductionService.record_output(payload, job_id, shots, url, measured)
+
+    @classmethod
+    def _run_production_export(cls, job_id, payload):
+        from .production_media import assemble
+        from .production_service import ProductionService
+        cls._set_state(job_id, payload, "assembling", 10)
+        content = assemble(payload["production_snapshot"], cls._fetch_mix_audio, cls._fetch_mix_audio,
+                           lambda done, total: cls._set_state(job_id, payload, "assembling", 10 + done * 75 // total))
+        if not QiniuService.get_config().available:
+            raise RuntimeError("请配置七牛云后导出成片")
+        _, url = QiniuService.store_bytes("video", f"production-{job_id}.mp4", content)
+        ProductionService.record_export(payload, job_id, url)
+        payload["render_plan"] = {"status": "succeeded", "assembly": {"status": "succeeded"}}
+        payload["result_kind"] = "episode_video"
+        timestamp = now_str()
+        execute_sql("UPDATE ai_project_jobs SET status='completed',progress=100,result_url=%s,payload_json=%s,"
+                    "error_message=NULL,completed_at=%s,updated_at=%s WHERE id=%s",
+                    (url, json.dumps(payload, ensure_ascii=False), timestamp, timestamp, job_id))
 
     @classmethod
     def _write_selected_beat_videos(
@@ -2362,6 +2459,16 @@ class EpisodeVideoService:
                 continue
             try:
                 upscaled_url = cls._upscale_source_url(job_id, payload, comfy, source_url, shot)
+                if payload.get("production_context"):
+                    from .production_media import measure
+                    from .production_service import ProductionService
+                    scale = vsr_scale_from_options(payload)
+                    measured = measure(cls._fetch_mix_audio(upscaled_url), [shot])
+                    measured.update(variant=f"vsr-{scale}", title=f"{scale}x 超分候选")
+                    ProductionService.record_output(payload, job_id, [shot], upscaled_url, measured)
+                    shot["upscaled_video_url"] = upscaled_url
+                    upscaled_urls.append(upscaled_url)
+                    continue
                 beat_like = {
                     "id": beat_id,
                     "video_url": source_url,

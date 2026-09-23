@@ -146,6 +146,8 @@ class AiGenerationService:
             "request": request,
             "stage_clarifications": cls._public_stage_clarifications(payload),
             "result": result,
+            "script_development_document_id": payload.get("script_development_document_id"),
+            "script_development_version": payload.get("script_development_version"),
             "error": row.get("error_message"),
             "cancel_requested": bool(payload.get("cancel_requested")),
             "created_at": row.get("created_at"),
@@ -194,6 +196,7 @@ class AiGenerationService:
         operation_id = f"aiop-{uuid.uuid4().hex[:12]}"
         payload = {
             "kind": kind,
+            "script_development_version": 1,
             "request": request,
             "current_stage": "clarify" if kind == "clarify" else "script",
             "completed_stages": [],
@@ -556,6 +559,32 @@ class AiGenerationService:
 
     def _run_stage_leg(self, operation_id: str, payload: dict[str, Any], request: dict[str, Any], stage: str) -> None:
         self._check_cancelled(operation_id)
+        def check_script_revision() -> None:
+            doc_id = payload.get("script_development_document_id")
+            expected = payload.get("adopted_script_revision")
+            if doc_id and expected is not None and stage != "script":
+                from .script_development_service import ScriptDevelopmentService
+                doc = ScriptDevelopmentService.document(request["project_id"], doc_id)
+                current = json.loads(doc.get("analysis_json") or "{}").get("script_development") or {}
+                if current.get("revision") != expected:
+                    raise ValueError("SOURCE_CONFLICT: 剧本已更新，请重新确认剧本后生成资产和分镜")
+        check_script_revision()
+        if stage == "script" and payload.get("script_development_version"):
+            from .script_development_service import ScriptDevelopmentService
+            project_id = request["project_id"]
+            doc_id = payload.get("script_development_document_id")
+            if not doc_id:
+                doc = ProjectDetailService.create_document(project_id, "AI 创作原始素材", str(request.get("goal") or ""), input_mode="ai_pipeline")
+                doc_id = doc["id"]
+                payload["script_development_document_id"] = doc_id
+                self._update(operation_id, payload=payload)
+            ScriptDevelopmentService.start(project_id, doc_id, {"clarifications": request.get("clarifications") or [],
+                                                               "feedback": self._stage_clarifications(payload, stage)})
+            payload.update(current_stage="script", awaiting_stage="script")
+            payload["result"] = {"message": "请先确认全剧策划，再审核并采纳完整剧本", "completed_stages": payload.get("completed_stages", [])}
+            self._update(operation_id, status="awaiting_review", progress=15, payload=payload)
+            self._emit(operation_id, {"event": "status", "data": {"status": "awaiting_review", "stage": "script", "awaiting_stage": "script", "message": payload["result"]["message"]}})
+            return
         if stage not in self.STAGE_AGENTS:
             raise ValueError(f"未知的生成阶段：{stage}")
         goal = str(request.get("goal") or "").strip()
@@ -616,6 +645,7 @@ class AiGenerationService:
         self._check_cancelled(operation_id)
         normalized = normalize_recipe_payload(updated)
         payload["recipe"] = normalized
+        check_script_revision()
         self._adapt_recipe(project_id, normalized, stage)
         self._check_cancelled(operation_id)
         # 该 leg 结束：暂停等确认。stage 未加入 completed_stages（那是 advance 的职责），
@@ -688,6 +718,17 @@ class AiGenerationService:
         stage = str(payload.get("awaiting_stage") or "")
         if stage not in self.STAGE_AGENTS:
             raise ValueError("没有待确认的生成阶段")
+        if stage == "script" and payload.get("script_development_document_id"):
+            from .script_development_service import ScriptDevelopmentService
+            row = ScriptDevelopmentService.document(project_id, payload["script_development_document_id"])
+            analysis = json.loads(row.get("analysis_json") or "{}")
+            accepted = analysis.get("script_development") or {}
+            development = ScriptDevelopmentService.get(project_id, row["id"])
+            if not accepted or not development or development["status"] != "succeeded":
+                raise ValueError("请先在剧本发展面板采纳完整稿，再进入资产阶段")
+            recipe = payload.setdefault("recipe", empty_recipe_payload())
+            recipe["script"] = {"title": accepted["plan"]["title"], "summary": accepted["plan"]["mainline"], "fullStory": accepted["script_text"]}
+            payload["adopted_script_revision"] = accepted["revision"]
         completed = [s for s in (payload.get("completed_stages") or []) if isinstance(s, str)]
         if stage not in completed:
             completed.append(stage)
@@ -1096,8 +1137,12 @@ class AiGenerationService:
         script = recipe.get("script") or {}
         raw_text = self._recipe_text(recipe)
         analysis = self.merge_recipe_assets_into_analysis(StandardScriptParser.parse(raw_text), recipe)
-        existing_doc = query_one("SELECT id FROM ai_project_documents WHERE project_id=%s AND input_mode='ai_pipeline' ORDER BY updated_at DESC LIMIT 1", (project_id,))
+        existing_doc = query_one("SELECT id,raw_text,analysis_json FROM ai_project_documents WHERE project_id=%s AND input_mode='ai_pipeline' ORDER BY updated_at DESC LIMIT 1", (project_id,))
         ts = now_str()
+        adopted = json.loads(existing_doc.get("analysis_json") or "{}").get("script_development") if existing_doc else None
+        if adopted:
+            analysis["script_development"] = adopted
+            raw_text = existing_doc["raw_text"]
         if existing_doc:
             execute_sql("UPDATE ai_project_documents SET filename=%s,file_size=%s,raw_text=%s,analysis_json=%s,visual_style=%s,updated_at=%s WHERE id=%s", (script.get("title") or "AI 生成剧本", len(raw_text.encode("utf-8")), raw_text, json.dumps(analysis, ensure_ascii=False), str((recipe.get("artStyle") or {}).get("name_zh") or ""), ts, existing_doc["id"]))
         else:
@@ -1134,7 +1179,7 @@ class AiGenerationService:
             for ep_num in sorted(set(grouped) | set(outline_by_num)):
                 shots = grouped.get(ep_num) or []
                 outline = outline_by_num.get(ep_num) or {}
-                episode = query_one("SELECT id FROM ai_project_episodes WHERE project_id=%s AND episode_num=%s LIMIT 1", (project_id, ep_num))
+                episode = query_one("SELECT id,data_json,script_text FROM ai_project_episodes WHERE project_id=%s AND episode_num=%s LIMIT 1", (project_id, ep_num))
                 title = str(outline.get("title") or (shots[0].get("episodeTitle") if shots else "") or f"第 {ep_num} 集")
                 script_text = str(outline.get("text") or outline.get("summary") or "")
                 if shots:
@@ -1171,6 +1216,17 @@ class AiGenerationService:
                         "targetShots": outline.get("targetShots") or 0,
                     }
                     shots_count = 0
+                if adopted:
+                    canonical_ep = next((e for e in StandardScriptParser.parse(adopted["script_text"]).get("episodes", []) if e.get("episode_num") == ep_num), {})
+                    script_text = canonical_ep.get("body") or script_text
+                    data.update(source_document_id=existing_doc["id"], script_revision=adopted["revision"],
+                                dramatic_design=next((e for e in adopted["plan"]["episodes"] if e["episode_num"] == ep_num), {}))
+                    if episode:
+                        previous_data = json.loads(episode.get("data_json") or "{}")
+                        if previous_data.get("production"):
+                            data["production"] = previous_data["production"]
+                        data["script_history"] = [*previous_data.get("script_history", []),
+                            {"script_text": episode.get("script_text"), "data": {k: v for k, v in previous_data.items() if k != "script_history"}}]
                 if episode:
                     execute_sql(
                         "UPDATE ai_project_episodes SET title=COALESCE(NULLIF(title,''),%s),status='script_ready',script_text=%s,shots_count=%s,data_json=%s,updated_at=%s WHERE id=%s",

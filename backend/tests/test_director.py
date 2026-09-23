@@ -3126,7 +3126,7 @@ class DirectorAgentPipelineTests(unittest.TestCase):
 
         prompt = build_script_agent_prompt()
         self.assertIn("scene-ledger", prompt)
-        self.assertIn("opening spatial state", prompt)
+        self.assertIn("opening spatial state", prompt.lower())
         self.assertIn("continuityIn", prompt)
         self.assertIn("### 镜头", prompt)
         self.assertIn("# 第", prompt)

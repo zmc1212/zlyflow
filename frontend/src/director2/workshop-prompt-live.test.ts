@@ -1,5 +1,7 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { splitStreamTokens } from "./WorkshopPromptLive"
+import { splitStreamTokens, WorkshopPromptLive } from "./WorkshopPromptLive"
 import {
   applyPromptJobSnapshot,
   applyPromptStreamEvent,
@@ -97,5 +99,58 @@ describe("workshop prompt live stream", () => {
 
   it("splits streamed English words and Chinese characters for blur-in", () => {
     expect(splitStreamTokens("Hello 世界")).toEqual(["Hello", " ", "世", "界"])
+  })
+
+  it("keeps structured Director failure metadata for local retry", () => {
+    const state = applyPromptStreamEvent(emptyPromptLiveState("job-1"), {
+      seq: 3,
+      event: "error",
+      data: {
+        status: "failed",
+        code: "DIRECTOR_PART_INVALID",
+        stage: "part_generation",
+        part_id: "part-2",
+        segment_ids: ["segment-4", "segment-5"],
+        attempt: 2,
+        retryable: true,
+        message: "Part 2 自动修复两次后仍未通过，可只重试失败部分。",
+        detail: "技术校验详情",
+      },
+    })
+    expect(state.failure).toMatchObject({
+      code: "DIRECTOR_PART_INVALID",
+      stage: "part_generation",
+      part_id: "part-2",
+      attempt: 2,
+      retryable: true,
+    })
+    expect(state.message).not.toContain("技术校验详情")
+  })
+
+  it("shows the exact validation error in the failed live card header", () => {
+    const html = renderToStaticMarkup(createElement(WorkshopPromptLive, {
+      state: {
+        ...emptyPromptLiveState("job-1"),
+        working: false,
+        failed: true,
+        message: "章节“主体定义”不能为空",
+      },
+    }))
+    expect(html).toContain("章节“主体定义”不能为空")
+    expect(html).toContain("workshop-think-error")
+  })
+
+  it("keeps the Director stage visible while reasoning is streaming", () => {
+    const html = renderToStaticMarkup(createElement(WorkshopPromptLive, {
+      state: {
+        ...emptyPromptLiveState("job-1"),
+        startedAt: Date.now() - 5000,
+        message: "正在生成 Director Part 1/2",
+        reasoning: "检查分镜事实",
+      },
+      showStage: true,
+    }))
+    expect(html).toContain("正在生成 Director Part 1/2")
+    expect(html).toContain("思考中")
   })
 })

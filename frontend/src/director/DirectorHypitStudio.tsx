@@ -24,7 +24,7 @@ import {
 } from "./hypit-model"
 import type { HypitH3Quality, HypitPayload } from "./hypit-model"
 
-const HINT = "拆爆款结构（台词、字幕、B-roll、图形），不是锁运镜转绘。拉片走本机 WhisperX；写 SVML 仍需 Coding Agent（工作台对话不能代替）；编译走本机 Hypit CLI。H3 画面走局域网 ComfyUI http://192.168.10.54:8188。画质在「改什么」里选，默认 16GB 稳妥；官方 768P 在 16GB 卡上会卡死。"
+const HINT = "当前功能按参考片结构重新制作视频，会改变画面、动作或背景，不是保留原片的逐帧换脸。制作流程：转写参考片 → Coding Agent 制作工程 → 编译成片。"
 
 function formatTime(seconds: number): string {
   const total = Math.max(0, Math.round(seconds * 10) / 10)
@@ -45,14 +45,22 @@ export default function DirectorHypitStudio({
 }: DirectorHypitStudioProps) {
   const queryClient = useQueryClient()
   const [payload, setPayload] = useState<HypitPayload>(() => normalizeHypitPayload(null))
-  const [revision, setRevision] = useState(1)
   const [operationId, setOperationId] = useState<string | null>(null)
   const [statusLine, setStatusLine] = useState<{ progress: number; message?: string } | null>(null)
   const [starting, setStarting] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [saveState, setSaveState] = useState<"saved" | "pending" | "failed">("saved")
   const saveTimerRef = useRef<number | null>(null)
   const dirtyRef = useRef(false)
   const revisionRef = useRef(1)
   const attachedOpRef = useRef<string | null>(null)
+  const editVersionRef = useRef(0)
+  const pendingSaveRef = useRef<Promise<void> | null>(null)
+  const actionRef = useRef(false)
+
+  useEffect(() => () => {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+  }, [])
 
   const projectQuery = useQuery({
     queryKey: ["director-project", projectId],
@@ -69,7 +77,6 @@ export default function DirectorHypitStudio({
     }
     const next = normalizeHypitPayload(record.payload)
     setPayload(next)
-    setRevision(record.content_revision)
     revisionRef.current = record.content_revision
 
     const resume = hypitResumeFromProject(record)
@@ -119,27 +126,60 @@ export default function DirectorHypitStudio({
   function queueSave(next: HypitPayload) {
     setPayload(next)
     dirtyRef.current = true
+    editVersionRef.current += 1
+    setSaveState("pending")
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
     saveTimerRef.current = window.setTimeout(() => {
-      void persist(next)
+      saveTimerRef.current = null
+      void persist(next, editVersionRef.current).catch(() => undefined)
     }, 500)
   }
 
-  async function persist(current: HypitPayload) {
+  function persist(current: HypitPayload, editVersion: number): Promise<void> {
+    const previous = pendingSaveRef.current
+    const request = (async () => {
+      // Serialize writes so every request uses the revision returned by its predecessor.
+      if (previous) await previous
+      try {
+        const saved = await updateDirectorProjectRecord(projectId, {
+          payload: current,
+          expected_content_revision: revisionRef.current,
+        }, csrfToken)
+        revisionRef.current = saved.content_revision
+        if (editVersion === editVersionRef.current) {
+          dirtyRef.current = false
+          setSaveState("saved")
+          queryClient.setQueryData(["director-project", projectId], saved)
+        }
+      } catch (error) {
+        setSaveState("failed")
+        message.error(error instanceof Error ? error.message : "保存失败")
+        throw error
+      }
+    })()
+    pendingSaveRef.current = request
+    void request.finally(() => {
+      if (pendingSaveRef.current === request) pendingSaveRef.current = null
+    }).catch(() => undefined)
+    return request
+  }
+
+  async function flushSave() {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = null
+    if (pendingSaveRef.current) await pendingSaveRef.current
+    if (dirtyRef.current) await persist(payload, editVersionRef.current)
+  }
+
+  async function leave(action: (() => void) | undefined) {
     try {
-      const saved = await updateDirectorProjectRecord(projectId, {
-        payload: current,
-        expected_content_revision: revisionRef.current,
-      }, csrfToken)
-      setRevision(saved.content_revision)
-      revisionRef.current = saved.content_revision
-      dirtyRef.current = false
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "保存失败")
-    }
+      await flushSave()
+      action?.()
+    } catch { /* Keep the draft visible when saving fails. */ }
   }
 
   async function customUpload(options: { file: File | Blob | string; onSuccess?: (body: unknown) => void; onError?: (error: Error) => void }) {
+    if (actionRef.current) return
     if (typeof options.file === "string") {
       const failed = new Error("无效的参考片文件")
       options.onError?.(failed)
@@ -147,16 +187,20 @@ export default function DirectorHypitStudio({
       return
     }
     const file = options.file instanceof File ? options.file : new File([options.file], "source.mp4")
+    actionRef.current = true
+    setUploading(true)
     try {
+      await flushSave()
       const saved = await uploadHypitSourceVideo(projectId, {
         file,
         expected_content_revision: revisionRef.current,
       }, csrfToken)
       if (isHypitPayload(saved.payload)) {
         setPayload(normalizeHypitPayload(saved.payload))
-        setRevision(saved.content_revision)
         revisionRef.current = saved.content_revision
         dirtyRef.current = false
+        queryClient.setQueryData(["director-project", projectId], saved)
+        setStatusLine(null)
       }
       options.onSuccess?.(saved)
       message.success("参考片已上传")
@@ -164,13 +208,18 @@ export default function DirectorHypitStudio({
       const failed = error instanceof Error ? error : new Error("上传失败")
       options.onError?.(failed)
       message.error(failed.message)
+    } finally {
+      actionRef.current = false
+      setUploading(false)
     }
   }
 
   async function startOperation(kind: "hypit_transcribe" | "hypit_compile") {
+    if (actionRef.current) return
+    actionRef.current = true
     setStarting(true)
     try {
-      if (dirtyRef.current) await persist(payload)
+      await flushSave()
       const operation = await createHypitOperation(projectId, {
         kind,
         language: payload.language,
@@ -196,16 +245,22 @@ export default function DirectorHypitStudio({
       }
       message.error(error instanceof Error ? error.message : "操作失败")
     } finally {
+      actionRef.current = false
       setStarting(false)
     }
   }
 
   async function openFolder() {
+    if (actionRef.current) return
+    actionRef.current = true
     try {
+      await flushSave()
       const revealed = await revealHypitWorkspace(projectId, csrfToken)
       message.success(`已打开 ${revealed.path}`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : "无法打开工程目录")
+    } finally {
+      actionRef.current = false
     }
   }
 
@@ -216,34 +271,36 @@ export default function DirectorHypitStudio({
   const staleRunning = (payload.transcript.status === "running" || payload.compile.status === "running") && !live
   const progressView = staleRunning ? null : (statusLine ?? storedProgress)
   const jobRunning = live
-  const busy = starting || live
+  const busy = starting || uploading || live
   const mobileTitle = payload.title || "Hypit 复刻"
 
   return (
     <div className="director-recipe-shell !h-0 !min-h-0 flex-1 overflow-hidden flex-col">
       <DirectorMobileHeader
         title={mobileTitle}
-        onBack={onBack}
-        menuItems={[{ key: "studio", label: "创作工作台", onClick: onExitDirector }]}
+        onBack={() => void leave(onBack)}
+        menuItems={[{ key: "studio", label: "创作工作台", onClick: () => void leave(onExitDirector) }]}
       />
       <header className="director-topbar">
-        <button type="button" className="director-back-library" onClick={onBack}><ArrowLeft size={16} />返回</button>
+        <button type="button" className="director-back-library" onClick={() => void leave(onBack)}><ArrowLeft size={16} />返回</button>
         <div className="director-project-heading">
           <Typography.Title level={4} style={{ margin: 0 }}>Hypit 复刻</Typography.Title>
         </div>
         <Space>
           <ThemeToggle />
-          <Button onClick={onExitDirector}>创作工作台</Button>
+          <Button onClick={() => void leave(onExitDirector)}>创作工作台</Button>
         </Space>
       </header>
 
       <div className="director-batch-scroll">
         <div className="replication-layout hypit-layout">
           <div className="replication-side">
-            <Alert type="info" showIcon message="与参考片复刻并列" description={HINT} />
+            <Alert type="info" showIcon message="Hypit 结构改编 · 非原片换脸" description={HINT} />
             <Card title="参考片" size="small">
               {!hasSource ? (
                 <Upload.Dragger
+                  disabled={busy}
+                  maxCount={1}
                   accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v"
                   showUploadList={false}
                   customRequest={(options) => { void customUpload(options) }}
@@ -260,11 +317,13 @@ export default function DirectorHypitStudio({
                     {" · "}{formatTime(payload.sourceVideo!.durationSec)}
                   </p>
                   <Upload
+                    disabled={busy}
+                    maxCount={1}
                     accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v"
                     showUploadList={false}
                     customRequest={(options) => { void customUpload(options) }}
                   >
-                    <Button size="small" icon={<RefreshCw size={13} />}>更换参考片</Button>
+                    <Button size="small" disabled={busy} loading={uploading} icon={<RefreshCw size={13} />}>更换参考片</Button>
                   </Upload>
                 </div>
               )}
@@ -281,6 +340,10 @@ export default function DirectorHypitStudio({
                   placeholder="例如：保留口播节奏，把产品和字幕换成我们的新品；不要锁原片运镜去转绘。"
                   onChange={(event) => queueSave({ ...payload, brief: event.target.value })}
                 />
+                <Typography.Text type={saveState === "failed" ? "danger" : "secondary"}>
+                  {saveState === "saved" ? "需求已保存" : saveState === "pending" ? "正在保存需求…" : "保存失败，请重试；任务尚未启动"}
+                </Typography.Text>
+                {saveState === "failed" ? <Button size="small" onClick={() => void flushSave().catch(() => undefined)}>重试保存</Button> : null}
                 <label className="replication-field">
                   转写语言
                   <Segmented
@@ -311,12 +374,13 @@ export default function DirectorHypitStudio({
                   </span>
                 </label>
                 <Button type="primary" disabled={!hasSource || busy} loading={busy && payload.transcript.status === "running"} onClick={() => void startOperation("hypit_transcribe")}>
-                  开始拉片
+                  1. 转写参考片
                 </Button>
+                <Button disabled={busy} icon={<FolderOpen size={14} />} onClick={() => void openFolder()}>2. 打开工程交给 Agent 制作</Button>
                 <Button disabled={busy} onClick={() => void startOperation("hypit_compile")}>
-                  编译成片
+                  3. 编译成片
                 </Button>
-                <Button icon={<FolderOpen size={14} />} onClick={() => void openFolder()}>打开项目目录</Button>
+                <p className="replication-note">打开工程时会同步最新需求。Agent 完成画面、配音和字幕制作后再编译。H3 使用「管理设置 → AI 供应商 → ComfyUI」中的地址。</p>
               </Space>
             </Card>
           </div>
@@ -338,7 +402,7 @@ export default function DirectorHypitStudio({
             {payload.transcript.error ? <Alert type="error" showIcon message={payload.transcript.error} /> : null}
             {payload.compile.error ? <Alert type="error" showIcon message={payload.compile.error} /> : null}
             {payload.transcript.status === "done" ? (
-              <Card title="拉片转写" size="small">
+              <Card title="转写证据 · 待 Agent 分析与制作" size="small">
                 <p className="replication-note">
                   {payload.transcript.wordCount} 个词
                   {payload.transcript.durationSec ? ` · ${formatTime(payload.transcript.durationSec)}` : ""}
@@ -348,11 +412,11 @@ export default function DirectorHypitStudio({
               </Card>
             ) : (
               <Card className="replication-empty" size="small">
-                <p className="replication-note">上传参考片并填写「改什么」，然后拉片。没有 Agent 写好的 authors/*.svml 与 runs/*.svrun 时，编译会提示打开目录。</p>
+                <p className="replication-note">上传参考片并填写「改什么」，先提取台词，再交给 Agent 分析画面、字幕、B-roll 和图形节奏。转写完成后仍需制作工程，才能编译成片。</p>
               </Card>
             )}
             {payload.result.url ? (
-              <Card title="成片预览" size="small">
+              <Card title={payload.compile.status === "failed" ? "上次成功成片 · 本次编译失败" : "成片预览"} size="small">
                 <video src={payload.result.url} controls playsInline className="director-shot-video" />
                 {payload.result.buildId ? <p className="replication-note">Hypit Build {payload.result.buildId}</p> : null}
               </Card>

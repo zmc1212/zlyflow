@@ -103,6 +103,8 @@ export type Director2StageClarification = {
   [key: string]: unknown
 }
 export type Director2AiOperation = {
+  script_development_document_id?: string | null
+  script_development_version?: number | null
   id: string
   project_id: string
   kind: "clarify" | "pipeline"
@@ -441,6 +443,7 @@ export function deleteEpisode(csrfToken: string, projectId: string, epId: string
 }
 
 export type Director2EpisodeDetail = {
+  production?: import("./production").ProductionState
   id: string
   project_id: string
   number: number
@@ -515,6 +518,10 @@ export type DirectorPromptSegment = {
     start_sec: number
     end_sec: number
     duration_seconds: number
+    event_ids?: string[]
+    dialogue_ids?: string[]
+    event_refs?: Array<{ id: string; text: string }>
+    dialogue_refs?: Array<{ id: string; text: string }>
     required_events: string[]
     dialogue_owner: string[]
     start_state: string
@@ -541,6 +548,15 @@ export type DirectorPromptPart = {
 }
 
 export type DirectorPromptPlan = {
+  director_design?: { dramatic_intent?: string; visual_strategy?: string; quality_notes?: string[] }
+  creative_review?: { issues: Array<{ id?: string; segment_id: string; evidence: string; suggestion: string; severity?: "blocking" | "advisory"; repair_scope?: "creative" | "planning" }> }
+  quality_version?: number
+  revision_stop_reason?: string
+  revision_requirements?: Array<{ feedback: string; segment_ids: string[] }>
+  revision_parent?: { id: string; revision: number }
+  revision_history?: Array<{ round: number; status: string; detail?: string; resolved?: string[]; remaining?: string[]; new?: string[]; changes?: Array<{ segment_id: string; before: string; after: string }> }>
+  quality_status?: string
+  actual_segment_count?: number
   kind: "director_segments"
   id: string
   revision: number
@@ -552,11 +568,17 @@ export type DirectorPromptPlan = {
   language: "zh-CN" | "en"
   rewrite_mode?: "strict" | "expand"
   aspect_ratio?: string
+  target_segment_count?: number
   source_fingerprint: string
+  source_facts?: Record<string, {
+    events: Array<{ id: string; text: string }>
+    dialogues: Array<{ id: string; text: string }>
+  }>
   reference_slots: PromptReferenceSlot[]
   common_setting: { subject_definitions: string; prompt_text: string }
   parts: DirectorPromptPart[]
   status: "current" | "stale"
+  validation_status?: "pending" | "valid" | "invalid"
   invalid_reason?: string
 }
 
@@ -688,6 +710,10 @@ export function applyPromptPreview(csrfToken: string, projectId: string, epId: s
   )
 }
 
+export function reviseDirectorPromptPlan(csrfToken: string, projectId: string, epId: string, data: Record<string, unknown>): Promise<{ job_id: string; status: string }> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/prompt-revisions`, jsonMutation(csrfToken, data, "POST"))
+}
+
 export function patchDirectorPromptPlan(csrfToken: string, projectId: string, epId: string, data: Record<string, unknown>): Promise<DirectorPromptPlan> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/prompt-plan`,
@@ -744,6 +770,14 @@ export function composeEpisodeVideo(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/compose`,
     jsonMutation(csrfToken, data, "POST"),
   )
+}
+
+export function getEpisodeProduction(projectId: string, episodeId: string, mode: import("./production").ProductionMode): Promise<import("./production").ProductionState> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/production?mode=${mode}`)
+}
+
+export function updateEpisodeProduction(csrfToken: string, projectId: string, episodeId: string, action: "mode" | "adopt" | "audio", data: Record<string, unknown>): Promise<import("./production").ProductionState> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/production/${action}`, jsonMutation(csrfToken, data, "PATCH"))
 }
 
 export function getEpisodeDubbing(projectId: string, epId: string): Promise<import("./dubbing-track").DubbingTrack> {

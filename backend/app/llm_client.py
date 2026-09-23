@@ -59,11 +59,17 @@ class LlmStreamHook:
             _LLM_STREAM_STATUS.reset(self._status_token)
 
 
-def emit_llm_stream_status(phase: str, message: str, *, reset: bool = False) -> None:
+def emit_llm_stream_status(
+    phase: str,
+    message: str,
+    *,
+    reset: bool = False,
+    **metadata: Any,
+) -> None:
     hook = _LLM_STREAM_STATUS.get()
     if hook is None:
         return
-    hook({"phase": phase, "message": message, "reset": reset})
+    hook({"phase": phase, "message": message, "reset": reset, **metadata})
 
 
 def _maybe_partial_tag(buffer: str, tag: str) -> bool:

@@ -1,0 +1,11 @@
+.production-stack { width: 100%; }
+.production-picture { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 20px; align-items: start; }
+.production-units { background: var(--studio-surface); border: 1px solid var(--studio-border); border-radius: 12px; padding: 16px; position: sticky; top: 12px; max-height: 75vh; overflow: auto; }
+.production-units section + section { margin-top: 20px; }
+.production-units .ant-btn { text-align: left; height: auto; white-space: normal; padding: 10px 12px; }
+.production-detail { min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.production-unit-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-height: 32px; }
+.production-video { width: 100%; max-height: 460px; display: block; margin: 16px 0; background: #080a0d; border-radius: 10px; }
+.production-actions { margin: 14px 0; }
+.production-audio-fields { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(200px, 2fr) 140px 140px 160px; gap: 14px; }
+.production-source-selected { outline: 2px solid var(--studio-accent-text); outline-offset: 3px; }

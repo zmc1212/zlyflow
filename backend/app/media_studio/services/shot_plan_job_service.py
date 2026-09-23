@@ -86,6 +86,7 @@ class ShotPlanJobService:
         timestamp = now_str()
         resolved_aspect = resolve_workshop_aspect_ratio(request=aspect_ratio, project_id=project_id)
         job_payload = {
+            "script_revision": (analysis.get("script_development") or {}).get("revision", 0),
             "target_type": JOB_TYPE,
             "project_id": project_id,
             "document_id": doc_id,
@@ -522,6 +523,7 @@ class ShotPlanJobService:
                         episode_index=index,
                         updated_episode=updated,
                         log_line=log_line,
+                        expected_script_revision=payload.get("script_revision", 0),
                     )
                     done = {
                         "episode_num": ep_num,
@@ -534,6 +536,8 @@ class ShotPlanJobService:
                     }
                     planned += 1
                 except Exception as err:
+                    if "SOURCE_CONFLICT" in str(err):
+                        raise
                     log_line = f"第{ep_num if ep_num is not None else '?'}集镜头规划失败，已保留解析器镜头：{err}"
                     ProjectDetailService.persist_shot_plan_episode(
                         project_id,
@@ -542,6 +546,7 @@ class ShotPlanJobService:
                         episode_index=index,
                         updated_episode=episode,
                         log_line=log_line,
+                        expected_script_revision=payload.get("script_revision"),
                     )
                     done = {
                         "episode_num": ep_num,

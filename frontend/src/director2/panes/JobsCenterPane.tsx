@@ -4,7 +4,7 @@
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Alert, Button, Modal, Progress, Space, Table, Tabs, Tag, message } from "antd"
+import { Alert, Button, Collapse, Modal, Progress, Space, Table, Tabs, Tag, Typography, message } from "antd"
 import type { TableProps } from "antd"
 import { RefreshCw, ExternalLink, Copy } from "lucide-react"
 import { director2ErrorDetail, getJob, listJobs, retryJob, upscaleProjectVideoJob, type Director2Job } from "../api"
@@ -165,6 +165,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
           )
         ) : isH3PromptJob(record) && (record.status === "completed" || record.status === "succeeded") ? (
           <Tag color="cyan">提示词就绪</Tag>
+        ) : record.job_type === "prompt_expansion" && (record.status === "completed" || record.status === "succeeded") ? (
+          <Tag color="green">预览已校验</Tag>
         ) : isShotPlanJob(record) && (record.status === "completed" || record.status === "succeeded") ? (
           <Tag color="purple">镜头已规划</Tag>
         ) : isTtsJob(record) && (record.status === "completed" || record.status === "succeeded") ? (
@@ -195,7 +197,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               ariaLabel={`超分 ${record.title || record.id}`}
             />
           ) : null}
-          {isShotPlanJob(record) && shotPlanDocumentId(record) ? (
+          {(isShotPlanJob(record) || record.job_type === "script_development") && shotPlanDocumentId(record) ? (
             <Button size="small" type="link" onClick={() => openContentDocument(record)}>
               打开文档
             </Button>
@@ -205,7 +207,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               打开配音
             </Button>
           ) : null}
-          {record.status === "failed" ? (
+          {record.status === "failed" && record.job_type !== "script_development" ? (
             <Button size="small" type="link" onClick={() => handleRetry(record.id)}>
               重试
             </Button>
@@ -223,6 +225,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       uploading: { color: "processing", text: "上传素材" },
       comfy_queued: { color: "cyan", text: "ComfyUI 排队" },
       running: { color: "processing", text: "执行中" },
+      awaiting_review: { color: "gold", text: "待确认" },
       succeeded: { color: "green", text: "已完成" },
       completed: { color: "green", text: "已完成" },
       failed: { color: "red", text: "失败" },
@@ -363,8 +366,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       await retryJob(csrfToken, projectId, id)
       message.success("任务已重新启动")
       await fetchJobs()
-    } catch {
-      message.error("重试失败")
+    } catch (error) {
+      message.error(director2ErrorDetail(error, "重试失败"))
     }
   }
 
@@ -515,6 +518,31 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                 </div>
               </div>
             </div>
+
+            {selectedJob.job_type === "prompt_expansion" ? (
+              <div className="detail-section">
+                <div className="detail-section-title">提示词预览</div>
+                <div className="detail-grid">
+                  <div className="detail-row">
+                    <span className="detail-key">生成类型</span>
+                    <span className="detail-val">{selectedJob.payload?.prompt_profile === "director_segments" ? "Director 出片方案" : "六段式提示词"}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-key">校验状态</span>
+                    <span className="detail-val">{selectedJob.payload?.validation_status === "valid" ? "已通过" : "未通过或未完成"}</span>
+                  </div>
+                  {selectedJob.payload?.failure ? (
+                    <div className="detail-row">
+                      <span className="detail-key">失败位置</span>
+                      <span className="detail-val">
+                        {selectedJob.payload.failure.part_id || selectedJob.payload.failure.stage || "生成阶段"}
+                        {selectedJob.payload.failure.segment_ids?.length ? ` · ${selectedJob.payload.failure.segment_ids.join("、")}` : ""}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             {isTtsJob(selectedJob) ? (
               <div className="detail-section">
@@ -679,6 +707,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               </div>
             ) : null}
 
+            {selectedJob.job_type === "script_development" ? <Alert type="info" showIcon title={String(selectedJob.payload?.message || "剧本发展任务")} description={<Button type="link" onClick={() => openContentDocument(selectedJob)}>打开文档，查看策划、审稿或从检查点重试</Button>} /> : null}
+
             {isShotPlanJob(selectedJob) ? (
               <div className="detail-section">
                 <div className="detail-section-title">分集与镜头</div>
@@ -708,7 +738,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 调用参数 */}
-            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.payload && Object.keys(selectedJob.payload).length ? (
+            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.job_type !== "prompt_expansion" && selectedJob.job_type !== "script_development" && selectedJob.payload && Object.keys(selectedJob.payload).length ? (
               <div className="detail-section">
                 <div className="detail-section-title">⚙️ 调用参数</div>
                 <div className="detail-grid">
@@ -790,7 +820,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 参考图 */}
-            {!isVideoJob(selectedJob) && !isShotPlanJob(selectedJob) ? (
+            {!isVideoJob(selectedJob) && !isShotPlanJob(selectedJob) && selectedJob.job_type !== "prompt_expansion" && selectedJob.job_type !== "script_development" ? (
               <div className="detail-section">
                 <div className="detail-section-title">🖼 传入参考图 (images)</div>
                 {referenceUrls(selectedJob).length ? (
@@ -866,7 +896,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* GRS 请求体 */}
-            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) ? (
+            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.job_type !== "prompt_expansion" && selectedJob.job_type !== "script_development" ? (
               <div className="detail-section">
                 <div className="detail-section-title">📤 提交给 GRS 的完整参数</div>
                 <div className="prompt-block">
@@ -968,10 +998,27 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 错误信息 */}
-            {selectedJob.error_message ? (
+            {selectedJob.error_message || selectedJob.payload?.failure ? (
               <div className="detail-section">
                 <div className="detail-section-title">❌ 错误信息</div>
-                <Alert type="error" showIcon message={selectedJob.error_message} />
+                <Alert
+                  type="error"
+                  showIcon
+                  title={selectedJob.job_type === "prompt_expansion"
+                    ? selectedJob.payload?.failure?.message || "预览生成失败，可重试"
+                    : selectedJob.error_message}
+                />
+                {selectedJob.job_type === "prompt_expansion" && selectedJob.payload?.failure ? (
+                  <Collapse
+                    ghost
+                    size="small"
+                    items={[{
+                      key: "prompt-technical-detail",
+                      label: "技术详情",
+                      children: <Typography.Paragraph copyable>{JSON.stringify(selectedJob.payload.failure, null, 2)}</Typography.Paragraph>,
+                    }]}
+                  />
+                ) : null}
               </div>
             ) : null}
           </div>

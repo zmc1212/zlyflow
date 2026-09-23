@@ -21,7 +21,9 @@ describe("director2 job types", () => {
       "image_generation",
       "video_generation",
       "h3_prompt",
+      "prompt_expansion",
       "shot_plan",
+      "script_development",
       "ai_pipeline",
       "tts_generation",
     ])
@@ -32,6 +34,7 @@ describe("director2 job types", () => {
     expect(director2JobTypeLabel("image_generation")).toBe("图片生成")
     expect(director2JobTypeLabel("video_generation")).toBe("视频生成")
     expect(director2JobTypeLabel("h3_prompt")).toBe("H3 提示词")
+    expect(director2JobTypeLabel("prompt_expansion")).toBe("提示词预览")
     expect(director2JobTypeLabel("shot_plan")).toBe("镜头规划")
     expect(director2JobTypeLabel("ai_pipeline")).toBe("AI 生成")
     expect(director2JobTypeLabel("tts_generation")).toBe("配音")
@@ -47,6 +50,8 @@ describe("director2 job types", () => {
       { job_type: "image_generation" },
       { job_type: "image_generation" },
       { job_type: "shot_plan" },
+      { job_type: "script_development" },
+      { job_type: "prompt_expansion" },
       { job_type: "ai_pipeline" },
       { job_type: "tts_generation" },
       { job_type: "other" },
@@ -54,13 +59,16 @@ describe("director2 job types", () => {
     expect(filterJobsByType(jobs, "image_generation")).toHaveLength(2)
     expect(filterJobsByType(jobs, "video_generation")).toHaveLength(1)
     expect(filterJobsByType(jobs, "shot_plan")).toHaveLength(1)
+    expect(filterJobsByType(jobs, "prompt_expansion")).toHaveLength(1)
     expect(filterJobsByType(jobs, "ai_pipeline")).toHaveLength(1)
     expect(filterJobsByType(jobs, "tts_generation")).toHaveLength(1)
     expect(countJobsByType(jobs)).toEqual({
       image_generation: 2,
       video_generation: 1,
       h3_prompt: 0,
+      prompt_expansion: 1,
       shot_plan: 1,
+      script_development: 1,
       ai_pipeline: 1,
       tts_generation: 1,
     })

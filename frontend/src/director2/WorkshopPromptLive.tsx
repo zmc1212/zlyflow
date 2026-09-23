@@ -31,8 +31,10 @@ export function splitStreamTokens(text: string): string[] {
 
 export function WorkshopPromptLive({
   state,
+  showStage = false,
 }: {
   state: WorkshopPromptLiveState
+  showStage?: boolean
 }) {
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
   const [now, setNow] = useState(Date.now())
@@ -41,9 +43,13 @@ export function WorkshopPromptLive({
   const expanded = manualExpanded ?? autoExpanded
   const rows = useMemo(() => reasoningRows(state.reasoning), [state.reasoning])
   const tokens = useMemo(() => splitStreamTokens(state.text), [state.text])
-  const header = state.working
-    ? (hasReasoning ? elapsedLabel(state.startedAt, true) : (state.message || "正在思考"))
-    : elapsedLabel(state.startedAt, false)
+  const header = state.failed
+    ? (state.message || "生成失败")
+    : state.working
+      ? (hasReasoning
+        ? (showStage ? `${state.message} · ${elapsedLabel(state.startedAt, true)}` : elapsedLabel(state.startedAt, true))
+        : (state.message || "正在思考"))
+      : elapsedLabel(state.startedAt, false)
 
   useEffect(() => {
     if (!state.working) return undefined
@@ -60,7 +66,7 @@ export function WorkshopPromptLive({
         onClick={() => setManualExpanded((current) => !(current ?? autoExpanded))}
       >
         {state.working ? <span className="workshop-think-spinner" aria-hidden /> : <span className="workshop-think-dot" aria-hidden />}
-        <span className={state.working ? "workshop-think-status" : "workshop-think-done"}>{header}</span>
+        <span className={state.failed ? "workshop-think-error" : state.working ? "workshop-think-status" : "workshop-think-done"}>{header}</span>
         <span className={`workshop-think-chevron${expanded ? " is-open" : ""}`}><Chevron open={expanded} /></span>
       </button>
       <div className={`workshop-think-fold${expanded ? " is-open" : ""}`}>

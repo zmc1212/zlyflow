@@ -8,11 +8,13 @@
 // 父组件可经 ref 调用 fetchEpisodes()。
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
+import { directorPlanNeedsReview } from "../director-plan-quality"
 import {
   Alert,
   Button,
   Checkbox,
   Col,
+  Collapse,
   Form,
   Input,
   InputNumber,
@@ -68,13 +70,12 @@ import {
   generateEpisodeVideo,
   upscaleBeatVideo,
   adoptBeatVideoTake,
-  composeEpisodeVideo,
-  getEpisodeDubbing,
   listAssets,
   getJob,
   listJobs,
   listVideoWorkflowModes,
   updateProject,
+  updateEpisodeProduction,
   director2ErrorDetail,
   type Director2Episode,
   type Director2EpisodeDetail,
@@ -93,8 +94,10 @@ import {
 } from "../workshop-prompt-stream"
 import Director2VideoSettingsPopover from "./Director2VideoSettingsPopover"
 import PromptAuthoringPanel from "./PromptAuthoringPanel"
+import { ProductionPicture, ProductionSound, ProductionFilm } from "./ProductionPanes"
+import { useEpisodeProduction } from "../use-episode-production"
+import SourceBeatEditor from "./SourceBeatEditor"
 import UpscaleScaleButton from "../../UpscaleScaleButton"
-import DubbingWorkbench from "./DubbingWorkbench"
 import { parseWorkshopTab, type WorkshopTabKey } from "../dubbing-track"
 import {
   DIRECTOR2_DEFAULT_VIDEO_WORKFLOW,
@@ -108,8 +111,6 @@ import {
   type BeatVideoTake,
   buildVideoJobOptions,
   defaultVideoOptionValues,
-  episodeFilmSource,
-  episodeFilmUrl,
   episodeVideoRenderMode,
   formatEpisodeVideoSubmitMessage,
   formatSelectedShotSubmitMessage,
@@ -233,9 +234,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [generatingEpisodeVideo, setGeneratingEpisodeVideo] = useState(false)
 
     // 当前分集工作区 Tab: shots | script | dubbing | compose
-    const [currentTab, setCurrentTab] = useState<WorkshopTabKey>(() => parseWorkshopTab(searchParams.get("tab")) || "shots")
-    const [mixDubbing, setMixDubbing] = useState(true)
-    const [composeBlockReason, setComposeBlockReason] = useState("")
+    const [currentTab, setCurrentTab] = useState<WorkshopTabKey>(() => parseWorkshopTab(searchParams.get("tab")) || "script")
 
     // 镜头工作台状态
     const [showSketch, setShowSketch] = useState(true)
@@ -282,7 +281,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [upscalingBeatId, setUpscalingBeatId] = useState<string | null>(null)
     const [beatVideoProgress, setBeatVideoProgress] = useState<Record<string, WorkshopShotVideoProgress>>({})
     const [episodeVideoProgress, setEpisodeVideoProgress] = useState<WorkshopEpisodeVideoProgress | null>(null)
-    const [composingEpisode, setComposingEpisode] = useState(false)
     const [currentSceneView, setCurrentSceneView] = useState<"front" | "reverse">("front")
     const [beatJobStates, setBeatJobStates] = useState<Map<string, string>>(new Map())
     const [h3RefImages, setH3RefImages] = useState<H3RefImage[]>([])
@@ -369,8 +367,18 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       if (persistAspect) persistWorkshopAspect(next.aspect_ratio)
     }
 
-    function handleVideoWorkflowChange(nextId: string) {
+    async function handleVideoWorkflowChange(nextId: string) {
       const mode = videoWorkflows.find((item) => item.id === nextId)
+      if (production.state && currentEpisode) {
+        try {
+          await updateEpisodeProduction(csrfToken, projectId, currentEpisode.id, "mode", {
+            expected_revision: production.state.revision,
+            mode: mode?.prompt_profile === "director_segments" ? "director" : "shot",
+          })
+        } catch (err) {
+          message.error(director2ErrorDetail(err, "切换制作方式失败")); await production.refresh(); return
+        }
+      }
       applyVideoSettings(nextId, mode, videoOptions, true)
       if (episodeVideoRenderMode(mode) !== "shot") setCheckedBeatIds(new Set())
     }
@@ -617,10 +625,31 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       () => videoWorkflows.find((item) => item.id === videoWorkflow) || videoWorkflows[0],
       [videoWorkflow, videoWorkflows],
     )
-    const videoRenderMode = episodeVideoRenderMode(selectedVideoWorkflow)
+    const productionMode = selectedVideoWorkflow?.prompt_profile === "director_segments" ? "director" : "shot"
+    const directorQualityBlocked = productionMode === "director" && Boolean(currentEpisode?.prompt_authoring?.director_plan && directorPlanNeedsReview(currentEpisode.prompt_authoring.director_plan))
+    const production = useEpisodeProduction(projectId, currentEpisode, productionMode)
+    const selectedProductionUnit = production.state?.units.find(u => u.id === searchParams.get("unit"))?.id
+      || (productionMode === "shot" ? selectedBeat?.id : production.state?.units[0]?.id) || ""
+    function navigateProduction(tab: WorkshopTabKey, unit?: string, source?: string) {
+      setCurrentTab(tab)
+      setSearchParams(prev => {
+        const params = new URLSearchParams(prev)
+        params.set("tab", tab)
+        if (unit) params.set("unit", unit)
+        if (source) params.set("source", source)
+        return params
+      })
+      if (productionMode === "shot" && unit) applySelectedBeatId(unit)
+    }
+    useEffect(() => {
+      const unit = searchParams.get("unit")
+      if (productionMode === "shot" && unit && currentEpisode?.beats?.some(b => b.id === unit)) applySelectedBeatId(unit)
+    }, [searchParams, productionMode, currentEpisode?.id])
+    useEffect(() => {
+      const source = searchParams.get("source")
+      if (currentTab === "script" && source) requestAnimationFrame(() => document.getElementById("source-" + source)?.scrollIntoView({ block: "center" }))
+    }, [currentTab, searchParams])
     const videoWorkflowSelectOptions = useMemo(() => groupedVideoWorkflowOptions(videoWorkflows), [videoWorkflows])
-    const episodeFilm = episodeFilmUrl(currentEpisode)
-    const episodeSource = episodeFilmSource(currentEpisode)
     const videoReadyCount = shotVideoReadyCount(currentEpisode?.beats)
     const generatingVideoBeatIds = useMemo(() => new Set(Object.keys(beatVideoProgress)), [beatVideoProgress])
     const episodeVideoJobActive = Boolean(episodeVideoProgress)
@@ -1524,18 +1553,16 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       const beat = resolveSelectedBeat(ep)
       const target = take || previewFilmTake
       if (!ep || !beat || !target) return
-      if (target.url === String(beat.video_url || "").trim()) return
       setAdoptingFilmTake(true)
       try {
-        const result = await adoptBeatVideoTake(csrfToken, projectId, ep.id, beat.id, {
-          url: target.url,
-          ...(target.job_id ? { job_id: target.job_id } : {}),
+        const state = production.state
+        const material = state?.materials.find((m) => m.url === target.url && m.plan_key === state.plan_key && m.unit_ids.includes(beat.id))
+        if (!state || !material) throw new Error("此历史版本不属于当前制作方案，请在画面区选择可采用版本")
+        await updateEpisodeProduction(csrfToken, projectId, ep.id, "adopt", {
+          mode: "shot", expected_revision: state.revision, material_id: material.id,
         })
-        if (result.beat) {
-          updateBeatById(beat.id, result.beat)
-        }
         setFilmPreviewUrl(target.url)
-        message.success("已采用此版成片")
+        message.success("已采用此版画面，成片待更新")
         await loadEpisodeDetail(ep.id)
       } catch (err) {
         message.error(director2ErrorDetail(err, "采用成片失败"))
@@ -1591,6 +1618,10 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           message.warning("请先生成并保存当前有效的 Director 出片方案")
           return
         }
+        if (selectedVideoWorkflow?.prompt_profile === "director_segments" && directorPlan && directorPlanNeedsReview(directorPlan)) {
+          message.warning("请先在方案中返修或重新审稿，解决阻断问题后再出片")
+          return
+        }
         const extra = selectedVideoWorkflow?.prompt_profile === "director_segments"
           ? { render_scope: "episode", director_plan_revision: directorPlan!.revision }
           : undefined
@@ -1643,51 +1674,14 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       }
     }
 
-    async function handleComposeEpisode() {
-      const ep = currentEpisodeRef.current
-      if (!ep || composingEpisode) return
-      if (composeBlockReason) {
-        message.warning(composeBlockReason)
-        return
-      }
-      setComposingEpisode(true)
-      try {
-        const res = await composeEpisodeVideo(csrfToken, projectId, ep.id, { mix_dubbing: mixDubbing })
-        rememberVideoJobIds([res.job_id])
-        message.success({ content: "合成任务已进入队列，可在「全部任务 → 视频生成」中查看进度", duration: 6 })
-      } catch (err) {
-        message.error({ content: director2ErrorDetail(err, "合成任务创建失败"), duration: 10 })
-      } finally {
-        setComposingEpisode(false)
-      }
-    }
-
     function handleToolNotice(name: string) {
       message.info(`已开启「${name}」模式`)
     }
 
     useEffect(() => {
       const tab = parseWorkshopTab(searchParams.get("tab"))
-      if (tab) setCurrentTab(tab)
+      setCurrentTab(tab || "script")
     }, [searchParams])
-
-    useEffect(() => {
-      if (currentTab !== "compose" || !currentEpisodeId) {
-        setComposeBlockReason("")
-        return
-      }
-      let cancelled = false
-      void getEpisodeDubbing(projectId, currentEpisodeId)
-        .then((track) => {
-          if (!cancelled) setComposeBlockReason(track.compose_block_reason || "")
-        })
-        .catch(() => {
-          if (!cancelled) setComposeBlockReason("")
-        })
-      return () => {
-        cancelled = true
-      }
-    }, [currentTab, currentEpisodeId, projectId])
 
     // ---------------- 左右拖拽调节分栏 ----------------
     // 经 ref 转发保持监听器注册/移除一致（等价 Vue 的稳定函数引用）
@@ -1752,6 +1746,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         }
         setModalVisible(false)
         await fetchEpisodes()
+        if (isEdit && form.id === currentEpisodeRef.current?.id) await loadEpisodeDetail(form.id)
       } catch {
         message.error("操作失败")
       } finally {
@@ -1982,19 +1977,52 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                   onWorkflowChange={handleVideoWorkflowChange}
                   onChange={handleVideoOptionChange}
                 />
-                <Button loading={generatingEpisodeVideo || episodeVideoJobActive} icon={<Video size={14} />} onClick={() => handleGenerateEpisodeVideo()}>
-                  {selectedVideoWorkflow?.prompt_profile === "director_segments" ? "生成 Director 全集" : "一键生成视频"}
-                </Button>
                 <Button loading={refreshingDetail} icon={<RefreshCw size={14} />} onClick={() => refreshCurrentEpisode()}>
                   刷新数据
                 </Button>
-                <Button type="primary" loading={regeneratingScript} icon={<Sparkles size={14} />} onClick={() => handleRegenerateScript()}>
-                  重新生成脚本
-                </Button>
+
               </Space>
             </header>
 
-            <PromptAuthoringPanel
+            {production.error ? <Alert type="error" showIcon title={production.error} action={<Button onClick={() => void production.refresh()}>重试</Button>} /> : null}
+            {production.state && <Space className="production-actions">
+              <Tag>{productionMode === "director" ? "Director 连续画面" : "普通逐镜"}</Tag>
+              <Tag>制作版本 {production.state.revision}</Tag>
+              <Tag color={production.state.plan_stale || directorQualityBlocked ? "warning" : "success"}>{production.state.plan_stale ? "方案待更新" : directorQualityBlocked ? "方案待复验" : "方案可用"}</Tag>
+              <Tag>{Object.keys(production.state.adopted).length}/{production.state.units.length} 个画面已采用</Tag>
+              {workshopJobs.filter(job => job.payload?.episode_id === currentEpisode.id && job.job_type === "video_generation" &&
+                !["completed", "succeeded", "failed", "cancelled", "interrupted"].includes(job.status)).map(job =>
+                <Tag key={job.id} color="processing">{job.payload?.render_scope === "compose" ? "导出成片" : "生成画面"} · {Math.round(job.progress || 0)}%</Tag>)}
+              <Button onClick={() => navigateProduction("compose")}>查看成片</Button>
+            </Space>}
+
+            {/* 四个工作区共享制作版本；URL 继续兼容旧 tab 键。 */}
+            <Tabs
+              activeKey={currentTab}
+              onChange={(key) => {
+                const next = (parseWorkshopTab(key) || "shots") as WorkshopTabKey
+                setCurrentTab(next)
+                setSearchParams((prev) => {
+                  const params = new URLSearchParams(prev)
+                  params.set("tab", next)
+                  return params
+                })
+              }}
+              className="episode-tabs"
+              items={[
+                /* ==================== Tab 1: 🎬 镜头工作台 (XiajiShotsWorkbench) ==================== */
+                {
+                  key: "shots",
+                  label: "画面",
+                  children: (
+                    <>
+                      <Space className="production-actions"><Button disabled={Boolean(production.state?.plan_stale) || directorQualityBlocked} loading={generatingEpisodeVideo || episodeVideoJobActive} icon={<Video size={14} />} onClick={() => handleGenerateEpisodeVideo()}>
+                  {selectedVideoWorkflow?.prompt_profile === "director_segments" ? "生成本集连续画面" : "生成本集逐镜画面"}
+                </Button></Space>
+                      {production.state ? <ProductionPicture state={production.state} csrfToken={csrfToken} projectId={projectId}
+                        episodeId={currentEpisode.id} onRefresh={production.refresh} unitId={selectedProductionUnit}
+                        onUnit={id => navigateProduction("shots", id)} onSource={id => navigateProduction("script", undefined, id)}
+                        editor={<PromptAuthoringPanel
               csrfToken={csrfToken}
               projectId={projectId}
               episode={currentEpisode}
@@ -2005,29 +2033,13 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
               videoOptions={videoOptions}
               onRefresh={() => loadEpisodeDetail(currentEpisode.id)}
               onVideoJob={rememberVideoJobIds}
-            />
-
-            {/* 四大核心 Tab: 镜头 | 剧本 | 配音 | 合成 */}
-            <Tabs
-              activeKey={currentTab}
-              onChange={(key) => {
-                const next = (parseWorkshopTab(key) || "shots") as WorkshopTabKey
-                setCurrentTab(next)
-                setSearchParams((prev) => {
-                  const params = new URLSearchParams(prev)
-                  if (next === "shots") params.delete("tab")
-                  else params.set("tab", next)
-                  return params
-                }, { replace: true })
-              }}
-              className="episode-tabs"
-              items={[
-                /* ==================== Tab 1: 🎬 镜头工作台 (XiajiShotsWorkbench) ==================== */
-                {
-                  key: "shots",
-                  label: "🎬 镜头",
-                  children: (
-                    <div className="xiaji-shots-workbench">
+              selectedUnitId={selectedProductionUnit}
+              jobs={workshopJobs}
+              shotWorkflows={videoWorkflows.filter(mode => episodeVideoRenderMode(mode) === "shot")}
+              onChooseShotWorkflow={id => void handleVideoWorkflowChange(id)}
+            />} /> : <Spin />}
+                      {productionMode === "shot" && <Collapse items={[{ key: "source-tools", label: "来源分镜与参考资产编辑", children: (
+<div className="xiaji-shots-workbench">
                       {/* 镜头工具条 */}
                       <div className="xiaji-shots-toolbar">
                         <div className="toolbar-left">
@@ -2929,13 +2941,19 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                         </div>
                       </div>
                     </div>
+                      ) }]} />}
+                    </>
                   ),
                 },
                 /* ==================== Tab 2: 📝 原文剧本 (ScriptPane) ==================== */
                 {
                   key: "script",
-                  label: "📝 剧本",
+                  label: "剧本",
                   children: (
+                    <div>
+                      <Space className="production-actions"><Button type="primary" loading={regeneratingScript} icon={<Sparkles size={14} />} onClick={() => handleRegenerateScript()}>
+                  重新生成脚本
+                </Button><Button onClick={() => { const ep = episodes.find(item => item.id === currentEpisode.id); if (ep) openEditModal(ep) }}>编辑本集剧本</Button></Space>
                     <div className="xiaji-script-grid">
                       {/* 左侧：出场资产规划 + 原文 */}
                       <div className="xiaji-script-col">
@@ -2984,14 +3002,15 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                         <section className="script-section-box">
                           <header className="section-head">
                             <Clapperboard size={15} />
-                            <h3>编排脚本预览</h3>
+                            <h3>来源分镜</h3>
                             <em>{currentEpisode.beats?.length || 0} 个 Beat · 共 {episodeDurationSec} 秒</em>
                           </header>
                           <div className="xiaji-beat-list">
                             {(currentEpisode.beats || []).map((beat) => (
                               <div
                                 key={beat.id}
-                                className="xiaji-beat"
+                                id={"source-" + beat.id}
+                                className={"xiaji-beat" + (searchParams.get("source") === beat.id ? " production-source-selected" : "")}
                               >
                                 <span className="beat-header">
                                   {workshopBeatLabel(beat)} · {formatBeatDurationZh(beat.video_duration)} · {beat.heading || "分镜"}
@@ -3006,135 +3025,34 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                     <span className="lbl">画面：</span>{beat.action}
                                   </p>
                                 ) : null}
+                                <Button size="small" onClick={() => navigateProduction("shots", production.state?.units.find(u => u.source_beat_ids.includes(beat.id))?.id)}>查看对应画面</Button>
+                                <SourceBeatEditor csrfToken={csrfToken} projectId={projectId} episodeId={currentEpisode.id} beat={beat} onSaved={() => loadEpisodeDetail(currentEpisode.id)} />
                               </div>
                             ))}
                           </div>
                         </section>
                       </div>
                     </div>
+                    </div>
                   ),
                 },
                 {
                   key: "dubbing",
-                  label: "🎙️ 配音",
+                  label: "声音",
                   children: (
-                    <DubbingWorkbench csrfToken={csrfToken} projectId={projectId} episodeId={currentEpisode.id} />
+                    <>{production.state ? <ProductionSound key={`${currentEpisode.id}-${productionMode}`} unitId={selectedProductionUnit} state={production.state} csrfToken={csrfToken} projectId={projectId} episodeId={currentEpisode.id} onRefresh={production.refresh} /> : <Spin />}</>
                   ),
                 },
                 /* ==================== Tab 3: 🎞️ 成片合成 (ComposePane) ==================== */
                 {
                   key: "compose",
-                  label: "🎞️ 合成",
+                  label: "成片",
                   children: (
-                    <div className="xiaji-compose-pane">
-                      <div className="compose-summary-card">
-                        <Clapperboard size={32} className="text-purple" />
-                        <div className="summary-info">
-                          <h3>
-                            {videoRenderMode === "episode"
-                              ? "第 " + currentEpisode.number + " 集 H3 Director 整集直出"
-                              : "第 " + currentEpisode.number + " 集成片合成流水线"}
-                          </h3>
-                          <p>
-                            {videoRenderMode === "episode"
-                              ? (episodeFilm
-                                ? "本集已由 H3 Director 加速版一次直出。勾选镜头点「生成选中」可单独重跑单镜。"
-                                : "「一键生成视频」一次出整集成片；勾选镜头后点「生成选中」只提交这些镜。")
-                              : `已出片 ${videoReadyCount}/${currentEpisode.beats?.length || 0} · 开口对白默认保留 H3 口型声，内心/旁白可叠配音轨`}
-                          </p>
-                        </div>
-                        <Space wrap>
-                          <Switch
-                            size="small"
-                            checked={mixDubbing}
-                            onChange={setMixDubbing}
-                            checkedChildren="混入配音"
-                            unCheckedChildren="不混配音"
-                          />
-                          <Button
-                            type="primary"
-                            icon={<Sparkles size={14} />}
-                            loading={composingEpisode || episodeVideoJobActive}
-                            disabled={
-                              composingEpisode
-                              || episodeVideoJobActive
-                              || !currentEpisode.beats?.length
-                              || videoReadyCount < (currentEpisode.beats?.length || 0)
-                              || Boolean(composeBlockReason)
-                            }
-                            onClick={() => handleComposeEpisode()}
-                          >
-                            一键合成全集成片
-                          </Button>
-                          <Button onClick={() => handleToolNotice("字幕导出")}>
-                            导出字幕 SRT
-                          </Button>
-                        </Space>
-                      </div>
-
-                      {composeBlockReason ? (
-                        <Alert
-                          type="warning"
-                          showIcon
-                          className="mt-4"
-                          message="解说剧还不能合成"
-                          description={composeBlockReason}
-                        />
-                      ) : null}
-
-                      {episodeFilm ? (
-                        <div className="compose-episode-player mt-4">
-                          <h4>分集成片</h4>
-                          <video src={episodeFilm} controls playsInline className="compose-episode-video" />
-                          {episodeSource === "director_direct" ? (
-                            <p className="compose-episode-note">来源：H3 Director 加速版一次直出</p>
-                          ) : episodeSource === "composed" ? (
-                            <p className="compose-episode-note">来源：逐镜拼接合成</p>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      <div className="timeline-preview-section mt-4">
-                        <h4>分镜轨道时间线预览（已出片 {videoReadyCount}/{currentEpisode.beats?.length || 0}）</h4>
-                        <div className="timeline-tiles-scroll">
-                          {(currentEpisode.beats || []).map((b) => {
-                            const busy = generatingVideoBeatIds.has(b.id)
-                            const playback = beatPlaybackUrl(b)
-                            const ready = Boolean(playback)
-                            const upscaled = beatHasUpscaled(b)
-                            return (
-                              <div
-                                key={b.id}
-                                className={`timeline-shot-card${ready ? " is-ready" : busy ? " is-busy" : " is-missing"}`}
-                              >
-                                <div className="shot-thumb">
-                                  {ready ? (
-                                    <video src={playback} muted playsInline />
-                                  ) : b.render_url || b.sketch_url ? (
-                                    <img src={b.render_url || b.sketch_url || undefined} alt="" />
-                                  ) : (
-                                    <div className="placeholder-thumb">Shot {b.sequence}</div>
-                                  )}
-                                </div>
-                                <div className="shot-title">Shot {b.sequence} ({formatBeatDurationLabel(b.video_duration)})</div>
-                                <div className="shot-status">{upscaled ? `已出片 · ${beatUpscaleLabel(b)}` : ready ? "已出片" : busy ? "生成中" : "未出片"}</div>
-                                <UpscaleScaleButton
-                                  className="mt-1"
-                                  disabled={Boolean(beatUpscaleDisabledReason(b, beatVideoProgress[b.id])) || upscalingBeatId === b.id}
-                                  loading={upscalingBeatId === b.id}
-                                  hint={beatUpscaleDisabledReason(b, beatVideoProgress[b.id]) || "点开后选 2x 或 4x，原片保留"}
-                                  onSelect={(scale) => void handleUpscaleBeat(b, scale)}
-                                  ariaLabel={`超分 ${workshopBeatLabel(b)}`}
-                                />
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </div>
+                    <>{production.state ? <ProductionFilm state={production.state} csrfToken={csrfToken} projectId={projectId}
+                      episodeId={currentEpisode.id} onRefresh={production.refresh} onJob={rememberVideoJobIds} jobActive={episodeVideoJobActive} /> : <Spin />}</>
                   ),
                 },
-              ]}
+              ].sort((a, b) => ["script", "shots", "dubbing", "compose"].indexOf(a.key) - ["script", "shots", "dubbing", "compose"].indexOf(b.key))}
             />
           </div>
         ) : currentEpisodeId && !currentEpisode ? (

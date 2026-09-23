@@ -134,6 +134,7 @@ export default function Director2ScriptLiveBody({ title, summary, fullStory, liv
                   open={open}
                   index={index}
                   shotCount={episode.shotCount}
+                  amountLabel={episode.shotCount ? undefined : "剧本正文"}
                   onToggle={toggleEpisode}
                   bodyClassName="is-script"
                   idPrefix="director-script-episode-body"

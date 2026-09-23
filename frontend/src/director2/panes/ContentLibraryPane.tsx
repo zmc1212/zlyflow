@@ -2,6 +2,7 @@
 // Vue → React 对应：ref→useState、computed→useMemo、onMounted→useEffect；
 // ant-design-vue 组件 → antd 同名组件；API 调用首参补 csrfToken。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import ScriptDevelopmentPanel from "./ScriptDevelopmentPanel"
 import { useSearchParams } from "react-router-dom"
 import {
   Button,
@@ -336,8 +337,7 @@ export default function ContentLibraryPane({
       await loadDocs({ selectId: created.id })
       onProjectUpdated?.()
       if (documentNeedsAspectConfirm(created) || isAwaitingAspectDocument(created)) {
-        openAspectConfirm(created as LibraryDocument)
-        message.success("剧本文档已导入，请确认成片画幅后再规划镜头")
+        message.success("原稿已保留，建议先诊断并策划剧本，再规划镜头")
       } else {
         message.success("剧本文档已导入")
       }
@@ -643,7 +643,7 @@ export default function ContentLibraryPane({
         <div>
           <h2 className="sub-pane-title">内容库</h2>
           <p className="sub-pane-subtitle">
-            导入标准分镜剧本：集数按文稿「# 第N集」划分，镜头数和秒数由大模型按本集动作、对白规划；同时拆解人物、道具、场景及全局视觉设定。
+            导入大纲、简稿或完整剧本，先诊断并确认全剧策划，再扩写、审稿和采纳。完整稿可保留原文，随后提取资产并规划镜头。
           </p>
         </div>
 
@@ -707,6 +707,8 @@ export default function ContentLibraryPane({
             {/* 右侧剧本与分析详情 */}
             {selectedDoc && (
               <div className="doc-detail-main">
+                <ScriptDevelopmentPanel key={selectedDoc.id} projectId={projectId} documentId={selectedDoc.id} csrfToken={csrfToken}
+                  onAdopted={() => { void loadDocs({ selectId: selectedDoc.id }); onProjectUpdated?.() }} />
                 {/* 概览栏 */}
                 <div className="detail-top-card">
                   <div className="detail-top-header">

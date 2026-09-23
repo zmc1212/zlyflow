@@ -37,9 +37,11 @@ interface DubbingWorkbenchProps {
   csrfToken: string
   projectId: string
   episodeId: string
+  productionMode?: boolean
+  onTrackChange?: (lines: DubbingLine[]) => void
 }
 
-export default function DubbingWorkbench({ csrfToken, projectId, episodeId }: DubbingWorkbenchProps) {
+export default function DubbingWorkbench({ csrfToken, projectId, episodeId, productionMode = false, onTrackChange }: DubbingWorkbenchProps) {
   const navigate = useNavigate()
   const [track, setTrack] = useState<DubbingTrack | null>(null)
   const [loading, setLoading] = useState(false)
@@ -54,6 +56,7 @@ export default function DubbingWorkbench({ csrfToken, projectId, episodeId }: Du
   const playIndexRef = useRef(0)
 
   const lines = track?.lines || []
+  useEffect(() => { if (track) onTrackChange?.(track.lines) }, [track, onTrackChange])
   const visibleLines = useMemo(
     () => (filterCharacterId ? lines.filter((item) => item.character_id === filterCharacterId) : lines),
     [lines, filterCharacterId],
@@ -412,7 +415,7 @@ export default function DubbingWorkbench({ csrfToken, projectId, episodeId }: Du
                 ]}
                 onChange={(value) => void handlePatch(selected.id, { mix: value })}
               />
-              <p className="mix-hint">{mixDirectorHint(selected.kind, selected.mix)}</p>
+              <p className="mix-hint">{productionMode ? "此处只生成补配音频；返回声音编排后选择画面、时间区间和混音方式。" : mixDirectorHint(selected.kind, selected.mix)}</p>
               <label>参考音</label>
               {selectedVoice?.voice?.ref_audio_url ? (
                 <audio src={selectedVoice.voice.ref_audio_url} controls preload="metadata" />

@@ -1,5 +1,22 @@
 # ZLY AI Studio｜创作工作台
 
+2026-09-23：Hypit 页面明确区分「结构改编」与「原片换脸」；现有 H3 路径会重生成画面，尚不支持只替换面部。修复需求保存竞态、编译目标误选与旧成片误报，编译统一读取管理设置中的 ComfyUI 地址。换脸接入的远端依赖、验证与回滚见 [排查记录](docs/Hypit复刻排查与换脸接入.md)。
+
+2026-09-23：Director 出片方案增加生成前可行性检查与「按意见返修 / 重新审稿」。返修保留事实、对白、时长、起止状态及未选中的段落，最多两轮，发现退步或无进展保留上一版；新预览确认后才保存。新版方案有阻断问题或正文未经复验时不能出片，历史方案不自动迁移。实现、验证与回滚见 [Director 返修闭环实施记录](docs/Director返修闭环实施记录.md)。
+
+2026-09-22：导演台新增共享「剧本发展」。导入大纲或简稿后先确认全剧策划，再逐集扩写、全剧审稿和采纳；完整稿可保留原文。AI 创作室仍为四步导航，剧本发展位于 script 步内部。Director 新预览先做本集导演设计，按动作及换场组织连续段，分别显示结构校验与创作审稿。原稿、旧分镜、媒体历史保留，采纳新稿后须更新制作输入。受影响模块、兼容与回滚说明见 [架构快照](docs/ARCHITECTURE.md)，验证命令及实际限制见 [实施验收记录](docs/导演台剧本发展验收记录.md)。
+
+## 2026-09-22 分集统一制作架构（当前基线）
+
+导演台工坊现在使用「剧本 → 画面 → 声音 → 成片」四区。Director 出片方案已移入画面区；来源 Beat 负责剧情对照，Part/Segment 负责连续画面，不再并列显示两套待生成镜头。原声可直接导出，补配按已采用素材的实际区间编排；候选须采用后才影响成片。局部采用使旧片标记待更新，历史结果继续可播放。
+
+新增 `data_json.production` v1，普通逐镜与 Director 各自保留方案版本、素材索引、采用清单、声音与导出记录。制作 PATCH 和新版合成请求使用 `expected_revision`；事务校验冲突返回 409。生成任务保存方案快照，导出任务保存时间线与声音快照。局部裁切必须有验证过的媒体边界，不按估计时长切旧片。
+
+变更原因：解决方案、生成、配音和合成各自依赖不同数据造成的割裂。受影响文件：新增 `services/production_{state,service,media}.py`，接入项目详情、视频生成、配音和提示词服务及 `project_router.py`；前端新增 `production.ts`、`use-episode-production.ts`、`ProductionPanes.tsx`、`SourceBeatEditor.tsx`，调整工坊与项目主题壳。
+
+兼容性：不改表结构、端口、节点或模型；旧 tab URL 有效，旧 Beat Take 与可追溯 Director 结果惰性迁移，旧字段不删除。回滚时仅回退本轮应用改动，保留 production JSON 和任务快照；旧界面显示旧采用状态。验证：`python -m unittest backend.tests.media_studio_test_production backend.tests.media_studio_test_prompt_expansion backend.tests.media_studio_test_h3_video backend.tests.test_timeline_rendering -q`；`pnpm --dir frontend build`；5173 浅色／暗色桌面实页检查。详情与验收限制见 [统一制作实施记录](docs/导演台统一制作实施记录.md)。
+
+
 > 导演台支持项目级「AI 生成 / 手动编辑」模式；首页新建导演工程时弹出带动态封面的制作配方卡（半解说包热链 Hub 官方封面 mp4），项目顶栏可改，绑定写入 `extra.skill_pack_id`（步骤注册表执行，不是生成页 H3 风格芯片）。半解说真人短剧包使用 Hub 官方 v1.0.1 原文；绑定后剧本/定妆/分镜只注入官方对应章节（对白与画面双通道、16:9 白底角色/场景卡、镜头合同），不改四阶段 ID。工坊一次多模态请求同时写官方 H3 八块中文分秒稿和英文六段（LLM 名称可看图时带角色卡/场景卡/三联；7B 不发 image_url）；最终视频 Picture 槽位只包含本镜角色设定板与绑定道具设定板，场景卡和三联只转写为环境、构图、动作和时间段文字，不上传视频模型，零权威参考自动走 T2V。半解说包临时 `skip_program_pack` 出片用 GPT 英文六段原文（规范化标签、六段 `name:` 标题，并补 `[Shot 1]`；内心改成官方 `says in an off-screen voiceover` 并在 `</d>` 后闭嘴），不再程序灌水、中文时间码或轿厢句；写稿合同写清开口 / 角色内心 / 第三人称旁白三通道与编号表演顺序，无旁白时禁止用内心或开口句充数；同一人连续多句按句校验；内心口型同步 `says:` 会先修补；半解说包另校验台词去重与 `<d>` 表演顺序；写稿未通过校验则任务失败、不覆盖上一版提示词，工坊保留残稿并显示原因；说明句 stub 会打回重写。导入确认成片画幅后写入 `extra.workshop_aspect_ratio`，工坊生成设置、H3 写稿和出片共用；可生成 16:9 三联关键帧并保留为上游构图依据。未指定造型时按本镜时代选设定板并写入 `character_look_ids`；三联必须带该造型，过期会提示重生成。旧自动 H3 稿或上下文变化会在素材组标记过期并阻止出片，合法手写稿只校验 Picture 编号。AI 从创意澄清后按「剧本 / 角色·场景·道具 / 分集 / 分镜」四步生成，每步暂停确认，采纳后进入下一步，不满意可对话反馈并只重跑当前步；记录流顶部按选项真正影响的步骤回显创作路径，完成步骤会回显询问卡里选过的选项（开机确认题会挂到剧本 / 角色 / 分集 / 分镜对应行）。剧本确认卡按内容库标准剧本规范排版（定位/人物常驻，集标题折叠为胶囊、点开再看镜头卡与对白），刷新后从已保存剧本回填。结果回写导演台现有内容库、资产库和剧集工坊。资产库可为角色/场景/道具上传原片截图；有截图时生成形象按照片锁五官和服装，不再跟旧提示词加衣服。角色/场景/道具在切换到手动编辑后会出现在内容库的人物、场景、道具页。澄清问答走共用对话层组件（选项自动翻页、自定义输入、跳过本题/全部）；手动模式保持原有逐项生成流程。同一项目同时只允许一个进行中的 AI 任务（含待确认与调整中），打开工作区会自动恢复其进度；后端重启把遗留的中断任务标记为失败，可一键重试本阶段。侧栏只留一个「导演台」，入口为 `/director`；旧 `/director2` 会跳到对应新路径。九阶段 Recipe 界面已下线。工坊成片 Tab 列出本镜全部成功抽卡，预览后「采用此版」才写入正式成片；重新出片默认采用最新，合成仍只读采用版。
 
 工作台使用 React + TypeScript 前端和 FastAPI 后端，在同一界面提供 GRS 图片生成与本机 ComfyUI 视频生成。工作台提供员工账号、角色权限、任务隔离、多轮创作和浏览器本地资源交付；监听本机与局域网 IPv4 地址的 `7865` 端口，ComfyUI 默认 `http://127.0.0.1:8188`，超级管理员可在「管理设置 → AI 供应商」修改连接地址，不会把 ComfyUI 暴露到局域网或公网。账号、任务和导演工程存储在 `docs/存储配置.md` 中的远程 MySQL；媒体默认使用管理设置中的七牛云。unittest 仍使用临时 SQLite。环境变量前缀与包名继续保留 `zly-ai-video-studio` 兼容标识。
@@ -10,7 +27,7 @@
 
 - 普通单视频工作流使用「Minimax 六段式通用提示词」。选择一个 Beat，整理参考资产顺序，先生成预览，确认后才保存到该 Beat；手写 `h3_prompt` 仍可继续出片。
 - H3 Director Timeline 工作流使用「连续剧情（导演台）」。整集生成公共主体定义与独立 Director 段，Director 段可追溯到多个 Beat，但不会覆盖 Beat。超过 6 段或 1152 帧时自动拆为多个 Part；Part 是视频拼接边界。
-- 所有自动写词均为“生成预览 → 用户确认 → 原子保存”。剧本、Beat、资产、画幅、工作流或模板版本变化会使已保存方案过期；过期方案禁止出片。提交视频不会调用 LLM。
+- 所有自动写词均为“生成预览 → 最终校验 → 用户确认 → 原子保存”。Director 使用 `schema_version=3`：程序从 Beat 生成稳定的 `event_id` / `dialogue_id`，预先确定时间、Unit 和全局 Shot；模型只分配事实 ID 并扩写运镜、表演与声画细节，后端统一编译 Shot、连续性前缀、原始动作/对白和状态交接。规划、Part 与最终校验写入任务检查点，每个失败阶段最多自动修复两次；失败卡可只重试失败部分，来源变化则返回 409 并要求重新生成全部。未通过最终校验的 partial preview 不会保存或用于出片。普通六段式行为不变。
 - 面板支持浅色/暗色和移动宽度；≤760px 时项目侧栏收为图标栏，模板操作与引用排序改为单列，不产生横向滚动。
 
 相关接口为 `POST .../prompt-previews`、`POST .../prompt-previews/{job_id}/apply` 与 `PATCH .../prompt-plan`。数据保存在分集 `data_json.prompt_authoring`，不新增数据库列。
@@ -2059,9 +2076,11 @@ Docker 部署后健康检查失败，日志为 `Table 'ai-media.ai_project_jobs'
 ## 2026-09-22 Director 连续剧情分段去重
 
 - 变更原因：较长 Beat 被 Director 拆段时，旧链路把完整动作和对白复制到多个段，导致模型用“回响/再次演出”等方式重复剧情。
-- 当前行为：Director 使用 `schema_version=2` / `planning_strategy=atomic_units`，先把原始 Beat 拆成不重叠的 `source_units`，再生成可独立出片的六段式提示词。每个动作单元拥有唯一生成镜头号、时间范围、事件/对白归属和结构化交接状态；写稿必须逐项原样落地 `required_events`，Part 间只传递交接状态。
-- 校验与失败策略：生成结果会校验时间连续性、事件/对白唯一归属、整集 Shot 唯一性和重播语义，最多定向修复一次；仍不通过时任务失败且不保存方案。
+- 当前行为：Director 使用 `schema_version=3` / `planning_strategy=atomic_units`，从原始 Beat 确定性生成 `source_facts` 和稳定事实 ID，再把事实 ID 唯一分配到不重叠的 `source_units`。Shot、时间、连续性前缀、原始动作/对白与相邻状态复制均由程序编译，模型不再复写这些结构事实。
+- 校验与失败策略：生成结果按事实 ID 校验遗漏、重复、未知引用、跨 Part 冲突、整集 Shot 唯一性、时间连续性和重播语义。规划与每个 Part 独立记录检查点，失败阶段最多自动修复两次；仍失败时不生成可保存预览，可从通用任务重试接口只恢复失败部分。来源指纹变化时返回 `409 SOURCE_CHANGED`。
+- 直播恢复：服务重启中断预览时会保留已完成 Part 的检查点；5173 页面即使 SSE 未收到终态，也会定期核对任务状态并显示可重试失败卡，不会一直停在“生成中”。
+- 全部任务新增「提示词预览」分类：失败任务可查看定位与折叠技术详情，并从已有检查点重试；不再错误显示为图片生成请求。
 - 兼容性：旧 Director 方案标记过期并禁止出片，需重新生成；Prompt Master 普通单 Beat 生成、H3 工作流、数据库结构和已有媒体不受影响。
-- 受影响文件：`backend/app/media_studio/services/{prompt_templates,prompt_expansion_service,episode_video_service}.py`、`frontend/src/director2/api.ts`、`backend/tests/media_studio_test_prompt_expansion.py` 与四份主文档。
+- 受影响文件：`backend/app/{llm_client.py,media_studio/routers/project_router.py}`、`backend/app/media_studio/services/{prompt_templates,prompt_expansion_service,episode_video_service}.py`、`frontend/src/director2/{api.ts,director2-job-types.ts,workshop-prompt-stream.ts,panes/PromptAuthoringPanel.tsx,panes/JobsCenterPane.tsx}`、相关测试与四份主文档。
 - 验证命令：`python -m unittest backend.tests.media_studio_test_prompt_expansion -q`、`python -m unittest backend.tests.test_director backend.tests.test_director2_ai_generation -q`、`pnpm --dir frontend build`，并在 5173 工坊检查新旧方案状态。
 - 回滚方式：还原上述前后端、测试和文档文件；无需数据库迁移，历史 `director_plan` 可保留。

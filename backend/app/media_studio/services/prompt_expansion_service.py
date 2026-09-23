@@ -7,16 +7,19 @@ import math
 import re
 import threading
 import time
+import unicodedata
 import uuid
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from ...dialogue_timing import resolve_shot_duration_sec
-from ...director_stream import DirectorOperationEventBus, terminal_event_for_status
-from ...llm_client import LlmStreamHook
+from ...director_stream import DirectorOperationEventBus
+from ...llm_client import LlmStreamHook, emit_llm_stream_status
 from ...workflow_registry import WorkflowDefinition, workflow_for
 from ..db import execute_sql, now_str, query_all, query_one, transaction_cursor
 from .llm_service import LlmService
+from .director_plan_quality import content_digest, improve_plan, preflight
 from .prompt_templates import (
     DIRECTOR_TEMPLATE_VERSION,
     DIRECTOR_UNIT_PLANNER_VERSION,
@@ -26,6 +29,7 @@ from .prompt_templates import (
     build_director_unit_planning_prompts,
     build_full_reference_prompts,
     normalize_language,
+    parse_director_creative_output,
     parse_director_output,
     parse_director_unit_plan,
     parse_full_reference,
@@ -43,11 +47,48 @@ _STREAM_LOCK = threading.Lock()
 _STREAM_STATE: dict[str, dict[str, Any]] = {}
 _STREAM_FLUSH_AT: dict[str, float] = {}
 _STREAM_FLUSH_INTERVAL = 0.45
-_DIRECTOR_PLAN_SCHEMA_VERSION = 2
+_DIRECTOR_PLAN_SCHEMA_VERSION = 4
 _DIRECTOR_REPLAY_TERMS = (
     "再次", "重新", "回响", "时间回响", "感知回响", "回放", "倒放", "重演", "重新醒来", "再次醒来", "再次说", "再次重复",
     "time echo", "sensory echo", "replay", "rewind", "relive", "again wakes", "repeat the dialogue",
 )
+
+
+class PromptPipelineError(PromptTemplateError):
+    """A recoverable Director pipeline failure with a stable public envelope."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        stage: str,
+        part_id: str = "",
+        segment_ids: list[str] | None = None,
+        attempt: int = 0,
+        retryable: bool = True,
+        user_message: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.stage = stage
+        self.part_id = part_id
+        self.segment_ids = segment_ids or []
+        self.attempt = attempt
+        self.retryable = retryable
+        self.user_message = user_message or message
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "stage": self.stage,
+            "part_id": self.part_id or None,
+            "segment_ids": self.segment_ids,
+            "attempt": self.attempt,
+            "retryable": self.retryable,
+            "message": self.user_message,
+            "detail": str(self),
+        }
 
 
 def _payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -115,16 +156,27 @@ class PromptExpansionService:
         )
         target_segment_count = None
         planned_parts: list[dict[str, Any]] = []
+        source_facts: dict[str, dict[str, list[dict[str, str]]]] = {}
         if profile == "director_segments":
             raw_count = req.get("target_segment_count")
             target_segment_count = int(raw_count) if raw_count not in (None, "") else None
-            planned_parts = cls.plan_director_parts(source["beats"], definition, target_segment_count)
-            target_segment_count = sum(len(item["segments"]) for item in planned_parts)
+            if not source["beats"]:
+                raise ValueError("当前分集没有可规划的分镜")
+            source_facts = cls._build_source_facts(source["beats"])
+            conflicts = preflight(source["beats"], source_facts, definition)
+            if conflicts:
+                raise PromptPipelineError(
+                    "\n".join(f"{x['beat_id']}：{x['evidence']} {x['suggestion']}" for x in conflicts),
+                    code="DIRECTOR_PREFLIGHT_CONFLICT", stage="preflight", retryable=False,
+                    user_message="当前分镜无法满足 Director 要求，请先调整分镜或改用逐镜生成。",
+                )
 
         normalized_request = {
+            "story_design": profile == "director_segments",
             "workflow_id": workflow_id,
             "prompt_profile": profile,
             "template_version": FULL_REFERENCE_TEMPLATE_VERSION if profile == "full_reference" else DIRECTOR_TEMPLATE_VERSION,
+            "unit_planner_version": DIRECTOR_UNIT_PLANNER_VERSION if profile == "director_segments" else None,
             "target": {"kind": target_kind, **({"beat_id": beat_id} if beat_id else {})},
             "language": language,
             "rewrite_mode": rewrite_mode,
@@ -139,7 +191,7 @@ class PromptExpansionService:
             (project_id, JOB_TYPE),
         ):
             existing = _payload(row)
-            if existing.get("episode_id") == episode_id and existing.get("source_fingerprint") == fingerprint:
+            if existing.get("episode_id") == episode_id and existing.get("source_fingerprint") == fingerprint and not existing.get("revision_request"):
                 return {"job_id": row["id"], "status": row["status"], "duplicate": True}
 
         jid = f"job-{uuid.uuid4().hex[:12]}"
@@ -156,7 +208,10 @@ class PromptExpansionService:
             "reference_urls": [item["image_url"] for item in slots if item.get("image_url")],
             "request": normalized_request,
             "source_snapshot": cls._source_snapshot(source, target_kind, beat_id),
+            "source_facts": source_facts,
             "planned_parts": planned_parts,
+            "checkpoints": {},
+            "validation_status": "pending",
         }
         execute_sql(
             "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
@@ -177,6 +232,55 @@ class PromptExpansionService:
         }
 
     @classmethod
+    def revise(cls, project_id: str, episode_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        """Create a preview revision from a server-owned plan, never overwrite it."""
+        source = cls._load_source(project_id, episode_id)
+        saved = ((source.get("data") or {}).get("prompt_authoring") or {}).get("director_plan")
+        base_job_id = _clean(request.get("base_job_id"))
+        if base_job_id:
+            row = query_one("SELECT * FROM ai_project_jobs WHERE id=%s AND project_id=%s", (base_job_id, project_id)) or {}
+            old = _payload(row)
+            if row.get("job_type") != JOB_TYPE or row.get("status") not in {"completed", "succeeded"} or old.get("episode_id") != episode_id:
+                raise ValueError("返修来源不是本集已完成的方案预览")
+            plan = old.get("preview")
+        else:
+            plan = saved
+        if not isinstance(plan, dict) or plan.get("kind") != "director_segments" or not plan.get("director_design"):
+            raise ValueError("请先生成新版 Director 方案再返修")
+        if request.get("expected_plan_id") != plan.get("id") or int(request.get("expected_revision") or 0) != int(plan.get("revision") or 0):
+            raise RuntimeError("REVISION_CONFLICT: 返修来源版本已变化，请刷新方案")
+        cls.validate_director_plan(plan)
+        feedback = _clean(request.get("feedback"))
+        if len(feedback) > 4000:
+            raise ValueError("修改意见不能超过 4000 字")
+        ids = [s["id"] for p in plan["parts"] for s in p["segments"]]
+        targets = request.get("segment_ids")
+        if not isinstance(targets, list) or any(not isinstance(x, str) or x not in ids for x in targets) or len(targets) != len(set(targets)):
+            raise ValueError("返修段落选择无效")
+        if feedback and not targets:
+            raise ValueError("请指定需要返修的段落")
+        req = {k: plan.get(k) for k in ("workflow_id", "template_version", "unit_planner_version", "language", "rewrite_mode", "aspect_ratio", "target_segment_count", "reference_slots")}
+        req.update(story_design=True, prompt_profile="director_segments", target={"kind": "director_episode"})
+        fingerprint = cls.source_fingerprint(source, req)
+        if fingerprint != plan.get("source_fingerprint"):
+            raise RuntimeError("SOURCE_CHANGED: 剧本、分镜或资产已变化，请重新生成方案")
+        revision_request = {"feedback": feedback, "segment_ids": targets, "base_plan_digest": content_digest(plan),
+                            "base_job_id": base_job_id, "saved_base_digest": content_digest(saved)}
+        for row in query_all("SELECT id,status,payload_json FROM ai_project_jobs WHERE project_id=%s AND job_type=%s AND status IN ('queued','preparing','running')", (project_id, JOB_TYPE)):
+            active = _payload(row)
+            if active.get("episode_id") == episode_id and active.get("revision_request") == revision_request and active.get("source_fingerprint") == fingerprint:
+                return {"job_id": row["id"], "status": row["status"], "duplicate": True}
+        jid, timestamp = f"job-{uuid.uuid4().hex[:12]}", now_str()
+        payload = {"target_type": "prompt_preview", "project_id": project_id, "episode_id": episode_id,
+                   "prompt_profile": "director_segments", "template_version": req["template_version"], "request": req,
+                   "source_fingerprint": fingerprint, "source_snapshot": cls._source_snapshot(source, "director_episode", ""),
+                   "revision_request": revision_request, "revision_base": plan, "checkpoints": {}, "validation_status": "pending"}
+        execute_sql("INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) VALUES (%s,%s,%s,%s,'queued',0,NULL,%s,%s,%s)",
+                    (jid, project_id, JOB_TYPE, "Director 方案返修" if feedback else "Director 方案重新审稿", json.dumps(payload, ensure_ascii=False), timestamp, timestamp))
+        cls.kick()
+        return {"job_id": jid, "status": "queued"}
+
+    @classmethod
     def _load_source(cls, project_id: str, episode_id: str) -> dict[str, Any]:
         from .project_detail_service import ProjectDetailService
 
@@ -184,6 +288,8 @@ class PromptExpansionService:
         if not row:
             raise ValueError("分集不存在")
         data = _json_dict(row.get("data_json"))
+        if data.get("script_stale"):
+            raise ValueError("已采纳新剧本，请先重新规划镜头并同步至工坊")
         beats = data.get("beats") if isinstance(data.get("beats"), list) else []
         if not beats:
             detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
@@ -195,6 +301,8 @@ class PromptExpansionService:
             "data": data,
             "beats": beats,
             "assets": ProjectDetailService.list_assets(project_id),
+            "adjacent_episodes": query_all("SELECT episode_num,title,script_text FROM ai_project_episodes WHERE project_id=%s AND episode_num IN (%s,%s)",
+                                           (project_id, int(row.get("episode_num") or 1) - 1, int(row.get("episode_num") or 1) + 1)),
         }
 
     @staticmethod
@@ -303,17 +411,22 @@ class PromptExpansionService:
         beat_fields = (
             "id", "sequence", "story_shot", "heading", "scene", "action", "camera", "dialogue",
             "speaker", "visual_prompt", "audio", "video_duration", "character_ids", "scene_id", "prop_ids",
+            "opening_state", "closing_state", "transition_note",
         )
         return {
-            "episode": {"id": episode.get("id"), "title": episode.get("title"), "script_text": episode.get("script_text") or ""},
+            "episode": {"id": episode.get("id"), "title": episode.get("title"), "script_text": episode.get("script_text") or "",
+                        "dramatic_design": (source.get("data") or {}).get("dramatic_design"), "script_revision": (source.get("data") or {}).get("script_revision")},
+            "adjacent_episodes": sorted(source.get("adjacent_episodes") or [], key=lambda item: int(item.get("episode_num") or 0)) if target_kind == "director_episode" else [],
             "beats": [{key: beat.get(key) for key in beat_fields} for beat in selected],
             "assets": [
                 {
                     "id": item.get("id"), "kind": item.get("kind"), "name": item.get("name"),
                     "description": item.get("description"), "visual_prompt": item.get("visual_prompt"),
-                    "image_url": item.get("image_url"), "extra": item.get("extra") or _json_dict(item.get("extra_json")),
+                    "image_url": item.get("image_url"),
+                    "extra": {key: value for key, value in (item.get("extra") or _json_dict(item.get("extra_json"))).items()
+                              if key not in {"voice", "voice_id"}},
                 }
-                for item in source["assets"]
+                for item in sorted(source["assets"], key=lambda asset: str(asset.get("id") or ""))
             ],
         }
 
@@ -321,7 +434,9 @@ class PromptExpansionService:
     def source_fingerprint(cls, source: dict[str, Any], request: dict[str, Any]) -> str:
         target = request.get("target") if isinstance(request.get("target"), dict) else {}
         body = {
-            "template_version": request.get("template_version"), "workflow_id": request.get("workflow_id"),
+            "template_version": request.get("template_version"),
+            "unit_planner_version": request.get("unit_planner_version"),
+            "workflow_id": request.get("workflow_id"),
             "language": request.get("language"), "rewrite_mode": request.get("rewrite_mode"),
             "aspect_ratio": request.get("aspect_ratio"), "target_segment_count": request.get("target_segment_count"),
             "reference_slots": request.get("reference_slots") or [],
@@ -459,6 +574,10 @@ class PromptExpansionService:
                         "start_sec": round(item["start_frame"] / _FPS, 3),
                         "end_sec": round(item["end_frame"] / _FPS, 3),
                         "duration_seconds": round(item["frames"] / _FPS, 3),
+                        "event_ids": [],
+                        "dialogue_ids": [],
+                        "event_refs": [],
+                        "dialogue_refs": [],
                         "required_events": [],
                         "dialogue_owner": [],
                         "start_state": "",
@@ -548,7 +667,18 @@ class PromptExpansionService:
     @staticmethod
     def _terminal_from_row(row: dict[str, Any]) -> dict[str, Any]:
         if row.get("status") == "failed":
-            return terminal_event_for_status("failed", message=_clean(row.get("error_message")) or "生成失败")
+            failure = _payload(row).get("failure")
+            if not isinstance(failure, dict):
+                failure = {
+                    "code": "PROMPT_PREVIEW_FAILED",
+                    "stage": "generation",
+                    "part_id": None,
+                    "segment_ids": [],
+                    "attempt": 0,
+                    "retryable": True,
+                    "message": _clean(row.get("error_message")) or "提示词预览生成失败，可重试",
+                }
+            return {"event": "error", "terminal": True, "data": {"status": "failed", **failure}}
         return {
             "event": "done", "terminal": True,
             "data": {"status": "succeeded", "preview": _payload(row).get("preview")},
@@ -564,7 +694,7 @@ class PromptExpansionService:
             if updates.get("reset"):
                 state["reasoning"] = ""
                 state["text"] = ""
-            for key in ("phase", "message", "reasoning", "text"):
+            for key in ("code", "phase", "stage", "part_id", "segment_ids", "attempt", "retryable", "message", "reasoning", "text"):
                 if key in updates and updates[key] is not None:
                     state[key] = updates[key]
             current_time = time.monotonic()
@@ -612,14 +742,46 @@ class PromptExpansionService:
     @classmethod
     def recover_interrupted_jobs(cls) -> None:
         for row in query_all(
-            "SELECT id,status FROM ai_project_jobs WHERE job_type=%s AND status IN ('queued','preparing','running')",
+            "SELECT id,status,payload_json FROM ai_project_jobs WHERE job_type=%s AND status IN ('queued','preparing','running')",
             (JOB_TYPE,),
         ):
             if row.get("status") == "queued":
                 continue
+            payload = _payload(row)
+            request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+            stage = "generation"
+            part_id = None
+            segment_ids: list[str] = []
+            if request.get("prompt_profile") == "director_segments":
+                checkpoints = payload.get("checkpoints") if isinstance(payload.get("checkpoints"), dict) else {}
+                planning = checkpoints.get("fact_planning") if isinstance(checkpoints.get("fact_planning"), dict) else {}
+                if planning.get("status") != "completed":
+                    stage = "fact_planning"
+                else:
+                    completed = checkpoints.get("part_generation") if isinstance(checkpoints.get("part_generation"), dict) else {}
+                    parts = planning.get("planned_parts") if isinstance(planning.get("planned_parts"), list) else []
+                    next_part = next((part for part in parts if (completed.get(part.get("id")) or {}).get("status") != "completed"), None)
+                    if next_part:
+                        stage = "part_generation"
+                        part_id = str(next_part.get("id") or "") or None
+                        segment_ids = [str(item.get("id") or "") for item in next_part.get("segments") or []]
+                    else:
+                        stage = "final_validation"
+            payload["failure"] = {
+                "code": "PROMPT_PREVIEW_INTERRUPTED",
+                "stage": stage,
+                "part_id": part_id,
+                "segment_ids": segment_ids,
+                "attempt": 0,
+                "retryable": True,
+                "message": "服务重启中断了预览，可重试失败部分。" if request.get("prompt_profile") == "director_segments" else "服务重启中断了预览，请重试。",
+                "detail": "服务重启时提示词预览任务已中断",
+            }
+            payload["validation_status"] = "invalid"
+            payload.pop("stream", None)
             execute_sql(
-                "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,updated_at=%s WHERE id=%s",
-                ("服务重启时提示词预览任务已中断，请重试。", now_str(), row["id"]),
+                "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,payload_json=%s,updated_at=%s WHERE id=%s",
+                ("服务重启时提示词预览任务已中断，请重试。", json.dumps(payload, ensure_ascii=False), now_str(), row["id"]),
             )
         cls.kick()
 
@@ -631,7 +793,78 @@ class PromptExpansionService:
         if row.get("status") not in {"failed", "completed", "succeeded"}:
             raise ValueError("只有失败或已完成的任务可以重试")
         payload = _payload(row)
-        return cls.enqueue(project_id, payload["episode_id"], payload.get("request") or {})
+        if (payload.get("failure") or {}).get("retryable") is False:
+            raise ValueError("该问题不能通过重复尝试解决，请按问题说明调整后重新生成")
+        request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+        if request.get("prompt_profile") != "director_segments" or not payload.get("failure"):
+            return cls.enqueue(project_id, payload["episode_id"], request)
+        source = cls._load_source(project_id, payload["episode_id"])
+        current_fingerprint = cls.source_fingerprint(source, request)
+        if current_fingerprint != payload.get("source_fingerprint"):
+            raise RuntimeError("SOURCE_CHANGED: 剧本、分镜、资产或工作流已变化，请重新生成全部")
+
+        old_checkpoints = payload.get("checkpoints") if isinstance(payload.get("checkpoints"), dict) else {}
+        reusable: dict[str, Any] = {}
+        if old_checkpoints.get("quality_revision"):
+            reusable["quality_revision"] = old_checkpoints["quality_revision"]
+        planning = old_checkpoints.get("fact_planning") if isinstance(old_checkpoints.get("fact_planning"), dict) else None
+        if planning and planning.get("status") == "completed":
+            reusable["fact_planning"] = planning
+        part_rows = old_checkpoints.get("part_generation") if isinstance(old_checkpoints.get("part_generation"), dict) else {}
+        failed_part_id = _clean((payload.get("failure") or {}).get("part_id")) if isinstance(payload.get("failure"), dict) else ""
+        reusable_parts = {
+            key: value for key, value in part_rows.items()
+            if isinstance(value, dict) and value.get("status") == "completed" and key != failed_part_id
+        }
+        if reusable_parts:
+            reusable["part_generation"] = reusable_parts
+
+        jid = f"job-{uuid.uuid4().hex[:12]}"
+        timestamp = now_str()
+        new_payload = {
+            **payload,
+            "source_snapshot": cls._source_snapshot(source, "director_episode", ""),
+            "checkpoints": reusable,
+            "failure": None,
+            "validation_status": "pending",
+            "resumed_from_job_id": job_id,
+        }
+        for key in ("preview", "stream", "applied_at"):
+            new_payload.pop(key, None)
+        execute_sql(
+            "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
+            "VALUES (%s,%s,%s,%s,'queued',0,NULL,%s,%s,%s)",
+            (
+                jid, project_id, JOB_TYPE, row.get("title") or "Director 出片方案预览",
+                json.dumps(new_payload, ensure_ascii=False), timestamp, timestamp,
+            ),
+        )
+        cls.kick()
+        return {"job_id": jid, "status": "queued", "resumed_from_job_id": job_id, "resumed": True}
+
+    @classmethod
+    def _save_checkpoint(
+        cls,
+        job_id: str,
+        payload: dict[str, Any],
+        stage: str,
+        value: Any,
+    ) -> None:
+        checkpoints = payload.setdefault("checkpoints", {})
+        checkpoints[stage] = value
+        if not job_id:
+            return
+        latest = _payload(query_one("SELECT payload_json FROM ai_project_jobs WHERE id=%s", (job_id,)) or {})
+        stream = latest.get("stream")
+        merged = {**latest, **payload}
+        if stream and "stream" not in payload:
+            merged["stream"] = stream
+        payload.clear()
+        payload.update(merged)
+        execute_sql(
+            "UPDATE ai_project_jobs SET payload_json=%s,updated_at=%s WHERE id=%s",
+            (json.dumps(payload, ensure_ascii=False), now_str(), job_id),
+        )
 
     @classmethod
     def _generate_with_one_retry(
@@ -640,18 +873,51 @@ class PromptExpansionService:
         user_prompt: str,
         parser: Callable[[str], dict[str, Any]],
         retry_instruction: str = "仍使用同一模板完整重写一次；不要解释错误。",
+        *,
+        stream_phase: str = "write",
+        stream_message: str = "正在生成提示词预览",
+        retry_message: str | None = None,
+        max_repairs: int = 1,
+        status_context: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], str, bool]:
-        first = LlmService.chat_text(system_prompt, user_prompt, max_tokens=16000, temperature=0.25, timeout=300)
-        try:
-            return parser(first), first, False
-        except PromptTemplateError as err:
-            retry_user = (
-                f"{user_prompt}\n\n上一次输出未通过结构校验：{err}\n"
-                f"{retry_instruction}\n不要解释错误。\n\n上一次输出：\n"
-                f"{first}"
+        prompt = user_prompt
+        last_output = ""
+        errors: list[str] = []
+        for attempt in range(max(0, int(max_repairs)) + 1):
+            emit_llm_stream_status(
+                stream_phase if attempt == 0 else f"{stream_phase}_retry",
+                stream_message if attempt == 0 else (retry_message or f"输出未通过校验，正在进行第 {attempt} 次修复"),
+                reset=True,
+                attempt=attempt,
+                retryable=True,
+                **(status_context or {}),
             )
-            second = LlmService.chat_text(system_prompt, retry_user, max_tokens=16000, temperature=0.2, timeout=300)
-            return parser(second), second, True
+            last_output = LlmService.chat_text(
+                system_prompt,
+                prompt,
+                max_tokens=16000,
+                temperature=0.25 if attempt == 0 else 0.2,
+                timeout=300,
+            )
+            try:
+                return parser(last_output), last_output, attempt > 0
+            except PromptTemplateError as err:
+                detail = str(err)
+                if detail in errors and max_repairs > 1:
+                    ctx = status_context or {}
+                    raise PromptPipelineError(detail, code="DIRECTOR_NO_PROGRESS", stage=ctx.get("stage") or stream_phase,
+                        part_id=ctx.get("part_id") or "", segment_ids=ctx.get("segment_ids"),
+                        retryable=False, attempt=attempt,
+                        user_message=f"同一问题重复出现，已停止自动重写：{detail}") from err
+                errors.append(detail)
+                if attempt >= max_repairs:
+                    raise
+                prompt = (
+                    f"{user_prompt}\n\n必须修复本次错误：{err}。此前问题一并复核，禁止回归：{'；'.join(errors)}\n"
+                    f"{retry_instruction}\n不要解释错误。\n\n上一次输出：\n"
+                    f"{last_output}"
+                )
+        raise PromptTemplateError("提示词生成未返回可解析结果")
 
     @classmethod
     def _run(cls, job_id: str) -> None:
@@ -672,6 +938,8 @@ class PromptExpansionService:
                         {"phase": "write", "message": "正在生成提示词预览", "reasoning": "", "text": ""},
                     )
                     key = "reasoning" if kind == "reasoning" else "text"
+                    if key == "text" and str(state.get("phase") or "").startswith("director_plan"):
+                        return
                     state[key] = str(state.get(key) or "") + piece
                     snapshot = state[key]
                 _EVENTS.emit(job_id, {"event": "reasoning" if key == "reasoning" else "delta", "data": {"text": snapshot}})
@@ -679,9 +947,15 @@ class PromptExpansionService:
 
             def on_status(info: dict[str, Any]) -> None:
                 update = {
+                    "code": info.get("code") or "PROMPT_PROGRESS",
                     "phase": info.get("phase") or "write",
+                    "stage": info.get("stage") or info.get("phase") or "write",
                     "message": info.get("message") or "正在生成提示词预览",
                     "reset": bool(info.get("reset")),
+                    "part_id": info.get("part_id"),
+                    "segment_ids": info.get("segment_ids") or [],
+                    "attempt": int(info.get("attempt") or 0),
+                    "retryable": bool(info.get("retryable", True)),
                 }
                 _EVENTS.emit(job_id, {"event": "status", "data": update})
                 cls._patch_stream(job_id, update, force=True)
@@ -701,6 +975,8 @@ class PromptExpansionService:
                     parsed, raw, retried = cls._generate_with_one_retry(
                         system, user,
                         lambda value: parse_full_reference(value, request.get("language"), request.get("reference_slots") or []),
+                        stream_phase="full_reference",
+                        stream_message="正在生成六段式提示词",
                     )
                     preview = {
                         "kind": "full_reference", "template_version": request.get("template_version"),
@@ -711,13 +987,25 @@ class PromptExpansionService:
                         "raw_output": raw, "retried": retried,
                     }
                 elif request.get("prompt_profile") == "director_segments":
-                    preview = cls._generate_director_preview(payload, request)
+                    if payload.get("revision_base"):
+                        import copy
+                        preview = copy.deepcopy(payload["revision_base"])
+                        preview["id"] = f"director-plan-{uuid.uuid4().hex[:12]}"
+                        preview["revision"] = int(preview.get("revision") or 0) + 1
+                        preview["revision_parent"] = {"id": payload["revision_base"]["id"], "revision": payload["revision_base"]["revision"]}
+                        revision_request = payload["revision_request"]
+                        preview = cls._improve_director_plan(preview, payload, job_id,
+                            feedback=revision_request["feedback"], targets=revision_request["segment_ids"] or None)
+                    else:
+                        preview = cls._generate_director_preview(payload, request, job_id=job_id)
                 else:
                     raise ValueError("提示词任务类型无效")
 
             latest = query_one("SELECT payload_json FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
             completed = _payload(latest) or payload
             completed["preview"] = preview
+            completed["validation_status"] = "valid"
+            completed["failure"] = None
             completed.pop("stream", None)
             timestamp = now_str()
             execute_sql(
@@ -729,11 +1017,23 @@ class PromptExpansionService:
             latest = query_one("SELECT payload_json FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
             failed = _payload(latest) or payload
             failed.pop("stream", None)
+            failure = err.as_dict() if isinstance(err, PromptPipelineError) else {
+                "code": "PROMPT_PREVIEW_FAILED",
+                "stage": "generation",
+                "part_id": None,
+                "segment_ids": [],
+                "attempt": 0,
+                "retryable": True,
+                "message": "提示词预览生成失败，可重试失败部分",
+                "detail": str(err),
+            }
+            failed["failure"] = failure
+            failed["validation_status"] = "invalid"
             execute_sql(
                 "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,payload_json=%s,updated_at=%s WHERE id=%s",
                 (str(err)[:1000], json.dumps(failed, ensure_ascii=False), now_str(), job_id),
             )
-            _EVENTS.emit(job_id, terminal_event_for_status("failed", message=str(err)[:1000]))
+            _EVENTS.emit(job_id, {"event": "error", "terminal": True, "data": {"status": "failed", **failure}})
         finally:
             with _STREAM_LOCK:
                 _STREAM_STATE.pop(job_id, None)
@@ -768,6 +1068,39 @@ class PromptExpansionService:
             for unit in segment.get("source_units") or []
         ]
 
+    @classmethod
+    def _build_source_facts(
+        cls,
+        beats: list[dict[str, Any]],
+    ) -> dict[str, dict[str, list[dict[str, str]]]]:
+        """Create stable fact ids without asking the model to rewrite source text."""
+        result: dict[str, dict[str, list[dict[str, str]]]] = {}
+        for beat_index, beat in enumerate(beats, start=1):
+            beat_id = _clean(beat.get("id")) or f"beat-{beat_index}"
+            action = _clean(beat.get("action") or beat.get("visual_prompt"))
+            event_texts = [
+                chunk.strip()
+                for chunk in re.split(r"(?<=[。！？!?；;])|[\r\n]+", action)
+                if chunk.strip()
+            ]
+            if action and not event_texts:
+                event_texts = [action]
+            dialogues = cls._dialogue_lines(beat.get("dialogue"))
+            result[beat_id] = {
+                "events": [
+                    {"id": f"{beat_id}:event:{index}", "text": text}
+                    for index, text in enumerate(event_texts, start=1)
+                ],
+                "dialogues": [
+                    {"id": f"{beat_id}:dialogue:{index}", "text": text}
+                    for index, text in enumerate(dialogues, start=1)
+                ],
+                "persistent_states": [text for text in event_texts if re.match(r"^(?:开场|收束|空间|光线|造型锁定|环境|站位|服装)[：:]", text)],
+                "camera_requirements": _clean(beat.get("camera")),
+            }
+            result[beat_id]["events"] = [ref for ref in result[beat_id]["events"] if ref["text"] not in result[beat_id]["persistent_states"]]
+        return result
+
     @staticmethod
     def _normalized_match_text(value: Any) -> str:
         text = str(value or "").lower()
@@ -776,110 +1109,225 @@ class PromptExpansionService:
         text = re.sub(r"\s+", "", text)
         return text
 
+    @staticmethod
+    def _dialogue_lines(value: Any) -> list[str]:
+        return [line.strip() for line in str(value or "").splitlines() if line.strip()]
+
+    @staticmethod
+    def _dialogue_match_key(value: Any) -> str:
+        text = unicodedata.normalize("NFKC", str(value or ""))
+        text = re.sub(r"\s+", "", text)
+        return text.translate(str.maketrans("", "", "\"'“”‘’「」『』"))
+
     @classmethod
     def _validate_atomic_unit_allocation(
         cls,
         parsed: dict[str, dict[str, Any]],
         units: list[dict[str, Any]],
         beats: list[dict[str, Any]],
+        source_facts: dict[str, dict[str, list[dict[str, str]]]] | None = None,
     ) -> dict[str, dict[str, Any]]:
         by_id = {str(item.get("id") or ""): item for item in units}
         beat_by_id = {str(item.get("id") or ""): item for item in beats}
         if set(parsed) != set(by_id):
             raise PromptTemplateError("动作单元规划与计划单元不一致")
-        dialogue_owners: dict[str, list[str]] = {}
-        events_by_beat: dict[str, list[tuple[str, str]]] = {}
+        facts = source_facts or cls._build_source_facts(beats)
+        fact_maps: dict[str, dict[str, dict[str, str]]] = {}
+        expected_ids: dict[str, dict[str, set[str]]] = {}
+        for beat_id, rows in facts.items():
+            events = {str(item.get("id") or ""): item for item in rows.get("events") or []}
+            dialogues = {str(item.get("id") or ""): item for item in rows.get("dialogues") or []}
+            fact_maps[beat_id] = {**events, **dialogues}
+            expected_ids[beat_id] = {"events": set(events), "dialogues": set(dialogues)}
+
+        event_owners: Counter[str] = Counter()
+        dialogue_owners: Counter[str] = Counter()
         for unit_id, allocation in parsed.items():
             source_beat_id = str(by_id[unit_id].get("source_beat_id") or "")
-            beat = beat_by_id.get(source_beat_id) or {}
-            source_dialogue = str(beat.get("dialogue") or "").strip()
-            for dialogue in allocation.get("dialogue_owner") or []:
-                if source_dialogue and dialogue != source_dialogue:
-                    raise PromptTemplateError(f"动作单元 {unit_id} 的对白不是原始对白")
-                dialogue_owners.setdefault(dialogue, []).append(unit_id)
-            for event in allocation.get("required_events") or []:
-                normalized = cls._normalized_match_text(event)
-                if not normalized:
-                    raise PromptTemplateError(f"动作单元 {unit_id} 包含空动作事件")
-                events_by_beat.setdefault(source_beat_id, []).append((unit_id, normalized))
-        for beat_id, beat in beat_by_id.items():
-            source_dialogue = str(beat.get("dialogue") or "").strip()
-            if source_dialogue:
-                owners = dialogue_owners.get(source_dialogue, [])
-                if len(owners) != 1:
-                    raise PromptTemplateError(f"Beat {beat_id} 的对白必须且只能归属一个动作单元")
-        for beat_id, events in events_by_beat.items():
-            for index, (unit_id, event) in enumerate(events):
-                for other_unit_id, other_event in events[index + 1:]:
-                    if unit_id == other_unit_id:
-                        continue
-                    if event == other_event or (
-                        min(len(event), len(other_event)) >= 6
-                        and (event in other_event or other_event in event)
-                    ):
-                        raise PromptTemplateError(f"Beat {beat_id} 的动作事件跨单元重复")
+            if source_beat_id not in beat_by_id:
+                raise PromptTemplateError(f"动作单元 {unit_id} 引用了未知 Beat")
+            event_ids = [str(value or "").strip() for value in allocation.get("event_ids") or [] if str(value or "").strip()]
+            dialogue_ids = [str(value or "").strip() for value in allocation.get("dialogue_ids") or [] if str(value or "").strip()]
+            if len(event_ids) != len(set(event_ids)) or len(dialogue_ids) != len(set(dialogue_ids)):
+                raise PromptTemplateError(f"动作单元 {unit_id} 包含重复事实 ID")
+            unknown_events = set(event_ids) - expected_ids.get(source_beat_id, {}).get("events", set())
+            unknown_dialogues = set(dialogue_ids) - expected_ids.get(source_beat_id, {}).get("dialogues", set())
+            if unknown_events or unknown_dialogues:
+                unknown = sorted(unknown_events | unknown_dialogues)
+                raise PromptTemplateError(f"动作单元 {unit_id} 引用了未知事实 ID：{unknown}")
+            event_refs = [dict(fact_maps[source_beat_id][fact_id]) for fact_id in event_ids]
+            dialogue_refs = [dict(fact_maps[source_beat_id][fact_id]) for fact_id in dialogue_ids]
+            allocation.update({
+                "event_ids": event_ids,
+                "dialogue_ids": dialogue_ids,
+                "event_refs": event_refs,
+                "dialogue_refs": dialogue_refs,
+                "required_events": [item["text"] for item in event_refs],
+                "dialogue_owner": [item["text"] for item in dialogue_refs],
+            })
+            event_owners.update(event_ids)
+            dialogue_owners.update(dialogue_ids)
+
+        all_event_ids = {fact_id for rows in expected_ids.values() for fact_id in rows["events"]}
+        all_dialogue_ids = {fact_id for rows in expected_ids.values() for fact_id in rows["dialogues"]}
+        invalid_events = sorted(fact_id for fact_id in all_event_ids if event_owners[fact_id] != 1)
+        invalid_dialogues = sorted(fact_id for fact_id in all_dialogue_ids if dialogue_owners[fact_id] != 1)
+        if invalid_events:
+            raise PromptTemplateError(f"动作事实必须且只能分配一次：{invalid_events}")
+        if invalid_dialogues:
+            raise PromptTemplateError(f"对白事实必须且只能分配一次：{invalid_dialogues}")
+
         units_by_beat: dict[str, list[dict[str, Any]]] = {}
         for unit in units:
             units_by_beat.setdefault(str(unit.get("source_beat_id") or ""), []).append(unit)
         for beat_id, beat_units in units_by_beat.items():
             ordered = sorted(beat_units, key=lambda item: (float(item.get("start_sec") or 0), str(item.get("id") or "")))
-            for previous, current in zip(ordered, ordered[1:]):
-                previous_state = cls._normalized_match_text(parsed[previous["id"]].get("handoff_state"))
-                current_state = cls._normalized_match_text(parsed[current["id"]].get("start_state"))
-                if not previous_state or previous_state != current_state:
-                    raise PromptTemplateError(f"Beat {beat_id} 的相邻动作单元交接状态不一致")
+            previous_state = ""
+            for index, unit in enumerate(ordered):
+                allocation = parsed[unit["id"]]
+                if index == 0:
+                    start_state = _clean(allocation.get("start_state")) or f"{beat_by_id.get(beat_id, {}).get('heading') or '当前场景'}的起始可见状态"
+                else:
+                    start_state = previous_state
+                handoff_state = _clean(allocation.get("handoff_state"))
+                if not handoff_state:
+                    event_text = "；".join(allocation.get("required_events") or [])
+                    handoff_state = f"{event_text or '当前动作'}完成后的稳定可见状态"
+                allocation["start_state"] = start_state
+                allocation["handoff_state"] = handoff_state
+                previous_state = handoff_state
         return parsed
+
+    @classmethod
+    def _compile_director_groups(
+        cls,
+        planned_segments: list[dict[str, Any]],
+        groups: list[dict[str, Any]],
+        language: str,
+        *,
+        previous_segment_count: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Inject immutable source facts and structural markers into creative prose."""
+        if len(planned_segments) != len(groups):
+            raise PromptTemplateError("Director 段数量与创意扩写不一致")
+        lang = normalize_language(language)
+        labels = {
+            "summary": "summary" if lang == "en" else "摘要",
+            "retention_analysis": "retention_analysis" if lang == "en" else "保留分析",
+            "detailed_description": "detailed_description" if lang == "en" else "详细描述",
+            "overall_soundscape": "overall_soundscape" if lang == "en" else "整体声景",
+            "non_diegetic_music": "non_diegetic_music" if lang == "en" else "非叙事配乐",
+        }
+        continuity = "No hard cut. Immediately following the previous section." if lang == "en" else "无硬切。紧接上一段。"
+        all_fact_texts = [
+            _clean(ref.get("text"))
+            for segment in planned_segments
+            for unit in segment.get("source_units") or []
+            for ref in (unit.get("event_refs") or []) + (unit.get("dialogue_refs") or [])
+            if _clean(ref.get("text"))
+        ]
+        compiled: list[dict[str, Any]] = []
+        for index, (segment, group) in enumerate(zip(planned_segments, groups)):
+            sections = dict(group.get("sections") or {})
+            creative = _clean(sections.get("detailed_description"))
+            creative = re.sub(r"\[Shot\s+\d+]", "", creative, flags=re.I)
+            creative = creative.replace(continuity, "").strip()
+            for fact_text in sorted(all_fact_texts, key=len, reverse=True):
+                creative = creative.replace(fact_text, "")
+            creative = re.sub(r"\n{3,}", "\n\n", creative).strip(" \n，,。")
+            normalized_creative = cls._dialogue_match_key(creative)
+            for planned in planned_segments:
+                for unit in planned.get("source_units") or []:
+                    for ref in unit.get("dialogue_refs") or []:
+                        dialogue_key = cls._dialogue_match_key(ref.get("text"))
+                        if len(dialogue_key) >= 4 and dialogue_key in normalized_creative:
+                            raise PromptTemplateError("创意扩写重复了原始对白，请只描述表演，不复写台词")
+
+            continuous = segment.get("continuity_from_prev", previous_segment_count + index > 0)
+            detail_rows: list[str] = [continuity] if continuous else []
+            shot_numbers: list[int] = []
+            segment_elapsed = 0.0
+            for unit in segment.get("source_units") or []:
+                shot_number = int(unit.get("generated_shot_number") or 0)
+                shot_numbers.append(shot_number)
+                shot_end = segment_elapsed + float(unit.get("duration_seconds") or 0)
+                detail_rows.append(
+                    f"[Shot {shot_number}] "
+                    f"{int(segment_elapsed // 60):02d}:{segment_elapsed % 60:05.2f}–"
+                    f"{int(shot_end // 60):02d}:{shot_end % 60:05.2f}"
+                )
+                segment_elapsed = shot_end
+                if unit.get("purpose"):
+                    detail_rows.append(f"{unit.get('shot_size')}，{unit.get('camera')}，{unit.get('movement')}。{unit.get('performance')}。{unit.get('dialogue_timing')}")
+                events = [_clean(item.get("text")) for item in unit.get("event_refs") or [] if _clean(item.get("text"))]
+                dialogues = [_clean(item.get("text")) for item in unit.get("dialogue_refs") or [] if _clean(item.get("text"))]
+                if events:
+                    detail_rows.append(("Source actions: " if lang == "en" else "动作事实：") + "；".join(events))
+                if dialogues:
+                    detail_rows.append(("Verbatim dialogue: " if lang == "en" else "对白原文：") + "；".join(dialogues))
+                detail_rows.append(
+                    ("Visible continuity: " if lang == "en" else "可见状态：")
+                    + f"{_clean(unit.get('start_state'))} → {_clean(unit.get('handoff_state'))}"
+                )
+            if creative:
+                detail_rows.append(creative if segment.get("story_designed") else ("Creative direction: " if lang == "en" else "运镜与表演扩写：") + creative)
+            if lang != "en" and not any("不要乱说话" in row for row in detail_rows):
+                detail_rows.append("不要乱说话。")
+            sections["detailed_description"] = "\n".join(row for row in detail_rows if row)
+            prompt_text = "\n\n".join(f"{labels[key]}: {sections[key]}" for key in labels)
+            compiled.append({"sections": sections, "prompt_text": prompt_text, "shot_numbers": shot_numbers})
+        return compiled
 
     @classmethod
     def _validate_director_groups(
         cls,
         planned_segments: list[dict[str, Any]],
         groups: list[dict[str, Any]],
+        language: str = "zh",
     ) -> None:
         if len(planned_segments) != len(groups):
             raise PromptTemplateError("Director 段数量与模型输出不一致")
         all_shot_numbers: list[int] = []
-        unit_text: dict[str, str] = {}
-        unit_segment: dict[str, int] = {}
+        unit_ids: set[str] = set()
+        event_ids: set[str] = set()
+        dialogue_ids: set[str] = set()
         for segment_index, (segment, group) in enumerate(zip(planned_segments, groups), start=1):
             prompt_text = str(group.get("prompt_text") or "")
-            all_shot_numbers.extend(int(value) for value in re.findall(r"\[Shot\s+(\d+)]", prompt_text, flags=re.I))
+            detail = str((group.get("sections") or {}).get("detailed_description") or "")
+            continuity = (
+                "No hard cut. Immediately following the previous section."
+                if normalize_language(language) == "en"
+                else "无硬切。紧接上一段。"
+            )
+            if segment.get("continuity_from_prev", segment_index > 1) and not detail.startswith(continuity):
+                raise PromptTemplateError(f"第 {segment_index} 段缺少程序编译的连续性开头")
+            actual_shots = [int(value) for value in re.findall(r"\[Shot\s+(\d+)]", prompt_text, flags=re.I)]
+            expected_shots = [int(unit.get("generated_shot_number") or 0) for unit in segment.get("source_units") or []]
+            if actual_shots != expected_shots:
+                raise PromptTemplateError(f"第 {segment_index} 段的程序编译镜头编号无效")
+            all_shot_numbers.extend(actual_shots)
             for unit in segment.get("source_units") or []:
                 unit_id = str(unit.get("id") or "")
-                if not unit_id:
-                    raise PromptTemplateError("Director 段缺少 source_unit_id")
-                unit_text[unit_id] = prompt_text
-                unit_segment[unit_id] = segment_index
-                for dialogue in unit.get("dialogue_owner") or []:
-                    value = str(dialogue or "").strip()
-                    if not value:
-                        continue
-                    owners = [
-                        index for index, other in enumerate(planned_segments)
-                        if value in str(groups[index].get("prompt_text") or "")
-                    ]
-                    if owners != [segment_index - 1]:
-                        raise PromptTemplateError(f"对白在多个 Director 段重复或未落地：{value}")
-                for event in unit.get("required_events") or []:
-                    value = str(event or "").strip()
-                    if not value:
-                        continue
-                    owners = [
-                        index for index, other in enumerate(planned_segments)
-                        if value and value in str(groups[index].get("prompt_text") or "")
-                    ]
-                    if owners != [segment_index - 1]:
-                        raise PromptTemplateError(f"原始动作事件重复、遗漏或未原样落地：{value}")
+                if not unit_id or unit_id in unit_ids:
+                    raise PromptTemplateError("Director source_unit_id 为空或重复")
+                unit_ids.add(unit_id)
+                unit_event_ids = [str(value or "") for value in unit.get("event_ids") or []]
+                unit_dialogue_ids = [str(value or "") for value in unit.get("dialogue_ids") or []]
+                if len(unit_event_ids) != len(set(unit_event_ids)) or len(unit_dialogue_ids) != len(set(unit_dialogue_ids)):
+                    raise PromptTemplateError("Director Unit 包含重复事实 ID")
+                for ref in (unit.get("event_refs") or []) + (unit.get("dialogue_refs") or []):
+                    if _clean(ref.get("text")) not in detail:
+                        raise PromptTemplateError(f"第 {segment_index} 段遗漏原始动作或对白事实")
+                if event_ids.intersection(unit_event_ids):
+                    raise PromptTemplateError("动作事实 ID 跨 Director 段重复")
+                if dialogue_ids.intersection(unit_dialogue_ids):
+                    raise PromptTemplateError("对白事实 ID 跨 Director 段重复")
+                event_ids.update(unit_event_ids)
+                dialogue_ids.update(unit_dialogue_ids)
             if segment_index > 1 and any(term.lower() in prompt_text.lower() for term in _DIRECTOR_REPLAY_TERMS):
                 raise PromptTemplateError(f"第 {segment_index} 段包含禁止的重播语义")
         if len(all_shot_numbers) != len(set(all_shot_numbers)):
             raise PromptTemplateError("generated_shot_number 在 Director 方案中重复")
-        if set(unit_text) != {
-            str(unit.get("id") or "")
-            for segment in planned_segments
-            for unit in segment.get("source_units") or []
-        }:
-            raise PromptTemplateError("source_unit_id 未被完整覆盖")
 
         # A high overlap in adjacent summaries for the same source Beat is a
         # useful local signal for replayed prose without blocking normal
@@ -898,7 +1346,7 @@ class PromptExpansionService:
                 right_pairs = {right[pos:pos + 2] for pos in range(len(right) - 1)}
                 overlap = len(left_pairs & right_pairs) / max(1, min(len(left_pairs), len(right_pairs)))
                 if overlap >= 0.82:
-                    raise PromptTemplateError("相邻 Director 段摘要高度重复，疑似重演原始动作")
+                    raise PromptTemplateError(f"相邻 Director 段摘要高度重复（{overlap * 100:.0f}%），疑似重演动作")
 
     @classmethod
     def _populate_director_atomic_units(
@@ -909,21 +1357,32 @@ class PromptExpansionService:
         planned_parts = payload.get("planned_parts") if isinstance(payload.get("planned_parts"), list) else []
         source = payload.get("source_snapshot") if isinstance(payload.get("source_snapshot"), dict) else {}
         beats = [dict(item) for item in source.get("beats") or [] if isinstance(item, dict)]
+        source_facts = payload.get("source_facts") if isinstance(payload.get("source_facts"), dict) else cls._build_source_facts(beats)
+        payload["source_facts"] = source_facts
         units = cls._director_unit_specs(planned_parts)
         if not units:
             raise PromptTemplateError("Director 方案没有可规划的动作单元")
         for beat in beats:
             beat["source_shot_number"] = _shot_number(beat.get("story_shot") or beat.get("sequence"), beat.get("sequence") or 1)
         system, user = build_director_unit_planning_prompts(
-            language=request.get("language"), beats=beats, units=units,
+            language=request.get("language"), beats=beats, units=units, source_facts=source_facts,
         )
         parsed, _raw, retried = cls._generate_with_one_retry(
             system,
             user,
             lambda value: cls._validate_atomic_unit_allocation(
-                parse_director_unit_plan(value, units), units, beats,
+                parse_director_unit_plan(value, units), units, beats, source_facts,
             ),
             retry_instruction="只修复动作单元归属 JSON；保持 unit_id、时间范围和原始对白不变，不增加事件。",
+            stream_phase="director_plan",
+            stream_message="正在整理剧情事实",
+            retry_message="剧情事实未通过校验，正在自动修复",
+            max_repairs=2,
+            status_context={
+                "code": "DIRECTOR_FACT_PLANNING",
+                "stage": "fact_planning",
+                "segment_ids": [str(item.get("id") or "") for part in planned_parts for item in part.get("segments") or []],
+            },
         )
         for unit in units:
             unit.update(parsed[unit["id"]])
@@ -937,51 +1396,179 @@ class PromptExpansionService:
         segments: list[dict[str, Any]],
         expected_shots: list[list[int]],
         expected_groups: int,
+        previous_segments: list[dict[str, Any]] | None = None,
+        previous_groups: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        parsed = parse_director_output(
+        parsed = parse_director_creative_output(
             value,
             request.get("language"),
             request.get("reference_slots") or [],
-            expected_groups=expected_groups,
-            expected_shots=expected_shots,
+            segments,
+            locked_common_setting=request.get("locked_common_setting"),
         )
-        cls._validate_director_groups(segments, parsed["groups"])
+        parsed["groups"] = cls._compile_director_groups(
+            segments,
+            parsed["groups"],
+            request.get("language") or "zh",
+            previous_segment_count=len(previous_segments or []),
+        )
+        cls._validate_director_groups(
+            [*(previous_segments or []), *segments],
+            [*(previous_groups or []), *parsed["groups"]],
+            request.get("language") or "zh",
+        )
         return parsed
 
     @classmethod
-    def _generate_director_preview(cls, payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
-        planned_parts = payload.get("planned_parts") if isinstance(payload.get("planned_parts"), list) else []
-        planned_parts, planning_retried = cls._populate_director_atomic_units(payload, request)
+    def _generate_director_preview(
+        cls,
+        payload: dict[str, Any],
+        request: dict[str, Any],
+        *,
+        job_id: str = "",
+    ) -> dict[str, Any]:
+        checkpoints = payload.setdefault("checkpoints", {})
+        if request.get("story_design") and not checkpoints.get("fact_planning"):
+            from .director_story_design import design_prompts, pack_design
+            from .llm_service import LlmService
+            source = payload.get("source_snapshot") or {}
+            facts = payload.get("source_facts") or cls._build_source_facts(source.get("beats") or [])
+            definition = workflow_for(request["workflow_id"])
+            system, user = design_prompts(source, facts, request, definition)
+            def parse_design(raw: str) -> dict:
+                try:
+                    design = LlmService._parse_json_object(raw)
+                except ValueError as err:
+                    raise PromptTemplateError(f"导演设计 JSON 无法解析：{err}") from err
+                design["planned_parts"] = pack_design(design, source.get("beats") or [], facts, definition, _FPS)
+                return design
+            design, _, repaired = cls._generate_with_one_retry(system, user, parse_design,
+                stream_phase="director_design", stream_message="正在设计本集戏剧节奏与镜头",
+                retry_instruction="依据具体校验错误修复导演设计；禁止填充无剧情动作，不要改变事实和总时长。", max_repairs=2)
+            payload["director_design"] = {k: v for k, v in design.items() if k != "planned_parts"}
+            payload["source_facts"] = facts
+            payload["planned_parts"] = design["planned_parts"]
+            cls._save_checkpoint(job_id, payload, "fact_planning", {"status": "completed", "planned_parts": design["planned_parts"], "retried": repaired})
+        planning_checkpoint = checkpoints.get("fact_planning") if isinstance(checkpoints.get("fact_planning"), dict) else {}
+        if planning_checkpoint.get("status") == "completed" and isinstance(planning_checkpoint.get("planned_parts"), list):
+            planned_parts = planning_checkpoint["planned_parts"]
+            planning_retried = bool(planning_checkpoint.get("retried"))
+        else:
+            try:
+                planned_parts, planning_retried = cls._populate_director_atomic_units(payload, request)
+            except PromptTemplateError as err:
+                raise PromptPipelineError(
+                    str(err),
+                    code="DIRECTOR_FACT_PLANNING_INVALID",
+                    stage="fact_planning",
+                    attempt=2,
+                    retryable=True,
+                    user_message="剧情事实分配仍有冲突，请重试失败部分。",
+                ) from err
+            cls._save_checkpoint(job_id, payload, "fact_planning", {
+                "status": "completed",
+                "planned_parts": planned_parts,
+                "retried": planning_retried,
+            })
+
         parts: list[dict[str, Any]] = []
-        common_setting: dict[str, Any] | None = None
-        previous_handoff = ""
+        common_setting: dict[str, Any] | None = (payload.get("director_design") or {}).get("common_setting")
+        if common_setting:
+            from .director_story_design import normalize_common_setting
+            common_setting = normalize_common_setting(common_setting)
+            payload["director_design"]["common_setting"] = common_setting
+            request = {**request, "locked_common_setting": common_setting}
+        previous_handoff: dict[str, Any] | str = ""
         retried = planning_retried
         raw_outputs: list[str] = []
         all_planned_segments: list[dict[str, Any]] = []
         all_groups: list[dict[str, Any]] = []
-        for part in planned_parts:
+        part_checkpoints = checkpoints.get("part_generation") if isinstance(checkpoints.get("part_generation"), dict) else {}
+        part_total = len(planned_parts)
+        for part_index, part in enumerate(planned_parts, start=1):
+            part_id = str(part.get("id") or f"part-{part_index}")
+            cached = part_checkpoints.get(part_id) if isinstance(part_checkpoints.get(part_id), dict) else {}
+            if cached.get("status") == "completed" and isinstance(cached.get("part"), dict):
+                completed_part = cached["part"]
+                completed_segments = [item for item in completed_part.get("segments") or [] if isinstance(item, dict)]
+                parts.append(completed_part)
+                all_planned_segments.extend(completed_segments)
+                all_groups.extend({
+                    "sections": segment.get("sections") or {},
+                    "prompt_text": segment.get("prompt_text") or "",
+                    "shot_numbers": [int(shot.get("shot_number") or 0) for shot in segment.get("shots") or []],
+                } for segment in completed_segments)
+                common_setting = common_setting or (cached.get("common_setting") if isinstance(cached.get("common_setting"), dict) else None)
+                raw_outputs.append(str(cached.get("raw_output") or ""))
+                retried = retried or bool(cached.get("retried"))
+                if completed_segments:
+                    last_segment = completed_segments[-1]
+                    previous_handoff = {
+                        "segment_id": last_segment.get("id"),
+                        "state": ((last_segment.get("source_units") or [{}])[-1].get("handoff_state") or ""),
+                        "description_tail": str((last_segment.get("sections") or {}).get("detailed_description") or "")[-240:],
+                    }
+                continue
+
             part_handoff = previous_handoff
+            if part.get("transition_type") == "cut":
+                previous_handoff = {"transition_type": "cut", "message": "新场景或时间跳跃，重新建立起幅，不强制连续动作"}
             system, user = build_director_prompts(
                 language=request.get("language"), rewrite_mode=request.get("rewrite_mode"),
                 aspect_ratio=request.get("aspect_ratio"), segment_sources=part.get("segments") or [],
                 reference_slots=request.get("reference_slots") or [], previous_handoff=previous_handoff,
+                director_context={"design": payload.get("director_design"), "episode": (payload.get("source_snapshot") or {}).get("episode")} if request.get("story_design") else None,
+                common_setting=common_setting if request.get("story_design") else None,
             )
             expected_shots = [
                 [int(unit.get("generated_shot_number")) for unit in segment.get("source_units") or []]
                 for segment in part.get("segments") or []
             ]
-            parsed, raw, part_retried = cls._generate_with_one_retry(
-                system, user,
-                lambda value, expected=len(part.get("segments") or []): cls._parse_and_validate_director_output(
-                    value, request, part.get("segments") or [], expected_shots, expected,
-                ),
-                retry_instruction="只修复重复动作/对白或连续性冲突；严格保持动作单元分配表、Shot 编号和时长不变。",
-            )
+            try:
+                parsed, raw, part_retried = cls._generate_with_one_retry(
+                    system, user,
+                    lambda value, expected=len(part.get("segments") or []): cls._parse_and_validate_director_output(
+                        value,
+                        request,
+                        part.get("segments") or [],
+                        expected_shots,
+                        expected,
+                        all_planned_segments,
+                        all_groups,
+                    ),
+                    retry_instruction=(
+                        "完整重写当前 Part 的创意扩写；章节标题、Shot 编号、连续性语句、动作和对白均由程序写入，"
+                        "模型不要输出这些固定内容。"
+                    ),
+                    stream_phase=f"director_part_{part_index}",
+                    stream_message=f"正在生成 Director Part {part_index}/{part_total}",
+                    retry_message=f"Director Part {part_index} 未通过校验，正在自动修复",
+                    max_repairs=2,
+                    status_context={
+                        "code": "DIRECTOR_PART_GENERATION",
+                        "stage": "part_generation",
+                        "part_id": part_id,
+                        "segment_ids": [str(item.get("id") or "") for item in part.get("segments") or []],
+                    },
+                )
+            except PromptTemplateError as err:
+                if isinstance(err, PromptPipelineError):
+                    raise
+                raise PromptPipelineError(
+                    str(err),
+                    code="DIRECTOR_PART_INVALID",
+                    stage="part_generation",
+                    part_id=part_id,
+                    segment_ids=[str(item.get("id") or "") for item in part.get("segments") or []],
+                    attempt=2,
+                    retryable=True,
+                    user_message=f"Part {part_index}/{part_total} 自动修复两次后仍未通过，可只重试失败部分。",
+                ) from err
             retried = retried or part_retried
             raw_outputs.append(raw)
             all_planned_segments.extend(part.get("segments") or [])
             all_groups.extend(parsed["groups"])
-            if common_setting is None:
+            if common_setting is None or request.get("story_design"):
                 common_setting = parsed["common_setting"]
             segments = []
             for idx, (planned, group) in enumerate(zip(part.get("segments") or [], parsed["groups"]), start=1):
@@ -1000,30 +1587,87 @@ class PromptExpansionService:
                         for number in group.get("shot_numbers") or []
                     ],
                     "sections": group["sections"], "prompt_text": group["prompt_text"],
-                    "continuity_from_prev": idx > 1,
+                    "continuity_from_prev": planned.get("continuity_from_prev", part_index > 1 or idx > 1),
+                    "story_designed": planned.get("story_designed", False),
                 })
             previous_handoff = {
                 "segment_id": segments[-1]["id"],
                 "state": (segments[-1].get("source_units") or [{}])[-1].get("handoff_state") or "",
                 "description_tail": segments[-1]["sections"]["detailed_description"][-240:],
             }
-            parts.append({
+            completed_part = {
+                "transition_type": part.get("transition_type", "continuous"),
                 "id": part["id"], "index": part["index"], "frame_count": part["frame_count"],
                 "segments": segments,
                 "handoff_from_previous_part": part_handoff if isinstance(part_handoff, dict) else {},
-            })
-        cls._validate_director_groups(all_planned_segments, all_groups)
-        return {
+            }
+            parts.append(completed_part)
+            part_checkpoints[part_id] = {
+                "status": "completed",
+                "part": completed_part,
+                "common_setting": parsed["common_setting"],
+                "raw_output": raw,
+                "retried": part_retried,
+            }
+            cls._save_checkpoint(job_id, payload, "part_generation", part_checkpoints)
+
+        emit_llm_stream_status(
+            "director_final_validation",
+            "正在进行最终校验",
+            reset=False,
+            code="DIRECTOR_FINAL_VALIDATION",
+            stage="final_validation",
+            segment_ids=[str(item.get("id") or "") for item in all_planned_segments],
+            attempt=0,
+            retryable=True,
+        )
+        preview = {
+            "director_design": payload.get("director_design"),
+            "requested_segment_count": request.get("target_segment_count"),
+            "quality_status": "awaiting_review" if request.get("story_design") else "not_reviewed",
             "kind": "director_segments", "id": f"director-plan-{uuid.uuid4().hex[:12]}", "revision": 1,
             "schema_version": _DIRECTOR_PLAN_SCHEMA_VERSION,
             "planning_strategy": "atomic_units",
             "unit_planner_version": DIRECTOR_UNIT_PLANNER_VERSION,
             "template_version": request.get("template_version"), "workflow_id": request.get("workflow_id"),
             "language": request.get("language"), "rewrite_mode": request.get("rewrite_mode"),
-            "aspect_ratio": request.get("aspect_ratio"), "source_fingerprint": payload.get("source_fingerprint"),
+            "aspect_ratio": request.get("aspect_ratio"),
+            "target_segment_count": request.get("target_segment_count"),
+            "actual_segment_count": sum(len(part["segments"]) for part in parts),
+            "source_fingerprint": payload.get("source_fingerprint"),
+            "source_facts": payload.get("source_facts") or {},
             "reference_slots": request.get("reference_slots") or [], "common_setting": common_setting or {},
-            "parts": parts, "raw_outputs": raw_outputs, "retried": retried, "status": "current",
+            "parts": parts, "raw_outputs": raw_outputs, "retried": retried,
+            "validation_status": "valid", "status": "current",
         }
+        try:
+            cls._validate_director_groups(all_planned_segments, all_groups, request.get("language") or "zh")
+            cls.validate_director_plan(preview)
+        except (PromptTemplateError, ValueError) as err:
+            affected_part = parts[-1] if parts else {}
+            raise PromptPipelineError(
+                str(err),
+                code="DIRECTOR_FINAL_VALIDATION_FAILED",
+                stage="final_validation",
+                part_id=str(affected_part.get("id") or "") or None,
+                segment_ids=[str(item.get("id") or "") for item in affected_part.get("segments") or []],
+                attempt=0,
+                retryable=True,
+                user_message="最终校验发现事实归属冲突，请重试失败部分。",
+            ) from err
+        if request.get("story_design"):
+            preview = cls._improve_director_plan(preview, payload, job_id)
+        cls._save_checkpoint(job_id, payload, "final_validation", {
+            "status": "completed",
+            "validated_at": now_str(),
+        })
+        return preview
+
+    @classmethod
+    def _improve_director_plan(cls, preview, payload, job_id, *, feedback="", targets=None):
+        return improve_plan(preview, payload.get("source_snapshot") or {}, feedback=feedback, targets=targets,
+            state=(payload.get("checkpoints") or {}).get("quality_revision"),
+            save=lambda state: cls._save_checkpoint(job_id, payload, "quality_revision", state))
 
     @classmethod
     def apply_preview(
@@ -1039,6 +1683,8 @@ class PromptExpansionService:
         preview = payload.get("preview") if isinstance(payload.get("preview"), dict) else None
         if not row or row.get("job_type") != JOB_TYPE or row.get("status") not in {"completed", "succeeded"} or not preview:
             raise ValueError("提示词预览尚未完成")
+        if payload.get("validation_status") != "valid" or preview.get("validation_status") == "invalid":
+            raise ValueError("提示词预览尚未通过最终校验，不能保存或用于出片")
         if payload.get("episode_id") != episode_id:
             raise ValueError("提示词预览不属于当前分集")
         expected = _clean(req.get("expected_source_fingerprint"))
@@ -1066,6 +1712,14 @@ class PromptExpansionService:
                 "beats": beats,
                 "assets": [dict(item) for item in asset_rows],
             }
+            if (payload.get("request") or {}).get("story_design"):
+                number = int(episode_row.get("episode_num") or 1)
+                cursor.execute(
+                    "SELECT episode_num,title,script_text FROM ai_project_episodes "
+                    "WHERE project_id=%s AND episode_num IN (%s,%s) ORDER BY episode_num FOR UPDATE",
+                    (project_id, number - 1, number + 1),
+                )
+                locked_source["adjacent_episodes"] = [dict(item) for item in (cursor.fetchall() or [])]
             current = cls.source_fingerprint(locked_source, payload.get("request") or {})
             if current != payload.get("source_fingerprint"):
                 raise RuntimeError("SOURCE_CONFLICT: 剧本、分镜、资产或工作流已变化，请重新生成预览")
@@ -1103,8 +1757,13 @@ class PromptExpansionService:
                 })
                 data["beats"] = beats
             else:
+                revision_request = payload.get("revision_request")
+                if revision_request and content_digest(authoring.get("director_plan")) != revision_request.get("saved_base_digest"):
+                    raise RuntimeError("REVISION_CONFLICT: 返修期间已保存的方案发生变化，请基于新版本返修")
                 plan = dict(preview)
                 plan.pop("raw_outputs", None)
+                if plan.get("target_segment_count") in (None, ""):
+                    plan["target_segment_count"] = (payload.get("request") or {}).get("target_segment_count")
                 plan.update({
                     "status": "current", "origin": "prompt_master",
                     "applied_from_job_id": job_id, "updated_at": timestamp,
@@ -1154,6 +1813,8 @@ class PromptExpansionService:
             cls.validate_director_plan(plan)
             plan["revision"] = expected_revision + 1
             plan["origin"] = "manual_edit"
+            plan["creative_review"] = None
+            plan["quality_status"] = "not_reviewed"
             plan["updated_at"] = now_str()
             authoring["director_plan"] = plan
             data["prompt_authoring"] = authoring
@@ -1180,6 +1841,30 @@ class PromptExpansionService:
             raise ValueError("Director 参考图数量超过当前工作流容量")
         if [int(item.get("index") or 0) for item in reference_slots] != list(range(1, len(reference_slots) + 1)):
             raise ValueError("Director 参考图编号必须从 1 连续递增")
+        source_facts = plan.get("source_facts") if isinstance(plan.get("source_facts"), dict) else {}
+        if not source_facts:
+            raise ValueError("Director 方案缺少 source_facts，请重新生成")
+        fact_maps: dict[str, dict[str, dict[str, str]]] = {}
+        expected_event_ids: set[str] = set()
+        expected_dialogue_ids: set[str] = set()
+        for beat_id, rows in source_facts.items():
+            if not isinstance(rows, dict):
+                raise ValueError("Director source_facts 格式无效")
+            events = {
+                _clean(item.get("id")): item
+                for item in rows.get("events") or []
+                if isinstance(item, dict) and _clean(item.get("id"))
+            }
+            dialogues = {
+                _clean(item.get("id")): item
+                for item in rows.get("dialogues") or []
+                if isinstance(item, dict) and _clean(item.get("id"))
+            }
+            if any(not _clean(item.get("text")) for item in [*events.values(), *dialogues.values()]):
+                raise ValueError("Director source_facts 包含空原文")
+            fact_maps[_clean(beat_id)] = {**events, **dialogues}
+            expected_event_ids.update(events)
+            expected_dialogue_ids.update(dialogues)
         language = normalize_language(plan.get("language"))
         public_label = "subject_definitions" if language == "en" else "主体定义"
         public_prompt = _clean(common.get("prompt_text")) or f"{public_label}: {_clean(common.get('subject_definitions'))}"
@@ -1190,6 +1875,8 @@ class PromptExpansionService:
         segment_ids: set[str] = set()
         unit_ids: set[str] = set()
         generated_shots: set[int] = set()
+        owned_event_ids: set[str] = set()
+        owned_dialogue_ids: set[str] = set()
         units_by_beat: dict[str, list[dict[str, Any]]] = {}
         all_segments: list[dict[str, Any]] = []
         all_groups: list[dict[str, Any]] = []
@@ -1230,6 +1917,28 @@ class PromptExpansionService:
                     if generated_shot in generated_shots:
                         raise ValueError("Director generated_shot_number 重复")
                     generated_shots.add(generated_shot)
+                    event_ids = [_clean(value) for value in unit.get("event_ids") or [] if _clean(value)]
+                    dialogue_ids = [_clean(value) for value in unit.get("dialogue_ids") or [] if _clean(value)]
+                    if owned_event_ids.intersection(event_ids) or owned_dialogue_ids.intersection(dialogue_ids):
+                        raise ValueError("Director 事实 ID 跨 Unit 重复")
+                    if any(value not in expected_event_ids for value in event_ids):
+                        raise ValueError("Director Unit 引用了未知动作事实 ID")
+                    if any(value not in expected_dialogue_ids for value in dialogue_ids):
+                        raise ValueError("Director Unit 引用了未知对白事实 ID")
+                    if any(value not in fact_maps.get(source_beat_id, {}) for value in [*event_ids, *dialogue_ids]):
+                        raise ValueError("Director Unit 引用了其他 Beat 的事实 ID")
+                    event_refs = unit.get("event_refs") if isinstance(unit.get("event_refs"), list) else []
+                    dialogue_refs = unit.get("dialogue_refs") if isinstance(unit.get("dialogue_refs"), list) else []
+                    if [(_clean(item.get("id")), _clean(item.get("text"))) for item in event_refs if isinstance(item, dict)] != [
+                        (value, _clean(fact_maps[source_beat_id][value].get("text"))) for value in event_ids
+                    ]:
+                        raise ValueError("Director 动作事实引用与原文不一致")
+                    if [(_clean(item.get("id")), _clean(item.get("text"))) for item in dialogue_refs if isinstance(item, dict)] != [
+                        (value, _clean(fact_maps[source_beat_id][value].get("text"))) for value in dialogue_ids
+                    ]:
+                        raise ValueError("Director 对白事实引用与原文不一致")
+                    owned_event_ids.update(event_ids)
+                    owned_dialogue_ids.update(dialogue_ids)
                     units_by_beat.setdefault(source_beat_id, []).append(unit)
                 sections = segment.get("sections") if isinstance(segment.get("sections"), dict) else {}
                 for key in ("summary", "retention_analysis", "detailed_description", "overall_soundscape", "non_diegetic_music"):
@@ -1255,7 +1964,6 @@ class PromptExpansionService:
                 language,
                 reference_slots,
                 expected_groups=len(segments),
-                expected_shots=expected_shots,
             )
             for segment, group in zip(segments, parsed["groups"]):
                 stored = segment.get("sections") if isinstance(segment.get("sections"), dict) else {}
@@ -1263,6 +1971,10 @@ class PromptExpansionService:
                     raise ValueError("Director 段结构化正文与提示词不一致")
             all_segments.extend(segments)
             all_groups.extend(parsed["groups"])
+        if owned_event_ids != expected_event_ids:
+            raise ValueError("Director 动作事实未完整且唯一归属")
+        if owned_dialogue_ids != expected_dialogue_ids:
+            raise ValueError("Director 对白事实未完整且唯一归属")
         for source_beat_id, items in units_by_beat.items():
             ordered = sorted(items, key=lambda item: float(item.get("start_sec") or 0))
             previous_end = 0.0
@@ -1278,9 +1990,11 @@ class PromptExpansionService:
                     raise ValueError(f"Beat {source_beat_id} 的 source_units 时间范围重叠")
                 if index and abs(start_sec - previous_end) > 0.01:
                     raise ValueError(f"Beat {source_beat_id} 的 source_units 时间范围存在缺口")
+                if index and _clean(item.get("start_state")) != _clean(ordered[index - 1].get("handoff_state")):
+                    raise ValueError(f"Beat {source_beat_id} 的 source_units 状态交接不一致")
                 previous_end = max(previous_end, end_sec)
         try:
-            PromptExpansionService._validate_director_groups(all_segments, all_groups)
+            PromptExpansionService._validate_director_groups(all_segments, all_groups, plan.get("language") or "zh")
         except PromptTemplateError as err:
             raise ValueError(str(err)) from err
 
@@ -1293,9 +2007,33 @@ class PromptExpansionService:
         beats: list[dict[str, Any]],
         assets: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        del project_id
         state = json.loads(json.dumps(data.get("prompt_authoring") or {}, ensure_ascii=False))
         source = {"episode": episode, "data": data, "beats": beats, "assets": assets}
+        if (state.get("director_plan") or {}).get("director_design"):
+            number = int(episode.get("episode_num") or 1)
+            source["adjacent_episodes"] = query_all("SELECT episode_num,title,script_text FROM ai_project_episodes WHERE project_id=%s AND episode_num IN (%s,%s)",
+                                                  (project_id, number - 1, number + 1))
+        def source_matches(record: dict, request: dict) -> bool:
+            if data.get("script_stale"):
+                return False
+            current = cls.source_fingerprint(source, request)
+            if current == record.get("source_fingerprint"):
+                return True
+            # Pre-production previews hashed voice settings and database sort order. Compare
+            # their immutable source snapshot canonically; never guess from today's assets.
+            job_id = _clean(record.get("applied_from_job_id"))
+            if not job_id:
+                return False
+            original = _payload(query_one(
+                "SELECT payload_json FROM ai_project_jobs WHERE id=%s AND project_id=%s AND job_type=%s",
+                (job_id, project_id, JOB_TYPE),
+            ) or {})
+            snapshot = original.get("source_snapshot")
+            if original.get("source_fingerprint") != record.get("source_fingerprint") or not isinstance(snapshot, dict):
+                return False
+            old_source = {"episode": snapshot.get("episode") or {}, "beats": snapshot.get("beats") or [],
+                          "assets": snapshot.get("assets") or [], "data": {}}
+            return cls.source_fingerprint(old_source, request) == current
         records = state.get("full_reference") if isinstance(state.get("full_reference"), dict) else {}
         for beat_id, record in records.items():
             if not isinstance(record, dict):
@@ -1307,7 +2045,7 @@ class PromptExpansionService:
                 "reference_slots": record.get("reference_slots") or [],
                 "target": {"kind": "beat", "beat_id": beat_id},
             }
-            record["status"] = "current" if cls.source_fingerprint(source, request) == record.get("source_fingerprint") else "stale"
+            record["status"] = "current" if source_matches(record, request) else "stale"
         plan = state.get("director_plan") if isinstance(state.get("director_plan"), dict) else None
         if plan:
             missing_units = any(
@@ -1319,18 +2057,43 @@ class PromptExpansionService:
                 int(plan.get("schema_version") or 0) != _DIRECTOR_PLAN_SCHEMA_VERSION
                 or _clean(plan.get("planning_strategy")) != "atomic_units"
                 or missing_units
+                or not isinstance(plan.get("source_facts"), dict)
+                or not plan.get("source_facts")
             ):
                 plan["status"] = "stale"
                 plan["invalid_reason"] = "DIRECTOR_PLAN_SCHEMA_OUTDATED"
                 return state
+            actual_segment_count = sum(len(part.get("segments") or []) for part in plan.get("parts") or [])
+            target_segment_count = plan.get("target_segment_count")
+            if target_segment_count in (None, ""):
+                applied_job_id = _clean(plan.get("applied_from_job_id"))
+                if applied_job_id:
+                    job = query_one(
+                        "SELECT payload_json FROM ai_project_jobs WHERE id=%s AND project_id=%s AND job_type=%s",
+                        (applied_job_id, project_id, JOB_TYPE),
+                    ) or {}
+                    job_request = _payload(job).get("request")
+                    if isinstance(job_request, dict):
+                        target_segment_count = job_request.get("target_segment_count")
+            try:
+                target_segment_count = int(target_segment_count)
+            except (TypeError, ValueError):
+                target_segment_count = actual_segment_count
+            if target_segment_count <= 0:
+                target_segment_count = actual_segment_count
+            plan["target_segment_count"] = target_segment_count
+            if plan.get("director_design"):
+                target_segment_count = plan.get("requested_segment_count")
+                plan["target_segment_count"] = target_segment_count
             request = {
                 "template_version": plan.get("template_version"), "workflow_id": plan.get("workflow_id"),
+                "unit_planner_version": plan.get("unit_planner_version") or DIRECTOR_UNIT_PLANNER_VERSION,
                 "language": plan.get("language"), "rewrite_mode": plan.get("rewrite_mode") or "expand",
                 "aspect_ratio": plan.get("aspect_ratio") or "16:9",
-                "target_segment_count": sum(len(part.get("segments") or []) for part in plan.get("parts") or []),
+                "target_segment_count": target_segment_count,
                 "reference_slots": plan.get("reference_slots") or [], "target": {"kind": "director_episode"},
             }
-            plan["status"] = "current" if cls.source_fingerprint(source, request) == plan.get("source_fingerprint") else "stale"
+            plan["status"] = "current" if source_matches(plan, request) else "stale"
             if plan["status"] == "stale":
                 plan["invalid_reason"] = "SOURCE_CHANGED"
             else:

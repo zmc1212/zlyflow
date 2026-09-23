@@ -19,13 +19,13 @@
 .d2-content-library .sub-pane-title {
   font-size: 20px;
   font-weight: 700;
-  color: #111827;
+  color: var(--studio-text);
   margin: 0 0 4px;
 }
 
 .d2-content-library .sub-pane-subtitle {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--studio-text-secondary);
   margin: 0;
 }
 
@@ -35,8 +35,8 @@
 }
 
 .d2-content-library .empty-doc-box {
-  background: #ffffff;
-  border: 1px dashed rgba(0, 0, 0, 0.1);
+  background: var(--studio-surface);
+  border: 1px dashed var(--studio-border);
   border-radius: 12px;
   padding: 64px 20px;
   text-align: center;
@@ -50,7 +50,7 @@
   background: rgba(112, 71, 246, 0.08);
   display: grid;
   place-items: center;
-  color: #7047f6;
+  color: var(--studio-accent-text);
 }
 
 .d2-content-library .content-layout {
@@ -62,8 +62,8 @@
 
 .d2-content-library .doc-list-sidebar {
   width: 250px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border);
   border-radius: 12px;
   padding: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
@@ -73,9 +73,9 @@
 .d2-content-library .doc-list-header {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--studio-text);
   padding: 4px 8px 10px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--studio-border);
   margin-bottom: 8px;
 }
 
@@ -92,12 +92,12 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
-  background: #fafafa;
+  background: var(--studio-surface-raised);
   border: 1px solid transparent;
 }
 
 .d2-content-library .doc-item:hover {
-  background: #f3f4f6;
+  background: var(--studio-surface-raised);
 }
 
 .d2-content-library .doc-item.active {
@@ -111,12 +111,12 @@
   gap: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--studio-text);
   margin-bottom: 6px;
 }
 
 .d2-content-library .doc-icon {
-  color: #7047f6;
+  color: var(--studio-accent-text);
   flex-shrink: 0;
 }
 
@@ -125,7 +125,7 @@
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--studio-text-secondary);
 }
 
 .d2-content-library .doc-detail-main {
@@ -137,8 +137,8 @@
 }
 
 .d2-content-library .detail-top-card {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border);
   border-radius: 12px;
   padding: 18px 22px;
   min-width: 0;
@@ -168,7 +168,7 @@
 .d2-content-library .detail-title {
   font-size: 18px;
   font-weight: 700;
-  color: #111827;
+  color: var(--studio-text);
   margin: 0 0 8px;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -192,7 +192,7 @@
 
 .d2-content-library .char-count {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--studio-text-secondary);
 }
 
 .d2-content-library .transfer-btn {
@@ -201,8 +201,8 @@
 }
 
 .d2-content-library .replan-shot-btn {
-  color: var(--studio-primary, #7047f6);
-  border-color: var(--studio-primary, #7047f6);
+  color: var(--studio-accent-text);
+  border-color: var(--studio-accent-text);
   background: var(--studio-surface, #ffffff);
 }
 .d2-content-library .replan-shot-btn:hover,
@@ -213,16 +213,16 @@
 }
 
 .d2-content-library .sync-ep-btn {
-  background: #ffffff;
-  color: #7047f6;
-  border-color: #7047f6;
+  background: var(--studio-surface);
+  color: var(--studio-accent-text);
+  border-color: var(--studio-accent-text);
 }
 .d2-content-library .sync-ep-btn:hover {
   background: rgba(112, 71, 246, 0.06);
 }
 
 .d2-content-library .summary-box {
-  background: #f8fafc;
+  background: var(--studio-surface-raised);
   border-left: 3px solid #7047f6;
   padding: 10px 14px;
   border-radius: 0 8px 8px 0;
@@ -231,20 +231,20 @@
 
 .d2-content-library .summary-label {
   font-weight: 600;
-  color: #374151;
+  color: var(--studio-text);
 }
 
 .d2-content-library .summary-text {
   margin: 4px 0 0;
-  color: #4b5563;
+  color: var(--studio-text-secondary);
   line-height: 20px;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .d2-content-library .analysis-tabs-wrap {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border);
   border-radius: 12px;
   padding: 16px;
   min-width: 0;
@@ -261,7 +261,7 @@
 .d2-content-library .empty-sub-tab {
   padding: 40px;
   text-align: center;
-  color: #9ca3af;
+  color: var(--studio-text-secondary);
   font-size: 13px;
 }
 
@@ -278,15 +278,15 @@
 
 .d2-content-library .ant-collapse-item {
   margin-bottom: 12px;
-  border: 1px solid #e5e7eb !important;
+  border: 1px solid var(--studio-border) !important;
   border-radius: 10px !important;
-  background: #ffffff !important;
+  background: var(--studio-surface) !important;
   overflow: hidden;
 }
 
 .d2-content-library .ant-collapse-header {
   padding: 12px 16px !important;
-  background: #f9fafb !important;
+  background: var(--studio-surface-raised) !important;
   min-width: 0;
 }
 
@@ -318,7 +318,7 @@
 .d2-content-library .ep-main-title {
   font-size: 15px;
   font-weight: 600;
-  color: #111827;
+  color: var(--studio-text);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -347,7 +347,7 @@
   min-width: 0;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--studio-border, #e5e7eb);
+  border: 1px solid var(--studio-border, var(--studio-border));
   background: var(--studio-surface, #ffffff);
   color: var(--studio-text, #171a1f);
 }
@@ -409,7 +409,7 @@
 
 .d2-content-library .shots-assembling-empty {
   padding: 16px 12px;
-  border: 1px dashed var(--studio-border, #e5e7eb);
+  border: 1px dashed var(--studio-border, var(--studio-border));
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.5;
@@ -454,9 +454,9 @@
 }
 
 .d2-content-library .shot-card {
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--studio-border);
   border-radius: 8px;
-  background: #fafbfc;
+  background: var(--studio-surface-raised);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -468,7 +468,7 @@
 }
 
 .d2-content-library .shot-card:hover {
-  border-color: #cbd5e1;
+  border-color: var(--studio-border);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
 }
 
@@ -477,7 +477,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  border-bottom: 1px dashed #e2e8f0;
+  border-bottom: 1px dashed var(--studio-border);
   padding-bottom: 8px;
 }
 
@@ -494,7 +494,7 @@
 .d2-content-library .shot-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--studio-text);
   margin: 0;
   flex: 1;
   min-width: 0;
@@ -520,7 +520,7 @@
 }
 
 .d2-content-library .meta-lbl {
-  color: #64748b;
+  color: var(--studio-text-secondary);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -529,7 +529,7 @@
 }
 
 .d2-content-library .meta-val {
-  color: #1e293b;
+  color: var(--studio-text);
   min-width: 0;
   flex: 1;
   overflow-wrap: anywhere;
@@ -563,11 +563,11 @@
 }
 
 .d2-content-library .audio-row {
-  background: #f1f5f9;
+  background: var(--studio-surface-raised);
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 11px;
-  color: #475569;
+  color: var(--studio-text-secondary);
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -604,8 +604,8 @@
 }
 
 .d2-content-library .shot-prompt-box {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--studio-surface-raised);
+  border: 1px solid var(--studio-border);
   border-radius: 6px;
   padding: 6px 8px;
   margin-top: 4px;
@@ -618,13 +618,13 @@
   align-items: center;
   font-size: 11px;
   font-weight: 600;
-  color: #7047f6;
+  color: var(--studio-accent-text);
   margin-bottom: 2px;
 }
 
 .d2-content-library .prompt-text {
   font-size: 11px;
-  color: #475569;
+  color: var(--studio-text-secondary);
   line-height: 16px;
   margin: 0;
 }
@@ -656,8 +656,8 @@
 }
 
 .d2-content-library .global-card {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: var(--studio-surface-raised);
+  border: 1px solid var(--studio-border);
   border-radius: 10px;
   padding: 16px;
   display: flex;
@@ -677,8 +677,8 @@
   gap: 8px;
   font-size: 14px;
   font-weight: 700;
-  color: #1f2937;
-  border-bottom: 1px solid #e5e7eb;
+  color: var(--studio-text);
+  border-bottom: 1px solid var(--studio-border);
   padding-bottom: 8px;
 }
 
@@ -691,11 +691,11 @@
 
 .d2-content-library .pos-item .k {
   font-weight: 600;
-  color: #4b5563;
+  color: var(--studio-text-secondary);
 }
 
 .d2-content-library .pos-item .v {
-  color: #111827;
+  color: var(--studio-text);
 }
 
 .d2-content-library .storyline-v {
@@ -705,13 +705,13 @@
 }
 
 .d2-content-library .style-quote {
-  background: #ffffff;
+  background: var(--studio-surface);
   border-left: 3px solid #3b82f6;
   padding: 10px 14px;
   border-radius: 0 6px 6px 0;
   font-size: 13px;
   line-height: 20px;
-  color: #374151;
+  color: var(--studio-text);
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -738,7 +738,7 @@
 
 .d2-content-library .advice-text {
   font-size: 13px;
-  color: #374151;
+  color: var(--studio-text);
   line-height: 22px;
   margin: 0;
   overflow-wrap: anywhere;
@@ -757,7 +757,7 @@
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--studio-text-secondary);
 }
 
 .d2-content-library .script-text-box {
@@ -777,14 +777,14 @@
 /* Format Guide */
 .d2-content-library .format-guide {
   font-size: 13px;
-  color: #374151;
+  color: var(--studio-text);
   max-height: 520px;
   overflow-y: auto;
 }
 
 .d2-content-library .guide-lead {
   font-size: 13px;
-  color: #4b5563;
+  color: var(--studio-text-secondary);
   margin-bottom: 14px;
 }
 
@@ -797,16 +797,16 @@
 .d2-content-library .guide-sec h5 {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--studio-text);
   margin: 0 0 6px;
 }
 
 .d2-content-library .guide-pre {
-  background: #f1f5f9;
+  background: var(--studio-surface-raised);
   padding: 10px 12px;
   border-radius: 6px;
   font-size: 12px;
-  color: #1e293b;
+  color: var(--studio-text);
   margin: 0;
   white-space: pre-wrap;
 }
@@ -835,12 +835,12 @@
 }
 
 .d2-content-library .script-file-name {
-  color: #334155;
+  color: var(--studio-text);
   font-size: 12px;
   font-weight: 600;
 }
 
 .d2-content-library .script-file-hint {
-  color: #94a3b8;
+  color: var(--studio-text-secondary);
   font-size: 12px;
 }

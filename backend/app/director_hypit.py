@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Callable
 
@@ -28,9 +29,9 @@ HYPIT_LANGUAGES = ("zh", "en")
 # 9:16 sizes match provider-comfy-h3 h3Dimensions (32-pixel grid).
 HYPIT_H3_QUALITY_DEFAULT = "safe"
 HYPIT_H3_QUALITIES: dict[str, dict[str, Any]] = {
-    "safe": {"megapixels": 0.6, "width": 608, "height": 1056, "label": "16GB 稳妥"},
+    "safe": {"megapixels": 0.6, "width": 608, "height": 1056, "label": "标准"},
     "balanced": {"megapixels": 0.7, "width": 640, "height": 1152, "label": "均衡"},
-    "official": {"megapixels": 0.98, "width": 768, "height": 1344, "label": "官方 768P"},
+    "official": {"megapixels": 0.98, "width": 768, "height": 1344, "label": "高清"},
 }
 _MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024
 _ALLOWED_SOURCE_SUFFIXES = {".mp4", ".mov", ".webm", ".m4v"}
@@ -284,13 +285,52 @@ def find_hypit_svrun(workspace: Path) -> Path | None:
     if not runs.is_dir():
         return None
     matches = sorted(path for path in runs.glob("*.svrun") if path.is_file())
-    return matches[0] if matches else None
+    if len(matches) <= 1:
+        return matches[0] if matches else None
+    # Material-only runs (A-roll, voice, etc.) are not the deliverable.
+    finals = [path for path in matches if "final.video" in _svrun_targets(path)]
+    if len(finals) == 1:
+        return finals[0]
+    raise HypitError("存在多个可编译 Run，无法确定成片。请仅保留一个包含 final.video 目标的 .svrun，其余版本移入子目录。")
+
+
+def _svrun_targets(path: Path) -> list[str]:
+    try:
+        root = ET.fromstring(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ET.ParseError) as error:
+        raise HypitError(f"无法读取 Run {path.name}：{error}") from error
+    return [node.attrib["output"] for node in root.iter("target") if node.attrib.get("output")]
 
 
 def svrun_output_name(path: Path) -> str:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    match = re.search(r'output="([^"]+)"', text)
-    return match.group(1) if match else "final.video"
+    targets = _svrun_targets(path)
+    if "final.video" in targets:
+        return "final.video"
+    if len(targets) == 1 and targets[0].endswith(".video"):
+        return targets[0]
+    raise HypitError("Run 必须明确指定成片视频 target；多个目标时请使用 final.video。")
+
+
+def write_hypit_brief(workspace: Path, payload: dict[str, Any]) -> Path:
+    """Managed handoff; never overwrite the agent's own Brief/Analysis/Treatment."""
+    current = normalize_hypit_payload(payload)
+    source = current.get("sourceVideo") or {}
+    path = workspace / "notes" / "WORKBENCH_BRIEF.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# 工作台复刻需求\n\n此文件由工作台同步；Agent 的分析与制作方案请另存。\n\n"
+        f"项目：{current['title']}\n\n## 用户要求\n\n{current['brief'] or '尚未填写'}\n\n"
+        f"参考片：{source.get('name') or '未上传'}\n"
+        f"尺寸：{source.get('width', 0)}×{source.get('height', 0)}；时长：{source.get('durationSec', 0)} 秒\n"
+        f"转写语言：{current['language']}\n\n"
+        "## 制作与验收\n\n"
+        "- 先查看 samples 中的参考片，并结合 notes/transcript.json 逐段核对画面、台词、字幕、B-roll 与图形节奏；转写不等于视觉分析。\n"
+        "- 在 Analysis / Timeline 记录参考片证据，在 Treatment 说明保留和替换的内容，再更新 authors 中的 Source 与 runs 中的 Run。\n"
+        "- 换台词或人物后，以新表演的声音和实际时序建立字幕与时间轴；使用原声时需明确记录意图并检查口型，不能默认丢弃新表演音轨。\n"
+        "- Run 明确指定 final.video 成片目标；检查画面、声音、字幕、时长后再编译。编译器不会自动把本文件改写为 SVML。\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def hypit_argv(*args: str) -> list[str]:
@@ -484,7 +524,7 @@ def reap_unattached_execution_workers(
     return pids
 
 
-def write_hypit_compile_runtime(workspace: Path, *, megapixels: float) -> Path:
+def write_hypit_compile_runtime(workspace: Path, *, megapixels: float, comfy_url: str) -> Path:
     """Copy the POC runtime and override H3 megapixels for this compile only."""
     source = hypit_runtime_path()
     try:
@@ -509,6 +549,7 @@ def write_hypit_compile_runtime(workspace: Path, *, megapixels: float) -> Path:
         config = {}
         comfy["config"] = config
     config["megapixels"] = float(megapixels)
+    config["comfyUrl"] = comfy_url.rstrip("/")
     dest = workspace / "notes" / "hypit.runtime.overlay.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

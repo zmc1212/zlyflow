@@ -167,7 +167,8 @@ class DubbingService:
             row = cursor.fetchone()
             if not row:
                 raise ValueError("分集不存在")
-            payload = data if data is not None else cls._parse_data(row)
+            # Always merge into the locked row: a pre-lock sync snapshot may precede an adoption.
+            payload = cls._parse_data(row)
             beats = payload.get("beats") or []
             for beat in beats:
                 if not isinstance(beat, dict):

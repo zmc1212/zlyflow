@@ -127,6 +127,7 @@ from .media_studio.services.episode_video_service import EpisodeVideoService
 from .media_studio.services.h3_prompt_job_service import H3PromptJobService
 from .media_studio.services.prompt_expansion_service import PromptExpansionService
 from .media_studio.services.shot_plan_job_service import ShotPlanJobService
+from .media_studio.services.script_development_service import ScriptDevelopmentService
 from .media_studio.services.storyboard_image_service import StoryboardImageService
 from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
 from .qiniu_provider import QiniuProviderService
@@ -758,6 +759,7 @@ async def lifespan(app: FastAPI):
     H3PromptJobService.recover_interrupted_jobs()
     PromptExpansionService.recover_interrupted_jobs()
     ShotPlanJobService.recover_interrupted_jobs()
+    ScriptDevelopmentService.recover_interrupted_jobs()
     TtsGenerationJobService.recover_interrupted_jobs()
     AiGenerationService.recover_orphaned_jobs()
     await worker.start()
@@ -2717,8 +2719,11 @@ def reveal_hypit_project(
     request: Request,
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
-    hypit_project_or_404(app.state.store, project_id, user)
+    record = hypit_project_or_404(app.state.store, project_id, user)
+    from .director_hypit import ensure_hypit_workspace, write_hypit_brief
     try:
+        workspace = ensure_hypit_workspace(user["id"], project_id)
+        write_hypit_brief(workspace, record.get("payload") or {})
         revealed = reveal_hypit_workspace(user["id"], project_id)
     except OSError as error:
         raise HTTPException(status_code=500, detail=f"无法打开工程目录：{error}") from error

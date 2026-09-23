@@ -13,6 +13,7 @@ from ..services.llm_service import LlmService
 from ..services.project_detail_service import ProjectDetailService
 from ..services.project_service import ProjectService
 from ..services.ai_generation_service import AiGenerationService
+from ..services.script_development_service import ScriptDevelopmentService
 
 
 def register_project_routes(
@@ -32,6 +33,27 @@ def register_project_routes(
             service = AiGenerationService(app.state.llm_provider)
             app.state.director2_ai_service = service
         return service
+
+    @app.post("/api/projects/{project_id}/documents/{doc_id}/script-developments", status_code=202)
+    def start_script_development(project_id: str, doc_id: str, payload: dict = Body(default={}), user: dict = Depends(mutating_user)):
+        try:
+            return ScriptDevelopmentService.public(ScriptDevelopmentService.start(project_id, doc_id, payload))
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.get("/api/projects/{project_id}/documents/{doc_id}/script-developments")
+    def get_script_development(project_id: str, doc_id: str, user: dict = Depends(current_user)):
+        try:
+            return ScriptDevelopmentService.public(ScriptDevelopmentService.get(project_id, doc_id))
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/documents/{doc_id}/script-developments/{job_id}/actions")
+    def act_script_development(project_id: str, doc_id: str, job_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        try:
+            return ScriptDevelopmentService.public(ScriptDevelopmentService.action(project_id, doc_id, job_id, payload))
+        except ValueError as err:
+            raise HTTPException(status_code=409 if "CONFLICT" in str(err) else 400, detail=str(err)) from err
 
     def operation_or_404(service: AiGenerationService, operation_id: str, project_id: str):
         try:
@@ -511,13 +533,43 @@ def register_project_routes(
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
+    @app.get("/api/projects/{project_id}/episodes/{episode_id}/production", summary="读取分集制作版本与采用清单")
+    def get_production(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], mode: Annotated[str | None, Query(description="制作方式：shot 或 director")] = None, user: dict = Depends(current_user)):
+        from ..services.production_service import ProductionService
+        try:
+            return ProductionService.get(project_id, episode_id, mode)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.patch("/api/projects/{project_id}/episodes/{episode_id}/production/{action}", summary="更新制作方式、素材采用或声音编排")
+    def update_production(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], action: Annotated[str, Path(description="更新操作：mode、adopt 或 audio")], payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.production_service import ProductionService, ProductionConflict
+        try:
+            return ProductionService.update(project_id, episode_id, payload, action)
+        except ProductionConflict as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
     @app.post("/api/projects/{project_id}/episodes/{episode_id}/prompt-previews", status_code=202, summary="创建双模板提示词预览")
     def create_prompt_preview(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict = None, user: dict = Depends(mutating_user)):
-        from ..services.prompt_expansion_service import PromptExpansionService
+        from ..services.prompt_expansion_service import PromptExpansionService, PromptPipelineError
         try:
             return PromptExpansionService.enqueue(project_id, episode_id, payload or {})
+        except PromptPipelineError as err:
+            raise HTTPException(status_code=422, detail=err.as_dict()) from err
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
+
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/prompt-revisions", status_code=202, summary="按意见返修或重新审稿 Director 方案")
+    def revise_prompt_plan(project_id: str, episode_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.prompt_expansion_service import PromptExpansionService
+        try:
+            return PromptExpansionService.revise(project_id, episode_id, payload)
+        except RuntimeError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
 
     @app.post("/api/projects/{project_id}/episodes/{episode_id}/prompt-previews/{job_id}/apply", summary="确认保存提示词预览")
     def apply_prompt_preview(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], job_id: Annotated[str, Path(description="任务 ID")], payload: dict = None, user: dict = Depends(mutating_user)):
@@ -655,8 +707,11 @@ def register_project_routes(
         summary="拼接各镜视频为分集成片",
     )
     def compose_episode_video(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict | None = None, user: dict = Depends(mutating_user)):
+        from ..services.production_service import ProductionConflict
         try:
             return EpisodeVideoService.create_compose_job(project_id, episode_id, options=payload or {})
+        except ProductionConflict as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err))
         except Exception as err:
@@ -767,6 +822,8 @@ def register_project_routes(
                 streamer = PromptExpansionService.stream
             elif job_type == "shot_plan":
                 streamer = ShotPlanJobService.stream
+            elif job_type == "script_development":
+                streamer = ScriptDevelopmentService.stream
             elif not job_type:
                 yield sse_frame({"event": "error", "terminal": True, "data": {"status": "failed", "message": "任务不存在"}})
                 return
@@ -796,5 +853,9 @@ def register_project_routes(
     def retry_job(project_id: Annotated[str, Path(description="项目 ID")], job_id: Annotated[str, Path(description="任务 ID")], user: dict = Depends(mutating_user)):
         try:
             return ProjectDetailService.retry_job(project_id, job_id)
+        except RuntimeError as err:
+            if str(err).startswith("SOURCE_CHANGED:"):
+                raise HTTPException(status_code=409, detail=str(err))
+            raise HTTPException(status_code=400, detail=str(err))
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))

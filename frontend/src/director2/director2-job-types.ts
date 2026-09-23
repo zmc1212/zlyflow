@@ -4,7 +4,9 @@ export const DIRECTOR2_JOB_TYPES = [
   "image_generation",
   "video_generation",
   "h3_prompt",
+  "prompt_expansion",
   "shot_plan",
+  "script_development",
   "ai_pipeline",
   "tts_generation",
 ] as const
@@ -15,7 +17,9 @@ export const DIRECTOR2_JOB_TYPE_LABELS: Record<Director2JobType, string> = {
   image_generation: "图片生成",
   video_generation: "视频生成",
   h3_prompt: "H3 提示词",
+  prompt_expansion: "提示词预览",
   shot_plan: "镜头规划",
+  script_development: "剧本发展",
   ai_pipeline: "AI 生成",
   tts_generation: "配音",
 }
@@ -87,7 +91,9 @@ export function countJobsByType(jobs: Director2JobTypeSource[]): Record<Director
     image_generation: 0,
     video_generation: 0,
     h3_prompt: 0,
+    prompt_expansion: 0,
     shot_plan: 0,
+    script_development: 0,
     ai_pipeline: 0,
     tts_generation: 0,
   } satisfies Record<Director2JobType, number>

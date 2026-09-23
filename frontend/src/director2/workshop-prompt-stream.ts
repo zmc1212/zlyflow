@@ -6,14 +6,31 @@ export type PromptStreamEpisodeFields = {
   episode_total?: number
 }
 
+export type PromptPreviewFailure = {
+  code: string
+  stage: string
+  part_id?: string | null
+  segment_ids: string[]
+  attempt: number
+  retryable: boolean
+  message: string
+  detail?: string
+}
+
 export type WorkshopPromptStreamEvent =
   | {
     seq: number
     event: "status"
     data: {
+      code?: string
       phase?: string
+      stage?: string
       message?: string
       reset?: boolean
+      part_id?: string | null
+      segment_ids?: string[]
+      attempt?: number
+      retryable?: boolean
       reasoning?: string
       text?: string
     } & PromptStreamEpisodeFields
@@ -46,7 +63,7 @@ export type WorkshopPromptStreamEvent =
       preview?: Record<string, unknown>
     }
   }
-  | { seq: number; event: "error"; data: { status?: string; message?: string } }
+  | { seq: number; event: "error"; data: { status?: string } & Partial<PromptPreviewFailure> }
   | { seq: number; event: "keep-alive"; data: Record<string, unknown> }
 
 const TERMINAL_EVENTS = new Set(["done", "error", "cancelled"])
@@ -69,6 +86,7 @@ export type WorkshopPromptLiveState = {
   startedAt: number
   working: boolean
   failed: boolean
+  failure?: PromptPreviewFailure | null
 }
 
 export function emptyPromptLiveState(jobId = ""): WorkshopPromptLiveState {
@@ -81,6 +99,7 @@ export function emptyPromptLiveState(jobId = ""): WorkshopPromptLiveState {
     startedAt: Date.now(),
     working: Boolean(jobId),
     failed: false,
+    failure: null,
   }
 }
 
@@ -99,6 +118,7 @@ export function applyPromptStreamEvent(
       text: reset ? String(event.data.text || "") : (event.data.text ?? state.text),
       working: true,
       failed: false,
+      failure: null,
     }
   }
   if (event.event === "reasoning") {
@@ -113,7 +133,17 @@ export function applyPromptStreamEvent(
     return { ...state, text: prompt || state.text, working: false, failed: false, message: "提示词已生成" }
   }
   if (event.event === "error") {
-    return { ...state, working: false, failed: true, message: String(event.data.message || "生成失败") }
+    const failure: PromptPreviewFailure = {
+      code: String(event.data.code || "PROMPT_PREVIEW_FAILED"),
+      stage: String(event.data.stage || "generation"),
+      part_id: event.data.part_id ? String(event.data.part_id) : null,
+      segment_ids: Array.isArray(event.data.segment_ids) ? event.data.segment_ids.map(String) : [],
+      attempt: Number(event.data.attempt || 0),
+      retryable: event.data.retryable !== false,
+      message: String(event.data.message || "生成失败"),
+      detail: event.data.detail ? String(event.data.detail) : undefined,
+    }
+    return { ...state, working: false, failed: true, failure, message: failure.message }
   }
   return state
 }

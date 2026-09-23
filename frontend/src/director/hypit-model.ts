@@ -16,9 +16,9 @@ export const HYPIT_H3_QUALITIES: ReadonlyArray<{
   label: string
   hint: string
 }> = [
-  { value: "safe", megapixels: 0.6, width: 608, height: 1056, label: "16GB 稳妥", hint: "608×1056，16GB 卡先选这项" },
+  { value: "safe", megapixels: 0.6, width: 608, height: 1056, label: "标准", hint: "较低资源占用；所示尺寸以竖屏 9:16 为例" },
   { value: "balanced", megapixels: 0.7, width: 640, height: 1152, label: "均衡", hint: "640×1152" },
-  { value: "official", megapixels: 0.98, width: 768, height: 1344, label: "官方 768P", hint: "768×1344，16GB 卡上次会卡死" },
+  { value: "official", megapixels: 0.98, width: 768, height: 1344, label: "高清", hint: "更多画面细节、较高资源占用；实际尺寸随工程比例变化" },
 ]
 
 export type HypitSourceVideo = {

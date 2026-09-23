@@ -324,6 +324,7 @@ class ProjectDetailService:
         episode_index: int,
         updated_episode: dict[str, Any],
         log_line: str | None = None,
+        expected_script_revision: int | None = None,
     ) -> dict[str, Any]:
         row = query_one(
             "SELECT id, analysis_json FROM ai_project_documents WHERE id = %s AND project_id = %s",
@@ -340,6 +341,8 @@ class ProjectDetailService:
             except json.JSONDecodeError:
                 parsed = {}
             analysis = parsed if isinstance(parsed, dict) else {}
+        if expected_script_revision is not None and expected_script_revision != (analysis.get("script_development") or {}).get("revision", 0):
+            raise ValueError("SOURCE_CONFLICT: 剧本已采纳新版本，请重新规划镜头")
         episodes = list(analysis.get("episodes") or [])
         target_index = None
         if episode_num is not None:
@@ -358,10 +361,12 @@ class ProjectDetailService:
             logs.append(log_line)
             analysis["logs"] = logs
         cls._refresh_analysis_shot_summary(analysis)
-        execute_sql(
-            "UPDATE ai_project_documents SET analysis_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
-            (json.dumps(analysis, ensure_ascii=False), now_str(), doc_id, project_id),
+        changed = execute_sql(
+            "UPDATE ai_project_documents SET analysis_json = %s, updated_at = %s WHERE id = %s AND project_id = %s AND analysis_json = %s",
+            (json.dumps(analysis, ensure_ascii=False), now_str(), doc_id, project_id, raw_json),
         )
+        if not changed:
+            raise ValueError("SOURCE_CONFLICT: 文档规划结果已变化，请重试")
         return analysis
 
     @staticmethod
@@ -620,7 +625,7 @@ class ProjectDetailService:
         if not episodes:
             raise ValueError("该剧本中未识别到分集或分镜头信息")
 
-        existing_rows = query_all("SELECT id, episode_num FROM ai_project_episodes WHERE project_id = %s", (project_id,))
+        existing_rows = query_all("SELECT id, episode_num, script_text, data_json FROM ai_project_episodes WHERE project_id = %s", (project_id,))
         existing_map = {int(r["episode_num"]): r["id"] for r in existing_rows}
         assets_rows = query_all("SELECT id, kind, name, image_url, extra_json FROM ai_project_assets WHERE project_id = %s", (project_id,))
         char_map = asset_name_id_map(assets_rows, "character")
@@ -641,7 +646,8 @@ class ProjectDetailService:
             incoming_nums.add(ep_num)
             title = ep.get("title") or f"第 {ep_num} 集"
             shots = ep.get("shots") or []
-            script_text = cls._episode_script_text(ep_num, title, str(ep.get("summary") or ""), shots)
+            script_text = str(ep.get("body") or "") if analysis.get("script_development") else ""
+            script_text = script_text or cls._episode_script_text(ep_num, title, str(ep.get("summary") or ""), shots)
 
             if ep_num in existing_map:
                 if sync_mode == "append":
@@ -653,7 +659,16 @@ class ProjectDetailService:
                     "beats": beats,
                     "summary": ep.get("summary") or "",
                     "source_document_id": doc_id,
+                    "dramatic_design": ep.get("dramatic_design") or {},
+                    "script_revision": (analysis.get("script_development") or {}).get("revision"),
                 }
+                if analysis.get("script_development"):
+                    previous_row = next(r for r in existing_rows if r["id"] == eid)
+                    previous_data = json.loads(previous_row.get("data_json") or "{}")
+                    history = previous_data.pop("script_history", [])
+                    data["script_history"] = [*history, {"script_text": previous_row.get("script_text"), "data": previous_data}]
+                    if previous_data.get("production"):
+                        data["production"] = previous_data["production"]
                 execute_sql(
                     """
                     UPDATE ai_project_episodes
@@ -672,6 +687,8 @@ class ProjectDetailService:
                 "beats": beats,
                 "summary": ep.get("summary") or "",
                 "source_document_id": doc_id,
+                "dramatic_design": ep.get("dramatic_design") or {},
+                "script_revision": (analysis.get("script_development") or {}).get("revision"),
             }
             execute_sql(
                 """
@@ -685,7 +702,7 @@ class ProjectDetailService:
             transferred_shots += len(beats)
 
         deleted = 0
-        if sync_mode == "overwrite":
+        if sync_mode == "overwrite" and not analysis.get("script_development"):
             for num, eid in list(existing_map.items()):
                 if num not in incoming_nums:
                     execute_sql("DELETE FROM ai_project_episodes WHERE id = %s AND project_id = %s", (eid, project_id))
@@ -1866,6 +1883,34 @@ class ProjectDetailService:
 
         original_lines = [l for l in (ep.get("script_text") or "").split("\n") if l.strip()]
 
+        from .production_state import summary as production_summary, asset_fingerprint
+        production_asset_fingerprint = asset_fingerprint(hydrated_assets, beats)
+        legacy_director_output = {}
+        legacy_director_jobs = {}
+        if not data.get("production"):
+            plan = prompt_authoring.get("director_plan") or {}
+            job_ids = {str(r.get("job_id")) for p in plan.get("parts", []) for r in p.get("renders", []) if r.get("job_id")}
+            job_ids.update(str(s["video_job_id"]) for p in plan.get("parts", []) for s in p.get("segments", []) if s.get("video_job_id"))
+            if job_ids:
+                rows = query_all("SELECT id,payload_json,result_url FROM ai_project_jobs WHERE project_id=%s AND id IN (" +
+                                 ",".join(["%s"] * len(job_ids)) + ")", (project_id, *sorted(job_ids)))
+                for old in rows:
+                    try:
+                        legacy_director_jobs[old["id"]] = json.loads(old.get("payload_json") or "{}")
+                    except (ValueError, TypeError):
+                        pass
+        if not data.get("production") and data.get("episode_video_source") == "director_plan" and data.get("episode_video_job_id"):
+            historical = query_one("SELECT payload_json,result_url FROM ai_project_jobs WHERE id=%s AND project_id=%s",
+                                   (data["episode_video_job_id"], project_id)) or {}
+            try:
+                legacy_director_output = {"job_id": data["episode_video_job_id"], "url": historical.get("result_url"),
+                                          "payload": json.loads(historical.get("payload_json") or "{}")}
+            except (ValueError, TypeError):
+                pass
+        production = production_summary({"data": data, "beats": beats, "script_text": ep.get("script_text"),
+                                         "prompt_authoring": prompt_authoring, "production_asset_fingerprint": production_asset_fingerprint,
+                                         "legacy_director_output": legacy_director_output, "legacy_director_jobs": legacy_director_jobs})
+
         return {
             "id": ep["id"],
             "project_id": ep["project_id"],
@@ -1885,6 +1930,10 @@ class ProjectDetailService:
             "links": links,
             "data": data,
             "prompt_authoring": prompt_authoring,
+            "production": production,
+            "production_asset_fingerprint": production_asset_fingerprint,
+            "legacy_director_output": legacy_director_output,
+            "legacy_director_jobs": legacy_director_jobs,
             "episode_video_url": data.get("episode_video_url") or "",
             "episode_video_source": data.get("episode_video_source") or "",
             "episode_video_job_id": data.get("episode_video_job_id") or "",

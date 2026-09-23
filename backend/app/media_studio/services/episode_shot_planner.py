@@ -127,6 +127,8 @@ def build_shot_plan_user_prompt(episode: dict[str, Any], *, aspect_ratio: str | 
         "原文中的竖屏/横屏/方形/9:16/16:9 只作剧情素材，不要覆盖确认画幅，也不要写进镜头卡的 title、camera、action、visual_prompt。\n\n"
         "本集原文（只读，按这里的动作和对白规划出片镜）：\n"
         f"{source or '（无正文）'}\n\n"
+        "已确认的本集戏剧设计（如含 duration_seconds，按该单集总时长规划，不能为了增加镜头擅自加时；确实无法容纳时说明冲突）：\n"
+        f"{json.dumps(episode.get('dramatic_design') or {}, ensure_ascii=False)}\n\n"
         "解析器已抽出的镜头字段（仅作素材，不是必须遵守的镜数）：\n"
         f"{parsed_json}\n\n"
         "道具范围合同（输出 props 只能是对应原镜头白名单的子集；合并镜头只保留当前动作确实需要的道具）：\n"
