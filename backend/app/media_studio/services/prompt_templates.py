@@ -472,8 +472,9 @@ def parse_director_output(
     *,
     expected_groups: int,
     expected_shots: list[list[int]] | None = None,
+    allow_single: bool = False,
 ) -> dict[str, Any]:
-    if expected_groups < 2 or expected_groups > 8:
+    if expected_groups < (1 if allow_single else 2) or expected_groups > 8:
         raise PromptTemplateError("连续剧情每个 Part 必须包含 2–8 个提示词组")
     source = str(text or "").strip()
     lang = normalize_language(language)

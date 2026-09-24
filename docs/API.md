@@ -465,6 +465,25 @@ http://127.0.0.1:7865/api/media/minimax_h3_20260806_120000_a1b2c3d4.mp4
 
 ## 账号与资源交付约定
 
+## 动作与镜头编排 API（2026-09-23）
+
+项目接口使用现有登录会话和变更请求的 `X-CSRF-Token`：
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| `POST /api/projects/{p}/episodes/{e}/beats/{b}/action-previs` | multipart `description`、`images[]`（最多四张）、可选 `video`；返回 202 与 `job_id`。镜头时长须 2–15 秒。 |
+| `GET /api/projects/{p}/episodes/{e}/beats/{b}/action-previs/latest` | 当前镜头最新任务或 null。 |
+| `GET /api/projects/{p}/action-previs/{job_id}` | 任务状态、方案版本、质量与产物。 |
+| `PUT /api/projects/{p}/action-previs/{job_id}/plan` | `{plan,expected_revision}`；只允许 `awaiting_review`，版本冲突 409。 |
+| `POST /api/projects/{p}/action-previs/{job_id}/render` | `{expected_revision}`；锁定已审稿版本并排队远端。 |
+| `POST /api/projects/{p}/action-previs/{job_id}/cancel` / `retry` | 取消或按已审方案重试失败/需返修任务。 |
+
+远端执行器使用独立 Bearer `ZLY_ACTION_PREVIS_WORKER_TOKEN`，通过 `POST /api/internal/action-previs/claim` 主动领取，`POST /{p}/{job_id}/heartbeat` 续租，`PUT /{p}/{job_id}/artifacts/{video|blend|contact_sheet|report}` 上传四种产物，再 `POST /{p}/{job_id}/complete` 回传质量报告；异常走 `fail`。后续接口前缀均为 `/api/internal/action-previs`。产物上传须带 `X-Action-Lease`，其他任务操作 body 须带 `lease_token`。旧租约无法覆盖新任务，取消后回传被拒绝。工作台不会把 LLM 生成的代码发送给 Blender。
+
+动作方案 `version=1`、`fps=24`，包含 `frame_count`、`actors[A,B]`、连续无重叠的 `beats[{start,end,description,actions,contact}]` 和 `shots[{start,end,size,angle,move,subject,lens_mm}]`；帧 `end` 为开区间。完整枚举和约束以 `action_previs_schema.py` 为准。
+
+## 账号与资源交付约定
+
 首次访问先读取 `GET /api/auth/status`。当 `setup_required=true` 时，只能从工作站本机提交：
 
 ```json

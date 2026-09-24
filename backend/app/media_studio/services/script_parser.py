@@ -320,6 +320,38 @@ class StandardScriptParser:
         }]
 
     @classmethod
+    def workshop_shots(cls, text: str) -> list[dict[str, Any]]:
+        """Read explicit shot/scene blocks; prose and headings are never shots."""
+        shots = cls._extract_shots_from_episode(text)
+        if shots:
+            return shots
+        blocks = list(re.finditer(r"^#{2,4}\s*场景\s*\d+[｜|：:\s-]*([^\n]*)", text, re.M))
+        for i, match in enumerate(blocks):
+            end = blocks[i + 1].start() if i + 1 < len(blocks) else len(text)
+            content = text[match.end():end].strip()
+            # A named scene without action/dialogue is metadata, not a shot.
+            if not re.search(r"(?m)^\s*(?:[-*]\s+)?(?:\*\*)?(动作|画面|台词|对白)[：:]", content):
+                continue
+            shot = cls._parse_single_shot(i + 1, match.group(1).strip(), content)
+            shot["scene_boundary"] = True
+            # A scene title may describe an event, so do not guess a location.
+            speaker = re.match(r"^([^：:\n“\"]{1,30})[：:]", shot["dialogue"].strip())
+            shot["speaker"] = speaker.group(1).strip() if speaker else ""
+            if shot["dialogue"].strip("。；; ") in {"无", "无对白", "无台词"}:
+                shot["dialogue"] = ""
+            shots.append(shot)
+        return shots
+
+    @staticmethod
+    def is_line_fallback(text: str, beats: list[dict[str, Any]]) -> bool:
+        """Recognize only the exact old fallback, never edited production shots."""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return bool(lines and beats and len(lines) == len(beats)
+                    and all(beat.get("action") == line and not beat.get("dialogue")
+                            and not beat.get("scene")
+                            for beat, line in zip(beats, lines)))
+
+    @classmethod
     def _extract_shots_from_episode(cls, episode_block: str) -> list[dict[str, Any]]:
         shots: list[dict[str, Any]] = []
         episode_block = re.split(r"\n#{1,3}\s*[四五]、", episode_block, maxsplit=1)[0]

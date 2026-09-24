@@ -1,5 +1,34 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-09-24 远端 Blender 令牌透传修复
+
+- 原因：动作预演提交前需要工作台后端与远端 worker 共享 `ZLY_ACTION_PREVIS_WORKER_TOKEN`；Docker Compose 原先没有把宿主机 `.env` 中的值传入工作台容器，导致已配置服务器仍被判定为未配置。
+- 当前基线：`compose.yaml` 以可选环境变量透传该令牌；未部署 worker 时仍可启动、审稿和保存方案，提交渲染会给出包含变量名的明确错误。令牌不写入仓库或数据库。
+- 受影响文件：`compose.yaml`、`.env.example`、`backend/app/media_studio/{routers/action_previs_router.py,services/action_previs_service.py}`、`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：不改 API、数据库、端口、Blender MCP 或任务状态；已有 Docker `.env` 无该变量时行为保持为可审稿但不能渲染。验证：`docker compose --env-file .env.example config`、`python -m unittest backend.tests.test_action_previs -v`。回滚：恢复上述配置与提示文本即可。
+
+## 2026-09-23 动作与镜头编排（新增）
+
+- 原因：旧白膜用拼接人形与单一正面机位，动作僵硬；需要将动作节拍、接触和镜头编排作为可审稿的独立流程。
+- 前端在剧集工坊单镜头增加「动作与镜头编排」Tab。用户提供文字、最多四张图和一段 0.5–15 秒参考视频；图片/抽帧由当前视觉模型分析，当前 LLM 生成 24 fps、2–15 秒、1–2 人的结构化动作节拍和连续镜头表。`action_previs_schema.py` 严格校验角色、动作枚举、接触骨骼、时间覆盖与焦距；不接受模型 Python。
+- 后端 `ActionPrevisService` 复用 `ai_project_jobs`，状态为 `queued → planning → awaiting_review → queued_remote → remote_running → completed|needs_revision|failed`。`plan_revision` 和旧 payload 比较防止并发覆盖；用户确认当前版本后才能渲染。任务保留镜头快照、方案、素材 URL、质量报告和产物 URL。启动恢复中断的分析；远端租约 120 秒，续租 30 秒，可取消和重试。
+- `scripts/action_previs_worker/` 部署在当前 ComfyUI 所在的远端 Windows 电脑上。MakeHuman FBX、Blender 及插件、MCP 客户端、IK 与渲染全部在该远端电脑运行；`BLENDER_HOST=127.0.0.1` 指远端电脑自己的回环地址，端口 9876 不向局域网开放。静态配方导入外部 MakeHuman CC0 蒙皮 FBX、复制双骨骼角色、制作动作与多机位切换，输出 MP4、联系表、报告和 `.blend`，再经任务 API 回传到七牛云；质量检查不通过返回 `needs_revision`。工作台后端只负责方案与任务，Docker 运行层的 ffmpeg 仅用于上传参考视频抽帧。远端资产路径由执行器环境变量指定，模型不进入仓库。
+- 兼容性：不改 ComfyUI 地址、H3 节点、自动出片、已有项目表结构或旧任务；新类型仅使用既有 `ai_project_jobs`。部署须配置 `ZLY_ACTION_PREVIS_WORKER_TOKEN` 并在远端运行执行器；未配置时仍可审稿，但提交渲染会明确拒绝，避免任务无期限排队。
+- 受影响文件：`backend/app/main.py`、`backend/app/media_studio/{routers/action_previs_router.py,services/action_previs_{schema,service}.py}`、`scripts/action_previs_worker/`、`frontend/src/director2/{api.ts,director2-job-types.ts,panes/ActionPrevisPane.tsx,panes/EpisodeWorkshopPane.tsx,panes/JobsCenterPane.tsx}`、`Dockerfile`、测试与主文档。
+- 验证：`python -m unittest backend.tests.test_action_previs -v`（12 项通过）、`pnpm --dir frontend build`（296 项测试与构建通过）、5173 桌面浅色/暗色截图；远端 Blender 5.2.1/MCP 9876/MPFB CC0 人形的 `--preflight` 为 `ready: true`，`--smoke` 生成 72 帧双人三机位 MP4、联系表、报告和 `.blend`，报告 `passed: true`。该报告覆盖程序诊断，动作观感仍需审片；真实 Web 任务领取及七牛回传尚未实机验收。回滚：停远端执行器，撤销本增量模块/注册/前端入口/Dockerfile 和文档；历史 `action_previs` 任务及七牛媒体可保留，不清理已有项目数据。
+
+## 2026-09-23 当前增量：制作方案独立 Tab
+
+整集扩写从单镜检视器移到 `?tab=plan`「制作方案」，镜头页只读呈现关联段及视频并提供跳转。整集面板不再受选中镜头过滤，底层仍共用原方案。旧逐镜扩写和其他 tab key 兼容，无 API 或数据库变更。原因、受影响文件、296 项前端/60 项后端验证命令与增量回滚见 [实施记录](导演台制作方案独立Tab-2026-09-23.md)。本节覆盖下文第一版整集扩写嵌入镜头的入口描述。
+
+## 2026-09-23 Director 镜头中心第一版
+
+- 原因：逐行初始化把标题/人物/对白拆为镜头；Director 方案替代镜头界面后，源镜头难以编辑，扩写漏公共设定导致失败。
+- 当前界面恢复「剧本 / 镜头 / 声音 / 合成」，Director 扩写嵌入镜头检视器，结果以 `source_beat_ids` 关联；整集扩写后可按关联段生成。
+- `script_parser.workshop_shots` 只解析明确镜头/场景块；`POST …/episodes/{id}/restore-script-shots` 校验原文与镜头 ID，锁行并保存 `data.shot_structure_backups` 后恢复精确匹配的旧逐行结构。详情返回 `data.shot_structure`。未知地点不跨场景继承。
+- 选中参考图生成稳定公共主体定义；扩写资产上下文裁剪；失败任务保留流式输出。保留原 schema、历史媒体、工作流节点与端口，无数据库表迁移。
+- 受影响文件、兼容性、验证命令与按增量回滚方式见 [第一版实施记录](导演台镜头中心修复记录-2026-09-23.md)。289 项后端、295 项前端测试与构建通过；真实模型和远端出片尚未端到端验收，单段场景的自动工作流路由尚未实现。
+
 ## 2026-09-23 Hypit 编译可靠性与换脸边界
 
 `hypit_replication` 仍为结构改编，并非原片逐帧换脸。需求保存按版本串行执行，操作前先等待保存；`notes/WORKBENCH_BRIEF.md` 是自动同步的 Agent 交接文件，不覆盖手写分析。编译使用唯一成片 Run、显式 XML target、本次 Build ID 和独立临时导出，成功后才替换旧片；结果 URL 带 Build ID。H3 runtime overlay 的地址统一来自 `ComfyProviderService.current_url()`，不再独立使用历史 LAN 默认值。无数据库迁移，旧 payload 兼容；多 Run 歧义现在显式报错。原片换脸仍因远端缺少换脸节点/可用 Manager 入口而未接通。原因、受影响文件、验证命令、兼容性和增量回滚方式见 [排查记录](Hypit复刻排查与换脸接入.md)。
@@ -2838,3 +2867,20 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 受影响文件：`backend/app/media_studio/services/{prompt_templates,prompt_expansion_service,episode_video_service}.py`、`frontend/src/director2/api.ts`、`backend/tests/media_studio_test_prompt_expansion.py` 与四份主文档。
 - 验证命令：`python -m unittest backend.tests.media_studio_test_prompt_expansion -q`；`python -m unittest backend.tests.test_director backend.tests.test_director2_ai_generation -q`；`pnpm --dir frontend build`；5173 工坊页检查旧方案过期提示、新方案段落和桌面/移动端布局。
 - 回滚方式：还原上述前后端、测试和文档文件；无需数据库迁移。旧 `prompt_authoring.director_plan` 可保留，回滚版本可继续读取原结构。
+
+## 2026-09-23 Blender → H3 运镜参考独立试验
+
+- 原因：现有 `build_minimax_h3_workflow()` 只将图片传给 `MiniMaxH3ReferenceToVideo`，无法验证 Blender 运镜预演作为视频参考的作用。
+- 当前基线：`scripts/blender_h3_pilot/` 通过 `mcp-for-blender` 2.0.3 制作灰模镜头；试验入口读取 `comfy_row()` 的实际远端地址，预检 H3 R2V、`LoadVideo` 和 `GetVideoComponents`，在试验 graph 中增加 `ref_videos.ref_video_0`。A/B 两组共用模型、首帧、种子和生成参数，结果仅写入 `test-results/blender-h3/`。
+- 受影响文件：试验脚本、`backend/tests/blender_h3_pilot_test.py`、本文件、`README.md`、`功能说明与扩展指南.md`。兼容性：正式 API、数据库、导演台状态模型、ComfyUI 节点 ID 与模型路径均不变；不安装第二套 ComfyUI。
+- 验证：`python -m unittest backend.tests.blender_h3_pilot_test -q`、`pnpm --dir frontend build`，以及试验 README 中的 Blender/MCP 连接、远端能力预检和 A/B 出片命令。
+- 回滚：移除试验目录和文档增量，恢复备份的 Codex MCP 配置；卸载新 Blender 或切回旧版均不影响正式任务。保留试验产物可用于复核。
+
+### 2026-09-23 写实人物/场景 A/B 复测
+
+- 原因：首轮灰模首帧也被作为外观参考，无法判断“灰模只控制运镜”是否能与写实人物、场景素材组合。
+- 当前基线：新增 `scripts/blender_h3_pilot/real_trial.py`，从已有项目资产库取人物和场景图；A/B 共用两张有序图片、H3 R2V 模型、种子与参数，B 独有 `LoadVideo → GetVideoComponents → ref_videos.ref_video_0`。允许本地指定由原场景图处理的无人场景图，并同时保留原图。灰模首帧不进入两组 graph。`test-results/blender-h3-real/` 独立保存素材、graph、视频、耗时和报告。
+- 受影响文件：`scripts/blender_h3_pilot/real_trial.py`、`scripts/blender_h3_pilot/README.md`、`backend/tests/blender_h3_pilot_test.py`、本架构文档、`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：无新 API、数据库字段、远端节点或正式 H3 节点 ID 变更；现有中性试验和导演台保持可用。
+- 验证：`python -m unittest backend.tests.blender_h3_pilot_test -q`、`pnpm --dir frontend build`；按试验 README 预检与生成 A/B，检查 graph 两张图片顺序、B 的视频连接、远端地址及逐帧结果。
+- 回滚：移除 `real_trial.py`、对应测试和文档增量；忽略目录中的结果可保留用于复核。

@@ -23,12 +23,33 @@ def normalize_common_setting(value: dict) -> dict:
     return {"subject_definitions": subject}
 
 
+def reference_common_setting(source: dict, request: dict) -> dict | None:
+    """Compile selected identities from actual reference slots, not model repetition."""
+    assets = {a["id"]: a for a in source.get("assets", [])}
+    rows = []
+    for slot in request.get("reference_slots") or []:
+        asset = assets.get(slot.get("asset_id"), {})
+        name = str(slot.get("name") or asset.get("name") or "").strip()
+        token = str(slot.get("token") or "").strip()
+        if name and token:
+            rows.append(f"{token} {name}：以该参考图锁定对应主体的外观，不复制设定板分格。")
+    return {"subject_definitions": "\n".join(rows)} if rows else None
+
+
 def design_prompts(source: dict, facts: dict, request: dict, definition: Any) -> tuple[str, str]:
+    source = dict(source)
+    selected_ids = {s.get("asset_id") for s in request.get("reference_slots") or []}
+    selected_ids.update(b.get("scene_id") for b in source.get("beats", []))
+    for beat in source.get("beats", []):
+        selected_ids.update(beat.get("character_ids") or [])
+        selected_ids.update(beat.get("prop_ids") or [])
+    source["assets"] = [{k: a.get(k) for k in ("id", "kind", "name", "description", "visual_prompt")}
+                        for a in source.get("assets", []) if a.get("id") in selected_ids]
     return (
         "你是影视导演。阅读本集完整剧本、戏剧目标、资产设定与前后文，先组织镜头再考虑容量，不按秒数均分剧情。"
         "只返回 JSON：{dramatic_intent,visual_strategy,common_setting:{subject_definitions},units:[],quality_notes:[]}。"
         "common_setting 是全剧组共用的人物造型、场景光线与视觉规则；只使用已有参考图 token。"
-        "subject_definitions 应为一段完整文字，不是对象。"
+        "subject_definitions 应为一段完整文字，不是对象。若提供 locked_common_setting 则由程序保留，禁止改写。"
         "每个 unit 是不可再分的完整动作/对白轮次或情绪转折，不为凑目标段数重复事件或空镜。"
         "unit 字段：source_beat_id,event_ids,dialogue_ids,duration_seconds,start_state,handoff_state,"
         "shot_size,camera,movement,performance,dialogue_timing,purpose,scene_key,transition_type。"
@@ -42,13 +63,14 @@ def design_prompts(source: dict, facts: dict, request: dict, definition: Any) ->
         "每镜说明为什么这样拍，选一个主要运镜，表演与机位必须可同时执行。"
         "不要缩短正常语速、发明剧情或强加动作来适配容量；无法拍完写 quality_notes 的具体风险。",
         json.dumps({"source": source, "facts": facts, "reference_slots": request.get("reference_slots"),
+                    "locked_common_setting": request.get("locked_common_setting"),
                     "language": request.get("language"), "aspect_ratio": request.get("aspect_ratio"),
                     "preferred_segment_count": request.get("target_segment_count"),
                     "max_segments_per_part": definition.max_segments, "max_frames_per_part": definition.max_total_frames}, ensure_ascii=False),
     )
 
 
-def pack_design(design: dict, beats: list[dict], facts: dict, definition: Any, fps: int) -> list[dict]:
+def pack_design(design: dict, beats: list[dict], facts: dict, definition: Any, fps: int, *, mixed: bool = False) -> list[dict]:
     from ...dialogue_timing import resolve_shot_duration_sec, estimate_dialogue_duration_sec
     units = design.get("units")
     if not isinstance(units, list) or not units or not design.get("dramatic_intent") or not design.get("visual_strategy"):
@@ -129,7 +151,7 @@ def pack_design(design: dict, beats: list[dict], facts: dict, definition: Any, f
             previous = chunks[i - 1]
             if previous[-1]["frames"] + chunk[0]["frames"] <= max_frames:
                 chunk.insert(0, previous.pop())
-        if len(chunk) < 2:
+        if len(chunk) < 2 and not mixed:
             raise PromptTemplateError(f"场景「{chunk[0]['scene_key']}」不足以组成至少两段的 Director Part；请调整动作边界或选择逐镜生成")
     parts = []
     for p, chunk in enumerate(chunks, 1):

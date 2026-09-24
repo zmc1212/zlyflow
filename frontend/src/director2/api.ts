@@ -467,6 +467,44 @@ export type Director2EpisodeDetail = {
   prompt_authoring?: PromptAuthoringState
 }
 
+export type ActionPrevisPlan = {
+  version: 1
+  fps: number
+  frame_count: number
+  actors: Array<{ id: "A" | "B"; label: string; start: number[]; facing_deg: number }>
+  beats: Array<{ id: string; start: number; end: number; description: string; actions: Array<{ actor: "A" | "B"; type: string }>;
+    contact: null | { frame: number; actor: "A" | "B"; target_actor: "A" | "B"; bone: string; target_bone: string } }>
+  shots: Array<{ id: string; start: number; end: number; size: string; angle: string; move: string; subject: string; lens_mm: number }>
+}
+
+export function createActionPrevis(csrfToken: string, projectId: string, episodeId: string, beatId: string,
+  description: string, images: File[], video?: File | null): Promise<{ job_id: string; status: string }> {
+  const form = new FormData()
+  form.set("description", description)
+  images.forEach(file => form.append("images", file))
+  if (video) form.set("video", video)
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/beats/${encodeURIComponent(beatId)}/action-previs`,
+    { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } })
+}
+
+export function latestActionPrevis(projectId: string, episodeId: string, beatId: string): Promise<Director2Job | null> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/beats/${encodeURIComponent(beatId)}/action-previs/latest`)
+}
+
+export function getActionPrevis(projectId: string, jobId: string): Promise<Director2Job> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/action-previs/${encodeURIComponent(jobId)}`)
+}
+
+export function reviseActionPrevis(csrfToken: string, projectId: string, jobId: string, plan: ActionPrevisPlan, expectedRevision: number): Promise<Director2Job> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/action-previs/${encodeURIComponent(jobId)}/plan`,
+    jsonMutation(csrfToken, { plan, expected_revision: expectedRevision }, "PUT"))
+}
+
+export function actionPrevisCommand(csrfToken: string, projectId: string, jobId: string, command: "render" | "cancel" | "retry", expectedRevision?: number): Promise<Director2Job> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/action-previs/${encodeURIComponent(jobId)}/${command}`,
+    jsonMutation(csrfToken, command === "render" ? { expected_revision: expectedRevision } : {}, "POST"))
+}
+
 export type PromptReferenceSlot = {
   index: number
   token: string
@@ -659,6 +697,11 @@ export function getEpisodeDetail(projectId: string, epId: string): Promise<Direc
   return requestJson<Director2EpisodeDetail>(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}`,
   )
+}
+
+export function restoreScriptShots(csrfToken: string, projectId: string, ep: Director2EpisodeDetail): Promise<Director2EpisodeDetail> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(ep.id)}/restore-script-shots`,
+    jsonMutation(csrfToken, { script_text: ep.script_text, beat_ids: ep.beats.map(b => b.id) }, "POST"))
 }
 
 export function updateEpisodeBeat(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown>): Promise<{ status: string; beat: Director2Beat }> {

@@ -105,3 +105,6 @@ submit_*.py
 backend/tests/test_*.py
 !backend/tests/test_director2_ai_generation.py
 !backend/tests/test_timeline_rendering.py
+!backend/tests/test_workshop_shot_structure.py
+!backend/tests/test_action_previs.py
+scripts/action_previs_worker/vendor/

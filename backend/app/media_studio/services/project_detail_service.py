@@ -536,11 +536,15 @@ class ProjectDetailService:
             s_camera = shot.get("camera") or "中景"
             s_action = shot.get("action") or ""
             s_dialogue = shot.get("dialogue") or ""
+            if shot.get("speaker"):
+                s_dialogue = re.sub(r"^" + re.escape(shot["speaker"]) + r"\s*[：:]\s*", "", s_dialogue)
             s_prompt = shot.get("visual_prompt") or ""
             s_audio = shot.get("audio") or ""
             s_chars = shot.get("characters") or []
             s_props = shot.get("props") or []
             matched_char_ids = match_named_asset_ids(s_chars, char_map)
+            if shot.get("scene_boundary"):
+                inherited_scene_name, inherited_scene_id = "", None
             explicit_scene = bool(str(s_scene or "").strip())
             s_scene, matched_scene_id = resolve_shot_scene(
                 s_scene, scene_map, inherited_scene_name, inherited_scene_id
@@ -555,7 +559,7 @@ class ProjectDetailService:
                 "sequence": s_num,
                 "kind": "dialogue" if s_dialogue else "action",
                 "heading": heading,
-                "speaker": s_chars[0] if s_chars else "",
+                "speaker": shot.get("speaker", s_chars[0] if s_chars else ""),
                 "dialogue": s_dialogue,
                 "action": s_action,
                 "camera": s_camera,
@@ -1772,6 +1776,35 @@ class ProjectDetailService:
         return True
 
     @classmethod
+    def restore_script_shots(cls, project_id: str, episode_id: str, request: dict) -> dict[str, Any]:
+        """Explicit, reversible repair of the exact legacy line-based fallback."""
+        with transaction_cursor() as cursor:
+            cursor.execute("SELECT * FROM ai_project_episodes WHERE id=%s AND project_id=%s FOR UPDATE", (episode_id, project_id))
+            ep = cursor.fetchone()
+            if not ep:
+                raise ValueError("分集不存在")
+            data = json.loads(ep.get("data_json") or "{}")
+            beats = data.get("beats") or []
+            text = ep.get("script_text") or ""
+            if request.get("script_text") != text or request.get("beat_ids") != [b["id"] for b in beats]:
+                raise ValueError("剧本或镜头已变化，请刷新后再恢复")
+            if not StandardScriptParser.is_line_fallback(text, beats):
+                raise ValueError("当前镜头不是旧版逐行初始化结果，不会覆盖手工修改")
+            shots = StandardScriptParser.workshop_shots(text)
+            if not shots:
+                raise ValueError("未识别到镜头或场景结构，请在内容库规划镜头后同步")
+            cursor.execute("SELECT id,kind,name,image_url,extra_json FROM ai_project_assets WHERE project_id=%s", (project_id,))
+            assets = cursor.fetchall()
+            restored = cls._beats_from_document_shots(episode_id, shots,
+                asset_name_id_map(assets, "character"), asset_name_id_map(assets, "scene"), asset_name_id_map(assets, "prop"))
+            data.setdefault("shot_structure_backups", []).append({"created_at": now_str(), "beats": beats,
+                "prompt_authoring": data.get("prompt_authoring"), "production": data.get("production")})
+            data["beats"] = restored
+            cursor.execute("UPDATE ai_project_episodes SET data_json=%s,shots_count=%s WHERE id=%s AND project_id=%s",
+                (json.dumps(data, ensure_ascii=False), len(restored), episode_id, project_id))
+        return cls.get_episode_detail(project_id, episode_id)
+
+    @classmethod
     def get_episode_detail(cls, project_id: str, episode_id: str) -> dict[str, Any]:
         """获取分集详细数据（含结构化分镜 beats、关联资产 links 等，对齐 source1 XiajiEpisode）"""
         ep_row = query_one("SELECT * FROM ai_project_episodes WHERE id = %s AND project_id = %s", (episode_id, project_id))
@@ -1809,16 +1842,9 @@ class ProjectDetailService:
             target_ep = next((e for e in episodes_list if e.get("episode_num") == ep["episode_num"]), None)
 
             shots = (target_ep.get("shots") if target_ep else []) or []
-            # 如果依然没有，从 script_text 简单解析行
+            # Structured scene blocks may seed shots; arbitrary text lines may not.
             if not shots and ep.get("script_text"):
-                lines = [l.strip() for l in ep["script_text"].split("\n") if l.strip()]
-                for idx, line in enumerate(lines):
-                    shots.append({
-                        "shot_num": idx + 1,
-                        "title": f"分镜 {idx + 1}",
-                        "action": line,
-                        "visual_prompt": f"{ep['title']}，分镜{idx + 1}，{line}，电影级画面，8k",
-                    })
+                shots = StandardScriptParser.workshop_shots(ep["script_text"])
 
             beats = cls._beats_from_document_shots(episode_id, shots, char_map, scene_map, prop_map)
             data["beats"] = beats
@@ -1850,6 +1876,10 @@ class ProjectDetailService:
         )
         data = dict(data)
         data["prompt_authoring"] = prompt_authoring
+        data["shot_structure"] = {
+            "legacy_lines": StandardScriptParser.is_line_fallback(ep.get("script_text") or "", beats),
+            "can_restore": bool(StandardScriptParser.workshop_shots(ep.get("script_text") or "")),
+        }
         full_reference = (
             prompt_authoring.get("full_reference")
             if isinstance(prompt_authoring.get("full_reference"), dict)

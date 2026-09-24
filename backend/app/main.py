@@ -122,6 +122,7 @@ from .models import (
 
 from .media_studio.db import ensure_schema
 from .media_studio.routers.project_router import register_project_routes
+from .media_studio.routers.action_previs_router import register_action_previs_routes
 from .media_studio.services.ai_generation_service import AiGenerationService
 from .media_studio.services.episode_video_service import EpisodeVideoService
 from .media_studio.services.h3_prompt_job_service import H3PromptJobService
@@ -130,6 +131,7 @@ from .media_studio.services.shot_plan_job_service import ShotPlanJobService
 from .media_studio.services.script_development_service import ScriptDevelopmentService
 from .media_studio.services.storyboard_image_service import StoryboardImageService
 from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
+from .media_studio.services.action_previs_service import ActionPrevisService
 from .qiniu_provider import QiniuProviderService
 from .request_log import RequestLogMiddleware, write_request_log
 
@@ -759,6 +761,7 @@ async def lifespan(app: FastAPI):
     H3PromptJobService.recover_interrupted_jobs()
     PromptExpansionService.recover_interrupted_jobs()
     ShotPlanJobService.recover_interrupted_jobs()
+    ActionPrevisService.recover()
     ScriptDevelopmentService.recover_interrupted_jobs()
     TtsGenerationJobService.recover_interrupted_jobs()
     AiGenerationService.recover_orphaned_jobs()
@@ -800,6 +803,7 @@ app = FastAPI(
 )
 
 register_project_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_action_previs_routes(app, current_user=current_user, mutating_user=mutating_user)
 app.add_middleware(RequestLogMiddleware)
 
 

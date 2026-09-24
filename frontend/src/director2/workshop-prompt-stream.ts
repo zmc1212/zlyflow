@@ -266,7 +266,7 @@ export async function streamH3PromptJobEvents(
     } catch (error) {
       if (signal.aborted) return "aborted"
       if (options.shouldContinue && !options.shouldContinue()) return "aborted"
-      if (error instanceof TypeError && attempt === 0) return "failed"
+      // Network failures are recoverable, including fetch's TypeError.
     }
     if (attempt < RETRY_DELAYS_MS.length) {
       await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]))

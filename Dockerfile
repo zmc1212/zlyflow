@@ -34,7 +34,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY backend/requirements.txt /tmp/requirements.txt
-RUN python -m pip install --no-cache-dir --upgrade pip \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir --prefer-binary -r /tmp/requirements.txt \
     && addgroup --system zlyai \
     && adduser --system --ingroup zlyai --home /app zlyai \

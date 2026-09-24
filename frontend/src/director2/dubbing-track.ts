@@ -128,7 +128,7 @@ export function mixDirectorHint(kind: string | null | undefined, mix: string | n
     : "开口句默认保留 H3 口型声，不会叠这句 TTS。"
 }
 
-export const WORKSHOP_TAB_KEYS = ["shots", "script", "dubbing", "compose"] as const
+export const WORKSHOP_TAB_KEYS = ["shots", "script", "plan", "dubbing", "compose"] as const
 export type WorkshopTabKey = (typeof WORKSHOP_TAB_KEYS)[number]
 
 export function parseWorkshopTab(value: string | null | undefined): WorkshopTabKey | "" {

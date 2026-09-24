@@ -2084,3 +2084,23 @@ Docker 部署后健康检查失败，日志为 `Table 'ai-media.ai_project_jobs'
 - 受影响文件：`backend/app/{llm_client.py,media_studio/routers/project_router.py}`、`backend/app/media_studio/services/{prompt_templates,prompt_expansion_service,episode_video_service}.py`、`frontend/src/director2/{api.ts,director2-job-types.ts,workshop-prompt-stream.ts,panes/PromptAuthoringPanel.tsx,panes/JobsCenterPane.tsx}`、相关测试与四份主文档。
 - 验证命令：`python -m unittest backend.tests.media_studio_test_prompt_expansion -q`、`python -m unittest backend.tests.test_director backend.tests.test_director2_ai_generation -q`、`pnpm --dir frontend build`，并在 5173 工坊检查新旧方案状态。
 - 回滚方式：还原上述前后端、测试和文档文件；无需数据库迁移，历史 `director_plan` 可保留。
+
+## 2026-09-23 Blender 运镜预演 H3 独立试验
+
+新增 [独立试验入口](scripts/blender_h3_pilot/README.md)：用 Blender 5.2.2 与 `mcp-for-blender` 2.0.3 制作 5 秒灰模运镜，以当前管理设置中的远端 ComfyUI 对比“首帧参考”和“首帧＋运镜视频参考”。试验素材、graph 和报告保存在被忽略的 `test-results/blender-h3/`。正式导演台和 H3 出片路径不变。原因、受影响文件、兼容性、验证命令及回滚方法见 [架构快照](docs/ARCHITECTURE.md)。
+
+同目录新增写实资产复测：A/B 共用项目人物图和场景图，B 额外把 Blender 灰模视频作为运镜参考；灰模首帧不参与外观输入。可选用 `--scene-image` 指定已清理的写实场景图。命令见试验入口 README，结果位于 `test-results/blender-h3-real/`。
+
+## 2026-09-23：导演台镜头中心第一版
+
+恢复「剧本 / 镜头 / 声音 / 合成」，在镜头检视器的「提示词与视频」使用 Director 提示词大师。停止逐行创建镜头，旧逐行数据提供带备份的恢复入口；参考图公共主体定义由程序保留，失败输出可追溯。整集扩写后按来源镜头查看及局部生成。
+
+原因、受影响文件、接口与状态兼容性、289 项后端/295 项前端测试和构建命令、回滚方法见 [实施记录](docs/导演台镜头中心修复记录-2026-09-23.md)。无端口或 ComfyUI 配置变更；真实模型预览及远端出片尚未端到端验收。
+
+## 2026-09-23：整集制作方案独立入口
+
+为避免单镜与整集操作范围混淆，新增「制作方案」Tab（`?tab=plan`），集中整集扩写、预览、公共设定和本集生成。镜头内仅查看关联提示词与视频并跳转方案；多镜共享段标明影响范围。复用现有数据与 API，旧逐镜功能兼容。受影响文件、296 项前端/60 项后端验证命令及增量回滚方法见 [实施记录](docs/导演台制作方案独立Tab-2026-09-23.md)。
+
+## 2026-09-23：动作与镜头编排
+
+剧集工坊单镜头增加「动作与镜头编排」：输入文字、可选参考图片/短视频，由已配置的 LLM/VLM 生成动作节拍与镜头表；修改并确认版本后，**远端 Windows 电脑**上的执行器连接**同一台远端电脑**的 `127.0.0.1:9876` Blender MCP，在那里导入 MakeHuman FBX、制作骨骼动作与接触 IK、渲染 24 fps 白膜，再回传 MP4、联系表、质量报告与可编辑 `.blend`。工作台电脑不运行 Blender。首版支持 1–2 人、2–15 秒，不自动提交 H3。部署需在工作台后端设置 `ZLY_ACTION_PREVIS_WORKER_TOKEN`；Docker 部署还需在 `.env` 设置该值，Compose 会将其透传给工作台容器。远端配置同一令牌、工作台 URL 和 MakeHuman FBX，按 [执行器部署与预检](scripts/action_previs_worker/README.md) 运行。2026-09-23 已在远端 Blender 5.2.1、MCP 9876 和 MPFB CC0 蒙皮人物上通过 `--preflight` 及双人三机位 `--smoke`：72 帧、MP4、联系表、报告和 `.blend` 均已生成。该烟测仅验证技术链路和程序诊断；动作表演仍需人工审片，Web 端真实任务领取与产物回传尚未实机验收。API 见 [接口文档](docs/API.md)。

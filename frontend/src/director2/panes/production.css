@@ -1,4 +1,6 @@
 .production-stack { width: 100%; }
+.production-picture.production-picture-in-shot { grid-template-columns: minmax(0, 1fr); }
+.production-picture-in-shot .production-units { position: static; max-height: none; }
 .production-picture { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 20px; align-items: start; }
 .production-units { background: var(--studio-surface); border: 1px solid var(--studio-border); border-radius: 12px; padding: 16px; position: sticky; top: 12px; max-height: 75vh; overflow: auto; }
 .production-units section + section { margin-top: 20px; }

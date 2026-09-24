@@ -61,6 +61,7 @@ import {
   updateEpisode,
   deleteEpisode,
   getEpisodeDetail,
+  restoreScriptShots,
   updateEpisodeBeat,
   generateBeatSketch,
   generateBeatRender,
@@ -93,7 +94,8 @@ import {
   type WorkshopPromptLiveState,
 } from "../workshop-prompt-stream"
 import Director2VideoSettingsPopover from "./Director2VideoSettingsPopover"
-import PromptAuthoringPanel from "./PromptAuthoringPanel"
+import PromptAuthoringPanel, { ShotPromptSummary } from "./PromptAuthoringPanel"
+import ActionPrevisPane from "./ActionPrevisPane"
 import { ProductionPicture, ProductionSound, ProductionFilm } from "./ProductionPanes"
 import { useEpisodeProduction } from "../use-episode-production"
 import SourceBeatEditor from "./SourceBeatEditor"
@@ -170,7 +172,7 @@ export type EpisodeWorkshopPaneHandle = {
   fetchEpisodes: () => Promise<void> | void
 }
 
-type InspectorTab = "film" | "text" | "sketch" | "material"
+type InspectorTab = "film" | "text" | "sketch" | "material" | "authoring" | "action"
 
 type H3RefImage = {
   id: string
@@ -628,8 +630,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const productionMode = selectedVideoWorkflow?.prompt_profile === "director_segments" ? "director" : "shot"
     const directorQualityBlocked = productionMode === "director" && Boolean(currentEpisode?.prompt_authoring?.director_plan && directorPlanNeedsReview(currentEpisode.prompt_authoring.director_plan))
     const production = useEpisodeProduction(projectId, currentEpisode, productionMode)
-    const selectedProductionUnit = production.state?.units.find(u => u.id === searchParams.get("unit"))?.id
-      || (productionMode === "shot" ? selectedBeat?.id : production.state?.units[0]?.id) || ""
+    const selectedProductionUnit = production.state?.units.find(u => u.id === searchParams.get("unit") && u.source_beat_ids.includes(selectedBeat?.id || ""))?.id
+      || production.state?.units.find(u => u.source_beat_ids.includes(selectedBeat?.id || ""))?.id || ""
+    const planProductionUnit = production.state?.units.find(u => u.id === searchParams.get("unit"))?.id || production.state?.units[0]?.id || ""
     function navigateProduction(tab: WorkshopTabKey, unit?: string, source?: string) {
       setCurrentTab(tab)
       setSearchParams(prev => {
@@ -1961,7 +1964,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 </div>
                 <p className="episode-meta-line">
                   {currentEpisode.line_count || (currentEpisode.beats?.length || 0) * 4} 行原文 ·{" "}
-                  {currentEpisode.beats?.length || 0} 个 Beat 分镜 · 共 {episodeDurationSec} 秒 ·{" "}
+                  {currentEpisode.beats?.length || 0} 个镜头 · 共 {episodeDurationSec} 秒 ·{" "}
                   {currentEpisode.character_count || 0} 个身份 ·{" "}
                   {currentEpisode.scene_count || 0} 个场景 ·{" "}
                   {currentEpisode.prop_count || 0} 个道具
@@ -1996,7 +1999,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
               <Button onClick={() => navigateProduction("compose")}>查看成片</Button>
             </Space>}
 
-            {/* 四个工作区共享制作版本；URL 继续兼容旧 tab 键。 */}
+            {/* 五个工作区共享制作版本；URL 继续兼容旧 tab 键。 */}
             <Tabs
               activeKey={currentTab}
               onChange={(key) => {
@@ -2013,32 +2016,19 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 /* ==================== Tab 1: 🎬 镜头工作台 (XiajiShotsWorkbench) ==================== */
                 {
                   key: "shots",
-                  label: "画面",
+                  label: "镜头",
                   children: (
                     <>
-                      <Space className="production-actions"><Button disabled={Boolean(production.state?.plan_stale) || directorQualityBlocked} loading={generatingEpisodeVideo || episodeVideoJobActive} icon={<Video size={14} />} onClick={() => handleGenerateEpisodeVideo()}>
-                  {selectedVideoWorkflow?.prompt_profile === "director_segments" ? "生成本集连续画面" : "生成本集逐镜画面"}
-                </Button></Space>
-                      {production.state ? <ProductionPicture state={production.state} csrfToken={csrfToken} projectId={projectId}
-                        episodeId={currentEpisode.id} onRefresh={production.refresh} unitId={selectedProductionUnit}
-                        onUnit={id => navigateProduction("shots", id)} onSource={id => navigateProduction("script", undefined, id)}
-                        editor={<PromptAuthoringPanel
-              csrfToken={csrfToken}
-              projectId={projectId}
-              episode={currentEpisode}
-              selectedBeat={selectedBeat}
-              assets={projectAssets}
-              workflow={selectedVideoWorkflow}
-              workflowId={videoWorkflow}
-              videoOptions={videoOptions}
-              onRefresh={() => loadEpisodeDetail(currentEpisode.id)}
-              onVideoJob={rememberVideoJobIds}
-              selectedUnitId={selectedProductionUnit}
-              jobs={workshopJobs}
-              shotWorkflows={videoWorkflows.filter(mode => episodeVideoRenderMode(mode) === "shot")}
-              onChooseShotWorkflow={id => void handleVideoWorkflowChange(id)}
-            />} /> : <Spin />}
-                      {productionMode === "shot" && <Collapse items={[{ key: "source-tools", label: "来源分镜与参考资产编辑", children: (
+                      {currentEpisode.data?.shot_structure?.legacy_lines && <Alert type="warning" showIcon
+                        message="旧版把剧本文本行当作了镜头，标题与对白需要按场景重新归组。"
+                        description="恢复会保留旧镜头和制作数据备份；镜头重新归组后，需要重新优化提示词。"
+                        action={<Popconfirm title="按剧本结构恢复镜头？" description="保留旧数据备份，不删除历史媒体。" onConfirm={async () => {
+                          try { await restoreScriptShots(csrfToken, projectId, currentEpisode); await loadEpisodeDetail(currentEpisode.id); message.success("已恢复镜头结构，旧数据已备份") }
+                          catch (err) { message.error(director2ErrorDetail(err, "恢复镜头失败")) }
+                        }}><Button disabled={!currentEpisode.data?.shot_structure?.can_restore}>按剧本恢复镜头</Button></Popconfirm>} />}
+                      {!currentEpisode.beats.length && <Alert type="info" showIcon message="尚无可编辑镜头" description="请在内容库规划镜头并同步到工坊；剧本标题和文本行不会自动作为镜头。" />}
+
+
 <div className="xiaji-shots-workbench">
                       {/* 镜头工具条 */}
                       <div className="xiaji-shots-toolbar">
@@ -2071,6 +2061,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                           </span>
                         </div>
                         <div className="toolbar-right">
+                          <Button type="primary" disabled={!selectedBeat} icon={<Sparkles size={13} />} onClick={() => setInspectorTab("authoring")}>提示词与视频</Button>
                           {selectedVideoWorkflow?.prompt_profile !== "director_segments" ? (
                             <Button
                               type="primary"
@@ -2229,11 +2220,31 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                 className="xiaji-inspector-tabs"
                                 activeKey={inspectorTab}
                                 onChange={(key) => {
-                                  if (key === "film" || key === "text" || key === "sketch" || key === "material") {
+                                  if (key === "film" || key === "text" || key === "sketch" || key === "material" || key === "authoring" || key === "action") {
                                     setInspectorTab(key)
                                   }
                                 }}
                                 items={[
+                                  { key: "action", label: "动作与镜头编排", children: <div className="xiaji-inspector-pane">{selectedBeat ? <ActionPrevisPane csrfToken={csrfToken} projectId={projectId} episodeId={currentEpisode.id} beatId={selectedBeat.id} /> : <Alert type="info" message="请先选择镜头" />}</div> },
+                                  { key: "authoring", label: "提示词与视频", children: (<> {production.state ? <ProductionPicture state={production.state} csrfToken={csrfToken} projectId={projectId}
+                        episodeId={currentEpisode.id} onRefresh={production.refresh} sourceBeatId={selectedBeat?.id} beats={currentEpisode.beats} unitId={selectedProductionUnit}
+                        onUnit={id => navigateProduction("shots", id)} onSource={id => { const beat = currentEpisode.beats.find(b => b.id === id); if (beat) { selectBeat(beat); setInspectorTab("text") } }}
+                        editor={productionMode === "director" ? <ShotPromptSummary episode={currentEpisode} beat={selectedBeat} onOpenPlan={() => navigateProduction("plan", selectedProductionUnit)} /> : <PromptAuthoringPanel
+              csrfToken={csrfToken}
+              projectId={projectId}
+              episode={currentEpisode}
+              selectedBeat={selectedBeat}
+              assets={projectAssets}
+              workflow={selectedVideoWorkflow}
+              workflowId={videoWorkflow}
+              videoOptions={videoOptions}
+              onRefresh={() => loadEpisodeDetail(currentEpisode.id)}
+              onVideoJob={rememberVideoJobIds}
+              selectedUnitId={selectedProductionUnit}
+              jobs={workshopJobs}
+              shotWorkflows={videoWorkflows.filter(mode => episodeVideoRenderMode(mode) === "shot")}
+              onChooseShotWorkflow={id => void handleVideoWorkflowChange(id)}
+            />} /> : <Spin />} </>) },
                                   ...(selectedBeatTakes.length ? [{
                                     key: "film",
                                     label: (
@@ -2917,7 +2928,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                             className="h3-prompt-editor"
                                             value={h3PromptDraft}
                                             disabled={savingH3Prompt}
-                                            placeholder={"请先生成三联关键帧并查看画面，再点「生成 H3 提示词」。也可粘贴外部 MiniMax H3 六段，保存后出片按原文使用。"}
+                                            placeholder={productionMode === "director" ? "Director 扩写请进入「提示词与视频」。此处保留单镜 H3 手动稿。" : "请先生成三联关键帧并查看画面，再点「生成 H3 提示词」。也可粘贴外部 MiniMax H3 六段，保存后出片按原文使用。"}
                                             onChange={(e) => {
                                               setH3PromptEditing(true)
                                               setH3PromptDraft(e.target.value)
@@ -2941,7 +2952,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                         </div>
                       </div>
                     </div>
-                      ) }]} />}
+
                     </>
                   ),
                 },
@@ -3003,7 +3014,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                           <header className="section-head">
                             <Clapperboard size={15} />
                             <h3>来源分镜</h3>
-                            <em>{currentEpisode.beats?.length || 0} 个 Beat · 共 {episodeDurationSec} 秒</em>
+                            <em>{currentEpisode.beats?.length || 0} 个镜头 · 共 {episodeDurationSec} 秒</em>
                           </header>
                           <div className="xiaji-beat-list">
                             {(currentEpisode.beats || []).map((beat) => (
@@ -3037,6 +3048,37 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                   ),
                 },
                 {
+                  key: "plan",
+                  label: "制作方案",
+                  children: <>
+                    <Alert type="info" showIcon message="本集制作方案" description="整集扩写、公共设定、参考图和生成段统一在这里管理；镜头页只查看关联提示词与视频。" />
+                      <Space className="production-actions"><Button disabled={Boolean(production.state?.plan_stale) || directorQualityBlocked} loading={generatingEpisodeVideo || episodeVideoJobActive} icon={<Video size={14} />} onClick={() => handleGenerateEpisodeVideo()}>
+                  {selectedVideoWorkflow?.prompt_profile === "director_segments" ? "生成本集连续画面" : "生成本集逐镜画面"}
+                </Button></Space>
+                    {productionMode === "director" ? (production.state ? <ProductionPicture
+                      state={production.state} csrfToken={csrfToken} projectId={projectId} episodeId={currentEpisode.id}
+                      onRefresh={production.refresh} beats={currentEpisode.beats} unitId={planProductionUnit}
+                      onUnit={id => navigateProduction("plan", id)}
+                      onSource={id => { const beat = currentEpisode.beats.find(b => b.id === id); if (beat) { selectBeat(beat); setInspectorTab("authoring"); navigateProduction("shots", undefined, id) } }}
+                      editor={<PromptAuthoringPanel
+              csrfToken={csrfToken}
+              projectId={projectId}
+              episode={currentEpisode}
+              selectedBeat={null}
+              assets={projectAssets}
+              workflow={selectedVideoWorkflow}
+              workflowId={videoWorkflow}
+              videoOptions={videoOptions}
+              onRefresh={() => loadEpisodeDetail(currentEpisode.id)}
+              onVideoJob={rememberVideoJobIds}
+              selectedUnitId={planProductionUnit}
+              jobs={workshopJobs}
+              shotWorkflows={videoWorkflows.filter(mode => episodeVideoRenderMode(mode) === "shot")}
+              onChooseShotWorkflow={id => void handleVideoWorkflowChange(id)}
+            />} /> : <Spin />) : <Alert type="info" message="当前使用逐镜工作流" description="单镜提示词请在镜头检视器中编辑，本集批量生成使用上方入口。" />}
+                  </>,
+                },
+                {
                   key: "dubbing",
                   label: "声音",
                   children: (
@@ -3046,13 +3088,13 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 /* ==================== Tab 3: 🎞️ 成片合成 (ComposePane) ==================== */
                 {
                   key: "compose",
-                  label: "成片",
+                  label: "合成",
                   children: (
                     <>{production.state ? <ProductionFilm state={production.state} csrfToken={csrfToken} projectId={projectId}
                       episodeId={currentEpisode.id} onRefresh={production.refresh} onJob={rememberVideoJobIds} jobActive={episodeVideoJobActive} /> : <Spin />}</>
                   ),
                 },
-              ].sort((a, b) => ["script", "shots", "dubbing", "compose"].indexOf(a.key) - ["script", "shots", "dubbing", "compose"].indexOf(b.key))}
+              ].sort((a, b) => ["script", "shots", "plan", "dubbing", "compose"].indexOf(a.key) - ["script", "shots", "plan", "dubbing", "compose"].indexOf(b.key))}
             />
           </div>
         ) : currentEpisodeId && !currentEpisode ? (

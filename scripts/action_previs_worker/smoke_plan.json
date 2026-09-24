@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "fps": 24,
+  "frame_count": 72,
+  "actors": [
+    {"id": "A", "label": "A", "start": [-0.55, 0, 0], "facing_deg": 90},
+    {"id": "B", "label": "B", "start": [0.55, 0, 0], "facing_deg": 270}
+  ],
+  "beats": [
+    {"id": "b1", "start": 0, "end": 24, "description": "双人步法试探", "actions": [{"actor": "A", "type": "step"}, {"actor": "B", "type": "guard"}], "contact": null},
+    {"id": "b2", "start": 24, "end": 48, "description": "刺拳与格挡", "actions": [{"actor": "A", "type": "jab"}, {"actor": "B", "type": "block"}], "contact": {"frame": 37, "actor": "A", "target_actor": "B", "bone": "hand.L", "target_bone": "forearm.R"}},
+    {"id": "b3", "start": 48, "end": 72, "description": "侧踢与闪避", "actions": [{"actor": "A", "type": "dodge"}, {"actor": "B", "type": "side_kick"}], "contact": null}
+  ],
+  "shots": [
+    {"id": "s1", "start": 0, "end": 24, "size": "medium", "angle": "over_shoulder", "move": "follow", "subject": "both", "lens_mm": 50},
+    {"id": "s2", "start": 24, "end": 48, "size": "close", "angle": "side", "move": "dolly_in", "subject": "both", "lens_mm": 60},
+    {"id": "s3", "start": 48, "end": 72, "size": "medium", "angle": "three_quarter", "move": "orbit_left", "subject": "both", "lens_mm": 50}
+  ]
+}

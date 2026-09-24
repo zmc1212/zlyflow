@@ -5,11 +5,13 @@ import { materialAdopted, materialsForUnit, productionFilm, type ProductionState
 import type { DubbingLine } from "../dubbing-track"
 import DubbingWorkbench from "./DubbingWorkbench"
 import "./production.css"
+import type { Director2Beat } from "../api"
 
 type Props = { state: ProductionState; csrfToken: string; projectId: string; episodeId: string; onRefresh: () => Promise<void> }
 
-export function ProductionPicture({ state, csrfToken, projectId, episodeId, onRefresh, editor, unitId, onUnit, onSource }: Props & {
+export function ProductionPicture({ state, csrfToken, projectId, episodeId, onRefresh, editor, unitId, onUnit, onSource, sourceBeatId, beats = [] }: Props & {
   editor: ReactNode; unitId: string; onUnit: (id: string) => void; onSource: (beatId: string) => void;
+  sourceBeatId?: string; beats?: Director2Beat[];
 }) {
   const [previewId, setPreviewId] = useState("")
   const [busy, setBusy] = useState(false)
@@ -30,29 +32,30 @@ export function ProductionPicture({ state, csrfToken, projectId, episodeId, onRe
     } catch (err) { message.error(director2ErrorDetail(err, "采用失败")); await onRefresh() }
     finally { setBusy(false) }
   }
-  const groups = [...new Set(state.units.map(u => u.part_id))]
-  return <div className="production-picture">
+  const units = state.units.filter(u => !sourceBeatId || u.source_beat_ids.includes(sourceBeatId))
+  const groups = [...new Set(units.map(u => u.part_id))]
+  return <div className={`production-picture${sourceBeatId ? " production-picture-in-shot" : ""}`}>
     <aside className="production-units">
-      <Typography.Title level={5}>{state.active_mode === "director" ? "连续画面" : "逐镜画面"}</Typography.Title>
+      <Typography.Title level={5}>{sourceBeatId ? "本镜头生成结果" : "本集生成段"}</Typography.Title>
       {groups.map((part, index) => <section key={part || "shots"}>
-        {part && <Typography.Text type="secondary">Part {index + 1}</Typography.Text>}
+        {part && <Typography.Text type="secondary">连续生成组 {index + 1}</Typography.Text>}
         <Space direction="vertical" style={{ width: "100%" }}>
-          {state.units.filter(u => u.part_id === part).map(u => <Button key={u.id} block
+          {units.filter(u => u.part_id === part).map(u => <Button key={u.id} block
             type={u.id === unitId ? "primary" : "default"} onClick={() => { onUnit(u.id); setPreviewId("") }}>
             {state.adopted[u.id] ? "✓ " : "○ "}{u.title}
           </Button>)}
         </Space>
       </section>)}
-      {!state.units.length && <Empty description="先生成并确认制作方案" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+      {!units.length && <Typography.Text type="secondary">优化提示词后，关联的生成段会显示在这里。</Typography.Text>}
     </aside>
     <div className="production-detail">
       <div className="production-unit-summary">
         <Space wrap>
-          <Typography.Text strong>{unit?.title || "画面预览"}</Typography.Text>
-          <Typography.Text type="secondary">{preview ? `${materials.length} 个素材版本` : "尚无生成结果，确认方案后生成画面"}</Typography.Text>
+          <Typography.Text strong>{unit?.title || (sourceBeatId ? "提示词与视频" : "本集生成预览")}</Typography.Text>
+          <Typography.Text type="secondary">{preview ? `${materials.length} 个素材版本` : "在制作方案中优化提示词并生成视频；镜头内容在镜头页编辑。"}</Typography.Text>
         </Space>
-        <Space wrap>{unit?.source_beat_ids.map((id, i) =>
-          <Button key={id} size="small" onClick={() => onSource(id)}>来源分镜 {i + 1}</Button>)}</Space>
+        <Space wrap>{unit?.source_beat_ids.map(id =>
+          <Button key={id} size="small" onClick={() => onSource(id)}>镜头 {beats.findIndex(b => b.id === id) + 1 || "（历史）"}</Button>)}</Space>
       </div>
       {editor}
       {preview && <Card title="画面结果">

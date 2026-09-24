@@ -149,11 +149,11 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             aria-label={upscaled ? `预览 ${scaleTag} 超分结果` : "预览结果"}
             onClick={() => openMediaPreview({
               src: previewUrl,
-              kind: record.job_type === "video_generation" ? "video" : "image",
+              kind: record.job_type === "video_generation" || record.job_type === "action_previs" ? "video" : "image",
               title: upscaled ? `${record.title || "生成结果"} · ${scaleTag}` : record.title || "生成结果",
             })}
           >
-            {record.job_type === "video_generation" ? (
+            {record.job_type === "video_generation" || record.job_type === "action_previs" ? (
               <>
                 <video src={previewUrl} className="result-thumb" muted preload="metadata" />
                 {upscaled ? <Tag color="purple" className="result-upscale-tag">{scaleTag}</Tag> : null}
@@ -226,6 +226,11 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       comfy_queued: { color: "cyan", text: "ComfyUI 排队" },
       running: { color: "processing", text: "执行中" },
       awaiting_review: { color: "gold", text: "待确认" },
+      planning: { color: "processing", text: "分析编排" },
+      queued_remote: { color: "cyan", text: "等待 Blender" },
+      remote_running: { color: "processing", text: "白膜渲染中" },
+      needs_revision: { color: "orange", text: "需返修" },
+      cancelled: { color: "default", text: "已取消" },
       succeeded: { color: "green", text: "已完成" },
       completed: { color: "green", text: "已完成" },
       failed: { color: "red", text: "失败" },
@@ -961,6 +966,16 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                   >
                     <ExternalLink size={13} /> 预览原文件
                   </button>
+                </div>
+              </div>
+            ) : selectedJob.job_type === "action_previs" && selectedJob.result_url ? (
+              <div className="detail-section">
+                <div className="detail-section-title">骨骼白膜预演</div>
+                <div className="result-preview">
+                  <video src={selectedJob.result_url} className="result-video" controls preload="metadata" />
+                  {selectedJob.payload?.artifacts?.contact_sheet ? <img src={selectedJob.payload.artifacts.contact_sheet} className="result-img" alt="白膜关键帧联系表" /> : null}
+                  {selectedJob.payload?.artifacts?.blend ? <a href={selectedJob.payload.artifacts.blend} target="_blank" rel="noreferrer">下载可编辑 .blend</a> : null}
+                  {selectedJob.payload?.artifacts?.report ? <a href={selectedJob.payload.artifacts.report} target="_blank" rel="noreferrer">质量报告</a> : null}
                 </div>
               </div>
             ) : selectedJob.result_url ? (

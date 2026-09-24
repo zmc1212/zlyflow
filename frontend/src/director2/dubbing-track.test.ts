@@ -39,6 +39,7 @@ describe("dubbing track labels", () => {
     expect(mixDirectorHint("spoken", "overlay")).toContain("口型声")
     expect(mixDirectorHint("narration", "overlay")).toContain("叠到成片")
     expect(parseWorkshopTab("dubbing")).toBe("dubbing")
+    expect(parseWorkshopTab("plan")).toBe("plan")
     expect(parseWorkshopTab("weird")).toBe("")
   })
 })

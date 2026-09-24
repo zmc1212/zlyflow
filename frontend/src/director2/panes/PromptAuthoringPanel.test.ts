@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import type { Director2Asset, Director2Job, DirectorPromptPlan } from "../api"
+import type { Director2Asset, Director2Beat, Director2EpisodeDetail, Director2Job, DirectorPromptPlan } from "../api"
 import {
   formatDirectorPromptPlanForClipboard,
   findActivePromptPreview,
@@ -9,6 +11,7 @@ import {
   normalizeSlots,
   promptAuthoringCopy,
   referenceCandidates,
+  ShotPromptSummary,
 } from "./PromptAuthoringPanel"
 
 function plan(status: "current" | "stale" = "current"): DirectorPromptPlan {
@@ -50,6 +53,21 @@ function plan(status: "current" | "stale" = "current"): DirectorPromptPlan {
 }
 
 describe("PromptAuthoringPanel helpers", () => {
+  it("shows only related prompts in a shot and exposes cross-shot scope without episode actions", () => {
+    const saved = plan()
+    saved.parts[0].segments[0].source_beat_ids = ["beat-1", "beat-2"]
+    saved.parts[0].segments[0].sections.summary = "共享生成段的内容"
+    saved.parts[0].segments[2].sections.summary = "不相关镜头的内容"
+    const beats = [1, 2, 3].map(n => ({ id: `beat-${n}` })) as Director2Beat[]
+    const episode = { beats, prompt_authoring: { director_plan: saved } } as Director2EpisodeDetail
+    const html = renderToStaticMarkup(createElement(ShotPromptSummary, { episode, beat: beats[0], onOpenPlan: () => {} }))
+    expect(html).toContain("共享生成段的内容")
+    expect(html).toContain("关联镜头 1、2")
+    expect(html).toContain("前往制作方案")
+    expect(html).not.toContain("不相关镜头的内容")
+    expect(html).not.toContain("AI 优化本集提示词")
+    expect(html).not.toContain("公共主体定义")
+  })
   it("recovers only running preview jobs for the current episode and prompt target", () => {
     const job = (id: string, status: string, episode = "ep-1", profile = "director_segments", beat = "beat-1") => ({
       id, status, job_type: "prompt_expansion", payload: { episode_id: episode, prompt_profile: profile, beat_id: beat },
@@ -66,7 +84,7 @@ describe("PromptAuthoringPanel helpers", () => {
   it("switches copy from Beat template to Director template by prompt_profile", () => {
     expect(promptAuthoringCopy("full_reference").title).toContain("六段式")
     expect(promptAuthoringCopy("director_segments").title).toContain("Director")
-    expect(promptAuthoringCopy("director_segments").description).toContain("不会覆盖原 Beat")
+    expect(promptAuthoringCopy("director_segments").description).toContain("镜头原文保留")
   })
 
   it("sorts character looks before scenes and props, then assigns stable Picture tokens", () => {

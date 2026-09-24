@@ -19,6 +19,7 @@ from ...llm_client import LlmStreamHook, emit_llm_stream_status
 from ...workflow_registry import WorkflowDefinition, workflow_for
 from ..db import execute_sql, now_str, query_all, query_one, transaction_cursor
 from .llm_service import LlmService
+from . import director_reliable
 from .director_plan_quality import content_digest, improve_plan, preflight
 from .prompt_templates import (
     DIRECTOR_TEMPLATE_VERSION,
@@ -128,6 +129,9 @@ class PromptExpansionService:
     def enqueue(cls, project_id: str, episode_id: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
         req = dict(request or {})
         source = cls._load_source(project_id, episode_id)
+        from .script_parser import StandardScriptParser
+        if StandardScriptParser.is_line_fallback(source["episode"].get("script_text") or "", source["beats"]):
+            raise ValueError("当前镜头由旧版按剧本文本行初始化，请先在镜头页按剧本结构恢复镜头，再优化提示词")
         workflow_id = _clean(req.get("workflow_id"))
         if not workflow_id:
             raise ValueError("请选择视频工作流")
@@ -164,6 +168,8 @@ class PromptExpansionService:
                 raise ValueError("当前分集没有可规划的分镜")
             source_facts = cls._build_source_facts(source["beats"])
             conflicts = preflight(source["beats"], source_facts, definition)
+            if director_reliable.enabled():
+                conflicts = [c for c in conflicts if c["code"] != "SINGLE_UNIT_SCENE"]
             if conflicts:
                 raise PromptPipelineError(
                     "\n".join(f"{x['beat_id']}：{x['evidence']} {x['suggestion']}" for x in conflicts),
@@ -172,6 +178,7 @@ class PromptExpansionService:
                 )
 
         normalized_request = {
+            "pipeline_version": 5 if profile == "director_segments" and director_reliable.enabled() else 4,
             "story_design": profile == "director_segments",
             "workflow_id": workflow_id,
             "prompt_profile": profile,
@@ -1016,7 +1023,7 @@ class PromptExpansionService:
         except Exception as err:
             latest = query_one("SELECT payload_json FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
             failed = _payload(latest) or payload
-            failed.pop("stream", None)
+            # Keep the last streamed draft for diagnosis and recovery after refresh.
             failure = err.as_dict() if isinstance(err, PromptPipelineError) else {
                 "code": "PROMPT_PREVIEW_FAILED",
                 "stage": "generation",
@@ -1429,17 +1436,22 @@ class PromptExpansionService:
     ) -> dict[str, Any]:
         checkpoints = payload.setdefault("checkpoints", {})
         if request.get("story_design") and not checkpoints.get("fact_planning"):
-            from .director_story_design import design_prompts, pack_design
+            from .director_story_design import design_prompts, pack_design, reference_common_setting
             from .llm_service import LlmService
             source = payload.get("source_snapshot") or {}
             facts = payload.get("source_facts") or cls._build_source_facts(source.get("beats") or [])
             definition = workflow_for(request["workflow_id"])
+            locked_setting = reference_common_setting(source, request)
+            if locked_setting:
+                request = {**request, "locked_common_setting": locked_setting}
             system, user = design_prompts(source, facts, request, definition)
             def parse_design(raw: str) -> dict:
                 try:
                     design = LlmService._parse_json_object(raw)
                 except ValueError as err:
                     raise PromptTemplateError(f"导演设计 JSON 无法解析：{err}") from err
+                if locked_setting:
+                    design["common_setting"] = locked_setting
                 design["planned_parts"] = pack_design(design, source.get("beats") or [], facts, definition, _FPS)
                 return design
             design, _, repaired = cls._generate_with_one_retry(system, user, parse_design,
@@ -1827,7 +1839,7 @@ class PromptExpansionService:
     @staticmethod
     def validate_director_plan(plan: dict[str, Any]) -> None:
         definition = workflow_for(_clean(plan.get("workflow_id")))
-        if int(plan.get("schema_version") or 0) != _DIRECTOR_PLAN_SCHEMA_VERSION:
+        if int(plan.get("schema_version") or 0) not in {4, 5}:
             raise ValueError("Director 方案结构已升级，请重新生成")
         if _clean(plan.get("planning_strategy")) != "atomic_units":
             raise ValueError("Director 方案缺少动作单元规划，请重新生成")
@@ -1886,7 +1898,8 @@ class PromptExpansionService:
                 raise ValueError("Director Part ID 为空或重复")
             part_ids.add(part_id)
             segments = part.get("segments") if isinstance(part.get("segments"), list) else []
-            if len(segments) < 2 or len(segments) > max_segments:
+            single = plan.get("schema_version") == 5 and part.get("render_mode") == "shot"
+            if (single and len(segments) != 1) or (not single and (len(segments) < 2 or len(segments) > max_segments)):
                 raise ValueError(f"每个 Director Part 必须包含 2–{max_segments} 段")
             frame_total = 0
             group_prompts: list[str] = []
@@ -1964,6 +1977,7 @@ class PromptExpansionService:
                 language,
                 reference_slots,
                 expected_groups=len(segments),
+                allow_single=single,
             )
             for segment, group in zip(segments, parsed["groups"]):
                 stored = segment.get("sections") if isinstance(segment.get("sections"), dict) else {}
@@ -2054,7 +2068,7 @@ class PromptExpansionService:
                 for segment in part.get("segments") or []
             )
             if (
-                int(plan.get("schema_version") or 0) != _DIRECTOR_PLAN_SCHEMA_VERSION
+                int(plan.get("schema_version") or 0) not in {4, 5}
                 or _clean(plan.get("planning_strategy")) != "atomic_units"
                 or missing_units
                 or not isinstance(plan.get("source_facts"), dict)

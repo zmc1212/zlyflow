@@ -495,6 +495,13 @@ def register_project_routes(
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/restore-script-shots", summary="按剧本结构恢复旧版逐行分镜并保留备份")
+    def restore_script_shots(project_id: str, episode_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        try:
+            return ProjectDetailService.restore_script_shots(project_id, episode_id, payload)
+        except ValueError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+
     @app.put("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}", summary="更新分集单个分镜信息")
     def update_episode_beat(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict, user: dict = Depends(mutating_user)):
         try:
