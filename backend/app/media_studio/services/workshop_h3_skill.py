@@ -3,19 +3,193 @@ from collections import Counter
 from pathlib import Path
 import math
 import re
+import hashlib
+
+from ..db import query_one
+from ..provider_bridge import credential_manager, llm_row, vlm_row
+from ...vision_capability import row_supports_vision
 
 SKILL_PATH = Path(__file__).resolve().parents[4] / "skills" / "MINIMAXH3格式动作语气台词细化SKILL" / "SKILL.md"
 DIALOGUE_TAIL_SECONDS = 0.5
 CHARS_PER_SECOND = 4.0
 SLOW_CHARS_PER_SECOND = 3.0
-SLOW_MARKERS = ("停顿", "沉吟", "拖长", "哽咽", "发颤", "一字一顿")
+SLOW_MARKERS = ("慢读", "语速缓慢", "语速略慢", "停顿", "沉吟", "拖长", "哽咽", "发颤", "一字一顿")
+AUTHORING_VERSION = "h3-complete-group-v1"
 FIELDS = ("主体", "动作", "镜头", "音效", "约束")
 _TIME = r"(?:\d{1,2}:\d{2}(?:\.\d+)?|\d+(?:\.\d+)?)"
 _RANGE = re.compile(rf"[（(]\s*({_TIME})\s*(?:秒)?\s*[–—−-]\s*({_TIME})\s*秒?\s*[）)]")
+_SHOT_HEAD_RE = re.compile(
+    rf"^\s*(?:[\[【]Shot\s+(\d+)\s*[\]】]｜\s*|【Shot\s+(\d+)｜[^】]*】)\s*"
+    rf"(?:(\d{{1,2}}):(\d{{2}}(?:\.\d+)?)\s*[–—−-]\s*(\d{{1,2}}):(\d{{2}}(?:\.\d+)?))?",
+    re.M,
+)
+
+
+def writing_author(config=None, *, plan=None):
+    """Resolve the explicit Director author from the request or saved plan.
+
+    Defaults to the active LLM row; a profile_id selects a saved profile and
+    optional model / reasoning_effort overrides win per call. Never reads or
+    copies Codex private credentials.
+    """
+    cfg = {}
+    if isinstance(config, dict):
+        cfg = config
+    elif not cfg and isinstance(plan, dict):
+        cfg = plan.get("writing_author") or {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+    base = llm_row() or {}
+    row = dict(base)
+    profile_id = str(cfg.get("profile_id") or "").strip()
+    if profile_id:
+        profile = query_one(
+            "SELECT * FROM llm_provider_profiles WHERE profile_id=%s",
+            (profile_id,),
+        ) or {}
+        if not profile.get("base_url") and not profile.get("model"):
+            raise ValueError("所选写稿供应商配置不存在，请在管理设置中重新选择")
+        row = dict(profile)
+    model = str(cfg.get("model") or row.get("model") or "").strip()
+    reasoning_effort = str(cfg.get("reasoning_effort") or row.get("reasoning_effort") or "low").strip().lower()
+    base_url = str(row.get("base_url") or "").strip().rstrip("/")
+    if cfg.get("base_url") and str(cfg["base_url"]).rstrip("/") != base_url:
+        raise ValueError("写稿供应商地址已改变，任务快照不能切换端点；请创建新任务")
+    api_key = credential_manager().decrypt(row.get("api_key_encrypted")) if row.get("api_key_encrypted") else None
+    if not base_url or not model or not api_key:
+        raise ValueError("写稿模型配置不完整，请检查服务地址、模型与 API Key")
+    row["model"] = model
+    supports_vision = row_supports_vision(row)
+    return {
+        "profile_id": profile_id or str(row.get("profile_id") or "custom"),
+        "base_url": base_url,
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+        "api_key": api_key,
+        "supports_vision": supports_vision,
+        "vision_row": row,
+    }
+
+
+def vlm_fact_extraction_author():
+    """Explicit VLM fact-extraction author for the opt-in two-step mode."""
+    from ...vision_runtime import endpoint_from_row, overlay_vlm_credentials
+    row = overlay_vlm_credentials(vlm_row(), llm_row())
+    endpoint = endpoint_from_row("vlm", row, credential_manager().decrypt, require_vision=True, probe_unknown=True)
+    if endpoint is None:
+        raise ValueError("VLM 视觉能力未验证，无法提取外观事实，请重新探测。")
+    return {"profile_id": str(row.get("profile_id") or "vlm"), "base_url": endpoint.base_url,
+            "model": endpoint.model, "api_key": endpoint.api_key, "reasoning_effort": "none", "supports_vision": True}
 
 
 def _name(value):
     return re.sub(r"[（(].*?[）)]", "", str(value or "")).strip()
+
+
+_SUBJECT_DEF_RE = re.compile(r"^\s*subject_definitions(?:（主体定义）)?\s*[:：]\s*$", re.M)
+_SOUND_DEF_RE = re.compile(r"^\s*声音设定\s*[:：]\s*$", re.M)
+_DETAIL_RE = re.compile(r"^\s*detailed_description(?:\s*[:：])?\s*$", re.M)
+_SHOT_MARK_RE = re.compile(r"^\s*[\[【]Shot\s+(\d+)\s*[\]】｜|]?\s*", re.M)
+
+
+def _fmt_timecode(seconds):
+    total = max(0.0, float(seconds))
+    minutes = int(total // 60)
+    return f"{minutes:02}:{total - minutes * 60:05.2f}"
+
+
+def _shot_header_parts(block):
+    """Read the authored shot header line into (authored_range, descriptor).
+
+    Supports both the skill's canonical 【Shot N｜起–止秒｜景别·描述】 style and
+    the v7 storage style [Shot N] mm:ss–mm:ss. Returns (None, "") pieces when
+    the header carries no explicit timeline.
+    """
+    first = block.splitlines()[0] if block.splitlines() else ""
+    authored = None
+    descriptor = ""
+    bracket = re.match(r"^\s*【\s*Shot\s+\d+\s*｜([^】]*)】", first)
+    if bracket:
+        inner = [part.strip() for part in bracket.group(1).split("｜") if part.strip()]
+        range_match = re.match(rf"^({_TIME})\s*秒?\s*[–—−-]\s*({_TIME})\s*秒?$", inner[0]) if inner else None
+        if range_match:
+            authored = (_seconds(range_match.group(1)), _seconds(range_match.group(2)))
+            descriptor = "｜".join(inner[1:])
+        else:
+            descriptor = "｜".join(inner)
+        rest = first[bracket.end():].strip(" ：:，,")
+        if rest and not descriptor:
+            descriptor = rest
+    else:
+        timeline = re.search(
+            r"(\d{1,2}:\d{2}(?:\.\d+)?)\s*[–—−-]\s*(\d{1,2}:\d{2}(?:\.\d+)?)", first)
+        if timeline:
+            authored = (_seconds(timeline.group(1)), _seconds(timeline.group(2)))
+            descriptor = first[timeline.end():].strip(" ：:，,")
+    return authored, descriptor
+
+
+def split_complete_group_draft(raw, ordered_beats, group=None):
+    """Split one authored group draft into shared settings and per-shot bodies.
+
+    Only explicit boundaries are used: the subject/voice header, the
+    detailed_description container, and ordered 【Shot N】 marks. Creative
+    content (action, dialogue, sound, constraints) is preserved verbatim; the
+    only conversion is the per-shot storage header, which is rewritten to the
+    group's timecode contract so saved bodies pass the same checks as manual
+    edits. Authored timelines that disagree with the confirmed durations are
+    rejected instead of silently rewritten.
+    """
+    from .workshop_contract import group_timecode_mode, duration
+
+    text = str(raw or "").strip()
+    marks = list(_SHOT_MARK_RE.finditer(text))
+    if not marks:
+        raise ValueError("完整稿缺少【Shot N】镜头标记，无法确定性拆分")
+    numbers = [int(_SHOT_MARK_RE.match(text, mark.start()).group(1)) for mark in marks]
+    if numbers != list(range(1, len(ordered_beats) + 1)):
+        raise ValueError(f"镜头编号需为 1..{len(ordered_beats)} 连续出现，得到 {numbers}")
+    detail_match = _DETAIL_RE.search(text)
+    if detail_match and marks[0].start() < detail_match.start():
+        raise ValueError("detailed_description 应位于各镜头之前")
+    cumulative = group_timecode_mode(group or {}) == "cumulative"
+    running = 0.0
+    shots = []
+    for index, mark in enumerate(marks):
+        end = marks[index + 1].start() if index + 1 < len(marks) else len(text)
+        block = text[mark.start():end].strip()
+        beat = ordered_beats[index]
+        seconds = duration(beat)
+        start_sec = running if cumulative else 0.0
+        end_sec = start_sec + seconds
+        running = end_sec
+        authored, descriptor = _shot_header_parts(block)
+        if authored and (abs(authored[0] - start_sec) > 0.05 or abs(authored[1] - end_sec) > 0.05):
+            raise ValueError(
+                f"镜头 {index + 1} 起止时间与确认时长不符，需为 "
+                f"{_fmt_timecode(start_sec)}–{_fmt_timecode(end_sec)}"
+            )
+        # Drop stray container lines inside the block; each stored body gets
+        # exactly one container header plus the storage-contract shot header.
+        lines = [line for line in block.splitlines()
+                 if not re.match(r"^\s*detailed_description\s*[:：]?\s*$", line)]
+        shot_no = index + 1 if cumulative else 1
+        header = f"[Shot {shot_no}] {_fmt_timecode(start_sec)}–{_fmt_timecode(end_sec)}"
+        if descriptor:
+            header += f" {descriptor}"
+        lines[0] = header
+        shots.append("detailed_description:\n" + "\n".join(lines).strip())
+    head = text[:detail_match.start()] if detail_match else text[:marks[0].start()]
+    subject_match = _SUBJECT_DEF_RE.search(head)
+    sound_match = _SOUND_DEF_RE.search(head)
+    if subject_match and sound_match and sound_match.start() < subject_match.start():
+        raise ValueError("声音设定必须位于主体定义之后")
+    subject_block = head[subject_match.start():] if subject_match else head.strip()
+    return {
+        "common_prompt": subject_block.strip(),
+        "shots": shots,
+        "subject_definitions": subject_block.strip(),
+    }
 
 
 def source_dialogues(beat):
@@ -90,7 +264,7 @@ def writing_system(timecode_mode="per_shot", source_text=""):
         timecode_rule = "组内时间码累计：本镜编号与起止秒按组内顺序累计，例如第 1 镜 [Shot 1] 00:00.00–00:08.00，第 2 镜 [Shot 2] 00:08.00–00:16.00；起始秒等于前序镜头时长之和。"
         timing_example = "本镜动作与台词时间窗也使用组内累计秒（从本镜起始秒起算），例如第 2 镜写 (8–10.2秒)，不是从 0 开始"
     else:
-        timecode_rule = "每镜独立时间码：每镜固定 [Shot 1] 00:00.00–本镜确认时长；本镜动作与台词时间窗以本镜相对秒计，从 0 秒开始。"
+        timecode_rule = "每镜独立时间码：完整稿中的【Shot N】按组内顺序连续编号 1..N，但每镜起止时间均从 0 秒开始；保存时程序将每镜存储头映射为 [Shot 1]。"
         timing_example = "本镜动作与台词时间窗以本镜相对秒计，从 0 秒开始"
     source_block = ""
     if source_text:
@@ -101,17 +275,19 @@ def writing_system(timecode_mode="per_shot", source_text=""):
 完整执行上述动作、语气、对白和约束写法。示例中的餐厅、人物、固定上传顺序与参考音频仅为示例，禁止带入本次剧情。
 示例中的物件禁项只约束无关物件，不能禁止剧本要求的拿笔、翻书等动作。每个动作只按时间顺序描述一次，不先复述一遍再在台词行重复表演。
 用简体中文；只补可执行的表演、视线、动作节奏和声画细节，不改变原剧情、对白、镜头数量或确认时长。
-组公共设定是共享主体和声音的唯一来源；不得重写、复制到镜头正文或另起一套定义。图片只约束外观，没有音频就不得虚构参考音频。
-严格使用组声音设定的姓名与 (S数字) 映射，不把 Subject/Picture 编号当作说话人编号。
+公共设定与镜头一次统筹创作；现有自动设定可提出改善候选，用户显式锁定项不可改。候选采纳前不覆盖正式稿。图片只约束外观，不虚构参考音频。
+沿用人物身份与已有姓名 / (S数字) 归属，不把 Subject/Picture 编号当作说话人编号；正文只引用本次完整稿的共享定义。
 道具与物件名称以剧本 props 的语义为准，参考图只约束外观、不锁语义：当剧本用词与绑定资产名冲突（例如剧本写「笔」而资产叫「毛笔」）时，正文按剧本用词书写，不得沿用资产名，也不得据此更换道具种类。
-只生成每镜 detailed_description，禁止摘要、保留分析、六段式包装、主体定义和声音设定段。
+本次输出一次完整组稿，严格按 skill「整体结构」顺序：先写 subject_definitions（主体定义）与声音设定，再写 detailed_description，并在其中依次且各一次写出本组全部镜头的【Shot N】。
+主体定义与声音设定由本次完整稿统一创作：场景、人物、道具各写一条定义行；本组每句对白的说话人给出姓名与 (S数字) 映射。没有提供参考音频就明确写不提供参考音频，不虚构编号。镜头正文只引用这些共享标签，不得重写、复制或另起一套定义。
+禁止摘要、保留分析、六段式包装、JSON 包装、检查清单或解释，直接输出完整稿正文。
 {timecode_rule}
-其后依次且各一次写非空的【主体】【动作】【镜头】【音效】【约束】。运镜、起止姿态、物件和光线须承接前后镜。
-动作与台词时间窗必须精确到 0.1 秒，格式 (起–止秒)；{timing_example}。每个有台词的动作行前都有独立起止时间窗，不能拿镜头总时长代替；范围须有效、按顺序且不重叠。
+每镜在【Shot N｜起–止秒｜景别·描述】后依次且各一次写非空的【主体】【动作】【镜头】【音效】【约束】。运镜、起止姿态、物件和光线须承接前后镜。
+关键动作与台词用 (起–止秒) 标注，{timing_example}。覆盖开场、转换、对白和收束，无对白镜也须有动作窗。对白各自有独立时间窗；明确不同主体/肢体的并行动作允许重叠。时间精度是指导粒度，不保证模型逐 0.1 秒执行。
 每句对白独占一个动作行，格式：(起–止秒) 说话人姓名 (S数字) 视线/身体动作与音量、语速描述，说：<d>[中文] 原文台词</d>。说话人姓名与 (S数字) 必须与组声音设定完全一致，例如「沈砚 (S1)」；不要用 <Subject N> 或 <Picture N> 充当说话人。
 对白必须位于【动作】内，每句原文恰好出现一次；不得新增人声。同一说话人使用同一编号。
 最后一句对白结束后至少留 {DIALOGUE_TAIL_SECONDS:g} 秒无新台词的动作收束，写明闭口、停顿或承接姿态。不能只写“留安全尾部”而不给时间。
-根据台词长度安排自然可说完的时间，不能把长句挤进短区间。自然中文对白先按约每秒 4 个字估算，出现低声、慢读、停顿、沉吟、哽咽等减速描述时按每秒 3 字估算；优先减少无意义的开场等待，把时间给对白和必要动作。无对白镜头不写 <d> 或说话人，不强造对白。
+字速只作风险估计：自然中文约每秒 {CHARS_PER_SECOND:g} 字；出现 {"、".join(SLOW_MARKERS)} 时约每秒 {SLOW_CHARS_PER_SECOND:g} 字。低声是音量，不等同慢语速。不可为通过估计机械前移对白、改原文或改时长；容纳不了时保留剧情并显式报告冲突。无对白镜头不写 <d> 或说话人。
 【约束】写人物/服装/物件/光线连续性、口型同步及本镜具体禁项，不改写剧情。
 {source_block}
 """
@@ -119,6 +295,15 @@ def writing_system(timecode_mode="per_shot", source_text=""):
 
 def _compact(text):
     return re.sub(r"[\W_]+", "", text, flags=re.UNICODE)
+
+
+def writing_contract_snapshot(source_text="", timecode_mode="per_shot"):
+    skill = SKILL_PATH.read_text(encoding="utf-8")
+    return {"version": AUTHORING_VERSION, "skill_path": "skills/MINIMAXH3格式动作语气台词细化SKILL/SKILL.md",
+            "skill_sha256": hashlib.sha256(skill.encode()).hexdigest(), "skill_text": skill,
+            "system": writing_system(timecode_mode, source_text),
+            "source_sha256": hashlib.sha256(source_text.encode()).hexdigest(),
+            "context_policy": "full_source_no_truncation"}
 
 
 def _seconds(text):
@@ -186,16 +371,7 @@ def performance_checks(body, beat, group, offset_sec=0.0):
         previous_end = end
         if total - end < DIALOGUE_TAIL_SECONDS - 1e-6:
             errors.append(f"第 {i+1} 句对白结束后不足 {DIALOGUE_TAIL_SECONDS:g} 秒安全尾部，请前移台词或调整镜头时长")
-        window = end - start
-        spoken = tag[1]
-        chars = len(_compact(spoken))
-        if chars:
-            attribution_lower = prefix[timing.end():].lower() + " " + prefix[:timing.start()].lower()
-            slow = any(marker in attribution_lower for marker in SLOW_MARKERS)
-            rate = SLOW_CHARS_PER_SECOND if slow else CHARS_PER_SECOND
-            if window * rate < chars - 1e-6:
-                need = math.ceil(chars / rate * 10) / 10.0
-                errors.append(f"第 {i+1} 句对白 {chars} 字仅给 {window:g} 秒，不足每秒 {rate:g} 字，至少需要 {need:g} 秒；请把该句对白时间窗延长到至少 {need:g} 秒，并相应压缩本镜开场等待或前移台词起点")
+        # Character rate is advisory content evidence, never a structural gate.
         owner = expected[i][0] if i < len(expected) else ""
         attribution = prefix[timing.end():]
         number = mapping.get(owner)

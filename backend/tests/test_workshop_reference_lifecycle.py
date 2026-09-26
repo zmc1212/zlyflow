@@ -203,7 +203,8 @@ class ReferenceServiceTests(unittest.TestCase):
     def test_all_prompt_generation_failures_report_failed_not_completed(self):
         _, data = W.row("project", "ep")
         payload = {"episode_id": "ep", "request": {"beat_ids": ["b1"]}, "base_plan": data["prompt_authoring"]["director_plan"],
-                   "beats": data["beats"], "candidates": {}, "failures": {}, "prompt_scope": "group"}
+                   "beats": data["beats"], "candidates": {}, "failures": {}, "prompt_scope": "group",
+                   "writing_author": {"model": "test-author", "provider": "test"}}
         self.jobs["job"] = {"id": "job", "job_type": "workshop_prompt", "payload_json": json.dumps(payload)}
         with patch("backend.app.media_studio.services.workshop_service.generate_group", side_effect=ValueError("模型输出不完整")):
             W.run("project", "job")

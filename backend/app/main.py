@@ -1494,6 +1494,7 @@ def get_llm_status(_: Annotated[dict, Depends(current_user)]) -> dict:
         llm_model=config.get("model"),
         vlm_available=vlm_available,
         vlm_model=vlm_model,
+        llm_supports_vision=bool(config.get("supports_vision")),
     )
     return {
         "available": available,

@@ -1,5 +1,15 @@
 # ZLY AI Studio｜创作工作台
 
+2026-09-26：LLM / VLM 的看图能力改为真实图片探测结果。VLM 勾选「复用大模型连接」后，完整跟随 LLM 的地址、密钥、模型及验证结果；无需把模型手改成 GLM，也无需重复验证已通过的同一连接。关闭复用可恢复独立 VLM 配置。模型名称不再证明能否看图，默认带图失败会明确报错。迁移、测试、兼容与回滚见 [视觉能力路由实施记录](docs/大模型视觉能力路由彻底修复开发计划-2026-09-26.md)。
+
+## 2026-09-26：完整 H3 组稿与可追溯作者（开发中）
+
+导演台工坊保留现有整组生成、候选采纳和单镜返修流程，新增明确的写稿供应商／API 模型／推理选择。一次创作公共设定与整组正文，候选展示公共设定变更及每轮作者、原稿、检查和返修证据；只有采纳才共同更新正式内容。结构检查、内容规则提示与成片验收分开显示，不能把文本通过当成效果恢复。
+
+受影响模块为 `workshop_h3_skill`、`workshop_group_prompts`、`workshop_review`、`workshop_service`、`workshop_contract`、`llm_service` 和工坊证据视图。继续使用 v7 JSON 附加字段，不改变端口或 ComfyUI 节点；历史稿与媒体保留。验证：`python -m unittest discover -s backend/tests -p "test_workshop*.py"`、`python -m unittest backend.tests.media_studio_test_h3_video -q`、`pnpm --dir frontend build`。安全回滚为停止新写稿任务后定点撤销本合同入口，保留新增快照和兼容读取，禁止整仓回滚。
+
+本轮代码回归通过，但浏览器控制鉴权阻塞了 5173 桌面双主题验收，尚无已确认可用的 GPT-6 API 配置；未新增视频生成或覆盖媒体。实际进度、环境预检与后续验收见 [满意版恢复计划及续接记录](docs/导演台满意版效果恢复开发计划-2026-09-26.md#11-续接实施记录2026-09-26)。
+
 2026-09-25：工坊自动关联已绑定的人物／道具图，后补图与换图自动同步；缺图明确提示具体资产，参考变化后提示词需重新生成并采纳。手动参考选择和顺序保留。见 [通用修复与验证](docs/工坊参考图自动关联修复-2026-09-25.md)。
 
 剧集工坊可在镜头页批量生成当前镜头组视频；需要处理整集时，按组分别提交视频任务，不会将所有镜头拼成一条超长生成任务。
@@ -52,7 +62,7 @@
 
 1. 启动固定目录 `D:\zlyun\ZLY AI Video Studio\整合包及模型\comfyui-integrate-v1.3\comfyui-integrate\Comfyui` 下的 ComfyUI，默认地址为 `http://127.0.0.1:8188`。若端口或映射地址不同，以超级管理员在「管理设置 → AI 供应商」填写实际地址，或设置环境变量 `ZLY_AI_VIDEO_STUDIO_COMFY_URL`（首次启动写入数据库）。
 2. 双击 `启动本地视频工作台.bat`。脚本会分别启动 FastAPI（`0.0.0.0:7865`）和 Vite 开发服务器（`0.0.0.0:5173`），并始终自动打开本机 `http://127.0.0.1:5173`。同一局域网可用启动窗口打印的 `http://<本机IPv4>:5173`（开发热更新）或 `http://<本机IPv4>:7865`（FastAPI 静态入口）。若 FastAPI 已在运行，重复双击仍打开 5173（必要时补启 Vite），不会打开 7865 上的 `frontend/dist` 静态页。Vite 会显示在独立终端窗口，前端代码变更会自动热更新；后端由 `backend/dev_reloader.py` 监督，修改 `backend/app` 下的 Python 文件或服务异常退出后会自动重启，不再使用 Windows 上会把整个进程组一起关掉的 uvicorn `--reload`。首次使用前执行一次 `pnpm --dir frontend install`。要停止本机工作台时，双击 `关闭本地视频工作台.bat`：脚本会结束 `5173`（Vite）和 `7865`（FastAPI / 监督器）上的工作台进程及对应控制台窗口，不会关闭 ComfyUI（`8188`）也不会关闭 IndexTTS 旁路（`7866`）。若端口被其他无关程序占用，脚本会提示而不强制结束。导演台配音需要本机 IndexTTS-2.5 时，另开 `启动 IndexTTS 旁路.bat`（默认 `http://127.0.0.1:7866`，权重放在工作台父级 `整合包及模型/index-tts/checkpoints`，不要装进工作台虚拟环境），再在「管理设置 → TTS」选「本机 IndexTTS-2.5」。导演台资产库/配音台可直接选用内置短剧声线（IndexTTS 官方示例参考音）。无 GPU 时可继续用硅基 CosyVoice2。
-3. 首次打开时在工作站本机 `http://127.0.0.1:5173/setup` 创建超级管理员，再由管理后台分配员工账号。之后登录地址为 `/login`，登录成功默认进入 `/generate/video`。图/视频任务为 `/generate/image/:jobId` 与 `/generate/video/:jobId`，导演台首页为 `/director`，导演创作为 `/director/projects/:projectId/{content|assets|workshop|jobs}`，短视频批量 / 参考片复刻 / Hypit 复刻为 `/director/batch/:projectId`、`/director/replication/:projectId`、`/director/hypit/:projectId`，资产库为 `/assets`。旧书签 `/director2` 与 `/director2/*` 会跳到对应 `/director` 路径；旧 `/director/:recipeId` 回首页。管理设置可通过 `/admin/accounts`、`/admin/providers`、`/admin/llm`、`/admin/vlm`、`/admin/tts`、`/admin/storage` 直达；员工打开 `/admin` 会被送回创作台。文本润色走 LLM 页（名称可看图时工坊写稿会带参考图调用），看图反推与复刻台拉片走 VLM 页（可复用大模型凭据），导演台配音走 TTS 页，各套配置互不影响。刷新或浏览器进退会停留在对应 URL。未登录打开这些链接会先登录，成功后再回到原路径。
+3. 首次打开时在工作站本机 `http://127.0.0.1:5173/setup` 创建超级管理员，再由管理后台分配员工账号。之后登录地址为 `/login`，登录成功默认进入 `/generate/video`。图/视频任务为 `/generate/image/:jobId` 与 `/generate/video/:jobId`，导演台首页为 `/director`，导演创作为 `/director/projects/:projectId/{content|assets|workshop|jobs}`，短视频批量 / 参考片复刻 / Hypit 复刻为 `/director/batch/:projectId`、`/director/replication/:projectId`、`/director/hypit/:projectId`，资产库为 `/assets`。旧书签 `/director2` 与 `/director2/*` 会跳到对应 `/director` 路径；旧 `/director/:recipeId` 回首页。管理设置可通过 `/admin/accounts`、`/admin/providers`、`/admin/llm`、`/admin/vlm`、`/admin/tts`、`/admin/storage` 直达；员工打开 `/admin` 会被送回创作台。文本润色走 LLM 页（通过真实视觉验证后才能附图），看图反推与复刻台拉片走 VLM 页（可完整复用 LLM 连接、模型与证据），导演台配音走 TTS 页，各套配置互不影响。刷新或浏览器进退会停留在对应 URL。未登录打开这些链接会先登录，成功后再回到原路径。
 4. 使用本机 `127.0.0.1` 或 HTTPS 浏览器交付时，员工首次登录并修改初始密码后需选择本机资源目录；最新版 Chrome/Edge 仅在这些安全上下文允许目录授权。通过局域网 IP 访问时不再阻塞目录选择，启用七牛云后直接使用结果中的七牛云短期签名地址播放或下载。
 5. 若 7865 已被其他程序占用，请先确认或关闭该程序，再启动工作台。
 
@@ -1712,7 +1722,7 @@ AI 创作确认新增「分集数」问题（默认 1 集），选择多集后�
 ## 2026-09-18 写稿看图走多模态 LLM，工坊一次产出中英双稿
 
 - 原因：工坊看图和装箱拆成两套弱模型，失败还静默改成纯文本；LLM 页多模态模型也看不到图。
-- 用户可见行为：管理设置 → LLM 若模型名称可看图，工坊写稿会带参考图调用该模型。VLM 页仍给反推/拉片，可选复用大模型凭据。剧集工坊「生成 H3 提示词」一次写出中文八块和英文六段，提示词旁显示「已看图 · 模型 · N 张」或「未看图，已用纯文本」。生成页 AI 优化会把已选参考图一并送出。本地 H3 仍只吃角色卡、场景卡和三联三格 9:16 裁切，不吃整张母图。
+- 用户可见行为：管理设置 → LLM 若当前连接通过真实视觉验证，工坊写稿会带参考图调用该模型。VLM 页仍给反推/拉片，可选复用大模型凭据。剧集工坊「生成 H3 提示词」一次写出中文八块和英文六段，提示词旁显示「已看图 · 模型 · N 张」或「未看图，已用纯文本」。生成页 AI 优化会把已选参考图一并送出。本地 H3 仍只吃角色卡、场景卡和三联三格 9:16 裁切，不吃整张母图。
 - 验证命令：`python -m unittest backend.tests.test_vision_runtime backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_llm backend.tests.test_vlm`。
 - 回滚方式：还原上述改动并重启工作台。
 

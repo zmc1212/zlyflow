@@ -107,6 +107,23 @@ class JobStore:
     DIRECTOR_LIBRARY_MIGRATION = "2026-08-28-director-library-assets-v1"
     DIRECTOR_CONCURRENCY_MIGRATION = "2026-08-30-director-concurrency-v2"
     DIRECTOR_OPERATIONS_MIGRATION = "2026-08-30-director-operations-v1"
+    VISION_CAPABILITY_MIGRATION = "2026-09-26-vision-capability-v1"
+
+    # (table, column, MySQL declaration, SQLite declaration) added for the
+    # persisted vision-capability three-state.
+    _VISION_CAPABILITY_COLUMNS = (
+        ("vision_capability", "VARCHAR(16) NOT NULL DEFAULT 'unknown'", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("vision_capability_source", "VARCHAR(32) NULL", "TEXT"),
+        ("vision_capability_checked_at", "VARCHAR(64) NULL", "TEXT"),
+        ("vision_capability_message", "TEXT NULL", "TEXT"),
+        ("vision_capability_fingerprint", "VARCHAR(64) NULL", "TEXT"),
+    )
+    _VISION_PROVIDER_TABLES = (
+        "llm_provider_settings",
+        "vlm_provider_settings",
+        "llm_provider_profiles",
+        "vlm_provider_profiles",
+    )
 
     def __init__(self, database: Database | Path) -> None:
         self._db = open_database(database)
@@ -162,6 +179,9 @@ class JobStore:
                     "profile_id",
                     "VARCHAR(64) NOT NULL DEFAULT 'zhipu'",
                 )
+                for table in self._VISION_PROVIDER_TABLES:
+                    for name, declaration, _sqlite_decl in self._VISION_CAPABILITY_COLUMNS:
+                        self._ensure_column(connection, table, name, declaration)
                 self._seed_runtime_defaults(connection, migrate_legacy=False)
                 return
             connection.execute(
@@ -301,6 +321,11 @@ class JobStore:
                     api_key_encrypted TEXT,
                     model TEXT NOT NULL DEFAULT 'Qwen/Qwen2.5-Coder-32B-Instruct',
                     reasoning_effort TEXT NOT NULL DEFAULT 'low',
+                    vision_capability TEXT NOT NULL DEFAULT 'unknown',
+                    vision_capability_source TEXT,
+                    vision_capability_checked_at TEXT,
+                    vision_capability_message TEXT,
+                    vision_capability_fingerprint TEXT,
                     last_test_status TEXT,
                     last_test_message TEXT,
                     last_test_at TEXT,
@@ -315,6 +340,11 @@ class JobStore:
                     base_url TEXT NOT NULL DEFAULT 'https://open.bigmodel.cn/api/paas/v4',
                     api_key_encrypted TEXT,
                     model TEXT NOT NULL DEFAULT 'glm-4v-flash',
+                    vision_capability TEXT NOT NULL DEFAULT 'unknown',
+                    vision_capability_source TEXT,
+                    vision_capability_checked_at TEXT,
+                    vision_capability_message TEXT,
+                    vision_capability_fingerprint TEXT,
                     last_test_status TEXT,
                     last_test_message TEXT,
                     last_test_at TEXT,
@@ -327,6 +357,11 @@ class JobStore:
                     api_key_encrypted TEXT,
                     model TEXT NOT NULL,
                     reasoning_effort TEXT NOT NULL DEFAULT 'low',
+                    vision_capability TEXT NOT NULL DEFAULT 'unknown',
+                    vision_capability_source TEXT,
+                    vision_capability_checked_at TEXT,
+                    vision_capability_message TEXT,
+                    vision_capability_fingerprint TEXT,
                     last_test_status TEXT,
                     last_test_message TEXT,
                     last_test_at TEXT,
@@ -339,6 +374,11 @@ class JobStore:
                     base_url TEXT NOT NULL,
                     api_key_encrypted TEXT,
                     model TEXT NOT NULL,
+                    vision_capability TEXT NOT NULL DEFAULT 'unknown',
+                    vision_capability_source TEXT,
+                    vision_capability_checked_at TEXT,
+                    vision_capability_message TEXT,
+                    vision_capability_fingerprint TEXT,
                     last_test_status TEXT,
                     last_test_message TEXT,
                     last_test_at TEXT,
@@ -459,6 +499,9 @@ class JobStore:
                 "profile_id",
                 "TEXT NOT NULL DEFAULT 'zhipu'",
             )
+            for table in self._VISION_PROVIDER_TABLES:
+                for name, _mysql_decl, declaration in self._VISION_CAPABILITY_COLUMNS:
+                    self._ensure_column(connection, table, name, declaration)
             self._ensure_job_list_indexes(connection)
             self._seed_runtime_defaults(connection, migrate_legacy=True)
 
@@ -522,7 +565,61 @@ class JobStore:
             "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
             (self.DIRECTOR_OPERATIONS_MIGRATION, now()),
         )
+        self._migrate_vision_capability(connection)
         self._ensure_grs_image_models(connection)
+
+    def _migrate_vision_capability(self, connection: DbConnection) -> None:
+        """Backfill the vision three-state for legacy rows via name guess.
+
+        Runs once (guarded by ``schema_migrations``). Existing rows keep their
+        prior behaviour under the new field names; the source is recorded as
+        ``legacy_name_guess`` so the UI never mistakes it for a real probe.
+        """
+        applied = connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE name = ?",
+            (self.VISION_CAPABILITY_MIGRATION,),
+        ).fetchone()
+        if applied:
+            return
+        from .llm_provider import model_supports_vision
+
+        def _val(row, key, index):
+            if isinstance(row, dict):
+                return row.get(key)
+            try:
+                return row[key]
+            except (TypeError, KeyError, IndexError):
+                return row[index]
+
+        for table in self._VISION_PROVIDER_TABLES:
+            has_profile = "profiles" in table
+            select_sql = (
+                f"SELECT profile_id, model FROM {table}"
+                if has_profile
+                else f"SELECT id, model FROM {table}"
+            )
+            key_col = "profile_id" if has_profile else "id"
+            for row in connection.execute(select_sql).fetchall():
+                row_id = _val(row, key_col, 0)
+                model = _val(row, "model", 1)
+                cap = "supported" if model_supports_vision(model) else "unknown"
+                connection.execute(
+                    f"""UPDATE {table}
+                    SET vision_capability = ?,
+                        vision_capability_source = 'legacy_name_guess',
+                        vision_capability_checked_at = NULL,
+                        vision_capability_message = ?
+                    WHERE {key_col} = ? AND (vision_capability IS NULL OR vision_capability = 'unknown')""",
+                    (
+                        cap,
+                        "backfilled from legacy model-name guess; verify via re-probe",
+                        row_id,
+                    ),
+                )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+            (self.VISION_CAPABILITY_MIGRATION, now()),
+        )
 
     def _seed_provider_profiles(self, connection: DbConnection) -> None:
         llm_count = connection.execute("SELECT COUNT(*) AS total FROM llm_provider_profiles").fetchone()
@@ -1403,13 +1500,17 @@ class JobStore:
         return data
 
     def update_llm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
+        from .vision_capability import invalidate_changed_capability
         allowed = {
             "enabled", "profile_id", "base_url", "api_key_encrypted", "model", "reasoning_effort",
             "last_test_status", "last_test_message", "last_test_at",
+            "vision_capability", "vision_capability_source", "vision_capability_checked_at",
+            "vision_capability_message", "vision_capability_fingerprint",
         }
         merged = dict(values) if isinstance(values, dict) else {}
         merged.update(kwargs)
         updates = {key: value for key, value in merged.items() if key in allowed}
+        invalidate_changed_capability(self.get_llm_settings(), updates)
         updates["updated_at"] = now()
         assignment = ", ".join(f"{key} = ?" for key in updates)
         with self.connection() as connection:
@@ -1433,15 +1534,19 @@ class JobStore:
         allowed = {
             "base_url", "api_key_encrypted", "model", "reasoning_effort",
             "last_test_status", "last_test_message", "last_test_at",
+            "vision_capability", "vision_capability_source", "vision_capability_checked_at",
+            "vision_capability_message", "vision_capability_fingerprint",
         }
         updates = {key: value for key, value in values.items() if key in allowed}
         updates["updated_at"] = now()
         with self.connection() as connection:
             row = connection.execute(
-                "SELECT profile_id FROM llm_provider_profiles WHERE profile_id = ?",
+                "SELECT * FROM llm_provider_profiles WHERE profile_id = ?",
                 (profile_id,),
             ).fetchone()
             if row:
+                from .vision_capability import invalidate_changed_capability
+                invalidate_changed_capability(dict(row), updates)
                 assignment = ", ".join(f"{key} = ?" for key in updates)
                 connection.execute(
                     f"UPDATE llm_provider_profiles SET {assignment} WHERE profile_id = ?",
@@ -1453,6 +1558,11 @@ class JobStore:
                     "api_key_encrypted": values.get("api_key_encrypted"),
                     "model": values.get("model", ""),
                     "reasoning_effort": values.get("reasoning_effort", "low"),
+                    "vision_capability": values.get("vision_capability", "unknown"),
+                    "vision_capability_source": values.get("vision_capability_source"),
+                    "vision_capability_checked_at": values.get("vision_capability_checked_at"),
+                    "vision_capability_message": values.get("vision_capability_message"),
+                    "vision_capability_fingerprint": values.get("vision_capability_fingerprint"),
                     "last_test_status": values.get("last_test_status"),
                     "last_test_message": values.get("last_test_message"),
                     "last_test_at": values.get("last_test_at"),
@@ -1461,8 +1571,10 @@ class JobStore:
                 connection.execute(
                     """INSERT INTO llm_provider_profiles
                     (profile_id, base_url, api_key_encrypted, model, reasoning_effort,
+                     vision_capability, vision_capability_source, vision_capability_checked_at,
+                     vision_capability_message, vision_capability_fingerprint,
                      last_test_status, last_test_message, last_test_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (profile_id, *required.values()),
                 )
             if activate:
@@ -1505,13 +1617,17 @@ class JobStore:
         return data
 
     def update_vlm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
+        from .vision_capability import invalidate_changed_capability
         allowed = {
             "enabled", "profile_id", "use_llm_credentials", "base_url", "api_key_encrypted", "model",
             "last_test_status", "last_test_message", "last_test_at",
+            "vision_capability", "vision_capability_source", "vision_capability_checked_at",
+            "vision_capability_message", "vision_capability_fingerprint",
         }
         merged = dict(values) if isinstance(values, dict) else {}
         merged.update(kwargs)
         updates = {key: value for key, value in merged.items() if key in allowed}
+        invalidate_changed_capability(self.get_vlm_settings(), updates)
         if "use_llm_credentials" in updates:
             updates["use_llm_credentials"] = int(bool(updates["use_llm_credentials"]))
         updates["updated_at"] = now()
@@ -1546,6 +1662,8 @@ class JobStore:
         allowed = {
             "use_llm_credentials", "base_url", "api_key_encrypted", "model",
             "last_test_status", "last_test_message", "last_test_at",
+            "vision_capability", "vision_capability_source", "vision_capability_checked_at",
+            "vision_capability_message", "vision_capability_fingerprint",
         }
         updates = {key: value for key, value in values.items() if key in allowed}
         if "use_llm_credentials" in updates:
@@ -1553,10 +1671,12 @@ class JobStore:
         updates["updated_at"] = now()
         with self.connection() as connection:
             row = connection.execute(
-                "SELECT profile_id FROM vlm_provider_profiles WHERE profile_id = ?",
+                "SELECT * FROM vlm_provider_profiles WHERE profile_id = ?",
                 (profile_id,),
             ).fetchone()
             if row:
+                from .vision_capability import invalidate_changed_capability
+                invalidate_changed_capability(dict(row), updates)
                 assignment = ", ".join(f"{key} = ?" for key in updates)
                 connection.execute(
                     f"UPDATE vlm_provider_profiles SET {assignment} WHERE profile_id = ?",
@@ -1568,6 +1688,11 @@ class JobStore:
                     "base_url": values.get("base_url", ""),
                     "api_key_encrypted": values.get("api_key_encrypted"),
                     "model": values.get("model", ""),
+                    "vision_capability": values.get("vision_capability", "unknown"),
+                    "vision_capability_source": values.get("vision_capability_source"),
+                    "vision_capability_checked_at": values.get("vision_capability_checked_at"),
+                    "vision_capability_message": values.get("vision_capability_message"),
+                    "vision_capability_fingerprint": values.get("vision_capability_fingerprint"),
                     "last_test_status": values.get("last_test_status"),
                     "last_test_message": values.get("last_test_message"),
                     "last_test_at": values.get("last_test_at"),
@@ -1576,8 +1701,10 @@ class JobStore:
                 connection.execute(
                     """INSERT INTO vlm_provider_profiles
                     (profile_id, use_llm_credentials, base_url, api_key_encrypted, model,
+                     vision_capability, vision_capability_source, vision_capability_checked_at,
+                     vision_capability_message, vision_capability_fingerprint,
                      last_test_status, last_test_message, last_test_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (profile_id, *required.values()),
                 )
             if activate:

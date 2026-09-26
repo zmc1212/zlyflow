@@ -64,7 +64,13 @@ class WorkshopService:
                 jobs.append({"id": job["id"], "status": job["status"], "kind": job["job_type"], "error": job.get("error_message"), "payload": payload})
                 if len(jobs) >= 12:
                     break
+        from ..provider_bridge import llm_row
+        active_author = llm_row() or {}
+        public_fields = ("profile_id", "model", "reasoning_effort")
+        profiles = query_all("SELECT profile_id,model,reasoning_effort FROM llm_provider_profiles")
         return {"plan": plan if plan.get("schema_version") == 7 else None, "source": source,
+                "writing_author": {key: (plan.get("writing_author") or active_author).get(key) for key in public_fields},
+                "writing_profiles": [{key: p.get(key) for key in public_fields} for p in profiles],
                 "history": data.get("workshop_history") or [],
                 "historical_media": [m for state in ((data.get("production") or {}).get("modes") or {}).values() for m in state.get("materials") or []],
                 "legacy_plan": plan if plan and plan.get("schema_version") != 7 else None,
@@ -149,6 +155,18 @@ class WorkshopService:
             assert_ready(plan, ids)
             payload["request"]["beat_ids"] = list(dict.fromkeys(ids))
             if is_director(plan):
+                from .workshop_h3_skill import writing_author, writing_contract_snapshot
+                requested_author = request.get("writing_author") or plan.get("writing_author")
+                resolved_author = writing_author(requested_author)
+                payload["writing_author"] = {key: resolved_author[key] for key in
+                    ("profile_id", "base_url", "model", "reasoning_effort", "supports_vision")}
+                # Never persist caller credentials, and never resolve a different author mid-job.
+                payload["request"]["writing_author"] = deepcopy(payload["writing_author"])
+                payload["fact_extraction"] = request.get("fact_extraction") or ""
+                if payload["fact_extraction"] not in {"", "vlm"}:
+                    raise ValueError("未知外观事实提取模式")
+                payload["authoring"] = {"contracts": {g["id"]: writing_contract_snapshot(source["text"], contract.group_timecode_mode(g))
+                    for g in plan["groups"] if set(ids).intersection(g["beat_ids"])}, "writing_history": []}
                 if request.get("prompt_scope") == "shot_revision":
                     if len(ids) != 1 or not str(request.get("revision_note") or "").strip() or len(str(request.get("revision_note"))) > 4000:
                         raise ValueError("请选择一个镜头并填写 1～4000 字返修意见")
@@ -218,6 +236,9 @@ class WorkshopService:
                 payload["count_note"] = f"目标 {target} 镜，建议 {len(beats)} 镜；请检查剧情和对白覆盖后采纳" if target and target != len(beats) else "请检查镜头和分组后确认"
             else:
                 plan = payload["base_plan"]
+                audit = payload.setdefault("authoring", {})
+                if is_director(plan) and not payload.get("writing_author"):
+                    raise ValueError("旧任务没有作者配置快照，请创建新候选任务；已有候选与媒体不变")
                 if is_director(plan) and payload.get("prompt_scope") != "shot_revision":
                     payload["prompt_scope"] = "group"
                     for group in plan["groups"]:
@@ -228,8 +249,15 @@ class WorkshopService:
                         checkpoint(f"正在统筹生成镜头组 {group['id']}（{len(group['beat_ids'])} 镜）")
                         for bid in group["beat_ids"]:
                             payload["candidates"].pop(bid, None)
+                        payload.get("common_prompt_candidates", {}).pop(group["id"], None)
                         try:
-                            generated = generate_group(plan, group, payload["beats"], source_text=payload.get("source", {}).get("text", ""))
+                            generated = generate_group(plan, group, payload["beats"], source_text=payload.get("source", {}).get("text", ""),
+                                                       author=payload.get("writing_author"), fact_extraction=payload.get("fact_extraction") or None,
+                                                       audit=audit, contract_snapshot=audit.get("contracts", {}).get(group["id"]),
+                                                       checkpoint=lambda: checkpoint("写稿/检查证据已保存，正式稿未改变"))
+                            common_candidate = generated.pop("__common_prompt__", None)
+                            if common_candidate:
+                                payload.setdefault("common_prompt_candidates", {})[group["id"]] = common_candidate
                             payload["candidates"].update(generated)
                             for bid in group["beat_ids"]:
                                 payload["failures"].pop(bid, None)
@@ -248,7 +276,10 @@ class WorkshopService:
                     try:
                         if is_director(plan):
                             payload["candidates"].update(generate_group(plan, group, payload["beats"],
-                                revision_beat_id=bid, revision_note=request.get("revision_note", ""), source_text=payload.get("source", {}).get("text", "")))
+                                revision_beat_id=bid, revision_note=request.get("revision_note", ""), source_text=payload.get("source", {}).get("text", ""),
+                                author=payload.get("writing_author"), fact_extraction=payload.get("fact_extraction") or None,
+                                audit=audit, contract_snapshot=audit.get("contracts", {}).get(group["id"]),
+                                checkpoint=lambda: checkpoint("单镜返修证据已保存，正式稿未改变")))
                             payload["failures"].pop(bid, None)
                             checkpoint(f"已生成 {len(payload['candidates'])} 镜；失败 {len(payload['failures'])} 镜")
                             continue
@@ -272,8 +303,11 @@ class WorkshopService:
                         if writing:
                             user += "\n后附写稿参考仅供构图/动作参考，不分配 Picture 编号，不作为视频提交素材。"
                         images += writing
-                        raw = (LlmService.chat_vision(system, user, images, max_tokens=7000, temperature=0.2) if images else
-                               LlmService.chat_text(system, user, max_tokens=7000, temperature=0.2))
+                        if images:
+                            raw, shot_vision_meta = LlmService.chat_vision(system, user, images, max_tokens=7000, temperature=0.2)
+                            payload.setdefault("shot_vision_meta", {})[bid] = shot_vision_meta.as_dict()
+                        else:
+                            raw = LlmService.chat_text(system, user, max_tokens=7000, temperature=0.2)
                         parsed = parse_full_reference(raw, "zh-CN", group.get("reference_slots") or [])
                         from .prompt_templates import ZH_FULL_SECTIONS
                         body = "\n\n".join(f"{label}：{parsed['sections'][key]}" for key, label in ZH_FULL_SECTIONS if key != "subject_definitions")
@@ -374,7 +408,7 @@ class WorkshopService:
                             new_group = next((g for g in current.get("groups", []) if context_id in g["beat_ids"]), None)
                             context_beat = next((b for b in data["beats"] if b["id"] == context_id), None)
                             old_beat = next((b for b in payload.get("beats", data["beats"]) if b["id"] == context_id), None)
-                            if not new_group or any(new_group.get(k) != old_group.get(k) for k in ("id", "beat_ids", "common_prompt", "reference_slots")) or not context_beat or not old_beat or contract.prompt_fingerprint(context_beat, new_group, current) != contract.prompt_fingerprint(old_beat, old_group, payload["base_plan"]):
+                            if not new_group or any(new_group.get(k) != old_group.get(k) for k in ("id", "beat_ids", "common_prompt", "reference_slots", "locked_common_lines")) or not context_beat or not old_beat or contract.prompt_fingerprint(context_beat, new_group, current) != contract.prompt_fingerprint(old_beat, old_group, payload["base_plan"]):
                                 raise ValueError("VERSION_CONFLICT: 同组镜头或公共设定已变化，请重新生成候选")
                         if payload.get("prompt_scope") == "shot_revision":
                             if ids != payload["request"]["beat_ids"]:
@@ -389,6 +423,13 @@ class WorkshopService:
                             expanded = expand_groups(payload["base_plan"], ids)
                             if not expanded or set(expanded) != set(ids):
                                 raise ValueError("导演台工作流必须整组采纳候选")
+                    common_candidates = payload.get("common_prompt_candidates") or {}
+                    if payload.get("prompt_scope") == "shot_revision" and common_candidates:
+                        raise ValueError("需整组返修：单镜候选不能采纳共享设定")
+                    for affected in current.get("groups", []):
+                        if set(ids).intersection(affected["beat_ids"]):
+                            current.setdefault("group_prompt_history", []).append({"job_id": jid,
+                                "group": deepcopy(affected), "shot_prompts": {bid: deepcopy(current.get("shot_prompts", {}).get(bid)) for bid in affected["beat_ids"]}})
                     for bid in ids:
                         record = payload["candidates"].get(bid)
                         beat = next((b for b in data["beats"] if b["id"] == bid), None)
@@ -399,14 +440,38 @@ class WorkshopService:
                             raise ValueError("此候选已采纳；再次编辑请生成新候选")
                         if current.get("shot_prompts", {}).get(bid) != payload["base_plan"].get("shot_prompts", {}).get(bid):
                             raise ValueError("VERSION_CONFLICT: 当前镜头已有新稿，不能覆盖")
-                        errors = contract.prompt_checks(record.get("h3_prompt", ""), beat, group, h3=is_director(current),
+                        effective_group = {**group, "common_prompt": common_candidates.get(group["id"], group.get("common_prompt", ""))}
+                        if any(line not in effective_group["common_prompt"] for line in group.get("locked_common_lines") or []):
+                            raise ValueError("候选修改了显式锁定的公共设定")
+                        if record.get("content_digest") and record["content_digest"] != contract.digest([record["h3_prompt"], effective_group["common_prompt"], current.get("source_fingerprint"), record.get("contract_version")]):
+                            raise ValueError("候选正文或公共设定与生成证据不一致，请重新生成")
+                        errors = contract.prompt_checks(record.get("h3_prompt", ""), beat, effective_group, h3=is_director(current),
                                                         ordered_beats=[b for b in data["beats"] if b["id"] in group["beat_ids"]])
                         if errors:
                             raise ValueError("候选不符合当前 H3 要求，请重新生成：" + "；".join(errors))
                         current.setdefault("prompt_history", []).append({"beat_id": bid, "record": deepcopy(current.get("shot_prompts", {}).get(bid))})
-                        current.setdefault("shot_prompts", {})[bid] = record
+                        adopted = deepcopy(record)
+                        adopted["fingerprint"] = contract.prompt_fingerprint(beat, effective_group, current)
+                        adopted["authoring_job_id"] = jid
+                        current.setdefault("shot_prompts", {})[bid] = adopted
                         current.setdefault("applied_candidates", {}).setdefault(jid, []).append(bid)
                         payload["applied_ids"] = list(set(payload["applied_ids"]) | {bid})
+                    common_candidates = payload.get("common_prompt_candidates") or {}
+                    applied_groups = {next((g for g in current.get("groups", []) if bid in g["beat_ids"]), None)["id"] for bid in ids if next((g for g in current.get("groups", []) if bid in g["beat_ids"]), None)}
+                    for group_id in sorted(applied_groups):
+                        new_common = common_candidates.get(group_id)
+                        if not new_common:
+                            continue
+                        target_group = next((g for g in current.get("groups", []) if g["id"] == group_id), None)
+                        if target_group is None:
+                            continue
+                        old_common = target_group.get("common_prompt", "")
+                        if new_common != old_common:
+                            current.setdefault("common_prompt_history", []).append({"group_id": group_id, "old": old_common})
+                            target_group["common_prompt"] = new_common
+                    # Full inputs/drafts stay on the job, not recursively copied into every plan.
+                    if payload.get("writing_author"):
+                        current["writing_author"] = deepcopy(payload["writing_author"])
                     current["revision"] += 1
             cls.mutate(project_id, episode_id, request.get("expected_revision"), apply)
             execute_sql("UPDATE ai_project_jobs SET payload_json=%s,updated_at=%s WHERE id=%s AND project_id=%s", (json.dumps(payload, ensure_ascii=False), now_str(), jid, project_id))
@@ -430,6 +495,10 @@ class WorkshopService:
                         group["reference_policy"] = "auto" if group.get("reference_policy") == "auto" else "manual"
                     else:
                         group["reference_policy"] = "manual" if group.get("reference_slots") != old.get("reference_slots") else old.get("reference_policy", "auto")
+                        if group.get("common_prompt") != old.get("common_prompt"):
+                            group["locked_common_lines"] = [line for line in str(group.get("common_prompt") or "").splitlines() if line.strip()]
+                        elif old.get("locked_common_lines"):
+                            group["locked_common_lines"] = old["locked_common_lines"]
                 plan["groups"] = groups
             if "auto_reference_group_ids" in request:
                 ids = request["auto_reference_group_ids"]

@@ -767,6 +767,7 @@ class OpenAICompatibleClient:
         self.api_key = normalize_api_key(api_key) or api_key
         self.session = session or requests.Session()
         self.reasoning_effort = reasoning_effort
+        self.last_call_meta = {}
 
     @property
     def headers(self) -> dict[str, str]:
@@ -885,8 +886,26 @@ class OpenAICompatibleClient:
         on_chunk: Callable[[str], None] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
         reasoning_effort: str | None = None,
+        meta_out: dict[str, Any] | None = None,
     ) -> str:
+        started = time.monotonic()
+        call_meta = {
+            "base_url": self.base_url,
+            "requested_model": model,
+            "response_model": None,
+            "stream": bool(stream),
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "reasoning_effort": None,
+            "provider_request_id": None,
+            "usage": None,
+            "elapsed_ms": None,
+            "ok": False,
+        }
         url = f"{self.base_url}/chat/completions"
+        if meta_out is not None:
+            meta_out.update(call_meta)
+            call_meta = meta_out  # retain response evidence even when parsing raises
         connect_timeout, read_timeout = normalize_http_timeout(timeout)
         payload: dict[str, Any] = {
             "model": model,
@@ -899,6 +918,7 @@ class OpenAICompatibleClient:
             effective_reasoning_effort = reasoning_effort or self.reasoning_effort
             if effective_reasoning_effort:
                 payload["reasoning_effort"] = effective_reasoning_effort
+                call_meta["reasoning_effort"] = effective_reasoning_effort
         else:
             payload["temperature"] = temperature
             payload["max_tokens"] = max_tokens
@@ -938,9 +958,13 @@ class OpenAICompatibleClient:
                     on_chunk=on_chunk,
                     on_delta=on_delta or _LLM_STREAM_DELTA.get(),
                     read_timeout=read_timeout,
+                    meta_out=call_meta,
                 )
             else:
                 data = self._json(response, "对话推理")
+                call_meta["provider_request_id"] = data.get("id")
+                call_meta["response_model"] = data.get("model")
+                call_meta["usage"] = data.get("usage")
                 raw = self._extract_response_content(data)
         except LlmError as error:
             err_text = str(error)
@@ -956,6 +980,11 @@ class OpenAICompatibleClient:
         content = self._strip_thinking(raw)
         if not content:
             raise LlmError("大模型返回的内容为空")
+        call_meta["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+        call_meta["ok"] = True
+        if meta_out is not None:
+            meta_out.update(call_meta)
+        self.last_call_meta = call_meta
         return content
 
     def _read_chat_completion_body(
@@ -966,6 +995,7 @@ class OpenAICompatibleClient:
         on_chunk: Callable[[str], None] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
         read_timeout: float | None = None,
+        meta_out: dict[str, Any] | None = None,
     ) -> str:
         if response.status_code >= 400:
             data = self._json(response, "对话推理")
@@ -973,11 +1003,13 @@ class OpenAICompatibleClient:
         content_type = (response.headers.get("Content-Type") or "").lower()
         if stream and "json" in content_type and "event-stream" not in content_type:
             data = self._json(response, "对话推理")
+            if meta_out is not None:
+                meta_out.update(response_model=data.get("model"), provider_request_id=data.get("id"), usage=data.get("usage"))
             return self._extract_response_content(data)
         if stream:
             try:
                 response.encoding = "utf-8"
-                return self._read_sse_chat(response, on_chunk=on_chunk, on_delta=on_delta)
+                return self._read_sse_chat(response, on_chunk=on_chunk, on_delta=on_delta, meta_out=meta_out)
             except requests.exceptions.RequestException as exc:
                 # urllib3 wraps a streaming ReadTimeoutError in ConnectionError
                 # after the response headers have already been received.  Treat
@@ -1002,6 +1034,7 @@ class OpenAICompatibleClient:
         response: requests.Response,
         on_chunk: Callable[[str], None] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
+        meta_out: dict[str, Any] | None = None,
     ) -> str:
         pieces: list[str] = []
         last_emit = 0.0
@@ -1052,6 +1085,13 @@ class OpenAICompatibleClient:
                 continue
             if not isinstance(data, dict):
                 continue
+            if meta_out is not None:
+                if data.get("model"):
+                    meta_out["response_model"] = data["model"]
+                if data.get("id"):
+                    meta_out["provider_request_id"] = data.get("id")
+                if isinstance(data.get("usage"), dict):
+                    meta_out["usage"] = data.get("usage")
             self._raise_if_embedded_stream_error(data)
             reasoning, content = self._stream_delta_parts(data)
             if reasoning and delta_hook is not None:

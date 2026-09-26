@@ -1,5 +1,27 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-09-26：端点视觉能力与完整连接复用（当前基线）
+
+- 原因：按模型名推断会误判已支持图片的自定义模型；旧 VLM 复用仅覆盖地址与密钥，留下 GLM 模型和旧能力状态，导致设置页与真实调用不一致。
+- 能力唯一事实源为 `vision_capability.py`：`unknown / supported / unsupported`，绑定 profile、规范化 URL、模型、凭据指纹；双色 PNG 语义探测、24 小时有效期与端点缓存。变更连接或过期后失效；`legacy_name_guess` 只能提示，永不授权带图。GET 状态查询不触发探测。
+- `overlay_vlm_credentials()` 完整覆盖实际 LLM 地址、密钥、模型、profile 与能力/测试证据，保留 VLM 启用开关；独立 VLM 配置仍存原 profile。保存复用不将旧 GLM 与 LLM 地址拼接；已有有效证据直接共享，未知时验证真实 LLM，并将结果持久化回其 profile。并发变更不覆盖新配置。复用模式的重新探测委托 LLM 测试。
+- 写稿/分析路由只看真实能力，未知连接在实际带图调用时才探测；已验证 LLM 可写稿时不额外探测未使用的 VLM。通用写稿默认 `block`，显式 `warn_and_text` 才允许带警告的纯文本回退，记录实际作者、请求、图片数量和原因。统一工坊保留“指定作者、不自动换 VLM 写稿”的契约。
+- 受影响文件：`backend/app/{vision_capability,vision_runtime,llm_provider,vlm_provider,llm_client,storage,models,main}.py`、`media_studio/services/{llm_service,workshop_h3_skill}.py`、LLM/VLM 设置页、`WorkshopAuthoringEvidence.tsx` 与 `workshop-api.ts`、SQL 初始化文件及对应测试。
+- 兼容：LLM/VLM 单例与 profile 表增量加能力列，不清空配置、任务或媒体；`use_llm_credentials` API 名称保留，语义升级为完整复用；新增可选回显字段见 `docs/API.md`。旧任务缺少调用证据时不编造“已看图/未降级”。不改端口、ComfyUI 地址/节点/模型路径，不另起实例。
+- 验证：核心能力/路由/供应商 123 例、工坊 96 例、H3 154 例通过；`pnpm --dir frontend build` 通过（313 个前端测试）。5173 管理页桌面浅暗主题确认 LLM/VLM 同显 `deepseek-v4.1-flash` 和已验证可看图；未重复收费探测或执行真实业务生成。命令与未验范围见实施记录。
+- 回滚：仅撤回本轮视觉能力相关代码增量并重启后端，保留能力列、历史任务与独立配置；不要回滚同一工作区其他任务的改动。若临时关闭复用，需管理员保存独立 VLM 配置并验证。
+
+## 2026-09-26 增量：完整组稿合同与作者证据
+
+- 原因：附图路由可能改变实际作者，预先锁死公共设定限制整组创作，格式通过无法证明内容或音画合格。新合同 `h3-complete-group-v1` 全文加载指定 skill、记录哈希和完整剧本，超预算明确失败，不静默截断。
+- 创建任务时锁定写稿供应商、端点、模型、推理及合同快照；复用已配置 API 凭据，不持久化密钥或读取 Codex 凭据。不支持图片时默认阻断；显式 `fact_extraction=vlm` 仅提取外观事实，并声明非原样复现。请求模型与供应商返回模型分别记录，未返回时保持未知。
+- 作者输出完整公共设定与全部镜头，确定性拆分为 `common_prompt_candidates[group_id]` 和镜头 `candidates`，保留原稿。采纳在同一事务验证来源／参考／正文指纹，共同保存公共设定和正文，并归档旧组版本。单镜返修冻结公共设定与邻镜，越权返回需整组返修。
+- `workshop_review` 检查动作窗覆盖、对白静默尾部和有限的带证据冲突；字速为风险提示，否定句如“不得让环境声盖过台词”不误报。`semantic_status=pending_human`、`media_status=not_reviewed` 始终明确。最多三次作者调用；无进展、越权、退步时提前停止，较好未通过稿不自动采纳。
+- `authoring` 保存合同、每次输入／原稿／差异／检查／调用元数据及保留稿。`contract_version`、`content_digest`、`authoring_job_id` 连接采纳记录与任务；这些是现有 JSON 的版本化附加字段，不批量改写历史稿。具体 API 见 [接口说明](API.md#2026-09-26-完整组稿与作者证据扩展)。
+- 受影响文件：`backend/app/media_studio/services/{workshop_h3_skill,workshop_group_prompts,workshop_review,workshop_service,workshop_contract,llm_service}.py`、`backend/app/llm_client.py`、`frontend/src/director2/{workshop-api.ts,panes/UnifiedWorkshopPane.tsx,panes/WorkshopAuthoringEvidence.tsx,panes/unified-workshop.css}` 及相关测试。此合同不改端口、节点 ID、模型路径或表结构；工作区同时存在的视觉能力字段改动属于独立的视觉路由计划，不在本记录中冒称已完成迁移。
+- 验证：工坊 96 项、H3／作者／视觉相关组合最终复跑 308 项、前端 313 项及 `pnpm --dir frontend build` 通过。全量后端回归仍有 10 failures／3 errors，范围见续接记录。满意文本已覆盖解析 → v7 执行投影 → timeline → 序列化 Comfy graph 的公共文本、正文、参考映射与帧数检查；不等于真实提交或音画验收。桌面截图被 Browser 鉴权阻塞，未更新视觉基线。
+- 兼容与回滚：旧任务按原快照读取；新合同不支持时拒绝新执行而保留候选。暂停新增写稿后仅回退相关入口和合同增量，保留证据、历史组与媒体，不让旧写入器降级覆盖新记录。完整阶段状态与真实环境限制见 [续接记录](导演台满意版效果恢复开发计划-2026-09-26.md#11-续接实施记录2026-09-26)。
+
 2026-09-25：统一工坊 v7 的有效参考集中由 `workshop_references.resolve_state` 解析。新组自动、旧非空组兼容手动，GET 只投影不回写；保存依旧行锁＋revision，并增加可选资产快照 `expected_reference_fingerprint`。缺图前置阻断，换图使旧稿指纹失效。无表迁移，受影响文件、测试和回滚见 [参考图生命周期修复](工坊参考图自动关联修复-2026-09-25.md)。
 
 2026-09-25：Director 工作流按整组生成和采纳提示词，支持保留同组上下文的单镜返修；任务新增生成范围标记并检查组内并发变化。原因、兼容、验证与回滚见 [整组写词与单镜返修](导演台整组写词与单镜返修-2026-09-25.md)。
@@ -556,7 +578,7 @@ Director 方案 schema v4、模板 `prompt-master/continuous-story@5`、规划�
 ## 2026-09-18 写稿看图走多模态 LLM，工坊一次产出中英双稿
 
 - 变更原因：工坊第一次看图走独立弱 VLM，装箱再走纯文本 LLM；`gpt-5.6-sol` 配在 LLM 页也看不到图。看图失败还会静默改成纯文本。
-- 当前基线：`vision_runtime.py` 统一解析。写稿/润色（工坊 H3、生成页优化、导演台最终润色）优先用名称可看图的 LLM，否则用已启用的 VLM；7B 等纯文本模型不发 `image_url`。反推/拉片/主体分析仍默认 VLM，VLM 未开且 LLM 可看图时才回退 LLM。工坊一次多模态请求按 `<<<ZH>>>` / `<<<EN>>>` 同时写中文八块和英文六段；英文通过校验则跳过第二次 `_request_h3_prompt`。半解说包 `skip_program_pack` 时中文或英文未过即任务失败；未绑包时中文过、英文不过仍可用 `polish_ref2va` 六段壳叠加细节。任务记录 `vision_status`（`used` / `failed_text_fallback` / `unavailable`），工坊提示词旁显示看图状态。`GET /api/llm/status.supports_vision` 表示写稿路径能否附图。VLM 页可复用 LLM 凭据（默认关）。本地 H3 仍只吃角色卡、场景卡、起幅。
+- 当前基线：`vision_runtime.py` 统一解析。写稿/润色（工坊 H3、生成页优化、导演台最终润色）优先使用经端点验证可看图的 LLM，否则使用已验证的 VLM；未知或不支持的连接不按名字授权 `image_url`。反推/拉片/主体分析仍默认 VLM，VLM 未开且 LLM 可看图时才回退 LLM。工坊一次多模态请求按 `<<<ZH>>>` / `<<<EN>>>` 同时写中文八块和英文六段；英文通过校验则跳过第二次 `_request_h3_prompt`。半解说包 `skip_program_pack` 时中文或英文未过即任务失败；未绑包时中文过、英文不过仍可用 `polish_ref2va` 六段壳叠加细节。任务记录 `vision_status`（`used` / `failed_text_fallback` / `unavailable`），工坊提示词旁显示看图状态。`GET /api/llm/status.supports_vision` 表示写稿路径能否附图。VLM 页可复用 LLM 凭据（默认关）。本地 H3 仍只吃角色卡、场景卡、起幅。
 - 受影响文件：`vision_runtime.py`、`llm_service.py`、`skill_packs/handlers.py`、`vlm_provider.py`、`llm_provider.py`、`models.py`、`main.py`、管理页 LLM/VLM、工坊前端、对应测试与三份主文档、`docs/API.md`、`docs/导演台流程与界面结构.md`。
 - 兼容性：不改技能包四阶段 ID；不把整张三联送进本地 H3。`vlm_provider_settings.use_llm_credentials` 默认 0。未绑技能包仍走默认程序装箱。
 - 验证命令：`python -m unittest backend.tests.test_vision_runtime backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_llm backend.tests.test_vlm`；`pnpm --dir frontend exec vitest run src/director2/workshop-vision-status.test.ts`。

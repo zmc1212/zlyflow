@@ -1,0 +1,14 @@
+{
+  "id": "job-3b353200eda8",
+  "project_id": "proj-0f9c8015281149f0",
+  "job_type": "video_generation",
+  "title": "生成Director 选中 3 段视频：第 1 集 穿越危机",
+  "status": "completed",
+  "progress": 100,
+  "result_url": "https://img.zlyun168.com/zly-ai-video-studio/video/20260926/183053_0d67fffebd3450eb.mp4",
+  "error_message": null,
+  "created_at": "2026-09-26 18:12:31",
+  "completed_at": "2026-09-26 18:30:57",
+  "updated_at": "2026-09-26 18:30:57",
+  "payload_json_bytes": 214378
+}

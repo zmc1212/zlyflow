@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, AutoComplete, Button, Input, Select, Switch, message } from "antd"
+import { Alert, AutoComplete, Button, Input, Select, Switch, Tag, message } from "antd"
 import { Bot, CheckCircle2, ExternalLink, KeyRound, RefreshCw, Sparkles } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
@@ -19,6 +19,16 @@ type LlmConfig = {
   last_test_message?: string | null
   last_test_at?: string | null
   supports_vision?: boolean
+  vision_capability?: string | null
+  vision_capability_source?: string | null
+  vision_capability_checked_at?: string | null
+  vision_capability_message?: string | null
+}
+
+const VISION_CAP_LABEL: Record<string, { text: string; color: string }> = {
+  supported: { text: "已验证可看图", color: "success" },
+  unsupported: { text: "视觉探测未通过", color: "error" },
+  unknown: { text: "未验证或已过期", color: "warning" },
 }
 
 type ProviderProfile = {
@@ -58,17 +68,6 @@ function modelSupportsReasoningEffort(model: string): boolean {
   return /^(o1|o3|o4)/.test(name)
 }
 
-function modelLooksLikeVision(model: string): boolean {
-  const lowered = model.trim().toLowerCase()
-  if (!lowered) return false
-  return [
-    "vl", "vision", "gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "o4-mini",
-    "gemini", "claude-3", "claude-4", "claude-sonnet", "claude-opus", "claude-haiku",
-    "llava", "pixtral", "minimax-vl", "glm-4v", "glm-4.1v", "glm-4.5v", "glm-4.6v",
-    "glm-5v", "internvl", "phi-4-multimodal", "phi-3.5-vision", "gemma-3", "gemma-4",
-    "minicpm-v", "step-1v", "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen-vl",
-  ].some((marker) => lowered.includes(marker))
-}
 
 type CatalogModel = {
   id: string
@@ -225,6 +224,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ["llm-provider"] }),
     queryClient.invalidateQueries({ queryKey: ["llm-provider-profiles"] }),
+    queryClient.invalidateQueries({ queryKey: ["vlm-provider"] }),
   ])
 
   const save = useMutation({
@@ -258,10 +258,12 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
           api_key: apiKey || null,
         }),
       ),
-    onSuccess: () => {
-      refresh()
-      message.success("大模型连接测试成功")
+    onSuccess: (data) => {
+      if (!data.vision_capability_message?.includes("当前输入未保存")) refresh()
+      if (data.vision_capability === "supported") message.success("文本连接与视觉探测均通过")
+      else message.warning("文本连接成功，但视觉探测未通过；请查看具体原因")
     },
+    onError: () => { void refresh() },
   })
 
   const catalog = useMutation({
@@ -327,7 +329,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
         <div>
           <h2 className="text-base font-semibold text-[#111827]">LLM 大模型服务</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            通用 OpenAI 兼容协议，用于创作提示词一键润色、拆剧本和导演台文本对话。名称可看图的多模态模型（如 gpt-5.6-sol）会在工坊写稿时带参考图调用；看图反推、原片提示词与复刻台拉片请到「VLM 视觉模型」单独配置。魔搭会扣除账户魔粒；不想扣费请用硅基流动免费 7B 或本机 Ollama。
+            通用 OpenAI 兼容协议，用于创作提示词润色、拆剧本和导演台对话。通过视觉探测的连接可带图写稿；VLM 页可直接复用这里的完整连接、模型与验证结果，也可独立配置。
           </p>
         </div>
       </div>
@@ -431,17 +433,17 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                   ? "展开下拉框可看到本机已安装模型，名称须与服务端完全一致。"
                   : "展开下拉框可看到推荐或已拉取的模型，也可直接输入模型 ID。"}
             </p>
-            {modelLooksLikeVision(model) ? (
+            {query.data?.supports_vision && model.trim() === query.data.model && baseUrl.trim().replace(/\/+$/, "") === query.data.base_url.replace(/\/+$/, "") && selectedPreset === query.data.profile_id && !apiKey.trim() ? (
               <Alert
                 className="mt-2"
                 type="info"
                 showIcon
                 message="工坊写稿会带参考图调用此模型"
-                description="当前名称可识别为多模态。剧集工坊生成 H3 提示词时会把角色卡、场景卡和三联一并送给该模型，不必再抄到 VLM 页。"
+                description="当前连接已通过真实图片探测。工坊带图写稿会使用视觉能力；VLM 页启用复用连接后可直接共享此验证结果。"
               />
             ) : (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
-                当前模型名称不能看图。工坊写稿不会发送 image_url，最多把参考图地址当文字；7B 等纯文本模型也是如此。
+                模型名称不能证明是否支持看图。请保存当前连接并重新探测；要求看图的写稿不会静默降级为纯文本。
               </p>
             )}
           </div>
@@ -495,7 +497,14 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
             >
               测试连接
             </Button>
+            <Button loading={test.isPending} disabled={save.isPending} onClick={() => test.mutate()} icon={<RefreshCw size={15} />}>
+              重新探测视觉能力
+            </Button>
           </div>
+          <p className="text-xs text-[var(--studio-text-secondary)]">测试会先验证文本连接，再用两张单色图探测视觉能力；不会生成业务文稿。修改地址、模型或密钥后需要重新验证。</p>
+          {test.data ? <Alert showIcon type={test.data.vision_capability === "supported" ? "success" : "warning"}
+            message={`最近一次测试（${test.data.model}）：${VISION_CAP_LABEL[test.data.vision_capability || "unknown"]?.text || "未验证"}`}
+            description={test.data.vision_capability_message} /> : null}
         </div>
 
         <aside className="rounded-2xl border border-black/[0.06] bg-white p-6 shadow-sm flex flex-col justify-between">
@@ -530,6 +539,23 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                   <dd className="mt-1 break-all text-[11px] text-[#6b7280]">{query.data.last_test_message}</dd>
                 )}
               </div>
+              <div>
+                <dt className="text-[#6b7280]">已保存连接的看图能力</dt>
+                <dd className="mt-1"><Tag color={VISION_CAP_LABEL[query.data?.vision_capability || "unknown"]?.color || "warning"}>
+                  {VISION_CAP_LABEL[query.data?.vision_capability || "unknown"]?.text || "未探测"}
+                </Tag></dd>
+                {query.data?.vision_capability_checked_at ? (
+                  <dd className="mt-1 text-[11px] text-[#6b7280]">
+                    探测于 {new Date(query.data.vision_capability_checked_at).toLocaleString("zh-CN", { hour12: false })}
+                  </dd>
+                ) : null}
+                {query.data?.vision_capability_source === "legacy_name_guess" ? (
+                  <dd className="mt-1 text-[11px] text-[#6b7280]">来自名称推断，尚未实测，点「测试连接」可真实探测。</dd>
+                ) : null}
+                {query.data?.vision_capability_message ? (
+                  <dd className="mt-1 break-all text-[11px] text-[#6b7280]">{query.data.vision_capability_message}</dd>
+                ) : null}
+              </div>
             </dl>
           </div>
 
@@ -544,7 +570,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                   ? "魔搭不再提供独立于账户余额的免费次数池。调用会扣魔粒；工作台已对 DeepSeek-V4 关闭思考模式以降低单次消耗，但无法阻止扣费。"
                   : selectedPreset === "siliconflow"
                     ? "会拉取硅基流动全部模型，再用名称或标记里的 Free 文字筛选免费项。Qwen2.5-7B-Instruct 等免费模型不扣魔搭魔粒。"
-                    : "请按所选平台的官方文档配置 Base URL、模型名和 API Key。拉取列表只验证目录接口；「测试连接」会问一句「你是什么模型」，模型有回复即成功。GPT-5 测试时关闭思考。部分中转站会拦截过短探测，列表能拉到但对话失败时请以测试结果为准。"}
+                    : "请按所选平台的官方文档配置 Base URL、模型名和 API Key。拉取列表只验证目录接口；「测试连接」分别检查文本连接与双色图视觉能力。文本连接成功不等于支持看图，视觉探测结果以当前已保存连接为准。"}
             </p>
           </div>
         </aside>

@@ -478,6 +478,13 @@ class LlmProviderResponse(BaseModel):
     last_test_at: str | None = None
     supports_vision: bool = False
     use_llm_credentials: bool = False
+    vision_capability: str = "unknown"
+    independent_base_url: str | None = None
+    independent_model: str | None = None
+    connection_source: str | None = None
+    vision_capability_source: str | None = None
+    vision_capability_checked_at: str | None = None
+    vision_capability_message: str | None = None
 
 
 class ProviderProfileResponse(BaseModel):

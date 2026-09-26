@@ -1,5 +1,31 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-09-26：视觉能力与 VLM 复用语义
+
+`GET /api/admin/providers/llm|vlm` 与对应 `POST .../test` 返回 `vision_capability`（`unknown/supported/unsupported`）、`vision_capability_source`、`vision_capability_checked_at`、脱敏 `vision_capability_message` 和 `supports_vision`。有效证据绑定 profile/URL/模型/凭据，有效期 24 小时；过期或连接变化后为 unknown。文本连通性成功不等于可看图；历史 `legacy_name_guess` 不授权图片。指纹和原始凭据不公开。
+
+VLM `use_llm_credentials=true` 表示完整复用 LLM，不再仅借地址/Key：
+
+- GET 的 `base_url`、`model`、能力与最近测试字段返回实际 LLM 值；新增 `connection_source=llm|vlm`。`profile_id` 仍标识保留的独立 VLM profile，`independent_base_url` / `independent_model` 用于恢复独立表单，不返回独立明文 Key。
+- PUT 忽略复用请求中的独立地址/模型/Key，保留原独立配置，只更新 VLM 启用与复用开关。已验证同一 LLM 不重复探测；未验证时验证真实 LLM，失败返回 422 且不保存复用。并发连接变更同样拒绝旧验证结果。
+- POST `/vlm/test` 在复用模式测试实际已保存的 LLM，更新其能力记录，两个设置页共享结果；失败明确报错。关闭复用时仍按独立 VLM 地址/模型/Key 工作。
+- 测试未保存的独立表单输入不为已保存连接授权，响应消息明确标记“当前输入未保存”。
+
+`GET /api/llm/status` 的 `supports_vision`、`authoring_vision` 与 `analysis_vision` 使用有效端点能力，不按模型名猜测。任务证据提供 requested/actual model、source、status、image count、request id、fallback、warning 与 decision reason；默认带图失败阻断，显式纯文本回退必须有警告。工坊指定作者契约不变。兼容、受影响文件、验证命令和回滚见 [实施记录](大模型视觉能力路由彻底修复开发计划-2026-09-26.md)。
+
+## 2026-09-26 完整组稿与作者证据扩展
+
+在既有 `/api/projects/{project_id}/episodes/{episode_id}` 前缀下，路由和鉴权保持不变：
+
+- `GET /workshop` 增加 `writing_author` 与 `writing_profiles`，仅含 `profile_id`、`model`、`reasoning_effort` 这类可公开的配置字段，不返回密钥。
+- `POST /workshop/prompts` 的 Director 请求可传 `writing_author: {profile_id, model, reasoning_effort}` 与 `fact_extraction: "" | "vlm"`；仍需 `expected_revision`，支持原有 `expected_reference_fingerprint`。省略作者时解析已采纳作者或当前 LLM 配置，创建时锁定实际端点和合同；不能通过请求更换凭据来源。未知图片处理模式拒绝。
+- 任务 `payload.authoring.contracts[group_id]` 保存版本、完整 skill／system、skill 和剧本哈希及 `context_policy`；`writing_history[]` 保存轮次、组、输入、图像 URL、原稿、差异、问题、检查结果与 `author` 请求／响应元数据。供应商没有返回的信息为未知；无密钥。
+- `payload.common_prompt_candidates[group_id]` 与 `payload.candidates[beat_id]` 是未采纳候选；`authoring.reviews`、`authoring.rejected_groups` 分别保存规则检查及较好但未通过草稿。`structure_status`、`content_status`、`semantic_status`、`media_status` 不可混为成功状态。
+- `POST /workshop/jobs/{job_id}/actions` 的采纳沿用原事务与并发保护：整组公共设定和所有镜头一起提交，新增 `group_prompt_history`、正文 `contract_version/content_digest/authoring_job_id` 作为归档与保真证据。过期来源、参考、正文或锁定项变化拒绝覆盖。
+- `prompt_scope=shot_revision` 仍要求单镜和返修意见；模型看完整组上下文，但公共设定及其他镜头不可修改，越权报告“需整组返修”。默认最多三次作者调用，失败证据保留，不自动提交视频。
+
+兼容：附加 JSON 字段，旧任务继续可读，不批量补造调用元数据。受影响实现、测试命令与安全回滚见 [架构增量](ARCHITECTURE.md#2026-09-26-增量完整组稿合同与作者证据)；桌面与真实 GPT-6／视频验收尚未完成，见 [续接记录](导演台满意版效果恢复开发计划-2026-09-26.md#11-续接实施记录2026-09-26)。
+
 ## 2026-09-25 工坊参考快照扩展
 
 v7 计划返回 `reference_fingerprint`；组返回 `reference_policy: auto | manual` 和 `reference_issues: string[]`。工坊保存、写词、任务采纳以及工坊视频创建可提交 `expected_reference_fingerprint`；资产快照变化返回 `VERSION_CONFLICT`，不覆盖旧稿。PATCH 可传 `auto_reference_group_ids: string[]` 恢复指定组自动关联。旧客户端字段可省略，原 `expected_revision` 校验继续生效。兼容及回滚见 [修复记录](工坊参考图自动关联修复-2026-09-25.md)。

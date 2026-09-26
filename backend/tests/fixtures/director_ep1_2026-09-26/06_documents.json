@@ -1,0 +1,64 @@
+[
+  {
+    "id": "doc-e2e8c8efba96",
+    "filename": "寒门硕士穿越古代逆袭记_AI视频详细分镜版",
+    "input_mode": "file",
+    "status": "ready",
+    "raw_text_len": 10742,
+    "analysis_json_keys": {
+      "type": "dict",
+      "keys": {
+        "title": {
+          "type": "str",
+          "length": 14
+        },
+        "summary": {
+          "type": "str",
+          "length": 47
+        },
+        "positioning": {
+          "type": "dict",
+          "size": 6
+        },
+        "visual_style": {
+          "type": "dict",
+          "size": 2
+        },
+        "characters": {
+          "type": "list",
+          "size": 11
+        },
+        "scenes": {
+          "type": "list",
+          "size": 13
+        },
+        "props": {
+          "type": "list",
+          "size": 16
+        },
+        "episodes": {
+          "type": "list",
+          "size": 6
+        },
+        "production_advice": {
+          "type": "str",
+          "length": 0
+        },
+        "model": {
+          "type": "str",
+          "length": 29
+        },
+        "logs": {
+          "type": "list",
+          "size": 14
+        },
+        "script_development": {
+          "type": "dict",
+          "size": 7
+        }
+      }
+    },
+    "created_at": "2026-09-20 15:13:25",
+    "updated_at": "2026-09-24 23:07:03"
+  }
+]

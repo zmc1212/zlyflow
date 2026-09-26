@@ -154,6 +154,12 @@ def prompt_fingerprint(beat, group, plan):
                    beat.get("workshop_writing_refs") or []])
 
 
+def content_matches(record, group, plan):
+    """Versioned integrity check; old records are not silently migrated."""
+    return not record.get("content_digest") or record["content_digest"] == digest([
+        record.get("h3_prompt"), group.get("common_prompt"), plan.get("source_fingerprint"), record.get("contract_version")])
+
+
 def prompt_checks(body, beat, group, *, h3=False, ordered_beats=None):
     errors = []
     if not str(body).strip():
@@ -200,7 +206,7 @@ def project_prompts(beats, plan):
         beat["h3_prompt"] = record.get("h3_prompt", "")
         beat["h3_prompt_source"] = "workshop_v7"
         ordered = [b for b in beats if b["id"] in group.get("beat_ids", [])]
-        valid = not prompt_checks(beat["h3_prompt"], beat, group, h3=workflow_for(plan["workflow_id"]).prompt_profile == "director_segments", ordered_beats=ordered) if record else False
+        valid = content_matches(record, group, plan) and not prompt_checks(beat["h3_prompt"], beat, group, h3=workflow_for(plan["workflow_id"]).prompt_profile == "director_segments", ordered_beats=ordered) if record else False
         beat["h3_prompt_reference_state"] = "current" if valid and not group.get("reference_issues") and record.get("fingerprint") == prompt_fingerprint(beat, group, plan) else "stale" if record else "missing"
     return result
 
@@ -253,6 +259,8 @@ def execution_plan(detail, selected_ids=None):
             record = plan.get("shot_prompts", {}).get(bid, {})
             if record.get("fingerprint") != prompt_fingerprint(beat, group, plan):
                 raise ValueError(f"镜头 {beat.get('sequence', bid)} 提示词缺失或待更新")
+            if not content_matches(record, group, plan):
+                raise ValueError(f"镜头 {beat.get('sequence', bid)} 正文与采纳证据不一致，请检查后重新保存")
             ordered = [by_id[x] for x in group["beat_ids"] if x in by_id]
             errors = prompt_checks(record.get("h3_prompt", ""), beat, group, h3=definition.prompt_profile == "director_segments", ordered_beats=ordered)
             if errors:

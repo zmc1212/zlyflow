@@ -1,0 +1,2632 @@
+{
+  "workflow": "minimax-h3-director-accel-r2v",
+  "duration_per_beat": 8.0,
+  "fps": 24,
+  "frames_per_beat": 192,
+  "width": 608,
+  "height": 352,
+  "audio_mode": "generate",
+  "seed": 1633461653,
+  "steps": 25,
+  "sampler": "res_multistep",
+  "scheduler": "simple",
+  "aspect_ratio": "16:9",
+  "quality": "0.2",
+  "megapixels": 0.2,
+  "duration": 5.0,
+  "speed": "quality",
+  "weight_profile": "full",
+  "use_sage_attention": true,
+  "upscale_after": "off",
+  "sampler_name": "res_multistep",
+  "shift_video": 12.0,
+  "shift_audio": 3.0,
+  "cfg": 1.0,
+  "sage_allow_compile": true,
+  "video_steps": 25,
+  "audio_steps": 25,
+  "lora_strength": 0.0,
+  "reference_image_size": "match",
+  "workflow_id": "minimax-h3-director-accel-r2v",
+  "render_pass": "final",
+  "model": "H3 Director 加速版 多参考视频",
+  "api_endpoint": "http://192.168.10.54:8188/prompt",
+  "target_type": "shot_video",
+  "render_scope": "selection",
+  "render_mode": "episode",
+  "project_id": "proj-0f9c8015281149f0",
+  "episode_id": "ep-4d89a8df80a4",
+  "beat_id": "beat-c99c747a1e46",
+  "beat_ids": [
+    "beat-c99c747a1e46",
+    "beat-5949bf77b487",
+    "beat-cba65156421e"
+  ],
+  "episode_number": 1,
+  "episode_title": "穿越危机",
+  "shot_count": 3,
+  "total_frames": 576,
+  "total_duration_seconds": 24.0,
+  "comfy_base_url": "http://192.168.10.54:8188",
+  "task_type": "r2v — 参考主体生视频(Reference to Video)",
+  "source_shots": [
+    {
+      "beat_id": "beat-c99c747a1e46",
+      "sequence": 1,
+      "heading": "伏案研读 · 现代图书馆·深夜 · 16:9，中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓",
+      "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt_source": "workshop_v7",
+      "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+      "duration_sec": 8.0,
+      "duration_seconds": 8.0,
+      "frame_count": 192,
+      "planned_frame_count": 192,
+      "reference_urls": [
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png"
+      ],
+      "group_render_mode": "director",
+      "group_workflow_id": "minimax-h3-director-accel-r2v",
+      "group_options": {
+        "aspect_ratio": "16:9"
+      },
+      "part_boundary": true,
+      "director_part_id": "group-782f50c21f2b",
+      "continuity": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-c99c747a1e46"
+      },
+      "source_beat_ids": [
+        "beat-c99c747a1e46"
+      ],
+      "continuity_from_prev": false
+    },
+    {
+      "beat_id": "beat-5949bf77b487",
+      "sequence": 2,
+      "heading": "提笔记录 · 现代图书馆·深夜 · 16:9，近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页",
+      "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt_source": "workshop_v7",
+      "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+      "duration_sec": 8.0,
+      "duration_seconds": 8.0,
+      "frame_count": 192,
+      "planned_frame_count": 192,
+      "reference_urls": [
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png"
+      ],
+      "group_render_mode": "director",
+      "group_workflow_id": "minimax-h3-director-accel-r2v",
+      "group_options": {
+        "aspect_ratio": "16:9"
+      },
+      "part_boundary": false,
+      "director_part_id": "group-782f50c21f2b",
+      "continuity": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-5949bf77b487"
+      },
+      "source_beat_ids": [
+        "beat-5949bf77b487"
+      ],
+      "continuity_from_prev": true
+    },
+    {
+      "beat_id": "beat-cba65156421e",
+      "sequence": 3,
+      "heading": "起身寻书 · 现代图书馆·深夜 · 16:9，全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深",
+      "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt_source": "workshop_v7",
+      "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+      "duration_sec": 8.0,
+      "duration_seconds": 8.0,
+      "frame_count": 192,
+      "planned_frame_count": 192,
+      "reference_urls": [
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png"
+      ],
+      "group_render_mode": "director",
+      "group_workflow_id": "minimax-h3-director-accel-r2v",
+      "group_options": {
+        "aspect_ratio": "16:9"
+      },
+      "part_boundary": false,
+      "director_part_id": "group-782f50c21f2b",
+      "continuity": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-cba65156421e"
+      },
+      "source_beat_ids": [
+        "beat-cba65156421e"
+      ],
+      "continuity_from_prev": true
+    }
+  ],
+  "shots": [
+    {
+      "beat_id": "beat-c99c747a1e46",
+      "sequence": 1,
+      "heading": "伏案研读 · 现代图书馆·深夜 · 16:9，中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓",
+      "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt_source": "workshop_v7",
+      "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+      "duration_sec": 8.0,
+      "duration_seconds": 8.0,
+      "frame_count": 192,
+      "planned_frame_count": 192,
+      "reference_urls": [
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png"
+      ],
+      "group_render_mode": "director",
+      "group_workflow_id": "minimax-h3-director-accel-r2v",
+      "group_options": {
+        "aspect_ratio": "16:9"
+      },
+      "part_boundary": true,
+      "director_part_id": "group-782f50c21f2b",
+      "continuity": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-c99c747a1e46"
+      },
+      "source_beat_ids": [
+        "beat-c99c747a1e46"
+      ],
+      "continuity_from_prev": false,
+      "uploaded_refs": [
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+          "fileName": "beat-1-picture-1-3c08fc516f73.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+          "fileName": "beat-1-picture-2-7bf1863150fe.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+          "fileName": "beat-1-picture-3-c8978664ed06.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+          "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        }
+      ],
+      "segmentIndex": 0,
+      "renderStatus": "succeeded",
+      "promptSnapshot": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "continuityIn": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-c99c747a1e46"
+      },
+      "continuityOut": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-c99c747a1e46"
+      },
+      "outputStart": 0,
+      "outputDuration": 8.0
+    },
+    {
+      "beat_id": "beat-5949bf77b487",
+      "sequence": 2,
+      "heading": "提笔记录 · 现代图书馆·深夜 · 16:9，近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页",
+      "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt_source": "workshop_v7",
+      "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+      "duration_sec": 8.0,
+      "duration_seconds": 8.0,
+      "frame_count": 192,
+      "planned_frame_count": 192,
+      "reference_urls": [
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png"
+      ],
+      "group_render_mode": "director",
+      "group_workflow_id": "minimax-h3-director-accel-r2v",
+      "group_options": {
+        "aspect_ratio": "16:9"
+      },
+      "part_boundary": false,
+      "director_part_id": "group-782f50c21f2b",
+      "continuity": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-5949bf77b487"
+      },
+      "source_beat_ids": [
+        "beat-5949bf77b487"
+      ],
+      "continuity_from_prev": true,
+      "uploaded_refs": [
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+          "fileName": "beat-1-picture-1-3c08fc516f73.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+          "fileName": "beat-1-picture-2-7bf1863150fe.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+          "fileName": "beat-1-picture-3-c8978664ed06.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+          "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        }
+      ],
+      "segmentIndex": 0,
+      "renderStatus": "succeeded",
+      "promptSnapshot": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "continuityIn": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-5949bf77b487"
+      },
+      "continuityOut": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-5949bf77b487"
+      },
+      "outputStart": 0,
+      "outputDuration": 8.0
+    },
+    {
+      "beat_id": "beat-cba65156421e",
+      "sequence": 3,
+      "heading": "起身寻书 · 现代图书馆·深夜 · 16:9，全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深",
+      "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "h3_prompt_source": "workshop_v7",
+      "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+      "duration_sec": 8.0,
+      "duration_seconds": 8.0,
+      "frame_count": 192,
+      "planned_frame_count": 192,
+      "reference_urls": [
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+        "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png"
+      ],
+      "group_render_mode": "director",
+      "group_workflow_id": "minimax-h3-director-accel-r2v",
+      "group_options": {
+        "aspect_ratio": "16:9"
+      },
+      "part_boundary": false,
+      "director_part_id": "group-782f50c21f2b",
+      "continuity": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-cba65156421e"
+      },
+      "source_beat_ids": [
+        "beat-cba65156421e"
+      ],
+      "continuity_from_prev": true,
+      "uploaded_refs": [
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+          "fileName": "beat-1-picture-1-3c08fc516f73.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+          "fileName": "beat-1-picture-2-7bf1863150fe.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+          "fileName": "beat-1-picture-3-c8978664ed06.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        },
+        {
+          "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+          "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+          "type": "input",
+          "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+        }
+      ],
+      "segmentIndex": 0,
+      "renderStatus": "succeeded",
+      "promptSnapshot": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+      "continuityIn": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-cba65156421e"
+      },
+      "continuityOut": {
+        "partId": "group-782f50c21f2b",
+        "segmentId": "beat-cba65156421e"
+      },
+      "outputStart": 0,
+      "outputDuration": 8.0
+    }
+  ],
+  "render_plan": {
+    "status": "succeeded",
+    "mode": "timeline",
+    "capabilities": {
+      "supports_timeline": true,
+      "supports_multi_segment": true,
+      "max_segments": 6,
+      "max_total_frames": 1152,
+      "supports_segment_continuity": true,
+      "supports_audio_batch": true
+    },
+    "chunk_count": 1,
+    "chunks": [
+      {
+        "index": 0,
+        "shot_ids": [
+          "beat-c99c747a1e46",
+          "beat-5949bf77b487",
+          "beat-cba65156421e"
+        ],
+        "status": "succeeded",
+        "output_start": 0,
+        "output_duration": 24.0,
+        "timeline": {
+          "version": 5,
+          "editMode": "segment",
+          "totalFrames": 576,
+          "frameRate": 24,
+          "global": {
+            "taskType": "r2v — 参考主体生视频(Reference to Video)",
+            "prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+            "refs": [],
+            "referenceVideo": {
+              "videoFile": "",
+              "fileName": "",
+              "type": "input",
+              "subfolder": ""
+            },
+            "continuousReference": false,
+            "genImage": {
+              "imageFile": ""
+            },
+            "sourceWidth": 608,
+            "sourceHeight": 352,
+            "refAudios": [],
+            "refVideos": [],
+            "commonEnabled": true,
+            "commonCollapsed": true
+          },
+          "output": {
+            "mode": "fixed",
+            "aspectRatio": "16:9 (宽屏)",
+            "megapixels": 0.2,
+            "multiple": 32,
+            "longEdge": 608,
+            "width": 608,
+            "height": 352,
+            "maxExportFrames": 0,
+            "exportMode": "all",
+            "audioMode": "generate",
+            "exportSourceImages": false,
+            "refImageSize": "match",
+            "continuityEnabled": true,
+            "continuityOverlapFrames": 5,
+            "continuityMode": "guide",
+            "continuityRedraw": 0.65
+          },
+          "runSelectEnabled": false,
+          "runSelection": [],
+          "segments": [
+            {
+              "id": "beat-c99c747a1e46",
+              "start": 0,
+              "length": 192,
+              "frameCount": 192,
+              "durationSec": 8.0,
+              "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+              "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+              "taskType": "r2v — 参考主体生视频(Reference to Video)",
+              "refs": [
+                {
+                  "index": 0,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                  "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 1,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                  "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 2,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                  "fileName": "beat-1-picture-3-c8978664ed06.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 3,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                  "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                }
+              ],
+              "refAudios": [],
+              "refVideos": [],
+              "genImage": {
+                "imageFile": "",
+                "fileName": ""
+              },
+              "continuityFromPrev": false,
+              "refImageSize": "match",
+              "referenceVideo": {
+                "videoFile": "",
+                "fileName": "",
+                "type": "input",
+                "subfolder": ""
+              },
+              "_videoFrameCount": 192,
+              "previewFps": 24
+            },
+            {
+              "id": "beat-5949bf77b487",
+              "start": 192,
+              "length": 192,
+              "frameCount": 192,
+              "durationSec": 8.0,
+              "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+              "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+              "taskType": "r2v — 参考主体生视频(Reference to Video)",
+              "refs": [
+                {
+                  "index": 0,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                  "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 1,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                  "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 2,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                  "fileName": "beat-1-picture-3-c8978664ed06.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 3,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                  "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                }
+              ],
+              "refAudios": [],
+              "refVideos": [],
+              "genImage": {
+                "imageFile": "",
+                "fileName": ""
+              },
+              "continuityFromPrev": true,
+              "refImageSize": "match",
+              "referenceVideo": {
+                "videoFile": "",
+                "fileName": "",
+                "type": "input",
+                "subfolder": ""
+              },
+              "_videoFrameCount": 192,
+              "previewFps": 24
+            },
+            {
+              "id": "beat-cba65156421e",
+              "start": 384,
+              "length": 192,
+              "frameCount": 192,
+              "durationSec": 8.0,
+              "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+              "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+              "taskType": "r2v — 参考主体生视频(Reference to Video)",
+              "refs": [
+                {
+                  "index": 0,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                  "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 1,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                  "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 2,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                  "fileName": "beat-1-picture-3-c8978664ed06.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "index": 3,
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                  "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                }
+              ],
+              "refAudios": [],
+              "refVideos": [],
+              "genImage": {
+                "imageFile": "",
+                "fileName": ""
+              },
+              "continuityFromPrev": true,
+              "refImageSize": "match",
+              "referenceVideo": {
+                "videoFile": "",
+                "fileName": "",
+                "type": "input",
+                "subfolder": ""
+              },
+              "_videoFrameCount": 192,
+              "previewFps": 24
+            }
+          ],
+          "timelineMode": "prompt_batch",
+          "width": 608,
+          "height": 352,
+          "refMaxSize": 608,
+          "gen": {
+            "defaultFrameCount": 192
+          },
+          "batchDetailMode": "solo",
+          "batchWorkspaces": {
+            "r2v": {
+              "selectedIndex": 0,
+              "editMode": "segment",
+              "runSelectEnabled": false,
+              "runSelection": [],
+              "segments": [
+                {
+                  "id": "beat-c99c747a1e46",
+                  "start": 0,
+                  "length": 192,
+                  "frameCount": 192,
+                  "durationSec": 8.0,
+                  "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                  "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                  "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                  "refs": [
+                    {
+                      "index": 0,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                      "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 1,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                      "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 2,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                      "fileName": "beat-1-picture-3-c8978664ed06.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 3,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                      "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    }
+                  ],
+                  "refAudios": [],
+                  "refVideos": [],
+                  "genImage": {
+                    "imageFile": "",
+                    "fileName": ""
+                  },
+                  "continuityFromPrev": false,
+                  "refImageSize": "match",
+                  "referenceVideo": {
+                    "videoFile": "",
+                    "fileName": "",
+                    "type": "input",
+                    "subfolder": ""
+                  },
+                  "_videoFrameCount": 192,
+                  "previewFps": 24
+                },
+                {
+                  "id": "beat-5949bf77b487",
+                  "start": 192,
+                  "length": 192,
+                  "frameCount": 192,
+                  "durationSec": 8.0,
+                  "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                  "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                  "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                  "refs": [
+                    {
+                      "index": 0,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                      "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 1,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                      "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 2,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                      "fileName": "beat-1-picture-3-c8978664ed06.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 3,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                      "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    }
+                  ],
+                  "refAudios": [],
+                  "refVideos": [],
+                  "genImage": {
+                    "imageFile": "",
+                    "fileName": ""
+                  },
+                  "continuityFromPrev": true,
+                  "refImageSize": "match",
+                  "referenceVideo": {
+                    "videoFile": "",
+                    "fileName": "",
+                    "type": "input",
+                    "subfolder": ""
+                  },
+                  "_videoFrameCount": 192,
+                  "previewFps": 24
+                },
+                {
+                  "id": "beat-cba65156421e",
+                  "start": 384,
+                  "length": 192,
+                  "frameCount": 192,
+                  "durationSec": 8.0,
+                  "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                  "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                  "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                  "refs": [
+                    {
+                      "index": 0,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                      "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 1,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                      "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 2,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                      "fileName": "beat-1-picture-3-c8978664ed06.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    },
+                    {
+                      "index": 3,
+                      "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                      "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                      "type": "input",
+                      "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                    }
+                  ],
+                  "refAudios": [],
+                  "refVideos": [],
+                  "genImage": {
+                    "imageFile": "",
+                    "fileName": ""
+                  },
+                  "continuityFromPrev": true,
+                  "refImageSize": "match",
+                  "referenceVideo": {
+                    "videoFile": "",
+                    "fileName": "",
+                    "type": "input",
+                    "subfolder": ""
+                  },
+                  "_videoFrameCount": 192,
+                  "previewFps": 24
+                }
+              ],
+              "globalCommon": {
+                "commonEnabled": true,
+                "commonCollapsed": true,
+                "prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+                "refs": [],
+                "refAudios": [],
+                "refVideos": []
+              }
+            }
+          }
+        },
+        "workflow_id": "minimax-h3-director-accel-r2v",
+        "render_mode": "director",
+        "workflow_snapshot": {
+          "1": {
+            "class_type": "UNETLoader",
+            "inputs": {
+              "unet_name": "minimax_h3_ref2va_int8_convrot.safetensors",
+              "weight_dtype": "default"
+            }
+          },
+          "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+              "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+              "type": "minimax",
+              "device": "default"
+            }
+          },
+          "3": {
+            "class_type": "VAELoader",
+            "inputs": {
+              "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+            }
+          },
+          "4": {
+            "class_type": "VAELoader",
+            "inputs": {
+              "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+            }
+          },
+          "14": {
+            "class_type": "PathchSageAttentionKJ",
+            "inputs": {
+              "model": [
+                "1",
+                0
+              ],
+              "sage_attention": "auto",
+              "allow_compile": true
+            }
+          },
+          "15": {
+            "class_type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+            "inputs": {
+              "model": [
+                "14",
+                0
+              ]
+            }
+          },
+          "12": {
+            "class_type": "MiniMaxH3Director",
+            "inputs": {
+              "model": [
+                "15",
+                0
+              ],
+              "video_vae": [
+                "3",
+                0
+              ],
+              "audio_vae": [
+                "4",
+                0
+              ],
+              "clip": [
+                "2",
+                0
+              ],
+              "task_type": "r2v — 参考主体生视频(Reference to Video)",
+              "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+              "bd_grp_sample": "采样设置",
+              "cfg": 1.0,
+              "seed": 1633461653,
+              "frame_rate": 24.0,
+              "width": 608,
+              "height": 352,
+              "ref_max_size": 608,
+              "total_frames": 576,
+              "timeline_data": "{\"version\": 5, \"editMode\": \"segment\", \"totalFrames\": 576, \"frameRate\": 24, \"global\": {\"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"prompt\": \"保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\\n声音设定：\\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。\", \"refs\": [], \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"continuousReference\": false, \"genImage\": {\"imageFile\": \"\"}, \"sourceWidth\": 608, \"sourceHeight\": 352, \"refAudios\": [], \"refVideos\": [], \"commonEnabled\": true, \"commonCollapsed\": true}, \"output\": {\"mode\": \"fixed\", \"aspectRatio\": \"16:9 (宽屏)\", \"megapixels\": 0.2, \"multiple\": 32, \"longEdge\": 608, \"width\": 608, \"height\": 352, \"maxExportFrames\": 0, \"exportMode\": \"all\", \"audioMode\": \"generate\", \"exportSourceImages\": false, \"refImageSize\": \"match\", \"continuityEnabled\": true, \"continuityOverlapFrames\": 5, \"continuityMode\": \"guide\", \"continuityRedraw\": 0.65}, \"runSelectEnabled\": false, \"runSelection\": [], \"segments\": [{\"id\": \"beat-c99c747a1e46\", \"start\": 0, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 1] 00:00.00–00:08.00\\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": false, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}, {\"id\": \"beat-5949bf77b487\", \"start\": 192, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 2] 00:08.00–00:16.00\\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": true, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}, {\"id\": \"beat-cba65156421e\", \"start\": 384, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 3] 00:16.00–00:24.00\\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": true, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}], \"timelineMode\": \"prompt_batch\", \"width\": 608, \"height\": 352, \"refMaxSize\": 608, \"gen\": {\"defaultFrameCount\": 192}, \"batchDetailMode\": \"solo\", \"batchWorkspaces\": {\"r2v\": {\"selectedIndex\": 0, \"editMode\": \"segment\", \"runSelectEnabled\": false, \"runSelection\": [], \"segments\": [{\"id\": \"beat-c99c747a1e46\", \"start\": 0, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 1] 00:00.00–00:08.00\\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": false, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}, {\"id\": \"beat-5949bf77b487\", \"start\": 192, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 2] 00:08.00–00:16.00\\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": true, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}, {\"id\": \"beat-cba65156421e\", \"start\": 384, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 3] 00:16.00–00:24.00\\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": true, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}], \"globalCommon\": {\"commonEnabled\": true, \"commonCollapsed\": true, \"prompt\": \"保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\\n声音设定：\\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。\", \"refs\": [], \"refAudios\": [], \"refVideos\": []}}}}",
+              "bd_grp_advanced": "高级采样",
+              "steps": 25,
+              "sampler": "res_multistep",
+              "scheduler": "simple",
+              "shift_video": 12.0,
+              "shift_audio": 3.0,
+              "bd_grp_perf": "性能",
+              "clear_vram_between_segments": false,
+              "export_source_images": false
+            }
+          },
+          "6": {
+            "class_type": "CreateVideo",
+            "inputs": {
+              "images": [
+                "12",
+                0
+              ],
+              "audio": [
+                "12",
+                1
+              ],
+              "fps": [
+                "12",
+                2
+              ],
+              "bit_depth": 8
+            }
+          },
+          "7": {
+            "class_type": "SaveVideo",
+            "inputs": {
+              "video": [
+                "6",
+                0
+              ],
+              "filename_prefix": "video/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/segment-1",
+              "format": "auto",
+              "codec": "auto"
+            }
+          },
+          "8": {
+            "class_type": "PreviewAny",
+            "inputs": {
+              "source": [
+                "12",
+                5
+              ]
+            }
+          }
+        },
+        "execution_parameters": {
+          "aspect_ratio": "16:9",
+          "quality": "0.2",
+          "megapixels": 0.2,
+          "duration": 8.0,
+          "speed": "quality",
+          "weight_profile": "full",
+          "steps": 25,
+          "use_sage_attention": true,
+          "upscale_after": "off",
+          "sampler_name": "res_multistep",
+          "shift_video": 12.0,
+          "shift_audio": 3.0,
+          "cfg": 1.0,
+          "sage_allow_compile": true,
+          "video_steps": 25,
+          "audio_steps": 25,
+          "lora_strength": 0.0,
+          "reference_image_size": "match"
+        },
+        "render_request": {
+          "renderScope": "selection",
+          "episodeId": "ep-4d89a8df80a4",
+          "workflowId": "minimax-h3-director-accel-r2v",
+          "renderPass": "final",
+          "shots": [
+            {
+              "shotId": "beat-c99c747a1e46",
+              "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+              "duration": 8.0,
+              "references": [
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                  "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                  "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                  "fileName": "beat-1-picture-3-c8978664ed06.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                  "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                }
+              ],
+              "continuity": {
+                "partId": "group-782f50c21f2b",
+                "segmentId": "beat-c99c747a1e46"
+              }
+            },
+            {
+              "shotId": "beat-5949bf77b487",
+              "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+              "duration": 8.0,
+              "references": [
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                  "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                  "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                  "fileName": "beat-1-picture-3-c8978664ed06.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                  "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                }
+              ],
+              "continuity": {
+                "partId": "group-782f50c21f2b",
+                "segmentId": "beat-5949bf77b487"
+              }
+            },
+            {
+              "shotId": "beat-cba65156421e",
+              "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+              "duration": 8.0,
+              "references": [
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                  "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                  "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                  "fileName": "beat-1-picture-3-c8978664ed06.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                },
+                {
+                  "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                  "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                  "type": "input",
+                  "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                }
+              ],
+              "continuity": {
+                "partId": "group-782f50c21f2b",
+                "segmentId": "beat-cba65156421e"
+              }
+            }
+          ],
+          "timeline_data": {
+            "version": 5,
+            "editMode": "segment",
+            "totalFrames": 576,
+            "frameRate": 24,
+            "global": {
+              "taskType": "r2v — 参考主体生视频(Reference to Video)",
+              "prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+              "refs": [],
+              "referenceVideo": {
+                "videoFile": "",
+                "fileName": "",
+                "type": "input",
+                "subfolder": ""
+              },
+              "continuousReference": false,
+              "genImage": {
+                "imageFile": ""
+              },
+              "sourceWidth": 608,
+              "sourceHeight": 352,
+              "refAudios": [],
+              "refVideos": [],
+              "commonEnabled": true,
+              "commonCollapsed": true
+            },
+            "output": {
+              "mode": "fixed",
+              "aspectRatio": "16:9 (宽屏)",
+              "megapixels": 0.2,
+              "multiple": 32,
+              "longEdge": 608,
+              "width": 608,
+              "height": 352,
+              "maxExportFrames": 0,
+              "exportMode": "all",
+              "audioMode": "generate",
+              "exportSourceImages": false,
+              "refImageSize": "match",
+              "continuityEnabled": true,
+              "continuityOverlapFrames": 5,
+              "continuityMode": "guide",
+              "continuityRedraw": 0.65
+            },
+            "runSelectEnabled": false,
+            "runSelection": [],
+            "segments": [
+              {
+                "id": "beat-c99c747a1e46",
+                "start": 0,
+                "length": 192,
+                "frameCount": 192,
+                "durationSec": 8.0,
+                "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                "refs": [
+                  {
+                    "index": 0,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                    "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 1,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                    "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 2,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                    "fileName": "beat-1-picture-3-c8978664ed06.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 3,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                    "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  }
+                ],
+                "refAudios": [],
+                "refVideos": [],
+                "genImage": {
+                  "imageFile": "",
+                  "fileName": ""
+                },
+                "continuityFromPrev": false,
+                "refImageSize": "match",
+                "referenceVideo": {
+                  "videoFile": "",
+                  "fileName": "",
+                  "type": "input",
+                  "subfolder": ""
+                },
+                "_videoFrameCount": 192,
+                "previewFps": 24
+              },
+              {
+                "id": "beat-5949bf77b487",
+                "start": 192,
+                "length": 192,
+                "frameCount": 192,
+                "durationSec": 8.0,
+                "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                "refs": [
+                  {
+                    "index": 0,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                    "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 1,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                    "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 2,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                    "fileName": "beat-1-picture-3-c8978664ed06.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 3,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                    "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  }
+                ],
+                "refAudios": [],
+                "refVideos": [],
+                "genImage": {
+                  "imageFile": "",
+                  "fileName": ""
+                },
+                "continuityFromPrev": true,
+                "refImageSize": "match",
+                "referenceVideo": {
+                  "videoFile": "",
+                  "fileName": "",
+                  "type": "input",
+                  "subfolder": ""
+                },
+                "_videoFrameCount": 192,
+                "previewFps": 24
+              },
+              {
+                "id": "beat-cba65156421e",
+                "start": 384,
+                "length": 192,
+                "frameCount": 192,
+                "durationSec": 8.0,
+                "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                "refs": [
+                  {
+                    "index": 0,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                    "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 1,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                    "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 2,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                    "fileName": "beat-1-picture-3-c8978664ed06.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  },
+                  {
+                    "index": 3,
+                    "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                    "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                    "type": "input",
+                    "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                  }
+                ],
+                "refAudios": [],
+                "refVideos": [],
+                "genImage": {
+                  "imageFile": "",
+                  "fileName": ""
+                },
+                "continuityFromPrev": true,
+                "refImageSize": "match",
+                "referenceVideo": {
+                  "videoFile": "",
+                  "fileName": "",
+                  "type": "input",
+                  "subfolder": ""
+                },
+                "_videoFrameCount": 192,
+                "previewFps": 24
+              }
+            ],
+            "timelineMode": "prompt_batch",
+            "width": 608,
+            "height": 352,
+            "refMaxSize": 608,
+            "gen": {
+              "defaultFrameCount": 192
+            },
+            "batchDetailMode": "solo",
+            "batchWorkspaces": {
+              "r2v": {
+                "selectedIndex": 0,
+                "editMode": "segment",
+                "runSelectEnabled": false,
+                "runSelection": [],
+                "segments": [
+                  {
+                    "id": "beat-c99c747a1e46",
+                    "start": 0,
+                    "length": 192,
+                    "frameCount": 192,
+                    "durationSec": 8.0,
+                    "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                    "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                    "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                    "refs": [
+                      {
+                        "index": 0,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                        "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 1,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                        "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 2,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                        "fileName": "beat-1-picture-3-c8978664ed06.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 3,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                        "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      }
+                    ],
+                    "refAudios": [],
+                    "refVideos": [],
+                    "genImage": {
+                      "imageFile": "",
+                      "fileName": ""
+                    },
+                    "continuityFromPrev": false,
+                    "refImageSize": "match",
+                    "referenceVideo": {
+                      "videoFile": "",
+                      "fileName": "",
+                      "type": "input",
+                      "subfolder": ""
+                    },
+                    "_videoFrameCount": 192,
+                    "previewFps": 24
+                  },
+                  {
+                    "id": "beat-5949bf77b487",
+                    "start": 192,
+                    "length": 192,
+                    "frameCount": 192,
+                    "durationSec": 8.0,
+                    "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                    "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                    "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                    "refs": [
+                      {
+                        "index": 0,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                        "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 1,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                        "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 2,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                        "fileName": "beat-1-picture-3-c8978664ed06.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 3,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                        "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      }
+                    ],
+                    "refAudios": [],
+                    "refVideos": [],
+                    "genImage": {
+                      "imageFile": "",
+                      "fileName": ""
+                    },
+                    "continuityFromPrev": true,
+                    "refImageSize": "match",
+                    "referenceVideo": {
+                      "videoFile": "",
+                      "fileName": "",
+                      "type": "input",
+                      "subfolder": ""
+                    },
+                    "_videoFrameCount": 192,
+                    "previewFps": 24
+                  },
+                  {
+                    "id": "beat-cba65156421e",
+                    "start": 384,
+                    "length": 192,
+                    "frameCount": 192,
+                    "durationSec": 8.0,
+                    "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+                    "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+                    "taskType": "r2v — 参考主体生视频(Reference to Video)",
+                    "refs": [
+                      {
+                        "index": 0,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                        "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 1,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                        "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 2,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                        "fileName": "beat-1-picture-3-c8978664ed06.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      },
+                      {
+                        "index": 3,
+                        "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                        "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                        "type": "input",
+                        "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+                      }
+                    ],
+                    "refAudios": [],
+                    "refVideos": [],
+                    "genImage": {
+                      "imageFile": "",
+                      "fileName": ""
+                    },
+                    "continuityFromPrev": true,
+                    "refImageSize": "match",
+                    "referenceVideo": {
+                      "videoFile": "",
+                      "fileName": "",
+                      "type": "input",
+                      "subfolder": ""
+                    },
+                    "_videoFrameCount": 192,
+                    "previewFps": 24
+                  }
+                ],
+                "globalCommon": {
+                  "commonEnabled": true,
+                  "commonCollapsed": true,
+                  "prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+                  "refs": [],
+                  "refAudios": [],
+                  "refVideos": []
+                }
+              }
+            }
+          }
+        },
+        "output": {
+          "filename": "segment-1_00001_.mp4",
+          "subfolder": "video\\proj-0f9c8015281149f0\\ep-4d89a8df80a4\\job-3b353200eda8",
+          "type": "output"
+        },
+        "director_report": "MiniMax H3 Director [批量生成 (r2v)] (segment): 3 segment(s), 576 frames @ 24.00 fps\nOutput: 608×352 (fixed)\nGlobal task: 参考主体生视频(Reference to Video)\nSegment continuity: ON (guide motion context 5f)\n  Pin from prev: #2, #3\n  #1 [0:192] 192f — r2v — 保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1>…\n  #2 [192:384] 192f — r2v — pin←prev — 保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1>…\n  #3 [384:576] 192f — r2v — pin←prev — 保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1>…\n\nExecution path: ComfyUI official MiniMax H3\nSample: official MiniMaxH3SigmaShift → BasicScheduler → BasicGuider/CFGGuider → SamplerCustomAdvanced.\nLive preview: OFF — 跳过 TAE 与成片 JPEG（节点内不播放）。\nAudio: generate — decode MiniMax H3 AV latent audio.\nSegment continuity: ON — guide 5f (previous AV tail + trim prefix; t2v/i2v/fl2v/r2v/v2v/rv2v).\n  Pin from prev: #2, #3\nSegment 1/3: r2v — Reference-to AV — subject images (+ optional tags) in prompt (MiniMax H3) (~4 ref image(s), 0 ref video(s)) (192 frames, seed=1633461653)\nSegment 1 timing: cond=9.2s sample=320.9s decode=13.8s cache=0.6s cleanup=between-seg\nSeg #2: continuity guide — 5f from seg #1 (AV latent, +audio); sample=209f → export 192f\nSegment 2/3: r2v — Reference-to AV — subject images (+ optional tags) in prompt (MiniMax H3) (~4 ref image(s), 0 ref video(s)) + guide 5f (192 frames, seed=1633461653)\nSegment 2 timing: cond=5.9s sample=351.0s decode=12.3s cache=0.6s cleanup=between-seg\nSeg #3: continuity guide — 5f from seg #2 (AV latent, +audio); sample=209f → export 192f; trimmed prev export -5f (phase pin)\nSegment 3/3: r2v — Reference-to AV — subject images (+ optional tags) in prompt (MiniMax H3) (~4 ref image(s), 0 ref video(s)) + guide 5f (192 frames, seed=1633461653)\nSegment 3 timing: cond=5.3s sample=352.7s decode=12.9s cache=0.6s cleanup=skipped\n\nExport mode: all — merged 571 frame(s) on images output.\n\nGenerated audio: decoded from MiniMax H3 AV latent (frame-aligned to picture / timeline fps).\n\nimages_pre_refine: same as images (Refine node not connected).\n\n有问题联系作者：AI搅拌手  QQ交流群：551482703"
+      }
+    ],
+    "assembly": null,
+    "total_duration": 24.0
+  },
+  "pipeline_version": 7,
+  "prompt_profile": "director_segments",
+  "director_plan_id": "plan-dacb560019e2",
+  "director_plan_revision": 11,
+  "part_id": null,
+  "segment_ids": [],
+  "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+  "continuity_enabled": true,
+  "prompt_source": "prompt_master_director",
+  "production_context": {
+    "mode": "director",
+    "plan_key": "fadd7901a2a46b98d7d1ebb0",
+    "plan_snapshot": {
+      "schema_version": 7,
+      "id": "plan-dacb560019e2",
+      "revision": 11,
+      "planning_revision": 1,
+      "source_revision": 2,
+      "source_fingerprint": "d2aee65d93f1a78487dd6073f4c0a7742a3d56a0dd5c2ba45dd8673fd8c735c8",
+      "workflow_id": "minimax-h3-director-accel-r2v",
+      "aspect_ratio": "16:9",
+      "max_shots_per_group": 3,
+      "status": "current",
+      "groups": [
+        {
+          "id": "group-782f50c21f2b",
+          "beat_ids": [
+            "beat-c99c747a1e46",
+            "beat-5949bf77b487",
+            "beat-cba65156421e"
+          ],
+          "frame_count": 576,
+          "common_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-modern-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            },
+            {
+              "asset_id": "ast-927b49e98323",
+              "look_id": null,
+              "kind": "prop",
+              "name": "台灯",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+              "index": 2,
+              "token": "<Picture 2>"
+            },
+            {
+              "asset_id": "ast-f77a5102b729",
+              "look_id": null,
+              "kind": "prop",
+              "name": "笔记本",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+              "index": 3,
+              "token": "<Picture 3>"
+            },
+            {
+              "asset_id": "ast-eee023da3899",
+              "look_id": null,
+              "kind": "prop",
+              "name": "中性笔",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png",
+              "index": 4,
+              "token": "<Picture 4>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": [],
+          "timecode_mode": "cumulative"
+        },
+        {
+          "id": "group-a31640174bc6",
+          "beat_ids": [
+            "beat-10a2b769299e",
+            "beat-3de7fb09a705"
+          ],
+          "frame_count": 408,
+          "common_prompt": "保持现代图书馆·深夜的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-modern-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-4102bd283eb3",
+          "beat_ids": [
+            "beat-8e0e7c4d9d25",
+            "beat-e1cdaf0164c6"
+          ],
+          "frame_count": 504,
+          "common_prompt": "保持破旧茅草屋，清晨的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-c26d17dd2f55",
+          "beat_ids": [
+            "beat-6100f08a3bc7"
+          ],
+          "frame_count": 192,
+          "common_prompt": "保持破旧农舍内，清晨的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：母亲，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n母亲 (S2)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-dd9df9822f27",
+              "look_id": "ident-822f27",
+              "kind": "character",
+              "name": "母亲",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260925/014658_d6cad3ff50d333f9.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "auto",
+          "reference_issues": []
+        },
+        {
+          "id": "group-22d512fd2e8a",
+          "beat_ids": [
+            "beat-2e0bc463d268",
+            "beat-53e22eda10b8",
+            "beat-831a27fbe725"
+          ],
+          "frame_count": 528,
+          "common_prompt": "保持破旧农舍内，床边的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n<Subject 2>：母亲，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。\n母亲眼眶一红，声音哽咽 (S3)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-71b8aa8ae776",
+          "beat_ids": [
+            "beat-1f714dcfba67"
+          ],
+          "frame_count": 192,
+          "common_prompt": "保持破旧农舍内，床边的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n<Subject 2>：母亲，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n母亲叹了口气，端起碗递到他面前 (S4)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-160ac6321824",
+          "beat_ids": [
+            "beat-f37823687850"
+          ],
+          "frame_count": 240,
+          "common_prompt": "保持古代破屋室内的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n本组无对白，不添加旁白或其他人声，保留剧本环境音。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-f48874673519",
+          "beat_ids": [
+            "beat-ef254285a658",
+            "beat-8f7a04fa6ce9",
+            "beat-697251a39d71"
+          ],
+          "frame_count": 576,
+          "common_prompt": "保持古代破屋门口的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-e71eaa302979",
+          "beat_ids": [
+            "beat-659758e451bc"
+          ],
+          "frame_count": 192,
+          "common_prompt": "保持古代破屋门口的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-0c9c37035133",
+          "beat_ids": [
+            "beat-92eaf9c5bb9b",
+            "beat-655d83a53b12",
+            "beat-26f5aaf95e3c"
+          ],
+          "frame_count": 744,
+          "common_prompt": "保持古代寒门破屋，里屋的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n<Subject 2>：母亲，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n母亲 (S2)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-043cbca72011",
+          "beat_ids": [
+            "beat-166d02c5a744",
+            "beat-f80337727019"
+          ],
+          "frame_count": 456,
+          "common_prompt": "保持古代寒门破屋，里屋的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n<Subject 2>：母亲，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。\n母亲 (S2)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-c60afca5ee11",
+          "beat_ids": [
+            "beat-97e921086138",
+            "beat-d7fabbdce4f8"
+          ],
+          "frame_count": 480,
+          "common_prompt": "保持古代寒门破屋，门口的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n<Subject 2>：母亲，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-c733bbdccfc3",
+          "beat_ids": [
+            "beat-bc78b1145765",
+            "beat-5a862fae8714"
+          ],
+          "frame_count": 384,
+          "common_prompt": "保持古代村庄，土路上的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。\n村民 (S5)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        },
+        {
+          "id": "group-ff42a44a1ca8",
+          "beat_ids": [
+            "beat-268f0978bcdc"
+          ],
+          "frame_count": 192,
+          "common_prompt": "保持古代村庄，田埂边的空间与光线一致，人物沿用剧本中的身份和已选造型。\n<Subject 1>：沈砚，沿用已采纳剧本与已选造型，组内身份、服饰与声音保持一致。\n声音设定：\n本组无对白，不添加旁白或其他人声，保留剧本环境音。",
+          "reference_slots": [
+            {
+              "asset_id": "ast-936e3d88139d",
+              "look_id": "ident-88139d",
+              "kind": "character",
+              "name": "沈砚",
+              "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+              "index": 1,
+              "token": "<Picture 1>"
+            }
+          ],
+          "reference_policy": "manual",
+          "reference_issues": []
+        }
+      ],
+      "shot_prompts": {
+        "beat-c99c747a1e46": {
+          "h3_prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+          "fingerprint": "607e6eb13b11659af784a68ae0343a8d97090c9d1e6fecca4139c63547f3b240"
+        },
+        "beat-5949bf77b487": {
+          "h3_prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+          "fingerprint": "cb67ee4970f4f23afe71af05187b709fb6b49e13ad4e0cb84b5c5f9a347f67f8"
+        },
+        "beat-cba65156421e": {
+          "h3_prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+          "fingerprint": "3705c77e7e74b729aebc3f4b680cd89c18354b1aa7f2e0670053b31050f479c5"
+        },
+        "beat-10a2b769299e": {
+          "h3_prompt": "摘要：深夜现代图书馆，沈砚站在书架前，手指停在书脊上，回头看向书案方向，随即猛地回头——书案上古籍自行翻开，书页无风自动哗哗作响，他瞪大眼睛盯着翻动的古籍。\n\n保留分析：<Subject 1>沈砚的身份、面部、发型与现代造型完全保留，fully_preserved；场景现代图书馆·深夜的空间与光线保持一致，fully_preserved；古籍自行翻动这一核心事件与对白“怎么回事？”严格保留，不得新增角色或情节。\n\n详细描述：[Shot 1] 00:00.00–00:06.00，16:9横屏，深夜现代图书馆，冷白顶灯与书架间昏黄台灯混合照明。开场沈砚（<Subject 1>）站在书架前，右手手指停在书脊上，头微侧，回头看向书案方向；随后他猛地回头，肩颈带动上身转动。镜头为中景，从沈砚背后拍摄，越过他的肩膀看到书案上那本古籍自行翻开，书页无风自动、哗哗翻动，镜头快速推近书案。收束时沈砚站在原地，瞪大眼睛盯着自行翻动的古籍，面部被书页翻动带起的微光映亮。对白：沈砚：“怎么回事？”\n\n整体声景：书页哗哗翻动声骤然响起，背景环境音消失，只剩翻书声与沈砚短促的呼吸声，对白清晰贴近。\n\n非叙事配乐：无配乐，仅保留书页翻动与呼吸的环境写实声场。",
+          "fingerprint": "f273263561d04ea2cd3c0b7b66b9776b719d645fb9a0d866435315bd61ab2742"
+        },
+        "beat-3de7fb09a705": {
+          "h3_prompt": "摘要：沈砚仍站在书架前盯着翻动的古籍，快步走回书案伸手按书，书页间迸出刺目白光充满阅览室，他抬手挡眼，身体被无形力量拉扯，景象旋转扭曲，最终白光吞没一切，身影消失。\n\n保留分析：<Subject 1>沈砚的身份、面部、发型与现代造型完全保留，fully_preserved；场景现代图书馆·深夜的空间与光线保持一致，fully_preserved；白光迸发、身体被拉扯、景象旋转扭曲、白光吞没一切的核心事件与惊叫“啊——！”严格保留，不得新增角色或情节。\n\n详细描述：[Shot 1] 00:00.00–00:11.00，16:9横屏，深夜现代图书馆。开场沈砚（<Subject 1>）仍站在书架前，瞪大眼睛盯着自行翻动的古籍；随即他快步走回书案，伸手去按那本书，书页间迸出一道刺目白光，将整个阅览室照得通明。沈砚下意识抬手挡眼，身体被一股无形力量猛地拉扯，眼前景象急速旋转、扭曲。镜头为中景转特写，手持镜头跟随沈砚快步走回书案，白光迸发时快速推至面部特写，画面过曝变白。收束时白光吞没一切，沈砚的身影在白光中消失。对白：沈砚：“啊——！”\n\n整体声景：急促脚步声与书页哗啦声先起，随后一声尖锐的嗡鸣压过一切，沈砚的惊叫声被白光吞没，环境音在过曝瞬间骤停。\n\n非叙事配乐：无配乐，仅以尖锐嗡鸣与骤停的声场制造白光吞噬的听觉冲击。",
+          "fingerprint": "dde9e26667bfb87bf763941e41f127afdac6ea779d844dfe0611daa21dfce45a"
+        },
+        "beat-8e0e7c4d9d25": {
+          "h3_prompt": "摘要：[Shot 1] 00:00.00–00:10.00，16:9横屏，破旧茅草屋内清晨，固定机位从沈砚面部特写缓慢拉至中景，沈砚从干草木床上惊醒坐起并环顾四周，环境为斑驳土墙、墙角蛛网、歪斜木桌与缺腿凳子，声音为清晨鸟鸣与急促喘息。\n\n保留分析：<Subject 1> 沈砚的身份、面部、发型与青灰粗布长衫完全保留自 <Picture 1>，fully_preserved；本镜不引入其他角色或道具参考，场景为破旧茅草屋清晨，不改变空间与光线基调。\n\n详细描述：[Shot 1] 00:00.00–00:10.00，16:9横屏，破旧茅草屋内，清晨。开场时 <Subject 1> 沈砚躺在铺着干草的木床上，双眼紧闭，屋内昏暗，晨光从茅草屋顶缝隙漏下形成几缕光柱。他猛地睁开眼，入目是茅草扎成的屋顶，几缕阳光从缝隙漏下。他急促喘息，挣扎着坐起身，环顾四周——土墙斑驳，墙角结着蛛网，一张歪斜的木桌，一把缺腿的凳子。收束时 <Subject 1> 沈砚坐在木床上，目光扫过屋内，神情震惊。运镜为固定机位，从 <Subject 1> 面部特写缓慢拉至中景，展示屋内环境。光线为清晨自然光从屋顶缝隙漏下，形成局部光斑与阴影。声音为清晨鸟鸣声与 <Subject 1> 沈砚急促的喘息声。\n\n整体声景：清晨鸟鸣声持续贯穿，伴随 <Subject 1> 沈砚急促的喘息声，屋内安静，无其他环境杂音。\n\n非叙事配乐：无。",
+          "fingerprint": "9a68f8136d506e06904bb3907341a4ec6a9d21d236dd93865b95b0fc8710f461"
+        },
+        "beat-e1cdaf0164c6": {
+          "h3_prompt": "摘要：[Shot 1] 00:00.00–00:11.00，16:9横屏，破旧茅草屋内清晨，中近景，跟随沈砚低头看衣物的动作再回到面部，沈砚声音发颤说出疑问后掐手臂并冷静下来，声音为发颤台词、掐手臂轻响与逐渐平稳的呼吸。\n\n保留分析：<Subject 1> 沈砚的身份、面部、发型与青灰粗布长衫完全保留自 <Picture 1>，fully_preserved；本镜不引入其他角色或道具参考，场景为破旧茅草屋清晨，不改变空间与光线基调。\n\n详细描述：[Shot 1] 00:00.00–00:11.00，16:9横屏，破旧茅草屋内，清晨。开场时 <Subject 1> 沈砚仍坐在木床上，低头看向自己。他低头看自己，身上穿着一件洗得发白的青灰粗布长衫，袖口磨出毛边。他声音发颤地说出疑问：“这……是什么地方？”随后掐了自己手臂一下，疼痛传来，他深吸一口气，努力让自己冷静，目光再次扫过屋内每一处角落。收束时 <Subject 1> 沈砚坐在木床上，神情从震惊转为冷静，目光坚定。运镜为中近景，跟随 <Subject 1> 沈砚低头看衣物的动作，再回到面部。光线为清晨自然光从屋顶缝隙漏下，形成局部光斑与阴影。声音为 <Subject 1> 沈砚声音发颤的台词，随后是掐手臂的轻微声响，呼吸逐渐平稳。\n\n整体声景：清晨鸟鸣声持续贯穿，伴随 <Subject 1> 沈砚声音发颤的台词、掐手臂的轻微声响与逐渐平稳的呼吸声。\n\n非叙事配乐：无。",
+          "fingerprint": "7786ed808a43c6184f4a6b24b0d58ce70996f15c97614715e907b9bf8f3b3e96"
+        }
+      },
+      "shot_fingerprints": {
+        "beat-c99c747a1e46": "6aef5b10688de1265052ae2577fcbd98ef218af100140dea20356b48e7691f30",
+        "beat-5949bf77b487": "45ce78a2d34f697038e6aa1841589c969f6a849a943cc0def75be4a714b37a89",
+        "beat-cba65156421e": "80f28924045d9962461c22d7a02201da48caf4b7ef4b9dff2d0e636c69af90ed",
+        "beat-10a2b769299e": "9be6f242b279d283f2ae3f4d778630e771cf33841c37179811decc526af3999d",
+        "beat-3de7fb09a705": "d7b65595646d067c0a7668aae4a407885826d597c955139712a8e93bf366a13a",
+        "beat-8e0e7c4d9d25": "d1d1f720083cfb3d9a3401ec43278d7a73b391426283dd1e72d31c46ea0f336a",
+        "beat-e1cdaf0164c6": "87c0fb3213d6a7c236f6afdf2a7157f1e988602f22ce5926175a41cea0dfde38",
+        "beat-6100f08a3bc7": "4db573d332c7e130ac0659dd04ef98174f47733a43dae1cca9a780fa589c4959",
+        "beat-2e0bc463d268": "60a0a2c8beb54af6e14a7a96c5a7ac9da2bac5c6f13e70c276a116d2e6b867fb",
+        "beat-53e22eda10b8": "9cfbc7748c739bcc34adb700965739b74d66fffa1d702132551dc63d608f5516",
+        "beat-831a27fbe725": "8a8919801dc0ae601890fa5a3002a1e179d4efb667c85414588775f45bb44427",
+        "beat-1f714dcfba67": "cf84da70c5837c58bf47ecfa0c0091448db22be4b3aabe10be54f7ad49ff964d",
+        "beat-f37823687850": "681c6592abef0c3f5813c7fed7fe4bdf61ac4ff2f3114126062d5fbd89ed9d8f",
+        "beat-ef254285a658": "fa395ed40c91410de10ab097ab78bb84a8be12d99dd1886e4c4ba031afdc9890",
+        "beat-8f7a04fa6ce9": "be3f63ec708bfb42dd3eda744921f5601dbdd521149857dc0052e0ab275e3b77",
+        "beat-697251a39d71": "101dae1586e2e5dd8bb69ffccba0510b840d5c9501d47c1685888da1027ca51f",
+        "beat-659758e451bc": "8497a0bd0041d93ef0573fa7f35d6acc3a35841f07672c703da5ed7defd3c41a",
+        "beat-92eaf9c5bb9b": "b5a546979b2dc8a29d8b5e307a3afe763afa1c7b5ada6d94163de2490d99adff",
+        "beat-655d83a53b12": "91273dccac717e2f5311aa69f95f8ab4c36e2bac88317c303b620f5081e39d3b",
+        "beat-26f5aaf95e3c": "48d4d7aea548c5c1d4290dd108d45aeebcbc2b70b9727e4ff6e4d8f09916d340",
+        "beat-166d02c5a744": "0daec2ec232a01c84ef9d13d128479264ea4e5c8a3f01d50e5a5d9d5575e4316",
+        "beat-f80337727019": "4c90a1bf0c9487573e6ba1d7c2cb1149cfa32402314f57b3a6dfc0e39fcb8ab7",
+        "beat-97e921086138": "5162a6e61d294348266698799aa85c7d59af27f66b4867bd1e241c1657919585",
+        "beat-d7fabbdce4f8": "0d262e47c290287d8727e3151dd6aff527d5579567a20763ed0b10f1102bb667",
+        "beat-bc78b1145765": "1f87cd96237a7bde4a7fe096a26a69dbd4f466adb0bc4c33a08b68b6a3287361",
+        "beat-5a862fae8714": "339ff3de61cab5ab42f37dbefb6c281c5eb5a30e4288245187b286d058c8e0ff",
+        "beat-268f0978bcdc": "32dac2103861977a1ee05121ecf01edc61f430302246ec2d95369eb5de491e1e"
+      },
+      "target_shot_count": null,
+      "target_duration_seconds": null,
+      "prompt_history": [
+        {
+          "beat_id": "beat-c99c747a1e46",
+          "record": null
+        },
+        {
+          "beat_id": "beat-5949bf77b487",
+          "record": null
+        },
+        {
+          "beat_id": "beat-cba65156421e",
+          "record": null
+        },
+        {
+          "beat_id": "beat-c99c747a1e46",
+          "record": {
+            "h3_prompt": "摘要：深夜现代图书馆，沈砚伏在书案上研读泛黄古籍，台灯暖黄光映在他疲惫的脸上，他低声念诵诗句并怀疑其笔法。\n\n保留分析：<Subject 1> 沈砚 fully_preserved，身份、造型与声音沿用已采纳设定；场景“现代图书馆·深夜” fully_preserved，空间与光线保持一致；道具台灯、笔记本、笔 fully_preserved，按已选造型呈现。\n\n详细描述：[Shot 1] 00:00.00–00:08.00，16:9 横屏，中景，固定机位，侧前方 45 度拍摄。深夜现代图书馆内，<Subject 1> 沈砚伏在书案上，台灯暖黄光勾勒出他疲惫的面部轮廓，面前摊开一本泛黄古籍。他揉了揉眼睛，指尖划过书页上的诗句，低声念诵：“‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。”收束时他仍伏在案前，指尖停在书页诗句上。\n\n整体声景：深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声，<Subject 1> 沈砚的低语念诵声。\n\n非叙事配乐：无配乐，仅保留环境音与念诵声。",
+            "fingerprint": "67901faff9e2488ad3fbddd8423a72aa8bc0dee1e9bbd3a58582b27e73a64ddf"
+          }
+        },
+        {
+          "beat_id": "beat-5949bf77b487",
+          "record": {
+            "h3_prompt": "摘要：沈砚在书案前提笔记录，随后翻动古籍扉页仔细端详，窗外夜色深沉，图书馆空旷寂静。\n\n保留分析：<Subject 1> 沈砚 fully_preserved，身份、造型与声音沿用已采纳设定；场景“现代图书馆·深夜” fully_preserved，空间与光线保持一致；道具笔记本、笔、古籍 fully_preserved，按已选造型呈现。\n\n详细描述：[Shot 1] 00:00.00–00:08.00，16:9 横屏，近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页。开场时 <Subject 1> 沈砚仍伏在书案前，指尖停在书页诗句上。他提起笔在笔记本上记下几行，又皱眉，将古籍翻到扉页，仔细端详，低声说：“再查查出处，应该还有线索。”窗外夜色深沉，图书馆空旷寂静。收束时他一手按在古籍扉页上，目光专注端详。\n\n整体声景：笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声，<Subject 1> 沈砚的低语声。\n\n非叙事配乐：无配乐，仅保留环境音与低语声。",
+            "fingerprint": "ae30120f812a9904617f40aa049ddb90efbaac1fdd68fb08c2edd510b2352ea9"
+          }
+        },
+        {
+          "beat_id": "beat-cba65156421e",
+          "record": {
+            "h3_prompt": "摘要：沈砚起身离开书案，走向书架间翻找，手指滑过一排排书脊，身后书案方向突然传来一声异响。\n\n保留分析：<Subject 1> 沈砚 fully_preserved，身份、造型与声音沿用已采纳设定；场景“现代图书馆·深夜” fully_preserved，空间与光线保持一致；书架与书案 fully_preserved，按已选场景呈现。\n\n详细描述：[Shot 1] 00:00.00–00:08.00，16:9 横屏，全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深。开场时 <Subject 1> 沈砚仍坐在书案前，一手按在古籍扉页上。他起身离开书桌，走向书架间翻找，手指在一排排书脊上滑过。收束时他站在书架前，手指停在某一本书脊上，身后书案方向传来一声异响，他回头看向书案方向。\n\n整体声景：脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响。\n\n非叙事配乐：无配乐，仅保留环境音与异响。",
+            "fingerprint": "922b1961451afdbf14a7c45d1e4ba1555231cb1c6ae13657f576f6068641e5ef"
+          }
+        },
+        {
+          "beat_id": "beat-10a2b769299e",
+          "record": null
+        },
+        {
+          "beat_id": "beat-3de7fb09a705",
+          "record": null
+        },
+        {
+          "beat_id": "beat-8e0e7c4d9d25",
+          "record": null
+        },
+        {
+          "beat_id": "beat-e1cdaf0164c6",
+          "record": null
+        },
+        {
+          "beat_id": "beat-c99c747a1e46",
+          "record": {
+            "h3_prompt": "摘要：深夜现代图书馆，<Subject 1> 沈砚伏在书案上研读泛黄古籍，台灯暖光勾勒其疲惫轮廓，他低声念出诗句并质疑诗风。\n\n保留分析：<Subject 1> 沈砚 fully_preserved，身份、面貌、服装与声音以 <Picture 1> 为准；<Subject 2> 台灯 fully_preserved，以 <Picture 2> 为准；<Subject 3> 笔记本 fully_preserved，以 <Picture 3> 为准；<Subject 4> 毛笔 fully_preserved，以 <Picture 4> 为准。场景为现代图书馆·深夜，暖黄台灯照明，16:9横屏。\n\n详细描述：[Shot 1] 00:00.00–00:08.00，16:9横屏，中景，固定机位，侧前方45度拍摄。深夜现代图书馆内，<Subject 1> 沈砚伏在书案上，<Subject 2> 台灯的暖黄光映在他疲惫的脸上，面前摊开一本泛黄古籍，<Subject 3> 笔记本与 <Subject 4> 毛笔置于案边。00:00.00–00:03.00，他揉了揉眼睛，指尖划过书页上的诗句；00:03.00–00:06.00，他低声念诵：“‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。”；00:06.00–00:08.00，他仍伏在案前，指尖停在书页诗句上。台灯暖光勾勒人物轮廓，光线稳定，无其他人物入画。\n\n整体声景：深夜图书馆的寂静环境音持续铺底，轻微翻书声，台灯电流微弱的嗡嗡声，<Subject 1> 沈砚的念诵声清晰可辨。\n\n非叙事配乐：无配乐，仅保留环境音与对白。",
+            "fingerprint": "c6e2dec311b8cd0e4f2f8292033aba2c7805669065a5e8be63fb6791e612a052"
+          }
+        },
+        {
+          "beat_id": "beat-5949bf77b487",
+          "record": {
+            "h3_prompt": "摘要：<Subject 1> 沈砚在书案前提笔记录，随后翻动古籍扉页仔细端详，窗外夜色深沉。\n\n保留分析：<Subject 1> 沈砚 fully_preserved，身份、面貌、服装与声音以 <Picture 1> 为准；<Subject 2> 台灯 fully_preserved，以 <Picture 2> 为准；<Subject 3> 笔记本 fully_preserved，以 <Picture 3> 为准；<Subject 4> 毛笔 fully_preserved，以 <Picture 4> 为准。场景为现代图书馆·深夜，暖黄台灯照明，16:9横屏。\n\n详细描述：[Shot 1] 00:00.00–00:08.00，16:9横屏，近景，固定机位，从书案上方俯拍，突出 <Subject 3> 笔记本上的字迹和古籍扉页。00:00.00–00:02.00，<Subject 1> 沈砚仍伏在书案前，指尖停在书页诗句上；00:02.00–00:04.00，他提起 <Subject 4> 毛笔在 <Subject 3> 笔记本上记下几行，说：“再查查出处，应该还有线索。”；00:04.00–00:06.00，他皱眉，将古籍翻到扉页，仔细端详；00:06.00–00:08.00，他一手按在古籍扉页上，目光专注端详。窗外夜色深沉，图书馆空旷寂静，<Subject 2> 台灯暖光稳定覆盖书案。\n\n整体声景：笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声，<Subject 1> 沈砚的对白清晰。\n\n非叙事配乐：无配乐，仅保留环境音与对白。",
+            "fingerprint": "24f4984e77d17987ade963713196501ba97a48cf19249d059adc6db074ca9af9"
+          }
+        },
+        {
+          "beat_id": "beat-cba65156421e",
+          "record": {
+            "h3_prompt": "摘要：<Subject 1> 沈砚起身离开书案，走向书架间翻找，手指滑过书脊，身后传来异响。\n\n保留分析：<Subject 1> 沈砚 fully_preserved，身份、面貌、服装以 <Picture 1> 为准；<Subject 2> 台灯 fully_preserved，以 <Picture 2> 为准；<Subject 3> 笔记本 fully_preserved，以 <Picture 3> 为准；<Subject 4> 毛笔 fully_preserved，以 <Picture 4> 为准。场景为现代图书馆·深夜，暖黄台灯照明，16:9横屏。\n\n详细描述：[Shot 1] 00:00.00–00:08.00，16:9横屏，全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深。00:00.00–00:02.00，<Subject 1> 沈砚仍坐在书案前，一手按在古籍扉页上，<Subject 2> 台灯暖光留在书案；00:02.00–00:05.00，他起身离开书桌，走向书架间翻找，手指在一排排书脊上滑过；00:05.00–00:07.00，他站在书架前，手指停在某一本书脊上；00:07.00–00:08.00，身后书案方向传来一声异响，他回头看向书案方向。镜头随人物移动，保持图书馆纵深与暖光对比。\n\n整体声景：脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响，环境底噪持续。\n\n非叙事配乐：无配乐，仅保留环境音与动作音效。",
+            "fingerprint": "0119eb595fcaede3565ab7e87241f79ee0531aa1035a4948de89ebf78b6f1afd"
+          }
+        },
+        {
+          "beat_id": "beat-c99c747a1e46",
+          "record": {
+            "h3_prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前居画面主体，<Subject 2> 台灯在画面左前方，<Subject 3> 笔记本与 <Subject 4> 毛笔在案面右侧。\n【动作】开场：<Subject 1> 沈砚伏在书案上，<Subject 2> 台灯的暖黄光从侧前方打来，映在他疲惫的脸上，面前摊开一本泛黄古籍。他抬手揉了揉眼睛，指腹在眼睑上按了一下，随后指尖顺着书页上的诗句慢慢划过，一行一行往下移，眉头微蹙，像在辨认什么。\n(2–6秒) <Subject 1> 沈砚 (S1) 视线落在书页诗句上，指尖停在句尾，声音压低、语速偏慢、带着疑惑的沉吟，说：<d>[中文] “青山遮不住，毕竟东流去”……这诗风，不像宋人笔法。</d>\n说完他抿了抿嘴，指尖仍停在书页诗句上，没有翻页，目光在字句间又扫了一遍。收束：他仍伏在案前，指尖停在书页诗句上，肩背微微前倾。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，画面偏暗、背景书架虚化。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；<Subject 1> 沈砚外观与服装前后一致，<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 毛笔外观与位置一致，暖黄偏暗光线一致；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+            "fingerprint": "8774243530b18eec8cc572c33b14b7f91fc08cb11c9fd46f2ba18903962f25c4"
+          }
+        },
+        {
+          "beat_id": "beat-5949bf77b487",
+          "record": {
+            "h3_prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前居画面主体，<Subject 3> 笔记本与 <Subject 4> 毛笔在案面近处，<Subject 2> 台灯在画面边缘提供暖光。\n【动作】开场：<Subject 1> 沈砚仍伏在书案前，指尖停在书页诗句上。他伸手拿起 <Subject 4> 毛笔，在 <Subject 3> 笔记本上记下几行，笔尖走得慢，写到一半眉头皱起，停笔。\n(3–6秒) <Subject 1> 沈砚 (S1) 视线从笔记本移回古籍，声音低而稳、语速平缓、像自言自语地拿定主意，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把 <Subject 4> 毛笔搁回案面，双手将古籍翻到扉页，一手按在扉页上，目光专注端详，窗外夜色深沉，图书馆空旷寂静。收束：他一手按在古籍扉页上，目光专注端详。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出 <Subject 3> 笔记本上的字迹和古籍扉页。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；<Subject 1> 沈砚外观与服装前后一致，<Subject 3> 笔记本、<Subject 4> 毛笔、<Subject 2> 台灯外观与位置一致，暖黄偏暗光线一致；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+            "fingerprint": "221177c59716dc6433e4ec969d41bfa4cb84d335e6b1d5d69e3735c8cfde6396"
+          }
+        },
+        {
+          "beat_id": "beat-cba65156421e",
+          "record": {
+            "h3_prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚起身离案走向书架，<Subject 2> 台灯留在书案上，<Subject 3> 笔记本与 <Subject 4> 毛笔留在案面。\n【动作】开场：<Subject 1> 沈砚仍坐在书案前，一手按在古籍扉页上。他收回手，撑桌起身，椅子在木地板上蹭出一声轻响，转身走向书架过道。他抬手，指尖在一排排书脊上滑过，一本一本往下找，脚步放得很轻。\n收束：他站在书架前，手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向——那里传来一声轻微异响，他没有立刻回头，只是停住不动。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在画面深处渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响。\n【约束】五官稳定，面部不扭曲，画面无跳变；<Subject 1> 沈砚外观与服装前后一致，<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 毛笔留在书案原位不变，暖黄偏暗光线一致；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+            "fingerprint": "95e639e511d7ee7af4688a0cdbe42241d83cf269d24177428e5ac006a87f4f1d"
+          }
+        }
+      ],
+      "applied_candidates": {
+        "job-aa1f83aa56ae": [
+          "beat-c99c747a1e46",
+          "beat-5949bf77b487",
+          "beat-cba65156421e"
+        ],
+        "job-87185bbc7add": [
+          "beat-c99c747a1e46",
+          "beat-5949bf77b487",
+          "beat-cba65156421e"
+        ],
+        "job-987ad1251b89": [
+          "beat-10a2b769299e",
+          "beat-3de7fb09a705"
+        ],
+        "job-52aa0834ea51": [
+          "beat-8e0e7c4d9d25",
+          "beat-e1cdaf0164c6"
+        ],
+        "job-1437d5740241": [
+          "beat-c99c747a1e46",
+          "beat-5949bf77b487",
+          "beat-cba65156421e"
+        ],
+        "job-5ee4d08ab163": [
+          "beat-c99c747a1e46",
+          "beat-5949bf77b487",
+          "beat-cba65156421e"
+        ]
+      },
+      "reference_fingerprint": "6d8c9de58a124d9a80e4686716fa7f9745120e26bfeef71f718d3f570e41948b"
+    },
+    "unit_ids": [
+      "beat-c99c747a1e46",
+      "beat-5949bf77b487",
+      "beat-cba65156421e",
+      "beat-10a2b769299e",
+      "beat-3de7fb09a705",
+      "beat-8e0e7c4d9d25",
+      "beat-e1cdaf0164c6",
+      "beat-6100f08a3bc7",
+      "beat-2e0bc463d268",
+      "beat-53e22eda10b8",
+      "beat-831a27fbe725",
+      "beat-1f714dcfba67",
+      "beat-f37823687850",
+      "beat-ef254285a658",
+      "beat-8f7a04fa6ce9",
+      "beat-697251a39d71",
+      "beat-659758e451bc",
+      "beat-92eaf9c5bb9b",
+      "beat-655d83a53b12",
+      "beat-26f5aaf95e3c",
+      "beat-166d02c5a744",
+      "beat-f80337727019",
+      "beat-97e921086138",
+      "beat-d7fabbdce4f8",
+      "beat-bc78b1145765",
+      "beat-5a862fae8714",
+      "beat-268f0978bcdc"
+    ]
+  },
+  "runtime_stage": "running",
+  "prompt_generation_progress": {
+    "completed": 3,
+    "total": 3
+  },
+  "timeline": {
+    "version": 5,
+    "editMode": "segment",
+    "totalFrames": 576,
+    "frameRate": 24,
+    "global": {
+      "taskType": "r2v — 参考主体生视频(Reference to Video)",
+      "prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+      "refs": [],
+      "referenceVideo": {
+        "videoFile": "",
+        "fileName": "",
+        "type": "input",
+        "subfolder": ""
+      },
+      "continuousReference": false,
+      "genImage": {
+        "imageFile": ""
+      },
+      "sourceWidth": 608,
+      "sourceHeight": 352,
+      "refAudios": [],
+      "refVideos": [],
+      "commonEnabled": true,
+      "commonCollapsed": true
+    },
+    "output": {
+      "mode": "fixed",
+      "aspectRatio": "16:9 (宽屏)",
+      "megapixels": 0.2,
+      "multiple": 32,
+      "longEdge": 608,
+      "width": 608,
+      "height": 352,
+      "maxExportFrames": 0,
+      "exportMode": "all",
+      "audioMode": "generate",
+      "exportSourceImages": false,
+      "refImageSize": "match",
+      "continuityEnabled": true,
+      "continuityOverlapFrames": 5,
+      "continuityMode": "guide",
+      "continuityRedraw": 0.65
+    },
+    "runSelectEnabled": false,
+    "runSelection": [],
+    "segments": [
+      {
+        "id": "beat-c99c747a1e46",
+        "start": 0,
+        "length": 192,
+        "frameCount": 192,
+        "durationSec": 8.0,
+        "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+        "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+        "taskType": "r2v — 参考主体生视频(Reference to Video)",
+        "refs": [
+          {
+            "index": 0,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+            "fileName": "beat-1-picture-1-3c08fc516f73.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 1,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+            "fileName": "beat-1-picture-2-7bf1863150fe.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 2,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+            "fileName": "beat-1-picture-3-c8978664ed06.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 3,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+            "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          }
+        ],
+        "refAudios": [],
+        "refVideos": [],
+        "genImage": {
+          "imageFile": "",
+          "fileName": ""
+        },
+        "continuityFromPrev": false,
+        "refImageSize": "match",
+        "referenceVideo": {
+          "videoFile": "",
+          "fileName": "",
+          "type": "input",
+          "subfolder": ""
+        },
+        "_videoFrameCount": 192,
+        "previewFps": 24
+      },
+      {
+        "id": "beat-5949bf77b487",
+        "start": 192,
+        "length": 192,
+        "frameCount": 192,
+        "durationSec": 8.0,
+        "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+        "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+        "taskType": "r2v — 参考主体生视频(Reference to Video)",
+        "refs": [
+          {
+            "index": 0,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+            "fileName": "beat-1-picture-1-3c08fc516f73.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 1,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+            "fileName": "beat-1-picture-2-7bf1863150fe.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 2,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+            "fileName": "beat-1-picture-3-c8978664ed06.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 3,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+            "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          }
+        ],
+        "refAudios": [],
+        "refVideos": [],
+        "genImage": {
+          "imageFile": "",
+          "fileName": ""
+        },
+        "continuityFromPrev": true,
+        "refImageSize": "match",
+        "referenceVideo": {
+          "videoFile": "",
+          "fileName": "",
+          "type": "input",
+          "subfolder": ""
+        },
+        "_videoFrameCount": 192,
+        "previewFps": 24
+      },
+      {
+        "id": "beat-cba65156421e",
+        "start": 384,
+        "length": 192,
+        "frameCount": 192,
+        "durationSec": 8.0,
+        "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+        "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+        "taskType": "r2v — 参考主体生视频(Reference to Video)",
+        "refs": [
+          {
+            "index": 0,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+            "fileName": "beat-1-picture-1-3c08fc516f73.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 1,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+            "fileName": "beat-1-picture-2-7bf1863150fe.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 2,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+            "fileName": "beat-1-picture-3-c8978664ed06.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          },
+          {
+            "index": 3,
+            "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+            "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+            "type": "input",
+            "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+          }
+        ],
+        "refAudios": [],
+        "refVideos": [],
+        "genImage": {
+          "imageFile": "",
+          "fileName": ""
+        },
+        "continuityFromPrev": true,
+        "refImageSize": "match",
+        "referenceVideo": {
+          "videoFile": "",
+          "fileName": "",
+          "type": "input",
+          "subfolder": ""
+        },
+        "_videoFrameCount": 192,
+        "previewFps": 24
+      }
+    ],
+    "timelineMode": "prompt_batch",
+    "width": 608,
+    "height": 352,
+    "refMaxSize": 608,
+    "gen": {
+      "defaultFrameCount": 192
+    },
+    "batchDetailMode": "solo",
+    "batchWorkspaces": {
+      "r2v": {
+        "selectedIndex": 0,
+        "editMode": "segment",
+        "runSelectEnabled": false,
+        "runSelection": [],
+        "segments": [
+          {
+            "id": "beat-c99c747a1e46",
+            "start": 0,
+            "length": 192,
+            "frameCount": 192,
+            "durationSec": 8.0,
+            "prompt": "detailed_description:\n[Shot 1] 00:00.00–00:08.00\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+            "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+            "taskType": "r2v — 参考主体生视频(Reference to Video)",
+            "refs": [
+              {
+                "index": 0,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 1,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 2,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                "fileName": "beat-1-picture-3-c8978664ed06.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 3,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              }
+            ],
+            "refAudios": [],
+            "refVideos": [],
+            "genImage": {
+              "imageFile": "",
+              "fileName": ""
+            },
+            "continuityFromPrev": false,
+            "refImageSize": "match",
+            "referenceVideo": {
+              "videoFile": "",
+              "fileName": "",
+              "type": "input",
+              "subfolder": ""
+            },
+            "_videoFrameCount": 192,
+            "previewFps": 24
+          },
+          {
+            "id": "beat-5949bf77b487",
+            "start": 192,
+            "length": 192,
+            "frameCount": 192,
+            "durationSec": 8.0,
+            "prompt": "detailed_description:\n[Shot 2] 00:08.00–00:16.00\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+            "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+            "taskType": "r2v — 参考主体生视频(Reference to Video)",
+            "refs": [
+              {
+                "index": 0,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 1,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 2,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                "fileName": "beat-1-picture-3-c8978664ed06.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 3,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              }
+            ],
+            "refAudios": [],
+            "refVideos": [],
+            "genImage": {
+              "imageFile": "",
+              "fileName": ""
+            },
+            "continuityFromPrev": true,
+            "refImageSize": "match",
+            "referenceVideo": {
+              "videoFile": "",
+              "fileName": "",
+              "type": "input",
+              "subfolder": ""
+            },
+            "_videoFrameCount": 192,
+            "previewFps": 24
+          },
+          {
+            "id": "beat-cba65156421e",
+            "start": 384,
+            "length": 192,
+            "frameCount": 192,
+            "durationSec": 8.0,
+            "prompt": "detailed_description:\n[Shot 3] 00:16.00–00:24.00\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。",
+            "negativePrompt": "camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail",
+            "taskType": "r2v — 参考主体生视频(Reference to Video)",
+            "refs": [
+              {
+                "index": 0,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png",
+                "fileName": "beat-1-picture-1-3c08fc516f73.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 1,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png",
+                "fileName": "beat-1-picture-2-7bf1863150fe.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 2,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png",
+                "fileName": "beat-1-picture-3-c8978664ed06.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              },
+              {
+                "index": 3,
+                "imageFile": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png",
+                "fileName": "beat-1-picture-4-d58d0d2c88be.png",
+                "type": "input",
+                "subfolder": "zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8"
+              }
+            ],
+            "refAudios": [],
+            "refVideos": [],
+            "genImage": {
+              "imageFile": "",
+              "fileName": ""
+            },
+            "continuityFromPrev": true,
+            "refImageSize": "match",
+            "referenceVideo": {
+              "videoFile": "",
+              "fileName": "",
+              "type": "input",
+              "subfolder": ""
+            },
+            "_videoFrameCount": 192,
+            "previewFps": 24
+          }
+        ],
+        "globalCommon": {
+          "commonEnabled": true,
+          "commonCollapsed": true,
+          "prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+          "refs": [],
+          "refAudios": [],
+          "refVideos": []
+        }
+      }
+    }
+  },
+  "workflow_request": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "minimax_h3_ref2va_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    "14": {
+      "class_type": "PathchSageAttentionKJ",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "sage_attention": "auto",
+        "allow_compile": true
+      }
+    },
+    "15": {
+      "class_type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+      "inputs": {
+        "model": [
+          "14",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "MiniMaxH3Director",
+      "inputs": {
+        "model": [
+          "15",
+          0
+        ],
+        "video_vae": [
+          "3",
+          0
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "clip": [
+          "2",
+          0
+        ],
+        "task_type": "r2v — 参考主体生视频(Reference to Video)",
+        "global_prompt": "保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\n声音设定：\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。",
+        "bd_grp_sample": "采样设置",
+        "cfg": 1.0,
+        "seed": 1633461653,
+        "frame_rate": 24.0,
+        "width": 608,
+        "height": 352,
+        "ref_max_size": 608,
+        "total_frames": 576,
+        "timeline_data": "{\"version\": 5, \"editMode\": \"segment\", \"totalFrames\": 576, \"frameRate\": 24, \"global\": {\"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"prompt\": \"保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\\n声音设定：\\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。\", \"refs\": [], \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"continuousReference\": false, \"genImage\": {\"imageFile\": \"\"}, \"sourceWidth\": 608, \"sourceHeight\": 352, \"refAudios\": [], \"refVideos\": [], \"commonEnabled\": true, \"commonCollapsed\": true}, \"output\": {\"mode\": \"fixed\", \"aspectRatio\": \"16:9 (宽屏)\", \"megapixels\": 0.2, \"multiple\": 32, \"longEdge\": 608, \"width\": 608, \"height\": 352, \"maxExportFrames\": 0, \"exportMode\": \"all\", \"audioMode\": \"generate\", \"exportSourceImages\": false, \"refImageSize\": \"match\", \"continuityEnabled\": true, \"continuityOverlapFrames\": 5, \"continuityMode\": \"guide\", \"continuityRedraw\": 0.65}, \"runSelectEnabled\": false, \"runSelection\": [], \"segments\": [{\"id\": \"beat-c99c747a1e46\", \"start\": 0, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 1] 00:00.00–00:08.00\\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": false, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}, {\"id\": \"beat-5949bf77b487\", \"start\": 192, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 2] 00:08.00–00:16.00\\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": true, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}, {\"id\": \"beat-cba65156421e\", \"start\": 384, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 3] 00:16.00–00:24.00\\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": true, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}], \"timelineMode\": \"prompt_batch\", \"width\": 608, \"height\": 352, \"refMaxSize\": 608, \"gen\": {\"defaultFrameCount\": 192}, \"batchDetailMode\": \"solo\", \"batchWorkspaces\": {\"r2v\": {\"selectedIndex\": 0, \"editMode\": \"segment\", \"runSelectEnabled\": false, \"runSelection\": [], \"segments\": [{\"id\": \"beat-c99c747a1e46\", \"start\": 0, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 1] 00:00.00–00:08.00\\n【主体】<Subject 1> 沈砚伏在书案前，画面中景居主体；<Subject 2> 台灯在画面左侧案头，暖黄光从侧上方打在他脸上；<Subject 3> 笔记本摊在案面右侧，<Subject 4> 中性笔搁在笔记本旁。\\n【动作】开场沈砚伏在书案上，肩背松塌，右手压在摊开的泛黄古籍书页上，指尖顺着竖排诗句缓缓下移；他揉了揉眼睛，指腹在眼睑上停了一下，再落回书页。随后视线仍钉在诗句上，不看别处，声音压得很低、语速偏慢，像在心里比对，尾音微微上挑带出疑惑，说：\\n(0.8–7.4秒) 沈砚 (S1) 视线落在书页诗句上，指尖停在字行间，音量低、语速慢、带沉吟与疑惑，说：<d>[中文] ‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。</d>\\n说完嘴唇轻抿，指尖仍停在诗句上没抬起，眉头微蹙，选了继续盯着这行字。\\n【镜头】16:9 中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓，背景书架虚化、夜色深沉。\\n【音效】深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声。\\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装前后一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯、<Subject 3> 笔记本、<Subject 4> 中性笔外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": false, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}, {\"id\": \"beat-5949bf77b487\", \"start\": 192, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 2] 00:08.00–00:16.00\\n【主体】<Subject 1> 沈砚在书案前居主体；<Subject 3> 笔记本摊在案面中央，<Subject 4> 中性笔握在他右手中，<Subject 2> 台灯在画面左侧案头提供暖黄侧光。\\n【动作】开场沈砚指尖仍停在古籍诗句上，随即右手离开书页，拿起 <Subject 4> 中性笔，在 <Subject 3> 笔记本上写下几行字，笔尖压得略重、行笔偏快；写到一半眉头皱起，笔尖顿住，他抬手把古籍翻到扉页，双手按住书页边缘仔细端详。随后视线从扉页移向笔记本上的字迹，声音平稳、语速中等，像在给自己定下一步，说：\\n(11.5–14.5秒) 沈砚 (S1) 视线在扉页与笔记本之间来回，右手仍握着笔悬在纸面上方，音量中等、语速平稳、带专注与自我确认，说：<d>[中文] 再查查出处，应该还有线索。</d>\\n说完他把笔搁回笔记本旁，一手按在古籍扉页上，目光专注端详，选了继续查下去。\\n【镜头】16:9 近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页，窗外夜色深沉。\\n【音效】笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声。\\n【约束】五官稳定，面部不扭曲，口型与台词同步，画面无跳变；沈砚面貌、发型与服装与 Shot 1 一致，台灯暖黄偏暗光线一致；<Subject 3> 笔记本、<Subject 4> 中性笔、<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": true, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}, {\"id\": \"beat-cba65156421e\", \"start\": 384, \"length\": 192, \"frameCount\": 192, \"durationSec\": 8.0, \"prompt\": \"detailed_description:\\n[Shot 3] 00:16.00–00:24.00\\n【主体】<Subject 1> 沈砚起身离开书案，沿书架过道向纵深走；<Subject 2> 台灯留在画面后方的书案上，暖黄光在过道尽头缩成一小团。\\n【动作】开场沈砚一手仍按在古籍扉页上，随即撑案起身，椅子轻响，他转身走向书架过道，右手抬起，指尖在一排排书脊上滑过，边走边扫视书名，脚步不快、重心略前。走到过道中段，他手指停在某一本书脊上，肩背一僵，头微微侧向身后书案方向。随后他缓缓回头，视线越过肩头看向书案，眉头收紧、呼吸放轻，选了先不动、听清那声响。\\n【镜头】16:9 全景，跟拍镜头，从书案侧方移至书架过道，展现图书馆纵深，台灯暖光在后方渐远。\\n【音效】脚步声在空旷图书馆中回响，手指滑过书脊的摩擦声，突然一声轻微的异响从书案方向传来。\\n【约束】五官稳定，面部不扭曲，画面无跳变；沈砚面貌、发型与服装与 Shot 1、Shot 2 一致，台灯暖黄偏暗光线一致；<Subject 2> 台灯外观以参考图为准，全程不得添加、移动或碰触其他物件；本镜无对白，不出现人声；排除表情夸张、动作幅度过大或任何笑容轻松表情。\", \"negativePrompt\": \"camera shake, identity drift, face drift, age change, hairstyle change, costume change, inconsistent proportions, extra limbs, bad hands, broken lip sync, random text, subtitles, watermark, scene drift, plastic skin, oversaturated colors, low detail\", \"taskType\": \"r2v — 参考主体生视频(Reference to Video)\", \"refs\": [{\"index\": 0, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-1-3c08fc516f73.png\", \"fileName\": \"beat-1-picture-1-3c08fc516f73.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 1, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-2-7bf1863150fe.png\", \"fileName\": \"beat-1-picture-2-7bf1863150fe.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 2, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-3-c8978664ed06.png\", \"fileName\": \"beat-1-picture-3-c8978664ed06.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}, {\"index\": 3, \"imageFile\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/beat-1-picture-4-d58d0d2c88be.png\", \"fileName\": \"beat-1-picture-4-d58d0d2c88be.png\", \"type\": \"input\", \"subfolder\": \"zly-ai-media/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8\"}], \"refAudios\": [], \"refVideos\": [], \"genImage\": {\"imageFile\": \"\", \"fileName\": \"\"}, \"continuityFromPrev\": true, \"refImageSize\": \"match\", \"referenceVideo\": {\"videoFile\": \"\", \"fileName\": \"\", \"type\": \"input\", \"subfolder\": \"\"}, \"_videoFrameCount\": 192, \"previewFps\": 24}], \"globalCommon\": {\"commonEnabled\": true, \"commonCollapsed\": true, \"prompt\": \"保持现代图书馆·深夜的空间与光线一致，台灯暖光，16:9横屏。\\n<Subject 1>：沈砚，以 <Picture 1> 为外观权威参考。\\n<Subject 2>：台灯，以 <Picture 2> 为外观权威参考。\\n<Subject 3>：笔记本，以 <Picture 3> 为外观权威参考。\\n<Subject 4>：中性笔，以 <Picture 4> 为外观权威参考。\\n<Subject 1> 沈砚使用现代26岁造型，组内面貌、服装与声音一致。Subject 2～4 仅为道具，不得写成说话人物。\\n声音设定：\\n沈砚 (S1)：自然人声，同一人物的音色在全片保持一致；没有提供参考音频，不从图片推断音色。\", \"refs\": [], \"refAudios\": [], \"refVideos\": []}}}}",
+        "bd_grp_advanced": "高级采样",
+        "steps": 25,
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "shift_video": 12.0,
+        "shift_audio": 3.0,
+        "bd_grp_perf": "性能",
+        "clear_vram_between_segments": false,
+        "export_source_images": false
+      }
+    },
+    "6": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "audio": [
+          "12",
+          1
+        ],
+        "fps": [
+          "12",
+          2
+        ],
+        "bit_depth": 8
+      }
+    },
+    "7": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "6",
+          0
+        ],
+        "filename_prefix": "video/proj-0f9c8015281149f0/ep-4d89a8df80a4/job-3b353200eda8/segment-1",
+        "format": "auto",
+        "codec": "auto"
+      }
+    },
+    "8": {
+      "class_type": "PreviewAny",
+      "inputs": {
+        "source": [
+          "12",
+          5
+        ]
+      }
+    }
+  },
+  "comfy_submission_count": 1,
+  "client_id": "4a89d5a9-f1b1-441f-8065-d4926294c375",
+  "prompt_id": "9858e150-9f7b-47d3-96e8-389222471fe6",
+  "queue_number": 83,
+  "node_errors": {},
+  "comfy_output": {
+    "filename": "segment-1_00001_.mp4",
+    "subfolder": "video\\proj-0f9c8015281149f0\\ep-4d89a8df80a4\\job-3b353200eda8",
+    "type": "output"
+  },
+  "production_material_ids": [
+    "material-11fa88eced9a6a97675d9410"
+  ],
+  "result_kind": "shot_video"
+}

@@ -1,0 +1,80 @@
+{
+  "fixture": "director_ep1_2026-09-26",
+  "generated_at": "2026-09-26 20:28:09",
+  "database": "192.168.10.125:3306/ai-media",
+  "project_id": "proj-0f9c8015281149f0",
+  "episode_id": "ep-4d89a8df80a4",
+  "problem_job_id": "job-3b353200eda8",
+  "files": [
+    {
+      "file": "01_satisfied_prompt.txt",
+      "sha256": "d7afc7aa52fbbd227e2e06834bad07caf196a0d096a0fbbc9670ad5b881626e7",
+      "bytes": 3779,
+      "source": "file: tmp/director_ep1_shots1-2_prompt.txt",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "02_problem_job_payload.json",
+      "sha256": "35229739d4a21fdc2e953771d13ff62c637e8ba7b06099fbb243d4ea597ca194",
+      "bytes": 247412,
+      "source": "ai_project_jobs.payload_json id=job-3b353200eda8",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "03_problem_job_meta.json",
+      "sha256": "6ba6d425ba70b6b872bf9d0c2b7830792102b5b2fa163c5abc416ee59175bcac",
+      "bytes": 505,
+      "source": "ai_project_jobs id=job-3b353200eda8",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "04_episode_script.txt",
+      "sha256": "045b6215666f8af8a6797805b1aa1a4c26b85b98df69bcee9178dfa92a3fa0a3",
+      "bytes": 5676,
+      "source": "ai_project_episodes.script_text id=ep-4d89a8df80a4",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "05_episode_data.json",
+      "sha256": "b25c8054300a6720a7b9234e6bdd74a68a1db983ae5b958b7e4160c424bad3f1",
+      "bytes": 728022,
+      "source": "ai_project_episodes.data_json id=ep-4d89a8df80a4",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "06_documents.json",
+      "sha256": "07d212e079582fc80e94d342ca27b8cdb1fa34b175ccf67833202d43ae03a5e4",
+      "bytes": 1326,
+      "source": "ai_project_documents project_id=proj-0f9c8015281149f0",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "07_assets.json",
+      "sha256": "6febe886fad6ef3756b092e3970a1cafae7619ae381b2f9a47483b3acd097ce2",
+      "bytes": 57550,
+      "source": "ai_project_assets project_id=proj-0f9c8015281149f0",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "08_jobs_index.json",
+      "sha256": "825e8096a360fb6052071fb1216cf2641935b3e9b53225ce5e1d2391f7cd5d2c",
+      "bytes": 72467,
+      "source": "ai_project_jobs project_id=proj-0f9c8015281149f0",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "09_provider_config.json",
+      "sha256": "d46af848b0d609ad6eaa476336e38e0f00654535548f147fa4b2f82862ab934e",
+      "bytes": 2032,
+      "source": "comfy_provider_settings + llm_provider_settings + vlm_provider_settings（凭据脱敏）",
+      "exported_at": "2026-09-26 20:28:09"
+    },
+    {
+      "file": "10_findings.md",
+      "sha256": "bdf83771dc4eba856869e05524615bc3eacf17ccc87c8ef87fb0652e5a188729",
+      "bytes": 6803,
+      "source": "本脚本基于导出结果自动生成",
+      "exported_at": "2026-09-26 20:28:09"
+    }
+  ]
+}

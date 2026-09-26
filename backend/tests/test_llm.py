@@ -120,6 +120,10 @@ class ChatCompletionThinkingTests(unittest.TestCase):
 
     @patch("backend.app.vision_runtime.chat_on_endpoint", return_value="draft")
     def test_authoring_uses_configured_llm_reasoning_effort(self, mock_chat: MagicMock) -> None:
+        from backend.app.vision_capability import _CACHE, probe_fields, VisionProbeResult
+        _CACHE.clear()
+        self.addCleanup(_CACHE.clear)
+        probe_fields({"base_url": "https://llm.example/v1", "model": "gpt-5.6-sol", "api_key": "sk-llm"}, VisionProbeResult("supported", "mock verified"))
         text, _meta = complete_authoring(
             {
                 "enabled": 1,
@@ -886,6 +890,12 @@ class LLMAppEndpointsTests(unittest.TestCase):
 
 class LLMConnectionTestTests(unittest.TestCase):
     def setUp(self) -> None:
+        from backend.app.vision_capability import _CACHE, VisionProbeResult
+        _CACHE.clear()
+        self.addCleanup(_CACHE.clear)
+        probe = patch("backend.app.llm_provider.probe_vision_capability", return_value=VisionProbeResult("supported", "mock verified"))
+        probe.start()
+        self.addCleanup(probe.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / "test.db"
         self.credential_key = Fernet.generate_key().decode("ascii")

@@ -39,3 +39,6 @@
 .workshop-asset-photo .h3-ref-grid { margin-top:6px; }
 .unified-workshop .production-video { max-height:480px; width:100%; object-fit:contain; }
 .d2-video-settings-popover .d2-video-settings-form { max-height:calc(100vh - 130px); overflow-y:auto; padding-right:4px; }
+.workshop-common-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.workshop-authoring-evidence { color: var(--studio-text); overflow-wrap: anywhere; }
+.workshop-authoring-evidence .ant-alert { width: 100%; }

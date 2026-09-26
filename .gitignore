@@ -110,5 +110,13 @@ backend/tests/test_*.py
 !backend/tests/test_workshop_shot_structure.py
 !backend/tests/test_workshop_reference_lifecycle.py
 !backend/tests/test_workshop_video_preflight.py
+!backend/tests/test_workshop_authoring.py
+!backend/tests/test_workshop_group_prompts.py
+!backend/tests/test_workshop_h3_skill.py
+!backend/tests/test_workshop_review.py
+!backend/tests/test_workshop_v7.py
 !backend/tests/test_action_previs.py
+!backend/tests/test_vision_capability.py
+!backend/tests/test_vision_runtime.py
+!backend/tests/test_vlm.py
 scripts/action_previs_worker/vendor/

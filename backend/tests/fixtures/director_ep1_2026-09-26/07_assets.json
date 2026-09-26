@@ -1,0 +1,1283 @@
+[
+  {
+    "id": "ast-c6bf3d643f0c",
+    "kind": "prop",
+    "name": "木车",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164614_3d9434f572a25742.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164614_3d9434f572a25742.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "木车，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "木车，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "木车，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/164614_3d9434f572a25742.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:46:26"
+  },
+  {
+    "id": "ast-76259043449c",
+    "kind": "prop",
+    "name": "旧木书箱",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170404_d5a4f27bb091c548.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170404_d5a4f27bb091c548.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "document",
+      "visual_prompt": "旧木书箱，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "旧木书箱，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "旧木书箱，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/170404_d5a4f27bb091c548.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 17:04:08"
+  },
+  {
+    "id": "ast-835eec9389b5",
+    "kind": "prop",
+    "name": "竹筐",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170535_b1a65f3396c76a8f.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170535_b1a65f3396c76a8f.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "竹筐，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "竹筐，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "竹筐，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/170535_b1a65f3396c76a8f.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 17:05:39"
+  },
+  {
+    "id": "ast-927b49e98323",
+    "kind": "prop",
+    "name": "台灯",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "台灯，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "台灯，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "台灯，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:59:16"
+  },
+  {
+    "id": "ast-936e3d88139d",
+    "kind": "character",
+    "name": "沈砚",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "沈砚，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-88139d",
+          "name": "沈砚 (日常/初始造型)",
+          "description": "17岁古代少年；清瘦高挑；清秀脸庞；剑眉；沉静眼神；黑色长发、少年发髻；前期穿洗得发白的青灰粗布长衫、旧布鞋；后期换浅青色长衫。气质贫寒但不卑微、聪明沉稳。固定道具：旧木书箱、破旧古书、毛笔、砚台、宣纸。",
+          "visual_prompt": "17岁中国古代少年，清瘦高挑，清秀脸庞，剑眉，沉静眼神，黑色长发，少年发髻，浅青灰色粗布长衫，旧布鞋，贫寒但不卑微，气质沉稳聪慧。",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png",
+          "object_key": "zly-ai-video-studio/image/20260920/155423_11e9d317b3f45319.png"
+        },
+        {
+          "id": "ident-modern-88139d",
+          "name": "沈砚 (现代26岁)",
+          "description": "26岁现代硕士研究生，短发，白色衬衫，深色休闲裤，当代都市着装。与「沈砚」古代造型同一人，五官一致，按现代年龄与服装。",
+          "appearance_details": "26岁现代硕士研究生，短发，白色衬衫，深色休闲裤，当代都市着装。与「沈砚」古代造型同一人，五官一致，按现代年龄与服装。",
+          "visual_prompt": "26岁中国当代青年男性，清瘦高挑，清秀脸庞，剑眉，沉静眼神，短发，白色衬衫，深色休闲裤，研究生气质，写实电影质感",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+          "object_key": "zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "strict-father",
+        "ref_audio_url": "/api/voice-bank/strict-father/audio",
+        "preview_url": "",
+        "default_emotion": "angry",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-937df79b1511",
+    "kind": "scene",
+    "name": "私塾",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160110_2ca33c254ea37a13.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160110_2ca33c254ea37a13.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "interior",
+      "environment_prompt": "私塾，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "私塾，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "私塾，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:01:15"
+  },
+  {
+    "id": "ast-a22b95289ec6",
+    "kind": "character",
+    "name": "周景明",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "周景明，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-289ec6",
+          "name": "周景明 (日常/初始造型)",
+          "description": "18岁；修长英俊；深蓝锦袍；束发；腰佩玉佩；家境优越、自幼读书；性格骄傲，前期看不起寒门读书人。",
+          "visual_prompt": "18岁中国古代年轻书生，修长身材，英俊面容，深蓝色锦袍，束发，腰佩玉佩，气质骄傲。",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155126_0f95802eb2a8d1ad.png",
+          "object_key": "zly-ai-video-studio/image/20260920/155126_0f95802eb2a8d1ad.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-a5ecb93bb1c6",
+    "kind": "prop",
+    "name": "竹简",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170452_b987e92b85bc35ec.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170452_b987e92b85bc35ec.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "场景陈设道具",
+      "prop_type": "object",
+      "visual_prompt": "竹简，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "竹简，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "竹简，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/170452_b987e92b85bc35ec.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 17:04:56"
+  },
+  {
+    "id": "ast-b2f41d028ab1",
+    "kind": "scene",
+    "name": "土墙、木床、木桌、缺口陶碗",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155808_1be45b6cef05b477.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155808_1be45b6cef05b477.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "土墙、木床、木桌、缺口陶碗，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "土墙、木床、木桌、缺口陶碗，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "土墙、木床、木桌、缺口陶碗，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 15:58:12"
+  },
+  {
+    "id": "ast-b94c438ccaa9",
+    "kind": "prop",
+    "name": "毛笔",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170315_e96f7f723768a7ce.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170315_e96f7f723768a7ce.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "object",
+      "visual_prompt": "毛笔，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "毛笔，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "毛笔，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/170315_e96f7f723768a7ce.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-bde97674e193",
+    "kind": "scene",
+    "name": "破旧茅屋",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155856_9e33773738fe4e47.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155856_9e33773738fe4e47.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "破旧茅屋，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "破旧茅屋，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "破旧茅屋，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-c1e0b02ce38d",
+    "kind": "prop",
+    "name": "《论语》",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170143_2c220f437589ef5e.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170143_2c220f437589ef5e.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "object",
+      "visual_prompt": "《论语》，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "《论语》，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "《论语》，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/170143_2c220f437589ef5e.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-c34113fcc103",
+    "kind": "prop",
+    "name": "灯笼",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170041_62250ddef43f71a3.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170041_62250ddef43f71a3.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "场景陈设道具",
+      "prop_type": "object",
+      "visual_prompt": "灯笼，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "灯笼，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "灯笼，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/170041_62250ddef43f71a3.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 17:00:45"
+  },
+  {
+    "id": "ast-9e93a3a209ee",
+    "kind": "prop",
+    "name": "绣花香囊",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170623_6ec79d9820a9991e.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170623_6ec79d9820a9991e.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "object",
+      "visual_prompt": "绣花香囊，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "绣花香囊，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "绣花香囊，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/170623_6ec79d9820a9991e.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 17:06:27"
+  },
+  {
+    "id": "ast-cbd41d16039a",
+    "kind": "scene",
+    "name": "图书馆",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160005_ee53537cf9f5a637.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160005_ee53537cf9f5a637.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "图书馆，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "图书馆，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "图书馆，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:00:09"
+  },
+  {
+    "id": "ast-d2c8556dc8dd",
+    "kind": "scene",
+    "name": "陆家",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155711_5f9e9ac127f3b749.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155711_5f9e9ac127f3b749.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "陆家，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "陆家，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "陆家，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 15:57:15"
+  },
+  {
+    "id": "ast-db27231399e8",
+    "kind": "prop",
+    "name": "米缸",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164245_8c44a9b066e26147.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164245_8c44a9b066e26147.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "场景陈设道具",
+      "prop_type": "object",
+      "visual_prompt": "米缸，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "米缸，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "米缸，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/164245_8c44a9b066e26147.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-eab4a0abcbaf",
+    "kind": "scene",
+    "name": "古道",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160202_29451d798238a4a1.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160202_29451d798238a4a1.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "古道，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "古道，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "古道，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:02:07"
+  },
+  {
+    "id": "ast-ec6b023c27eb",
+    "kind": "prop",
+    "name": "破旧古书",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164425_ff0e571f10e7a5d5.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164425_ff0e571f10e7a5d5.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "document",
+      "visual_prompt": "破旧古书，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "破旧古书，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "破旧古书，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/164425_ff0e571f10e7a5d5.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:44:31"
+  },
+  {
+    "id": "ast-f0f2cdd6c4ee",
+    "kind": "prop",
+    "name": "书卷",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164521_5ebb5e415a6458bc.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164521_5ebb5e415a6458bc.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "document",
+      "visual_prompt": "书卷，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "书卷，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "书卷，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/164521_5ebb5e415a6458bc.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:45:26"
+  },
+  {
+    "id": "ast-f6c58ded979a",
+    "kind": "scene",
+    "name": "沈家",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160301_56eb29002668f4a3.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160301_56eb29002668f4a3.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "沈家，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "沈家，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "沈家，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:03:06"
+  },
+  {
+    "id": "ast-f74da40cf1b3",
+    "kind": "prop",
+    "name": "木质讲案",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165222_99904eed5b909c38.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165222_99904eed5b909c38.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "furniture",
+      "visual_prompt": "木质讲案，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "木质讲案，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "木质讲案，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165222_99904eed5b909c38.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:52:44"
+  },
+  {
+    "id": "ast-f77a5102b729",
+    "kind": "prop",
+    "name": "笔记本",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "笔记本，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "笔记本，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "笔记本，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:51:37"
+  },
+  {
+    "id": "ast-faf595c9b6f1",
+    "kind": "prop",
+    "name": "旧被褥",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165044_e082d03ade975ee3.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165044_e082d03ade975ee3.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "旧被褥，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "旧被褥，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "旧被褥，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165044_e082d03ade975ee3.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:50:49"
+  },
+  {
+    "id": "ast-fc568d90e19a",
+    "kind": "scene",
+    "name": "村口田地",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160351_7e80be1bfb946c9d.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160351_7e80be1bfb946c9d.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "村口田地，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "村口田地，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "村口田地，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-52e6d1c7ac1e",
+    "kind": "prop",
+    "name": "团扇",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165623_17a242e29cec1b74.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165623_17a242e29cec1b74.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "weapon",
+      "visual_prompt": "团扇，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "团扇，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "团扇，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165623_17a242e29cec1b74.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:56:26"
+  },
+  {
+    "id": "ast-3993bafd33ba",
+    "kind": "prop",
+    "name": "电脑",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165721_6cfcff620526326e.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165721_6cfcff620526326e.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "电脑，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "电脑，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "电脑，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165721_6cfcff620526326e.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:57:24"
+  },
+  {
+    "id": "ast-284e2c6a85bf",
+    "kind": "prop",
+    "name": "农具",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165447_6b520a50c78dadaf.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165447_6b520a50c78dadaf.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "农具，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "农具，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "农具，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165447_6b520a50c78dadaf.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:54:49"
+  },
+  {
+    "id": "ast-518590de9338",
+    "kind": "prop",
+    "name": "古籍",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165952_dfa59c3204a62190.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165952_dfa59c3204a62190.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "古籍，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "古籍，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "古籍，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165952_dfa59c3204a62190.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-520ea8d0fcc5",
+    "kind": "prop",
+    "name": "折扇",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165358_c0de8c2c8f3bdc03.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165358_c0de8c2c8f3bdc03.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "weapon",
+      "visual_prompt": "折扇，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "折扇，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "折扇，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165358_c0de8c2c8f3bdc03.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-3135989b1792",
+    "kind": "scene",
+    "name": "现代大学图书馆深夜",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160526_97f9858596c67e9d.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160526_97f9858596c67e9d.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "现代大学图书馆深夜，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "现代大学图书馆深夜，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "现代大学图书馆深夜，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:05:29"
+  },
+  {
+    "id": "ast-2fbd5de98078",
+    "kind": "prop",
+    "name": "陶碗",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165532_2facf9f6205e80d3.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165532_2facf9f6205e80d3.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "object",
+      "visual_prompt": "陶碗，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "陶碗，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "陶碗，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165532_2facf9f6205e80d3.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:55:35"
+  },
+  {
+    "id": "ast-52a709b4df22",
+    "kind": "character",
+    "name": "陆承安",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "陆承安，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-b4df22",
+          "name": "陆承安 (日常/初始造型)",
+          "description": "16岁；白净少年脸；浅蓝锦袍；整齐束发；腰佩玉佩；贪玩骄傲但本性不坏。固定道具：折扇、玉佩、书卷。",
+          "visual_prompt": "16岁中国古代富家少年，白净脸庞，少年感，浅蓝色锦袍，整齐束发，腰佩玉佩，手持折扇，富贵气质，略带骄傲。",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/153417_8d7efef2a3f4eb27.png",
+          "object_key": "zly-ai-video-studio/image/20260920/153417_8d7efef2a3f4eb27.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-18400fe4fe24",
+    "kind": "prop",
+    "name": "玉佩",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164957_76e9aef38288b136.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164957_76e9aef38288b136.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "accessory",
+      "visual_prompt": "玉佩，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "玉佩，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "玉佩，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/164957_76e9aef38288b136.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:50:00"
+  },
+  {
+    "id": "ast-0da4ac810bab",
+    "kind": "scene",
+    "name": "文会",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160443_0fab98bfaf2f302c.png",
+    "extra_json": {
+      "master_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/160443_0fab98bfaf2f302c.png",
+      "reverse_url": "",
+      "pano_url": "",
+      "scene_type": "exterior",
+      "environment_prompt": "文会，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k",
+      "reverse_prompt": "文会，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k",
+      "pano_prompt": "文会，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k",
+      "source_references": []
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:04:47"
+  },
+  {
+    "id": "ast-5f9ad0801847",
+    "kind": "prop",
+    "name": "木床",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165807_e414cfa80577938b.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165807_e414cfa80577938b.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "分镜关键道具",
+      "prop_type": "furniture",
+      "visual_prompt": "木床，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "木床，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "木床，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/165807_e414cfa80577938b.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:58:11"
+  },
+  {
+    "id": "ast-62e306573606",
+    "kind": "prop",
+    "name": "宣纸",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164904_7ac1e486d0628cda.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164904_7ac1e486d0628cda.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "object",
+      "visual_prompt": "宣纸，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "宣纸，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "宣纸，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/164904_7ac1e486d0628cda.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-0c5fa00ca960",
+    "kind": "prop",
+    "name": "砚台",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164335_42ad42d5fabea9b5.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/164335_42ad42d5fabea9b5.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "object",
+      "visual_prompt": "砚台，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "砚台，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "砚台，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/164335_42ad42d5fabea9b5.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 16:43:38"
+  },
+  {
+    "id": "ast-69973c7acaa8",
+    "kind": "prop",
+    "name": "戒尺",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170233_152cb01f911e9d8f.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/170233_152cb01f911e9d8f.png",
+      "turnaround_url": "",
+      "detail_url": "",
+      "owner": "人物固定道具",
+      "prop_type": "accessory",
+      "visual_prompt": "戒尺，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "戒尺，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "戒尺，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260920/170233_152cb01f911e9d8f.png"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-6a658f629fac",
+    "kind": "character",
+    "name": "苏婉",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "苏婉，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-629fac",
+          "name": "苏婉 (日常/初始造型)",
+          "description": "17岁；清秀温婉；纤细；黑色长发；淡青古装长裙；聪慧安静、喜欢读书。固定道具：书卷、团扇、绣花香囊。",
+          "visual_prompt": "17岁中国古代少女，清秀温婉，纤细身材，黑色长发，淡青色古装长裙，清雅气质，手持书卷。",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155240_d9323726c7114dc6.png",
+          "object_key": "zly-ai-video-studio/image/20260920/155240_d9323726c7114dc6.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-20 15:52:43"
+  },
+  {
+    "id": "ast-7274e5d3c6fd",
+    "kind": "character",
+    "name": "林夫子",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "林夫子，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-d3c6fd",
+          "name": "林夫子 (日常/初始造型)",
+          "description": "55岁；灰白胡须；深灰长袍；儒巾；严肃锐利；严厉、公正、爱才。固定道具：戒尺、《论语》、毛笔、砚台、木质讲案。",
+          "visual_prompt": "55岁中国古代老夫子，灰白胡须，深灰色长袍，儒巾，严肃面容，锐利眼神，手持戒尺。",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/155335_d3d1d93b347cabf4.png",
+          "object_key": "zly-ai-video-studio/image/20260920/155335_d3d1d93b347cabf4.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-20 15:30:11",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-dd9df9822f27",
+    "kind": "character",
+    "name": "母亲",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "母亲，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-822f27",
+          "name": "母亲 (日常/初始造型)",
+          "description": "中年妇人，粗布衣裳，鬓角有白发，面容疲惫，眼神关切，代表家庭温暖。",
+          "visual_prompt": "母亲 半身立绘，中年妇人，粗布衣裳，鬓角有白发，面容疲惫，眼神关切，代表家庭温暖。，电影级质感，8k",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260925/014658_d6cad3ff50d333f9.png",
+          "object_key": "zly-ai-video-studio/image/20260925/014658_d6cad3ff50d333f9.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:47:01"
+  },
+  {
+    "id": "ast-e5dca1729597",
+    "kind": "scene",
+    "name": "现代图书馆",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-e62399355521",
+    "kind": "character",
+    "name": "陆老爷",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "陆老爷，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-355521",
+          "name": "陆老爷 (日常/初始造型)",
+          "description": "中年男人，深色锦袍，气度沉稳，在回廊暗中观察沈砚，微微颔首，未直接出场对话。",
+          "visual_prompt": "陆老爷 半身立绘，中年男人，深色锦袍，气度沉稳，在回廊暗中观察沈砚，微微颔首，未直接出场对话。，电影级质感，8k",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260925/014744_a4dd2e6a1f841a48.png",
+          "object_key": "zly-ai-video-studio/image/20260925/014744_a4dd2e6a1f841a48.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:47:47"
+  },
+  {
+    "id": "ast-064a3d4ccc5d",
+    "kind": "character",
+    "name": "村民甲",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "村民甲，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-4ccc5d",
+          "name": "村民甲 (日常/初始造型)",
+          "description": "中年村民，粗布短打，皮肤黝黑，性格直率，种田为生。",
+          "visual_prompt": "村民甲 半身立绘，中年村民，粗布短打，皮肤黝黑，性格直率，种田为生。，电影级质感，8k",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260925/014609_8e15083bb2787771.png",
+          "object_key": "zly-ai-video-studio/image/20260925/014609_8e15083bb2787771.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:46:12"
+  },
+  {
+    "id": "ast-e7760c881a0e",
+    "kind": "character",
+    "name": "名士",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "名士，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-881a0e",
+          "name": "名士 (日常/初始造型)",
+          "description": "中年文人，灰白长须，深色长袍，气度儒雅，文会主持者，对沈砚的才华极为赏识。",
+          "visual_prompt": "名士 半身立绘，中年文人，灰白长须，深色长袍，气度儒雅，文会主持者，对沈砚的才华极为赏识。，电影级质感，8k",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260925/014833_b86e1ec36c9e1a19.png",
+          "object_key": "zly-ai-video-studio/image/20260925/014833_b86e1ec36c9e1a19.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:48:35"
+  },
+  {
+    "id": "ast-e9854523b723",
+    "kind": "character",
+    "name": "村民丙",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "村民丙，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-23b723",
+          "name": "村民丙 (日常/初始造型)",
+          "description": "年轻村民，干活卖力，对沈砚表示佩服。",
+          "visual_prompt": "村民丙 半身立绘，年轻村民，干活卖力，对沈砚表示佩服。，电影级质感，8k",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260925/014927_832b5bf02b6114a8.png",
+          "object_key": "zly-ai-video-studio/image/20260925/014927_832b5bf02b6114a8.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:49:30"
+  },
+  {
+    "id": "ast-eafce41303e3",
+    "kind": "scene",
+    "name": "村口农田",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-22d0b50e7126",
+    "kind": "prop",
+    "name": "树枝",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-1dfb5ea21bf4",
+    "kind": "scene",
+    "name": "文会园林",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-f4f58794240b",
+    "kind": "scene",
+    "name": "陆家偏厅",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-094b179723e9",
+    "kind": "scene",
+    "name": "私塾门口",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-acec7d49b7ea",
+    "kind": "scene",
+    "name": "私塾课堂",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-74c6df8345c5",
+    "kind": "scene",
+    "name": "陆家大门口",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-8c26ad3f0aca",
+    "kind": "scene",
+    "name": "陆家书房",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-63d601baa865",
+    "kind": "scene",
+    "name": "陆家东厢房",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-93d306e20aff",
+    "kind": "scene",
+    "name": "陆家庭院",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-04b93eebdc59",
+    "kind": "prop",
+    "name": "锄头",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-a4debc3dd15b",
+    "kind": "prop",
+    "name": "米袋",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-a66beb03d850",
+    "kind": "prop",
+    "name": "破陶碗",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-db27c0346174",
+    "kind": "prop",
+    "name": "旧书箱",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-b1a2a00462b5",
+    "kind": "character",
+    "name": "村民乙",
+    "image_url": null,
+    "extra_json": {
+      "avatar_url": "",
+      "avatar_prompt": "村民乙，面部肖像，五官特写，眼神清亮坚毅，写实电影级光影，8k",
+      "identities": [
+        {
+          "id": "ident-0462b5",
+          "name": "村民乙 (日常/初始造型)",
+          "description": "中年村民，性格固执，起初质疑沈砚，后态度缓和。",
+          "visual_prompt": "村民乙 半身立绘，中年村民，性格固执，起初质疑沈砚，后态度缓和。，电影级质感，8k",
+          "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260925/014522_7ade45d6c7803563.png",
+          "object_key": "zly-ai-video-studio/image/20260925/014522_7ade45d6c7803563.png"
+        }
+      ],
+      "voice": {
+        "preset_id": "",
+        "ref_audio_url": "",
+        "preview_url": "",
+        "default_emotion": "calm",
+        "emo_alpha": 0.8,
+        "duration_factor": 1.0,
+        "source": null
+      },
+      "source_references": [],
+      "ethnicity": "Chinese"
+    },
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:45:25"
+  },
+  {
+    "id": "ast-404a8b8a112d",
+    "kind": "scene",
+    "name": "私塾外走廊",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-bffce8a37f5a",
+    "kind": "prop",
+    "name": "《孟子集注》",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-3593e8960a05",
+    "kind": "prop",
+    "name": "铜钱",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-d2a79e6f05a6",
+    "kind": "prop",
+    "name": "铁锹",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-29e0c0a53214",
+    "kind": "prop",
+    "name": "《诗经》",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-2923dc00cdcf",
+    "kind": "character",
+    "name": "管家",
+    "image_url": null,
+    "extra_json": null,
+    "created_at": "2026-09-24 14:27:49",
+    "updated_at": "2026-09-25 01:44:35"
+  },
+  {
+    "id": "ast-eee023da3899",
+    "kind": "prop",
+    "name": "中性笔",
+    "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png",
+    "extra_json": {
+      "reference_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png",
+      "owner": "分镜关键道具",
+      "turnaround_url": "",
+      "detail_url": "",
+      "prop_type": "object",
+      "visual_prompt": "中性笔，现代办公书写工具，黑色塑料笔杆、银色笔夹，影视道具概念设计参考图，高清质感，8k",
+      "turnaround_prompt": "中性笔，道具三视图转面图设计，正视、侧视、俯视/背视三面图，干净纯色背景，工业造型设计图纸，8k",
+      "detail_prompt": "中性笔，静物微距细节特写摄影，局部材质纹理、开刃做旧与磨损雕花，微距镜头光影，8k",
+      "source_references": [],
+      "reference_object_key": "zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png"
+    },
+    "created_at": "2026-09-26 16:56:53",
+    "updated_at": "2026-09-26 16:58:06"
+  }
+]

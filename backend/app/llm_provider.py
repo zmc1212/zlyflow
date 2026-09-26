@@ -13,6 +13,13 @@ from .llm_client import (
     summarize_llm_test_reply,
 )
 from .storage import JobStore, now, provider_profile_id
+from .vision_capability import (
+    capability_fields, row_fingerprint, probe_fields, unknown_vision_fields, sanitize_probe_error,
+    VISION_SOURCE_PROBE,
+    credentials_fingerprint,
+    probe_vision_capability,
+    row_supports_vision,
+)
 
 
 
@@ -37,6 +44,8 @@ VISION_MODEL_MARKERS = (
 
 
 def model_supports_vision(model: str | None) -> bool:
+    """Legacy name-guess. Kept only as a fallback hint; routing reads the
+    persisted three-state via ``vision_capability.row_vision_capability``."""
     lowered = (model or "").strip().lower()
     if not lowered:
         return False
@@ -108,7 +117,12 @@ class LlmProviderService:
             "last_test_at": config.get("last_test_at"),
             "available": available,
             "unavailable_reason": reason,
-            "supports_vision": model_supports_vision(config.get("model")),
+            "vision_capability": config.get("vision_capability") or "unknown",
+            "vision_capability_source": config.get("vision_capability_source"),
+            "vision_capability_checked_at": config.get("vision_capability_checked_at"),
+            "vision_capability_message": config.get("vision_capability_message"),
+            **{k: v for k, v in capability_fields(config).items() if k != "vision_capability_fingerprint"},
+            "supports_vision": row_supports_vision(config),
         }
 
     def profiles_config(self) -> dict[str, Any]:
@@ -169,42 +183,53 @@ class LlmProviderService:
 
     def test(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         profile_id, config = self._profile_for_payload(payload)
-        base_url = (payload.get("base_url") if payload else None) or config.get("base_url")
-        model = (payload.get("model") if payload else None) or config.get("model")
-        api_key = payload.get("api_key") if payload and payload.get("api_key") is not None else self.api_key(config)
-        if not api_key and is_local_base_url(base_url or ""):
+        config = {**config, "profile_id": profile_id}
+        submitted = payload or {}
+        candidate = {**config, **{k: v for k, v in submitted.items() if k in {"base_url", "model", "use_llm_credentials"} and v is not None}}
+        candidate["base_url"] = str(candidate.get("base_url") or "").strip().rstrip("/")
+        candidate["model"] = str(candidate.get("model") or "").strip()
+        effective = candidate
+        submitted_key = str(submitted.get("api_key") or "").strip()
+        saved_key = self.api_key(candidate)
+        api_key = submitted_key or saved_key
+        if not api_key and is_local_base_url(effective.get("base_url") or ""):
             api_key = "ollama"
-
-        if not api_key:
-            raise ValueError("测试连接需要提供有效的 API Key / Token")
-        if not base_url:
-            raise ValueError("Base URL 不能为空")
-        if not model:
-            raise ValueError("Model 名称不能为空")
-
-        client = OpenAICompatibleClient(base_url=base_url, api_key=api_key)
+        if not api_key or not effective.get("base_url") or not effective.get("model"):
+            raise ValueError("测试连接需要完整的地址、模型和 API Key / Token")
+        # Unsaved form inputs must not certify a different saved endpoint/key.
+        persisted = config
+        matches = row_fingerprint(effective) == row_fingerprint(persisted) and api_key == self.api_key(config)
+        probe_row = dict(effective)
+        if not matches:
+            probe_row["api_key_encrypted"] = None
+            probe_row["api_key"] = api_key
+        client = OpenAICompatibleClient(base_url=effective["base_url"], api_key=api_key)
         test_time = now()
+        fields = unknown_vision_fields()
         try:
-            reply = client.test_connection(model=model, timeout=LLM_TEST_TIMEOUT_SECONDS)
-            test_status = "成功"
-            test_message = summarize_llm_test_reply(reply)
+            reply = client.test_connection(model=effective["model"], timeout=LLM_TEST_TIMEOUT_SECONDS)
+            status, message = "成功", sanitize_probe_error(summarize_llm_test_reply(reply), api_key)
         except Exception as exc:
-            test_status = "失败"
-            test_message = str(exc)
-
-        active_id = str(self.store.get_llm_settings().get("profile_id") or "")
-        self.store.update_llm_profile(profile_id, {
-            "base_url": base_url,
-            "model": model,
-            "reasoning_effort": config.get("reasoning_effort") or "low",
-            "last_test_status": test_status,
-            "last_test_message": test_message,
-            "last_test_at": test_time,
-        }, activate=profile_id == active_id)
-        if test_status != "成功":
-
-            raise LlmError(f"大模型连接测试失败：{test_message}")
-        return self.public_config()
+            status, message = "失败", sanitize_probe_error(exc, api_key)
+        if status == "成功":
+            result = probe_vision_capability(base_url=effective["base_url"], api_key=api_key, model=effective["model"])
+            fields = probe_fields(probe_row, result)
+        test_fields = {"last_test_status": status, "last_test_message": message, "last_test_at": test_time}
+        if matches:
+            # Recheck after network I/O; a concurrent config edit must win.
+            latest = self.store.get_llm_profile(profile_id) or {}
+            latest_effective = latest
+            if row_fingerprint(latest_effective) == row_fingerprint(effective):
+                active_id = str(self.store.get_llm_settings().get("profile_id") or "")
+                self.store.update_llm_profile(profile_id, {**test_fields, **fields}, activate=profile_id == active_id)
+        if status != "成功":
+            raise LlmError(f"连接测试失败：{message}")
+        if not matches:
+            fields["vision_capability_message"] = str(fields.get("vision_capability_message") or "") + "（当前输入未保存，结果不用于已保存配置）"
+        return {**self.public_config(), "profile_id": profile_id, "base_url": effective["base_url"],
+                "model": effective["model"], **test_fields,
+                **{k: v for k, v in fields.items() if k != "vision_capability_fingerprint"},
+                "supports_vision": fields["vision_capability"] == "supported"}
 
     def list_catalog(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         _profile_id, config = self._profile_for_payload(payload)

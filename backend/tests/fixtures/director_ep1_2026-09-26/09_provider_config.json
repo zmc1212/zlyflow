@@ -1,0 +1,42 @@
+{
+  "comfy_provider_settings": [
+    {
+      "id": 1,
+      "base_url": "http://192.168.10.54:8188",
+      "last_test_status": "failed",
+      "last_test_message": "HTTPConnectionPool(host='192.168.10.54', port=8188): Max retries exceeded with url: /system_stats (Caused by NewConnectionError(\"HTTPConnection(host='192.168.10.54', port=8188): Failed to establish a new connection: [WinError 10061] 由于目标计算机积极拒绝，无法连接。\"))",
+      "last_test_at": "2026-09-16T01:31:21.373030+00:00",
+      "updated_at": "2026-09-16T01:31:23.393957+00:00"
+    }
+  ],
+  "llm_provider_settings": [
+    {
+      "id": 1,
+      "enabled": 1,
+      "base_url": "https://ws-oiiv3docpub47bsj.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      "api_key_encrypted": "<encrypted len 248>",
+      "model": "deepseek-v4.1-flash",
+      "last_test_status": "成功",
+      "last_test_message": "连接成功，模型已正常完成一次创作推理：你好！我是DeepSeek最新版模型，由深度求索公司创造，很高兴能用中文与你交流，随时为你解答问题或提供帮助。",
+      "last_test_at": "2026-09-24T03:22:30.018598+00:00",
+      "updated_at": "2026-09-24T06:38:35.796479+00:00",
+      "reasoning_effort": "low",
+      "profile_id": "dashscope"
+    }
+  ],
+  "vlm_provider_settings": [
+    {
+      "id": 1,
+      "enabled": 1,
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_key_encrypted": "<encrypted len 164>",
+      "model": "glm-4v-flash",
+      "last_test_status": "成功",
+      "last_test_message": "连接成功，模型已正常完成一次创作推理：我是一个由智谱AI公司开发的文本对话模型，能够根据用户的输入生成相应的回答。我可以流畅地进行中文对话，帮助解答各种问题。请问有什么可以帮助您的吗？",
+      "last_test_at": "2026-09-22T06:42:08.140630+00:00",
+      "updated_at": "2026-09-26T04:06:34.905803+00:00",
+      "use_llm_credentials": 1,
+      "profile_id": "zhipu"
+    }
+  ]
+}
