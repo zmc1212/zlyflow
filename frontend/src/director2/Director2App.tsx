@@ -6,15 +6,20 @@ import { useMemo } from "react"
 import { Navigate, useLocation, useNavigate } from "react-router-dom"
 import { ConfigProvider } from "antd"
 import ThemeToggle from "../components/ThemeToggle"
+import { useStudioTheme } from "../ThemeProvider"
+import { studioThemes } from "../theme"
 import { Sparkles } from "lucide-react"
 import Director2StudioHome from "./Director2StudioHome"
 import Director2ProjectDetail from "./Director2ProjectDetail"
 import { parseDirector2Path, director2HomePath } from "./paths"
 import "./director2.css"
 
-const director2AntdTheme = { token: { borderRadius: 6, controlHeight: 32, fontSize: 14 } }
-
 export default function Director2App({ csrfToken, onExitDirector }: { csrfToken: string; onExitDirector?: () => void }) {
+  const { mode } = useStudioTheme()
+  const director2AntdTheme = useMemo(() => ({
+    ...studioThemes[mode],
+    token: { ...studioThemes[mode].token, borderRadius: 6, controlHeight: 32, fontSize: 14 },
+  }), [mode])
   const location = useLocation()
   const navigate = useNavigate()
   const route = useMemo(() => parseDirector2Path(location.pathname), [location.pathname])

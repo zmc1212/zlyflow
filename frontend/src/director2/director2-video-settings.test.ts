@@ -191,6 +191,8 @@ describe("director2 video settings", () => {
 
   it("formats one-click and shot action copy from render mode", () => {
     expect(formatEpisodeVideoSubmitMessage({ render_mode: "episode", job_id: "job-1" })).toBe("已创建 1 个整集任务")
+    expect(formatEpisodeVideoSubmitMessage({ render_mode: "episode", render_scope: "episode", job_ids: ["job-1"],
+      submitted: 1, skipped: 2, blocked: [{ part_id: "p4", reason: "待审" }] })).toBe("已提交 1 个生成组，跳过 2 组，1 组待处理")
     expect(formatEpisodeVideoSubmitMessage({ render_mode: "shot", submitted: 4, skipped: 2 })).toBe(
       "已提交 4 镜（跳过 2 镜已有成片）",
     )

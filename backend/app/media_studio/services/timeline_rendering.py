@@ -54,6 +54,8 @@ def listed_episode_r2v_workflows() -> list[WorkflowDefinition]:
 
 
 def duration_seconds(shot: dict[str, Any], default: float = 8.0) -> float:
+    if shot.get("planned_frame_count"):
+        return int(shot["planned_frame_count"]) / 24
     value = shot.get("durationSec", shot.get("duration_sec", shot.get("video_duration", default)))
     try:
         return max(2.0, min(15.0, float(value)))
@@ -62,6 +64,8 @@ def duration_seconds(shot: dict[str, Any], default: float = 8.0) -> float:
 
 
 def frame_count(shot: dict[str, Any], fps: int = 24) -> int:
+    if shot.get("planned_frame_count"):
+        return int(shot["planned_frame_count"])
     return int(h3_length({"duration": duration_seconds(shot, 8.0)}))
 
 

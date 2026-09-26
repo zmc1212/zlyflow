@@ -536,7 +536,9 @@ class ProjectDetailService:
             s_camera = shot.get("camera") or "中景"
             s_action = shot.get("action") or ""
             s_dialogue = shot.get("dialogue") or ""
-            if shot.get("speaker"):
+            from .director_review_policy import explicit_dialogue_speaker
+            resolved_speaker = explicit_dialogue_speaker(s_dialogue, str(shot.get("speaker") or ""))
+            if shot.get("speaker") and resolved_speaker == shot["speaker"]:
                 s_dialogue = re.sub(r"^" + re.escape(shot["speaker"]) + r"\s*[：:]\s*", "", s_dialogue)
             s_prompt = shot.get("visual_prompt") or ""
             s_audio = shot.get("audio") or ""
@@ -559,7 +561,7 @@ class ProjectDetailService:
                 "sequence": s_num,
                 "kind": "dialogue" if s_dialogue else "action",
                 "heading": heading,
-                "speaker": shot.get("speaker", s_chars[0] if s_chars else ""),
+                "speaker": resolved_speaker,
                 "dialogue": s_dialogue,
                 "action": s_action,
                 "camera": s_camera,
@@ -606,6 +608,7 @@ class ProjectDetailService:
         project_id: str,
         doc_id: str,
         mode: str = "overwrite",
+        episode_num: int | None = None,
     ) -> dict[str, Any]:
         """将解析出的分集与镜头同步到剧集工坊。
 
@@ -626,10 +629,20 @@ class ProjectDetailService:
         ts = now_str()
         # 同步只拷贝内容库已有出片镜。规划走 shot_plan 后台任务，不在同步请求里补跑。
         episodes = analysis.get("episodes") or []
+        if episode_num is not None:
+            episodes = [ep for ep in episodes if int(ep.get("episode_num") or 1) == episode_num]
+            if not episodes or not episodes[0].get("shots"):
+                raise ValueError("所选分集尚未完成镜头规划，不能同步")
         if not episodes:
             raise ValueError("该剧本中未识别到分集或分镜头信息")
 
         existing_rows = query_all("SELECT id, episode_num, script_text, data_json FROM ai_project_episodes WHERE project_id = %s", (project_id,))
+        if any(
+            json.loads(r.get("data_json") or "{}").get("workshop_flow") == 7
+            or ((json.loads(r.get("data_json") or "{}").get("prompt_authoring") or {}).get("director_plan") or {}).get("schema_version") == 7
+            for r in existing_rows
+        ):
+            raise ValueError("本工程已使用统一工坊；请在工坊规划镜头，旧同步接口不能覆盖或删除当前分集")
         existing_map = {int(r["episode_num"]): r["id"] for r in existing_rows}
         assets_rows = query_all("SELECT id, kind, name, image_url, extra_json FROM ai_project_assets WHERE project_id = %s", (project_id,))
         char_map = asset_name_id_map(assets_rows, "character")
@@ -659,6 +672,15 @@ class ProjectDetailService:
                     continue
                 eid = existing_map[ep_num]
                 beats = cls._beats_from_document_shots(eid, shots, char_map, scene_map, prop_map)
+                previous_row = next(r for r in existing_rows if r["id"] == eid)
+                previous_data = json.loads(previous_row.get("data_json") or "{}")
+                previous_beats = previous_data.get("beats") or []
+                source_keys = ("sequence", "story_shot", "heading", "scene", "action", "camera", "dialogue",
+                               "speaker", "visual_prompt", "audio", "video_duration", "character_ids", "scene_id", "prop_ids",
+                               "opening_state", "closing_state", "transition_note")
+                for new_beat, old_beat in zip(beats, previous_beats):
+                    if old_beat.get("id") and all(new_beat.get(k) == old_beat.get(k) for k in source_keys):
+                        new_beat["id"] = old_beat["id"]
                 data = {
                     "beats": beats,
                     "summary": ep.get("summary") or "",
@@ -706,7 +728,7 @@ class ProjectDetailService:
             transferred_shots += len(beats)
 
         deleted = 0
-        if sync_mode == "overwrite" and not analysis.get("script_development"):
+        if episode_num is None and sync_mode == "overwrite" and not analysis.get("script_development"):
             for num, eid in list(existing_map.items()):
                 if num not in incoming_nums:
                     execute_sql("DELETE FROM ai_project_episodes WHERE id = %s AND project_id = %s", (eid, project_id))
@@ -1731,6 +1753,10 @@ class ProjectDetailService:
 
     @classmethod
     def update_episode(cls, project_id: str, episode_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from .workshop_service import WorkshopService
+        _, existing = WorkshopService.row(project_id, episode_id)
+        if existing.get("workshop_flow") == 7 and any(k in payload for k in ("script_text", "shots_count")):
+            raise ValueError("剧本请在内容库修改；镜头数量请通过工坊规划调整")
         ts = now_str()
         execute_sql(
             """
@@ -1832,7 +1858,7 @@ class ProjectDetailService:
         prop_map = asset_name_id_map(assets_rows, "prop")
 
         # 如果 beats 为空，从关联剧本文档解析出的分析结果抽取或生成初始分镜
-        if not beats:
+        if not beats and data.get("workshop_flow") != 7:
             doc_row = query_one(
                 "SELECT analysis_json FROM ai_project_documents WHERE project_id = %s ORDER BY updated_at DESC LIMIT 1",
                 (project_id,),
@@ -1855,7 +1881,7 @@ class ProjectDetailService:
 
         duration_changed = False
         for beat in beats:
-            if cls._apply_resolved_beat_duration(beat):
+            if data.get("workshop_flow") != 7 and cls._apply_resolved_beat_duration(beat):
                 duration_changed = True
         if duration_changed:
             data["beats"] = beats
@@ -1865,6 +1891,10 @@ class ProjectDetailService:
             )
 
         hydrated_assets = [cls._hydrate_asset(dict(row)) for row in assets_rows]
+        if ((data.get("prompt_authoring") or {}).get("director_plan") or {}).get("schema_version") == 7:
+            from .workshop_references import resolve_state
+            data = resolve_state(data, hydrated_assets)
+            beats = data["beats"]
         from .prompt_expansion_service import PromptExpansionService
 
         prompt_authoring = PromptExpansionService.hydrated_authoring_state(
@@ -1900,6 +1930,11 @@ class ProjectDetailService:
                 state, reason = "missing", "尚未生成提示词"
             beat["h3_prompt_reference_state"] = state
             beat["h3_prompt_reference_reason"] = reason
+
+        if (prompt_authoring.get("director_plan") or {}).get("schema_version") == 7:
+            from .workshop_contract import project_prompts
+            beats = project_prompts(beats, prompt_authoring["director_plan"])
+            data["beats"] = beats
 
         links = []
         for a in assets_rows:
@@ -1973,6 +2008,11 @@ class ProjectDetailService:
     def update_episode_beat(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """更新单个分镜的数据（文案、提示词、绑定资产、草图与视频等）"""
         detail = cls.get_episode_detail(project_id, episode_id)
+        from .workshop_contract import unified
+        if unified(detail) and "h3_prompt" in payload:
+            from .workshop_service import WorkshopService
+            WorkshopService.update(project_id, episode_id, {"expected_revision": payload.get("expected_revision"), "beat_id": beat_id, "h3_prompt": payload["h3_prompt"]})
+            return {"status": "ok", "beat": next(b for b in cls.get_episode_detail(project_id, episode_id)["beats"] if b["id"] == beat_id)}
         beats = detail.get("beats") or []
         allowed_fields = [
             "heading", "speaker", "dialogue", "action", "camera", "scene", "scene_id", "time_of_day",
@@ -2055,6 +2095,12 @@ class ProjectDetailService:
                 raise ValueError("分镜不存在")
             if expected_job_id and expected_job_field and target.get(expected_job_field) != expected_job_id:
                 raise ValueError("任务结果已过期，较新的生成任务已替代该任务")
+            plan = (data.get("prompt_authoring") or {}).get("director_plan") or {}
+            if plan.get("schema_version") == 7:
+                from .workshop_contract import SHOT_FIELDS
+                protected = set(SHOT_FIELDS) | {"id", "sequence", "h3_prompt"}
+                if any(k in protected and target.get(k) != v for k, v in updates.items()):
+                    raise ValueError("请在统一工坊使用版本化接口修改镜头或提示词")
             target.update(updates)
             data["beats"] = beats
 
@@ -2101,6 +2147,8 @@ class ProjectDetailService:
                 data = json.loads(episode_row.get("data_json") or "{}")
             except (TypeError, json.JSONDecodeError) as err:
                 raise ValueError("分集数据格式无效，无法安全回填生成结果") from err
+            if data.get("workshop_flow") == 7:
+                raise ValueError("请在工坊生成并确认镜头规划候选")
             data["beats"] = beats
             cursor.execute(
                 "UPDATE ai_project_episodes SET data_json = %s, shots_count = %s, updated_at = %s "
@@ -2167,6 +2215,11 @@ class ProjectDetailService:
 
     @classmethod
     def generate_beat_h3_prompt(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        from .workshop_service import WorkshopService
+        row, stored = WorkshopService.row(project_id, episode_id)
+        unified_plan = (stored.get("prompt_authoring") or {}).get("director_plan") or {}
+        if unified_plan.get("schema_version") == 7:
+            return WorkshopService.create(project_id, episode_id, "workshop_prompt", {**(payload or {}), "beat_ids": [beat_id]})
         from .h3_prompt_job_service import H3PromptJobService
         from .h3_take_split import merge_episode_beats
 
@@ -2484,6 +2537,10 @@ class ProjectDetailService:
         if row and row.get("job_type") == "video_generation":
             from .episode_video_service import EpisodeVideoService
             return EpisodeVideoService.retry_job(project_id, job_id)
+        if row and row.get("job_type") in {"workshop_planning", "workshop_prompt"}:
+            from .workshop_service import WorkshopService
+            payload = json.loads(row.get("payload_json") or "{}")
+            return WorkshopService.job_action(project_id, payload["episode_id"], job_id, {"action": "retry"})
         if row and row.get("job_type") == "h3_prompt":
             raise ValueError("旧 H3 写词任务不能重试，请在工坊使用双模板重新生成")
         if row and row.get("job_type") == "prompt_expansion":

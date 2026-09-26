@@ -22,6 +22,8 @@ import {
 } from "lucide-react"
 import {
   listAssets,
+  listDocuments,
+  transferAssetsFromDoc,
   createAsset,
   updateAsset,
   deleteAsset,
@@ -727,18 +729,19 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     let skippedNoCostume = 0
     for (const ast of chars) {
       for (const ident of (ast.extra?.identities as AssetIdentity[]) || []) {
+        if (ident.image_url) continue
         const blocker = identityLookEnqueueBlocker(ast, ident)
         if (blocker) {
           skippedNoCostume += 1
           continue
         }
-        if (ident.image_url) continue
         const costume = (ident.description || ident.appearance_details || "").trim()
         jobs.push({ ast, ident, costume })
       }
     }
     if (!jobs.length) {
-      message.info("所有角色设定板已就绪（或缺少外观描述且无原片截图）")
+      if (skippedNoCostume) message.warning(`${skippedNoCostume} 个造型仍未出图：缺少外观描述或原片截图，请补齐后再生成`)
+      else message.info("当前所有角色设定板已就绪")
       return
     }
     setBatchGeneratingLooks(true)
@@ -778,6 +781,8 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           key: "batchLooks",
           duration: 6,
         })
+      } else if (skippedNoCostume) {
+        message.warning({ content: `已生成 ${ok} 张设定板${skipSuffix}，尚未全部就绪`, key: "batchLooks", duration: 6 })
       } else {
         message.success({ content: `已一键生成 ${ok} 张设定板${skipSuffix}`, key: "batchLooks" })
       }
@@ -1473,6 +1478,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         </div>
 
         <div className="header-actions">
+
           <div className="stats-pills">
             <span className={`stat-pill${currentTab === "character" ? " active" : ""}`} onClick={() => handleTabChange("character")}>
               <Users size={13} /> 角色 {getCountByKind("character")}
@@ -1491,6 +1497,15 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       </div>
       {currentTab === "character" ? (
         <div className="batch-generate-bar">
+          <Button onClick={async () => {
+            try {
+              const docs = (await listDocuments(projectId)).filter(doc => doc.analysis?.script_development)
+              if (!docs.length) { message.info("请先在内容库采纳剧本"); return }
+              for (const doc of docs) await transferAssetsFromDoc(csrfToken, projectId, doc.id)
+              await fetchAssets()
+              message.success("已提取采纳剧本中的资产，已有资产保持复用")
+            } catch (err) { message.error(director2ErrorDetail(err, "提取资产失败")) }
+          }}>从采纳剧本提取资产</Button>
           <Button
             type="primary"
             loading={batchGeneratingLooks}
@@ -1500,10 +1515,19 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           >
             一键生成所有设定板
           </Button>
-          <span className="batch-generate-hint">仅处理尚未出图的造型；无外观描述且无原片截图的会跳过。列表每条会显示排队和生成进度</span>
+          <span className="batch-generate-hint">当前还有 {assets.filter(a => a.kind === "character").flatMap(a => (a.extra?.identities as AssetIdentity[]) || []).filter(i => !i.image_url).length} 个造型未出图。新增角色需补生成；已有图片会自动关联到工坊。缺少外观描述或原片截图的造型会明确提示。</span>
         </div>
       ) : currentTab === "scene" ? (
         <div className="batch-generate-bar">
+          <Button onClick={async () => {
+            try {
+              const docs = (await listDocuments(projectId)).filter(doc => doc.analysis?.script_development)
+              if (!docs.length) { message.info("请先在内容库采纳剧本"); return }
+              for (const doc of docs) await transferAssetsFromDoc(csrfToken, projectId, doc.id)
+              await fetchAssets()
+              message.success("已提取采纳剧本中的资产，已有资产保持复用")
+            } catch (err) { message.error(director2ErrorDetail(err, "提取资产失败")) }
+          }}>从采纳剧本提取资产</Button>
           <Button
             type="primary"
             loading={batchGeneratingSceneMasters}
@@ -1535,6 +1559,15 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         </div>
       ) : currentTab === "prop" ? (
         <div className="batch-generate-bar">
+          <Button onClick={async () => {
+            try {
+              const docs = (await listDocuments(projectId)).filter(doc => doc.analysis?.script_development)
+              if (!docs.length) { message.info("请先在内容库采纳剧本"); return }
+              for (const doc of docs) await transferAssetsFromDoc(csrfToken, projectId, doc.id)
+              await fetchAssets()
+              message.success("已提取采纳剧本中的资产，已有资产保持复用")
+            } catch (err) { message.error(director2ErrorDetail(err, "提取资产失败")) }
+          }}>从采纳剧本提取资产</Button>
           <Button
             type="primary"
             loading={batchGeneratingPropReferences}

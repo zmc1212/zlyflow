@@ -760,9 +760,12 @@ async def lifespan(app: FastAPI):
     StoryboardImageService.recover_interrupted_jobs()
     H3PromptJobService.recover_interrupted_jobs()
     PromptExpansionService.recover_interrupted_jobs()
+    PromptExpansionService.start_watchdog()
     ShotPlanJobService.recover_interrupted_jobs()
     ActionPrevisService.recover()
     ScriptDevelopmentService.recover_interrupted_jobs()
+    from .media_studio.services.workshop_service import WorkshopService
+    WorkshopService.recover()
     TtsGenerationJobService.recover_interrupted_jobs()
     AiGenerationService.recover_orphaned_jobs()
     await worker.start()

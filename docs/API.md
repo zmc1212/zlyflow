@@ -1,5 +1,27 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-09-25 工坊参考快照扩展
+
+v7 计划返回 `reference_fingerprint`；组返回 `reference_policy: auto | manual` 和 `reference_issues: string[]`。工坊保存、写词、任务采纳以及工坊视频创建可提交 `expected_reference_fingerprint`；资产快照变化返回 `VERSION_CONFLICT`，不覆盖旧稿。PATCH 可传 `auto_reference_group_ids: string[]` 恢复指定组自动关联。旧客户端字段可省略，原 `expected_revision` 校验继续生效。兼容及回滚见 [修复记录](工坊参考图自动关联修复-2026-09-25.md)。
+
+## 2026-09-25 当前工坊 API
+
+新增分集 `/workshop`、`/shot-plan`、`/workshop/prompts` 与 `/workshop/jobs/{job_id}/actions`；写入必须携带 `expected_revision`。v7 的旧 prompt-previews 与 H3 入口委托统一服务，旧方案 patch 不能写入 v7。新建全流程 AI 操作返回 410，历史任务接口保留。完整输入、候选语义、兼容性和回滚见 [统一工坊 v7 API](导演台统一工坊-v7.md#api)。
+
+2026-09-24：HTTP 接口保持兼容。`ProjectDetailService.transfer_episodes_from_document(..., episode_num=1)` 新增可选服务层单集同步范围，指定时不替换或删除其他集，拒绝同步未规划镜头的目标集。前端在 `episode.data.script_stale` 存在时提前显示同步指引；入队前原有版本保护仍生效。
+
+## 2026-09-24 Director v5 兼容增量
+
+现有 `POST /api/projects/{project_id}/episodes/{episode_id}/prompt-previews`、`.../prompt-previews/{job_id}/apply`、`.../prompt-revisions`、任务查询、SSE 和重试地址不变。服务端按 `ZLY_DIRECTOR_RELIABLE` 为新 Director 请求写入 `request.pipeline_version=5`；客户端不自行决定协议版本。
+
+任务 payload 增加 `stage_progress`（版本、来源摘要指纹、状态、尝试次数、更新时间、错误）和 `checkpoints.source_check/scene_resolution/director_design/segment_generation/structural_preview/review_dispatch`。正文逐段保存；`review_dispatch.job_id` 指向独立审稿任务。`failure` 保留 `code/stage/part_id/segment_ids/attempt/retryable/message/detail`，新版还提供 `category` 与 `resume.checkpoints/completed_segment_ids`。未知全局问题不伪装成最后一个 Part 的失败。
+
+v5 预览 `schema_version=5`；每个 `parts[]` 附带 `render_mode: director|shot`、`workflow_id`、有序 `segment_ids`、`execution_options` 和可空的 `render_blocker`。`shot` 组仅一段，Director 组服从注册表容量；无路线可预览但不能出片。正文完成时 `quality_status=not_reviewed`；必须另存审稿通过版本后才能出片。保存仍执行来源指纹和方案版本冲突检查。
+
+SSE 仅为显示通道。连接断开、网络 `TypeError` 或重连耗尽不能作为任务失败依据；客户端持续查询，只有持久化 `failed/cancelled/interrupted` 才显示失败。运行租约属于内部实现，不要求客户端续租。视频 `render_plan.chunks[]` 保存每组路由、graph、参数、输出、素材登记标记；重试不会重新提交已有成功输出。
+
+受影响文件、验证命令、兼容性和回滚见 [实施记录](Director扩写稳定性-2026-09-24.md)。无 API 删除或数据库表变更。
+
 更新日期：2026-09-20
 
 ## 使用方式

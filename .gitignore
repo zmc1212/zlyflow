@@ -103,8 +103,12 @@ docs/design-ref-director/
 docs/导演台设计图/
 submit_*.py
 backend/tests/test_*.py
+!backend/tests/test_director_reliable.py
+!backend/tests/test_director_h3_contract.py
 !backend/tests/test_director2_ai_generation.py
 !backend/tests/test_timeline_rendering.py
 !backend/tests/test_workshop_shot_structure.py
+!backend/tests/test_workshop_reference_lifecycle.py
+!backend/tests/test_workshop_video_preflight.py
 !backend/tests/test_action_previs.py
 scripts/action_previs_worker/vendor/

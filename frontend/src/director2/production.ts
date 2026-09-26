@@ -1,5 +1,5 @@
 export type ProductionMode = "shot" | "director"
-export type ProductionUnit = { id: string; title: string; part_id: string; source_beat_ids: string[]; duration: number }
+export type ProductionUnit = { id: string; title: string; part_id: string; render_mode?: "director" | "shot"; workflow_id?: string; source_beat_ids: string[]; duration: number }
 export type ProductionMaterial = {
   id: string; job_id: string; plan_key: string; unit_ids: string[]; url: string; title: string;
   verified: boolean; duration: number | null; created_at?: string; legacy?: boolean;

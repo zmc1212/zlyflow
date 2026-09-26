@@ -93,16 +93,16 @@ class AdoptionTests(unittest.TestCase):
         self.db.row_factory = sqlite3.Row
         self.db.executescript("""
         CREATE TABLE ai_project_documents(id TEXT, project_id TEXT, raw_text TEXT, analysis_json TEXT, status TEXT,updated_at TEXT);
-        CREATE TABLE ai_project_episodes(id TEXT,project_id TEXT,data_json TEXT,updated_at TEXT);
+        CREATE TABLE ai_project_episodes(id TEXT,project_id TEXT,data_json TEXT,updated_at TEXT,episode_num INTEGER,title TEXT,status TEXT,script_text TEXT,shots_count INTEGER,created_at TEXT);
         CREATE TABLE ai_project_jobs(id TEXT,project_id TEXT,status TEXT,progress INTEGER,payload_json TEXT,updated_at TEXT);
         """)
         self.db.execute("INSERT INTO ai_project_documents VALUES ('d','p','原始大纲','{}','ready','')")
-        self.db.execute("INSERT INTO ai_project_episodes VALUES ('e','p',?, '')", (json.dumps({"source_document_id": "d", "production": {"url": "existing.mp4"}}),))
+        self.db.execute("INSERT INTO ai_project_episodes (id,project_id,data_json,updated_at,episode_num) VALUES ('e','p',?, '',1)", (json.dumps({"source_document_id": "d", "production": {"url": "existing.mp4"}}),))
         self.db.execute("INSERT INTO ai_project_jobs VALUES ('j','p','awaiting_review',0,'{}','')")
         self.db.commit()
         db = self.db
         class Cursor:
-            def execute(self, sql, args=()): self.result = db.execute(sql.replace("%s", "?"), args); return self.result.rowcount
+            def execute(self, sql, args=()): self.result = db.execute(sql.replace("%s", "?").replace(" FOR UPDATE", ""), args); return self.result.rowcount
             @property
             def rowcount(self): return self.result.rowcount
             def fetchall(self): return [dict(x) for x in self.result.fetchall()]

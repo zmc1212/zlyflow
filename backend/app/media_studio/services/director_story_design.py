@@ -25,6 +25,8 @@ def normalize_common_setting(value: dict) -> dict:
 
 def reference_common_setting(source: dict, request: dict) -> dict | None:
     """Compile selected identities from actual reference slots, not model repetition."""
+    if request.get("pipeline_version") == 5:
+        return {"subject_definitions": "保持剧本规定的人物身份、服装、场景和光线一致；每组仅使用该组绑定的参考图，不添加未定义造型。"}
     assets = {a["id"]: a for a in source.get("assets", [])}
     rows = []
     for slot in request.get("reference_slots") or []:
@@ -45,7 +47,7 @@ def design_prompts(source: dict, facts: dict, request: dict, definition: Any) ->
         selected_ids.update(beat.get("prop_ids") or [])
     source["assets"] = [{k: a.get(k) for k in ("id", "kind", "name", "description", "visual_prompt")}
                         for a in source.get("assets", []) if a.get("id") in selected_ids]
-    return (
+    prompts = (
         "你是影视导演。阅读本集完整剧本、戏剧目标、资产设定与前后文，先组织镜头再考虑容量，不按秒数均分剧情。"
         "只返回 JSON：{dramatic_intent,visual_strategy,common_setting:{subject_definitions},units:[],quality_notes:[]}。"
         "common_setting 是全剧组共用的人物造型、场景光线与视觉规则；只使用已有参考图 token。"
@@ -68,6 +70,18 @@ def design_prompts(source: dict, facts: dict, request: dict, definition: Any) ->
                     "preferred_segment_count": request.get("target_segment_count"),
                     "max_segments_per_part": definition.max_segments, "max_frames_per_part": definition.max_total_frames}, ensure_ascii=False),
     )
+    if request.get("pipeline_version") == 5:
+        system, user = prompts
+        system = system.replace("同场下一镜 start_state 逐字复制上一镜 handoff_state。", "同场 start_state 由程序从上一镜 handoff_state 解析。")
+        system = system.replace("每个 Beat 单元总秒数等于该 Beat 时长；", "duration_seconds 只建议相对动作时长，程序分配精确帧数；")
+        system += "当前输入只含本生成组镜头。只设计本组，承接 previous_handoff 并尊重 next_opening；明确场景沿用 source.scene_id/scene 和时间信息。孤立场景允许逐镜生成，不凑段数。"
+        context = request.get("group_context") or {}
+        user = json.dumps({"source": source, "facts": facts, "reference_slots": request.get("reference_slots"),
+            "locked_common_setting": request.get("locked_common_setting"), "group_context": context,
+            "language": request.get("language"), "aspect_ratio": request.get("aspect_ratio"),
+            "max_segments_per_part": definition.max_segments, "max_frames_per_part": definition.max_total_frames}, ensure_ascii=False)
+        return system, user
+    return prompts
 
 
 def pack_design(design: dict, beats: list[dict], facts: dict, definition: Any, fps: int, *, mixed: bool = False) -> list[dict]:

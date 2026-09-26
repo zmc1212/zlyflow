@@ -3195,8 +3195,41 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
             })
         return {"number": 1, "title": "测试集", "beats": beats, "data": {"beats": beats, "episode_video_source": source}}
 
+    def test_unified_workshop_selected_group_submits_only_that_group(self):
+        plan = {"schema_version": 7, "revision": 4, "workflow_id": "minimax-h3-director-accel-r2v",
+                "groups": [{"id": "g1", "beat_ids": ["beat-1", "beat-2"]},
+                           {"id": "g2", "beat_ids": ["beat-3"]}]}
+        detail = {"prompt_authoring": {"director_plan": plan}}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
+             patch("backend.app.media_studio.services.workshop_references.assert_reference_snapshot"), \
+             patch("backend.app.media_studio.services.production_state.summary", return_value={"adopted": {}}), \
+             patch.object(EpisodeVideoService, "create_job", return_value={"job_id": "job-g1"}) as create_job:
+            result = EpisodeVideoService.generate_episode_videos(
+                "p1", "e1", options={"expected_revision": 4, "beat_ids": ["beat-1", "beat-2"]})
+        self.assertEqual(["job-g1"], result["job_ids"])
+        create_job.assert_called_once()
+        self.assertEqual(["beat-1", "beat-2"], create_job.call_args.kwargs["beat_ids"])
+        self.assertEqual("selection", create_job.call_args.kwargs["render_scope"])
+
+    def test_unified_workshop_episode_batch_submits_separate_group_jobs(self):
+        plan = {"schema_version": 7, "revision": 4, "workflow_id": "minimax-h3-director-accel-r2v",
+                "groups": [{"id": "g1", "beat_ids": ["beat-1", "beat-2"]},
+                           {"id": "g2", "beat_ids": ["beat-3"]}]}
+        detail = {"prompt_authoring": {"director_plan": plan}}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
+             patch("backend.app.media_studio.services.workshop_references.assert_reference_snapshot"), \
+             patch("backend.app.media_studio.services.production_state.summary", return_value={"adopted": {}}), \
+             patch.object(EpisodeVideoService, "create_job", side_effect=[{"job_id": "job-g1"}, {"job_id": "job-g2"}]) as create_job:
+            result = EpisodeVideoService.generate_episode_videos(
+                "p1", "e1", options={"expected_revision": 4})
+        self.assertEqual(["job-g1", "job-g2"], result["job_ids"])
+        self.assertEqual([["beat-1", "beat-2"], ["beat-3"]],
+                         [call.kwargs["beat_ids"] for call in create_job.call_args_list])
+        self.assertTrue(all(call.kwargs["render_scope"] == "selection" for call in create_job.call_args_list))
+
     def test_director_one_click_creates_a_single_episode_job(self):
-        with patch.object(EpisodeVideoService, "create_job", return_value={"job_id": "job-ep", "status": "queued", "render_scope": "episode"}) as create_job:
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value={"prompt_authoring": {"director_plan": {"schema_version": 4}}}), \
+             patch.object(EpisodeVideoService, "create_job", return_value={"job_id": "job-ep", "status": "queued", "render_scope": "episode"}) as create_job:
             result = EpisodeVideoService.generate_episode_videos(
                 "p1", "e1", options={"workflow": "minimax-h3-director-accel-r2v"},
             )
@@ -3208,6 +3241,43 @@ class EpisodeVideoSubmitTests(unittest.TestCase):
         self.assertEqual(["job-ep"], result["job_ids"])
         self.assertEqual(1, result["submitted"])
         self.assertEqual(0, result["skipped"])
+
+    def test_director_v5_one_click_queues_only_unfinished_parts(self):
+        detail = {"prompt_authoring": {"director_plan": {"schema_version": 5, "revision": 2, "status": "current",
+            "parts": [{"id": "p1", "segments": [{"id": "s1"}]},
+                      {"id": "p2", "segments": [{"id": "s2"}]},
+                      {"id": "p3", "segments": [{"id": "s3"}]}]}}}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
+             patch.object(EpisodeVideoService, "_director_plan_shots"), \
+             patch("backend.app.media_studio.services.production_state.summary",
+                   return_value={"adopted": {"s1": "m1"}, "materials": [{"id": "m1", "verified": True}]}), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "create_job",
+                          side_effect=lambda *args, **kwargs: {"job_id": f"job-{kwargs['options']['part_id']}"}) as create_job:
+            result = EpisodeVideoService.generate_episode_videos(
+                "p1", "e1", options={"workflow": "minimax-h3-director-accel-r2v"})
+        self.assertEqual(["job-p2", "job-p3"], result["job_ids"])
+        self.assertEqual(1, result["skipped"])
+        self.assertEqual(["p2", "p3"], [call.kwargs["options"]["part_id"] for call in create_job.call_args_list])
+
+    def test_director_v5_batch_keeps_other_parts_when_one_review_is_blocked(self):
+        detail = {"prompt_authoring": {"director_plan": {"schema_version": 5, "revision": 1, "status": "current",
+            "parts": [{"id": "p1", "segments": [{"id": "s1"}]},
+                      {"id": "p2", "segments": [{"id": "s2"}]}]}}}
+        def readiness(_plan, group_id):
+            if group_id == "p1":
+                raise ValueError("待复验")
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
+             patch("backend.app.media_studio.services.production_state.summary",
+                   return_value={"adopted": {}, "materials": []}), \
+             patch("backend.app.media_studio.services.director_plan_quality.assert_ready_for_video", side_effect=readiness), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch.object(EpisodeVideoService, "create_job", return_value={"job_id": "job-p2"}) as create_job:
+            result = EpisodeVideoService.generate_episode_videos(
+                "p1", "e1", options={"workflow": "minimax-h3-director-accel-r2v"})
+        self.assertEqual(["job-p2"], result["job_ids"])
+        self.assertEqual([{"part_id": "p1", "reason": "待复验"}], result["blocked"])
+        create_job.assert_called_once()
 
     def test_shot_one_click_creates_n_jobs_and_skips_existing_video(self):
         with patch.object(ProjectDetailService, "get_episode_detail", return_value=self._detail(video_urls={"beat-2": "https://cdn/b2.mp4"})), \

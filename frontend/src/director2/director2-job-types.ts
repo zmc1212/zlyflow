@@ -10,6 +10,8 @@ export const DIRECTOR2_JOB_TYPES = [
   "ai_pipeline",
   "tts_generation",
   "action_previs",
+  "workshop_planning",
+  "workshop_prompt",
 ] as const
 
 export type Director2JobType = (typeof DIRECTOR2_JOB_TYPES)[number]
@@ -24,6 +26,8 @@ export const DIRECTOR2_JOB_TYPE_LABELS: Record<Director2JobType, string> = {
   ai_pipeline: "AI 生成",
   tts_generation: "配音",
   action_previs: "动作与镜头编排",
+  workshop_planning: "工坊镜头规划",
+  workshop_prompt: "工坊 H3 候选",
 }
 
 export const DIRECTOR2_DEFAULT_JOB_TYPE: Director2JobType = "image_generation"
@@ -99,6 +103,8 @@ export function countJobsByType(jobs: Director2JobTypeSource[]): Record<Director
     ai_pipeline: 0,
     tts_generation: 0,
     action_previs: 0,
+    workshop_planning: 0,
+    workshop_prompt: 0,
   } satisfies Record<Director2JobType, number>
   for (const job of jobs) {
     if (isDirector2JobType(job.job_type)) counts[job.job_type] += 1

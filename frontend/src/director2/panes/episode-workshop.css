@@ -977,6 +977,10 @@
   background: var(--studio-surface);
 }
 
+.d2-episode-workshop .xiaji-inspector-pane > .production-picture {
+  margin-top: 16px;
+}
+
 .d2-episode-workshop .xiaji-pane-section {
   border: 1px solid var(--studio-border);
   border-radius: 10px;

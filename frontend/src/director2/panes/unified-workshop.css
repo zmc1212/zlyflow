@@ -1,0 +1,41 @@
+.unified-content { padding:20px; height:100%; overflow:auto; }
+.unified-workshop { display:flex; flex-direction:column; min-height:0; height:100%; gap:8px; color:var(--studio-text); }
+.unified-workshop > .episode-tabs { flex:1; min-height:0; }
+.unified-workshop > .episode-tabs > .ant-tabs-content-holder { overflow:auto; }
+.unified-actions { margin:0 12px 10px 0; }
+.unified-shot-layout { display:flex; min-height:0; margin-top:12px; }
+.unified-shot-list { width:34%; min-width:260px; max-width:440px; flex-shrink:0; border-right:1px solid var(--studio-border); }
+.unified-shot-list section { margin-bottom:18px; }
+.unified-shot-list .xiaji-shot-tiles { margin:10px 0; }
+.unified-shot-list .xiaji-shot-tile-head { display:flex; justify-content:space-between; padding:8px 10px; }
+.unified-shot-list .xiaji-shot-tile > .ant-tag { align-self:flex-start; margin:0 8px 8px; }
+.unified-shot-detail { flex:1; min-width:0; padding:0 14px 14px; }
+/* 按分栏的实际剩余高度拉伸，避免百分比高度在 flex 收缩前解析而裁切底部。 */
+.d2-episode-workshop.unified-workshop .unified-shot-list,
+.d2-episode-workshop.unified-workshop .unified-shot-detail { height:auto; min-height:0; }
+/* 统一工坊直接把内容放入 Tabs，由活动面板承担滚动。 */
+.d2-episode-workshop.unified-workshop .xiaji-inspector-tabs > .ant-tabs-body-holder > .ant-tabs-body > .ant-tabs-content-active,
+.d2-episode-workshop.unified-workshop .xiaji-inspector-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane-active {
+  overflow-x:hidden;
+  overflow-y:auto;
+  scrollbar-gutter:stable;
+}
+.d2-episode-workshop.unified-workshop .xiaji-inspector-tabs [role="tabpanel"] > * { flex-shrink:0; }
+.unified-material { min-height:540px; align-items:stretch; }
+.unified-material .h3-material-left { width:280px; }
+.unified-material .h3-prompt-panel { padding-bottom:12px; }
+.unified-material .h3-prompt-head { flex-wrap:wrap; }
+.unified-material .h3-prompt-editor { min-height:320px; }
+.unified-material .h3-ref-img-cell .ant-image { width:72px; height:72px; }
+.unified-material .h3-ref-img-cell .ant-image-img { width:100%; height:100%; object-fit:cover; border-radius:6px; }
+.unified-material .h3-ref-img-cell .ant-checkbox-wrapper { font-size:11px; }
+.unified-material .h3-material-left > .ant-collapse { margin:10px; }
+.workshop-photo-empty { display:flex; align-items:center; justify-content:center; width:100%; height:72px; background:var(--studio-surface-hover); color:var(--studio-text-muted); border:1px dashed var(--studio-border); border-radius:6px; }
+.workshop-asset-gallery { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:14px; }
+.workshop-asset-photo { border:1px solid var(--studio-border); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:8px; }
+.workshop-asset-photo.is-selected { border-color:var(--studio-accent); background:var(--studio-accent-soft); }
+.workshop-asset-photo > .ant-image { height:150px; width:100%; }
+.workshop-asset-photo > .ant-image img { width:100%; height:150px; object-fit:cover; border-radius:6px; }
+.workshop-asset-photo .h3-ref-grid { margin-top:6px; }
+.unified-workshop .production-video { max-height:480px; width:100%; object-fit:contain; }
+.d2-video-settings-popover .d2-video-settings-form { max-height:calc(100vh - 130px); overflow-y:auto; padding-right:4px; }

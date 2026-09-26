@@ -11,6 +11,7 @@ import {
   normalizeSlots,
   promptAuthoringCopy,
   referenceCandidates,
+  ShotPromptPanel,
   ShotPromptSummary,
 } from "./PromptAuthoringPanel"
 
@@ -67,6 +68,33 @@ describe("PromptAuthoringPanel helpers", () => {
     expect(html).not.toContain("不相关镜头的内容")
     expect(html).not.toContain("AI 优化本集提示词")
     expect(html).not.toContain("公共主体定义")
+  })
+  it("renders the editable H3 shot workspace with group context and shot actions", () => {
+    const saved = plan()
+    const beats = [1, 2, 3].map(n => ({ id: `beat-${n}` })) as Director2Beat[]
+    const episode = { id: "ep-1", beats, prompt_authoring: { director_plan: saved } } as Director2EpisodeDetail
+    const html = renderToStaticMarkup(createElement(ShotPromptPanel, {
+      csrfToken: "csrf", projectId: "project-1", episode, beat: beats[0], workflowId: "director",
+      videoOptions: {}, onOpenPlan: () => {}, onRefresh: async () => {}, onVideoJob: () => {},
+    }))
+    expect(html).toContain("本镜最终 H3 提示词")
+    expect(html).toContain("镜头级 H3 工作区 · 镜头 1")
+    expect(html).toContain("保存本镜提示词")
+    expect(html).toContain("重新生成本镜提示词")
+    expect(html).toContain("生成本镜视频")
+    expect(html).toContain("已继承组公共主体定义")
+  })
+  it("shows the H3 workspace and plan entry before a Director plan exists", () => {
+    const beats = [{ id: "beat-1", h3_prompt: "原有镜头提示词" }] as Director2Beat[]
+    const episode = { id: "ep-1", beats } as Director2EpisodeDetail
+    const html = renderToStaticMarkup(createElement(ShotPromptPanel, {
+      csrfToken: "csrf", projectId: "project-1", episode, beat: beats[0], workflowId: "director",
+      videoOptions: {}, onOpenPlan: () => {}, onRefresh: async () => {},
+    }))
+    expect(html).toContain("镜头级 H3 工作区 · 镜头 1")
+    expect(html).toContain("本集尚无 Director 制作方案")
+    expect(html).toContain("前往制作方案")
+    expect(html).toContain("原有镜头提示词")
   })
   it("recovers only running preview jobs for the current episode and prompt target", () => {
     const job = (id: string, status: string, episode = "ep-1", profile = "director_segments", beat = "beat-1") => ({

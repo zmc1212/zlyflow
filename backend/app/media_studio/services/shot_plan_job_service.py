@@ -562,6 +562,13 @@ class ShotPlanJobService:
                 cls._write_payload(job_id, payload)
                 cls._emit(job_id, {"event": "episode_done", "data": done})
 
+            if failed:
+                payload["planned_episodes"] = planned
+                payload["failed_episodes"] = failed
+                cls._write_payload(job_id, payload)
+                failures = [f"第{item.get('episode_num')}集：{item.get('error')}"
+                            for item in payload.get("episodes_done", []) if item.get("error")]
+                raise ValueError("镜头规划未完成；成功分集已保留。" + "；".join(failures))
             cls._finish_success(job_id, payload, project_id, doc_id, planned=planned, failed=failed)
         except Exception as err:
             execute_sql(

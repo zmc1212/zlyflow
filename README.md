@@ -1,5 +1,21 @@
 # ZLY AI Studio｜创作工作台
 
+2026-09-25：工坊自动关联已绑定的人物／道具图，后补图与换图自动同步；缺图明确提示具体资产，参考变化后提示词需重新生成并采纳。手动参考选择和顺序保留。见 [通用修复与验证](docs/工坊参考图自动关联修复-2026-09-25.md)。
+
+剧集工坊可在镜头页批量生成当前镜头组视频；需要处理整集时，按组分别提交视频任务，不会将所有镜头拼成一条超长生成任务。
+
+导演台工作流现在通过「生成本组提示词（N 镜）」统一写稿、预览并采纳整组；采纳后可用「返修本镜」填写意见，只更新不满意的镜头。普通逐镜工作流保持单镜生成。详见 [2026-09-25 变更及验证](docs/导演台整组写词与单镜返修-2026-09-25.md)。
+
+2026-09-25 界面约束：本次只收敛流程，沿用原内容库左右分栏、资产卡片、工坊分集网格、素材组照片墙及视频参数浮层。见 [验收记录](docs/导演台-v7验收记录.md)。
+
+当前导演台流程（2026-09-25）：内容库采纳剧本 → 工坊规划镜头与分组 → 素材组编写 H3 → 视频采用 → 可选声音 → 合成。已取消 AI／手动全局切换、制作方案 Tab 和独立 H3 工作区。实现、兼容性、验证和安全回滚见 [统一工坊 v7](docs/导演台统一工坊-v7.md)。以下日期记录为历史变更，不定义当前入口。
+
+2026-09-24：Director v5 制作方案按明确场景、来源镜头数和注册表帧数预分组；「分组设置」可设每组最多镜头数（默认 3，本集优先于项目默认），预览分组后创建新方案版本。导演设计、正文与创作审稿按组处理，未变化组设计与正文检查点可跨预览复用，已验证采用素材可继承到新方案；每组保留有序相关参考图、来源镜头及指纹。制作方案可逐组扩写、复审、出片，整集按钮逐组入队并跳过已采用或运行中的组。旧 v4 方案维持原入口，无表结构、端口、ComfyUI 节点变更。涉及 `director_reliable.py`、`director_story_design.py`、`prompt_expansion_service.py`、`director_plan_quality.py`、`episode_video_service.py`、`production_state.py`、Director2 方案界面与测试；原因、兼容性及回滚见 [架构快照](docs/ARCHITECTURE.md)。验证：`python -m unittest backend.tests.test_director_reliable backend.tests.media_studio_test_prompt_expansion backend.tests.media_studio_test_director_quality backend.tests.media_studio_test_h3_video backend.tests.media_studio_test_production backend.tests.test_timeline_rendering -q`、`pnpm --dir frontend build`、5173 桌面检查。回滚本轮增量并重启后端；历史方案与成功媒体留存。
+
+2026-09-24 补充：已采纳新剧本而镜头未同步时，制作方案提前提示并禁用扩写。镜头规划按明确场景分批，拒绝截断 JSON 和来源对白遗漏，避免长剧本被误判成单镜头成功。服务层同步可用 `episode_num` 限定单集，防止影响其他集。涉及 `PromptAuthoringPanel.tsx`、`episode_shot_planner.py`、`shot_plan_job_service.py`、`llm_service.py`、`project_detail_service.py`；旧 API 默认行为保持兼容，无表结构变更。验证：`python -m unittest backend.tests.test_director_reliable backend.tests.test_episode_shot_planner backend.tests.media_studio_test_storyboard_images -q`、`pnpm --dir frontend build`。回滚撤回上述增量并重启后端；已同步镜头可从剧本历史恢复。
+
+2026-09-24：Director 扩写使用 v5 恢复流程：分段保存检查点，连续场景使用 Director，孤立短场景使用同模型家族的逐镜工作流。正文结构合格即可预览、保存，审稿独立执行，通过审稿后才能出片；断流显示“连接恢复中”，以任务查询终态为准。旧方案保留。变更文件、验收和回滚见 [稳定性实施记录](docs/Director扩写稳定性-2026-09-24.md)。设置 `ZLY_DIRECTOR_RELIABLE=0` 并重启后端可让新扩写回到 v4，已有 v5 任务、方案和媒体仍可读取。验证：`python -m unittest backend.tests.test_director_reliable -q`、`pnpm --dir frontend build`；开发界面在 5173 检查。
+
 2026-09-23：Hypit 页面明确区分「结构改编」与「原片换脸」；现有 H3 路径会重生成画面，尚不支持只替换面部。修复需求保存竞态、编译目标误选与旧成片误报，编译统一读取管理设置中的 ComfyUI 地址。换脸接入的远端依赖、验证与回滚见 [排查记录](docs/Hypit复刻排查与换脸接入.md)。
 
 2026-09-23：Director 出片方案增加生成前可行性检查与「按意见返修 / 重新审稿」。返修保留事实、对白、时长、起止状态及未选中的段落，最多两轮，发现退步或无进展保留上一版；新预览确认后才保存。新版方案有阻断问题或正文未经复验时不能出片，历史方案不自动迁移。实现、验证与回滚见 [Director 返修闭环实施记录](docs/Director返修闭环实施记录.md)。
@@ -2104,3 +2120,7 @@ Docker 部署后健康检查失败，日志为 `Table 'ai-media.ai_project_jobs'
 ## 2026-09-23：动作与镜头编排
 
 剧集工坊单镜头增加「动作与镜头编排」：输入文字、可选参考图片/短视频，由已配置的 LLM/VLM 生成动作节拍与镜头表；修改并确认版本后，**远端 Windows 电脑**上的执行器连接**同一台远端电脑**的 `127.0.0.1:9876` Blender MCP，在那里导入 MakeHuman FBX、制作骨骼动作与接触 IK、渲染 24 fps 白膜，再回传 MP4、联系表、质量报告与可编辑 `.blend`。工作台电脑不运行 Blender。首版支持 1–2 人、2–15 秒，不自动提交 H3。部署需在工作台后端设置 `ZLY_ACTION_PREVIS_WORKER_TOKEN`；Docker 部署还需在 `.env` 设置该值，Compose 会将其透传给工作台容器。远端配置同一令牌、工作台 URL 和 MakeHuman FBX，按 [执行器部署与预检](scripts/action_previs_worker/README.md) 运行。2026-09-23 已在远端 Blender 5.2.1、MCP 9876 和 MPFB CC0 蒙皮人物上通过 `--preflight` 及双人三机位 `--smoke`：72 帧、MP4、联系表、报告和 `.blend` 均已生成。该烟测仅验证技术链路和程序诊断；动作表演仍需人工审片，Web 端真实任务领取与产物回传尚未实机验收。API 见 [接口文档](docs/API.md)。
+
+## 2026-09-24：Director H3 分组与镜头提示词工作区
+
+制作方案继续负责按场景和镜头数量管理分组。进入「剧集工坊 → 镜头」，选中镜头后点顶部「镜头级 H3 工作区」，或点右侧检视器的同名 Tab。没有 Director 方案时会显示空态和「前往制作方案」；保存方案后可查看组公共设定、编辑本镜最终 H3 正文、复制完整提示词、单镜重写及单镜出片。Director 方案现有 v6 组/镜头合同读取能力，新扩写仍默认保存 v5；旧 v4/v5 方案继续可读。视频提交将公共提示词作为 `global_prompt`、镜头正文作为 segment prompt。验证：`python -m unittest backend.tests.test_director_h3_contract -q`、Director 相关后端测试、`pnpm --dir frontend build`、5173 桌面双主题检查。回滚：撤回本次前后端与文档增量，保留历史方案和媒体。

@@ -240,10 +240,11 @@ def build_director_prompts(
     previous_handoff: str | dict[str, Any] = "",
     director_context: dict[str, Any] | None = None,
     common_setting: dict[str, Any] | None = None,
+    allow_single: bool = False,
 ) -> tuple[str, str]:
     lang = normalize_language(language)
     n = len(segment_sources)
-    if n < 2 or n > 8:
+    if n < (1 if allow_single else 2) or n > 8:
         raise PromptTemplateError("连续剧情每个 Part 必须包含 2–8 个提示词组")
     expand = str(rewrite_mode or "expand").strip().lower() == "expand"
     if lang == "en":

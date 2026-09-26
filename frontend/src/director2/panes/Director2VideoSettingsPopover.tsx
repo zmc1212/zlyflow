@@ -16,6 +16,7 @@ export default function Director2VideoSettingsPopover({
   values,
   onWorkflowChange,
   onChange,
+  triggerLabel,
 }: {
   workflowId: string
   workflows: Director2WorkflowMode[]
@@ -23,6 +24,7 @@ export default function Director2VideoSettingsPopover({
   values: Record<string, string>
   onWorkflowChange: (workflowId: string) => void
   onChange: (name: string, value: string) => void
+  triggerLabel?: string
 }) {
   const [open, setOpen] = useState(false)
   const primary = useMemo(() => fields.filter((item) => item.ui_group === "primary"), [fields])
@@ -100,8 +102,8 @@ export default function Director2VideoSettingsPopover({
       overlayClassName="d2-video-settings-popover"
       content={content}
     >
-      <Button icon={<SlidersHorizontal size={14} />} aria-expanded={open} aria-label={summary}>
-        {summary}
+      <Button icon={<SlidersHorizontal size={14} />} aria-expanded={open} aria-label={triggerLabel || summary}>
+        {triggerLabel || summary}
       </Button>
     </Popover>
   )

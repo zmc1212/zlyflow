@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import math
+import os
 import re
 import threading
 import time
@@ -15,7 +16,7 @@ from typing import Any, Callable
 
 from ...dialogue_timing import resolve_shot_duration_sec
 from ...director_stream import DirectorOperationEventBus
-from ...llm_client import LlmStreamHook, emit_llm_stream_status
+from ...llm_client import LlmStreamHook, emit_llm_stream_status, is_llm_transient_error
 from ...workflow_registry import WorkflowDefinition, workflow_for
 from ..db import execute_sql, now_str, query_all, query_one, transaction_cursor
 from .llm_service import LlmService
@@ -49,6 +50,29 @@ _STREAM_STATE: dict[str, dict[str, Any]] = {}
 _STREAM_FLUSH_AT: dict[str, float] = {}
 _STREAM_FLUSH_INTERVAL = 0.45
 _DIRECTOR_PLAN_SCHEMA_VERSION = 4
+_LEASE_LOCAL = threading.local()
+_WATCHDOG_STARTED = False
+
+
+def _director_budget(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError as err:
+        raise ValueError(f"{name} 必须是整数") from err
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name} 必须在 {minimum}～{maximum} 之间")
+    return value
+
+
+def _write_job(sql: str, params: tuple) -> int:
+    owner = getattr(_LEASE_LOCAL, "owner", None)
+    if owner:
+        sql += " AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.lease.owner'))=%s"
+        params = (*params, owner)
+    changed = execute_sql(sql, params)
+    if owner and changed != 1:
+        raise RuntimeError("任务执行租约已转移，旧执行器停止写入")
+    return changed
 _DIRECTOR_REPLAY_TERMS = (
     "再次", "重新", "回响", "时间回响", "感知回响", "回放", "倒放", "重演", "重新醒来", "再次醒来", "再次说", "再次重复",
     "time echo", "sensory echo", "replay", "rewind", "relive", "again wakes", "repeat the dialogue",
@@ -161,11 +185,34 @@ class PromptExpansionService:
         target_segment_count = None
         planned_parts: list[dict[str, Any]] = []
         source_facts: dict[str, dict[str, list[dict[str, str]]]] = {}
+        max_shots_per_group = None
+        group_setting_source = "system"
         if profile == "director_segments":
             raw_count = req.get("target_segment_count")
             target_segment_count = int(raw_count) if raw_count not in (None, "") else None
             if not source["beats"]:
                 raise ValueError("当前分集没有可规划的分镜")
+            project = query_one("SELECT settings_json FROM ai_projects WHERE id=%s", (project_id,)) or {}
+            project_settings = _json_dict(project.get("settings_json"))
+            episode_setting = ((source.get("data") or {}).get("production_group_settings") or {}).get("max_shots_per_group")
+            project_setting = (project_settings.get("production_group_settings") or {}).get("max_shots_per_group")
+            raw_group_size = req.get("max_shots_per_group")
+            if raw_group_size not in (None, ""):
+                group_setting_source, chosen = "episode", raw_group_size
+            elif episode_setting not in (None, ""):
+                group_setting_source, chosen = "episode", episode_setting
+            elif project_setting not in (None, ""):
+                group_setting_source, chosen = "project", project_setting
+            else:
+                chosen = 3
+            try:
+                max_shots_per_group = int(chosen)
+            except (ValueError, TypeError) as err:
+                raise ValueError("每组最多镜头数必须为整数") from err
+            if max_shots_per_group != chosen and str(chosen) != str(max_shots_per_group):
+                raise ValueError("每组最多镜头数必须为整数")
+            if not 2 <= max_shots_per_group <= int(definition.max_segments):
+                raise ValueError(f"每组最多镜头数必须在 2～{definition.max_segments} 之间")
             source_facts = cls._build_source_facts(source["beats"])
             conflicts = preflight(source["beats"], source_facts, definition)
             if director_reliable.enabled():
@@ -189,6 +236,8 @@ class PromptExpansionService:
             "rewrite_mode": rewrite_mode,
             "aspect_ratio": aspect_ratio,
             "target_segment_count": target_segment_count,
+            "max_shots_per_group": max_shots_per_group,
+            "group_setting_source": group_setting_source,
             "reference_slots": slots,
         }
         fingerprint = cls.source_fingerprint(source, normalized_request)
@@ -198,7 +247,9 @@ class PromptExpansionService:
             (project_id, JOB_TYPE),
         ):
             existing = _payload(row)
-            if existing.get("episode_id") == episode_id and existing.get("source_fingerprint") == fingerprint and not existing.get("revision_request"):
+            if (existing.get("episode_id") == episode_id and existing.get("source_fingerprint") == fingerprint
+                    and (existing.get("request") or {}).get("pipeline_version", 4) == normalized_request["pipeline_version"]
+                    and not existing.get("revision_request")):
                 return {"job_id": row["id"], "status": row["status"], "duplicate": True}
 
         jid = f"job-{uuid.uuid4().hex[:12]}"
@@ -266,8 +317,10 @@ class PromptExpansionService:
             raise ValueError("返修段落选择无效")
         if feedback and not targets:
             raise ValueError("请指定需要返修的段落")
-        req = {k: plan.get(k) for k in ("workflow_id", "template_version", "unit_planner_version", "language", "rewrite_mode", "aspect_ratio", "target_segment_count", "reference_slots")}
+        req = {k: plan.get(k) for k in ("workflow_id", "template_version", "unit_planner_version", "language", "rewrite_mode", "aspect_ratio", "target_segment_count", "max_shots_per_group", "reference_slots")}
         req.update(story_design=True, prompt_profile="director_segments", target={"kind": "director_episode"})
+        if plan.get("schema_version") in {5, 6}:
+            req["pipeline_version"] = 5
         fingerprint = cls.source_fingerprint(source, req)
         if fingerprint != plan.get("source_fingerprint"):
             raise RuntimeError("SOURCE_CHANGED: 剧本、分镜或资产已变化，请重新生成方案")
@@ -368,13 +421,19 @@ class PromptExpansionService:
         assets_by_id = {_clean(item.get("id")): item for item in assets if item.get("id")}
         candidates = raw_slots if isinstance(raw_slots, list) else []
         if not candidates:
-            candidates = [
-                {"asset_id": item.get("id")}
-                for item in cls._default_asset_order(
-                    assets, target_kind=target_kind, beat_id=beat_id, beats=beats,
-                )
-                if cls._asset_image_url(item)
-            ][: int(definition.max_references or 0)]
+            ordered = [item for item in cls._default_asset_order(
+                assets, target_kind=target_kind, beat_id=beat_id, beats=beats) if cls._asset_image_url(item)]
+            if target_kind == "director_episode":
+                linked = {str(value) for beat in beats for value in
+                          [beat.get("scene_id"), *(beat.get("character_ids") or []), *(beat.get("prop_ids") or [])] if value}
+                source_text = "\n".join(str(beat.get(key) or "") for beat in beats
+                                        for key in ("heading", "scene", "action", "dialogue", "visual_prompt"))
+                related = [item for item in ordered if str(item.get("id")) in linked
+                           or (str(item.get("name") or "").strip() and str(item["name"]) in source_text)]
+                if len(related) < int(definition.min_references or 0):
+                    related.extend(item for item in ordered if item not in related)
+                ordered = related
+            candidates = [{"asset_id": item.get("id")} for item in ordered][: int(definition.max_references or 0)]
         if len(candidates) > int(definition.max_references or 0):
             raise ValueError(f"参考图最多允许 {definition.max_references} 张")
         slots: list[dict[str, Any]] = []
@@ -440,6 +499,14 @@ class PromptExpansionService:
     @classmethod
     def source_fingerprint(cls, source: dict[str, Any], request: dict[str, Any]) -> str:
         target = request.get("target") if isinstance(request.get("target"), dict) else {}
+        snapshot = cls._source_snapshot(source, _clean(target.get("kind")), _clean(target.get("beat_id")))
+        if request.get("pipeline_version") == 5 and _clean(target.get("kind")) == "director_episode":
+            linked = {str(slot.get("asset_id")) for slot in request.get("reference_slots") or [] if slot.get("asset_id")}
+            for beat in snapshot["beats"]:
+                linked.update(str(value) for value in [beat.get("scene_id"), *(beat.get("character_ids") or []),
+                                                         *(beat.get("prop_ids") or [])] if value)
+            snapshot["assets"] = [asset for asset in snapshot["assets"] if str(asset.get("id")) in linked]
+            snapshot["adjacent_episodes"] = []
         body = {
             "template_version": request.get("template_version"),
             "unit_planner_version": request.get("unit_planner_version"),
@@ -447,8 +514,10 @@ class PromptExpansionService:
             "language": request.get("language"), "rewrite_mode": request.get("rewrite_mode"),
             "aspect_ratio": request.get("aspect_ratio"), "target_segment_count": request.get("target_segment_count"),
             "reference_slots": request.get("reference_slots") or [],
-            "source": cls._source_snapshot(source, _clean(target.get("kind")), _clean(target.get("beat_id"))),
+            "source": snapshot,
         }
+        if request.get("max_shots_per_group") is not None:
+            body["max_shots_per_group"] = request["max_shots_per_group"]
         raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -712,7 +781,7 @@ class PromptExpansionService:
         row = query_one("SELECT payload_json FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
         payload = _payload(row)
         payload["stream"] = snapshot
-        execute_sql(
+        _write_job(
             "UPDATE ai_project_jobs SET payload_json=%s,updated_at=%s WHERE id=%s",
             (json.dumps(payload, ensure_ascii=False), now_str(), job_id),
         )
@@ -727,13 +796,27 @@ class PromptExpansionService:
             if not capacity:
                 return
             rows = query_all(
-                "SELECT id FROM ai_project_jobs WHERE job_type=%s AND status='queued' ORDER BY created_at ASC LIMIT 20",
+                "SELECT id,payload_json FROM ai_project_jobs WHERE job_type=%s AND status='queued' ORDER BY created_at ASC LIMIT 20",
                 (JOB_TYPE,),
             )
             for row in rows:
                 if capacity <= 0:
                     break
                 job_id = row["id"]
+                job_payload = _payload(row)
+                reliable = (job_payload.get("request") or {}).get("pipeline_version") == 5
+                owner = uuid.uuid4().hex if reliable else None
+                if owner:
+                    job_payload["lease"] = {"owner": owner, "expires_at": time.time() + 120}
+                    claimed = execute_sql("UPDATE ai_project_jobs SET status='preparing',progress=10,payload_json=%s,updated_at=%s WHERE id=%s AND status='queued'",
+                                          (json.dumps(job_payload, ensure_ascii=False), now_str(), job_id))
+                    if claimed != 1:
+                        continue
+                    with _ACTIVE_LOCK:
+                        _ACTIVE.add(job_id)
+                    _EXECUTOR.submit(cls._run, job_id, owner)
+                    capacity -= 1
+                    continue
                 if execute_sql(
                     "UPDATE ai_project_jobs SET status='preparing',progress=10,updated_at=%s WHERE id=%s AND status='queued'",
                     (now_str(), job_id),
@@ -747,7 +830,7 @@ class PromptExpansionService:
             _DISPATCH_LOCK.release()
 
     @classmethod
-    def recover_interrupted_jobs(cls) -> None:
+    def recover_interrupted_jobs(cls, *, include_legacy: bool = True) -> None:
         for row in query_all(
             "SELECT id,status,payload_json FROM ai_project_jobs WHERE job_type=%s AND status IN ('queued','preparing','running')",
             (JOB_TYPE,),
@@ -756,6 +839,16 @@ class PromptExpansionService:
                 continue
             payload = _payload(row)
             request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+            if request.get("pipeline_version") == 5:
+                lease = payload.get("lease") or {}
+                if float(lease.get("expires_at") or 0) > time.time():
+                    continue
+                execute_sql("UPDATE ai_project_jobs SET status='queued',updated_at=%s WHERE id=%s AND status IN ('preparing','running') "
+                            "AND COALESCE(JSON_EXTRACT(payload_json,'$.lease.expires_at'),0)<=%s",
+                            (now_str(), row["id"], time.time()))
+                continue
+            if not include_legacy:
+                continue
             stage = "generation"
             part_id = None
             segment_ids: list[str] = []
@@ -793,6 +886,22 @@ class PromptExpansionService:
         cls.kick()
 
     @classmethod
+    def start_watchdog(cls) -> None:
+        global _WATCHDOG_STARTED
+        if _WATCHDOG_STARTED:
+            return
+        _WATCHDOG_STARTED = True
+        def watch():
+            while True:
+                time.sleep(30)
+                try:
+                    cls.recover_interrupted_jobs(include_legacy=False)
+                except Exception:
+                    # A temporary database outage must not stop recovery permanently.
+                    continue
+        threading.Thread(target=watch, name="director-preview-recovery", daemon=True).start()
+
+    @classmethod
     def retry(cls, project_id: str, job_id: str) -> dict[str, Any]:
         row = query_one("SELECT * FROM ai_project_jobs WHERE id=%s AND project_id=%s", (job_id, project_id)) or {}
         if not row or row.get("job_type") != JOB_TYPE:
@@ -812,6 +921,12 @@ class PromptExpansionService:
 
         old_checkpoints = payload.get("checkpoints") if isinstance(payload.get("checkpoints"), dict) else {}
         reusable: dict[str, Any] = {}
+        for key in ("source_check", "scene_resolution", "director_design", "segment_generation", "structural_preview"):
+            if old_checkpoints.get(key):
+                reusable[key] = old_checkpoints[key]
+        failed_segments = (payload.get("failure") or {}).get("segment_ids") or []
+        for sid in failed_segments:
+            (reusable.get("segment_generation") or {}).pop(sid, None)
         if old_checkpoints.get("quality_revision"):
             reusable["quality_revision"] = old_checkpoints["quality_revision"]
         planning = old_checkpoints.get("fact_planning") if isinstance(old_checkpoints.get("fact_planning"), dict) else None
@@ -822,9 +937,14 @@ class PromptExpansionService:
         reusable_parts = {
             key: value for key, value in part_rows.items()
             if isinstance(value, dict) and value.get("status") == "completed" and key != failed_part_id
+            and not any(s.get("id") in failed_segments for s in (value.get("part") or {}).get("segments", []))
         }
         if reusable_parts:
             reusable["part_generation"] = reusable_parts
+        if request.get("pipeline_version") == 5 and (payload.get("failure") or {}).get("stage") == "final_validation" and not failed_segments:
+            # A global ownership/order conflict requires replanning, not replaying
+            # exactly the same cached output and failing forever.
+            reusable = {k: v for k, v in reusable.items() if k in {"source_check", "scene_resolution"}}
 
         jid = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = now_str()
@@ -859,16 +979,25 @@ class PromptExpansionService:
     ) -> None:
         checkpoints = payload.setdefault("checkpoints", {})
         checkpoints[stage] = value
+        if (payload.get("request") or {}).get("pipeline_version") == 5:
+            record = value if isinstance(value, dict) else {}
+            payload.setdefault("stage_progress", {})[stage] = {
+                "version": 5, "input_digest": payload.get("source_fingerprint"),
+                "attempt": record.get("attempt", 0), "status": record.get("status", "checkpointed"),
+                "error": record.get("error"), "updated_at": now_str(),
+            }
         if not job_id:
             return
         latest = _payload(query_one("SELECT payload_json FROM ai_project_jobs WHERE id=%s", (job_id,)) or {})
         stream = latest.get("stream")
         merged = {**latest, **payload}
+        if latest.get("lease"):
+            merged["lease"] = latest["lease"]
         if stream and "stream" not in payload:
             merged["stream"] = stream
         payload.clear()
         payload.update(merged)
-        execute_sql(
+        _write_job(
             "UPDATE ai_project_jobs SET payload_json=%s,updated_at=%s WHERE id=%s",
             (json.dumps(payload, ensure_ascii=False), now_str(), job_id),
         )
@@ -886,6 +1015,7 @@ class PromptExpansionService:
         retry_message: str | None = None,
         max_repairs: int = 1,
         status_context: dict[str, Any] | None = None,
+        max_tokens: int = 16000,
     ) -> tuple[dict[str, Any], str, bool]:
         prompt = user_prompt
         last_output = ""
@@ -902,7 +1032,7 @@ class PromptExpansionService:
             last_output = LlmService.chat_text(
                 system_prompt,
                 prompt,
-                max_tokens=16000,
+                max_tokens=max_tokens,
                 temperature=0.25 if attempt == 0 else 0.2,
                 timeout=300,
             )
@@ -910,7 +1040,7 @@ class PromptExpansionService:
                 return parser(last_output), last_output, attempt > 0
             except PromptTemplateError as err:
                 detail = str(err)
-                if detail in errors and max_repairs > 1:
+                if detail in errors and max_repairs > 1 and not (status_context or {}).get("reliable"):
                     ctx = status_context or {}
                     raise PromptPipelineError(detail, code="DIRECTOR_NO_PROGRESS", stage=ctx.get("stage") or stream_phase,
                         part_id=ctx.get("part_id") or "", segment_ids=ctx.get("segment_ids"),
@@ -918,6 +1048,10 @@ class PromptExpansionService:
                         user_message=f"同一问题重复出现，已停止自动重写：{detail}") from err
                 errors.append(detail)
                 if attempt >= max_repairs:
+                    if (status_context or {}).get("reliable"):
+                        ctx = status_context or {}
+                        raise PromptPipelineError(detail, code="DIRECTOR_SEGMENT_INVALID", stage=ctx["stage"],
+                            part_id=ctx.get("part_id", ""), segment_ids=ctx.get("segment_ids"), attempt=attempt) from err
                     raise
                 prompt = (
                     f"{user_prompt}\n\n必须修复本次错误：{err}。此前问题一并复核，禁止回归：{'；'.join(errors)}\n"
@@ -927,11 +1061,24 @@ class PromptExpansionService:
         raise PromptTemplateError("提示词生成未返回可解析结果")
 
     @classmethod
-    def _run(cls, job_id: str) -> None:
-        row = query_one("SELECT * FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
-        payload = _payload(row)
+    def _run(cls, job_id: str, lease_owner: str | None = None) -> None:
+        _LEASE_LOCAL.owner = lease_owner
+        stopped = threading.Event()
+        if lease_owner:
+            def heartbeat():
+                while not stopped.wait(30):
+                    try:
+                        execute_sql("UPDATE ai_project_jobs SET payload_json=JSON_SET(payload_json,'$.lease.expires_at',%s) "
+                            "WHERE id=%s AND status IN ('preparing','running') AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.lease.owner'))=%s",
+                            (time.time() + 120, job_id, lease_owner))
+                    except Exception:
+                        continue
+            threading.Thread(target=heartbeat, name=f"preview-heartbeat-{job_id}", daemon=True).start()
+        payload = {}
         try:
-            execute_sql(
+            row = query_one("SELECT * FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
+            payload = _payload(row)
+            _write_job(
                 "UPDATE ai_project_jobs SET status='running',progress=30,updated_at=%s WHERE id=%s",
                 (now_str(), job_id),
             )
@@ -1015,33 +1162,57 @@ class PromptExpansionService:
             completed["failure"] = None
             completed.pop("stream", None)
             timestamp = now_str()
-            execute_sql(
+            _write_job(
                 "UPDATE ai_project_jobs SET status='completed',progress=100,payload_json=%s,error_message=NULL,completed_at=%s,updated_at=%s WHERE id=%s",
                 (json.dumps(completed, ensure_ascii=False), timestamp, timestamp, job_id),
             )
             _EVENTS.emit(job_id, {"event": "done", "terminal": True, "data": {"status": "succeeded", "preview": preview}})
+            if request.get("pipeline_version") == 5 and not payload.get("revision_base"):
+                try:
+                    review = cls.revise(row["project_id"], payload["episode_id"], {
+                        "base_job_id": job_id, "expected_plan_id": preview["id"],
+                        "expected_revision": preview["revision"], "segment_ids": [], "feedback": "",
+                    })
+                    cls._save_checkpoint(job_id, completed, "review_dispatch", {"status": "queued", "job_id": review["job_id"]})
+                except Exception as review_error:
+                    # The valid expansion is already complete; review can be restarted independently.
+                    try:
+                        cls._save_checkpoint(job_id, completed, "review_dispatch", {"status": "failed", "error": str(review_error)})
+                    except Exception:
+                        pass  # A review/checkpoint outage must never invalidate delivered prose.
         except Exception as err:
             latest = query_one("SELECT payload_json FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
             failed = _payload(latest) or payload
             # Keep the last streamed draft for diagnosis and recovery after refresh.
+            stream_context = failed.get("stream") or {}
             failure = err.as_dict() if isinstance(err, PromptPipelineError) else {
                 "code": "PROMPT_PREVIEW_FAILED",
-                "stage": "generation",
-                "part_id": None,
-                "segment_ids": [],
-                "attempt": 0,
+                "stage": stream_context.get("stage") or "generation",
+                "part_id": stream_context.get("part_id"),
+                "segment_ids": stream_context.get("segment_ids") or [],
+                "attempt": stream_context.get("attempt") or 0,
                 "retryable": True,
                 "message": "提示词预览生成失败，可重试失败部分",
                 "detail": str(err),
             }
+            if (failed.get("request") or {}).get("pipeline_version") == 5:
+                transient = is_llm_transient_error(err) or any(x in str(err).lower() for x in ("429", "rate limit", "限流", "无法连接"))
+                failure["category"] = "transport" if transient else "model_format" if isinstance(err, PromptTemplateError) else "execution"
+                failure["resume"] = {"checkpoints": list((failed.get("checkpoints") or {}).keys()),
+                    "completed_segment_ids": [sid for sid, item in (failed.get("checkpoints", {}).get("segment_generation") or {}).items()
+                                              if item.get("status") == "completed"]}
+                if transient:
+                    failure.update(code="LLM_TRANSPORT", message="模型服务连接异常；已完成段落已保存，可重试当前阶段。")
             failed["failure"] = failure
             failed["validation_status"] = "invalid"
-            execute_sql(
+            _write_job(
                 "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,payload_json=%s,updated_at=%s WHERE id=%s",
                 (str(err)[:1000], json.dumps(failed, ensure_ascii=False), now_str(), job_id),
             )
             _EVENTS.emit(job_id, {"event": "error", "terminal": True, "data": {"status": "failed", **failure}})
         finally:
+            stopped.set()
+            _LEASE_LOCAL.owner = None
             with _STREAM_LOCK:
                 _STREAM_STATE.pop(job_id, None)
                 _STREAM_FLUSH_AT.pop(job_id, None)
@@ -1291,6 +1462,7 @@ class PromptExpansionService:
         planned_segments: list[dict[str, Any]],
         groups: list[dict[str, Any]],
         language: str = "zh",
+        *, semantic_checks: bool = True,
     ) -> None:
         if len(planned_segments) != len(groups):
             raise PromptTemplateError("Director 段数量与模型输出不一致")
@@ -1331,7 +1503,7 @@ class PromptExpansionService:
                     raise PromptTemplateError("对白事实 ID 跨 Director 段重复")
                 event_ids.update(unit_event_ids)
                 dialogue_ids.update(unit_dialogue_ids)
-            if segment_index > 1 and any(term.lower() in prompt_text.lower() for term in _DIRECTOR_REPLAY_TERMS):
+            if semantic_checks and segment_index > 1 and any(term.lower() in prompt_text.lower() for term in _DIRECTOR_REPLAY_TERMS):
                 raise PromptTemplateError(f"第 {segment_index} 段包含禁止的重播语义")
         if len(all_shot_numbers) != len(set(all_shot_numbers)):
             raise PromptTemplateError("generated_shot_number 在 Director 方案中重复")
@@ -1339,7 +1511,7 @@ class PromptExpansionService:
         # A high overlap in adjacent summaries for the same source Beat is a
         # useful local signal for replayed prose without blocking normal
         # continuity language shared by all segments.
-        for index in range(1, len(planned_segments)):
+        for index in range(1, len(planned_segments)) if semantic_checks else []:
             previous = planned_segments[index - 1]
             current = planned_segments[index]
             previous_beats = {str(item.get("source_beat_id") or "") for item in previous.get("source_units") or []}
@@ -1423,8 +1595,267 @@ class PromptExpansionService:
             [*(previous_segments or []), *segments],
             [*(previous_groups or []), *parsed["groups"]],
             request.get("language") or "zh",
+            semantic_checks=request.get("pipeline_version") != 5,
         )
         return parsed
+
+    @classmethod
+    def _design_with_checkpoint(cls, system, user, parser, payload, job_id, *, checkpoint_key="director_design", repair_source=None,
+                                max_tokens=16000):
+        checkpoint = (payload.get("checkpoints") or {}).get(checkpoint_key) or {}
+        digest = hashlib.sha256(user.encode()).hexdigest()
+        candidate = checkpoint.get("candidate") if checkpoint.get("input_digest") == digest else None
+        prompt = user
+        for attempt in range(3):
+            emit_llm_stream_status("director_design", "正在设计本集镜头" if not attempt else "正在修复指定镜头字段",
+                                   reset=True, stage="director_design", attempt=attempt)
+            if candidate is None:
+                raw = LlmService.chat_text(system, prompt, max_tokens=max_tokens, temperature=0.2, timeout=300)
+                try:
+                    candidate = LlmService._parse_json_object(raw)
+                except ValueError as err:
+                    if attempt == 2:
+                        raise PromptPipelineError(str(err), code="DIRECTOR_DESIGN_JSON", stage="director_design", attempt=attempt) from err
+                    prompt = user + "\n只返回完整有效 JSON。上次解析错误：" + str(err)
+                    continue
+            cls._save_checkpoint(job_id, payload, checkpoint_key, {"status": "validating", "candidate": candidate,
+                                 "attempt": attempt, "version": 5, "input_digest": digest})
+            try:
+                parsed = parser(json.dumps(candidate, ensure_ascii=False))
+                cls._save_checkpoint(job_id, payload, checkpoint_key, {"status": "completed", "candidate": candidate,
+                    "attempt": attempt, "version": 5, "input_digest": digest})
+                return parsed, attempt > 0
+            except PromptTemplateError as err:
+                detail = str(err)
+                cls._save_checkpoint(job_id, payload, checkpoint_key, {"status": "needs_repair", "candidate": candidate,
+                                     "attempt": attempt, "error": detail, "version": 5, "input_digest": digest})
+                if attempt == 2:
+                    raise PromptPipelineError(detail, code="DIRECTOR_DESIGN_INVALID", stage="director_design",
+                                              attempt=attempt, user_message=f"导演设计需要修复：{detail}") from err
+                missing = re.search(r"导演单元 (\d+) 缺少 (\w+)", detail)
+                if missing:
+                    index, field = int(missing[1]) - 1, missing[2]
+                    raw = LlmService.chat_text("只返回 JSON 对象，补齐指定字段，不改变剧情事实。",
+                        json.dumps({"source": repair_source or payload.get("source_snapshot"), "unit": candidate["units"][index],
+                                    "required_field": field}, ensure_ascii=False), max_tokens=1500, temperature=0.2, timeout=300)
+                    try:
+                        patch = LlmService._parse_json_object(raw)
+                    except ValueError:
+                        patch = {}
+                    if isinstance(patch.get(field), str) and patch[field].strip():
+                        candidate["units"][index][field] = patch[field]
+                else:
+                    prompt = user + "\n修复以下结构错误：" + detail + "\n候选：" + json.dumps(candidate, ensure_ascii=False)
+                    candidate = None
+        raise PromptTemplateError("导演设计未完成")
+
+    @classmethod
+    def _generate_segments(cls, payload, request, part, common, handoff, previous_segments, previous_groups, job_id):
+        saved = payload.setdefault("checkpoints", {}).setdefault("segment_generation", {})
+        groups, raws, planned = [], [], []
+        retried = False
+        for position, segment in enumerate(part["segments"]):
+            sid = segment["id"]
+            group_design = next((item for item in (payload.get("director_design") or {}).get("groups") or []
+                                 if item.get("group_id") == part.get("source_group_id")), {})
+            system, user = build_director_prompts(language=request.get("language"), rewrite_mode=request.get("rewrite_mode"),
+                aspect_ratio=request.get("aspect_ratio"), segment_sources=[segment],
+                reference_slots=part.get("reference_slots", request.get("reference_slots") or []),
+                previous_handoff=handoff, director_context={
+                    "dramatic_intent": group_design.get("dramatic_intent"),
+                    "visual_strategy": group_design.get("visual_strategy"),
+                    "next_start_state": (part["segments"][position + 1]["source_units"][0].get("start_state")
+                        if position + 1 < len(part["segments"]) else None),
+                }, common_setting=common, allow_single=True)
+            if len(system) + len(user) > _director_budget("ZLY_DIRECTOR_INPUT_CHAR_BUDGET", 24000, 4000, 128000):
+                raise PromptPipelineError(f"生成段 {sid} 输入超过当前模型预算，请拆分来源镜头或减少参考图",
+                    code="DIRECTOR_SEGMENT_INPUT_BUDGET", stage="segment_generation",
+                    part_id=part["id"], segment_ids=[sid], retryable=False)
+            input_digest = hashlib.sha256((system + "\n" + user).encode()).hexdigest()
+            current_cache = saved.get(sid) or {}
+            cached = current_cache if current_cache.get("status") == "completed" and (
+                not current_cache.get("input_digest") or current_cache.get("input_digest") == input_digest) else (
+                (payload.get("reusable_segment_checkpoints") or {}).get(input_digest) or {})
+            if cached.get("status") == "completed":
+                parsed, raw = cached["parsed"], cached["raw"]
+                if cached is not current_cache:
+                    saved[sid] = {**cached, "reused": True}
+                    cls._save_checkpoint(job_id, payload, "segment_generation", saved)
+            else:
+                parsed, raw, repaired = cls._generate_with_one_retry(system, user,
+                    lambda value: cls._parse_and_validate_director_output(value,
+                        {**request, "locked_common_setting": common,
+                         "reference_slots": part.get("reference_slots", request.get("reference_slots") or [])},
+                        [segment], [], 1, [*previous_segments, *planned], [*previous_groups, *groups]),
+                    stream_phase="segment_generation", stream_message=f"正在扩写 {sid}", max_repairs=2,
+                    status_context={"stage": "segment_generation", "part_id": part["id"], "segment_ids": [sid], "reliable": True},
+                    max_tokens=_director_budget("ZLY_DIRECTOR_OUTPUT_TOKEN_BUDGET", 16000, 1024, 16000))
+                retried = retried or repaired
+                saved[sid] = {"status": "completed", "parsed": parsed, "raw": raw,
+                              "input_digest": input_digest, "version": 5}
+                cls._save_checkpoint(job_id, payload, "segment_generation", saved)
+            groups.extend(parsed["groups"])
+            raws.append(raw)
+            planned.append(segment)
+            handoff = {"segment_id": sid, "state": segment["source_units"][-1]["handoff_state"]}
+        return {"groups": groups, "common_setting": parsed["common_setting"]}, "\n".join(raws), retried
+
+    @classmethod
+    def _resolve_scenes(cls, source, payload, job_id):
+        saved = (payload.get("checkpoints") or {}).get("scene_resolution") or {}
+        if saved.get("status") == "completed":
+            return saved["scenes"]
+        beats = source.get("beats") or []
+        scenes = {str(b["id"]): str(b.get("scene_id") or b.get("scene") or "").strip() for b in beats}
+        if isinstance(saved.get("scenes"), dict):
+            scenes.update({k: v for k, v in saved["scenes"].items() if k in scenes and not scenes[k]})
+        missing = [bid for bid, scene in scenes.items() if not scene]
+        for start in range(0, len(missing), 3):
+            batch = missing[start:start + 3]
+            def parse(raw):
+                try:
+                    result = LlmService._parse_json_object(raw).get("scenes")
+                except ValueError as err:
+                    raise PromptTemplateError(f"场景识别 JSON 无效：{err}") from err
+                if not isinstance(result, dict) or set(result) != set(batch) or any(not isinstance(v, str) or not v.strip() for v in result.values()):
+                    raise PromptTemplateError("场景识别必须逐一返回缺失的 Beat ID 与地点、时间名称")
+                return result
+            identified, _, _ = cls._generate_with_one_retry(
+                "只做场景识别，不扩写、不改剧情。返回 JSON {scenes:{Beat ID:地点与时间}}。"
+                "只返回 missing_ids 中的镜头；同一地点、时间使用完全相同名称，尽量沿用 known_scenes。"
+                "没有换场证据时保持连续场景，不因镜头标题变化而拆场景。",
+                json.dumps({"beats": [b for b in beats if str(b["id"]) in batch],
+                    "missing_ids": batch, "known_scenes": {k: v for k, v in scenes.items() if v}}, ensure_ascii=False),
+                parse, stream_phase="scene_resolution", stream_message="正在确认场景与时间",
+                max_repairs=2, status_context={"stage": "scene_resolution", "reliable": True})
+            scenes.update(identified)
+            cls._save_checkpoint(job_id, payload, "scene_resolution", {"status": "partial", "scenes": scenes, "version": 5})
+        cls._save_checkpoint(job_id, payload, "scene_resolution", {"status": "completed", "scenes": scenes, "version": 5})
+        return scenes
+
+    @classmethod
+    def _plan_reliable_groups(cls, payload, request, job_id):
+        from .director_story_design import design_prompts, pack_design, reference_common_setting
+
+        source = payload.get("source_snapshot") or {}
+        scenes = cls._resolve_scenes(source, payload, job_id)
+        beats = [{**beat, "scene": scenes[str(beat["id"])]} for beat in source.get("beats") or []]
+        facts = payload.get("source_facts") or cls._build_source_facts(beats)
+        definition = workflow_for(request["workflow_id"])
+        input_budget = _director_budget("ZLY_DIRECTOR_INPUT_CHAR_BUDGET", 24000, 4000, 128000)
+        output_budget = _director_budget("ZLY_DIRECTOR_OUTPUT_TOKEN_BUDGET", 16000, 1024, 16000)
+        groups = director_reliable.source_groups(beats, definition, int(request.get("max_shots_per_group") or 3),
+                                                  source_facts=facts, max_input_chars=input_budget // 2)
+        locked = reference_common_setting(source, request) or {"subject_definitions":
+            "Use the characters and setting specified in the source script." if request.get("language") == "en"
+            else "遵循来源剧本中的人物身份、服装和场景环境，保持同场画面一致。"}
+        summary = str((source.get("episode") or {}).get("dramatic_design") or "")[:1200]
+        reusable_designs = {}
+        reusable_segments = {}
+        if job_id and payload.get("project_id"):
+            for row in query_all(
+                "SELECT payload_json FROM ai_project_jobs WHERE project_id=%s AND job_type=%s "
+                "AND status IN ('completed','failed') ORDER BY created_at DESC LIMIT 64",
+                (payload["project_id"], JOB_TYPE),
+            ):
+                old = _payload(row)
+                if old.get("episode_id") != payload.get("episode_id") or (old.get("request") or {}).get("pipeline_version") != 5:
+                    continue
+                for key, checkpoint in (old.get("checkpoints") or {}).items():
+                    if key.startswith("director_design_group_") and isinstance(checkpoint, dict) and checkpoint.get("status") == "completed":
+                        digest = checkpoint.get("input_digest")
+                        if digest and checkpoint.get("candidate"):
+                            reusable_designs.setdefault(digest, checkpoint)
+                for checkpoint in ((old.get("checkpoints") or {}).get("segment_generation") or {}).values():
+                    if isinstance(checkpoint, dict) and checkpoint.get("status") == "completed" and checkpoint.get("input_digest"):
+                        reusable_segments.setdefault(checkpoint["input_digest"], checkpoint)
+        payload["reusable_segment_checkpoints"] = reusable_segments
+        all_parts, all_units, notes, designs = [], [], [], []
+        previous_handoff = ""
+        previous_scene = ""
+        beat_by_id = {str(b["id"]): b for b in beats}
+        for index, group in enumerate(groups):
+            selected = [beat_by_id[bid] for bid in group["beat_ids"]]
+            local_facts = {bid: facts[bid] for bid in group["beat_ids"]}
+            local_slots = director_reliable.group_reference_slots(
+                request.get("reference_slots") or [], selected, int(definition.min_references or 0))
+            next_group = groups[index + 1] if index + 1 < len(groups) else None
+            local_source = {"episode": {"id": (source.get("episode") or {}).get("id"),
+                "title": (source.get("episode") or {}).get("title"), "script_text": ""},
+                "beats": selected, "assets": source.get("assets") or []}
+            context = {"episode_summary": summary, "group_index": index + 1,
+                "group_count": len(groups), "previous_handoff": previous_handoff,
+                "next_opening": {"scene": next_group["scene_key"],
+                    "beat_id": next_group["beat_ids"][0]} if next_group else None}
+            local_request = {**request, "reference_slots": local_slots,
+                             "locked_common_setting": locked, "group_context": context}
+            system, user = design_prompts(local_source, local_facts, local_request, definition)
+            if len(system) + len(user) > input_budget:
+                raise PromptPipelineError(f"生成组 {group['id']} 输入超过当前模型预算，请减少参考图或拆分过长镜头",
+                    code="DIRECTOR_GROUP_INPUT_BUDGET", stage="director_design", retryable=False,
+                    user_message=f"生成组 {group['id']} 输入过长，请拆分镜头或调整模型预算")
+            checkpoint_key = f"director_design_group_{index + 1}"
+            input_digest = hashlib.sha256(user.encode()).hexdigest()
+            group["fingerprint"] = input_digest
+            if checkpoint_key not in payload.setdefault("checkpoints", {}) and input_digest in reusable_designs:
+                payload["checkpoints"][checkpoint_key] = reusable_designs[input_digest]
+
+            def parse_design(raw):
+                try:
+                    design = LlmService._parse_json_object(raw)
+                except ValueError as err:
+                    raise PromptTemplateError(f"导演设计 JSON 无法解析：{err}") from err
+                design["common_setting"] = locked
+                design = director_reliable.normalize_design(design, selected, local_facts)
+                if previous_handoff and previous_scene == group["scene_key"]:
+                    design["units"][0]["start_state"] = previous_handoff
+                design["planned_parts"] = pack_design(design, selected, local_facts, definition, _FPS, mixed=True)
+                return design
+
+            design, _ = cls._design_with_checkpoint(system, user, parse_design, payload, job_id,
+                checkpoint_key=checkpoint_key, repair_source=local_source, max_tokens=output_budget)
+            group_parts = design.pop("planned_parts")
+            offset = len(all_units)
+            for unit in design["units"]:
+                number = offset + int(unit["id"].rsplit("-", 1)[-1])
+                unit["id"] = f"story-unit-{number}"
+                if unit.get("start_state_ref"):
+                    unit["start_state_ref"] = f"story-unit-{number - 1}"
+                all_units.append(unit)
+            for part in group_parts:
+                part_number = len(all_parts) + 1
+                part.update(id=f"story-part-{part_number}", index=part_number,
+                            source_group_id=group["id"], source_beat_ids=group["beat_ids"],
+                            reference_slots=local_slots)
+                if previous_handoff and previous_scene == group["scene_key"] and part is group_parts[0]:
+                    part["transition_type"] = "continuous"
+                    part["segments"][0]["continuity_from_prev"] = True
+                for segment in part["segments"]:
+                    for unit in segment["source_units"]:
+                        number = offset + int(unit["generated_shot_number"])
+                        unit["id"] = f"story-unit-{number}"
+                        unit["generated_shot_number"] = number
+                        if unit.get("start_state_ref"):
+                            unit["start_state_ref"] = f"story-unit-{number - 1}"
+                    number = segment["source_units"][0]["generated_shot_number"]
+                    segment["id"] = f"story-segment-{number}"
+                all_parts.append(part)
+            previous_handoff = design["units"][-1]["handoff_state"]
+            previous_scene = group["scene_key"]
+            notes.extend(design.get("quality_notes") or [])
+            designs.append({"group_id": group["id"], "dramatic_intent": design["dramatic_intent"],
+                            "visual_strategy": design["visual_strategy"]})
+            cls._save_checkpoint(job_id, payload, "group_progress", {"completed": index + 1,
+                "total": len(groups), "last_group_id": group["id"]})
+        director_reliable.assign_routes(all_parts, request)
+        payload["director_design"] = {"dramatic_intent": "；".join(d["dramatic_intent"] for d in designs)[:1200],
+            "visual_strategy": "；".join(d["visual_strategy"] for d in designs)[:1200],
+            "common_setting": locked, "units": all_units, "quality_notes": notes, "groups": designs}
+        payload["source_groups"] = groups
+        payload["planned_parts"] = all_parts
+        cls._save_checkpoint(job_id, payload, "fact_planning", {"status": "completed",
+            "planned_parts": all_parts, "retried": False, "source_groups": groups})
+        return all_parts
 
     @classmethod
     def _generate_director_preview(
@@ -1435,32 +1866,39 @@ class PromptExpansionService:
         job_id: str = "",
     ) -> dict[str, Any]:
         checkpoints = payload.setdefault("checkpoints", {})
+        reliable = request.get("pipeline_version") == 5
+        if reliable and not checkpoints.get("source_check"):
+            cls._save_checkpoint(job_id, payload, "source_check", {"status": "completed", "version": 5,
+                "fact_ids": [r["id"] for f in (payload.get("source_facts") or {}).values()
+                             for k in ("events", "dialogues") for r in f[k]]})
         if request.get("story_design") and not checkpoints.get("fact_planning"):
-            from .director_story_design import design_prompts, pack_design, reference_common_setting
-            from .llm_service import LlmService
-            source = payload.get("source_snapshot") or {}
-            facts = payload.get("source_facts") or cls._build_source_facts(source.get("beats") or [])
-            definition = workflow_for(request["workflow_id"])
-            locked_setting = reference_common_setting(source, request)
-            if locked_setting:
-                request = {**request, "locked_common_setting": locked_setting}
-            system, user = design_prompts(source, facts, request, definition)
-            def parse_design(raw: str) -> dict:
-                try:
-                    design = LlmService._parse_json_object(raw)
-                except ValueError as err:
-                    raise PromptTemplateError(f"导演设计 JSON 无法解析：{err}") from err
+            if reliable:
+                cls._plan_reliable_groups(payload, request, job_id)
+            else:
+                from .director_story_design import design_prompts, pack_design, reference_common_setting
+                source = payload.get("source_snapshot") or {}
+                facts = payload.get("source_facts") or cls._build_source_facts(source.get("beats") or [])
+                definition = workflow_for(request["workflow_id"])
+                locked_setting = reference_common_setting(source, request)
                 if locked_setting:
-                    design["common_setting"] = locked_setting
-                design["planned_parts"] = pack_design(design, source.get("beats") or [], facts, definition, _FPS)
-                return design
-            design, _, repaired = cls._generate_with_one_retry(system, user, parse_design,
-                stream_phase="director_design", stream_message="正在设计本集戏剧节奏与镜头",
-                retry_instruction="依据具体校验错误修复导演设计；禁止填充无剧情动作，不要改变事实和总时长。", max_repairs=2)
-            payload["director_design"] = {k: v for k, v in design.items() if k != "planned_parts"}
-            payload["source_facts"] = facts
-            payload["planned_parts"] = design["planned_parts"]
-            cls._save_checkpoint(job_id, payload, "fact_planning", {"status": "completed", "planned_parts": design["planned_parts"], "retried": repaired})
+                    request = {**request, "locked_common_setting": locked_setting}
+                system, user = design_prompts(source, facts, request, definition)
+                def parse_design(raw: str) -> dict:
+                    try:
+                        design = LlmService._parse_json_object(raw)
+                    except ValueError as err:
+                        raise PromptTemplateError(f"导演设计 JSON 无法解析：{err}") from err
+                    if locked_setting:
+                        design["common_setting"] = locked_setting
+                    design["planned_parts"] = pack_design(design, source.get("beats") or [], facts, definition, _FPS)
+                    return design
+                design, _, repaired = cls._generate_with_one_retry(system, user, parse_design,
+                    stream_phase="director_design", stream_message="正在设计本集戏剧节奏与镜头",
+                    retry_instruction="依据具体校验错误修复导演设计；禁止填充无剧情动作，不要改变事实和总时长。", max_repairs=2)
+                payload["director_design"] = {k: v for k, v in design.items() if k != "planned_parts"}
+                payload["source_facts"] = facts
+                payload["planned_parts"] = design["planned_parts"]
+                cls._save_checkpoint(job_id, payload, "fact_planning", {"status": "completed", "planned_parts": design["planned_parts"], "retried": repaired})
         planning_checkpoint = checkpoints.get("fact_planning") if isinstance(checkpoints.get("fact_planning"), dict) else {}
         if planning_checkpoint.get("status") == "completed" and isinstance(planning_checkpoint.get("planned_parts"), list):
             planned_parts = planning_checkpoint["planned_parts"]
@@ -1528,16 +1966,21 @@ class PromptExpansionService:
             system, user = build_director_prompts(
                 language=request.get("language"), rewrite_mode=request.get("rewrite_mode"),
                 aspect_ratio=request.get("aspect_ratio"), segment_sources=part.get("segments") or [],
-                reference_slots=request.get("reference_slots") or [], previous_handoff=previous_handoff,
+                reference_slots=part.get("reference_slots", request.get("reference_slots") or []), previous_handoff=previous_handoff,
                 director_context={"design": payload.get("director_design"), "episode": (payload.get("source_snapshot") or {}).get("episode")} if request.get("story_design") else None,
                 common_setting=common_setting if request.get("story_design") else None,
+                allow_single=reliable,
             )
             expected_shots = [
                 [int(unit.get("generated_shot_number")) for unit in segment.get("source_units") or []]
                 for segment in part.get("segments") or []
             ]
             try:
-                parsed, raw, part_retried = cls._generate_with_one_retry(
+                if reliable:
+                    parsed, raw, part_retried = cls._generate_segments(payload, request, part,
+                        common_setting, previous_handoff, all_planned_segments, all_groups, job_id)
+                else:
+                    parsed, raw, part_retried = cls._generate_with_one_retry(
                     system, user,
                     lambda value, expected=len(part.get("segments") or []): cls._parse_and_validate_director_output(
                         value,
@@ -1608,6 +2051,7 @@ class PromptExpansionService:
                 "description_tail": segments[-1]["sections"]["detailed_description"][-240:],
             }
             completed_part = {
+                **({k: part.get(k) for k in ("render_mode", "workflow_id", "render_blocker", "segment_ids", "execution_options", "source_group_id", "source_beat_ids", "reference_slots")} if reliable else {}),
                 "transition_type": part.get("transition_type", "continuous"),
                 "id": part["id"], "index": part["index"], "frame_count": part["frame_count"],
                 "segments": segments,
@@ -1638,13 +2082,16 @@ class PromptExpansionService:
             "requested_segment_count": request.get("target_segment_count"),
             "quality_status": "awaiting_review" if request.get("story_design") else "not_reviewed",
             "kind": "director_segments", "id": f"director-plan-{uuid.uuid4().hex[:12]}", "revision": 1,
-            "schema_version": _DIRECTOR_PLAN_SCHEMA_VERSION,
+            "schema_version": 5 if reliable else _DIRECTOR_PLAN_SCHEMA_VERSION,
             "planning_strategy": "atomic_units",
             "unit_planner_version": DIRECTOR_UNIT_PLANNER_VERSION,
             "template_version": request.get("template_version"), "workflow_id": request.get("workflow_id"),
             "language": request.get("language"), "rewrite_mode": request.get("rewrite_mode"),
             "aspect_ratio": request.get("aspect_ratio"),
             "target_segment_count": request.get("target_segment_count"),
+            "max_shots_per_group": request.get("max_shots_per_group", 3),
+            "group_setting_source": request.get("group_setting_source", "system"),
+            "source_groups": payload.get("source_groups") or [],
             "actual_segment_count": sum(len(part["segments"]) for part in parts),
             "source_fingerprint": payload.get("source_fingerprint"),
             "source_facts": payload.get("source_facts") or {},
@@ -1652,22 +2099,45 @@ class PromptExpansionService:
             "parts": parts, "raw_outputs": raw_outputs, "retried": retried,
             "validation_status": "valid", "status": "current",
         }
+        # Explicit v6-compatible projection.  v4/v5 readers continue using
+        # ``common_setting`` and ``parts``; new readers can consume groups and
+        # independent H3 shot bodies without reconstructing Director prose.
+        preview["common_prompt"] = _clean((common_setting or {}).get("prompt_text")) or _clean((common_setting or {}).get("subject_definitions"))
+        preview["groups"] = [{
+            "id": str(part.get("id") or ""),
+            "source_beat_ids": list(part.get("source_beat_ids") or []),
+            "common_prompt": preview["common_prompt"],
+            "reference_slots": list(part.get("reference_slots") or request.get("reference_slots") or []),
+            "shots": [{
+                "id": str(segment.get("id") or ""),
+                "beat_id": (segment.get("source_beat_ids") or [""])[0],
+                "h3_prompt": str(segment.get("prompt_text") or "").strip(),
+                "duration_seconds": float(segment.get("duration_seconds") or 0),
+                "continuity_from_prev": bool(segment.get("continuity_from_prev")),
+                "video_takes": list(segment.get("video_takes") or []),
+            } for segment in part.get("segments") or []],
+        } for part in parts]
         try:
-            cls._validate_director_groups(all_planned_segments, all_groups, request.get("language") or "zh")
+            cls._validate_director_groups(all_planned_segments, all_groups, request.get("language") or "zh", semantic_checks=not reliable)
             cls.validate_director_plan(preview)
         except (PromptTemplateError, ValueError) as err:
-            affected_part = parts[-1] if parts else {}
+            affected_part, affected_segments = director_reliable.failure_location(str(err), parts)
             raise PromptPipelineError(
                 str(err),
                 code="DIRECTOR_FINAL_VALIDATION_FAILED",
                 stage="final_validation",
-                part_id=str(affected_part.get("id") or "") or None,
-                segment_ids=[str(item.get("id") or "") for item in affected_part.get("segments") or []],
+                part_id=affected_part,
+                segment_ids=affected_segments,
                 attempt=0,
                 retryable=True,
                 user_message="最终校验发现事实归属冲突，请重试失败部分。",
             ) from err
-        if request.get("story_design"):
+        if reliable:
+            # Prose is durable before any optional external review call.
+            preview.update(quality_version=1, quality_status="not_reviewed",
+                           revision_stop_reason="awaiting_review")
+            cls._save_checkpoint(job_id, payload, "structural_preview", {"status": "completed", "preview": preview})
+        elif request.get("story_design"):
             preview = cls._improve_director_plan(preview, payload, job_id)
         cls._save_checkpoint(job_id, payload, "final_validation", {
             "status": "completed",
@@ -1712,6 +2182,8 @@ class PromptExpansionService:
             if not episode_row:
                 raise ValueError("分集不存在")
             data = _json_dict(episode_row.get("data_json"))
+            if ((data.get("prompt_authoring") or {}).get("director_plan") or {}).get("schema_version") == 7:
+                raise ValueError("历史候选已保留，请在素材组采纳对应镜头的 H3 候选")
             beats = data.get("beats") if isinstance(data.get("beats"), list) else []
             cursor.execute(
                 "SELECT * FROM ai_project_assets WHERE project_id=%s ORDER BY updated_at DESC FOR UPDATE",
@@ -1736,7 +2208,7 @@ class PromptExpansionService:
             if current != payload.get("source_fingerprint"):
                 raise RuntimeError("SOURCE_CONFLICT: 剧本、分镜、资产或工作流已变化，请重新生成预览")
             authoring = data.get("prompt_authoring") if isinstance(data.get("prompt_authoring"), dict) else {}
-            authoring["schema_version"] = _DIRECTOR_PLAN_SCHEMA_VERSION if preview.get("kind") == "director_segments" else max(
+            authoring["schema_version"] = int(preview.get("schema_version") or _DIRECTOR_PLAN_SCHEMA_VERSION) if preview.get("kind") == "director_segments" else max(
                 1, int(authoring.get("schema_version") or 1)
             )
             if preview.get("kind") == "full_reference":
@@ -1774,6 +2246,14 @@ class PromptExpansionService:
                     raise RuntimeError("REVISION_CONFLICT: 返修期间已保存的方案发生变化，请基于新版本返修")
                 plan = dict(preview)
                 plan.pop("raw_outputs", None)
+                previous_plan = authoring.get("director_plan") if isinstance(authoring.get("director_plan"), dict) else None
+                if previous_plan and previous_plan.get("id") != plan.get("id"):
+                    history = authoring.get("director_plan_history") if isinstance(authoring.get("director_plan_history"), list) else []
+                    history.append(previous_plan)
+                    authoring["director_plan_history"] = history
+                    if not revision_request:
+                        plan["revision_parent"] = {"id": previous_plan.get("id"), "revision": previous_plan.get("revision")}
+                        plan["revision"] = int(previous_plan.get("revision") or 0) + 1
                 if plan.get("target_segment_count") in (None, ""):
                     plan["target_segment_count"] = (payload.get("request") or {}).get("target_segment_count")
                 plan.update({
@@ -1781,7 +2261,12 @@ class PromptExpansionService:
                     "applied_from_job_id": job_id, "updated_at": timestamp,
                 })
                 cls.validate_director_plan(plan)
+                if previous_plan and isinstance(data.get("production"), dict):
+                    from .production_state import carry_unchanged_director_materials
+                    carry_unchanged_director_materials(data["production"], previous_plan, plan)
                 authoring["director_plan"] = plan
+                if plan.get("max_shots_per_group"):
+                    data["production_group_settings"] = {"max_shots_per_group": plan["max_shots_per_group"]}
             data["prompt_authoring"] = authoring
             cursor.execute(
                 "UPDATE ai_project_episodes SET data_json=%s,updated_at=%s WHERE id=%s AND project_id=%s",
@@ -1816,12 +2301,21 @@ class PromptExpansionService:
             current = authoring.get("director_plan") if isinstance(authoring.get("director_plan"), dict) else None
             if not current:
                 raise ValueError("当前分集还没有 Director 出片方案")
+            if current.get("schema_version") == 7:
+                raise ValueError("请通过统一工坊接口调整镜头组；执行 Part 不可编辑")
             if int(current.get("revision") or 0) != expected_revision:
                 raise RuntimeError("REVISION_CONFLICT: Director 方案已被其他操作更新")
             plan = dict(current)
             for key in ("common_setting", "parts", "reference_slots"):
                 if key in req:
                     plan[key] = req[key]
+            if "common_prompt" in req:
+                plan["common_prompt"] = req["common_prompt"]
+                common = plan.get("common_setting") if isinstance(plan.get("common_setting"), dict) else {}
+                if not _clean(common.get("subject_definitions")):
+                    plan["common_setting"] = {**common, "subject_definitions": _clean(req["common_prompt"]), "prompt_text": _clean(req["common_prompt"])}
+            if "groups" in req and "parts" not in req:
+                plan["groups"] = req["groups"]
             cls.validate_director_plan(plan)
             plan["revision"] = expected_revision + 1
             plan["origin"] = "manual_edit"
@@ -1838,8 +2332,63 @@ class PromptExpansionService:
 
     @staticmethod
     def validate_director_plan(plan: dict[str, Any]) -> None:
+        # v6 exposes an explicit group/shot contract while retaining the
+        # validated v5 ``parts`` representation for older readers.
+        if int(plan.get("schema_version") or 0) == 6:
+            if not isinstance(plan.get("parts"), list) and isinstance(plan.get("groups"), list):
+                parts: list[dict[str, Any]] = []
+                for group_index, group in enumerate(plan.get("groups") or [], start=1):
+                    if not isinstance(group, dict):
+                        continue
+                    segments: list[dict[str, Any]] = []
+                    for shot_index, shot in enumerate(group.get("shots") or [], start=1):
+                        if not isinstance(shot, dict):
+                            continue
+                        beat_id = _clean(shot.get("beat_id"))
+                        duration = float(shot.get("duration_seconds") or 0)
+                        prompt = _clean(shot.get("h3_prompt"))
+                        segments.append({
+                            "id": _clean(shot.get("id")) or f"{_clean(group.get('id')) or f'group-{group_index}'}-shot-{shot_index}",
+                            "index": shot_index,
+                            "title": _clean(shot.get("title")) or f"镜头 {shot_index}",
+                            "frame_count": int(shot.get("frame_count") or round(duration * _FPS)),
+                            "duration_seconds": duration,
+                            "source_beat_ids": [beat_id] if beat_id else [],
+                            "source_units": shot.get("source_units") or ([{
+                                "id": f"unit-{group_index}-{shot_index}", "source_beat_id": beat_id,
+                                "generated_shot_number": shot_index, "start_sec": 0,
+                                "end_sec": duration, "duration_seconds": duration,
+                                "event_ids": [], "dialogue_ids": [], "event_refs": [], "dialogue_refs": [],
+                                "start_state": "", "handoff_state": "",
+                            }] if beat_id and duration > 0 else []),
+                            "sections": shot.get("sections") or {
+                                "summary": "镜头级 H3 提示词",
+                                "retention_analysis": "镜头级正文",
+                                "detailed_description": prompt,
+                                "overall_soundscape": "环境声按 H3 正文执行",
+                                "non_diegetic_music": "",
+                            },
+                            "prompt_text": prompt,
+                            "h3_prompt": prompt,
+                            "manual_h3_prompt": bool(shot.get("manual_h3_prompt", True)),
+                            "continuity_from_prev": bool(shot.get("continuity_from_prev")),
+                        })
+                    parts.append({
+                        "id": _clean(group.get("id")) or f"group-{group_index}",
+                        "index": group_index,
+                        "frame_count": sum(int(item.get("frame_count") or 0) for item in segments),
+                        "segments": segments,
+                        "source_beat_ids": group.get("source_beat_ids") or [],
+                        "reference_slots": group.get("reference_slots") or plan.get("reference_slots") or [],
+                        "render_mode": group.get("render_mode", "director"),
+                    })
+                plan["parts"] = parts
+            common_prompt = _clean(plan.get("common_prompt"))
+            common_setting = plan.get("common_setting") if isinstance(plan.get("common_setting"), dict) else {}
+            if common_prompt and not _clean(common_setting.get("subject_definitions")):
+                plan["common_setting"] = {**common_setting, "subject_definitions": common_prompt, "prompt_text": common_prompt}
         definition = workflow_for(_clean(plan.get("workflow_id")))
-        if int(plan.get("schema_version") or 0) not in {4, 5}:
+        if int(plan.get("schema_version") or 0) not in {4, 5, 6}:
             raise ValueError("Director 方案结构已升级，请重新生成")
         if _clean(plan.get("planning_strategy")) != "atomic_units":
             raise ValueError("Director 方案缺少动作单元规划，请重新生成")
@@ -1898,7 +2447,15 @@ class PromptExpansionService:
                 raise ValueError("Director Part ID 为空或重复")
             part_ids.add(part_id)
             segments = part.get("segments") if isinstance(part.get("segments"), list) else []
-            single = plan.get("schema_version") == 5 and part.get("render_mode") == "shot"
+            single = plan.get("schema_version") in {5, 6} and part.get("render_mode") == "shot"
+            if plan.get("schema_version") in {5, 6}:
+                local_slots = part.get("reference_slots", reference_slots)
+                if not isinstance(local_slots, list) or [int(slot.get("index") or 0) for slot in local_slots] != list(range(1, len(local_slots) + 1)):
+                    raise ValueError(f"生成组 {part_id} 参考图编号无效")
+                if part.get("workflow_id"):
+                    route = workflow_for(part["workflow_id"])
+                    if not route.min_references <= len(local_slots) <= route.max_references:
+                        raise ValueError(f"生成组 {part_id} 参考图数量不兼容")
             if (single and len(segments) != 1) or (not single and (len(segments) < 2 or len(segments) > max_segments)):
                 raise ValueError(f"每个 Director Part 必须包含 2–{max_segments} 段")
             frame_total = 0
@@ -1972,16 +2529,27 @@ class PromptExpansionService:
             combined = [public_separator, public_prompt]
             for index, prompt_text in enumerate(group_prompts, start=1):
                 combined.extend([f"===== {group_name} {index} =====", prompt_text])
-            parsed = parse_director_output(
-                "\n".join(combined),
-                language,
-                reference_slots,
-                expected_groups=len(segments),
-                allow_single=single,
-            )
+            try:
+                parsed = parse_director_output(
+                    "\n".join(combined),
+                    language,
+                    reference_slots,
+                    expected_groups=len(segments),
+                    allow_single=single,
+                )
+            except PromptTemplateError:
+                # A user edited H3 body is authoritative for that segment;
+                # keep its structured Director metadata for checks without
+                # forcing the free-form body back through the old parser.
+                if not any(bool(item.get("manual_h3_prompt")) for item in segments):
+                    raise
+                parsed = {"groups": [{
+                    "sections": item.get("sections") or {},
+                    "shot_numbers": [int(unit.get("generated_shot_number")) for unit in item.get("source_units") or []],
+                } for item in segments]}
             for segment, group in zip(segments, parsed["groups"]):
                 stored = segment.get("sections") if isinstance(segment.get("sections"), dict) else {}
-                if any(_clean(stored.get(key)) != _clean(group["sections"].get(key)) for key in group["sections"]):
+                if not segment.get("manual_h3_prompt") and any(_clean(stored.get(key)) != _clean(group["sections"].get(key)) for key in group["sections"]):
                     raise ValueError("Director 段结构化正文与提示词不一致")
             all_segments.extend(segments)
             all_groups.extend(parsed["groups"])
@@ -2008,7 +2576,7 @@ class PromptExpansionService:
                     raise ValueError(f"Beat {source_beat_id} 的 source_units 状态交接不一致")
                 previous_end = max(previous_end, end_sec)
         try:
-            PromptExpansionService._validate_director_groups(all_segments, all_groups, plan.get("language") or "zh")
+            PromptExpansionService._validate_director_groups(all_segments, all_groups, plan.get("language") or "zh", semantic_checks=plan.get("schema_version") not in {5, 6})
         except PromptTemplateError as err:
             raise ValueError(str(err)) from err
 
@@ -2022,6 +2590,8 @@ class PromptExpansionService:
         assets: list[dict[str, Any]],
     ) -> dict[str, Any]:
         state = json.loads(json.dumps(data.get("prompt_authoring") or {}, ensure_ascii=False))
+        if (state.get("director_plan") or {}).get("schema_version") == 7:
+            return state
         source = {"episode": episode, "data": data, "beats": beats, "assets": assets}
         if (state.get("director_plan") or {}).get("director_design"):
             number = int(episode.get("episode_num") or 1)
@@ -2068,7 +2638,7 @@ class PromptExpansionService:
                 for segment in part.get("segments") or []
             )
             if (
-                int(plan.get("schema_version") or 0) not in {4, 5}
+                int(plan.get("schema_version") or 0) not in {4, 5, 6}
                 or _clean(plan.get("planning_strategy")) != "atomic_units"
                 or missing_units
                 or not isinstance(plan.get("source_facts"), dict)

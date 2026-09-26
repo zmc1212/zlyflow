@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && chown -R zlyai:zlyai /var/lib/zly-ai-video-studio /app/results
 
 COPY backend backend
+COPY ["skills/MINIMAXH3格式动作语气台词细化SKILL", "skills/MINIMAXH3格式动作语气台词细化SKILL"]
 COPY local_video_studio.py local_video_studio.py
 COPY docs docs
 COPY sql sql

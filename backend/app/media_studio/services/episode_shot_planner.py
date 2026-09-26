@@ -121,6 +121,8 @@ def build_shot_plan_user_prompt(episode: dict[str, Any], *, aspect_ratio: str | 
     prop_scope = "\n".join(prop_scope_lines) or "（无可用道具白名单；仍不得凭同场连续自动复制上一镜道具）"
     return (
         f"本集集号：{episode_num if episode_num is not None else '（未知）'}\n"
+        f"目标镜头数：{episode.get('target_shot_count') or '自动'}。优先完整覆盖剧情和对白，不为凑数删减或添加空镜。只产出镜头结构与拍摄意图，不写 H3 正文或 [Shot] 时间码。\n"
+        f"本集目标时长：{episode.get('target_duration_seconds') or '自动'} 秒。无法兼顾时完整保留剧情并给出自然时长。\n"
         f"本集标题：{title}\n"
         f"剧情摘要：{summary}\n\n"
         f"确认成片画幅：{aspect}（{orientation}）。这是权威值。"
@@ -147,6 +149,32 @@ def episode_source_text(episode: dict[str, Any]) -> str:
     if body:
         return body
     return render_episode_source_markdown(episode)
+
+
+def shot_plan_scene_batches(episode: dict[str, Any]) -> list[dict[str, Any]]:
+    """Bound long replies by explicit source scenes; never let the model omit a scene."""
+    body = str(episode.get("body") or "")
+    boundaries = list(re.finditer(r"(?m)^[ \t]*(?:#{1,6}[ \t]*)?场景\s*[0-9一二三四五六七八九十]+\s*[｜|:：].+$", body))
+    if len(boundaries) < 2:
+        return [episode]
+    blocks = [body[m.start():boundaries[i + 1].start() if i + 1 < len(boundaries) else len(body)].strip()
+              for i, m in enumerate(boundaries)]
+    total = int((episode.get("dramatic_design") or {}).get("duration_seconds") or 0)
+    allocated = 0
+    result = []
+    for i, block in enumerate(blocks):
+        current = copy.deepcopy(episode)
+        current["body"] = body[:boundaries[0].start()] + block
+        current["shots"] = []
+        current["summary"] = "本次只规划以下场景，必须完整覆盖本场动作和对白，不得输出其他场景。"
+        design = dict(current.get("dramatic_design") or {})
+        if total:
+            seconds = total - allocated if i == len(blocks) - 1 else round(total * len(block) / sum(map(len, blocks)))
+            allocated += seconds
+            design["duration_seconds"] = seconds
+        current["dramatic_design"] = design
+        result.append(current)
+    return result
 
 
 def render_episode_source_markdown(episode: dict[str, Any]) -> str:
@@ -663,7 +691,8 @@ def _loads_json(raw: str) -> Any | None:
         try:
             parsed, _end = decoder.raw_decode(text[index:])
         except json.JSONDecodeError:
-            continue
+            # An incomplete outer object must not become its first complete nested shot.
+            raise ValueError("镜头规划 JSON 不完整，不能将截断回复中的单个镜头视为完整规划")
         if isinstance(parsed, (dict, list)):
             return parsed
     return None

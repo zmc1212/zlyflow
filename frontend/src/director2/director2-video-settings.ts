@@ -28,6 +28,7 @@ export type Director2WorkflowMode = {
   max_segments?: number | null
   max_total_frames?: number | null
   reference_mode?: string
+  min_references?: number
   max_references?: number
   hidden_from_catalog?: boolean
   catalog_group?: string
@@ -49,6 +50,7 @@ export type Director2GenerateVideoResult = {
   render_scope?: string
   submitted?: number
   skipped?: number
+  blocked?: Array<{ part_id: string; reason: string }>
   shot_count?: number
 }
 
@@ -218,6 +220,9 @@ export function groupedVideoWorkflowOptions(workflows: Director2WorkflowMode[]):
 }
 
 export function formatEpisodeVideoSubmitMessage(result: Director2GenerateVideoResult): string {
+  if (result.render_scope === "episode" && result.job_ids && result.render_mode === "episode" && result.blocked) {
+    return `已提交 ${result.submitted ?? result.job_ids.length} 个生成组，跳过 ${result.skipped ?? 0} 组${result.blocked?.length ? `，${result.blocked.length} 组待处理` : ""}`
+  }
   if (result.render_mode === "shot") {
     const submitted = result.submitted ?? result.job_ids?.length ?? 0
     const skipped = result.skipped ?? 0

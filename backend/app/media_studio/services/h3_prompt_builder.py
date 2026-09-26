@@ -334,6 +334,32 @@ _SOUND_ENGLISH_TAIL = "Synchronized ambient sound follows on-camera movement."
 
 
 class H3PromptBuilder:
+    @classmethod
+    def compile_director_segment_prompt(
+        cls,
+        common_prompt: str,
+        h3_prompt: str,
+        *,
+        language: str = "zh-CN",
+    ) -> dict[str, str]:
+        """Compile the v6 Director contract without rewriting H3 prose.
+
+        Director owns the shared prompt and H3 owns the segment body.  The
+        compiler intentionally returns the two channels separately so callers
+        can send ``global_prompt`` and ``segment.prompt`` to ComfyUI.  Older
+        plans may have already prefixed the shared setting; in that case the
+        body is preserved verbatim for backwards compatibility.
+        """
+        common = str(common_prompt or "").strip()
+        body = str(h3_prompt or "").strip()
+        if not body:
+            raise ValueError("Director 镜头 H3 提示词不能为空")
+        return {
+            "global_prompt": common,
+            "segment_prompt": body,
+            "language": str(language or "zh-CN"),
+        }
+
     """Generate and validate MiniMax H3 Ref2VA prompts for episode beats."""
 
     @staticmethod

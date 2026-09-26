@@ -30,11 +30,21 @@ def plan_context(detail: dict, mode: str) -> dict:
     if mode not in MODES:
         raise ValueError("未知制作方式")
     authoring = detail.get("prompt_authoring") or {}
+    unified_plan = authoring.get("director_plan") or {}
+    if unified_plan.get("schema_version") == 7:
+        from .workshop_contract import shot_fingerprint
+        beats = detail.get("beats") or []
+        groups = {bid: g for g in unified_plan["groups"] for bid in g["beat_ids"]}
+        return {"key": digest([unified_plan["id"], [(b["id"], shot_fingerprint(b)) for b in beats]]),
+                "revision": unified_plan["revision"], "stale": not bool(beats), "snapshot": deepcopy(unified_plan),
+                "units": [{"id": b["id"], "title": b.get("heading") or b["id"], "part_id": groups.get(b["id"], {}).get("id", ""),
+                           "source_beat_ids": [b["id"]], "duration": b.get("video_duration", 8)} for b in beats]}
     if mode == "director":
         plan = authoring.get("director_plan") or {}
         units = [
             {"id": s["id"], "title": s.get("title") or f"段 {s.get('index', i + 1)}",
-             "part_id": p["id"], "source_beat_ids": s.get("source_beat_ids") or [],
+             "part_id": p["id"], "render_mode": p.get("render_mode", "director"),
+             "workflow_id": p.get("workflow_id"), "source_beat_ids": s.get("source_beat_ids") or [],
              "duration": s.get("duration_seconds", 0)}
             for p in plan.get("parts", []) for i, s in enumerate(p.get("segments", []))
         ]
@@ -73,11 +83,132 @@ def register_material(state: dict, mode: str, material: dict, *, auto_adopt: boo
         v["adopted"].update({u: material["id"] for u in material["unit_ids"]})
 
 
+def carry_unchanged_director_materials(state: dict, previous: dict, current: dict) -> int:
+    """Copy verified adopted takes into a new plan only when group inputs and output match."""
+    if not state or not previous or not current or int(previous.get("schema_version") or 0) != 5 or int(current.get("schema_version") or 0) != 5:
+        return 0
+    mode = (state.get("modes") or {}).get("director") or {}
+    materials = mode.get("materials") or []
+    versions = mode.get("versions") or {}
+    old_key = digest([previous.get("id"), previous.get("revision"), previous.get("source_fingerprint")])
+    new_key = digest([current.get("id"), current.get("revision"), current.get("source_fingerprint")])
+    old_adopted = (versions.get(old_key) or {}).get("adopted") or {}
+    if not old_adopted or old_key == new_key:
+        return 0
+    old_groups = {g.get("id"): g for g in previous.get("source_groups") or []}
+    new_groups = {g.get("id"): g for g in current.get("source_groups") or []}
+    old_parts_by_group: dict[str, list[dict]] = {}
+    for part in previous.get("parts") or []:
+        old_parts_by_group.setdefault(str(part.get("source_group_id") or ""), []).append(part)
+    segment_map = {}
+    seen_groups: dict[str, int] = {}
+    for part in current.get("parts") or []:
+        group_id = str(part.get("source_group_id") or "")
+        group_position = seen_groups.get(group_id, 0)
+        seen_groups[group_id] = group_position + 1
+        prior_parts = old_parts_by_group.get(group_id) or []
+        old = prior_parts[group_position] if group_position < len(prior_parts) else None
+        if not old or not group_id:
+            continue
+        if not old_groups.get(group_id, {}).get("fingerprint") or old_groups[group_id]["fingerprint"] != new_groups.get(group_id, {}).get("fingerprint"):
+            continue
+        if any(old.get(key) != part.get(key) for key in ("render_mode", "workflow_id", "execution_options", "reference_slots")):
+            continue
+        old_segments, new_segments = old.get("segments") or [], part.get("segments") or []
+        if len(old_segments) != len(new_segments):
+            continue
+        if any(any(a.get(key) != b.get(key) for key in ("prompt_text", "frame_count", "source_beat_ids"))
+               for a, b in zip(old_segments, new_segments)):
+            continue
+        segment_map.update({a["id"]: b["id"] for a, b in zip(old_segments, new_segments)})
+    if not segment_map:
+        return 0
+    target = versions.setdefault(new_key, {"adopted": {}, "audio": [], "exports": []})["adopted"]
+    copied = 0
+    for material in list(materials):
+        ids = material.get("unit_ids") or []
+        if material.get("plan_key") != old_key or not material.get("verified") or not ids or any(sid not in segment_map for sid in ids):
+            continue
+        if any(old_adopted.get(sid) != material.get("id") for sid in ids):
+            continue
+        mapped = [segment_map[sid] for sid in ids]
+        if any(sid in target for sid in mapped):
+            continue
+        carried = deepcopy(material)
+        carried.update(id="carried-" + digest([material["id"], new_key, mapped]), plan_key=new_key,
+                       unit_ids=mapped, carried_from=material["id"])
+        carried["ranges"] = {segment_map.get(sid, sid): value for sid, value in (material.get("ranges") or {}).items()}
+        materials.append(carried)
+        target.update({sid: carried["id"] for sid in mapped})
+        copied += 1
+    return copied
+
+
+def carry_workshop_materials(state: dict, previous: dict, current: dict) -> dict:
+    """Reuse by explicit identity and unchanged structure, never segment array position.
+
+    Old versions and ambiguous takes remain intact. Only verified per-shot ranges or
+    complete single-shot clips can enter the current selection automatically.
+    """
+    from .workshop_contract import shot_fingerprint
+    state = deepcopy(state)
+    key = plan_context(current, "director")["key"]
+    if ((previous.get("prompt_authoring") or {}).get("director_plan") or {}).get("schema_version") == 7 and plan_context(previous, "director")["key"] == key:
+        return state
+    target = version(state, "director", key)
+    old_beats = {b["id"]: b for b in previous.get("beats") or []}
+    unchanged = {b["id"] for b in current.get("beats") or [] if b["id"] in old_beats and shot_fingerprint(b) == shot_fingerprint(old_beats[b["id"]])}
+    old_plan = (previous.get("prompt_authoring") or {}).get("director_plan") or {}
+    segments = [s for p in old_plan.get("parts", []) for s in p.get("segments", [])]
+    occurrences = {}
+    for segment in segments:
+        for bid in segment.get("source_beat_ids") or []:
+            occurrences[bid] = occurrences.get(bid, 0) + 1
+    mapping = {s["id"]: s["source_beat_ids"][0] for s in segments if len(s.get("source_beat_ids") or []) == 1 and occurrences[s["source_beat_ids"][0]] == 1}
+    choices = {}
+    for mode in sorted(MODES):
+        old_key = plan_context(previous, mode)["key"]
+        old_version = version(state, mode, old_key)
+        for material in list(state["modes"][mode]["materials"]):
+            if material.get("plan_key") != old_key:
+                continue
+            ids = material.get("unit_ids") or []
+            mapped = [mapping.get(i) if mode == "director" and old_plan.get("schema_version") != 7 else i for i in ids]
+            if not ids or any(i is None for i in mapped) or len(set(mapped)) != len(mapped):
+                continue
+            if len(ids) > 1 and (not material.get("verified") or any(i not in (material.get("ranges") or {}) for i in ids)):
+                continue
+            retained = [(old_id, bid) for old_id, bid in zip(ids, mapped) if bid in unchanged]
+            if not retained:
+                continue
+            ids, mapped = [x[0] for x in retained], [x[1] for x in retained]
+            carried = deepcopy(material)
+            carried.update(id="carried-" + digest([material["id"], key, mapped]), plan_key=key, unit_ids=mapped, carried_from=material["id"])
+            carried["ranges"] = {mapped[ids.index(i)]: r for i, r in (material.get("ranges") or {}).items() if i in ids}
+            register_material(state, "director", carried, auto_adopt=False)
+            for old_id, bid in zip(ids, mapped):
+                if old_version["adopted"].get(old_id) == material["id"]:
+                    choices.setdefault(bid, []).append(carried["id"])
+            for audio in old_version.get("audio") or []:
+                if audio.get("material_id") == material["id"] and all(i in ids for i in audio.get("unit_ids", [])):
+                    copied = deepcopy(audio)
+                    copied.update(id="carried-" + digest([audio["id"], key]), material_id=carried["id"], unit_ids=[mapped[ids.index(i)] for i in audio.get("unit_ids", [])])
+                    if not any(a["id"] == copied["id"] for a in target["audio"]):
+                        target["audio"].append(copied)
+    for bid, candidates in choices.items():
+        if len(set(candidates)) == 1:
+            target["adopted"].setdefault(bid, candidates[0])
+    target["audio"] = [a for a in target["audio"] if all(target["adopted"].get(i) == a["material_id"] for i in a.get("unit_ids", []))]
+    state.update(schema_version=2, active_mode="director")
+    state["revision"] += 1
+    return state
+
+
 def hydrate(detail: dict) -> dict:
     """Compatibility projection; persisted by the next locked mutation, never by GET."""
     data = detail.get("data") or {}
     state = deepcopy(data.get("production") or {})
-    if state.get("schema_version") not in (None, 1):
+    if state.get("schema_version") not in (None, 1, 2):
         raise ValueError("制作数据版本不受支持")
     state.setdefault("schema_version", 1)
     state.setdefault("revision", 0)
@@ -139,6 +270,9 @@ def hydrate(detail: dict) -> dict:
         state["legacy_exports"] = ([{"url": data["episode_video_url"], "job_id": data.get("episode_video_job_id"),
                                     "title": "历史成片（未验证分段边界）"}] if data.get("episode_video_url") else [])
         state["legacy_imported"] = True
+    if ((detail.get("prompt_authoring") or {}).get("director_plan") or {}).get("schema_version") == 7:
+        state["schema_version"] = 2
+        state["active_mode"] = "director"
     return state
 
 
@@ -200,6 +334,8 @@ def fingerprint(v: dict) -> str:
 
 def summary(detail: dict, state: dict | None = None, mode: str | None = None) -> dict:
     state = state or hydrate(detail)
+    if state.get("schema_version") == 2:
+        mode = "director"
     mode = mode or state["active_mode"]
     if mode not in MODES:
         raise ValueError("未知制作方式")
@@ -218,7 +354,7 @@ def summary(detail: dict, state: dict | None = None, mode: str | None = None) ->
             reasons.append("补配画面已变化，请重新对齐声音")
     exports = v["exports"]
     current = next((e for e in reversed(exports) if e.get("fingerprint") == fingerprint(v)), None)
-    return {"schema_version": 1, "revision": state["revision"], "active_mode": mode,
+    return {"schema_version": state["schema_version"], "revision": state["revision"], "active_mode": mode,
             "plan_key": c["key"], "plan_revision": c["revision"], "plan_stale": c["stale"],
             "units": c["units"], "materials": state["modes"][mode]["materials"], "adopted": v["adopted"],
             "audio": v["audio"], "timeline": clips, "exports": exports,

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 import requests
+import time
 
 from ..provider_bridge import credential_manager, llm_row, vlm_row
 from ...llm_client import (
@@ -37,6 +38,7 @@ from .episode_shot_planner import (
     normalize_planned_shots,
     overlapping_shot_windows,
     parse_shot_plan_response,
+    shot_plan_scene_batches,
 )
 from .h3_prompt_builder import H3PromptBuilder
 
@@ -288,7 +290,8 @@ class LlmService:
                 ).strip()
             except LlmTemporaryError as err:
                 last_error = err
-                if attempt == 0 and is_llm_transient_error(err):
+                if attempt == 0 and (is_llm_transient_error(err) or any(word in str(err).lower() for word in ("429", "rate limit", "限流"))):
+                    time.sleep(1.0)
                     continue
                 raise RuntimeError(str(err)) from err
             except LlmError as err:
@@ -307,15 +310,40 @@ class LlmService:
         has_shots = any(isinstance(item, dict) for item in (episode.get("shots") or []))
         if not has_body and not has_shots:
             raise ValueError("本集没有可供规划的动作或对白。")
-        raw = cls.chat_text(
-            build_shot_plan_system_prompt(aspect_ratio=aspect_ratio),
-            build_shot_plan_user_prompt(episode, aspect_ratio=aspect_ratio),
-            max_tokens=4000,
-            temperature=0.2,
-        )
-        shots = normalize_planned_shots(parse_shot_plan_response(raw), aspect_ratio=aspect_ratio)
-        if not shots:
-            raise ValueError("大模型未返回可出片镜头。")
+        batches = shot_plan_scene_batches(episode)
+        if len(batches) > 1:
+            combined = []
+            for index, batch in enumerate(batches, 1):
+                if episode.get("target_shot_count"):
+                    weights = [max(1, len(str(b.get("body") or ""))) for b in batches]
+                    batch["target_shot_count"] = max(1, round(int(episode["target_shot_count"]) * weights[index - 1] / sum(weights)))
+                emit_llm_stream_status("plan", f"正在规划场景 {index}/{len(batches)}")
+                combined.extend(cls.plan_episode_shots(batch, aspect_ratio=aspect_ratio))
+            return normalize_planned_shots(combined, aspect_ratio=aspect_ratio)
+        expected = float((episode.get("dramatic_design") or {}).get("duration_seconds") or 0)
+        prompt = build_shot_plan_user_prompt(episode, aspect_ratio=aspect_ratio)
+        for attempt in range(3):
+            raw = cls.chat_text(build_shot_plan_system_prompt(aspect_ratio=aspect_ratio), prompt,
+                                max_tokens=12000, temperature=0.2)
+            try:
+                shots = normalize_planned_shots(parse_shot_plan_response(raw), aspect_ratio=aspect_ratio)
+                if not shots:
+                    raise ValueError("大模型未返回可出片镜头。")
+                # Scene duration is a planning budget, not evidence that story was omitted.
+                # Check explicit source dialogue instead of forcing padding to reach a ratio.
+                compact = lambda value: re.sub(r"[\W_]+", "", value, flags=re.UNICODE)
+                dialogue = compact("\n".join(str(shot.get("dialogue") or "") for shot in shots))
+                source_lines = re.findall(r'(?m)^[^\n：:]{1,30}[：:]\s*[“"]([^\n”"]+)[”"]', str(episode.get("body") or ""))
+                missing = [line for line in source_lines if compact(line) and compact(line) not in dialogue]
+                if missing:
+                    raise ValueError("镜头规划遗漏来源对白：" + "；".join(missing))
+                break
+            except ValueError as err:
+                if attempt == 2:
+                    raise
+                prompt = build_shot_plan_user_prompt(episode, aspect_ratio=aspect_ratio) + (
+                    f"\n上一版未通过：{err}。请返回完整 JSON，完整保留本场动作及逐字对白，"
+                    f"本场总时长应为 {expected:g} 秒，拆为多条 5–15 秒镜头，不要仅返回开场。\n上一版：{raw}")
         if len(shots) >= CONTINUITY_REFINE_MIN_SHOTS:
             try:
                 shots = cls.refine_episode_shot_continuity(shots, aspect_ratio=aspect_ratio)

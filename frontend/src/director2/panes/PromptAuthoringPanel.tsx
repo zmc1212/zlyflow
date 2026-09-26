@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { waitForPersistedPromptJob } from "../prompt-job-waiter"
 import {
   Alert,
   Button,
@@ -17,7 +18,7 @@ import {
 } from "antd"
 import { ArrowDown, ArrowUp, Copy, Film, Sparkles } from "lucide-react"
 import { ApiRequestError } from "../../api"
-import { directorPlanNeedsReview, directorRevisionStopMessage } from "../director-plan-quality"
+import { directorGroupNeedsReview, directorPlanNeedsReview, directorRevisionStopMessage } from "../director-plan-quality"
 import {
   applyPromptPreview,
   createPromptPreview,
@@ -37,7 +38,6 @@ import {
   type PromptSections,
 } from "../api"
 import { buildVideoJobOptions, type Director2WorkflowMode } from "../director2-video-settings"
-import { sumBeatDurationSec } from "../workshop-beat-duration"
 import { WorkshopPromptLive } from "../WorkshopPromptLive"
 import {
   applyPromptStreamEvent,
@@ -62,6 +62,7 @@ class PromptPreviewTaskError extends Error {
 interface PromptAuthoringPanelProps {
   csrfToken: string
   projectId: string
+  projectSettings?: Record<string, unknown> | null
   episode: Director2EpisodeDetail
   selectedBeat: Director2Beat | null
   assets: Director2Asset[]
@@ -188,8 +189,8 @@ export function normalizeSlots(items: ReferenceCandidate[]): PromptReferenceSlot
 export function promptAuthoringCopy(profile: Director2WorkflowMode["prompt_profile"] | undefined) {
   if (profile === "director_segments") {
     return {
-        title: "Director 提示词扩写",
-        description: "提示词大师结合本集镜头优化运镜、表演与声音；镜头原文保留，生成段按来源镜头对应展示。",
+        title: "Director · H3 技能提示词",
+        description: "Director 负责分组与创意扩写，H3 技能负责生成每个镜头的最终正文；镜头原文保留，公共设定与镜头提示词分别保存。",
     }
   }
   return {
@@ -227,7 +228,29 @@ function SectionsView({ sections, includeSubject = true }: { sections: PromptSec
 export function ShotPromptSummary({ episode, beat, onOpenPlan }: {
   episode: Director2EpisodeDetail; beat: Director2Beat | null; onOpenPlan: () => void;
 }) {
-  const plan = episode.prompt_authoring?.director_plan
+  const rawPlan = episode.prompt_authoring?.director_plan
+  const plan = rawPlan?.parts?.length ? rawPlan : rawPlan ? ({
+    ...rawPlan,
+    parts: (rawPlan.groups || []).map((group, groupIndex) => ({
+      id: group.id,
+      index: groupIndex + 1,
+      frame_count: group.shots.reduce((sum, shot) => sum + Math.round(Number(shot.duration_seconds || 0) * 24), 0),
+      reference_slots: group.reference_slots || rawPlan.reference_slots,
+      segments: group.shots.map((shot, shotIndex) => ({
+        id: shot.id || `${group.id}-shot-${shotIndex + 1}`,
+        index: shotIndex + 1,
+        title: `镜头 ${shotIndex + 1}`,
+        frame_count: Math.round(Number(shot.duration_seconds || 0) * 24),
+        duration_seconds: Number(shot.duration_seconds || 0),
+        source_beat_ids: shot.beat_id ? [shot.beat_id] : [],
+        shots: [],
+        sections: { summary: "", retention_analysis: "", detailed_description: shot.h3_prompt, overall_soundscape: "", non_diegetic_music: "" },
+        prompt_text: shot.h3_prompt,
+        h3_prompt: shot.h3_prompt,
+        continuity_from_prev: Boolean(shot.continuity_from_prev),
+      })),
+    })),
+  } as DirectorPromptPlan) : undefined
   const segments = plan?.parts.flatMap(part => part.segments).filter(segment => beat && segment.source_beat_ids.includes(beat.id)) || []
   return <Space direction="vertical" style={{ width: "100%" }}>
     <Button onClick={onOpenPlan}>前往制作方案</Button>
@@ -240,9 +263,157 @@ export function ShotPromptSummary({ episode, beat, onOpenPlan }: {
   </Space>
 }
 
+export function ShotPromptPanel({
+  csrfToken,
+  projectId,
+  episode,
+  beat,
+  workflowId,
+  videoOptions,
+  onOpenPlan,
+  onRefresh,
+  onVideoJob,
+}: {
+  csrfToken: string
+  projectId: string
+  episode: Director2EpisodeDetail
+  beat: Director2Beat | null
+  workflowId?: string
+  videoOptions?: Record<string, string>
+  onOpenPlan: () => void
+  onRefresh: () => Promise<void>
+  onVideoJob?: (jobIds: string[]) => void
+}) {
+  const rawPlan = episode.prompt_authoring?.director_plan
+  const plan = rawPlan?.parts?.length ? rawPlan : rawPlan ? ({
+    ...rawPlan,
+    parts: (rawPlan.groups || []).map((group, groupIndex) => ({
+      id: group.id, index: groupIndex + 1,
+      frame_count: group.shots.reduce((sum, shot) => sum + Math.round(Number(shot.duration_seconds || 0) * 24), 0),
+      reference_slots: group.reference_slots || rawPlan.reference_slots,
+      segments: group.shots.map((shot, shotIndex) => ({
+        id: shot.id || `${group.id}-shot-${shotIndex + 1}`, index: shotIndex + 1, title: `镜头 ${shotIndex + 1}`,
+        frame_count: Math.round(Number(shot.duration_seconds || 0) * 24), duration_seconds: Number(shot.duration_seconds || 0),
+        source_beat_ids: shot.beat_id ? [shot.beat_id] : [], shots: [],
+        sections: { summary: "", retention_analysis: "", detailed_description: shot.h3_prompt, overall_soundscape: "", non_diegetic_music: "" },
+        prompt_text: shot.h3_prompt, h3_prompt: shot.h3_prompt, continuity_from_prev: Boolean(shot.continuity_from_prev),
+      })),
+    })),
+  } as DirectorPromptPlan) : undefined
+  const match = plan?.parts.flatMap(part => part.segments.map(segment => ({ part, segment })))
+    .find(item => Boolean(beat && item.segment.source_beat_ids.includes(beat.id)))
+  const [draft, setDraft] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [busy, setBusy] = useState<"rewrite" | "video" | "" >("")
+  useEffect(() => {
+    setDraft(String(match?.segment.h3_prompt || match?.segment.prompt_text || ""))
+  }, [match?.segment.id, match?.segment.h3_prompt, match?.segment.prompt_text])
+
+  if (!beat || !plan || !match) {
+    const shotNumber = beat ? episode.beats.findIndex(item => item.id === beat.id) + 1 : 0
+    return <Space direction="vertical" style={{ width: "100%" }} size={12}>
+      <Typography.Title level={5} style={{ margin: 0 }}>镜头级 H3 工作区{shotNumber > 0 ? ` · 镜头 ${shotNumber}` : ""}</Typography.Title>
+      <Alert type="info" showIcon title={!beat ? "请先选择镜头" : !plan ? "本集尚无 Director 制作方案" : "当前镜头尚未关联到制作方案"}
+        description="在制作方案中按 H3 技能生成并保存本集提示词后，这里会显示当前镜头的最终 H3 正文、组公共设定和单镜出片操作。"
+        action={<Button onClick={onOpenPlan}>前往制作方案</Button>} />
+      {beat ? <Card size="small" title="本镜最终 H3 提示词">
+        <Input.TextArea value={String(beat.h3_prompt || "")} readOnly autoSize={{ minRows: 6, maxRows: 16 }}
+          placeholder="制作方案生成后，此处显示并可编辑本镜最终 H3 提示词" aria-label="本镜最终 H3 提示词" />
+        {beat.h3_prompt ? <Typography.Text type="secondary">以上是镜头原有提示词；生成 Director 制作方案后可在此编辑最终版本。</Typography.Text> : null}
+      </Card> : null}
+    </Space>
+  }
+  const currentPlan = plan
+  const { part, segment } = match
+  const commonPrompt = String(currentPlan.common_prompt || currentPlan.common_setting?.prompt_text || currentPlan.common_setting?.subject_definitions || "").trim()
+  const isDirty = draft.trim() !== String(segment.h3_prompt || segment.prompt_text || "").trim()
+  async function save() {
+    setSaving(true)
+    try {
+      const parts = currentPlan.parts.map(item => item.id !== part.id ? item : ({
+        ...item,
+        segments: item.segments.map(row => row.id !== segment.id ? row : ({
+          ...row,
+          prompt_text: draft,
+          h3_prompt: draft,
+          manual_h3_prompt: true,
+        })),
+      }))
+      await patchDirectorPromptPlan(csrfToken, projectId, episode.id, {
+        expected_revision: currentPlan.revision,
+        common_setting: currentPlan.common_setting,
+        common_prompt: currentPlan.common_prompt,
+        parts,
+        reference_slots: currentPlan.reference_slots,
+      })
+      await onRefresh()
+      message.success("本镜 H3 提示词已保存")
+    } catch (error) {
+      message.error(director2ErrorDetail(error, "保存本镜提示词失败"))
+      await onRefresh()
+    } finally { setSaving(false) }
+  }
+  async function rewrite() {
+    setBusy("rewrite")
+    try {
+      await reviseDirectorPromptPlan(csrfToken, projectId, episode.id, {
+        expected_plan_id: currentPlan.id,
+        expected_revision: currentPlan.revision,
+        feedback: "按 H3 技能重写本镜最终提示词，保留来源事实、对白、时长和组公共设定。",
+        segment_ids: [segment.id],
+      })
+      message.success("已提交本镜 H3 提示词重写")
+    } catch (error) { message.error(director2ErrorDetail(error, "提交本镜重写失败")) }
+    finally { setBusy("") }
+  }
+  async function render() {
+    if (!workflowId) return
+    setBusy("video")
+    try {
+      const result = await generateEpisodeVideo(csrfToken, projectId, episode.id, buildVideoJobOptions(workflowId, videoOptions || {}, {
+        render_scope: "selection", part_id: part.id, segment_ids: [segment.id], director_plan_revision: currentPlan.revision,
+      }))
+      const ids = (result.job_ids?.length ? result.job_ids : [result.job_id]).filter((id): id is string => Boolean(id))
+      onVideoJob?.(ids)
+      message.success("本镜视频已入队")
+      await onRefresh()
+    } catch (error) { message.error(director2ErrorDetail(error, "提交本镜视频失败")) }
+    finally { setBusy("") }
+  }
+  async function copyFull() {
+    const full = [commonPrompt, draft.trim()].filter(Boolean).join("\n\n")
+    try { await navigator.clipboard.writeText(full); message.success("已复制本镜完整提示词") }
+    catch { message.warning("浏览器未允许访问剪贴板，请手动复制") }
+  }
+  return <Space direction="vertical" style={{ width: "100%" }} size={12}>
+    <Space wrap>
+      <Typography.Title level={5} style={{ margin: 0 }}>镜头级 H3 工作区 · 镜头 {episode.beats.findIndex(item => item.id === beat.id) + 1}</Typography.Title>
+      <Tag color={currentPlan.status === "current" ? "success" : "warning"}>{currentPlan.status === "current" ? "方案有效" : "方案已过期"}</Tag>
+      <Button size="small" onClick={onOpenPlan}>查看制作方案</Button>
+    </Space>
+    <Typography.Text type="secondary">所属镜头组：第 {part.index} 组 · {part.segments.length} 镜头 · 已继承组公共主体定义</Typography.Text>
+    <Collapse ghost items={[{ key: "common", label: "组公共设定（复制完整提示词时自动合并）", children: <Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>{commonPrompt || "暂无公共设定"}</Typography.Paragraph> }]} />
+    <Card size="small" title="本镜最终 H3 提示词" extra={isDirty ? <Tag color="warning">未保存</Tag> : <Tag>已保存</Tag>}>
+      <Input.TextArea value={draft} onChange={event => setDraft(event.target.value)} autoSize={{ minRows: 10, maxRows: 24 }} aria-label="本镜最终 H3 提示词" />
+      <Space wrap style={{ marginTop: 12 }}>
+        <Button type="primary" loading={saving} disabled={!isDirty || currentPlan.status !== "current"} onClick={() => void save()}>保存本镜提示词</Button>
+        <Button icon={<Copy size={14} />} onClick={() => void copyFull()}>复制本镜完整提示词</Button>
+        <Button loading={busy === "rewrite"} disabled={currentPlan.status !== "current"} onClick={() => void rewrite()}>重新生成本镜提示词</Button>
+        <Button icon={<Film size={14} />} loading={busy === "video"} disabled={currentPlan.status !== "current" || isDirty || !workflowId} onClick={() => void render()}>生成本镜视频</Button>
+      </Space>
+    </Card>
+    <Collapse ghost items={[{ key: "advanced", label: "高级信息", children: <Space direction="vertical">
+      <Typography.Text type="secondary">来源镜头：{segment.source_beat_ids.map(id => episode.beats.findIndex(item => item.id === id) + 1).filter(n => n > 0).join("、") || "历史镜头"}</Typography.Text>
+      <Typography.Text type="secondary">时长：{Number(segment.duration_seconds || 0).toFixed(2)} 秒 · 连续画面：{segment.continuity_from_prev ? "接续上一段" : "独立起幅"}</Typography.Text>
+      <Typography.Text type="secondary">参考图：{part.reference_slots?.length || currentPlan.reference_slots.length} 张 · Director 段 ID：{segment.id}</Typography.Text>
+    </Space> }]} />
+  </Space>
+}
+
 export default function PromptAuthoringPanel({
   csrfToken,
   projectId,
+  projectSettings,
   episode,
   selectedBeat,
   assets,
@@ -259,13 +430,26 @@ export default function PromptAuthoringPanel({
   const profile = workflow?.prompt_profile || "none"
   const candidates = useMemo(() => referenceCandidates(assets), [assets])
   const maxReferences = Number(workflow?.max_references || 0)
-  const defaultKeys = useMemo(() => candidates.slice(0, maxReferences).map((item) => item.key), [candidates, maxReferences])
+  const defaultKeys = useMemo(() => {
+    const beats = profile === "director_segments" ? episode.beats : selectedBeat ? [selectedBeat] : []
+    const linked = new Set(beats.flatMap(beat => [beat.scene_id, ...(beat.character_ids || []), ...(beat.prop_ids || [])]).filter(Boolean))
+    const sourceText = beats.map(beat => [beat.heading, beat.scene, beat.action, beat.dialogue, beat.visual_prompt].join(" ")).join("\n")
+    const relevant = candidates.filter(item => linked.has(item.asset_id) || (item.name && sourceText.includes(item.name.split(" · ")[0])))
+    const selected = [...relevant]
+    for (const item of candidates) {
+      if (selected.length >= Number(workflow?.min_references || 0)) break
+      if (!selected.some(current => current.key === item.key)) selected.push(item)
+    }
+    return selected.slice(0, maxReferences).map(item => item.key)
+  }, [candidates, maxReferences, profile, episode.beats, selectedBeat, workflow?.min_references])
   const [selectedKeys, setSelectedKeys] = useState<string[]>(defaultKeys)
   const [language, setLanguage] = useState<"zh-CN" | "en">("zh-CN")
   const [rewriteMode, setRewriteMode] = useState<"strict" | "expand">(profile === "director_segments" ? "expand" : "strict")
-  const preferredSeconds = Math.max(1, Number(workflow?.max_total_frames || 1152) / 24 / Math.max(1, Number(workflow?.max_segments || 6)))
-  const recommendedCount = Math.max(2, Math.ceil(sumBeatDurationSec(episode.beats || []) / preferredSeconds))
-  const [segmentCount, setSegmentCount] = useState(recommendedCount)
+  const projectGroupSize = Number((projectSettings?.production_group_settings as Record<string, unknown> | undefined)?.max_shots_per_group || 0)
+  const inheritedGroupSize = Number(episode.prompt_authoring?.director_plan?.max_shots_per_group
+    || episode.data?.production_group_settings?.max_shots_per_group || projectGroupSize || 3)
+  const [maxShotsPerGroup, setMaxShotsPerGroup] = useState(inheritedGroupSize)
+  const [groupSizeEdited, setGroupSizeEdited] = useState(false)
   const [creating, setCreating] = useState(false)
   const [applying, setApplying] = useState(false)
   const [previewJobId, setPreviewJobId] = useState("")
@@ -286,6 +470,9 @@ export default function PromptAuthoringPanel({
   useEffect(() => {
     const controller = new AbortController()
     lifecycle.current = controller
+    // StrictMode replays mount effects: restart listeners aborted by the first cleanup.
+    observedJobs.current.clear()
+    setCreating(false)
     message.destroy("prompt-preview")
     return () => {
       controller.abort()
@@ -359,8 +546,9 @@ export default function PromptAuthoringPanel({
   }, [defaultKeys, profile, workflowId])
 
   useEffect(() => {
-    setSegmentCount(recommendedCount)
-  }, [episode.id, recommendedCount])
+    setMaxShotsPerGroup(inheritedGroupSize)
+    setGroupSizeEdited(false)
+  }, [episode.id, inheritedGroupSize])
 
   const selectedCandidates = useMemo(() => {
     const byKey = new Map(candidates.map((item) => [item.key, item]))
@@ -368,9 +556,45 @@ export default function PromptAuthoringPanel({
   }, [candidates, selectedKeys])
   const slots = useMemo(() => normalizeSlots(selectedCandidates), [selectedCandidates])
   const savedPlan = episode.prompt_authoring?.director_plan
+  const groupPreview = useMemo(() => {
+    const rows: Array<{ scene: string; indexes: number[]; frames: number }> = []
+    const maxFrames = Number(workflow?.max_total_frames || 0)
+    episode.beats.forEach((beat, index) => {
+      const scene = String(beat.scene_id || beat.scene || "场景待识别")
+      const frames = Math.round(Number(beat.video_duration || 0) * 24)
+      const current = rows[rows.length - 1]
+      if (!current || current.scene !== scene || current.indexes.length >= maxShotsPerGroup || (maxFrames > 0 && current.frames + frames > maxFrames)) {
+        rows.push({ scene, indexes: [], frames: 0 })
+      }
+      rows[rows.length - 1].indexes.push(index + 1)
+      rows[rows.length - 1].frames += frames
+    })
+    return rows
+  }, [episode.beats, maxShotsPerGroup, workflow?.max_total_frames])
   const visibleParts = savedPlan?.parts.map(part => ({ ...part,
     segments: part.segments.filter(segment => !selectedBeat || segment.source_beat_ids.includes(selectedBeat.id)),
   })).filter(part => part.segments.length) || []
+  const partJob = (partId: string) => jobs.find(job => job.job_type === "video_generation"
+    && job.payload?.director_plan_id === savedPlan?.id
+    && job.payload?.director_plan_revision === savedPlan?.revision
+    && job.payload?.part_id === partId)
+  const partNeedsReview = (partId: string) => {
+    const part = savedPlan?.parts.find(item => item.id === partId)
+    return Boolean(savedPlan && part && directorGroupNeedsReview(savedPlan, part))
+  }
+  const partStatus = (partId: string) => {
+    const part = savedPlan?.parts.find(item => item.id === partId)
+    const adopted = episode.production?.adopted || {}
+    const verified = new Set((episode.production?.materials || []).filter(item => item.verified).map(item => item.id))
+    if (part?.segments.length && part.segments.every(segment => verified.has(adopted[segment.id]))) return "已完成"
+    const job = partJob(partId)
+    if (job && ["queued", "preparing", "running"].includes(job.status)) return "渲染"
+    const fullSelection = part && job && part.segments.length === job.payload?.segment_ids?.length
+      && part.segments.every(segment => job.payload.segment_ids.includes(segment.id))
+    if (fullSelection && (job?.status === "completed" || job?.status === "succeeded")) return "已完成"
+    if (fullSelection && job?.status === "failed") return "出片失败"
+    return partNeedsReview(partId) ? "待审" : "可出片"
+  }
   useEffect(() => {
     setSelectedSegmentIds([])
     setSelectedPartId("")
@@ -391,45 +615,21 @@ export default function PromptAuthoringPanel({
   }
 
   async function waitForPreview(jobId: string): Promise<PromptPreview> {
-    let streamedPreview: PromptPreview | undefined
     let streamedError = ""
     let streamedFailure: PromptPreviewFailure | null = null
-    let terminalJob: Awaited<ReturnType<typeof getJob>> | null = null
-    let stopPolling = false
-    const streamAbort = new AbortController()
     const signal = lifecycle.current.signal
-    const abort = () => streamAbort.abort()
-    signal.addEventListener("abort", abort, { once: true })
-    // A server restart can leave an SSE connection open without a terminal
-    // event. The persisted job row is authoritative in that case.
-    const pollJob = async () => {
-      while (!stopPolling) {
-        await new Promise((resolve) => setTimeout(resolve, 15_000))
-        if (stopPolling || signal.aborted) return
-        try {
-          const job = await getJob(projectId, jobId)
-          if (["completed", "succeeded", "failed", "cancelled", "interrupted"].includes(job.status)) {
-            terminalJob = job
-            streamAbort.abort()
-            return
-          }
-        } catch {
-          // SSE remains the primary source; a transient poll failure is safe.
-        }
-      }
-    }
-    void pollJob()
-    try {
-      do {
-      await streamH3PromptJobEvents(projectId, jobId, (event) => {
+    const job = await waitForPersistedPromptJob({
+      getJob: () => getJob(projectId, jobId),
+      stream: (onEvent, signal) => streamH3PromptJobEvents(projectId, jobId, onEvent, { signal }),
+      signal,
+      onReconnecting: () => setPreviewLive(current => ({ ...current, working: true, failed: false, message: "连接恢复中，后台任务继续执行…" })),
+      onEvent: (event) => {
         if (signal.aborted) return
-        setPreviewLive((current) => applyPromptStreamEvent(
+        if (event.event !== "error") setPreviewLive((current) => applyPromptStreamEvent(
           current.jobId === jobId ? current : emptyPromptLiveState(jobId),
           event,
         ))
-        if (event.event === "done" && event.data.preview) {
-          streamedPreview = event.data.preview as PromptPreview
-        } else if (event.event === "error") {
+        if (event.event === "error") {
           streamedError = String(event.data.message || "提示词预览任务失败")
           streamedFailure = {
             code: String(event.data.code || "PROMPT_PREVIEW_FAILED"),
@@ -442,23 +642,9 @@ export default function PromptAuthoringPanel({
             detail: event.data.detail ? String(event.data.detail) : undefined,
           }
         }
-      }, { signal: streamAbort.signal })
-      if (signal.aborted || terminalJob || streamedPreview || streamedFailure) break
-      setPreviewLive(current => ({ ...current, working: true, failed: false, message: "连接恢复中，后台任务继续执行…" }))
-      await new Promise(resolve => setTimeout(resolve, 5000))
-      } while (!signal.aborted && !terminalJob)
-    } finally {
-      stopPolling = true
-      streamAbort.abort()
-      signal.removeEventListener("abort", abort)
-    }
+      },
+    })
     if (signal.aborted) throw new DOMException("Preview listener disposed", "AbortError")
-    if (streamedPreview) {
-      if (isValidatedPromptPreview(streamedPreview)) return streamedPreview
-      throw new PromptPreviewTaskError("Director 预览未通过最终校验，不能打开或保存")
-    }
-
-    const job = terminalJob || await getJob(projectId, jobId)
     if (["completed", "succeeded"].includes(job.status)) {
       const result = job.payload?.preview as PromptPreview | undefined
       if (result && isValidatedPromptPreview(result)) return result
@@ -497,11 +683,11 @@ export default function PromptAuthoringPanel({
     }
   }
 
-  function openRevision(plan: DirectorPromptPlan, jobId?: string) {
+  function openRevision(plan: DirectorPromptPlan, jobId?: string, scopedIds?: string[]) {
     setRevisionSource({ plan, jobId })
-    setRevisionFeedback("")
+    setRevisionFeedback(scopedIds?.length ? "只重新扩写本组的摄影、表演与声画细节，保留事实、对白、时长和组间衔接。" : "")
     const issues = plan.creative_review?.issues.map(issue => issue.segment_id).filter(Boolean) || []
-    setRevisionTargets([...new Set(issues.length ? issues : plan.parts.flatMap(part => part.segments.map(segment => segment.id)))])
+    setRevisionTargets(scopedIds || [...new Set(issues.length ? issues : plan.parts.flatMap(part => part.segments.map(segment => segment.id)))])
     setPreview(null)
   }
 
@@ -541,10 +727,29 @@ export default function PromptAuthoringPanel({
     }
   }
 
-  async function createPreview() {
+  async function createPreview(confirmed = false) {
+    if (episode.data?.script_stale) {
+      message.warning("请先在内容库重新规划本集镜头并同步至工坊")
+      return
+    }
     const signal = lifecycle.current.signal
     if (profile === "full_reference" && !selectedBeat) {
       message.warning("请先选择一个分镜")
+      return
+    }
+    if (profile === "director_segments" && savedPlan && !confirmed) {
+      Modal.confirm({
+        title: "确认新制作方案分组",
+        width: 620,
+        content: <Space direction="vertical">
+          <Typography.Text>每组最多 {maxShotsPerGroup} 镜头；预计 {groupPreview.length} 组。确认后创建新方案版本，原有素材保留。</Typography.Text>
+          <Typography.Text type="secondary">受影响范围：本集 {episode.beats.length} 个镜头。缺失场景会在任务中识别，实际段数与分组以工作流校验结果为准。</Typography.Text>
+          {groupPreview.map((group, index) => <Typography.Text key={index}>第 {index + 1} 组 · 镜头 {group.indexes[0]}–{group.indexes[group.indexes.length - 1]} · {group.scene} · 约 {Math.round(group.frames / 24)} 秒</Typography.Text>)}
+        </Space>,
+        okText: "确认生成新方案",
+        cancelText: "返回调整",
+        onOk: () => createPreview(true),
+      })
       return
     }
     setCreating(true)
@@ -562,7 +767,7 @@ export default function PromptAuthoringPanel({
         language,
         rewrite_mode: rewriteMode,
         aspect_ratio: videoOptions.aspect_ratio || "16:9",
-        target_segment_count: profile === "director_segments" ? segmentCount : undefined,
+        max_shots_per_group: profile === "director_segments" && groupSizeEdited ? maxShotsPerGroup : undefined,
         reference_slots: slots,
       })
       if (signal.aborted) return
@@ -652,8 +857,8 @@ export default function PromptAuthoringPanel({
       : current.filter((item) => item !== segmentId))
   }
 
-  async function generateSelection(plan: DirectorPromptPlan) {
-    if (!isContinuousDirectorSelection(plan, selectedPartId, selectedSegmentIds)) {
+  async function generateSelection(plan: DirectorPromptPlan, partId = selectedPartId, segmentIds = selectedSegmentIds) {
+    if (!isContinuousDirectorSelection(plan, partId, segmentIds)) {
       message.warning("请先在同一 Part 内选择连续的 Director 段")
       return
     }
@@ -662,8 +867,8 @@ export default function PromptAuthoringPanel({
       const result = await generateEpisodeVideo(csrfToken, projectId, episode.id, buildVideoJobOptions(workflowId, videoOptions, {
         render_scope: "selection",
         director_plan_revision: plan.revision,
-        part_id: selectedPartId,
-        segment_ids: selectedSegmentIds,
+        part_id: partId,
+        segment_ids: segmentIds,
       }))
       onVideoJob?.((result.job_ids?.length ? result.job_ids : [result.job_id]).filter((id): id is string => Boolean(id)))
       message.success("Director 局部生成任务已创建")
@@ -745,31 +950,29 @@ export default function PromptAuthoringPanel({
             classNames={{ popup: { root: "studio-select-popup" } }}
             style={{ width: 132 }}
           />
-          {profile === "director_segments" ? (
-            <Space.Compact>
-              <Input aria-label="段数标签" value="段数" readOnly tabIndex={-1} style={{ width: 58 }} />
-              <InputNumber
-                aria-label="Director 段数"
-                min={2}
-                max={48}
-                value={segmentCount}
-                onChange={(value) => setSegmentCount(Number(value || 2))}
-                style={{ width: 82 }}
-              />
-            </Space.Compact>
-          ) : null}
-          <Button type="primary" icon={<Sparkles size={14} />} loading={creating} disabled={!episode.beats.length || Boolean(episode.data?.shot_structure?.legacy_lines)} onClick={createPreview}>
-            {profile === "director_segments" ? "AI 优化本集提示词" : "AI 优化本镜提示词"}
+          {profile === "director_segments" ? <Collapse ghost size="small" items={[{ key: "group-size", label: "分组设置", children: <Space>
+            <Typography.Text>每组最多镜头数</Typography.Text>
+            <InputNumber aria-label="每组最多镜头数" min={2} max={Number(workflow?.max_segments || 6)} value={maxShotsPerGroup}
+              onChange={(value) => { setMaxShotsPerGroup(Number(value || 2)); setGroupSizeEdited(true) }} />
+            <Typography.Text type="secondary">预计 {groupPreview.length} 组</Typography.Text>
+          </Space> }]} /> : null}
+          <Button type="primary" icon={<Sparkles size={14} />} loading={creating} disabled={!episode.beats.length || Boolean(episode.data?.shot_structure?.legacy_lines) || Boolean(episode.data?.script_stale)} onClick={() => void createPreview()}>
+            {profile === "director_segments" ? "按 H3 技能生成提示词" : "按 H3 技能生成提示词"}
           </Button>
           {recentPreview && <Button disabled={creating} onClick={() => void openRecentPreview()}>查看最近预览</Button>}
         </Space>
       </header>
       <Typography.Paragraph type="secondary">
         {profile === "director_segments" ? `作用范围：本集全部 ${episode.beats.length} 个镜头` : selectedBeat ? `当前：镜头 ${episode.beats.findIndex(beat => beat.id === selectedBeat.id) + 1} · ${selectedBeat.heading || selectedBeat.action || "未命名"}` : "请先选择镜头"}
-        {profile === "director_segments" ? "。首次扩写覆盖本集以保持连续性；保存后可按关联段局部生成视频。" : ""}
+        {profile === "director_segments" ? ` · 预计 ${groupPreview.length} 组。按组设计与审稿；保存后可逐组生成视频。` : ""}
       </Typography.Paragraph>
 
-      {(creating || previewLive.failed) && previewLive.jobId ? (
+      {episode.data?.script_stale && <Alert type="warning" showIcon
+        title="新剧本已采纳，工坊镜头尚未同步"
+        description="请到左侧「内容库」，为本集「重新规划镜头」，完成后「同步至工坊」，再优化提示词。重新规划会覆盖所选分集已有的出片镜头；已生成素材不会自动删除。当前尚未启动扩写任务。"
+      />}
+
+      {!episode.data?.script_stale && (creating || previewLive.failed) && previewLive.jobId ? (
         <Card
           size="small"
           className="prompt-preview-live-card"
@@ -858,6 +1061,8 @@ export default function PromptAuthoringPanel({
         ) : null
       ) : savedPlan ? (
         <div className="director-plan-view">
+          <Typography.Title level={5} style={{ marginTop: 0 }}>{`本集 · ${episode.beats.length} 镜头 · ${savedPlan.source_groups?.length || savedPlan.parts.length} 来源组${savedPlan.source_groups?.length && savedPlan.source_groups.length !== savedPlan.parts.length ? ` · ${savedPlan.parts.length} 出片组` : ""}`}</Typography.Title>
+          <Typography.Text type="secondary">每组最多 {savedPlan.max_shots_per_group || 3} 镜头 · 设置来源：{{ episode: "本集", project: "项目默认", system: "系统默认" }[savedPlan.group_setting_source || "system"]}</Typography.Text>
           {savedPlan.status === "stale" ? <Alert type="warning" showIcon message="Director 方案已过期，禁止直接出片" /> : null}
           <Space wrap>
             <Button
@@ -882,9 +1087,17 @@ export default function PromptAuthoringPanel({
             onChange={keys => setExpandedParts(Array.isArray(keys) ? keys.map(String) : [String(keys)])}
             items={visibleParts.map((part) => ({
               key: part.id,
-              label: `生成组 ${part.index} · ${part.segments.length} 段`,
+              label: `生成组 ${part.index} · ${part.segments.length} 段 · ${part.render_mode === "shot" ? "逐镜" : "连续画面"} · ${partStatus(part.id)}`,
               children: (
                 <div className="director-segment-list">
+                  <Typography.Paragraph type="secondary">镜头 {Array.from(new Set(part.segments.flatMap(segment => segment.source_beat_ids))).map(id => episode.beats.findIndex(beat => beat.id === id) + 1).filter(n => n > 0).join("、")} · 预计 {Math.round(part.frame_count / 24)} 秒 · {savedPlan.source_groups?.find(group => group.id === part.source_group_id)?.scene_key || "场景待确认"}</Typography.Paragraph>
+                  {part.render_blocker && <Alert type="warning" showIcon message={part.render_blocker} />}
+                  <Button size="small" disabled={creating || savedPlan.status !== "current"}
+                    onClick={() => openRevision(savedPlan, undefined, part.segments.map(segment => segment.id))}>扩写本组</Button>
+                  {previewLive.failed && previewLive.failure?.part_id === part.id && <Button size="small" disabled={!previewLive.failure.retryable || creating}
+                    onClick={() => void retryFailedPreview()}>重试失败段</Button>}
+                  <Button size="small" loading={generatingSelection} disabled={savedPlan.status !== "current" || partNeedsReview(part.id) || Boolean(part.render_blocker) || partStatus(part.id) === "渲染"}
+                    onClick={() => void generateSelection(savedPlan, part.id, part.segments.map(segment => segment.id))}>{partStatus(part.id) === "出片失败" ? "重试出片" : "生成本组"}</Button>
                   {part.segments.map((segment) => (
                     <Card key={segment.id} size="small" title={(
                       <Space>
@@ -908,7 +1121,7 @@ export default function PromptAuthoringPanel({
           <Button
             icon={<Film size={14} />}
             loading={generatingSelection}
-            disabled={savedPlan.status !== "current" || !selectedSegmentIds.length || directorPlanNeedsReview(savedPlan)}
+            disabled={savedPlan.status !== "current" || !selectedSegmentIds.length || partNeedsReview(selectedPartId)}
             onClick={() => generateSelection(savedPlan)}
           >
             生成选中 Director 段（{selectedSegmentIds.length}）

@@ -334,7 +334,7 @@ def h3_diffusion_unet(is_reference: bool, lora_strength: float) -> str:
 
 def h3_weight_profile_option() -> dict[str, Any]:
     return option(
-        "模型体积", "string", H3_WEIGHT_FULL, group="primary",
+        "模型体积", "string", H3_WEIGHT_FULL, group="internal",
         enum=[H3_WEIGHT_FULL, H3_WEIGHT_PRUNED],
         ui_control="select",
         ui_options=[
@@ -535,7 +535,7 @@ def director_accel_speed_option() -> dict[str, Any]:
 
 def director_accel_weight_profile_option() -> dict[str, Any]:
     return option(
-        "模型体积", "string", H3_WEIGHT_PRUNED, group="primary",
+        "模型体积", "string", H3_WEIGHT_PRUNED, group="internal",
         enum=[H3_WEIGHT_FULL, H3_WEIGHT_PRUNED],
         ui_control="select",
         ui_options=[

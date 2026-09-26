@@ -24,6 +24,7 @@ import {
   type Director2JobType,
 } from "../director2-job-types"
 import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "../paths"
+import { actWorkshop } from "../workshop-api"
 import { jobCanShowUpscaleAction, jobPreviewVideoUrl, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaleScale, jobUpscaledVideoUrl } from "../director2-video-settings"
 import UpscaleScaleButton from "../../UpscaleScaleButton"
 import { useMediaPreview } from "../media-preview"
@@ -163,6 +164,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             )}
           </button>
           )
+        ) : record.job_type === "workshop_prompt" && record.status === "completed" ? (
+          <Tag color="cyan">候选已生成 · 工坊查看</Tag>
         ) : isH3PromptJob(record) && (record.status === "completed" || record.status === "succeeded") ? (
           <Tag color="cyan">提示词就绪</Tag>
         ) : record.job_type === "prompt_expansion" && (record.status === "completed" || record.status === "succeeded") ? (
@@ -197,6 +200,11 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               ariaLabel={`超分 ${record.title || record.id}`}
             />
           ) : null}
+          {record.payload?.episode_id && !isTtsJob(record) ? <Button size="small" type="link" onClick={() => navigate(director2WorkshopEpisodePath(projectId, String(record.payload?.episode_id), "shots"))}>打开工坊</Button> : null}
+          {["workshop_planning", "workshop_prompt"].includes(record.job_type) && ["queued", "running"].includes(record.status) && <Button size="small" type="link" onClick={async () => {
+            try { await actWorkshop(csrfToken, projectId, String(record.payload?.episode_id), record.id, {action:"cancel"}); await fetchJobs() }
+            catch (err) { message.error(director2ErrorDetail(err,"取消任务失败")) }
+          }}>取消</Button>}
           {(isShotPlanJob(record) || record.job_type === "script_development") && shotPlanDocumentId(record) ? (
             <Button size="small" type="link" onClick={() => openContentDocument(record)}>
               打开文档
@@ -825,7 +833,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 参考图 */}
-            {!isVideoJob(selectedJob) && !isShotPlanJob(selectedJob) && selectedJob.job_type !== "prompt_expansion" && selectedJob.job_type !== "script_development" ? (
+            {!isVideoJob(selectedJob) && !isShotPlanJob(selectedJob) && selectedJob.job_type !== "prompt_expansion" && selectedJob.job_type !== "script_development" && !["workshop_planning", "workshop_prompt"].includes(selectedJob.job_type) ? (
               <div className="detail-section">
                 <div className="detail-section-title">🖼 传入参考图 (images)</div>
                 {referenceUrls(selectedJob).length ? (
@@ -900,6 +908,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               </div>
             ) : null}
 
+            {["workshop_planning", "workshop_prompt"].includes(selectedJob.job_type) && <Collapse items={[{key:"workshop-snapshot",label:"工坊任务输入与检查点（只读）",children:<pre style={{whiteSpace:"pre-wrap"}}>{JSON.stringify(selectedJob.payload,null,2)}</pre>}]} />}
             {/* GRS 请求体 */}
             {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.job_type !== "prompt_expansion" && selectedJob.job_type !== "script_development" ? (
               <div className="detail-section">

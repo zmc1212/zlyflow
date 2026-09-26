@@ -27,6 +27,8 @@ describe("director2 job types", () => {
       "ai_pipeline",
       "tts_generation",
       "action_previs",
+      "workshop_planning",
+      "workshop_prompt",
     ])
     expect(DIRECTOR2_DEFAULT_JOB_TYPE).toBe("image_generation")
   })
@@ -57,6 +59,8 @@ describe("director2 job types", () => {
       { job_type: "ai_pipeline" },
       { job_type: "tts_generation" },
       { job_type: "action_previs" },
+      { job_type: "workshop_planning" },
+      { job_type: "workshop_prompt" },
       { job_type: "other" },
     ]
     expect(filterJobsByType(jobs, "image_generation")).toHaveLength(2)
@@ -76,6 +80,8 @@ describe("director2 job types", () => {
       ai_pipeline: 1,
       tts_generation: 1,
       action_previs: 1,
+      workshop_planning: 1,
+      workshop_prompt: 1,
     })
   })
 

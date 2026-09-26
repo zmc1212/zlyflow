@@ -34,6 +34,46 @@ def register_project_routes(
             app.state.director2_ai_service = service
         return service
 
+    @app.get("/api/projects/{project_id}/episodes/{episode_id}/workshop")
+    def workshop_view(project_id: str, episode_id: str, user: dict = Depends(current_user)):
+        from ..services.workshop_service import WorkshopService
+        try:
+            return WorkshopService.view(project_id, episode_id)
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/shot-plan", status_code=202)
+    def workshop_plan(project_id: str, episode_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.workshop_service import WorkshopService
+        try:
+            return WorkshopService.create(project_id, episode_id, "workshop_planning", payload)
+        except (ValueError, KeyError) as err:
+            raise HTTPException(status_code=409 if "CONFLICT" in str(err) else 400, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/workshop/prompts", status_code=202)
+    def workshop_prompts(project_id: str, episode_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.workshop_service import WorkshopService
+        try:
+            return WorkshopService.create(project_id, episode_id, "workshop_prompt", payload)
+        except ValueError as err:
+            raise HTTPException(status_code=409 if "CONFLICT" in str(err) else 400, detail=str(err)) from err
+
+    @app.patch("/api/projects/{project_id}/episodes/{episode_id}/workshop")
+    def workshop_update(project_id: str, episode_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.workshop_service import WorkshopService
+        try:
+            return WorkshopService.update(project_id, episode_id, payload)
+        except ValueError as err:
+            raise HTTPException(status_code=409 if "CONFLICT" in str(err) else 400, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/episodes/{episode_id}/workshop/jobs/{job_id}/actions")
+    def workshop_action(project_id: str, episode_id: str, job_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.workshop_service import WorkshopService
+        try:
+            return WorkshopService.job_action(project_id, episode_id, job_id, payload)
+        except ValueError as err:
+            raise HTTPException(status_code=409 if "CONFLICT" in str(err) else 400, detail=str(err)) from err
+
     @app.post("/api/projects/{project_id}/documents/{doc_id}/script-developments", status_code=202)
     def start_script_development(project_id: str, doc_id: str, payload: dict = Body(default={}), user: dict = Depends(mutating_user)):
         try:
@@ -70,6 +110,7 @@ def register_project_routes(
 
     @app.post("/api/projects/{project_id}/ai/operations", status_code=202, summary="创建导演台2 AI 生成操作")
     def create_ai_operation(project_id: Annotated[str, Path(description="导台2项目 ID")], payload: dict, user: dict = Depends(mutating_user)):
+        raise HTTPException(status_code=410, detail="全流程 AI 创作室已合并：请在内容库发展剧本，在工坊规划和制作镜头；历史任务仍可查看")
         try:
             if not ProjectService.get_project(project_id):
                 raise HTTPException(status_code=404, detail="项目不存在")
@@ -562,6 +603,10 @@ def register_project_routes(
     def create_prompt_preview(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict = None, user: dict = Depends(mutating_user)):
         from ..services.prompt_expansion_service import PromptExpansionService, PromptPipelineError
         try:
+            from ..services.workshop_service import WorkshopService
+            _, episode_data = WorkshopService.row(project_id, episode_id)
+            if ((episode_data.get("prompt_authoring") or {}).get("director_plan") or {}).get("schema_version") == 7:
+                return WorkshopService.create(project_id, episode_id, "workshop_prompt", payload or {})
             return PromptExpansionService.enqueue(project_id, episode_id, payload or {})
         except PromptPipelineError as err:
             raise HTTPException(status_code=422, detail=err.as_dict()) from err
@@ -582,6 +627,10 @@ def register_project_routes(
     def apply_prompt_preview(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], job_id: Annotated[str, Path(description="任务 ID")], payload: dict = None, user: dict = Depends(mutating_user)):
         from ..services.prompt_expansion_service import PromptExpansionService
         try:
+            from ..services.workshop_service import WorkshopService
+            _, episode_data = WorkshopService.row(project_id, episode_id)
+            if ((episode_data.get("prompt_authoring") or {}).get("director_plan") or {}).get("schema_version") == 7:
+                return WorkshopService.job_action(project_id, episode_id, job_id, {**(payload or {}), "action": "apply"})
             return PromptExpansionService.apply_preview(project_id, episode_id, job_id, payload or {})
         except RuntimeError as err:
             raise HTTPException(status_code=409, detail=str(err))

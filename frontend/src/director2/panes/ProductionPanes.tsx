@@ -38,7 +38,7 @@ export function ProductionPicture({ state, csrfToken, projectId, episodeId, onRe
     <aside className="production-units">
       <Typography.Title level={5}>{sourceBeatId ? "本镜头生成结果" : "本集生成段"}</Typography.Title>
       {groups.map((part, index) => <section key={part || "shots"}>
-        {part && <Typography.Text type="secondary">连续生成组 {index + 1}</Typography.Text>}
+        {part && <Typography.Text type="secondary">{units.find(u => u.part_id === part)?.render_mode === "shot" ? "逐镜生成组" : "连续生成组"} {index + 1}</Typography.Text>}
         <Space direction="vertical" style={{ width: "100%" }}>
           {units.filter(u => u.part_id === part).map(u => <Button key={u.id} block
             type={u.id === unitId ? "primary" : "default"} onClick={() => { onUnit(u.id); setPreviewId("") }}>

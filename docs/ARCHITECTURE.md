@@ -1,5 +1,38 @@
 # ZLY AI Video Studio 架构快照
 
+2026-09-25：统一工坊 v7 的有效参考集中由 `workshop_references.resolve_state` 解析。新组自动、旧非空组兼容手动，GET 只投影不回写；保存依旧行锁＋revision，并增加可选资产快照 `expected_reference_fingerprint`。缺图前置阻断，换图使旧稿指纹失效。无表迁移，受影响文件、测试和回滚见 [参考图生命周期修复](工坊参考图自动关联修复-2026-09-25.md)。
+
+2026-09-25：Director 工作流按整组生成和采纳提示词，支持保留同组上下文的单镜返修；任务新增生成范围标记并检查组内并发变化。原因、兼容、验证与回滚见 [整组写词与单镜返修](导演台整组写词与单镜返修-2026-09-25.md)。
+
+## 当前基线：2026-09-25 统一工坊 v7
+
+界面适配复用既有内容库／工坊样式及视频设置 Popover，不以数据协议升级替换用户原有视觉布局。338 项后端测试、305 项前端测试与隔离远端出片／合成结果见 [验收记录](导演台-v7验收记录.md)。
+
+规划与 H3 写入已分离：`episode.beats` 是镜头唯一来源，v7 `shot_prompts` 是正文唯一来源，执行 Part 仅派生到任务快照。生产采用关系统一使用 schema 2，旧模式容器仅保留历史。原因、数据合同、受影响文件、兼容行为、测试命令与回滚统一见 [导演台统一工坊 v7](导演台统一工坊-v7.md)。下列 v4/v5/v6 章节是历史实现记录，不再作为新流程基线。
+
+## 2026-09-24 Director v5 分组扩写与出片
+
+- 原因：长集先整体导演设计、整体审稿会放大模型输出与重试范围；整集入口还会被单组阻断问题锁住。
+- 当前基线：`PromptExpansionService.enqueue` 解析 `max_shots_per_group`（请求/本集/项目/系统默认 3），用注册表校验。`director_reliable.source_groups` 按明确场景、来源镜头数、帧数及输入预算预分组；缺失场景每 3 镜识别并落检查点。输入字符预算与输出 token 上限由 `.env.example` 中两个 `ZLY_DIRECTOR_*_BUDGET` 项按当前供应商模型配置，超预算单镜明确要求拆分。`director_story_design` 只接收本组来源事实、有限概要、交接和下一组开场；设计候选按输入摘要复用，组指纹、来源 ID、有序参考槽位写入 v5 方案。正文继续逐 Segment 持久化，创作审稿和创意返修按组调用模型，整集结构仍由程序校验。
+- `episode_video_service.py` 对 v5 整集请求逐 Part 校验、创建持久化 selection 任务，跳过已采用或进行中的 Part，返回阻断组及原因；单组出片只检查本组审稿阻断。`production_state.py` 只将指纹、组内容、路由与提示词均未变化的已验证采用素材继承到新方案版本。每组任务保留方案 ID/revision、工作流、参考图顺序和运行参数，旧任务继续绑定创建时快照。视频执行器仍默认单队列。
+- 界面：`PromptAuthoringPanel.tsx` 在高级「分组设置」预览影响范围；保存方案显示镜头、场景、时长、状态和组操作。`EpisodeWorkshopPane.tsx` 的整集按钮可调度其余合格组，展示跳过与阻断。前端只验证桌面端。
+- 受影响文件：`.env.example`、`backend/app/media_studio/services/{director_reliable,director_story_design,prompt_expansion_service,director_plan_quality,episode_video_service,production_state}.py`、`frontend/src/director2/{api.ts,director-plan-quality.ts,director2-video-settings.ts,panes/PromptAuthoringPanel.tsx,panes/EpisodeWorkshopPane.tsx}`、相关测试和文档。兼容性：v4 路径保留；无数据库迁移、端口、ComfyUI 节点或模型路径变化。验证：`python -m unittest backend.tests.test_director_reliable backend.tests.media_studio_test_prompt_expansion backend.tests.media_studio_test_director_quality backend.tests.media_studio_test_h3_video backend.tests.media_studio_test_production backend.tests.test_timeline_rendering -q`、`pnpm --dir frontend build`、5173 桌面实页。回滚：撤销本次分组增量并重启后端；保留旧方案版本、任务快照及成功媒体。
+
+
+2026-09-24 补充：已采纳新剧本而镜头未同步时，制作方案提前提示并禁用扩写。镜头规划按明确场景分批，拒绝截断 JSON 和来源对白遗漏，避免长剧本被误判成单镜头成功。服务层同步可用 `episode_num` 限定单集，防止影响其他集。涉及 `PromptAuthoringPanel.tsx`、`episode_shot_planner.py`、`shot_plan_job_service.py`、`llm_service.py`、`project_detail_service.py`；旧 API 默认行为保持兼容，无表结构变更。验证：`python -m unittest backend.tests.test_director_reliable backend.tests.test_episode_shot_planner backend.tests.media_studio_test_storyboard_images -q`、`pnpm --dir frontend build`。回滚撤回上述增量并重启后端；已同步镜头可从剧本历史恢复。
+
+## 2026-09-24 Director v5 扩写与混合出片
+
+- 原因：全剧结构与创意同时生成、短场景最少两段约束、断流误报和审稿耦合导致任务频繁丢失进度。
+- 基线：`director_reliable.py` 负责帧分配、状态引用、来源场景优先、同 H3 家族路由和错误定位；`prompt_expansion_service.py` 保存来源检查、独立场景识别、设计候选、逐段正文、结构检查与审稿派发检查点。字段缺失只补当前单元；语义审查独立于事实 ID/帧/编号等硬校验。
+- v5 `parts[]` 是有序生成组，保存 `render_mode`、`workflow_id`、`segment_ids`、`execution_options`、`render_blocker`；实际视频任务另存每组 graph 和有效参数快照。单场孤立段可走 `shot`；没有兼容路线保留预览并阻止出片。原剧本和 Beat 不回写。
+- 正文完成后建立独立审稿任务，通过现有版本冲突检查保存新预览。审稿/返修异常不覆盖原正文；未审稿或有阻断问题不能生成视频。新版本审稿不会自动覆盖用户已保存版本。
+- 扩写通过 120 秒租约、30 秒心跳与后台回收恢复失去执行器的 v5 任务；所有写入带 owner 条件。v5 视频也持有执行租约，启动恢复跳过仍有执行器的任务。视频失败重试复用已完成组，并把每个成功组立即登记到同一制作版本；合成和声音沿用实测时长。
+- 前端 `prompt-job-waiter.ts` 将 SSE 与持久化终态分开，轮询不会因 SSE 重连耗尽停止。工坊 Ant Design 配置随根主题更新，避免暗色画布混入浅色控件。
+- 受影响文件：上述服务、`director_story_design.py`、`prompt_templates.py`、`llm_service.py`、`episode_video_service.py`、`timeline_rendering.py`、`production_service.py`、`main.py`、Director2 等待/方案/制作组件、Compose 与测试。无数据库表迁移、端口或 ComfyUI 节点 ID 改动。
+- 兼容/回滚：v4 保持原路径，v5 使用新协议；`ZLY_DIRECTOR_RELIABLE=0` 只关闭新任务默认入口，不删除新任务或媒体，不将 v5 方案降级改写。
+- 验证命令、真实模型与远端出片记录见 [实施与验收记录](Director扩写稳定性-2026-09-24.md)。
+
 ## 2026-09-24 远端 Blender 令牌透传修复
 
 - 原因：动作预演提交前需要工作台后端与远端 worker 共享 `ZLY_ACTION_PREVIS_WORKER_TOKEN`；Docker Compose 原先没有把宿主机 `.env` 中的值传入工作台容器，导致已配置服务器仍被判定为未配置。
@@ -2884,3 +2917,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：无新 API、数据库字段、远端节点或正式 H3 节点 ID 变更；现有中性试验和导演台保持可用。
 - 验证：`python -m unittest backend.tests.blender_h3_pilot_test -q`、`pnpm --dir frontend build`；按试验 README 预检与生成 A/B，检查 graph 两张图片顺序、B 的视频连接、远端地址及逐帧结果。
 - 回滚：移除 `real_trial.py`、对应测试和文档增量；忽略目录中的结果可保留用于复核。
+
+## 2026-09-24 Director H3 分组合同与镜头级编辑
+
+- 原因：Director 公共设定、镜头正文和出片入口需要分离，避免镜头级修改影响整个生成组。
+- 当前基线：新扩写仍默认写入 v5 `parts`，同时提供 v6 兼容投影：`common_prompt`、`groups[].shots[].h3_prompt`、参考图和镜头时长。`H3PromptBuilder.compile_director_segment_prompt` 将公共设定作为 `global_prompt`、镜头正文作为 segment prompt；逐镜路由才把公共设定内联。镜头检视器的「镜头级 H3 工作区」在无方案时显示明确空态，保存方案后支持编辑、复制完整提示词、单镜重写和单镜视频生成。
+- 兼容性：无数据库迁移、端口、ComfyUI 节点或模型路径变化。v4/v5 方案、旧任务快照和成功媒体继续可读。
+- 受影响文件：`backend/app/media_studio/services/{h3_prompt_builder,prompt_expansion_service,episode_video_service}.py`、`frontend/src/director2/{api.ts,panes/PromptAuthoringPanel.tsx,panes/EpisodeWorkshopPane.tsx}`、测试与主文档。
+- 验证：`python -m unittest backend.tests.test_director_h3_contract backend.tests.test_director_reliable backend.tests.media_studio_test_prompt_expansion backend.tests.media_studio_test_director_quality backend.tests.media_studio_test_h3_video backend.tests.media_studio_test_production backend.tests.test_timeline_rendering -q`、`pnpm --dir frontend build`、5173 桌面端镜头检视器检查。
+- 回滚：撤回本次增量并重启后端；保留历史方案、任务和媒体。

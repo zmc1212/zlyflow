@@ -65,6 +65,9 @@ class ProductionService:
         if mode not in model.MODES:
             raise ValueError("未知制作方式")
         def apply(state, detail):
+            nonlocal mode
+            if state.get("schema_version") == 2:
+                mode = "director"
             if action == "adopt":
                 model.adopt(state, detail, mode, str(payload.get("material_id") or ""))
             elif action == "audio":
@@ -79,6 +82,9 @@ class ProductionService:
 
     @staticmethod
     def generation_context(detail: dict, mode: str) -> dict:
+        from .workshop_contract import unified
+        if unified(detail):
+            mode = "director"
         context = model.plan_context(detail, mode)
         return {"mode": mode, "plan_key": context["key"], "plan_snapshot": context["snapshot"],
                 "unit_ids": [u["id"] for u in context["units"]]}
@@ -91,10 +97,12 @@ class ProductionService:
         material_id = "material-" + model.digest([job_id, ids, measured.get("variant"), measured.get("content_sha256")])
         material = {"id": material_id, "job_id": job_id, "plan_key": context["plan_key"],
                     "unit_ids": ids, "url": url, "title": "连续选区" if len(ids) > 1 else "画面版本",
-                    "workflow_id": payload.get("workflow_id"), "created_at": now_str(), **measured}
+                    "workflow_id": units[0].get("group_workflow_id") or payload.get("workflow_id"),
+                    "render_mode": units[0].get("group_render_mode"), "created_at": now_str(), **measured}
         def add(state, detail):
             current = model.plan_context(detail, mode)
-            model.register_material(state, mode, material, auto_adopt=current["key"] == context["plan_key"] and not current["stale"])
+            same_input = current["snapshot"].get("revision") == context["plan_snapshot"].get("revision") if isinstance(current["snapshot"], dict) and current["snapshot"].get("schema_version") == 7 else True
+            model.register_material(state, mode, material, auto_adopt=same_input and current["key"] == context["plan_key"] and not current["stale"])
         cls._mutate(payload["project_id"], payload["episode_id"], add)
         payload.setdefault("production_material_ids", [])
         if material_id not in payload["production_material_ids"]:

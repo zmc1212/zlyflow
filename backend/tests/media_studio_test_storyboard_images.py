@@ -281,6 +281,37 @@ class TransferEpisodesTests(unittest.TestCase):
     @patch("backend.app.media_studio.services.project_detail_service.execute_sql")
     @patch("backend.app.media_studio.services.project_detail_service.query_all")
     @patch("backend.app.media_studio.services.project_detail_service.query_one")
+    def test_selected_episode_sync_does_not_replace_or_delete_others(self, query_one, query_all, execute_sql):
+        row = self._document_row()
+        analysis = json.loads(row["analysis_json"])
+        analysis["episodes"].append({"episode_num": 2, "title": "其他集", "shots": []})
+        row["analysis_json"] = json.dumps(analysis)
+        query_one.return_value = row
+        query_all.side_effect = [[{"id": "ep-old", "episode_num": 1}, {"id": "ep-other", "episode_num": 2},
+                                 {"id": "ep-extra", "episode_num": 8}], []]
+        result = ProjectDetailService.transfer_episodes_from_document("proj-1", "doc-1", episode_num=1)
+        self.assertEqual(1, result["replaced_episodes"])
+        self.assertEqual(0, result["deleted_episodes"])
+        self.assertEqual(1, execute_sql.call_count)
+        self.assertEqual("ep-old", execute_sql.call_args.args[1][-1])
+
+    @patch("backend.app.media_studio.services.project_detail_service.execute_sql")
+    @patch("backend.app.media_studio.services.project_detail_service.query_all")
+    @patch("backend.app.media_studio.services.project_detail_service.query_one")
+    def test_identical_sync_preserves_beat_ids(self, query_one, query_all, execute_sql):
+        row = self._document_row()
+        shots = json.loads(row["analysis_json"])["episodes"][0]["shots"]
+        previous = ProjectDetailService._beats_from_document_shots("ep-old", shots, {}, {}, {})
+        previous[0]["id"] = "stable-beat"
+        query_one.return_value = row
+        query_all.side_effect = [[{"id": "ep-old", "episode_num": 1, "data_json": json.dumps({"beats": previous})}], []]
+        ProjectDetailService.transfer_episodes_from_document("proj-1", "doc-1", episode_num=1)
+        data = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual("stable-beat", data["beats"][0]["id"])
+
+    @patch("backend.app.media_studio.services.project_detail_service.execute_sql")
+    @patch("backend.app.media_studio.services.project_detail_service.query_all")
+    @patch("backend.app.media_studio.services.project_detail_service.query_one")
     def test_append_skips_existing_episode_numbers(self, query_one, query_all, execute_sql):
         query_one.return_value = self._document_row()
         query_all.side_effect = [

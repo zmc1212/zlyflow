@@ -1,8 +1,17 @@
-import type { DirectorPromptPlan } from "./api"
+import type { DirectorPromptPlan, DirectorPromptPart } from "./api"
 
 export function directorPlanNeedsReview(plan: DirectorPromptPlan): boolean {
   return Boolean(plan.quality_version && (!plan.creative_review || plan.quality_status === "not_reviewed"
     || plan.creative_review.issues.some(issue => issue.severity !== "advisory")))
+}
+
+export function directorGroupNeedsReview(plan: DirectorPromptPlan, part: DirectorPromptPart): boolean {
+  if (!plan.quality_version) return false
+  if (!plan.creative_review || plan.quality_status === "not_reviewed") return true
+  const ids = new Set(part.segments.map(segment => segment.id))
+  const groupId = part.source_group_id || part.id
+  return plan.creative_review.issues.some(issue => issue.severity !== "advisory"
+    && (ids.has(issue.segment_id) || (!issue.segment_id && (issue.id || "").startsWith(`${groupId}:`))))
 }
 
 export function directorRevisionStopMessage(reason?: string): string {

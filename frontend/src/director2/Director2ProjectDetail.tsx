@@ -4,14 +4,11 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { Select, Typography, message } from "antd"
 import { BookOpen, Boxes, ChevronLeft, Film, ListChecks } from "lucide-react"
 import { getProject, listDocuments, listSkillPacks, updateProject, director2ErrorDetail, type Director2Project, type Director2SkillPack } from "./api"
-import ContentLibraryPane from "./panes/ContentLibraryPane"
+import ContentLibraryPane from "./panes/UnifiedContentLibraryPane"
 import AssetsLibraryPane from "./panes/AssetsLibraryPane"
-import EpisodeWorkshopPane from "./panes/EpisodeWorkshopPane"
+import EpisodeWorkshopPane from "./panes/UnifiedWorkshopPane"
 import JobsCenterPane from "./panes/JobsCenterPane"
 import { director2ProjectPath, director2HomePath, type Director2Route } from "./paths"
-import Director2AiStudioPane from "./panes/Director2AiStudioPane"
-import { parseDirector2CreationMode, readDirector2CreationMode, storeDirector2CreationMode, type Director2CreationMode } from "./creation-mode"
-import DirectorCreationModeSwitch from "../director/components/DirectorCreationModeSwitch"
 import { MediaPreviewProvider } from "./media-preview"
 import {
   packIdFromSelectValue,
@@ -46,9 +43,6 @@ export default function Director2ProjectDetail({
   const [renaming, setRenaming] = useState(false)
   // 剧集工坊分集详情：外壳锁死视口，左右栏各自滚动
   const [inWorkshopDetail, setInWorkshopDetail] = useState(false)
-  const [creationMode, setCreationMode] = useState<Director2CreationMode>(() => parseDirector2CreationMode(searchParams.get("mode")) ?? readDirector2CreationMode(projectId))
-  const [aiBusy, setAiBusy] = useState(false)
-  const prevAiBusyRef = useRef(false)
 
   const assetsPaneRef = useRef<{ fetchAssets: () => Promise<void> | void } | null>(null)
   const workshopPaneRef = useRef<{ fetchEpisodes: () => Promise<void> | void } | null>(null)
@@ -90,12 +84,6 @@ export default function Director2ProjectDetail({
     loadProjectInfo()
   }, [loadProjectInfo])
 
-  useEffect(() => {
-    if (prevAiBusyRef.current && !aiBusy) {
-      void loadProjectInfo()
-    }
-    prevAiBusyRef.current = aiBusy
-  }, [aiBusy, loadProjectInfo])
 
   useEffect(() => {
     let cancelled = false
@@ -106,8 +94,11 @@ export default function Director2ProjectDetail({
   }, [])
 
   useEffect(() => {
-    const fromUrl = parseDirector2CreationMode(searchParams.get("mode"))
-    if (fromUrl) setCreationMode(fromUrl)
+    if (searchParams.has("mode")) {
+      const next = new URLSearchParams(searchParams)
+      next.delete("mode")
+      setSearchParams(next, { replace: true })
+    }
   }, [searchParams])
 
   async function saveProjectName(next: string) {
@@ -131,7 +122,7 @@ export default function Director2ProjectDetail({
   }
 
   async function changeSkillPack(selectValue: string) {
-    if (savingPack || aiBusy) return
+    if (savingPack) return
     const packId = packIdFromSelectValue(selectValue)
     if (packId === projectBoundSkillPackId(project)) return
     setSavingPack(true)
@@ -146,15 +137,6 @@ export default function Director2ProjectDetail({
     }
   }
 
-  function changeCreationMode(value: Director2CreationMode) {
-    if (aiBusy) return
-    setCreationMode(value)
-    storeDirector2CreationMode(projectId, value)
-    setSearchParams((current) => {
-      current.set("mode", value)
-      return current
-    }, { replace: true })
-  }
 
   function onAssetsTransferred() {
     assetsPaneRef.current?.fetchAssets()
@@ -214,13 +196,8 @@ export default function Director2ProjectDetail({
               value={selectValueForPackId(projectBoundSkillPackId(project))}
               options={skillPackSelectOptions(skillPacks)}
               loading={savingPack}
-              disabled={aiBusy || savingPack || skillPacks.length === 0}
+              disabled={savingPack || skillPacks.length === 0}
               onChange={(value) => { void changeSkillPack(String(value)) }}
-            />
-            <DirectorCreationModeSwitch
-              value={creationMode}
-              disabled={aiBusy}
-              onChange={(value) => changeCreationMode(value as Director2CreationMode)}
             />
             <span className="project-id-tag">{project?.id ?? projectId}</span>
           </div>
@@ -230,7 +207,7 @@ export default function Director2ProjectDetail({
       {/* 主体区域：左侧菜单 + 右侧工作区 */}
       <div className="project-main-body">
         {/* 左侧 4 个菜单导航 */}
-        <aside className={`project-sidebar${creationMode === "agent" ? " is-hidden" : ""}`}>
+        <aside className="project-sidebar">
           <div className="menu-list">
             {MENU_ITEMS.map(({ key, label, Icon }) => (
               <div
@@ -248,20 +225,7 @@ export default function Director2ProjectDetail({
 
         {/* 右侧子模块内容区 */}
         <section className={`project-content-pane${isWorkshopDetail ? " is-workshop-detail" : ""}`}>
-          {creationMode === "agent" && (
-            <div key="ai" className="d2-fade">
-              <Director2AiStudioPane
-                csrfToken={csrfToken}
-                projectId={projectId}
-                onBusyChange={setAiBusy}
-                onNavigate={(menu) => {
-                  changeCreationMode("manual")
-                  handleMenuClick(menu)
-                }}
-              />
-            </div>
-          )}
-          {creationMode === "manual" && activeMenu === "content" && (
+          {activeMenu === "content" && (
             <div key="content" className="d2-fade">
               <ContentLibraryPane
                 csrfToken={csrfToken}
@@ -273,12 +237,12 @@ export default function Director2ProjectDetail({
               />
             </div>
           )}
-          {creationMode === "manual" && activeMenu === "assets" && (
+          {activeMenu === "assets" && (
             <div key="assets" className="d2-fade">
               <AssetsLibraryPane ref={assetsPaneRef} csrfToken={csrfToken} projectId={projectId} />
             </div>
           )}
-          {creationMode === "manual" && activeMenu === "workshop" && (
+          {activeMenu === "workshop" && (
             <div key="workshop" className="d2-fade d2-workshop-host">
               <EpisodeWorkshopPane
                 ref={workshopPaneRef}
@@ -286,11 +250,12 @@ export default function Director2ProjectDetail({
                 projectId={projectId}
                 episodeId={route.episodeId}
                 projectExtra={project?.extra ?? null}
+                projectSettings={project?.settings ?? null}
                 onDetailModeChange={setInWorkshopDetail}
               />
             </div>
           )}
-          {creationMode === "manual" && activeMenu === "jobs" && (
+          {activeMenu === "jobs" && (
             <div key="jobs" className="d2-fade">
               <JobsCenterPane csrfToken={csrfToken} projectId={projectId} />
             </div>

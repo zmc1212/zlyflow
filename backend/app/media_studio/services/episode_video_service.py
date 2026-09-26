@@ -7,6 +7,8 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
@@ -16,6 +18,20 @@ from urllib.parse import urlparse
 import requests
 
 from ..db import execute_sql, now_str, query_all, query_one, transaction_cursor
+
+_VIDEO_LEASE = threading.local()
+
+
+def _video_write(sql, params):
+    owner = getattr(_VIDEO_LEASE, "owner", None)
+    if owner:
+        sql += " AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.execution_lease.owner'))=%s"
+        params = (*params, owner)
+    changed = execute_sql(sql, params)
+    if owner and changed != 1:
+        raise RuntimeError("视频任务执行租约已转移")
+    return changed
+
 from .comfy_service import ComfyService
 from .comfy_video_client import ComfyVideoClient
 from .character_looks import apply_resolved_looks_to_beat, missing_look_message, select_character_look
@@ -229,7 +245,7 @@ class EpisodeVideoService:
         if not plan:
             raise ValueError("请先使用“连续剧情（导演台）”生成并保存 Director 出片方案")
         if (
-            int(plan.get("schema_version") or 0) not in {3, 4}
+            int(plan.get("schema_version") or 0) not in {3, 4, 5, 6}
             or str(plan.get("planning_strategy") or "") != "atomic_units"
             or str(plan.get("validation_status") or "") != "valid"
             or not isinstance(plan.get("source_facts"), dict)
@@ -241,7 +257,9 @@ class EpisodeVideoService:
         if str(plan.get("status") or "") != "current":
             raise ValueError("Director 出片方案已过期，请根据当前剧本和资产重新生成")
         from .director_plan_quality import assert_ready_for_video
-        assert_ready_for_video(plan)
+        if plan.get("schema_version") in {5, 6}:
+            from .director_reliable import assert_routes
+            assert_routes(plan)
         requested_revision = options.get("director_plan_revision")
         if requested_revision not in (None, "") and int(requested_revision) != int(plan.get("revision") or 0):
             raise ValueError("Director 出片方案版本已变化，请刷新页面后重试")
@@ -259,6 +277,7 @@ class EpisodeVideoService:
             part = next((item for item in parts if str(item.get("id") or "") == part_id), None)
             if not part:
                 raise ValueError("指定的 Director Part 不存在")
+            assert_ready_for_video(plan, str(part.get("source_group_id") or part_id))
             segments = part.get("segments") if isinstance(part.get("segments"), list) else []
             index_by_id = {str(item.get("id") or ""): index for index, item in enumerate(segments)}
             if any(segment_id not in index_by_id for segment_id in segment_ids):
@@ -268,6 +287,7 @@ class EpisodeVideoService:
                 raise ValueError("局部生成只允许选择同一 Part 内连续的 Director 段")
             selected_segments = [(part, segments[index]) for index in indexes]
         else:
+            assert_ready_for_video(plan)
             for part in parts:
                 for segment in part.get("segments") or []:
                     selected_segments.append((part, segment))
@@ -280,27 +300,48 @@ class EpisodeVideoService:
             if str(item.get("image_url") or "").strip()
         ]
         shots: list[dict[str, Any]] = []
+        from .h3_prompt_builder import H3PromptBuilder
+        common_prompt = str((plan.get("common_prompt") or (plan.get("common_setting") or {}).get("prompt_text")
+                            or (plan.get("common_setting") or {}).get("subject_definitions") or "")).strip()
         previous_part_id = ""
         for sequence, (part, segment) in enumerate(selected_segments, start=1):
             part_id = str(part.get("id") or "")
             part_boundary = bool(previous_part_id and part_id != previous_part_id)
+            segment_prompt = str(segment.get("h3_prompt") or segment.get("prompt_text") or "").strip()
+            compiled = H3PromptBuilder.compile_director_segment_prompt(
+                common_prompt, segment_prompt, language=str(plan.get("language") or "zh-CN"),
+            )
             shots.append({
+                "group_render_mode": part.get("render_mode", "director"),
+                "group_workflow_id": part.get("workflow_id") or plan.get("workflow_id"),
+                "group_options": part.get("execution_options") or {},
                 "beat_id": str(segment.get("id") or f"director-segment-{sequence}"),
                 "sequence": sequence,
                 "heading": str(segment.get("title") or f"Director 段 {sequence}"),
-                "prompt": str(segment.get("prompt_text") or "").strip(),
-                "h3_prompt": str(segment.get("prompt_text") or "").strip(),
+                "prompt": compiled["segment_prompt"],
+                "h3_prompt": compiled["segment_prompt"],
+                "global_prompt": compiled["global_prompt"],
                 "h3_prompt_source": "prompt_master_director",
-                "reference_urls": reference_urls,
+                "reference_urls": [str(slot.get("image_url") or "").strip()
+                                   for slot in part.get("reference_slots", plan.get("reference_slots") or [])
+                                   if str(slot.get("image_url") or "").strip()] if plan.get("schema_version") in {5, 6} else reference_urls,
                 "duration_sec": float(segment.get("duration_seconds") or 8),
                 "duration_seconds": float(segment.get("duration_seconds") or 8),
                 "frame_count": int(segment.get("frame_count") or 192),
+                "planned_frame_count": int(segment["frame_count"]) if plan.get("schema_version") in {5, 6} else None,
                 "continuity": {"partId": part_id, "segmentId": segment.get("id")},
                 "continuity_from_prev": sequence > 1 and not part_boundary and render_scope == "episode",
                 "part_boundary": part_boundary,
                 "director_part_id": part_id,
                 "source_beat_ids": segment.get("source_beat_ids") or [],
             })
+            if part.get("render_mode") == "shot":
+                # Isolated shot routes need the shared subject definition in
+                # the segment itself; continuous Director routes send it as
+                # global_prompt and keep the H3 body independent.
+                prefix = "subject_definitions" if plan.get("language") == "en" else "主体定义"
+                shots[-1]["prompt"] = f"{prefix}: {common_prompt}\n\n" + shots[-1]["prompt"]
+                shots[-1]["h3_prompt"] = shots[-1]["prompt"]
             previous_part_id = part_id
         if render_scope == "selection":
             shots[0]["continuity_from_prev"] = False
@@ -316,6 +357,38 @@ class EpisodeVideoService:
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         incoming = dict(options or {})
+        from . import workshop_contract as workshop
+        unified_detail = ProjectDetailService.get_episode_detail(project_id, episode_id) if "expected_revision" in incoming else {}
+        if workshop.unified(unified_detail):
+            plan = workshop.plan_of(unified_detail)
+            from .workshop_references import assert_reference_snapshot
+            assert_reference_snapshot(plan, incoming)
+            if incoming.get("expected_revision") != plan["revision"]:
+                raise ValueError("VERSION_CONFLICT: 提示词或规划已变化，请刷新")
+            requested = incoming.get("beat_ids")
+            groups = [[bid] for bid in requested] if requested and len(requested) == 1 else [
+                g["beat_ids"] for g in plan["groups"] if not requested or set(g["beat_ids"]).issubset(set(requested))]
+            if requested and set(requested) != {bid for ids in groups for bid in ids}:
+                raise ValueError("请选择完整镜头组或单镜头")
+            from .production_state import summary
+            adopted = summary(unified_detail)["adopted"]
+            jobs, blocked, skipped = [], [], 0
+            for ids in groups:
+                if not requested and not incoming.get("force") and all(b in adopted for b in ids):
+                    skipped += 1
+                    continue
+                try:
+                    created = cls.create_job(project_id, episode_id, beat_ids=ids, render_scope="selection",
+                        options={**incoming, "workflow": plan["workflow_id"], "render_scope": "selection"})
+                    jobs.append(created["job_id"])
+                except ValueError as err:
+                    blocked.append({"beat_ids": ids, "reason": str(err)})
+            if not jobs and blocked:
+                reasons = {}
+                for item in blocked:
+                    reasons[item["reason"]] = reasons.get(item["reason"], 0) + 1
+                raise ValueError("没有可提交的镜头组：" + "；".join(f"{count} 组：{reason}" for reason, count in reasons.items()))
+            return {"job_ids": jobs, "job_id": jobs[0] if jobs else "", "submitted": len(jobs), "skipped": skipped, "blocked": blocked, "status": "queued" if jobs else "completed"}
         beat_ids = cls._requested_beat_ids(incoming)
         force = bool(incoming.pop("force", False)) or bool(beat_ids)
         incoming.pop("beat_ids", None)
@@ -326,6 +399,40 @@ class EpisodeVideoService:
             if beat_ids is not None:
                 raise ValueError("Director 工作流不再按原 Beat 选择，请选择 Director 出片方案中的段")
             render_scope = str(incoming.get("render_scope") or "episode")
+            detail = ProjectDetailService.get_episode_detail(project_id, episode_id) if render_scope == "episode" else None
+            plan = ((detail or {}).get("prompt_authoring") or {}).get("director_plan") or {}
+            if render_scope == "episode" and int(plan.get("schema_version") or 0) == 5:
+                from .production_state import summary as production_summary
+                from .director_plan_quality import assert_ready_for_video
+                if plan.get("status") != "current":
+                    raise ValueError("Director 出片方案已过期，请更新制作方案")
+                state = production_summary(detail, mode="director")
+                adopted = state["adopted"]
+                materials = {m["id"]: m for m in state["materials"] if m.get("verified")}
+                active_parts = {str(cls._job_payload(row).get("part_id") or "")
+                                for row in cls._active_video_jobs(project_id, episode_id)}
+                job_ids, skipped, blocked = [], 0, []
+                for part in plan.get("parts") or []:
+                    segment_ids = [s["id"] for s in part.get("segments") or []]
+                    if (part["id"] in active_parts or segment_ids and all(adopted.get(sid) in materials for sid in segment_ids)):
+                        skipped += 1
+                        continue
+                    try:
+                        assert_ready_for_video(plan, str(part.get("source_group_id") or part["id"]))
+                        created = cls.create_job(project_id, episode_id, render_scope="selection",
+                            options={**incoming, "render_scope": "selection", "part_id": part["id"],
+                                     "segment_ids": segment_ids, "director_plan_revision": plan.get("revision")})
+                        job_ids.append(created["job_id"])
+                    except ValueError as err:
+                        blocked.append({"part_id": part["id"], "reason": str(err)})
+                if not job_ids:
+                    if blocked:
+                        raise ValueError("没有可提交的生成组：" + "；".join(f"{item['part_id']} {item['reason']}" for item in blocked))
+                    raise ValueError("全部生成组已完成或正在队列中；可在方案内单独重做指定组")
+                return {"job_id": job_ids[0], "job_ids": job_ids, "status": "queued",
+                        "render_scope": "episode", "render_mode": "episode",
+                        "submitted": len(job_ids), "skipped": skipped, "blocked": blocked,
+                        "shot_count": sum(len(p.get("segments") or []) for p in plan.get("parts") or [])}
             created = cls.create_job(
                 project_id,
                 episode_id,
@@ -665,7 +772,6 @@ class EpisodeVideoService:
 
         comfy_config = ComfyService.get_config()
         comfy = ComfyVideoClient(comfy_config.base_url)
-        task_type = comfy.preflight(require_director=uses_director_timeline(workflow_id))
         cls._assert_can_enqueue(
             project_id,
             episode_id,
@@ -677,8 +783,36 @@ class EpisodeVideoService:
         detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
         assets = ProjectDetailService.list_assets(project_id)
         director_plan = None
-        if director_prompt_profile:
+        from . import workshop_contract as workshop
+        if workshop.unified(detail):
+            from .workshop_service import WorkshopService
+            from .workshop_references import assert_reference_snapshot
+            assert_reference_snapshot(workshop.plan_of(detail), options or {})
+            if workflow_id != workshop.plan_of(detail)["workflow_id"]:
+                raise ValueError("视频工作流与确认规划不一致，请先调整规划")
+            current_source = WorkshopService.view(project_id, episode_id)
+            if current_source["source_changed"]:
+                raise ValueError("采纳剧本已更新，请先调整镜头规划")
+            if (options or {}).get("expected_revision") != workshop.plan_of(detail)["revision"]:
+                raise ValueError("VERSION_CONFLICT: 提示词版本已变化")
+            shots, director_plan = workshop.execution_shots(detail, selected_ids or None)
+            selected = {s["beat_id"] for s in shots}
+            for active in cls._active_video_jobs(project_id, episode_id):
+                snapshot = cls._job_payload(active)
+                if selected.intersection(str(s.get("beat_id")) for s in snapshot.get("source_shots") or snapshot.get("shots") or []):
+                    raise ValueError(f"所选镜头已有进行中的视频任务：{active['id']}")
+            if len(director_plan["parts"]) != 1:
+                raise ValueError("一次任务只提交一个镜头组，请使用本集批量入口")
+            render_scope = "selection"
+        elif director_prompt_profile:
             shots, director_plan, render_scope = cls._director_plan_shots(detail, options or {})
+            if render_scope == "selection":
+                requested_segments = {str(s.get("beat_id") or "") for s in shots}
+                for row in cls._active_video_jobs(project_id, episode_id):
+                    active_payload = cls._job_payload(row)
+                    if (active_payload.get("director_plan_id") == director_plan.get("id")
+                            and requested_segments.intersection(active_payload.get("segment_ids") or [])):
+                        raise ValueError(f"该生成组已有进行中的视频任务：{row['id']}")
         else:
             shots = cls._prepare_shots(detail, assets, beat_ids=selected_ids or None)
             cls._persist_shot_looks(project_id, episode_id, shots)
@@ -686,6 +820,8 @@ class EpisodeVideoService:
                 raise ValueError("视频生成前置检查失败：存在缺失或过期的 H3 提示词，请先使用六段式模板生成并保存")
         if selected_ids and not shots:
             raise ValueError("指定的 Beat 不存在或无法生成视频")
+        task_type = comfy.preflight(require_director=uses_director_timeline(workflow_id)
+            and any(s.get("group_render_mode", "director") == "director" for s in shots))
         if options:
             settings["render_pass"] = str(options.get("render_pass") or "final")
         jid = f"job-{uuid.uuid4().hex[:12]}"
@@ -725,12 +861,13 @@ class EpisodeVideoService:
         }
         if director_plan:
             payload.update({
+                "pipeline_version": director_plan.get("schema_version", 4),
                 "prompt_profile": "director_segments",
                 "director_plan_id": director_plan.get("id"),
                 "director_plan_revision": director_plan.get("revision"),
                 "part_id": (options or {}).get("part_id"),
                 "segment_ids": (options or {}).get("segment_ids") or [],
-                "global_prompt": (director_plan.get("common_setting") or {}).get("subject_definitions") or "",
+                "global_prompt": shots[0].get("global_prompt") or (director_plan.get("common_setting") or {}).get("subject_definitions") or "",
                 "continuity_enabled": True,
                 "prompt_source": "prompt_master_director",
             })
@@ -1444,6 +1581,8 @@ class EpisodeVideoService:
         if row.get("status") not in {"failed", "completed", "succeeded"}:
             raise ValueError("只有失败或已完成的视频任务可以重试")
         payload = json.loads(row.get("payload_json") or "{}")
+        if float((payload.get("execution_lease") or {}).get("expires_at") or 0) > time.time():
+            raise ValueError("原视频执行器仍持有运行租约，请等待其完成或租约过期再重试")
         for key in (
             "shots", "llm_attempts", "prompt_generation_progress", "timeline", "workflow_request",
             "prompt_id", "client_id", "queue_number", "node_errors", "comfy_output",
@@ -1473,8 +1612,9 @@ class EpisodeVideoService:
                 error_message = '服务进程重启，后台视频任务已中断，请点击重试。', updated_at = %s
             WHERE job_type = 'video_generation'
               AND status IN ('queued', 'preparing', 'prompt_generation', 'uploading', 'comfy_queued', 'running', 'assembling', 'downloading')
+              AND COALESCE(JSON_EXTRACT(payload_json,'$.execution_lease.expires_at'),0) <= %s
             """,
-            (timestamp,),
+            (timestamp, time.time()),
         )
 
     @classmethod
@@ -1702,9 +1842,27 @@ class EpisodeVideoService:
     @classmethod
     def _run_job(cls, job_id: str) -> None:
         gpu_cm = None
+        stopped = threading.Event()
+        _VIDEO_LEASE.owner = None
         try:
             row = query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
             payload = json.loads(row.get("payload_json") or "{}")
+            if payload.get("pipeline_version") == 5:
+                owner = uuid.uuid4().hex
+                payload["execution_lease"] = {"owner": owner, "expires_at": time.time() + 120}
+                if execute_sql("UPDATE ai_project_jobs SET status='preparing',payload_json=%s WHERE id=%s AND status='queued'",
+                               (json.dumps(payload, ensure_ascii=False), job_id)) != 1:
+                    return
+                _VIDEO_LEASE.owner = owner
+                def heartbeat():
+                    while not stopped.wait(30):
+                        try:
+                            execute_sql("UPDATE ai_project_jobs SET payload_json=JSON_SET(payload_json,'$.execution_lease.expires_at',%s) "
+                                "WHERE id=%s AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.execution_lease.owner'))=%s",
+                                (time.time() + 120, job_id, owner))
+                        except Exception:
+                            continue
+                threading.Thread(target=heartbeat, name=f"video-heartbeat-{job_id}", daemon=True).start()
             if str(payload.get("render_scope") or "") == "compose":
                 cls._run_compose_job(job_id, payload)
                 return
@@ -1727,8 +1885,9 @@ class EpisodeVideoService:
             resolved_workflow_id = definition.id if definition else cls.DEFAULTS["workflow"]
             timeline_job = uses_director_timeline(resolved_workflow_id)
             comfy = ComfyVideoClient(payload["comfy_base_url"])
-            task_type = comfy.preflight(require_director=timeline_job)
             source_shots = payload.get("source_shots") or []
+            task_type = comfy.preflight(require_director=timeline_job
+                and any(s.get("group_render_mode", "director") == "director" for s in source_shots))
 
             payload["prompt_generation_progress"] = {"completed": 0, "total": len(source_shots)}
             saved_prompts = cls._workshop_prompts_usable(source_shots)
@@ -1798,7 +1957,8 @@ class EpisodeVideoService:
                 except Exception as episode_update_error:
                     payload["episode_update_warning"] = str(episode_update_error)
             timestamp = now_str()
-            execute_sql(
+            payload.pop("execution_lease", None)
+            _video_write(
                 """
                 UPDATE ai_project_jobs SET status = 'completed', progress = 100, result_url = %s,
                   payload_json = %s, error_message = NULL, completed_at = %s, updated_at = %s
@@ -1814,7 +1974,8 @@ class EpisodeVideoService:
                 failed_payload["failure_stage"] = failed_payload.get("runtime_stage") or "unknown"
                 if isinstance(failed_payload.get("render_plan"), dict):
                     failed_payload["render_plan"]["status"] = "failed"
-                execute_sql(
+                failed_payload.pop("execution_lease", None)
+                _video_write(
                     """
                     UPDATE ai_project_jobs SET status = 'failed', progress = 0, error_message = %s,
                       payload_json = %s, updated_at = %s WHERE id = %s
@@ -1822,11 +1983,13 @@ class EpisodeVideoService:
                     (str(err)[:4000], json.dumps(failed_payload, ensure_ascii=False), timestamp, job_id),
                 )
             except Exception:
-                execute_sql(
+                _video_write(
                     "UPDATE ai_project_jobs SET status = 'failed', progress = 0, error_message = %s, updated_at = %s WHERE id = %s",
                     (str(err)[:4000], timestamp, job_id),
                 )
         finally:
+            stopped.set()
+            _VIDEO_LEASE.owner = None
             if gpu_cm is not None:
                 gpu_cm.__exit__(None, None, None)
 
@@ -1867,7 +2030,10 @@ class EpisodeVideoService:
                     "status": "succeeded" if tuple(str(shot.get("beat_id")) for shot in chunk) in previous_chunks and previous_chunks[tuple(str(shot.get("beat_id")) for shot in chunk)].get("output") else "queued",
                     "output_start": sum(float(item.get("duration_sec") or 8) for item in generated_shots[:sum(len(c) for c in chunks[:index])]),
                     "output_duration": sum(float(item.get("duration_sec") or 8) for item in chunk),
-                } | ({"output": previous_chunks[tuple(str(shot.get("beat_id")) for shot in chunk)]["output"]} if tuple(str(shot.get("beat_id")) for shot in chunk) in previous_chunks and previous_chunks[tuple(str(shot.get("beat_id")) for shot in chunk)].get("output") else {})
+                } | ({k: v for k, v in previous_chunks[tuple(str(shot.get("beat_id")) for shot in chunk)].items()
+                      if k in {"output", "production_recorded", "timeline", "director_report", "render_request", "workflow_snapshot", "execution_parameters", "workflow_id", "render_mode"}}
+                     if tuple(str(shot.get("beat_id")) for shot in chunk) in previous_chunks
+                     and previous_chunks[tuple(str(shot.get("beat_id")) for shot in chunk)].get("output") else {})
                 for index, chunk in enumerate(chunks)
             ],
             "assembly": None,
@@ -1887,22 +2053,42 @@ class EpisodeVideoService:
                         })
                 chunk_outputs.append(payload["render_plan"]["chunks"][index]["output"])
                 continue
-            render_request = comfy.build_render_request(
-                chunk,
-                task_type,
-                render_scope=str(payload.get("render_scope") or "episode"),
-                episode_id=str(payload.get("episode_id") or ""),
-                workflow_id=str(resolved_workflow_id),
-                render_pass=str(payload.get("render_pass") or "final"),
-                options=payload,
-            )
-            timeline = render_request["timeline_data"]
-            workflow = comfy.build_workflow(
-                timeline, task_type,
-                f"video/{payload['project_id']}/{payload['episode_id']}/{job_id}/segment-{index + 1}",
-                options=payload,
-            )
+            if chunk[0].get("group_render_mode") == "shot":
+                shot = chunk[0]
+                if len(chunk) != 1:
+                    raise ValueError("逐镜生成组必须只包含一个段")
+                route = shot["group_workflow_id"]
+                workflow = comfy.build_shot_workflow(route, shot["prompt"], shot.get("uploaded_refs") or [],
+                    f"video/{payload['project_id']}/{payload['episode_id']}/{job_id}/group-{index + 1}",
+                    options={**payload, **shot.get("group_options", {}), "duration": shot["duration_sec"]})
+                timeline = None
+                render_request = {"workflowId": route, "renderMode": "shot"}
+            else:
+                render_request = comfy.build_render_request(
+                    chunk,
+                    task_type,
+                    render_scope=str(payload.get("render_scope") or "episode"),
+                    episode_id=str(payload.get("episode_id") or ""),
+                    workflow_id=str(resolved_workflow_id),
+                    render_pass=str(payload.get("render_pass") or "final"),
+                    options=payload,
+                )
+                timeline = render_request["timeline_data"]
+                workflow = comfy.build_workflow(
+                    timeline, task_type,
+                    f"video/{payload['project_id']}/{payload['episode_id']}/{job_id}/segment-{index + 1}",
+                    options=payload,
+                )
             payload["render_plan"]["chunks"][index]["timeline"] = timeline
+            route = chunk[0].get("group_workflow_id") or resolved_workflow_id
+            route_definition = workflow_for(route)
+            properties = ((route_definition.option_schema or H3_STANDARD_OPTION_SCHEMA).get("properties") or {})
+            effective = {**payload, **chunk[0].get("group_options", {}), "duration": chunk[0]["duration_sec"]}
+            payload["render_plan"]["chunks"][index].update({
+                "workflow_id": route, "render_mode": chunk[0].get("group_render_mode", "director"),
+                "workflow_snapshot": workflow,
+                "execution_parameters": normalize_options(route, {k: v for k, v in effective.items() if k in properties}),
+            })
             payload["render_plan"]["chunks"][index]["render_request"] = render_request
             payload["render_plan"]["chunks"][index]["status"] = "submitted"
             payload["timeline"] = timeline if len(chunks) == 1 else None
@@ -1927,10 +2113,16 @@ class EpisodeVideoService:
                     shot["outputDuration"] = float(shot.get("duration_sec") or 8)
             chunk_outputs.append(output)
             cls._set_state(job_id, payload, "running", 95)
+            if payload.get("production_context") and payload.get("render_scope") != "selection":
+                cls._record_production_output(payload, job_id, chunk, output, comfy)
+                payload["render_plan"]["chunks"][index]["production_recorded"] = True
+                cls._set_state(job_id, payload, "running", 95)
 
         if payload.get("production_context") and payload.get("render_scope") != "selection":
-            for chunk, output in zip(chunks, chunk_outputs):
-                cls._record_production_output(payload, job_id, chunk, output, comfy)
+            for index, (chunk, output) in enumerate(zip(chunks, chunk_outputs)):
+                if not payload["render_plan"]["chunks"][index].get("production_recorded"):
+                    cls._record_production_output(payload, job_id, chunk, output, comfy)
+                    payload["render_plan"]["chunks"][index]["production_recorded"] = True
         result_url = comfy.view_url(chunk_outputs[0])
         if len(chunk_outputs) > 1:
             payload["render_plan"]["assembly"] = {"status": "running", "method": "ffmpeg_concat"}
@@ -2334,7 +2526,9 @@ class EpisodeVideoService:
     @staticmethod
     def _set_state(job_id: str, payload: dict[str, Any], status: str, progress: int) -> None:
         payload["runtime_stage"] = status
-        execute_sql(
+        if getattr(_VIDEO_LEASE, "owner", None):
+            payload["execution_lease"] = {"owner": _VIDEO_LEASE.owner, "expires_at": time.time() + 120}
+        _video_write(
             "UPDATE ai_project_jobs SET status = %s, progress = %s, payload_json = %s, updated_at = %s WHERE id = %s",
             (status, progress, json.dumps(payload, ensure_ascii=False), now_str(), job_id),
         )

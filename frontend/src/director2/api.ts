@@ -568,11 +568,21 @@ export type DirectorPromptSegment = {
   shots: Array<{ shot_number: number; source_beat_id?: string | null }>
   sections: PromptSections
   prompt_text: string
+  /** Final H3 body. v6 plans keep this separate from Director metadata. */
+  h3_prompt?: string
+  manual_h3_prompt?: boolean
   continuity_from_prev: boolean
   video_url?: string
 }
 
 export type DirectorPromptPart = {
+  source_group_id?: string
+  source_beat_ids?: string[]
+  reference_slots?: PromptReferenceSlot[]
+  render_mode?: "director" | "shot"
+  workflow_id?: string | null
+  render_blocker?: string | null
+  execution_options?: Record<string, unknown>
   id: string
   index: number
   frame_count: number
@@ -586,6 +596,9 @@ export type DirectorPromptPart = {
 }
 
 export type DirectorPromptPlan = {
+  max_shots_per_group?: number
+  group_setting_source?: "episode" | "project" | "system"
+  source_groups?: Array<{ id: string; scene_key: string; beat_ids: string[]; frame_count: number }>
   director_design?: { dramatic_intent?: string; visual_strategy?: string; quality_notes?: string[] }
   creative_review?: { issues: Array<{ id?: string; segment_id: string; evidence: string; suggestion: string; severity?: "blocking" | "advisory"; repair_scope?: "creative" | "planning" }> }
   quality_version?: number
@@ -614,6 +627,22 @@ export type DirectorPromptPlan = {
   }>
   reference_slots: PromptReferenceSlot[]
   common_setting: { subject_definitions: string; prompt_text: string }
+  /** v6 normalized group contract. v4/v5 callers continue to use parts. */
+  common_prompt?: string
+  groups?: Array<{
+    id: string
+    source_beat_ids?: string[]
+    common_prompt?: string
+    reference_slots?: PromptReferenceSlot[]
+    shots: Array<{
+      id?: string
+      beat_id: string
+      h3_prompt: string
+      duration_seconds: number
+      continuity_from_prev?: boolean
+      video_takes?: Array<{ job_id?: string; url?: string; created_at?: string }>
+    }>
+  }>
   parts: DirectorPromptPart[]
   status: "current" | "stale"
   validation_status?: "pending" | "valid" | "invalid"
@@ -629,6 +658,7 @@ export type PromptAuthoringState = {
 }
 
 export type Director2Beat = {
+  workshop_writing_refs?: string[]
   id: string
   sequence: number
   kind?: string

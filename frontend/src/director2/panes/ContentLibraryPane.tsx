@@ -97,6 +97,7 @@ interface ContentLibraryPaneProps {
 
 // 剧本解析结果形状（原版为 JS 未标注，按模板取值字段补全）
 type DocAnalysis = {
+  script_development?: { revision: number }
   summary?: string
   logs?: string[]
   positioning?: {
@@ -709,6 +710,10 @@ export default function ContentLibraryPane({
               <div className="doc-detail-main">
                 <ScriptDevelopmentPanel key={selectedDoc.id} projectId={projectId} documentId={selectedDoc.id} csrfToken={csrfToken}
                   onAdopted={() => { void loadDocs({ selectId: selectedDoc.id }); onProjectUpdated?.() }} />
+                {selectedDoc.analysis?.script_development && <Alert type="info" showIcon
+                  title="完整剧本已采纳，下一步是规划镜头"
+                  description="下方「规划出片镜头」使用已采纳的新剧本；已有镜头需要重做时点「重新规划镜头」。确认画幅后，在「分集与镜头」检查结果，再点「同步至剧集工坊」。进入工坊的「制作方案」后即可扩写提示词。无需重新导入，也无需开始新一版策划。"
+                />}
                 {/* 概览栏 */}
                 <div className="detail-top-card">
                   <div className="detail-top-header">

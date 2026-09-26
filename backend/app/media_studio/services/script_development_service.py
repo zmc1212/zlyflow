@@ -158,16 +158,18 @@ class ScriptDevelopmentService:
         for ep in analysis.get("episodes") or []:
             spec = next((s for s in data["plan"]["episodes"] if s["episode_num"] == ep.get("episode_num")), {})
             ep["dramatic_design"] = spec
-        data.update(phase="adopted", message="已采纳剧本，请规划镜头并同步至工坊")
+        data.update(phase="adopted", message="已采纳剧本，进入剧集工坊规划镜头")
         with transaction_cursor() as cursor:
             cursor.execute("UPDATE ai_project_documents SET analysis_json=%s,status='awaiting_aspect',updated_at=%s WHERE id=%s AND project_id=%s AND raw_text=%s AND analysis_json=%s",
                            (json.dumps(analysis, ensure_ascii=False), now_str(), doc_id, project_id, row["raw_text"], row["analysis_json"]))
             if cursor.rowcount != 1:
                 raise ValueError("SOURCE_CONFLICT: 文档已变化，请刷新")
+            from .workshop_service import WorkshopService
+            WorkshopService.bind_adopted(cursor, project_id, doc_id, analysis)
             cursor.execute("SELECT id,data_json FROM ai_project_episodes WHERE project_id=%s", (project_id,))
             for episode in cursor.fetchall():
                 edata = json.loads(episode.get("data_json") or "{}")
-                if edata.get("source_document_id") == doc_id:
+                if edata.get("source_document_id") == doc_id and edata.get("script_revision") != accepted["revision"]:
                     edata["script_stale"] = {"document_id": doc_id, "revision": accepted["revision"]}
                     cursor.execute("UPDATE ai_project_episodes SET data_json=%s,updated_at=%s WHERE id=%s", (json.dumps(edata, ensure_ascii=False), now_str(), episode["id"]))
             cursor.execute("UPDATE ai_project_jobs SET status='succeeded',progress=100,payload_json=%s,updated_at=%s WHERE id=%s AND project_id=%s",
