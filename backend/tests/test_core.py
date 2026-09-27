@@ -524,7 +524,7 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["default"], "balanced")
         self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["ui_visible_when"], {"speed": "custom"})
         self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["unit"], "步")
-        self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["ui_group"], "primary")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["ui_group"], "internal")
         self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["enum"], ["full", "pruned"])
         self.assertEqual(parameters["options"]["schema"]["properties"]["steps"]["ui_group"], "internal")
         self.assertEqual(
@@ -544,8 +544,9 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(t8_options["duration"]["ui_control"], "duration-slider")
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "primary"},
-            {"aspect_ratio", "duration", "speed", "custom_steps", "weight_profile"},
+            {"aspect_ratio", "duration", "speed", "custom_steps"},
         )
+        self.assertEqual(t8_options["weight_profile"]["ui_group"], "internal")
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "advanced"},
             {"quality", "upscale_after"},
@@ -1972,7 +1973,7 @@ class WorkerTests(unittest.TestCase):
                 return FakeResponse()
 
         with patch("backend.app.comfy_service.requests", FakeRequests):
-            service = ComfyService(Settings())
+            service = ComfyService(Settings(comfy_url="http://127.0.0.1:8188"))
             service.stop_prompt("run-1")
             service.stop_prompt("pend-1")
         self.assertEqual(posts[0], ("http://127.0.0.1:8188/interrupt", {"prompt_id": "run-1"}))
@@ -1998,7 +1999,7 @@ class WorkerTests(unittest.TestCase):
                 return FakeResponse()
 
         with patch("backend.app.comfy_service.requests", FakeRequests):
-            self.assertTrue(ComfyService(Settings()).free_resources())
+            self.assertTrue(ComfyService(Settings(comfy_url="http://127.0.0.1:8188")).free_resources())
         self.assertEqual(posts[0], ("http://127.0.0.1:8188/free", {"unload_models": True, "free_memory": True}))
         self.assertEqual(posts[1][0], "http://127.0.0.1:8188/prompt")
         self.assertEqual(posts[1][1]["prompt"]["1"]["class_type"], "VRAMCleanup")

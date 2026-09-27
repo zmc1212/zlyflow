@@ -798,6 +798,7 @@ app = FastAPI(
         {"name": "创作台", "description": "创作页面需要的供应商状态与余额快照。"},
         {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
         {"name": "导演台", "description": "员工隔离的导演工程库：Recipe 双引擎、画风目录、9 Agent 流水线与批量短视频。"},
+        {"name": "导演台2", "description": "当前导演创作项目：内容库、资产库、统一工坊、候选采纳与制作任务。"},
         {"name": "复刻台", "description": "参考片拉片复刻：上传成片，自动分镜反推提示词与深度视频，用 Wan VACE 深度控制批量转绘。"},
         {"name": "Hypit 复刻", "description": "拆爆款结构（台词、字幕、B-roll、图形）并本机编译 SVML；与 VACE 锁运镜转绘并列，不混 payload。"},
         {"name": "导台2", "description": "AI Media Studio：按项目组织的内容库、资产库、剧集工坊与全部任务（复刻自 dev0914）。"},

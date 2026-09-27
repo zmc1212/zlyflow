@@ -2545,7 +2545,7 @@ class PromptExpansionService:
                     raise
                 parsed = {"groups": [{
                     "sections": item.get("sections") or {},
-                    "shot_numbers": [int(unit.get("generated_shot_number")) for unit in item.get("source_units") or []],
+                    "shot_numbers": [int(unit.get("generated_shot_number") or 1) for unit in item.get("source_units") or []],
                 } for item in segments]}
             for segment, group in zip(segments, parsed["groups"]):
                 stored = segment.get("sections") if isinstance(segment.get("sections"), dict) else {}

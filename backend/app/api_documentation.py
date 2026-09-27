@@ -16,8 +16,8 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "accepts_negative_prompt": ("支持负面提示词", "该工作流是否接受 negative_prompt 字段。"),
     "api_key": ("API 密钥", "供应商 API 密钥；仅在保存或测试连接时提交，接口不会回显原始值。"),
     "api_key_masked": ("已脱敏 API 密钥", "已保存 API 密钥的脱敏展示值；不含可用的完整密钥。"),
-    "attach_images": ("是否附图", "当前写稿或分析路径是否会把参考图作为 image_url 发给模型；7B 等纯文本模型为 false。"),
-    "authoring_vision": ("写稿看图路由", "工坊写稿、生成页优化、导演台最终润色使用的看图路径：LLM 名称可看图时走 LLM，否则走 VLM。"),
+    "attach_images": ("是否附图", "当前写稿或分析路径是否会把参考图作为 image_url 发给已验证可看图的端点；不按模型名称或参数规模推断。"),
+    "authoring_vision": ("写稿看图路由", "通用写稿路径依据端点的有效视觉能力选择 LLM 或 VLM；统一工坊另行绑定指定作者，只在显式选择时由 VLM 提取外观事实，禁止静默更换作者。"),
     "analysis_vision": ("分析看图路由", "资产反推、主体分析和复刻台拉片使用的看图路径：默认 VLM，VLM 未开且 LLM 可看图时回退 LLM。"),
     "active_profile_id": ("当前预设 ID", "后台当前正式生效的 LLM 或 VLM 快速服务预设。"),
     "available": ("当前可用", "当前配置及连通性是否允许使用该能力。"),
@@ -147,14 +147,14 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "style_id": ("画风 ID", "导演台画风目录中的唯一标识，例如 as_1001。"),
     "stage": ("处理阶段", "任务当前所在的执行阶段，例如 queued、uploading、generating 或 completed。"),
     "status": ("状态", "任务、轮次或生成项的状态：queued 排队中，running 处理中，succeeded 成功，failed 失败，interrupted 已中断，cancelled 用户已停止，partial 部分成功。"),
-    "supports_vision": ("是否可看图", "GET /api/llm/status 中表示写稿路径能否附图（authoring_vision.attach_images），不再表示仅 VLM 是否启用。管理页 LLM/VLM 配置里仍表示当前模型名称是否可识别为视觉模型。"),
+    "supports_vision": ("是否可看图", "GET /api/llm/status 中表示写稿路径能否附图（authoring_vision.attach_images）。管理页 LLM/VLM 配置以当前端点、模型和凭据对应的有效视觉验证结果为准；未知、过期或仅按名称推测的能力不视为已验证。"),
     "supports_timeline": ("支持 Timeline", "该视频工作流是否走 MiniMaxH3Director Timeline。"),
     "supports_multi_segment": ("支持多段 Timeline", "是否可一次提交多个镜头段；与 supports_timeline 同时为真时剧集工坊为一键整集直出。"),
     "temporary_server_staging": ("使用临时服务端暂存", "资源交付前是否先在服务端临时暂存；交付确认后可能被清理。"),
     "title": ("任务标题", "调用方为便于检索而设置的任务标题；最长 120 个字符，null 表示未设置。"),
     "type": ("字段类型", "工作流参数的基础 JSON 类型。"),
     "unavailable_reason": ("不可用原因", "当前能力不可用时返回的人类可读原因；可用时为 null。"),
-    "use_llm_credentials": ("复用大模型凭据", "TTS 与 VLM 可选开关：为 true 时使用 LLM 页的 Base URL 与 API Key，模型名称仍在本页填写。VLM 默认关闭，以免覆盖已有智谱配置。"),
+    "use_llm_credentials": ("复用大模型连接", "VLM 为 true 时完整复用 LLM 的端点、凭据、模型及有效视觉能力证据，独立配置保留供关闭复用时恢复。TTS 的同名开关仅复用 Base URL 与 API Key，仍使用 TTS 模型。"),
     "unit": ("单位", "参数展示时使用的可选单位，例如 秒。"),
     "updated_at": ("更新时间", "记录最后更新时的 ISO 8601 时间字符串（UTC）。"),
     "url": ("访问地址", "当前用户可访问的受控资源预览地址。"),
@@ -190,6 +190,10 @@ PATH_PARAMETER_DOCUMENTATION = {
     "mode_id": "工作流 ID；必须是 GET /api/modes 返回的 id 之一。",
     "style_id": "导演台画风目录中的唯一标识；必须是 GET /api/director/art-styles 返回的 id 之一。",
     "project_id": "导演工程的唯一标识。员工只能访问自己的工程；管理员按任务隔离规则可按 ID 读取。",
+    "episode_id": "导演工程内分集的唯一标识，必须属于路径中的 project_id。",
+    "doc_id": "内容库文档的唯一标识，必须属于路径中的 project_id。",
+    "beat_id": "分集内镜头的唯一标识，必须属于路径中的 episode_id。",
+    "preset_id": "内置声线预设的唯一标识，必须来自当前可用的声线目录。",
     "operation_id": "导演长操作的唯一标识；必须属于当前登录用户。",
     "asset_id": "员工级人物、场景或道具资产的唯一标识；员工只能访问自己的资产。",
     "shot_id": "导演工程内分镜的唯一标识，必须属于 path 中的 project_id。",
@@ -363,7 +367,7 @@ def _provider_operation_detail(method: str, path: str) -> str | None:
         if path.endswith("/skills"):
             return "需要登录。返回提示词优化可选择的 MiniMax H3 技能。"
         if path.endswith("/status"):
-            return "需要登录。查询文本大模型是否已正确配置、当前是否可用；supports_vision 表示写稿路径能否附图（LLM 名称可看图或回退到已启用的 VLM），详见 authoring_vision / analysis_vision。"
+            return "需要登录。只读查询文本模型配置与已验证的视觉能力，不触发收费探测；supports_vision 表示写稿路径能否附图，详见 authoring_vision / analysis_vision。统一工坊使用指定作者，不因附图静默换用 VLM；未知或过期能力不按模型名称推定可看图。"
         if path.endswith("/analyze-subject"):
             return "需要登录和 X-CSRF-Token。上传主体参考图提取外貌描述；默认走 VLM，VLM 未启用且 LLM 可看图时回退 LLM，否则 503。"
         if path.endswith("/split-script"):

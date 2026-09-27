@@ -25,7 +25,8 @@ import {
 } from "../director2-job-types"
 import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "../paths"
 import { actWorkshop } from "../workshop-api"
-import { jobCanShowUpscaleAction, jobPreviewVideoUrl, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaleScale, jobUpscaledVideoUrl } from "../director2-video-settings"
+import { jobDetailVideos, mergeJobDetail } from "../job-detail"
+import { jobCanShowUpscaleAction, jobPreviewVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaleScale, jobUpscaledVideoUrl } from "../director2-video-settings"
 import UpscaleScaleButton from "../../UpscaleScaleButton"
 import { useMediaPreview } from "../media-preview"
 import "./jobs-center.css"
@@ -86,7 +87,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   const [upscalingJobId, setUpscalingJobId] = useState<string | null>(null)
   const hasInitializedTab = useRef(false)
   const fetchInFlightRef = useRef(false)
-  const selectedFullPayloadRef = useRef<Record<string, any> | null>(null)
+  const detailRequestRef = useRef(0)
   const pollDelayRef = useRef(JOBS_POLL_MS)
 
   // 与 Vue 实例级可变量（selectedJob）对应的同步 ref，供异步续体（fetchJobs 轮询）读取最新值
@@ -99,6 +100,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
 
   const typeCounts = useMemo(() => countJobsByType(jobs), [jobs])
   const filteredJobs = useMemo(() => filterJobsByType(jobs, activeJobType), [jobs, activeJobType])
+  const detailVideos = jobDetailVideos(selectedJob)
 
   const columns: TableProps<Director2Job>["columns"] = [
     {
@@ -328,13 +330,14 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   }
 
   async function openDetail(job: Director2Job) {
-    selectedFullPayloadRef.current = null
+    const requestId = ++detailRequestRef.current
     applySelectedJob(job)
     setDetailVisible(true)
     try {
       const full = await getJob(projectId, job.id)
-      selectedFullPayloadRef.current = full.payload
-      if (selectedJobRef.current?.id === full.id) applySelectedJob(full)
+      if (requestId === detailRequestRef.current && selectedJobRef.current?.id === full.id) {
+        applySelectedJob(full)
+      }
     } catch {
       /* 列表瘦 payload 仍可展示状态与结果 */
     }
@@ -359,11 +362,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       if (selectedJobRef.current) {
         const found = list.find((job) => job.id === selectedJobRef.current?.id)
         if (found) {
-          const fullPayload = selectedJobRef.current.id === found.id ? selectedFullPayloadRef.current : null
-          applySelectedJob({
-            ...found,
-            payload: fullPayload ? { ...fullPayload, ...found.payload } : found.payload,
-          })
+          applySelectedJob(mergeJobDetail(selectedJobRef.current, found))
         }
       }
     } catch {
@@ -427,6 +426,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     schedule()
     return () => {
       cancelled = true
+      detailRequestRef.current++
       window.clearTimeout(pollTimer)
     }
     // 对应原版 onMounted + onUnmounted；projectId 变化时重新拉列表并重置默认 Tab
@@ -482,7 +482,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
         footer={null}
         destroyOnHidden
         onCancel={() => {
-          selectedFullPayloadRef.current = null
+          detailRequestRef.current++
+          applySelectedJob(null)
           setDetailVisible(false)
         }}
         className="d2-jobs-center"
@@ -933,7 +934,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 结果图片 */}
-            {isVideoJob(selectedJob) && (jobPreviewVideoUrl(selectedJob) || selectedJob.result_url) ? (
+            {isVideoJob(selectedJob) && detailVideos.resultUrl ? (
               <div className="detail-section">
                 <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? ` · 含 ${jobUpscaleScale(selectedJob)} 超分` : ""}</div>
                 <div className="result-preview">
@@ -943,12 +944,12 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                       <video src={jobUpscaledVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
                     </>
                   ) : (
-                    <video src={jobPreviewVideoUrl(selectedJob) || selectedJob.result_url || undefined} className="result-video" controls preload="metadata" />
+                      <video src={detailVideos.resultUrl} className="result-video" controls preload="metadata" />
                   )}
-                  {jobSourceVideoUrl(selectedJob) && jobSourceVideoUrl(selectedJob) !== jobUpscaledVideoUrl(selectedJob) ? (
+                  {detailVideos.sourceUrl ? (
                     <>
                       <p className="prompt-label mt-3">原片</p>
-                      <video src={jobSourceVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
+                      <video src={detailVideos.sourceUrl} className="result-video" controls preload="metadata" />
                     </>
                   ) : null}
                   {typeof selectedJob.payload?.upscale_warning === "string" && selectedJob.payload.upscale_warning ? (

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react"
-import { Alert, Button, Card, Input, InputNumber, Select, Space, Spin, Tag, Upload, message } from "antd"
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Space, Spin, Tag, Typography, Upload, message } from "antd"
 import { Upload as UploadIcon } from "lucide-react"
 import {
   actionPrevisCommand, createActionPrevis, getActionPrevis, latestActionPrevis, reviseActionPrevis,
   type ActionPrevisPlan, type Director2Job,
 } from "../api"
 
-type Props = { csrfToken: string; projectId: string; episodeId: string; beatId: string }
+type Props = { csrfToken: string; projectId: string; episodeId: string; beatId: string; onDirtyChange?: (dirty: boolean) => void }
 const ACTIONS = ["idle", "walk", "run", "step", "turn", "reach", "point", "wave", "push", "pull", "grab", "release", "crouch", "jump", "guard", "jab", "cross", "hook", "block", "dodge", "knee", "low_kick", "side_kick", "recoil", "recover"]
 const ACTION_LABELS: Record<string, string> = { idle: "待机", walk: "行走", run: "跑动", step: "步法", turn: "转身", reach: "伸手", point: "指向", wave: "挥手", push: "推", pull: "拉", grab: "抓握", release: "松开", crouch: "下蹲", jump: "跳跃", guard: "架势", jab: "刺拳", cross: "后手直拳", hook: "摆拳", block: "格挡", dodge: "闪避", knee: "膝击", low_kick: "低扫", side_kick: "侧踢", recoil: "受击", recover: "回位" }
 const OPTIONS = {
@@ -16,7 +16,7 @@ const OPTIONS = {
 } as const
 const statusLabel: Record<string, string> = { queued: "排队分析", planning: "分析参考素材", awaiting_review: "待审稿", queued_remote: "等待远端 Blender", remote_running: "远端制作中", completed: "已通过", needs_revision: "需返修", failed: "失败", cancelled: "已取消" }
 
-export default function ActionPrevisPane({ csrfToken, projectId, episodeId, beatId }: Props) {
+export default function ActionPrevisPane({ csrfToken, projectId, episodeId, beatId, onDirtyChange }: Props) {
   const [description, setDescription] = useState("")
   const [images, setImages] = useState<File[]>([])
   const [video, setVideo] = useState<File | null>(null)
@@ -24,6 +24,12 @@ export default function ActionPrevisPane({ csrfToken, projectId, episodeId, beat
   const [plan, setPlan] = useState<ActionPrevisPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [requestDirty, setRequestDirty] = useState(false)
+
+  useEffect(() => {
+    onDirtyChange?.(dirty || requestDirty)
+    return () => onDirtyChange?.(false)
+  }, [dirty, requestDirty, onDirtyChange])
 
   useEffect(() => {
     let alive = true
@@ -51,7 +57,7 @@ export default function ActionPrevisPane({ csrfToken, projectId, episodeId, beat
     try {
       const created = await createActionPrevis(csrfToken, projectId, episodeId, beatId, description, images, video)
       const result = await getActionPrevis(projectId, created.job_id)
-      setJob(result); setPlan(null); setDirty(false)
+      setJob(result); setPlan(null); setDirty(false); setRequestDirty(false)
       message.success("参考分析已提交；方案生成后可逐项审稿")
     } catch (error) { message.error(String(error)) }
     finally { setBusy(false) }
@@ -90,17 +96,20 @@ export default function ActionPrevisPane({ csrfToken, projectId, episodeId, beat
   const artifacts = (job?.payload?.artifacts || {}) as Record<string, string>
   const issues = (job?.payload?.quality?.issues || []) as string[]
   return <div className="xiaji-action-previs" style={{ display: "grid", gap: 12, padding: 16 }}>
-    <Alert type="info" showIcon message="动作与镜头编排" description="支持 1–2 名人形角色、2–15 秒。上传图片或短视频作为动作参考；先审稿，再远端渲染 24 fps 骨骼白膜。此步骤不会自动提交 H3。" />
-    <Input.TextArea aria-label="动作与镜头要求" value={description} onChange={event => setDescription(event.target.value)} rows={3} maxLength={3000}
-      placeholder="例如：男女主近景对打，步法试探→前手刺拳被格挡→侧身闪避后低扫→受击后回位。镜头从过肩跟拍切到侧面近景，接触瞬间短推近。" />
+    <header className="workshop-previs-intro"><Typography.Title level={5}>动作与镜头编排 <Tag>可选</Tag></Typography.Title><Typography.Paragraph type="secondary">描述动作 → 审阅编排 → 渲染白膜。先验证动作和机位，再回到提示词完成创作。</Typography.Paragraph></header>
+    <Alert type="info" showIcon title="支持 1–2 名人形角色、2–15 秒" description="可上传图片或短视频作为动作参考；确认方案后才提交远端 Blender，输出 24 fps 骨骼白膜。不会自动生成最终视频。" />
+    <Form layout="vertical"><Form.Item label="动作与镜头要求" htmlFor="workshop-previs-description">
+      <Input.TextArea id="workshop-previs-description" aria-label="动作与镜头要求" value={description} onChange={event => { setDescription(event.target.value); setRequestDirty(Boolean(event.target.value.trim()) || images.length > 0 || Boolean(video)) }} rows={5} maxLength={3000}
+        placeholder="例如：男女主近景对打，步法试探→前手刺拳被格挡→侧身闪避后低扫→受击后回位。镜头从过肩跟拍切到侧面近景，接触瞬间短推近。" />
+    </Form.Item></Form>
     <Space wrap>
-      <Upload accept="image/jpeg,image/png,image/webp" multiple beforeUpload={file => { setImages(prev => [...prev, file].slice(0, 4)); return false }} showUploadList={false}>
+      <Upload accept="image/jpeg,image/png,image/webp" multiple beforeUpload={file => { setImages(prev => [...prev, file].slice(0, 4)); setRequestDirty(true); return false }} showUploadList={false}>
         <Button icon={<UploadIcon size={14} />}>参考图片（{images.length}/4）</Button>
       </Upload>
-      <Upload accept="video/mp4,video/quicktime,video/webm" beforeUpload={file => { setVideo(file); return false }} showUploadList={false}>
+      <Upload accept="video/mp4,video/quicktime,video/webm" beforeUpload={file => { setVideo(file); setRequestDirty(true); return false }} showUploadList={false}>
         <Button icon={<UploadIcon size={14} />}>{video ? video.name : "参考短视频"}</Button>
       </Upload>
-      {(images.length > 0 || video) && <Button onClick={() => { setImages([]); setVideo(null) }}>清空素材</Button>}
+      {(images.length > 0 || video) && <Button onClick={() => { setImages([]); setVideo(null); setRequestDirty(Boolean(description.trim())) }}>清空素材</Button>}
       <Button type="primary" loading={busy} onClick={() => void submit()}>生成编排方案</Button>
     </Space>
     {job && <Card size="small" title={<Space>任务 <Tag>{statusLabel[job.status] || job.status}</Tag> <span style={{ fontWeight: 400, fontSize: 12 }}>版本 {job.payload.plan_revision || 0}</span></Space>}>

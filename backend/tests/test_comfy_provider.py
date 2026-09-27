@@ -32,7 +32,8 @@ class ComfyUrlValidationTests(unittest.TestCase):
 class ComfyProviderServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.store = JobStore(Path(self.temp_dir.name) / "test.db")
+        with patch("backend.app.storage.settings", Settings(comfy_url="http://127.0.0.1:8188")):
+            self.store = JobStore(Path(self.temp_dir.name) / "test.db")
         self.provider = ComfyProviderService(self.store, "http://127.0.0.1:8188")
 
     def tearDown(self) -> None:
@@ -93,7 +94,8 @@ class ComfyProviderEndpointTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / "test.db"
         self.auth_store = AuthStore(self.db_path)
-        self.job_store = JobStore(self.db_path)
+        with patch("backend.app.storage.settings", Settings(comfy_url="http://127.0.0.1:8188")):
+            self.job_store = JobStore(self.db_path)
         self.provider = ComfyProviderService(self.job_store, "http://127.0.0.1:8188")
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store

@@ -119,4 +119,9 @@ backend/tests/test_*.py
 !backend/tests/test_vision_capability.py
 !backend/tests/test_vision_runtime.py
 !backend/tests/test_vlm.py
+!backend/tests/test_llm_image_transport.py
+!backend/tests/test_llm_image_transport_live.py
+!backend/tests/test_comfy_provider.py
+!backend/tests/test_h3_coverage.py
+!backend/tests/test_skill_packs.py
 scripts/action_previs_worker/vendor/

@@ -17,6 +17,32 @@ class GroupPromptTests(unittest.TestCase):
     def test_single_selection_expands_in_group_order(self):
         self.assertEqual(prompts.expand_groups(self.plan, ["b"]), ["a", "b"])
 
+    def test_performance_requirements_preserve_exact_dialogue_and_silent_shots(self):
+        beats = [{"id": "a", "speaker": "阿宁", "dialogue": "阿宁：‘青山’……回来。"}, {"id": "b"}]
+        before = deepcopy(beats)
+        text = prompts._performance_requirements(beats)
+        rows = json.loads(text.split("逐镜对白核对：", 1)[1].split("\n", 1)[0])
+        self.assertEqual(rows, [
+            {"beat_id": "a", "逐字对白": [{"说话人": "阿宁", "原文": "‘青山’……回来。"}]},
+            {"beat_id": "b", "逐字对白": []}])
+        self.assertIn("自己的时间窗内重新写出姓名 (S数字)", text)
+        self.assertIn("为空的镜头不写 (S数字) 或 <d>", text)
+        self.assertIn("至少 0.5 秒", text)
+        self.assertIn("明确写出闭口或静默，并描述具体承接姿态", text)
+        self.assertEqual(beats, before)
+
+    @patch.object(prompts.contract, "prompt_fingerprint", return_value="fp")
+    @patch.object(prompts.LlmService, "author_group")
+    def test_guidance_applies_to_saved_contract_without_replacing_snapshot(self, chat, fingerprint):
+        snapshot = prompts.writing_contract_snapshot()
+        snapshot["system"] = "immutable saved system"
+        before = deepcopy(snapshot)
+        chat.return_value = (complete_draft([body(dialogue=""), body(dialogue="", offset=8)]), {"ok": True})
+        prompts.generate_group(self.plan, self.group, self.beats, contract_snapshot=snapshot)
+        self.assertEqual(chat.call_args.args[0], "immutable saved system")
+        self.assertIn("逐镜对白核对：", chat.call_args.args[1])
+        self.assertEqual(snapshot, before)
+
     @patch.object(prompts.LlmService, "author_group")
     def test_missing_or_duplicate_shot_rejects_whole_group(self, chat):
         # Wrong shot counts or duplicated numbers all break the 1..N sequence.

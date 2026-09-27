@@ -118,9 +118,9 @@
   flex-direction: column;
   gap: 4px;
   padding: 14px 16px;
-  background: #f9fafb;
+  background: var(--studio-surface-raised);
   border-radius: 10px;
-  border: 1px solid #f3f4f6;
+  border: 1px solid var(--studio-border);
 }
 
 .d2-jobs-center .detail-title-block {
@@ -131,12 +131,12 @@
 .d2-jobs-center .detail-job-name {
   font-size: 15px;
   font-weight: 700;
-  color: #111827;
+  color: var(--studio-text);
 }
 
 .d2-jobs-center .detail-job-id {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--studio-text-muted);
   font-family: monospace;
 }
 
@@ -149,9 +149,9 @@
 .d2-jobs-center .detail-section-title {
   font-size: 13px;
   font-weight: 700;
-  color: #374151;
+  color: var(--studio-text);
   padding-bottom: 6px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--studio-border);
 }
 
 .d2-jobs-center .detail-section-title.is-split {
@@ -178,13 +178,13 @@
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--studio-text-secondary);
   padding-top: 2px;
 }
 
 .d2-jobs-center .detail-val {
   font-size: 13px;
-  color: #1f2937;
+  color: var(--studio-text);
   word-break: break-all;
 }
 
@@ -200,15 +200,15 @@
 .d2-jobs-center .mono {
   font-family: monospace;
   font-size: 12px;
-  color: #0284c7;
-  background: #f0f9ff;
+  color: var(--studio-text-secondary);
+  background: var(--studio-surface-raised);
   padding: 2px 8px;
   border-radius: 4px;
 }
 
 .d2-jobs-center .prompt-block {
-  background: #f9fafb;
-  border: 1px solid #f3f4f6;
+  background: var(--studio-surface-raised);
+  border: 1px solid var(--studio-border);
   border-radius: 8px;
   padding: 10px 12px;
 }
@@ -216,7 +216,7 @@
 .d2-jobs-center .prompt-label {
   font-size: 11px;
   font-weight: 600;
-  color: #9ca3af;
+  color: var(--studio-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.3px;
   margin-bottom: 6px;
@@ -226,7 +226,7 @@
   font-family: monospace;
   font-size: 12px;
   line-height: 1.7;
-  color: #374151;
+  color: var(--studio-text);
   margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
@@ -321,17 +321,17 @@
 }
 
 .d2-jobs-center .video-shot-item {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--studio-border);
   border-radius: 8px;
   padding: 12px;
-  background: #fff;
+  background: var(--studio-surface);
 }
 
 .d2-jobs-center .video-shot-head {
   margin-bottom: 10px;
   font-size: 13px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--studio-text);
 }
 
 .d2-jobs-center .video-ref-grid {
@@ -347,7 +347,7 @@
   gap: 8px;
   min-width: 0;
   font-size: 12px;
-  color: #4b5563;
+  color: var(--studio-text-secondary);
 }
 
 .d2-jobs-center .video-ref-item img {
@@ -355,7 +355,7 @@
   height: 72px;
   border-radius: 4px;
   object-fit: cover;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--studio-border);
   cursor: pointer;
 }
 
@@ -366,17 +366,17 @@
 }
 
 .d2-jobs-center .attempt-item {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--studio-border);
   border-radius: 6px;
   padding: 9px 11px;
-  background: #fff;
+  background: var(--studio-surface);
 }
 
 .d2-jobs-center .attempt-item summary {
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: var(--studio-text);
 }
 
 .d2-jobs-center .attempt-errors {
@@ -397,7 +397,7 @@
   border: 0;
   background: none;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--studio-text-secondary);
   text-decoration: none;
   cursor: pointer;
 }

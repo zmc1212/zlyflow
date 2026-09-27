@@ -1623,7 +1623,12 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_status_reports_vision_from_model_name(self) -> None:
+    def _verify_vlm(self) -> None:
+        from backend.app.vision_capability import VisionProbeResult, probe_fields
+        row = self.job_store.get_vlm_settings()
+        self.job_store.update_vlm_settings(**probe_fields(row, VisionProbeResult("supported", "isolated test evidence")))
+
+    def test_status_requires_verified_endpoint_not_model_name(self) -> None:
         self.llm_provider.update({
             "enabled": True,
             "base_url": "https://api.example.com/v1",
@@ -1642,6 +1647,10 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
             "model": "qwen2.5-vl-72b-instruct",
             "api_key": "sk-vlm",
         })
+        response = self.client.get("/api/llm/status")
+        self.assertFalse(response.json()["supports_vision"])
+        self.assertFalse(response.json()["analysis_vision"]["available"])
+        self._verify_vlm()
         response = self.client.get("/api/llm/status")
         self.assertTrue(response.json()["supports_vision"])
         self.assertEqual("vlm", response.json()["authoring_vision"]["source"])
@@ -1670,7 +1679,8 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
             "model": "qwen-vl-max",
             "api_key": "sk-dummy",
         })
-        with patch.object(self.vlm_provider, "analyze_subject", return_value="黑色短发，深色风衣，冷白皮"):
+        self._verify_vlm()
+        with patch.object(self.vlm_provider, "analyze_subject", return_value="黑色短发，深色风衣，冷白皮") as analyze:
             response = self.client.post(
                 "/api/llm/analyze-subject",
                 headers={"X-CSRF-Token": csrf_token(self.token)},
@@ -1679,6 +1689,8 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["description"], "黑色短发，深色风衣，冷白皮")
+        analyze.assert_called_once()
+        self.assertTrue(analyze.call_args.kwargs["image_data_url"].startswith("data:image/png;base64,"))
 
 
 class DirectorProjectApiTests(unittest.TestCase):

@@ -12,6 +12,8 @@ from typing import Any
 from urllib.parse import urlparse
 import requests
 
+from .llm_image_transport import ImageTransportError, prepare_chat_images
+
 LLM_CONNECT_TIMEOUT_SECONDS = 20.0
 LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
 LLM_TEST_TIMEOUT_SECONDS = 90.0
@@ -907,6 +909,13 @@ class OpenAICompatibleClient:
             meta_out.update(call_meta)
             call_meta = meta_out  # retain response evidence even when parsing raises
         connect_timeout, read_timeout = normalize_http_timeout(timeout)
+        try:
+            messages = prepare_chat_images(messages, self.base_url, meta_out=call_meta)
+        except ImageTransportError as error:
+            call_meta.update(failure_stage="image_preparation",
+                             elapsed_ms=int((time.monotonic() - started) * 1000))
+            self.last_call_meta = call_meta
+            raise LlmError(str(error)) from error
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,

@@ -1,5 +1,71 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-09-27：任务详情保留完整镜头快照与结果去重
+
+- 原因：列表 `slim_job_payload` 将 `shots/source_shots` 压缩为 `beat_id/video_url`，前端浅合并在自动轮询时覆盖完整参考图与 H3 正文；未超分时结果 URL 与原片 URL 相同，旧条件仍渲染两个播放器。
+- 基线：`job-detail.ts` 按任务、项目与 `beat_id` 合并精简更新，保留完整镜头字段，同时刷新状态、进度、结果及镜头视频 URL；刚出现的运行镜头可复用已加载的来源镜头详情。`JobsCenterPane` 使用请求序号隔离已关闭或已切换任务的迟到详情响应，不再使用脱离任务身份的 payload 缓存。
+- 结果：以实际主播放器 URL（超分优先，否则任务结果）与原片比较；相同 URL 仅渲染一次，不同版本分别保留。
+- 文件：`frontend/src/director2/{job-detail.ts,job-detail.test.ts,panes/JobsCenterPane.tsx,panes/jobs-center.css}`，以及 README、功能说明与导演台流程文档。
+- 主题：桌面暗色复查发现旧详情卡硬编码浅色背景和深色标题，将详情状态、镜头、提示词、标签与边框接入现有 `--studio-*` 变量，不改变布局或全局 token。
+- 兼容：仅修正详情局部状态与渲染，不改 API、列表瘦身协议、数据库、端口、ComfyUI、生成任务或历史媒体；不修改对话创作室样式。
+- 验证：`pnpm --dir frontend test`、`pnpm --dir frontend exec tsc -b --pretty false`、`python -m unittest backend.tests.test_job_list_payload -q`；最终生产构建使用 `pnpm --dir frontend build`。真实界面验收以 5173 桌面详情、跨轮询保留、单播放器与双主题截图为准，见流程文档同日期章节。
+- 回滚：仅逆向上述详情合并与去重增量并删除新增辅助及测试文件；保留其它工作区改动和所有任务、媒体，不需要数据迁移。
+
+## 2026-09-27：工坊镜头任务页签拆分
+
+- 原因：素材、提示词和动作预演共享窄侧栏，参考准备中多重折叠，图片和编排表单空间不足。
+- 当前基线：`UnifiedWorkshopPane` 的本地检视器页签为 `text / material / prompt / previs / video`，默认 `material`。移除 920px 宽度观察、280px 素材侧栏及 360px 素材 Drawer；`WorkshopMaterialsPanel` 只负责素材画廊与原业务回调。候选入口转到 `prompt`，参考阻断入口转到 `material`。
+- 状态边界：提示词草稿仍由父级维护，Ant Design 非活动页保留挂载；动作预演以 project/episode/beat 为 key 隔离，未提交输入和未保存方案通过 `onDirtyChange` 接入切镜／返回确认与刷新保护。移除旧宽度状态，不新增存储字段。
+- 受影响文件：`frontend/src/director2/panes/{UnifiedWorkshopPane,WorkshopMaterialsPanel,WorkshopMaterialsPanel.test,ActionPrevisPane}.tsx`、`unified-workshop.css`，及四份主文档。仍用根级主题、Ant Design、`--studio-*`；不修改 AI 对话创作室。
+- 兼容性：不改 API、数据库、端口、工作流节点、ComfyUI 地址、reference fingerprint、revision 或生成／采纳范围；当前镜头的 URL 查询参数和旧链接兼容处理保留。
+- 验证：`pnpm --dir frontend build`（68 文件、365 测试通过）；`python -m unittest discover -s backend/tests -p "test_workshop*.py"`（98 项）；`python -m unittest backend.tests.test_action_previs -q`（12 项）。5173 已尝试实页验证，但浏览器缺少工作台登录会话，双主题截图与交互验收尚未完成。
+- 回滚：仅逆向本次页签、素材组件、预演草稿保护及样式增量，不整文件覆盖已存在或并行修改；不回退项目数据。详见 [实施记录](工坊素材提示词与预演分区-2026-09-27.md)。
+
+## 2026-09-27：内容库右侧阅读工作区（前端增量）
+
+- 原因：剧本发展表单、采纳提示与文档摘要纵向堆叠，分集正文在首屏之外且默认全部折叠。
+- 当前基线：仍由 UnifiedContentLibraryPane 读取原 documents 接口。右侧以文档 id 为工作区边界，页签区分阅读／剧本发展／原文；ContentLibraryReader 仅维护当前分集选择，按真实 episode_num 导航，复制原始正文。已有分集默认直接阅读第一集，未分集草稿默认进入剧本发展。隐藏页签保留策划组件及输入，不停止其既有轮询。列表请求增加失效响应保护和加载／错误状态。
+- 受影响文件：frontend/src/director2/panes/UnifiedContentLibraryPane.tsx、ContentLibraryReader.tsx、ContentLibraryReader.test.tsx、unified-content-library.css 及四份主文档。业务输入仍使用 Ant Design，沿用根级 --studio-*；按当前 Ant Design 6 的 body-holder／body／tabpanel 链路约束滚动。
+- 兼容性：无 API、数据库、端口、工作流、ComfyUI 节点或持久化状态变更；保留 doc 深链与其他查询参数。ScriptDevelopmentPanel、AI 对话创作室、采纳／生成协议和已有媒体不改。原文保持原始换行，解析摘要收纳到原文页签。
+- 验证：pnpm --dir frontend build（67 文件、357 项测试通过）；python -m unittest backend.tests.media_studio_test_script_development -q（19 项通过）；5173 桌面双主题与交互验收。详情和截图索引见 [内容库验收](内容库阅读工作区验收-2026-09-27.md)。
+- 回滚：仅逆向撤回本次内容库组件、独立样式、阅读器与测试；保留此前及并行产生的其他改动，不回退任何项目数据。
+
+## 2026-09-26：工坊当前镜头工作台（布局续作）
+
+- 原因：作用范围重复、候选长文挤压正文、未保存导航确认不可靠。
+- 当前基线：镜头搜索／导航／专注是局部 UI 状态；素材按检视器 920px 断点切换侧栏或 Drawer，候选单独审阅。`workshop-ui-state.ts` 只计算下一步和整组就绪提示；后端仍是规划、引用和提交校验权威。
+- 受影响文件：`UnifiedWorkshopPane.tsx`、`unified-workshop.css`、`WorkshopPromptCandidates.tsx` 与测试，以及新增 `workshop-ui-state.ts`／`.test.ts`。无 API、数据库、工作流、路由协议或 ComfyUI 迁移；不替换现有 `plan`／`view` 状态模型。
+- 兼容性：保持整组生成、单镜返修、引用编号、revision／fingerprint 和历史证据。弹窗改用 `Modal.useModal` 绑定本页主题；dirty 在 UI 与写词／视频调用入口双重检查。
+- 验证：`pnpm --dir frontend build`（66 文件／351 测试＋TypeScript＋clean-dist＋Vite）；`python -m unittest discover -s backend/tests -p "test_workshop*.py"`（98 项）；真实 5173 三尺寸双主题。详细证据及未验边界见 [验收记录](剧集工坊镜头工作台验收-2026-09-26.md)。
+- 回滚：仅反向撤销这六个前端文件与配套文档的本轮 UI 增量，保留先前业务改动、其他任务修改、历史候选和媒体；不使用整文件覆盖或整仓 reset。
+
+## 2026-09-27：OpenAPI 与现行回归基线修复（北京时间）
+
+- 原因：全量测试存在机器默认配置污染、已演进合同的旧断言、缺失 OpenAPI 参数说明，以及退役夏姬模块的失效导入。对应执行时间为 2026-09-26 UTC／2026-09-27 北京时间。
+- 生产增量：`backend/app/api_documentation.py` 补充工坊路径参数、视觉能力／状态／凭据说明；`backend/app/main.py` 补齐“导演台2”标签元数据。无 API 路径、数据库、工作流或运行配置迁移；不凭模型名判视觉能力，不修改真实作者或 ComfyUI 地址。
+- 测试基线：`test_comfy_provider.py`、`test_core.py` 隔离环境；`test_director.py` 提供真实合同要求的隔离能力证据；`test_h3_coverage.py` 覆盖 legacy／v7 路由边界；`test_skill_packs.py` 保持角色／道具视频参考合同；`.gitignore` 补充正式测试白名单。旧夏姬 83 项原样归档到 `backend/tests/legacy/xiaji_contracts.py`，不计入现行通过数；`test_xiaji.py` 保留两个迁移守卫。
+- 验证：实际后端 Python 3.10.11 的 `python -m unittest discover -s backend/tests -p "test_*.py"` 为 951 通过、1 付费 opt-in 跳过；`python -m unittest backend.tests.media_studio_test_h3_video` 为 154 通过。`pnpm --dir frontend build` 成功，独立 frontend test 为 66 文件／344 项通过，仍有既有弃用／chunk 警告。满意版 10 份基线文件哈希及字节数一致。
+- 验收边界：技术回归不是音画效果验收。本任务 Browser 鉴权失败，且 custom 模型目录请求计费错误，尚无可确认的 GPT-6 配置；未新增出片、采纳候选或覆盖媒体。真实远端 `192.168.10.54:8188` 预检可达。详情见[满意版恢复计划第 12 节](导演台满意版效果恢复开发计划-2026-09-26.md#12-全量回归修复与效果验收边界2026-09-27-北京时间)。
+- 回滚：仅撤回本轮 OpenAPI 元数据、测试及文档增量；保留并行 UI／图像传输改动、全部证据和业务数据。不整仓回退，不把退役测试恢复进 discovery 后宣称当前覆盖已恢复。
+
+## 2026-09-26：剧集工坊桌面布局整理（当前 UI 基线）
+
+- 原因：1280×720 桌面下固定素材栏、嵌套 Flex 与多层 overflow 叠加，使 H3 区域约 291px 宽、正文编辑框仅约 24px 高。
+- 当前布局：UnifiedWorkshopPane.tsx 统一紧凑页头、操作分组及检视器；镜头列表 clamp(280px, 24%, 320px)。检视器由 ResizeObserver 测量，实际宽度不小于 920px 时展示 280px 素材侧栏，否则用 360px Ant Design Drawer；切换仅影响呈现，不清空草稿、镜头或参考选择。
+- 呈现分层：新增 WorkshopPromptCandidates.tsx 保留原候选作用范围和采纳保护；待采纳入口独立置于正文前，已采纳／过期／失败证据折叠到正文后的历史入口。写稿设置、任务记录与缺素材详情使用 Drawer。unified-workshop.css 限定本页及所属弹层，使用根主题与 --studio-*，不改对话创作室。
+- 兼容与迁移：无后端 API、持久化数据、前端业务状态合同、工作流、端口或 ComfyUI 配置迁移；仅增加局部布局／抽屉开合状态，原 revision、fingerprint、dirty、候选采纳及业务 handler 保留。受影响代码为上述三份文件及 WorkshopPromptCandidates.test.tsx。
+- 验证：pnpm --dir frontend build（含 65 个文件、326 项前端测试）与 python -m unittest discover -s backend/tests -p "test_workshop*.py"（96 项）通过；5173 三档桌面尺寸双主题实页检查通过，未提交真实写稿或视频生成。截图、已测交互及警告边界见 [布局验收记录](剧集工坊布局优化验收-2026-09-26.md)。
+- 回滚：仅撤回本轮布局、候选呈现组件及配套测试／文档增量，保留这两份工坊文件原有业务修改、所有历史数据与其他任务的后端改动；不要整仓回退。
+
+## 2026-09-27：阿里云参考图内嵌传输
+
+- 原因：能力验证走 Base64 小图，实际写稿走 CDN 外链，阿里云上游报 `Download multimodal file timed out`。同一失败任务首轮已用 DeepSeek 成功看图，第二轮才拉图超时，表明外链路径间歇性失败；更早的部分任务缺少实际作者记录，不能反推其调用路径。
+- 当前基线：`llm_image_transport.py` 在 `llm_client.chat_completion` 提交前对官方 DashScope/MaaS 端点内嵌图片。保持参考顺序、重复槽位、原参数和原始快照；下载/解码/压缩失败先阻断，不换模型、不丢图。`llm_service.author_group` 保留传输方式、数量和字节数等非敏感证据。
+- 边界：无凭据独立下载会话；限制公共地址、重定向、文件与像素大小、请求总图片预算。代理 fake-IP 仅对管理设置中精确匹配的 HTTPS 七牛域名放行，不放开实际内网。其他供应商与文本请求保持不变。
+- 写稿提示与既有校验对齐：`workshop_h3_skill.py` 要求独立静默尾段；`workshop_group_prompts.py` 追加逐镜逐字对白、声音归属及无对白镜约束，旧任务重试同样可用且保留原合同快照。既有结构和审稿校验不变，上游内容审核拒绝仍如实记录。
+- 受影响文件：上述五份后端文件、`backend/tests/test_llm_image_transport*.py`、`test_workshop_group_prompts.py`、`.gitignore` 及说明文档；无表结构、API、端口、前端布局、ComfyUI 节点或模型路径变化。
+- 验证命令、真实四图调用证据、完整任务验收和回滚见 [修复记录](阿里云写稿参考图下载超时修复-2026-09-27.md)。回滚仅撤回此次传输接入点并重启后端，不覆盖历史数据或其他工作区变更。
+
 ## 2026-09-26：端点视觉能力与完整连接复用（当前基线）
 
 - 原因：按模型名推断会误判已支持图片的自定义模型；旧 VLM 复用仅覆盖地址与密钥，留下 GLM 模型和旧能力状态，导致设置页与真实调用不一致。

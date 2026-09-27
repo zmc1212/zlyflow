@@ -494,10 +494,14 @@ class LlmService:
                 **extra,
             ).strip()
         except (LlmTemporaryError, LlmError) as err:
+            meta.update({key: call_meta[key] for key in ("image_transport", "image_count",
+                         "inlined_image_count", "image_payload_bytes", "failure_stage") if key in call_meta})
             meta.update(actual_model=call_meta.get("response_model"),
                         request_id=call_meta.get("provider_request_id"), usage=call_meta.get("usage"),
                         elapsed_ms=call_meta.get("elapsed_ms"), ok=False, status="failed", vision_status="failed")
             raise GroupAuthorError(f"写稿模型 {chosen['model']} 调用失败：{err}", meta) from err
+        meta.update({key: call_meta[key] for key in ("image_transport", "image_count",
+                     "inlined_image_count", "image_payload_bytes") if key in call_meta})
         meta.update({
             "actual_model": call_meta.get("response_model"),
             "request_id": call_meta.get("provider_request_id"),

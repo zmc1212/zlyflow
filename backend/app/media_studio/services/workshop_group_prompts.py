@@ -8,7 +8,7 @@ import time
 from ...workflow_registry import workflow_for
 from . import workshop_contract as contract
 from .llm_service import LlmService
-from .workshop_h3_skill import split_complete_group_draft, writing_contract_snapshot, AUTHORING_VERSION, voice_map, source_dialogues
+from .workshop_h3_skill import split_complete_group_draft, writing_contract_snapshot, AUTHORING_VERSION, DIALOGUE_TAIL_SECONDS, voice_map, source_dialogues
 from .workshop_review import review_group
 
 
@@ -25,6 +25,22 @@ def expand_groups(plan, ids):
 def _creative_body(body):
     # Only container/time representation is normalized, never creative content.
     return re.sub(r"(?m)^\s*detailed_description\s*[:：]\s*|\[Shot \d+\]\s*\d+:\d+(?:\.\d+)?[–—-]\d+:\d+(?:\.\d+)?", "", body).strip()
+
+
+def _performance_requirements(ordered):
+    # Repeat executable constraints next to the actual input, including retries
+    # using an immutable older system snapshot. Never rewrite the model's draft.
+    dialogue_rows = [
+        {"beat_id": beat["id"], "逐字对白": [
+            {"说话人": owner, "原文": text.strip()}
+            for owner, text in source_dialogues(beat)]}
+        for beat in ordered]
+    return ("\n逐镜对白核对：" + json.dumps(dialogue_rows, ensure_ascii=False)
+            + "\n每句对白须在其自己的时间窗内重新写出姓名 (S数字)，紧随本句时间标记，"
+              "再写动作、音量和语速及 <d>[中文] 原文</d>；前一个动作窗中的姓名或编号不算本句归属。"
+              "原文及标点逐字保留，不增删引号。逐字对白为空的镜头不写 (S数字) 或 <d>，只用姓名/Subject 描述动作。"
+            + f"最后对白之后单独安排至少 {DIALOGUE_TAIL_SECONDS:g} 秒的无对白收束时间窗，"
+              "明确写出闭口或静默，并描述具体承接姿态；只有停顿、嘴唇动作或姿态而未明确静默不够。")
 
 
 def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="", source_text="",
@@ -59,6 +75,7 @@ def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="
         if refs:
             user += f"\n随后附加的 {len(refs)} 张图片只供镜头 {beat['id']} 写稿参考，不分配 Picture 编号。"
             images.extend(refs)
+    user += _performance_requirements(ordered)
     base_user = user
     history = audit.setdefault("writing_history", [])
     seen, best, previous_raw = set(), None, ""

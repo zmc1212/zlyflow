@@ -52,7 +52,7 @@ export function workshopCandidateStaleReason(job: WorkshopJob, plan: WorkshopPla
   const oldGroup = basePlan.groups.find(g => g.id === group.id)
   if (!oldGroup || (["beat_ids", "common_prompt", "reference_slots", "timecode_mode", "locked_common_lines"] as const).some(key => JSON.stringify(oldGroup[key]) !== JSON.stringify(group[key]))) return "镜头组、参考或公共设定已变化，请重新生成"
   if (basePlan.workflow_id !== plan.workflow_id || basePlan.aspect_ratio !== plan.aspect_ratio) return "工作流或画幅已变化，请重新生成"
-  if (group.beat_ids.some(id => JSON.stringify(basePlan.shot_prompts[id]) !== JSON.stringify(plan.shot_prompts[id]))) return "同组已有新稿，旧候选不能覆盖；请重新生成"
+  if (group.beat_ids.some(id => JSON.stringify(basePlan.shot_prompts?.[id]) !== JSON.stringify(plan.shot_prompts?.[id]))) return "同组已有新稿，旧候选不能覆盖；请重新生成"
   return ""
 }
 export const readWorkshop = (project: string, episode: string) => requestJson<WorkshopView>(`${base(project, episode)}/workshop`)
