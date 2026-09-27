@@ -1,5 +1,17 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-09-27 当前写稿合同增量
+
+当前默认已从 `h3-skill-direct-v1` 升为 `h3-skill-direct-v2`：首批真实调用证明原 Skill 的案例规则与“没有参考音频、人物单图、允许剧情动作”的材料冲突。原始 Skill 文件及 v1 冻结任务不变；新任务全文加载 `skills/h3-director-authoring/SKILL.md`，不附加程序表演模板。`DIRECT_VERSIONS` 保持 v1/v2 单次调用和独立检查语义；v2 仅在对白比较时忽略成对引用引号，原文保存与提交不改写，并识别自然语言虚构音频引用。
+
+已有 actions 路径增加 `regenerate`：只接受已结束的写稿任务，按当前来源、镜头和作者配置创建新合同任务，记录 `regenerated_from_job_id`；旧任务、原稿与媒体不变。原 `retry` 仍使用冻结快照。新增 API 行为、状态模型、受影响文件、验证、隔离验收和回滚见 [v2 实施记录](导演台纯Skill-v2正式链路对齐-2026-09-27.md)。无表结构、端口、节点或模型路径变化。
+
+以下为 v1 实施时的历史记录：
+
+Director 新建写稿任务采用 `h3-skill-direct-v1`，由 `workshop_direct_input.build_input` 冻结原始 Skill、完整来源、白名单镜头材料、system/user 哈希和有序素材地址哈希。使用现有任务 JSON，不新增表或迁移已采纳数据。一次内容调用后保留完整原稿；创作风险仅提示，不自动返修。生成、保存、采纳与执行共用按版本分流的完整性检查；旧任务保留 `h3-complete-group-v1`，无版本稿按旧合同，未知版本只读。传输记录实际发送文本哈希及参数；新稿不自动注入声音设置。
+
+原因是消除额外模板、缓存稿和程序审稿对首次创作的牵引。受影响模块、完整字段、验证命令、兼容边界与回滚见 [实施记录](导演台纯Skill实施记录-2026-09-27.md)。后端 964 项、前端 379 项及构建通过；界面为 5173 桌面双主题，真实音画未验收。回滚只暂停新任务默认入口并撤回增量，保留新合同只读及未知版本拒写保护，不删除数据。下文早期自动返修描述仅适用于旧合同。
+
 ## 2026-09-27：任务详情保留完整镜头快照与结果去重
 
 - 原因：列表 `slim_job_payload` 将 `shots/source_shots` 压缩为 `beat_id/video_url`，前端浅合并在自动轮询时覆盖完整参考图与 H3 正文；未超分时结果 URL 与原片 URL 相同，旧条件仍渲染两个播放器。
@@ -3014,3 +3026,11 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 受影响文件：`backend/app/media_studio/services/{h3_prompt_builder,prompt_expansion_service,episode_video_service}.py`、`frontend/src/director2/{api.ts,panes/PromptAuthoringPanel.tsx,panes/EpisodeWorkshopPane.tsx}`、测试与主文档。
 - 验证：`python -m unittest backend.tests.test_director_h3_contract backend.tests.test_director_reliable backend.tests.media_studio_test_prompt_expansion backend.tests.media_studio_test_director_quality backend.tests.media_studio_test_h3_video backend.tests.media_studio_test_production backend.tests.test_timeline_rendering -q`、`pnpm --dir frontend build`、5173 桌面端镜头检视器检查。
 - 回滚：撤回本次增量并重启后端；保留历史方案、任务和媒体。
+# 2026-09-27 v2 实测补充
+
+后续用户确认同条件 A 满意、B 失败。当前新写稿 Skill 修订为 2.1.0，强化剧情驱动的动作阶段与发声编排；合同仍为 v2，旧快照不变，新修订尚待真实验收。完整结论见正式链路记录，不能把已有 B 的可执行性算作效果通过。
+
+正式导演台实测发现最小输入的跨剧本去重会丢失逐镜对白归属。`workshop_direct_input.py` 现在保留逐镜创作字段，即使它也出现于完整剧本；这里的必要重述用于归属，不是重复扩写。Skill 修订为 2.0.1。v2 允许唯一明确具名说话人沿用共享声音而不重复编号，错误编号和多人归属不明仍阻断；v1 校验不变。真实失败与通过原稿归档、视频对照状态见 [正式链路记录](导演台纯Skill-v2正式链路对齐-2026-09-27.md)。验证：后端全量 982 项（跳过 1 项）、新增真实样本回放通过；回滚仅撤回本次输入去重及单人校验增量，保留冻结任务原稿与版本，不覆盖已采用媒体。
+# 当前基线补充：原始 Skill v3（2026-09-27）
+
+新合同 `h3-skill-direct-v3` 使用原始 Skill 完整文本，仅执行校验；不再运行逐句内容匹配及创作审稿规则。v1/v2 冻结重试不变。[规则边界、受影响文件、验证与回滚](导演台原始Skill执行校验-v3-2026-09-27.md)。本文先前 v2 默认值描述为历史。

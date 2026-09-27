@@ -1,0 +1,21 @@
+{
+  "classification": "controlled_new_comparison",
+  "historical_author_source": "unknown",
+  "source_job_id": "job-0477663ee346",
+  "source": {
+    "document_id": "doc-e2e8c8efba96",
+    "revision": 2,
+    "source_type": "adopted_document_episode",
+    "fingerprint": "d2aee65d93f1a78487dd6073f4c0a7742a3d56a0dd5c2ba45dd8673fd8c735c8",
+    "text_file": "04_episode_script.txt",
+    "text_sha256": "045b6215666f8af8a6797805b1aa1a4c26b85b98df69bcee9178dfa92a3fa0a3"
+  },
+  "scope": {"aspect_ratio": "16:9", "timecode_mode": "cumulative", "durations": [8, 8], "fps": 24, "total_frames": 384},
+  "reference": {"asset_id": "ast-936e3d88139d", "identity_id": "ident-modern-88139d", "name": "沈砚", "kind": "character", "token": "<Picture 1>", "historical_comfy_file": "zly/director/ep-4d89a8df80a4/shenyan-modern-reference.png", "image_content_sha256": "704867f336816d2bd3d96f44f4cab4a760ae2e9687ce49509790c78c68b9e216", "image_bytes": 1681455, "verified_at": "2026-09-27", "current_slot_matches_historical_input": true},
+  "execution": {"width": 864, "height": 480, "seed": 888, "steps": 20, "weight_profile": "pruned", "audio_mode": "generate", "continuity_enabled": true, "overlap": 5, "continuity_mode": "guide", "redraw": 0.65},
+  "notes": ["不修改生产三镜组；运行时新建隔离内存方案走正式编译链", "付费调用前重新解析实际 ComfyURL 和现有作者设置，冻结图片内容哈希", "累计文本沿用当前组协议，不宣称已证明远端模型时间语义", "未授权提交或采纳"],
+  "beats": [
+    {"id": "beat-c99c747a1e46", "sequence": 1, "heading": "伏案研读 · 现代图书馆·深夜 · 16:9，中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓", "speaker": "沈砚", "dialogue": "沈砚：“‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。”", "action": "开场：沈砚伏在书案上，台灯暖黄光映在他疲惫的脸上，面前摊开一本泛黄古籍。他揉了揉眼睛，指尖划过书页上的诗句，低声念诵。收束：他仍伏在案前，指尖停在书页诗句上。", "camera": "16:9，中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓", "audio": "深夜图书馆的寂静环境音，轻微翻书声，台灯电流微弱的嗡嗡声", "characters": ["沈砚"], "scene": "现代图书馆·深夜", "props": ["台灯", "笔记本", "笔"], "video_duration": "8", "opening_state": "沈砚伏在书案上，面前摊开泛黄古籍，台灯暖黄光映在脸上", "closing_state": "沈砚仍伏在案前，指尖停在书页诗句上", "transition_note": "动作匹配切"},
+    {"id": "beat-5949bf77b487", "sequence": 2, "heading": "提笔记录 · 现代图书馆·深夜 · 16:9，近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页", "speaker": "沈砚", "dialogue": "沈砚：“再查查出处，应该还有线索。”", "action": "开场：沈砚仍伏在书案前，指尖停在书页诗句上。他提起笔在笔记本上记下几行，又皱眉，将古籍翻到扉页，仔细端详。窗外夜色深沉，图书馆空旷寂静。收束：他一手按在古籍扉页上，目光专注端详。", "camera": "16:9，近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页", "audio": "笔尖划过纸面的沙沙声，翻书声，窗外隐约的夜风声", "characters": ["沈砚"], "scene": "现代图书馆·深夜", "props": [], "video_duration": "8", "opening_state": "沈砚仍伏在案前，指尖停在书页诗句上", "closing_state": "他一手按在古籍扉页上，目光专注端详", "transition_note": "动作匹配切"}
+  ]
+}

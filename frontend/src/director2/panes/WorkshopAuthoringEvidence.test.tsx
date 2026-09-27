@@ -14,6 +14,20 @@ function fixture(): WorkshopJob {
       review: { structure_status: "passed", content_status: "rules_clear", semantic_status: "pending_human", media_status: "not_reviewed", issues: [] } }] } } }
 }
 describe("writing evidence truthfulness", () => {
+  it.each(["h3-skill-direct-v1", "h3-skill-direct-v2", "h3-skill-direct-v3"])("distinguishes %s drafts and retained failures from quality acceptance", (version) => {
+    const job = fixture()
+    job.payload.authoring!.contracts = { g: { version, skill_sha256: "skill", system: "完整 Skill", user: "完整材料", context_policy: "full_source_no_truncation" } }
+    job.payload.authoring!.rejected_groups = { g: { ...job.payload.authoring!.writing_history![0], not_approved: true } }
+    const html = renderToStaticMarkup(<WorkshopAuthoringEvidence job={job} group={group} />)
+    expect(html).toContain("单次写稿")
+    expect(html).toContain("冻结输入与来源（可复制）")
+    expect(html).toContain("原稿已保留，待人工处理；未自动返修，不可直接出片")
+    expect(html).toContain("成片：未验收")
+    if (version === "h3-skill-direct-v2") expect(html).toContain("素材与表演 · v2")
+    if (version === "h3-skill-direct-v3") expect(html).toContain("原始 Skill · 仅执行校验")
+    job.payload.authoring!.contracts.g.revision_beat_id = "b"
+    expect(renderToStaticMarkup(<WorkshopAuthoringEvidence job={job} group={group} />)).toContain("人工定点返修")
+  })
   it("shows image use and explicit fallback warnings", () => {
     const job = fixture()
     job.payload.authoring!.writing_history![0].author = { requested_model: "vision-author", actual_model: "text-author", attach_images: false, vision_status: "failed_text_fallback", fallback_from: "vision-author", warning: "参考图未参与写稿" }

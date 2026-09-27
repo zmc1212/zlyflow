@@ -10,6 +10,8 @@ from . import workshop_contract as contract
 from .llm_service import LlmService
 from .workshop_h3_skill import split_complete_group_draft, writing_contract_snapshot, AUTHORING_VERSION, DIALOGUE_TAIL_SECONDS, voice_map, source_dialogues
 from .workshop_review import review_group
+from .workshop_direct_input import dialogues_match, sha
+from .workshop_h3_skill import DIRECT_VERSIONS
 
 
 def is_director(plan):
@@ -51,8 +53,9 @@ def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="
         raise ValueError("返修镜头不在当前组内")
     audit = plan if audit is None else audit
     snapshot = contract_snapshot or writing_contract_snapshot(source_text, contract.group_timecode_mode(group))
-    if snapshot["version"] != AUTHORING_VERSION:
+    if snapshot["version"] not in {AUTHORING_VERSION, *DIRECT_VERSIONS}:
         raise ValueError("任务写稿合同版本不受支持，请创建新任务；旧候选保留")
+    direct = snapshot["version"] in DIRECT_VERSIONS
     system = snapshot["system"]
     slots = group.get("reference_slots") or []
     all_ids = [b["id"] for b in beats]
@@ -75,17 +78,27 @@ def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="
         if refs:
             user += f"\n随后附加的 {len(refs)} 张图片只供镜头 {beat['id']} 写稿参考，不分配 Picture 编号。"
             images.extend(refs)
-    user += _performance_requirements(ordered)
+    if direct:
+        user = snapshot["user"]
+        if sha(system) != snapshot["system_sha256"] or sha(user) != snapshot["user_sha256"] or contract.digest([system, user, images]) != snapshot["input_sha256"]:
+            raise ValueError("写稿输入或参考图片与冻结快照不一致，请创建新任务")
+        if fact_extraction:
+            raise ValueError("纯 Skill 合同需要作者直接读取材料，不支持额外模型改写输入")
+    else:
+        user += _performance_requirements(ordered)
     base_user = user
     history = audit.setdefault("writing_history", [])
     seen, best, previous_raw = set(), None, ""
     def save():
         if checkpoint:
             checkpoint()
-    for attempt in range(3):
+    for attempt in range(1 if direct else 3):
         entry = {"attempt": attempt + 1, "group_id": group["id"], "revision_beat_id": revision_beat_id,
                  "contract_version": snapshot["version"], "skill_sha256": snapshot["skill_sha256"],
-                 "input": user, "image_urls": images, "raw": "", "errors": [], "reason": None}
+                 "input": user, "image_urls": [] if direct else images, "raw": "", "errors": [], "reason": None}
+        if direct:
+            entry.update(image_hashes=snapshot["image_hashes"], input_sha256=snapshot["input_sha256"],
+                         origin="manual_revision" if revision_beat_id else "initial", content_call_count=1)
         history.append(entry)
         started = time.monotonic()
         try:
@@ -108,11 +121,11 @@ def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="
             parsed = None
             errors = [f"完整稿格式无法解析：{err}"]
         if parsed:
-            effective = {**group, "common_prompt": parsed["common_prompt"]}
+            effective = {**group, "common_prompt": parsed["common_prompt"], "contract_version": snapshot["version"]}
             names = [owner for beat in ordered for owner, _ in source_dialogues(beat) if owner]
             old_voices = dict(voice_map(group.get("common_prompt", ""), names))
             new_voices = dict(voice_map(parsed["common_prompt"], names))
-            if any(name in new_voices and new_voices[name] != number for name, number in old_voices.items()):
+            if snapshot["version"] != "h3-skill-direct-v3" and (not direct or revision_beat_id) and any(name in new_voices and new_voices[name] != number for name, number in old_voices.items()):
                 errors.append("人物声音编号归属不可改变，请沿用原有姓名与 S 编号")
             if not parsed["common_prompt"]:
                 errors.append("完整稿缺少公共主体与声音设定")
@@ -138,7 +151,7 @@ def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="
                 errors.extend(f"镜头 {beat['id']}：{e}" for e in contract.prompt_checks(body, beat, effective, h3=True, ordered_beats=ordered))
                 expected_dialogue = [text.strip() for _, text in source_dialogues(beat)]
                 actual_dialogue = [text.strip() for text in re.findall(r"<d>\s*\[中文\]\s*(.*?)</d>", body, re.S)]
-                if actual_dialogue != expected_dialogue:
+                if snapshot["version"] != "h3-skill-direct-v3" and not dialogues_match(expected_dialogue, actual_dialogue, snapshot["version"]):
                     errors.append(f"镜头 {beat['id']}：新候选对白必须逐句逐字保留原文及标点，不得改写")
                 errors.extend(f"镜头 {beat['id']}：{i['suggestion']}" for i in review["issues"] if i["severity"] == "error" and i["beat_id"] == beat["id"])
                 candidates[beat["id"]] = {"h3_prompt": body, "fingerprint": contract.prompt_fingerprint(beat, group, plan),
@@ -160,9 +173,9 @@ def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="
             best = (rank, deepcopy(entry))
         audit.setdefault("rejected_groups", {})[group["id"]] = {**best[1], "not_approved": True}
         repeated = contract.digest(raw) in seen
-        entry["reason"] = "锁定项越权" if fatal else "无进展" if repeated else "后稿退步，保留较好版本" if regression else "格式/结构返修"
+        entry["reason"] = "原稿待人工处理，不自动返修" if direct else "锁定项越权" if fatal else "无进展" if repeated else "后稿退步，保留较好版本" if regression else "格式/结构返修"
         save()
-        if fatal or repeated or regression or attempt == 2:
+        if direct or fatal or repeated or regression or attempt == 2:
             raise ValueError(entry["reason"] + "：" + "；".join(errors))
         seen.add(contract.digest(raw))
         previous_raw = raw

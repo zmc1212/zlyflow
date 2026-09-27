@@ -477,6 +477,11 @@ class LlmService:
         if is_openai_reasoning_chat_model(chosen["model"]) and chosen["reasoning_effort"] not in {"auto", ""}:
             extra["reasoning_effort"] = chosen["reasoning_effort"]
         call_meta: dict[str, Any] = {}
+        from .workshop_direct_input import sha
+        meta["sent_system_sha256"] = sha(system_prompt)
+        meta["sent_user_sha256"] = sha(user_prompt)
+        meta["sent_parameters"] = {"model": chosen["model"], "temperature": temperature,
+                                   "max_tokens": max_tokens, "stream": True, **extra}
         try:
             text = client.chat_completion(
                 [
@@ -492,7 +497,7 @@ class LlmService:
                 stream=True,
                 meta_out=call_meta,
                 **extra,
-            ).strip()
+            )
         except (LlmTemporaryError, LlmError) as err:
             meta.update({key: call_meta[key] for key in ("image_transport", "image_count",
                          "inlined_image_count", "image_payload_bytes", "failure_stage") if key in call_meta})
@@ -509,7 +514,7 @@ class LlmService:
             "elapsed_ms": call_meta.get("elapsed_ms"),
             "ok": True,
         })
-        if not text:
+        if not text.strip():
             meta["ok"] = False
             raise GroupAuthorError("写稿模型未返回内容", meta)
         return text, meta

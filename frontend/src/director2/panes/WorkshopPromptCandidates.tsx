@@ -33,6 +33,13 @@ type Props = CandidateContext & {
   jobs: WorkshopJob[]
   beats: Array<{ id: string; sequence: number }>
   onApply: (job: WorkshopJob, ids: string[], wholeGroup: boolean) => void
+  onRegenerate?: (job: WorkshopJob) => void
+}
+
+export function workshopCanRegenerate(job: WorkshopJob): boolean {
+  const versions = Object.values(job.payload.authoring?.contracts || {}).map(contract => contract.version)
+  return job.kind === "workshop_prompt" && ["failed", "cancelled", "completed"].includes(job.status)
+    && (!versions.length || versions.some(version => ["h3-complete-group-v1", "h3-skill-direct-v1", "h3-skill-direct-v2"].includes(version)))
 }
 
 export function workshopPendingCandidateIds(jobs: WorkshopJob[], plan: WorkshopPlan | null | undefined, groupWriting: boolean, sourceChanged: boolean): Set<string> {
@@ -58,6 +65,10 @@ export default function WorkshopPromptCandidates(props: Props) {
   const history = candidates.filter(item => !item.presentation.pending)
   const rejected = group ? jobs.filter(job => job.kind === "workshop_prompt" && !job.payload.candidates?.[beatId] && job.payload.authoring?.writing_history?.some(attempt => attempt.group_id === group.id)) : []
   const historyCount = history.length + rejected.length
+  const regenerate = (job: WorkshopJob) => props.onRegenerate && workshopCanRegenerate(job) ? <div>
+    <Typography.Paragraph type="secondary">使用当前剧本、素材和写稿设置创建新任务；旧稿与旧任务保留。</Typography.Paragraph>
+    <Button disabled={props.busy || props.dirty || props.sourceChanged || !props.plan} onClick={() => props.onRegenerate?.(job)}>按新方式重新生成</Button>
+  </div> : null
   const item = ({ job, presentation }: typeof candidates[number]) => ({
     key: job.id,
     label: presentation.label,
@@ -68,6 +79,7 @@ export default function WorkshopPromptCandidates(props: Props) {
         {presentation.adopted ? "已采用候选" : presentation.wholeGroup ? "采用整组候选" : "采用本镜候选"}
       </Button>
       {group && <WorkshopAuthoringEvidence job={job} group={group} />}
+      {regenerate(job)}
       {presentation.ids.map(id => <section className="workshop-candidate-shot" key={id}>
         <Typography.Text strong>镜头 {beats.find(beat => beat.id === id)?.sequence || id}</Typography.Text>
         <Typography.Paragraph>{job.payload.candidates[id]?.h3_prompt || "本组候选不完整，请重新生成"}</Typography.Paragraph>
@@ -88,7 +100,7 @@ export default function WorkshopPromptCandidates(props: Props) {
       children: <Collapse items={[...history.map(item), ...rejected.map(job => ({
         key: job.id,
         label: `未通过候选与返修记录 · ${job.id.slice(-8)}（不会覆盖正式稿）`,
-        children: group && <WorkshopAuthoringEvidence job={job} group={group} />,
+        children: group && <><WorkshopAuthoringEvidence job={job} group={group} />{regenerate(job)}</>,
       }))]} />,
     }]} />}
   </div>

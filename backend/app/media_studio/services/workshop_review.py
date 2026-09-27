@@ -3,7 +3,7 @@ import math
 import re
 
 from .workshop_h3_skill import (CHARS_PER_SECOND, SLOW_CHARS_PER_SECOND, SLOW_MARKERS,
-                                DIALOGUE_TAIL_SECONDS, _RANGE, _seconds, _compact)
+                                DIALOGUE_TAIL_SECONDS, DIRECT_VERSIONS, _RANGE, _seconds, _compact)
 from .workshop_contract import shot_header
 
 
@@ -29,8 +29,14 @@ def action_windows(body):
 
 
 def review_group(ordered, bodies, group):
+    if group.get("contract_version") == "h3-skill-direct-v3":
+        return {"structure_status": "passed", "content_status": "needs_review",
+                "semantic_status": "pending_human", "media_status": "not_reviewed", "issues": [],
+                "manual_checks": ["核对原剧本对白与说话人", "审阅人物动作、表演及镜间衔接", "实际成片对白与音画验收"]}
     issues = []
     def add(beat, code, evidence, suggestion, severity="warning"):
+        if group.get("contract_version") in DIRECT_VERSIONS:
+            severity = "warning"
         issues.append({"beat_id": beat["id"], "code": code, "severity": severity,
                        "evidence": evidence, "suggestion": suggestion})
     common = str(group.get("common_prompt") or "")

@@ -1,0 +1,30 @@
+{
+  "classification": "same_seed_current_director_AB",
+  "author_job": "job-3f9c325ed132",
+  "video_job": "job-aca23f3c43d5",
+  "A_raw_sha256": "d7afc7aa52fbbd227e2e06834bad07caf196a0d096a0fbbc9670ad5b881626e7",
+  "B_raw_sha256": "3735c327bab59573e9e5bd6b60e18bb563f262f00ab53f1c57cedf857ad1f9fb",
+  "non_prompt_conditions_equal": true,
+  "seed": 2092646634,
+  "historical_seed": 888,
+  "seed_note": "Real Director selected random seed; A copies B exactly. Not historical seed reproduction.",
+  "authorization": "User granted continuing authorization for this plan on 2026-09-27",
+  "A": {
+    "prompt_id": "67328834-f985-42ca-bc4c-06634d2dca9c",
+    "state": "completed",
+    "output": {
+      "filename": "ZLY_Skill_v2_AB_20260927_A_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  "B": {
+    "prompt_id": "dc64b9c0-5421-4515-a181-bc52957afbb2",
+    "state": "completed",
+    "output": {
+      "filename": "segment-1_00001_.mp4",
+      "subfolder": "video\\accept-7a4f330dc2594b34\\accept-78cc7de7ee6443f1\\job-aca23f3c43d5",
+      "type": "output"
+    }
+  }
+}

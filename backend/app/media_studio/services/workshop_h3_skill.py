@@ -10,6 +10,9 @@ from ..provider_bridge import credential_manager, llm_row, vlm_row
 from ...vision_capability import row_supports_vision
 
 SKILL_PATH = Path(__file__).resolve().parents[4] / "skills" / "MINIMAXH3格式动作语气台词细化SKILL" / "SKILL.md"
+DIRECT_SKILL_PATH = SKILL_PATH
+DIRECT_VERSION = "h3-skill-direct-v3"
+DIRECT_VERSIONS = {"h3-skill-direct-v1", "h3-skill-direct-v2", DIRECT_VERSION}
 DIALOGUE_TAIL_SECONDS = 0.5
 CHARS_PER_SECOND = 4.0
 SLOW_CHARS_PER_SECOND = 3.0
@@ -248,6 +251,8 @@ def ensure_sound_settings(groups, beats):
             used.add(number)
     for group in groups:
         common = str(group.get("common_prompt") or "").strip()
+        if group.get("contract_version") in DIRECT_VERSIONS:
+            continue
         # User-authored sound sections remain authoritative, including invalid
         # ones: validation reports them rather than overwriting creative choices.
         if re.search(r"声音设定\s*[:：]", common):

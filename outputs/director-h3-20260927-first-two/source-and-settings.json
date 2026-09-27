@@ -1,0 +1,96 @@
+{
+  "author": "Current Codex assistant; no LLM API or director task API",
+  "skill_path": "skills/MINIMAXH3格式动作语气台词细化SKILL/SKILL.md",
+  "comfy_url": "http://192.168.10.54:8188",
+  "beats": [
+    {
+      "id": "beat-c99c747a1e46",
+      "dialogue": "沈砚：“‘青山遮不住，毕竟东流去’……这诗风，不像宋人笔法。”",
+      "action": "开场：沈砚伏在书案上，台灯暖黄光映在他疲惫的脸上，面前摊开一本泛黄古籍。他揉了揉眼睛，指尖划过书页上的诗句，低声念诵。收束：他仍伏在案前，指尖停在书页诗句上。",
+      "camera": "16:9，中景，固定机位，侧前方45度拍摄，台灯暖光勾勒人物轮廓",
+      "video_duration": "8"
+    },
+    {
+      "id": "beat-5949bf77b487",
+      "dialogue": "沈砚：“再查查出处，应该还有线索。”",
+      "action": "开场：沈砚仍伏在书案前，指尖停在书页诗句上。他提起笔在笔记本上记下几行，又皱眉，将古籍翻到扉页，仔细端详。窗外夜色深沉，图书馆空旷寂静。收束：他一手按在古籍扉页上，目光专注端详。",
+      "camera": "16:9，近景，固定机位，从书案上方俯拍，突出笔记本上的字迹和古籍扉页",
+      "video_duration": "8"
+    }
+  ],
+  "references": [
+    {
+      "asset_id": "ast-936e3d88139d",
+      "look_id": "ident-modern-88139d",
+      "kind": "character",
+      "name": "沈砚",
+      "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/173506_fc9a09b81c710163.png",
+      "index": 1,
+      "token": "<Picture 1>"
+    },
+    {
+      "asset_id": "ast-927b49e98323",
+      "look_id": null,
+      "kind": "prop",
+      "name": "台灯",
+      "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165914_1ce9b022746130b7.png",
+      "index": 2,
+      "token": "<Picture 2>"
+    },
+    {
+      "asset_id": "ast-f77a5102b729",
+      "look_id": null,
+      "kind": "prop",
+      "name": "笔记本",
+      "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260920/165134_4f93617fb8218a03.png",
+      "index": 3,
+      "token": "<Picture 3>"
+    },
+    {
+      "asset_id": "ast-eee023da3899",
+      "look_id": null,
+      "kind": "prop",
+      "name": "中性笔",
+      "image_url": "https://img.zlyun168.com/zly-ai-video-studio/image/20260926/165805_f28b91d68c805a4b.png",
+      "index": 4,
+      "token": "<Picture 4>"
+    }
+  ],
+  "uploaded_references": [
+    {
+      "index": 0,
+      "imageFile": "codex-direct/20260927-first-two/picture-1-704867f33681.png",
+      "fileName": "picture-1-704867f33681.png",
+      "type": "input",
+      "subfolder": "codex-direct/20260927-first-two"
+    },
+    {
+      "index": 1,
+      "imageFile": "codex-direct/20260927-first-two/picture-2-1e58ed156993.png",
+      "fileName": "picture-2-1e58ed156993.png",
+      "type": "input",
+      "subfolder": "codex-direct/20260927-first-two"
+    },
+    {
+      "index": 2,
+      "imageFile": "codex-direct/20260927-first-two/picture-3-7e53ea30708c.png",
+      "fileName": "picture-3-7e53ea30708c.png",
+      "type": "input",
+      "subfolder": "codex-direct/20260927-first-two"
+    },
+    {
+      "index": 3,
+      "imageFile": "codex-direct/20260927-first-two/picture-4-c1f766cf661c.png",
+      "fileName": "picture-4-c1f766cf661c.png",
+      "type": "input",
+      "subfolder": "codex-direct/20260927-first-two"
+    }
+  ],
+  "duration_seconds": 16,
+  "fps": 24,
+  "width": 864,
+  "height": 480,
+  "seed": 2709271601,
+  "prompt_sha256": "f9fba59b39352eb18be3e7d952da371d0086dcabf76703cb6ba11ef3611a25e0",
+  "notes": "Existing compatible graph topology reused; all prompt text newly authored. No director tasks or database writes."
+}

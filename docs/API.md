@@ -1,5 +1,19 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-09-27 v2 写稿及显式新建任务
+
+新建 Director 写稿默认 `h3-skill-direct-v2`。冻结输入增加 `skill_revision="2.0.0"`、`validation_policy="dialogue_quotes_and_actual_references_v2"`，`skill_path` 指向 `skills/h3-director-authoring/SKILL.md`；system 是该文件完整 UTF-8 文本。既有 v1、旧完整稿合同继续按其冻结版本处理。
+
+`POST /api/projects/{project}/episodes/{episode}/workshop/jobs/{job}/actions` 新增 `action="regenerate"`，请求沿用 `expected_revision`、`expected_reference_fingerprint`，可传当前 `writing_author`。仅支持终态 `workshop_prompt` 任务；服务端使用原任务镜头范围选择当前整组，读取当前剧本／素材，默认首次整组写稿，不继承旧原稿、返修意见或失败输入。创建新任务的 payload 保存 `regenerated_from_job_id`；返回当前 `WorkshopView`，保留原任务全部字段。在排队／运行中重复相同来源任务与请求不重复新建。镜头删除、来源过期、版本冲突及素材失效继续走现有检查。
+
+`action="retry"` 不变：重试原冻结合同，不升级版本。生成／保存／采纳／出片对 v2 使用同一完整性策略，成对引用引号差异不改写原稿，汉字、停顿、句序和虚构参考检查保留。无表结构变化。受影响文件、验证与回滚见 [v2 实施记录](导演台纯Skill-v2正式链路对齐-2026-09-27.md)。
+
+## 2026-09-27 工坊写稿 JSON 增量
+
+现有 `/api/projects/{project}/episodes/{episode}/workshop` 及 prompts/actions 路径不变。新 Director 提示词任务 `payload.authoring.contracts[group_id]` 的 `version` 为 `h3-skill-direct-v1`，新增 `user`、`system_sha256`、`user_sha256`、`input_sha256`、`source_sha256`、`source`（document_id/revision/fingerprint/source_type/text）、`materials`、`material_source`、`beat_ids`、`references`、`image_hashes`、`image_hash_policy`、`revision_beat_id`、`revision_note`、`text_normalization`、`projection_policy`。`skill_text/system` 保留完整 Skill；`context_policy=full_source_no_truncation`。`image_hashes` 与 references 的 `image_locator_sha256` 哈希地址，不是图像字节；快照不新增带鉴权 URL 或 Base64 图像。
+
+`writing_history` 保留一次调用的 raw、input、errors、origin、content_call_count；author 元数据增加 `sent_system_sha256`、`sent_user_sha256`、`sent_parameters`。失败任务保留 `rejected_groups` 原稿并报告待人工处理，不自动内容返修。新稿及采纳组保存 `contract_version`；未知版本报“未知写稿合同版本，仅允许查看”。来源缺失／冲突、超 180000 字符预算或显式 fact_extraction 请求在创建时返回既有参数错误响应，不静默截断或改换作者。旧任务重试沿用原 snapshot。详细兼容与验证见 [实施记录](导演台纯Skill实施记录-2026-09-27.md)。
+
 ## 2026-09-26：视觉能力与 VLM 复用语义
 
 `GET /api/admin/providers/llm|vlm` 与对应 `POST .../test` 返回 `vision_capability`（`unknown/supported/unsupported`）、`vision_capability_source`、`vision_capability_checked_at`、脱敏 `vision_capability_message` 和 `supports_vision`。有效证据绑定 profile/URL/模型/凭据，有效期 24 小时；过期或连接变化后为 unknown。文本连通性成功不等于可看图；历史 `legacy_name_guess` 不授权图片。指纹和原始凭据不公开。
@@ -549,3 +563,6 @@ X-CSRF-Token: <login response csrf_token>
 ```
 
 回执成功后 `delivery_status` 变为 `local`，`download_url` 变为 `null`，`data/staging` 暂存和固定 ComfyUI `output` 中记录的原始输出会同时删除。ComfyUI 清理目标必须是 `type=output` 且解析路径位于固定 `Comfyui/output` 根目录，否则回执失败并保留 ZLY AI Video Studio 暂存供重试。该操作表示调用方已经可靠落盘，不可在下载开始前提前调用。未来七牛云 provider 继续使用相同任务输出状态，云端对象定位由 provider 负责，不把七牛 SDK 参数暴露到任务接口。
+# 2026-09-27 写稿合同 v3
+
+现有工坊写稿 API 新建默认 `h3-skill-direct-v3`，`validation_policy=execution_only_v3`、`skill_revision=original`，system 为原始 Skill 全文。review 保留 `semantic_status=pending_human`、`media_status=not_reviewed`，无自动创作问题列表；并非对白质量通过。旧合同不迁移，regenerate 用当前来源新建 v3。请求路径和鉴权不变。[完整边界](导演台原始Skill执行校验-v3-2026-09-27.md)。

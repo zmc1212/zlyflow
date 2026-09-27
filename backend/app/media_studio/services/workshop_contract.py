@@ -32,7 +32,12 @@ def unified(detail):
 
 
 def shot_fingerprint(beat):
-    return digest({k: beat.get(k) for k in SHOT_FIELDS})
+    fields = {k: beat.get(k) for k in SHOT_FIELDS}
+    # Preserve historical hashes when these optional authored fields are absent.
+    for key in ("dramatic_intent", "performance", "visual_strategy"):
+        if beat.get(key):
+            fields[key] = beat[key]
+    return digest(fields)
 
 
 def scene_key(beat):
@@ -160,14 +165,15 @@ def content_matches(record, group, plan):
         record.get("h3_prompt"), group.get("common_prompt"), plan.get("source_fingerprint"), record.get("contract_version")])
 
 
-def prompt_checks(body, beat, group, *, h3=False, ordered_beats=None):
+def prompt_checks(body, beat, group, *, h3=False, ordered_beats=None, contract_version=None):
     errors = []
+    execution_only = (contract_version or group.get("contract_version")) == "h3-skill-direct-v3"
     if not str(body).strip():
         return ["尚未保存 H3 提示词"]
     if any(int(n) > len(group.get("reference_slots") or []) or int(n) < 1 for n in re.findall(r"<Picture\s+(\d+)>", body, re.I)):
         errors.append("提示词引用了不存在的参考图编号")
     subjects = set(re.findall(r"<Subject\s+(\d+)>", str(group.get("common_prompt") or ""), re.I))
-    if set(re.findall(r"<Subject\s+(\d+)>", body, re.I)) - subjects:
+    if not execution_only and set(re.findall(r"<Subject\s+(\d+)>", body, re.I)) - subjects:
         errors.append("提示词引用了组公共设定中未定义的主体编号，请补齐组设定或直接使用人物姓名")
     compact = lambda text: re.sub(r"[\W_]+", "", str(text), flags=re.UNICODE)
     dialogue = str(beat.get("dialogue") or "").strip()
@@ -175,7 +181,7 @@ def prompt_checks(body, beat, group, *, h3=False, ordered_beats=None):
     if not lines and dialogue not in {"", "无", "无对白", "（无）", "—"}:
         lines = [re.sub(r"^[^：:\n]{1,24}[：:]", "", line).strip() for line in dialogue.splitlines()]
     for line in lines:
-        if compact(line) and compact(line) not in compact(body):
+        if not execution_only and compact(line) and compact(line) not in compact(body):
             errors.append("提示词遗漏对白：" + line)
     numbers = re.findall(r"\[Shot\s+(\d+)", body, re.I)
     if not numbers:
@@ -193,8 +199,16 @@ def prompt_checks(body, beat, group, *, h3=False, ordered_beats=None):
         if abs(actual_start - start_sec) > 0.05 or abs(actual_end - end_sec) > 0.05:
             errors.append(f"镜头时间需为 {fmt_timecode(start_sec)}–{fmt_timecode(end_sec)}，并与确认时长一致")
     if h3:
-        from .workshop_h3_skill import performance_checks
-        errors.extend(performance_checks(body, beat, group, offset_sec=start_sec))
+        version = contract_version or group.get("contract_version")
+        from .workshop_h3_skill import DIRECT_VERSIONS
+        if version in DIRECT_VERSIONS:
+            from .workshop_direct_input import integrity_checks
+            errors.extend(integrity_checks(body, beat, group, offset_sec=start_sec, version=version))
+        elif version in {None, "h3-complete-group-v1"}:
+            from .workshop_h3_skill import performance_checks
+            errors.extend(performance_checks(body, beat, group, offset_sec=start_sec))
+        else:
+            errors.append("未知写稿合同版本，仅允许查看")
     return list(dict.fromkeys(errors))
 
 
@@ -206,7 +220,7 @@ def project_prompts(beats, plan):
         beat["h3_prompt"] = record.get("h3_prompt", "")
         beat["h3_prompt_source"] = "workshop_v7"
         ordered = [b for b in beats if b["id"] in group.get("beat_ids", [])]
-        valid = content_matches(record, group, plan) and not prompt_checks(beat["h3_prompt"], beat, group, h3=workflow_for(plan["workflow_id"]).prompt_profile == "director_segments", ordered_beats=ordered) if record else False
+        valid = content_matches(record, group, plan) and not prompt_checks(beat["h3_prompt"], beat, group, h3=workflow_for(plan["workflow_id"]).prompt_profile == "director_segments", ordered_beats=ordered, contract_version=record.get("contract_version") or "h3-complete-group-v1") if record else False
         beat["h3_prompt_reference_state"] = "current" if valid and not group.get("reference_issues") and record.get("fingerprint") == prompt_fingerprint(beat, group, plan) else "stale" if record else "missing"
     return result
 
@@ -262,7 +276,7 @@ def execution_plan(detail, selected_ids=None):
             if not content_matches(record, group, plan):
                 raise ValueError(f"镜头 {beat.get('sequence', bid)} 正文与采纳证据不一致，请检查后重新保存")
             ordered = [by_id[x] for x in group["beat_ids"] if x in by_id]
-            errors = prompt_checks(record.get("h3_prompt", ""), beat, group, h3=definition.prompt_profile == "director_segments", ordered_beats=ordered)
+            errors = prompt_checks(record.get("h3_prompt", ""), beat, group, h3=definition.prompt_profile == "director_segments", ordered_beats=ordered, contract_version=record.get("contract_version") or "h3-complete-group-v1")
             if errors:
                 raise ValueError("；".join(errors))
             segments.append({"id": bid, "index": index + 1, "title": beat.get("heading") or bid,

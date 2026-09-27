@@ -9,12 +9,16 @@ export default function WorkshopAuthoringEvidence({ job, group }: { job: Worksho
   const before = job.payload.base_plan?.groups.find(g => g.id === group.id)?.common_prompt ?? group.common_prompt
   const after = job.payload.common_prompt_candidates?.[group.id]
   const contract = job.payload.authoring?.contracts?.[group.id]
+  const direct = ["h3-skill-direct-v1", "h3-skill-direct-v2", "h3-skill-direct-v3"].includes(contract?.version || "")
   const author = latest?.author
   const rejected = job.payload.authoring?.rejected_groups?.[group.id]
   return <Space direction="vertical" className="workshop-authoring-evidence" style={{ width: "100%", margin: "12px 0" }}>
     <Space wrap>
+      {direct && <Tag color="blue">纯 Skill · {contract?.revision_beat_id ? "人工定点返修" : "单次写稿"}</Tag>}
+      {contract?.version === "h3-skill-direct-v2" && <Tag>素材与表演 · v2</Tag>}
+      {contract?.version === "h3-skill-direct-v3" && <Tag>原始 Skill · 仅执行校验</Tag>}
       <Tag color={review?.structure_status === "passed" && !latest?.errors.length ? "green" : "default"}>结构：{review ? review.structure_status === "passed" && !latest?.errors.length ? "通过" : "未通过" : "无记录"}</Tag>
-      <Tag color="gold">内容：{review?.content_status === "rules_clear" ? "规则未见问题 · 人工待核" : review ? "有风险 · 待复核" : "未审查"}</Tag>
+      <Tag color="gold">内容：{contract?.version === "h3-skill-direct-v3" ? "未做逐句校验 · 待审阅" : review?.content_status === "rules_clear" ? "规则未见问题 · 人工待核" : review ? "有风险 · 待复核" : "未审查"}</Tag>
       <Tag>成片：未验收</Tag>
     </Space>
     <Typography.Text>请求作者：{author?.requested_model || job.payload.writing_author?.model || "历史任务未记录"}；响应模型：{author?.actual_model || "供应商未返回，不能确认"}</Typography.Text>
@@ -25,8 +29,15 @@ export default function WorkshopAuthoringEvidence({ job, group }: { job: Worksho
     {author?.warning && <Alert type="warning" showIcon message={author.warning} />}
     <Typography.Text type="secondary">供应商：{author?.provider_profile_id || job.payload.writing_author?.profile_id || "未记录"} · 推理：{author?.reasoning_effort || job.payload.writing_author?.reasoning_effort || "未记录"} · 温度：{author?.temperature ?? "未记录"}</Typography.Text>
     {author?.fact_extraction === "vlm" && <Alert type="info" showIcon message="VLM 只提取外观事实，指定作者写稿；这不是满意版原样复现。" />}
+    {job.payload.regenerated_from_job_id && <Typography.Paragraph type="secondary">按当前方式新建，来源任务：{job.payload.regenerated_from_job_id}；原任务与稿件保留。</Typography.Paragraph>}
     {job.payload.request?.revision_note && <Typography.Paragraph>返修意见：{job.payload.request.revision_note}</Typography.Paragraph>}
-    {rejected && <Alert type="warning" showIcon message={`保留第 ${rejected.attempt} 次较好草稿，但仍未通过，不可采纳`} description={<Collapse items={[{ key: "retained", label: "查看保留草稿", children: <Typography.Paragraph copyable style={{ whiteSpace: "pre-wrap" }}>{rejected.raw}</Typography.Paragraph> }]} />} />}
+    {rejected && <Alert type="warning" showIcon message={direct ? "原稿已保留，待人工处理；未自动返修，不可直接出片" : `保留第 ${rejected.attempt} 次较好草稿，但仍未通过，不可采纳`} description={<Collapse items={[{ key: "retained", label: "查看保留草稿", children: <Typography.Paragraph copyable style={{ whiteSpace: "pre-wrap" }}>{rejected.raw}</Typography.Paragraph> }]} />} />}
+    {direct && <Collapse items={[{ key: "frozen-input", label: "冻结输入与来源（可复制）", children: <>
+      <Typography.Paragraph>来源：{contract?.source?.source_type === "adopted_document_episode" ? "内容库已采纳分集" : "分集正文"} · 修订：{contract?.source?.revision ?? "未记录"} · 镜头材料：已确认镜头的动作、拍摄与声景。</Typography.Paragraph>
+      <Typography.Paragraph>输入 SHA-256：{contract?.input_sha256}</Typography.Paragraph>
+      <Typography.Paragraph copyable={{ text: JSON.stringify(contract, null, 2) }}>复制完整输入包</Typography.Paragraph>
+      <Typography.Paragraph copyable style={{ whiteSpace: "pre-wrap" }}>{contract?.system}{"\n\n"}{contract?.user}</Typography.Paragraph>
+    </> }]} />}
     {after && after !== before && <Alert type="warning" showIcon message="本候选同时修改公共设定，采纳时与全组正文一起生效" description={<Collapse items={[{ key: "common-diff", label: "查看公共设定变更（旧 / 新）", children: <div className="workshop-common-comparison">
       <Card size="small" title="生成前设定"><Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>{before || "空"}</Typography.Paragraph></Card>
       <Card size="small" title="候选设定"><Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>{after}</Typography.Paragraph></Card>

@@ -49,6 +49,7 @@ class WorkshopService:
             text = str(row.get("script_text") or "")
         revision = adopted.get("revision") or data.get("script_revision") or 0
         return {"document_id": doc_id, "revision": revision, "text": text,
+                "source_type": "adopted_document_episode" if episode else "episode_script",
                 "fingerprint": contract.digest([doc_id, revision, text]), "unlinked": not bool(episode),
                 "episode": {**(episode or {}), "body": text, "episode_num": row["episode_num"], "title": row.get("title")}}
 
@@ -115,7 +116,7 @@ class WorkshopService:
         return cls.view(project_id, episode_id)
 
     @classmethod
-    def create(cls, project_id, episode_id, kind, request):
+    def create(cls, project_id, episode_id, kind, request, *, regenerated_from_job_id=None):
         if kind not in cls.JOB_TYPES:
             raise ValueError("未知工坊任务")
         row, data = cls.row(project_id, episode_id)
@@ -148,6 +149,8 @@ class WorkshopService:
         payload = {"episode_id": episode_id, "source": source, "request": deepcopy(request),
                    "base_plan": deepcopy(plan), "beats": deepcopy(data.get("beats") or []), "candidates": {},
                    "message": "等待执行", "failures": {}, "applied_ids": []}
+        if regenerated_from_job_id:
+            payload["regenerated_from_job_id"] = regenerated_from_job_id
         if kind == "workshop_prompt":
             ids = request.get("beat_ids") or [b["id"] for b in payload["beats"]]
             if not ids or set(ids) - {b["id"] for b in payload["beats"]}:
@@ -155,7 +158,7 @@ class WorkshopService:
             assert_ready(plan, ids)
             payload["request"]["beat_ids"] = list(dict.fromkeys(ids))
             if is_director(plan):
-                from .workshop_h3_skill import writing_author, writing_contract_snapshot
+                from .workshop_h3_skill import writing_author
                 requested_author = request.get("writing_author") or plan.get("writing_author")
                 resolved_author = writing_author(requested_author)
                 payload["writing_author"] = {key: resolved_author[key] for key in
@@ -165,8 +168,7 @@ class WorkshopService:
                 payload["fact_extraction"] = request.get("fact_extraction") or ""
                 if payload["fact_extraction"] not in {"", "vlm"}:
                     raise ValueError("未知外观事实提取模式")
-                payload["authoring"] = {"contracts": {g["id"]: writing_contract_snapshot(source["text"], contract.group_timecode_mode(g))
-                    for g in plan["groups"] if set(ids).intersection(g["beat_ids"])}, "writing_history": []}
+                payload["authoring"] = {"contracts": {}, "writing_history": []}
                 if request.get("prompt_scope") == "shot_revision":
                     if len(ids) != 1 or not str(request.get("revision_note") or "").strip() or len(str(request.get("revision_note"))) > 4000:
                         raise ValueError("请选择一个镜头并填写 1～4000 字返修意见")
@@ -180,9 +182,19 @@ class WorkshopService:
                 else:
                     payload["request"]["beat_ids"] = expand_groups(plan, ids)
                     payload["prompt_scope"] = "group"
+                from .workshop_direct_input import build_input
+                if data.get("script_stale"):
+                    raise ValueError("创作来源冲突：新剧本尚未同步到已确认镜头，请先重新规划")
+                if payload["fact_extraction"]:
+                    raise ValueError("纯 Skill 写稿需要支持视觉的作者，不使用额外 VLM 改写输入")
+                payload["authoring"]["contracts"] = {g["id"]: build_input(
+                    plan, g, payload["beats"], source,
+                    revision_beat_id=ids[0] if payload["prompt_scope"] == "shot_revision" else None,
+                    revision_note=request.get("revision_note") or "")
+                    for g in plan["groups"] if set(ids).intersection(g["beat_ids"])}
         with cls.lock:
             for job in cls.view(project_id, episode_id)["jobs"]:
-                if job["status"] in {"queued", "running"} and job["kind"] == kind and job["payload"]["request"] == payload["request"]:
+                if job["status"] in {"queued", "running"} and job["kind"] == kind and job["payload"]["request"] == payload["request"] and job["payload"].get("regenerated_from_job_id") == regenerated_from_job_id:
                     return {"job_id": job["id"], "status": job["status"]}
             jid = "job-" + uuid.uuid4().hex[:12]
             execute_sql("INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,payload_json,created_at,updated_at) VALUES (%s,%s,%s,%s,'queued',0,%s,%s,%s)",
@@ -339,7 +351,19 @@ class WorkshopService:
         if payload.get("episode_id") != episode_id:
             raise ValueError("任务不属于此分集")
         action = request.get("action")
-        if action == "cancel":
+        if action == "regenerate":
+            if job["job_type"] != "workshop_prompt" or job["status"] not in {"failed", "cancelled", "completed"}:
+                raise ValueError("仅已结束的写稿任务可以按新方式重新生成")
+            ids = payload.get("request", {}).get("beat_ids") or list(payload.get("candidates", {}))
+            if not ids:
+                raise ValueError("历史任务缺少镜头范围，请在工坊选择镜头后生成")
+            fresh = {"expected_revision": request.get("expected_revision"),
+                     "expected_reference_fingerprint": request.get("expected_reference_fingerprint"),
+                     "beat_ids": ids, "prompt_scope": "group"}
+            if request.get("writing_author") is not None:
+                fresh["writing_author"] = request["writing_author"]
+            cls.create(project_id, episode_id, "workshop_prompt", fresh, regenerated_from_job_id=jid)
+        elif action == "cancel":
             execute_sql("UPDATE ai_project_jobs SET status='cancelled',updated_at=%s WHERE id=%s AND status IN ('queued','running')", (now_str(), jid))
         elif action == "retry":
             if job["status"] not in {"failed", "cancelled", "completed"}:
@@ -446,7 +470,7 @@ class WorkshopService:
                         if record.get("content_digest") and record["content_digest"] != contract.digest([record["h3_prompt"], effective_group["common_prompt"], current.get("source_fingerprint"), record.get("contract_version")]):
                             raise ValueError("候选正文或公共设定与生成证据不一致，请重新生成")
                         errors = contract.prompt_checks(record.get("h3_prompt", ""), beat, effective_group, h3=is_director(current),
-                                                        ordered_beats=[b for b in data["beats"] if b["id"] in group["beat_ids"]])
+                                                        ordered_beats=[b for b in data["beats"] if b["id"] in group["beat_ids"]], contract_version=record.get("contract_version") or "h3-complete-group-v1")
                         if errors:
                             raise ValueError("候选不符合当前 H3 要求，请重新生成：" + "；".join(errors))
                         current.setdefault("prompt_history", []).append({"beat_id": bid, "record": deepcopy(current.get("shot_prompts", {}).get(bid))})
@@ -454,6 +478,8 @@ class WorkshopService:
                         adopted["fingerprint"] = contract.prompt_fingerprint(beat, effective_group, current)
                         adopted["authoring_job_id"] = jid
                         current.setdefault("shot_prompts", {})[bid] = adopted
+                        if record.get("contract_version"):
+                            group["contract_version"] = record["contract_version"]
                         current.setdefault("applied_candidates", {}).setdefault(jid, []).append(bid)
                         payload["applied_ids"] = list(set(payload["applied_ids"]) | {bid})
                     common_candidates = payload.get("common_prompt_candidates") or {}
@@ -530,13 +556,18 @@ class WorkshopService:
                     assert_ready(plan, [bid])
                     group = next(g for g in plan["groups"] if bid in g["beat_ids"])
                     body = str(request["h3_prompt"]).strip()
+                    old = plan.setdefault("shot_prompts", {}).get(bid) or {}
+                    version = old.get("contract_version") or ("h3-complete-group-v1" if old else group.get("contract_version"))
                     errors = contract.prompt_checks(body, beat, group, h3=is_director(plan),
-                                                    ordered_beats=[b for b in data["beats"] if b["id"] in group["beat_ids"]])
+                                                    ordered_beats=[b for b in data["beats"] if b["id"] in group["beat_ids"]], contract_version=version)
                     if errors:
                         raise ValueError("；".join(errors))
                     old = plan.setdefault("shot_prompts", {}).get(bid)
                     plan.setdefault("prompt_history", []).append({"beat_id": bid, "record": old})
                     plan["shot_prompts"][bid] = {"h3_prompt": body, "fingerprint": contract.prompt_fingerprint(beat, group, plan), "origin": "manual"}
+                    if version:
+                        plan["shot_prompts"][bid].update(contract_version=version,
+                            content_digest=contract.digest([body, group.get("common_prompt"), plan.get("source_fingerprint"), version]))
             plan["revision"] += 1
             plan["shot_fingerprints"] = {b["id"]: contract.shot_fingerprint(b) for b in data["beats"]}
             if request.get("shot_updates"):

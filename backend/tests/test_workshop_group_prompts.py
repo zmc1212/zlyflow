@@ -12,7 +12,7 @@ class GroupPromptTests(unittest.TestCase):
     def setUp(self):
         self.group = {"id": "g", "beat_ids": ["a", "b"], "common_prompt": "人物\n声音设定：\n无对白，不添加人声。", "reference_slots": [], "timecode_mode": "cumulative"}
         self.plan = {"workflow_id": "minimax-h3-director-accel-r2v", "aspect_ratio": "16:9", "groups": [self.group]}
-        self.beats = [{"id": x, "video_duration": 8} for x in ["a", "b"]]
+        self.beats = [{"id": x, "video_duration": 8, "action": "观察窗外"} for x in ["a", "b"]]
 
     def test_single_selection_expands_in_group_order(self):
         self.assertEqual(prompts.expand_groups(self.plan, ["b"]), ["a", "b"])

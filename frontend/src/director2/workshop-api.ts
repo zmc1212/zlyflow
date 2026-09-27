@@ -22,13 +22,15 @@ export type WorkshopPlan = {
 export type WorkshopJob = {
   id: string; status: string; kind: string; error?: string;
   payload: { message: string; count_note?: string; applied_ids: string[]; prompt_scope?: "group" | "shot_revision";
+    regenerated_from_job_id?: string;
     candidate?: { beats: Director2Beat[]; plan: WorkshopPlan };
     candidates: Record<string, { h3_prompt: string; review?: WorkshopReview }>;
     common_prompt_candidates?: Record<string, string>;
     writing_author?: WritingAuthor; request?: { revision_note?: string };
     base_plan?: WorkshopPlan;
     authoring?: { writing_history?: WritingAttempt[]; reviews?: Record<string, WorkshopReview>;
-      contracts?: Record<string, { version: string; skill_sha256: string; system: string; context_policy: string }>;
+      contracts?: Record<string, { version: string; skill_sha256: string; system: string; context_policy: string;
+        user?: string; input_sha256?: string; source?: { source_type?: string; document_id?: string; revision?: number }; revision_beat_id?: string }>;
       rejected_groups?: Record<string, WritingAttempt & { not_approved: boolean }> };
     failures: Record<string, string>;
   }

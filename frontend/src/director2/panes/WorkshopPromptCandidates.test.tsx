@@ -2,7 +2,7 @@ import { isValidElement, type ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { Button } from "antd"
 import { describe, expect, it, vi } from "vitest"
-import WorkshopPromptCandidates, { workshopCandidatePresentation, workshopPendingCandidateIds } from "./WorkshopPromptCandidates"
+import WorkshopPromptCandidates, { workshopCandidatePresentation, workshopPendingCandidateIds, workshopCanRegenerate } from "./WorkshopPromptCandidates"
 import type { WorkshopGroup, WorkshopJob, WorkshopPlan } from "../workshop-api"
 
 const group: WorkshopGroup = { id: "group-1", beat_ids: ["shot-1", "shot-2"], common_prompt: "共同主体", reference_slots: [] }
@@ -96,6 +96,32 @@ describe("workshop pending navigation", () => {
 })
 
 describe("workshop adoption scope and guards", () => {
+  it("offers a separate new-contract task for finished historical drafts", () => {
+    const job = candidate()
+    job.status = "failed"
+    job.payload.candidates = {}
+    job.payload.authoring = { contracts: { [group.id]: { version: "h3-skill-direct-v1", skill_sha256: "old", system: "old", context_policy: "frozen" } },
+      writing_history: [{ group_id: group.id, attempt: 1, raw: "旧原稿", input: "旧输入", errors: ["失败"] }] }
+    const input = { ...props([job]), onRegenerate: vi.fn() }
+    const actions = buttons(WorkshopPromptCandidates(input))
+    expect(actions).toHaveLength(1)
+    expect(actions[0].children).toBe("按新方式重新生成")
+    actions[0].onClick!()
+    expect(input.onRegenerate).toHaveBeenCalledExactlyOnceWith(job)
+    expect(input.onApply).not.toHaveBeenCalled()
+    for (const guard of [{ dirty: true }, { busy: true }, { sourceChanged: true }]) {
+      expect(buttons(WorkshopPromptCandidates({ ...input, ...guard }))[0].disabled).toBe(true)
+    }
+    job.status = "running"
+    expect(workshopCanRegenerate(job)).toBe(false)
+    job.status = "failed"
+    job.payload.authoring.contracts![group.id].version = "h3-skill-direct-v2"
+    expect(workshopCanRegenerate(job)).toBe(true)
+    job.payload.authoring.contracts![group.id].version = "h3-skill-direct-v3"
+    expect(workshopCanRegenerate(job)).toBe(false)
+    job.payload.authoring.contracts![group.id].version = "unknown-future"
+    expect(workshopCanRegenerate(job)).toBe(false)
+  })
   it("passes the complete group unchanged to the original apply action", () => {
     const job = candidate()
     const input = props([job])

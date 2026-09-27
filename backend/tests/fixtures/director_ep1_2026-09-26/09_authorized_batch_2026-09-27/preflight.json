@@ -1,0 +1,29 @@
+{
+  "classification": "controlled_new_comparison",
+  "author": {
+    "profile_id": "dashscope",
+    "base_url": "https://ws-oiiv3docpub47bsj.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "model": "deepseek-v4.1-flash",
+    "reasoning_effort": "low",
+    "supports_vision": true
+  },
+  "comfy_url": "http://192.168.10.54:8188",
+  "task_type": "r2v — 参考主体生视频(Reference to Video)",
+  "reference_sha256": "704867f336816d2bd3d96f44f4cab4a760ae2e9687ce49509790c78c68b9e216",
+  "source_sha256": "045b6215666f8af8a6797805b1aa1a4c26b85b98df69bcee9178dfa92a3fa0a3",
+  "skill_sha256": "1bcdbc65ead1a4f32d8f9c13f03fd60d4b6d356f74a844e9b3ab3fac19ea1780",
+  "authorization": "User authorized 2 author calls and one A/B pair on 2026-09-27",
+  "execution": {
+    "width": 864,
+    "height": 480,
+    "seed": 888,
+    "steps": 20,
+    "weight_profile": "pruned",
+    "audio_mode": "generate",
+    "continuity_enabled": true,
+    "overlap": 5,
+    "continuity_mode": "guide",
+    "redraw": 0.65
+  },
+  "adopted": false
+}
