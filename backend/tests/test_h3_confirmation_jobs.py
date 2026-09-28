@@ -37,6 +37,17 @@ class ConfirmationJobsTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_continuity_export_boundaries_override_timeline_header(self):
+        from backend.app.minimax_h3_confirm_workflow import executed_segment_frames
+        report = ("  #1 [0:192] 192f — r2v\n  #2 [192:384] 192f — r2v\n"
+                  "Seg #2: continuity guide — 22f from seg #1 (AV latent, +audio); sample=226f → export 204f\n"
+                  "Export mode: all — merged 396 frame(s) on images output.")
+        history = {"outputs": {"8": {"text": [report]}}}
+        self.assertEqual(executed_segment_frames(history, 2), [192, 204])
+        history["outputs"]["8"]["text"] = [report.replace("merged 396", "merged 400")]
+        with self.assertRaisesRegex(ValueError, "总帧数"):
+            executed_segment_frames(history, 2)
+
     def test_confirmation_keeps_original_and_zero_seed(self):
         child = self.store.create_confirmation_child("source", self.request, "http://remote:8188")
         state = child["options"]["h3_confirmation"]

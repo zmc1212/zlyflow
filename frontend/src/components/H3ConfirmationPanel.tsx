@@ -110,8 +110,8 @@ export function H3ConfirmationPanel({ endpoint, csrfToken, readOnly = false, onC
       message={c.status === "cancelled" ? "二采已取消，原片保留" : "二采失败，原片保留"} description={c.error}
       action={!readOnly && <Button disabled={busy || !!running} onClick={() => void retry(c)}>重试失败二采</Button>} />)}
     {state?.eligible && !readOnly && <Space wrap style={{ marginTop: 12 }}>
-      <Typography.Text>{successful.length ? "再次生成二采" : "一采完成 · 待确认二采"}</Typography.Text>
-      <Select aria-label="二采目标画质" value={quality} disabled={busy || !!running} style={{ width: 140 }}
+      <Typography.Text>{running ? "已确认 · 二采进行中" : successful.length ? "再次生成二采" : "一采完成 · 待确认二采"}</Typography.Text>
+      <Select aria-label="二采目标画质" value={running?.quality ?? quality} disabled={busy || !!running} style={{ width: 140 }}
         options={[{value:1,label:"1 MP"},{value:2,label:"2 MP"}]}
         onChange={value => { setQuality(value); requestId.current = null }} />
       <Button type="primary" loading={busy} disabled={!!running || cacheInvalid} onClick={() => void confirm()}>确认并生成二采</Button>

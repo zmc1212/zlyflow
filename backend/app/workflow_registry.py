@@ -1016,7 +1016,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         "collection", 1, 9, supports_h3_options=True,
         prompt_profile="director_segments", prompt_template_version="prompt-master/continuous-story@5",
         option_schema=DIRECTOR_CONFIRM_OPTION_SCHEMA,
-        catalog_group="h3_director_confirm_accel", hidden_from_catalog=True,
+        catalog_group="h3_director_confirm_accel", hidden_from_catalog=False,
         supports_timeline=True, supports_multi_segment=True, max_segments=6, max_total_frames=1152,
         supports_segment_continuity=True, supports_audio_batch=True,
     ),

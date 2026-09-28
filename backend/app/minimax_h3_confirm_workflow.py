@@ -68,6 +68,18 @@ def executed_segment_frames(history, segment_count):
             raise ValueError("实际分段边界不连续")
         counts.append(int(count))
         end = int(stop)
+    # Continuity samples an extra guide window. The author's timeline header
+    # precedes execution; its explicit export count supersedes that segment.
+    seen = set()
+    for index, count in re.findall(r"^Seg #(\d+): continuity guide[^\n]*→ export (\d+)f\b", text, re.MULTILINE):
+        index, count = int(index), int(count)
+        if index < 1 or index > segment_count or index in seen or count <= 0:
+            raise ValueError("连续镜头导出帧数无效")
+        seen.add(index)
+        counts[index - 1] = count
+    totals = re.findall(r"Export mode: all — merged (\d+) frame\(s\)", text)
+    if totals and (len(totals) != 1 or sum(counts) != int(totals[0])):
+        raise ValueError("分段帧数与实际导出总帧数不一致")
     return counts
 
 

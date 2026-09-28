@@ -2648,7 +2648,8 @@ class EpisodeVideoService:
         if getattr(_VIDEO_LEASE, "owner", None):
             payload["execution_lease"] = {"owner": _VIDEO_LEASE.owner, "expires_at": time.time() + 120}
         payload_sql = ("JSON_SET(%s,'$.confirmation_cancel_requested',"
-                       "COALESCE(JSON_EXTRACT(payload_json,'$.confirmation_cancel_requested'),false))"
+                       "CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.confirmation_cancel_requested')) "
+                       "IN ('true','1') THEN 1 ELSE 0 END)"
                        if payload.get("h3_confirmation", {}).get("stage") == "refine_only" else "%s")
         _video_write(
             f"UPDATE ai_project_jobs SET status = %s, progress = %s, payload_json = {payload_sql}, updated_at = %s WHERE id = %s",

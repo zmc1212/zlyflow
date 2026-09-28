@@ -39,8 +39,10 @@ describe("H3 explicit confirmation", () => {
     expect(tree.some(n => n.type === Select && n.props["aria-label"] === "二采目标画质")).toBe(true)
   })
   it("blocks duplicate confirmation while preserving first-pass video", () => {
-    const tree = render({...source, children:[{id:"second",status:"running",progress:20}]})
+    const tree = render({...source, children:[{id:"second",status:"running",progress:20,quality:1}]})
     expect(tree.find(n => n.type === Button && n.props.children === "确认并生成二采")?.props.disabled).toBe(true)
+    expect(tree.find(n => n.type === Select)?.props.value).toBe(1)
+    expect(tree.some(n => n.props.children === "已确认 · 二采进行中")).toBe(true)
     expect(tree.some(n => n.type === "video" && n.props.src === "/first.mp4")).toBe(true)
     expect(tree.some(n => n.type === Button && n.props.children === "取消二采")).toBe(true)
   })
