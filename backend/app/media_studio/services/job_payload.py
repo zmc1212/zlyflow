@@ -12,6 +12,7 @@ JOB_LIST_COLUMNS = (
 
 _JOB_LIST_KEYS = {
     "reference_urls",
+    "workflow_id",
     "images",
     "target_type",
     "asset_id",
@@ -159,6 +160,9 @@ def _slim_episodes_done(value: Any) -> list[dict[str, Any]]:
 def slim_job_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     source = payload or {}
     slim = {key: source[key] for key in _JOB_LIST_KEYS if key in source}
+    if source.get("h3_confirmation"):
+        slim["h3_confirmation"] = {k: v for k, v in source["h3_confirmation"].items()
+            if k in {"stage", "state", "source_revision", "quality", "source_job_id"}}
     shots = _slim_shots(source.get("shots"))
     if shots:
         slim["shots"] = shots

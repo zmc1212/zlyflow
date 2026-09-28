@@ -102,7 +102,7 @@ class ProductionService:
         def add(state, detail):
             current = model.plan_context(detail, mode)
             same_input = current["snapshot"].get("revision") == context["plan_snapshot"].get("revision") if isinstance(current["snapshot"], dict) and current["snapshot"].get("schema_version") == 7 else True
-            model.register_material(state, mode, material, auto_adopt=same_input and current["key"] == context["plan_key"] and not current["stale"])
+            model.register_material(state, mode, material, auto_adopt=payload.get("auto_adopt", True) and same_input and current["key"] == context["plan_key"] and not current["stale"])
         cls._mutate(payload["project_id"], payload["episode_id"], add)
         payload.setdefault("production_material_ids", [])
         if material_id not in payload["production_material_ids"]:

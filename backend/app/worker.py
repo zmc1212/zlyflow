@@ -296,7 +296,7 @@ class JobWorker:
         job = await asyncio.to_thread(self.store.get, job_id, include_references=True)
         if self.store.is_cancelled(job_id):
             return
-        if not self.references_available_locally(job):
+        if not (job.get("options", {}).get("h3_confirmation") or {}).get("graph") and not self.references_available_locally(job):
             return
         if job["status"] == JobStatus.QUEUED:
             claimed = await asyncio.to_thread(
@@ -335,6 +335,10 @@ class JobWorker:
                 # Claim the card: IndexTTS /free first, then keep the lock until
                 # this H3/Comfy job finishes so director2 TTS cannot start on VRAM.
                 with occupy_gpu("comfy"):
+                    if job["mode"] == "minimax-h3-director-confirm-accel-r2v":
+                        from .h3_confirmation_jobs import run_creation_confirmation
+                        return run_creation_confirmation(self.store, self.comfy, job,
+                            update_stage, on_submitted, is_cancelled)
                     if job.get("comfy_prompt_id"):
                         return self.comfy.resume(
                             JobMode(job["mode"]),

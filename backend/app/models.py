@@ -23,6 +23,8 @@ class JobMode(str, Enum):
     MINIMAX_H3_DIRECTOR_ACCEL_T2V = "minimax-h3-director-accel-t2v"
     MINIMAX_H3_DIRECTOR_ACCEL_I2V = "minimax-h3-director-accel-i2v"
     MINIMAX_H3_DIRECTOR_ACCEL_R2V = "minimax-h3-director-accel-r2v"
+    MINIMAX_H3_DIRECTOR_REFINE_ACCEL_R2V = "minimax-h3-director-refine-accel-r2v"
+    MINIMAX_H3_DIRECTOR_CONFIRM_ACCEL_R2V = "minimax-h3-director-confirm-accel-r2v"
     MINIMAX_H3_T8_ALL_REFERENCE = "minimax-h3-t8-all-reference"
     MINIMAX_H3_T8_DUAL_CLOCK = "minimax-h3-t8-dual-clock"
     NVIDIA_RTX_VSR = "nvidia-rtx-vsr"

@@ -140,6 +140,10 @@ def normalize_design(design: dict, beats: list[dict], facts: dict, fps: int = 24
 def shot_route(director_id: str, references: int, duration: float) -> tuple[str | None, str | None]:
     """Only select a registered H3 single-video route, never a different model."""
     director = workflow_for(director_id)
+    if director.id in {"minimax-h3-director-refine-accel-r2v", "minimax-h3-director-confirm-accel-r2v"}:
+        if 1 <= references <= 9:
+            return director.id, None
+        return None, "H3 Director 二采加速版需要 1–9 张参考图，不会切换到其他配方"
     candidates = [w for w in WORKFLOWS if w.prompt_profile == "full_reference"
                   and w.supports_h3_options and not w.supports_timeline
                   and w.min_references <= references <= w.max_references

@@ -205,7 +205,14 @@ class ReferenceServiceTests(unittest.TestCase):
         payload = {"episode_id": "ep", "request": {"beat_ids": ["b1"]}, "base_plan": data["prompt_authoring"]["director_plan"],
                    "beats": data["beats"], "candidates": {}, "failures": {}, "prompt_scope": "group",
                    "writing_author": {"model": "test-author", "provider": "test"}}
-        self.jobs["job"] = {"id": "job", "job_type": "workshop_prompt", "payload_json": json.dumps(payload)}
+        self.jobs["job"] = {"id": "job", "status": "running", "job_type": "workshop_prompt", "payload_json": json.dumps(payload)}
+        def persist(sql, args):
+            if sql.startswith("UPDATE ai_project_jobs SET payload_json"):
+                self.jobs["job"]["payload_json"] = args[0]
+                if "status=%s" in sql:
+                    self.jobs["job"]["status"] = args[1]
+            return 1
+        self.execute.side_effect = persist
         with patch("backend.app.media_studio.services.workshop_service.generate_group", side_effect=ValueError("模型输出不完整")):
             W.run("project", "job")
         terminal = self.execute.call_args.args[1]

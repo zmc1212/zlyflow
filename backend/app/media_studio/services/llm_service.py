@@ -423,6 +423,7 @@ class LlmService:
         temperature: float = 0.2,
         fact_extraction: str | None = None,
         timeout: float = 240.0,
+        freeze_images: bool = False,
     ) -> tuple[str, dict[str, Any]]:
         from .workshop_h3_skill import writing_author, vlm_fact_extraction_author
 
@@ -445,6 +446,15 @@ class LlmService:
             "elapsed_ms": None,
         }
         images = [str(url).strip() for url in (image_urls or []) if str(url).strip()]
+        if freeze_images and images:
+            import base64
+            import hashlib
+            from ...llm_image_transport import prepare_chat_images
+            prepared = prepare_chat_images([{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": url}} for url in images]}], chosen["base_url"], meta_out={}, force=True)
+            images = [part["image_url"]["url"] for part in prepared[0]["content"]]
+            meta["frozen_images"] = images
+            meta["image_content_sha256"] = [hashlib.sha256(base64.b64decode(url.split(",", 1)[1])).hexdigest() for url in images]
         if any(not url.startswith(("https://", "http://", "data:image/")) for url in images):
             raise ValueError("写稿参考图片必须为可访问的完整地址，不得静默丢弃参考图")
         if images and chosen.get("vision_row"):

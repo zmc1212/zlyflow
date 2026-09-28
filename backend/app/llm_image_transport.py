@@ -174,8 +174,8 @@ def _encode_image(content: bytes, budget: int) -> str:
 
 
 def prepare_chat_images(messages: list[dict[str, Any]], base_url: str,
-                        *, meta_out: dict[str, Any]) -> list[dict[str, Any]]:
-    if not uses_inline_images(base_url):
+                        *, meta_out: dict[str, Any], force: bool = False) -> list[dict[str, Any]]:
+    if not force and not uses_inline_images(base_url):
         return messages
     count = sum(1 for message in messages if isinstance(message.get("content"), list)
                 for part in message["content"] if isinstance(part, dict) and part.get("type") == "image_url")

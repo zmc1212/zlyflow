@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { H3ConfirmationPanel, H3_CONFIRM_MODE } from "./components/H3ConfirmationPanel"
 import { DatePicker, Dropdown, Input, InputNumber, message, Modal, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
 import {
   ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo,
@@ -2011,6 +2012,7 @@ export default function App({
                   </div>
                 </header>
 
+                {selectedJob.mode === H3_CONFIRM_MODE && <H3ConfirmationPanel endpoint={`/api/jobs/${selectedJob.id}/refine`} csrfToken={csrfToken} readOnly={isInspectingOtherUser} localUrls={localMediaUrls} />}
                 {(creativeParameters.length > 0 || runtimeParameters.length > 0) && <details className="studio-round-details">
                   <summary>任务详情</summary>
                   <dl className="studio-round-parameter-list">
@@ -2169,7 +2171,7 @@ export default function App({
                 {advancedOptionDefinitions.length > 0 && <button type="button" aria-expanded={advancedOptionsOpen} onClick={() => setAdvancedOptionsOpen((open) => !open)} className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-sm text-[#d8d8df] transition hover:bg-[#29292f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7047ff]/45"><SlidersHorizontal size={16} className="text-[#947dff]" />更多设置</button>}
               </div>
               <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : undefined}>
-                <button type="submit" disabled={!canSubmit || storageQuery.isLoading} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{createMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{mediaType === "image" ? "开始生图" : "开始生成"}</button>
+                <button type="submit" disabled={!canSubmit || storageQuery.isLoading} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{createMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{mediaType === "image" ? "开始生图" : workflow?.id === H3_CONFIRM_MODE ? "生成一采预览" : "开始生成"}</button>
               </Tooltip>
             </div>
             {advancedOptionsOpen && advancedOptionDefinitions.length > 0 && <section aria-label="更多生成设置" className="mt-4 border-t border-white/[0.08] pt-4">

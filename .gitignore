@@ -103,6 +103,10 @@ docs/design-ref-director/
 docs/导演台设计图/
 submit_*.py
 backend/tests/test_*.py
+!backend/tests/test_minimax_h3_director_refine.py
+!backend/tests/test_h3_confirmation_probe.py
+!backend/tests/test_h3_confirmation_adapter.py
+!backend/tests/test_h3_confirmation_jobs.py
 !backend/tests/test_director_reliable.py
 !backend/tests/test_director_h3_contract.py
 !backend/tests/test_director2_ai_generation.py
@@ -114,6 +118,7 @@ backend/tests/test_*.py
 !backend/tests/test_workshop_group_prompts.py
 !backend/tests/test_workshop_direct_input.py
 !backend/tests/test_workshop_direct_lifecycle.py
+!backend/tests/test_workshop_ai_review.py
 !backend/tests/test_workshop_h3_skill.py
 !backend/tests/test_workshop_review.py
 !backend/tests/test_workshop_v7.py

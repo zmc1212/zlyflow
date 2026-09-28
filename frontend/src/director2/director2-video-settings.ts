@@ -11,6 +11,7 @@ export type Director2OptionDefinition = {
   default: string | number | boolean
   enum?: Array<string | number>
   ui_group?: Director2OptionVisibility
+  ui_visible_when?: Record<string, string | number | boolean>
   ui_options?: Array<{ value: string | number; label: string; hint?: string }>
   description?: string
   megapixels_by_quality?: Record<string, number>
@@ -313,6 +314,10 @@ export function optionChoices(
       : undefined
     return { value, label: pixels ? `${item.label} · ${pixels}` : item.label }
   })
+}
+
+export function videoOptionVisible(field: Director2VideoOptionField, values: Record<string, string>): boolean {
+  return Object.entries(field.definition.ui_visible_when || {}).every(([name, expected]) => String(values[name]) === String(expected))
 }
 
 export function sanitizeVideoOptionValues(

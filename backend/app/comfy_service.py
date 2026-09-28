@@ -20,6 +20,7 @@ import local_video_studio as legacy
 
 from .config import Settings
 from .minimax_h3_director_accel_workflow import build_minimax_h3_director_accel_workflow
+from .minimax_h3_director_refine_workflow import build_refine_shot, validate_refine_dependencies
 from .minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from .minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from .minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
@@ -986,6 +987,14 @@ class ComfyService:
         return self.output_payload(output, "video", label)
 
     def completed_outputs(self, mode: JobMode, record: dict, options: dict | None = None) -> list[dict]:
+        if mode is JobMode.MINIMAX_H3_DIRECTOR_REFINE_ACCEL_R2V:
+            refined = (options or {}).get("refine_enabled", True)
+            nodes = [("7", "二采成片" if refined else "一采原片")]
+            if refined:
+                nodes.append(("20", "一采原片"))
+            return [self.output_payload(self.download(
+                legacy.output_file(record, node, ("videos", "gifs", "images")),
+                f"director_refine_{node}"), "video", label) for node, label in nodes]
         if mode in H3_WORKFLOWS:
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
             return [self.output_payload(output, "video", generation_output_label(mode))]
@@ -1095,7 +1104,9 @@ class ComfyService:
                     raise ComfyCancelled("任务已停止")
                 uploaded.append(self.upload_image(path, f"h3_reference_{index}"))
             workflow = (
-                build_minimax_h3_t8_workflow(mode, resolved_prompt, uploaded, options)
+                build_refine_shot(resolved_prompt, uploaded, options, int(options.get("seed") or secrets.randbits(63)))
+                if mode is JobMode.MINIMAX_H3_DIRECTOR_REFINE_ACCEL_R2V
+                else build_minimax_h3_t8_workflow(mode, resolved_prompt, uploaded, options)
                 if mode in T8_WORKFLOWS
                 else build_minimax_h3_lightx2v_workflow(
                     mode, resolved_prompt, uploaded, options, secrets.randbits(63),
@@ -1111,9 +1122,13 @@ class ComfyService:
                 if mode in DIRECTOR_ACCEL_WORKFLOWS
                 else build_minimax_h3_workflow(mode, resolved_prompt, uploaded, options, secrets.randbits(63))
             )
+            if mode is JobMode.MINIMAX_H3_DIRECTOR_REFINE_ACCEL_R2V:
+                validate_refine_dependencies(workflow, self.object_info())
             record = self.run_workflow(
                 workflow, generation_stage(mode), update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
             )
+            if mode is JobMode.MINIMAX_H3_DIRECTOR_REFINE_ACCEL_R2V:
+                return self.completed_outputs(mode, record, options)
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
             outputs = [self.output_payload(output, "video", generation_output_label(mode))]
             return self.append_rtx_vsr_if_requested(

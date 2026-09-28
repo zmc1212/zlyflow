@@ -225,6 +225,6 @@
 .unified-workshop.is-focused > .episode-tabs > .ant-tabs-nav,
 .unified-workshop.is-focused .unified-shot-list { display: none; }
 .unified-workshop-drawer.workshop-candidate-drawer .ant-drawer-body { display: flex; flex-direction: column; gap: 16px; }
-.workshop-candidate-drawer .workshop-candidate-content > .ant-btn { position: sticky; top: 0; z-index: 1; background: var(--studio-surface); }
+.workshop-candidate-drawer .workshop-candidate-actions { position: sticky; top: 0; z-index: 1; background: var(--studio-surface); padding-block: var(--workshop-space-2); }
 .unified-workshop :is(textarea, input) { caret-color: var(--studio-primary); }
 .unified-workshop ::selection { background: var(--studio-primary-soft); color: var(--studio-text); }

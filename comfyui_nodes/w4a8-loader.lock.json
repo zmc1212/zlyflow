@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/starsFriday/ComfyUI-W4A8-Loader",
+  "commit": "ad1d4e072bd2ed5eec1d30d07ec390f327a3af52",
+  "node_class": "ExperimentalW4A8UNETLoader",
+  "files_sha256": {
+    "nodes.py": "740a76c07e988021292bcd123129a96133ac09af7cd09811fa7ea4283523563f",
+    "__init__.py": "ecf4e66676adf5ec2ba9d5e3f72cfa7a852b6af878cb1e4ff126830e1f9bfd21"
+  },
+  "runtime": {
+    "comfy-kitchen": "0.2.35",
+    "windows_python310_wheel": "comfy_kitchen-0.2.35-cp310-cp310-win_amd64.whl",
+    "wheel_sha256": "eaee40b90b6996c9054ff5fd3cdf524613b759d49099047042c20d9d77276ad8",
+    "validated_torch": "2.11.0+cu128",
+    "previous_comfy_kitchen": "0.2.26"
+  }
+}

@@ -46,7 +46,7 @@ def _performance_requirements(ordered):
 
 
 def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="", source_text="",
-                   author=None, fact_extraction=None, audit=None, contract_snapshot=None, checkpoint=None):
+                   author=None, fact_extraction=None, audit=None, contract_snapshot=None, checkpoint=None, freeze_images=False):
     ordered = [next(b for b in beats if b["id"] == bid) for bid in group["beat_ids"]]
     targets = [b for b in ordered if not revision_beat_id or b["id"] == revision_beat_id]
     if not targets:
@@ -105,7 +105,7 @@ def generate_group(plan, group, beats, *, revision_beat_id=None, revision_note="
             if len(system) + len(user) > 180000:
                 raise ValueError("完整上下文超过本任务 180000 字符预算，未静默裁剪；请缩小镜头组或明确裁剪方案")
             raw, call_meta = LlmService.author_group(system, user, images, author=author, fact_extraction=fact_extraction,
-                                                     max_tokens=24000, temperature=0.2)
+                                                     max_tokens=24000, temperature=0.2, **({"freeze_images": True} if freeze_images else {}))
         except Exception as err:
             entry.update(reason="作者调用失败", errors=[str(err)],
                          author={"requested_model": (author or {}).get("model"), "actual_model": None, "ok": False,

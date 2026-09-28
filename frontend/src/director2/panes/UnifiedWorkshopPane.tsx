@@ -1,11 +1,12 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Alert, Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Form, Image, Input, InputNumber, Modal, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography, message } from "antd"
+import { Alert, Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Form, Image, Input, InputNumber, Modal, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, message } from "antd"
 import { getEpisodeDetail, listDocuments, type Director2Document, listEpisodes, listAssets, listVideoWorkflowModes, getEpisodeProduction, generateEpisodeVideo, generateBeatSketch, generateBeatTriptych, updateEpisodeProduction, upscaleProjectVideoJob, director2ErrorDetail, type Director2Episode, type Director2EpisodeDetail, type Director2Asset, type PromptReferenceSlot } from "../api"
 import { readWorkshop, writeWorkshop, planWorkshop, promptWorkshop as submitPromptWorkshop, actWorkshop, splitWorkshopGroup, mergeWorkshopGroups, type WorkshopView, type WorkshopGroup, type WorkshopJob } from "../workshop-api"
 import { summarizeWorkshopBlocks } from "../workshop-references"
 import { DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, loadSavedVideoSettings, saveVideoSettings, optionSchemaFromMode, visibleVideoOptionFields, type Director2WorkflowMode } from "../director2-video-settings"
 import { type ProductionState, materialsForUnit } from "../production"
+import { H3ConfirmationPanel, H3_CONFIRM_MODE } from "../../components/H3ConfirmationPanel"
 import { ProductionSound, ProductionFilm } from "./ProductionPanes"
 import { getAssetDisplayAvatar } from "./assets/shared"
 import ActionPrevisPane from "./ActionPrevisPane"
@@ -51,6 +52,8 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
   const [revisionTarget, setRevisionTarget] = useState<string | null>(null)
   const [revisionNote, setRevisionNote] = useState("")
   const [authorChoice, setAuthorChoice] = useState<{ profile_id?: string; model?: string; reasoning_effort?: string }>({})
+  const [reviewEnabled, setReviewEnabled] = useState(false)
+  const [reviewAuthor, setReviewAuthor] = useState<{ profile_id?: string; model?: string; reasoning_effort?: string }>({})
   const [groupDraft, setGroupDraft] = useState<WorkshopGroup | null>(null)
   const [candidateGroups, setCandidateGroups] = useState<WorkshopGroup[] | null>(null)
   const [candidateEdits, setCandidateEdits] = useState<Record<string, Record<string, unknown>>>({})
@@ -64,6 +67,7 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
   const groupReferences = useRef<string | undefined>(undefined)
   const plan = view?.plan
   const chosenAuthor = { ...view?.writing_author, ...authorChoice }
+  const chosenReviewer = { ...view?.writing_author, ...reviewAuthor }
   const beat = detail?.beats.find(b => b.id === params.get("source")) || detail?.beats[0]
   const group = plan?.groups.find(g => beat && g.beat_ids.includes(beat.id))
   const currentGroupNumber = plan && group ? plan.groups.indexOf(group) + 1 : 0
@@ -153,9 +157,14 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
   const openGroup = (value: WorkshopGroup) => { groupReferences.current = plan?.reference_fingerprint; setGroupDraft(structuredClone(value)) }
   const promptWorkshop = async (csrf: string, project: string, episode: string, data: Record<string, unknown>) => {
     if (dirty) throw new Error("请先保存当前提示词修改，再生成候选。")
-    return submitPromptWorkshop(csrf, project, episode, {...data, expected_reference_fingerprint: plan?.reference_fingerprint, ...(groupWriting ? { writing_author: chosenAuthor } : {})})
+    return submitPromptWorkshop(csrf, project, episode, {...data, expected_reference_fingerprint: plan?.reference_fingerprint, ...(groupWriting ? { writing_author: chosenAuthor, review_enabled: reviewEnabled && data.prompt_scope !== "shot_revision", review_author: chosenReviewer } : {})})
   }
   const jobAction = (job: WorkshopJob, action: string, more: Record<string, unknown> = {}) => actWorkshop(csrfToken, projectId, episodeId!, job.id, { action, expected_revision: revision, expected_reference_fingerprint: plan?.reference_fingerprint, ...more })
+  const applyCandidate = (job: WorkshopJob, ids: string[], wholeGroup: boolean, version: "original" | "reviewed" = "original") => void perform(async () => {
+    await jobAction(job, "apply", { beat_ids: ids, version, switch_version: ids.every(id => plan?.shot_prompts[id]?.authoring_job_id === job.id) })
+    setCandidateDrawerOpen(false)
+  }, `已采用${version === "reviewed" ? "审校稿" : "原稿"}（${wholeGroup ? "整组" : "本镜"}）`)
+  const reviewJob = (job: WorkshopJob, ids: string[]) => void perform(() => jobAction(job, "review", { beat_ids: ids, review_author: chosenReviewer }), "已提交独立审校，原稿保留")
   const regenerateJob = (job: WorkshopJob) => void perform(async () => {
     if (dirty) throw new Error("请先保存当前提示词修改，再创建新候选。")
     await jobAction(job, "regenerate", { writing_author: chosenAuthor })
@@ -187,7 +196,7 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
   const referenceBlocked = Boolean(group && (group.reference_issues?.length || group.reference_slots.length < (mode?.min_references || 0)))
   const videoBlockReason = workshopVideoBlockReason({ hasPlan: Boolean(plan), busy, dirty, sourceChanged: view.source_changed, referencesMissing: referenceBlocked, shots: generationShots, prompts: plan?.shot_prompts || {} })
   const nextAction = workshopNextAction({ hasPlan: Boolean(plan) && !view.source_changed, dirty, pending: Boolean(beat && pendingPromptIds.has(beat.id)), hasPrompt: Boolean(saved), videoBlocked: Boolean(videoBlockReason) })
-  const videoLabel = generationIds.length > 1 ? "生成本组视频（" + generationIds.length + " 镜）" : "生成本镜视频"
+  const videoLabel = plan?.workflow_id === H3_CONFIRM_MODE ? "生成一采预览" : generationIds.length > 1 ? "生成本组视频（" + generationIds.length + " 镜）" : "生成本镜视频"
   const writeLabel = groupWriting ? "生成本组提示词（" + (group?.beat_ids.length || 0) + " 镜）" : "生成本镜提示词"
   const openPlanning = () => { setWorkflow(plan?.workflow_id || workflow); setAspect(plan?.aspect_ratio || aspect); setMaximum(plan?.max_shots_per_group || 3); setTargetDuration(plan?.target_duration_seconds || null); setReuse(Boolean(detail.beats.length)); setPlanning(true) }
   const saveCurrentPrompt = () => void perform(() => write({ beat_id: beat!.id, h3_prompt: draft, expected_reference_fingerprint: editReferences.current }), "已保存本镜提示词")
@@ -266,7 +275,8 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
                 <div className="workshop-prompt-body">
                   <Input.TextArea id="workshop-h3-editor" className="h3-prompt-editor" aria-label="本镜 H3 提示词" placeholder={pendingPromptIds.has(beat.id) ? "本镜候选稿已生成，请在上方检查并采纳。" : "暂无已采纳提示词，请先生成并采纳候选稿。"} value={draft} onChange={event => editDraft(event.target.value)} rows={10} disabled={!plan} />
                   {beat.h3_prompt_reference_state === "stale" && <Alert type="warning" showIcon title="镜头或参考设定已变化，请检查正文后保存或生成新候选" />}
-                  <WorkshopPromptCandidates display="history" jobs={view.jobs} beatId={beat.id} beats={detail.beats} group={group} groupWriting={groupWriting} plan={plan || null} sourceChanged={view.source_changed} busy={busy} dirty={dirty} onRegenerate={regenerateJob} onApply={(job, ids, wholeGroup) => void perform(() => jobAction(job, "apply", { beat_ids: ids }), wholeGroup ? "已采用整组候选" : "已采用本镜候选")} />
+                  {plan?.shot_prompts[beat.id]?.authoring_version && <Typography.Text type="secondary">采纳来源：{plan.shot_prompts[beat.id].authoring_version === "reviewed" ? "审校稿" : "原稿"} · {plan.shot_prompts[beat.id].authoring_job_id}</Typography.Text>}
+                  <WorkshopPromptCandidates display="history" jobs={view.jobs} beatId={beat.id} beats={detail.beats} group={group} groupWriting={groupWriting} plan={plan || null} sourceChanged={view.source_changed} busy={busy} dirty={dirty} onRegenerate={regenerateJob} onReview={reviewJob} onApply={applyCandidate} />
             {view.legacy_prompts[beat.id]?.length ? <Collapse items={[{ key: "history", label: `历史稿件（${view.legacy_prompts[beat.id].length}）`, children: view.legacy_prompts[beat.id].map((p, i) => <Card key={i} title={p.source}><Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>{p.common_prompt}{"\n"}{p.h3_prompt}</Typography.Paragraph><Button disabled={!plan} onClick={() => editDraft(p.h3_prompt)}>放入编辑器检查</Button></Card>) }]} /> : null}
             {Boolean(plan?.shot_prompts?.[beat.id]?.history?.length) && <Collapse items={[{key:"prompt-versions",label:"本镜提示词历史版本",children:plan?.shot_prompts?.[beat.id]?.history?.map((record,i) => <Card key={i} size="small" title={`历史稿 ${i+1}`}><Typography.Paragraph style={{whiteSpace:"pre-wrap"}}>{record.h3_prompt}</Typography.Paragraph><Button disabled={dirty} onClick={() => editDraft(record.h3_prompt)}>放入编辑器检查</Button></Card>)}]} />}
 
@@ -296,7 +306,7 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
           { key: "previs", label: "动作预演", children: <div className="workshop-inspector-scroll workshop-previs-scroll">
             <ActionPrevisPane key={`${projectId}:${episodeId}:${beat.id}`} projectId={projectId} episodeId={episodeId} beatId={beat.id} csrfToken={csrfToken} onDirtyChange={setPrevisDirty} />
           </div> },
-          { key: "video", label: "视频版本", children: <div className="workshop-inspector-scroll">{take && production ? <Space orientation="vertical" size={16} style={{ width: "100%" }}><Select aria-label="视频版本" value={take.id} style={{ minWidth: 260 }} onChange={setTakeId} options={materials.map((m, i) => ({ value: m.id, label: `${production.adopted[beat.id] === m.id ? "已采用" : "候选"} · 版本 ${materials.length - i}` }))} /><video className="production-video" key={`${take.url}-${beat.id}`} src={take.url} controls onLoadedMetadata={e => { if (range) e.currentTarget.currentTime = range.start }} onTimeUpdate={e => { if (range && e.currentTarget.currentTime > range.end) e.currentTarget.pause() }} /><Typography.Text>{range ? `本镜区间 ${range.start.toFixed(2)}–${range.end.toFixed(2)} 秒` : "历史素材尚无可靠区间"}</Typography.Text><Space><Button type="primary" disabled={busy || production.adopted[beat.id] === take.id} onClick={() => void perform(() => updateEpisodeProduction(csrfToken, projectId, episodeId, "adopt", { expected_revision: production.revision, mode: production.active_mode, material_id: take.id }), "已采用视频")}>采用此版（覆盖 {take.unit_ids.length} 镜）</Button><Button disabled={busy || !take.job_id} onClick={() => void perform(() => upscaleProjectVideoJob(csrfToken, projectId, take.job_id, { scale: 2 }), "已提交超分")}>2× 超分</Button></Space></Space> : <Empty description="生成视频后，在这里预览和采用 Take" />}</div> },
+          { key: "video", label: "视频版本", children: <div className="workshop-inspector-scroll">{take && production ? <Space orientation="vertical" size={16} style={{ width: "100%" }}><Select aria-label="视频版本" value={take.id} style={{ minWidth: 260 }} onChange={setTakeId} options={materials.map((m, i) => ({ value: m.id, label: `${production.adopted[beat.id] === m.id ? "已采用" : "候选"} · 版本 ${materials.length - i}` }))} /><video className="production-video" key={`${take.url}-${beat.id}`} src={take.url} controls onLoadedMetadata={e => { if (range) e.currentTarget.currentTime = range.start }} onTimeUpdate={e => { if (range && e.currentTarget.currentTime > range.end) e.currentTarget.pause() }} /><Typography.Text>{range ? `本镜区间 ${range.start.toFixed(2)}–${range.end.toFixed(2)} 秒` : "历史素材尚无可靠区间"}</Typography.Text><Space><Button type="primary" disabled={busy || production.adopted[beat.id] === take.id} onClick={() => void perform(() => updateEpisodeProduction(csrfToken, projectId, episodeId, "adopt", { expected_revision: production.revision, mode: production.active_mode, material_id: take.id }), "已采用视频")}>采用此版（覆盖 {take.unit_ids.length} 镜）</Button><Button disabled={busy || !take.job_id} onClick={() => void perform(() => upscaleProjectVideoJob(csrfToken, projectId, take.job_id, { scale: 2 }), "已提交超分")}>2× 超分</Button></Space>{take.workflow_id === H3_CONFIRM_MODE && take.job_id && <H3ConfirmationPanel endpoint={`/api/projects/${projectId}/jobs/${take.job_id}/refine`} csrfToken={csrfToken} />}</Space> : <Empty description="生成视频后，在这里预览和采用 Take" />}</div> },
         ]} /> : <Empty description="采纳剧本后，点击规划镜头开始制作" />}</section></div>
       </div> },
       { key: "dubbing", label: "声音", children: production && <ProductionSound state={production} csrfToken={csrfToken} projectId={projectId} episodeId={episodeId} onRefresh={load} /> },
@@ -304,7 +314,7 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
     ]} />
     {beat && <Drawer rootClassName="unified-workshop-drawer workshop-candidate-drawer" title={"审阅候选 · 镜头 " + beat.sequence + " / 第 " + currentGroupNumber + " 组"} size={720} open={candidateDrawerOpen} onClose={() => setCandidateDrawerOpen(false)}>
       <Alert type="info" showIcon title="先检查候选，再决定是否替换正式稿" description={dirty ? "当前正文有未保存修改，采纳已禁用。请关闭审阅面板并先保存。" : "整组候选会一起更新本组正文和公共设定；单镜返修只替换当前镜头。关闭面板不会采纳。"} />
-      <WorkshopPromptCandidates display="all" jobs={view.jobs} beatId={beat.id} beats={detail.beats} group={group} groupWriting={groupWriting} plan={plan || null} sourceChanged={view.source_changed} busy={busy} dirty={dirty} onRegenerate={regenerateJob} onApply={(job, ids, wholeGroup) => void perform(async () => { await jobAction(job, "apply", { beat_ids: ids }); setCandidateDrawerOpen(false) }, wholeGroup ? "已采用整组候选" : "已采用本镜候选")} />
+      <WorkshopPromptCandidates display="all" jobs={view.jobs} beatId={beat.id} beats={detail.beats} group={group} groupWriting={groupWriting} plan={plan || null} sourceChanged={view.source_changed} busy={busy} dirty={dirty} onRegenerate={regenerateJob} onReview={reviewJob} onApply={applyCandidate} />
     </Drawer>}
     <Drawer rootClassName="unified-workshop-drawer" title="写稿设置" open={authorSettingsOpen} onClose={() => setAuthorSettingsOpen(false)} size={480}><Form layout="vertical">
           <Alert type="info" showIcon title="不会因附图静默更换作者。模型 ID 来自已配置的 API，不能把桌面模型名当成 API 可用性证明。" />
@@ -313,6 +323,13 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
             <Form.Item label="API 模型 ID"><Input aria-label="写稿模型 ID" value={chosenAuthor.model || ""} disabled={busy} onChange={e => setAuthorChoice(p => ({ ...p, model: e.target.value }))} /></Form.Item>
             <Form.Item label="推理设置（模型支持时）"><Select aria-label="写稿推理设置" style={{ width: 160 }} value={chosenAuthor.reasoning_effort || "low"} disabled={busy} options={["auto", "none", "low", "medium", "high", "xhigh"].map(value => ({ value, label: value }))} onChange={reasoning_effort => setAuthorChoice(p => ({ ...p, reasoning_effort }))} /></Form.Item>
             <Form.Item label="图片处理"><Typography.Text>作者直接读取实际参考图，需要支持视觉的模型。</Typography.Text></Form.Item>
+            <Form.Item label="二次审校"><Switch aria-label="二次审校" checked={reviewEnabled} onChange={setReviewEnabled} /></Form.Item>
+            {reviewEnabled && <>
+              <Alert type="info" title="每组第一稿生成后额外调用一次审校模型。原稿保留，需要明确选择采用版本。" />
+              <Form.Item label="审校供应商"><Select aria-label="审校供应商" style={{ width: 200 }} value={chosenReviewer.profile_id} options={(view.writing_profiles || []).map(p => ({ value: p.profile_id, label: `${p.profile_id} · ${p.model || "未配置"}` }))} onChange={id => setReviewAuthor(view.writing_profiles?.find(p => p.profile_id === id) || { profile_id: id })} /></Form.Item>
+              <Form.Item label="审校模型 ID"><Input aria-label="审校模型 ID" value={chosenReviewer.model || ""} onChange={e => setReviewAuthor(p => ({ ...p, model: e.target.value }))} /></Form.Item>
+              <Form.Item label="审校推理设置"><Select aria-label="审校推理设置" value={chosenReviewer.reasoning_effort || "low"} options={["auto", "none", "low", "medium", "high", "xhigh"].map(value => ({ value, label: value }))} onChange={reasoning_effort => setReviewAuthor(p => ({ ...p, reasoning_effort }))} /></Form.Item>
+            </>}
           </div>
         </Form></Drawer>
     <Drawer rootClassName="unified-workshop-drawer" title={`任务进度与失败记录（${trackedJobs.length}）`} open={taskDrawerOpen} onClose={() => setTaskDrawerOpen(false)} size={520}>

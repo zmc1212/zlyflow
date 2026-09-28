@@ -915,3 +915,34 @@ def register_project_routes(
             raise HTTPException(status_code=400, detail=str(err))
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
+
+    @app.post("/api/projects/{project_id}/jobs/{job_id}/refine", status_code=202)
+    def refine_project_job(project_id: str, job_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.h3_confirmation_service import create_refinement
+        try:
+            return create_refinement(project_id, job_id, payload, str(user["id"]))
+        except ValueError as err:
+            raise HTTPException(status_code=409 if "SOURCE_CHANGED:" in str(err) else 422, detail=str(err)) from err
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+    @app.get("/api/projects/{project_id}/jobs/{job_id}/refine")
+    def refinement_status(project_id: str, job_id: str, user: dict = Depends(current_user)):
+        from ..services.h3_confirmation_service import refinement_status
+        return refinement_status(project_id, job_id)
+
+    @app.post("/api/projects/{project_id}/jobs/{job_id}/refine/cancel")
+    def cancel_refinement(project_id: str, job_id: str, user: dict = Depends(mutating_user)):
+        from ..services.h3_confirmation_service import cancel_refinement
+        try:
+            return cancel_refinement(project_id, job_id)
+        except ValueError as err:
+            raise HTTPException(status_code=422, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/jobs/{job_id}/refine/preview", status_code=202)
+    def regenerate_refinement_preview(project_id: str, job_id: str, user: dict = Depends(mutating_user)):
+        from ..services.h3_confirmation_service import regenerate_preview
+        try:
+            return regenerate_preview(project_id, job_id)
+        except ValueError as err:
+            raise HTTPException(status_code=422, detail=str(err)) from err

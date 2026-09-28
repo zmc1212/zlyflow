@@ -566,3 +566,25 @@ X-CSRF-Token: <login response csrf_token>
 # 2026-09-27 写稿合同 v3
 
 现有工坊写稿 API 新建默认 `h3-skill-direct-v3`，`validation_policy=execution_only_v3`、`skill_revision=original`，system 为原始 Skill 全文。review 保留 `semantic_status=pending_human`、`media_status=not_reviewed`，无自动创作问题列表；并非对白质量通过。旧合同不迁移，regenerate 用当前来源新建 v3。请求路径和鉴权不变。[完整边界](导演台原始Skill执行校验-v3-2026-09-27.md)。
+## 2026-09-28 可选二次 AI 审校
+
+`POST /api/projects/{project}/episodes/{episode}/workshop/prompts` 新增 `review_enabled: boolean`（默认 false）、`review_author: {profile_id, model, reasoning_effort}`。仅整组 Director 写稿支持，单镜返修请求开启时返回参数错误。供应商地址由服务端配置解析，调用者提供的凭据不落库。
+
+`POST .../workshop/jobs/{job}/actions` 新增 `action="review"`：携带 `expected_revision`、`expected_reference_fingerprint`、可选整组 `beat_ids` 和 `review_author`。只重跑审校，不重写作者稿；复用相同原稿/输入/Skill/模型配置的成功结果，失败可显式重试。模型配置变化会形成新审校证据，旧证据进入 `ai_review_history`。
+
+`action="apply"` 新增 `version="original"|"reviewed"`，缺省 original。审校稿必须终态且 eligible；取消/审校失败仍允许采纳完整合法原稿。原稿 `candidates` 与 `common_prompt_candidates` 永不被审校替换；服务端只在采纳事务内使用审校版本投影。返回 `ai_reviews[group_id]` 的 status/result/issues/changes/diff/errors/eligible 与调用证据。status 为 running/unchanged/revised/needs_user_resolution/failed/cancelled；`media_status` 保持 not_reviewed。
+
+本节更新覆盖历史文档中“不新增 Base64 图像”的旧限制：开启审校的新任务在作者调用证据保存冻结实际图像及 SHA-256；既有任务不回填伪造历史内容哈希。
+
+整组写稿设置新增默认关闭的「二次审校」及独立审校模型。第一阶段仍使用原始 H3 Skill / h3-skill-direct-v3；第一稿持久化后，独立 h3-dialogue-review-v1 只调用一次，返回问题、理由与完整稿。审校失败保留原稿；可独立审校已有整组候选或重试失败审校，不重写第一稿。候选面板提供原稿、审校稿、实际差异、证据以及明确的整组版本采纳，正文和公共设定在现有事务内一起更新。模型审校不等同成片验收，也不自动出片。
+
+- 原因：识别虚构参考音频、发声要求冲突与对白拥挤等语义风险，保留创作者选择。
+- 受影响文件：`skills/h3-dialogue-review/SKILL.md`、`workshop_ai_review.py`、`workshop_service.py`、`workshop_group_prompts.py`、`llm_service.py`、`llm_image_transport.py`、`UnifiedWorkshopPane.tsx`、`WorkshopPromptCandidates.tsx`、`workshop-api.ts` 及对应测试。
+- 兼容性：任务 payload 增加可选 `review_config`、`ai_reviews`、`ai_review_history`、`adopted_versions`、`run_id`，无新表、端口、ComfyUI 节点或实例变化。旧任务缺字段视为未开启。开启的新任务冻结实际发送图片与内容哈希供两阶段共用；旧任务无法回溯当时图像字节，界面明确提示该证据限制。失败、取消及新执行的迟到响应受状态和执行标识保护。
+- 验证命令：`python -X utf8 -m unittest discover -s backend/tests -q`、`pnpm --dir frontend build`、`git diff --check`。真实成片效果与工程验证分开记录，详见 `docs/导演台二次AI审校实施记录-2026-09-28.md`。
+- 回滚：关闭二次审校或停用新入口；回退上述代码时保留任务 payload、原稿、审校证据及媒体。不得通过删除任务回滚。默认值是否开启由后续对照验收决定。
+## 2026-09-28 H3 确认后二采
+
+新增创作任务 `/api/jobs/{job_id}/refine` 与导演任务 `/api/projects/{project_id}/jobs/{job_id}/refine`：GET 读取来源与版本列表；POST 携带 `refine_quality`（1/2）、`source_revision`、`request_id` 创建幂等子任务。来源冲突为 409，阶段、参数或实例不符为 422。原片任务不变。
+
+`POST .../refine/preview` 明确新建一采，导演台 `POST .../refine/cancel` 取消二采；创作页取消及两侧失败重试沿用已有 cancel/retry。写接口沿用会话与 CSRF。完整协议、限制与回滚见 [接入记录](H3确认后二采业务接入-2026-09-28.md)；未通过桌面验收前新目录入口保持隐藏。

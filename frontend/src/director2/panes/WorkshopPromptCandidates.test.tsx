@@ -22,13 +22,46 @@ function buttons(node: ReactNode): Array<{ disabled?: boolean; onClick?: () => v
 }
 
 describe("workshop candidate grouping", () => {
+  it("labels the adopted original and offers only the reviewed alternative", () => {
+    const job = candidate()
+    job.payload.applied_ids = group.beat_ids
+    job.payload.ai_reviews = { [group.id]: { status: "revised", eligible: true, errors: [], result: { decision: "revised", final_prompt: "审校正文", issues: [], changes: [] } } }
+    const input = { ...props([job]), plan: { ...plan, shot_prompts: Object.fromEntries(group.beat_ids.map(id => [id, { h3_prompt: "原稿", fingerprint: "f", authoring_job_id: job.id, authoring_version: "original" }])) } }
+    const actions = buttons(WorkshopPromptCandidates(input))
+    expect(actions.find(x => x.children === "已采用原稿")?.disabled).toBe(true)
+    const reviewed = actions.find(x => x.children === "切换为审校稿（整组）")
+    expect(reviewed?.disabled).toBe(false)
+    reviewed?.onClick?.()
+    expect(input.onApply).toHaveBeenCalledWith(job, group.beat_ids, true, "reviewed")
+    expect(buttons(WorkshopPromptCandidates({ ...input, dirty: true })).find(x => x.children === "采用审校稿（整组）")?.disabled).toBe(true)
+  })
+  it("keeps original adoption available but blocks a rejected review", () => {
+    const job = candidate()
+    job.payload.ai_reviews = { [group.id]: { status: "revised", eligible: false, errors: ["时长不合法"], result: { decision: "revised", final_prompt: "审校正文", issues: [], changes: [] } } }
+    const input = { ...props([job]), onReview: vi.fn() }
+    const rendered = buttons(WorkshopPromptCandidates(input))
+    expect(rendered.find(button => button.children === "采用审校稿（整组）")?.disabled).toBe(true)
+    const original = rendered.find(button => button.children === "采用原稿（整组）")
+    expect(original?.disabled).toBe(false)
+    original?.onClick?.()
+    expect(input.onApply).toHaveBeenCalledWith(job, group.beat_ids, true)
+  })
+  it("adopts the reviewed version only through its explicit action", () => {
+    const job = candidate()
+    job.payload.ai_reviews = { [group.id]: { status: "revised", eligible: true, errors: [], result: { decision: "revised", final_prompt: "审校正文", issues: [], changes: [] } } }
+    const input = props([job])
+    const reviewed = buttons(WorkshopPromptCandidates(input)).find(button => button.children === "采用审校稿（整组）")
+    expect(reviewed?.disabled).toBe(false)
+    reviewed?.onClick?.()
+    expect(input.onApply).toHaveBeenCalledWith(job, group.beat_ids, true, "reviewed")
+  })
   it("keeps pending candidates visible while adopted history starts collapsed", () => {
     const adopted = candidate("job-adopted-abcdefgh")
     adopted.payload.applied_ids = group.beat_ids
     const html = renderToStaticMarkup(<WorkshopPromptCandidates {...props([adopted, candidate()])} />)
     expect(html).toContain("待采纳提示词候选")
     expect(html).toContain("第一镜候选正文")
-    expect(html).toContain("采用整组候选")
+    expect(html).toContain("采用原稿（整组）")
     expect(html).toContain("候选与返修历史（1）")
     expect(html).toContain("12345678")
     expect(html).not.toContain("abcdefgh")

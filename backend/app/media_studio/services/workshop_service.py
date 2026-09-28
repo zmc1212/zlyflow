@@ -62,6 +62,8 @@ class WorkshopService:
         for job in query_all("SELECT id,status,job_type,payload_json,error_message FROM ai_project_jobs WHERE project_id=%s AND job_type IN (%s,%s) ORDER BY created_at DESC", (project_id, *cls.JOB_TYPES)):
             payload = json.loads(job.get("payload_json") or "{}")
             if payload.get("episode_id") == episode_id:
+                from .workshop_ai_review import public_evidence
+                payload = public_evidence(payload)
                 jobs.append({"id": job["id"], "status": job["status"], "kind": job["job_type"], "error": job.get("error_message"), "payload": payload})
                 if len(jobs) >= 12:
                     break
@@ -152,6 +154,9 @@ class WorkshopService:
         if regenerated_from_job_id:
             payload["regenerated_from_job_id"] = regenerated_from_job_id
         if kind == "workshop_prompt":
+            if "review_enabled" in request and type(request["review_enabled"]) is not bool:
+                raise ValueError("二次审校开关必须是布尔值")
+            payload["request"].pop("review_author", None)
             ids = request.get("beat_ids") or [b["id"] for b in payload["beats"]]
             if not ids or set(ids) - {b["id"] for b in payload["beats"]}:
                 raise ValueError("请选择有效镜头")
@@ -192,6 +197,12 @@ class WorkshopService:
                     revision_beat_id=ids[0] if payload["prompt_scope"] == "shot_revision" else None,
                     revision_note=request.get("revision_note") or "")
                     for g in plan["groups"] if set(ids).intersection(g["beat_ids"])}
+                if request.get("review_enabled"):
+                    if payload["prompt_scope"] != "group":
+                        raise ValueError("二次审校目前仅支持整组写稿")
+                    from .workshop_ai_review import configuration
+                    payload["review_config"] = configuration(request.get("review_author") or payload["writing_author"])
+                    payload["request"]["review_author"] = deepcopy(payload["review_config"]["author"])
         with cls.lock:
             for job in cls.view(project_id, episode_id)["jobs"]:
                 if job["status"] in {"queued", "running"} and job["kind"] == kind and job["payload"]["request"] == payload["request"] and job["payload"].get("regenerated_from_job_id") == regenerated_from_job_id:
@@ -208,10 +219,18 @@ class WorkshopService:
             return
         job = query_one("SELECT * FROM ai_project_jobs WHERE id=%s AND project_id=%s", (jid, project_id))
         payload = json.loads(job["payload_json"])
+        run_id = uuid.uuid4().hex
+        payload["run_id"] = run_id
+        if not execute_sql("UPDATE ai_project_jobs SET payload_json=%s WHERE id=%s AND project_id=%s AND status='running' AND payload_json=%s",
+                           (json.dumps(payload, ensure_ascii=False), jid, project_id, job["payload_json"])):
+            return
         def checkpoint(message, status="running", error=None):
+            latest = query_one("SELECT payload_json,status FROM ai_project_jobs WHERE id=%s AND project_id=%s", (jid, project_id))
+            if not latest or latest["status"] != "running" or json.loads(latest["payload_json"]).get("run_id") != run_id:
+                raise ValueError("任务已取消或由新执行替代")
             payload["message"] = message
-            changed = execute_sql("UPDATE ai_project_jobs SET payload_json=%s,status=%s,error_message=%s,progress=%s,updated_at=%s WHERE id=%s AND project_id=%s AND status='running'",
-                                 (json.dumps(payload, ensure_ascii=False), status, error, 100 if status == "completed" else 50, now_str(), jid, project_id))
+            changed = execute_sql("UPDATE ai_project_jobs SET payload_json=%s,status=%s,error_message=%s,progress=%s,updated_at=%s WHERE id=%s AND project_id=%s AND status='running' AND payload_json=%s",
+                                 (json.dumps(payload, ensure_ascii=False), status, error, 100 if status == "completed" else 50, now_str(), jid, project_id, latest["payload_json"]))
             if not changed:
                 raise ValueError("任务已取消")
         try:
@@ -256,7 +275,12 @@ class WorkshopService:
                     for group in plan["groups"]:
                         if not set(group["beat_ids"]).intersection(request["beat_ids"]):
                             continue
+                        if payload.get("review_only") and group["id"] not in payload.get("review_group_ids", []):
+                            continue
                         if all(bid in payload["candidates"] for bid in group["beat_ids"]):
+                            if payload.get("review_config") and group["id"] in payload.get("review_group_ids", [g["id"] for g in plan["groups"]]):
+                                from .workshop_ai_review import run_review
+                                run_review(payload, group, checkpoint)
                             continue
                         checkpoint(f"正在统筹生成镜头组 {group['id']}（{len(group['beat_ids'])} 镜）")
                         for bid in group["beat_ids"]:
@@ -266,6 +290,7 @@ class WorkshopService:
                             generated = generate_group(plan, group, payload["beats"], source_text=payload.get("source", {}).get("text", ""),
                                                        author=payload.get("writing_author"), fact_extraction=payload.get("fact_extraction") or None,
                                                        audit=audit, contract_snapshot=audit.get("contracts", {}).get(group["id"]),
+                                                       freeze_images=bool(payload.get("review_config")),
                                                        checkpoint=lambda: checkpoint("写稿/检查证据已保存，正式稿未改变"))
                             common_candidate = generated.pop("__common_prompt__", None)
                             if common_candidate:
@@ -273,6 +298,10 @@ class WorkshopService:
                             payload["candidates"].update(generated)
                             for bid in group["beat_ids"]:
                                 payload["failures"].pop(bid, None)
+                            checkpoint("第一稿已持久化，正式稿未改变")
+                            if payload.get("review_config"):
+                                from .workshop_ai_review import run_review
+                                run_review(payload, group, checkpoint)
                         except Exception as err:
                             for bid in group["beat_ids"]:
                                 payload["failures"][bid] = str(err)
@@ -363,8 +392,52 @@ class WorkshopService:
             if request.get("writing_author") is not None:
                 fresh["writing_author"] = request["writing_author"]
             cls.create(project_id, episode_id, "workshop_prompt", fresh, regenerated_from_job_id=jid)
+        elif action == "review":
+            with cls.lock:
+                latest = query_one("SELECT * FROM ai_project_jobs WHERE id=%s AND project_id=%s", (jid, project_id))
+                if latest["status"] in {"queued", "running"}:
+                    return cls.view(project_id, episode_id)
+                if job["job_type"] != "workshop_prompt" or payload.get("prompt_scope") != "group":
+                    raise ValueError("仅完整整组候选支持独立审校")
+                row, data = cls.row(project_id, episode_id)
+                current = (data.get("prompt_authoring") or {}).get("director_plan") or {}
+                if request.get("expected_revision") != current.get("revision"):
+                    raise ValueError("VERSION_CONFLICT: 请刷新后重新提交")
+                assert_reference_snapshot(current, request)
+                if cls.source(project_id, row, data)["fingerprint"] != payload["source"]["fingerprint"]:
+                    raise ValueError("SOURCE_CONFLICT: 剧本已变化，请重新写稿")
+                ids = request.get("beat_ids") or list(payload["candidates"])
+                groups = [g for g in payload["base_plan"]["groups"] if set(ids).intersection(g["beat_ids"])]
+                if not groups or set(ids) - set(payload["candidates"]):
+                    raise ValueError("请选择已有完整候选")
+                for group in groups:
+                    current_group = next((g for g in current.get("groups", []) if g["id"] == group["id"]), None)
+                    if not current_group or any(current_group.get(k) != group.get(k) for k in ("beat_ids", "reference_slots", "locked_common_lines", "common_prompt")):
+                        raise ValueError("VERSION_CONFLICT: 组材料已变化，请重新写稿")
+                    for bid in group["beat_ids"]:
+                        beat = next((b for b in data["beats"] if b["id"] == bid), None)
+                        candidate = payload["candidates"].get(bid)
+                        if not beat or not candidate or candidate["fingerprint"] != contract.prompt_fingerprint(beat, current_group, current):
+                            raise ValueError("VERSION_CONFLICT: 镜头材料已变化，请重新写稿")
+                from .workshop_ai_review import configuration
+                if not payload.get("review_config") or request.get("review_author"):
+                    payload["review_config"] = configuration(request.get("review_author") or payload.get("writing_author"))
+                payload["review_group_ids"] = [g["id"] for g in groups]
+                payload["review_only"] = True
+                changed = execute_sql("UPDATE ai_project_jobs SET payload_json=%s,status='queued',error_message=NULL,updated_at=%s WHERE id=%s AND project_id=%s AND payload_json=%s AND status IN ('failed','cancelled','completed')",
+                    (json.dumps(payload, ensure_ascii=False), now_str(), jid, project_id, latest["payload_json"]))
+                if changed:
+                    cls.executor.submit(cls.run, project_id, jid)
         elif action == "cancel":
-            execute_sql("UPDATE ai_project_jobs SET status='cancelled',updated_at=%s WHERE id=%s AND status IN ('queued','running')", (now_str(), jid))
+            execute_sql("UPDATE ai_project_jobs SET status='cancelled',updated_at=%s WHERE id=%s AND project_id=%s AND status IN ('queued','running')", (now_str(), jid, project_id))
+            cancelled = query_one("SELECT payload_json,status FROM ai_project_jobs WHERE id=%s AND project_id=%s", (jid, project_id))
+            payload = json.loads(cancelled["payload_json"])
+            for review in payload.get("ai_reviews", {}).values():
+                if review.get("status") == "running":
+                    review["status"] = "cancelled"
+                    review["eligible"] = False
+            execute_sql("UPDATE ai_project_jobs SET payload_json=%s,updated_at=%s WHERE id=%s AND project_id=%s AND status='cancelled' AND payload_json=%s",
+                        (json.dumps(payload, ensure_ascii=False), now_str(), jid, project_id, cancelled["payload_json"]))
         elif action == "retry":
             if job["status"] not in {"failed", "cancelled", "completed"}:
                 raise ValueError("任务仍在执行")
@@ -372,10 +445,46 @@ class WorkshopService:
             if changed:
                 cls.executor.submit(cls.run, project_id, jid)
         elif action == "apply":
-            if job["status"] != "completed":
+            original_after_review = request.get("version", "original") == "original" and payload.get("ai_reviews") and job["status"] in {"failed", "cancelled"}
+            if job["status"] != "completed" and not original_after_review:
                 raise ValueError("任务尚未完成")
+            original_payload = payload
+            payload = deepcopy(payload)
+            selected_version = request.get("version", "original")
+            if selected_version not in {"original", "reviewed"}:
+                raise ValueError("未知稿件版本")
+            if selected_version == "reviewed":
+                from .workshop_ai_review import selected_payload
+                payload = selected_payload(payload, request.get("beat_ids") or list(payload["candidates"]))
             def apply(data, current, row):
                 assert_reference_snapshot(current, request)
+                if request.get("switch_version"):
+                    ids = request.get("beat_ids") or list(payload["candidates"])
+                    if payload.get("prompt_scope") != "group" or set(expand_groups(payload["base_plan"], ids)) != set(ids):
+                        raise ValueError("版本切换必须包含完整镜头组")
+                    for bid in ids:
+                        record = current.get("shot_prompts", {}).get(bid) or {}
+                        previous_version = record.get("authoring_version")
+                        if record.get("authoring_job_id") != jid or previous_version not in {"original", "reviewed"} or previous_version == selected_version:
+                            raise ValueError("当前正式稿不是此任务的另一版本，不能切换")
+                        from .workshop_ai_review import selected_payload
+                        previous = selected_payload(original_payload, ids) if previous_version == "reviewed" else original_payload
+                        group = next(g for g in current["groups"] if bid in g["beat_ids"])
+                        old_group = next(g for g in previous["base_plan"]["groups"] if bid in g["beat_ids"])
+                        common = previous.get("common_prompt_candidates", {}).get(group["id"], old_group.get("common_prompt", ""))
+                        beat = next(b for b in data["beats"] if b["id"] == bid)
+                        expected = deepcopy(previous["candidates"][bid])
+                        expected.update(authoring_job_id=jid, authoring_version=previous_version,
+                                        fingerprint=contract.prompt_fingerprint(beat, {**group, "common_prompt": common}, current))
+                        if record != expected or group.get("common_prompt", "") != common or any(group.get(k) != old_group.get(k) for k in ("beat_ids", "reference_slots", "locked_common_lines", "timecode_mode")):
+                            raise ValueError("VERSION_CONFLICT: 采纳后正文、镜头或公共设定已变化，不能切换版本")
+                    payload["base_plan"] = deepcopy(current)
+                    payload["beats"] = deepcopy(data["beats"])
+                    for bid in ids:
+                        group = next(g for g in current["groups"] if bid in g["beat_ids"])
+                        beat = next(b for b in data["beats"] if b["id"] == bid)
+                        payload["candidates"][bid]["fingerprint"] = contract.prompt_fingerprint(beat, group, current)
+                    current["applied_candidates"][jid] = [bid for bid in current["applied_candidates"][jid] if bid not in ids]
                 if cls.source(project_id, row, data)["fingerprint"] != payload["source"]["fingerprint"]:
                     raise ValueError("SOURCE_CONFLICT: 采纳剧本已变化，请重新规划")
                 if job["job_type"] == "workshop_planning":
@@ -477,6 +586,7 @@ class WorkshopService:
                         adopted = deepcopy(record)
                         adopted["fingerprint"] = contract.prompt_fingerprint(beat, effective_group, current)
                         adopted["authoring_job_id"] = jid
+                        adopted["authoring_version"] = selected_version
                         current.setdefault("shot_prompts", {})[bid] = adopted
                         if record.get("contract_version"):
                             group["contract_version"] = record["contract_version"]
@@ -500,6 +610,9 @@ class WorkshopService:
                         current["writing_author"] = deepcopy(payload["writing_author"])
                     current["revision"] += 1
             cls.mutate(project_id, episode_id, request.get("expected_revision"), apply)
+            original_payload["applied_ids"] = payload["applied_ids"]
+            original_payload.setdefault("adopted_versions", []).append({"beat_ids": request.get("beat_ids") or list(payload["candidates"]), "version": selected_version})
+            payload = original_payload
             execute_sql("UPDATE ai_project_jobs SET payload_json=%s,updated_at=%s WHERE id=%s AND project_id=%s", (json.dumps(payload, ensure_ascii=False), now_str(), jid, project_id))
         else:
             raise ValueError("未知任务操作")

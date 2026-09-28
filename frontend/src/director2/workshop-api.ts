@@ -2,6 +2,15 @@ import { jsonMutation, requestJson } from "../api"
 import type { Director2Beat, PromptReferenceSlot } from "./api"
 
 export type WritingAuthor = { profile_id?: string; model?: string; reasoning_effort?: string }
+export type AiReview = {
+  status: string; eligible?: boolean; errors: string[]; diff?: string; elapsed_ms?: number;
+  original_image_content_verified?: boolean; skill_version?: string; skill_sha256?: string; input_sha256?: string;
+  original_sha256?: string; system?: string; user?: string; raw?: string; content_call_count?: number; transport_retry_count?: number;
+  author?: WritingAttempt["author"];
+  result?: { decision: string; final_prompt: string | null;
+    issues: Array<{ location: string; type: string; certainty: string; evidence: string; reason: string; suggestion: string }>;
+    changes: Array<{ location: string; reason: string; before: string; after: string }> };
+}
 export type WorkshopReview = { structure_status: string; content_status: string; semantic_status?: string; media_status: string;
   issues: Array<{ beat_id: string; code: string; severity: string; evidence: string; suggestion: string }>; manual_checks?: string[] }
 export type WritingAttempt = { attempt: number; group_id: string; revision_beat_id?: string; raw: string; input: string;
@@ -17,7 +26,7 @@ export type WorkshopPlan = {
   target_duration_seconds?: number | null; applied_candidates?: Record<string, string[]>;
   reference_fingerprint?: string;
   writing_author?: WritingAuthor;
-  shot_prompts: Record<string, { h3_prompt: string; fingerprint: string; history?: Array<{h3_prompt:string}> }>;
+  shot_prompts: Record<string, { h3_prompt: string; fingerprint: string; authoring_job_id?: string; authoring_version?: string; history?: Array<{h3_prompt:string}> }>;
 }
 export type WorkshopJob = {
   id: string; status: string; kind: string; error?: string;
@@ -26,6 +35,7 @@ export type WorkshopJob = {
     candidate?: { beats: Director2Beat[]; plan: WorkshopPlan };
     candidates: Record<string, { h3_prompt: string; review?: WorkshopReview }>;
     common_prompt_candidates?: Record<string, string>;
+    ai_reviews?: Record<string, AiReview>;
     writing_author?: WritingAuthor; request?: { revision_note?: string };
     base_plan?: WorkshopPlan;
     authoring?: { writing_history?: WritingAttempt[]; reviews?: Record<string, WorkshopReview>;

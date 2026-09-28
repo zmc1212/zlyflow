@@ -16,6 +16,10 @@ from ...minimax_h3_director_accel_workflow import (
     director_accel_unet,
 )
 from ...minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
+from ...minimax_h3_director_refine_workflow import (
+    MODE as REFINE_MODE, build_refine_shot, build_refine_workflow,
+    is_refine_graph, validate_refine_dependencies,
+)
 from ...minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from ...minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from ...minimax_h3_workflow import AUDIO_VAE, TEXT_ENCODER, VIDEO_VAE, build_minimax_h3_workflow
@@ -326,8 +330,15 @@ class ComfyVideoClient:
         filename_prefix: str,
         *,
         options: dict[str, Any] | None = None,
+        workflow_id: str | None = None,
     ) -> dict[str, Any]:
         values = dict(options or {})
+        if (workflow_id or values.get("workflow_id") or values.get("workflow")) == REFINE_MODE.value:
+            return build_refine_workflow(timeline, values, filename_prefix, int(values.get("seed", 666)))
+        from ...minimax_h3_confirm_workflow import MODE_ID, build_confirmation_preview
+        if (workflow_id or values.get("workflow_id") or values.get("workflow")) == MODE_ID:
+            return build_confirmation_preview(timeline, values.get("aspect_ratio", "16:9"),
+                int(values.get("seed", 0)), uuid.uuid4().hex, filename_prefix)
         canvas = cls.canvas_from_options({
             **values,
             "width": timeline.get("width") or values.get("width"),
@@ -426,9 +437,14 @@ class ComfyVideoClient:
         values = dict(options or {})
         if values.get("duration") is None:
             values["duration"] = 8
-        seed = int(values.get("seed") or 888)
+        seed = int(values.get("seed", 666)) if mode is REFINE_MODE else int(values.get("seed") or 888)
         values["seed"] = seed
         references = [cls.load_image_name(item) for item in uploaded_refs if cls.load_image_name(item)]
+        from ...minimax_h3_confirm_workflow import MODE_ID, build_confirmation_shot
+        if workflow_id == MODE_ID:
+            return build_confirmation_shot(prompt, references, values, int((options or {}).get("seed", 0)), filename_prefix)
+        if mode is REFINE_MODE:
+            return build_refine_shot(prompt, references, values, seed, filename_prefix)
         if mode in T8_WORKFLOWS:
             workflow = build_minimax_h3_t8_workflow(mode, prompt, references, values)
         elif mode in LIGHTX2V_WORKFLOWS:
@@ -442,6 +458,11 @@ class ComfyVideoClient:
         return cls._set_output_prefix(workflow, filename_prefix)
 
     def submit(self, workflow: dict[str, Any], client_id: str | None = None) -> dict[str, Any]:
+        from ...minimax_h3_confirm_workflow import is_confirmation_graph
+        if is_refine_graph(workflow) or is_confirmation_graph(workflow):
+            response = self.session.get(f"{self.base_url}/object_info", timeout=self.timeout)
+            response.raise_for_status()
+            validate_refine_dependencies(workflow, response.json())
         client_id = client_id or str(uuid.uuid4())
         response = self.session.post(
             f"{self.base_url}/prompt",
@@ -496,6 +517,7 @@ class ComfyVideoClient:
         progress: Callable[[int], None] | None = None,
         on_submitted: Callable[[dict[str, Any]], None] | None = None,
         timeout_seconds: int = 21600,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, str]]:
         client_id = str(uuid.uuid4())
         socket = self.progress_socket(client_id)
@@ -510,6 +532,7 @@ class ComfyVideoClient:
                 workflow=workflow,
                 progress_socket=socket,
                 timeout_seconds=timeout_seconds,
+                is_cancelled=is_cancelled,
             )
             return submitted, history, output
         finally:
@@ -529,6 +552,7 @@ class ComfyVideoClient:
         progress_socket: Any = None,
         poll_seconds: int = 2,
         timeout_seconds: int = 21600,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> tuple[dict[str, Any], dict[str, str]]:
         started = time.monotonic()
         last_history_poll = 0.0
@@ -551,6 +575,14 @@ class ComfyVideoClient:
 
         try:
             while time.monotonic() - started < timeout_seconds:
+                if is_cancelled is not None and is_cancelled():
+                    queue = self.session.get(f"{self.base_url}/queue", timeout=self.timeout)
+                    queue.raise_for_status()
+                    if any(item[1] == prompt_id for item in queue.json().get("queue_running", [])):
+                        self.session.post(f"{self.base_url}/interrupt", json={}, timeout=self.timeout).raise_for_status()
+                    else:
+                        self.session.post(f"{self.base_url}/queue", json={"delete": [prompt_id]}, timeout=self.timeout).raise_for_status()
+                    raise RuntimeError("H3_CONFIRMATION_CANCELLED: 二采已取消，原片保留")
                 if socket is not None:
                     try:
                         raw_message = socket.recv()
@@ -581,7 +613,8 @@ class ComfyVideoClient:
                 if history:
                     status = history.get("status") or {}
                     if status.get("completed") and status.get("status_str") == "success":
-                        output = self._find_video(history.get("outputs") or {})
+                        outputs = history.get("outputs") or {}
+                        output = self._find_video(outputs.get("7", {}) if is_refine_graph(workflow) else outputs)
                         if not output:
                             raise RuntimeError("ComfyUI 执行成功，但 SaveVideo 未返回 MP4 输出。")
                         return history, output

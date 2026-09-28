@@ -4173,6 +4173,65 @@ async def retry_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) 
     return public_job(job)
 
 
+@app.post("/api/jobs/{job_id}/refine", status_code=202)
+async def refine_job(job_id: str, payload: dict, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+    job_or_404(app.state.store, job_id, user)
+    try:
+        child = await asyncio.to_thread(app.state.store.create_confirmation_child,
+            job_id, payload, app.state.worker.comfy.comfy_url)
+    except ValueError as error:
+        raise HTTPException(status_code=409 if "SOURCE_CHANGED:" in str(error) else 422, detail=str(error)) from error
+    if child["status"] == "queued":
+        await app.state.worker.enqueue(child["id"])
+    return public_job(child)
+
+
+@app.get("/api/jobs/{job_id}/refine")
+def refinement_job_status(job_id: str, user: Annotated[dict, Depends(current_user)]) -> dict:
+    source = job_or_404(app.state.store, job_id, user)
+    state = (source.get("options") or {}).get("h3_confirmation") or {}
+    if state.get("stage") == "refine_only":
+        source = job_or_404(app.state.store, state["source_job_id"], user)
+        state = source["options"]["h3_confirmation"]
+    children = []
+    for child in app.state.store.confirmation_children(source["id"]):
+        if child.get("source_job_id") != source["id"]:
+            continue
+        info = (child.get("options") or {}).get("h3_confirmation") or {}
+        if info.get("stage") != "refine_only":
+            continue
+        item = public_job(child)
+        children.append({"id": child["id"], "status": child["status"], "progress": child.get("progress"),
+            "url": next((o.get("download_url") for o in item["outputs"] if o["kind"] == "video"), None),
+            "output_path": next((o.get("path") for o in item["outputs"] if o["kind"] == "video"), None),
+            "quality": info.get("quality"), "error": child.get("error"), "created_at": child.get("created_at"),
+            "media_info": info.get("media_info")})
+    original = public_job(source)
+    return {"eligible": state.get("stage") == "preview_only" and source["status"] == "succeeded",
+        "source_job_id": source["id"], "source_revision": state.get("source_revision"),
+        "source_media_info": state.get("media_info"),
+        "source_path": next((o.get("path") for o in original["outputs"] if o["kind"] == "video"), None),
+        "source_url": next((o.get("download_url") for o in original["outputs"] if o["kind"] == "video"), None),
+        "children": children}
+
+
+@app.post("/api/jobs/{job_id}/refine/preview", status_code=202)
+async def regenerate_confirmation_preview(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+    import copy
+    from .minimax_h3_confirm_workflow import MODE_ID
+    source = job_or_404(app.state.store, job_id, user, include_references=True)
+    state = (source.get("options") or {}).get("h3_confirmation") or {}
+    if source["mode"] != MODE_ID or state.get("stage") != "preview_only":
+        raise HTTPException(status_code=422, detail="请选择原一采任务重新生成预览")
+    options = copy.deepcopy(source["options"])
+    options.pop("h3_confirmation", None)
+    child = await asyncio.to_thread(app.state.store.create, secrets.token_hex(16), JobMode(MODE_ID),
+        source["prompt"], source.get("negative_prompt", ""), source.get("image_size"), source["references"],
+        options, owner_user_id=source.get("owner_user_id"), title="重新生成一采预览")
+    await app.state.worker.enqueue(child["id"])
+    return public_job(child)
+
+
 @app.post(
     "/api/jobs/{job_id}/upscale",
     status_code=202,

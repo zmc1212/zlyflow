@@ -1144,6 +1144,61 @@ class JobStore:
         )
         return self.get(job_id)
 
+    def set_confirmation_options(self, job_id: str, options: dict) -> None:
+        with self.connection() as connection:
+            row = connection.execute("SELECT last_round_id FROM jobs WHERE id=?", (job_id,)).fetchone()
+            encoded = json.dumps(options, ensure_ascii=False)
+            connection.execute("UPDATE job_rounds SET options_json=? WHERE id=?", (encoded, row["last_round_id"]))
+            connection.execute("UPDATE jobs SET options_json=? WHERE id=?", (encoded, job_id))
+
+    def confirmation_children(self, job_id: str) -> list[dict]:
+        with self.connection() as connection:
+            rows = connection.execute("SELECT id FROM jobs WHERE source_job_id=? ORDER BY created_at", (job_id,)).fetchall()
+        return [self.get(row["id"]) for row in rows]
+
+    def create_confirmation_child(self, job_id: str, request: dict, current_url: str) -> dict:
+        from .minimax_h3_confirm_workflow import MODE_ID, validate_refine_request, build_confirmation_refine
+        child_id = str(uuid.uuid4())
+        with self.connection() as connection:
+            # The source row is the serialization point, including across workers.
+            connection.execute("UPDATE jobs SET updated_at=updated_at WHERE id=?", (job_id,))
+            source = dict(connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
+            options = json.loads(source["options_json"] or "{}")
+            state = options.get("h3_confirmation") or {}
+            if source["mode"] != MODE_ID or source["status"] != "succeeded":
+                raise ValueError("仅本工作流已完成的一采可以确认二采")
+            quality = validate_refine_request(state, request, current_url)
+            children = connection.execute("SELECT id,status,options_json FROM jobs WHERE source_job_id=? ORDER BY created_at DESC", (job_id,)).fetchall()
+            for row in children:
+                child = json.loads(row["options_json"] or "{}").get("h3_confirmation", {})
+                if child.get("request_id") == request["request_id"]:
+                    if child.get("quality") != quality:
+                        raise ValueError("SOURCE_CHANGED: 同一幂等标识不能修改画质")
+                    child_id = row["id"]
+                    break
+                if child.get("stage") == "refine_only" and row["status"] in ("queued", "running", "interrupted"):
+                    child_id = row["id"]
+                    break
+            else:
+                group = state["groups"][0]
+                child_state = {"stage": "refine_only", "state": "queued", "quality": quality,
+                    "base_url": state["base_url"], "request_id": request["request_id"],
+                    "source_revision": state["source_revision"], "source_job_id": job_id,
+                    "graph": build_confirmation_refine(group["graph"], group["report"], quality,
+                                                       "video/ZLY_Confirmed_" + child_id)}
+                child_options = {**options, "h3_confirmation": child_state}
+                round_id, timestamp = str(uuid.uuid4()), now()
+                connection.execute(
+                    "INSERT INTO jobs (id,owner_user_id,mode,media_type,title,last_round_id,source_job_id,"
+                    "status,stage,progress,prompt,negative_prompt,image_size,options_json,submitted_options_json,"
+                    "options_submitted,references_json,outputs_json,error,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,'queued','等待二采',0,?,'',NULL,?,'{}',0,'[]','[]',NULL,?,?)",
+                    (child_id, source["owner_user_id"], MODE_ID, "video", (source.get("title") or "一采预览") + " · 二采精修",
+                     round_id, job_id, source["prompt"], json.dumps(child_options, ensure_ascii=False), timestamp, timestamp))
+                self._insert_round(connection, round_id, child_id, 1, MODE_ID, "video",
+                                   source["prompt"], "", None, [], child_options, None)
+        return self.get(child_id)
+
     def retry_failed_items(self, job_id: str, round_id: str | None = None) -> list[dict]:
         job = self.get(job_id)
         if round_id is None:

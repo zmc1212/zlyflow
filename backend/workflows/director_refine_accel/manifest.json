@@ -1,0 +1,11 @@
+{
+  "version": "director-refine-accel@1",
+  "source": "workflows/MiniMax H3/minimax_h3_director_二采_加速.json",
+  "sha256": "8f928ac4005ab289a25ae809bccf5374bb9d4301d6d12f0d4e76f12cca93ab2a",
+  "captured_at": "2026-09-28",
+  "note": "Sanitized UI snapshot. Widget mapping uses saved input names; seed control_after_generate skipped; trailing obsolete widget ignored. Runtime optional defaults explicitly pinned in builder.",
+  "outputs": {
+    "final": "7",
+    "first_pass": "20"
+  }
+}

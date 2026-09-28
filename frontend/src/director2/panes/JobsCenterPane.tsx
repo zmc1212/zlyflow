@@ -3,6 +3,7 @@
 // a-table bodyCell 自定义渲染 → columns render；a-* 组件 → antd 同名组件；
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
 import { useEffect, useMemo, useRef, useState } from "react"
+import { H3ConfirmationPanel, H3_CONFIRM_MODE } from "../../components/H3ConfirmationPanel"
 import { useNavigate } from "react-router-dom"
 import { Alert, Button, Collapse, Modal, Progress, Space, Table, Tabs, Tag, Typography, message } from "antd"
 import type { TableProps } from "antd"
@@ -934,6 +935,20 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 结果图片 */}
+            {selectedJob.payload?.recipe_version ? <Collapse items={[{key:"refine-runtime",label:"运行参数",children:<pre className="prompt-text">{JSON.stringify({recipe_version:selectedJob.payload.recipe_version,workflow:selectedJob.payload.workflow_request,output:selectedJob.payload.output_media_info},null,2)}</pre>}]} /> : null}
+            {Array.isArray(selectedJob.payload?.refine_outputs) ? (
+              <div className="detail-section">
+                <div className="detail-section-title">一采与二采输出</div>
+                {selectedJob.payload.refine_outputs.map((item: {node_id: string; label: string; url: string; submission_index: number}) => (
+                  <div key={`${item.submission_index}-${item.node_id}`}>
+                    <p>{item.label} · 第 {item.submission_index} 组</p>
+                    <video src={item.url} className="result-video" controls preload="metadata" />
+                    <a href={item.url} target="_blank" rel="noreferrer" download>打开 / 下载原文件</a>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {selectedJob.payload?.workflow_id === H3_CONFIRM_MODE && <H3ConfirmationPanel endpoint={`/api/projects/${projectId}/jobs/${selectedJob.id}/refine`} csrfToken={csrfToken} />}
             {isVideoJob(selectedJob) && detailVideos.resultUrl ? (
               <div className="detail-section">
                 <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? ` · 含 ${jobUpscaleScale(selectedJob)} 超分` : ""}</div>
