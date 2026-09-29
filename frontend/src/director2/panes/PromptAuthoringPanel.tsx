@@ -590,7 +590,7 @@ export default function PromptAuthoringPanel({
     const job = partJob(partId)
     if (job && ["queued", "preparing", "running"].includes(job.status)) return "渲染"
     const fullSelection = part && job && part.segments.length === job.payload?.segment_ids?.length
-      && part.segments.every(segment => job.payload.segment_ids.includes(segment.id))
+      && part.segments.every(segment => job.payload?.segment_ids.includes(segment.id))
     if (fullSelection && (job?.status === "completed" || job?.status === "succeeded")) return "已完成"
     if (fullSelection && job?.status === "failed") return "出片失败"
     return partNeedsReview(partId) ? "待审" : "可出片"

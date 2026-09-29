@@ -74,7 +74,7 @@ export default function ActionPrevisPane({ csrfToken, projectId, episodeId, beat
     if (!job || !plan) return
     setBusy(true)
     try {
-      const result = await reviseActionPrevis(csrfToken, projectId, job.id, plan, Number(job.payload.plan_revision))
+      const result = await reviseActionPrevis(csrfToken, projectId, job.id, plan, Number(job.payload?.plan_revision))
       setJob(result); setPlan(result.payload.plan as ActionPrevisPlan); setDirty(false)
       message.success("动作与镜头方案已保存为新版本")
     } catch (error) { message.error(String(error)) }
@@ -85,7 +85,7 @@ export default function ActionPrevisPane({ csrfToken, projectId, episodeId, beat
     if (!job) return
     setBusy(true)
     try {
-      const result = await actionPrevisCommand(csrfToken, projectId, job.id, kind, Number(job.payload.plan_revision))
+      const result = await actionPrevisCommand(csrfToken, projectId, job.id, kind, Number(job.payload?.plan_revision))
       setJob(result); setPlan((result.payload.plan as ActionPrevisPlan) || null); setDirty(false)
       message.success(kind === "render" ? "已提交远端 Blender 制作" : kind === "retry" ? "已重新排队" : "已取消")
     } catch (error) { message.error(String(error)) }
@@ -112,9 +112,9 @@ export default function ActionPrevisPane({ csrfToken, projectId, episodeId, beat
       {(images.length > 0 || video) && <Button onClick={() => { setImages([]); setVideo(null); setRequestDirty(Boolean(description.trim())) }}>清空素材</Button>}
       <Button type="primary" loading={busy} onClick={() => void submit()}>生成编排方案</Button>
     </Space>
-    {job && <Card size="small" title={<Space>任务 <Tag>{statusLabel[job.status] || job.status}</Tag> <span style={{ fontWeight: 400, fontSize: 12 }}>版本 {job.payload.plan_revision || 0}</span></Space>}>
+    {job && <Card size="small" title={<Space>任务 <Tag>{statusLabel[job.status] || job.status}</Tag> <span style={{ fontWeight: 400, fontSize: 12 }}>版本 {job.payload?.plan_revision || 0}</span></Space>}>
       {job.error_message && <Alert type={job.status === "failed" ? "error" : "warning"} showIcon message={job.error_message} style={{ marginBottom: 10 }} />}
-      {job.payload?.observations && <Alert type="info" message="参考素材观察" description={String(job.payload.observations)} style={{ marginBottom: 10 }} />}
+      {job.payload?.observations && <Alert type="info" message="参考素材观察" description={String(job.payload?.observations)} style={{ marginBottom: 10 }} />}
       {["queued", "planning", "queued_remote", "remote_running"].includes(job.status) && <Spin tip={`${statusLabel[job.status]} · ${job.progress || 0}%`}><div style={{ height: 44 }} /></Spin>}
       {plan && <div style={{ display: "grid", gap: 16 }}>
         <div><strong>动作节拍</strong><div style={{ fontSize: 12, opacity: .72 }}>时间以 24 fps 帧数表示；修改一拍结束帧会同步调整下一拍开始帧。</div></div>

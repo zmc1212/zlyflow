@@ -1324,12 +1324,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 ? "triptych"
                 : ""
           if (stage) {
-            const key = `${stage}:${job.payload.beat_id}`
+            const key = `${stage}:${job.payload?.beat_id}`
             if (!nextBeatJobStates.has(key)) nextBeatJobStates.set(key, job.status)
             if (activeStatuses.has(job.status)) {
-              if (stage === "sketch") nextSketchIds.add(job.payload.beat_id)
-              if (stage === "render") nextRenderIds.add(job.payload.beat_id)
-              if (stage === "triptych") nextTriptychIds.add(job.payload.beat_id)
+              if (stage === "sketch") nextSketchIds.add(job.payload?.beat_id)
+              if (stage === "render") nextRenderIds.add(job.payload?.beat_id)
+              if (stage === "triptych") nextTriptychIds.add(job.payload?.beat_id)
             }
           }
         })

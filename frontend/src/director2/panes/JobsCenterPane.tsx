@@ -288,12 +288,12 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   }
 
   function videoShots(job: Director2Job): VideoShotPayload[] {
-    const shots = job?.payload?.shots?.length ? job.payload.shots : job?.payload?.source_shots
+    const shots = job?.payload?.shots?.length ? job.payload?.shots : job?.payload?.source_shots
     return (Array.isArray(shots) ? shots : []) as VideoShotPayload[]
   }
 
   function llmAttempts(job: Director2Job): LlmAttemptPayload[] {
-    return (Array.isArray(job?.payload?.llm_attempts) ? job.payload.llm_attempts : []) as LlmAttemptPayload[]
+    return (Array.isArray(job?.payload?.llm_attempts) ? job.payload?.llm_attempts : []) as LlmAttemptPayload[]
   }
 
   function videoReferenceLabel(shot: VideoShotPayload, index: number): string {
@@ -550,8 +550,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                     <div className="detail-row">
                       <span className="detail-key">失败位置</span>
                       <span className="detail-val">
-                        {selectedJob.payload.failure.part_id || selectedJob.payload.failure.stage || "生成阶段"}
-                        {selectedJob.payload.failure.segment_ids?.length ? ` · ${selectedJob.payload.failure.segment_ids.join("、")}` : ""}
+                        {selectedJob.payload?.failure.part_id || selectedJob.payload?.failure.stage || "生成阶段"}
+                        {selectedJob.payload?.failure.segment_ids?.length ? ` · ${selectedJob.payload?.failure.segment_ids.join("、")}` : ""}
                       </span>
                     </div>
                   ) : null}
@@ -607,7 +607,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                     <span className="detail-key">输出分辨率</span>
                     <span className="detail-val">
                       {selectedJob.payload?.width} × {selectedJob.payload?.height} px
-                      {selectedJob.payload?.quality ? ` · ${selectedJob.payload.quality} MP` : ""}
+                      {selectedJob.payload?.quality ? ` · ${selectedJob.payload?.quality} MP` : ""}
                     </span>
                   </div>
                   <div className="detail-row">
@@ -717,7 +717,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               <div className="detail-section">
                 <div className="detail-section-title">MiniMax H3 Director 报告</div>
                 <div className="prompt-block">
-                  <pre className="prompt-text">{selectedJob.payload.director_report}</pre>
+                  <pre className="prompt-text">{selectedJob.payload?.director_report}</pre>
                 </div>
               </div>
             ) : null}
@@ -738,7 +738,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                       {Number(selectedJob.payload?.planned_episodes || selectedJob.payload?.episodes_done?.length || 0)}
                       {" / "}
                       {Number(selectedJob.payload?.episode_total || 0)} 集
-                      {Number(selectedJob.payload?.failed_episodes || 0) ? `，失败 ${selectedJob.payload.failed_episodes} 集` : ""}
+                      {Number(selectedJob.payload?.failed_episodes || 0) ? `，失败 ${selectedJob.payload?.failed_episodes} 集` : ""}
                     </span>
                   </div>
                 </div>
@@ -759,71 +759,71 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                 <div className="detail-grid">
                   <div className="detail-row">
                     <span className="detail-key">调用模型</span>
-                    <span className="detail-val model-tag">{selectedJob.payload.model || "—"}</span>
+                    <span className="detail-val model-tag">{selectedJob.payload?.model || "—"}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-key">API 接口</span>
-                    <span className="detail-val mono">{selectedJob.payload.api_endpoint || "—"}</span>
+                    <span className="detail-val mono">{selectedJob.payload?.api_endpoint || "—"}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-key">目标类型</span>
                     <span className="detail-val">
-                      <Tag>{selectedJob.payload.target_type || "—"}</Tag>
+                      <Tag>{selectedJob.payload?.target_type || "—"}</Tag>
                     </span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-key">宽高比</span>
-                    <span className="detail-val">{selectedJob.payload.aspect_ratio || "—"}</span>
+                    <span className="detail-val">{selectedJob.payload?.aspect_ratio || "—"}</span>
                   </div>
-                  {selectedJob.payload.image_size ? (
+                  {selectedJob.payload?.image_size ? (
                     <div className="detail-row">
                       <span className="detail-key">imageSize</span>
-                      <span className="detail-val">{selectedJob.payload.image_size}</span>
+                      <span className="detail-val">{selectedJob.payload?.image_size}</span>
                     </div>
                   ) : null}
                   <div className="detail-row">
                     <span className="detail-key">replyType</span>
                     <span className="detail-val">
-                      {selectedJob.payload.reply_type || selectedJob.payload.request_body?.replyType || "async"}
+                      {selectedJob.payload?.reply_type || selectedJob.payload?.request_body?.replyType || "async"}
                     </span>
                   </div>
-                  {selectedJob.payload.visual_style ? (
+                  {selectedJob.payload?.visual_style ? (
                     <div className="detail-row">
                       <span className="detail-key">画风 visual_style</span>
-                      <span className="detail-val">{selectedJob.payload.visual_style}</span>
+                      <span className="detail-val">{selectedJob.payload?.visual_style}</span>
                     </div>
                   ) : null}
-                  {selectedJob.payload.art_style_id ? (
+                  {selectedJob.payload?.art_style_id ? (
                     <div className="detail-row">
                       <span className="detail-key">art_style_id</span>
-                      <span className="detail-val">{selectedJob.payload.art_style_id}</span>
+                      <span className="detail-val">{selectedJob.payload?.art_style_id}</span>
                     </div>
                   ) : null}
-                  {selectedJob.payload.ethnicity ? (
+                  {selectedJob.payload?.ethnicity ? (
                     <div className="detail-row">
                       <span className="detail-key">族裔</span>
-                      <span className="detail-val">{selectedJob.payload.ethnicity}</span>
+                      <span className="detail-val">{selectedJob.payload?.ethnicity}</span>
                     </div>
                   ) : null}
                   <div className="detail-row">
                     <span className="detail-key">输出分辨率</span>
                     <span className="detail-val">
-                      {selectedJob.payload.width || "—"} × {selectedJob.payload.height || "—"} px
+                      {selectedJob.payload?.width || "—"} × {selectedJob.payload?.height || "—"} px
                     </span>
                   </div>
-                  {selectedJob.payload.asset_name ? (
+                  {selectedJob.payload?.asset_name ? (
                     <div className="detail-row">
                       <span className="detail-key">关联资产</span>
                       <span className="detail-val">
-                        {selectedJob.payload.asset_name}{" "}
-                        <span className="text-muted">{selectedJob.payload.asset_id}</span>
+                        {selectedJob.payload?.asset_name}{" "}
+                        <span className="text-muted">{selectedJob.payload?.asset_id}</span>
                       </span>
                     </div>
                   ) : null}
-                  {selectedJob.payload.identity_id ? (
+                  {selectedJob.payload?.identity_id ? (
                     <div className="detail-row">
                       <span className="detail-key">造型 ID</span>
-                      <span className="detail-val mono">{selectedJob.payload.identity_id}</span>
+                      <span className="detail-val mono">{selectedJob.payload?.identity_id}</span>
                     </div>
                   ) : null}
                   <div className="detail-row">
@@ -898,13 +898,13 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                 {selectedJob.payload?.prompt ? (
                   <div className="prompt-block">
                     <div className="prompt-label">原始 Prompt</div>
-                    <pre className="prompt-text">{selectedJob.payload.prompt}</pre>
+                    <pre className="prompt-text">{selectedJob.payload?.prompt}</pre>
                   </div>
                 ) : null}
                 {selectedJob.payload?.clean_prompt ? (
                   <div className="prompt-block" style={{ marginTop: 10 }}>
                     <div className="prompt-label">发送给 API 的完整 Prompt</div>
-                    <pre className="prompt-text">{selectedJob.payload.clean_prompt}</pre>
+                    <pre className="prompt-text">{selectedJob.payload?.clean_prompt}</pre>
                   </div>
                 ) : null}
               </div>
@@ -927,19 +927,19 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               <div className="detail-section">
                 <div className="detail-section-title">🔗 完整请求 URL</div>
                 <div className="url-block">
-                  <a href={selectedJob.payload.api_url} target="_blank" className="url-link">
-                    {selectedJob.payload.api_url}
+                  <a href={selectedJob.payload?.api_url} target="_blank" className="url-link">
+                    {selectedJob.payload?.api_url}
                   </a>
                 </div>
               </div>
             ) : null}
 
             {/* 结果图片 */}
-            {selectedJob.payload?.recipe_version ? <Collapse items={[{key:"refine-runtime",label:"运行参数",children:<pre className="prompt-text">{JSON.stringify({recipe_version:selectedJob.payload.recipe_version,workflow:selectedJob.payload.workflow_request,output:selectedJob.payload.output_media_info},null,2)}</pre>}]} /> : null}
+            {selectedJob.payload?.recipe_version ? <Collapse items={[{key:"refine-runtime",label:"运行参数",children:<pre className="prompt-text">{JSON.stringify({recipe_version:selectedJob.payload?.recipe_version,workflow:selectedJob.payload?.workflow_request,output:selectedJob.payload?.output_media_info},null,2)}</pre>}]} /> : null}
             {Array.isArray(selectedJob.payload?.refine_outputs) ? (
               <div className="detail-section">
                 <div className="detail-section-title">一采与二采输出</div>
-                {selectedJob.payload.refine_outputs.map((item: {node_id: string; label: string; url: string; submission_index: number}) => (
+                {selectedJob.payload?.refine_outputs.map((item: {node_id: string; label: string; url: string; submission_index: number}) => (
                   <div key={`${item.submission_index}-${item.node_id}`}>
                     <p>{item.label} · 第 {item.submission_index} 组</p>
                     <video src={item.url} className="result-video" controls preload="metadata" />
@@ -967,8 +967,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                       <video src={detailVideos.sourceUrl} className="result-video" controls preload="metadata" />
                     </>
                   ) : null}
-                  {typeof selectedJob.payload?.upscale_warning === "string" && selectedJob.payload.upscale_warning ? (
-                    <Alert type="warning" showIcon className="mt-3" message={String(selectedJob.payload.upscale_warning)} />
+                  {typeof selectedJob.payload?.upscale_warning === "string" && selectedJob.payload?.upscale_warning ? (
+                    <Alert type="warning" showIcon className="mt-3" message={String(selectedJob.payload?.upscale_warning)} />
                   ) : null}
                   {jobCanShowUpscaleAction(selectedJob) ? (
                     <UpscaleScaleButton
@@ -998,9 +998,9 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                 <div className="detail-section-title">骨骼白膜预演</div>
                 <div className="result-preview">
                   <video src={selectedJob.result_url} className="result-video" controls preload="metadata" />
-                  {selectedJob.payload?.artifacts?.contact_sheet ? <img src={selectedJob.payload.artifacts.contact_sheet} className="result-img" alt="白膜关键帧联系表" /> : null}
-                  {selectedJob.payload?.artifacts?.blend ? <a href={selectedJob.payload.artifacts.blend} target="_blank" rel="noreferrer">下载可编辑 .blend</a> : null}
-                  {selectedJob.payload?.artifacts?.report ? <a href={selectedJob.payload.artifacts.report} target="_blank" rel="noreferrer">质量报告</a> : null}
+                  {selectedJob.payload?.artifacts?.contact_sheet ? <img src={selectedJob.payload?.artifacts.contact_sheet} className="result-img" alt="白膜关键帧联系表" /> : null}
+                  {selectedJob.payload?.artifacts?.blend ? <a href={selectedJob.payload?.artifacts.blend} target="_blank" rel="noreferrer">下载可编辑 .blend</a> : null}
+                  {selectedJob.payload?.artifacts?.report ? <a href={selectedJob.payload?.artifacts.report} target="_blank" rel="noreferrer">质量报告</a> : null}
                 </div>
               </div>
             ) : selectedJob.result_url ? (
@@ -1055,7 +1055,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                     items={[{
                       key: "prompt-technical-detail",
                       label: "技术详情",
-                      children: <Typography.Paragraph copyable>{JSON.stringify(selectedJob.payload.failure, null, 2)}</Typography.Paragraph>,
+                      children: <Typography.Paragraph copyable>{JSON.stringify(selectedJob.payload?.failure, null, 2)}</Typography.Paragraph>,
                     }]}
                   />
                 ) : null}
