@@ -34,11 +34,40 @@ def register_project_routes(
             app.state.director2_ai_service = service
         return service
 
+    @app.get("/api/projects/{project_id}/documents/{doc_id}/asset-manifest")
+    def asset_manifest(project_id: str, doc_id: str, user: dict = Depends(current_user)):
+        from ..services.asset_manifest_service import AssetManifestService
+        try:
+            return AssetManifestService.get(project_id, doc_id)
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/documents/{doc_id}/asset-manifest", status_code=202)
+    def extract_asset_manifest(project_id: str, doc_id: str, user: dict = Depends(mutating_user)):
+        from ..services.asset_manifest_service import AssetManifestService
+        try:
+            return AssetManifestService.start(project_id, doc_id)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/projects/{project_id}/documents/{doc_id}/asset-manifest/{job_id}/actions")
+    def confirm_asset_manifest(project_id: str, doc_id: str, job_id: str, payload: dict, user: dict = Depends(mutating_user)):
+        from ..services.asset_manifest_service import AssetManifestService
+        try:
+            return AssetManifestService.action(project_id, doc_id, job_id, payload, user.get("id"))
+        except ValueError as err:
+            raise HTTPException(status_code=409 if "CONFLICT" in str(err) else 400, detail=str(err)) from err
+
+    @app.get("/api/projects/{project_id}/episodes/{episode_id}/workshop/jobs")
+    def workshop_jobs(project_id: str, episode_id: str, user: dict = Depends(current_user)):
+        from ..services.workshop_service import WorkshopService
+        return WorkshopService.episode_jobs(project_id, episode_id)
+
     @app.get("/api/projects/{project_id}/episodes/{episode_id}/workshop")
-    def workshop_view(project_id: str, episode_id: str, user: dict = Depends(current_user)):
+    def workshop_view(project_id: str, episode_id: str, history: bool = False, user: dict = Depends(current_user)):
         from ..services.workshop_service import WorkshopService
         try:
-            return WorkshopService.view(project_id, episode_id)
+            return WorkshopService.view(project_id, episode_id, include_history=history)
         except ValueError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
 

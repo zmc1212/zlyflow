@@ -100,10 +100,46 @@ class ReferenceProjectionTests(unittest.TestCase):
         ready=resolve_state(raw,assets)
         self.assertEqual(len(ready["prompt_authoring"]["director_plan"]["groups"][0]["reference_slots"]),1)
         for i in range(10):
-            raw["beats"][0]["prop_ids"].append(str(i)); assets.append({"id":str(i),"kind":"prop","name":str(i),"image_url":f"https://assets/{i}.png"})
+            raw["beats"][0]["character_ids"].append(str(i)); assets.append({"id":str(i),"kind":"character","name":str(i),"image_url":f"https://assets/{i}.png"})
         result=resolve_state(raw,assets); group=result["prompt_authoring"]["director_plan"]["groups"][0]
         self.assertFalse(group["reference_slots"])
         self.assertIn("超过工作流上限", group["reference_issues"][0])
+
+    def test_many_bound_props_do_not_consume_auto_references_or_require_images(self):
+        raw = state()
+        raw["beats"][0]["props"] = ["黑短裙", "红吊带", "一串钥匙"]
+        props = [{"id": str(i), "kind": "prop", "name": f"道具{i}",
+                  "image_url": f"https://assets/{i}.png" if i % 2 else ""} for i in range(12)]
+        raw["beats"][0]["prop_ids"] = [p["id"] for p in props]
+        resolved = resolve_state(raw, [character(), *props])
+        group = resolved["prompt_authoring"]["director_plan"]["groups"][0]
+        assert_ready(resolved["prompt_authoring"]["director_plan"])
+        self.assertEqual([s["asset_id"] for s in group["reference_slots"]], ["hero"])
+        self.assertEqual(resolved["beats"][0]["props"], raw["beats"][0]["props"])
+        self.assertEqual(resolved["beats"][0]["prop_ids"], raw["beats"][0]["prop_ids"])
+
+    def test_manually_selected_key_prop_still_requires_its_image_and_refreshes(self):
+        raw = state()
+        group = raw["prompt_authoring"]["director_plan"]["groups"][0]
+        group.update(reference_policy="manual", reference_slots=[
+            {"asset_id": "card", "kind": "prop", "name": "银行卡", "image_url": "https://assets/old.png"}])
+        prop = {"id": "card", "kind": "prop", "name": "银行卡", "image_url": ""}
+        missing = resolve_state(raw, [prop])
+        with self.assertRaisesRegex(ValueError, "银行卡.*缺少设定图"):
+            assert_ready(missing["prompt_authoring"]["director_plan"])
+        ready = resolve_state(raw, [{**prop, "image_url": "https://assets/card.png"}])
+        assert_ready(ready["prompt_authoring"]["director_plan"])
+        self.assertEqual(ready["prompt_authoring"]["director_plan"]["groups"][0]["reference_slots"][0]["image_url"], "https://assets/card.png")
+
+    def test_manual_reference_overflow_is_blocked_without_truncating_selection(self):
+        raw = state()
+        group = raw["prompt_authoring"]["director_plan"]["groups"][0]
+        group.update(reference_policy="manual", reference_slots=[
+            {"name": str(i), "image_url": f"https://assets/{i}.png"} for i in range(10)])
+        result = resolve_state(raw, [])
+        with self.assertRaisesRegex(ValueError, "超过工作流上限 9"):
+            assert_ready(result["prompt_authoring"]["director_plan"])
+        self.assertEqual(len(result["prompt_authoring"]["director_plan"]["groups"][0]["reference_slots"]), 10)
 
     def test_t2v_has_no_artificial_image_requirement(self):
         raw=state(); raw["prompt_authoring"]["director_plan"]["workflow_id"]="minimax-h3-director-accel-t2v"

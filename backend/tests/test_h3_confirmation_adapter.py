@@ -43,6 +43,7 @@ def apply_segment_refine(*args, **kwargs):
 
 
 def execute_director_plan_core(plan, node_id=None, **kwargs):
+    executor_options(kwargs)
     seg = plan.segments[0]
     cached = load_first_pass_cache(node_id, seg, plan)
     if cached is None:
@@ -53,13 +54,17 @@ def execute_director_plan_core(plan, node_id=None, **kwargs):
     return tuple(range(8))
 
 
+executor_options = Mock()
+
+
 def finalize_director_outputs(*args, **kwargs):
     return tuple(range(8))
 
 
 class FakeAuthor:
     def execute(self, unique_id=None, **kwargs):
-        plan = SimpleNamespace(segments=[SimpleNamespace(index=0, task_key="r2v")], run_indices=None)
+        plan = SimpleNamespace(segments=[SimpleNamespace(index=0, task_key="r2v")], run_indices=None,
+                               refine=copy.deepcopy(kwargs.get("refine") or {}))
         result = execute_director_plan_core(plan, node_id=unique_id)
         return finalize_director_outputs(result)
 
@@ -168,7 +173,7 @@ class ConfirmationGraphTests(unittest.TestCase):
             refined = build_confirmation_refine(self.graph, self.report, quality, "video/refine")
             self.assertEqual(source_revision(refined, "12"), self.report["source_revision"])
             self.assertEqual(refined["12"]["inputs"]["seed"], 0)
-            self.assertEqual(refined["38"]["inputs"]["megapixels"], quality)
+            self.assertEqual(refined["38"]["inputs"]["megapixels"], 0.98 if quality == 1.0 else quality)
         self.assertEqual(self.graph, frozen)
 
     def test_source_changes_invalidate_revision(self):
@@ -191,7 +196,8 @@ class AdapterStateTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         folder = SimpleNamespace(get_output_directory=lambda: self.temp.name)
-        patchers = [patch.dict(sys.modules, {"folder_paths": folder}),
+        patchers = [patch.dict(sys.modules, {"folder_paths": folder,
+                    "torch": SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False))}),
                     patch("comfyui_nodes.zly_h3_confirmation.node.author_class", return_value=FakeAuthor),
                     patch("comfyui_nodes.zly_h3_confirmation.node.verify_author")]
         for patcher in patchers:
@@ -201,7 +207,8 @@ class AdapterStateTests(unittest.TestCase):
     def execute(self, graph):
         inputs = copy.deepcopy(graph["12"]["inputs"])
         inputs["refine"] = {"enabled": True, "mode": "upscale", "upscale_method": "h3_latent",
-                            "megapixels": graph["38"]["inputs"]["megapixels"], "passes": 1}
+                            "megapixels": graph["38"]["inputs"]["megapixels"], "passes": 1,
+                            "sample_model": "original"}
         return ZlyH3ConfirmedDirector().execute(prompt=graph, unique_id="12", **inputs)
 
     def test_full_preview_confirm_and_quality_versions(self):
@@ -216,6 +223,24 @@ class AdapterStateTests(unittest.TestCase):
             validate_confirmation_report(refined, "refine_only")
             self.assertEqual(refined["source_revision"], report["source_revision"])
         self.assertEqual(execute_director_plan_core.__globals__["load_first_pass_cache"], load_first_pass_cache)
+
+    def test_16gb_policy_reuses_unchanged_first_pass_identity(self):
+        report = self.execute(self.graph)["ui"]["zly_h3_confirmation"][0]
+        graph = build_confirmation_refine(self.graph, report, 1.0, "test")
+        fake_cuda = SimpleNamespace(is_available=lambda: True, current_device=lambda: 0,
+            get_device_properties=lambda _: SimpleNamespace(total_memory=16 * 1024**3))
+        with patch.dict(sys.modules, {"torch": SimpleNamespace(cuda=fake_cuda)}), \
+            patch("comfyui_nodes.zly_h3_confirmation.node.compatible_refine", side_effect=lambda fn, evidence: fn), \
+             patch("comfyui_nodes.zly_h3_confirmation.node.static_refinement_clone", return_value="static") as clone:
+            result = self.execute(graph)["ui"]["zly_h3_confirmation"][0]
+        clone.assert_called_once_with("original")
+        self.assertFalse(result["memory_policy"]["dynamic_vram"])
+        self.assertTrue(result["memory_policy"]["clear_vram_before_refine"])
+        executor_options.assert_called_with({"clear_vram_before_refine": True, "clear_vram_between_segments": True})
+        self.assertEqual(result["source_revision"], report["source_revision"])
+        self.assertEqual(result["first_pass_samples"], 0)
+        self.assertEqual(result["reused_segments"], [0])
+        self.assertEqual(result["memory_policy"]["tile_count"], 4)
 
     def test_repeated_preview_cannot_overwrite_ready_source(self):
         self.execute(self.graph)

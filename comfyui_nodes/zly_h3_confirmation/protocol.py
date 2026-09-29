@@ -19,6 +19,37 @@ class ConfirmationError(RuntimeError):
     pass
 
 
+def refinement_memory_policy(total_vram_bytes: int) -> dict:
+    """Versioned adapter policy; never changes first-pass identity or sampling."""
+    if 0 < total_vram_bytes <= 18 * 1024**3:
+        return {"policy": "refine-16gb-static-tiles@4", "enable_latent_chunking": True,
+                "enable_tiling": True, "tile_count": 4, "tile_overlap": 128}
+    return {"policy": "author-default@1"}
+
+
+def static_refinement_clone(model):
+    """Use a private loader namespace; preserve LoRA/attention patches on a clone."""
+    if not model.is_dynamic():
+        return model
+    cached = model.cached_patcher_init
+    if not cached or cached[0].__name__ != "load_w4a8_model":
+        raise ConfirmationError("STATIC_REFINEMENT_LOADER_UNSUPPORTED")
+    loader = cached[0]
+    comfy = loader.__globals__["comfy"]
+    original = comfy.sd.load_diffusion_model_state_dict
+
+    def load_static(*args, **kwargs):
+        return original(*args, **{**kwargs, "disable_dynamic": True})
+
+    private_comfy = types.SimpleNamespace(utils=comfy.utils,
+        sd=types.SimpleNamespace(load_diffusion_model_state_dict=load_static))
+    base = clone_function(loader, comfy=private_comfy)(*cached[1])
+    clone = model.clone(disable_dynamic=True, model_override=base.get_clone_model_override())
+    if clone.is_dynamic():
+        raise ConfirmationError("STATIC_REFINEMENT_CLONE_FAILED")
+    return clone
+
+
 def clone_function(function, **bindings):
     """Create a private function namespace; never assign into upstream globals."""
     namespace = {**function.__globals__, **bindings}

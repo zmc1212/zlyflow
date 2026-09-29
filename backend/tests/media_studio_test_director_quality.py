@@ -14,7 +14,8 @@ from backend.app.workflow_registry import WORKFLOWS
 from backend.tests.media_studio_test_script_development import design_fixture
 
 Service = pipeline.PromptExpansionService
-WORKFLOW = next(w for w in WORKFLOWS if w.prompt_profile == "director_segments")
+# These fixtures have no reference images; catalogue ordering is not a route contract.
+WORKFLOW = next(w for w in WORKFLOWS if w.prompt_profile == "director_segments" and w.min_references == 0)
 
 
 def fixture():

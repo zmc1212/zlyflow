@@ -56,6 +56,8 @@ class ShotPlanJobService:
         if is_ai_pipeline_document(row.get("input_mode")):
             raise ValueError("AI 流水线文档不需要二次规划出片镜头")
         analysis = ProjectDetailService._analysis_for_document_row(row) or {}
+        if analysis.get("asset_manifest"):
+            raise ValueError("此文档已使用全局资产清单，请从剧集工坊生成可确认的镜头候选；旧镜头保持不变")
         indexes = shot_plan_episode_indexes(
             analysis,
             input_mode=row.get("input_mode"),

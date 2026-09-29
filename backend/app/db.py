@@ -504,13 +504,19 @@ class MysqlDatabase(Database):
         )
 
     def _acquire(self) -> Any:
+        import time
         while True:
             with self._lock:
                 candidate = self._pool.pop() if self._pool else None
             if candidate is None:
-                return self._connect()
+                raw = self._connect()
+                raw._last_used = time.time()
+                return raw
             try:
-                candidate.ping(reconnect=True)
+                # 只对空闲超过 30 秒的连接进行 ping，避免每次获取时产生 ~90ms 的额外网络开销。
+                if time.time() - getattr(candidate, "_last_used", 0) > 30:
+                    candidate.ping(reconnect=True)
+                candidate._last_used = time.time()
                 return candidate
             except Exception:
                 try:
@@ -519,6 +525,7 @@ class MysqlDatabase(Database):
                     pass
 
     def _release(self, raw: Any) -> None:
+        import time
         try:
             raw.rollback()
         except Exception:
@@ -527,6 +534,7 @@ class MysqlDatabase(Database):
             except Exception:
                 return
             return
+        raw._last_used = time.time()
         with self._lock:
             if len(self._pool) < self._pool_size:
                 self._pool.append(raw)

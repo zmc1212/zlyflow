@@ -24,7 +24,7 @@ from .vision_runtime import overlay_vlm_credentials, resolve_analysis_endpoint
 
 DEFAULT_VLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_VLM_MODEL = "glm-4v-flash"
-VLM_PROFILE_IDS = {"zhipu", "dashscope", "modelscope", "siliconflow", "ollama", "custom"}
+VLM_PROFILE_IDS = {"modelink", "zhipu", "dashscope", "modelscope", "siliconflow", "ollama", "custom"}
 
 ZHIPU_VISION_CATALOG = [
     {"id": "glm-4.6v-flash", "label": "GLM-4.6V-Flash（免费）", "free": True},
@@ -205,6 +205,11 @@ class VlmProviderService:
                 raise ValueError(self.credentials.error or "凭证主密钥不可用")
             values["api_key_encrypted"] = self.credentials.encrypt(api_key)
         values["use_llm_credentials"] = False
+        from .vision_capability import evidence_for_saved_connection
+        previous = self.store.get_vlm_profile(profile_id) or {}
+        candidate = {**previous, **values, "profile_id": profile_id}
+        values.update(evidence_for_saved_connection(candidate, self.api_key(candidate),
+                                                    previous, self.api_key(previous) if previous else None))
         self.store.update_vlm_profile(profile_id, values, activate=True)
         return self.public_config()
 

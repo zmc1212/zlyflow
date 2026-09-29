@@ -1120,7 +1120,7 @@ class AiGenerationService:
                 continue
             chars = shot.get("characterNames") or shot.get("characters") or []
             beats.append({
-                "character_ids": match_named_asset_ids(chars if isinstance(chars, list) else [chars], char_map),
+                "character_ids": match_named_asset_ids(chars if isinstance(chars, list) else [chars], char_map, exact=True),
                 "characters": chars,
                 "speaker": shot.get("speaker") or "",
                 "heading": shot.get("title") or shot.get("heading") or "",
@@ -1281,7 +1281,7 @@ class AiGenerationService:
             "camera": camera,
             "audio": audio,
             "characters": chars,
-            "character_ids": match_named_asset_ids(chars, char_map or {}),
+            "character_ids": match_named_asset_ids(chars, char_map or {}, exact=True),
             "scene": scene_name,
             "scene_id": scene_id,
             "props": props,

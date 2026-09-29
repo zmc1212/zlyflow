@@ -1,5 +1,6 @@
 import { jsonMutation, requestJson } from "../api"
 import type { Director2Beat, PromptReferenceSlot } from "./api"
+import type { AssetAudit, ManifestEntry } from "./asset-manifest-api"
 
 export type WritingAuthor = { profile_id?: string; model?: string; reasoning_effort?: string }
 export type AiReview = {
@@ -25,6 +26,8 @@ export type WorkshopPlan = {
   workflow_id: string; aspect_ratio: string; max_shots_per_group: number; groups: WorkshopGroup[];
   target_duration_seconds?: number | null; applied_candidates?: Record<string, string[]>;
   reference_fingerprint?: string;
+  asset_manifest_version?: string;
+  asset_audit?: AssetAudit;
   writing_author?: WritingAuthor;
   shot_prompts: Record<string, { h3_prompt: string; fingerprint: string; authoring_job_id?: string; authoring_version?: string; history?: Array<{h3_prompt:string}> }>;
 }
@@ -32,6 +35,8 @@ export type WorkshopJob = {
   id: string; status: string; kind: string; error?: string;
   payload: { message: string; count_note?: string; applied_ids: string[]; prompt_scope?: "group" | "shot_revision";
     regenerated_from_job_id?: string;
+    asset_audit?: AssetAudit;
+    asset_manifest?: { version: string; entries: ManifestEntry[] };
     candidate?: { beats: Director2Beat[]; plan: WorkshopPlan };
     candidates: Record<string, { h3_prompt: string; review?: WorkshopReview }>;
     common_prompt_candidates?: Record<string, string>;
@@ -67,7 +72,8 @@ export function workshopCandidateStaleReason(job: WorkshopJob, plan: WorkshopPla
   if (group.beat_ids.some(id => JSON.stringify(basePlan.shot_prompts?.[id]) !== JSON.stringify(plan.shot_prompts?.[id]))) return "同组已有新稿，旧候选不能覆盖；请重新生成"
   return ""
 }
-export const readWorkshop = (project: string, episode: string) => requestJson<WorkshopView>(`${base(project, episode)}/workshop`)
+export const readWorkshopJobs = (project: string, episode: string) => requestJson<{jobs: any[]}>(`${base(project, episode)}/workshop/jobs`)
+export const readWorkshop = (project: string, episode: string, history = false) => requestJson<WorkshopView>(`${base(project, episode)}/workshop` + (history ? "?history=true" : ""))
 export const writeWorkshop = (csrf: string, project: string, episode: string, data: Record<string, unknown>) => requestJson<WorkshopView>(`${base(project, episode)}/workshop`, jsonMutation(csrf, data, "PATCH"))
 export const planWorkshop = (csrf: string, project: string, episode: string, data: Record<string, unknown>) => requestJson<{ job_id: string }>(`${base(project, episode)}/shot-plan`, jsonMutation(csrf, data, "POST"))
 export const promptWorkshop = (csrf: string, project: string, episode: string, data: Record<string, unknown>) => requestJson<{ job_id: string }>(`${base(project, episode)}/workshop/prompts`, jsonMutation(csrf, data, "POST"))

@@ -103,6 +103,8 @@ docs/design-ref-director/
 docs/导演台设计图/
 submit_*.py
 backend/tests/test_*.py
+!backend/tests/test_llm_request_policy.py
+!backend/tests/test_asset_manifest.py
 !backend/tests/test_minimax_h3_director_refine.py
 !backend/tests/test_h3_confirmation_probe.py
 !backend/tests/test_h3_confirmation_adapter.py

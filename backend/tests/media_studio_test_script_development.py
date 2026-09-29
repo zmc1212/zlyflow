@@ -31,6 +31,17 @@ class StoryEngineTests(unittest.TestCase):
     def test_literal_newline_json_preserves_story_text(self, chat):
         self.assertEqual(story.call_json("测试", {})["body"], "第一行\n第二行")
 
+    @patch.object(story.LlmService, "chat_text", return_value='{"issues":[{"episode_num":1,"evidence":}]}')
+    def test_invalid_json_exposes_response_for_checkpoint(self, chat):
+        with self.assertRaises(story.InvalidJsonResponse) as caught:
+            story.call_json("审稿", {})
+        self.assertIn('"evidence":}', caught.exception.raw)
+
+    def test_unquoted_single_line_review_text_is_repaired_without_rewriting_content(self):
+        raw = '{"issues":[\n{"episode_num":1,"category":"结构","evidence":"重复",\n"suggestion": **重复段落**。应精简,\n"severity":"error"}]} '
+        review = story.parse_story_json(raw)
+        self.assertEqual(review["issues"][0]["suggestion"], "**重复段落**。应精简")
+
     @patch.object(story, "call_json", return_value={"issues": []})
     def test_duration_mismatch_is_visible_even_when_reviewer_misses_it(self, call):
         state = {"source": "原稿", "plan": plan(), "review_round": 2,
@@ -46,6 +57,26 @@ class StoryEngineTests(unittest.TestCase):
         with self.assertRaises(ValueError): story.validate_plan(p)
         p = plan(); p["episodes"][0]["obstacle"] = ""
         with self.assertRaises(ValueError): story.validate_plan(p)
+
+    @patch.object(story, "call_json")
+    def test_planning_repairs_only_missing_episode_fields(self, call):
+        draft = plan()
+        draft["episodes"][1].pop("next_episode_bridge")
+        call.side_effect = [draft, {"episodes": [{"episode_num": 2, "next_episode_bridge": "主角决定公开真相，故事收束。"}]}]
+        result = story.plan_story("原稿")
+        self.assertEqual(result["episodes"][1]["next_episode_bridge"], "主角决定公开真相，故事收束。")
+        self.assertEqual(result["episodes"][0], plan()["episodes"][0])
+        self.assertEqual(call.call_count, 2)
+
+    @patch.object(story, "call_json")
+    def test_failed_plan_repair_keeps_editable_draft(self, call):
+        draft = plan()
+        draft["episodes"][1].pop("next_episode_bridge")
+        call.side_effect = [draft, RuntimeError("模型暂时不可用")]
+        with self.assertRaises(story.IncompletePlanError) as caught:
+            story.plan_story("原稿")
+        self.assertEqual(caught.exception.plan["episodes"][1]["next_episode_bridge"], "")
+        self.assertEqual(caught.exception.plan["episodes"][1]["episode_num"], 2)
 
     @patch.object(story, "call_json")
     def test_resume_skips_finished_episode_and_reviews_whole_series(self, call):
@@ -84,6 +115,94 @@ class StoryEngineTests(unittest.TestCase):
         call.side_effect = [episode(1), RuntimeError("网络中断")]
         with self.assertRaises(RuntimeError): story.develop_story(state, lambda _: None)
         self.assertEqual(len(state["episodes"]), 1)
+
+
+class PlanningCheckpointTests(unittest.TestCase):
+    @patch.object(service.ScriptDevelopmentService, "save")
+    @patch.object(service.ScriptDevelopmentService, "check_source")
+    @patch.object(service.ScriptDevelopmentService, "get")
+    @patch.object(service, "execute_sql", return_value=1)
+    @patch.object(service, "plan_story")
+    def test_incomplete_plan_is_saved_for_manual_review(self, generate, execute, get, check, save):
+        draft = plan()
+        draft["episodes"][1]["next_episode_bridge"] = ""
+        generate.side_effect = story.IncompletePlanError("第 2 集缺少承接", draft)
+        get.return_value = {"data": {"phase": "planning", "source": "原稿", "source_fingerprint": "same"}}
+        service.ScriptDevelopmentService.run("project", "document", "job")
+        saved = save.call_args
+        self.assertEqual(saved.args[3], "failed")
+        self.assertEqual(saved.args[2]["phase"], "plan_review")
+        self.assertEqual(saved.args[2]["plan"]["episodes"][1]["next_episode_bridge"], "")
+
+    @patch.object(service.ScriptDevelopmentService, "save")
+    @patch.object(service.ScriptDevelopmentService, "check_source")
+    @patch.object(service.ScriptDevelopmentService, "get")
+    @patch.object(service, "execute_sql", return_value=1)
+    @patch.object(service, "develop_story")
+    def test_invalid_review_keeps_raw_response_and_written_episodes(self, develop, execute, get, check, save):
+        raw = '{"issues":[{"episode_num":1,"evidence":}]}'
+        develop.side_effect = story.InvalidJsonResponse("无效 JSON", raw, {"finish_reason": "stop"})
+        written = [{**episode(1), "episode_num": 1}]
+        get.return_value = {"data": {"phase": "writing", "message": "正在全剧审稿（第 2 轮）", "episodes": written}}
+        service.ScriptDevelopmentService.run("project", "document", "job")
+        saved = save.call_args
+        self.assertEqual(saved.args[3], "failed")
+        self.assertEqual(saved.args[2]["episodes"], written)
+        self.assertEqual(saved.args[2]["last_json_failure"]["raw"], raw)
+
+    @patch.object(service.ScriptDevelopmentService, "save")
+    @patch.object(service.ScriptDevelopmentService, "check_source")
+    @patch.object(service.ScriptDevelopmentService, "get")
+    @patch.object(service.ScriptDevelopmentService._executor, "submit")
+    def test_retry_reuses_repaired_review_without_new_review_request(self, submit, get, check, save):
+        raw = '{"issues":[\n{"episode_num":1,"category":"结构","evidence":"重复",\n"suggestion": **重复段落**。应精简,\n"severity":"error"}]}'
+        data = {"phase": "writing", "message": "正在全剧审稿（第 2 轮）", "plan": plan(),
+                "episodes": [{**episode(i), "episode_num": i} for i in (1, 2)],
+                "last_json_failure": {"step": "正在全剧审稿（第 2 轮）", "raw": raw}}
+        job = {"status": "failed", "data": data}
+        get.return_value = job
+        service.ScriptDevelopmentService.action("project", "document", "job", {"action": "retry", "revision": story.digest(data)})
+        queued = save.call_args.args[2]
+        self.assertEqual(queued["pending_review"]["issues"][0]["suggestion"], "**重复段落**。应精简")
+        self.assertTrue(queued["last_json_failure"]["recovered"])
+        submit.assert_called_once()
+
+    @patch.object(service.ScriptDevelopmentService, "save")
+    @patch.object(service.ScriptDevelopmentService, "check_source")
+    @patch.object(service.ScriptDevelopmentService, "get")
+    def test_quota_failure_can_open_complete_draft_without_adopting(self, get, check, save):
+        data = {"phase": "writing", "plan": plan(),
+                "episodes": [{**episode(i), "episode_num": i} for i in (1, 2)],
+                "pending_review": {"issues": [
+                    {"episode_num": 1, "evidence": "已修订", "suggestion": "复核"},
+                    {"episode_num": 2, "evidence": "待修订", "suggestion": "补足"}]},
+                "repair_done": [1]}
+        get.return_value = {"status": "failed", "error": "免费额度耗尽", "data": data}
+        service.ScriptDevelopmentService.action("project", "document", "job", {"action": "review_draft", "revision": story.digest(data)})
+        saved = save.call_args
+        self.assertEqual(saved.args[3], "awaiting_review")
+        self.assertEqual(saved.args[2]["phase"], "script_review")
+        self.assertTrue(saved.args[2]["review_incomplete"])
+        self.assertEqual([x["episode_num"] for x in saved.args[2]["unresolved_issues"]], [2])
+        self.assertIn("# 第2集", saved.args[2]["script_text"])
+
+    @patch.object(service.ScriptDevelopmentService, "save")
+    @patch.object(service.ScriptDevelopmentService, "check_source")
+    @patch.object(service.ScriptDevelopmentService, "get")
+    @patch.object(service.ScriptDevelopmentService._executor, "submit")
+    def test_revision_resumes_incomplete_review(self, submit, get, check, save):
+        data = {"phase": "script_review", "plan": plan(),
+                "episodes": [{**episode(i), "episode_num": i} for i in (1, 2)],
+                "review_incomplete": True, "review_interruption": "免费额度耗尽"}
+        get.return_value = {"status": "awaiting_review", "data": data}
+        service.ScriptDevelopmentService.action("project", "document", "job", {
+            "action": "revise", "revision": story.digest(data),
+            "episode_numbers": [2], "feedback": "补足第二集承接"})
+        queued = save.call_args.args[2]
+        self.assertEqual(queued["revision_episodes"], [2])
+        self.assertNotIn("review_incomplete", queued)
+        self.assertNotIn("review_interruption", queued)
+        submit.assert_called_once()
 
 
 class AdoptionTests(unittest.TestCase):

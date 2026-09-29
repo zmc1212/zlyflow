@@ -17,6 +17,7 @@ from backend.app.llm_client import (
     LLM_CONNECT_TIMEOUT_SECONDS,
     LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
     LLM_TEST_MAX_TOKENS,
+    LLM_THINKING_TEST_MAX_TOKENS,
     LLM_TEST_TIMEOUT_SECONDS,
     LLM_TEST_USER_PROMPT,
     OpenAICompatibleClient,
@@ -70,6 +71,41 @@ class ChatCompletionThinkingTests(unittest.TestCase):
         payload = mock_post.call_args.kwargs["json"]
         self.assertNotIn("thinking", payload)
         self.assertFalse(payload["enable_thinking"])
+
+    @patch("requests.Session.post")
+    def test_glm53_enables_required_thinking_for_chat_and_stream(self, mock_post: MagicMock) -> None:
+        for model in ("glm-5.3", "ZHIPU/GLM-5.3", "ZHIPU/GLM-5.3-Flash", "glm-5.3-FlashX", "glm-5.3:latest"):
+            for stream in (False, True):
+                with self.subTest(model=model, stream=stream):
+                    response = self._ok_response()
+                    response.headers = {"Content-Type": "application/json"}
+                    response.json.return_value["choices"][0]["message"]["reasoning_content"] = "推理"
+                    mock_post.return_value = response
+                    client = OpenAICompatibleClient("https://ws-test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "sk-test")
+                    self.assertEqual(client.chat_completion(
+                        [{"role": "user", "content": "hi"}], model, stream=stream,
+                    ), "收到")
+                    payload = mock_post.call_args.kwargs["json"]
+                    self.assertIs(payload["enable_thinking"], True)
+                    self.assertNotIn("thinking", payload)
+
+    @patch("requests.Session.post")
+    def test_other_glm_versions_can_disable_thinking(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient("https://dashscope.aliyuncs.com/compatible-mode/v1", "sk-test")
+        for model in ("glm-5.2", "glm-4.7"):
+            with self.subTest(model=model):
+                client.chat_completion([{"role": "user", "content": "hi"}], model)
+                self.assertIs(mock_post.call_args.kwargs["json"]["enable_thinking"], False)
+
+    @patch("requests.Session.post")
+    def test_unknown_model_omits_vendor_thinking_fields(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient("https://api.example/v1", "sk-test")
+        client.chat_completion([{"role": "user", "content": "hi"}], "custom-model")
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertNotIn("enable_thinking", payload)
+        self.assertNotIn("thinking", payload)
 
     @patch("requests.Session.post")
     def test_gpt5_sol_uses_max_completion_tokens_without_temperature(self, mock_post: MagicMock) -> None:
@@ -928,6 +964,20 @@ class LLMConnectionTestTests(unittest.TestCase):
         self.assertNotIn("请仅回复两个字", contents)
         self.assertNotIn("分镜说明", contents)
         self.assertNotIn("reasoning_effort", mock_chat.call_args.kwargs)
+
+    @patch.object(OpenAICompatibleClient, "list_models", return_value=["glm-5.3"])
+    @patch("requests.Session.post")
+    def test_glm53_connection_sends_supported_payload(self, mock_post: MagicMock, _mock_list: MagicMock) -> None:
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"choices": [{"message": {"content": "中文对话正常", "reasoning_content": "推理"}}]}
+        mock_post.return_value = response
+        client = OpenAICompatibleClient("https://ws-test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "sk-test")
+        self.assertEqual(client.test_connection("glm-5.3", timeout=90.0), "中文对话正常")
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertIs(payload["enable_thinking"], True)
+        self.assertEqual(payload["max_tokens"], LLM_THINKING_TEST_MAX_TOKENS)
+        self.assertEqual(payload["messages"], [{"role": "user", "content": LLM_TEST_USER_PROMPT}])
+        self.assertNotIn("reasoning_effort", payload)
 
     @patch.object(OpenAICompatibleClient, "list_models", return_value=["gpt-5.6-sol"])
     @patch.object(OpenAICompatibleClient, "chat_completion", return_value="我是 gpt-5.6-sol，可以正常中文对话。")

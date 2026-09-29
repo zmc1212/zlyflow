@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from .llm_client import OpenAICompatibleClient
+from .llm_client import LlmTemporaryError, OpenAICompatibleClient
+from .llm_request_policy import chat_policy, probe_token_budget
 
 VISION_CAP_UNKNOWN = "unknown"
 VISION_CAP_SUPPORTED = "supported"
@@ -24,7 +25,7 @@ VISION_SOURCE_CATALOG = "catalog"
 VISION_SOURCE_LEGACY_NAME_GUESS = "legacy_name_guess"
 VISION_SOURCE_MANUAL = "manual"
 VISION_PROBE_TIMEOUT = 20.0
-VISION_PROBE_MAX_TOKENS = 8
+VISION_PROBE_MAX_TOKENS = 32
 VISION_CACHE_SECONDS = 24 * 60 * 60
 _CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _CACHE_LOCK = threading.RLock()
@@ -75,8 +76,40 @@ def sanitize_probe_error(exc: Any, api_key: str = "") -> str:
     return text[:240].strip() or "上游未提供错误摘要"
 
 
+_COLOR_ZH = {"red": ("红",), "blue": ("蓝",)}
+
+
+def _color_matches(color: str, expected: str) -> bool:
+    """宽松颜色校验：精确 / 单词边界 / 中文颜色词三层匹配。"""
+    if color == expected:
+        return True
+    if re.search(r"\b" + re.escape(expected) + r"\b", color):
+        return True
+    for zh in _COLOR_ZH.get(expected, ()):
+        if zh in color:
+            return True
+    return False
+
+
+_COLOR_ZH = {"red": ("红",), "blue": ("蓝",)}
+
+
+def _color_matches(color: str, expected: str) -> bool:
+    # wide color check: exact / word-boundary / Chinese color word
+    if color == expected:
+        return True
+    if re.search(r"\\b" + re.escape(expected) + r"\\b", color):
+        return True
+    for zh in _COLOR_ZH.get(expected, ()):
+        if zh in color:
+            return True
+    return False
+
+
 def probe_vision_capability(*, base_url: str, api_key: str, model: str,
-                           timeout: float = VISION_PROBE_TIMEOUT, semantic_check: bool = True) -> VisionProbeResult:
+                           timeout: float | None = None, semantic_check: bool = True) -> VisionProbeResult:
+    if timeout is None:
+        timeout = 90.0 if chat_policy(model, base_url).thinking_required else VISION_PROBE_TIMEOUT
     deadline = time.monotonic() + timeout
     replies = []
     try:
@@ -86,21 +119,35 @@ def probe_vision_capability(*, base_url: str, api_key: str, model: str,
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("视觉探测超时")
+            probe_text = VISION_PROBE_SYSTEM_PROMPT + "\n" + VISION_PROBE_USER_PROMPT
             reply = client.chat_completion(
-                [{"role": "system", "content": VISION_PROBE_SYSTEM_PROMPT},
-                 {"role": "user", "content": [{"type": "text", "text": VISION_PROBE_USER_PROMPT},
-                  {"type": "image_url", "image_url": {"url": image}}]}],
-                model=model, temperature=0, max_tokens=VISION_PROBE_MAX_TOKENS,
+                [{"role": "user", "content": [
+                    {"type": "text", "text": probe_text},
+                    {"type": "image_url", "image_url": {"url": image}},
+                ]}],
+                model=model, temperature=0,
+                max_tokens=probe_token_budget(model, base_url, VISION_PROBE_MAX_TOKENS),
                 timeout=remaining, stream=False, reasoning_effort="none",
             )
-            color = str(reply or "").strip().lower().strip(" .!。！\"'")
-            if not color or (semantic_check and color != expected):
-                return VisionProbeResult(VISION_CAP_UNSUPPORTED, "视觉语义校验未通过；请检查模型是否真正接收图片。")
+            color = str(reply or "").strip().lower().strip(" .\u3002!")
+            if not color or (semantic_check and not _color_matches(color, expected)):
+                snippet = str(reply or "").strip()[:60]
+                msg = (
+                    "视觉语义校验未通过；"
+                    "请检查模型是否真正接收图片。"
+                    "模型实际回复：" + repr(snippet)
+                )
+                return VisionProbeResult(VISION_CAP_UNSUPPORTED, msg)
             replies.append(color)
+    except (LlmTemporaryError, TimeoutError) as exc:
+        return VisionProbeResult(VISION_CAP_UNKNOWN,
+                                 "视觉探测暂未完成：" + sanitize_probe_error(exc, api_key))
     except Exception as exc:
-        return VisionProbeResult(VISION_CAP_UNSUPPORTED, "视觉探测失败：" + sanitize_probe_error(exc, api_key))
-    return VisionProbeResult(VISION_CAP_SUPPORTED, "双色图视觉验证通过" if semantic_check else "图片请求通过（未做语义校验）", " / ".join(replies))
-
+        return VisionProbeResult(VISION_CAP_UNSUPPORTED,
+                                 "视觉探测失败：" + sanitize_probe_error(exc, api_key))
+    return VisionProbeResult(VISION_CAP_SUPPORTED,
+                             "双色图视觉验证通过" if semantic_check else "图片请求通过（未做语义校验）",
+                             " / ".join(replies))
 
 def unknown_vision_fields() -> dict[str, Any]:
     return {"vision_capability": VISION_CAP_UNKNOWN, "vision_capability_source": None,
@@ -126,6 +173,28 @@ def probe_fields(row: dict[str, Any], result: VisionProbeResult) -> dict[str, An
         while len(_CACHE) > 128:
             _CACHE.popitem(last=False)
     return fields
+
+
+def evidence_for_saved_connection(candidate: dict[str, Any], api_key: str | None,
+                                  previous: dict[str, Any], previous_key: str | None) -> dict[str, Any]:
+    """保存时将同一实际连接的服务端探测证据绑定到持久化指纹。
+
+    临时表单使用明文密钥身份，保存使用随机加密密文身份；仅迁移服务端缓存中
+    的新鲜探测证据，保留原时间，不接受客户端能力声明或跨连接证据。
+    """
+    if not api_key:
+        return {}
+    preview = {**candidate, "api_key_encrypted": None, "api_key": api_key}
+    fields = capability_fields(preview)
+    same_connection = api_key == previous_key and all(
+        candidate.get(name) == previous.get(name) for name in ("profile_id", "base_url", "model")
+    )
+    if fields.get("vision_capability_source") != VISION_SOURCE_PROBE and same_connection:
+        fields = capability_fields(previous)
+    if (fields.get("vision_capability_source") != VISION_SOURCE_PROBE
+            or fields.get("vision_capability") not in {VISION_CAP_SUPPORTED, VISION_CAP_UNSUPPORTED}):
+        return {}
+    return {**fields, "vision_capability_fingerprint": row_fingerprint(candidate)}
 
 
 def _fresh(fields: dict[str, Any], row: dict[str, Any]) -> bool:

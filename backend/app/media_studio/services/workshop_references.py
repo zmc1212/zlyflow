@@ -66,6 +66,8 @@ def resolve_state(data, assets):
 
     Legacy empty groups become automatic; legacy populated groups are manual.
     Names only resolve exact, unique assets; explicit removed bindings stay removed.
+    Automatic video references contain character looks only. Bound props remain
+    shot metadata; an independent prop image must be explicitly selected manually.
     """
     result = deepcopy(data)
     plan = (result.get("prompt_authoring") or {}).get("director_plan") or {}
@@ -87,7 +89,8 @@ def resolve_state(data, assets):
                     if len(matches) == 1:
                         ids.append(matches[0]["id"])
                     else:
-                        problems.append(f"「{name}」资产不存在或有重名，请在本镜明确绑定")
+                        if kind == "character":
+                            problems.append(f"「{name}」资产不存在或有重名，请在本镜明确绑定")
             if ids != (beat.get(ids_key) or []):
                 beat[ids_key] = ids
         name_issues[beat["id"]] = problems
@@ -97,23 +100,21 @@ def resolve_state(data, assets):
         group["reference_policy"] = policy
         problems, slots = [], []
         local = [by_beat[bid] for bid in group["beat_ids"] if bid in by_beat]
+        if plan.get("asset_manifest_version"):
+            for beat in local:
+                if beat.get("asset_references_stale") or "asset_references" not in beat:
+                    problems.append(f"镜头 {beat.get('sequence', beat['id'])} 的资产关联待核对")
         if policy == "auto" and definition.max_references:
             for beat in local:
                 problems.extend(name_issues[beat["id"]])
-                for aid in [*(beat.get("character_ids") or []), *(beat.get("prop_ids") or [])]:
+                for aid in beat.get("character_ids") or []:
                     asset = by_id.get(aid)
-                    if not asset or asset.get("kind") not in {"character", "prop"}:
+                    if not asset or asset.get("kind") != "character":
                         problems.append(f"镜头 {beat.get('sequence', beat['id'])} 的绑定资产不存在，请重新选择")
                         continue
                     slot, error = _slot(asset, beat)
                     if error:
                         problems.append(f"镜头 {beat.get('sequence', beat['id'])}：{error}")
-                    elif asset.get("kind") == "prop":
-                        conflict = _prop_name_conflicts(beat, asset)
-                        if conflict:
-                            problems.append(f"镜头 {beat.get('sequence', beat['id'])}：{conflict}")
-                        if not any(s["asset_id"] == slot["asset_id"] and s["look_id"] == slot["look_id"] for s in slots):
-                            slots.append(slot)
                     elif not any(s["asset_id"] == slot["asset_id"] and s["look_id"] == slot["look_id"] for s in slots):
                         slots.append(slot)
             if len(slots) > definition.max_references:
@@ -141,6 +142,13 @@ def resolve_state(data, assets):
                     continue
                 # Preserve metadata/name representation so existing valid fingerprints survive.
                 slots.append({**previous, "image_url": slot["image_url"]})
+            if plan.get("asset_manifest_version"):
+                expected = {(aid, (b.get("character_look_ids") or {}).get(aid)) for b in local for aid in b.get("character_ids") or []}
+                actual = {(s.get("asset_id"), s.get("look_id")) for s in slots if s.get("kind") == "character"}
+                if expected != actual:
+                    problems.append("手工参考与已确认的可见人物／造型不一致，请重新选择或调整关联")
+            if len(slots) > definition.max_references:
+                problems.append(f"本组选择 {len(slots)} 张参考图，超过工作流上限 {definition.max_references}，请拆组或减少选择")
         if len(slots) < definition.min_references and not problems:
             problems.append(f"本组需要至少 {definition.min_references} 张人物／道具设定图，请绑定资产或手动选择参考")
         group["reference_slots"] = [{**s, "index": i, "token": f"<Picture {i}>"} for i, s in enumerate(slots, 1)]

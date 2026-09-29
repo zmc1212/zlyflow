@@ -55,7 +55,7 @@ def execution_report(graph, history):
     return copy.deepcopy(report)
 
 
-def executed_segment_frames(history, segment_count):
+def executed_segment_frames(history, segment_count, *, reused_frame_counts=None):
     """Read actual boundaries from the pinned author's report, not assumed VAE padding."""
     values = (history.get("outputs") or {}).get("8", {}).get("text") or []
     text = "\n".join(map(str, values)) if isinstance(values, list) else str(values)
@@ -78,6 +78,16 @@ def executed_segment_frames(history, segment_count):
         seen.add(index)
         counts[index - 1] = count
     totals = re.findall(r"Export mode: all — merged (\d+) frame\(s\)", text)
+    if reused_frame_counts is not None:
+        # Cache-only refinement preserves the verified preview's temporal layout.
+        # Its author report omits the continuity export overrides on cache hits.
+        if (len(reused_frame_counts) != segment_count
+                or any(type(n) is not int or n <= 0 for n in reused_frame_counts)
+                or len(totals) != 1
+                or sum(reused_frame_counts) != int(totals[0])
+                or any(counts[i - 1] != reused_frame_counts[i - 1] for i in seen)):
+            raise ValueError("缓存分段帧数与二采导出不一致")
+        counts = list(reused_frame_counts)
     if totals and (len(totals) != 1 or sum(counts) != int(totals[0])):
         raise ValueError("分段帧数与实际导出总帧数不一致")
     return counts
@@ -151,7 +161,8 @@ def build_confirmation_refine(frozen_preview: dict[str, Any], report: dict[str, 
         raise ValueError("一采来源不匹配")
     inputs.update(stage="refine_only", source_revision=report["source_revision"],
                   expected_instance_id=report["instance_id"])
-    graph["38"]["inputs"]["megapixels"] = float(quality)
+    # The 1 MP preset uses H3's native 1344x768 canvas instead of 1376x768.
+    graph["38"]["inputs"]["megapixels"] = 0.98 if quality == 1.0 else float(quality)
     graph["7"]["inputs"]["filename_prefix"] = filename_prefix + "-refined"
     return graph
 

@@ -29,11 +29,16 @@ def _video_write(sql, params):
         params = (*params, owner)
     changed = execute_sql(sql, params)
     if owner and changed != 1:
-        raise RuntimeError("视频任务执行租约已转移")
+        # MySQL reports changed rows, not matched rows (e.g. clearing an already NULL error).
+        row = query_one("SELECT payload_json FROM ai_project_jobs WHERE id=%s", (params[-2],)) or {}
+        lease = json.loads(row.get("payload_json") or "{}").get("execution_lease") or {}
+        if lease.get("owner") != owner:
+            raise RuntimeError("视频任务执行租约已转移")
     return changed
 
 from .comfy_service import ComfyService
 from .comfy_video_client import ComfyVideoClient
+from .video_recovery import RESTART_ERROR, remote_state, restore_checkpoints
 from .character_looks import apply_resolved_looks_to_beat, missing_look_message, select_character_look
 from .episode_image_prompts import resolve_scene_asset, scene_master_url
 from .project_detail_service import ProjectDetailService
@@ -59,6 +64,8 @@ from ...workflow_registry import (
 
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="h3-video")
+_RECOVERY_PENDING: set[str] = set()
+_RECOVERY_LOCK = threading.Lock()
 _ACTIVE_VIDEO_STATUSES = (
     "queued",
     "preparing",
@@ -1585,11 +1592,17 @@ class EpisodeVideoService:
             raise ValueError("原视频执行器仍持有运行租约，请等待其完成或租约过期再重试")
         if payload.get("h3_confirmation") and row.get("status") in {"completed", "succeeded"}:
             raise ValueError("已完成的确认任务请新建预览或选择另一画质，不覆盖已有结果")
+        if payload.get("prompt_id") and row.get("status") == "failed":
+            state = remote_state(ComfyVideoClient(payload["comfy_base_url"]), payload["prompt_id"])
+            if state in {"running", "comfy_queued", "completed"}:
+                cls._schedule_recovery(job_id)
+                return row
         frozen_shots = payload.get("shots")
         for key in (
             "shots", "llm_attempts", "prompt_generation_progress", "timeline", "workflow_request",
             "prompt_id", "client_id", "queue_number", "node_errors", "comfy_output",
             "director_report", "storage_warning", "failure_stage", "comfy_submission_count",
+            "comfy_checkpoints", "remote_recovery_pending",
         ):
             payload.pop(key, None)
         payload["shots"] = []
@@ -1610,18 +1623,47 @@ class EpisodeVideoService:
 
     @classmethod
     def recover_orphaned_jobs(cls) -> None:
+        # Fence expired workers before reading the recovery candidates.  Removing
+        # the lease is safe only after its expiry and makes a stale worker fail
+        # the owner check on its next write.  Keep the timestamp predicate in the
+        # SQL so startup recovery retains the same lease guard as normal writes.
         timestamp = now_str()
         execute_sql(
-            """
-            UPDATE ai_project_jobs
-            SET status = 'failed', progress = 0,
-                error_message = '服务进程重启，后台视频任务已中断，请点击重试。', updated_at = %s
-            WHERE job_type = 'video_generation'
-              AND status IN ('queued', 'preparing', 'prompt_generation', 'uploading', 'comfy_queued', 'running', 'assembling', 'downloading')
-              AND COALESCE(JSON_EXTRACT(payload_json,'$.execution_lease.expires_at'),0) <= %s
-            """,
+            "UPDATE ai_project_jobs SET payload_json=JSON_REMOVE(payload_json,'$.execution_lease'),"
+            "updated_at=%s WHERE job_type='video_generation' "
+            "AND status IN ('queued','preparing','prompt_generation','uploading','comfy_queued',"
+            "'running','assembling','downloading','upscaling') "
+            "AND COALESCE(JSON_EXTRACT(payload_json,'$.execution_lease.expires_at'),0)<=%s",
             (timestamp, time.time()),
         )
+        rows = query_all(
+            "SELECT * FROM ai_project_jobs WHERE job_type='video_generation' "
+            "AND (status IN ('queued','preparing','prompt_generation','uploading','comfy_queued',"
+            "'running','assembling','downloading','upscaling') OR (status='failed' AND error_message=%s)) "
+            "AND COALESCE(JSON_EXTRACT(payload_json,'$.execution_lease.expires_at'),0)<=%s",
+            (RESTART_ERROR, time.time()),
+        )
+        for row in rows:
+            cls._schedule_recovery(row["id"])
+
+    @classmethod
+    def _schedule_recovery(cls, job_id: str) -> None:
+        with _RECOVERY_LOCK:
+            if job_id in _RECOVERY_PENDING:
+                return
+            _RECOVERY_PENDING.add(job_id)
+        def run():
+            try:
+                cls._run_job(job_id, recover=True)
+            finally:
+                with _RECOVERY_LOCK:
+                    _RECOVERY_PENDING.discard(job_id)
+        try:
+            _EXECUTOR.submit(run)
+        except Exception:
+            with _RECOVERY_LOCK:
+                _RECOVERY_PENDING.discard(job_id)
+            raise
 
     @classmethod
     def _prepare_shots(
@@ -1846,18 +1888,24 @@ class EpisodeVideoService:
         return prepared
 
     @classmethod
-    def _run_job(cls, job_id: str) -> None:
+    def _run_job(cls, job_id: str, *, recover: bool = False) -> None:
         gpu_cm = None
         stopped = threading.Event()
         _VIDEO_LEASE.owner = None
+        payload: dict[str, Any] = {}
+        row: dict[str, Any] = {}
         try:
             row = query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
             payload = json.loads(row.get("payload_json") or "{}")
-            if payload.get("pipeline_version") == 5 or payload.get("workflow_id") == "minimax-h3-director-confirm-accel-r2v":
+            if row.get("id") and (row.get("status") not in (*_ACTIVE_VIDEO_STATUSES, "failed")
+                                  or (not recover and row.get("status") != "queued")):
+                return
+            if row.get("id"):
                 owner = uuid.uuid4().hex
                 payload["execution_lease"] = {"owner": owner, "expires_at": time.time() + 120}
-                if execute_sql("UPDATE ai_project_jobs SET status='preparing',payload_json=%s WHERE id=%s AND status='queued'",
-                               (json.dumps(payload, ensure_ascii=False), job_id)) != 1:
+                if execute_sql("UPDATE ai_project_jobs SET payload_json=%s WHERE id=%s AND status=%s "
+                               "AND payload_json=%s AND COALESCE(JSON_EXTRACT(payload_json,'$.execution_lease.expires_at'),0)<=%s",
+                               (json.dumps(payload, ensure_ascii=False), job_id, row["status"], row["payload_json"], time.time())) != 1:
                     return
                 _VIDEO_LEASE.owner = owner
                 def heartbeat():
@@ -1869,6 +1917,28 @@ class EpisodeVideoService:
                         except Exception:
                             continue
                 threading.Thread(target=heartbeat, name=f"video-heartbeat-{job_id}", daemon=True).start()
+            if recover:
+                if row.get("status") not in _ACTIVE_VIDEO_STATUSES and row.get("status") != "failed":
+                    return
+                if not payload.get("prompt_id") and not payload.get("comfy_checkpoints") and not payload.get("confirmation_checkpoints"):
+                    if row.get("status") == "queued":
+                        recover = False
+                    else:
+                        raise RuntimeError("服务重启前未保存远端提交记录，无法确认是否已提交；请核对远端队列后重试")
+            if recover:
+                restore_checkpoints(payload)
+                payload["remote_recovery_pending"] = True
+                if payload.get("prompt_id"):
+                    comfy = ComfyVideoClient(payload["comfy_base_url"])
+                    state = remote_state(comfy, payload["prompt_id"])
+                    if state == "missing":
+                        raise RuntimeError("远端队列及历史中均不存在原视频任务；记录已保留，不会自动重新提交")
+                    if state == "failed":
+                        history = comfy.session.get(f"{comfy.base_url}/history/{payload['prompt_id']}", timeout=comfy.timeout)
+                        history.raise_for_status()
+                        raise RuntimeError(comfy._history_error(history.json()[payload["prompt_id"]].get("status") or {}))
+                    cls._set_state(job_id, payload, "running" if state == "completed" else state, int(row.get("progress") or 5))
+                    _video_write("UPDATE ai_project_jobs SET error_message=NULL WHERE id=%s", (job_id,))
             if str(payload.get("render_scope") or "") == "compose":
                 cls._run_compose_job(job_id, payload)
                 return
@@ -1881,7 +1951,8 @@ class EpisodeVideoService:
             if str(payload.get("render_scope") or "") == "upscale":
                 cls._run_upscale_job(job_id, payload)
                 return
-            cls._set_state(job_id, payload, "preparing", 10)
+            if not recover:
+                cls._set_state(job_id, payload, "preparing", 10)
             requested_workflow = payload.get("workflow_id") or cls.DEFAULTS["workflow"]
             try:
                 definition = workflow_for(requested_workflow)
@@ -1896,24 +1967,27 @@ class EpisodeVideoService:
             timeline_job = uses_director_timeline(resolved_workflow_id)
             comfy = ComfyVideoClient(payload["comfy_base_url"])
             source_shots = payload.get("source_shots") or []
-            task_type = comfy.preflight(require_director=timeline_job
+            task_type = payload.get("task_type") if recover else comfy.preflight(require_director=timeline_job
                 and any(s.get("group_render_mode", "director") == "director" for s in source_shots))
 
             payload["prompt_generation_progress"] = {"completed": 0, "total": len(source_shots)}
-            saved_prompts = cls._workshop_prompts_usable(source_shots)
+            saved_prompts = [shot.get("prompt") for shot in payload.get("shots", [])] if recover else cls._workshop_prompts_usable(source_shots)
             if saved_prompts is None:
                 raise ValueError("视频任务不会自动调用大模型：请先在工坊生成并保存有效提示词")
             prompts = saved_prompts
             payload["prompt_source"] = payload.get("prompt_source") or "workshop_material"
             payload["prompt_generation_progress"]["completed"] = len(source_shots)
 
-            generated_shots = [{**shot, "prompt": prompt} for shot, prompt in zip(source_shots, prompts)]
+            generated_shots = payload.get("shots") if recover else [{**shot, "prompt": prompt} for shot, prompt in zip(source_shots, prompts)]
+            if not generated_shots:
+                raise ValueError("原任务缺少冻结镜头，无法安全恢复")
             payload["shots"] = generated_shots
-            cls._set_state(job_id, payload, "uploading", 30)
+            if not recover:
+                cls._set_state(job_id, payload, "uploading", 30)
 
             uploaded_cache: dict[str, dict[str, str]] = {}
             subfolder = f"zly-ai-media/{payload['project_id']}/{payload['episode_id']}/{job_id}"
-            for shot in generated_shots:
+            for shot in ([] if recover else generated_shots):
                 uploaded_refs = []
                 for ref_index, url in enumerate(shot["reference_urls"], start=1):
                     if url not in uploaded_cache:
@@ -1967,6 +2041,7 @@ class EpisodeVideoService:
                 except Exception as episode_update_error:
                     payload["episode_update_warning"] = str(episode_update_error)
             timestamp = now_str()
+            payload.pop("remote_recovery_pending", None)
             payload.pop("execution_lease", None)
             _video_write(
                 """
@@ -1978,6 +2053,14 @@ class EpisodeVideoService:
             )
         except Exception as err:
             timestamp = now_str()
+            if isinstance(err, requests.RequestException) and payload.get("prompt_id"):
+                # Network uncertainty is not remote failure. The watchdog retries only GET/wait.
+                payload["remote_recovery_pending"] = True
+                cls._set_state(job_id, payload, "comfy_queued", int(row.get("progress") or 5))
+                _video_write("UPDATE ai_project_jobs SET error_message=%s,"
+                             "payload_json=JSON_REMOVE(payload_json,'$.execution_lease') WHERE id=%s",
+                             ("远端暂时不可达，正在恢复原任务连接", job_id))
+                return
             if str(err).startswith("H3_CONFIRMATION_CANCELLED:"):
                 _video_write("UPDATE ai_project_jobs SET status='cancelled',error_message=%s,updated_at=%s,"
                     "payload_json=JSON_REMOVE(payload_json,'$.execution_lease') WHERE id=%s",
@@ -2004,6 +2087,13 @@ class EpisodeVideoService:
                 )
         finally:
             stopped.set()
+            if getattr(_VIDEO_LEASE, "owner", None):
+                try:
+                    execute_sql("UPDATE ai_project_jobs SET payload_json=JSON_REMOVE(payload_json,'$.execution_lease') "
+                                "WHERE id=%s AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.execution_lease.owner'))=%s",
+                                (job_id, _VIDEO_LEASE.owner))
+                except Exception:
+                    pass
             _VIDEO_LEASE.owner = None
             if gpu_cm is not None:
                 gpu_cm.__exit__(None, None, None)
@@ -2095,6 +2185,7 @@ class EpisodeVideoService:
                     options={**payload, **chunk[0].get("group_options", {})},
                     workflow_id=str(chunk[0].get("group_workflow_id") or resolved_workflow_id),
                 )
+            workflow = (payload.get("comfy_checkpoints", {}).get(str(index + 1), {}).get("graph") or workflow)
             payload["render_plan"]["chunks"][index]["timeline"] = timeline
             route = chunk[0].get("group_workflow_id") or resolved_workflow_id
             route_definition = workflow_for(route)
@@ -2195,6 +2286,7 @@ class EpisodeVideoService:
                 f"video/{payload['project_id']}/{payload['episode_id']}/{job_id}/shot-{index + 1}",
                 options=shot_options,
             )
+            workflow = (payload.get("comfy_checkpoints", {}).get(str(index + 1), {}).get("graph") or workflow)
             payload["workflow_request"] = workflow if len(generated_shots) == 1 else payload.get("workflow_request")
             payload["render_plan"]["chunks"].append({
                 "index": index,
@@ -2529,16 +2621,22 @@ class EpisodeVideoService:
         submission_index: int,
     ) -> tuple[dict[str, Any], dict[str, str]]:
         from ...minimax_h3_confirm_workflow import is_confirmation_graph, execution_report, confirmation_state
+        checkpoints = payload.setdefault("comfy_checkpoints", {})
+        checkpoint = checkpoints.get(str(submission_index))
+        if checkpoint and checkpoint.get("graph"):
+            workflow = checkpoint["graph"]
+        if checkpoint and checkpoint.get("output"):
+            return checkpoint.get("history") or {"outputs": {}}, checkpoint["output"]
         confirming = is_confirmation_graph(workflow)
         if confirming:
             from ..provider_bridge import comfy_row
             if comfy.base_url.rstrip("/") != str(comfy_row()["base_url"]).rstrip("/"):
                 raise ValueError("ComfyUI 实例已切换，请恢复原实例")
-            checkpoints = payload.setdefault("confirmation_checkpoints", {})
-            prior = checkpoints.get(str(submission_index))
+            confirmation_checkpoints = payload.setdefault("confirmation_checkpoints", {})
+            prior = confirmation_checkpoints.get(str(submission_index))
             if prior:
                 workflow = prior["graph"]
-                if prior.get("output") and prior.get("report"):
+                if prior.get("output") and prior.get("report") and prior.get("frame_counts"):
                     history = {"outputs": {"12": {"zly_h3_confirmation": [prior["report"]]},
                                            "7": {"images": [prior["output"]]}}}
                     execution_report(workflow, history)
@@ -2546,19 +2644,20 @@ class EpisodeVideoService:
                         from .production_media import measure
                         prior["media_info"] = measure(comfy.download_output(prior["output"]), [])
                     if prior["report"]["stage"] == "preview_only":
-                        groups = [v for _, v in sorted(checkpoints.items(), key=lambda x: int(x[0])) if v.get("report")]
+                        groups = [v for _, v in sorted(confirmation_checkpoints.items(), key=lambda x: int(x[0])) if v.get("report")]
                         payload["h3_confirmation"] = confirmation_state(groups, comfy.base_url)
                         payload["output_media_info"] = prior["media_info"]
                     cls._set_state(job_id, payload, "running", 95)
                     return history, prior["output"]
             else:
-                checkpoints[str(submission_index)] = {"graph": workflow}
+                confirmation_checkpoints[str(submission_index)] = {"graph": workflow}
             cls._set_state(job_id, payload, "preparing", 0)
 
         def on_progress(value: int) -> None:
             cls._set_state(job_id, payload, "running", value)
 
         def on_submitted(submitted: dict[str, Any]) -> None:
+            checkpoints[str(submission_index)] = {"graph": workflow, "submitted": submitted}
             if confirming:
                 payload["confirmation_checkpoints"][str(submission_index)]["submitted"] = submitted
             payload["comfy_submission_count"] = submission_index
@@ -2575,24 +2674,30 @@ class EpisodeVideoService:
             return bool(json.loads(row.get("payload_json") or "{}").get("confirmation_cancel_requested"))
 
         cancellation = {"is_cancelled": cancelled} if payload.get("h3_confirmation", {}).get("stage") == "refine_only" else {}
-        submitted = payload.get("confirmation_checkpoints", {}).get(str(submission_index), {}).get("submitted") if confirming else None
+        submitted = (checkpoint or {}).get("submitted") or (payload.get("confirmation_checkpoints", {}).get(str(submission_index), {}).get("submitted") if confirming else None)
+        if payload.get("remote_recovery_pending") and checkpoint and not submitted:
+            raise ValueError("该分段的提交结果未落盘，无法确认远端是否收到；不会自动重复提交")
         if submitted:
             response = comfy.session.get(f"{comfy.base_url}/history/{submitted['prompt_id']}", timeout=comfy.timeout)
             response.raise_for_status()
             previous = response.json().get(submitted["prompt_id"])
             if previous and (previous.get("status") or {}).get("status_str") in {"error", "failed"}:
+                if payload.get("remote_recovery_pending") or not confirming:
+                    raise RuntimeError(comfy._history_error(previous.get("status") or {}))
                 submitted = None
             elif not previous:
                 response = comfy.session.get(f"{comfy.base_url}/queue", timeout=comfy.timeout)
                 response.raise_for_status()
                 active = [r[1] for kind in ("queue_running", "queue_pending") for r in response.json().get(kind, [])]
-                if submitted["prompt_id"] not in active:
+                if submitted["prompt_id"] not in active and remote_state(comfy, submitted["prompt_id"]) == "missing":
                     raise ValueError("远端执行记录已丢失；原片保留，请重新生成一采预览")
         if submitted:
             # Recover the exact prompt after a backend restart; no new GPU submission.
             history, output = comfy.wait_for_result(submitted["prompt_id"], client_id=submitted["client_id"],
                 workflow=workflow, progress=on_progress, **cancellation)
         else:
+            checkpoints[str(submission_index)] = {"graph": workflow}
+            cls._set_state(job_id, payload, "comfy_queued", 5)
             _submitted, history, output = comfy.submit_and_wait(
                 workflow, progress=on_progress, on_submitted=on_submitted, **cancellation)
         if confirming:
@@ -2601,9 +2706,16 @@ class EpisodeVideoService:
             if not output:
                 raise ValueError("确认工作流缺少保存的视频")
             checkpoint = payload["confirmation_checkpoints"][str(submission_index)]
-            checkpoint.update(report=report, output=output)
             from ...minimax_h3_confirm_workflow import executed_segment_frames
-            checkpoint["frame_counts"] = executed_segment_frames(history, report["segment_count"])
+            reused_counts = None
+            if report["stage"] == "refine_only":
+                source_groups = payload["h3_confirmation"]["groups"]
+                reused_counts = source_groups[submission_index - 1].get("frame_counts")
+                if not reused_counts:
+                    raise ValueError("二采缺少已验证的一采分段帧数")
+            checkpoint["frame_counts"] = executed_segment_frames(
+                history, report["segment_count"], reused_frame_counts=reused_counts)
+            checkpoint.update(report=report, output=output)
             # Save stage evidence before media inspection so a storage failure is recoverable.
             cls._set_state(job_id, payload, "running", 94)
             from .production_media import measure
@@ -2640,6 +2752,9 @@ class EpisodeVideoService:
                     payload["output_media_info"] = measured
             payload["refine_outputs"] = [item for item in payload.get("refine_outputs", [])
                 if item.get("submission_index") != submission_index] + variants
+        checkpoints.setdefault(str(submission_index), {"graph": workflow, "submitted": submitted}).update(
+            {"output": output, "history": {"outputs": history.get("outputs") or {}}})
+        cls._set_state(job_id, payload, "running", 95)
         return history, output
 
     @staticmethod

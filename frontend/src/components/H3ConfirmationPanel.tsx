@@ -21,16 +21,18 @@ export function H3ConfirmationPanel({ endpoint, csrfToken, readOnly = false, onC
   const [tabKey, setTabKey] = useState<string>()
   const requestId = useRef<string | null>(null)
   const [regenerated, setRegenerated] = useState("")
+  const [pollError, setPollError] = useState("")
   const refresh = useCallback(async () => {
     const next = await requestJson<Status>(endpoint)
     setState(next)
+    setPollError("")
     return next
   }, [endpoint])
   useEffect(() => {
     let active = true
-    const poll = () => requestJson<Status>(endpoint).then(s => { if (active) setState(s) })
-      .catch(e => { if (active) setError(e instanceof Error ? e.message : String(e)) })
-    setState(undefined); setTabKey(undefined); setError(""); requestId.current = null
+    const poll = () => requestJson<Status>(endpoint).then(s => { if (active) { setState(s); setPollError("") } })
+      .catch(e => { if (active) setPollError(e instanceof Error ? e.message : String(e)) })
+    setState(undefined); setTabKey(undefined); setError(""); setPollError(""); requestId.current = null
     void poll()
     const timer = setInterval(() => { void poll() }, 3000)
     return () => { active = false; clearInterval(timer) }
@@ -90,7 +92,7 @@ export function H3ConfirmationPanel({ endpoint, csrfToken, readOnly = false, onC
   return <section aria-label="一采确认与二采" style={{ padding: 16, marginTop: 12, border: "1px solid var(--studio-border)", borderRadius: 12, color: "var(--studio-text)", background: "var(--studio-surface)" }}>
     <Typography.Title level={5}>一采预览与二采精修</Typography.Title>
     <Typography.Paragraph>先审阅一采原片，再确认生成二采。原片始终保留；导演台二采需在工坊选择采用。</Typography.Paragraph>
-    {error && <Alert type="error" showIcon message={error} />}
+    {(error || pollError) && <Alert type="error" showIcon message={error || pollError} />}
     {cacheInvalid && <Alert type="warning" showIcon message="一采缓存已失效，原片仍可使用；继续二采需要重新生成一采预览"
       action={!readOnly && <Button disabled={busy || !!running || !!regenerated} onClick={() => void regenerate()}>重新生成一采预览</Button>} />}
     {regenerated && <Alert type="success" message="已创建新的预览任务，完成后需要再次确认二采"

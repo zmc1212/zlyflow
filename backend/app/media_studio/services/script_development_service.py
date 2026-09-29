@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ..db import execute_sql, now_str, query_all, query_one, transaction_cursor
-from .script_development import VERSION, develop_story, digest, plan_story, validate_plan
+from .script_development import IncompletePlanError, InvalidJsonResponse, VERSION, develop_story, digest, parse_story_json, plan_story, prepare_review, render_script, validate_plan
 from .script_parser import StandardScriptParser
 
 
@@ -90,6 +90,18 @@ class ScriptDevelopmentService:
                 develop_story(data, lambda s: cls.save(project_id, jid, s), check=lambda: cls.check_source(project_id, doc_id, data))
             cls.check_source(project_id, doc_id, data)
             cls.save(project_id, jid, data, "awaiting_review")
+        except IncompletePlanError as err:
+            data.update(plan=err.plan, phase="plan_review", message="策划有漏项，请补全标记的分集后确认，或重新生成策划")
+            cls.save(project_id, jid, data, "failed", str(err))
+        except InvalidJsonResponse as err:
+            data["last_json_failure"] = {
+                "step": data.get("message"),
+                "raw": err.raw[:20000],
+                "response_model": err.metadata.get("response_model"),
+                "finish_reason": err.metadata.get("finish_reason"),
+                "usage": err.metadata.get("usage"),
+            }
+            cls.save(project_id, jid, data, "failed", f"{data.get('message') or '剧本发展'}：大模型返回的 JSON 格式错误；已保留完成的剧本，可从检查点重试")
         except Exception as err:
             cls.save(project_id, jid, data, "failed", str(err))
 
@@ -122,8 +134,41 @@ class ScriptDevelopmentService:
                 data.update(phase="writing", revision_episodes=targets, revised_episodes=[], feedback=body["feedback"],
                             review_complete=False, review_round=0, repair_done=[], reviews=[])
                 data.pop("pending_review", None)
+                data.pop("review_incomplete", None)
+                data.pop("review_interruption", None)
             elif action == "retry" and job["status"] == "failed":
-                pass
+                if data["phase"] == "plan_review":
+                    data.pop("plan", None)
+                    data.update(phase="planning", message="正在重新诊断剧本并策划全剧")
+                elif data["phase"] == "writing":
+                    failure = data.get("last_json_failure") or {}
+                    if (failure.get("raw") and not failure.get("recovered")
+                            and str(failure.get("step") or "").startswith("正在全剧审稿")
+                            and not data.get("pending_review")):
+                        try:
+                            review = prepare_review(parse_story_json(failure["raw"]),
+                                                    validate_plan(data["plan"]), data.get("episodes") or [])
+                        except ValueError:
+                            pass  # A non-recoverable response is requested again from the checkpoint.
+                        else:
+                            data["pending_review"] = review
+                            data.setdefault("reviews", []).append(review)
+                            failure["recovered"] = True
+            elif action == "review_draft" and job["status"] == "failed" and data["phase"] == "writing":
+                plan = validate_plan(data["plan"])
+                episodes = data.get("episodes") or []
+                if len(episodes) != len(plan["episodes"]) or any(ep.get("episode_num") != i for i, ep in enumerate(episodes, 1)):
+                    raise ValueError("尚未写完全部分集，请从检查点重试")
+                pending = data.get("pending_review") or (data.get("reviews") or [{}])[-1]
+                repaired = set(data.get("repair_done") or [])
+                data.update(
+                    script_text=render_script(plan, episodes), phase="script_review",
+                    review_incomplete=True, review_interruption=job.get("error"),
+                    unresolved_issues=[issue for issue in pending.get("issues", []) if issue.get("episode_num") not in repaired],
+                    message="已保留完整草稿；自动审稿中断，请人工检查后决定修订或采纳",
+                )
+                cls.save(project_id, jid, data, "awaiting_review")
+                return cls.get(project_id, doc_id, jid)
             elif action == "apply" and data["phase"] == "script_review":
                 cls.apply(project_id, doc_id, jid, data)
                 return cls.get(project_id, doc_id, jid)
@@ -155,6 +200,11 @@ class ScriptDevelopmentService:
                     "script_text": data["script_text"], "plan": data["plan"], "unresolved_issues": data.get("unresolved_issues", []),
                     "history": [*previous.get("history", []), {k: v for k, v in previous.items() if k != "history"}] if previous else []}
         analysis["script_development"] = accepted
+        for key in ("asset_manifest", "asset_manifest_history"):
+            if key in old:
+                analysis[key] = copy.deepcopy(old[key])
+        if analysis.get("asset_manifest"):
+            analysis["asset_manifest"]["status"] = "stale"
         for ep in analysis.get("episodes") or []:
             spec = next((s for s in data["plan"]["episodes"] if s["episode_num"] == ep.get("episode_num")), {})
             ep["dramatic_design"] = spec

@@ -5,6 +5,7 @@ import copy
 import hashlib
 import inspect
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -12,7 +13,9 @@ from pathlib import Path
 from .protocol import (
     NODE_CLASS, PROTOCOL, ConfirmationError, StageGuard, atomic_json,
     clone_function, exclusive_lock, source_revision as graph_revision, valid_cache_key,
+    refinement_memory_policy, static_refinement_clone,
 )
+from .tiling_compat import compatible_refine
 
 # Author revision a8938feb6ada0b7981f977b1a6be59341f0c6d10, verified on target.
 PINNED = {
@@ -20,6 +23,9 @@ PINNED = {
     "nodes/director_common.py": "be4782b420f2722cbc7b17131b96c5823ecbb16320806b2b819fe8ea2128b001",
     "director/executor_core.py": "ead1b442a2f1b0bf96ed880d180b5ee6d0e55aa5d5e65b74a185c79e5ef876b1",
     "director/segment_cache.py": "211acfe976295f76e82a0c6e96f4b528b65bd10864c57528e18d524603f1f540",
+    "director/spatial_tiled_sampling.py": "79127f01825de7cdb29e13b2ac5f20cf654f75979729d8840d4b8546204f349d",
+    "director/core_sampling.py": "f51fb78e6fc3c9d31b9030efe0b4bed6cb2129e187941b7951af2554aecf1a5d",
+    "director/refine_sampling.py": "c3564e8500d44f05f458014ac8b8c0f63a374f7ed6125453a5d4249028283e33",
 }
 
 
@@ -105,7 +111,7 @@ class ZlyH3ConfirmedDirector:
             pack = dict(kwargs.get("refine") or {})
             if not pack.get("enabled") or pack.get("mode") != "upscale" or pack.get("upscale_method") != "h3_latent":
                 raise ConfirmationError("AUTHOR_REFINE_PACK_REQUIRED")
-            if float(pack.get("megapixels", 0)) not in (1.0, 2.0) or int(pack.get("passes", 0)) != 1:
+            if float(pack.get("megapixels", 0)) not in (0.98, 1.0, 2.0) or int(pack.get("passes", 0)) != 1:
                 raise ConfirmationError("UNSUPPORTED_REFINE_QUALITY")
             pack["confirm_first_pass"] = True
             kwargs["refine"] = pack
@@ -113,6 +119,7 @@ class ZlyH3ConfirmedDirector:
             guard = StageGuard(stage, core.__globals__)
             execute_core = clone_function(core, **guard.bindings())
             proof = {}
+            memory_policy = {"policy": "author-default@1"}
 
             def guarded_core(plan, **core_args):
                 indices = set(range(len(plan.segments)))
@@ -120,6 +127,27 @@ class ZlyH3ConfirmedDirector:
                     raise ConfirmationError("PARTIAL_PLAN_UNSUPPORTED")
                 if any(seg.task_key != "r2v" for seg in plan.segments):
                     raise ConfirmationError("R2V_REQUIRED")
+                if stage == "refine_only":
+                    import torch
+                    if torch.cuda.is_available():
+                        memory_policy.update(refinement_memory_policy(
+                            torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory))
+                    if memory_policy["policy"] != "author-default@1":
+                        plan.refine = {**plan.refine, **{k: v for k, v in memory_policy.items() if k != "policy"}}
+                        sample_model = plan.refine.get("sample_model")
+                        if sample_model is None:
+                            raise ConfirmationError("STATIC_REFINEMENT_MODEL_REQUIRED")
+                        plan.refine["sample_model"] = static_refinement_clone(sample_model)
+                        memory_policy["dynamic_vram"] = False
+                        # The prior segment's VAE can remain resident after decode.
+                        # Use the author's cleanup boundaries before each refine pass.
+                        core_args.update(clear_vram_before_refine=True, clear_vram_between_segments=True)
+                        memory_policy.update(clear_vram_before_refine=True, clear_vram_between_segments=True)
+                        tiling_evidence = {}
+                        guard.original = {**guard.original, "apply_segment_refine": compatible_refine(
+                            guard.original["apply_segment_refine"], tiling_evidence)}
+                        memory_policy["spatial_tiling"] = tiling_evidence
+                    logging.getLogger(__name__).info("ZLY H3 refinement memory policy: %s", memory_policy)
                 result = execute_core(plan, **core_args)
                 proof.update(guard.verify(plan))
                 return result
@@ -140,6 +168,7 @@ class ZlyH3ConfirmedDirector:
             report = {
                 "protocol": PROTOCOL, "cache_key": cache_key, "source_revision": revision,
                 "instance_id": instance_id, "started_at": started, "completed_at": time.time(),
+                "memory_policy": memory_policy,
                 **proof,
             }
             if stage == "preview_only":

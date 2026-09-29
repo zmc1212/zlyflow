@@ -14,6 +14,8 @@ export type ScriptDevelopment = {
   job_id: string; status: string; revision: string; error?: string
   data: {
     phase: string; message: string; plan?: StoryPlan; script_text?: string
+    review_round?: number
+    review_incomplete?: boolean; review_interruption?: string
     episodes?: Array<{ episode_num: number; title: string; body: string; summary?: string }>
     unresolved_issues?: Array<{ episode_num: number; category: string; evidence: string; suggestion: string }>
   }

@@ -46,8 +46,8 @@ def create_refinement(project_id, job_id, request, user_id):
             for i, group in enumerate(groups):
                 group["graph"] = build_confirmation_refine(group["graph"], group["report"], quality,
                     f"video/{project_id}/{child_id}/group-{i + 1}")
-                group.pop("output", None)
-                group.pop("report", None)
+                for key in ("output", "report", "media_info", "url", "production_recorded"):
+                    group.pop(key, None)
             child["h3_confirmation"] = {"stage": "refine_only", "state": "queued",
                 "groups": groups, "base_url": state["base_url"], "source_revision": state["source_revision"],
                 "request_id": request["request_id"], "quality": quality, "source_job_id": job_id,
@@ -98,11 +98,14 @@ def run_refinement(service, job_id, payload):
             history, output = service._await_comfy(job_id, payload, comfy, group["graph"], submission_index=index + 1)
             from ...minimax_h3_confirm_workflow import execution_report
             group.update(output=output, report=execution_report(group["graph"], history))
+            # A child must measure its own output, never inherit preview metadata.
+            group.pop("media_info", None)
+            group.pop("url", None)
             # Persist before storage/assembly so a retry never repeats successful groups.
             service._set_state(job_id, payload, "running", 90)
         output = group["output"]
         outputs.append(output)
-        if not group.get("media_info"):
+        if not group.get("media_info") or not group.get("url"):
             content = comfy.download_output(output)
             group["media_info"] = measure(content, [])
             group["url"] = comfy.view_url(output)

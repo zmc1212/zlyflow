@@ -48,6 +48,17 @@ type CatalogResponse = {
 
 const PROVIDER_PRESETS = [
   {
+    label: "Modelink 极客云",
+    value: "modelink",
+    baseUrl: "https://api.modelink.ai/v1",
+    model: "gpt-4o",
+    docUrl: "https://docs.modelink.ai/api-endpoints/overview",
+    recommendedModels: [
+      { name: "GPT-4o", id: "gpt-4o" },
+      { name: "Claude 3.5 Sonnet", id: "claude-3-5-sonnet-20240620" },
+    ],
+  },
+  {
     label: "智谱 GLM（推荐免费视觉）",
     value: "zhipu",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
@@ -124,6 +135,7 @@ function isShorterPrefixOf(candidate: string, target: string) {
 function presetFromBaseUrl(baseUrl: string) {
   const lowered = baseUrl.toLowerCase()
   if (lowered.includes("bigmodel.cn") || lowered.includes("api.z.ai")) return "zhipu"
+  if (lowered.includes("modelink") || lowered.includes("qnaigc")) return "modelink"
   if (lowered.includes("dashscope")) return "dashscope"
   if (lowered.includes("modelscope")) return "modelscope"
   if (lowered.includes("siliconflow")) return "siliconflow"
@@ -192,8 +204,10 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
           "PUT",
         ),
       ),
-    onSuccess: () => {
+    onSuccess: (data) => {
       setApiKey("")
+      test.reset()
+      queryClient.setQueryData(["vlm-provider"], data)
       refresh()
       message.success("视觉模型配置已保存")
     },

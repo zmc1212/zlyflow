@@ -23,6 +23,15 @@ def source_state():
 
 
 class ConfirmationJobsTests(unittest.TestCase):
+    def test_refinement_memory_policy_is_bounded_and_explicit(self):
+        from comfyui_nodes.zly_h3_confirmation.protocol import refinement_memory_policy
+        policy = refinement_memory_policy(16 * 1024**3)
+        self.assertTrue(policy["enable_tiling"])
+        self.assertTrue(policy["enable_latent_chunking"])
+        self.assertEqual(policy["tile_count"], 4)
+        self.assertEqual(refinement_memory_policy(24 * 1024**3), {"policy": "author-default@1"})
+        self.assertEqual(refinement_memory_policy(0), {"policy": "author-default@1"})
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = JobStore(Path(self.temp.name) / "jobs.sqlite")
@@ -47,6 +56,19 @@ class ConfirmationJobsTests(unittest.TestCase):
         history["outputs"]["8"]["text"] = [report.replace("merged 396", "merged 400")]
         with self.assertRaisesRegex(ValueError, "总帧数"):
             executed_segment_frames(history, 2)
+
+    def test_cached_refine_uses_verified_source_boundaries_and_checks_total(self):
+        from backend.app.minimax_h3_confirm_workflow import executed_segment_frames
+        report = ("  #1 [0:192] 192f — r2v\n  #2 [192:384] 192f — r2v\n"
+                  "Export mode: all — merged 396 frame(s) on images output.")
+        history = {"outputs": {"8": {"text": [report]}}}
+        self.assertEqual(executed_segment_frames(history, 2, reused_frame_counts=[192, 204]), [192, 204])
+        for counts in ([192, 192], [396], [True, 395], [0, 396]):
+            with self.assertRaisesRegex(ValueError, "缓存分段"):
+                executed_segment_frames(history, 2, reused_frame_counts=counts)
+        history["outputs"]["8"]["text"] = [report.split("Export mode")[0]]
+        with self.assertRaisesRegex(ValueError, "缓存分段"):
+            executed_segment_frames(history, 2, reused_frame_counts=[192, 204])
 
     def test_confirmation_keeps_original_and_zero_seed(self):
         child = self.store.create_confirmation_child("source", self.request, "http://remote:8188")
@@ -112,7 +134,7 @@ class ConfirmationJobsTests(unittest.TestCase):
         groups = [
             {"graph": graph, "output": {"filename": "saved.mp4"}, "report": report,
              "url": "http://remote/saved.mp4", "media_info": {"width": 1280, "height": 720}},
-            {"graph": graph},
+            {"graph": graph, "media_info": {"width": 864, "height": 480}, "url": "preview.mp4"},
         ]
         payload = {"h3_confirmation": {"stage": "refine_only", "groups": groups,
                    "base_url": "http://remote:8188", "source_video_url": "first.mp4"},
@@ -137,6 +159,8 @@ class ConfirmationJobsTests(unittest.TestCase):
         service._write_selected_beat_videos.assert_not_called()
         self.assertFalse(payload["auto_adopt"])
         self.assertEqual(len(payload["h3_confirmation"]["groups"]), 2)
+        self.assertEqual(groups[1]["media_info"]["width"], 1280)
+        self.assertEqual(groups[1]["url"], "http://storage/video.mp4")
 
     def test_api_auth_csrf_and_owner(self):
         from fastapi.testclient import TestClient
@@ -207,7 +231,7 @@ class ConfirmationJobsTests(unittest.TestCase):
     def test_director_checkpoint_recovery_never_resubmits(self):
         from backend.app.media_studio.services.episode_video_service import EpisodeVideoService
         prior = copy.deepcopy(self.state["groups"][0])
-        prior.update(output={"filename": "first.mp4"}, media_info={"width": 832, "height": 480})
+        prior.update(output={"filename": "first.mp4"}, media_info={"width": 832, "height": 480}, frame_counts=[48])
         payload = {"confirmation_checkpoints": {"1": prior}}
         client = Mock(base_url="http://remote:8188")
         with patch("backend.app.media_studio.provider_bridge.comfy_row", return_value={"base_url":"http://remote:8188"}), \
@@ -216,6 +240,28 @@ class ConfirmationJobsTests(unittest.TestCase):
         client.submit_and_wait.assert_not_called()
         self.assertEqual(output["filename"], "first.mp4")
         self.assertEqual(payload["h3_confirmation"]["state"], "awaiting_confirmation")
+
+    def test_incomplete_checkpoint_revalidates_existing_prompt_without_submission(self):
+        from backend.app.media_studio.services.episode_video_service import EpisodeVideoService
+        prior = copy.deepcopy(self.state["groups"][0])
+        output = {"filename": "first.mp4"}
+        prior.update(output=output, submitted={"prompt_id": "existing", "client_id": "client"})
+        history = {"status": {"status_str": "success"}, "outputs": {
+            "12": {"zly_h3_confirmation": [prior["report"]]},
+            "7": {"images": [output]},
+            "8": {"text": ["  #1 [0:48] 48f — r2v\nExport mode: all — merged 48 frame(s)"]}}}
+        client = Mock(base_url="http://remote:8188")
+        client.session.get.return_value.json.return_value = {"existing": history}
+        client.wait_for_result.return_value = (history, output)
+        client._find_video.return_value = output
+        payload = {"confirmation_checkpoints": {"1": prior}}
+        with patch("backend.app.media_studio.provider_bridge.comfy_row", return_value={"base_url":"http://remote:8188"}), \
+             patch("backend.app.media_studio.services.production_media.measure", return_value={"frames":48}), \
+             patch.object(EpisodeVideoService, "_set_state"):
+            EpisodeVideoService._await_comfy("job", payload, client, prior["graph"], submission_index=1)
+        client.submit_and_wait.assert_not_called()
+        client.wait_for_result.assert_called_once()
+        self.assertEqual(prior["frame_counts"], [48])
 
     def test_real_report_padding_and_media_ranges(self):
         from backend.app.minimax_h3_confirm_workflow import executed_segment_frames

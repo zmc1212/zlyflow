@@ -181,6 +181,75 @@ class VisionCapabilityPersistenceTests(unittest.TestCase):
         self.llm.test({"api_key": "other-private-key"})
         self.assertEqual("unknown", caps.row_vision_capability(self.store.get_llm_settings()))
 
+    def test_probe_before_save_persists_exact_model_evidence_without_reprobe(self):
+        result = self.llm.test({"model": "kimi-k3"})
+        self.assertFalse(self.llm.public_config()["supports_vision"])
+        with patch("backend.app.vision_capability.probe_vision_capability") as probe:
+            saved = self.llm.update({"profile_id": "custom", "enabled": True,
+                                     "base_url": "https://llm.example/v1", "model": "kimi-k3"})
+        probe.assert_not_called()
+        self.assertTrue(saved["supports_vision"])
+        self.assertEqual(result["vision_capability_checked_at"], saved["vision_capability_checked_at"])
+        self.assertNotIn("未保存", saved["vision_capability_message"])
+        caps._CACHE.clear()
+        self.assertTrue(caps.row_supports_vision(JobStore(self.path).get_llm_settings()))
+
+    def test_tested_key_evidence_survives_encryption_on_save(self):
+        self.llm.test({"model": "kimi-k3", "api_key": "new-private-key"})
+        saved = self.llm.update({"profile_id": "custom", "enabled": True,
+                                 "base_url": "https://llm.example/v1", "model": "kimi-k3",
+                                 "api_key": "new-private-key"})
+        caps._CACHE.clear()
+        self.assertTrue(self.llm.public_config()["supports_vision"])
+        self.assertNotIn("new-private-key", str(saved))
+
+    def test_save_different_connection_cannot_adopt_probe(self):
+        for change in ({"model": "other-model"}, {"base_url": "https://other.example/v1"},
+                       {"api_key": "different-key"}, {"profile_id": "modelscope"}):
+            with self.subTest(change=next(iter(change))):
+                self.llm.test({"profile_id": "custom", "model": "kimi-k3", "api_key": "tested-key"})
+                saved = self.llm.update({"profile_id": "custom", "enabled": True,
+                                         "base_url": "https://llm.example/v1", "model": "kimi-k3",
+                                         "api_key": "tested-key", **change})
+                self.assertFalse(saved["supports_vision"])
+
+    def test_expired_preview_cannot_become_fresh_by_saving(self):
+        self.llm.test({"model": "expired-model"})
+        for fields in caps._CACHE.values():
+            fields["vision_capability_checked_at"] = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        saved = self.llm.update({"profile_id": "custom", "enabled": True,
+                                 "base_url": "https://llm.example/v1", "model": "expired-model"})
+        self.assertFalse(saved["supports_vision"])
+
+    def test_resaving_same_plaintext_key_preserves_saved_probe_after_cache_clear(self):
+        result = self.llm.test()
+        caps._CACHE.clear()
+        saved = self.llm.update({"profile_id": "custom", "enabled": True,
+                                 "base_url": "https://llm.example/v1", "model": "deepseek-v4.1-flash",
+                                 "api_key": "private-test-key"})
+        caps._CACHE.clear()
+        self.assertTrue(self.llm.public_config()["supports_vision"])
+        self.assertEqual(result["vision_capability_checked_at"], saved["vision_capability_checked_at"])
+
+    def test_negative_probe_is_preserved_without_claiming_vision(self):
+        with patch("backend.app.llm_provider.probe_vision_capability", return_value=caps.VisionProbeResult("unsupported", "图片被明确拒绝")):
+            self.llm.test({"model": "text-only"})
+        saved = self.llm.update({"profile_id": "custom", "enabled": True,
+                                 "base_url": "https://llm.example/v1", "model": "text-only"})
+        self.assertEqual("unsupported", saved["vision_capability"])
+        self.assertFalse(saved["supports_vision"])
+
+    def test_independent_vlm_test_before_save_persists_probe(self):
+        with patch("backend.app.vlm_provider.OpenAICompatibleClient.test_connection", return_value="connected"), \
+             patch("backend.app.vlm_provider.probe_vision_capability", return_value=caps.VisionProbeResult("supported", "双色图通过")):
+            result = self.vlm.test({"profile_id": "custom", "use_llm_credentials": False,
+                                    "base_url": "https://vlm.example/v1", "model": "kimi-k3", "api_key": "vlm-test-key"})
+        saved = self.vlm.update({"profile_id": "custom", "use_llm_credentials": False, "enabled": True,
+                                 "base_url": "https://vlm.example/v1", "model": "kimi-k3", "api_key": "vlm-test-key"})
+        caps._CACHE.clear()
+        self.assertTrue(self.vlm.public_config()["supports_vision"])
+        self.assertEqual(result["vision_capability_checked_at"], saved["vision_capability_checked_at"])
+
     def test_model_edit_invalidates_both_profile_and_active_row(self):
         self.llm.test()
         self.store.update_llm_profile("custom", {"model": "new-model"}, activate=True)

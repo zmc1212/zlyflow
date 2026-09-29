@@ -112,14 +112,17 @@ def asset_name_id_map(rows: list[dict[str, Any]], kind: str) -> dict[str, str]:
     return mapping
 
 
-def match_named_asset_ids(names: list[Any], name_map: dict[str, str]) -> list[str]:
+def match_named_asset_ids(
+    names: list[Any], name_map: dict[str, str], *, exact: bool = False,
+) -> list[str]:
+    """Characters require exact names; retain legacy partial matching for props."""
     matched: list[str] = []
     for raw in names or []:
         name = str(raw or "").strip()
         if not name:
             continue
         for key, asset_id in name_map.items():
-            if key in name or name in key:
+            if key == name or (not exact and (key in name or name in key)):
                 if asset_id not in matched:
                     matched.append(asset_id)
     return matched
@@ -544,7 +547,7 @@ class ProjectDetailService:
             s_audio = shot.get("audio") or ""
             s_chars = shot.get("characters") or []
             s_props = shot.get("props") or []
-            matched_char_ids = match_named_asset_ids(s_chars, char_map)
+            matched_char_ids = match_named_asset_ids(s_chars, char_map, exact=True)
             if shot.get("scene_boundary"):
                 inherited_scene_name, inherited_scene_id = "", None
             explicit_scene = bool(str(s_scene or "").strip())
@@ -1972,7 +1975,7 @@ class ProjectDetailService:
                                           "payload": json.loads(historical.get("payload_json") or "{}")}
             except (ValueError, TypeError):
                 pass
-        production = production_summary({"data": data, "beats": beats, "script_text": ep.get("script_text"),
+        production = production_summary({"data": {k: v for k, v in data.items() if k not in ("workshop_history", "workshop_legacy_prompts", "beats", "production")}, "beats": beats, "script_text": ep.get("script_text"),
                                          "prompt_authoring": prompt_authoring, "production_asset_fingerprint": production_asset_fingerprint,
                                          "legacy_director_output": legacy_director_output, "legacy_director_jobs": legacy_director_jobs})
 
@@ -1993,7 +1996,7 @@ class ProjectDetailService:
             "original_lines": original_lines,
             "beats": beats,
             "links": links,
-            "data": data,
+            "data": {k: v for k, v in data.items() if k not in ("workshop_history", "workshop_legacy_prompts", "beats", "production")},
             "prompt_authoring": prompt_authoring,
             "production": production,
             "production_asset_fingerprint": production_asset_fingerprint,

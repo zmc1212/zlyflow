@@ -1,5 +1,23 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-09-28 资产清单与镜头核对
+
+沿用项目权限、会话与 CSRF。`GET /api/projects/{project_id}/documents/{doc_id}/asset-manifest` 返回 manifest、最新 job（含 revision）、资产/造型选项与 history，不修改旧数据；不存在返回 404。对应 `POST` 返回 202，创建提取候选；失败后可重新 POST，原证据保留。
+
+资产提取仍以 `kind/name/aliases/identity/era/evidence` 为唯一入库字段。兼容部分 OpenAI-compatible 模型会附带的展示字段（例如 `剧情功能`、`所属分类`、`所属角色或场景`、`时代/世界观`、`description`、`asset_id`）：后端只丢弃这些不参与身份与出处的字段，`时代/世界观` 在缺少 `era` 时作为时代回填；原始响应和丢弃字段列表保存在任务证据。`evidence` 可用空行分隔多个独立连续原文片段，后端分别保存；任何片段缺失、改写或其他未知字段仍失败并允许重新提取。
+
+`POST .../asset-manifest/{job_id}/actions` 接受：
+
+- `action: confirm`、`revision`、`choices: {清单ID: {asset_id, look_id}}`、`issues_confirmed`。所有条目须有选择，空 ID 按稳定身份创建或复用已确认映射；有歧义需明确确认。确认原子写清单与资产，不覆盖图片，重复确认幂等。
+- `action: cancel`、`revision`：取消候选，迟到响应不得回写。
+- `action: restore`、`revision`、`expected_version`、`version`：恢复历史清单为新版本，使旧镜头关联待更新。
+
+状态为 queued/running/awaiting_review/succeeded/failed/cancelled；版本或来源冲突返回 409，其余无效操作返回 400。完整输入与响应使用既有 `GET /api/projects/{project_id}/jobs/{job_id}` 查看，列表不下发大证据。
+
+既有工坊规划 POST 增加 `asset_pipeline: true`；要求当前剧本已确认清单。`audit_only: true, reuse_existing: true, audit_beat_ids: [...]` 只核对指定镜头，不重新拆镜分组。采纳 action 增加 `asset_confirmations: {镜头ID: true}` 与 `asset_reference_updates: {镜头ID: [{manifest_id, appearance, location, evidence}]}`；只允许修改本次核对的镜头，有歧义或人工改动必须确认。工坊 PATCH 增加 `restore_asset_history`（历史索引）和 `beat_ids`，沿用 expected_revision/reference_fingerprint，恢复关联并使旧稿失效，保留视频。
+
+兼容性、受影响文件、验证命令和增量回滚见 [实施记录](资产提取与镜头规划实施记录-2026-09-28.md)。
+
 ## 2026-09-27 v2 写稿及显式新建任务
 
 新建 Director 写稿默认 `h3-skill-direct-v2`。冻结输入增加 `skill_revision="2.0.0"`、`validation_policy="dialogue_quotes_and_actual_references_v2"`，`skill_path` 指向 `skills/h3-director-authoring/SKILL.md`；system 是该文件完整 UTF-8 文本。既有 v1、旧完整稿合同继续按其冻结版本处理。
@@ -588,3 +606,16 @@ X-CSRF-Token: <login response csrf_token>
 新增创作任务 `/api/jobs/{job_id}/refine` 与导演任务 `/api/projects/{project_id}/jobs/{job_id}/refine`：GET 读取来源与版本列表；POST 携带 `refine_quality`（1/2）、`source_revision`、`request_id` 创建幂等子任务。来源冲突为 409，阶段、参数或实例不符为 422。原片任务不变。
 
 `POST .../refine/preview` 明确新建一采，导演台 `POST .../refine/cancel` 取消二采；创作页取消及两侧失败重试沿用已有 cancel/retry。写接口沿用会话与 CSRF。完整协议、限制与回滚见 [接入记录](H3确认后二采业务接入-2026-09-28.md)；未通过桌面验收前新目录入口保持隐藏。
+
+## 2026-09-28 资产提取中断续提
+
+真实 Kimi 全剧提取在第 4 个区块收到空响应，故在 `asset_manifest_service.py` 的既有提取入口增加失败续提：剧本、创作设置、清单基线、提示词来源哈希及模型相同时，复用已校验区块并从失败位置继续；逐块复核哈希，不复用未完成回答。新任务用 `resumed_from_job_id` 追溯前次失败，保留完整请求证据。取消任务不续提，来源或模型变化从头开始。无 API 路径、数据库表、端口变化；旧任务兼容。
+
+验证：`python -X utf8 -m unittest backend.tests.test_asset_manifest -q`（21 项通过）；本轮全量后端 1095 项通过（1 跳过）、前端 `pnpm --dir frontend build`（393 项测试、类型检查及构建通过）在续提修复前完成。回滚可移除续提分支，保留历史 payload 和已有媒体；真实验收结论见资产提取与镜头规划实施记录。
+<!-- asset-pipeline-acceptance-20260928 -->
+### 2026-09-28 资产链路验收补丁
+
+为处理强制思考模型空正文和截断响应，新资产链路的提取、规划、衔接及审计请求对这类模型使用至少 32768 的输出预算，并记录请求参数与生效参数；普通模型保持原预算。该改动位于 `asset_pipeline_prompts.py`，不改旧链路的生产默认值。验收 A/B 使用显式等额预算，不与旧生产默认混算。身份来源和叙述内对白检查位于 `shot_asset_audit.py`；失败仍拒收，不能手工补结果冒充模型通过。
+
+工坊任务记录执行 host/PID，启动恢复跳过仍存活的执行者，避免本机其他服务/测试进程误终止任务（`workshop_service.py`）。无 owner 的旧中断任务仍按原规则恢复。确认清单页面回显实际绑定并修正状态文案（`AssetManifestPanel.tsx`）。无数据库 DDL；回滚时保留任务证据、媒体链接及 JSON 扩展字段，按清单/工坊历史恢复数据。验证：`python -m unittest discover -s backend/tests -p "test*.py" -t .`、`python -m unittest backend.tests.test_asset_manifest`、`pnpm --dir frontend build`；真实模型与桌面结果以实施记录为准，仍保留候选模式。
+局部审计的场景绑定与场景描述分开保存；只核对关联时按原已确认快照验证既有分组，避免一镜绑定资产 ID、相邻镜仍用场景文本时被误判为跨场合并。真实界面已验证两镜应用和分别回退，原媒体全保留。最终后端 1103 项（1 跳过）、资产专项 26 项及前端构建通过；P5 语义门槛仍未通过。

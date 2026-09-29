@@ -26,7 +26,7 @@ from .vision_capability import (
 DEFAULT_MODELSCOPE_BASE_URL = "https://api-inference.modelscope.cn/v1"
 DEFAULT_MODELSCOPE_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
 REASONING_EFFORTS = {"auto", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
-LLM_PROFILE_IDS = {"modelscope", "dashscope", "siliconflow", "deepseek", "ollama", "lmstudio", "custom"}
+LLM_PROFILE_IDS = {"modelink", "modelscope", "dashscope", "siliconflow", "deepseek", "ollama", "lmstudio", "custom"}
 
 
 def configured_reasoning_effort(config: dict[str, Any]) -> str | None:

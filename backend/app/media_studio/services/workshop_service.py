@@ -4,6 +4,8 @@ from __future__ import annotations
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
+import socket
 import threading
 import uuid
 
@@ -28,11 +30,30 @@ class WorkshopService:
     def resolved_data(cls, project_id, data):
         if ((data.get("prompt_authoring") or {}).get("director_plan") or {}).get("schema_version") != 7:
             return data
-        return resolve_state(data, cls.reference_assets(project_id))
+        result = resolve_state(data, cls.reference_assets(project_id))
+        plan = result["prompt_authoring"]["director_plan"]
+        if plan.get("asset_manifest_version"):
+            from .asset_manifest_service import AssetManifestService
+            try:
+                current = AssetManifestService.confirmed(project_id, data.get("source_document_id"))
+                stale = current["version"] != plan["asset_manifest_version"]
+            except ValueError:
+                stale = True
+            if stale:
+                for group in plan["groups"]:
+                    group.setdefault("reference_issues", []).append("全局资产清单或剧本已变化，请重新核对关联")
+                plan["asset_manifest_stale"] = True
+            else:
+                plan.pop("asset_manifest_stale", None)
+        return result
 
     @staticmethod
-    def row(project_id, episode_id):
-        row = query_one("SELECT * FROM ai_project_episodes WHERE id=%s AND project_id=%s", (episode_id, project_id))
+    def row(project_id, episode_id, include_history=False):
+        if include_history:
+            sql = "SELECT * FROM ai_project_episodes WHERE id=%s AND project_id=%s"
+        else:
+            sql = "SELECT id, project_id, episode_num, title, status, script_text, data_json FROM ai_project_episodes WHERE id=%s AND project_id=%s"
+        row = query_one(sql, (episode_id, project_id))
         if not row:
             raise ValueError("分集不存在")
         return row, WorkshopService.resolved_data(project_id, json.loads(row.get("data_json") or "{}"))
@@ -54,16 +75,28 @@ class WorkshopService:
                 "episode": {**(episode or {}), "body": text, "episode_num": row["episode_num"], "title": row.get("title")}}
 
     @classmethod
-    def view(cls, project_id, episode_id):
-        row, data = cls.row(project_id, episode_id)
+    def episode_jobs(cls, project_id, episode_id):
+        jobs = []
+        for job in query_all("SELECT id,status,job_type,payload_json,error_message FROM ai_project_jobs WHERE project_id=%s AND job_type IN (%s,%s) ORDER BY created_at DESC LIMIT 100", (project_id, *cls.JOB_TYPES)):
+            payload = json.loads(job.get("payload_json") or "{}")
+            if payload.get("episode_id") == episode_id:
+                jobs.append({"id": job["id"], "status": job["status"], "kind": job["job_type"], "error": job.get("error_message")})
+                if len(jobs) >= 12:
+                    break
+        return {"jobs": jobs}
+
+    @classmethod
+    def view(cls, project_id, episode_id, include_history=False):
+        row, data = cls.row(project_id, episode_id, include_history=include_history)
         plan = (data.get("prompt_authoring") or {}).get("director_plan") or {}
         source = cls.source(project_id, row, data)
         jobs = []
-        for job in query_all("SELECT id,status,job_type,payload_json,error_message FROM ai_project_jobs WHERE project_id=%s AND job_type IN (%s,%s) ORDER BY created_at DESC", (project_id, *cls.JOB_TYPES)):
+        for job in query_all("SELECT id,status,job_type,payload_json,error_message FROM ai_project_jobs WHERE project_id=%s AND job_type IN (%s,%s) ORDER BY created_at DESC LIMIT 200", (project_id, *cls.JOB_TYPES)):
             payload = json.loads(job.get("payload_json") or "{}")
             if payload.get("episode_id") == episode_id:
                 from .workshop_ai_review import public_evidence
                 payload = public_evidence(payload)
+                payload.pop("planning_evidence", None)  # Full requests live on job detail, not the poll response.
                 jobs.append({"id": job["id"], "status": job["status"], "kind": job["job_type"], "error": job.get("error_message"), "payload": payload})
                 if len(jobs) >= 12:
                     break
@@ -74,8 +107,8 @@ class WorkshopService:
         return {"plan": plan if plan.get("schema_version") == 7 else None, "source": source,
                 "writing_author": {key: (plan.get("writing_author") or active_author).get(key) for key in public_fields},
                 "writing_profiles": [{key: p.get(key) for key in public_fields} for p in profiles],
-                "history": data.get("workshop_history") or [],
-                "historical_media": [m for state in ((data.get("production") or {}).get("modes") or {}).values() for m in state.get("materials") or []],
+                "history": data.get("workshop_history") or [] if include_history else [],
+                "historical_media": [m for state in ((data.get("production") or {}).get("modes") or {}).values() for m in state.get("materials") or []] if include_history else [],
                 "legacy_plan": plan if plan and plan.get("schema_version") != 7 else None,
                 "legacy_prompts": data.get("workshop_legacy_prompts") or contract.legacy_candidates(data.get("beats") or [], plan),
                 "jobs": jobs, "source_changed": bool(plan.get("schema_version") == 7 and source["fingerprint"] != plan.get("source_fingerprint"))}
@@ -149,8 +182,22 @@ class WorkshopService:
         if kind == "workshop_prompt" and plan.get("source_fingerprint") != source["fingerprint"]:
             raise ValueError("采纳剧本已更新，请先调整镜头规划")
         payload = {"episode_id": episode_id, "source": source, "request": deepcopy(request),
+                   "owner": {"host": socket.gethostname(), "pid": os.getpid()},
                    "base_plan": deepcopy(plan), "beats": deepcopy(data.get("beats") or []), "candidates": {},
                    "message": "等待执行", "failures": {}, "applied_ids": []}
+        if kind == "workshop_planning" and (request.get("asset_pipeline") or plan.get("asset_manifest_version")):
+            from .asset_manifest_service import AssetManifestService
+            payload["asset_manifest"] = deepcopy(AssetManifestService.confirmed(project_id, source["document_id"]))
+            payload["planning_evidence"] = []
+            if request.get("audit_only"):
+                if not request.get("reuse_existing"):
+                    raise ValueError("局部核对必须保留当前镜头")
+                ids = request.get("audit_beat_ids") or [b["id"] for b in payload["beats"]]
+                if not ids or set(ids) - {b["id"] for b in payload["beats"]}:
+                    raise ValueError("请选择有效的待核对镜头")
+                payload["request"]["audit_beat_ids"] = ids
+                if plan.get("schema_version") == 7:
+                    payload["request"].update(workflow_id=plan["workflow_id"], aspect_ratio=plan["aspect_ratio"], max_shots_per_group=plan["max_shots_per_group"])
         if regenerated_from_job_id:
             payload["regenerated_from_job_id"] = regenerated_from_job_id
         if kind == "workshop_prompt":
@@ -248,7 +295,12 @@ class WorkshopService:
                     source = deepcopy(payload["source"]["episode"])
                     source["target_shot_count"] = request.get("target_shot_count")
                     source["target_duration_seconds"] = request.get("target_duration_seconds")
-                    shots = LlmService.plan_episode_shots(source, aspect_ratio=request.get("aspect_ratio") or "16:9")
+                    if payload.get("asset_manifest"):
+                        from .shot_asset_audit import plan_shots
+                        shots = plan_shots(source, request.get("aspect_ratio") or "16:9", payload["asset_manifest"], request["workflow_id"],
+                                           payload["planning_evidence"], lambda: checkpoint("镜头规划 / 衔接修订：证据已保存"))
+                    else:
+                        shots = LlmService.plan_episode_shots(source, aspect_ratio=request.get("aspect_ratio") or "16:9")
                     assets = ProjectDetailService.list_assets(project_id)
                     beats = ProjectDetailService._beats_from_document_shots(payload["episode_id"], shots,
                         asset_name_id_map(assets, "character"), asset_name_id_map(assets, "scene"), asset_name_id_map(assets, "prop"))
@@ -256,7 +308,29 @@ class WorkshopService:
                     for beat in beats:
                         matches = [b for b in payload["beats"] if contract.shot_fingerprint(b) == contract.shot_fingerprint(beat)]
                         beat["id"] = matches[0]["id"] if len(matches) == 1 else "shot-" + uuid.uuid4().hex[:12]
+                if payload.get("asset_manifest"):
+                    from .shot_asset_audit import audit, stamp
+                    manifest = payload["asset_manifest"]
+                    previous = payload["base_plan"].get("asset_audit") or {}
+                    if request.get("reuse_existing") and previous.get("confirmed_fingerprint") == stamp(beats, payload["source"]["text"], manifest):
+                        payload["asset_audit"] = deepcopy(previous)
+                    else:
+                        checkpoint("正在核对资产：可见人物 / 画外发声 / 提及 / 场景 / 道具 / 造型")
+                        selected = [b for b in beats if not request.get("audit_beat_ids") or b["id"] in request["audit_beat_ids"]]
+                        checked, payload["asset_audit"] = audit(selected, payload["source"]["text"], manifest,
+                            payload["planning_evidence"], lambda: checkpoint("资产核对证据已保存"))
+                        by_id = {b["id"]: b for b in checked}
+                        beats = [by_id.get(b["id"], b) for b in beats]
+                        payload["asset_audit"]["partial"] = len(selected) != len(beats)
                 plan = contract.new_plan(beats, request["workflow_id"], payload["source"], payload["base_plan"], int(request.get("max_shots_per_group") or 3))
+                if request.get("audit_only") and payload["base_plan"].get("schema_version") == 7:
+                    plan = deepcopy(payload["base_plan"])
+                    plan["revision"] += 1
+                    plan["planning_revision"] += 1
+                    plan["shot_fingerprints"] = {b["id"]: contract.shot_fingerprint(b) for b in beats}
+                if payload.get("asset_manifest"):
+                    plan["asset_manifest_version"] = payload["asset_manifest"]["version"]
+                    plan["asset_audit"] = deepcopy(payload["asset_audit"])
                 plan["aspect_ratio"] = request.get("aspect_ratio") or "16:9"
                 plan["target_shot_count"] = request.get("target_shot_count")
                 plan["target_duration_seconds"] = request.get("target_duration_seconds")
@@ -420,8 +494,8 @@ class WorkshopService:
                         if not beat or not candidate or candidate["fingerprint"] != contract.prompt_fingerprint(beat, current_group, current):
                             raise ValueError("VERSION_CONFLICT: 镜头材料已变化，请重新写稿")
                 from .workshop_ai_review import configuration
-                if not payload.get("review_config") or request.get("review_author"):
-                    payload["review_config"] = configuration(request.get("review_author") or payload.get("writing_author"))
+                # 每次重试审校都重建 review_config，避免旧缓存配置（如切换模型前生成的）导致永久失败
+                payload["review_config"] = configuration(request.get("review_author") or payload.get("writing_author"))
                 payload["review_group_ids"] = [g["id"] for g in groups]
                 payload["review_only"] = True
                 changed = execute_sql("UPDATE ai_project_jobs SET payload_json=%s,status='queued',error_message=NULL,updated_at=%s WHERE id=%s AND project_id=%s AND payload_json=%s AND status IN ('failed','cancelled','completed')",
@@ -488,17 +562,53 @@ class WorkshopService:
                 if cls.source(project_id, row, data)["fingerprint"] != payload["source"]["fingerprint"]:
                     raise ValueError("SOURCE_CONFLICT: 采纳剧本已变化，请重新规划")
                 if job["job_type"] == "workshop_planning":
+                    if payload.get("asset_manifest"):
+                        from .asset_manifest_service import AssetManifestService
+                        if AssetManifestService.confirmed(project_id, payload["source"]["document_id"])["version"] != payload["asset_manifest"]["version"]:
+                            raise ValueError("SOURCE_CONFLICT: 资产清单已变化，请重新生成候选")
                     from . import production_state
                     previous_detail = {"data": deepcopy(data), "beats": deepcopy(data.get("beats") or []), "prompt_authoring": deepcopy(data.get("prompt_authoring") or {}), "script_text": row.get("script_text")}
                     previous_production = production_state.hydrate(previous_detail)
                     candidate = deepcopy(payload["candidate"])
                     plan = candidate["plan"]
                     beats = candidate["beats"]
+                    if payload["request"].get("audit_only"):
+                        originals = {b["id"]: b for b in payload["beats"]}
+                        for beat in beats:
+                            beat["scene"] = originals[beat["id"]].get("scene")
+                    if payload.get("asset_manifest"):
+                        from .shot_asset_audit import project_references, stamp, validate_audit
+                        confirmations = request.get("asset_confirmations") or {}
+                        audit_result = plan["asset_audit"]
+                        updates = request.get("asset_reference_updates") or {}
+                        if not isinstance(updates, dict) or set(updates) - {r["id"] for r in audit_result["shots"]}:
+                            raise ValueError("只能修订本次已核对镜头的关联")
+                        for bid, refs in updates.items():
+                            if confirmations.get(bid) is not True:
+                                raise ValueError("人工关联修订后请确认本镜")
+                            original = next(r for r in audit_result["shots"] if r["id"] == bid)
+                            raw_refs = [{k: r.get(k) for k in ("manifest_id", "appearance", "location", "evidence")} for r in refs]
+                            changed = validate_audit({"shots": [{"id": bid, "references": raw_refs, "issues": []}]},
+                                [next(b for b in beats if b["id"] == bid)], payload["asset_manifest"], payload["source"]["text"])[0]
+                            original.update(references=changed["references"], manual_revision=True)
+                        for beat in beats:
+                            audit_row = next((r for r in audit_result["shots"] if r["id"] == beat["id"]), None)
+                            if audit_row is None:
+                                continue
+                            if audit_row["issues"] and confirmations.get(beat["id"]) is not True:
+                                raise ValueError("请逐镜确认资产核对歧义后再采纳")
+                            refs = [{**r, "confirmed": True} for r in audit_row["references"]]
+                            beat.update(project_references(beat, refs))
+                            beat.pop("asset_references_stale", None)
+                        if not audit_result.get("partial"):
+                            audit_result["confirmed_fingerprint"] = stamp(beats, payload["source"]["text"], payload["asset_manifest"])
+                        audit_result["confirmed_at"] = now_str()
+                        audit_result["status"] = "confirmed"
                     if int(current.get("revision") or 0) != int(payload["base_plan"].get("revision") or 0):
                         raise ValueError("VERSION_CONFLICT: 规划期间已有编辑，请重新生成候选")
-                    if request.get("groups") is not None:
+                    if request.get("groups") is not None and not payload["request"].get("audit_only"):
                         plan["groups"] = request["groups"]
-                    if request.get("shot_updates"):
+                    if request.get("shot_updates") and not payload["request"].get("audit_only"):
                         updates = request["shot_updates"]
                         if not isinstance(updates, dict) or set(updates) - {b["id"] for b in beats}:
                             raise ValueError("候选镜头不存在")
@@ -506,10 +616,16 @@ class WorkshopService:
                             fields = updates.get(beat["id"]) or {}
                             if set(fields) - {"camera", "video_duration", "heading"}:
                                 raise ValueError("候选中只能调整拍摄意图、标题和时长；剧情修改请回内容库")
+                            if payload.get("asset_manifest") and "camera" in fields and fields["camera"] != beat.get("camera"):
+                                raise ValueError("拍摄意图变化会影响出镜判断，请先采纳候选，再修改并重新核对本镜")
                             if any(beat.get(k) != v for k,v in fields.items()):
                                 beat.update(fields)
                         plan["shot_fingerprints"] = {b["id"]: contract.shot_fingerprint(b) for b in beats}
-                    contract.validate_groups(beats, plan["groups"], plan["workflow_id"], plan["max_shots_per_group"])
+                    # A partial binding audit cannot regroup previously approved shots.
+                    # Some neighbours still have legacy textual scene references; validate
+                    # the unchanged staging snapshot rather than mixed binding identifiers.
+                    grouping_beats = payload["beats"] if payload["request"].get("audit_only") else beats
+                    contract.validate_groups(grouping_beats, plan["groups"], plan["workflow_id"], plan["max_shots_per_group"])
                     data.setdefault("workshop_history", []).append({"beats": deepcopy(data.get("beats") or []), "prompt_authoring": deepcopy(data.get("prompt_authoring") or {}), "script_text": row.get("script_text")})
                     if current.get("schema_version") != 7:
                         data["workshop_legacy_prompts"] = contract.legacy_candidates(data.get("beats") or [], current)
@@ -521,8 +637,14 @@ class WorkshopService:
                         for beat in beats:
                             group = next(g for g in plan["groups"] if beat["id"] in g["beat_ids"])
                             record = current.get("shot_prompts", {}).get(beat["id"])
-                            if record and record.get("fingerprint") == contract.prompt_fingerprint(beat, group, plan):
+                            if record:
                                 plan["shot_prompts"][beat["id"]] = record
+                    if payload.get("asset_manifest"):
+                        audit_result = plan["asset_audit"]
+                        from .shot_asset_audit import stamp
+                        if not audit_result.get("partial"):
+                            audit_result["confirmed_fingerprint"] = stamp(beats, payload["source"]["text"], payload["asset_manifest"])
+                        plan["shot_fingerprints"] = {b["id"]: contract.shot_fingerprint(b) for b in beats}
                     for beat in beats:
                         beat.pop("h3_prompt", None)
                     data.update(beats=beats, workshop_flow=7, script_revision=payload["source"]["revision"])
@@ -625,6 +747,35 @@ class WorkshopService:
             if plan.get("schema_version") != 7:
                 raise ValueError("请先确认镜头规划")
             previous = {"data": deepcopy(data), "beats": deepcopy(data["beats"]), "prompt_authoring": deepcopy(data["prompt_authoring"]), "script_text": row.get("script_text")}
+            if "restore_asset_history" in request:
+                index = request["restore_asset_history"]
+                history = data.get("workshop_history") or []
+                if type(index) is not int or not 0 <= index < len(history):
+                    raise ValueError("关联历史版本不存在")
+                snapshot = deepcopy(history[index])
+                old_beats = {b["id"]: b for b in snapshot.get("beats") or []}
+                ids = request.get("beat_ids") or list(old_beats)
+                if not ids or set(ids) - set(old_beats) or set(ids) - {b["id"] for b in data["beats"]}:
+                    raise ValueError("只能回退仍存在的同一镜头关联")
+                history.append({"beats": deepcopy(data["beats"]), "prompt_authoring": deepcopy(data["prompt_authoring"]), "script_text": row.get("script_text"), "reason": "asset_association_rollback"})
+                fields = ("asset_references", "characters", "character_ids", "character_look_ids", "scene_id", "scene", "props", "prop_ids", "workshop_manual_bindings")
+                for beat in data["beats"]:
+                    if beat["id"] in ids:
+                        for key in fields:
+                            if key in old_beats[beat["id"]]:
+                                beat[key] = deepcopy(old_beats[beat["id"]][key])
+                            else:
+                                beat.pop(key, None)
+                old_groups = ((snapshot.get("prompt_authoring") or {}).get("director_plan") or {}).get("groups") or []
+                for group in plan["groups"]:
+                    if set(ids).intersection(group["beat_ids"]):
+                        old_group = next((g for g in old_groups if g["beat_ids"] == group["beat_ids"]), None)
+                        if old_group:
+                            group.update(reference_slots=deepcopy(old_group.get("reference_slots") or []), reference_policy=old_group.get("reference_policy", "auto"))
+                        for bid in group["beat_ids"]:
+                            if bid in plan.get("shot_prompts", {}):
+                                plan["shot_prompts"][bid]["fingerprint"] = "rollback-invalidated:" + plan["shot_prompts"][bid].get("fingerprint", "")
+                plan["asset_audit"] = {"status": "pending", "shots": [], "reason": "关联已回退，请重新核对；旧稿保留但不可直接出片"}
             if "groups" in request:
                 contract.validate_groups(data["beats"], request["groups"], plan["workflow_id"], plan["max_shots_per_group"])
                 groups = deepcopy(request["groups"])
@@ -656,6 +807,10 @@ class WorkshopService:
                     if set(request["shot_updates"]) - allowed:
                         raise ValueError("剧情与对白请在内容库修改；这里只调整拍摄设置")
                     beat.update(request["shot_updates"])
+                    if plan.get("asset_manifest_version") and set(request["shot_updates"]).intersection({"camera", "character_ids", "character_look_ids", "prop_ids", "scene_id"}):
+                        plan.setdefault("asset_audit", {})["status"] = "pending"
+                        plan["asset_audit"].pop("confirmed_fingerprint", None)
+                        beat["asset_references_stale"] = True
                     manual = set(beat.get("workshop_manual_bindings") or [])
                     manual.update(set(request["shot_updates"]) & {"character_ids", "prop_ids"})
                     beat["workshop_manual_bindings"] = sorted(manual)
@@ -691,5 +846,8 @@ class WorkshopService:
 
     @classmethod
     def recover(cls):
-        for job in query_all("SELECT id,project_id FROM ai_project_jobs WHERE job_type IN (%s,%s) AND status IN ('queued','running')", cls.JOB_TYPES):
+        from .asset_manifest_service import owner_alive
+        for job in query_all("SELECT id,project_id,payload_json FROM ai_project_jobs WHERE job_type IN (%s,%s) AND status IN ('queued','running')", cls.JOB_TYPES):
+            if owner_alive(json.loads(job["payload_json"]).get("owner")):
+                continue
             execute_sql("UPDATE ai_project_jobs SET status='failed',error_message=%s WHERE id=%s", ("服务重启，已完成候选保留，可从检查点重试", job["id"]))

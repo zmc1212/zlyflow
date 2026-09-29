@@ -1,5 +1,77 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-09-29 视频远端任务恢复基线
+
+`episode_video_service.py` 不再启动时批量把视频任务置为失败。启动扫描和 `main.py` 生命周期内 30 秒扫描只调度租约过期的任务，执行器通过状态、完整 JSON 快照和租约到期条件 CAS 领取；心跳每 30 秒续租至 120 秒。`video_recovery.py` 用冻结 `comfy_base_url` 与 `prompt_id` 核对 history/queue；完成时接回交付，运行/排队时重连等待，网络错误保留等待，明确失败/丢失不重新提交。新 `comfy_checkpoints` 保存每段 graph、提交回执和输出；旧任务按已有分段快照迁入内存后持久化，缺失中间段证据拒绝自动恢复。提交前保存意图但没有回执的段不能自动再 POST。
+
+原任务 ID、工作流节点和数据库表不变；普通任务纳入既有租约保护，确认后二采保留专用检查点。已完成输出复用，冻结镜头不重新写词或上传参考图。受影响文件、兼容边界、验证命令及定点回滚见 [实施记录](视频任务重启恢复-2026-09-29.md)。
+
+## 2026-09-29 角色姓名精确匹配
+
+- 原因：原姓名包含匹配把剧本中的「吴耐」同时绑定到「吴耐」和「青年吴耐」，额外人物随后进入组视频参考。
+- 当前基线：`match_named_asset_ids` 增加仅限关键字的 `exact` 选项，人物调用入口全部传入 `exact=True`；保留首尾空白清理、输入顺序与 ID 去重，无精确姓名则不绑定。道具沿用既有匹配规则。
+- 受影响文件：`backend/app/media_studio/services/project_detail_service.py`、`ai_generation_service.py`、`backend/tests/test_named_character_matching.py`、README 与功能指南。
+- 兼容性：无 API、表结构、端口、节点或前端状态迁移。已有镜头、手工选择、组参考、提示词及媒体不自动重写；历史误绑定需通过工坊现有选择入口纠正并更新提示词。新规划、文档同步、恢复镜头及 AI 造型同步使用精确人物匹配。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_named_character_matching backend.tests.media_studio_test_storyboard_images backend.tests.test_workshop_reference_lifecycle -q`（58 项通过）；`pnpm --dir frontend build`。内嵌 Python 需在执行入口将项目根目录加入 `sys.path`。
+- 回滚：仅撤回 `exact` 参数与三个人物调用点、对应新增测试和文档段落，保留工作区其他改动和工程数据；后端重载或重启后生效。
+
+## 2026-09-29 精简资产与人物优先参考
+
+- 原因：旧提取把服装、鞋和杂物都列为独立道具；v7 自动参考又遍历全部 `prop_ids`，使普通穿戴缺图也阻断写稿，并占用有限参考额度。
+- 当前基线：`asset_pipeline_prompts.py` 的资产阶段适配覆盖全物件扫描，`script_development.py`、`episode_shot_planner.py` 和 `shot_asset_audit.py` 同步约束精简范围。普通服饰归人物造型、普通陈设归场景，原文动作、外观、声音完整保留；独立剧情作用或需辨认独特外观的物件才单列，有原文证据的服饰线索可例外。不靠服装名称黑名单删剧情。
+- `workshop_references.resolve_state` 自动参考仅解析组内 `character_ids` 及所选造型，按镜头顺序去重。`props` / `prop_ids` 仍是镜头元数据，道具名称不匹配或缺图不再阻断自动参考。需要独立道具图时使用已有手动组参考；手动选中的缺图、删除资产及超上限继续阻断。人物缺图、重名、缺造型、资产核对过期仍阻断，禁止猜身份或造型。上下限统一读取 `workflow_registry.py`，人数过多需拆组，不能静默截断。
+- 兼容性：无数据库 DDL、API 路径、端口、ComfyUI 节点或模型路径变化。旧资产、已确认镜头和手工参考不自动删改；旧自动组按新规则投影，有效图片变化通过既有指纹使旧提示词待更新，历史视频任务沿用冻结快照。新候选需人工采纳；仅改提示词规则不承诺模型每次都正确精简。
+- 受影响文件：以上四个提示词服务、`workshop_references.py`、`frontend/src/director2/panes/UnifiedWorkshopPane.tsx`、`backend/tests/test_workshop_reference_lifecycle.py` 及三份基线文档与导演台快照。
+- 验证命令：`python -m unittest backend.tests.test_workshop_reference_lifecycle backend.tests.test_asset_manifest backend.tests.test_workshop_video_preflight backend.tests.test_workshop_shot_structure -q`；`pnpm --dir frontend build`；5173 桌面工坊检查自动参考说明、道具手动加入与上限回显。不触发模型生图或视频任务。
+- 验证结果：专项后端 59 项通过，H3／剧本发展／工坊 skill 补充回归 200 项通过，前端构建（含全部 Vitest 与 TypeScript）通过。5173 真实工坊浅暗主题检查完成，首组缺图提示由 13 项减少为误绑青年吴耐的 3 项；有效参考保持吴耐、沙丽丽两张。当前误绑及旧资产未自动改写。界面基线见导演台快照本日章节。
+- 回滚：只撤回本次精简范围文本、自动参考中人物优先遍历及相关说明/测试，保留工作区既有增量、资产、历史候选和媒体；重启后端并刷新 5173。回滚前重新检查有效参考，不能复用变化后的提示词指纹。
+
+## 2026-09-28 资产提取模型字段兼容修复
+
+原因：部分 OpenAI-compatible 模型按资产方法模板返回 `剧情功能`、`所属分类`、`所属角色或场景`、`时代/世界观` 等展示字段，严格校验因此在第一块直接报 `INVALID_JSON: 未知资产字段`，候选无法进入人工核对。`asset_manifest_service.py` 增加窄范围兼容层：仅丢弃不参与身份、造型或出处的已知展示/传输字段，缺少标准 `era` 时把 `时代/世界观` 回填为 `era`；原始响应不变，丢弃字段列表写入该次调用证据。`evidence` 允许用空行表达多个独立连续原文片段，并分别保存；模型漏掉说话人前缀时，仅在剩余长片段能精确定位到输入原文时回填完整原文行，并记录修复前后文本。任意片段无法定位或被改写、任意未列入兼容表的字段仍按合同失败。
+
+受影响文件：`backend/app/media_studio/services/asset_manifest_service.py`、`backend/tests/test_asset_manifest.py`、`docs/API.md`。无 API 路径、数据库、任务状态、工作流或媒体迁移；失败任务可重新提取，历史任务证据继续可读。验证：`python -X utf8 -m unittest backend.tests.test_asset_manifest -q`（30 项）；真实页面需重启后端后在 5173 重新提取，错误从未知字段推进到后续合同校验才算生效。回滚仅移除兼容层与对应测试/文档，不删除任务证据或资产媒体。
+
+## 2026-09-28 视觉探测证据保存衔接
+
+原因：未保存表单的视觉探测以实际密钥构造临时指纹，正式配置使用随机加密密文指纹；保存时二者无法对应，探测已通过但右侧仍显示未验证。新增 `evidence_for_saved_connection`，保存前按完整地址、模型、预设与实际密钥查询服务端新鲜探测缓存，映射到目标配置的持久化指纹；原验证时间、结果与原因保留。不匹配或过期证据不能迁移，不接受客户端声明的支持能力。相同明文密钥重新加密时可沿用该连接已有的持久化证据。
+
+LLM 与独立 VLM 更新共用此机制；复用 LLM 的 VLM 流程保持原证据契约。前端保存成功立即写入 query cache、清除临时测试状态，再刷新 LLM/VLM 状态。无 API 字段、数据库结构、路由、端口、主题样式或流程变更；已保存证据可跨刷新和后端重启读取。未保存证据仍仅驻留当前后端缓存，缓存消失或过期时须重新探测，不能补造成功结果。
+
+受影响文件：`backend/app/{vision_capability,llm_provider,vlm_provider}.py`、`backend/tests/test_vision_capability.py`、`frontend/src/admin/{LlmProviderSettings,VlmProviderSettings}.tsx`、README、功能扩展指南及导演台流程快照。验证：`python -X utf8 -m unittest backend.tests.test_llm backend.tests.test_llm_request_policy backend.tests.test_vision_runtime backend.tests.test_vision_capability backend.tests.test_llm_image_transport backend.tests.media_studio_test_character_content -q`，150 项通过；`pnpm --dir frontend build`，71 个测试文件、393 项测试及构建通过；5173 桌面执行测试 → 保存 → 刷新。
+
+回滚：仅撤回本次证据映射函数、两个 provider 的保存调用及前端保存成功回调增量，保留此前模型参数策略、原探测流程、已保存证据和其他用户改动；无需数据库迁移回退。
+
+真实验收：5173 对用户已保存的 `kimi-k3` 执行文本及双色图测试成功（探测时间 2026-09-28 16:42:14），再保存并刷新页面，右侧仍显示「已验证可看图 / 双色图视觉验证通过」，原探测时间保留；未切换模型、地址或密钥。
+
+## 2026-09-28 大模型官方参数策略基线
+
+原因：各家 Chat Completions 共享协议外形，但不共享参数能力；统一传 `temperature=0.7` 被 Kimi-K3 拒绝，仅对 GLM 打补丁不足。新增 `llm_request_policy.py` 集中声明官方规则及来源，`llm_client.py` 统一生成最小请求：Kimi 固定采样系列不强传温度，GLM-5.3 与百炼 Kimi 仅思考系列尊重思考要求，GPT-5 / o 系列保留 `max_completion_tokens` 和已配置推理程度。未知型号使用上游采样和思考默认值，保留 token 上限；不从错误消息猜数值、不自动重试参数、不切模型、不丢参考图或 JSON 格式要求。
+
+官方依据：[百炼 Kimi 参数表](https://help.aliyun.com/zh/model-studio/kimi-api)、[百炼思考模式与仅思考模型清单](https://help.aliyun.com/zh/model-studio/deep-thinking)、[百炼 GLM](https://help.aliyun.com/zh/model-studio/glm)。能力表只决定请求参数，不证明视觉能力。仅思考模型文本/视觉短探测预算为 4096，正常创作预算不变；视觉默认总等待由 20 扩为 90 秒，显式传入的超时仍优先。网络超时/临时服务错误归为 unknown，明确图片拒绝或双色语义失败才为 unsupported。
+
+`LlmService.generate_character_content` 移除独立直连，复用共用客户端并保留 `response_format=json_object`；工坊新任务 `sent_parameters` 取客户端 `effective_parameters`，不再把未发送温度写成实际参数。元数据同时保存策略名称和官方来源，不包含消息正文或凭证。旧任务快照不重写。
+
+受影响文件：`backend/app/{llm_client,llm_request_policy,vision_capability}.py`、`backend/app/media_studio/services/llm_service.py`、`backend/tests/{test_llm,test_llm_request_policy,media_studio_test_character_content}.py`、三份主文档及导演台流程快照。无 API、数据库、端口、ComfyUI 节点、前端布局或主题变更，无配置迁移。验证：`python -X utf8 -m unittest backend.tests.test_llm backend.tests.test_llm_request_policy backend.tests.test_vision_runtime backend.tests.test_vision_capability backend.tests.test_llm_image_transport backend.tests.media_studio_test_character_content backend.tests.test_workshop_direct_input backend.tests.test_workshop_group_prompts backend.tests.test_workshop_h3_skill -q`，195 项通过；`pnpm --dir frontend build`；5173 桌面设置页检查。真实 Kimi-K3 文本返回 61 字符，默认视觉探测得到 red / blue，通过；较短的 20/45 秒探测曾超时，不能据此判定没有视觉能力。未切换已保存 `deepseek-v4.1-flash`。
+
+回滚：仅撤回本次策略模块及三个调用入口增量、移除本次新增测试，恢复角色原直连；保留上次 GLM 修复、已有任务证据和用户其他改动后重启后端。不要整仓回滚或迁移数据库。
+
+验收补充：`pnpm --dir frontend build` 通过（71 个测试文件、393 项测试）；5173 暗色桌面管理页填写未保存的 `kimi-k3` 后点击「测试连接」，页面显示「已验证可看图 / 双色图视觉验证通过（当前输入未保存，结果不用于已保存配置）」。已保存模型仍为 `deepseek-v4.1-flash`，没有覆盖当前生产配置。
+
+## 2026-09-28 GLM-5.3 思考参数兼容基线
+
+原因：`OpenAICompatibleClient` 原先向所有非 GPT 模型发送 `enable_thinking=false`，阿里云 GLM-5.3 返回 HTTP 400（参数仅允许 True）。当前基线按模型生成控制字段：GLM-5.3（含供应商前缀、Flash 与版本后缀）开启思考，Qwen / 其他 GLM 维持关闭，DeepSeek V4 保留 `thinking.type=disabled` 与原兼容字段；未知模型省略供应商控制字段。正式文本、流式与共用客户端的视觉调用沿用同一策略，视觉能力仍以真实探测为准。
+
+GLM-5.3 连接测试预算为 4096，其他模型仍为 128；不改变正式创作预算、超时、API、数据库、端口或模型配置。真实阿里云连接测试返回 82 字符，输出 276 token（其中推理 231），证明原 128 预算不足。影响 `backend/app/llm_client.py`、`backend/tests/test_llm.py`、README 和扩展指南；旧配置无迁移。验证：`python -X utf8 -m unittest backend.tests.test_llm backend.tests.test_vision_runtime backend.tests.test_vision_capability backend.tests.test_llm_image_transport -q`（128 项通过）、`pnpm --dir frontend build`。回滚仅定点撤回本次参数策略、测试预算及新增测试并重启后端，保留用户其他增量。
+
+## 2026-09-28 资产清单与最终镜头核对基线
+
+新增可选 `asset-shot-v1` 链路：完整采纳剧本 → 文档级资产候选 → 人工确认清单 → 工作流约束下的镜头候选 → 衔接修订 → 逐镜资产核对 → 人工采纳。`asset_manifest_service.py` 将版本、来源指纹、稳定条目、实际资产/造型映射与历史保存在文档 `analysis_json`；提取调用证据保存在 `ai_project_jobs` 的 `asset_manifest` 任务。确认事务才写资产；GET 不迁移旧清单，重启将中断提取标失败。
+
+`asset_pipeline_prompts.py` 从两份原始提示词选取方法章节并保存源哈希，不修改原文件；实际请求、模型、参数、原始响应、校验结果与耗时逐调用保存，不保存密钥。`shot_asset_audit.py` 在最终衔接后分类 visible/offscreen/mentioned，服务端映射资产 ID。工坊 v7 增加 `asset_manifest_version`、`asset_audit` 和镜头 `asset_references`；只有 visible 投影到生产关联，姓名扫描只产生疑点。未知 ID、非原文证据及过期版本拒绝采纳。清单更新、人工关联/拍摄意图变更使关联待核对，参考变化使旧提示词失效。
+
+受影响模块还包括 `project_router.py`、`main.py`、`script_development_service.py`、`shot_plan_job_service.py`、`workshop_service.py`、`workshop_references.py`、前端内容库/工坊/任务中心及 API 类型。API 见 [接口文档](API.md)，验证结果见 [实施记录](资产提取与镜头规划实施记录-2026-09-28.md)。无表结构、端口、ComfyUI 或工作流节点迁移；旧数据可读且不自动重拆。回滚先关闭候选入口，数据通过清单历史与局部关联历史恢复，保留图片、视频及任务证据，不认可过期提示词。
+
 2026-09-28 采纳版本修复：`WorkshopService.job_action` 的 `apply` 接受可选 `switch_version`；仅在当前正式稿与同任务已采纳证据完全匹配时，允许整组切换原稿/审校稿。沿用 revision、来源、指纹检查及原子事务，不迁移数据库，不修改冻结任务输入。前端 `WorkshopPromptCandidates` 并排呈现两种采纳，`UnifiedWorkshopPane` 显示来源和明确成功反馈。验证命令与回滚详见 [实施记录](导演台二次AI审校实施记录-2026-09-28.md)。
 
 ## 2026-09-27 当前写稿合同增量
@@ -3074,3 +3146,87 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 回归：`python -X utf8 -m unittest backend.tests.test_h3_confirmation_jobs backend.tests.test_h3_confirmation_adapter backend.tests.test_h3_confirmation_probe backend.tests.test_minimax_h3_director_refine backend.tests.test_minimax_h3_director_accel backend.tests.media_studio_test_h3_video backend.tests.test_timeline_rendering backend.tests.media_studio_test_production -q`（235 项通过）；前端使用 `pnpm --dir frontend build`。远程数据库只读表达式验证布尔值、数值及字符串 true/false 均归一化正确。隔离验收任务已有原片仅重新测量并修复素材区间，不重采样、不改变采用清单。完整页面证据见 `docs/H3确认后二采业务接入-2026-09-28.md`。
 
 回滚：仅撤回上述两处修复及专项测试增量，继续隐藏新建入口；保留任务、缓存与媒体，不撤销用户采用记录。
+
+## 2026-09-28 H3 二采 16 GB 显存策略（已部署，待重启实测）
+
+导演台两镜一采 `job-c94888277fa9` 成功：只执行两段一采，缓存 `8904edae01444ea1a7095512f0f662a3`，原片 864×480、396 帧、16.5 秒。二采子任务 `16ff5e0f-2b94-4725-8129-f81abf0f1b3b` 的 1 MP 整幅执行长期停留首步。远端 RTX 4080 专用显存约 15.5 GB、共享 GPU 内存约 11.3 GiB，GPU 100% 但约 73 W；高占用不能视为正常推进证据。用户手动取消后队列清空，原片与 ready 缓存清单保留。导演台二采、候选采用及最终画质验收未通过，不得标为完成。
+
+仅修改 `comfyui_nodes/zly_h3_confirmation/node.py`、`protocol.py`：适配节点在 refine_only 且显存不超过 18 GiB 时应用 `refine-16gb-tiles@1`，使用作者已有空间四分块、128 像素重叠，以及 latent 放大时间分块；其他设备保持作者设置。一采图、来源哈希、模型、种子、提示词和阶段约束保持不变。作者源码确认 first_pass_cache_fingerprint 排除 refine 设置，因此不放宽缓存身份校验。策略只在构造后的执行 plan 上应用，并记录至日志和执行报告 memory_policy。空间分块可能改变接缝和画质，不能承诺与整幅结果一致，须重启后复用缓存实测；不修改原 Director 文件，不改变原工作流。
+
+2026-09-28 已部署到当前远端 `D:\ZlyFlow-ComfyUI-Portable-20260827-152136\Comfyui\custom_nodes\zly_h3_confirmation`，原两文件备份于 `Comfyui\temp\zly-h3-confirmation-backup-20260928-tiles`。远端 py_compile 通过，本地/远端 SHA256 一致：node.py `a0bda4fd954e4bcfe457c80ba279be899cb499fe937f9061cd2e2bfd93b7c513`；protocol.py `a3e2f9f5fb45002529a787ec55b89f91f2b70531f991b3e1cea5362eab5447a8`。原 ComfyUI 需要重启才加载新代码；此前自动重启曾被执行策略拒绝，本次未绕过限制。
+
+验证：H3 相关八组后端回归 237 项通过（含 CPU 模拟 GPU 隔离、16 GB 分块策略、原缓存身份及零一采复用断言），命令沿用接入记录中的 unittest 列表；前端 `pnpm --dir frontend build`。回滚：队列空闲时从上述备份恢复适配包 node.py/protocol.py，再重启原实例；保留 output 下缓存与媒体，不动原节点。无数据库结构、端口、旧工作流迁移。
+
+### 2026-09-28：二采静态模型副本与分块策略 v2（已部署，待重启验收）
+
+v1 的真实子任务 `0f761198-4108-409d-b74b-3a0ddb0b5df1` 仍发生约 8.7 GiB 共享 GPU 内存占用与低功耗停滞，已取消并确认队列清空，不能标记二采验收通过。新策略 `refine-16gb-static-tiles@2` 仅针对不超过 18 GiB 显存的 refine_only：保持分块参数，通过 W4A8 加载函数的私有命名空间创建非动态模型，再用 ComfyUI ModelPatcher.clone 复制原采样模型的补丁与选项。原模型、全局加载器、原 Director 文件及旧工作流均不修改；一采缓存身份保持严格校验。不支持的动态加载器立即报错，不降级重跑一采。
+
+受影响文件：`comfyui_nodes/zly_h3_confirmation/{node,protocol}.py`、`backend/tests/test_h3_confirmation_adapter.py`。远端现有模型 `minimax_h3_ref2va_pruned_w4a8_mixed.safetensors` 已通过独立预检：ModelPatcherDynamic → ModelPatcher，源模型仍动态、model_options 保留、全局加载器不变。该预检不包含采样，不能证明性能及最终画质已通过。
+
+已部署当前远端适配包，py_compile 通过；node.py SHA256 `768b2e3f959ea27d27aa9442a3bd9abec9013845b5b8f08627e6bd6ca78a192a`，protocol.py SHA256 `150417cc65e8662c9c0d6caa0f35cc40f246533ba2dc92745b0ab263a44b405e`。原实例尚需重启加载；此前自动重启被执行策略拒绝，仍由用户手动重启原实例。
+
+验证：`python -X utf8 -m unittest backend.tests.test_h3_confirmation_jobs backend.tests.test_h3_confirmation_adapter backend.tests.test_h3_confirmation_probe backend.tests.test_minimax_h3_director_refine backend.tests.test_minimax_h3_director_accel backend.tests.media_studio_test_h3_video backend.tests.test_timeline_rendering backend.tests.media_studio_test_production -q`，237 项通过；`pnpm --dir frontend build` 通过。无 UI、数据库结构、端口迁移。回滚：队列空闲时从远端 `Comfyui/temp/zly-h3-confirmation-backup-20260928-static-v2` 恢复 node.py/protocol.py，再重启原实例。后续仍需真实缓存复用二采、媒体检查及候选采用/恢复验收，保留原已采用版本。
+
+### 2026-09-28：段间显存释放 v3（已部署，待重启验收）
+
+用户重启后确认远端 PID 2632 已加载 v2。通过导演台 5173 创建 1 MP 子任务 `55c6b297-2753-47de-ab36-c8746fdad7f2`，远端 prompt `85015e0e-a916-4af4-80e2-3d8dbd8c71c6`。第一段从 0/3 正常推进至 3/3，采样约 4 分 39 秒；共享 GPU 内存一度约 227 MB、功耗约 283 W。第二段解码/重新加载后，共享 GPU 内存回升约 3.4 GiB、功耗约 71 W，0/3 未推进；已发送取消请求，记录时远端仍等待当前计算退出，不能宣称任务已结束或二采验收通过。原两镜 adopted 映射仍为 `material-835b1536eae5e8b936b2ad21`。
+
+修复依据：作者 executor_core 已提供 `clear_vram_before_refine` 与 `clear_vram_between_segments`，通过 cleanup_segment_vram 卸载模型并清缓存。独立适配器的 16 GB refine_only 策略更新为 `refine-16gb-static-tiles@3`，在私有执行 core 参数中强制启用两项清理，保留静态模型副本、四分块及原缓存严格校验。受影响文件：适配包 node.py/protocol.py、test_h3_confirmation_adapter.py；原 Director、原工作流、数据库结构与端口均不变。该调整仍需两段真实出片验证，不能保证性能或画质。
+
+部署：当前远端适配包已写入并 py_compile 通过。node.py SHA256 `42ce3220ebfd3a66834c7535f7618124e53f7f9098a360fe79c92c6462a80437`；protocol.py `2f2212a4661f6ca85489c0ea41cccf977b7667c963663f04866830e0df02077f`。回滚：空闲时从 `Comfyui/temp/zly-h3-confirmation-backup-20260928-static-v3` 恢复两文件，再重启原实例。验证：同上八组后端 unittest 237 项通过，`pnpm --dir frontend build` 通过；真实 UI 已创建任务并确认运行状态。后续需重启加载 v3，再继续缓存复用、候选采用与恢复验收。
+### 2026-09-28：v3 实测未通过，待兼容运行模式验证
+
+确认 PID 25116 加载 `refine-16gb-static-tiles@3`，日志显示两项清理开关均开启。导演台子任务 `be6486ed-b221-48a7-ac80-e63e69854c09` / 远端 `d74c4e57-50d3-42ac-b322-80cee6305184` 的第一段完成 3/3，采样约 2 分 53 秒；第二段仍停留 0/3，共享 GPU 内存约 3.0 GiB、功耗约 77 W。已发取消请求，未把请求视为计算结束。完整二采、候选采用及最终画质验收仍未通过。测试期间本地后端曾重启；通过已有任务重试恢复对同一 prompt 的跟踪，核对远端仍只有原任务，没有重复提交。
+
+当前实例未携带 --disable-dynamic-vram 或 --lowvram。核实远端已有 `D:\ZlyFlow-ComfyUI-Portable-20260827-152136\Start-ComfyUI-Compatibility.cmd`，以原 Python、原 Comfyui、原 8188 启动，参数为 --disable-dynamic-vram --lowvram --disable-async-offload。下一步由用户停止原实例后使用该脚本验证统一静态显存管理；不是另建 ComfyUI，不修改原 Director/旧工作流，但运行模式会影响该实例所有工作流的显存与性能。该方案尚未实测，不宣称已解决。回滚运行模式：停止实例后使用原 Start-ComfyUI.cmd 启动。
+
+顺带修复 `frontend/src/components/H3ConfirmationPanel.tsx`：轮询错误与用户操作错误分开保存，下一次成功轮询会清除临时 HTTP 500 提示，不清除操作失败信息。更新 `H3ConfirmationPanel.test.tsx`，6 项测试通过；`pnpm --dir frontend build` 通过，5173 页面确认没有残留的轮询报错。回滚 UI 可仅还原该面板的 pollError 状态变更；无 API 或数据库迁移。
+
+### 2026-09-28：分块兼容性已复现并修复，v4 已部署（待重启真实出片）
+
+远端 CPU 探针用实际 ComfyUI/Director 代码证实：新版 latent_shapes 位于 CFG 条件的 CONDConstant，作者 tiler 仍从 base.latent_shapes 读取，因此原路径直接执行整幅。相同输入宽度 40，原调用宽度记录为 [40]；私有兼容绑定后为 [10,10,10,10]，输出一致，latent_shapes 与真实 MiniMax PackedLayout 条件均在调用后恢复。缺失形状会报错而不回退整幅。这证明分块兼容性缺陷，但尚不证明真实 8 秒二采性能/画质通过。
+
+独立适配包新增 `tiling_compat.py`：从新版条件读取一致的形状，只在本次调用临时提供旧属性；通过私有函数命名空间和私有 import 绑定作者 tiler，不覆盖 sys.modules，不修改作者源码。v4 报告 memory_policy.spatial_tiling 记录 tile_model_calls / tiled_evaluations / tiled_segments，缺失真实分块或布局错误退回整幅即失败。新增锁定 core_sampling/refine_sampling/spatial_tiled_sampling 的作者文件哈希。原节点、旧工作流及一采缓存身份不变。
+
+后端 `minimax_h3_confirm_workflow.py` 将独立确认流程的 1 MP 语义档映射为 0.98 MP；2 MP 及旧流程不变，适配器仍兼容历史 1.0 MP 请求。注意：官方 1344×768 建议以 16:9 为前提，当前 Director 按原片 864×480（比例 1.8）跟随并取整，真实测试中 0.98 MP 仍输出 1376×768，不能将参数映射等同于输出 1344×768。受影响文件：上述后端、适配包 node.py/protocol.py/tiling_compat.py、test_h3_confirmation_adapter.py、永久 CPU 探针 backend/tests/h3_tiling_compat_probe.py。
+
+验证：H3 八组 unittest 237 项通过；新增作者文件锁定后适配器 17 项复核通过；前端 pnpm --dir frontend build 通过。远端使用原 portable Python 运行 `h3_tiling_compat_probe.py COMFYUI_ROOT ADAPTER_SOURCE_DIRECTORY`，真实 PackedLayout、私有采样导入绑定、4 次分块、条件恢复与缺失形状拒绝均通过。远端三文件 py_compile 通过。
+
+已部署远端 custom_nodes/zly_h3_confirmation；node.py SHA256 912035428cc9b79953ae326acab323dc11d156219841c6af24275eb0b787a717，protocol.py 365d2ca2df33d28c1723528ef5abf793a6dc3c02020f4baa46b69a1bdfcc3499，tiling_compat.py c23be3dd57188839027ecb75839f5353733a04f75e9d7ad28f80549ec460704f。需重启原实例加载，优先保持当前兼容启动方式以便单独验证分块修复。
+
+回滚备份改为持久目录 `D:\ZlyFlow-ComfyUI-Portable-20260827-152136\zly-backups\h3-confirmation-before-v4`（Comfyui/temp 会被重启清空，旧临时备份不可作为可靠回滚依据）。回滚时空闲后恢复 node.py/protocol.py，移除本次新增 tiling_compat.py，并还原后端 1 MP 映射，再重启原实例。没有数据库/端口迁移。导演台两镜各 8 秒的完整二采、候选采用和恢复验收仍待完成。
+
+### 2026-09-28：导演台 H3 确认二采 1 MP 实机验收通过
+
+远端原实例以兼容启动方式加载 v4 后，原两镜各 8 秒案例完整出片：1376×768、24 fps、396 帧（16.5 秒），一采采样 0 次、二采 2 段，实际空间分块调用 24 次。第一镜二采 254.8 秒，第二镜 327.7 秒；含条件准备与解码，Director 执行约 17 分 40 秒。导演台候选版本 3 可播放，已验证同时采用到两镜，再恢复原版本 1；一采和二采候选均保留。此次仅证明 1 MP 档，2 MP 与默认动态显存启动未通过实机验收。
+
+真实回传暴露并修复：`minimax_h3_confirm_workflow.py` / `episode_video_service.py` 的缓存二采边界读取改用已验证一采帧数并校验导出总数；不完整检查点必须重新读取原 prompt，不能提前跳过校验。`h3_confirmation_service.py` 清除继承的一采媒体信息并检测二采输出，避免缺少 url 或错误尺寸。失败恢复不重新提交 GPU。测试素材曾因旧检查点缺边界，已按原远端报告、同一文件 SHA256 和测量结果定点补齐为 [192,204]，没有修改既有采用素材。
+
+验证：八组 H3/production unittest 共 239 项通过；`pnpm --dir frontend build` 通过；5173 实页播放、两镜区间 0–8 / 8–16.5 秒、候选采用及原版本恢复通过，远端队列为空。无 API、数据库结构、端口或原作者节点变化。回滚：还原上述三个后端文件与对应测试的本次增量；远端适配包按上一节持久备份回滚。完整证据见 `docs/H3确认后二采业务接入-2026-09-28.md`。
+
+
+## 2026-09-28 资产提取中断续提
+
+真实 Kimi 全剧提取在第 4 个区块收到空响应，故在 `asset_manifest_service.py` 的既有提取入口增加失败续提：剧本、创作设置、清单基线、提示词来源哈希及模型相同时，复用已校验区块并从失败位置继续；逐块复核哈希，不复用未完成回答。新任务用 `resumed_from_job_id` 追溯前次失败，保留完整请求证据。取消任务不续提，来源或模型变化从头开始。无 API 路径、数据库表、端口变化；旧任务兼容。
+
+验证：`python -X utf8 -m unittest backend.tests.test_asset_manifest -q`（21 项通过）；本轮全量后端 1095 项通过（1 跳过）、前端 `pnpm --dir frontend build`（393 项测试、类型检查及构建通过）在续提修复前完成。回滚可移除续提分支，保留历史 payload 和已有媒体；真实验收结论见资产提取与镜头规划实施记录。
+
+
+验收补充：新拆镜不得仅因角色在资产清单中存在，就把原场景的无名群体/画外声音分配给具名角色。`shot_asset_audit.validate_source_identities` 在初稿和衔接修订后检查本场原文或已确认别名证据，错误进入既有有界纠错或明确失败；原始模型输出保留，不由开发助手手改。候选映射和关联修改使用按项目/候选/版本隔离的 sessionStorage 草稿；局部核对回显真实镜号。`asset_pipeline_prompts.request` 经 `LlmService.chat_text` 记录供应商返回模型、usage、finish_reason（上游返回时），无字段时保持未知。回滚仅撤回对应校验、草稿和元数据透传，不删除历史证据或媒体。
+<!-- asset-pipeline-acceptance-20260928 -->
+### 2026-09-28 资产链路验收补丁
+
+为处理强制思考模型空正文和截断响应，新资产链路的提取、规划、衔接及审计请求对这类模型使用至少 32768 的输出预算，并记录请求参数与生效参数；普通模型保持原预算。该改动位于 `asset_pipeline_prompts.py`，不改旧链路的生产默认值。验收 A/B 使用显式等额预算，不与旧生产默认混算。身份来源和叙述内对白检查位于 `shot_asset_audit.py`；失败仍拒收，不能手工补结果冒充模型通过。
+
+工坊任务记录执行 host/PID，启动恢复跳过仍存活的执行者，避免本机其他服务/测试进程误终止任务（`workshop_service.py`）。无 owner 的旧中断任务仍按原规则恢复。确认清单页面回显实际绑定并修正状态文案（`AssetManifestPanel.tsx`）。无数据库 DDL；回滚时保留任务证据、媒体链接及 JSON 扩展字段，按清单/工坊历史恢复数据。验证：`python -m unittest discover -s backend/tests -p "test*.py" -t .`、`python -m unittest backend.tests.test_asset_manifest`、`pnpm --dir frontend build`；真实模型与桌面结果以实施记录为准，仍保留候选模式。
+局部审计的场景绑定与场景描述分开保存；只核对关联时按原已确认快照验证既有分组，避免一镜绑定资产 ID、相邻镜仍用场景文本时被误判为跨场合并。真实界面已验证两镜应用和分别回退，原媒体全保留。最终后端 1103 项（1 跳过）、资产专项 26 项及前端构建通过；P5 语义门槛仍未通过。
+
+## 2026-09-28 剧本策划漏项检查点
+
+`script_development.plan_story` 仍以 `validate_plan` 为正式策划准入，分集戏剧字段缺失时增加一次定点补写，只合并空字段。补写失败或仍有空项时，`ScriptDevelopmentService.run` 将原候选保存为失败任务的 `plan_review` 数据；前端展开并标记缺项，用户可补齐后走原 `confirm_plan` 校验，或用 `retry` 重新进入 `planning`。原因是 20 集策划的单集漏项会丢失整份候选。影响 `script_development.py`、`script_development_service.py`、`ScriptDevelopmentPanel.tsx` 和相应后端测试；任务 JSON 增加失败时的候选 `plan`，无数据库 DDL、API 路径或已采纳数据迁移。验证：`python -m unittest backend.tests.media_studio_test_script_development`、`pnpm --dir frontend build`、5173 桌面检查。回滚撤回补写和候选复核分支，保留历史任务与原稿。
+
+## 2026-09-28 剧本审稿非标准 JSON 恢复
+
+当前 `script_development.call_json` 先严格解析，再容忍字符串内原样换行，最后仅为单行裸文本值补引号，不推断或改写审稿内容。仍无法解析时 `InvalidJsonResponse` 携带原始响应与上游元数据，`ScriptDevelopmentService.run` 将最多 20000 字符及 `finish_reason`、usage 保留在失败任务的 `last_json_failure`。失败任务重试若处于全剧审稿、且保存响应能通过 `prepare_review` 结构及时长检查，则置入 `pending_review` 并续跑当前轮；否则按原检查点重新请求模型。原因是新模型完整输出中有漏引号的 `suggestion`，导致已完成 20 集剧本在第 2 轮审稿卡住。影响 `script_development.py`、`script_development_service.py`、`script-development.ts`、`ScriptDevelopmentPanel.tsx` 及后端测试；不改 API 路径、数据库 DDL 或已采纳版本。验证：`python -m unittest backend.tests.media_studio_test_script_development`、`pnpm --dir frontend build`、5173 桌面页。回滚仅撤回解析与复用增量，保留任务和剧本检查点。
+
+同日增加失败任务的 `review_draft` 动作：仅当 `writing` 阶段全部分集正文及策划齐备，才用 `render_script` 生成候选阅读文本，过滤本轮 `repair_done` 已修订集的旧意见，转成 `script_review` / `awaiting_review` 并标记 `review_incomplete`。此动作不提交模型请求、不写正式文档；用户仍需自行选择修订或采纳。更换可用模型并指定集修订时，服务清除旧的 `review_incomplete` / `review_interruption`，由本轮审稿重新决定状态。原因是后续模型额度耗尽时仍要访问已完成 20 集正文，且重启修订后不能沿用旧中断提示。影响服务动作、前端候选入口及测试；无 DDL 或路由变化。验证：`python -m unittest backend.tests.media_studio_test_script_development`、`pnpm --dir frontend build`、5173 桌面页；回滚撤回该动作、入口和修订标记重置即可，保留候选任务历史。

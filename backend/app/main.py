@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 import mimetypes
 import re
@@ -766,10 +767,25 @@ async def lifespan(app: FastAPI):
     ScriptDevelopmentService.recover_interrupted_jobs()
     from .media_studio.services.workshop_service import WorkshopService
     WorkshopService.recover()
+    from .media_studio.services.asset_manifest_service import AssetManifestService
+    AssetManifestService.recover()
     TtsGenerationJobService.recover_interrupted_jobs()
     AiGenerationService.recover_orphaned_jobs()
+    async def recover_video_connections():
+        while True:
+            await asyncio.sleep(30)
+            try:
+                await asyncio.to_thread(EpisodeVideoService.recover_orphaned_jobs)
+            except Exception:
+                logging.getLogger(__name__).exception("Video recovery scan failed")
+    video_recovery_task = asyncio.create_task(recover_video_connections())
     await worker.start()
     yield
+    video_recovery_task.cancel()
+    try:
+        await video_recovery_task
+    except asyncio.CancelledError:
+        pass
     set_catalog_lookup(None)
     await director_operations.stop()
     await worker.stop()

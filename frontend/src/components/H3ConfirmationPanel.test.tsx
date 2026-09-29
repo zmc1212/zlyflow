@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { H3ConfirmationPanel } from "./H3ConfirmationPanel"
 import { requestJson } from "../api"
 
-const hooks = vi.hoisted(() => ({ values: [] as unknown[] }))
+const hooks = vi.hoisted(() => ({ values: [] as unknown[], setters: [] as ReturnType<typeof vi.fn>[], effects: [] as Array<() => (() => void)> }))
 vi.mock("react", async () => ({
   ...await vi.importActual<typeof import("react")>("react"),
-  useState: (initial: unknown) => [hooks.values.length ? hooks.values.shift() : initial, vi.fn()],
-  useEffect: vi.fn(), useCallback: (fn: unknown) => fn, useRef: (current: unknown) => ({ current }),
+  useState: (initial: unknown) => { const setter = vi.fn(); hooks.setters.push(setter); return [hooks.values.length ? hooks.values.shift() : initial, setter] },
+  useEffect: (effect: () => (() => void)) => hooks.effects.push(effect), useCallback: (fn: unknown) => fn, useRef: (current: unknown) => ({ current }),
 }))
 vi.mock("../api", () => ({
   requestJson: vi.fn(), jsonMutation: (csrf: string, body: unknown) => ({ method: "POST", body: JSON.stringify(body), csrf }),
@@ -26,7 +26,22 @@ function render(state: Record<string, unknown>, extra = {}) {
 }
 
 describe("H3 explicit confirmation", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks(); hooks.setters = []; hooks.effects = [] })
+  it("clears a recovered poll error without clearing action errors", async () => {
+    vi.useFakeTimers()
+    let cleanup: (() => void) | undefined
+    try {
+      vi.mocked(requestJson).mockRejectedValueOnce(new Error("HTTP 500")).mockResolvedValueOnce(source)
+      render(source)
+      cleanup = hooks.effects[0]()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(hooks.setters[6]).toHaveBeenLastCalledWith("HTTP 500")
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(hooks.setters[6]).toHaveBeenLastCalledWith("")
+      expect(hooks.setters[0]).toHaveBeenLastCalledWith(source)
+      expect(hooks.setters[3]).toHaveBeenCalledTimes(1)
+    } finally { cleanup?.(); vi.useRealTimers() }
+  })
   it("does not submit on display; confirms only quality and frozen source", async () => {
     const tree = render(source)
     expect(requestJson).not.toHaveBeenCalled()

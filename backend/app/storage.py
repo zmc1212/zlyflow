@@ -28,6 +28,7 @@ def now() -> str:
 
 
 LLM_PROFILE_BASE_URLS = {
+    "modelink": "https://api.modelink.ai/v1",
     "modelscope": "https://api-inference.modelscope.cn/v1",
     "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "siliconflow": "https://api.siliconflow.cn/v1",
@@ -36,6 +37,7 @@ LLM_PROFILE_BASE_URLS = {
     "lmstudio": "http://127.0.0.1:1234/v1",
 }
 VLM_PROFILE_BASE_URLS = {
+    "modelink": "https://api.modelink.ai/v1",
     "zhipu": "https://open.bigmodel.cn/api/paas/v4",
     "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "modelscope": "https://api-inference.modelscope.cn/v1",

@@ -13,14 +13,20 @@ from urllib.parse import urlparse
 import requests
 
 from .llm_image_transport import ImageTransportError, prepare_chat_images
+from .llm_request_policy import (
+    chat_parameters, chat_policy, is_openai_reasoning_chat_model,
+    probe_token_budget, requires_glm_thinking, thinking_control_fields,
+)
 
 LLM_CONNECT_TIMEOUT_SECONDS = 20.0
 LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
 LLM_TEST_TIMEOUT_SECONDS = 90.0
 LLM_TEST_MAX_TOKENS = 128
+LLM_THINKING_TEST_MAX_TOKENS = 4096
 LLM_TEST_USER_PROMPT = (
     "你好，你是什么模型？请用一两句话介绍自己，并确认可以正常进行中文对话。"
 )
+
 
 _LLM_STREAM_DELTA: ContextVar[Callable[[str, str], None] | None] = ContextVar(
     "llm_stream_delta",
@@ -470,17 +476,6 @@ def is_zhipu_base_url(base_url: str) -> bool:
     return catalog_provider_key(base_url) == "zhipu"
 
 
-def is_openai_reasoning_chat_model(model: str) -> bool:
-    """GPT-5 / o-series Chat Completions reject temperature and max_tokens."""
-    lowered = (model or "").strip().lower()
-    if not lowered:
-        return False
-    if "gpt-5" in lowered:
-        return True
-    name = lowered.rsplit("/", 1)[-1]
-    return name.startswith(("o1", "o3", "o4"))
-
-
 def looks_like_zhipu_api_key(api_key: str) -> bool:
     cleaned = normalize_api_key(api_key)
     if not cleaned or cleaned.count(".") != 1:
@@ -889,6 +884,7 @@ class OpenAICompatibleClient:
         on_delta: Callable[[str, str], None] | None = None,
         reasoning_effort: str | None = None,
         meta_out: dict[str, Any] | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
         started = time.monotonic()
         call_meta = {
@@ -920,23 +916,20 @@ class OpenAICompatibleClient:
             "model": model,
             "messages": messages,
         }
-        if is_openai_reasoning_chat_model(model):
-            # 官方 GPT-5 / o 系列不接受 temperature、max_tokens；中转站常把这类 400
-            # 包装成 short-input / heartbeat probing。
-            payload["max_completion_tokens"] = max_tokens
-            effective_reasoning_effort = reasoning_effort or self.reasoning_effort
-            if effective_reasoning_effort:
-                payload["reasoning_effort"] = effective_reasoning_effort
-                call_meta["reasoning_effort"] = effective_reasoning_effort
-        else:
-            payload["temperature"] = temperature
-            payload["max_tokens"] = max_tokens
-            # 关闭 Qwen3 / Qwen2.5 思考模式（enable_thinking=False），
-            # 不支持此参数的模型会忽略该字段，不影响兼容性
-            payload["enable_thinking"] = False
-            payload.update(self._thinking_control_fields(model))
+        policy = chat_policy(model, self.base_url)
+        payload.update(chat_parameters(
+            policy, temperature=temperature, max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort or self.reasoning_effort,
+        ))
+        if response_format is not None:
+            payload["response_format"] = response_format
         if stream:
             payload["stream"] = True
+        call_meta.update(
+            parameter_policy=policy.name, parameter_policy_source=policy.source,
+            effective_parameters={key: value for key, value in payload.items() if key != "messages"},
+            temperature=payload.get("temperature"), reasoning_effort=payload.get("reasoning_effort"),
+        )
         try:
             response = self.session.post(
                 url,
@@ -1101,6 +1094,9 @@ class OpenAICompatibleClient:
                     meta_out["provider_request_id"] = data.get("id")
                 if isinstance(data.get("usage"), dict):
                     meta_out["usage"] = data.get("usage")
+                for choice in data.get("choices") or []:
+                    if isinstance(choice, dict) and choice.get("finish_reason"):
+                        meta_out["finish_reason"] = choice["finish_reason"]
             self._raise_if_embedded_stream_error(data)
             reasoning, content = self._stream_delta_parts(data)
             if reasoning and delta_hook is not None:
@@ -1176,18 +1172,8 @@ class OpenAICompatibleClient:
         _reasoning, content = cls._stream_delta_parts(data)
         return content
 
-    @staticmethod
-    def _thinking_control_fields(model: str) -> dict[str, Any]:
-        """DeepSeek V4 默认开启思考，会显著增加 token / 魔粒消耗。
-
-        官方 Chat Completions 需显式传入 thinking.type=disabled；
-        Qwen 的 enable_thinking=False 对 V4 无效。
-        """
-        lowered = (model or "").strip().lower()
-        official_aliases = {"deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro"}
-        if "deepseek" in lowered and ("v4" in lowered or lowered in official_aliases):
-            return {"thinking": {"type": "disabled"}}
-        return {}
+    def _thinking_control_fields(self, model: str) -> dict[str, Any]:
+        return thinking_control_fields(chat_policy(model, self.base_url))
 
     @staticmethod
     def _strip_thinking(text: str) -> str:
@@ -1303,7 +1289,8 @@ class OpenAICompatibleClient:
                 messages,
                 model=model,
                 temperature=0.7,
-                max_tokens=LLM_TEST_MAX_TOKENS,
+                # 仅思考模型的预算包含推理 token，128 常在正文前耗尽。
+                max_tokens=probe_token_budget(model, self.base_url, LLM_TEST_MAX_TOKENS),
                 timeout=timeout,
                 **extra,
             )

@@ -85,6 +85,18 @@ type CatalogResponse = {
 
 const PROVIDER_PRESETS = [
   {
+    label: "Modelink 极客云 (支持 GPT-4o 等)",
+    value: "modelink",
+    baseUrl: "https://api.modelink.ai/v1",
+    model: "gpt-4o",
+    docUrl: "https://docs.modelink.ai/api-endpoints/overview",
+    recommendedModels: [
+      { name: "GPT-4o", id: "gpt-4o" },
+      { name: "GPT-4o Mini", id: "gpt-4o-mini" },
+      { name: "Claude 3.5 Sonnet", id: "claude-3-5-sonnet-20240620" },
+    ],
+  },
+  {
     label: "ModelScope 魔搭社区 (按魔粒计费)",
     value: "modelscope",
     baseUrl: "https://api-inference.modelscope.cn/v1",
@@ -240,8 +252,10 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
           api_key: apiKey || null,
         }, "PUT"),
       ),
-    onSuccess: () => {
+    onSuccess: (data) => {
       setApiKey("")
+      test.reset()
+      queryClient.setQueryData(["llm-provider"], data)
       refresh()
       message.success("LLM 大模型配置已保存")
     },
@@ -561,7 +575,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
 
           <div className="mt-6 rounded-xl border border-[#7047f6]/20 bg-[#7047f6]/[0.04] p-4 text-xs leading-5 text-[#4b5563]">
             <span className="flex items-center gap-1.5 font-semibold text-[#7047f6]">
-              <Sparkles size={14} /> {selectedPreset === "ollama" ? "Ollama 本地连接说明" : selectedPreset === "modelscope" ? "魔搭魔粒说明" : selectedPreset === "siliconflow" ? "硅基流动免费说明" : "服务说明"}
+              <Sparkles size={14} /> {selectedPreset === "ollama" ? "Ollama 本地连接说明" : selectedPreset === "modelink" ? "Modelink 说明" : selectedPreset === "modelscope" ? "魔搭魔粒说明" : selectedPreset === "siliconflow" ? "硅基流动免费说明" : "服务说明"}
             </span>
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
               {selectedPreset === "ollama"

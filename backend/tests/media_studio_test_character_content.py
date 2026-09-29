@@ -20,9 +20,9 @@ class CharacterContentTests(unittest.TestCase):
         self.assertEqual("生图提示词", parsed["visual_prompt"])
 
     @patch.object(LlmService, "_runtime_config", return_value=("https://llm.example/v1", "test-model", "key"))
-    @patch("backend.app.media_studio.services.llm_service.requests.post")
+    @patch("requests.Session.post")
     def test_generates_complete_character_content(self, post: Mock, _runtime: Mock):
-        response = Mock(ok=True)
+        response = Mock(status_code=200)
         response.json.return_value = {
             "choices": [{"message": {"content": (
                 '{"description":"26岁，短发，白衬衫与深色长裤",'
@@ -45,9 +45,9 @@ class CharacterContentTests(unittest.TestCase):
         self.assertEqual({"type": "json_object"}, request_body["response_format"])
 
     @patch.object(LlmService, "_runtime_config", return_value=("https://llm.example/v1", "test-model", "key"))
-    @patch("backend.app.media_studio.services.llm_service.requests.post")
+    @patch("requests.Session.post")
     def test_rejects_incomplete_character_content(self, post: Mock, _runtime: Mock):
-        response = Mock(ok=True)
+        response = Mock(status_code=200)
         response.json.return_value = {
             "choices": [{"message": {"content": '{"description":"只有描述"}'}}]
         }
@@ -58,14 +58,14 @@ class CharacterContentTests(unittest.TestCase):
 
     @patch("backend.app.media_studio.services.llm_service.llm_row", return_value={"reasoning_effort": "high"})
     @patch.object(LlmService, "_runtime_config", return_value=("https://llm.example/v1", "gpt-5.6-sol", "key"))
-    @patch("backend.app.media_studio.services.llm_service.requests.post")
+    @patch("requests.Session.post")
     def test_gpt5_character_content_uses_configured_reasoning(
         self,
         post: Mock,
         _runtime: Mock,
         _llm_row: Mock,
     ):
-        response = Mock(ok=True)
+        response = Mock(status_code=200)
         response.json.return_value = {
             "choices": [{"message": {"content": (
                 '{"description":"26岁，短发，白衬衫与深色长裤",'

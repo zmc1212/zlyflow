@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
-import requests
 import time
 
 from ..provider_bridge import credential_manager, llm_row, vlm_row
@@ -210,23 +209,12 @@ class LlmService:
             ],
             "response_format": {"type": "json_object"},
         }
-        if is_openai_reasoning_chat_model(model):
-            request_body["max_completion_tokens"] = 1200
-            effort = str(llm_row().get("reasoning_effort") or "low").strip().lower()
-            if effort != "auto":
-                request_body["reasoning_effort"] = effort
-        else:
-            request_body["temperature"] = 0.4
-            request_body["max_tokens"] = 1200
-        response = requests.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=request_body,
-            timeout=120,
+        effort = str(llm_row().get("reasoning_effort") or "low").strip().lower() if is_openai_reasoning_chat_model(model) else "auto"
+        content = OpenAICompatibleClient(base_url, api_key).chat_completion(
+            request_body["messages"], model=model, temperature=0.4, max_tokens=1200,
+            reasoning_effort=None if effort == "auto" else effort,
+            response_format=request_body["response_format"], timeout=120,
         )
-        if not response.ok:
-            raise RuntimeError(f"AI 生成角色内容失败，HTTP {response.status_code}: {response.text[:300]}")
-        content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
         parsed = cls._parse_json_object(content)
         description = str(parsed.get("description") or "").strip()
         visual_prompt = str(parsed.get("visual_prompt") or "").strip()
@@ -275,6 +263,7 @@ class LlmService:
         max_tokens: int = 6000,
         temperature: float = 0.4,
         timeout: float = 240.0,
+        meta_out: dict[str, Any] | None = None,
     ) -> str:
         base_url, model, api_key = cls._runtime_config()
         effort = str(llm_row().get("reasoning_effort") or "low").strip().lower()
@@ -295,6 +284,7 @@ class LlmService:
                     max_tokens=max_tokens,
                     timeout=timeout,
                     stream=True,
+                    meta_out=meta_out,
                     **extra,
                 ).strip()
             except LlmTemporaryError as err:
@@ -509,6 +499,8 @@ class LlmService:
                 **extra,
             )
         except (LlmTemporaryError, LlmError) as err:
+            if "effective_parameters" in call_meta:
+                meta["sent_parameters"] = call_meta["effective_parameters"]
             meta.update({key: call_meta[key] for key in ("image_transport", "image_count",
                          "inlined_image_count", "image_payload_bytes", "failure_stage") if key in call_meta})
             meta.update(actual_model=call_meta.get("response_model"),
@@ -524,6 +516,8 @@ class LlmService:
             "elapsed_ms": call_meta.get("elapsed_ms"),
             "ok": True,
         })
+        if "effective_parameters" in call_meta:
+            meta["sent_parameters"] = call_meta["effective_parameters"]
         if not text.strip():
             meta["ok"] = False
             raise GroupAuthorError("写稿模型未返回内容", meta)
