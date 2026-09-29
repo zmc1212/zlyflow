@@ -1,8 +1,8 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, startTransition } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Alert, Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Form, Image, Input, InputNumber, Modal, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, message } from "antd"
 import { getEpisodeDetail, listDocuments, type Director2Document, listEpisodes, listAssets, listVideoWorkflowModes, getEpisodeProduction, generateEpisodeVideo, generateBeatSketch, generateBeatTriptych, updateEpisodeProduction, upscaleProjectVideoJob, director2ErrorDetail, type Director2Episode, type Director2EpisodeDetail, type Director2Asset, type PromptReferenceSlot } from "../api"
-import { readWorkshop, writeWorkshop, planWorkshop, promptWorkshop as submitPromptWorkshop, actWorkshop, splitWorkshopGroup, mergeWorkshopGroups, type WorkshopView, type WorkshopGroup, type WorkshopJob } from "../workshop-api"
+import { readWorkshop, readWorkshopJobs, writeWorkshop, planWorkshop, promptWorkshop as submitPromptWorkshop, actWorkshop, splitWorkshopGroup, mergeWorkshopGroups, type WorkshopView, type WorkshopGroup, type WorkshopJob } from "../workshop-api"
 import { summarizeWorkshopBlocks } from "../workshop-references"
 import { DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, loadSavedVideoSettings, saveVideoSettings, optionSchemaFromMode, visibleVideoOptionFields, type Director2WorkflowMode } from "../director2-video-settings"
 import { type ProductionState, materialsForUnit } from "../production"
@@ -81,28 +81,61 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
   const missingReferenceGroups = plan?.groups.filter(g => g.reference_issues?.length || g.reference_slots.length < (mode?.min_references || 0)) || []
   const planningJob = view?.jobs.find(j => j.id === previewJob) || view?.jobs.find(j => j.kind === "workshop_planning" && j.status === "completed")
   const runningJobs = view?.jobs.filter(j => ["queued", "running"].includes(j.status)) || []
-  const trackedJobs = view?.jobs.filter(job => ["running", "queued", "failed"].includes(job.status) || Object.keys(job.payload.failures || {}).length) || []
-  const failedJobCount = trackedJobs.filter(job => job.status === "failed" || Object.keys(job.payload.failures || {}).length).length
+  const trackedJobs = view?.jobs.filter(job => ["running", "queued", "failed"].includes(job.status) || Object.keys(job.payload?.failures || {}).length) || []
+  const failedJobCount = trackedJobs.filter(job => job.status === "failed" || Object.keys(job.payload?.failures || {}).length).length
   const pendingPromptIds = workshopPendingCandidateIds(view?.jobs || [], plan, groupWriting, Boolean(view?.source_changed))
 
   const loadEpisodes = useCallback(async () => { setEpisodes(await listEpisodes(projectId)) }, [projectId])
   useImperativeHandle(ref, () => ({ fetchEpisodes: loadEpisodes }), [loadEpisodes])
-  const load = useCallback(async () => {
+  const load = useCallback(async (fetchHistory = false) => {
     if (!episodeId) return
     const seq = ++requestSequence.current
     try {
-      const [next, work, state] = await Promise.all([getEpisodeDetail(projectId, episodeId), readWorkshop(projectId, episodeId), getEpisodeProduction(projectId, episodeId, "director")])
+      const [next, work, state] = await Promise.all([getEpisodeDetail(projectId, episodeId), readWorkshop(projectId, episodeId, fetchHistory || script), getEpisodeProduction(projectId, episodeId, "director")])
       if (seq !== requestSequence.current) return
-      setDetail(next); setView(work); setProduction(state); setError("")
+      startTransition(() => {
+        const detailSig = (d: any) => d ? JSON.stringify({
+          status: d.status,
+          beats: d.beats?.map((b: any) => `${b.id}:${b.sketch_url}:${b.triptych_url}:${b.video_duration}:${b.camera}:${b.h3_prompt_reference_state}`)
+        }) : ""
+        
+        const viewSig = (w: any) => w ? JSON.stringify({
+          jobs: w.jobs,
+          source_changed: w.source_changed,
+          planRev: w.plan?.planning_revision,
+          legacyRev: w.legacy_plan?.revision,
+          historyCount: w.history?.length
+        }) : ""
+        
+        const prodSig = (p: any) => p ? JSON.stringify(p) : ""
+        
+        setDetail(prev => detailSig(prev) === detailSig(next) ? prev : next)
+        setView(prev => viewSig(prev) === viewSig(work) ? prev : work)
+        setProduction(prev => prodSig(prev) === prodSig(state) ? prev : state)
+        setError("")
+      })
     } catch (err) { if (seq === requestSequence.current) setError(director2ErrorDetail(err, "读取工坊失败")) }
-  }, [episodeId, projectId])
+  }, [episodeId, projectId, script])
   useEffect(() => {
     void loadEpisodes().catch(err => setError(director2ErrorDetail(err, "读取分集失败")))
     void Promise.all([listAssets(projectId), listVideoWorkflowModes(), listDocuments(projectId)]).then(([a, m, docs]) => { setDocuments(docs); setAssets(a); setModes(m.modes.filter(w => w.prompt_profile === "director_segments" || w.prompt_profile === "full_reference")) }).catch(err => setError(director2ErrorDetail(err, "读取制作配置失败")))
   }, [loadEpisodes, projectId])
   useEffect(() => {
-    setDetail(null); setView(null); setProduction(null); setTakeId(""); onDetailModeChange?.(Boolean(episodeId))
-    void load(); const timer = setInterval(() => void load(), 4000)
+    startTransition(() => { setDetail(null); setView(null); setProduction(null); setTakeId(""); onDetailModeChange?.(Boolean(episodeId)) })
+    void load(); 
+    let lastJobsStr = ""
+    const timer = setInterval(async () => {
+      if (document.hidden || !projectId || !episodeId) return
+      try {
+        const res = await readWorkshopJobs(projectId, episodeId)
+        const currentStr = JSON.stringify(res.jobs.map(j => j.status))
+        if (lastJobsStr && currentStr !== lastJobsStr) {
+          void load()
+        }
+        lastJobsStr = currentStr
+        setView(prev => prev ? {...prev, jobs: res.jobs} : prev)
+      } catch (e) {}
+    }, 4000)
     return () => { clearInterval(timer); requestSequence.current++ }
   }, [load, episodeId])
   useEffect(() => {
@@ -220,7 +253,7 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
       </div>
       <Space size={8}><Director2VideoSettingsPopover triggerLabel="更多视频设置" workflowId={plan?.workflow_id || workflow} workflows={modes} fields={visibleVideoOptionFields(mode).filter(f => !["duration", "video_duration"].includes(f.name))} values={{...Object.fromEntries(Object.entries(videoOptions).map(([key, value]) => [key, String(value)])),aspect_ratio:plan?.aspect_ratio || aspect}} onWorkflowChange={id => { setWorkflow(id); setMaximum(Math.min(maximum,modes.find(m => m.id === id)?.max_segments || 1)); setReuse(Boolean(detail.beats.length)); setPlanning(true) }} onChange={(name, value) => { if(name === "aspect_ratio") {setAspect(value); setWorkflow(plan?.workflow_id || workflow); setReuse(Boolean(detail.beats.length)); setPlanning(true); return} const next = {...videoOptions,[name]:optionSchemaFromMode(mode)[name]?.type === "boolean" ? value === "true" : optionSchemaFromMode(mode)[name]?.type === "integer" || optionSchemaFromMode(mode)[name]?.type === "number" ? Number(value) : value}; setVideoOptions(next); saveVideoSettings(projectId,Object.fromEntries(Object.entries(next).map(([key,v]) => [key,String(v)]))) }} /><Dropdown trigger={["click"]} menu={{ items: [
         { key: "plan", label: plan ? "调整镜头规划" : "规划镜头", disabled: busy || dirty, onClick: openPlanning },
-        { key: "script", label: "查看采纳剧本", onClick: () => setScript(true) },
+        { key: "script", label: "查看采纳剧本", onClick: () => { setScript(true); void load(true); } },
         { key: "refresh", label: "刷新本集", onClick: () => void load() },
         { type: "divider" },
         { key: "episode-prompts", label: "整集：批量生成提示词", disabled: !plan || busy || dirty || view.source_changed, onClick: () => void perform(() => promptWorkshop(csrfToken, projectId, episodeId, { expected_revision: revision }), "正在生成本集 H3 候选稿") },
@@ -333,7 +366,7 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
           </div>
         </Form></Drawer>
     <Drawer rootClassName="unified-workshop-drawer" title={`任务进度与失败记录（${trackedJobs.length}）`} open={taskDrawerOpen} onClose={() => setTaskDrawerOpen(false)} size={520}>
-      <div className="workshop-task-records">{trackedJobs.map(job => <Alert key={job.id} type={job.status === "failed" || Object.keys(job.payload.failures || {}).length ? "error" : "info"} showIcon title={job.error || job.payload.message || "任务处理中"} description={<Space orientation="vertical">
+      <div className="workshop-task-records">{trackedJobs.map(job => <Alert key={job.id} type={job.status === "failed" || Object.keys(job.payload?.failures || {}).length ? "error" : "info"} showIcon title={job.error || job.payload?.message || "任务处理中"} description={<Space orientation="vertical">
         <Typography.Text>任务 {job.id.slice(-8)} · {job.status === "failed" ? "失败" : job.status === "queued" ? "排队中" : job.status === "running" ? "进行中" : "含失败记录"}</Typography.Text>
         {["running", "queued"].includes(job.status) ? <Button disabled={busy} onClick={() => void perform(() => jobAction(job, "cancel"))}>取消</Button> : <Space wrap>
         <Button disabled={busy} onClick={() => void perform(() => jobAction(job, "retry"))}>{job.kind === "workshop_prompt" ? "按原输入重试" : "重试失败部分"}</Button>
@@ -354,7 +387,7 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
         </div>
       })}</div>{!assets.some(a => a.kind === assetPicker) && <Empty description="资产库暂无此类素材"><Button onClick={() => navigate(`/director/projects/${projectId}/assets`)}>去资产库</Button></Empty>}
     </Modal>
-    <Drawer title="已采纳剧本" open={script} onClose={() => setScript(false)} size={720}><Button onClick={() => navigate(`/director/projects/${projectId}/content${view.source.document_id ? `?doc=${view.source.document_id}` : ""}`)}>到内容库修改剧本</Button><Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginTop: 20 }}>{view.source.text}</Typography.Paragraph><Collapse items={[{key:"history",label:`历史规划与素材（${view.history?.length || 0} 次）`,children:<Space orientation="vertical" style={{width:"100%"}}>{view.history?.map((h,i) => <Collapse key={i} items={[{key:String(i),label:`历史版本 ${i+1} · ${h.beats.length} 镜`,children:<pre style={{whiteSpace:"pre-wrap"}}>{JSON.stringify(h,null,2)}</pre>}]} />)}{view.historical_media?.map(m => <a key={m.id} href={m.url} target="_blank" rel="noreferrer">{m.title || "历史视频"} · {m.id}</a>)}</Space>}]} /></Drawer>
+    {script && <Drawer destroyOnClose title="已采纳剧本" open={script} onClose={() => setScript(false)} size={720}><Button onClick={() => navigate(`/director/projects/${projectId}/content${view.source.document_id ? `?doc=${view.source.document_id}` : ""}`)}>到内容库修改剧本</Button><Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginTop: 20 }}>{view.source.text}</Typography.Paragraph><Collapse items={[{key:"history",label:`历史规划与素材（${view.history?.length || 0} 次）`,children:<Space orientation="vertical" style={{width:"100%"}}>{view.history?.map((h,i) => <Collapse key={i} items={[{key:String(i),label:`历史版本 ${i+1} · ${h.beats.length} 镜`,children:<pre style={{whiteSpace:"pre-wrap"}}>{JSON.stringify(h,null,2)}</pre>}]} />)}{view.historical_media?.map(m => <a key={m.id} href={m.url} target="_blank" rel="noreferrer">{m.title || "历史视频"} · {m.id}</a>)}</Space>}]} /></Drawer>}
     <Modal title="返修本镜提示词" open={Boolean(revisionTarget)} onCancel={() => setRevisionTarget(null)} okText="生成本镜返修候选" confirmLoading={busy} okButtonProps={{ disabled: !revisionNote.trim() || dirty || view.source_changed }} onOk={() => void perform(async () => {
       await promptWorkshop(csrfToken, projectId, episodeId, { expected_revision: revision, beat_ids: [revisionTarget], prompt_scope: "shot_revision", revision_note: revisionNote.trim() }); setRevisionTarget(null)
     }, "正在结合整组上下文返修本镜")}>
@@ -365,7 +398,7 @@ const UnifiedWorkshopPane = forwardRef<{ fetchEpisodes: () => Promise<void> | vo
       <Alert type="info" title="先确认镜头数量、剧情分配和分组；这里不会生成视频提示词。" />
       <Form layout="vertical"><Form.Item label="规划方式"><Select value={reuse} onChange={setReuse} options={[{ value: false, label: "从采纳剧本重新规划（先预览）" }, { value: true, label: "保留当前镜头，只建立或调整分组" }]} /></Form.Item><Form.Item label="视频工作流"><Select value={workflow} onChange={id => { setWorkflow(id); setMaximum(Math.min(maximum, modes.find(m => m.id === id)?.max_segments || 1)) }} options={modes.map(m => ({ value: m.id, label: m.name }))} /></Form.Item><Space wrap><Form.Item label="画幅"><Select style={{ width: 140 }} value={aspect} onChange={setAspect} options={(optionSchemaFromMode(planningMode).aspect_ratio?.enum || ["16:9", "9:16"]).map(v => ({ value: String(v), label: String(v) }))} /></Form.Item><Form.Item label="目标时长（秒，留空自动）"><InputNumber min={1} max={7200} value={targetDuration} onChange={setTargetDuration} disabled={reuse} /></Form.Item><Form.Item label="目标镜头数（留空自动）"><InputNumber min={1} value={target} onChange={setTarget} disabled={reuse} /></Form.Item><Form.Item label="每组最多镜头数"><InputNumber min={1} max={planningMode?.max_segments || 1} value={maximum} onChange={v => setMaximum(v || 1)} /></Form.Item></Space></Form>
       <Button type="primary" loading={busy} onClick={() => void perform(async () => { const job = await planWorkshop(csrfToken, projectId, episodeId, { expected_revision: revision, workflow_id: workflow, aspect_ratio: aspect, max_shots_per_group: maximum, target_shot_count: target, target_duration_seconds: targetDuration, reuse_existing: reuse }); setPreviewJob(job.job_id); setCandidateGroups(null); setCandidateEdits({}) }, "正在准备镜头候选")}>生成规划候选</Button>
-      {planningJob?.payload.candidate && <Space orientation="vertical" style={{ width: "100%", marginTop: 16 }}><Alert title={planningJob.payload.count_note} description={`保留 ${planningJob.payload.candidate.beats.filter(b => detail.beats.some(old => old.id === b.id)).length} 镜；新增 ${planningJob.payload.candidate.beats.filter(b => !detail.beats.some(old => old.id === b.id)).length} 镜；删除 ${detail.beats.filter(b => !planningJob.payload.candidate!.beats.some(next => next.id === b.id)).length} 镜。历史结果保留。`} type="info" /><Table size="small" pagination={false} rowKey="id" dataSource={planningJob.payload.candidate.beats} columns={[{ title: "镜号", dataIndex: "sequence" }, { title: "镜头", dataIndex: "heading" }, { title: "动作", dataIndex: "action" }, { title: "对白", dataIndex: "dialogue" }, { title: "拍摄意图", render: (_, b) => <Input.TextArea aria-label={`候选镜头 ${b.sequence} 运镜`} value={String(candidateEdits[b.id]?.camera ?? b.camera ?? "")} onChange={e => setCandidateEdits({...candidateEdits,[b.id]:{...candidateEdits[b.id],camera:e.target.value}})} /> }, { title: "时长", render: (_, b) => <InputNumber aria-label={`候选镜头 ${b.sequence} 时长`} min={1} value={Number(candidateEdits[b.id]?.video_duration ?? b.video_duration)} onChange={v => setCandidateEdits({...candidateEdits,[b.id]:{...candidateEdits[b.id],video_duration:v}})} /> }]} />{groupEditor(candidateGroups || planningJob.payload.candidate.plan.groups, setCandidateGroups)}<Button type="primary" disabled={busy} onClick={() => void perform(async () => { await jobAction(planningJob, "apply", { groups: candidateGroups || planningJob.payload.candidate!.plan.groups, shot_updates: candidateEdits }); setPlanning(false) }, "已确认镜头规划")}>确认采用本次规划</Button></Space>}
+      {planningJob?.payload?.candidate && <Space orientation="vertical" style={{ width: "100%", marginTop: 16 }}><Alert title={planningJob.payload.count_note} description={`保留 ${planningJob.payload.candidate.beats.filter(b => detail.beats.some(old => old.id === b.id)).length} 镜；新增 ${planningJob.payload.candidate.beats.filter(b => !detail.beats.some(old => old.id === b.id)).length} 镜；删除 ${detail.beats.filter(b => !planningJob.payload.candidate!.beats.some(next => next.id === b.id)).length} 镜。历史结果保留。`} type="info" /><Table size="small" pagination={false} rowKey="id" dataSource={planningJob.payload.candidate.beats} columns={[{ title: "镜号", dataIndex: "sequence" }, { title: "镜头", dataIndex: "heading" }, { title: "动作", dataIndex: "action" }, { title: "对白", dataIndex: "dialogue" }, { title: "拍摄意图", render: (_, b) => <Input.TextArea aria-label={`候选镜头 ${b.sequence} 运镜`} value={String(candidateEdits[b.id]?.camera ?? b.camera ?? "")} onChange={e => setCandidateEdits({...candidateEdits,[b.id]:{...candidateEdits[b.id],camera:e.target.value}})} /> }, { title: "时长", render: (_, b) => <InputNumber aria-label={`候选镜头 ${b.sequence} 时长`} min={1} value={Number(candidateEdits[b.id]?.video_duration ?? b.video_duration)} onChange={v => setCandidateEdits({...candidateEdits,[b.id]:{...candidateEdits[b.id],video_duration:v}})} /> }]} />{groupEditor(candidateGroups || planningJob.payload.candidate.plan.groups, setCandidateGroups)}<Button type="primary" disabled={busy} onClick={() => void perform(async () => { await jobAction(planningJob, "apply", { groups: candidateGroups || planningJob.payload.candidate!.plan.groups, shot_updates: candidateEdits }); setPlanning(false) }, "已确认镜头规划")}>确认采用本次规划</Button></Space>}
       {plan && <Collapse style={{ marginTop: 16 }} items={[{ key: "groups", label: "仅调整当前分组（不调用 AI）", children: <>{groupEditor(plan.groups, groups => void perform(() => write({ groups }), "已调整分组"))}</> }]} />}
     </Modal>
     <Modal title="组公共设定与参考图" open={Boolean(groupDraft)} onCancel={() => setGroupDraft(null)} confirmLoading={busy} onOk={() => groupDraft && void perform(async () => { await write({ expected_reference_fingerprint: groupReferences.current, groups: plan!.groups.map(g => g.id === groupDraft.id ? groupDraft : g) }); setGroupDraft(null) }, "组设定已保存，相关提示词将重新检查")} width={720}>
