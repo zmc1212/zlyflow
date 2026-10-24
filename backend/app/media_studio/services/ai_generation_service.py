@@ -19,6 +19,7 @@ from ..services.project_detail_service import (
     resolve_shot_scene,
 )
 from .script_parser import StandardScriptParser
+from .project_service import ProjectService
 
 
 class AiOperationCancelled(RuntimeError):
@@ -179,6 +180,21 @@ class AiGenerationService:
         return row
 
     def create(self, project_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        # New assistant commits/submissions and legacy operation creation lock
+        # the same project row. Mock providers keep the original unit-test seam.
+        from ...storage import JobStore
+        store = getattr(self.llm_provider, "store", None)
+        if isinstance(store, JobStore):
+            with store.connection() as connection:
+                connection.execute("SELECT id FROM ai_projects WHERE id=?", (project_id,), for_update=True).fetchone()
+                pending = connection.execute("SELECT id FROM ai_assistant_records WHERE kind='media_execution' AND parent_id=? AND status IN ('queued','running') LIMIT 1", (project_id,)).fetchone()
+                media = connection.execute("SELECT id FROM ai_project_jobs WHERE project_id=? AND job_type<>'ai_pipeline' AND status IN ('queued','preparing','running','prompt_generation','uploading','comfy_queued','upscaling','assembling','downloading') LIMIT 1", (project_id,)).fetchone()
+                if pending or media:
+                    raise ValueError("该工程已有进行中的媒体任务，请先在任务中心查看")
+                return self._create_unlocked(project_id, request)
+        return self._create_unlocked(project_id, request)
+
+    def _create_unlocked(self, project_id: str, request: dict[str, Any]) -> dict[str, Any]:
         kind = str(request.get("kind") or "pipeline")
         if kind not in {"clarify", "pipeline"}:
             raise ValueError("不支持的 AI 操作类型")
@@ -1078,6 +1094,8 @@ class AiGenerationService:
         else:
             execute_sql("INSERT INTO ai_project_documents (id,project_id,filename,file_size,input_mode,status,spine_template,visual_style,raw_text,analysis_json,created_at,updated_at) VALUES (%s,%s,%s,%s,'ai_pipeline','ready','drama',%s,%s,%s,%s,%s)", (f"doc-{uuid.uuid4().hex[:12]}", project_id, script.get("title") or "AI 生成剧本", len(raw_text.encode("utf-8")), str((recipe.get("artStyle") or {}).get("name_zh") or ""), raw_text, json.dumps(analysis, ensure_ascii=False), ts, ts))
 
+        if stage == "script":
+            ProjectService.sync_generated_script_info(project_id, script)
         self.persist_recipe_assets(project_id, recipe)
         if stage in {"episodes", "storyboard"}:
             asset_rows = query_all(

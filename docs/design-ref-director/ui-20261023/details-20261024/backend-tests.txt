@@ -1,0 +1,6 @@
+D:\zlyun\Toonflow\本地视频工作台\backend\app\media_studio\db.py:68: DeprecationWarning: The 'reconnect' argument is deprecated. Create a new connection if you want to reconnect.
+  candidate.ping(reconnect=True)
+----------------------------------------------------------------------
+Ran 51 tests in 0.141s
+
+OK

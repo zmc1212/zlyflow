@@ -1,0 +1,27 @@
+# 智能剪辑设计图生成记录
+
+使用内置 `image_gen.imagegen`，输入既有真实界面截图（现归档为 `00-before-light.png`），`transparent_background=false`。提示词请求 1920×1080 桌面图，工具实际输出 1672×941；还原时以实际输出的原始像素测量，没有拉伸原图。提示词中的媒体、计数和时长是设计示例，界面实现继续读取真实工程数据。
+
+```text
+Use case: ui-mockup
+Create a production-quality precise desktop screenshot design of the existing Chinese ZLY AI Video Studio 智能剪辑 editor, 1920 by 1080 pixels, flat straight-on full screen, no browser chrome, no presentation border. This is a design for a real React Ant Design app and must be realistically implementable. Follow reference image 1 for the real layout, real features and right hand assistant, but improve proportions, clear legible typography, professional dense editing workspace. Light theme. Preserve all existing actions, no fabricated capabilities.
+
+Structure anchored to existing product:
+Global vertical navigation at x0 width76, full height white: small sparkle logo then “生成”, selected violet “导演台”, “画布”, “资产”. Next top project header y0 height80 extending x76 to1480, white with bottom hairline: back “导演台”, divider, bold “未命名导演工程”, edit icon, labeled recipe Select “半解说真人短剧”, toggle “AI 生成 / 手动编辑” with manual active, theme icon. Secondary project icon rail x76 width62 below y80 with content, assets, workshop, scissors selected and tasks icons.
+
+Right assistant MUST remain a separate white dock x1480 width440 full height. Top compact title “智能剪辑助手”, plus/history/moon/close icons, subline “未命名导演工程 · 自由剪辑”. Its real existing official-source visual design is retained: small black sparkle, headline “Hi，我是您的智能剪辑助手”, explanation, two understated pale grey cards labeled “视频理解” and “音频转写”, “未开始” statuses and their existing start buttons. Tool groups below “素材归位 / 智能成片 / 字幕” with small outlined buttons. Fixed bottom rounded textarea “描述你想要的剪辑效果…” with Skill/专家/知识库/模型 toolbar and send arrow. Do not invent a new assistant style.
+
+Main workspace canvas x138..1480, y80..1080, background #f8f9fa with 12px padding. Editor command bar height56: violet scissors mark inside pale violet 32px square, h2 “智能剪辑”, small separator and antd episode Select “自由剪辑”, right understated green check “已保存”, save icon, outlined “智能粗剪”, icon toggle “片段属性”, violet filled “导出” button. Clear action hierarchy.
+
+Upper workbench x150 y148 width1318 height574, rounded10 border #e4e7ec. Left media panel width280 with integrated vertical 48px tool rail (folder active violet tint, effects sparkle, T text, sliders, download). Remaining232px white asset library. Heading “素材库” and small true count “6”. Search “搜索素材” full width below. Ant Design segmented four filters “全部 / 视频 / 图片 / 音频” compact 12px text, selected pale violet. Two equal outlined buttons “引用本机” and “上传素材” in same row. A two-column grid of six 16:9 media thumbnails of mountain landscape, forest, coast, clouds, music abstract audio, small duration corner pills, plus button on hover, short filenames “山间日出.mp4”, “林间光影.mp4”, “海岸远景.mp4”, “云海.jpg”, “环境配乐.mp3”, “片头背景.jpg”. Tiny “双击或拖动素材到时间线” hint at bottom.
+
+Central preview area starts x438, width780, with compact40px white header “预览” left and “16:9 · 24 fps” right. Calm #101216 media surround, large cinematic 16:9 landscape still of warm misty green mountains and sun rays, contained at native aspect ratio. Overlay white editable sample title “让故事，自然发生” near bottom of actual image, no large marketing decoration. Footer player controls white height48, monospaced violet current timecode and grey total “00:00:03 / 00:00:24”, center back/circular play/forward, full screen on right.
+
+Right clip inspector x1226 width242 white: header “片段属性” sliders and close icon, selected filename small thumbnail with “山间日出.mp4”, selected “画面” and “声音 / 变速” antd tabs, under it labeled scale slider100%, aligned pair X0/Y0 fields, rotation0 slider, opacity100%, effect dropdown “原画”, subtle “重置画面”. Fine separators and 13px labels, spacious without being oversized.
+
+Bottom timeline x150 y730 width1318 height338, white rounded10, toolbar48: left heading “时间线” and tiny count “5 个片段”, separator, undo/redo, split scissors/duplicate/trash, reorder, remove gaps; right magnet active pale violet, minus zoom slider plus. Ruler32 high with realistic time tick marks 00:00/00:05/00:10/00:15/00:20/00:25. Left track labels112px “文字”, “画面”, “配音 / 音乐” with corresponding icons and colored dots. Three organized lanes: amber-tinted single text clip labeled sample title, indigo video lane with three adjacent thumbnail strips mountain/forest/coast, sage-green audio clip “环境配乐.mp3”. Red thin playhead at3seconds through lanes, small head. No invented waveform from real sound: audio simple tinted flat strip. Each clip has clear filename and duration, thin borders; selected video indigo outline. Footer hints “空格 播放 / 暂停 · S 拆分 · Delete 删除”, left “5 个片段 · 24.00 秒”.
+
+Typography Chinese Microsoft YaHei/Segoe UI sans serif, 13px interface, 18px editor title, 20px project name. Accent #4f56e8, primary text #171a1f, secondary #596273, surfaces white, hairlines #e4e7ec. Corner radius10 panels/6 controls. No neon, no gradients on app surfaces, no dashboard metrics. Content media imagery is only sample editor data. Main focal point is the large contained cinematic preview plus clear timeline. Strong consistent pixel alignment, quiet white UI, detailed real controls, clean craftsmanship.
+```
+
+最终以工具输出图的实际构图为准：工程图标轨整合到模块菜单，属性页还原为「画面 / 声音 / 变速」三个标签；尺寸以测量记录为准，色彩和交互仍服从根级主题、Ant Design 与真实数据约束。结果见 [DESIGN.md](DESIGN.md) 和 [ACCEPTANCE.md](ACCEPTANCE.md)。

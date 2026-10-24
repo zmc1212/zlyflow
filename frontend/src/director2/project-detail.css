@@ -7,41 +7,43 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: #f8fafc;
+  background-color: var(--studio-canvas);
   overflow: hidden; /* 外壳锁死视口，由内容区或分栏各自滚动 */
 }
 
 /* 顶部项目条 */
 .director2-app .project-topbar {
-  height: 56px;
+  height: 80px;
   flex-shrink: 0;
-  background: #ffffff;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--studio-surface);
+  border-bottom: 1px solid var(--studio-border);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
   z-index: 40;
 }
 
 .director2-app .topbar-content {
   height: 100%;
-  padding: 0 24px;
+  padding: 0 24px 0 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 20px;
 }
 
 .director2-app .topbar-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 28px;
+  min-width: 0;
 }
 
 .director2-app .back-link {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
+  gap: 6px;
+  font-size: 16px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--studio-text-secondary);
   text-decoration: none;
   padding: 6px 10px;
   border-radius: 6px;
@@ -49,35 +51,47 @@
 }
 
 .director2-app .back-link:hover {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: var(--studio-surface-raised);
+  color: var(--studio-text);
 }
 
 .director2-app .divider {
   width: 1px;
   height: 20px;
-  background: #e2e8f0;
+  background: var(--studio-border);
 }
 
 .director2-app .project-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 20px;
+  min-width: 0;
+}
+
+.director2-app .project-info > .ant-btn,
+.director2-app .project-badge,
+.director2-app .back-link,
+.director2-app .topbar-right {
+  flex-shrink: 0;
 }
 
 .director2-app .project-title {
-  font-size: 16px;
+  font-size: 22px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--studio-text);
   margin: 0;
   letter-spacing: -0.2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .director2-app .project-badge {
   font-size: 11px;
   font-weight: 600;
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.1);
+  color: var(--studio-success);
+  background: color-mix(in srgb, var(--studio-success) 10%, transparent);
   padding: 2px 8px;
   border-radius: 12px;
 }
@@ -93,11 +107,24 @@
   max-width: 240px;
 }
 
+.director2-app .project-skill-pack-field { display: grid; gap: 4px; }
+.director2-app .project-skill-pack-field > span { color: var(--studio-text-muted); font-size: 13px; line-height: 18px; }
+.director2-app .project-topbar .director-creation-mode-option { display: flex; flex-direction: column; align-items: center; gap: 4px; line-height: 20px; }
+.director2-app .project-topbar .ant-segmented { width: 208px; padding: 3px; }
+.director2-app .project-topbar .ant-segmented-group { width: 100%; }
+.director2-app .project-topbar .ant-segmented-item { flex: 1; }
+.director2-app .project-topbar .ant-segmented-item-label { display: grid; place-items: center; min-height: 52px; padding: 4px 10px; }
+.director2-app .project-topbar .ant-segmented-item-selected { color: var(--studio-accent-text); background: var(--studio-primary-soft); }
+.director2-app .project-topbar .director-creation-mode-option > svg { width: 18px; height: 18px; }
+.director2-app .project-topbar .studio-theme-toggle-icon.ant-btn { width: 40px; height: 40px; margin-left: 12px; }
+.director2-app .project-info > .ant-btn { font-size: 16px; }
+.director2-app .project-info > .ant-btn svg { width: 16px; height: 16px; }
+
 .director2-app .project-id-tag {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--studio-text-muted);
   font-family: monospace;
-  background: #f1f5f9;
+  background: var(--studio-surface-raised);
   padding: 3px 8px;
   border-radius: 6px;
 }
@@ -114,27 +141,24 @@
 
 /* 左侧 4 个菜单导航固定不动 */
 .director2-app .project-sidebar {
-  width: 220px;
+  width: 226px;
   flex-shrink: 0;
   height: 100%;
-  padding: 20px 12px 20px 24px;
+  padding: 24px 14px 24px 26px;
   overflow: hidden;
   user-select: none;
-  background: #f8fafc;
-  border-right: 1px solid #eef2f6;
+  background: var(--studio-surface);
+  border-right: 1px solid var(--studio-border);
 }
 
 .director2-app .menu-list {
   position: sticky;
   top: 0;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 14px;
-  padding: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  background: var(--studio-surface);
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .director2-app .sidebar-menu-item {
@@ -142,29 +166,40 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 14px;
+  min-height: 50px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  border-radius: 8px;
+  font-size: 16px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--studio-text-secondary);
   cursor: pointer;
   position: relative;
   transition: all 0.2s ease;
 }
 
 .director2-app .sidebar-menu-item:hover {
-  background: #f8fafc;
-  color: #1e293b;
+  background: var(--studio-surface-raised);
+  color: var(--studio-text);
 }
 
 .director2-app .sidebar-menu-item.active {
-  background: rgba(112, 71, 246, 0.08);
-  color: #7047f6;
+  background: var(--studio-primary-soft);
+  color: var(--studio-accent-text);
   font-weight: 600;
 }
+
+.director2-app .sidebar-menu-item:last-child { margin-top: 18px; }
+.director2-app .sidebar-menu-item:last-child::before { content: ""; position: absolute; top: -14px; left: 0; right: 0; height: 1px; background: var(--studio-border); }
+.director2-app .sidebar-menu-item:focus-visible { outline: 2px solid var(--studio-accent-text); outline-offset: 3px; }
 
 .director2-app .menu-icon {
   color: inherit;
   flex-shrink: 0;
+  width: 22px;
+  height: 22px;
 }
 
 .director2-app .menu-text {
@@ -187,7 +222,7 @@
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 20px 24px 60px 20px;
+  padding: 40px 30px 60px;
   scroll-behavior: smooth;
 }
 

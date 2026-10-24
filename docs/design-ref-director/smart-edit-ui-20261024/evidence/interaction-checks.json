@@ -1,0 +1,202 @@
+{
+  "checks": [
+    {
+      "name": "真实导入素材数量",
+      "passed": true
+    },
+    {
+      "name": "真实时间线三轨五片段",
+      "passed": true
+    },
+    {
+      "name": "未选片段默认收起属性栏",
+      "passed": true
+    },
+    {
+      "name": "素材筛选 视频",
+      "passed": true
+    },
+    {
+      "name": "素材筛选 图片",
+      "passed": true
+    },
+    {
+      "name": "素材筛选 音频",
+      "passed": true
+    },
+    {
+      "name": "素材筛选 全部",
+      "passed": true
+    },
+    {
+      "name": "关键词检索",
+      "passed": true
+    },
+    {
+      "name": "无结果提示",
+      "passed": true
+    },
+    {
+      "name": "选中片段自动打开属性",
+      "passed": true
+    },
+    {
+      "name": "收起属性后预览拓宽",
+      "passed": true
+    },
+    {
+      "name": "重新打开保持片段选择",
+      "passed": true
+    },
+    {
+      "name": "重置按钮在属性栏内可见",
+      "passed": true
+    },
+    {
+      "name": "属性调整真实保存",
+      "passed": true
+    },
+    {
+      "name": "硬刷新保留缩放",
+      "passed": true
+    },
+    {
+      "name": "画面重置恢复 100%",
+      "passed": true
+    },
+    {
+      "name": "声音与淡入淡出控件可访问",
+      "passed": true
+    },
+    {
+      "name": "变速与片段时长控件可访问",
+      "passed": true
+    },
+    {
+      "name": "S 在播放头拆分",
+      "passed": true
+    },
+    {
+      "name": "撤销拆分",
+      "passed": true
+    },
+    {
+      "name": "重做拆分",
+      "passed": true
+    },
+    {
+      "name": "复制片段",
+      "passed": true
+    },
+    {
+      "name": "Delete 删除片段",
+      "passed": true
+    },
+    {
+      "name": "编辑文字时 S 不触发拆分",
+      "passed": true
+    },
+    {
+      "name": "八个画面特效",
+      "passed": true
+    },
+    {
+      "name": "特效写入真实工程",
+      "passed": true
+    },
+    {
+      "name": "三个文字预设",
+      "passed": true
+    },
+    {
+      "name": "真实工程设置",
+      "passed": true
+    },
+    {
+      "name": "成片与工程两种导出区域",
+      "passed": true
+    },
+    {
+      "name": "工程导出四种格式",
+      "passed": true
+    },
+    {
+      "name": "可下载完整 JSON 工程",
+      "passed": true
+    },
+    {
+      "name": "无效本机路径显示真实错误",
+      "passed": true
+    },
+    {
+      "name": "画面理解保留外发披露",
+      "passed": true
+    },
+    {
+      "name": "取消理解不改时间线",
+      "passed": true
+    },
+    {
+      "name": "智能成片菜单 对白精剪",
+      "passed": true
+    },
+    {
+      "name": "智能成片菜单 成片速剪",
+      "passed": true
+    },
+    {
+      "name": "智能成片菜单 高光合集",
+      "passed": true
+    },
+    {
+      "name": "智能成片菜单 引流剪辑",
+      "passed": true
+    },
+    {
+      "name": "五种引流策略可展开",
+      "passed": true
+    },
+    {
+      "name": "两种字幕动作可见",
+      "passed": true
+    },
+    {
+      "name": "关闭助手恢复完整编辑宽度",
+      "passed": true
+    },
+    {
+      "name": "重新停靠助手",
+      "passed": true
+    },
+    {
+      "name": "工程导航菜单 内容库",
+      "passed": true
+    },
+    {
+      "name": "工程导航菜单 资产库",
+      "passed": true
+    },
+    {
+      "name": "工程导航菜单 剧集工坊",
+      "passed": true
+    },
+    {
+      "name": "工程导航菜单 智能剪辑",
+      "passed": true
+    },
+    {
+      "name": "工程导航菜单 全部任务",
+      "passed": true
+    },
+    {
+      "name": "工程菜单真实跳转",
+      "passed": true
+    },
+    {
+      "name": "返回剪辑保留时间线",
+      "passed": true
+    }
+  ],
+  "passed": 49,
+  "total": 49
+}

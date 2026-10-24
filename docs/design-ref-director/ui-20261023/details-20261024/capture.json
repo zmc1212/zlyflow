@@ -1,0 +1,3150 @@
+{
+  "project_id": "proj-841b26724b414c55",
+  "captures": [
+    {
+      "kind": "home",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "hero": {
+          "box": [
+            159.5,
+            104,
+            1280,
+            74
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "今天，想拍点什么？用 AI 将你的创意变成精彩的影视作品。"
+        },
+        "primary": {
+          "box": [
+            159.5,
+            202,
+            752.25,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程"
+        },
+        "primaryIcon": {
+          "box": [
+            182.5,
+            225,
+            70,
+            70
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "primaryTitle": {
+          "box": [
+            280.5,
+            231,
+            208,
+            32
+          ],
+          "fontSize": "26px",
+          "lineHeight": "32px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作"
+        },
+        "steps": {
+          "box": [
+            188.5,
+            323,
+            314.1875,
+            30
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "1故事→2角色→3分镜"
+        },
+        "cta": {
+          "box": [
+            188.5,
+            381,
+            212,
+            52
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)",
+          "text": "新建导演工程"
+        },
+        "secondary": {
+          "box": [
+            927.75,
+            202,
+            511.734375,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "短视频批量一个主题，生成多条短视频"
+        },
+        "secondaryIcon": {
+          "box": [
+            948.75,
+            219.65625,
+            62,
+            62
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "diagnosis": {
+          "box": [
+            159.5,
+            544,
+            1279.984375,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议"
+        },
+        "search": {
+          "box": [
+            734.40625,
+            636,
+            200,
+            36
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": ""
+        },
+        "filters": {
+          "box": [
+            946.40625,
+            637,
+            408,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(89, 99, 111)",
+          "background": "rgb(244, 246, 248)",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部"
+        },
+        "sectionHead": {
+          "box": [
+            159.5,
+            636,
+            1280,
+            36
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "最近工程 (25)导演创作短视频批量参考片复刻Hypit 复刻全部查看全部→"
+        },
+        "firstCard": {
+          "box": [
+            159.5,
+            686,
+            416,
+            167
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除"
+        },
+        "cardTitle": {
+          "box": [
+            289.5,
+            699,
+            272,
+            22
+          ],
+          "fontSize": "16px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程111"
+        }
+      },
+      "official": {
+        "measurement_sha256": "473aceaa464f0cc8b5ecc2ba302e58effe6bcc46d443d982112b4ea73f049ce0",
+        "url": "http://127.0.0.1:5173/director",
+        "title": "ZLY AI 视频创作平台",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "scroll": {
+          "x": 0,
+          "y": 0
+        },
+        "document_height": 1045,
+        "fonts_ready": true,
+        "images_ready": true,
+        "document_overflow_x": false,
+        "captured_at": "2026-10-23T23:16:29.365Z",
+        "elements": [
+          {
+            "name": "primary-entry",
+            "selector": ".dh-entry-primary",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              159.5,
+              202,
+              752.25,
+              324
+            ],
+            "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgba(0, 0, 0, 0)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "batch-entry",
+            "selector": ".dh-entry-card.is-batch",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              927.75,
+              202,
+              511.734375,
+              97.328125
+            ],
+            "text": "短视频批量一个主题，生成多条短视频",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "replication-entry",
+            "selector": ".dh-entry-card.is-replication",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              927.75,
+              315.328125,
+              511.734375,
+              97.328125
+            ],
+            "text": "参考片复刻分析参考片，批量转绘",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "hypit-entry",
+            "selector": ".dh-entry-card.is-hypit",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              927.75,
+              428.65625,
+              511.734375,
+              97.34375
+            ],
+            "text": "Hypit 复刻拆结构、换内容、合字幕图形",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "diagnosis-entry",
+            "selector": ".dh-diagnosis-entry",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              159.5,
+              544,
+              1279.984375,
+              64
+            ],
+            "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "first-project",
+            "selector": ".dh-project:first-child",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              159.5,
+              686,
+              416,
+              167
+            ],
+            "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "second-project",
+            "selector": ".dh-project:nth-child(2)",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              591.5,
+              686,
+              416,
+              167
+            ],
+            "text": "未命名导演工程暂无简介创作项目2026-10-19 16:59打开工程删除",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "primary-cta",
+            "selector": ".dh-entry-cta",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              188.5,
+              381,
+              212,
+              52
+            ],
+            "text": "新建导演工程",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "18px",
+              "lineHeight": "27px",
+              "fontWeight": "600",
+              "color": "rgb(255, 255, 255)",
+              "backgroundColor": "rgb(67, 92, 232)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "search",
+            "selector": ".dh-project-search",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              734.40625,
+              636,
+              200,
+              36
+            ],
+            "text": "",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "14px",
+              "lineHeight": "22px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "primary-icon",
+            "selector": ".dh-entry-head .dh-entry-icon",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              182.5,
+              225,
+              70,
+              70
+            ],
+            "text": "",
+            "computed": {
+              "display": "grid",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(67, 92, 232)",
+              "backgroundColor": "rgba(67, 92, 232, 0.1)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "batch-icon",
+            "selector": ".dh-entry-card.is-batch .dh-entry-icon",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              948.75,
+              219.65625,
+              62,
+              62
+            ],
+            "text": "",
+            "computed": {
+              "display": "grid",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(67, 92, 232)",
+              "backgroundColor": "rgba(67, 92, 232, 0.1)"
+            },
+            "viewport_intersects": true
+          }
+        ],
+        "assets": {},
+        "full_page": false,
+        "screenshot_scale": "css"
+      },
+      "filename": "final-home-light-1505.png"
+    },
+    {
+      "kind": "home",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "hero": {
+          "box": [
+            159.5,
+            104,
+            1280,
+            74
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "今天，想拍点什么？用 AI 将你的创意变成精彩的影视作品。"
+        },
+        "primary": {
+          "box": [
+            159.5,
+            202,
+            752.25,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程"
+        },
+        "primaryIcon": {
+          "box": [
+            182.5,
+            225,
+            70,
+            70
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "primaryTitle": {
+          "box": [
+            280.5,
+            231,
+            208,
+            32
+          ],
+          "fontSize": "26px",
+          "lineHeight": "32px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作"
+        },
+        "steps": {
+          "box": [
+            188.5,
+            323,
+            314.1875,
+            30
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "1故事→2角色→3分镜"
+        },
+        "cta": {
+          "box": [
+            188.5,
+            381,
+            212,
+            52
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(91, 101, 230)",
+          "text": "新建导演工程"
+        },
+        "secondary": {
+          "box": [
+            927.75,
+            202,
+            511.734375,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "短视频批量一个主题，生成多条短视频"
+        },
+        "secondaryIcon": {
+          "box": [
+            948.75,
+            219.65625,
+            62,
+            62
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "diagnosis": {
+          "box": [
+            159.5,
+            544,
+            1279.984375,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议"
+        },
+        "search": {
+          "box": [
+            734.40625,
+            636,
+            200,
+            36
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": ""
+        },
+        "filters": {
+          "box": [
+            946.40625,
+            637,
+            408,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(192, 199, 208)",
+          "background": "rgb(30, 34, 41)",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部"
+        },
+        "sectionHead": {
+          "box": [
+            159.5,
+            636,
+            1280,
+            36
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "最近工程 (25)导演创作短视频批量参考片复刻Hypit 复刻全部查看全部→"
+        },
+        "firstCard": {
+          "box": [
+            159.5,
+            686,
+            416,
+            167
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除"
+        },
+        "cardTitle": {
+          "box": [
+            289.5,
+            699,
+            272,
+            22
+          ],
+          "fontSize": "16px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程111"
+        }
+      },
+      "filename": "final-home-dark-1505.png"
+    },
+    {
+      "kind": "home",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "hero": {
+          "box": [
+            158,
+            104,
+            1218,
+            74
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "今天，想拍点什么？用 AI 将你的创意变成精彩的影视作品。"
+        },
+        "primary": {
+          "box": [
+            158,
+            202,
+            715.359375,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程"
+        },
+        "primaryIcon": {
+          "box": [
+            181,
+            225,
+            70,
+            70
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "primaryTitle": {
+          "box": [
+            279,
+            231,
+            208,
+            32
+          ],
+          "fontSize": "26px",
+          "lineHeight": "32px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作"
+        },
+        "steps": {
+          "box": [
+            187,
+            323,
+            314.1875,
+            30
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "1故事→2角色→3分镜"
+        },
+        "cta": {
+          "box": [
+            187,
+            381,
+            212,
+            52
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)",
+          "text": "新建导演工程"
+        },
+        "secondary": {
+          "box": [
+            889.359375,
+            202,
+            486.640625,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "短视频批量一个主题，生成多条短视频"
+        },
+        "secondaryIcon": {
+          "box": [
+            910.359375,
+            219.65625,
+            62,
+            62
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "diagnosis": {
+          "box": [
+            158,
+            544,
+            1218,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议"
+        },
+        "search": {
+          "box": [
+            670.90625,
+            636,
+            200,
+            36
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": ""
+        },
+        "filters": {
+          "box": [
+            882.90625,
+            637,
+            408,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(89, 99, 111)",
+          "background": "rgb(244, 246, 248)",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部"
+        },
+        "sectionHead": {
+          "box": [
+            158,
+            636,
+            1218,
+            36
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "最近工程 (25)导演创作短视频批量参考片复刻Hypit 复刻全部查看全部→"
+        },
+        "firstCard": {
+          "box": [
+            158,
+            686,
+            395.328125,
+            167
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除"
+        },
+        "cardTitle": {
+          "box": [
+            288,
+            699,
+            251.328125,
+            22
+          ],
+          "fontSize": "16px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程111"
+        }
+      },
+      "filename": "final-home-light-1440.png"
+    },
+    {
+      "kind": "home",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "hero": {
+          "box": [
+            158,
+            104,
+            1218,
+            74
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "今天，想拍点什么？用 AI 将你的创意变成精彩的影视作品。"
+        },
+        "primary": {
+          "box": [
+            158,
+            202,
+            715.359375,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程"
+        },
+        "primaryIcon": {
+          "box": [
+            181,
+            225,
+            70,
+            70
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "primaryTitle": {
+          "box": [
+            279,
+            231,
+            208,
+            32
+          ],
+          "fontSize": "26px",
+          "lineHeight": "32px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作"
+        },
+        "steps": {
+          "box": [
+            187,
+            323,
+            314.1875,
+            30
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "1故事→2角色→3分镜"
+        },
+        "cta": {
+          "box": [
+            187,
+            381,
+            212,
+            52
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(91, 101, 230)",
+          "text": "新建导演工程"
+        },
+        "secondary": {
+          "box": [
+            889.359375,
+            202,
+            486.640625,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "短视频批量一个主题，生成多条短视频"
+        },
+        "secondaryIcon": {
+          "box": [
+            910.359375,
+            219.65625,
+            62,
+            62
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "diagnosis": {
+          "box": [
+            158,
+            544,
+            1218,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议"
+        },
+        "search": {
+          "box": [
+            670.90625,
+            636,
+            200,
+            36
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": ""
+        },
+        "filters": {
+          "box": [
+            882.90625,
+            637,
+            408,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(192, 199, 208)",
+          "background": "rgb(30, 34, 41)",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部"
+        },
+        "sectionHead": {
+          "box": [
+            158,
+            636,
+            1218,
+            36
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "最近工程 (25)导演创作短视频批量参考片复刻Hypit 复刻全部查看全部→"
+        },
+        "firstCard": {
+          "box": [
+            158,
+            686,
+            395.328125,
+            167
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除"
+        },
+        "cardTitle": {
+          "box": [
+            288,
+            699,
+            251.328125,
+            22
+          ],
+          "fontSize": "16px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程111"
+        }
+      },
+      "filename": "final-home-dark-1440.png"
+    },
+    {
+      "kind": "home",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "hero": {
+          "box": [
+            367,
+            104,
+            1280,
+            74
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "今天，想拍点什么？用 AI 将你的创意变成精彩的影视作品。"
+        },
+        "primary": {
+          "box": [
+            367,
+            202,
+            752.25,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程"
+        },
+        "primaryIcon": {
+          "box": [
+            390,
+            225,
+            70,
+            70
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "primaryTitle": {
+          "box": [
+            488,
+            231,
+            208,
+            32
+          ],
+          "fontSize": "26px",
+          "lineHeight": "32px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作"
+        },
+        "steps": {
+          "box": [
+            396,
+            323,
+            314.1875,
+            30
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "1故事→2角色→3分镜"
+        },
+        "cta": {
+          "box": [
+            396,
+            381,
+            212,
+            52
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)",
+          "text": "新建导演工程"
+        },
+        "secondary": {
+          "box": [
+            1135.25,
+            202,
+            511.734375,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "短视频批量一个主题，生成多条短视频"
+        },
+        "secondaryIcon": {
+          "box": [
+            1156.25,
+            219.65625,
+            62,
+            62
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "diagnosis": {
+          "box": [
+            367,
+            544,
+            1279.984375,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议"
+        },
+        "search": {
+          "box": [
+            941.90625,
+            636,
+            200,
+            36
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": ""
+        },
+        "filters": {
+          "box": [
+            1153.90625,
+            637,
+            408,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(89, 99, 111)",
+          "background": "rgb(244, 246, 248)",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部"
+        },
+        "sectionHead": {
+          "box": [
+            367,
+            636,
+            1280,
+            36
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "最近工程 (25)导演创作短视频批量参考片复刻Hypit 复刻全部查看全部→"
+        },
+        "firstCard": {
+          "box": [
+            367,
+            686,
+            416,
+            167
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除"
+        },
+        "cardTitle": {
+          "box": [
+            497,
+            699,
+            272,
+            22
+          ],
+          "fontSize": "16px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程111"
+        }
+      },
+      "filename": "final-home-light-1920.png"
+    },
+    {
+      "kind": "home",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "hero": {
+          "box": [
+            367,
+            104,
+            1280,
+            74
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "今天，想拍点什么？用 AI 将你的创意变成精彩的影视作品。"
+        },
+        "primary": {
+          "box": [
+            367,
+            202,
+            752.25,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程"
+        },
+        "primaryIcon": {
+          "box": [
+            390,
+            225,
+            70,
+            70
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "primaryTitle": {
+          "box": [
+            488,
+            231,
+            208,
+            32
+          ],
+          "fontSize": "26px",
+          "lineHeight": "32px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导演创作"
+        },
+        "steps": {
+          "box": [
+            396,
+            323,
+            314.1875,
+            30
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "1故事→2角色→3分镜"
+        },
+        "cta": {
+          "box": [
+            396,
+            381,
+            212,
+            52
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(91, 101, 230)",
+          "text": "新建导演工程"
+        },
+        "secondary": {
+          "box": [
+            1135.25,
+            202,
+            511.734375,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "短视频批量一个主题，生成多条短视频"
+        },
+        "secondaryIcon": {
+          "box": [
+            1156.25,
+            219.65625,
+            62,
+            62
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "diagnosis": {
+          "box": [
+            367,
+            544,
+            1279.984375,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议"
+        },
+        "search": {
+          "box": [
+            941.90625,
+            636,
+            200,
+            36
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": ""
+        },
+        "filters": {
+          "box": [
+            1153.90625,
+            637,
+            408,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(192, 199, 208)",
+          "background": "rgb(30, 34, 41)",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部"
+        },
+        "sectionHead": {
+          "box": [
+            367,
+            636,
+            1280,
+            36
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "最近工程 (25)导演创作短视频批量参考片复刻Hypit 复刻全部查看全部→"
+        },
+        "firstCard": {
+          "box": [
+            367,
+            686,
+            416,
+            167
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除"
+        },
+        "cardTitle": {
+          "box": [
+            497,
+            699,
+            272,
+            22
+          ],
+          "fontSize": "16px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程111"
+        }
+      },
+      "filename": "final-home-dark-1920.png"
+    },
+    {
+      "kind": "project",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "topbar": {
+          "box": [
+            76,
+            0,
+            1429,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑"
+        },
+        "title": {
+          "box": [
+            265,
+            23,
+            152.609375,
+            33
+          ],
+          "fontSize": "22px",
+          "lineHeight": "33px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程"
+        },
+        "recipe": {
+          "box": [
+            1009,
+            12.5,
+            188,
+            54
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "制作配方半解说真人短剧"
+        },
+        "mode": {
+          "box": [
+            1209,
+            10.5,
+            208,
+            58
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(89, 99, 111)",
+          "background": "rgb(248, 249, 250)",
+          "text": "AI 生成手动编辑"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            965
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务"
+        },
+        "menu": {
+          "box": [
+            102,
+            104,
+            185,
+            50
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": "内容库"
+        },
+        "heading": {
+          "box": [
+            332,
+            124,
+            320,
+            44
+          ],
+          "fontSize": "34px",
+          "lineHeight": "44px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "内容库"
+        },
+        "subtitle": {
+          "box": [
+            332,
+            176,
+            320,
+            26
+          ],
+          "fontSize": "16px",
+          "lineHeight": "26px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导入剧本，整理人物与场景，继续制作分镜。"
+        },
+        "panel": {
+          "box": [
+            332,
+            232,
+            1143,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word"
+        },
+        "icon": {
+          "box": [
+            853.5,
+            343,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "emptyTitle": {
+          "box": [
+            795.5,
+            475,
+            216,
+            34
+          ],
+          "fontSize": "24px",
+          "lineHeight": "34px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "暂无导入的剧本文档"
+        },
+        "copy": {
+          "box": [
+            665.5,
+            521,
+            476,
+            56
+          ],
+          "fontSize": "17px",
+          "lineHeight": "28px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。"
+        },
+        "actions": {
+          "box": [
+            666.5,
+            597,
+            474,
+            48
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例"
+        },
+        "primaryButton": {
+          "box": [
+            666.5,
+            597,
+            174,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)",
+          "text": "立即导入剧本"
+        },
+        "secondaryButton": {
+          "box": [
+            854.5,
+            597,
+            286,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(45, 51, 58)",
+          "background": "rgb(255, 255, 255)",
+          "text": "一键导入《寒门硕士》标准范例"
+        },
+        "formats": {
+          "box": [
+            810.9375,
+            689,
+            185.125,
+            22
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "TXT · Markdown · Word"
+        },
+        "hint": {
+          "box": [
+            332,
+            796,
+            1143,
+            26
+          ],
+          "fontSize": "14px",
+          "lineHeight": "26px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "也可以打开智能助手，从一个想法开始。"
+        }
+      },
+      "official": {
+        "measurement_sha256": "ab6bc83eefc01415acd6421fe7e7bfbb1912fa7cd184d9241af320a98d4c2c5c",
+        "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+        "title": "ZLY AI 视频创作平台",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "scroll": {
+          "x": 0,
+          "y": 0
+        },
+        "document_height": 1045,
+        "fonts_ready": true,
+        "images_ready": true,
+        "document_overflow_x": false,
+        "captured_at": "2026-10-23T23:16:34.984Z",
+        "elements": [
+          {
+            "name": "project-header",
+            "selector": ".project-topbar",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              76,
+              0,
+              1429,
+              80
+            ],
+            "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑",
+            "computed": {
+              "display": "block",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "content-panel",
+            "selector": ".empty-doc-box",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              332,
+              232,
+              1143,
+              532
+            ],
+            "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "14px",
+              "lineHeight": "22px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "import-primary",
+            "selector": ".empty-doc-box .ant-btn-primary",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              666.5,
+              597,
+              174,
+              48
+            ],
+            "text": "立即导入剧本",
+            "computed": {
+              "display": "inline-flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "18px",
+              "lineHeight": "28.2857px",
+              "fontWeight": "400",
+              "color": "rgb(255, 255, 255)",
+              "backgroundColor": "rgb(67, 92, 232)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "import-secondary",
+            "selector": ".empty-doc-box .ant-space-item:nth-child(2) .ant-btn",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              854.5,
+              597,
+              286,
+              48
+            ],
+            "text": "一键导入《寒门硕士》标准范例",
+            "computed": {
+              "display": "inline-flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "18px",
+              "lineHeight": "28.2857px",
+              "fontWeight": "400",
+              "color": "rgb(45, 51, 58)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "empty-icon",
+            "selector": ".empty-icon-wrap",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              853.5,
+              343,
+              100,
+              100
+            ],
+            "text": "",
+            "computed": {
+              "display": "grid",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "14px",
+              "lineHeight": "22px",
+              "fontWeight": "400",
+              "color": "rgb(67, 92, 232)",
+              "backgroundColor": "rgba(67, 92, 232, 0.1)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "first-menu",
+            "selector": ".sidebar-menu-item:first-child",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              102,
+              104,
+              185,
+              50
+            ],
+            "text": "内容库",
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "600",
+              "color": "rgb(67, 92, 232)",
+              "backgroundColor": "rgba(67, 92, 232, 0.1)"
+            },
+            "viewport_intersects": true
+          },
+          {
+            "name": "creation-mode",
+            "selector": ".project-topbar .ant-segmented",
+            "count": 1,
+            "status": "measured",
+            "box": [
+              1209,
+              10.5,
+              208,
+              58
+            ],
+            "text": "AI 生成手动编辑",
+            "computed": {
+              "display": "block",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "14px",
+              "lineHeight": "22px",
+              "fontWeight": "400",
+              "color": "rgb(89, 99, 111)",
+              "backgroundColor": "rgb(248, 249, 250)"
+            },
+            "viewport_intersects": true
+          }
+        ],
+        "assets": {},
+        "full_page": false,
+        "screenshot_scale": "css"
+      },
+      "filename": "final-project-light-1505.png"
+    },
+    {
+      "kind": "project",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "topbar": {
+          "box": [
+            76,
+            0,
+            1429,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑"
+        },
+        "title": {
+          "box": [
+            265,
+            23,
+            152.609375,
+            33
+          ],
+          "fontSize": "22px",
+          "lineHeight": "33px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程"
+        },
+        "recipe": {
+          "box": [
+            1009,
+            12.5,
+            188,
+            54
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "制作配方半解说真人短剧"
+        },
+        "mode": {
+          "box": [
+            1209,
+            10.5,
+            208,
+            58
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(192, 199, 208)",
+          "background": "rgb(15, 17, 21)",
+          "text": "AI 生成手动编辑"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            965
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务"
+        },
+        "menu": {
+          "box": [
+            102,
+            104,
+            185,
+            50
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": "内容库"
+        },
+        "heading": {
+          "box": [
+            332,
+            124,
+            320,
+            44
+          ],
+          "fontSize": "34px",
+          "lineHeight": "44px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "内容库"
+        },
+        "subtitle": {
+          "box": [
+            332,
+            176,
+            320,
+            26
+          ],
+          "fontSize": "16px",
+          "lineHeight": "26px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导入剧本，整理人物与场景，继续制作分镜。"
+        },
+        "panel": {
+          "box": [
+            332,
+            232,
+            1143,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word"
+        },
+        "icon": {
+          "box": [
+            853.5,
+            343,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "emptyTitle": {
+          "box": [
+            795.5,
+            475,
+            216,
+            34
+          ],
+          "fontSize": "24px",
+          "lineHeight": "34px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "暂无导入的剧本文档"
+        },
+        "copy": {
+          "box": [
+            665.5,
+            521,
+            476,
+            56
+          ],
+          "fontSize": "17px",
+          "lineHeight": "28px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。"
+        },
+        "actions": {
+          "box": [
+            666.5,
+            597,
+            474,
+            48
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例"
+        },
+        "primaryButton": {
+          "box": [
+            666.5,
+            597,
+            174,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(80, 89, 199)",
+          "text": "立即导入剧本"
+        },
+        "secondaryButton": {
+          "box": [
+            854.5,
+            597,
+            286,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(232, 235, 239)",
+          "background": "rgb(30, 34, 41)",
+          "text": "一键导入《寒门硕士》标准范例"
+        },
+        "formats": {
+          "box": [
+            810.9375,
+            689,
+            185.125,
+            22
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "TXT · Markdown · Word"
+        },
+        "hint": {
+          "box": [
+            332,
+            796,
+            1143,
+            26
+          ],
+          "fontSize": "14px",
+          "lineHeight": "26px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "也可以打开智能助手，从一个想法开始。"
+        }
+      },
+      "filename": "final-project-dark-1505.png"
+    },
+    {
+      "kind": "project",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "topbar": {
+          "box": [
+            76,
+            0,
+            1364,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑"
+        },
+        "title": {
+          "box": [
+            265,
+            23,
+            152.609375,
+            33
+          ],
+          "fontSize": "22px",
+          "lineHeight": "33px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程"
+        },
+        "recipe": {
+          "box": [
+            944,
+            12.5,
+            188,
+            54
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "制作配方半解说真人短剧"
+        },
+        "mode": {
+          "box": [
+            1144,
+            10.5,
+            208,
+            58
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(89, 99, 111)",
+          "background": "rgb(248, 249, 250)",
+          "text": "AI 生成手动编辑"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            920
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务"
+        },
+        "menu": {
+          "box": [
+            102,
+            104,
+            185,
+            50
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": "内容库"
+        },
+        "heading": {
+          "box": [
+            332,
+            124,
+            320,
+            44
+          ],
+          "fontSize": "34px",
+          "lineHeight": "44px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "内容库"
+        },
+        "subtitle": {
+          "box": [
+            332,
+            176,
+            320,
+            26
+          ],
+          "fontSize": "16px",
+          "lineHeight": "26px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导入剧本，整理人物与场景，继续制作分镜。"
+        },
+        "panel": {
+          "box": [
+            332,
+            232,
+            1078,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word"
+        },
+        "icon": {
+          "box": [
+            821,
+            343,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "emptyTitle": {
+          "box": [
+            763,
+            475,
+            216,
+            34
+          ],
+          "fontSize": "24px",
+          "lineHeight": "34px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "暂无导入的剧本文档"
+        },
+        "copy": {
+          "box": [
+            633,
+            521,
+            476,
+            56
+          ],
+          "fontSize": "17px",
+          "lineHeight": "28px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。"
+        },
+        "actions": {
+          "box": [
+            634,
+            597,
+            474,
+            48
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例"
+        },
+        "primaryButton": {
+          "box": [
+            634,
+            597,
+            174,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)",
+          "text": "立即导入剧本"
+        },
+        "secondaryButton": {
+          "box": [
+            822,
+            597,
+            286,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(45, 51, 58)",
+          "background": "rgb(255, 255, 255)",
+          "text": "一键导入《寒门硕士》标准范例"
+        },
+        "formats": {
+          "box": [
+            778.4375,
+            689,
+            185.125,
+            22
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "TXT · Markdown · Word"
+        },
+        "hint": {
+          "box": [
+            332,
+            796,
+            1078,
+            26
+          ],
+          "fontSize": "14px",
+          "lineHeight": "26px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "也可以打开智能助手，从一个想法开始。"
+        }
+      },
+      "filename": "final-project-light-1440.png"
+    },
+    {
+      "kind": "project",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "topbar": {
+          "box": [
+            76,
+            0,
+            1364,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑"
+        },
+        "title": {
+          "box": [
+            265,
+            23,
+            152.609375,
+            33
+          ],
+          "fontSize": "22px",
+          "lineHeight": "33px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程"
+        },
+        "recipe": {
+          "box": [
+            944,
+            12.5,
+            188,
+            54
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "制作配方半解说真人短剧"
+        },
+        "mode": {
+          "box": [
+            1144,
+            10.5,
+            208,
+            58
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(192, 199, 208)",
+          "background": "rgb(15, 17, 21)",
+          "text": "AI 生成手动编辑"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            920
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务"
+        },
+        "menu": {
+          "box": [
+            102,
+            104,
+            185,
+            50
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": "内容库"
+        },
+        "heading": {
+          "box": [
+            332,
+            124,
+            320,
+            44
+          ],
+          "fontSize": "34px",
+          "lineHeight": "44px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "内容库"
+        },
+        "subtitle": {
+          "box": [
+            332,
+            176,
+            320,
+            26
+          ],
+          "fontSize": "16px",
+          "lineHeight": "26px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导入剧本，整理人物与场景，继续制作分镜。"
+        },
+        "panel": {
+          "box": [
+            332,
+            232,
+            1078,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word"
+        },
+        "icon": {
+          "box": [
+            821,
+            343,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "emptyTitle": {
+          "box": [
+            763,
+            475,
+            216,
+            34
+          ],
+          "fontSize": "24px",
+          "lineHeight": "34px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "暂无导入的剧本文档"
+        },
+        "copy": {
+          "box": [
+            633,
+            521,
+            476,
+            56
+          ],
+          "fontSize": "17px",
+          "lineHeight": "28px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。"
+        },
+        "actions": {
+          "box": [
+            634,
+            597,
+            474,
+            48
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例"
+        },
+        "primaryButton": {
+          "box": [
+            634,
+            597,
+            174,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(80, 89, 199)",
+          "text": "立即导入剧本"
+        },
+        "secondaryButton": {
+          "box": [
+            822,
+            597,
+            286,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(232, 235, 239)",
+          "background": "rgb(30, 34, 41)",
+          "text": "一键导入《寒门硕士》标准范例"
+        },
+        "formats": {
+          "box": [
+            778.4375,
+            689,
+            185.125,
+            22
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "TXT · Markdown · Word"
+        },
+        "hint": {
+          "box": [
+            332,
+            796,
+            1078,
+            26
+          ],
+          "fontSize": "14px",
+          "lineHeight": "26px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "也可以打开智能助手，从一个想法开始。"
+        }
+      },
+      "filename": "final-project-dark-1440.png"
+    },
+    {
+      "kind": "project",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "topbar": {
+          "box": [
+            76,
+            0,
+            1844,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑"
+        },
+        "title": {
+          "box": [
+            265,
+            23,
+            152.609375,
+            33
+          ],
+          "fontSize": "22px",
+          "lineHeight": "33px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程"
+        },
+        "recipe": {
+          "box": [
+            1424,
+            12.5,
+            188,
+            54
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "制作配方半解说真人短剧"
+        },
+        "mode": {
+          "box": [
+            1624,
+            10.5,
+            208,
+            58
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(89, 99, 111)",
+          "background": "rgb(248, 249, 250)",
+          "text": "AI 生成手动编辑"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            1000
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务"
+        },
+        "menu": {
+          "box": [
+            102,
+            104,
+            185,
+            50
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": "内容库"
+        },
+        "heading": {
+          "box": [
+            332,
+            124,
+            320,
+            44
+          ],
+          "fontSize": "34px",
+          "lineHeight": "44px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "内容库"
+        },
+        "subtitle": {
+          "box": [
+            332,
+            176,
+            320,
+            26
+          ],
+          "fontSize": "16px",
+          "lineHeight": "26px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导入剧本，整理人物与场景，继续制作分镜。"
+        },
+        "panel": {
+          "box": [
+            332,
+            232,
+            1558,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word"
+        },
+        "icon": {
+          "box": [
+            1061,
+            343,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)",
+          "text": ""
+        },
+        "emptyTitle": {
+          "box": [
+            1003,
+            475,
+            216,
+            34
+          ],
+          "fontSize": "24px",
+          "lineHeight": "34px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "暂无导入的剧本文档"
+        },
+        "copy": {
+          "box": [
+            873,
+            521,
+            476,
+            56
+          ],
+          "fontSize": "17px",
+          "lineHeight": "28px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。"
+        },
+        "actions": {
+          "box": [
+            874,
+            597,
+            474,
+            48
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例"
+        },
+        "primaryButton": {
+          "box": [
+            874,
+            597,
+            174,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)",
+          "text": "立即导入剧本"
+        },
+        "secondaryButton": {
+          "box": [
+            1062,
+            597,
+            286,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(45, 51, 58)",
+          "background": "rgb(255, 255, 255)",
+          "text": "一键导入《寒门硕士》标准范例"
+        },
+        "formats": {
+          "box": [
+            1018.4375,
+            689,
+            185.125,
+            22
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "TXT · Markdown · Word"
+        },
+        "hint": {
+          "box": [
+            332,
+            796,
+            1558,
+            26
+          ],
+          "fontSize": "14px",
+          "lineHeight": "26px",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "也可以打开智能助手，从一个想法开始。"
+        }
+      },
+      "filename": "final-project-light-1920.png"
+    },
+    {
+      "kind": "project",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "elements": {
+        "topbar": {
+          "box": [
+            76,
+            0,
+            1844,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑"
+        },
+        "title": {
+          "box": [
+            265,
+            23,
+            152.609375,
+            33
+          ],
+          "fontSize": "22px",
+          "lineHeight": "33px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "未命名导演工程"
+        },
+        "recipe": {
+          "box": [
+            1424,
+            12.5,
+            188,
+            54
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "制作配方半解说真人短剧"
+        },
+        "mode": {
+          "box": [
+            1624,
+            10.5,
+            208,
+            58
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(192, 199, 208)",
+          "background": "rgb(15, 17, 21)",
+          "text": "AI 生成手动编辑"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            1000
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务"
+        },
+        "menu": {
+          "box": [
+            102,
+            104,
+            185,
+            50
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": "内容库"
+        },
+        "heading": {
+          "box": [
+            332,
+            124,
+            320,
+            44
+          ],
+          "fontSize": "34px",
+          "lineHeight": "44px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "内容库"
+        },
+        "subtitle": {
+          "box": [
+            332,
+            176,
+            320,
+            26
+          ],
+          "fontSize": "16px",
+          "lineHeight": "26px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "导入剧本，整理人物与场景，继续制作分镜。"
+        },
+        "panel": {
+          "box": [
+            332,
+            232,
+            1558,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word"
+        },
+        "icon": {
+          "box": [
+            1061,
+            343,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)",
+          "text": ""
+        },
+        "emptyTitle": {
+          "box": [
+            1003,
+            475,
+            216,
+            34
+          ],
+          "fontSize": "24px",
+          "lineHeight": "34px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "暂无导入的剧本文档"
+        },
+        "copy": {
+          "box": [
+            873,
+            521,
+            476,
+            56
+          ],
+          "fontSize": "17px",
+          "lineHeight": "28px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。"
+        },
+        "actions": {
+          "box": [
+            874,
+            597,
+            474,
+            48
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例"
+        },
+        "primaryButton": {
+          "box": [
+            874,
+            597,
+            174,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(80, 89, 199)",
+          "text": "立即导入剧本"
+        },
+        "secondaryButton": {
+          "box": [
+            1062,
+            597,
+            286,
+            48
+          ],
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "color": "rgb(232, 235, 239)",
+          "background": "rgb(30, 34, 41)",
+          "text": "一键导入《寒门硕士》标准范例"
+        },
+        "formats": {
+          "box": [
+            1018.4375,
+            689,
+            185.125,
+            22
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "TXT · Markdown · Word"
+        },
+        "hint": {
+          "box": [
+            332,
+            796,
+            1558,
+            26
+          ],
+          "fontSize": "14px",
+          "lineHeight": "26px",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)",
+          "text": "也可以打开智能助手，从一个想法开始。"
+        }
+      },
+      "filename": "final-project-dark-1920.png"
+    }
+  ],
+  "runtime_errors": []
+}

@@ -55,7 +55,7 @@ class ChatCompletionThinkingTests(unittest.TestCase):
         )
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(payload["thinking"], {"type": "disabled"})
-        self.assertFalse(payload["enable_thinking"])
+        self.assertNotIn("enable_thinking", payload)
 
     @patch("requests.Session.post")
     def test_qwen_does_not_send_deepseek_thinking_block(self, mock_post: MagicMock) -> None:
@@ -67,7 +67,36 @@ class ChatCompletionThinkingTests(unittest.TestCase):
         )
         payload = mock_post.call_args.kwargs["json"]
         self.assertNotIn("thinking", payload)
-        self.assertFalse(payload["enable_thinking"])
+        self.assertNotIn("enable_thinking", payload)
+
+    @patch("requests.Session.post")
+    def test_original_hybrid_qwen3_keeps_thinking_switch(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient("https://api.siliconflow.cn/v1", "sk-test")
+        for model in ("Qwen/Qwen3-8B", "Qwen/Qwen3-30B-A3B", "Pro/Qwen/Qwen3-235B-A22B", "qwen3-8b:latest"):
+            with self.subTest(model=model):
+                client.chat_completion([{"role": "user", "content": "你好"}], model)
+                self.assertFalse(mock_post.call_args.kwargs["json"]["enable_thinking"])
+
+    @patch("requests.Session.post")
+    def test_fixed_mode_and_vision_models_omit_thinking_switch(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = self._ok_response()
+        client = OpenAICompatibleClient("https://api.siliconflow.cn/v1", "sk-test")
+        messages = [{"role": "user", "content": [
+            {"type": "text", "text": "描述画面"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/ref.png"}},
+        ]}]
+        for model in (
+            "Qwen/Qwen3-VL-30B-A3B-Thinking", "Qwen/Qwen3-VL-30B-A3B-Instruct",
+            "Qwen/Qwen3-30B-A3B-Thinking-2507", "Qwen/Qwen3-30B-A3B-Instruct-2507",
+            "Qwen/Qwen2.5-VL-72B-Instruct", "glm-4.1v-thinking-flash", "zai-org/GLM-4.5V",
+        ):
+            with self.subTest(model=model):
+                self.assertEqual("收到", client.chat_completion(messages, model))
+                payload = mock_post.call_args.kwargs["json"]
+                self.assertNotIn("enable_thinking", payload)
+                self.assertNotIn("thinking", payload)
+                self.assertEqual(messages, payload["messages"])
 
     @patch("requests.Session.post")
     def test_gpt5_sol_uses_max_completion_tokens_without_temperature(self, mock_post: MagicMock) -> None:

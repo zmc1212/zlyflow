@@ -1,12 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, AutoComplete, Button, Input, Select, Switch, message } from "antd"
+import { Alert, AutoComplete, Button, Input, Select, Switch, Tag, message } from "antd"
 import { CheckCircle2, ExternalLink, Eye, KeyRound, RefreshCw, Sparkles } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { buildModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
+import type { CatalogModel, CatalogResponse, ProviderPresetsResponse } from "./provider-models"
 
 type VlmConfig = {
   enabled: boolean
   use_llm_credentials?: boolean
+  llm_base_url?: string | null
   base_url: string
   model: string
   api_key_masked?: string | null
@@ -20,33 +23,7 @@ type VlmConfig = {
   supports_vision?: boolean
 }
 
-type CatalogModel = {
-  id: string
-  label: string
-  free?: boolean | null
-  owned_by?: string | null
-}
-
-type CatalogResponse = {
-  models: CatalogModel[]
-  provider: string
-  free_only: boolean
-  message?: string | null
-}
-
 const PROVIDER_PRESETS = [
-  {
-    label: "智谱 GLM（推荐免费视觉）",
-    value: "zhipu",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    model: "glm-4.6v-flash",
-    docUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
-    recommendedModels: [
-      { name: "GLM-4.6V-Flash（免费，推荐）", id: "glm-4.6v-flash" },
-      { name: "GLM-4V-Flash（永久免费）", id: "glm-4v-flash" },
-      { name: "GLM-4.1V-Thinking-Flash（免费推理）", id: "glm-4.1v-thinking-flash" },
-    ],
-  },
   {
     label: "阿里云百炼 / 通义千问 VL",
     value: "dashscope",
@@ -103,28 +80,21 @@ const PROVIDER_PRESETS = [
   },
 ]
 
-function isShorterPrefixOf(candidate: string, target: string) {
-  const left = candidate.trim()
-  const right = target.trim()
-  return Boolean(left && right && left !== right && right.startsWith(left))
-}
-
-function presetFromBaseUrl(baseUrl: string) {
-  const lowered = baseUrl.toLowerCase()
-  if (lowered.includes("bigmodel.cn") || lowered.includes("api.z.ai")) return "zhipu"
-  if (lowered.includes("dashscope")) return "dashscope"
-  if (lowered.includes("modelscope")) return "modelscope"
-  if (lowered.includes("siliconflow")) return "siliconflow"
-  if (lowered.includes("127.0.0.1:11434") || lowered.includes("localhost:11434")) return "ollama"
-  return "custom"
-}
-
 export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }) {
   const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: ["vlm-provider"],
     queryFn: () => requestJson<VlmConfig>("/api/admin/providers/vlm"),
   })
+  const presetsQuery = useQuery({
+    queryKey: ["model-provider-presets"],
+    queryFn: () => requestJson<ProviderPresetsResponse>("/api/admin/providers/model-presets"),
+  })
+  const officialPresets = presetsQuery.data?.presets
+  const providerPresets = useMemo(() => [
+    ...(officialPresets ?? []).map(preset => providerPresetFor(preset, "vision")),
+    ...PROVIDER_PRESETS,
+  ], [officialPresets])
 
   const [enabled, setEnabled] = useState(false)
   const [useLlm, setUseLlm] = useState(false)
@@ -133,23 +103,33 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
   const [apiKey, setApiKey] = useState("")
   const [selectedPreset, setSelectedPreset] = useState("zhipu")
   const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([])
+  const [catalogBaseUrl, setCatalogBaseUrl] = useState("")
   const autoFetchedFor = useRef("")
+  const hydratedConnection = useRef("")
 
   useEffect(() => {
     if (!query.data) return
+    const connection = JSON.stringify([query.data.enabled, query.data.use_llm_credentials, query.data.base_url, query.data.model, query.data.has_api_key])
+    if (connection === hydratedConnection.current) return
+    hydratedConnection.current = connection
     setEnabled(query.data.enabled)
     setUseLlm(Boolean(query.data.use_llm_credentials))
     setBaseUrl(query.data.base_url)
     setModel(query.data.model)
-    setSelectedPreset(presetFromBaseUrl(query.data.base_url))
   }, [query.data])
+
+  useEffect(() => {
+    setSelectedPreset(providerPresets.find(preset => sameProviderEndpoint(preset.baseUrl, baseUrl))?.value ?? "custom")
+  }, [baseUrl, providerPresets])
 
   const handlePresetChange = (value: string) => {
     setSelectedPreset(value)
-    const preset = PROVIDER_PRESETS.find((item) => item.value === value)
-    if (!preset || value === "custom") return
-    setBaseUrl(preset.baseUrl)
-    setModel(preset.model)
+    setApiKey("")
+    const preset = providerPresets.find((item) => item.value === value)
+    if (preset && value !== "custom") {
+      setBaseUrl(preset.baseUrl)
+      setModel(preset.model)
+    }
     setCatalogModels([])
     autoFetchedFor.current = ""
   }
@@ -197,8 +177,9 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
   })
 
   const catalog = useMutation({
-    mutationFn: () =>
-      requestJson<CatalogResponse>(
+    mutationFn: async () => {
+      const requestedBaseUrl = useLlm ? query.data?.llm_base_url ?? baseUrl : baseUrl
+      const response = await requestJson<CatalogResponse>(
         "/api/admin/providers/vlm/models",
         jsonMutation(csrfToken, {
           base_url: baseUrl,
@@ -206,9 +187,12 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
           free_only: false,
           use_llm_credentials: useLlm,
         }),
-      ),
+      )
+      return { ...response, requestedBaseUrl }
+    },
     onSuccess: (data) => {
       setCatalogModels(data.models)
+      setCatalogBaseUrl(data.requestedBaseUrl)
       if (data.models.length) {
         message.success(`已拉取 ${data.models.length} 个视觉模型`)
       } else {
@@ -219,7 +203,8 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
 
   useEffect(() => {
     const canFetchLocal = selectedPreset === "ollama"
-    const canFetchCloud = (selectedPreset === "siliconflow" || selectedPreset === "zhipu" || selectedPreset === "dashscope") && Boolean(query.data?.has_api_key || apiKey)
+    const savedKeyMatches = query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url)
+    const canFetchCloud = (selectedPreset === "siliconflow" || selectedPreset === "zhipu" || selectedPreset === "dashscope") && Boolean(savedKeyMatches)
     if (!canFetchLocal && !canFetchCloud) return
     const key = `${selectedPreset}|${baseUrl}|${query.data?.has_api_key ? "saved" : "none"}`
     if (autoFetchedFor.current === key) return
@@ -227,24 +212,17 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
     catalog.mutate()
   }, [selectedPreset, baseUrl, query.data?.has_api_key])
 
-  const currentPreset = PROVIDER_PRESETS.find((p) => p.value === selectedPreset)
+  const currentPreset = providerPresets.find((p) => p.value === selectedPreset)
+  const effectiveBaseUrl = useLlm ? query.data?.llm_base_url ?? baseUrl : baseUrl
+  const activeCatalog = useMemo(() => sameProviderEndpoint(effectiveBaseUrl, catalogBaseUrl) ? catalogModels : [], [effectiveBaseUrl, catalogBaseUrl, catalogModels])
   const modelOptions = useMemo(() => {
-    const seen = new Set<string>()
-    const rows: { value: string; label: string }[] = []
-    const add = (id: string, label?: string, free?: boolean | null) => {
-      if (!id || seen.has(id)) return
-      if (isShorterPrefixOf(id, model)) return
-      seen.add(id)
-      const text = label || id
-      rows.push({ value: id, label: free ? `${text} · Free` : text })
-    }
-    for (const item of catalogModels) add(item.id, item.label, item.free)
-    add(model)
-    for (const rec of currentPreset?.recommendedModels ?? []) add(rec.id, rec.name)
-    return rows
-  }, [catalogModels, model, currentPreset])
+    return buildModelOptions(effectiveBaseUrl, model, activeCatalog, currentPreset, officialPresets ?? [])
+  }, [effectiveBaseUrl, model, activeCatalog, currentPreset, officialPresets])
+  const selectedModelFree = resolveModelFree(effectiveBaseUrl, model, activeCatalog, officialPresets ?? [])
+  const pricingPreset = officialPresets?.find(preset => sameProviderEndpoint(preset.base_url, effectiveBaseUrl))
+  const savedKeyMatches = Boolean(!query.data?.use_llm_credentials && query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url))
 
-  const error = save.error ?? test.error ?? catalog.error ?? query.error
+  const error = save.error ?? test.error ?? catalog.error ?? query.error ?? presetsQuery.error
 
   return (
     <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
@@ -292,9 +270,11 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             <label className="block text-xs font-medium text-[#4b5563]">快速服务预设</label>
             <Select
               className="mt-1.5 w-full"
+              aria-label="快速服务预设"
+              disabled={useLlm}
               value={selectedPreset}
               onChange={handlePresetChange}
-              options={PROVIDER_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+              options={providerPresets.map((p) => ({ value: p.value, label: p.label }))}
             />
           </div>
 
@@ -321,7 +301,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               type="info"
               showIcon
               message="Base URL 与 API Key 来自 LLM 大模型页"
-              description={`当前生效地址：${query.data?.base_url || "未配置"}。请在下方继续选择名称含 VL/Vision 的视觉模型。`}
+              description={`当前生效地址：${effectiveBaseUrl || "未配置"}。请在下方继续选择名称含 VL/Vision 的视觉模型。`}
             />
           ) : (
             <>
@@ -342,6 +322,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             </div>
             <Input
               className="mt-1.5"
+              aria-label="接口地址"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://open.bigmodel.cn/api/paas/v4"
@@ -352,7 +333,10 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
 
           <div>
             <div className="flex items-center justify-between gap-3">
-              <label className="block text-xs font-medium text-[#4b5563]">Model (视觉模型名称)</label>
+              <div className="flex items-center gap-2">
+                <label className="block text-xs font-medium text-[#4b5563]">Model (视觉模型名称)</label>
+                <Tag style={modelPriceTagStyle(selectedModelFree)}>{modelPriceLabel(selectedModelFree)}</Tag>
+              </div>
               <Button
                 size="small"
                 loading={catalog.isPending}
@@ -364,6 +348,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             </div>
             <AutoComplete
               className="mt-1.5 w-full"
+              aria-label="模型名称"
               value={model}
               options={modelOptions}
               defaultActiveFirstOption={false}
@@ -379,6 +364,11 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               }}
               listHeight={320}
             />
+            {pricingPreset ? (
+              <p className="mt-1.5 text-[11px] leading-4 text-[var(--studio-text-muted)]">
+                费用标记依据<a href={pricingPreset.pricing_url} target="_blank" rel="noreferrer" className="text-[var(--studio-accent-text)] hover:underline">智谱官方价目表</a>（{pricingPreset.pricing_verified_at} 核对）；未知型号显示价格未知。账号可用性请测试连接。
+              </p>
+            ) : null}
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
               名称须含 VL / Vision / glm-4v 等标记，保存时会校验。也可直接输入模型 ID。
             </p>
@@ -389,13 +379,14 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             <label className="block text-xs font-medium text-[#4b5563]">API Key / Access Token</label>
             <Input.Password
               className="mt-1.5"
+              aria-label="API Key / Access Token"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
               placeholder={
                 selectedPreset === "ollama"
                   ? "本地服务可留空"
-                  : query.data?.api_key_masked || "输入平台生成的 API Key / Token"
+                  : (savedKeyMatches ? query.data?.api_key_masked : null) || "输入平台生成的 API Key / Token"
               }
             />
             {selectedPreset === "zhipu" ? (
@@ -458,7 +449,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             </span>
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
               {selectedPreset === "zhipu"
-                ? "智谱 VL 模型（glm-4.6v-flash / glm-4v-flash）不在 /models 文本目录里，测试连接会直接试调用。Key 与 LLM 页互不影响。"
+                ? "默认使用免费 glm-4.6v-flash，也可选择标记付费的型号。部分视觉模型不在上游目录里，可直接选择推荐型号并测试连接。Key 与 LLM 页独立，也可显式复用 LLM 凭据。"
                 : selectedPreset === "ollama"
                   ? "请确认 Ollama 已拉取 qwen2.5-vl 等视觉模型，名称须与 ollama list 完全一致。"
                   : selectedPreset === "modelscope"

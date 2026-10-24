@@ -5,12 +5,13 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 LOGGER = logging.getLogger("zly.request")
 LOG_PATH = Path(__file__).resolve().parents[2] / "dev-log" / "api-requests.log"
-_SECRET_KEY = re.compile(r"(password|passwd|secret|token|api[_-]?key|authorization|cookie)", re.I)
+_SECRET_KEY = re.compile(r"(password|passwd|secret|token|api[_-]?key|authorization|cookie|ticket|^code$|code_verifier|^state$)", re.I)
 _MAX_BODY = 4000
 
 
@@ -37,6 +38,8 @@ def _decode_body(raw: bytes, content_type: str) -> Any:
             return {"_json_error": str(error), "_raw": raw[:_MAX_BODY].decode("utf-8", errors="replace")}
     if "multipart/" in content_type or "octet-stream" in content_type:
         return f"<binary {len(raw)} bytes>"
+    if "application/x-www-form-urlencoded" in content_type:
+        return dict(parse_qsl(raw.decode("utf-8", errors="replace")))
     text = raw.decode("utf-8", errors="replace")
     return text if len(text) <= _MAX_BODY else text[:_MAX_BODY] + f"...(截断,共{len(text)}字)"
 
@@ -102,10 +105,11 @@ class RequestLogMiddleware:
             {
                 "method": method,
                 "path": path,
-                "query": scope.get("query_string", b"").decode("latin-1"),
+                "query": _redact(dict(parse_qsl(scope.get("query_string", b"").decode("latin-1")))) if scope.get("query_string") else "",
                 "content_type": content_type,
                 "body_bytes": len(body),
-                "body": _decode_body(body, content_type) if method in {"POST", "PUT", "PATCH"} else "",
+                "body": ("<OAuth credentials omitted>" if path.startswith("/api/mcp/oauth/")
+                         else _decode_body(body, content_type)) if method in {"POST", "PUT", "PATCH"} else "",
                 "status": status_box.get("status"),
             },
         )

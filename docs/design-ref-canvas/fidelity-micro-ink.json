@@ -1,0 +1,621 @@
+{
+  "method": "Same native-size ROI, visible glyph/icon pixels with Rec.709 RGB luminance < 145. This measures visible ink rather than DOM rectangles; raster and font differences remain.",
+  "regions": [
+    {
+      "name": "header-history-icon",
+      "region": [
+        1150,
+        77,
+        30,
+        30
+      ],
+      "reference_visible_ink": [
+        1156,
+        82,
+        19,
+        19
+      ],
+      "candidate_visible_ink": [
+        1157,
+        83,
+        18,
+        18
+      ],
+      "delta_pixels": [
+        1,
+        1,
+        -1,
+        -1
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "header-history-label",
+      "region": [
+        1182,
+        77,
+        42,
+        30
+      ],
+      "reference_visible_ink": [
+        1187,
+        85,
+        27,
+        13
+      ],
+      "candidate_visible_ink": [
+        1187,
+        86,
+        28,
+        12
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        1,
+        -1
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "header-settings-icon",
+      "region": [
+        1244,
+        77,
+        30,
+        30
+      ],
+      "reference_visible_ink": [
+        1250,
+        82,
+        18,
+        19
+      ],
+      "candidate_visible_ink": [
+        1251,
+        82,
+        18,
+        20
+      ],
+      "delta_pixels": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "header-settings-label",
+      "region": [
+        1277,
+        77,
+        42,
+        30
+      ],
+      "reference_visible_ink": [
+        1281,
+        85,
+        26,
+        13
+      ],
+      "candidate_visible_ink": [
+        1281,
+        86,
+        28,
+        12
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        2,
+        -1
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "header-properties-icon",
+      "region": [
+        1337,
+        77,
+        29,
+        30
+      ],
+      "reference_visible_ink": [
+        1343,
+        84,
+        17,
+        16
+      ],
+      "candidate_visible_ink": [
+        1345,
+        83,
+        18,
+        18
+      ],
+      "delta_pixels": [
+        2,
+        -1,
+        1,
+        2
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "header-properties-label",
+      "region": [
+        1368,
+        77,
+        43,
+        30
+      ],
+      "reference_visible_ink": [
+        1373,
+        85,
+        27,
+        13
+      ],
+      "candidate_visible_ink": [
+        1375,
+        86,
+        27,
+        12
+      ],
+      "delta_pixels": [
+        2,
+        1,
+        0,
+        -1
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "panel-properties-icon",
+      "region": [
+        1244,
+        161,
+        26,
+        28
+      ],
+      "reference_visible_ink": [
+        1249,
+        169,
+        16,
+        15
+      ],
+      "candidate_visible_ink": [
+        1249,
+        168,
+        17,
+        17
+      ],
+      "delta_pixels": [
+        0,
+        -1,
+        1,
+        2
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "panel-properties-label",
+      "region": [
+        1270,
+        161,
+        38,
+        28
+      ],
+      "reference_visible_ink": [
+        1275,
+        169,
+        25,
+        13
+      ],
+      "candidate_visible_ink": [
+        1275,
+        170,
+        27,
+        12
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        2,
+        -1
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "panel-layers-icon",
+      "region": [
+        1340,
+        161,
+        25,
+        28
+      ],
+      "reference_visible_ink": [
+        1346,
+        169,
+        15,
+        15
+      ],
+      "candidate_visible_ink": [
+        1346,
+        169,
+        14,
+        14
+      ],
+      "delta_pixels": [
+        0,
+        0,
+        -1,
+        -1
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "panel-layers-label-count",
+      "region": [
+        1367,
+        161,
+        47,
+        28
+      ],
+      "reference_visible_ink": [
+        1372,
+        169,
+        36,
+        12
+      ],
+      "candidate_visible_ink": [
+        1372,
+        170,
+        36,
+        13
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "panel-history-icon",
+      "region": [
+        1440,
+        161,
+        25,
+        28
+      ],
+      "reference_visible_ink": [
+        1446,
+        169,
+        15,
+        15
+      ],
+      "candidate_visible_ink": [
+        1445,
+        169,
+        14,
+        14
+      ],
+      "delta_pixels": [
+        -1,
+        0,
+        -1,
+        -1
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "panel-history-label",
+      "region": [
+        1467,
+        161,
+        37,
+        28
+      ],
+      "reference_visible_ink": [
+        1471,
+        169,
+        26,
+        12
+      ],
+      "candidate_visible_ink": [
+        1472,
+        170,
+        26,
+        12
+      ],
+      "delta_pixels": [
+        1,
+        1,
+        0,
+        0
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "panel-close-icon",
+      "region": [
+        1527,
+        158,
+        28,
+        32
+      ],
+      "reference_visible_ink": [
+        1535,
+        169,
+        14,
+        13
+      ],
+      "candidate_visible_ink": [
+        1534,
+        169,
+        14,
+        14
+      ],
+      "delta_pixels": [
+        -1,
+        0,
+        0,
+        1
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "overview-heading",
+      "region": [
+        1294,
+        223,
+        140,
+        28
+      ],
+      "reference_visible_ink": [
+        1295,
+        226,
+        70,
+        17
+      ],
+      "candidate_visible_ink": [
+        1295,
+        227,
+        71,
+        17
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        1,
+        0
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "view-heading",
+      "region": [
+        1230,
+        380,
+        112,
+        35
+      ],
+      "reference_visible_ink": [
+        1231,
+        388,
+        57,
+        14
+      ],
+      "candidate_visible_ink": [
+        1230,
+        389,
+        56,
+        12
+      ],
+      "delta_pixels": [
+        -1,
+        1,
+        -1,
+        -2
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "connection-heading",
+      "region": [
+        1230,
+        524,
+        112,
+        29
+      ],
+      "reference_visible_ink": [
+        1231,
+        531,
+        57,
+        14
+      ],
+      "candidate_visible_ink": [
+        1231,
+        532,
+        55,
+        12
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        -2,
+        -2
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "generation-heading",
+      "region": [
+        1230,
+        645,
+        112,
+        29
+      ],
+      "reference_visible_ink": [
+        1231,
+        650,
+        57,
+        14
+      ],
+      "candidate_visible_ink": [
+        1231,
+        651,
+        56,
+        12
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        -1,
+        -2
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "global-heading",
+      "region": [
+        1230,
+        763,
+        122,
+        31
+      ],
+      "reference_visible_ink": [
+        1231,
+        770,
+        72,
+        14
+      ],
+      "candidate_visible_ink": [
+        1230,
+        771,
+        70,
+        12
+      ],
+      "delta_pixels": [
+        -1,
+        1,
+        -2,
+        -2
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "add-menu-heading",
+      "region": [
+        177,
+        407,
+        150,
+        29
+      ],
+      "reference_visible_ink": [
+        181,
+        415,
+        70,
+        14
+      ],
+      "candidate_visible_ink": [
+        181,
+        416,
+        70,
+        12
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        0,
+        -2
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "text-node-heading",
+      "region": [
+        333,
+        286,
+        130,
+        28
+      ],
+      "reference_visible_ink": [
+        338,
+        295,
+        56,
+        13
+      ],
+      "candidate_visible_ink": [
+        338,
+        296,
+        56,
+        12
+      ],
+      "delta_pixels": [
+        0,
+        1,
+        0,
+        -1
+      ],
+      "max_abs_delta_pixels": 1
+    },
+    {
+      "name": "generator-node-heading",
+      "region": [
+        680,
+        422,
+        89,
+        28
+      ],
+      "reference_visible_ink": [
+        684,
+        430,
+        57,
+        14
+      ],
+      "candidate_visible_ink": [
+        683,
+        428,
+        56,
+        12
+      ],
+      "delta_pixels": [
+        -1,
+        -2,
+        -1,
+        -2
+      ],
+      "max_abs_delta_pixels": 2
+    },
+    {
+      "name": "reference-node-heading",
+      "region": [
+        420,
+        613,
+        126,
+        30
+      ],
+      "reference_visible_ink": [
+        427,
+        621,
+        119,
+        12
+      ],
+      "candidate_visible_ink": [
+        424,
+        622,
+        121,
+        13
+      ],
+      "delta_pixels": [
+        -3,
+        1,
+        2,
+        1
+      ],
+      "max_abs_delta_pixels": 3
+    }
+  ]
+}

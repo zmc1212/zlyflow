@@ -70,7 +70,7 @@ class StoryboardImageService:
             cls._validate_render_looks(target, raw_assets)
             clean_prompt = beat_render_prompt(target, assets=prompt_assets, **style)
         elif stage == "triptych":
-            clean_prompt = cls._triptych_prompt(project_id, target)
+            clean_prompt = cls._triptych_prompt(project_id, target, payload)
         else:
             clean_prompt = beat_sketch_prompt(target, assets=prompt_assets, **style)
 
@@ -114,6 +114,13 @@ class StoryboardImageService:
                 "aspectRatio": aspect_ratio, "imageSize": image_size, "replyType": "async",
             },
         }
+        if stage == "triptych":
+            from ...skill_packs.aspect import WORKSHOP_ASPECT_KEY, resolve_workshop_aspect_ratio
+
+            job_payload[WORKSHOP_ASPECT_KEY] = resolve_workshop_aspect_ratio(
+                request=payload,
+                project_id=project_id,
+            )
         execute_sql(
             "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
             "VALUES (%s,%s,'image_generation',%s,'queued',0,NULL,%s,%s,%s)",
@@ -320,7 +327,8 @@ class StoryboardImageService:
         return "2:3", "1K", 768, 1152
 
     @classmethod
-    def _triptych_prompt(cls, project_id: str, beat: dict[str, Any]) -> str:
+    def _triptych_prompt(cls, project_id: str, beat: dict[str, Any], payload: dict[str, Any] | None = None) -> str:
+        from ...skill_packs.aspect import resolve_workshop_aspect_ratio
         from ...skill_packs.binding import resolve_skill_pack_id
         from ...skill_packs.recipe import get_pack
         from ...skill_packs.triptych import build_triptych_generation_prompt
@@ -331,7 +339,12 @@ class StoryboardImageService:
         except Exception:
             recipe = get_pack("")
         template = recipe.reference_text("triptych-prompt.md")
-        return build_triptych_generation_prompt(beat, template=template)
+        aspect = resolve_workshop_aspect_ratio(
+            request=payload,
+            project_id=project_id,
+            recipe=recipe,
+        )
+        return build_triptych_generation_prompt(beat, template=template, aspect_ratio=aspect)
 
     @staticmethod
     def _validate_render_looks(beat: dict[str, Any], assets: list[dict[str, Any]]) -> None:

@@ -1,0 +1,17 @@
+{
+  "status": "succeeded",
+  "jobId": "A2BqOPhd1zV9",
+  "resultStored": true,
+  "independentResult": true,
+  "runSnapshot": true,
+  "automaticCover": true,
+  "downloadHttp": 200,
+  "bytes": 204280,
+  "media": {
+    "width": 608,
+    "height": 352,
+    "duration": 2.333333,
+    "time": 0.512207,
+    "readyState": 4
+  }
+}

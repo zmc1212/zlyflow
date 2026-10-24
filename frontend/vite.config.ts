@@ -28,6 +28,11 @@ export default defineConfig(({ mode }) => {
           }
         : undefined,
       proxy: {
+        "/.well-known/oauth-": {
+          target: `${useHttps ? "https" : "http"}://127.0.0.1:7865`,
+          changeOrigin: true,
+          secure: false,
+        },
         "/api": {
           target: `${useHttps ? "https" : "http"}://127.0.0.1:7865`,
           changeOrigin: true,

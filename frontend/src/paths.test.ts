@@ -16,13 +16,14 @@ describe("studio director routes", () => {
     expect(studioWorkspaceFromPath("/director2")).toBe("director")
     expect(studioWorkspaceFromPath("/director2/projects/p1/content")).toBe("director")
     expect(studioWorkspaceFromPath("/generate/video")).toBe("generate")
+    expect(studioWorkspaceFromPath("/canvas")).toBe("canvas")
+    expect(studioWorkspaceFromPath("/canvas/canvas_123")).toBe("canvas")
     expect(studioWorkspaceFromPath("/assets")).toBe("assets")
   })
 
-  it("marks only batch / replication / hypit as leftover studios", () => {
+  it("marks only batch / replication as leftover studios", () => {
     expect(isDirectorLegacyStudioPath("/director/batch/p1")).toBe(true)
     expect(isDirectorLegacyStudioPath("/director/replication/p1")).toBe(true)
-    expect(isDirectorLegacyStudioPath("/director/hypit/p1")).toBe(true)
     expect(isDirectorLegacyStudioPath("/director")).toBe(false)
     expect(isDirectorLegacyStudioPath("/director/projects/p1/content")).toBe(false)
     expect(isDirectorLegacyStudioPath("/director/old-recipe")).toBe(false)
@@ -37,16 +38,21 @@ describe("studio director routes", () => {
     })).toBe("/director/projects/p1/content?mode=manual#jobs")
   })
 
-  it("registers the new /director project shell and keeps the three leftover studios", () => {
+  it("registers the new /director project shell and keeps the two leftover studios", () => {
     expect(STUDIO_ROUTE_PATHS).toContain(PATHS.director)
+    expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorDiagnosis)
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorProject)
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorProjectMenu)
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorProjectEpisode)
+    expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorProjectEdit)
+    expect(ROUTE_PATTERNS.directorProjectEdit).toBe("/director/projects/:projectId/edit/:episodeId")
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorBatch)
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorReplication)
-    expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorHypit)
     expect(STUDIO_ROUTE_PATHS).not.toContain(ROUTE_PATTERNS.directorLegacyRecipe)
     expect(STUDIO_ROUTE_PATHS).not.toContain(PATHS.director2)
     expect(ROUTE_PATTERNS.directorProject).toBe("/director/projects/:projectId")
+    expect(STUDIO_ROUTE_PATHS).toContain(PATHS.canvas)
+    expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.canvasProject)
+    expect(ROUTE_PATTERNS.canvasProject).toBe("/canvas/:canvasId")
   })
 })

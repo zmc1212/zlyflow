@@ -31,6 +31,7 @@ from .timeline_rendering import (
     uses_director_timeline,
 )
 from ...gpu_runtime import occupy_gpu
+from ...minimax_h3_refine_workflow import continuation_workflow
 from ...rtx_vsr_workflow import should_auto_upscale, source_video_shape, vsr_memory_rejection
 from ...workflow_registry import (
     H3_STANDARD_OPTION_SCHEMA,
@@ -53,7 +54,11 @@ _ACTIVE_VIDEO_STATUSES = (
     "upscaling",
     "assembling",
     "downloading",
+    "awaiting_refine",
 )
+_SUCCEEDED_VIDEO_STATUSES = ("completed", "succeeded")
+_SHOT_TAKE_SCOPES = frozenset({"shot", "selection"})
+_EXCLUDED_TAKE_SCOPES = frozenset({"episode", "compose", "upscale"})
 
 
 def concat_video_bytes(chunks: list[bytes]) -> bytes:
@@ -188,6 +193,9 @@ class EpisodeVideoService:
                 "resolved": workflow_id,
                 "reason": fallback_reason,
             }
+        from ...director_assistant.model_context import current_model
+        if current_model():
+            resolved["assistant_model_id"] = current_model()
         return resolved
 
     @staticmethod
@@ -524,6 +532,8 @@ class EpisodeVideoService:
             raise ValueError("逐镜工作流必须指定 Beat，请使用一键生成或「生成本镜」")
         else:
             render_scope = "episode"
+        if render_scope == "episode" and cls._refine_preview_enabled(settings):
+            raise ValueError("整集直出暂不支持先预览一采，请改为逐镜或选中镜生成")
 
         llm = H3PromptBuilder.ensure_available()
         comfy_config = ComfyService.get_config()
@@ -820,7 +830,383 @@ class EpisodeVideoService:
                 beat_id = str(shot.get("beat_id") or "").strip()
                 if beat_id:
                     ids.add(beat_id)
+        for shot in payload.get("shots") or []:
+            if isinstance(shot, dict):
+                beat_id = str(shot.get("beat_id") or "").strip()
+                if beat_id:
+                    ids.add(beat_id)
         return ids
+
+    @staticmethod
+    def _make_video_take_id(job_id: str = "", url: str = "", beat_id: str = "") -> str:
+        job = str(job_id or "").strip()
+        beat = str(beat_id or "").strip()
+        if job and beat:
+            return f"take-{job}-{beat}"
+        if job:
+            return f"take-{job}"
+        digest = hashlib.sha1(f"{beat}|{url}".encode("utf-8")).hexdigest()[:12]
+        return f"take-local-{digest}"
+
+    @classmethod
+    def _normalize_video_takes(cls, raw: Any) -> list[dict[str, Any]]:
+        items = raw if isinstance(raw, list) else []
+        takes: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            scope = str(item.get("scope") or "shot").strip() or "shot"
+            if scope not in _SHOT_TAKE_SCOPES:
+                continue
+            seen.add(url)
+            take: dict[str, Any] = {
+                "id": str(item.get("id") or "").strip() or cls._make_video_take_id(
+                    str(item.get("job_id") or ""), url, str(item.get("beat_id") or ""),
+                ),
+                "job_id": str(item.get("job_id") or "").strip(),
+                "url": url,
+                "created_at": str(item.get("created_at") or "").strip(),
+                "scope": scope,
+            }
+            upscaled = str(item.get("upscaled_url") or "").strip()
+            if upscaled:
+                take["upscaled_url"] = upscaled
+            takes.append(take)
+        return takes
+
+    @classmethod
+    def _archive_and_adopt_beat_video(
+        cls,
+        beat: dict[str, Any] | None,
+        *,
+        url: str,
+        job_id: str = "",
+        scope: str = "shot",
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        url = str(url or "").strip()
+        if not url:
+            raise ValueError("成片地址为空")
+        beat = beat if isinstance(beat, dict) else {}
+        beat_id = str(beat.get("id") or beat.get("beat_id") or "").strip()
+        takes = cls._normalize_video_takes(beat.get("video_takes"))
+        old_url = str(beat.get("video_url") or "").strip()
+        old_upscaled = str(beat.get("upscaled_video_url") or "").strip()
+        existing_urls = {str(item.get("url") or "") for item in takes}
+        take_scope = scope if scope in _SHOT_TAKE_SCOPES else "shot"
+        if old_url and old_url not in existing_urls:
+            archived = {
+                "id": str(beat.get("video_take_id") or "").strip() or cls._make_video_take_id("", old_url, beat_id),
+                "job_id": "",
+                "url": old_url,
+                "created_at": "",
+                "scope": "shot",
+            }
+            if old_upscaled:
+                archived["upscaled_url"] = old_upscaled
+            takes.append(archived)
+            existing_urls.add(old_url)
+        take_id = cls._make_video_take_id(job_id, url, beat_id)
+        if url not in existing_urls:
+            takes.append({
+                "id": take_id,
+                "job_id": str(job_id or "").strip(),
+                "url": url,
+                "created_at": created_at or now_str(),
+                "scope": take_scope,
+            })
+        else:
+            for item in takes:
+                if item.get("url") != url:
+                    continue
+                take_id = str(item.get("id") or take_id)
+                if job_id and not item.get("job_id"):
+                    item["job_id"] = str(job_id)
+                if not item.get("created_at") and created_at:
+                    item["created_at"] = created_at
+                break
+        return {
+            "video_url": url,
+            "upscaled_video_url": None,
+            "video_take_id": take_id,
+            "video_takes": takes,
+            "render_status": "completed",
+            "status": "completed",
+        }
+
+    @classmethod
+    def _attach_upscaled_to_adopted_take(cls, beat: dict[str, Any] | None, upscaled_url: str) -> dict[str, Any]:
+        upscaled_url = str(upscaled_url or "").strip()
+        beat = beat if isinstance(beat, dict) else {}
+        takes = cls._normalize_video_takes(beat.get("video_takes"))
+        adopted = str(beat.get("video_url") or "").strip()
+        beat_id = str(beat.get("id") or beat.get("beat_id") or "").strip()
+        if adopted:
+            found = False
+            for item in takes:
+                if item.get("url") == adopted:
+                    item["upscaled_url"] = upscaled_url
+                    found = True
+                    break
+            if not found:
+                take: dict[str, Any] = {
+                    "id": str(beat.get("video_take_id") or "").strip() or cls._make_video_take_id("", adopted, beat_id),
+                    "job_id": "",
+                    "url": adopted,
+                    "created_at": "",
+                    "scope": "shot",
+                }
+                if upscaled_url:
+                    take["upscaled_url"] = upscaled_url
+                takes.append(take)
+        return {
+            "upscaled_video_url": upscaled_url,
+            "video_takes": takes,
+        }
+
+    @classmethod
+    def _adopt_take_updates(cls, beat: dict[str, Any] | None, url: str, *, take_id: str = "") -> dict[str, Any]:
+        url = str(url or "").strip()
+        if not url:
+            raise ValueError("成片地址为空")
+        beat = beat if isinstance(beat, dict) else {}
+        takes = cls._normalize_video_takes(beat.get("video_takes"))
+        target = next((item for item in takes if item.get("url") == url), None)
+        if target is None:
+            target = {
+                "id": str(take_id or beat.get("video_take_id") or "").strip()
+                or cls._make_video_take_id("", url, str(beat.get("id") or "")),
+                "job_id": "",
+                "url": url,
+                "created_at": "",
+                "scope": "shot",
+            }
+            takes.append(target)
+        elif take_id and not target.get("id"):
+            target["id"] = take_id
+        return {
+            "video_url": url,
+            "video_take_id": str(target.get("id") or take_id or ""),
+            "upscaled_video_url": str(target.get("upscaled_url") or "").strip() or None,
+            "video_takes": takes,
+        }
+
+    @classmethod
+    def _shot_video_url_from_job(cls, row: dict[str, Any] | None, payload: dict[str, Any], beat_id: str) -> str:
+        scope = str(payload.get("render_scope") or "")
+        if scope in _EXCLUDED_TAKE_SCOPES:
+            return ""
+        wanted = str(beat_id or "").strip()
+        if not wanted or wanted not in cls._job_beat_ids(payload):
+            return ""
+        shots = [item for item in (payload.get("shots") or []) if isinstance(item, dict)]
+        for shot in shots:
+            if str(shot.get("beat_id") or "") == wanted:
+                url = str(shot.get("video_url") or "").strip()
+                if url:
+                    return url
+        split = payload.get("shot_video_urls")
+        if isinstance(split, list) and split:
+            order: list[str] = []
+            for key in ("shots", "source_shots"):
+                ids = [
+                    str(item.get("beat_id") or "").strip()
+                    for item in (payload.get(key) or [])
+                    if isinstance(item, dict) and str(item.get("beat_id") or "").strip()
+                ]
+                if wanted in ids:
+                    order = ids
+                    break
+            if not order:
+                order = [str(item).strip() for item in (payload.get("beat_ids") or []) if str(item or "").strip()]
+            if wanted in order:
+                index = order.index(wanted)
+                if index < len(split):
+                    return str(split[index] or "").strip()
+        if len(cls._job_beat_ids(payload)) <= 1:
+            return cls._original_video_url_from_job(row, payload)
+        return ""
+
+    @classmethod
+    def _list_completed_video_jobs(cls, project_id: str) -> list[dict[str, Any]]:
+        try:
+            return query_all(
+                """
+                SELECT id, result_url, payload_json, created_at, updated_at, status
+                FROM ai_project_jobs
+                WHERE project_id = %s AND job_type = 'video_generation'
+                  AND status IN ('completed', 'succeeded')
+                ORDER BY created_at ASC
+                LIMIT 200
+                """,
+                (project_id,),
+            ) or []
+        except Exception:
+            return []
+
+    @classmethod
+    def collect_beat_video_takes(
+        cls,
+        beat: dict[str, Any] | None,
+        jobs: list[dict[str, Any]] | None,
+        episode_id: str,
+    ) -> list[dict[str, Any]]:
+        beat = beat if isinstance(beat, dict) else {}
+        beat_id = str(beat.get("id") or beat.get("beat_id") or "").strip()
+        episode = str(episode_id or "").strip()
+        merged: dict[str, dict[str, Any]] = {}
+
+        def upsert(take: dict[str, Any]) -> None:
+            url = str(take.get("url") or "").strip()
+            if not url:
+                return
+            current = merged.get(url)
+            if current is None:
+                merged[url] = take
+                return
+            created = str(take.get("created_at") or "")
+            prev_created = str(current.get("created_at") or "")
+            if created and (not prev_created or created < prev_created):
+                current["created_at"] = created
+            if take.get("job_id") and not current.get("job_id"):
+                current["job_id"] = take.get("job_id")
+            if take.get("id") and not current.get("id"):
+                current["id"] = take.get("id")
+            if take.get("upscaled_url"):
+                current["upscaled_url"] = take.get("upscaled_url")
+            if take.get("scope") and not current.get("scope"):
+                current["scope"] = take.get("scope")
+
+        for item in cls._normalize_video_takes(beat.get("video_takes")):
+            upsert(item)
+        adopted = str(beat.get("video_url") or "").strip()
+        if adopted:
+            upsert({
+                "id": str(beat.get("video_take_id") or "").strip() or cls._make_video_take_id("", adopted, beat_id),
+                "job_id": "",
+                "url": adopted,
+                "created_at": "",
+                "scope": "shot",
+                **({"upscaled_url": str(beat.get("upscaled_video_url") or "").strip()}
+                   if str(beat.get("upscaled_video_url") or "").strip() else {}),
+            })
+        for row in jobs or []:
+            payload = cls._job_payload(row)
+            if str(payload.get("episode_id") or "") != episode:
+                continue
+            scope = str(payload.get("render_scope") or "")
+            if scope == "upscale":
+                source = str(payload.get("source_video_url") or "").strip()
+                upscaled = str(payload.get("upscaled_video_url") or row.get("result_url") or "").strip()
+                if source and upscaled and source in merged:
+                    merged[source]["upscaled_url"] = upscaled
+                continue
+            if str(row.get("status") or "") not in _SUCCEEDED_VIDEO_STATUSES:
+                continue
+            if str(row.get("job_type") or "video_generation") != "video_generation":
+                continue
+            url = cls._shot_video_url_from_job(row, payload, beat_id)
+            if not url:
+                continue
+            upsert({
+                "id": cls._make_video_take_id(str(row.get("id") or ""), url, beat_id),
+                "job_id": str(row.get("id") or ""),
+                "url": url,
+                "created_at": str(row.get("created_at") or ""),
+                "scope": scope if scope in _SHOT_TAKE_SCOPES else "shot",
+            })
+        adopted_upscaled = str(beat.get("upscaled_video_url") or "").strip()
+        if adopted and adopted_upscaled and adopted in merged and not merged[adopted].get("upscaled_url"):
+            merged[adopted]["upscaled_url"] = adopted_upscaled
+        takes = list(merged.values())
+        takes.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("url") or "")))
+        return takes
+
+    @classmethod
+    def _persist_shot_original_video(
+        cls,
+        project_id: str,
+        episode_id: str,
+        beat_id: str,
+        url: str,
+        *,
+        job_id: str = "",
+        scope: str = "shot",
+        beat: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        snapshot = dict(beat or {})
+        if not snapshot:
+            try:
+                detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
+                snapshot = next(
+                    (item for item in (detail.get("beats") or []) if str(item.get("id") or "") == str(beat_id)),
+                    {},
+                ) or {}
+            except Exception:
+                snapshot = {}
+        if "id" not in snapshot:
+            snapshot["id"] = beat_id
+        updates = cls._archive_and_adopt_beat_video(
+            snapshot, url=url, job_id=job_id, scope=scope,
+        )
+        ProjectDetailService.update_episode_beat(project_id, episode_id, beat_id, updates)
+        return updates
+
+    @classmethod
+    def adopt_beat_video_take(
+        cls,
+        project_id: str,
+        episode_id: str,
+        beat_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        body = dict(payload or {})
+        url = str(body.get("url") or "").strip()
+        job_id = str(body.get("job_id") or "").strip()
+        if not url and not job_id:
+            raise ValueError("请提供要采用的成片地址或任务 ID")
+        detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
+        beat = next((item for item in (detail.get("beats") or []) if str(item.get("id") or "") == str(beat_id)), None)
+        if not beat:
+            raise ValueError("分镜不存在")
+        jobs = cls._list_completed_video_jobs(project_id)
+        if job_id:
+            row = next((item for item in jobs if str(item.get("id") or "") == job_id), None)
+            if row is None:
+                row = query_one(
+                    """
+                    SELECT id, result_url, payload_json, created_at, updated_at, status, job_type
+                    FROM ai_project_jobs WHERE id = %s AND project_id = %s
+                    """,
+                    (job_id, project_id),
+                )
+            job_payload = cls._job_payload(row)
+            if not row or str(row.get("job_type") or "video_generation") != "video_generation":
+                raise ValueError("该任务没有本镜成功成片")
+            if str(row.get("status") or "") not in _SUCCEEDED_VIDEO_STATUSES:
+                raise ValueError("该任务没有本镜成功成片")
+            if str(job_payload.get("episode_id") or "") != str(episode_id):
+                raise ValueError("该成片不属于本镜的成功抽卡结果")
+            resolved = cls._shot_video_url_from_job(row, job_payload, beat_id)
+            if not resolved:
+                raise ValueError("该任务没有本镜成功成片")
+            if url and url != resolved:
+                raise ValueError("该成片不属于本镜的成功抽卡结果")
+            url = resolved
+        candidates = cls.collect_beat_video_takes(beat, jobs, episode_id)
+        target = next((item for item in candidates if item.get("url") == url), None)
+        if target is None:
+            raise ValueError("该成片不属于本镜的成功抽卡结果")
+        updates = cls._adopt_take_updates(
+            {**beat, "video_takes": candidates},
+            url,
+            take_id=str(target.get("id") or ""),
+        )
+        return ProjectDetailService.update_episode_beat(project_id, episode_id, beat_id, updates)
 
     @classmethod
     def _active_video_jobs(cls, project_id: str, episode_id: str) -> list[dict[str, Any]]:
@@ -895,6 +1281,88 @@ class EpisodeVideoService:
             (json.dumps(payload, ensure_ascii=False), timestamp, job_id, project_id),
         )
         _EXECUTOR.submit(cls._run_job, job_id)
+        return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
+
+    @classmethod
+    def _awaiting_refine_job(cls, project_id: str, job_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        row = query_one(
+            "SELECT * FROM ai_project_jobs WHERE id = %s AND project_id = %s",
+            (job_id, project_id),
+        )
+        if not row or row.get("job_type") != "video_generation":
+            raise ValueError("视频任务不存在")
+        if row.get("status") != "awaiting_refine":
+            raise ValueError("当前任务没有待确认的一采预览")
+        payload = cls._job_payload(row)
+        if str(payload.get("render_scope") or "") not in {"shot", "selection"}:
+            raise ValueError("整集直出暂不支持一采预览确认")
+        return row, payload
+
+    @classmethod
+    def confirm_refine(cls, project_id: str, job_id: str) -> dict[str, Any]:
+        row, payload = cls._awaiting_refine_job(project_id, job_id)
+        continuation = payload.get("refine_continuation") or {}
+        chunks = [item for item in (continuation.get("chunks") or []) if isinstance(item, dict)]
+        if not chunks or not all(isinstance(item.get("workflow"), dict) for item in chunks):
+            raise ValueError("未找到已保存的二采工作流，请重新生成")
+        continuation["status"] = "running"
+        payload["refine_continuation"] = continuation
+        updated = execute_sql(
+            """
+            UPDATE ai_project_jobs SET status = 'queued', progress = 90, error_message = NULL,
+              completed_at = NULL, payload_json = %s, updated_at = %s
+            WHERE id = %s AND project_id = %s AND status = 'awaiting_refine'
+            """,
+            (json.dumps(payload, ensure_ascii=False), now_str(), job_id, project_id),
+        )
+        if not updated:
+            raise ValueError("任务状态已变化，请刷新后重试")
+        _EXECUTOR.submit(cls._run_job, job_id)
+        return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
+
+    @classmethod
+    def skip_refine(cls, project_id: str, job_id: str) -> dict[str, Any]:
+        row, payload = cls._awaiting_refine_job(project_id, job_id)
+        continuation = payload.get("refine_continuation") or {}
+        chunks = [item for item in (continuation.get("chunks") or []) if isinstance(item, dict)]
+        result_url = str(row.get("result_url") or "").strip()
+        if len(chunks) > 1 and not continuation.get("preview_merged"):
+            outputs = [
+                item.get("preview_output") for item in chunks
+                if isinstance(item.get("preview_output"), dict)
+            ]
+            if len(outputs) != len(chunks):
+                raise ValueError("一采预览分段缺失，无法保留，请确认二采或重新生成")
+            if not QiniuService.get_config().available:
+                raise ValueError("多段一采预览需要合并后才能保留，请先配置七牛云或确认二采")
+            comfy = ComfyVideoClient(payload["comfy_base_url"])
+            merged = cls._merge_chunk_videos(comfy, outputs)
+            _, result_url = QiniuService.store_bytes("video", f"preview-{job_id}.mp4", merged)
+        if not result_url:
+            raise ValueError("一采预览地址缺失，请确认二采或重新生成")
+        shots = payload.get("shots") or []
+        if shots:
+            try:
+                cls._write_selected_beat_videos(payload, shots, result_url, job_id=job_id)
+            except Exception as beat_update_error:
+                payload["beat_update_warning"] = str(beat_update_error)
+        payload["render_plan"] = payload.get("render_plan") or {}
+        payload["render_plan"]["status"] = "succeeded"
+        payload["result_kind"] = "shot_video"
+        continuation["status"] = "skipped"
+        continuation["preview_url"] = result_url
+        payload["refine_continuation"] = continuation
+        timestamp = now_str()
+        updated = execute_sql(
+            """
+            UPDATE ai_project_jobs SET status = 'completed', progress = 100, result_url = %s,
+              payload_json = %s, error_message = NULL, completed_at = %s, updated_at = %s
+            WHERE id = %s AND project_id = %s AND status = 'awaiting_refine'
+            """,
+            (result_url, json.dumps(payload, ensure_ascii=False), timestamp, timestamp, job_id, project_id),
+        )
+        if not updated:
+            raise ValueError("任务状态已变化，请刷新后重试")
         return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
 
     @classmethod
@@ -1150,9 +1618,13 @@ class EpisodeVideoService:
     @classmethod
     def _run_job(cls, job_id: str) -> None:
         gpu_cm = None
+        model_cm = None
         try:
             row = query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
             payload = json.loads(row.get("payload_json") or "{}")
+            from ...director_assistant.model_context import model_scope
+            model_cm = model_scope(payload.get("assistant_model_id"))
+            model_cm.__enter__()
             if str(payload.get("render_scope") or "") == "compose":
                 cls._run_compose_job(job_id, payload)
                 return
@@ -1160,6 +1632,9 @@ class EpisodeVideoService:
             gpu_cm.__enter__()
             if str(payload.get("render_scope") or "") == "upscale":
                 cls._run_upscale_job(job_id, payload)
+                return
+            if (payload.get("refine_continuation") or {}).get("status") == "running":
+                cls._run_refine_continuation(job_id, payload)
                 return
             cls._set_state(job_id, payload, "preparing", 10)
             requested_workflow = payload.get("workflow_id") or cls.DEFAULTS["workflow"]
@@ -1227,13 +1702,15 @@ class EpisodeVideoService:
                 result_url = cls._run_shot_graph_job(
                     job_id, payload, comfy, generated_shots, resolved_workflow_id,
                 )
+            if result_url is None:
+                return
             payload["render_plan"] = payload.get("render_plan") or {}
             payload["render_plan"]["status"] = "succeeded"
             payload["render_plan"]["total_duration"] = payload.get("total_duration_seconds")
             payload["result_kind"] = "episode_video" if payload.get("render_scope") == "episode" else "shot_video"
             if payload.get("render_scope") in {"shot", "selection"} and generated_shots:
                 try:
-                    cls._write_selected_beat_videos(payload, generated_shots, result_url)
+                    cls._write_selected_beat_videos(payload, generated_shots, result_url, job_id=job_id)
                 except Exception as beat_update_error:
                     payload["beat_update_warning"] = str(beat_update_error)
                 cls._auto_upscale_if_requested(job_id, payload, comfy, generated_shots)
@@ -1263,6 +1740,9 @@ class EpisodeVideoService:
                 row = query_one("SELECT payload_json FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
                 failed_payload = json.loads(row.get("payload_json") or "{}")
                 failed_payload["failure_stage"] = failed_payload.get("runtime_stage") or "unknown"
+                continuation = failed_payload.get("refine_continuation")
+                if isinstance(continuation, dict) and continuation.get("status") == "running":
+                    continuation["status"] = "failed"
                 if isinstance(failed_payload.get("render_plan"), dict):
                     failed_payload["render_plan"]["status"] = "failed"
                 execute_sql(
@@ -1278,8 +1758,12 @@ class EpisodeVideoService:
                     (str(err)[:4000], timestamp, job_id),
                 )
         finally:
-            if gpu_cm is not None:
-                gpu_cm.__exit__(None, None, None)
+            try:
+                if gpu_cm is not None:
+                    gpu_cm.__exit__(None, None, None)
+            finally:
+                if model_cm is not None:
+                    model_cm.__exit__(None, None, None)
 
     @classmethod
     def _run_timeline_job(
@@ -1301,7 +1785,8 @@ class EpisodeVideoService:
             supports_audio_batch=bool(definition and definition.supports_audio_batch),
         )
         chunks = plan_timeline_chunks(generated_shots, capabilities)
-        previous_chunks = {
+        preview = cls._refine_preview_enabled(payload)
+        previous_chunks = {} if preview else {
             tuple(item.get("shot_ids") or []): item
             for item in (payload.get("render_plan") or {}).get("chunks", [])
             if isinstance(item, dict)
@@ -1324,6 +1809,8 @@ class EpisodeVideoService:
             "assembly": None,
         }
         chunk_outputs: list[dict[str, str]] = []
+        preview_outputs: list[dict[str, str]] = []
+        continuations: list[dict[str, Any]] = []
         for index, chunk in enumerate(chunks):
             if payload["render_plan"]["chunks"][index].get("status") == "succeeded":
                 output_start = payload["render_plan"]["chunks"][index]["output_start"]
@@ -1361,12 +1848,34 @@ class EpisodeVideoService:
             history, output = cls._await_comfy(
                 job_id, payload, comfy, workflow, submission_index=index + 1,
             )
+            chunk_shot_ids = set(payload["render_plan"]["chunks"][index]["shot_ids"])
+            if preview:
+                payload["render_plan"]["chunks"][index].update({
+                    "status": "awaiting_refine",
+                    "preview_output": output,
+                    "director_report": cls._director_report(history.get("outputs") or {}),
+                })
+                for shot in generated_shots:
+                    if str(shot.get("beat_id")) in chunk_shot_ids:
+                        shot["segmentIndex"] = index
+                        shot["renderStatus"] = "awaiting_refine"
+                        shot["promptSnapshot"] = shot.get("prompt") or ""
+                        shot["outputStart"] = payload["render_plan"]["chunks"][index]["output_start"]
+                        shot["outputDuration"] = float(shot.get("duration_sec") or 8)
+                continuations.append({
+                    "index": index,
+                    "shot_ids": list(chunk_shot_ids),
+                    "workflow": continuation_workflow(workflow, video_node="16", output_node="17"),
+                    "preview_output": output,
+                })
+                preview_outputs.append(output)
+                cls._set_state(job_id, payload, "running", 90)
+                continue
             payload["render_plan"]["chunks"][index].update({
                 "status": "succeeded",
                 "output": output,
                 "director_report": cls._director_report(history.get("outputs") or {}),
             })
-            chunk_shot_ids = set(payload["render_plan"]["chunks"][index]["shot_ids"])
             for shot in generated_shots:
                 if str(shot.get("beat_id")) in chunk_shot_ids:
                     shot["segmentIndex"] = index
@@ -1379,25 +1888,19 @@ class EpisodeVideoService:
             chunk_outputs.append(output)
             cls._set_state(job_id, payload, "running", 95)
 
-        result_url = comfy.view_url(chunk_outputs[0])
-        if len(chunk_outputs) > 1:
-            payload["render_plan"]["assembly"] = {"status": "running", "method": "ffmpeg_concat"}
-            cls._set_state(job_id, payload, "assembling", 96)
-            merged = cls._merge_chunk_videos(comfy, chunk_outputs)
-            payload["render_plan"]["assembly"] = {"status": "succeeded", "method": "ffmpeg_concat"}
-            if QiniuService.get_config().available:
-                _, result_url = QiniuService.store_bytes("video", f"episode-{job_id}.mp4", merged)
-            else:
-                raise RuntimeError("整集分段已经生成，但七牛云存储未配置，无法发布 ffmpeg 合成结果")
-        else:
-            payload["comfy_output"] = chunk_outputs[0]
-            try:
-                if QiniuService.get_config().available:
-                    content = comfy.download_output(chunk_outputs[0])
-                    _, result_url = QiniuService.store_bytes("video", chunk_outputs[0]["filename"], content)
-            except Exception as upload_error:
-                payload["storage_warning"] = str(upload_error)
-        return result_url
+        if preview:
+            preview_url, merged = cls._publish_preview_result(job_id, payload, comfy, preview_outputs)
+            payload["refine_continuation"] = {
+                "status": "awaiting",
+                "mode": "timeline",
+                "quality": str(payload.get("refine_quality") or "1.0"),
+                "preview_url": preview_url,
+                "preview_merged": merged,
+                "chunks": continuations,
+            }
+            cls._mark_awaiting_refine(job_id, payload, preview_url)
+            return None
+        return cls._publish_timeline_result(job_id, payload, comfy, chunk_outputs)
 
     @classmethod
     def _run_shot_graph_job(
@@ -1407,9 +1910,10 @@ class EpisodeVideoService:
         comfy: ComfyVideoClient,
         generated_shots: list[dict[str, Any]],
         resolved_workflow_id: str,
-    ) -> str:
+    ) -> str | None:
         if not generated_shots:
             raise RuntimeError("逐镜任务没有可生成的镜头")
+        preview = cls._refine_preview_enabled(payload)
         payload["render_plan"] = {
             "status": "running",
             "mode": "shot_graph",
@@ -1419,6 +1923,8 @@ class EpisodeVideoService:
             "assembly": None,
         }
         result_url = ""
+        preview_outputs: list[dict[str, str]] = []
+        continuations: list[dict[str, Any]] = []
         for index, shot in enumerate(generated_shots):
             shot_options = {**payload, "duration": float(shot.get("duration_sec") or 8)}
             workflow = comfy.build_shot_workflow(
@@ -1437,34 +1943,55 @@ class EpisodeVideoService:
             _history, output = cls._await_comfy(
                 job_id, payload, comfy, workflow, submission_index=index + 1,
             )
+            if preview:
+                payload["render_plan"]["chunks"][index].update({
+                    "status": "awaiting_refine",
+                    "preview_output": output,
+                })
+                shot["renderStatus"] = "awaiting_refine"
+                shot["promptSnapshot"] = shot.get("prompt") or ""
+                continuations.append({
+                    "index": index,
+                    "shot_ids": [str(shot.get("beat_id") or "")],
+                    "beat_id": str(shot.get("beat_id") or ""),
+                    "workflow": continuation_workflow(workflow),
+                    "preview_output": output,
+                })
+                preview_outputs.append(output)
+                cls._set_state(job_id, payload, "running", 90)
+                continue
             payload["render_plan"]["chunks"][index].update({"status": "succeeded", "output": output})
             shot["renderStatus"] = "succeeded"
             shot["promptSnapshot"] = shot.get("prompt") or ""
-            result_url = comfy.view_url(output)
-            payload["comfy_output"] = output
-            try:
-                if QiniuService.get_config().available:
-                    content = comfy.download_output(output)
-                    _, result_url = QiniuService.store_bytes("video", output["filename"], content)
-            except Exception as upload_error:
-                payload["storage_warning"] = str(upload_error)
+            result_url = cls._publish_single_output(comfy, output, job_id=job_id, payload=payload)
             if len(generated_shots) > 1:
                 try:
-                    ProjectDetailService.update_episode_beat(
+                    updates = cls._persist_shot_original_video(
                         payload["project_id"],
                         payload["episode_id"],
                         str(shot.get("beat_id")),
-                        {
-                            "video_url": result_url,
-                            "upscaled_video_url": None,
-                            "render_status": "completed",
-                            "status": "completed",
-                        },
+                        result_url,
+                        job_id=job_id,
+                        scope=str(payload.get("render_scope") or "shot"),
                     )
                     shot["video_url"] = result_url
+                    shot["video_takes"] = updates.get("video_takes")
+                    shot["video_take_id"] = updates.get("video_take_id")
                 except Exception as beat_update_error:
                     payload["beat_update_warning"] = str(beat_update_error)
             cls._set_state(job_id, payload, "running", 95)
+        if preview:
+            preview_url, merged = cls._publish_preview_result(job_id, payload, comfy, preview_outputs)
+            payload["refine_continuation"] = {
+                "status": "awaiting",
+                "mode": "shot_graph",
+                "quality": str(payload.get("refine_quality") or "1.0"),
+                "preview_url": preview_url,
+                "preview_merged": merged,
+                "chunks": continuations,
+            }
+            cls._mark_awaiting_refine(job_id, payload, preview_url)
+            return None
         return result_url
 
     @classmethod
@@ -1551,24 +2078,50 @@ class EpisodeVideoService:
         payload: dict[str, Any],
         shots: list[dict[str, Any]],
         result_url: str,
+        job_id: str = "",
     ) -> None:
         project_id = str(payload.get("project_id") or "")
         episode_id = str(payload.get("episode_id") or "")
+        scope = str(payload.get("render_scope") or "shot")
         if not shots:
             return
-        if len(shots) == 1:
-            shots[0]["video_url"] = result_url
-            ProjectDetailService.update_episode_beat(
+        beats_by_id: dict[str, dict[str, Any]] = {}
+        try:
+            detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
+            beats_by_id = {
+                str(item.get("id") or ""): item
+                for item in (detail.get("beats") or [])
+                if isinstance(item, dict) and item.get("id")
+            }
+        except Exception:
+            beats_by_id = {}
+
+        def persist(shot: dict[str, Any], url: str) -> None:
+            beat_id = str(shot.get("beat_id") or "")
+            updates = cls._persist_shot_original_video(
                 project_id,
                 episode_id,
-                str(shots[0].get("beat_id")),
-                {
-                    "video_url": result_url,
-                    "upscaled_video_url": None,
-                    "render_status": "completed",
-                    "status": "completed",
-                },
+                beat_id,
+                url,
+                job_id=job_id,
+                scope=scope,
+                beat=beats_by_id.get(beat_id),
             )
+            shot["video_url"] = url
+            shot["video_takes"] = updates.get("video_takes")
+            shot["video_take_id"] = updates.get("video_take_id")
+            current = beats_by_id.get(beat_id)
+            if current is not None:
+                current.update(updates)
+
+        if len(shots) == 1:
+            persist(shots[0], result_url)
+            return
+        if all(str(shot.get("video_url") or "").strip() for shot in shots):
+            split_urls = [str(shot.get("video_url") or "").strip() for shot in shots]
+            for shot, url in zip(shots, split_urls):
+                persist(shot, url)
+            payload["shot_video_urls"] = split_urls
             return
         response = requests.get(result_url, timeout=600)
         response.raise_for_status()
@@ -1588,18 +2141,7 @@ class EpisodeVideoService:
                 clip,
             )
             split_urls.append(url)
-            shot["video_url"] = url
-            ProjectDetailService.update_episode_beat(
-                project_id,
-                episode_id,
-                str(shot.get("beat_id")),
-                {
-                    "video_url": url,
-                    "upscaled_video_url": None,
-                    "render_status": "completed",
-                    "status": "completed",
-                },
-            )
+            persist(shot, url)
         payload["shot_video_urls"] = split_urls
 
     @classmethod
@@ -1638,6 +2180,186 @@ class EpisodeVideoService:
     @staticmethod
     def _merge_chunk_videos(comfy: ComfyVideoClient, outputs: list[dict[str, str]]) -> bytes:
         return concat_video_bytes([comfy.download_output(output) for output in outputs])
+
+    @staticmethod
+    def _refine_preview_enabled(options: dict[str, Any] | None) -> bool:
+        values = dict(options or {})
+        if not coerce_bool_option(values.get("refine_enabled", False), label="二采精修"):
+            return False
+        return coerce_bool_option(values.get("refine_preview", False), label="先预览一采")
+
+    @classmethod
+    def _publish_single_output(
+        cls,
+        comfy: ComfyVideoClient,
+        output: dict[str, str],
+        *,
+        job_id: str,
+        payload: dict[str, Any],
+        filename: str | None = None,
+    ) -> str:
+        payload["comfy_output"] = output
+        url = comfy.view_url(output)
+        try:
+            if QiniuService.get_config().available:
+                content = comfy.download_output(output)
+                _, url = QiniuService.store_bytes("video", filename or output["filename"], content)
+        except Exception as upload_error:
+            payload["storage_warning"] = str(upload_error)
+        return url
+
+    @classmethod
+    def _publish_preview_result(
+        cls,
+        job_id: str,
+        payload: dict[str, Any],
+        comfy: ComfyVideoClient,
+        outputs: list[dict[str, str]],
+    ) -> tuple[str, bool]:
+        if not outputs:
+            raise RuntimeError("一采预览没有返回视频")
+        if len(outputs) == 1:
+            url = cls._publish_single_output(
+                comfy, outputs[0], job_id=job_id, payload=payload, filename=f"preview-{job_id}.mp4",
+            )
+            return url, True
+        payload.setdefault("render_plan", {})["assembly"] = {"status": "running", "method": "ffmpeg_concat"}
+        cls._set_state(job_id, payload, "assembling", 94)
+        merged = cls._merge_chunk_videos(comfy, outputs)
+        payload["render_plan"]["assembly"] = {"status": "succeeded", "method": "ffmpeg_concat"}
+        if not QiniuService.get_config().available:
+            payload["storage_warning"] = "七牛云存储未配置，多段一采预览只能显示第一段"
+            return comfy.view_url(outputs[0]), False
+        _, url = QiniuService.store_bytes("video", f"preview-{job_id}.mp4", merged)
+        return url, True
+
+    @classmethod
+    def _publish_timeline_result(
+        cls,
+        job_id: str,
+        payload: dict[str, Any],
+        comfy: ComfyVideoClient,
+        chunk_outputs: list[dict[str, str]],
+    ) -> str:
+        if not chunk_outputs:
+            raise RuntimeError("Timeline 任务没有可发布的视频")
+        if len(chunk_outputs) == 1:
+            return cls._publish_single_output(comfy, chunk_outputs[0], job_id=job_id, payload=payload)
+        payload.setdefault("render_plan", {})["assembly"] = {"status": "running", "method": "ffmpeg_concat"}
+        cls._set_state(job_id, payload, "assembling", 96)
+        merged = cls._merge_chunk_videos(comfy, chunk_outputs)
+        payload["render_plan"]["assembly"] = {"status": "succeeded", "method": "ffmpeg_concat"}
+        if not QiniuService.get_config().available:
+            raise RuntimeError("整集分段已经生成，但七牛云存储未配置，无法发布 ffmpeg 合成结果")
+        _, result_url = QiniuService.store_bytes("video", f"episode-{job_id}.mp4", merged)
+        return result_url
+
+    @classmethod
+    def _mark_awaiting_refine(cls, job_id: str, payload: dict[str, Any], preview_url: str) -> None:
+        payload["runtime_stage"] = "awaiting_refine"
+        payload["render_plan"] = payload.get("render_plan") or {}
+        payload["render_plan"]["status"] = "awaiting_refine"
+        payload["result_kind"] = "episode_video" if payload.get("render_scope") == "episode" else "shot_video"
+        timestamp = now_str()
+        execute_sql(
+            """
+            UPDATE ai_project_jobs SET status = 'awaiting_refine', progress = 90, result_url = %s,
+              payload_json = %s, error_message = NULL, completed_at = NULL, updated_at = %s
+            WHERE id = %s
+            """,
+            (preview_url, json.dumps(payload, ensure_ascii=False), timestamp, job_id),
+        )
+
+    @classmethod
+    def _run_refine_continuation(cls, job_id: str, payload: dict[str, Any]) -> None:
+        continuation = payload.get("refine_continuation") or {}
+        chunks = [item for item in (continuation.get("chunks") or []) if isinstance(item, dict)]
+        if not chunks:
+            raise RuntimeError("没有已保存的二采工作流，请重新生成")
+        mode = str(continuation.get("mode") or "timeline")
+        shots = payload.get("shots") or []
+        render_plan_chunks = (payload.get("render_plan") or {}).get("chunks") or []
+        comfy = ComfyVideoClient(payload["comfy_base_url"])
+        comfy.ping()
+        cls._set_state(job_id, payload, "preparing", 10)
+        final_outputs: list[dict[str, str]] = []
+        base_submissions = int(payload.get("comfy_submission_count") or 0)
+        for position, chunk in enumerate(chunks):
+            workflow = chunk.get("workflow")
+            if not isinstance(workflow, dict) or not workflow:
+                raise RuntimeError("二采工作流缺失，请重新生成")
+            _history, output = cls._await_comfy(
+                job_id, payload, comfy, workflow, submission_index=base_submissions + position + 1,
+            )
+            final_outputs.append(output)
+            chunk["output"] = output
+            index = chunk.get("index")
+            if isinstance(index, int) and 0 <= index < len(render_plan_chunks):
+                render_plan_chunks[index].update({"status": "succeeded", "output": output})
+                render_plan_chunks[index].pop("preview_output", None)
+            if mode == "shot_graph":
+                shot = cls._find_shot(shots, chunk)
+                if shot is not None:
+                    shot["renderStatus"] = "succeeded"
+                    shot["promptSnapshot"] = shot.get("prompt") or ""
+            cls._set_state(job_id, payload, "running", min(95, 60 + 35 * (position + 1) // len(chunks)))
+
+        if mode == "shot_graph":
+            result_url = ""
+            for position, output in enumerate(final_outputs):
+                chunk = chunks[position]
+                shot = cls._find_shot(shots, chunk)
+                result_url = cls._publish_single_output(comfy, output, job_id=job_id, payload=payload)
+                if shot is not None:
+                    shot["video_url"] = result_url
+                if len(chunks) > 1 and shot is not None:
+                    try:
+                        updates = cls._persist_shot_original_video(
+                            payload["project_id"],
+                            payload["episode_id"],
+                            str(shot.get("beat_id")),
+                            result_url,
+                            job_id=job_id,
+                            scope=str(payload.get("render_scope") or "shot"),
+                        )
+                        shot["video_takes"] = updates.get("video_takes")
+                        shot["video_take_id"] = updates.get("video_take_id")
+                    except Exception as beat_update_error:
+                        payload["beat_update_warning"] = str(beat_update_error)
+        else:
+            result_url = cls._publish_timeline_result(job_id, payload, comfy, final_outputs)
+
+        payload["render_plan"] = payload.get("render_plan") or {}
+        payload["render_plan"]["status"] = "succeeded"
+        payload["render_plan"]["total_duration"] = payload.get("total_duration_seconds")
+        payload["result_kind"] = "shot_video"
+        continuation["status"] = "succeeded"
+        payload["refine_continuation"] = continuation
+        if shots:
+            try:
+                cls._write_selected_beat_videos(payload, shots, result_url, job_id=job_id)
+            except Exception as beat_update_error:
+                payload["beat_update_warning"] = str(beat_update_error)
+            cls._auto_upscale_if_requested(job_id, payload, comfy, shots)
+        timestamp = now_str()
+        execute_sql(
+            """
+            UPDATE ai_project_jobs SET status = 'completed', progress = 100, result_url = %s,
+              payload_json = %s, error_message = NULL, completed_at = %s, updated_at = %s
+            WHERE id = %s
+            """,
+            (result_url, json.dumps(payload, ensure_ascii=False), timestamp, timestamp, job_id),
+        )
+
+    @staticmethod
+    def _find_shot(shots: list[dict[str, Any]], chunk: dict[str, Any]) -> dict[str, Any] | None:
+        beat_id = str(chunk.get("beat_id") or "").strip()
+        if not beat_id:
+            ids = [str(item) for item in (chunk.get("shot_ids") or []) if str(item or "").strip()]
+            beat_id = ids[0] if len(ids) == 1 else ""
+        if not beat_id:
+            return None
+        return next((item for item in shots if str(item.get("beat_id") or "") == beat_id), None)
 
     @classmethod
     def _await_comfy(
@@ -1791,13 +2513,21 @@ class EpisodeVideoService:
                 continue
             try:
                 upscaled_url = cls._upscale_source_url(job_id, payload, comfy, source_url, shot)
+                beat_like = {
+                    "id": beat_id,
+                    "video_url": source_url,
+                    "video_takes": shot.get("video_takes") or [],
+                    "video_take_id": shot.get("video_take_id"),
+                }
+                updates = cls._attach_upscaled_to_adopted_take(beat_like, upscaled_url)
                 ProjectDetailService.update_episode_beat(
                     str(payload.get("project_id") or ""),
                     str(payload.get("episode_id") or ""),
                     beat_id,
-                    {"upscaled_video_url": upscaled_url},
+                    updates,
                 )
                 shot["upscaled_video_url"] = upscaled_url
+                shot["video_takes"] = updates.get("video_takes")
                 upscaled_urls.append(upscaled_url)
             except Exception as error:
                 warnings.append(f"Beat {shot.get('sequence') or beat_id}: {error}")
@@ -1824,11 +2554,33 @@ class EpisodeVideoService:
         upscaled_url = cls._upscale_source_url(job_id, payload, comfy, source_url, shot)
         beat_id = str(payload.get("beat_id") or shot.get("beat_id") or "")
         if beat_id:
+            beat_like: dict[str, Any] = {
+                "id": beat_id,
+                "video_url": source_url,
+                "video_takes": shot.get("video_takes") or [],
+                "video_take_id": shot.get("video_take_id"),
+            }
+            try:
+                detail = ProjectDetailService.get_episode_detail(
+                    str(payload.get("project_id") or ""),
+                    str(payload.get("episode_id") or ""),
+                )
+                live = next(
+                    (item for item in (detail.get("beats") or []) if str(item.get("id") or "") == beat_id),
+                    None,
+                )
+                if isinstance(live, dict):
+                    beat_like = live
+                    if not beat_like.get("video_url"):
+                        beat_like = {**live, "video_url": source_url}
+            except Exception:
+                pass
+            updates = cls._attach_upscaled_to_adopted_take(beat_like, upscaled_url)
             ProjectDetailService.update_episode_beat(
                 str(payload.get("project_id") or ""),
                 str(payload.get("episode_id") or ""),
                 beat_id,
-                {"upscaled_video_url": upscaled_url},
+                updates,
             )
         payload["upscaled_video_url"] = upscaled_url
         payload["upscaled_video_urls"] = [upscaled_url]

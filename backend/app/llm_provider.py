@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -10,6 +11,7 @@ from .llm_client import (
     LLM_TEST_TIMEOUT_SECONDS,
     OpenAICompatibleClient,
     LlmError,
+    normalize_api_key,
     summarize_llm_test_reply,
 )
 from .storage import JobStore, now
@@ -18,6 +20,13 @@ from .storage import JobStore, now
 
 DEFAULT_MODELSCOPE_BASE_URL = "https://api-inference.modelscope.cn/v1"
 DEFAULT_MODELSCOPE_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
+# Verified in the A5.0 route check (docs/智能剪辑助手开发计划.md 4.2): this is the
+# only catalog model that returns per-segment timestamps with acceptable Chinese
+# accuracy. Whisper/SenseVoice variants on this provider expose no timestamps.
+DEFAULT_ASR_MODEL = "XingChenAGI/XingChenASR-V3.2-Ultra"
+ASR_MODEL_ENV = "ZLY_AI_VIDEO_STUDIO_ASR_MODEL"
+ASR_TIMEOUT_SECONDS = 300.0
+
 
 VISION_MODEL_MARKERS = (
     "vl", "vision", "gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "o4-mini",
@@ -92,10 +101,17 @@ class LlmProviderService:
             "available": available,
             "unavailable_reason": reason,
             "supports_vision": model_supports_vision(config.get("model")),
+            "assistant_models": self.assistant_models(),
         }
 
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
-        values = {key: value for key, value in payload.items() if key != "api_key"}
+        values = {key: value for key, value in payload.items() if key not in {"api_key", "assistant_models"}}
+        if payload.get("assistant_models") is not None:
+            models = list(dict.fromkeys(str(item).strip() for item in payload["assistant_models"] if str(item).strip()))
+            if len(models) > 32 or any(len(item) > 255 for item in models):
+                raise ValueError("助手可选模型最多32项，模型 ID 最多255字符")
+            import json
+            values["assistant_models_json"] = json.dumps(models, ensure_ascii=False)
         base_url_str = str(values.get("base_url", "")).strip()
         if not base_url_str:
             base_url_str = DEFAULT_MODELSCOPE_BASE_URL
@@ -109,21 +125,49 @@ class LlmProviderService:
             model_name = DEFAULT_MODELSCOPE_MODEL
         values["model"] = model_name
 
-        api_key = payload.get("api_key")
-        if api_key is not None and str(api_key).strip():
+        api_key = normalize_api_key(payload.get("api_key"))
+        previous = self.store.get_llm_settings()
+        changed_endpoint = values["base_url"] != str(previous.get("base_url") or "").rstrip("/")
+        if changed_endpoint or values["model"] != previous.get("model") or (api_key and api_key != self.api_key()):
+            values.update(last_test_status=None, last_test_message=None, last_test_at=None)
+        if changed_endpoint and not api_key:
+            if previous.get("api_key_encrypted") and not is_local_base_url(values["base_url"]):
+                raise ValueError("切换服务地址后请填写对应的 API Key；已保存凭据仅用于原地址。")
+            values["api_key_encrypted"] = None
+        if api_key:
             if not self.credentials.ready:
                 raise ValueError(self.credentials.error or "凭证主密钥不可用")
-            values["api_key_encrypted"] = self.credentials.encrypt(str(api_key).strip())
+            values["api_key_encrypted"] = self.credentials.encrypt(api_key)
 
         self.store.update_llm_settings(**values)
         return self.public_config()
+
+    def assistant_models(self) -> list[str]:
+        import json
+        config = self.store.get_llm_settings()
+        try:
+            values = json.loads(config.get("assistant_models_json") or "[]")
+        except (ValueError, TypeError):
+            values = []
+        if not isinstance(values, list):
+            values = []
+        return list(dict.fromkeys(str(v) for v in values if isinstance(v, str) and v.strip())) or [config["model"]]
+
+    def assistant_chat(self, messages: list[dict], model_id: str, on_chunk: Any = None) -> str:
+        if model_id not in self.assistant_models():
+            raise ValueError("该模型未向助手开放，请重新选择模型")
+        client, _ = self._chat_client()
+        return client.chat_completion(messages, model=model_id, stream=True, on_chunk=on_chunk,
+                                      max_tokens=16000, temperature=0.5, timeout=(15, 240))
 
 
     def test(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         config = self.store.get_llm_settings()
         base_url = (payload.get("base_url") if payload else None) or config["base_url"]
         model = (payload.get("model") if payload else None) or config["model"]
-        api_key = payload.get("api_key") if payload and payload.get("api_key") is not None else self.api_key()
+        submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
+        same_endpoint = str(base_url or "").rstrip("/") == str(config["base_url"]).rstrip("/")
+        api_key = submitted_key or (self.api_key() if same_endpoint else None)
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
 
@@ -144,21 +188,24 @@ class LlmProviderService:
             test_status = "失败"
             test_message = str(exc)
 
-        self.store.update_llm_settings(
-            last_test_status=test_status,
-            last_test_message=test_message,
-            last_test_at=test_time,
-        )
+        current = self.store.get_llm_settings()
+        if base_url.rstrip("/") == str(current["base_url"]).rstrip("/") and model == current["model"] and api_key == self.api_key():
+            self.store.update_llm_settings(
+                last_test_status=test_status,
+                last_test_message=test_message,
+                last_test_at=test_time,
+            )
         if test_status != "成功":
 
             raise LlmError(f"大模型连接测试失败：{test_message}")
-        return self.public_config()
+        return {**self.public_config(), "last_test_status": test_status, "last_test_message": test_message, "last_test_at": test_time}
 
     def list_catalog(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         config = self.store.get_llm_settings()
         base_url = (payload.get("base_url") if payload else None) or config["base_url"]
-        submitted_key = payload.get("api_key") if payload else None
-        api_key = submitted_key.strip() if isinstance(submitted_key, str) and submitted_key.strip() else self.api_key()
+        submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
+        same_endpoint = str(base_url or "").rstrip("/") == str(config["base_url"]).rstrip("/")
+        api_key = submitted_key or (self.api_key() if same_endpoint else None)
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
         if not api_key:
@@ -337,6 +384,30 @@ class LlmProviderService:
         if not api_key:
             raise LlmError("大模型凭据未配置")
         return OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key), config["model"]
+
+    def transcription_model(self) -> str | None:
+        return (os.getenv(ASR_MODEL_ENV) or "").strip() or DEFAULT_ASR_MODEL
+
+    def transcription_availability(self) -> tuple[bool, str | None]:
+        """Audio transcription reuses the LLM endpoint and credential; no separate provider table."""
+        config = self.store.get_llm_settings()
+        if not config["enabled"]:
+            return False, "大模型服务尚未启用，请联系超级管理员配置。"
+        if not is_local_base_url(config.get("base_url", "")) and not self.credentials.ready:
+            return False, self.credentials.error or "凭证主密钥不可用"
+        if not self.api_key():
+            return False, "大模型 API Key / Token 未配置或无法解密。"
+        if not self.transcription_model():
+            return False, "未配置语音转写模型。"
+        return True, None
+
+    def transcribe_audio(self, audio_path: Any, *, timeout: float = ASR_TIMEOUT_SECONDS) -> dict[str, Any]:
+        available, reason = self.transcription_availability()
+        if not available:
+            raise LlmError(reason or "语音转写服务不可用")
+        config = self.store.get_llm_settings()
+        client = OpenAICompatibleClient(base_url=config["base_url"], api_key=self.api_key())
+        return client.transcribe(audio_path=audio_path, model=self.transcription_model(), timeout=timeout)
 
     def run_director_recipe(
         self,

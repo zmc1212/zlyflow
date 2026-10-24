@@ -16,6 +16,8 @@ import {
   groupedVideoWorkflowOptions,
   jobCanShowUpscaleAction,
   jobPreviewVideoUrl,
+  jobRefineShotCount,
+  jobCanConfirmRefine,
   jobUpscaleDisabledReason,
   jobUpscaleHint,
   optionChoices,
@@ -26,6 +28,7 @@ import {
   selectedShotGenerateExtra,
   shotVideoReadyCount,
   timelineVideoWorkflows,
+  videoOptionVisible,
   videoSettingsSummary,
   videoWorkflowRenderLabel,
   visibleVideoOptionFields,
@@ -54,12 +57,23 @@ function directorAccelMode(): Director2WorkflowMode {
             label: "分辨率", type: "string", default: "0.4", ui_group: "advanced",
             megapixels_by_quality: { "0.4": 0.4, "1.0": 1.0 },
             ui_resolution_preview: { multiple: 32 },
+            ui_visible_when: { refine_enabled: false },
             ui_options: [{ value: "0.4", label: "0.4 MP" }, { value: "1.0", label: "1.0 MP" }],
           },
           speed: { label: "生成质量", type: "string", default: "balanced", ui_group: "advanced", ui_options: [{ value: "balanced", label: "均衡（20 步）" }, { value: "quality", label: "精细（25 步）" }] },
           megapixels: { label: "内部像素面积", type: "number", default: 0.4, ui_group: "internal" },
           steps: { label: "采样步数", type: "integer", default: 20, ui_group: "internal" },
-          upscale_after: { label: "出片后 2x 超分", type: "boolean", default: false, ui_group: "advanced" },
+          refine_enabled: { label: "二采精修", type: "boolean", default: false, ui_group: "primary" },
+          refine_quality: {
+            label: "二采画质", type: "string", default: "1.0", ui_group: "primary",
+            enum: ["1.0", "2.0"],
+            ui_visible_when: { refine_enabled: true },
+            ui_options: [{ value: "1.0", label: "1.0 MP" }, { value: "2.0", label: "2.0 MP" }],
+          },
+          refine_preview: {
+            label: "先预览一采", type: "boolean", default: false, ui_group: "primary",
+            ui_visible_when: { refine_enabled: true },
+          },
         },
       },
     }],
@@ -69,14 +83,41 @@ function directorAccelMode(): Director2WorkflowMode {
 describe("director2 video settings", () => {
   it("exposes registry primary and advanced options and hides duration plus internals", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
-    expect(fields.map((item) => item.name)).toEqual(["aspect_ratio", "weight_profile", "quality", "speed", "upscale_after"])
+    expect(fields.map((item) => item.name)).toEqual([
+      "aspect_ratio", "weight_profile", "quality", "speed", "refine_enabled", "refine_quality", "refine_preview",
+    ])
     expect(defaultVideoOptionValues(fields)).toEqual({
       aspect_ratio: "16:9",
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
-      upscale_after: "false",
+      refine_enabled: "false",
+      refine_quality: "1.0",
+      refine_preview: "false",
     })
+  })
+
+  it("keeps both two-pass controls in the primary group", () => {
+    const fields = visibleVideoOptionFields(directorAccelMode())
+    expect(fields.filter((item) => item.ui_group === "primary").map((item) => item.name)).toEqual([
+      "aspect_ratio", "weight_profile", "refine_enabled", "refine_quality", "refine_preview",
+    ])
+    expect(fields.filter((item) => item.ui_group === "advanced").map((item) => item.name)).toEqual([
+      "quality", "speed",
+    ])
+  })
+
+  it("hides quality and reveals refine quality and preview when two-pass is enabled", () => {
+    const fields = visibleVideoOptionFields(directorAccelMode())
+    const quality = fields.find((item) => item.name === "quality")!
+    const refineQuality = fields.find((item) => item.name === "refine_quality")!
+    const refinePreview = fields.find((item) => item.name === "refine_preview")!
+    expect(videoOptionVisible(quality, { refine_enabled: "false" })).toBe(true)
+    expect(videoOptionVisible(quality, { refine_enabled: "true" })).toBe(false)
+    expect(videoOptionVisible(refineQuality, { refine_enabled: "false" })).toBe(false)
+    expect(videoOptionVisible(refineQuality, { refine_enabled: "true" })).toBe(true)
+    expect(videoOptionVisible(refinePreview, { refine_enabled: "false" })).toBe(false)
+    expect(videoOptionVisible(refinePreview, { refine_enabled: "true" })).toBe(true)
   })
 
   it("falls back when the catalog has not loaded", () => {
@@ -85,12 +126,14 @@ describe("director2 video settings", () => {
 
   it("rejects stale 4-step speed and 0.2 MP values that this workflow does not use", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
-    expect(sanitizeVideoOptionValues(fields, { quality: "0.2", speed: "fast" })).toEqual({
+    expect(sanitizeVideoOptionValues(fields, { quality: "0.2", speed: "fast", refine_preview: "yes" })).toEqual({
       aspect_ratio: "16:9",
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
-      upscale_after: "false",
+      refine_enabled: "false",
+      refine_quality: "1.0",
+      refine_preview: "false",
     })
   })
 
@@ -120,11 +163,20 @@ describe("director2 video settings", () => {
       weight_profile: "pruned",
       quality: "0.4",
       speed: "balanced",
-      upscale_after: false,
+      refine_enabled: false,
+      refine_quality: "1.0",
+      refine_preview: false,
       duration_per_beat: 8,
     })
-    expect(videoSettingsSummary(fields, { ...values, upscale_after: "true" })).toBe("16:9 · 0.4 MP · 精简 · 2x 超分")
-    expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, { ...values, upscale_after: "true" }).upscale_after).toBe(true)
+    const refined = { ...values, refine_enabled: "true", refine_quality: "2.0" }
+    expect(videoSettingsSummary(fields, refined)).toBe("16:9 · 二采 2.0 MP · 精简")
+    const refinedOptions = buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, refined)
+    expect(refinedOptions.refine_enabled).toBe(true)
+    expect(refinedOptions.refine_quality).toBe("2.0")
+    expect(refinedOptions.refine_preview).toBe(false)
+    const previewed = { ...refined, refine_preview: "true" }
+    expect(videoSettingsSummary(fields, previewed)).toBe("16:9 · 二采 2.0 MP · 先预览 · 精简")
+    expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, previewed).refine_preview).toBe(true)
   })
 
   it("lists all unhidden multi-reference R2V workflows and labels episode vs shot", () => {
@@ -232,6 +284,7 @@ describe("director2 video settings", () => {
       payload: { render_scope: "shot", beat_id: "beat-1" },
     }
     expect(jobCanShowUpscaleAction(shot)).toBe(true)
+    expect(jobCanShowUpscaleAction({ ...shot, status: "awaiting_refine" })).toBe(false)
     expect(jobUpscaleDisabledReason(shot)).toBeUndefined()
     expect(jobCanShowUpscaleAction({ ...shot, payload: { render_scope: "upscale" } })).toBe(false)
     expect(jobUpscaleDisabledReason({ ...shot, status: "running" })).toBe("成片成功后才能超分")
@@ -245,6 +298,32 @@ describe("director2 video settings", () => {
       payload: { render_scope: "upscale", source_job_id: "job-shot" },
     }])).toBe("正在 2x 超分")
     expect(jobUpscaleHint({ payload: { render_scope: "episode" } })).toContain("整段")
+  })
+
+  it("only offers refine decisions for awaiting single-shot and selection jobs", () => {
+    expect(jobCanConfirmRefine({
+      job_type: "video_generation",
+      status: "awaiting_refine",
+      payload: { render_scope: "shot", beat_id: "beat-1" },
+    })).toBe(true)
+    expect(jobCanConfirmRefine({
+      job_type: "video_generation",
+      status: "awaiting_refine",
+      payload: { render_scope: "selection", beat_ids: ["beat-1", "beat-2"] },
+    })).toBe(true)
+    expect(jobCanConfirmRefine({
+      job_type: "video_generation",
+      status: "running",
+      payload: { render_scope: "shot", beat_id: "beat-1" },
+    })).toBe(false)
+    expect(jobCanConfirmRefine({
+      job_type: "video_generation",
+      status: "awaiting_refine",
+      payload: { render_scope: "episode" },
+    })).toBe(false)
+    expect(jobRefineShotCount({ payload: { render_scope: "shot", beat_id: "beat-1" } })).toBe(1)
+    expect(jobRefineShotCount({ payload: { beat_ids: ["beat-1", "beat-1", "beat-2"] } })).toBe(2)
+    expect(jobRefineShotCount(null)).toBe(0)
   })
 })
 

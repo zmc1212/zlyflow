@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import re
 import secrets
@@ -22,6 +23,11 @@ from .config import Settings
 from .minimax_h3_director_accel_workflow import build_minimax_h3_director_accel_workflow
 from .minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from .minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
+from .minimax_h3_refine_workflow import (
+    PREVIEW_OUTPUT_NODE,
+    build_minimax_h3_refine_workflow,
+    continuation_workflow,
+)
 from .minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from .minimax_h3_workflow import build_minimax_h3_workflow
 from .models import JobMode
@@ -50,6 +56,7 @@ from .workflow_registry import (
     H3_WORKFLOWS,
     LIGHTX2V_WORKFLOWS,
     T8_WORKFLOWS,
+    coerce_bool_option,
     generation_output_label,
     generation_stage,
     is_rtx_vsr_workflow,
@@ -67,6 +74,11 @@ REFERENCE_ALIASES = {
 }
 H3_PICTURE_ALIAS_RE = re.compile(r"@图片\s*(\d+)|@图\s*(\d+)")
 H3_PICTURE_TAG_RE = re.compile(r"<Picture\s+(\d+)>", flags=re.IGNORECASE)
+# Requests also uses the connect timeout while sending the request body. A
+# 5-second value can abort large reference images sent through FRP.
+COMFY_UPLOAD_TIMEOUT = (120, 180)
+COMFY_UPLOAD_ATTEMPTS = 3
+logger = logging.getLogger(__name__)
 IDLE_CLEANUP_WORKFLOW = {
     "1": {
         "class_type": "VRAMCleanup",
@@ -249,6 +261,7 @@ class ComfyService:
         self.resource_storage = resource_storage or BrowserLocalStagingStorage(settings.staging_dir)
         self._url_resolver = url_resolver
         self.last_execution_elapsed_ms: int | None = None
+        self.last_refine_state: dict | None = None
 
     @property
     def comfy_url(self) -> str:
@@ -342,14 +355,34 @@ class ComfyService:
         source = Path(local_path)
         filename = f"{tag}_{int(time.time() * 1000)}_{secrets.token_hex(4)}{source.suffix.lower() or '.png'}"
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        try:
-            with source.open("rb") as file:
-                response = requests.post(
-                    f"{self.comfy_url}/upload/image",
-                    data={"overwrite": "true"}, files={"image": (filename, file, mime_type)}, timeout=(5, 30),
+        size_mb = source.stat().st_size / 1_000_000
+        upload_url = f"{self.comfy_url}/upload/image"
+        for attempt in range(1, COMFY_UPLOAD_ATTEMPTS + 1):
+            started = time.monotonic()
+            try:
+                # Reopen from byte zero and reuse the remote name on retry so
+                # a lost response cannot leave multiple copies of the image.
+                with source.open("rb") as file:
+                    response = requests.post(
+                        upload_url,
+                        data={"overwrite": "true"}, files={"image": (filename, file, mime_type)},
+                        timeout=COMFY_UPLOAD_TIMEOUT,
+                    )
+                break
+            except requests.RequestException as error:
+                logger.warning(
+                    "ComfyUI upload failed: file=%s size=%.2fMB attempt=%s/%s elapsed=%.2fs error=%s: %s",
+                    source.name, size_mb, attempt, COMFY_UPLOAD_ATTEMPTS,
+                    time.monotonic() - started, type(error).__name__, error,
+                    exc_info=True,
                 )
-        except requests.RequestException as error:
-            raise ComfyUnavailable("ComfyUI 或 FRP 当前不可用，任务尚未提交。") from error
+                if isinstance(error, (requests.ConnectionError, requests.Timeout)) and attempt < COMFY_UPLOAD_ATTEMPTS:
+                    time.sleep(attempt)
+                    continue
+                raise ComfyUnavailable(
+                    f"参考素材 {source.name}（{size_mb:.2f} MB）上传失败：{type(error).__name__}: {error}。"
+                    "ComfyUI 或 FRP 连接中断，任务尚未提交。"
+                ) from error
         if not response.ok:
             raise legacy.ComfyError(f"上传图像到 ComfyUI 失败: {response.text}")
         payload = response.json()
@@ -997,16 +1030,58 @@ class ComfyService:
             return [self.output_payload(output, "video", "VACE 复刻视频")]
         raise legacy.ComfyError(f"不支持恢复工作流模式: {mode}")
 
+    def run_refine_continuation(
+        self, refine_state: dict, *,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None],
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> list[dict]:
+        self.last_execution_elapsed_ms = None
+        self.last_refine_state = None
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        workflow = refine_state.get("workflow")
+        if not isinstance(workflow, dict) or not workflow:
+            raise legacy.ComfyError("二采续跑缺少已保存的工作流，请重新生成。")
+        preview_outputs = [item for item in (refine_state.get("preview_outputs") or []) if isinstance(item, dict)]
+        update_stage("正在提交二采精修", 0)
+        record = self.run_workflow(
+            workflow, "二采精修正在生成", update_stage, on_submitted=on_submitted,
+            phase="refine-final", is_cancelled=is_cancelled,
+        )
+        output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3_refine")
+        return [self.output_payload(output, "video", "二采精修成片"), *preview_outputs]
+
     def resume(
         self, mode: JobMode, prompt: str, prompt_id: str, client_id: str | None, phase: str,
         existing_outputs: list[dict], update_stage: Callable[[str, int | None], None],
         on_submitted: Callable[[str, str, str], None], save_partial_outputs: Callable[[list[dict]], None],
         is_cancelled: Callable[[], bool] | None = None,
         options: dict | None = None,
+        refine_state: dict | None = None,
     ) -> list[dict]:
         self.last_execution_elapsed_ms = None
+        self.last_refine_state = None
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
+        if phase == "refine-preview":
+            record = self.wait_for_existing(
+                prompt_id, client_id, update_stage, "正在恢复一采预览", is_cancelled=is_cancelled,
+            )
+            output = self.download(
+                legacy.output_file(record, PREVIEW_OUTPUT_NODE, ("videos", "gifs", "images")),
+                "minimax_h3_preview",
+            )
+            outputs = [self.output_payload(output, "video", "一采预览")]
+            if refine_state:
+                self.last_refine_state = {**refine_state, "status": "awaiting", "preview_outputs": outputs}
+            return outputs
+        if phase == "refine-final":
+            record = self.wait_for_existing(
+                prompt_id, client_id, update_stage, "正在恢复二采精修", is_cancelled=is_cancelled,
+            )
+            output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3_refine")
+            return [self.output_payload(output, "video", "二采精修成片"), *existing_outputs]
         if phase == RTX_VSR_PHASE:
             try:
                 record = self.wait_for_existing(
@@ -1070,6 +1145,7 @@ class ComfyService:
         is_cancelled: Callable[[], bool] | None = None,
     ) -> list[dict]:
         self.last_execution_elapsed_ms = None
+        self.last_refine_state = None
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
         if is_rtx_vsr_workflow(mode):
@@ -1087,26 +1163,49 @@ class ComfyService:
                 if is_cancelled is not None and is_cancelled():
                     raise ComfyCancelled("任务已停止")
                 uploaded.append(self.upload_image(path, f"h3_reference_{index}"))
-            workflow = (
-                build_minimax_h3_t8_workflow(mode, resolved_prompt, uploaded, options)
-                if mode in T8_WORKFLOWS
-                else build_minimax_h3_lightx2v_workflow(
-                    mode, resolved_prompt, uploaded, options, secrets.randbits(63),
+            seed = secrets.randbits(63)
+            refine_preview = False
+            if coerce_bool_option(options.get("refine_enabled", False), label="二采精修"):
+                refine_preview = coerce_bool_option(options.get("refine_preview", False), label="先预览一采")
+                workflow = build_minimax_h3_refine_workflow(
+                    mode, resolved_prompt, uploaded, options, seed, preview=refine_preview,
                 )
-                if mode in LIGHTX2V_WORKFLOWS
-                else build_minimax_h3_dual_accel_workflow(
-                    mode, resolved_prompt, uploaded, options, secrets.randbits(63),
-                )
-                if mode in DUAL_ACCEL_WORKFLOWS
-                else build_minimax_h3_director_accel_workflow(
-                    mode, resolved_prompt, uploaded, options, secrets.randbits(63),
-                )
-                if mode in DIRECTOR_ACCEL_WORKFLOWS
-                else build_minimax_h3_workflow(mode, resolved_prompt, uploaded, options, secrets.randbits(63))
-            )
+            elif mode in T8_WORKFLOWS:
+                workflow = build_minimax_h3_t8_workflow(mode, resolved_prompt, uploaded, options)
+            elif mode in LIGHTX2V_WORKFLOWS:
+                workflow = build_minimax_h3_lightx2v_workflow(mode, resolved_prompt, uploaded, options, seed)
+            elif mode in DUAL_ACCEL_WORKFLOWS:
+                workflow = build_minimax_h3_dual_accel_workflow(mode, resolved_prompt, uploaded, options, seed)
+            elif mode in DIRECTOR_ACCEL_WORKFLOWS:
+                workflow = build_minimax_h3_director_accel_workflow(mode, resolved_prompt, uploaded, options, seed)
+            else:
+                workflow = build_minimax_h3_workflow(mode, resolved_prompt, uploaded, options, seed)
+            if refine_preview:
+                # Persist before submission so a restart mid-first-pass can still
+                # resume with the exact graph and hit the ComfyUI refine cache.
+                self.last_refine_state = {
+                    "status": "awaiting",
+                    "workflow": continuation_workflow(workflow),
+                    "seed": seed,
+                    "preview_outputs": [],
+                    "refine_quality": str(options.get("refine_quality") or "1.0"),
+                }
             record = self.run_workflow(
-                workflow, generation_stage(mode), update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+                workflow, generation_stage(mode), update_stage, on_submitted=on_submitted,
+                phase="refine-preview" if refine_preview else "generation",
+                is_cancelled=is_cancelled,
             )
+            if refine_preview:
+                output = self.download(
+                    legacy.output_file(record, PREVIEW_OUTPUT_NODE, ("videos", "gifs", "images")),
+                    "minimax_h3_preview",
+                )
+                outputs = [self.output_payload(output, "video", "一采预览")]
+                self.last_refine_state = {
+                    **self.last_refine_state,
+                    "preview_outputs": outputs,
+                }
+                return outputs
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
             outputs = [self.output_payload(output, "video", generation_output_label(mode))]
             return self.append_rtx_vsr_if_requested(

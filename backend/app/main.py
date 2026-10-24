@@ -67,7 +67,7 @@ from .director_library import (
 )
 from .director_compiler import iter_recipe_shots
 from .director_recipe import (
-    AGENT_IDS, DirectorPayloadError, PAYLOAD_KIND_BATCH, PAYLOAD_KIND_HYPIT_REPLICATION,
+    AGENT_IDS, DirectorPayloadError, PAYLOAD_KIND_BATCH,
     PAYLOAD_KIND_RECIPE, PAYLOAD_KIND_REPLICATION,
     empty_batch_payload, empty_recipe_payload, normalize_batch_payload, normalize_recipe_payload,
     payload_kind, set_agent_status,
@@ -77,11 +77,6 @@ from .director_replication import (
     find_replication_depth_file, find_replication_source_file, normalize_replication_payload,
     save_replication_source, validate_source_video,
 )
-from .director_hypit import (
-    HypitError, find_hypit_result_file, find_hypit_source_file, find_hypit_transcript_file,
-    normalize_hypit_payload, reveal_hypit_workspace, save_hypit_source,
-    validate_hypit_source_video,
-)
 from .video_analysis import VideoAnalysisError, probe_video as probe_source_video
 from .director_project_service import merge_recipe_creative, merge_recipe_execution, persist_recipe_execution
 from .director_operations import DirectorOperationService
@@ -90,6 +85,7 @@ from .grs_provider import GrsProviderService
 from .llm_client import LlmError, is_upstream_llm_failure
 from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
 from .llm_provider import LlmProviderService
+from .zhipu_catalog import model_provider_presets
 from .tts_provider import TtsProviderService
 from .vlm_provider import ANALYSIS_UNAVAILABLE_MESSAGE, VlmProviderService
 from .vision_runtime import llm_status_vision_fields
@@ -98,10 +94,12 @@ from .models import (
     ComfyProviderTestRequest, ComfyProviderUpdateRequest, CreateUserRequest, HealthResponse, JobResponse,
     DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsImageModelCreateRequest,
     GrsImageModelsResponse, GrsImageModelsUpdateRequest, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
-    LibraryItemResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest, SetupAdminRequest, JobMode, JobStatus,
+    LibraryItemResponse, LibraryQueryResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest,
+    SetupAdminRequest, JobMode, JobStatus,
     QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateUserRequest, UserResponse, UserRole,
     JobMetadataUpdateRequest,
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
+    ModelProviderPresetsResponse,
     VlmProviderUpdateRequest, VlmProviderTestRequest, VlmModelCatalogRequest, VlmStatusResponse,
     PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse, SkillPackListResponse,
     ScriptSplitRequest, ScriptSplitResponse,
@@ -117,9 +115,29 @@ from .models import (
     TtsProviderResponse, TtsProviderUpdateRequest, TtsProviderTestRequest,
     DirectorTtsRequest, DirectorMuxRequest, DirectorExportCapabilitiesResponse,
     DirectorTranslatePromptRequest,
+    CanvasProjectCreateRequest, CanvasProjectUpdateRequest, CanvasDraftSaveRequest,
+    CanvasProjectListItem, CanvasProjectResponse, CanvasDraftSaveResponse, CanvasDraftVersionItem,
 )
 
+from .library_query import (
+    LIBRARY_DEFAULT_LIMIT,
+    LIBRARY_MAX_LIMIT,
+    LIBRARY_MAX_OFFSET,
+    build_library_entries,
+    query_library_entries,
+)
+from .canvas_store import (
+    CanvasConflictError,
+    CanvasNotFoundError,
+    CanvasStore,
+    CanvasValidationError,
+)
+from .media_studio.db import ensure_schema
 from .media_studio.routers.project_router import register_project_routes
+from .director_assistant.routes import register_assistant_routes
+from .script_diagnosis.routes import register_diagnosis_routes
+from .script_diagnosis.service import DiagnosisService
+from .director_assistant.service import AssistantService
 from .media_studio.services.ai_generation_service import AiGenerationService
 from .media_studio.services.episode_video_service import EpisodeVideoService
 from .media_studio.services.h3_prompt_job_service import H3PromptJobService
@@ -128,6 +146,8 @@ from .media_studio.services.storyboard_image_service import StoryboardImageServi
 from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
 from .qiniu_provider import QiniuProviderService
 from .request_log import RequestLogMiddleware, write_request_log
+from .mcp_gateway.routes import register_mcp_routes
+from .mcp_gateway.store import McpStore
 
 from .resource_storage import create_resource_storage, resource_object_url
 from .storage import DirectorProjectConflictError, FINISHED_STATUSES, JobStore, elapsed_ms_between
@@ -581,6 +601,8 @@ def public_job(job: dict) -> dict:
             public_item.pop("comfy_client_id", None)
             public_item.pop("comfy_phase", None)
             public_item.pop("cancel_requested", None)
+            # Continuation workflows are server-side only; they can be megabytes.
+            public_item.pop("refine_state", None)
             public_outputs: list[dict] = []
             for output_index, raw_output in enumerate(item.get("outputs", [])):
                 output = dict(raw_output)
@@ -673,8 +695,12 @@ def request_parameters(job: dict) -> list[dict]:
     option_schema = definitions.get("options", {}).get("schema", {})
     option_definitions = option_schema.get("properties", {})
     options = job.get("options") or {}
+    visibility_values = {
+        name: options.get(name, field_definition.get("default"))
+        for name, field_definition in option_definitions.items()
+    }
     for name in option_definitions:
-        if not option_visible(option_definitions[name], options):
+        if not option_visible(option_definitions[name], visibility_values):
             continue
         value = options.get(name)
         if name == "quality" and value is None:
@@ -717,6 +743,7 @@ async def lifespan(app: FastAPI):
     database = settings.runtime_database()
     auth_store = AuthStore(database)
     store = JobStore(database)
+    app.state.mcp_store = McpStore(database)
     qiniu_provider = QiniuProviderService(store, settings.credential_key)
     resource_storage = qiniu_provider.enabled_storage() or create_resource_storage(settings.resource_provider, settings.staging_dir)
     grs_provider = GrsProviderService(store, settings.credential_key)
@@ -729,6 +756,7 @@ async def lifespan(app: FastAPI):
     worker = JobWorker(store, comfy, grs_provider, resource_storage)
     app.state.auth_store = auth_store
     app.state.store = store
+    app.state.canvas_store = CanvasStore(store)
     app.state.resource_storage = resource_storage
     app.state.grs_provider = grs_provider
     app.state.qiniu_provider = qiniu_provider
@@ -748,14 +776,21 @@ async def lifespan(app: FastAPI):
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
     store.interrupt_stale_director_pipelines()
     store.interrupt_stale_director_operations()
+    ensure_schema()
     EpisodeVideoService.recover_orphaned_jobs()
     StoryboardImageService.recover_interrupted_jobs()
     H3PromptJobService.recover_interrupted_jobs()
     ShotPlanJobService.recover_interrupted_jobs()
     TtsGenerationJobService.recover_interrupted_jobs()
     AiGenerationService.recover_orphaned_jobs()
+    app.state.director_assistant = AssistantService(store, llm_provider, settings.uploads_dir, vlm_provider)
+    app.state.director_assistant.recover()
+    app.state.script_diagnosis = DiagnosisService(store, llm_provider)
+    app.state.script_diagnosis.repo.recover()
     await worker.start()
-    yield
+    async with app.state.mcp_prepare_transport().run():
+        yield
+    app.state.script_diagnosis.stop()
     set_catalog_lookup(None)
     await director_operations.stop()
     await worker.stop()
@@ -774,6 +809,8 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_tags=[
+        {"name": "MCP", "description": "账号隔离的 MCP OAuth 授权、客户端连接与有序参考图。"},
+        {"name": "画布", "description": "账号隔离的无限画布、JSON 草稿保存与历史版本。"},
         {"name": "系统", "description": "工作台与固定 ComfyUI 实例的可用性。"},
         {"name": "账号", "description": "首次初始化、登录会话与密码。"},
         {"name": "管理后台", "description": "管理员创建、启停、授权和重置员工账号。"},
@@ -784,14 +821,16 @@ app = FastAPI(
         {"name": "创作台", "description": "创作页面需要的供应商状态与余额快照。"},
         {"name": "大模型", "description": "提示词优化服务与 MiniMax H3 技能。"},
         {"name": "导演台", "description": "员工隔离的导演工程库：Recipe 双引擎、画风目录、9 Agent 流水线与批量短视频。"},
+        {"name": "智能剪辑", "description": "分集剪辑工程、素材导入、三轨时间线与 MP4 / JSON / XML / OTIO / 剪映基础草稿导出。"},
         {"name": "复刻台", "description": "参考片拉片复刻：上传成片，自动分镜反推提示词与深度视频，用 Wan VACE 深度控制批量转绘。"},
-        {"name": "Hypit 复刻", "description": "拆爆款结构（台词、字幕、B-roll、图形）并本机编译 SVML；与 VACE 锁运镜转绘并列，不混 payload。"},
-        {"name": "导台2", "description": "AI Media Studio：按项目组织的内容库、资产库、剧集工坊与全部任务（复刻自 dev0914）。"},
+        {"name": "导演台2", "description": "AI Media Studio：按项目组织的内容库、资产库、剧集工坊与全部任务（复刻自 dev0914）。"},
     ],
     lifespan=lifespan,
 )
 
 register_project_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_assistant_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_diagnosis_routes(app, current_user=current_user, mutating_user=mutating_user)
 app.add_middleware(RequestLogMiddleware)
 
 
@@ -1274,6 +1313,11 @@ def sync_grs_image_models(
     return app.state.grs_provider.catalog_payload()
 
 
+@app.get("/api/admin/providers/model-presets", response_model=ModelProviderPresetsResponse, tags=["管理后台"], summary="获取文本与视觉模型官方服务预设及费用标记")
+def get_model_provider_presets(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return model_provider_presets()
+
+
 @app.get("/api/admin/providers/llm", response_model=LlmProviderResponse, tags=["管理后台"], summary="获取 LLM 大模型配置")
 def get_llm_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
     return app.state.llm_provider.public_config()
@@ -1690,7 +1734,7 @@ def list_builtin_voice_bank(user: Annotated[dict, Depends(current_user)]) -> dic
     summary="读取内置声线参考音",
     responses={200: {"content": {"audio/wav": {}}}},
 )
-def builtin_voice_audio(preset_id: str, user: Annotated[dict, Depends(current_user)]) -> FileResponse:
+def builtin_voice_audio(preset_id: Annotated[str, ApiPath(description="内置声线 ID")], user: Annotated[dict, Depends(current_user)]) -> FileResponse:
     del user
     try:
         path = ensure_voice_prompt(preset_id)
@@ -1705,6 +1749,210 @@ def builtin_voice_audio(preset_id: str, user: Annotated[dict, Depends(current_us
         media_type="audio/wav",
         headers={"Cache-Control": "private, max-age=86400"},
     )
+
+
+@app.get(
+    "/api/canvas/projects",
+    response_model=list[CanvasProjectListItem],
+    tags=["画布"],
+    summary="列出当前用户的无限画布",
+)
+def list_canvas_projects(
+    user: Annotated[dict, Depends(current_user)],
+    trashed: bool = False,
+) -> list[dict]:
+    return app.state.canvas_store.list_projects(user["id"], trashed=trashed)
+
+
+@app.post(
+    "/api/canvas/projects",
+    response_model=CanvasProjectResponse,
+    status_code=201,
+    tags=["画布"],
+    summary="创建无限画布",
+)
+def create_canvas_project(
+    payload: CanvasProjectCreateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        created = app.state.canvas_store.create_project(user["id"], payload.title)
+    except CanvasValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "create_canvas_project", "canvas", actor_user_id=user["id"], target_id=created["id"],
+        detail=f"title={created['title']}",
+        ip_address=client_ip(request),
+    )
+    return created
+
+
+@app.get(
+    "/api/canvas/projects/{canvas_id}",
+    response_model=CanvasProjectResponse,
+    tags=["画布"],
+    summary="读取画布及当前草稿",
+)
+def get_canvas_project(canvas_id: str, user: Annotated[dict, Depends(current_user)]) -> dict:
+    try:
+        return app.state.canvas_store.get_project(user["id"], canvas_id)
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布不存在") from error
+
+
+@app.patch(
+    "/api/canvas/projects/{canvas_id}",
+    response_model=CanvasProjectResponse,
+    tags=["画布"],
+    summary="更新画布标题、标签或收藏",
+)
+def update_canvas_project(
+    canvas_id: str,
+    payload: CanvasProjectUpdateRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        return app.state.canvas_store.update_project(
+            user["id"],
+            canvas_id,
+            title=payload.title,
+            tags=payload.tags,
+            is_favorite=payload.is_favorite,
+        )
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布不存在") from error
+    except CanvasValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post(
+    "/api/canvas/projects/{canvas_id}/trash",
+    tags=["画布"],
+    summary="将画布移入回收站",
+)
+def trash_canvas_project(
+    canvas_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        trashed = app.state.canvas_store.trash_project(user["id"], canvas_id)
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布不存在") from error
+    app.state.auth_store.audit(
+        "trash_canvas_project", "canvas", actor_user_id=user["id"], target_id=canvas_id,
+        ip_address=client_ip(request),
+    )
+    return {"ok": True, **trashed}
+
+
+@app.post(
+    "/api/canvas/projects/{canvas_id}/restore",
+    response_model=CanvasProjectResponse,
+    tags=["画布"],
+    summary="从回收站恢复画布",
+)
+def restore_canvas_project(
+    canvas_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        restored = app.state.canvas_store.restore_project(user["id"], canvas_id)
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布不存在或不在回收站") from error
+    app.state.auth_store.audit(
+        "restore_canvas_project", "canvas", actor_user_id=user["id"], target_id=canvas_id,
+        ip_address=client_ip(request),
+    )
+    return restored
+
+
+@app.delete(
+    "/api/canvas/projects/{canvas_id}",
+    tags=["画布"],
+    summary="删除画布及其草稿历史",
+)
+def delete_canvas_project(
+    canvas_id: str,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        app.state.canvas_store.delete_project(user["id"], canvas_id)
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布不存在") from error
+    app.state.auth_store.audit(
+        "delete_canvas_project", "canvas", actor_user_id=user["id"], target_id=canvas_id,
+        ip_address=client_ip(request),
+    )
+    return {"ok": True}
+
+
+@app.put(
+    "/api/canvas/projects/{canvas_id}/draft",
+    response_model=CanvasDraftSaveResponse,
+    tags=["画布"],
+    summary="保存画布草稿（乐观版本校验）",
+)
+def save_canvas_draft(
+    canvas_id: str,
+    payload: CanvasDraftSaveRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        return app.state.canvas_store.save_draft(
+            user["id"], canvas_id, payload.base_version, payload.content, payload.checksum,
+        )
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布不存在") from error
+    except CanvasConflictError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(error), "current_version": error.current_version},
+        ) from error
+    except CanvasValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get(
+    "/api/canvas/projects/{canvas_id}/versions",
+    response_model=list[CanvasDraftVersionItem],
+    tags=["画布"],
+    summary="列出画布草稿历史版本",
+)
+def list_canvas_versions(canvas_id: str, user: Annotated[dict, Depends(current_user)]) -> list[dict]:
+    try:
+        return app.state.canvas_store.list_versions(user["id"], canvas_id)
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布不存在") from error
+
+
+@app.post(
+    "/api/canvas/projects/{canvas_id}/versions/{version}/restore",
+    response_model=CanvasDraftSaveResponse,
+    tags=["画布"],
+    summary="恢复画布历史版本",
+)
+def restore_canvas_version(
+    canvas_id: str,
+    version: int,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        restored = app.state.canvas_store.restore_version(user["id"], canvas_id, version)
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布或版本不存在") from error
+    except CanvasValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "restore_canvas_version", "canvas", actor_user_id=user["id"], target_id=canvas_id,
+        detail=f"version={version}",
+        ip_address=client_ip(request),
+    )
+    return restored
 
 
 @app.get(
@@ -2543,209 +2791,6 @@ async def create_replication_operation(
     app.state.director_operations.start(operation["id"])
     app.state.auth_store.audit(
         "create_replication_operation", "director", actor_user_id=user["id"], target_id=project_id,
-        detail=f"{payload.kind}:{operation['id']}", ip_address=client_ip(request),
-    )
-    return public_director_operation(operation)
-
-
-# ---------------------------------------------------------------------------
-# Hypit 复刻（hypit_replication）：参考片上传 / WhisperX 拉片 / CLI 编译
-# ---------------------------------------------------------------------------
-
-
-def hypit_project_or_404(store: JobStore, project_id: str, user: dict) -> dict:
-    record = director_project_or_404(store, project_id, user)
-    if payload_kind(record.get("payload")) != PAYLOAD_KIND_HYPIT_REPLICATION:
-        raise HTTPException(status_code=422, detail="只有 Hypit 复刻工程可以使用该接口")
-    return record
-
-
-def _bind_hypit_source(payload: dict, *, path: str, url: str, name: str, probe) -> dict:
-    current = normalize_hypit_payload(payload)
-    current["sourceVideo"] = {
-        "path": path,
-        "url": url,
-        "name": name,
-        "width": probe.width,
-        "height": probe.height,
-        "fps": round(probe.fps, 3),
-        "durationSec": round(probe.duration, 3),
-    }
-    current["workspacePath"] = str(Path(path).parents[1])
-    current["transcript"] = {
-        **current["transcript"],
-        "status": "idle",
-        "path": None,
-        "url": None,
-        "wordCount": 0,
-        "durationSec": 0.0,
-        "error": None,
-    }
-    current["compile"] = {"status": "idle", "buildId": None, "operationId": None, "error": None}
-    current["result"] = {"path": None, "url": None, "buildId": None}
-    return current
-
-
-@app.post(
-    "/api/director/hypit/{project_id}/source-video",
-    response_model=DirectorProjectResponse,
-    tags=["Hypit 复刻"],
-    summary="上传 Hypit 复刻参考片",
-)
-async def upload_hypit_source_video(
-    project_id: str,
-    request: Request,
-    user: Annotated[dict, Depends(mutating_user)],
-    file: Annotated[UploadFile, File(description="参考片视频文件（mp4/mov/webm，≤2GB）")],
-    expected_content_revision: Annotated[
-        int | None,
-        Form(ge=1, description="客户端最后读取的创作内容版本；不匹配时返回 409。"),
-    ] = None,
-) -> dict:
-    record = hypit_project_or_404(app.state.store, project_id, user)
-    try:
-        suffix = validate_hypit_source_video(file.filename or "", file.size)
-    except HypitError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    staging = settings.staging_dir / f"hypit-source-{secrets.token_urlsafe(6)}{suffix}"
-    staging.parent.mkdir(parents=True, exist_ok=True)
-    await save_upload(file, staging)
-    try:
-        try:
-            probe = probe_source_video(staging)
-        except VideoAnalysisError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        original_name = file.filename or f"source{suffix}"
-        saved_path, public_url = save_hypit_source(
-            user["id"], project_id, source=staging, original_name=original_name,
-        )
-        try:
-            saved = app.state.store.update_director_project(
-                project_id,
-                payload=_bind_hypit_source(
-                    record.get("payload") or {},
-                    path=str(saved_path),
-                    url=public_url,
-                    name=original_name,
-                    probe=probe,
-                ),
-                expected_content_revision=expected_content_revision,
-                content_update=True,
-            )
-        except DirectorProjectConflictError as error:
-            raise director_content_conflict_http(error) from error
-    finally:
-        staging.unlink(missing_ok=True)
-    app.state.auth_store.audit(
-        "upload_hypit_source", "director", actor_user_id=user["id"], target_id=project_id,
-        ip_address=client_ip(request),
-    )
-    return public_director_project(saved)
-
-
-@app.get(
-    "/api/director/hypit/{project_id}/source",
-    tags=["Hypit 复刻"],
-    summary="读取 Hypit 复刻参考片",
-)
-def download_hypit_source(
-    project_id: str,
-    user: Annotated[dict, Depends(current_user)],
-) -> FileResponse:
-    hypit_project_or_404(app.state.store, project_id, user)
-    path = find_hypit_source_file(user["id"], project_id)
-    if path is None:
-        raise HTTPException(status_code=404, detail="尚未上传参考片")
-    return FileResponse(path, media_type="video/mp4", filename=path.name)
-
-
-@app.get(
-    "/api/director/hypit/{project_id}/transcript",
-    tags=["Hypit 复刻"],
-    summary="读取 Hypit 拉片转写 JSON",
-)
-def download_hypit_transcript(
-    project_id: str,
-    user: Annotated[dict, Depends(current_user)],
-) -> FileResponse:
-    hypit_project_or_404(app.state.store, project_id, user)
-    path = find_hypit_transcript_file(user["id"], project_id)
-    if path is None:
-        raise HTTPException(status_code=404, detail="尚未完成拉片转写")
-    return FileResponse(path, media_type="application/json", filename=path.name)
-
-
-@app.get(
-    "/api/director/hypit/{project_id}/result",
-    tags=["Hypit 复刻"],
-    summary="读取 Hypit 编译成片",
-)
-def download_hypit_result(
-    project_id: str,
-    user: Annotated[dict, Depends(current_user)],
-) -> FileResponse:
-    hypit_project_or_404(app.state.store, project_id, user)
-    path = find_hypit_result_file(user["id"], project_id)
-    if path is None:
-        raise HTTPException(status_code=404, detail="尚未编译成片")
-    return FileResponse(path, media_type="video/mp4", filename=path.name)
-
-
-@app.post(
-    "/api/director/hypit/{project_id}/reveal",
-    tags=["Hypit 复刻"],
-    summary="在资源管理器中打开 Hypit 工程目录",
-)
-def reveal_hypit_project(
-    project_id: str,
-    request: Request,
-    user: Annotated[dict, Depends(mutating_user)],
-) -> dict:
-    hypit_project_or_404(app.state.store, project_id, user)
-    try:
-        revealed = reveal_hypit_workspace(user["id"], project_id)
-    except OSError as error:
-        raise HTTPException(status_code=500, detail=f"无法打开工程目录：{error}") from error
-    app.state.auth_store.audit(
-        "reveal_hypit_workspace", "director", actor_user_id=user["id"], target_id=project_id,
-        ip_address=client_ip(request),
-    )
-    return {"path": str(revealed)}
-
-
-@app.post(
-    "/api/director/hypit/{project_id}/operations",
-    response_model=DirectorOperationResponse,
-    status_code=202,
-    tags=["Hypit 复刻"],
-    summary="创建 Hypit 复刻长操作（hypit_transcribe / hypit_compile）",
-)
-async def create_hypit_operation(
-    project_id: str,
-    payload: DirectorOperationCreateRequest,
-    request: Request,
-    user: Annotated[dict, Depends(mutating_user)],
-) -> dict:
-    hypit_project_or_404(app.state.store, project_id, user)
-    if payload.kind not in {"hypit_transcribe", "hypit_compile"}:
-        raise HTTPException(status_code=422, detail="Hypit 复刻仅支持拉片转写与编译，不能走 VACE 转绘")
-    if payload.kind == "hypit_transcribe":
-        source = find_hypit_source_file(user["id"], project_id)
-        if source is None:
-            raise HTTPException(status_code=422, detail="请先上传参考片")
-    body = payload.model_dump(exclude_none=True)
-    try:
-        operation = app.state.store.create_director_operation(
-            project_id=project_id,
-            owner_user_id=user["id"],
-            kind=payload.kind,
-            request=body,
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    app.state.director_operations.start(operation["id"])
-    app.state.auth_store.audit(
-        "create_hypit_operation", "director", actor_user_id=user["id"], target_id=project_id,
         detail=f"{payload.kind}:{operation['id']}", ip_address=client_ip(request),
     )
     return public_director_operation(operation)
@@ -3919,6 +3964,22 @@ async def create_job(
     source_output_index: Annotated[int | None, Form(description="图片转视频来源输出序号。")]= None,
     references: list[UploadFile] = File(default=[], description="参考图文件；多图时顺序具有业务含义。"),
 ) -> dict:
+    return await submit_generation(
+        user=user, mode=mode, prompt=prompt, negative_prompt=negative_prompt, image_size=image_size,
+        options=options, title=title, source_job_id=source_job_id,
+        source_generation_item_id=source_generation_item_id, source_output_index=source_output_index,
+        references=references,
+    )
+
+
+async def submit_generation(
+    *, user: dict, mode: str, prompt: str, negative_prompt: str = "", image_size: str | None = None,
+    options: str | None = None, title: str | None = None, source_job_id: str | None = None,
+    source_generation_item_id: str | None = None, source_output_index: int | None = None,
+    references: list[UploadFile] | None = None, job_id: str | None = None,
+) -> dict:
+    """Shared creation path for browser forms and authenticated MCP tools."""
+    references = references or []
     prompt = prompt.strip()
     if not prompt:
         raise HTTPException(status_code=422, detail="请填写创作提示词")
@@ -3958,7 +4019,7 @@ async def create_job(
             raise HTTPException(status_code=422, detail="图片转视频来源必须是图片")
         source = {"job_id": source_job_id, "generation_item_id": source_generation_item_id, "output_index": source_output_index}
 
-    job_id = secrets.token_urlsafe(9).replace("-", "").replace("_", "")
+    job_id = job_id or secrets.token_urlsafe(9).replace("-", "").replace("_", "")
     upload_dir = settings.uploads_dir / user["id"] / job_id
     upload_dir.mkdir(parents=True, exist_ok=True)
     references_paths: list[str] = []
@@ -4143,6 +4204,67 @@ async def retry_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) 
     return public_job(job)
 
 
+def awaiting_refine_item(job: dict) -> dict:
+    items = job["rounds"][-1]["generation_items"] if job.get("rounds") else []
+    item = items[0] if items else None
+    if item is None or item["status"] != JobStatus.AWAITING_REFINE.value:
+        raise HTTPException(status_code=409, detail="当前任务没有待确认的一采预览")
+    return item
+
+
+@app.post(
+    "/api/jobs/{job_id}/refine/confirm",
+    status_code=202,
+    response_model=JobResponse,
+    tags=["任务"],
+    summary="确认一采预览并只跑二采精修",
+    description="复用一采已保存的 seed 与工作流，ComfyUI 命中一采缓存后只执行二采精修。二采完成后返回精修成片，一采预览保留在结果中。",
+)
+async def confirm_refine(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+    job = job_or_404(app.state.store, job_id, user)
+    item = awaiting_refine_item(job)
+    refine_state = item.get("refine_state") or {}
+    if not refine_state.get("workflow"):
+        raise HTTPException(status_code=409, detail="未找到已保存的二采工作流，请重新生成")
+    await asyncio.to_thread(
+        app.state.store.update_generation,
+        item["id"],
+        status=JobStatus.QUEUED,
+        stage="等待二采精修",
+        progress=90,
+        error="",
+        cancel_requested=False,
+        refine_state={**refine_state, "status": "confirmed"},
+        clear_execution=True,
+    )
+    await app.state.worker.enqueue(job_id)
+    return public_job(await asyncio.to_thread(app.state.store.get, job_id))
+
+
+@app.post(
+    "/api/jobs/{job_id}/refine/skip",
+    status_code=202,
+    response_model=JobResponse,
+    tags=["任务"],
+    summary="保留一采预览，放弃二采",
+    description="把一采预览直接作为最终结果，清理二采续跑状态。ComfyUI 输出目录中的二采缓存不影响本任务。",
+)
+async def skip_refine(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+    job = job_or_404(app.state.store, job_id, user)
+    item = awaiting_refine_item(job)
+    await asyncio.to_thread(
+        app.state.store.update_generation,
+        item["id"],
+        status=JobStatus.SUCCEEDED,
+        stage="已保留一采预览",
+        progress=100,
+        outputs=item.get("outputs") or [],
+        clear_refine_state=True,
+        clear_execution=True,
+    )
+    return public_job(await asyncio.to_thread(app.state.store.get, job_id))
+
+
 @app.post(
     "/api/jobs/{job_id}/upscale",
     status_code=202,
@@ -4298,30 +4420,53 @@ def round_reference(
     return FileResponse(path, media_type=_image_media_type(path))
 
 
+def _library_target_user_id(user: dict, user_id: str | None) -> str | None:
+    if user["role"] in {"admin", "super_admin"} and user_id is not None:
+        return None if user_id == "all" else user_id
+    return user["id"]
+
+
 @app.get("/api/library", response_model=list[LibraryItemResponse], tags=["作品库"], summary="列出作品库媒体")
 def library(user: Annotated[dict, Depends(current_user)], user_id: str | None = None) -> list[dict]:
-    if user["role"] in {"admin", "super_admin"} and user_id is not None:
-        target_user_id = None if user_id == "all" else user_id
-    else:
-        target_user_id = user["id"]
-    return [
-        {
-            **output,
-            "download_url": public_output_download_url(
-                output,
-                public_api_path(f"jobs/{job['id']}/generations/{item['id']}/outputs/{output_index}/download"),
-            ) if output.get("delivery_status", "pending") != "local" else None,
-            "job_id": job["id"],
-            "generation_item_id": item["id"],
-            "output_index": output_index,
-            "created_at": round_data["created_at"],
-        }
-        for job in app.state.store.list_jobs(target_user_id, 500)
-        for round_data in job.get("rounds", [])
-        for item in round_data.get("generation_items", [])
-        if item.get("outputs")
-        for output_index, output in enumerate(item["outputs"])
-    ]
+    target_user_id = _library_target_user_id(user, user_id)
+    return build_library_entries(
+        app.state.store.list_jobs(target_user_id, 500),
+        api_prefix=settings.public_api_prefix,
+    )
+
+
+@app.get(
+    "/api/library/query",
+    response_model=LibraryQueryResponse,
+    tags=["作品库"],
+    summary="分页检索作品库媒体",
+)
+def library_query(
+    user: Annotated[dict, Depends(current_user)],
+    q: Annotated[str | None, Query(max_length=100, description="搜索任务标题、提示词、素材名称、路径或任务号")] = None,
+    kind: Annotated[str | None, Query(pattern=r"^(image|video)$", description="只返回图片或视频")] = None,
+    limit: Annotated[int, Query(ge=1, le=LIBRARY_MAX_LIMIT, description="每页数量")] = LIBRARY_DEFAULT_LIMIT,
+    offset: Annotated[int, Query(ge=0, le=LIBRARY_MAX_OFFSET, description="分页偏移")] = 0,
+    job_id: Annotated[str | None, Query(max_length=120, description="精确匹配来源任务号")] = None,
+    generation_item_id: Annotated[str | None, Query(max_length=120, description="精确匹配生成项")] = None,
+    output_index: Annotated[int | None, Query(ge=0, le=999, description="精确匹配生成项输出序号")] = None,
+    user_id: str | None = None,
+) -> dict:
+    target_user_id = _library_target_user_id(user, user_id)
+    entries = build_library_entries(
+        app.state.store.list_jobs(target_user_id, 500),
+        api_prefix=settings.public_api_prefix,
+    )
+    return query_library_entries(
+        entries,
+        q=q,
+        kind=kind,
+        limit=limit,
+        offset=offset,
+        job_id=job_id,
+        generation_item_id=generation_item_id,
+        output_index=output_index,
+    )
 
 
 @app.get(
@@ -4580,6 +4725,13 @@ def confirm_generation_output_delivered(
         target_id=generation_item_id, detail=f"output_index={output_index}", ip_address=client_ip(request),
     )
     return public_job(app.state.store.get(job_id))
+
+
+register_mcp_routes(
+    app, current_user=current_user, mutating_user=mutating_user, settings=settings,
+    submit_generation=submit_generation, public_job=public_job, listed_workflows=listed_workflows,
+    mode_payload=mode_payload, cancel_job=cancel_job, output_response=output_response, output_available=output_available,
+)
 
 
 ASSET_MEDIA_TYPES = {

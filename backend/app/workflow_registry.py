@@ -394,10 +394,28 @@ def h3_custom_steps_option() -> dict[str, Any]:
     )
 
 
-def upscale_after_option() -> dict[str, Any]:
+def refine_enabled_option(description: str) -> dict[str, Any]:
+    return option("二采精修", "boolean", False, group="primary", description=description)
+
+
+def refine_quality_option() -> dict[str, Any]:
     return option(
-        "出片后 2x 超分", "boolean", False, group="advanced",
-        description="成片成功后卸载 H3，再用当前连接 ComfyUI 上的 RTX Video Super Resolution 放大到 2 倍。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。原片保留；超分失败不影响原片。",
+        "二采画质", "string", "1.0", group="primary", ui_control="select",
+        enum=["1.0", "2.0"],
+        ui_options=[
+            {"value": "1.0", "label": "1.0 MP（16:9 约 1376×768）"},
+            {"value": "2.0", "label": "2.0 MP（16:9 约 1920×1088）"},
+        ],
+        ui_visible_when={"refine_enabled": True},
+        description="二采放大目标；1.0 MP 画质已接近 2.0 MP（约 3.5 分钟），2.0 MP 细节略多（约 50 分钟）。一采按当前工作流的速度设置生成 0.4 MP。",
+    )
+
+
+def refine_preview_option() -> dict[str, Any]:
+    return option(
+        "先预览一采", "boolean", False, group="primary",
+        ui_visible_when={"refine_enabled": True},
+        description="开启后只先跑一采并停下，由你确认后再用同一 seed 只跑二采；一采结果可保留或放弃重来。二采缓存保留在 ComfyUI 输出目录。",
     )
 
 
@@ -480,18 +498,22 @@ def apply_dual_accel_speed_preset(normalized: dict[str, Any], raw: dict[str, Any
 
 def dual_accel_option_schema() -> dict[str, Any]:
     properties = dict(H3_STANDARD_OPTION_SCHEMA["properties"])
+    properties.pop("refine_enabled", None)
+    properties.pop("refine_quality", None)
     properties["quality"] = option(
         "分辨率", "string", "0.4", group="advanced", ui_control="select",
         enum=list(H3_STANDARD_RESOLUTION_PRESETS),
         ui_options=local_resolution_options(H3_STANDARD_RESOLUTION_PRESETS),
         megapixels_by_quality=H3_STANDARD_RESOLUTION_PRESETS,
         ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+        ui_visible_when={"refine_enabled": False},
         description="八步双加速默认 0.4 MP（16:9 约 864×480），与参考工作流画布一致。",
     )
     properties["megapixels"] = option(
         "内部像素面积", "number", 0.4, group="internal", minimum=0.1, maximum=16.0, step=0.1, unit="MP",
     )
     properties["speed"] = dual_accel_speed_option()
+    properties["weight_profile"] = h3_weight_profile_option()
     properties["lora_name"] = option(
         "加速 LoRA", "string", DUAL_ACCEL_LORA_NAME,
         enum=[DUAL_ACCEL_LORA_NAME],
@@ -501,6 +523,10 @@ def dual_accel_option_schema() -> dict[str, Any]:
     properties["shift_video"] = option("视频 Shift", "number", 12, minimum=0.01, maximum=100, step=0.01)
     properties["shift_audio"] = option("音频 Shift", "number", 3, minimum=0.01, maximum=100, step=0.01)
     properties["use_sage_attention"] = option("SageAttention", "boolean", True)
+    properties["refine_enabled"] = refine_enabled_option(
+        "开启后先以 0.4 MP 使用当前八步双加速设置生成一采，再用 H3 3D latent 放大到目标画质精修（3 步 beta，denoise 0.2）。"
+    )
+    properties["refine_quality"] = refine_quality_option()
     return {"type": "object", "properties": properties}
 
 
@@ -560,12 +586,15 @@ def apply_director_accel_speed_preset(normalized: dict[str, Any], raw: dict[str,
 
 def director_accel_option_schema() -> dict[str, Any]:
     properties = dict(H3_STANDARD_OPTION_SCHEMA["properties"])
+    properties.pop("refine_enabled", None)
+    properties.pop("refine_quality", None)
     properties["quality"] = option(
         "分辨率", "string", "0.4", group="advanced", ui_control="select",
         enum=list(H3_STANDARD_RESOLUTION_PRESETS),
         ui_options=local_resolution_options(H3_STANDARD_RESOLUTION_PRESETS),
         megapixels_by_quality=H3_STANDARD_RESOLUTION_PRESETS,
         ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+        ui_visible_when={"refine_enabled": False},
         description="H3 Director 加速版默认 0.4 MP（16:9 约 864×480），与参考工作流画布一致。",
     )
     properties["megapixels"] = option(
@@ -583,6 +612,10 @@ def director_accel_option_schema() -> dict[str, Any]:
     properties["cfg"] = option("CFG", "number", 1, minimum=0, maximum=20, step=0.1)
     properties["use_sage_attention"] = option("SageAttention", "boolean", True)
     properties["sage_allow_compile"] = option("Sage 允许编译", "boolean", True)
+    properties["refine_enabled"] = refine_enabled_option(
+        "开启后先以 0.4 MP 使用当前 Director 采样设置生成一采，再用 H3 3D latent 放大到目标画质精修（3 步 beta，denoise 0.2）。"
+    )
+    properties["refine_quality"] = refine_quality_option()
     return {"type": "object", "properties": properties}
 
 
@@ -608,18 +641,22 @@ def apply_lightx2v_speed_preset(
 
 def lightx2v_option_schema() -> dict[str, Any]:
     properties = dict(H3_STANDARD_OPTION_SCHEMA["properties"])
+    properties.pop("refine_enabled", None)
+    properties.pop("refine_quality", None)
     properties["quality"] = option(
         "分辨率", "string", "1.0", group="advanced", ui_control="select",
         enum=list(H3_STANDARD_RESOLUTION_PRESETS),
         ui_options=local_resolution_options(H3_STANDARD_RESOLUTION_PRESETS),
         megapixels_by_quality=H3_STANDARD_RESOLUTION_PRESETS,
         ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+        ui_visible_when={"refine_enabled": False},
         description="LightX2V 默认 1.0 MP（16:9 约 1376×768）；尺寸会随画面比例变化。",
     )
     properties["megapixels"] = option(
         "内部像素面积", "number", 1.0, group="internal", minimum=0.1, maximum=16.0, step=0.1, unit="MP",
     )
     properties["speed"] = lightx2v_speed_option()
+    properties["weight_profile"] = h3_weight_profile_option()
     properties["lora_name"] = option(
         "加速 LoRA", "string", LIGHTX2V_FL2V_4STEP_LORA,
         enum=[LIGHTX2V_FL2V_4STEP_LORA, LIGHTX2V_FL2V_8STEP_LORA, LIGHTX2V_REF2V_4STEP_LORA],
@@ -629,6 +666,10 @@ def lightx2v_option_schema() -> dict[str, Any]:
     properties["shift_video"] = option("视频 Shift", "number", 12, minimum=0.01, maximum=100, step=0.01)
     properties["shift_audio"] = option("音频 Shift", "number", 3, minimum=0.01, maximum=100, step=0.01)
     properties["use_sage_attention"] = option("SageAttention", "boolean", True)
+    properties["refine_enabled"] = refine_enabled_option(
+        "开启后先以 0.4 MP 使用当前 LightX2V 速度与加速 LoRA 生成一采，再用 H3 3D latent 放大到目标画质精修（3 步 beta，denoise 0.2）。"
+    )
+    properties["refine_quality"] = refine_quality_option()
     return {"type": "object", "properties": properties}
 
 
@@ -685,6 +726,7 @@ H3_STANDARD_OPTION_SCHEMA = {
             ui_options=local_resolution_options(H3_STANDARD_RESOLUTION_PRESETS),
             megapixels_by_quality=H3_STANDARD_RESOLUTION_PRESETS,
             ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+            ui_visible_when={"refine_enabled": False},
             description="选择实际输出尺寸；尺寸会随画面比例变化，最高档 16:9 为 1920×1088。",
         ),
         "megapixels": option(
@@ -696,9 +738,33 @@ H3_STANDARD_OPTION_SCHEMA = {
             ui_control="duration-slider",
             description="按秒选择输出时长；实际帧数会对齐 MiniMax H3 的 24fps、17n+5 网格，2 秒约为 56 帧。",
         ),
-        "speed": h3_speed_option(),
-        "custom_steps": h3_custom_steps_option(),
-        "weight_profile": h3_weight_profile_option(),
+        "speed": {
+            **h3_speed_option(),
+            "ui_visible_when": {"refine_enabled": False},
+        },
+        "custom_steps": {
+            **h3_custom_steps_option(),
+            "ui_visible_when": {"speed": H3_SPEED_CUSTOM, "refine_enabled": False},
+        },
+        "weight_profile": {
+            **h3_weight_profile_option(),
+            "ui_visible_when": {"refine_enabled": False},
+        },
+        "refine_enabled": option(
+            "二采精修", "boolean", False, group="primary",
+            description="开启后先以 0.4 MP 精简权重生成一采，再用 H3 3D latent 放大到目标画质做第二步精修（3 步 beta，denoise 0.2）。二采在大画布上重新采样：5 秒 1.0 MP 约 3.5 分钟，2.0 MP 约 50 分钟（RTX 4080 16 GB 实测）。",
+        ),
+        "refine_quality": option(
+            "二采画质", "string", "1.0", group="primary", ui_control="select",
+            enum=["1.0", "2.0"],
+            ui_options=[
+                {"value": "1.0", "label": "1.0 MP（16:9 约 1376×768）"},
+                {"value": "2.0", "label": "2.0 MP（16:9 约 1920×1088）"},
+            ],
+            ui_visible_when={"refine_enabled": True},
+            description="二采放大目标；1.0 MP 画质已接近 2.0 MP（约 3.5 分钟），2.0 MP 细节略多（约 50 分钟）。一采固定 0.4 MP，二采在放大后的画布上精修。",
+        ),
+        "refine_preview": refine_preview_option(),
         "steps": option("采样步数", "integer", H3_SPEED_PRESETS[H3_SPEED_BALANCED]["steps"], minimum=1, maximum=1000, step=1),
         "lora_name": option(
             "加速 LoRA", "string", H3_TURBO_LORA_NAME,
@@ -706,7 +772,6 @@ H3_STANDARD_OPTION_SCHEMA = {
         ),
         "lora_strength": option("LoRA 强度", "number", 1, minimum=-100, maximum=100, step=0.01),
         "use_sage_attention": option("SageAttention", "boolean", True),
-        "upscale_after": upscale_after_option(),
     },
 }
 
@@ -726,6 +791,7 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
         "task_type": option(
             "任务类型", "string", "auto", enum=["auto", "T2VA", "Ref2VA"],
             description="auto 会按参考图数量选择文生或参考图生成。",
+            ui_requires_references_when="Ref2VA",
         ),
         "aspect_ratio": option(
             "画面比例", "string", "16:9 (Widescreen)", group="primary", enum=T8_ASPECT_RATIOS,
@@ -737,9 +803,14 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
             ui_options=local_resolution_options(quality_megapixels),
             megapixels_by_quality=quality_megapixels,
             ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+            ui_visible_when={"refine_enabled": False},
             description="选择实际输出尺寸；尺寸会随画面比例变化，最高为 1344×768。",
         ),
-        "upscale_after": upscale_after_option(),
+        "refine_enabled": refine_enabled_option(
+            "开启后一采改用 Director 两段式管线（0.4 MP）、沿用当前步数设置；T8 专有采样器与音频模式不参与二采。二采用 H3 3D latent 放大到目标画质精修。"
+        ),
+        "refine_quality": refine_quality_option(),
+        "refine_preview": refine_preview_option(),
         "megapixels": option(
             "内部像素面积", "number", quality_megapixels[default_quality], group="internal",
             minimum=0.1, maximum=16.0, step=0.1, unit="MP",
@@ -816,7 +887,7 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
     if multirate:
         properties.update({
             "video_steps": option("视频采样步数", "integer", 8, minimum=1, maximum=1000, step=1),
-            "audio_steps": option("音频采样步数", "integer", 10, minimum=1, maximum=1000, step=1),
+            "audio_steps": option("音频采样步数", "integer", 10, minimum=1, maximum=1000, step=1, ui_not_less_than="video_steps"),
             "reserved_vram": option("预留显存", "number", 1, minimum=-2, maximum=128, step=0.1, unit="GB"),
             "reserved_vram_mode": option("预留显存模式", "string", "manual", enum=["manual", "auto"]),
             "reserved_vram_seed": option("显存策略种子", "integer", 0, minimum=-1, maximum=1125899906842624, step=1),
@@ -1246,7 +1317,7 @@ H3_LEGACY_QUALITY_MEGAPIXELS = {"1K": 0.2, "2K": 0.3, "4K": 0.5}
 H3_LEGACY_MEGAPIXELS = set(H3_QUALITY_MEGAPIXELS.values()) | {0.98}
 H3_OPTION_NAMES = {
     "aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps",
-    "weight_profile", "use_sage_attention", "upscale_after",
+    "weight_profile", "use_sage_attention", "refine_enabled", "refine_quality", "refine_preview",
 }
 H3_ASPECT_RATIO_PART = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
 
@@ -1339,6 +1410,27 @@ def validate_references(mode: JobMode | str, references: list[object]) -> None:
         )
 
 
+def _refine_settings(raw: dict[str, Any]) -> tuple[bool, str, bool]:
+    enabled = coerce_bool_option(raw.get("refine_enabled", False), label="二采精修")
+    quality = str(raw.get("refine_quality", "1.0")).strip()
+    if quality not in {"1.0", "2.0"}:
+        raise ValueError("二采画质请选择 1.0 或 2.0 MP。")
+    preview = coerce_bool_option(raw.get("refine_preview", False), label="先预览一采") if enabled else False
+    return enabled, quality, preview
+
+
+def _apply_refine_first_pass(
+    normalized: dict[str, Any], enabled: bool, quality: str, preview: bool,
+) -> dict[str, Any]:
+    normalized["refine_enabled"] = enabled
+    normalized["refine_quality"] = quality
+    normalized["refine_preview"] = preview
+    if enabled:
+        normalized["quality"] = "0.4"
+        normalized["megapixels"] = 0.4
+    return normalized
+
+
 def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[str, Any]:
     if is_image_workflow(mode):
         definition = workflow_for(mode)
@@ -1366,24 +1458,30 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         if definition.option_schema is not None:
             return _normalize_schema_options(definition.option_schema, raw or {})
         return {}
-    raw = raw or {}
+    raw = dict(raw or {})
+    raw.pop("upscale_after", None)
     if is_t8_workflow(mode):
-        return _normalize_schema_options(workflow_for(mode).option_schema or {}, raw)
+        normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw)
+        return _apply_refine_first_pass(normalized, *_refine_settings(raw))
     if is_lightx2v_workflow(mode):
         normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
-        return apply_lightx2v_speed_preset(
+        normalized = apply_lightx2v_speed_preset(
             normalized, raw, is_reference=mode_key(mode) == JobMode.MINIMAX_H3_LIGHTX2V_R2V.value,
         )
+        return _apply_refine_first_pass(normalized, *_refine_settings(raw))
     if is_dual_accel_workflow(mode):
         normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
-        return apply_dual_accel_speed_preset(normalized, raw)
+        normalized = apply_dual_accel_speed_preset(normalized, raw)
+        return _apply_refine_first_pass(normalized, *_refine_settings(raw))
     if is_director_accel_workflow(mode):
         normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
-        return apply_director_accel_speed_preset(normalized, raw)
+        normalized = apply_director_accel_speed_preset(normalized, raw)
+        return _apply_refine_first_pass(normalized, *_refine_settings(raw))
     unknown_options = set(raw) - H3_OPTION_NAMES
     if unknown_options:
         names = ", ".join(sorted(unknown_options))
         raise ValueError(f"MiniMax H3 does not support options: {names}")
+    refine_enabled, refine_quality, refine_preview = _refine_settings(raw)
     aspect_ratio, _ = parse_h3_aspect_ratio(raw.get("aspect_ratio", "16:9"))
     quality = raw.get("quality")
     legacy_megapixels = raw.get("megapixels")
@@ -1406,8 +1504,11 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
     use_sage = raw.get("use_sage_attention", True)
     if not isinstance(use_sage, bool):
         raise ValueError("SageAttention 必须为布尔值。")
-    upscale_after = coerce_bool_option(raw.get("upscale_after", False), label="出片后 2x 超分")
-    return apply_h3_speed_preset({
+    if refine_enabled:
+        quality = "0.4"
+        legacy_megapixels = 0.4
+        speed = H3_SPEED_BALANCED
+    normalized = apply_h3_speed_preset({
         "aspect_ratio": aspect_ratio,
         "quality": quality,
         "megapixels": float(legacy_megapixels) if legacy_megapixels is not None and (raw.get("quality") is None or legacy_quality) else H3_QUALITY_MEGAPIXELS[quality],
@@ -1415,10 +1516,16 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         "reference_image_size": "match",
         "speed": speed,
         "custom_steps": custom_steps,
-        "weight_profile": raw.get("weight_profile", H3_WEIGHT_FULL),
+        "weight_profile": H3_WEIGHT_PRUNED if refine_enabled else raw.get("weight_profile", H3_WEIGHT_FULL),
         "use_sage_attention": use_sage,
-        "upscale_after": upscale_after,
+        "refine_enabled": refine_enabled,
+        "refine_quality": refine_quality,
+        "refine_preview": refine_preview,
     }, raw)
+    if refine_enabled:
+        normalized["lora_name"] = LIGHTX2V_FL2V_8STEP_LORA
+        normalized["lora_strength"] = 1.0
+    return normalized
 
 
 def _normalize_schema_options(
@@ -1468,8 +1575,19 @@ def _normalize_schema_options(
             normalized["megapixels"] = quality_map[normalized["quality"]]
     if apply_speed and "speed" in definitions:
         apply_h3_speed_preset(normalized, raw)
-    if "audio_steps" in normalized and normalized["audio_steps"] < normalized["video_steps"]:
-        raise ValueError("音频采样步数不能小于视频采样步数。")
+    for name, definition in definitions.items():
+        other_name = definition.get("ui_not_less_than")
+        if not other_name:
+            continue
+        current = normalized.get(name)
+        other = normalized.get(other_name)
+        if (
+            isinstance(current, (int, float)) and not isinstance(current, bool)
+            and isinstance(other, (int, float)) and not isinstance(other, bool)
+            and current < other
+        ):
+            other_label = definitions.get(other_name, {}).get("label", other_name)
+            raise ValueError(f"{definition['label']} 不能小于 {other_label}。")
     return normalized
 
 
@@ -1483,8 +1601,11 @@ def quality_for_megapixels(schema: dict[str, Any], megapixels: Any) -> str | Non
 
 
 def validate_option_relationships(mode: JobMode | str, options: dict[str, Any], reference_count: int) -> None:
-    if is_t8_workflow(mode) and options.get("task_type") == "Ref2VA" and reference_count == 0:
-        raise ValueError("Ref2VA 任务类型至少需要 1 张参考图。")
+    definitions = (workflow_for(mode).option_schema or {}).get("properties", {})
+    for name, definition in definitions.items():
+        trigger = definition.get("ui_requires_references_when")
+        if trigger is not None and str(options.get(name)) == str(trigger) and reference_count < 1:
+            raise ValueError(f"{definition.get('label', name)}为 {trigger} 时至少需要 1 张参考图。")
 
 
 def grs_request_size(mode: JobMode | str, options: dict[str, Any]) -> tuple[str, str | None]:

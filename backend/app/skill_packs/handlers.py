@@ -4,6 +4,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .aspect import (
+    aspect_orientation_zh,
+    format_aspect_template,
+    resolve_workshop_aspect_ratio,
+    rewrite_aspect_copy,
+)
 from .recipe import PackRecipe
 from .registry import register_step
 from .triptych import (
@@ -72,12 +78,12 @@ STAGE_CRAFT_FOCUS = {
     ),
     "optimize": (
         "按官方第 8 / 8.1 步一次看图写出中文八块分秒稿和英文六段 Ref2VA，不要按一句对白重排运镜。"
-        "写稿可看整张 16:9 三联写运镜；R2V 只送角色卡、场景卡和三联三张 9:16 裁切（起幅/中格/结果），不要把整张三联送进本地 H3。"
+        "写稿可看整张 16:9 三联写运镜；R2V 只送角色卡、场景卡和三联三张 {aspect} 构图（起幅/中格/结果），不要把整张三联送进本地 H3。"
         "角色卡是多视图设定板，只锁身份，禁止把分格抄进镜头。"
     ),
     "workshop": (
         "按官方第 8 / 8.1 步看着本镜剧本与整张三联一次写出中文八块和英文六段。"
-        "R2V 上传起幅/中格/结果三张 9:16 裁切作同一镜时间路标，不是新人物；禁止把 16:9 母图当参考图。"
+        "R2V 上传起幅/中格/结果三张 {aspect} 构图作同一镜时间路标，不是新人物；禁止把 16:9 母图当参考图。"
         "角色卡是多视图设定板，只锁身份，禁止把分格抄进镜头。"
     ),
 }
@@ -112,21 +118,55 @@ def _triptych_role_from_source(source: str) -> str:
     return "start"
 
 
-def _triptych_panel_label(shot_no: str, role: str) -> str:
+def _pack_aspect(
+    recipe: PackRecipe | None = None,
+    *,
+    aspect_ratio: Any = None,
+    extra: Any = None,
+    project_id: str | None = None,
+    beat: dict[str, Any] | None = None,
+    beat_info: dict[str, Any] | None = None,
+) -> str:
+    request = aspect_ratio
+    if request is None and isinstance(beat_info, dict):
+        request = beat_info.get("aspect_ratio")
+    if request is None and isinstance(beat, dict):
+        request = beat.get("aspect_ratio")
+    return resolve_workshop_aspect_ratio(
+        request=request,
+        extra=extra if extra is not None else beat_info,
+        recipe=recipe,
+        project_id=project_id,
+    )
+
+
+def _triptych_panel_label(shot_no: str, role: str, aspect: str | None = None) -> str:
+    output = resolve_workshop_aspect_ratio(request=aspect)
+    crop = f"{output} 构图"
     if role == "mid":
         return (
-            f"镜头{shot_no}中格（三联中格 9:16 裁切），同一镜主动作时段构图路标；"
-            "不是新人物；成片始终单一 9:16"
+            f"镜头{shot_no}中格（三联中格 {crop}），同一镜主动作时段构图路标；"
+            f"不是新人物；成片始终单一 {output}"
         )
     if role == "end":
         return (
-            f"镜头{shot_no}结果（三联右格 9:16 裁切），同一镜落幅构图路标；"
-            "不是新人物；成片始终单一 9:16"
+            f"镜头{shot_no}结果（三联右格 {crop}），同一镜落幅构图路标；"
+            f"不是新人物；成片始终单一 {output}"
         )
     return (
-        f"镜头{shot_no}起幅（三联左格 9:16 裁切），同一镜 00:00 构图锚；"
+        f"镜头{shot_no}起幅（三联左格 {crop}），同一镜 00:00 构图锚；"
         "这是时间路标不是新人物；禁止分栏、禁止把三格同时摆进画面、禁止把 16:9 母图当参考图"
     )
+
+
+def _author_copy_fields(beat: dict[str, Any], aspect: str) -> tuple[str, str, str]:
+    heading = rewrite_aspect_copy(
+        beat.get("heading") or beat.get("scene") or "完成本镜剧情",
+        aspect,
+    ).strip() or "完成本镜剧情"
+    action = rewrite_aspect_copy(beat.get("action") or "", aspect).strip() or "按已锁定的角色与场景完成这一镜。"
+    camera = rewrite_aspect_copy(beat.get("camera") or "", aspect).strip() or "固定机位，必要时小幅度慢速运镜。"
+    return heading, action, camera
 
 
 def _fit_r2v_slots(
@@ -146,7 +186,8 @@ def _fit_r2v_slots(
 
 
 _HEADING_RE = re.compile(r"^#{2,3}\s+(.+)$", re.M)
-_RANGE_RE = re.compile(r"00:\d{2}\s*[–\-]\s*00:\d{2}")
+_TS_TOKEN = r"00:(?:00:)?(\d{2})(?:\.\d+)?"
+_RANGE_RE = re.compile(rf"{_TS_TOKEN}\s*[–\-]\s*{_TS_TOKEN}")
 _TEMPLATE_FENCE_RE = re.compile(r"```(?:text)?\s*\n(.*?)```", re.S)
 _OFFICIAL_BLOCK_TITLES = (
     "镜头目的",
@@ -158,6 +199,8 @@ _OFFICIAL_BLOCK_TITLES = (
     "画面要求",
     "负向约束",
 )
+_NO_THIRD_PERSON_NARRATION = "本镜无第三人称旁白。角色内心写在对白里，标（内心）。"
+_NARRATION_LABEL_RE = re.compile(r"第三人称旁白|第一人称旁白")
 ZH_BLOCK_MARK = "<<<ZH>>>"
 EN_BLOCK_MARK = "<<<EN>>>"
 _EN_HEADING_RE = re.compile(
@@ -197,12 +240,26 @@ class StepContext:
 @register_step("inject_craft")
 def inject_craft(ctx: StepContext) -> StepContext:
     stage = ctx.stage or ctx.surface
-    text = inject_craft_text(ctx.recipe, stage)
+    info = ctx.beat_info if isinstance(ctx.beat_info, dict) else {}
+    text = inject_craft_text(
+        ctx.recipe,
+        stage,
+        aspect_ratio=ctx.options.get("aspect_ratio") or info.get("aspect_ratio"),
+        extra=ctx.options.get("extra"),
+        project_id=ctx.project_id,
+    )
     ctx.data["craft_overlay"] = text
     return ctx
 
 
-def inject_craft_text(recipe: PackRecipe, stage: str) -> str:
+def inject_craft_text(
+    recipe: PackRecipe,
+    stage: str,
+    *,
+    aspect_ratio: Any = None,
+    extra: Any = None,
+    project_id: str | None = None,
+) -> str:
     markdown = recipe.skill_markdown()
     if not markdown:
         return ""
@@ -218,14 +275,19 @@ def inject_craft_text(recipe: PackRecipe, stage: str) -> str:
         f"【技能包 {recipe.name}】把下面的官方章节写进本阶段输出。"
         "不要改成另一套导演台阶段，也不要发明未声明的工具调用。"
     )
-    focus = str(STAGE_CRAFT_FOCUS.get(stage) or "").strip()
+    aspect = _pack_aspect(
+        recipe,
+        aspect_ratio=aspect_ratio,
+        extra=extra,
+        project_id=project_id,
+    )
+    focus = format_aspect_template(str(STAGE_CRAFT_FOCUS.get(stage) or "").strip(), aspect)
     format_note = ""
-    if recipe.confirm_format:
-        aspect = recipe.confirm_format.get("aspect_ratio") or "9:16"
-        duration_min = recipe.confirm_format.get("duration_min") or 5
-        duration_max = recipe.confirm_format.get("duration_max") or 15
+    if recipe.confirm_format or aspect_ratio or extra or project_id:
+        duration_min = (recipe.confirm_format or {}).get("duration_min") or 5
+        duration_max = (recipe.confirm_format or {}).get("duration_max") or 15
         format_note = f"\n确认画幅 {aspect}、单镜时长 {duration_min}–{duration_max} 秒后再写连续性。"
-        if str(recipe.confirm_format.get("resolution") or "").strip():
+        if str((recipe.confirm_format or {}).get("resolution") or "").strip():
             format_note += " 出片前由用户确认视频分辨率 2K 或 768P，整集统一。"
     visual = f"\nvisual_lock={recipe.visual_lock}" if recipe.visual_lock else ""
     parts = [header + visual + format_note]
@@ -238,7 +300,13 @@ def inject_craft_text(recipe: PackRecipe, stage: str) -> str:
 @register_step("confirm_format")
 def confirm_format(ctx: StepContext) -> StepContext:
     fmt = dict(ctx.recipe.confirm_format or {})
-    fmt.setdefault("aspect_ratio", "9:16")
+    info = ctx.beat_info if isinstance(ctx.beat_info, dict) else {}
+    fmt["aspect_ratio"] = _pack_aspect(
+        ctx.recipe,
+        aspect_ratio=ctx.options.get("aspect_ratio") or info.get("aspect_ratio"),
+        extra=ctx.options.get("extra"),
+        project_id=ctx.project_id,
+    )
     fmt.setdefault("duration_min", 5)
     fmt.setdefault("duration_max", 15)
     ctx.data["confirm_format"] = fmt
@@ -259,11 +327,17 @@ def generate_shot_triptych(ctx: StepContext) -> StepContext:
         return ctx
     from ..media_studio.services.storyboard_image_service import StoryboardImageService
 
+    payload = dict(ctx.options.get("image_payload") or {})
+    aspect = ctx.options.get("aspect_ratio")
+    if aspect is None and isinstance(ctx.beat_info, dict):
+        aspect = ctx.beat_info.get("aspect_ratio")
+    if aspect and not payload.get("aspect_ratio"):
+        payload["aspect_ratio"] = aspect
     result = StoryboardImageService.enqueue(
         ctx.project_id,
         ctx.episode_id,
         ctx.beat_id or str(beat.get("id") or ""),
-        ctx.options.get("image_payload") or {},
+        payload,
         "triptych",
     )
     ctx.jobs.append(result)
@@ -417,7 +491,16 @@ def polish_ref2va(ctx: StepContext) -> StepContext:
 
 @register_step("bind_r2v_slots")
 def bind_r2v_slots(ctx: StepContext) -> StepContext:
-    slots = bind_r2v_slot_images(ctx.recipe, ctx.merged_beat(), ctx.assets)
+    info = ctx.beat_info if isinstance(ctx.beat_info, dict) else {}
+    aspect = _pack_aspect(
+        ctx.recipe,
+        aspect_ratio=ctx.options.get("aspect_ratio") or info.get("aspect_ratio"),
+        extra=ctx.options.get("extra"),
+        beat=ctx.merged_beat(),
+        beat_info=info,
+        project_id=ctx.project_id,
+    )
+    slots = bind_r2v_slot_images(ctx.recipe, ctx.merged_beat(), ctx.assets, aspect_ratio=aspect)
     ctx.data["ref_images"] = slots
     ctx.beat_updates["ref_images"] = slots
     if ctx.beat_info is not None:
@@ -436,9 +519,23 @@ def render_ref2va_default(ctx: StepContext) -> StepContext:
     return ctx
 
 
-def build_timestamped_zh_author_system(recipe: PackRecipe, template: str) -> str:
+def build_timestamped_zh_author_system(
+    recipe: PackRecipe,
+    template: str,
+    *,
+    aspect_ratio: Any = None,
+    extra: Any = None,
+    beat_info: dict[str, Any] | None = None,
+    project_id: str | None = None,
+) -> str:
     fmt = recipe.confirm_format or {}
-    aspect = str(fmt.get("aspect_ratio") or "9:16")
+    aspect = _pack_aspect(
+        recipe,
+        aspect_ratio=aspect_ratio,
+        extra=extra,
+        beat_info=beat_info,
+        project_id=project_id,
+    )
     duration_min = fmt.get("duration_min") or 5
     duration_max = fmt.get("duration_max") or 15
     fill = _extract_official_fill_skeleton(template) or str(template or "").strip()
@@ -451,15 +548,22 @@ def build_timestamped_zh_author_system(recipe: PackRecipe, template: str) -> str
         "中文块只写官方八块分秒稿；可见回复必须是完整两块正文，"
         f"先输出 {ZH_BLOCK_MARK} 再输出 {EN_BLOCK_MARK}，不要前言后语，不要 Markdown 围栏。\n"
         "硬规则：\n"
-        "- 时间码从本镜 00:00 起，覆盖到总时长；按旁白、对白和画面内容切内部分秒。\n"
+        "- 时间码从本镜 00:00 起，覆盖到总时长；只用整秒 00:03，不要 00:02.50，也不要 00:00:15.00。\n"
+        "- 八块标题必须逐字，尤其是「参考素材：」。\n"
+        "- 按旁白、对白和画面内容切内部分秒。\n"
         "- 禁止把全部台词塞进中间一段。多轮开口、内心、听完再反应必须落在不同的 00:00– 时间段。\n"
         "- 一条连续运镜路径上可以挂多句台词（例如上摇过程说完两句，再下摇内心，再推近）。\n"
+        "- 三通道禁止串台：开口只进「对白」；角色内心只进「对白」并标「（内心）」；"
+        "第三人称/第一人称旁白只写 user 里的旁白原文。本镜没有旁白时，「旁白」必须写「本镜无第三人称旁白」，"
+        "禁止把内心或开口句填进去。\n"
+        "- 角色内心挂在触发它的画面时段（如下摇看衣服），禁止因为起幅能看见衣服就在 00:00 先念。\n"
         "- 内心/旁白时段画内人物闭嘴，不要口型同步。"
-        "英文六段必须用 says in an off-screen voiceover，并在 </d> 后写 while ... lips remain completely closed；"
+        "英文开口用 Name (Sn) says:；英文内心必须用 says in an off-screen voiceover，并在 </d> 后写 while ... lips remain completely closed；"
         "禁止内心用 says:。\n"
+        "- 每句中文只进一个 <d>；开口句禁止再当内心复制。<d> 顺序必须等于 user 里的表演顺序。\n"
         "- 台词必须逐字，不得改写、概括或翻译。同一人连续多句按问号/句号切开后每句都要出现；可以挂在相邻时间段，禁止改写成半句。\n"
         "- 参考图使用 <Picture n>，与 R2V 上传顺序一致。角色图是单人多视图设定板，只锁脸、发型和服装，不锁姿势；禁止把分格、白底或重复小人带进镜头。\n"
-        "- R2V 槽位是角色设定板、场景卡，再是本镜起幅/中格/结果三张 9:16 裁切；这三张是同一镜的时间路标（00:00 构图锚 / 主动作构图 / 落幅构图），不是新人物。\n"
+        f"- R2V 槽位是角色设定板、场景卡，再是本镜起幅/中格/结果三张 {aspect} 构图；这三张是同一镜的时间路标（00:00 构图锚 / 主动作构图 / 落幅构图），不是新人物。\n"
         "- 写稿附图可以看整张 16:9 三联来写运镜；禁止把整张 16:9 母图写成 <Picture n>。\n"
         f"- 成片必须是单一 {aspect}，禁止分栏、禁止把三格同时摆进画面。\n"
         "- 禁止只输出「官方八块中文分秒稿与英文六段稿」这种说明句。"
@@ -470,8 +574,31 @@ def build_timestamped_zh_author_system(recipe: PackRecipe, template: str) -> str
     )
 
 
-def build_dual_author_system(recipe: PackRecipe, template: str, *, duration_seconds: str | int = "8") -> str:
-    zh_system = build_timestamped_zh_author_system(recipe, template)
+def build_dual_author_system(
+    recipe: PackRecipe,
+    template: str,
+    *,
+    duration_seconds: str | int = "8",
+    aspect_ratio: Any = None,
+    extra: Any = None,
+    beat_info: dict[str, Any] | None = None,
+    project_id: str | None = None,
+) -> str:
+    zh_system = build_timestamped_zh_author_system(
+        recipe,
+        template,
+        aspect_ratio=aspect_ratio,
+        extra=extra,
+        beat_info=beat_info,
+        project_id=project_id,
+    )
+    aspect = _pack_aspect(
+        recipe,
+        aspect_ratio=aspect_ratio,
+        extra=extra,
+        beat_info=beat_info,
+        project_id=project_id,
+    )
     seconds = str(duration_seconds).strip() or "8"
     headings = " / ".join(f"{name}:" for name in _REF2VA_HEADINGS)
     dual_rules = (
@@ -481,6 +608,15 @@ def build_dual_author_system(recipe: PackRecipe, template: str, *, duration_seco
         "禁止写成无冒号的 subject_definitions，也禁止用中文冒号或 Markdown 标题代替。\n"
         f"英文六段覆盖本镜 {seconds} 秒。detailed_description 必须跟随中文分秒的运镜顺序；"
         "上摇/下摇/短推可以挂多句台词，禁止一句对白一个运镜，禁止硬插 tilt-up / push-in。\n"
+        "Three speech channels: spoken lines go only into Chinese 对白 and English Name (Sn) says: <d>[Chinese] ...</d>. "
+        "Character inner voice goes only into 对白 marked （内心）; English must use the official off-screen voiceover and stay silent after </d>. "
+        "Attach inner voice to the visual beat that triggers it (for example a tilt down onto the clothes); "
+        "do not recite it at 00:00 just because the opening frame already shows the outfit. "
+        "Third-person/first-person narration may copy only the narration field. "
+        "If there is no narration, Chinese 旁白 must say there is no third-person narration; never fill it with inner or spoken lines. "
+        "Each Chinese line occupies exactly one <d>; do not copy a spoken line into a second <d> as inner voice. "
+        "<d> order must match the numbered performance order in the user message. "
+        "Write every tag as <d>[Chinese] ...</d>. Use whole-second timecodes such as 00:00-00:03, not 00:02.50.\n"
         "开口台词写入 <d>[Chinese] ...</d>，保持中文原文，用 Name (Sn) says:。"
         "内心/旁白禁止口型同步 says:，必须用 MiniMax 官方画外音句式，闭嘴写在 </d> 后面：\n"
         "An off-screen inner voice (not produced by the on-screen mouth) "
@@ -489,7 +625,7 @@ def build_dual_author_system(recipe: PackRecipe, template: str, *, duration_seco
         "禁止：Name says: <d>内心原文</d>；禁止 thinks. In an off-screen inner voiceover。\n"
         "内心时段镜头不要顶在思考者嘴上。\n"
         "身份只锁 <Picture n> 的脸、发型和服装，不锁姿势；禁止把设定板分格、白底或重复小人带进镜头；场景卡不锁站位。\n"
-        "写稿附图可以看整张 16:9 三联来写运镜；R2V 只上传三张 9:16 裁切作时间路标，不要把整张三联写进 R2V 槽位。\n"
+        f"写稿附图可以看整张 16:9 三联来写运镜；R2V 只上传三张 {aspect} 构图作时间路标，不要把整张三联写进 R2V 槽位。\n"
         "禁止装箱器口吻：不要只输出英文成品稿；不要禁止对话标签；"
         "不要用占位符代替逐字中文台词；不要灌水凑词；不要省略中文八块。\n"
         "可见回复必须是两块完整正文，不要先写计划或摘要，"
@@ -504,17 +640,29 @@ def build_timestamped_zh_author_user(
     assets: list[dict[str, Any]],
     *,
     beat_info: dict[str, Any] | None = None,
+    aspect_ratio: Any = None,
+    extra: Any = None,
+    project_id: str | None = None,
 ) -> str:
     info = beat_info if isinstance(beat_info, dict) else {}
+    aspect = _pack_aspect(
+        recipe,
+        aspect_ratio=aspect_ratio,
+        extra=extra,
+        beat=beat,
+        beat_info=info,
+        project_id=project_id,
+    )
     seconds = _clip_shot_seconds(recipe, beat)
-    planned = expand_r2v_slot_plan(recipe, beat, assets)
+    planned = expand_r2v_slot_plan(recipe, beat, assets, aspect_ratio=aspect)
     shot_no = str(beat.get("story_shot") or beat.get("sequence") or beat.get("id") or "1").strip() or "1"
+    heading, action, camera = _author_copy_fields(beat, aspect)
     lines = [
         f"镜号：镜头{shot_no}",
         f"时长：{seconds} 秒（内部时间从 00:00 起到 00:{seconds:02d}）",
-        f"镜头目的：{str(beat.get('heading') or beat.get('scene') or '完成本镜剧情').strip()}",
-        f"动作：{str(beat.get('action') or '').strip() or '按已锁定的角色与场景完成这一镜。'}",
-        f"运镜原文：{str(beat.get('camera') or '').strip() or '固定机位，必要时小幅度慢速运镜。'}",
+        f"镜头目的：{heading}",
+        f"动作：{action}",
+        f"运镜原文：{camera}",
         f"场景：{str(beat.get('scene') or beat.get('scene_name') or info.get('scene_name') or '').strip() or '未命名场景'}",
     ]
     scene_desc = str(beat.get("scene_desc") or beat.get("scene_description") or info.get("scene_desc") or "").strip()
@@ -535,33 +683,49 @@ def build_timestamped_zh_author_user(
                 or ""
             ).strip()
             lines.append(f"- {item.get('name') or '角色'}" + (f"：{desc}" if desc else ""))
-    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
-
-    spoken, inner = _zh_speech_turns(beat)
-    if spoken:
-        lines.append("开口对白（开口 vs 内心已拆开；同一人连续多句已按句切开，必须逐字写入对应时间段）：")
-        for turn in spoken:
-            speaker = str(turn.get("speaker") or "").strip() or "角色"
-            for atom in H3PromptBuilder.split_speech_atoms(str(turn.get("text") or "")):
-                lines.append(f"- {speaker}（开口）：{atom}")
+    order_items = _performance_speech_items(beat)
+    if order_items:
+        lines.append(
+            "表演顺序（<d> 必须按此编号；每句中文只进一个 <d>；开口只进对白；"
+            "内心只进对白并标（内心），不要写进旁白）："
+        )
+        for index, item in enumerate(order_items, 1):
+            speaker = str(item.get("speaker") or "").strip() or ("角色" if item.get("kind") != "inner" else "旁白")
+            label = "内心" if item.get("kind") == "inner" else "开口"
+            lines.append(f"{index}. {speaker}（{label}）：{item.get('text')}")
+        if any(item.get("kind") == "inner" for item in order_items):
+            lines.append(
+                "内心挂在触发它的画面时段（如下摇看衣服），不要因为起幅能看见衣服就在 00:00 先念。"
+                "英文内心必须 says in an off-screen voiceover，</d> 后立刻 lips remain completely closed。"
+            )
+            if order_items[0].get("kind") != "inner":
+                lines.append("表演顺序第 1 句不是内心：00:00 起幅只写画面或开口，禁止出现内心原文。")
+        lines.append("英文每个 <d> 必须写成 <d>[Chinese] 原文</d>；时间码只用整秒，例如 00:00–00:03。")
+        lines.append("对白块按表演顺序逐条写（可加时间段，不可改通道、不可漏句）：")
+        for item in order_items:
+            speaker = str(item.get("speaker") or "").strip() or (
+                "角色" if item.get("kind") != "inner" else "旁白"
+            )
+            label = "内心" if item.get("kind") == "inner" else "开口"
+            lines.append(f"- {speaker}（{label}）：{item.get('text')}")
     else:
-        lines.append("开口对白：本镜可无开口对白。")
-    if inner:
-        lines.append("内心/旁白（画内闭嘴；英文必须 says in an off-screen voiceover，</d> 后立刻 lips remain completely closed）：")
-        for turn in inner:
-            speaker = str(turn.get("speaker") or "").strip() or "旁白"
-            for atom in H3PromptBuilder.split_speech_atoms(str(turn.get("text") or "")):
-                lines.append(f"- {speaker}（内心/旁白）：{atom}")
-    narration = str(beat.get("narration") or "").strip()
-    if narration and not any(narration == str(item.get("text") or "") for item in inner):
-        lines.append(f"旁白原文：{narration}")
+        lines.append("表演顺序：本镜无开口、无角色内心。")
+    narration = _third_person_narration(beat)
+    if narration:
+        lines.append(f"旁白原文（只进「旁白」块，不要改写成内心或开口）：{narration}")
+        lines.append("「旁白」块必须只写上面这条旁白原文，不要抄内心或开口。")
+    else:
+        lines.append(
+            "本镜无第三人称/第一人称旁白。「旁白」必须整段如下，一个字都不要改："
+        )
+        lines.append(f"- {_NO_THIRD_PERSON_NARRATION}")
     if planned:
-        lines.append("R2V 槽位（本地 H3 上传顺序；身份优先，随后是起幅/中格/结果 9:16 裁切）：")
+        lines.append("R2V 槽位（本地 H3 上传顺序；身份优先，随后是起幅/中格/结果 {aspect} 构图）：".format(aspect=aspect))
         for item in planned:
             lines.append(f"- <Picture {item['index']}> {item['label']}")
     lines.append(
-        "这三张裁切是同一镜的时间路标，不是新人物：起幅=00:00 构图锚，中格=主动作构图，结果=落幅构图。"
-        "成片始终单一 9:16；禁止分栏、禁止把三格同时摆进画面。"
+        "这三张构图是同一镜的时间路标，不是新人物：起幅=00:00 构图锚，中格=主动作构图，结果=落幅构图。"
+        f"成片始终单一 {aspect}；禁止分栏、禁止把三格同时摆进画面。"
     )
     previous = str(
         info.get("previous_shot")
@@ -660,7 +824,7 @@ def validate_timestamped_zh_prompt(
             "上轮只输出了说明句，必须在 <<<ZH>>> 里从「镜头目的：」写到「负向约束：」，并写分秒和对白原文"
         ]
     for title in _OFFICIAL_BLOCK_TITLES:
-        if title not in draft:
+        if not _has_block_title(draft, title):
             errors.append(f"缺少八块标题：{title}")
     seconds = _clip_shot_seconds(recipe, beat)
     errors.extend(_timerange_span_errors(draft, seconds))
@@ -678,6 +842,8 @@ def validate_timestamped_zh_prompt(
         elif not han and line not in draft:
             errors.append(f"台词未逐字出现：{line[:80]}")
     errors.extend(_speech_split_errors(draft, required))
+    errors.extend(_speech_channel_errors(draft, beat))
+    errors.extend(_inner_opening_errors(draft, beat))
     return errors
 
 
@@ -734,16 +900,19 @@ def fill_timestamped_zh_prompt(
     """骨架填空仅供模板单测，不进入工坊成功路径。"""
     seconds = _clip_shot_seconds(recipe, beat)
     start_range, mid_range, end_range = _shot_time_ranges(seconds)
-    planned = expand_r2v_slot_plan(recipe, beat, assets)
+    aspect = _pack_aspect(recipe, beat=beat)
+    heading, action, camera = _author_copy_fields(beat, aspect)
+    planned = expand_r2v_slot_plan(recipe, beat, assets, aspect_ratio=aspect)
     picture_lines = []
     for item in planned:
         picture_lines.append(f"<Picture {item['index']}> {item['label']}")
     values = {
         "duration": str(seconds),
-        "aspect_ratio": (recipe.confirm_format or {}).get("aspect_ratio") or "9:16",
-        "heading": str(beat.get("heading") or beat.get("scene") or "本镜"),
-        "action": str(beat.get("action") or "").strip() or "按已锁定的角色与场景完成这一镜。",
-        "camera": str(beat.get("camera") or "").strip() or "固定机位，必要时小幅度慢速运镜。",
+        "aspect_ratio": aspect,
+        "orientation": aspect_orientation_zh(aspect),
+        "heading": heading,
+        "action": action,
+        "camera": camera,
         "dialogue": str(beat.get("dialogue") or beat.get("narration") or "").strip() or "本镜可无开口对白。",
         "pictures": "\n".join(picture_lines) or f"<Picture 1> {_character_picture_label()}",
         "start_range": start_range,
@@ -791,12 +960,15 @@ def expand_r2v_slot_plan(
     recipe: PackRecipe,
     beat: dict[str, Any],
     assets: list[dict[str, Any]],
+    *,
+    aspect_ratio: Any = None,
 ) -> list[dict[str, Any]]:
     identity: list[dict[str, Any]] = []
     composition: list[dict[str, Any]] = []
     by_id = {str(item.get("id") or ""): item for item in assets if item.get("id")}
     full_triptych = str(beat.get("triptych_url") or "").strip()
     shot_no = str(beat.get("story_shot") or beat.get("sequence") or beat.get("id") or "1").strip() or "1"
+    aspect = _pack_aspect(recipe, beat=beat, aspect_ratio=aspect_ratio)
     panels = normalize_panels(beat.get("triptych_panels"))
     for spec in recipe.r2v_slots:
         if spec.is_full_triptych:
@@ -832,7 +1004,7 @@ def expand_r2v_slot_plan(
                 "source": f"triptych.{role}" if spec.source in {"start", "mid", "end"} else spec.source,
                 "category": "composition",
                 "name": _TRIPTYCH_PANEL_NAMES[role],
-                "label": _triptych_panel_label(shot_no, role),
+                "label": _triptych_panel_label(shot_no, role, aspect),
                 "url": url,
                 "role": role,
             })
@@ -846,8 +1018,10 @@ def bind_r2v_slot_images(
     recipe: PackRecipe,
     beat: dict[str, Any],
     assets: list[dict[str, Any]],
+    *,
+    aspect_ratio: Any = None,
 ) -> list[dict[str, Any]]:
-    planned = expand_r2v_slot_plan(recipe, beat, assets)
+    planned = expand_r2v_slot_plan(recipe, beat, assets, aspect_ratio=aspect_ratio)
     full_triptych = str(beat.get("triptych_url") or "").strip()
     bound: list[dict[str, Any]] = []
     for item in planned:
@@ -1064,33 +1238,37 @@ def _official_prompt_blocks(
     end_range: str,
 ) -> dict[str, str]:
     shot_no = str(beat.get("story_shot") or beat.get("sequence") or beat.get("id") or "1").strip() or "1"
-    purpose = str(beat.get("heading") or beat.get("action") or beat.get("scene") or "完成本镜剧情").strip()
-    action = str(beat.get("action") or "").strip() or "按已锁定的角色与场景完成这一镜。"
-    camera = str(beat.get("camera") or "").strip() or "固定机位，必要时小幅度慢速运镜。"
+    aspect = _pack_aspect(recipe, beat=beat)
+    heading, action, camera = _author_copy_fields(beat, aspect)
+    purpose = heading
     scene = str(beat.get("scene") or beat.get("heading") or "场景").strip()
+    orientation = aspect_orientation_zh(aspect)
     picture_lines = [
         f"- <Picture {item['index']}> {item['label']}"
         for item in planned
     ] or [f"- <Picture 1> {_character_picture_label()}"]
     must_lines = [
-        f"- {scene} 的空间关系、站位和谁铺满竖屏",
+        f"- {scene} 的空间关系、站位和谁铺满{orientation}",
         f"- {action}",
-        "- 起幅构图与结果构图的连续性，成片保持单一 9:16",
+        f"- 起幅构图与结果构图的连续性，成片保持单一 {aspect}",
     ]
-    speaker = str(beat.get("speaker") or "").strip() or "角色"
-    dialogue = str(beat.get("dialogue") or "").strip()
-    if dialogue:
-        dialogue_block = (
-            f"- {speaker}在 {mid_range} 说：“{dialogue}”\n"
-            "- 其他人物不说话，嘴唇闭合"
-        )
+    order_items = _performance_speech_items(beat)
+    if order_items:
+        dialogue_lines = []
+        for item in order_items:
+            speaker = str(item.get("speaker") or "").strip() or (
+                "角色" if item.get("kind") != "inner" else "旁白"
+            )
+            label = "内心" if item.get("kind") == "inner" else "开口"
+            dialogue_lines.append(f"- {speaker}（{label}）：{item.get('text')}")
+        dialogue_block = "\n".join(dialogue_lines)
     else:
         dialogue_block = "- 本镜可无开口对白；未开口人物嘴唇闭合"
-    narration = str(beat.get("narration") or "").strip()
+    narration = _third_person_narration(beat)
     if narration:
-        narration_block = f"- {end_range} 旁白：“{narration}”"
+        narration_block = f"- 旁白：“{narration}”"
     else:
-        narration_block = "- 本镜可无旁白；旁白/内心时段人物嘴唇闭合"
+        narration_block = f"- {_NO_THIRD_PERSON_NARRATION}"
     return {
         "shot_no": shot_no,
         "purpose": purpose,
@@ -1108,12 +1286,12 @@ def _official_prompt_blocks(
         "画面要求": (
             f"- {camera}\n"
             "- 真人实拍短剧摄影，空间轴线稳定\n"
-            "- 用三张 9:16 裁切对齐起幅→主动作→落幅；运镜从整张三联写出"
+            f"- 用三张 {aspect} 构图对齐起幅→主动作→落幅；运镜从整张三联写出"
         ),
         "负向约束": (
             "- 不要插画、CG、文字、水印、美颜滤镜、人物消失、瞬移、反射重影\n"
             "- 不要把整张三联参考图送进本地 H3；这三张裁切是时间路标不是新人物；"
-            "成片必须是单一 9:16，不许分栏、不许把三格同时摆进画面\n"
+            f"成片必须是单一 {aspect}，不许分栏、不许把三格同时摆进画面\n"
             f"- 技能包：{recipe.name}"
         ),
     }
@@ -1201,17 +1379,162 @@ def _extract_timestamped_zh_prompt(text: str) -> str:
     return draft.strip()
 
 
-def _zh_speech_turns(beat: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
-
-    shot = {
+def _shot_like(beat: dict[str, Any]) -> dict[str, Any]:
+    return {
         "dialogue": beat.get("dialogue"),
         "speaker": beat.get("speaker"),
         "dialogue_turns": beat.get("dialogue_turns"),
         "narration": beat.get("narration"),
         "characters": beat.get("characters") or [],
     }
-    return H3PromptBuilder.split_spoken_and_inner(shot)
+
+
+def _zh_speech_turns(beat: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
+
+    return H3PromptBuilder.split_spoken_and_inner(_shot_like(beat))
+
+
+def _third_person_narration(beat: dict[str, Any]) -> str:
+    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
+
+    return H3PromptBuilder.third_person_narration(_shot_like(beat))
+
+
+def _performance_speech_items(beat: dict[str, Any]) -> list[dict[str, str]]:
+    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
+
+    narration_han = _han_only(_third_person_narration(beat))
+    items: list[dict[str, str]] = []
+    for event in H3PromptBuilder.ordered_speech_events(_shot_like(beat)):
+        kind = str(event.get("kind") or "spoken")
+        speaker = str(event.get("speaker") or "").strip()
+        text = str(event.get("text") or "").strip()
+        if not text:
+            continue
+        if kind == "inner" and narration_han and _han_only(text) == narration_han and not speaker:
+            continue
+        for atom in H3PromptBuilder.split_speech_atoms(text):
+            items.append({"kind": kind, "speaker": speaker, "text": atom})
+    return items
+
+
+def _extract_official_block(text: str, title: str) -> str:
+    titles = "|".join(re.escape(item) for item in _OFFICIAL_BLOCK_TITLES)
+    pattern = re.compile(
+        rf"{re.escape(title)}：\s*\n(.*?)(?=\n(?:{titles})：|\Z)",
+        re.S,
+    )
+    match = pattern.search(str(text or ""))
+    return match.group(1).strip() if match else ""
+
+
+def _speech_atoms_from_turns(turns: list[dict[str, Any]]) -> list[str]:
+    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
+
+    atoms: list[str] = []
+    seen: set[str] = set()
+    for item in turns:
+        for atom in H3PromptBuilder.split_speech_atoms(str(item.get("text") or "")):
+            key = _han_only(atom) or atom
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            atoms.append(atom)
+    return atoms
+
+
+def _speech_channel_errors(text: str, beat: dict[str, Any]) -> list[str]:
+    spoken_atoms = [
+        str(item.get("text") or "").strip()
+        for item in _performance_speech_items(beat)
+        if item.get("kind") != "inner" and str(item.get("text") or "").strip()
+    ]
+    inner_atoms = [
+        str(item.get("text") or "").strip()
+        for item in _performance_speech_items(beat)
+        if item.get("kind") == "inner" and str(item.get("text") or "").strip()
+    ]
+    draft = str(text or "")
+    lines = [line.strip() for line in draft.splitlines() if str(line).strip()]
+    errors: list[str] = []
+    seen: set[str] = set()
+
+    def add(message: str) -> None:
+        if message not in seen:
+            seen.add(message)
+            errors.append(message)
+
+    for atom in inner_atoms:
+        han = _han_only(atom)
+        if len(han) < 4:
+            continue
+        for line in lines:
+            if han in _han_only(line) and _NARRATION_LABEL_RE.search(line):
+                add(f"内心原文出现在第三人称/第一人称旁白：{atom[:80]}")
+                break
+    for atom in spoken_atoms:
+        han = _han_only(atom)
+        if len(han) < 4:
+            continue
+        for line in lines:
+            if han in _han_only(line) and "内心" in line:
+                add(f"开口原文被标成内心：{atom[:80]}")
+                break
+    if not _third_person_narration(beat):
+        block_han = _han_only(_extract_official_block(draft, "旁白"))
+        for atom in (*spoken_atoms, *inner_atoms):
+            han = _han_only(atom)
+            if len(han) >= 4 and han in block_han:
+                add(f"无第三人称旁白时，旁白块不得写入开口或内心：{atom[:80]}")
+    return errors
+
+
+def _has_block_title(draft: str, title: str) -> bool:
+    text = str(draft or "")
+    if title in text:
+        return True
+    stripped = re.sub(r"\ufffd+", "", text)
+    if title in stripped:
+        return True
+    for index in range(len(title)):
+        candidate = title[:index] + title[index + 1 :]
+        if len(candidate) < 3:
+            continue
+        if re.search(rf"^(?:\ufffd)*{re.escape(candidate)}：", text, flags=re.M):
+            return True
+        if re.search(rf"^{re.escape(candidate)}：", stripped, flags=re.M):
+            return True
+    return False
+
+
+def _inner_opening_errors(text: str, beat: dict[str, Any]) -> list[str]:
+    items = _performance_speech_items(beat)
+    if not items or items[0].get("kind") == "inner":
+        return []
+    inner_atoms = [
+        str(item.get("text") or "").strip()
+        for item in items
+        if item.get("kind") == "inner" and str(item.get("text") or "").strip()
+    ]
+    if not inner_atoms:
+        return []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for raw in str(text or "").splitlines():
+        found = _RANGE_RE.search(raw)
+        if not found or int(found.group(1)) != 0:
+            continue
+        line_han = _han_only(raw)
+        for atom in inner_atoms:
+            han = _han_only(atom)
+            if len(han) < 4 or han not in line_han:
+                continue
+            message = f"内心不要写在 00:00 起幅：{atom[:80]}"
+            if message not in seen:
+                seen.add(message)
+                errors.append(message)
+    return errors
 
 
 def _required_speech_atoms(beat: dict[str, Any]) -> list[str]:
@@ -1233,7 +1556,7 @@ def _required_speech_atoms(beat: dict[str, Any]) -> list[str]:
 def _timerange_span_errors(text: str, seconds: int) -> list[str]:
     spans = [
         (int(start), int(end))
-        for start, end in re.findall(r"00:(\d{2})\s*[–\-]\s*00:(\d{2})", str(text or ""))
+        for start, end in _RANGE_RE.findall(str(text or ""))
     ]
     if not spans:
         return ["缺少分秒时间码"]
@@ -1274,7 +1597,7 @@ def _speech_split_errors(text: str, required: list[str]) -> list[str]:
 
 
 def _fallback_zh_template() -> str:
-    return """【画幅与时长】{{aspect_ratio}}，{{duration}} 秒。成片必须是单一竖屏，不许分栏。
+    return """【画幅与时长】{{aspect_ratio}}，{{duration}} 秒。成片必须是单一{{orientation}}，不许分栏。
 【参考图合同】
 {{pictures}}
 【空间建立】{{heading}}。{{start_range}} 锁定起幅站位与景深。

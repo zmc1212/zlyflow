@@ -39,6 +39,7 @@ class MediaType(str, Enum):
 class JobStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
+    AWAITING_REFINE = "awaiting_refine"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     INTERRUPTED = "interrupted"
@@ -418,6 +419,21 @@ class LibraryItemResponse(MediaOutput):
     generation_item_id: str | None = None
     output_index: int | None = None
     created_at: str = Field(description="创建时间；任务记录为 ISO 8601，历史文件为 Unix 时间戳字符串。")
+    job_title: str | None = Field(default=None, description="来源任务标题，列表与检索展示用。")
+
+
+class LibraryQueryCounts(BaseModel):
+    image: int = 0
+    video: int = 0
+
+
+class LibraryQueryResponse(BaseModel):
+    items: list[LibraryItemResponse]
+    total: int = Field(description="当前检索条件下的可用素材总数。")
+    limit: int
+    offset: int
+    has_more: bool
+    counts: LibraryQueryCounts = Field(description="按类型统计的可用素材数，不受 kind 筛选影响。")
 
 
 class LlmProviderUpdateRequest(BaseModel):
@@ -425,6 +441,7 @@ class LlmProviderUpdateRequest(BaseModel):
     base_url: str = Field(default="https://api-inference.modelscope.cn/v1", max_length=500)
     api_key: str | None = Field(default=None, max_length=512)
     model: str = Field(default="Qwen/Qwen2.5-72B-Instruct", max_length=128)
+    assistant_models: list[str] | None = Field(default=None, max_length=32, description="导演助手允许选择的模型 ID；空列表使用默认模型")
 
 
 class LlmProviderTestRequest(BaseModel):
@@ -453,6 +470,21 @@ class LlmModelCatalogResponse(BaseModel):
     message: str | None = None
 
 
+class ModelProviderPreset(BaseModel):
+    key: str
+    label: str
+    base_url: str
+    api_key_url: str
+    pricing_url: str
+    pricing_verified_at: str
+    chat_models: list[LlmCatalogModel]
+    vision_models: list[LlmCatalogModel]
+
+
+class ModelProviderPresetsResponse(BaseModel):
+    presets: list[ModelProviderPreset]
+
+
 class LlmProviderResponse(BaseModel):
     enabled: bool
     base_url: str
@@ -466,7 +498,9 @@ class LlmProviderResponse(BaseModel):
     last_test_message: str | None = None
     last_test_at: str | None = None
     supports_vision: bool = False
+    assistant_models: list[str] = Field(default_factory=list, description="导演助手可选模型 ID")
     use_llm_credentials: bool = False
+    llm_base_url: str | None = None
 
 
 class VisionRouteStatus(BaseModel):
@@ -609,7 +643,7 @@ class DirectorContinuityRepairRequest(BaseModel):
 
 DirectorGenerationStatus = Literal["pending", "partial", "complete"]
 DirectorPayloadKind = Literal[
-    "timeline", "director_recipe", "batch_run", "shot_replication", "hypit_replication"
+    "timeline", "director_recipe", "batch_run", "shot_replication"
 ]
 
 
@@ -788,8 +822,6 @@ class DirectorOperationCreateRequest(BaseModel):
         "shot_render_prepare",
         "analyze_reference_video",
         "replicate_shots",
-        "hypit_transcribe",
-        "hypit_compile",
     ]
     goal: str | None = Field(default=None, max_length=8000)
     agents: list[str] | None = Field(default=None)
@@ -838,11 +870,6 @@ class DirectorOperationCreateRequest(BaseModel):
         le=0.95,
         description="analyze_reference_video 专用：smart 模式的镜头切换判定阈值。",
     )
-    language: Literal["zh", "en"] | None = Field(
-        default=None,
-        description="hypit_transcribe 专用：WhisperX 对齐语言，默认读取工程 payload.language。",
-    )
-
 
 class DirectorOperationResponse(BaseModel):
     id: str
@@ -853,8 +880,6 @@ class DirectorOperationResponse(BaseModel):
         "shot_render_prepare",
         "analyze_reference_video",
         "replicate_shots",
-        "hypit_transcribe",
-        "hypit_compile",
     ]
     status: Literal["queued", "running", "succeeded", "failed", "interrupted", "cancelled"]
     progress: int = Field(ge=0, le=100)
@@ -1003,3 +1028,77 @@ class DirectorExportCapabilitiesResponse(BaseModel):
     tts_available: bool
     tts_reason: str | None = None
     voices: list[TtsVoiceItem] = Field(default_factory=list)
+
+
+class CanvasProjectCreateRequest(BaseModel):
+    title: str = Field(default="未命名画布", max_length=120, description="画布标题")
+
+
+class CanvasProjectUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=120, description="画布标题")
+    tags: list[str] | None = Field(default=None, max_length=8, description="标签，去重后最多 8 个")
+    is_favorite: bool | None = Field(default=None, description="是否收藏")
+
+
+class CanvasDraftSaveRequest(BaseModel):
+    base_version: int = Field(ge=1, description="客户端最后读取到的草稿版本")
+    content: str = Field(min_length=2, max_length=8 * 1024 * 1024, description="JSON.stringify({nodes, edges, canvasSettings})")
+    checksum: str | None = Field(default=None, max_length=64, description="内容的 MD5，可选；提供时后端校验")
+
+
+class CanvasPreviewItem(BaseModel):
+    type: str
+    x: float
+    y: float
+    width: float
+    height: float
+    url: str | None = None
+    cover: str | None = None
+
+
+class CanvasPreview(BaseModel):
+    x: float
+    y: float
+    width: float
+    height: float
+    nodeCount: int = 0
+    items: list[CanvasPreviewItem] = Field(default_factory=list)
+    links: list[tuple[int, int]] = Field(default_factory=list)
+
+
+class CanvasProjectListItem(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    tags: list[str] = Field(default_factory=list)
+    is_favorite: bool = False
+    deleted_at: str | None = None
+    draft_version: int | None = None
+    node_count: int | None = None
+    draft_updated_at: str | None = None
+    preview: CanvasPreview | None = None
+
+
+class CanvasProjectResponse(CanvasProjectListItem):
+    version: int = Field(ge=0)
+    checksum: str
+    content: str
+    node_count: int = 0
+
+
+class CanvasDraftSaveResponse(BaseModel):
+    id: str
+    version: int = Field(ge=1)
+    checksum: str
+    node_count: int = 0
+    updated_at: str
+
+
+class CanvasDraftVersionItem(BaseModel):
+    id: str
+    version: int
+    checksum: str
+    node_count: int
+    created_by: str
+    created_at: str

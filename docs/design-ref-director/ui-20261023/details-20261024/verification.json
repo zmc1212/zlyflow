@@ -1,0 +1,1115 @@
+{
+  "status": "passed",
+  "date": "2026-10-24",
+  "scope": "director home and project shell/content library, desktop light/dark",
+  "checks": [
+    {
+      "name": "home-light-1505.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-light-1505.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-light-1505.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-light-1505.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-light-1505.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home primary-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 1.5
+    },
+    {
+      "name": "home batch-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.266
+    },
+    {
+      "name": "home replication-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.266
+    },
+    {
+      "name": "home hypit-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.266
+    },
+    {
+      "name": "home diagnosis-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 2.016
+    },
+    {
+      "name": "home first-project <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.0
+    },
+    {
+      "name": "home second-project <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.0
+    },
+    {
+      "name": "home primary-cta <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 0.5
+    },
+    {
+      "name": "home search <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.0
+    },
+    {
+      "name": "home primary-icon <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 1.0
+    },
+    {
+      "name": "home batch-icon <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.75
+    },
+    {
+      "name": "project project-header <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 12.0
+    },
+    {
+      "name": "project content-panel <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 1.0
+    },
+    {
+      "name": "project import-primary <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 11.5
+    },
+    {
+      "name": "project import-secondary <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 10.5
+    },
+    {
+      "name": "project empty-icon <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 16.5
+    },
+    {
+      "name": "project first-menu <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 1.0
+    },
+    {
+      "name": "project creation-mode <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 4.0
+    },
+    {
+      "name": "F1 home primary CTA",
+      "passed": true,
+      "reference_box": [
+        188,
+        381,
+        212,
+        52
+      ],
+      "actual_box": [
+        188.5,
+        381,
+        212,
+        52
+      ],
+      "delta_css": [
+        0.5,
+        0,
+        0,
+        0
+      ],
+      "axis_limits_css": [
+        2,
+        2,
+        2,
+        2
+      ]
+    },
+    {
+      "name": "F2 project primary import",
+      "passed": true,
+      "reference_box": [
+        655,
+        597,
+        174,
+        47
+      ],
+      "actual_box": [
+        666.5,
+        597,
+        174,
+        48
+      ],
+      "delta_css": [
+        11.5,
+        0,
+        0,
+        1
+      ],
+      "axis_limits_css": [
+        12,
+        2,
+        2,
+        2
+      ]
+    },
+    {
+      "name": "F3 home search",
+      "passed": true,
+      "reference_box": [
+        732,
+        639,
+        200,
+        35
+      ],
+      "actual_box": [
+        734.40625,
+        636,
+        200,
+        36
+      ],
+      "delta_css": [
+        2.40625,
+        -3,
+        0,
+        1
+      ],
+      "axis_limits_css": [
+        8,
+        4,
+        2,
+        2
+      ]
+    },
+    {
+      "name": "light 标准剧本规范 opens",
+      "passed": true
+    },
+    {
+      "name": "light 标准剧本规范 contained",
+      "passed": true
+    },
+    {
+      "name": "light 标准剧本规范 closes",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 opens",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 contained",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 closes",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 opens",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 contained",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 closes",
+      "passed": true
+    },
+    {
+      "name": "light recipe options visible",
+      "passed": true
+    },
+    {
+      "name": "light assistant opens",
+      "passed": true
+    },
+    {
+      "name": "light assistant closes",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 closes",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 closes",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 closes",
+      "passed": true
+    },
+    {
+      "name": "dark recipe options visible",
+      "passed": true
+    },
+    {
+      "name": "dark assistant opens",
+      "passed": true
+    },
+    {
+      "name": "dark assistant closes",
+      "passed": true
+    },
+    {
+      "name": "theme persists reload",
+      "passed": true
+    },
+    {
+      "name": "empty name feedback",
+      "passed": true
+    },
+    {
+      "name": "name unchanged after cancel",
+      "passed": true
+    },
+    {
+      "name": "simulated long title ellipsis",
+      "passed": true,
+      "detail": {
+        "ellipsis": "ellipsis",
+        "clipped": true,
+        "title": "导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性",
+        "box": [
+          264.140625,
+          503.859375
+        ],
+        "controls": [
+          944,
+          472
+        ],
+        "overlap": false,
+        "overflow": false
+      }
+    },
+    {
+      "name": "simulated long title controls fit",
+      "passed": true,
+      "detail": {
+        "ellipsis": "ellipsis",
+        "clipped": true,
+        "title": "导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性",
+        "box": [
+          264.140625,
+          503.859375
+        ],
+        "controls": [
+          944,
+          472
+        ],
+        "overlap": false,
+        "overflow": false
+      }
+    },
+    {
+      "name": "simulated long title full tooltip",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 资产库",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 剧集工坊",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 全部任务",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 内容库",
+      "passed": true
+    },
+    {
+      "name": "light edit rail 62",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit library title single line",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit library actions fit",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit viewport fits",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit rail 62",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit library title single line",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit library actions fit",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit viewport fits",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "home no search results",
+      "passed": true
+    },
+    {
+      "name": "home search clear restores",
+      "passed": true
+    },
+    {
+      "name": "home search real title",
+      "passed": true
+    },
+    {
+      "name": "filter 短视频批量",
+      "passed": true
+    },
+    {
+      "name": "filter 参考片复刻",
+      "passed": true
+    },
+    {
+      "name": "filter Hypit 复刻",
+      "passed": true
+    },
+    {
+      "name": "filter 全部",
+      "passed": true
+    },
+    {
+      "name": "filter 导演创作",
+      "passed": true
+    },
+    {
+      "name": "home show all",
+      "passed": true
+    },
+    {
+      "name": "home collapse",
+      "passed": true
+    },
+    {
+      "name": "light creation picker opens",
+      "passed": true
+    },
+    {
+      "name": "light creation recipe options",
+      "passed": true
+    },
+    {
+      "name": "light creation picker closes",
+      "passed": true
+    },
+    {
+      "name": "dark creation picker opens",
+      "passed": true
+    },
+    {
+      "name": "dark creation recipe options",
+      "passed": true
+    },
+    {
+      "name": "dark creation picker closes",
+      "passed": true
+    },
+    {
+      "name": "delete confirmation opens",
+      "passed": true
+    },
+    {
+      "name": "delete cancelled",
+      "passed": true
+    },
+    {
+      "name": "light contrast .project-title",
+      "passed": true,
+      "ratio": 17.442218774298816
+    },
+    {
+      "name": "light visible .project-title",
+      "passed": true
+    },
+    {
+      "name": "light contrast .sub-pane-subtitle",
+      "passed": true,
+      "ratio": 4.586317274840255
+    },
+    {
+      "name": "light visible .sub-pane-subtitle",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box h3",
+      "passed": true,
+      "ratio": 17.442218774298816
+    },
+    {
+      "name": "light visible .empty-doc-box h3",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box p",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .empty-doc-box p",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box .ant-btn-primary",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .empty-doc-box .ant-btn-primary",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-formats",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .empty-doc-formats",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-assistant-hint",
+      "passed": true,
+      "ratio": 4.586317274840255
+    },
+    {
+      "name": "light visible .empty-doc-assistant-hint",
+      "passed": true
+    },
+    {
+      "name": "light contrast .sidebar-menu-item.active",
+      "passed": true,
+      "ratio": 4.650725528084596
+    },
+    {
+      "name": "light visible .sidebar-menu-item.active",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .project-title",
+      "passed": true,
+      "ratio": 15.945428309857647
+    },
+    {
+      "name": "dark visible .project-title",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .sub-pane-subtitle",
+      "passed": true,
+      "ratio": 7.568146780976148
+    },
+    {
+      "name": "dark visible .sub-pane-subtitle",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box h3",
+      "passed": true,
+      "ratio": 15.945428309857647
+    },
+    {
+      "name": "dark visible .empty-doc-box h3",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box p",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .empty-doc-box p",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box .ant-btn-primary",
+      "passed": true,
+      "ratio": 5.841852151642705
+    },
+    {
+      "name": "dark visible .empty-doc-box .ant-btn-primary",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-formats",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .empty-doc-formats",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-assistant-hint",
+      "passed": true,
+      "ratio": 7.568146780976148
+    },
+    {
+      "name": "dark visible .empty-doc-assistant-hint",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .sidebar-menu-item.active",
+      "passed": true,
+      "ratio": 6.033300146317954
+    },
+    {
+      "name": "dark visible .sidebar-menu-item.active",
+      "passed": true
+    },
+    {
+      "name": "light contrast .director-home-hero p",
+      "passed": true,
+      "ratio": 7.169429099006868
+    },
+    {
+      "name": "light visible .director-home-hero p",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-entry-copy small",
+      "passed": true,
+      "ratio": 7.169429099006868
+    },
+    {
+      "name": "light visible .dh-entry-copy small",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-entry-cta",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .dh-entry-cta",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-project-summary",
+      "passed": true,
+      "ratio": 7.557378129674007
+    },
+    {
+      "name": "light visible .dh-project-summary",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-project-meta",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .dh-project-meta",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .director-home-hero p",
+      "passed": true,
+      "ratio": 11.08724703118102
+    },
+    {
+      "name": "dark visible .director-home-hero p",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-entry-copy small",
+      "passed": true,
+      "ratio": 11.08724703118102
+    },
+    {
+      "name": "dark visible .dh-entry-copy small",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-entry-cta",
+      "passed": true,
+      "ratio": 4.720230076642482
+    },
+    {
+      "name": "dark visible .dh-entry-cta",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-project-summary",
+      "passed": true,
+      "ratio": 10.22489814340749
+    },
+    {
+      "name": "dark visible .dh-project-summary",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-project-meta",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .dh-project-meta",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true,
+      "ratio": 4.720230076642482
+    },
+    {
+      "name": "dark visible .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true
+    },
+    {
+      "name": "browser runtime errors",
+      "passed": true
+    }
+  ],
+  "passed": 198,
+  "failed": 0,
+  "runtime_errors": [],
+  "geometry_max_abs_css": {
+    "home": 3.75,
+    "project": 16.5
+  },
+  "minimum_sampled_text_contrast": 4.586317274840255,
+  "reference_images_unchanged": true,
+  "reference_viewport": {
+    "width": 1505,
+    "height": 1045,
+    "dpr": 1
+  },
+  "visual_review": "passed; full size baseline screens and local three-way crops reviewed; raster font, semantic color and mathematical centering differences recorded in REPORT.md",
+  "known_differences": [
+    "76 px global navigation retained versus generated 88 px reference",
+    "Empty state remains centered in actual panel; primary button x +11.5 px and icon x +16.5 px relative to generated reference",
+    "Microsoft YaHei system glyph rasterization and real project data differ from generated image"
+  ],
+  "code_validation": {
+    "frontend": "pnpm --dir frontend build: 60 files, 397 tests, TypeScript and Vite passed",
+    "backend": "51 related unittest tests passed"
+  }
+}

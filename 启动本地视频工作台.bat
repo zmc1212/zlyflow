@@ -31,6 +31,13 @@ if errorlevel 1 (
     if errorlevel 1 goto :requirements_install_error
 )
 
+"%PYTHON_EXE%" -c "import importlib.metadata as m; assert m.version('mcp') == '2.3.0' and m.version('starlette') == '0.46.2'" >nul 2>nul
+if errorlevel 1 (
+    echo Installing the MCP SDK with compatible backend dependencies...
+    "%PYTHON_EXE%" -m pip install -r "%CD%\backend\requirements.txt"
+    if errorlevel 1 goto :requirements_install_error
+)
+
 if not defined ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY (
     "%PYTHON_EXE%" "%CD%\backend\app\local_credential_key.py" "%CD%\data\credential.key" >nul
     if errorlevel 1 goto :credential_key_error

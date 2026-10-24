@@ -1,0 +1,1441 @@
+{
+  "status": "截图身份与渲染前提通过；视觉仍需复核",
+  "manifest": "D:\\zlyun\\Toonflow\\本地视频工作台\\test-results\\smart-edit-ui-20261024\\round-final\\run.json",
+  "capture": {
+    "measurement_sha256": "3d0e7c65bc97b5252db2ecd51c75c03b7806ed562819f3da63aea446b5d160c2",
+    "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1672,
+      "height": 941
+    },
+    "dpr": 1,
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "document_height": 941,
+    "fonts_ready": true,
+    "images_ready": true,
+    "document_overflow_x": false,
+    "captured_at": "2026-10-24T13:24:19.819Z",
+    "elements": [
+      {
+        "name": "command-header",
+        "selector": ".se-header",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          92,
+          88,
+          1164,
+          46
+        ],
+        "text": "智能剪辑自由剪辑已保存智能粗剪片段属性导出",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "media-library",
+        "selector": ".se-library",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          92,
+          146,
+          328,
+          491
+        ],
+        "text": "素材库6全部视频图片音频引用本机上传素材00:08山间日出.mp400:08林间光影.mp400:08海岸远景.mp4云海.jpg00:24环境配乐.mp3片头背景.jpg双击或拖动素材到时间线",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "tool-rail",
+        "selector": ".se-tools",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          93,
+          147,
+          60,
+          489
+        ],
+        "text": "",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "preview",
+        "selector": ".se-preview",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          428,
+          146,
+          564,
+          491
+        ],
+        "text": "预览16:9 · 24 fps让故事，自然发生00:03:00 / 00:24:00",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "preview-heading",
+        "selector": ".se-preview > .se-panel-heading",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          429,
+          147,
+          562,
+          42
+        ],
+        "text": "预览16:9 · 24 fps",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "19.5px",
+          "fontWeight": "400",
+          "color": "rgb(75, 85, 99)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "player-controls",
+        "selector": ".se-player-controls",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          429,
+          570,
+          562,
+          66
+        ],
+        "text": "00:03:00 / 00:24:00",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "clip-inspector",
+        "selector": ".se-inspector",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1000,
+          146,
+          256,
+          491
+        ],
+        "text": "片段属性山间日出.mp4视频 · 8.00 秒画面声音变速缩放%位置XY旋转°不透明度%画面特效原画重置画面",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "timeline",
+        "selector": ".se-timeline",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          92,
+          649,
+          1164,
+          276
+        ],
+        "text": "时间线5 个片段时间线文字画面配音 / 音乐00:0000:0500:1000:1500:2000:25让故事，自然发生00:24山间日出.mp400:08林间光影.mp400:08海岸远景.mp400:08环境配乐.mp300:245 个片段 · 24.00 秒空格 播放 / 暂停 · S 拆分 · 拖动片段两端裁切",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "timeline-toolbar",
+        "selector": ".se-timeline-toolbar",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          93,
+          650,
+          1162,
+          48
+        ],
+        "text": "时间线5 个片段",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "track-labels",
+        "selector": ".se-track-labels",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          93,
+          698,
+          140,
+          192
+        ],
+        "text": "时间线文字画面配音 / 音乐",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "timeline-footer",
+        "selector": ".se-timeline-footer",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          93,
+          890,
+          1162,
+          34
+        ],
+        "text": "5 个片段 · 24.00 秒空格 播放 / 暂停 · S 拆分 · 拖动片段两端裁切",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "11px",
+          "lineHeight": "16.5px",
+          "fontWeight": "400",
+          "color": "rgb(107, 114, 128)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "assistant-dock",
+        "selector": ".is-editing-assistant .ant-drawer-section",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1272,
+          0,
+          400,
+          941
+        ],
+        "text": "智能剪辑助手未命名导演工程 · 自由剪辑Hi，我是您的智能剪辑助手铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，先读取画面理解或音轨转写依据，再预览清单，确认后写入时间线。视频理解未开始检测时间线视频的镜头边界，抽样关键帧生成逐镜画面描述与剪辑依据。不做音频转写，也不改动时间线。开始视频理解音频转写未转写把时间线上有声素材的音轨转成带时间戳的真实语音段落，供「音轨字幕」按声音铺设字幕。不改动任何画面剪辑，也不会自动写入字幕。转写音频剪辑工具智能铺轨智能成片字幕也可以直接说：“按分镜帮我铺轨”、“做一版3秒进冲突的引流剪辑”或“转写音频后按真实声音上字幕”。大模型服务尚未启用，请联系",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "400",
+          "color": "rgb(31, 33, 36)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "media-search",
+        "selector": ".se-library-scroll > .ant-input-affix-wrapper",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          169,
+          191,
+          234,
+          32
+        ],
+        "text": "",
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "media-filters",
+        "selector": ".se-media-filter",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          169,
+          235,
+          234,
+          34
+        ],
+        "text": "全部视频图片音频",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18.8571px",
+          "fontWeight": "400",
+          "color": "rgb(89, 99, 111)",
+          "backgroundColor": "rgb(244, 246, 248)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "local-import",
+        "selector": ".se-import-actions > button:first-child",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          169,
+          279,
+          113,
+          36
+        ],
+        "text": "引用本机",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "upload",
+        "selector": ".se-import-actions > button:last-child",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          290,
+          279,
+          113,
+          36
+        ],
+        "text": "上传素材",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "first-thumbnail",
+        "selector": ".se-asset:first-child .se-asset-thumbnail",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          169,
+          327,
+          113,
+          63.5625
+        ],
+        "text": "00:08",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(107, 114, 128)",
+          "backgroundColor": "rgb(244, 246, 248)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "episode-select",
+        "selector": ".se-header-title .ant-select",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          262,
+          93,
+          210,
+          36
+        ],
+        "text": "自由剪辑",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "export-button",
+        "selector": ".se-header-actions > .ant-btn-primary",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1165,
+          93,
+          88,
+          36
+        ],
+        "text": "导出",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "600",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "play-button",
+        "selector": ".se-play-button",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          707,
+          586,
+          34,
+          34
+        ],
+        "text": "",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "400",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "clip-thumbnail",
+        "selector": ".se-inspector-thumbnail",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1015,
+          203,
+          74,
+          52
+        ],
+        "text": "",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18px",
+          "fontWeight": "400",
+          "color": "rgb(107, 114, 128)",
+          "backgroundColor": "rgb(244, 246, 248)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "property-tabs",
+        "selector": ".se-inspector .ant-tabs-nav",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1015,
+          269,
+          226,
+          32
+        ],
+        "text": "画面声音变速",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "reset-picture",
+        "selector": ".se-reset-control",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1073,
+          567,
+          110,
+          36
+        ],
+        "text": "重置画面",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18.8571px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      }
+    ],
+    "assets": {},
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "section_positions": [],
+  "comparison": "test-results\\smart-edit-ui-20261024\\round-final\\report-tooltip-free\\verify-metrics.json",
+  "geometry": {
+    "measurement_sha256": "3d0e7c65bc97b5252db2ecd51c75c03b7806ed562819f3da63aea446b5d160c2",
+    "complete": true,
+    "unavailable_regions": [],
+    "regions": [
+      {
+        "name": "command-header",
+        "selector": ".se-header",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          92,
+          88,
+          1164,
+          46
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          93.0,
+          88.0,
+          1164.0,
+          46.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "media-library",
+        "selector": ".se-library",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          92,
+          146,
+          328,
+          491
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          93.0,
+          146.0,
+          329.0,
+          491.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "tool-rail",
+        "selector": ".se-tools",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          93,
+          147,
+          60,
+          489
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          94.0,
+          147.0,
+          60.0,
+          489.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "preview",
+        "selector": ".se-preview",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          428,
+          146,
+          564,
+          491
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          430.0,
+          146.0,
+          564.0,
+          491.0
+        ],
+        "delta_css": [
+          -2.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 2.0
+      },
+      {
+        "name": "preview-heading",
+        "selector": ".se-preview > .se-panel-heading",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          429,
+          147,
+          562,
+          42
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "19.5px",
+          "fontWeight": "400",
+          "color": "rgb(75, 85, 99)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          431.0,
+          147.0,
+          562.0,
+          42.0
+        ],
+        "delta_css": [
+          -2.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 2.0
+      },
+      {
+        "name": "player-controls",
+        "selector": ".se-player-controls",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          429,
+          570,
+          562,
+          66
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          431.0,
+          570.0,
+          562.0,
+          66.0
+        ],
+        "delta_css": [
+          -2.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 2.0
+      },
+      {
+        "name": "clip-inspector",
+        "selector": ".se-inspector",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1000,
+          146,
+          256,
+          491
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          1001.0,
+          146.0,
+          257.0,
+          491.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "timeline",
+        "selector": ".se-timeline",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          92,
+          649,
+          1164,
+          276
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          93.0,
+          650.0,
+          1165.0,
+          276.0
+        ],
+        "delta_css": [
+          -1.0,
+          -1.0,
+          -1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "timeline-toolbar",
+        "selector": ".se-timeline-toolbar",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          93,
+          650,
+          1162,
+          48
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          94.0,
+          651.0,
+          1163.0,
+          48.0
+        ],
+        "delta_css": [
+          -1.0,
+          -1.0,
+          -1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "track-labels",
+        "selector": ".se-track-labels",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          93,
+          698,
+          140,
+          192
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          94.0,
+          699.0,
+          140.0,
+          192.0
+        ],
+        "delta_css": [
+          -1.0,
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "timeline-footer",
+        "selector": ".se-timeline-footer",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          93,
+          890,
+          1162,
+          34
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "11px",
+          "lineHeight": "16.5px",
+          "fontWeight": "400",
+          "color": "rgb(107, 114, 128)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          94.0,
+          891.0,
+          1163.0,
+          34.0
+        ],
+        "delta_css": [
+          -1.0,
+          -1.0,
+          -1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "assistant-dock",
+        "selector": ".is-editing-assistant .ant-drawer-section",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1272,
+          0,
+          400,
+          941
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "400",
+          "color": "rgb(31, 33, 36)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          1273.0,
+          0.0,
+          399.0,
+          941.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "media-search",
+        "selector": ".se-library-scroll > .ant-input-affix-wrapper",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          169,
+          191,
+          234,
+          32
+        ],
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          169.0,
+          190.0,
+          238.0,
+          34.0
+        ],
+        "delta_css": [
+          0.0,
+          1.0,
+          -4.0,
+          -2.0
+        ],
+        "max_abs_delta_css": 4.0
+      },
+      {
+        "name": "media-filters",
+        "selector": ".se-media-filter",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          169,
+          235,
+          234,
+          34
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18.8571px",
+          "fontWeight": "400",
+          "color": "rgb(89, 99, 111)",
+          "backgroundColor": "rgb(244, 246, 248)"
+        },
+        "reference_css_box": [
+          169.0,
+          235.0,
+          238.0,
+          32.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          -4.0,
+          2.0
+        ],
+        "max_abs_delta_css": 4.0
+      },
+      {
+        "name": "local-import",
+        "selector": ".se-import-actions > button:first-child",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          169,
+          279,
+          113,
+          36
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          169.0,
+          279.0,
+          115.0,
+          36.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          -2.0,
+          0.0
+        ],
+        "max_abs_delta_css": 2.0
+      },
+      {
+        "name": "upload",
+        "selector": ".se-import-actions > button:last-child",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          290,
+          279,
+          113,
+          36
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          292.0,
+          279.0,
+          115.0,
+          36.0
+        ],
+        "delta_css": [
+          -2.0,
+          0.0,
+          -2.0,
+          0.0
+        ],
+        "max_abs_delta_css": 2.0
+      },
+      {
+        "name": "first-thumbnail",
+        "selector": ".se-asset:first-child .se-asset-thumbnail",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          169,
+          327,
+          113,
+          63.5625
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(107, 114, 128)",
+          "backgroundColor": "rgb(244, 246, 248)"
+        },
+        "reference_css_box": [
+          169.0,
+          328.0,
+          115.0,
+          66.0
+        ],
+        "delta_css": [
+          0.0,
+          -1.0,
+          -2.0,
+          -2.438
+        ],
+        "max_abs_delta_css": 2.438
+      },
+      {
+        "name": "episode-select",
+        "selector": ".se-header-title .ant-select",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          262,
+          93,
+          210,
+          36
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          262.0,
+          94.0,
+          210.0,
+          36.0
+        ],
+        "delta_css": [
+          0.0,
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "export-button",
+        "selector": ".se-header-actions > .ant-btn-primary",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1165,
+          93,
+          88,
+          36
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "600",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "reference_css_box": [
+          1165.0,
+          94.0,
+          88.0,
+          36.0
+        ],
+        "delta_css": [
+          0.0,
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "play-button",
+        "selector": ".se-play-button",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          707,
+          586,
+          34,
+          34
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "400",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "reference_css_box": [
+          707.0,
+          586.0,
+          34.0,
+          34.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "clip-thumbnail",
+        "selector": ".se-inspector-thumbnail",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1015,
+          203,
+          74,
+          52
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18px",
+          "fontWeight": "400",
+          "color": "rgb(107, 114, 128)",
+          "backgroundColor": "rgb(244, 246, 248)"
+        },
+        "reference_css_box": [
+          1016.0,
+          203.0,
+          74.0,
+          52.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "property-tabs",
+        "selector": ".se-inspector .ant-tabs-nav",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1015,
+          269,
+          226,
+          32
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          1016.0,
+          269.0,
+          228.0,
+          32.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          -2.0,
+          0.0
+        ],
+        "max_abs_delta_css": 2.0
+      },
+      {
+        "name": "reset-picture",
+        "selector": ".se-reset-control",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1073,
+          567,
+          110,
+          36
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "lineHeight": "18.8571px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          1074.0,
+          567.0,
+          109.0,
+          36.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      }
+    ],
+    "note": "偏差是 CSS 像素，不是还原率；布局可测量不证明未遮挡、字体正确或交互可用。"
+  }
+}

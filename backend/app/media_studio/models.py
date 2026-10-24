@@ -182,7 +182,7 @@ class ProjectItem(BaseModel):
 
 
 class ProjectCreateRequest(BaseModel):
-    name: str
+    name: str = Field(max_length=255)
     description: str | None = ""
     cover_url: str | None = None
     settings: dict[str, Any] | None = None
@@ -190,7 +190,7 @@ class ProjectCreateRequest(BaseModel):
 
 
 class ProjectUpdateRequest(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=255)
     description: str | None = None
     cover_url: str | None = None
     status: str | None = None

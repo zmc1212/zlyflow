@@ -108,11 +108,13 @@ class H3PromptJobService:
             })
 
         from ...skill_packs import resolve_skill_pack_id
+        from ...skill_packs.aspect import resolve_workshop_aspect_ratio
         from ...skill_packs.handlers import bind_r2v_slot_images
         from ...skill_packs.recipe import get_pack
 
         pack_id = resolve_skill_pack_id(payload=req, beat=beat, project_id=project_id)
         recipe = get_pack(pack_id)
+        aspect = resolve_workshop_aspect_ratio(request=req, project_id=project_id, recipe=recipe)
         bind_beat = {
             **beat,
             "character_ids": [],
@@ -121,7 +123,7 @@ class H3PromptJobService:
             "scene_id": str(scene_id or beat.get("scene_id") or ""),
         }
         if not recipe.is_default and recipe.r2v_slots:
-            ref_images = bind_r2v_slot_images(recipe, bind_beat, assets)
+            ref_images = bind_r2v_slot_images(recipe, bind_beat, assets, aspect_ratio=aspect)
         elif "ref_images" in req:
             ref_images = req.get("ref_images") or []
         else:
@@ -178,17 +180,11 @@ class H3PromptJobService:
             "narration": beat.get("narration"),
             "characters": extra_names,
         }
-        spoken_turns, inner_turns = H3PromptBuilder.split_spoken_and_inner(speech_shot)
-        if not spoken_turns:
-            spoken_turns = H3PromptBuilder._dialogue_turns(speech_shot)
-        narration = str(beat.get("narration") or "").strip()
-        inner_text = " ".join(
-            str(turn.get("text") or "").strip()
-            for turn in inner_turns
-            if str(turn.get("text") or "").strip()
-        )
-        if inner_text and inner_text not in narration:
-            narration = f"{narration} {inner_text}".strip() if narration else inner_text
+        script_turns = H3PromptBuilder._raw_script_turns(speech_shot)
+        spoken_turns, _inner_turns = H3PromptBuilder.split_spoken_and_inner(speech_shot)
+        if not script_turns:
+            script_turns = list(spoken_turns)
+        narration = H3PromptBuilder.third_person_narration(speech_shot)
 
         from ...skill_packs import resolve_skill_pack_id
 
@@ -211,13 +207,14 @@ class H3PromptJobService:
             "props": beat_props,
             "ref_images": ref_images,
             "ref_videos": req.get("ref_videos") or [],
-            "dialogue_turns": spoken_turns,
+            "dialogue_turns": script_turns,
             "visible_text": beat.get("visible_text") or "",
             "narration": narration,
             "triptych_url": beat.get("triptych_url") or "",
             "triptych_panels": beat.get("triptych_panels") or {},
             "timestamped_zh_prompt": beat.get("timestamped_zh_prompt") or "",
             "skill_pack_id": pack_id,
+            "aspect_ratio": aspect,
             "project_id": project_id,
             "episode_id": episode_id,
             "beat_id": beat_id,

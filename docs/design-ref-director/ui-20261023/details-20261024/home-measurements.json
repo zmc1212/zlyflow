@@ -1,0 +1,426 @@
+{
+  "source": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-director\\ui-20261023\\home-design.png",
+  "source_sha256": "98ddfc61aa81b12bfb217ecf77d5abd821c2704f468b0f9f7f27761adff9c3aa",
+  "source_size": [
+    1505,
+    1045
+  ],
+  "css_mapping": {
+    "assumed_viewport_width": 1505,
+    "css_per_image_pixel": 1.0,
+    "meaning": "实现约定，不证明参考图原始 DPR 或 CSS 视口"
+  },
+  "regions": [
+    {
+      "name": "primary-entry",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        158,
+        201,
+        753,
+        325
+      ],
+      "normalized_box": [
+        0.104983,
+        0.192344,
+        0.500332,
+        0.311005
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        158.0,
+        201.0,
+        753.0,
+        325.0
+      ],
+      "selector": ".dh-entry-primary",
+      "dom_comparable": true
+    },
+    {
+      "name": "batch-entry",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        925,
+        201,
+        515,
+        99
+      ],
+      "normalized_box": [
+        0.614618,
+        0.192344,
+        0.342193,
+        0.094737
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        925.0,
+        201.0,
+        515.0,
+        99.0
+      ],
+      "selector": ".dh-entry-card.is-batch",
+      "dom_comparable": true
+    },
+    {
+      "name": "replication-entry",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        925,
+        314,
+        515,
+        100
+      ],
+      "normalized_box": [
+        0.614618,
+        0.300478,
+        0.342193,
+        0.095694
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        925.0,
+        314.0,
+        515.0,
+        100.0
+      ],
+      "selector": ".dh-entry-card.is-replication",
+      "dom_comparable": true
+    },
+    {
+      "name": "hypit-entry",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        925,
+        428,
+        515,
+        98
+      ],
+      "normalized_box": [
+        0.614618,
+        0.409569,
+        0.342193,
+        0.09378
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        925.0,
+        428.0,
+        515.0,
+        98.0
+      ],
+      "selector": ".dh-entry-card.is-hypit",
+      "dom_comparable": true
+    },
+    {
+      "name": "diagnosis-entry",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        158,
+        545,
+        1282,
+        66
+      ],
+      "normalized_box": [
+        0.104983,
+        0.521531,
+        0.851827,
+        0.063158
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        158.0,
+        545.0,
+        1282.0,
+        66.0
+      ],
+      "selector": ".dh-diagnosis-entry",
+      "dom_comparable": true
+    },
+    {
+      "name": "first-project",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        158,
+        686,
+        419,
+        167
+      ],
+      "normalized_box": [
+        0.104983,
+        0.656459,
+        0.278405,
+        0.159809
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        158.0,
+        686.0,
+        419.0,
+        167.0
+      ],
+      "selector": ".dh-project:first-child",
+      "dom_comparable": true
+    },
+    {
+      "name": "second-project",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        591,
+        686,
+        419,
+        167
+      ],
+      "normalized_box": [
+        0.392691,
+        0.656459,
+        0.278405,
+        0.159809
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        591.0,
+        686.0,
+        419.0,
+        167.0
+      ],
+      "selector": ".dh-project:nth-child(2)",
+      "dom_comparable": true
+    },
+    {
+      "name": "canvas",
+      "kind": "color",
+      "box_type": "sample",
+      "box": [
+        500,
+        78,
+        100,
+        20
+      ],
+      "normalized_box": [
+        0.332226,
+        0.074641,
+        0.066445,
+        0.019139
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        500.0,
+        78.0,
+        100.0,
+        20.0
+      ],
+      "dom_comparable": false,
+      "color": {
+        "median_hex": "#F8F9FA",
+        "rgb_channels": [
+          {
+            "median": 248.0,
+            "p10": 247.0,
+            "p90": 248.0
+          },
+          {
+            "median": 249.0,
+            "p10": 248.0,
+            "p90": 249.0
+          },
+          {
+            "median": 250.0,
+            "p10": 249.0,
+            "p90": 251.0
+          }
+        ],
+        "opaque_samples": 2000,
+        "excluded_nonopaque": 0,
+        "sample_box": [
+          500,
+          78,
+          100,
+          20
+        ],
+        "max_channel_p90_minus_p10": 2.0,
+        "meaning": "局部像素统计，不证明原始色值、纯色或渐变模型"
+      }
+    },
+    {
+      "name": "surface",
+      "kind": "color",
+      "box_type": "sample",
+      "box": [
+        500,
+        700,
+        40,
+        20
+      ],
+      "normalized_box": [
+        0.332226,
+        0.669856,
+        0.026578,
+        0.019139
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        500.0,
+        700.0,
+        40.0,
+        20.0
+      ],
+      "dom_comparable": false,
+      "color": {
+        "median_hex": "#FEFEFE",
+        "rgb_channels": [
+          {
+            "median": 254.0,
+            "p10": 254.0,
+            "p90": 255.0
+          },
+          {
+            "median": 254.0,
+            "p10": 253.0,
+            "p90": 255.0
+          },
+          {
+            "median": 254.0,
+            "p10": 253.0,
+            "p90": 255.0
+          }
+        ],
+        "opaque_samples": 800,
+        "excluded_nonopaque": 0,
+        "sample_box": [
+          500,
+          700,
+          40,
+          20
+        ],
+        "max_channel_p90_minus_p10": 2.0,
+        "meaning": "局部像素统计，不证明原始色值、纯色或渐变模型"
+      }
+    },
+    {
+      "name": "primary-cta",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        188,
+        381,
+        212,
+        52
+      ],
+      "normalized_box": [
+        0.124917,
+        0.364593,
+        0.140864,
+        0.049761
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        188.0,
+        381.0,
+        212.0,
+        52.0
+      ],
+      "selector": ".dh-entry-cta",
+      "dom_comparable": true
+    },
+    {
+      "name": "search",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        732,
+        639,
+        200,
+        35
+      ],
+      "normalized_box": [
+        0.486379,
+        0.611483,
+        0.13289,
+        0.033493
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        732.0,
+        639.0,
+        200.0,
+        35.0
+      ],
+      "selector": ".dh-project-search",
+      "dom_comparable": true
+    },
+    {
+      "name": "primary-icon",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        182,
+        226,
+        70,
+        70
+      ],
+      "normalized_box": [
+        0.12093,
+        0.216268,
+        0.046512,
+        0.066986
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        182.0,
+        226.0,
+        70.0,
+        70.0
+      ],
+      "selector": ".dh-entry-head .dh-entry-icon",
+      "dom_comparable": true
+    },
+    {
+      "name": "batch-icon",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        945,
+        219,
+        62,
+        62
+      ],
+      "normalized_box": [
+        0.627907,
+        0.209569,
+        0.041196,
+        0.05933
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        945.0,
+        219.0,
+        62.0,
+        62.0
+      ],
+      "selector": ".dh-entry-card.is-batch .dh-entry-icon",
+      "dom_comparable": true
+    }
+  ],
+  "groups": [],
+  "vertical_scans": [],
+  "expected": {
+    "url": "http://127.0.0.1:5173/director",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1505,
+      "height": 1045
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "expected_assets": {},
+  "input_manifest_sha256": "2c0dad8e232bac7d7b55d2f8872aed7ebdb61ffedc06227e71d987c442601f2f"
+}

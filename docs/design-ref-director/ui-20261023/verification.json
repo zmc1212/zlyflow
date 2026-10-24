@@ -1,0 +1,4211 @@
+{
+  "status": "passed",
+  "date": "2026-10-24",
+  "scope": "director home and project shell/content library, desktop light/dark",
+  "checks": [
+    {
+      "name": "home-light-1505.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-light-1505.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-light-1505.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-light-1505.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-light-1505.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1505.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-light-1440.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1440.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-light-1920.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png identity",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "home-dark-1920.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-light-1505.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1505.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-light-1440.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1440.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-light-1920.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png identity",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png viewport and CSS screenshot",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png resources ready",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png no horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "project-dark-1920.png key controls in viewport",
+      "passed": true
+    },
+    {
+      "name": "home primary-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 1.5
+    },
+    {
+      "name": "home batch-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.266
+    },
+    {
+      "name": "home replication-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.266
+    },
+    {
+      "name": "home hypit-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.266
+    },
+    {
+      "name": "home diagnosis-entry <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 2.016
+    },
+    {
+      "name": "home first-project <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.0
+    },
+    {
+      "name": "home second-project <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.0
+    },
+    {
+      "name": "home primary-cta <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 0.5
+    },
+    {
+      "name": "home search <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.0
+    },
+    {
+      "name": "home primary-icon <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 1.0
+    },
+    {
+      "name": "home batch-icon <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 3.75
+    },
+    {
+      "name": "project project-header <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 12.0
+    },
+    {
+      "name": "project content-panel <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 1.0
+    },
+    {
+      "name": "project import-primary <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 11.5
+    },
+    {
+      "name": "project import-secondary <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 10.5
+    },
+    {
+      "name": "project empty-icon <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 16.5
+    },
+    {
+      "name": "project first-menu <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 1.0
+    },
+    {
+      "name": "project creation-mode <=20 CSS px",
+      "passed": true,
+      "max_abs_delta_css": 4.0
+    },
+    {
+      "name": "F1 home primary CTA",
+      "passed": true,
+      "reference_box": [
+        188,
+        381,
+        212,
+        52
+      ],
+      "actual_box": [
+        188.5,
+        381,
+        212,
+        52
+      ],
+      "delta_css": [
+        0.5,
+        0,
+        0,
+        0
+      ],
+      "axis_limits_css": [
+        2,
+        2,
+        2,
+        2
+      ]
+    },
+    {
+      "name": "F2 project primary import",
+      "passed": true,
+      "reference_box": [
+        655,
+        597,
+        174,
+        47
+      ],
+      "actual_box": [
+        666.5,
+        597,
+        174,
+        48
+      ],
+      "delta_css": [
+        11.5,
+        0,
+        0,
+        1
+      ],
+      "axis_limits_css": [
+        12,
+        2,
+        2,
+        2
+      ]
+    },
+    {
+      "name": "F3 home search",
+      "passed": true,
+      "reference_box": [
+        732,
+        639,
+        200,
+        35
+      ],
+      "actual_box": [
+        734.40625,
+        636,
+        200,
+        36
+      ],
+      "delta_css": [
+        2.40625,
+        -3,
+        0,
+        1
+      ],
+      "axis_limits_css": [
+        8,
+        4,
+        2,
+        2
+      ]
+    },
+    {
+      "name": "light 标准剧本规范 opens",
+      "passed": true
+    },
+    {
+      "name": "light 标准剧本规范 contained",
+      "passed": true
+    },
+    {
+      "name": "light 标准剧本规范 closes",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 opens",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 contained",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 closes",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 opens",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 contained",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 closes",
+      "passed": true
+    },
+    {
+      "name": "light recipe options visible",
+      "passed": true
+    },
+    {
+      "name": "light assistant opens",
+      "passed": true
+    },
+    {
+      "name": "light assistant closes",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 closes",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 closes",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 closes",
+      "passed": true
+    },
+    {
+      "name": "dark recipe options visible",
+      "passed": true
+    },
+    {
+      "name": "dark assistant opens",
+      "passed": true
+    },
+    {
+      "name": "dark assistant closes",
+      "passed": true
+    },
+    {
+      "name": "theme persists reload",
+      "passed": true
+    },
+    {
+      "name": "empty name feedback",
+      "passed": true
+    },
+    {
+      "name": "name unchanged after cancel",
+      "passed": true
+    },
+    {
+      "name": "simulated long title ellipsis",
+      "passed": true,
+      "detail": {
+        "ellipsis": "ellipsis",
+        "clipped": true,
+        "title": "导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性",
+        "box": [
+          264.140625,
+          503.859375
+        ],
+        "controls": [
+          944,
+          472
+        ],
+        "overlap": false,
+        "overflow": false
+      }
+    },
+    {
+      "name": "simulated long title controls fit",
+      "passed": true,
+      "detail": {
+        "ellipsis": "ellipsis",
+        "clipped": true,
+        "title": "导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性",
+        "box": [
+          264.140625,
+          503.859375
+        ],
+        "controls": [
+          944,
+          472
+        ],
+        "overlap": false,
+        "overflow": false
+      }
+    },
+    {
+      "name": "simulated long title full tooltip",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 资产库",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 剧集工坊",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 全部任务",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 内容库",
+      "passed": true
+    },
+    {
+      "name": "light edit rail 62",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit library title single line",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit library actions fit",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit viewport fits",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit rail 62",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit library title single line",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit library actions fit",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit viewport fits",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "home no search results",
+      "passed": true
+    },
+    {
+      "name": "home search clear restores",
+      "passed": true
+    },
+    {
+      "name": "home search real title",
+      "passed": true
+    },
+    {
+      "name": "filter 短视频批量",
+      "passed": true
+    },
+    {
+      "name": "filter 参考片复刻",
+      "passed": true
+    },
+    {
+      "name": "filter Hypit 复刻",
+      "passed": true
+    },
+    {
+      "name": "filter 全部",
+      "passed": true
+    },
+    {
+      "name": "filter 导演创作",
+      "passed": true
+    },
+    {
+      "name": "home show all",
+      "passed": true
+    },
+    {
+      "name": "home collapse",
+      "passed": true
+    },
+    {
+      "name": "light creation picker opens",
+      "passed": true
+    },
+    {
+      "name": "light creation recipe options",
+      "passed": true
+    },
+    {
+      "name": "light creation picker closes",
+      "passed": true
+    },
+    {
+      "name": "dark creation picker opens",
+      "passed": true
+    },
+    {
+      "name": "dark creation recipe options",
+      "passed": true
+    },
+    {
+      "name": "dark creation picker closes",
+      "passed": true
+    },
+    {
+      "name": "delete confirmation opens",
+      "passed": true
+    },
+    {
+      "name": "delete cancelled",
+      "passed": true
+    },
+    {
+      "name": "light contrast .project-title",
+      "passed": true,
+      "ratio": 17.442218774298816
+    },
+    {
+      "name": "light visible .project-title",
+      "passed": true
+    },
+    {
+      "name": "light contrast .sub-pane-subtitle",
+      "passed": true,
+      "ratio": 4.586317274840255
+    },
+    {
+      "name": "light visible .sub-pane-subtitle",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box h3",
+      "passed": true,
+      "ratio": 17.442218774298816
+    },
+    {
+      "name": "light visible .empty-doc-box h3",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box p",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .empty-doc-box p",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box .ant-btn-primary",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .empty-doc-box .ant-btn-primary",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-formats",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .empty-doc-formats",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-assistant-hint",
+      "passed": true,
+      "ratio": 4.586317274840255
+    },
+    {
+      "name": "light visible .empty-doc-assistant-hint",
+      "passed": true
+    },
+    {
+      "name": "light contrast .sidebar-menu-item.active",
+      "passed": true,
+      "ratio": 4.650725528084596
+    },
+    {
+      "name": "light visible .sidebar-menu-item.active",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .project-title",
+      "passed": true,
+      "ratio": 15.945428309857647
+    },
+    {
+      "name": "dark visible .project-title",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .sub-pane-subtitle",
+      "passed": true,
+      "ratio": 7.568146780976148
+    },
+    {
+      "name": "dark visible .sub-pane-subtitle",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box h3",
+      "passed": true,
+      "ratio": 15.945428309857647
+    },
+    {
+      "name": "dark visible .empty-doc-box h3",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box p",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .empty-doc-box p",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box .ant-btn-primary",
+      "passed": true,
+      "ratio": 5.841852151642705
+    },
+    {
+      "name": "dark visible .empty-doc-box .ant-btn-primary",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-formats",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .empty-doc-formats",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-assistant-hint",
+      "passed": true,
+      "ratio": 7.568146780976148
+    },
+    {
+      "name": "dark visible .empty-doc-assistant-hint",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .sidebar-menu-item.active",
+      "passed": true,
+      "ratio": 6.033300146317954
+    },
+    {
+      "name": "dark visible .sidebar-menu-item.active",
+      "passed": true
+    },
+    {
+      "name": "light contrast .director-home-hero p",
+      "passed": true,
+      "ratio": 7.169429099006868
+    },
+    {
+      "name": "light visible .director-home-hero p",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-entry-copy small",
+      "passed": true,
+      "ratio": 7.169429099006868
+    },
+    {
+      "name": "light visible .dh-entry-copy small",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-entry-cta",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .dh-entry-cta",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-project-summary",
+      "passed": true,
+      "ratio": 7.557378129674007
+    },
+    {
+      "name": "light visible .dh-project-summary",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-project-meta",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .dh-project-meta",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .director-home-hero p",
+      "passed": true,
+      "ratio": 11.08724703118102
+    },
+    {
+      "name": "dark visible .director-home-hero p",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-entry-copy small",
+      "passed": true,
+      "ratio": 11.08724703118102
+    },
+    {
+      "name": "dark visible .dh-entry-copy small",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-entry-cta",
+      "passed": true,
+      "ratio": 4.720230076642482
+    },
+    {
+      "name": "dark visible .dh-entry-cta",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-project-summary",
+      "passed": true,
+      "ratio": 10.22489814340749
+    },
+    {
+      "name": "dark visible .dh-project-summary",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-project-meta",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .dh-project-meta",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true,
+      "ratio": 4.720230076642482
+    },
+    {
+      "name": "dark visible .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true
+    },
+    {
+      "name": "browser runtime errors",
+      "passed": true
+    }
+  ],
+  "passed": 198,
+  "failed": 0,
+  "runtime_errors": [],
+  "geometry_max_abs_css": {
+    "home": 3.75,
+    "project": 16.5
+  },
+  "minimum_sampled_text_contrast": 4.586317274840255,
+  "reference_images_unchanged": true,
+  "reference_viewport": {
+    "width": 1505,
+    "height": 1045,
+    "dpr": 1
+  },
+  "visual_review": "passed; full size baseline screens and local three-way crops reviewed; raster font, semantic color and mathematical centering differences recorded in REPORT.md",
+  "known_differences": [
+    "76 px global navigation retained versus generated 88 px reference",
+    "Empty state remains centered in actual panel; primary button x +11.5 px and icon x +16.5 px relative to generated reference",
+    "Microsoft YaHei system glyph rasterization and real project data differ from generated image"
+  ],
+  "code_validation": {
+    "frontend": "pnpm --dir frontend build: 60 files, 397 tests, TypeScript and Vite passed",
+    "backend": "51 related unittest tests passed"
+  },
+  "checks_passed": 198,
+  "latest_report": "details-20261024/REPORT.md",
+  "previous_run": {
+    "status": "visual_recheck_not_passed",
+    "date": "2026-10-24",
+    "checks_passed": 106,
+    "checks": [
+      {
+        "name": "Search titles",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Search no results",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Clear search restores projects",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Filter 短视频批量",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Filter 参考片复刻",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Filter Hypit 复刻",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Filter 全部",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Filter 导演创作",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Expand all projects",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Collapse projects",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Create entry opens recipe picker",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Diagnosis entry route",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-info opens light",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "import opens light",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "script-format opens light",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Recipe dropdown light",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "AI drawer opens light",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Official chat tokens light",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "AI close restores manual light",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-info opens dark",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "import opens dark",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "script-format opens dark",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Recipe dropdown dark",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "AI drawer opens dark",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Official chat tokens dark",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "AI close restores manual dark",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Theme persists after reload",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Navigation assets",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "assets-dark: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "assets-dark: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "assets-dark: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "assets-dark: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Navigation workshop",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "workshop-dark: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "workshop-dark: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "workshop-dark: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "workshop-dark: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Navigation jobs",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "jobs-dark: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "jobs-dark: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "jobs-dark: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "jobs-dark: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1505: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1505: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1505: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-light-1505: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-light-1505: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-light-1505: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-light-1505: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1505: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1505: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1505: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-dark-1505: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-dark-1505: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-dark-1505: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-dark-1505: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1440: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1440: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1440: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-light-1440: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-light-1440: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-light-1440: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-light-1440: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1440: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1440: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1440: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-dark-1440: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-dark-1440: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-dark-1440: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-dark-1440: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1920: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1920: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-light-1920: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-light-1920: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-light-1920: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-light-1920: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-light-1920: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1920: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1920: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "home-dark-1920: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-dark-1920: page overflow",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-dark-1920: key bounds",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "project-dark-1920: secondary text contrast",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "name": "project-dark-1920: project toolbar collision",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "No browser runtime errors",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "Project card opens real project",
+        "pass": true
+      },
+      {
+        "name": "Keyboard opens selected navigation item",
+        "pass": true
+      },
+      {
+        "name": "Blank project title is rejected before saving",
+        "pass": true
+      },
+      {
+        "name": "Destructive action requires confirmation",
+        "pass": true
+      },
+      {
+        "name": "Cancel leaves project visible",
+        "pass": true
+      },
+      {
+        "name": "Simulated list failure has actionable error",
+        "pass": true
+      },
+      {
+        "name": "Retry restores real server list",
+        "pass": true
+      },
+      {
+        "name": "Simulated long title keeps full accessible title",
+        "pass": true
+      },
+      {
+        "name": "Simulated long title keeps toolbar accessible",
+        "pass": true
+      },
+      {
+        "name": "Recipe picker inherits dark theme",
+        "pass": true
+      },
+      {
+        "name": "Editing layout stays within viewport light",
+        "pass": true
+      },
+      {
+        "name": "Editing assistant docks beside the editor light",
+        "pass": true
+      },
+      {
+        "name": "Editing toolbar remains accessible light",
+        "pass": true
+      },
+      {
+        "name": "Media library title stays on one line light",
+        "pass": true
+      },
+      {
+        "name": "Media library actions stay visible light",
+        "pass": true
+      },
+      {
+        "name": "Editing layout stays within viewport dark",
+        "pass": true
+      },
+      {
+        "name": "Editing assistant docks beside the editor dark",
+        "pass": true
+      },
+      {
+        "name": "Editing toolbar remains accessible dark",
+        "pass": true
+      },
+      {
+        "name": "Media library title stays on one line dark",
+        "pass": true
+      },
+      {
+        "name": "Media library actions stay visible dark",
+        "pass": true
+      },
+      {
+        "name": "Temporary QA project removed",
+        "pass": true
+      }
+    ],
+    "calibration": {
+      "home": {
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "url": "http://127.0.0.1:5173/director",
+        "captured_at": "2026-10-23T16:22:44.529Z",
+        "fonts_ready": true,
+        "images_ready": true,
+        "regions": [
+          {
+            "name": "primary-entry",
+            "selector": ".dh-entry-primary",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              150.5,
+              202,
+              752.25,
+              324
+            ],
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgba(0, 0, 0, 0)"
+            },
+            "reference_css_box": [
+              158.0,
+              201.0,
+              753.0,
+              325.0
+            ],
+            "delta_css": [
+              -7.5,
+              1.0,
+              -0.75,
+              -1.0
+            ],
+            "max_abs_delta_css": 7.5
+          },
+          {
+            "name": "batch-entry",
+            "selector": ".dh-entry-card.is-batch",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              918.75,
+              202,
+              511.734375,
+              97.328125
+            ],
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "reference_css_box": [
+              925.0,
+              201.0,
+              515.0,
+              99.0
+            ],
+            "delta_css": [
+              -6.25,
+              1.0,
+              -3.266,
+              -1.672
+            ],
+            "max_abs_delta_css": 6.25
+          },
+          {
+            "name": "replication-entry",
+            "selector": ".dh-entry-card.is-replication",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              918.75,
+              315.328125,
+              511.734375,
+              97.328125
+            ],
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "reference_css_box": [
+              925.0,
+              314.0,
+              515.0,
+              100.0
+            ],
+            "delta_css": [
+              -6.25,
+              1.328,
+              -3.266,
+              -2.672
+            ],
+            "max_abs_delta_css": 6.25
+          },
+          {
+            "name": "hypit-entry",
+            "selector": ".dh-entry-card.is-hypit",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              918.75,
+              428.65625,
+              511.734375,
+              97.34375
+            ],
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "reference_css_box": [
+              925.0,
+              428.0,
+              515.0,
+              98.0
+            ],
+            "delta_css": [
+              -6.25,
+              0.656,
+              -3.266,
+              -0.656
+            ],
+            "max_abs_delta_css": 6.25
+          },
+          {
+            "name": "diagnosis-entry",
+            "selector": ".dh-diagnosis-entry",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              150.5,
+              544,
+              1279.984375,
+              64
+            ],
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "reference_css_box": [
+              158.0,
+              545.0,
+              1282.0,
+              66.0
+            ],
+            "delta_css": [
+              -7.5,
+              -1.0,
+              -2.016,
+              -2.0
+            ],
+            "max_abs_delta_css": 7.5
+          },
+          {
+            "name": "first-project",
+            "selector": ".dh-project:first-child",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              150.5,
+              686,
+              416,
+              165
+            ],
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "reference_css_box": [
+              158.0,
+              686.0,
+              419.0,
+              167.0
+            ],
+            "delta_css": [
+              -7.5,
+              0.0,
+              -3.0,
+              -2.0
+            ],
+            "max_abs_delta_css": 7.5
+          },
+          {
+            "name": "second-project",
+            "selector": ".dh-project:nth-child(2)",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              582.5,
+              686,
+              416,
+              165
+            ],
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "reference_css_box": [
+              591.0,
+              686.0,
+              419.0,
+              167.0
+            ],
+            "delta_css": [
+              -8.5,
+              0.0,
+              -3.0,
+              -2.0
+            ],
+            "max_abs_delta_css": 8.5
+          }
+        ]
+      },
+      "project": {
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/content?mode=manual",
+        "captured_at": "2026-10-23T16:22:46.350Z",
+        "fonts_ready": true,
+        "images_ready": true,
+        "regions": [
+          {
+            "name": "project-header",
+            "selector": ".project-topbar",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              76,
+              0,
+              1429,
+              80
+            ],
+            "computed": {
+              "display": "block",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "reference_css_box": [
+              88.0,
+              0.0,
+              1417.0,
+              80.0
+            ],
+            "delta_css": [
+              -12.0,
+              0.0,
+              12.0,
+              0.0
+            ],
+            "max_abs_delta_css": 12.0
+          },
+          {
+            "name": "content-panel",
+            "selector": ".empty-doc-box",
+            "status": "measured",
+            "box_type": "element",
+            "actual_css_box": [
+              332,
+              226,
+              1143,
+              532
+            ],
+            "computed": {
+              "display": "flex",
+              "visibility": "visible",
+              "opacity": "1",
+              "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+              "fontSize": "14px",
+              "lineHeight": "22px",
+              "fontWeight": "400",
+              "color": "rgb(23, 26, 31)",
+              "backgroundColor": "rgb(255, 255, 255)"
+            },
+            "reference_css_box": [
+              332.0,
+              232.0,
+              1144.0,
+              533.0
+            ],
+            "delta_css": [
+              0.0,
+              -6.0,
+              -1.0,
+              -1.0
+            ],
+            "max_abs_delta_css": 6.0
+          }
+        ]
+      }
+    },
+    "audits": [
+      {
+        "name": "assets-dark",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/assets",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1429,
+            "height": 80,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1080.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1477
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 965,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1203,
+            "height": 965,
+            "visible": true,
+            "right": 1505
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sub-pane-subtitle",
+            "ratio": 7.57
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sub-pane-title",
+            "ratio": 17.29
+          },
+          {
+            "selector": ".empty-asset-box h3",
+            "ratio": 15.95
+          },
+          {
+            "selector": ".empty-asset-box p",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".batch-generate-hint",
+            "ratio": 7.57
+          }
+        ]
+      },
+      {
+        "name": "workshop-dark",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/workshop",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1429,
+            "height": 80,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1080.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1477
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 965,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1203,
+            "height": 965,
+            "visible": true,
+            "right": 1505
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".hero-text-col h1",
+            "ratio": 17.29
+          },
+          {
+            "selector": ".empty-workshop-box",
+            "ratio": 6.98
+          }
+        ]
+      },
+      {
+        "name": "jobs-dark",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/jobs",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1429,
+            "height": 80,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1080.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1477
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 965,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1203,
+            "height": 965,
+            "visible": true,
+            "right": 1505
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sub-pane-subtitle",
+            "ratio": 7.57
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".sub-pane-title",
+            "ratio": 17.29
+          }
+        ]
+      },
+      {
+        "name": "home-light-1505",
+        "url": "http://127.0.0.1:5173/director",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "theme": "light",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".director-home-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1429,
+            "height": 64,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".director-home-hero h1",
+            "x": 150.5,
+            "y": 104,
+            "width": 1280,
+            "height": 42,
+            "visible": true,
+            "right": 1430.5
+          },
+          {
+            "selector": ".dh-entry-primary",
+            "x": 150.5,
+            "y": 202,
+            "width": 752.25,
+            "height": 324,
+            "visible": true,
+            "right": 902.75
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 918.75,
+            "y": 202,
+            "width": 511.734375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1430.484375
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 918.75,
+            "y": 315.328125,
+            "width": 511.734375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1430.484375
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 918.75,
+            "y": 428.65625,
+            "width": 511.734375,
+            "height": 97.34375,
+            "visible": true,
+            "right": 1430.484375
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 280.5,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 552.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 712.5,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 984.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1144.5,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1416.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 280.5,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 552.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 712.5,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 984.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1144.5,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1416.5
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".director-home-hero p",
+            "ratio": 7.17
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.17
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          }
+        ]
+      },
+      {
+        "name": "project-light-1505",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/content?mode=manual",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "theme": "light",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1429,
+            "height": 80,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1080.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1477
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 965,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1203,
+            "height": 965,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".empty-doc-box",
+            "x": 332,
+            "y": 226,
+            "width": 1143,
+            "height": 532,
+            "visible": true,
+            "right": 1475
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sub-pane-subtitle",
+            "ratio": 4.59
+          },
+          {
+            "selector": ".empty-doc-box p",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".empty-doc-formats",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sub-pane-title",
+            "ratio": 16.55
+          }
+        ]
+      },
+      {
+        "name": "home-dark-1505",
+        "url": "http://127.0.0.1:5173/director",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".director-home-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1429,
+            "height": 64,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".director-home-hero h1",
+            "x": 150.5,
+            "y": 104,
+            "width": 1280,
+            "height": 42,
+            "visible": true,
+            "right": 1430.5
+          },
+          {
+            "selector": ".dh-entry-primary",
+            "x": 150.5,
+            "y": 202,
+            "width": 752.25,
+            "height": 324,
+            "visible": true,
+            "right": 902.75
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 918.75,
+            "y": 202,
+            "width": 511.734375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1430.484375
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 918.75,
+            "y": 315.328125,
+            "width": 511.734375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1430.484375
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 918.75,
+            "y": 428.65625,
+            "width": 511.734375,
+            "height": 97.34375,
+            "visible": true,
+            "right": 1430.484375
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 280.5,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 552.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 712.5,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 984.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1144.5,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1416.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 280.5,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 552.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 712.5,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 984.5
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1144.5,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1416.5
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".director-home-hero p",
+            "ratio": 11.09
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 11.09
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          }
+        ]
+      },
+      {
+        "name": "project-dark-1505",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/content?mode=manual",
+        "viewport": {
+          "width": 1505,
+          "height": 1045
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1429,
+            "height": 80,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1080.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1477
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 965,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1203,
+            "height": 965,
+            "visible": true,
+            "right": 1505
+          },
+          {
+            "selector": ".empty-doc-box",
+            "x": 332,
+            "y": 226,
+            "width": 1143,
+            "height": 532,
+            "visible": true,
+            "right": 1475
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sub-pane-subtitle",
+            "ratio": 7.57
+          },
+          {
+            "selector": ".empty-doc-box p",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".empty-doc-formats",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sub-pane-title",
+            "ratio": 17.29
+          }
+        ]
+      },
+      {
+        "name": "home-light-1440",
+        "url": "http://127.0.0.1:5173/director",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "dpr": 1,
+        "theme": "light",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".director-home-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1364,
+            "height": 64,
+            "visible": true,
+            "right": 1440
+          },
+          {
+            "selector": ".director-home-hero h1",
+            "x": 140,
+            "y": 104,
+            "width": 1236,
+            "height": 42,
+            "visible": true,
+            "right": 1376
+          },
+          {
+            "selector": ".dh-entry-primary",
+            "x": 140,
+            "y": 202,
+            "width": 726.0625,
+            "height": 324,
+            "visible": true,
+            "right": 866.0625
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 882.0625,
+            "y": 202,
+            "width": 493.9375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1376
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 882.0625,
+            "y": 315.328125,
+            "width": 493.9375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1376
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 882.0625,
+            "y": 428.65625,
+            "width": 493.9375,
+            "height": 97.34375,
+            "visible": true,
+            "right": 1376
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 270,
+            "y": 699,
+            "width": 257.328125,
+            "height": 96,
+            "visible": true,
+            "right": 527.328125
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 687.328125,
+            "y": 699,
+            "width": 257.328125,
+            "height": 96,
+            "visible": true,
+            "right": 944.65625
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1104.65625,
+            "y": 699,
+            "width": 257.34375,
+            "height": 96,
+            "visible": true,
+            "right": 1362
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 270,
+            "y": 876,
+            "width": 257.328125,
+            "height": 96,
+            "visible": true,
+            "right": 527.328125
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 687.328125,
+            "y": 876,
+            "width": 257.328125,
+            "height": 96,
+            "visible": true,
+            "right": 944.65625
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1104.65625,
+            "y": 876,
+            "width": 257.34375,
+            "height": 96,
+            "visible": true,
+            "right": 1362
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".director-home-hero p",
+            "ratio": 7.17
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.17
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          }
+        ]
+      },
+      {
+        "name": "project-light-1440",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/content?mode=manual",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "dpr": 1,
+        "theme": "light",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1364,
+            "height": 80,
+            "visible": true,
+            "right": 1440
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1015.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1412
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 920,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1138,
+            "height": 920,
+            "visible": true,
+            "right": 1440
+          },
+          {
+            "selector": ".empty-doc-box",
+            "x": 332,
+            "y": 226,
+            "width": 1078,
+            "height": 532,
+            "visible": true,
+            "right": 1410
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sub-pane-subtitle",
+            "ratio": 4.59
+          },
+          {
+            "selector": ".empty-doc-box p",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".empty-doc-formats",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sub-pane-title",
+            "ratio": 16.55
+          }
+        ]
+      },
+      {
+        "name": "home-dark-1440",
+        "url": "http://127.0.0.1:5173/director",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".director-home-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1364,
+            "height": 64,
+            "visible": true,
+            "right": 1440
+          },
+          {
+            "selector": ".director-home-hero h1",
+            "x": 140,
+            "y": 104,
+            "width": 1236,
+            "height": 42,
+            "visible": true,
+            "right": 1376
+          },
+          {
+            "selector": ".dh-entry-primary",
+            "x": 140,
+            "y": 202,
+            "width": 726.0625,
+            "height": 324,
+            "visible": true,
+            "right": 866.0625
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 882.0625,
+            "y": 202,
+            "width": 493.9375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1376
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 882.0625,
+            "y": 315.328125,
+            "width": 493.9375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1376
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 882.0625,
+            "y": 428.65625,
+            "width": 493.9375,
+            "height": 97.34375,
+            "visible": true,
+            "right": 1376
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 270,
+            "y": 699,
+            "width": 257.328125,
+            "height": 96,
+            "visible": true,
+            "right": 527.328125
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 687.328125,
+            "y": 699,
+            "width": 257.328125,
+            "height": 96,
+            "visible": true,
+            "right": 944.65625
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1104.65625,
+            "y": 699,
+            "width": 257.34375,
+            "height": 96,
+            "visible": true,
+            "right": 1362
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 270,
+            "y": 876,
+            "width": 257.328125,
+            "height": 96,
+            "visible": true,
+            "right": 527.328125
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 687.328125,
+            "y": 876,
+            "width": 257.328125,
+            "height": 96,
+            "visible": true,
+            "right": 944.65625
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1104.65625,
+            "y": 876,
+            "width": 257.34375,
+            "height": 96,
+            "visible": true,
+            "right": 1362
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".director-home-hero p",
+            "ratio": 11.09
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 11.09
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          }
+        ]
+      },
+      {
+        "name": "project-dark-1440",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/content?mode=manual",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1364,
+            "height": 80,
+            "visible": true,
+            "right": 1440
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1015.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1412
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 920,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1138,
+            "height": 920,
+            "visible": true,
+            "right": 1440
+          },
+          {
+            "selector": ".empty-doc-box",
+            "x": 332,
+            "y": 226,
+            "width": 1078,
+            "height": 532,
+            "visible": true,
+            "right": 1410
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sub-pane-subtitle",
+            "ratio": 7.57
+          },
+          {
+            "selector": ".empty-doc-box p",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".empty-doc-formats",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sub-pane-title",
+            "ratio": 17.29
+          }
+        ]
+      },
+      {
+        "name": "home-light-1920",
+        "url": "http://127.0.0.1:5173/director",
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "dpr": 1,
+        "theme": "light",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".director-home-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1844,
+            "height": 64,
+            "visible": true,
+            "right": 1920
+          },
+          {
+            "selector": ".director-home-hero h1",
+            "x": 358,
+            "y": 104,
+            "width": 1280,
+            "height": 42,
+            "visible": true,
+            "right": 1638
+          },
+          {
+            "selector": ".dh-entry-primary",
+            "x": 358,
+            "y": 202,
+            "width": 752.25,
+            "height": 324,
+            "visible": true,
+            "right": 1110.25
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 1126.25,
+            "y": 202,
+            "width": 511.734375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1637.984375
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 1126.25,
+            "y": 315.328125,
+            "width": 511.734375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1637.984375
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 1126.25,
+            "y": 428.65625,
+            "width": 511.734375,
+            "height": 97.34375,
+            "visible": true,
+            "right": 1637.984375
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 488,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 760
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 920,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1192
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1352,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1624
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 488,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 760
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 920,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1192
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1352,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1624
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".director-home-hero p",
+            "ratio": 7.17
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.17
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 5.34
+          }
+        ]
+      },
+      {
+        "name": "project-light-1920",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/content?mode=manual",
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "dpr": 1,
+        "theme": "light",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1844,
+            "height": 80,
+            "visible": true,
+            "right": 1920
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1495.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1892
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 1000,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1618,
+            "height": 1000,
+            "visible": true,
+            "right": 1920
+          },
+          {
+            "selector": ".empty-doc-box",
+            "x": 332,
+            "y": 226,
+            "width": 1558,
+            "height": 532,
+            "visible": true,
+            "right": 1890
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sub-pane-subtitle",
+            "ratio": 4.59
+          },
+          {
+            "selector": ".empty-doc-box p",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".empty-doc-formats",
+            "ratio": 4.83
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 5.34
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.56
+          },
+          {
+            "selector": ".sub-pane-title",
+            "ratio": 16.55
+          }
+        ]
+      },
+      {
+        "name": "home-dark-1920",
+        "url": "http://127.0.0.1:5173/director",
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".director-home-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1844,
+            "height": 64,
+            "visible": true,
+            "right": 1920
+          },
+          {
+            "selector": ".director-home-hero h1",
+            "x": 358,
+            "y": 104,
+            "width": 1280,
+            "height": 42,
+            "visible": true,
+            "right": 1638
+          },
+          {
+            "selector": ".dh-entry-primary",
+            "x": 358,
+            "y": 202,
+            "width": 752.25,
+            "height": 324,
+            "visible": true,
+            "right": 1110.25
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 1126.25,
+            "y": 202,
+            "width": 511.734375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1637.984375
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 1126.25,
+            "y": 315.328125,
+            "width": 511.734375,
+            "height": 97.328125,
+            "visible": true,
+            "right": 1637.984375
+          },
+          {
+            "selector": ".dh-entry-card",
+            "x": 1126.25,
+            "y": 428.65625,
+            "width": 511.734375,
+            "height": 97.34375,
+            "visible": true,
+            "right": 1637.984375
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 488,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 760
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 920,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1192
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1352,
+            "y": 699,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1624
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 488,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 760
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 920,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1192
+          },
+          {
+            "selector": ".dh-project-info",
+            "x": 1352,
+            "y": 876,
+            "width": 272,
+            "height": 96,
+            "visible": true,
+            "right": 1624
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".director-home-hero p",
+            "ratio": 11.09
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 11.09
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-entry-copy small",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-summary",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-project-meta",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".dh-chip",
+            "ratio": 7.82
+          }
+        ]
+      },
+      {
+        "name": "project-dark-1920",
+        "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/content?mode=manual",
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "dpr": 1,
+        "theme": "dark",
+        "overflow": false,
+        "boxes": [
+          {
+            "selector": ".project-topbar",
+            "x": 76,
+            "y": 0,
+            "width": 1844,
+            "height": 80,
+            "visible": true,
+            "right": 1920
+          },
+          {
+            "selector": ".topbar-left",
+            "x": 104,
+            "y": 23.75,
+            "width": 384.609375,
+            "height": 31.5,
+            "visible": true,
+            "right": 488.609375
+          },
+          {
+            "selector": ".topbar-right",
+            "x": 1495.40625,
+            "y": 14.5,
+            "width": 396.59375,
+            "height": 50,
+            "visible": true,
+            "right": 1892
+          },
+          {
+            "selector": ".project-sidebar",
+            "x": 76,
+            "y": 80,
+            "width": 226,
+            "height": 1000,
+            "visible": true,
+            "right": 302
+          },
+          {
+            "selector": ".project-content-pane",
+            "x": 302,
+            "y": 80,
+            "width": 1618,
+            "height": 1000,
+            "visible": true,
+            "right": 1920
+          },
+          {
+            "selector": ".empty-doc-box",
+            "x": 332,
+            "y": 226,
+            "width": 1558,
+            "height": 532,
+            "visible": true,
+            "right": 1890
+          }
+        ],
+        "contrast": [
+          {
+            "selector": ".sub-pane-subtitle",
+            "ratio": 7.57
+          },
+          {
+            "selector": ".empty-doc-box p",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".empty-doc-formats",
+            "ratio": 6.98
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 7.82
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sidebar-menu-item",
+            "ratio": 10.22
+          },
+          {
+            "selector": ".sub-pane-title",
+            "ratio": 17.29
+          }
+        ]
+      }
+    ],
+    "runtime_errors": [],
+    "browser_fixture_cases": [
+      "simulated-load-error",
+      "simulated-long-title"
+    ],
+    "frontend": {
+      "files": 58,
+      "tests": 375,
+      "build": "passed"
+    },
+    "backend": {
+      "tests": 51,
+      "result": "passed"
+    },
+    "cleanup": {
+      "temporary_projects": "deleted via API and checked",
+      "temporary_user": "deleted and absence checked",
+      "temporary_sessions": "revoked",
+      "scripts_and_auth_files": "removed and absence checked",
+      "ignored_screenshot_output": "retained: directory removal rejected by automatic policy (blocked by policy)"
+    },
+    "initial_validation_status": "passed",
+    "visual_fidelity_recheck": {
+      "status": "not_passed",
+      "report": "recheck-20261024/RECHECK.md",
+      "findings": 3,
+      "fresh_screenshots": 8
+    }
+  }
+}

@@ -25,6 +25,8 @@ def register_project_routes(
 
     鉴权：读取走 current_user，写入走 mutating_user（沿用工作台会话体系）。
     """
+    from .smart_edit_router import register_smart_edit_routes
+    register_smart_edit_routes(app, current_user=current_user, mutating_user=mutating_user)
 
     def ai_service() -> AiGenerationService:
         service = getattr(app.state, "director2_ai_service", None)
@@ -223,10 +225,17 @@ def register_project_routes(
     def enqueue_document_shot_plan(
         project_id: Annotated[str, Path(description="项目 ID")],
         doc_id: Annotated[str, Path(description="项目文档 ID")],
+        payload: dict | None = Body(default=None),
         user: dict = Depends(mutating_user),
     ):
         try:
-            return ProjectDetailService.enqueue_document_shot_plan(project_id, doc_id)
+            body = payload if isinstance(payload, dict) else {}
+            aspect_ratio = body.get("aspect_ratio")
+            return ProjectDetailService.enqueue_document_shot_plan(
+                project_id,
+                doc_id,
+                aspect_ratio=str(aspect_ratio).strip() if aspect_ratio else None,
+            )
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
@@ -535,6 +544,26 @@ def register_project_routes(
             raise HTTPException(status_code=500, detail=f"创建单镜视频任务失败: {err}")
 
     @app.post(
+        "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/video-takes/adopt",
+        summary="采用本镜一条成片为正式成片",
+    )
+    def adopt_beat_video_take(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        episode_id: Annotated[str, Path(description="分集 ID")],
+        beat_id: Annotated[str, Path(description="Beat ID")],
+        payload: dict | None = None,
+        user: dict = Depends(mutating_user),
+    ):
+        try:
+            return EpisodeVideoService.adopt_beat_video_take(
+                project_id, episode_id, beat_id, payload or {},
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        except Exception as err:
+            raise HTTPException(status_code=500, detail=f"采用成片失败: {err}") from err
+
+    @app.post(
         "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale",
         status_code=202,
         summary="对本镜已成功成片提交 2x 超分",
@@ -662,6 +691,17 @@ def register_project_routes(
     def list_jobs(project_id: Annotated[str, Path(description="项目 ID")], user: dict = Depends(current_user)):
         return ProjectDetailService.list_jobs(project_id)
 
+    @app.get("/api/projects/{project_id}/jobs/{job_id}", summary="获取项目单个生成任务")
+    def get_job(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        job_id: Annotated[str, Path(description="任务 ID")],
+        user: dict = Depends(current_user),
+    ):
+        row = ProjectDetailService.get_job(project_id, job_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        return row
+
     @app.get("/api/projects/{project_id}/jobs/{job_id}/events", summary="订阅项目任务事件")
     async def stream_project_job(
         project_id: Annotated[str, Path(description="项目 ID")],
@@ -718,5 +758,21 @@ def register_project_routes(
     def retry_job(project_id: Annotated[str, Path(description="项目 ID")], job_id: Annotated[str, Path(description="任务 ID")], user: dict = Depends(mutating_user)):
         try:
             return ProjectDetailService.retry_job(project_id, job_id)
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+    @app.post("/api/projects/{project_id}/jobs/{job_id}/refine/confirm", summary="确认一采预览并继续二采")
+    def confirm_refine(project_id: Annotated[str, Path(description="项目 ID")], job_id: Annotated[str, Path(description="任务 ID")], user: dict = Depends(mutating_user)):
+        from ..services.episode_video_service import EpisodeVideoService
+        try:
+            return EpisodeVideoService.confirm_refine(project_id, job_id)
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+    @app.post("/api/projects/{project_id}/jobs/{job_id}/refine/skip", summary="保留一采预览并结束任务")
+    def skip_refine(project_id: Annotated[str, Path(description="项目 ID")], job_id: Annotated[str, Path(description="任务 ID")], user: dict = Depends(mutating_user)):
+        from ..services.episode_video_service import EpisodeVideoService
+        try:
+            return EpisodeVideoService.skip_refine(project_id, job_id)
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))

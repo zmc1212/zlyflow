@@ -1,0 +1,92 @@
+{
+  "verdict": "structure_passed_visual_fidelity_not_passed",
+  "method": "8 fresh real browser screenshots; matched viewport, DPR and pixel crop; reference primary-button blue fill boundaries compared with actual DOM boxes",
+  "reference_viewport": {
+    "width": 1505,
+    "height": 1045,
+    "dpr": 1
+  },
+  "runtime_errors": [],
+  "findings": [
+    {
+      "id": "F1",
+      "priority": "P2",
+      "target": "首页主按钮",
+      "reference_box": [
+        188,
+        381,
+        212,
+        52
+      ],
+      "actual_box": [
+        177.5,
+        367,
+        154,
+        44
+      ],
+      "delta_css": [
+        -10.5,
+        -14,
+        -58,
+        -8
+      ],
+      "source": "frontend/src/director2/director-home.css:51"
+    },
+    {
+      "id": "F2",
+      "priority": "P2",
+      "target": "内容库主按钮及内容组",
+      "reference_box": [
+        655,
+        597,
+        174,
+        47
+      ],
+      "actual_box": [
+        715.5,
+        571,
+        126,
+        42
+      ],
+      "delta_css": [
+        60.5,
+        -26,
+        -48,
+        -5
+      ],
+      "source": "frontend/src/director2/panes/content-library.css:44"
+    },
+    {
+      "id": "F3",
+      "priority": "P2",
+      "target": "首页搜索工具栏",
+      "reference_box": [
+        732,
+        639,
+        200,
+        35
+      ],
+      "actual_box": [
+        809.5,
+        637,
+        190,
+        34
+      ],
+      "delta_css": [
+        77.5,
+        -2,
+        -10,
+        -1
+      ],
+      "reference_precision": "manual raster border annotation, approximately +/- 2 px",
+      "source": "frontend/src/director2/director-home.css:75"
+    }
+  ],
+  "notes": [
+    "Reference button bounds extracted from solid blue pixel masks; raster edges can vary by approximately one pixel.",
+    "The original <=20 px outer-box gate does not prove internal controls match.",
+    "Actual Chinese font confirmed by Chrome DevTools Protocol: Microsoft YaHei.",
+    "Project and home data counts and dates are dynamic and excluded from fidelity defects.",
+    "No production source files were modified; QA project deleted through the actual API."
+  ]
+}

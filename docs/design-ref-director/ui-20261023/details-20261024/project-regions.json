@@ -1,0 +1,107 @@
+{
+  "reference": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-director\\ui-20261023\\project-design.png",
+  "css_viewport_width": 1505,
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1505,
+      "height": 1045
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "regions": [
+    {
+      "name": "project-header",
+      "box": [
+        88,
+        0,
+        1417,
+        80
+      ],
+      "selector": ".project-topbar"
+    },
+    {
+      "name": "content-panel",
+      "box": [
+        332,
+        232,
+        1144,
+        533
+      ],
+      "selector": ".empty-doc-box"
+    },
+    {
+      "name": "canvas",
+      "kind": "color",
+      "box": [
+        500,
+        850,
+        100,
+        20
+      ]
+    },
+    {
+      "name": "surface",
+      "kind": "color",
+      "box": [
+        500,
+        300,
+        100,
+        20
+      ]
+    },
+    {
+      "name": "import-primary",
+      "box": [
+        655,
+        597,
+        174,
+        47
+      ],
+      "selector": ".empty-doc-box .ant-btn-primary"
+    },
+    {
+      "name": "import-secondary",
+      "box": [
+        844,
+        597,
+        287,
+        47
+      ],
+      "selector": ".empty-doc-box .ant-space-item:nth-child(2) .ant-btn"
+    },
+    {
+      "name": "empty-icon",
+      "box": [
+        837,
+        343,
+        102,
+        100
+      ],
+      "selector": ".empty-icon-wrap"
+    },
+    {
+      "name": "first-menu",
+      "box": [
+        103,
+        104,
+        184,
+        50
+      ],
+      "selector": ".sidebar-menu-item:first-child"
+    },
+    {
+      "name": "creation-mode",
+      "box": [
+        1205,
+        11,
+        208,
+        58
+      ],
+      "selector": ".project-topbar .ant-segmented"
+    }
+  ]
+}

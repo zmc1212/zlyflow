@@ -1,7 +1,7 @@
 export const DIRECTOR2_DEFAULT_VIDEO_WORKFLOW = "minimax-h3-director-accel-r2v"
 export const DIRECTOR2_VIDEO_SETTINGS_STORAGE_PREFIX = "director2-episode-video-settings:"
 export const DIRECTOR2_EPISODE_HIDDEN_OPTIONS = new Set(["duration", "custom_steps"])
-export const DIRECTOR2_BOOLEAN_VIDEO_OPTIONS = new Set(["upscale_after"])
+export const DIRECTOR2_BOOLEAN_VIDEO_OPTIONS = new Set(["refine_enabled", "refine_preview"])
 
 export type Director2OptionVisibility = "primary" | "advanced" | "internal"
 
@@ -15,6 +15,7 @@ export type Director2OptionDefinition = {
   description?: string
   megapixels_by_quality?: Record<string, number>
   ui_resolution_preview?: { multiple?: number; max_width?: number; max_height?: number }
+  ui_visible_when?: Record<string, string | number | boolean>
 }
 
 export type Director2WorkflowMode = {
@@ -132,14 +133,42 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
     },
   },
   {
-    name: "upscale_after",
-    ui_group: "advanced",
+    name: "refine_enabled",
+    ui_group: "primary",
     definition: {
-      label: "出片后 2x 超分",
+      label: "二采精修",
       type: "boolean",
       default: false,
-      ui_group: "advanced",
-      description: "逐镜成片成功后卸载 H3，再用本机 RTX 放大到 2 倍。整集直出和拼接片不会自动超分。",
+      ui_group: "primary",
+      description: "先以 0.4 MP 生成一采，再用 H3 3D latent 放大到目标画质做第二步精修。",
+    },
+  },
+  {
+    name: "refine_quality",
+    ui_group: "primary",
+    definition: {
+      label: "二采画质",
+      type: "string",
+      default: "1.0",
+      ui_group: "primary",
+      enum: ["1.0", "2.0"],
+      ui_options: [
+        { value: "1.0", label: "1.0 MP" },
+        { value: "2.0", label: "2.0 MP" },
+      ],
+      ui_visible_when: { refine_enabled: true },
+    },
+  },
+  {
+    name: "refine_preview",
+    ui_group: "primary",
+    definition: {
+      label: "先预览一采",
+      type: "boolean",
+      default: false,
+      ui_group: "primary",
+      description: "先只跑一采并停下，你看过成片后再决定是否跑二采。",
+      ui_visible_when: { refine_enabled: true },
     },
   },
 ]
@@ -147,6 +176,17 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
 export function optionSchemaFromMode(mode: Director2WorkflowMode | undefined): Record<string, Director2OptionDefinition> {
   const options = mode?.parameters?.find((item) => item.name === "options")
   return options?.schema?.properties || {}
+}
+
+export function videoOptionVisible(
+  field: Director2VideoOptionField,
+  values: Record<string, string>,
+): boolean {
+  const condition = field.definition.ui_visible_when
+  if (!condition) return true
+  return Object.entries(condition).every(([name, expected]) => (
+    String(values[name] ?? field.definition.default) === String(expected)
+  ))
 }
 
 export function visibleVideoOptionFields(mode: Director2WorkflowMode | undefined): Director2VideoOptionField[] {
@@ -362,10 +402,14 @@ export function videoSettingsSummary(fields: Director2VideoOptionField[], values
   const weight = values.weight_profile || String(weightField?.definition.default || "pruned")
   const weightLabel = weightField?.definition.ui_options?.find((item) => String(item.value) === weight)?.label || weight
   const parts = [aspect]
-  if (qualityChoice) parts.push(qualityChoice.label.split(" · ")[0])
-  else if (quality) parts.push(`${quality} MP`)
+  if (values.refine_enabled === "true") {
+    parts.push(values.refine_preview === "true" ? `二采 ${values.refine_quality || "1.0"} MP · 先预览` : `二采 ${values.refine_quality || "1.0"} MP`)
+  } else if (qualityChoice) {
+    parts.push(qualityChoice.label.split(" · ")[0])
+  } else if (quality) {
+    parts.push(`${quality} MP`)
+  }
   if (weightLabel) parts.push(weightLabel.replace(/（.*?）/g, "").trim() || weightLabel)
-  if (values.upscale_after === "true") parts.push("2x 超分")
   return parts.join(" · ")
 }
 
@@ -385,7 +429,7 @@ export function beatHasVideo(beat: { video_url?: string | null } | null | undefi
   return Boolean(String(beat?.video_url || "").trim())
 }
 
-export function beatHasUpscaled(beat: { upscaled_video_url?: string | null } | null | undefined): boolean {
+export function beatHasUpscaled(beat: { video_url?: string | null; upscaled_video_url?: string | null } | null | undefined): boolean {
   return Boolean(String(beat?.upscaled_video_url || "").trim())
 }
 
@@ -465,10 +509,26 @@ function jobBeatIds(job: {
 
 export function jobCanShowUpscaleAction(job: {
   job_type?: string
+  status?: string
   payload?: Record<string, unknown> | null
 } | null | undefined): boolean {
-  if (job?.job_type !== "video_generation") return false
+  if (job?.job_type !== "video_generation" || job.status === "awaiting_refine") return false
   return String(job.payload?.render_scope || "") !== "upscale"
+}
+
+export function jobCanConfirmRefine(job: {
+  job_type?: string
+  status?: string
+  payload?: Record<string, unknown> | null
+} | null | undefined): boolean {
+  if (job?.job_type !== "video_generation" || job.status !== "awaiting_refine") return false
+  return ["shot", "selection"].includes(String(job.payload?.render_scope || ""))
+}
+
+export function jobRefineShotCount(job: {
+  payload?: Record<string, unknown> | null
+} | null | undefined): number {
+  return jobBeatIds(job).length
 }
 
 export function jobUpscaleHint(job: {

@@ -12,9 +12,11 @@ export const WORKSHOP_IDLE_POLL_MS = 3000
 export const WORKSHOP_VIDEO_POLL_MS = 1000
 
 export type WorkshopVideoJobLike = {
+  id?: string | null
   job_type?: string | null
   status: string
   progress?: number | null
+    result_url?: string | null
     payload?: {
     episode_id?: string | null
     beat_id?: string | null
@@ -29,6 +31,9 @@ export type WorkshopShotVideoProgress = {
   progress: number
   scope?: string
   stage?: string
+  jobId?: string
+  previewUrl?: string
+  shotCount?: number
 }
 
 export type WorkshopEpisodeVideoScope = "episode" | "compose"
@@ -37,6 +42,7 @@ export type WorkshopEpisodeVideoProgress = {
   status: string
   progress: number
   scope: WorkshopEpisodeVideoScope
+  jobId?: string
 }
 
 export type WorkshopVideoProgress = {
@@ -48,6 +54,10 @@ export function isActiveWorkshopJobStatus(status: string): boolean {
   return Boolean(status) && !WORKSHOP_VIDEO_TERMINAL_STATUSES.has(status)
 }
 
+export function isAwaitingRefineStatus(status: string | null | undefined): boolean {
+  return status === "awaiting_refine"
+}
+
 export function clampWorkshopProgress(value: unknown): number {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return 0
@@ -56,6 +66,7 @@ export function clampWorkshopProgress(value: unknown): number {
 
 /** 工坊已有阶段文案：排队中 / 准备素材 / 生成中 / 保存结果。 */
 export function workshopVideoStageLabel(status: string, extra?: { scope?: string; stage?: string }): string {
+  if (status === "awaiting_refine") return "一采预览待确认"
   if (status === "upscaling" || extra?.scope === "upscale" || extra?.stage === "upscaling") return "2x 超分中"
   if (status === "queued") return "排队中"
   if (
@@ -88,7 +99,8 @@ export function workshopVideoPercentLabel(progress: number): string {
 }
 
 export function hasActiveWorkshopVideoProgress(progress: WorkshopVideoProgress): boolean {
-  return Boolean(progress.episode) || Object.keys(progress.beats).length > 0
+  if (progress.episode && !isAwaitingRefineStatus(progress.episode.status)) return true
+  return Object.values(progress.beats).some((item) => !isAwaitingRefineStatus(item.status))
 }
 
 function episodeScope(value: string): WorkshopEpisodeVideoScope | null {
@@ -127,13 +139,21 @@ export function mapWorkshopVideoProgress(
           progress,
           scope,
           stage: String(job.payload?.runtime_stage || ""),
+          jobId: String(job.id || ""),
+          previewUrl: String(job.result_url || ""),
+          shotCount: beatIds.length,
         }
       }
       continue
     }
     const episodeOrCompose = episodeScope(scope)
     if (episodeOrCompose && !episode) {
-      episode = { status: job.status, progress, scope: episodeOrCompose }
+      episode = {
+        status: job.status,
+        progress,
+        scope: episodeOrCompose,
+        jobId: String(job.id || ""),
+      }
     }
   }
 

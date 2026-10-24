@@ -1,0 +1,107 @@
+{
+  "reference": "home-design.png",
+  "css_viewport_width": 1505,
+  "expected": {
+    "url": "http://127.0.0.1:5173/director",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1505,
+      "height": 1045
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "regions": [
+    {
+      "name": "primary-entry",
+      "box": [
+        158,
+        201,
+        753,
+        325
+      ],
+      "selector": ".dh-entry-primary"
+    },
+    {
+      "name": "batch-entry",
+      "box": [
+        925,
+        201,
+        515,
+        99
+      ],
+      "selector": ".dh-entry-card.is-batch"
+    },
+    {
+      "name": "replication-entry",
+      "box": [
+        925,
+        314,
+        515,
+        100
+      ],
+      "selector": ".dh-entry-card.is-replication"
+    },
+    {
+      "name": "hypit-entry",
+      "box": [
+        925,
+        428,
+        515,
+        98
+      ],
+      "selector": ".dh-entry-card.is-hypit"
+    },
+    {
+      "name": "diagnosis-entry",
+      "box": [
+        158,
+        545,
+        1282,
+        66
+      ],
+      "selector": ".dh-diagnosis-entry"
+    },
+    {
+      "name": "first-project",
+      "box": [
+        158,
+        686,
+        419,
+        167
+      ],
+      "selector": ".dh-project:first-child"
+    },
+    {
+      "name": "second-project",
+      "box": [
+        591,
+        686,
+        419,
+        167
+      ],
+      "selector": ".dh-project:nth-child(2)"
+    },
+    {
+      "name": "canvas",
+      "kind": "color",
+      "box": [
+        500,
+        78,
+        100,
+        20
+      ]
+    },
+    {
+      "name": "surface",
+      "kind": "color",
+      "box": [
+        500,
+        700,
+        40,
+        20
+      ]
+    }
+  ]
+}

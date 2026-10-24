@@ -1,0 +1,19 @@
+{
+  "frontend/src/director2/Director2StudioHome.tsx": "fffe778d73f98ae1268ed073458f73b3a9f47867895bf51c53bf469f99156c96",
+  "frontend/src/director2/director-home.css": "bb5a91f6a31db7c5e8ca3f8ea9f4ef6623fc148361e1ba9cfc10bac5d8029932",
+  "frontend/src/director2/home-projects.ts": "16a958936340c53956021075ce8cc1e32c7c0003cd8de49848fb4dea4dec7dc7",
+  "frontend/src/director2/home-projects.test.ts": "2dde81e790b971b76443c72bbcd3957e28d0b68932e9e1ddf5628553ab035fd0",
+  "frontend/src/director2/Director2App.tsx": "7a83ce4624cb4e63d2ffe706573e42469cf141055019247229efae9538bb1b7f",
+  "frontend/src/director2/Director2ProjectDetail.tsx": "dcf7c76ca61ce9e0ea91a14a98b408e0c6d81f1dd92191dfd439f6fb19c6d941",
+  "frontend/src/director2/director2.css": "8ae742e56689b26e6b1451c78d3ba4350b6130bfc3b5ad46d5dd2b8b7237563b",
+  "frontend/src/director2/project-detail.css": "ab6245a19a63cca17b980ed5da6610e7afb9cdf3b40b914f53605f6a5807598e",
+  "frontend/src/director2/panes/ContentLibraryPane.tsx": "8d5dfc5dad0d616c30ef5a44af62af7188794ca94d3f00b1f398dd7d65ff06c6",
+  "frontend/src/director2/panes/content-library.css": "c114008e55bb789dc067925dd0b470011a98069a6093dbbcd090190c92aab21f",
+  "frontend/src/director2/panes/assets-library.css": "16ff5dce91fbdf8cab761ebae54aaa79ce43ccf90286de73ff3d56d044d86b36",
+  "frontend/src/director2/panes/jobs-center.css": "e55a99a613c4be32e9889ffffe202107a55596646d4054b186b33ae2682f0b6b",
+  "frontend/src/director2/panes/episode-workshop.css": "6fc884e05071c5199c6acadb2ac9aea3eed79971440bcf9d16ac36b2e83d2875",
+  "frontend/src/director2/panes/EpisodeWorkshopPane.tsx": "4b7f6477d60c8e7efb6f9c118d0d57f80bad79e45a0ab63755715e17dd3d6be5",
+  "frontend/src/director2/workshop-video-progress.test.ts": "15aa4ef9ac48ea2ce468410e8a719657c3457298f87fd4ea309150867e09116a",
+  "frontend/src/canvas/canvas-model.test.ts": "90a5bfeb0248053e1bb197eb0338b9c077845d006528b4d3c0ae65399e8aa550",
+  "frontend/src/director2/smart-edit/smart-edit.css": "c0fbe714a30713b746dda089d66c757f9848a201fb181dca074fcbb00469d2cc"
+}

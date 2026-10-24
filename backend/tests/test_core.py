@@ -35,7 +35,6 @@ from backend.app.wan_vace_depth_workflow import (
 from backend.app.director_replication import (
     empty_replication_payload, normalize_replication_payload,
 )
-from backend.app.director_hypit import empty_hypit_payload, normalize_hypit_payload
 from backend.app.workflow_registry import (
     CATALOG_GROUP_CUSTOM, CATALOG_GROUP_DUAL_ACCEL, CATALOG_GROUP_LIGHTX2V, CATALOG_GROUP_OFFICIAL_H3,
     DUAL_ACCEL_LORA_NAME, H3_FL2VA_FULL, H3_FL2VA_PRUNED, H3_REF2VA_FULL, H3_REF2VA_PRUNED, LIGHTX2V_FL2V_4STEP_LORA,
@@ -452,6 +451,8 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertIn("/api/admin/users", schema["paths"])
         self.assertIn("/api/jobs/{job_id}/retry", schema["paths"])
         self.assertIn("/api/jobs/{job_id}/cancel", schema["paths"])
+        self.assertIn("/api/jobs/{job_id}/refine/confirm", schema["paths"])
+        self.assertIn("/api/jobs/{job_id}/refine/skip", schema["paths"])
         self.assertIn("/api/jobs/{job_id}/outputs/{output_index}/desktop-ticket", schema["paths"])
         self.assertIn("/api/modes/{mode_id}", schema["paths"])
         self.assertIn("/api/providers/grs/balance", schema["paths"])
@@ -522,7 +523,10 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["ui_group"], "primary")
         self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["enum"], ["fast", "balanced", "quality", "custom"])
         self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["default"], "balanced")
-        self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["ui_visible_when"], {"speed": "custom"})
+        self.assertEqual(
+            parameters["options"]["schema"]["properties"]["custom_steps"]["ui_visible_when"],
+            {"speed": "custom", "refine_enabled": False},
+        )
         self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["unit"], "步")
         self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["ui_group"], "primary")
         self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["enum"], ["full", "pruned"])
@@ -544,11 +548,11 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(t8_options["duration"]["ui_control"], "duration-slider")
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "primary"},
-            {"aspect_ratio", "duration", "speed", "custom_steps", "weight_profile"},
+            {"aspect_ratio", "duration", "speed", "custom_steps", "weight_profile", "refine_enabled", "refine_quality", "refine_preview"},
         )
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "advanced"},
-            {"quality", "upscale_after"},
+            {"quality"},
         )
         self.assertEqual(t8_options["megapixels"]["ui_group"], "internal")
         self.assertEqual(t8_options["quality"]["enum"], ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.98"])
@@ -557,7 +561,9 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(dual_t8_options["quality"]["enum"], ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.98"])
         self.assertEqual(t8_options["seed"]["ui_group"], "internal")
         self.assertEqual(t8_options["task_type"]["ui_group"], "internal")
+        self.assertEqual(t8_options["task_type"]["ui_requires_references_when"], "Ref2VA")
         self.assertEqual(t8_options["video_steps"]["ui_group"], "internal")
+        self.assertEqual(t8_options["audio_steps"]["ui_not_less_than"], "video_steps")
         self.assertTrue(
             all(
                 workflow.id.startswith("minimax-h3-")
@@ -647,18 +653,6 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(shot["durationSec"], 3.0)
         self.assertEqual(shot["status"], "idle")
         self.assertEqual(shot["takes"][0]["status"], "succeeded")
-
-    def test_hypit_replication_payload_normalization(self) -> None:
-        payload = normalize_hypit_payload(empty_hypit_payload(title="结构"))
-        self.assertEqual(payload["kind"], "hypit_replication")
-        self.assertEqual(payload["language"], "zh")
-        self.assertEqual(payload["transcript"]["status"], "idle")
-        payload["brief"] = " 换字幕 "
-        payload["language"] = "en"
-        normalized = normalize_hypit_payload(payload)
-        self.assertEqual(normalized["brief"], "换字幕")
-        self.assertEqual(normalized["language"], "en")
-        self.assertIsNone(normalized["result"]["url"])
 
     def test_lightx2v_t2v_uses_euler_sigma_shift_and_one_megapixel_defaults(self) -> None:
         options = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {})
@@ -949,6 +943,61 @@ class StoreTests(unittest.TestCase):
                 main_module.settings = original_settings
                 main_module.JobWorker = original_worker
 
+    def test_confirm_refine_endpoint_marks_the_saved_continuation_confirmed(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from backend.app import main as main_module
+
+        class WorkerStub:
+            def __init__(self, *_args) -> None:
+                self.enqueued: list[str] = []
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+            async def enqueue(self, job_id: str) -> None:
+                self.enqueued.append(job_id)
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            try:
+                with TestClient(main_module.app) as client:
+                    user = main_module.app.state.auth_store.create_user(
+                        "refine-confirm-test", "确认二采测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
+                    )
+                    token, _ = main_module.app.state.auth_store.create_session(user["id"])
+                    store = main_module.app.state.store
+                    created = store.create(
+                        "job-refine-confirm", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [], owner_user_id=user["id"],
+                    )
+                    item_id = created["rounds"][-1]["generation_items"][0]["id"]
+                    state = {"status": "awaiting", "workflow": {"45": {}}, "seed": 7, "preview_outputs": []}
+                    store.update_generation(
+                        item_id, status=JobStatus.AWAITING_REFINE, stage="一采预览待确认",
+                        progress=90, outputs=[{"kind": "video", "path": "preview.mp4", "label": "一采预览"}], refine_state=state,
+                    )
+                    response = client.post(
+                        "/api/jobs/job-refine-confirm/refine/confirm",
+                        headers={"X-CSRF-Token": csrf_token(token)},
+                        cookies={"zly_ai_video_studio_session": token},
+                    )
+                    self.assertEqual(response.status_code, 202)
+                    self.assertEqual(response.json()["status"], JobStatus.QUEUED.value)
+                    stored = store.get("job-refine-confirm")
+                    item = stored["rounds"][-1]["generation_items"][0]
+                    self.assertEqual(item["refine_state"]["status"], "confirmed")
+                    self.assertEqual(item["refine_state"]["seed"], 7)
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
+
     def test_image_media_type_sniffs_extensionless_png(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "1_upload"
@@ -1069,7 +1118,39 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(job["status"], JobStatus.RUNNING)
             self.assertEqual(job["comfy_prompt_id"], "prompt-1")
 
-    def test_claim_generation_only_claims_a_queued_item_once(self) -> None:
+    def test_awaiting_refine_round_keeps_preview_outputs_without_finishing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            created = store.create("job-1", JobMode.MINIMAX_H3_T2V, "提示词", "", None, [])
+            item_id = created["rounds"][-1]["generation_items"][0]["id"]
+            preview = [{"kind": "video", "path": "preview.mp4", "label": "一采预览"}]
+            state = {"status": "awaiting", "workflow": {"45": {"class_type": "MiniMaxH3DirectorRefine"}}, "seed": 7}
+            store.update_generation(
+                item_id, status=JobStatus.AWAITING_REFINE, stage="一采预览待确认", progress=90,
+                outputs=preview, refine_state=state,
+            )
+
+            job = store.get("job-1")
+            item = job["rounds"][-1]["generation_items"][0]
+            self.assertEqual(job["status"], JobStatus.AWAITING_REFINE)
+            self.assertEqual(job["stage"], "一采预览待确认")
+            self.assertEqual(job["outputs"][0]["path"], "preview.mp4")
+            self.assertIsNone(job.get("finished_at"))
+            self.assertEqual(item["refine_state"], state)
+            self.assertNotIn("refine_state", public_job(job)["rounds"][-1]["generation_items"][0])
+
+            store.update_generation(
+                item_id, status=JobStatus.QUEUED, stage="等待二采精修", progress=90, clear_execution=True,
+            )
+            self.assertEqual(store.get("job-1")["status"], JobStatus.QUEUED)
+            store.update_generation(
+                item_id, status=JobStatus.SUCCEEDED, stage="生成完成", progress=100, clear_refine_state=True,
+            )
+            finished = store.get("job-1")
+            self.assertEqual(finished["status"], JobStatus.SUCCEEDED)
+            self.assertEqual(finished["rounds"][-1]["generation_items"][0]["refine_state"], {})
+
+
         with tempfile.TemporaryDirectory() as directory:
             store = JobStore(Path(directory) / "test.db")
             created = store.create("job-1", JobMode.MINIMAX_H3_T2V, "提示词", "", None, [])
@@ -1811,6 +1892,107 @@ class WorkerTests(unittest.TestCase):
             job = store.get("job-1")
             self.assertEqual(job["status"], JobStatus.SUCCEEDED)
             self.assertIsNone(job["comfy_prompt_id"])
+
+    def test_worker_stops_at_awaiting_refine_after_the_first_pass(self) -> None:
+        class FakeComfy:
+            last_execution_elapsed_ms = None
+            last_refine_state = None
+
+            def run(self, *args, **kwargs):
+                self.last_refine_state = {
+                    "status": "awaiting",
+                    "workflow": {"45": {"class_type": "MiniMaxH3DirectorRefine"}},
+                    "seed": 7,
+                    "preview_outputs": [],
+                }
+                return [{"kind": "video", "path": "preview.mp4", "label": "一采预览"}]
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            asyncio.run(JobWorker(store, FakeComfy()).execute("job-1"))
+            job = store.get("job-1")
+            item = job["rounds"][-1]["generation_items"][0]
+            self.assertEqual(job["status"], JobStatus.AWAITING_REFINE)
+            self.assertEqual(job["stage"], "一采预览待确认")
+            self.assertEqual(job["outputs"][0]["path"], "preview.mp4")
+            self.assertIsNone(job["comfy_prompt_id"])
+            self.assertEqual(item["refine_state"]["seed"], 7)
+
+    def test_worker_runs_the_refine_continuation_without_repeating_the_first_pass(self) -> None:
+        class FakeComfy:
+            last_execution_elapsed_ms = None
+            last_refine_state = None
+
+            def __init__(self):
+                self.continuations = []
+
+            def run_refine_continuation(self, refine_state, **kwargs):
+                self.continuations.append(refine_state)
+                return [
+                    {"kind": "video", "path": "refined.mp4", "label": "二采精修成片"},
+                    {"kind": "video", "path": "preview.mp4", "label": "一采预览"},
+                ]
+
+            def run(self, *args, **kwargs):
+                raise AssertionError("should not regenerate the first pass")
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            created = store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            item_id = created["rounds"][-1]["generation_items"][0]["id"]
+            store.update_generation(
+                item_id,
+                status=JobStatus.QUEUED,
+                refine_state={"status": "confirmed", "workflow": {"45": {}}, "seed": 7},
+            )
+            comfy = FakeComfy()
+            asyncio.run(JobWorker(store, comfy).execute("job-1"))
+            job = store.get("job-1")
+            item = job["rounds"][-1]["generation_items"][0]
+            self.assertEqual(len(comfy.continuations), 1)
+            self.assertEqual(comfy.continuations[0]["seed"], 7)
+            self.assertEqual(job["status"], JobStatus.SUCCEEDED)
+            self.assertEqual(job["outputs"][0]["path"], "refined.mp4")
+            self.assertEqual(job["outputs"][1]["label"], "一采预览")
+            self.assertEqual(item["refine_state"], {})
+
+    def test_worker_reruns_the_first_pass_when_refine_was_not_confirmed(self) -> None:
+        class FakeComfy:
+            last_execution_elapsed_ms = None
+            last_refine_state = None
+
+            def __init__(self):
+                self.ran = 0
+
+            def run(self, *args, **kwargs):
+                self.ran += 1
+                self.last_refine_state = {
+                    "status": "awaiting",
+                    "workflow": {"45": {}},
+                    "seed": 7,
+                    "preview_outputs": [],
+                }
+                return [{"kind": "video", "path": "preview.mp4", "label": "一采预览"}]
+
+            def run_refine_continuation(self, refine_state, **kwargs):
+                raise AssertionError("an unconfirmed preview must not skip the first pass")
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            created = store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
+            item_id = created["rounds"][-1]["generation_items"][0]["id"]
+            store.update_generation(
+                item_id,
+                status=JobStatus.QUEUED,
+                refine_state={"status": "awaiting", "workflow": {"45": {}}, "seed": 7},
+            )
+            comfy = FakeComfy()
+            asyncio.run(JobWorker(store, comfy).execute("job-1"))
+            job = store.get("job-1")
+            self.assertEqual(comfy.ran, 1)
+            self.assertEqual(job["status"], JobStatus.AWAITING_REFINE)
+            self.assertEqual(job["outputs"][0]["path"], "preview.mp4")
 
     def test_recover_does_not_preempt_in_flight_submit_without_prompt_id(self) -> None:
         class FakeComfy:

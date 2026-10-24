@@ -13,7 +13,7 @@ import {
   Trash2,
   Video,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   downloadJianyingJsonFiles,
   exportJianyingDraftZip,
@@ -46,6 +46,8 @@ export default function JianyingExportModal({
   const [aspectRatio, setAspectRatio] = useState<JianyingDraftOptions["aspectRatio"]>(defaultAspectRatio)
   const [exportingZip, setExportingZip] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [probedDurations, setProbedDurations] = useState<Record<string, number>>({})
+  const attemptedProbesRef = useRef<Set<string>>(new Set())
   const [messageApi, messageContextHolder] = message.useMessage()
 
   useEffect(() => {
@@ -54,14 +56,62 @@ export default function JianyingExportModal({
 
   const selectedItems = useMemo(() => items, [items])
 
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    const started: { id: string; video: HTMLVideoElement; timer: number; settled: boolean }[] = []
+    const targets = items.filter((item) => (
+      item.kind === "video"
+      && !(typeof item.durationSeconds === "number" && item.durationSeconds > 0)
+      && !attemptedProbesRef.current.has(item.id)
+    ))
+    targets.forEach((item) => {
+      attemptedProbesRef.current.add(item.id)
+      const video = document.createElement("video")
+      video.preload = "metadata"
+      video.muted = true
+      const record = { id: item.id, video, timer: 0, settled: false }
+      const finish = (duration: number) => {
+        if (record.settled) return
+        record.settled = true
+        window.clearTimeout(record.timer)
+        if (!cancelled) setProbedDurations((current) => ({ ...current, [item.id]: duration }))
+      }
+      record.timer = window.setTimeout(() => finish(0), 12_000)
+      video.onloadedmetadata = () => {
+        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0
+        finish(duration)
+      }
+      video.onerror = () => finish(0)
+      started.push(record)
+      video.src = item.url
+    })
+    return () => {
+      cancelled = true
+      started.forEach((record) => {
+        window.clearTimeout(record.timer)
+        record.video.onloadedmetadata = null
+        record.video.onerror = null
+        record.video.src = ""
+        if (!record.settled) attemptedProbesRef.current.delete(record.id)
+      })
+    }
+  }, [open, items])
+
+  const resolvedItems = useMemo(() => selectedItems.map((item) => {
+    if (typeof item.durationSeconds === "number" && item.durationSeconds > 0) return item
+    const probed = probedDurations[item.id]
+    return probed && probed > 0 ? { ...item, durationSeconds: probed } : item
+  }), [selectedItems, probedDurations])
+
   const totalDurationSeconds = useMemo(() => {
-    return selectedItems.reduce((acc, item) => {
+    return resolvedItems.reduce((acc, item) => {
       const dur = item.durationSeconds && item.durationSeconds > 0
         ? item.durationSeconds
         : item.kind === "image" ? 3.0 : 5.0
       return acc + dur
     }, 0)
-  }, [selectedItems])
+  }, [resolvedItems])
 
   const handleExportZip = async () => {
     if (!selectedItems.length) {
@@ -70,7 +120,7 @@ export default function JianyingExportModal({
     }
     setExportingZip(true)
     try {
-      await exportJianyingDraftZip(selectedItems, {
+      await exportJianyingDraftZip(resolvedItems, {
         draftName: draftName.trim() || "ZLY_Studio_草稿",
         aspectRatio,
       })
@@ -89,7 +139,7 @@ export default function JianyingExportModal({
       return
     }
     try {
-      downloadJianyingJsonFiles(selectedItems, {
+      downloadJianyingJsonFiles(resolvedItems, {
         draftName: draftName.trim() || "ZLY_Studio_草稿",
         aspectRatio,
       })
@@ -215,7 +265,7 @@ export default function JianyingExportModal({
                 未选择任何素材，请返回资产库勾选素材后重试
               </div>
             ) : (
-              selectedItems.map((item, idx) => (
+              resolvedItems.map((item, idx) => (
                 <div
                   key={item.id}
                   className="flex items-center gap-3 rounded-md bg-white p-1.5 pr-2.5 shadow-sm transition hover:bg-black/[0.02]"
@@ -239,7 +289,7 @@ export default function JianyingExportModal({
                     </p>
                     <p className="text-[11px] text-[#6b7280]">
                       {item.kind === "video" ? "视频片段" : "静态图片"} ·{" "}
-                      {item.durationSeconds ? `${item.durationSeconds.toFixed(1)}s` : item.kind === "image" ? "3.0s" : "5.0s"}
+                      {item.durationSeconds ? `${item.durationSeconds.toFixed(1)}s` : item.kind === "image" ? "3.0s" : "时长未知（按 5.0s 导出）"}
                     </p>
                   </div>
                   {onRemoveItem && (

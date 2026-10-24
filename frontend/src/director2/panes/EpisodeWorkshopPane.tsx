@@ -50,6 +50,7 @@ import {
   ExternalLink,
   Video,
   ArrowLeft,
+  Mic,
   Layers,
   Copy,
 } from "lucide-react"
@@ -69,6 +70,8 @@ import {
   generateEpisodeVideo,
   upscaleBeatVideo,
   composeEpisodeVideo,
+  confirmProjectVideoRefine,
+  skipProjectVideoRefine,
   getEpisodeDubbing,
   listAssets,
   listJobs,
@@ -139,6 +142,7 @@ import {
   WORKSHOP_IDLE_POLL_MS,
   WORKSHOP_VIDEO_POLL_MS,
   hasActiveWorkshopVideoProgress,
+  isAwaitingRefineStatus,
   mapWorkshopVideoProgress,
   workshopVideoOverlayLabel,
   workshopVideoPercentLabel,
@@ -266,6 +270,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [batchGeneratingRenders, setBatchGeneratingRenders] = useState(false)
     const [generatingVideo, setGeneratingVideo] = useState(false)
     const [upscalingBeatId, setUpscalingBeatId] = useState<string | null>(null)
+    const [refineAction, setRefineAction] = useState<{ jobId: string; action: "confirm" | "skip" } | null>(null)
     const [beatVideoProgress, setBeatVideoProgress] = useState<Record<string, WorkshopShotVideoProgress>>({})
     const [episodeVideoProgress, setEpisodeVideoProgress] = useState<WorkshopEpisodeVideoProgress | null>(null)
     const [composingEpisode, setComposingEpisode] = useState(false)
@@ -443,6 +448,13 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       if (!currentEpisode?.beats?.length) return null
       return currentEpisode.beats.find((b) => b.id === selectedBeatId) || currentEpisode.beats[0]
     }, [currentEpisode, selectedBeatId])
+    const selectedBeatVideoProgress = selectedBeat ? beatVideoProgress[selectedBeat.id] : undefined
+    const selectedBeatAwaitingRefine = isAwaitingRefineStatus(selectedBeatVideoProgress?.status)
+    const selectedBeatPreviewUrl = selectedBeatVideoProgress && selectedBeatVideoProgress.scope !== "upscale"
+      ? String(selectedBeatVideoProgress.previewUrl || "").trim()
+      : ""
+    const selectedBeatShowingPreview = Boolean(selectedBeatPreviewUrl)
+    const selectedBeatPlayback = selectedBeatPreviewUrl || beatPlaybackUrl(selectedBeat)
 
     useEffect(() => {
       setH3PromptEditing(false)
@@ -453,8 +465,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     }, [selectedBeat?.id])
 
     useEffect(() => {
-      if (inspectorTab === "film" && !beatPlaybackUrl(selectedBeat)) setInspectorTab("text")
-    }, [inspectorTab, selectedBeat?.id, selectedBeat?.video_url, selectedBeat?.upscaled_video_url])
+      if (inspectorTab === "film" && !selectedBeatPlayback) setInspectorTab("text")
+    }, [inspectorTab, selectedBeat?.id, selectedBeat?.video_url, selectedBeat?.upscaled_video_url, selectedBeatPlayback])
+
+    useEffect(() => {
+      if (selectedBeatPreviewUrl) setInspectorTab("film")
+    }, [selectedBeat?.id, selectedBeatPreviewUrl])
 
     useEffect(() => {
       if (!h3PromptEditing) {
@@ -537,7 +553,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const playbackAspectSize = playbackMeasured || parseMediaAspect(playbackAspect)
     const playbackPortrait = Boolean(playbackAspectSize && playbackAspectSize.height > playbackAspectSize.width)
     const playbackAspectVars = mediaAspectVars(playbackAspectSize)
-    const selectedBeatPlayback = beatPlaybackUrl(selectedBeat)
 
     const selectedVideoWorkflow = useMemo(
       () => videoWorkflows.find((item) => item.id === videoWorkflow) || videoWorkflows[0],
@@ -1611,9 +1626,36 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       }
     }
 
+    async function handleRefineDecision(action: "confirm" | "skip", progress: WorkshopShotVideoProgress) {
+      const jobId = String(progress.jobId || "").trim()
+      if (!jobId) {
+        message.error("任务信息缺失，请刷新后重试")
+        return
+      }
+      setRefineAction({ jobId, action })
+      try {
+        if (action === "confirm") {
+          await confirmProjectVideoRefine(csrfToken, projectId, jobId)
+          message.success({ content: "已开始二采精修，只重跑第二遍，一采缓存直接复用", duration: 6 })
+        } else {
+          await skipProjectVideoRefine(csrfToken, projectId, jobId)
+          message.success({ content: "已保留一采预览作为本镜成片", duration: 6 })
+        }
+        await refreshCurrentEpisode()
+      } catch (err) {
+        message.error({ content: director2ErrorDetail(err, action === "confirm" ? "确认二采失败" : "保留一采失败"), duration: 10 })
+      } finally {
+        setRefineAction(null)
+      }
+    }
+
     async function handleGenerateEpisodeVideo() {
       const ep = currentEpisodeRef.current
       if (!ep || generatingEpisodeVideo) return
+      if (videoOptions.refine_enabled === "true" && videoOptions.refine_preview === "true") {
+        message.warning("整集直出暂不支持先预览一采，请改为逐镜或勾选镜头生成")
+        return
+      }
       setGeneratingEpisodeVideo(true)
       try {
         const res = await generateEpisodeVideo(
@@ -1895,9 +1937,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         {!currentEpisodeId ? (
           <div className="xiaji-workshop">
             <header className="xiaji-workshop-hero">
-              <span className="xiaji-ingest-hero-icon" aria-hidden="true">
-                <Clapperboard size={20} />
-              </span>
               <div className="hero-text-col">
                 <h1>剧集工坊</h1>
                 <p>把内容库规划落成剧集，生成脚本 Beat，再按镜头出草图与视频。</p>
@@ -1937,7 +1976,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                     <div
                       key={ep.id}
                       className="xiaji-episode-card"
-                      onClick={() => openEpisodeDetail(ep.id)}
                     >
                       <div className="card-head">
                         <strong className="card-title">第 {ep.episode_num} 集 · {ep.title}</strong>
@@ -1946,10 +1984,15 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                       <p className="card-summary">
                         {ep.script_text ? ep.script_text.replace(/[#\n-]/g, " ").slice(0, 85) + "..." : "暂未编排镜头对白内容"}
                       </p>
+                      <em className="card-meta">
+                        {ep.shots_count || 0} 个分镜 · {getEpisodeCharCount(ep)} 身份 · {getEpisodeSceneCount(ep)} 场景
+                      </em>
                       <div className="card-footer">
-                        <em className="card-meta">
-                          {ep.shots_count || 0} 个分镜 · {getEpisodeCharCount(ep)} 身份 · {getEpisodeSceneCount(ep)} 场景
-                        </em>
+                        <a
+                          className="episode-open"
+                          href={director2ProjectPath(projectId, "workshop", ep.id)}
+                          onClick={(event) => { event.preventDefault(); openEpisodeDetail(ep.id) }}
+                        >进入工坊</a>
                         <div className="card-actions" onClick={(e) => e.stopPropagation()}>
                           <Button type="link" size="small" onClick={() => openEditModal(ep)}>
                             修改分集
@@ -2032,7 +2075,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 /* ==================== Tab 1: 🎬 镜头工作台 (XiajiShotsWorkbench) ==================== */
                 {
                   key: "shots",
-                  label: "🎬 镜头",
+                  label: <span className="workspace-tab-label"><Clapperboard size={15} />镜头</span>,
                   children: (
                     <div className="xiaji-shots-workbench">
                       {/* 镜头工具条 */}
@@ -2118,7 +2161,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                         {beatHasUpscaled(beat) ? <em className="xiaji-shot-tile-upscaled">2x</em> : null}
                                         {videoProgress ? (
                                           <em className="xiaji-shot-tile-busy-label">
-                                            {workshopVideoPercentLabel(videoProgress.progress)}
+                                            {isAwaitingRefineStatus(videoProgress.status)
+                                              ? "待确认"
+                                              : workshopVideoPercentLabel(videoProgress.progress)}
                                           </em>
                                         ) : null}
                                       </span>
@@ -2216,6 +2261,40 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                 </Space>
                               </div>
 
+                              {selectedBeatAwaitingRefine && selectedBeatVideoProgress ? (
+                                <div className="xiaji-refine-preview-bar" role="status">
+                                  <div className="xiaji-refine-preview-copy">
+                                    <strong>一采预览已生成</strong>
+                                    <span>
+                                      先看成片，再决定是否花时间跑二采精修
+                                      {Number(selectedBeatVideoProgress.shotCount || 0) > 1
+                                        ? `（本任务共 ${selectedBeatVideoProgress.shotCount} 镜，确认后整批精修）`
+                                        : ""}
+                                      。保留一采会直接写入本镜成片。
+                                    </span>
+                                  </div>
+                                  <Space size="small">
+                                    <Button
+                                      size="small"
+                                      type="primary"
+                                      loading={refineAction?.jobId === selectedBeatVideoProgress.jobId && refineAction?.action === "confirm"}
+                                      disabled={Boolean(refineAction)}
+                                      onClick={() => void handleRefineDecision("confirm", selectedBeatVideoProgress)}
+                                    >
+                                      确认二采
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      loading={refineAction?.jobId === selectedBeatVideoProgress.jobId && refineAction?.action === "skip"}
+                                      disabled={Boolean(refineAction)}
+                                      onClick={() => void handleRefineDecision("skip", selectedBeatVideoProgress)}
+                                    >
+                                      保留一采
+                                    </Button>
+                                  </Space>
+                                </div>
+                              ) : null}
+
                               <Tabs
                                 className="xiaji-inspector-tabs"
                                 activeKey={inspectorTab}
@@ -2241,7 +2320,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                         <Film size={14} />
                                         成片
                                         <span className="status-chip is-active">
-                                          <span className="chip-dot" /> {beatHasUpscaled(selectedBeat) ? "2x" : "已出片"}
+                                          <span className="chip-dot" /> {selectedBeatAwaitingRefine ? "一采预览" : selectedBeatShowingPreview ? "二采中" : beatHasUpscaled(selectedBeat) ? "2x" : "已出片"}
                                         </span>
                                       </span>
                                     ),
@@ -2266,12 +2345,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                             <button
                                               type="button"
                                               className="xiaji-shot-playback-expand"
-                                              aria-label="放大预览成片"
+                                              aria-label={selectedBeatShowingPreview ? "放大预览一采" : "放大预览成片"}
                                               onClick={() => openMediaPreview({
                                                 src: selectedBeatPlayback,
                                                 kind: "video",
-                                                title: `${workshopBeatLabel(selectedBeat)} 成片`,
-                                                description: beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
+                                                title: `${workshopBeatLabel(selectedBeat)} ${selectedBeatShowingPreview ? "一采预览" : "成片"}`,
+                                                description: selectedBeatAwaitingRefine ? "一采预览，尚未写入本镜成片" : selectedBeatShowingPreview ? "正在二采精修，当前播放一采预览" : beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
                                                 aspectRatio: playbackAspect,
                                               })}
                                             >
@@ -2279,15 +2358,15 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                             </button>
                                           </div>
                                           <div className="xiaji-shot-playback-meta">
-                                            <p>{beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片"}</p>
+                                            <p>{selectedBeatAwaitingRefine ? "一采预览，确认后跑二采精修" : selectedBeatShowingPreview ? "正在二采精修，当前播放一采预览" : beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片"}</p>
                                             <Button
                                               size="small"
                                               icon={<Maximize2 size={12} />}
                                               onClick={() => openMediaPreview({
                                                 src: selectedBeatPlayback,
                                                 kind: "video",
-                                                title: `${workshopBeatLabel(selectedBeat)} 成片`,
-                                                description: beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
+                                                title: `${workshopBeatLabel(selectedBeat)} ${selectedBeatShowingPreview ? "一采预览" : "成片"}`,
+                                                description: selectedBeatAwaitingRefine ? "一采预览，尚未写入本镜成片" : selectedBeatShowingPreview ? "正在二采精修，当前播放一采预览" : beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
                                                 aspectRatio: playbackAspect,
                                               })}
                                             >
@@ -2838,7 +2917,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 /* ==================== Tab 2: 📝 原文剧本 (ScriptPane) ==================== */
                 {
                   key: "script",
-                  label: "📝 剧本",
+                  label: <span className="workspace-tab-label"><FileText size={15} />剧本</span>,
                   children: (
                     <div className="xiaji-script-grid">
                       {/* 左侧：出场资产规划 + 原文 */}
@@ -2920,7 +2999,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 },
                 {
                   key: "dubbing",
-                  label: "🎙️ 配音",
+                  label: <span className="workspace-tab-label"><Mic size={15} />配音</span>,
                   children: (
                     <DubbingWorkbench csrfToken={csrfToken} projectId={projectId} episodeId={currentEpisode.id} />
                   ),
@@ -2928,7 +3007,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 /* ==================== Tab 3: 🎞️ 成片合成 (ComposePane) ==================== */
                 {
                   key: "compose",
-                  label: "🎞️ 合成",
+                  label: <span className="workspace-tab-label"><Film size={15} />合成</span>,
                   children: (
                     <div className="xiaji-compose-pane">
                       <div className="compose-summary-card">
@@ -2972,6 +3051,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                           </Button>
                           <Button onClick={() => handleToolNotice("字幕导出")}>
                             导出字幕 SRT
+                          </Button>
+                          <Button onClick={() => navigate(director2ProjectPath(projectId, "edit", currentEpisode.id))}>
+                            进入智能剪辑
                           </Button>
                         </Space>
                       </div>

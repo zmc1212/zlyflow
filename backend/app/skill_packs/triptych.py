@@ -91,15 +91,26 @@ def public_panel_url(value: Any) -> str:
     return ""
 
 
-def build_triptych_generation_prompt(beat: dict[str, Any], *, template: str = "") -> str:
+def build_triptych_generation_prompt(
+    beat: dict[str, Any],
+    *,
+    template: str = "",
+    aspect_ratio: Any = None,
+) -> str:
+    from .aspect import format_aspect_template, resolve_workshop_aspect_ratio, triptych_panel_geometry_en
+
     action = str(beat.get("action") or "").strip()
     camera = str(beat.get("camera") or "").strip()
     heading = str(beat.get("heading") or beat.get("scene") or "").strip()
     dialogue = str(beat.get("dialogue") or "").strip()
     narration = str(beat.get("narration") or "").strip()
-    parts = [template.strip()] if template.strip() else [
-        "OUTPUT CANVAS: one 16:9 master containing three equal vertical 9:16 panels left/center/right."
-    ]
+    aspect = resolve_workshop_aspect_ratio(request=aspect_ratio or beat.get("aspect_ratio"))
+    fallback = (
+        "OUTPUT CANVAS: one 16:9 master containing three equal {panel_geometry} panels left/center/right. "
+        "All three panels are finished-shot {aspect} compositions."
+    )
+    source = template.strip() if str(template or "").strip() else fallback
+    parts = [format_aspect_template(source, aspect)]
     if heading:
         parts.append(f"SCENE: {heading}")
     if action:
@@ -109,4 +120,7 @@ def build_triptych_generation_prompt(beat: dict[str, Any], *, template: str = ""
     spoken = " ".join(part for part in (dialogue, narration) if part)
     if spoken:
         parts.append(f"Spoken/narration context (do not render as readable text): {spoken}")
+    geometry = triptych_panel_geometry_en(aspect)
+    if geometry not in parts[0]:
+        parts.append(f"PANEL GEOMETRY: three equal {geometry} landmarks; crop still trisects the 16:9 master.")
     return "\n\n".join(part for part in parts if part)

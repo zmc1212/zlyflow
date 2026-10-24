@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import {
   groupedVideoWorkflowOptions,
   optionChoices,
+  videoOptionVisible,
   videoSettingsSummary,
   type Director2VideoOptionField,
   type Director2WorkflowMode,
@@ -25,8 +26,14 @@ export default function Director2VideoSettingsPopover({
   onChange: (name: string, value: string) => void
 }) {
   const [open, setOpen] = useState(false)
-  const primary = useMemo(() => fields.filter((item) => item.ui_group === "primary"), [fields])
-  const advanced = useMemo(() => fields.filter((item) => item.ui_group === "advanced"), [fields])
+  const primary = useMemo(
+    () => fields.filter((item) => item.ui_group === "primary" && videoOptionVisible(item, values)),
+    [fields, values],
+  )
+  const advanced = useMemo(
+    () => fields.filter((item) => item.ui_group === "advanced" && videoOptionVisible(item, values)),
+    [fields, values],
+  )
   const workflowOptions = groupedVideoWorkflowOptions(workflows)
   const summary = `生成设置 · ${videoSettingsSummary(fields, values)}`
 

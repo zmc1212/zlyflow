@@ -104,11 +104,13 @@ export default function Director2AiStudioPane({
   projectId,
   onNavigate,
   onBusyChange,
+  onProjectInfoChange,
 }: {
   csrfToken: string
   projectId: string
   onNavigate: (menu: "content" | "assets" | "workshop") => void
   onBusyChange?: (busy: boolean) => void
+  onProjectInfoChange?: () => void
 }) {
   const [brief, setBrief] = useState("")
   const [operation, setOperation] = useState<Director2AiOperation | null>(null)
@@ -212,6 +214,12 @@ export default function Director2AiStudioPane({
   }
 
   useEffect(() => { onBusyChange?.(active) }, [active, onBusyChange])
+
+  // 剧本落库后刷新项目条，避免自动命名只能硬刷新才看到。
+  const generatedTitle = operation?.result.recipe?.script?.title
+  useEffect(() => {
+    if (generatedTitle && !active) onProjectInfoChange?.()
+  }, [generatedTitle, active, onProjectInfoChange])
 
   useEffect(() => {
     const timer = window.setInterval(() => {

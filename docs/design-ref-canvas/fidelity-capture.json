@@ -1,0 +1,550 @@
+{
+  "measurement_sha256": "41985bf9ca40a87c2229ae62b70e3750f8be9065e0896e02a0b395a943ad8fbd",
+  "url": "http://127.0.0.1:5173/canvas/canvas_56f32c285544475cb8573c39",
+  "title": "ZLY AI 视频创作平台",
+  "viewport": {
+    "width": 1586,
+    "height": 992
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "document_height": 992,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "captured_at": "2026-10-24T02:58:16.323Z",
+  "elements": [
+    {
+      "name": "global-header",
+      "selector": ".studio-header",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        0,
+        0,
+        1586,
+        60
+      ],
+      "text": "ZLY AI Studio创作工作台ComfyUI · 运行中陈",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "global-navigation",
+      "selector": ".studio-icon-rail",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        0,
+        60,
+        86,
+        932
+      ],
+      "text": "生成导演台画布资产",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "command-header",
+      "selector": ".canvas-editor-header",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        86,
+        60,
+        1500,
+        64
+      ],
+      "text": "画布 /已保存历史设置属性保存",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "tool-rail",
+      "selector": ".canvas-rail",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        108,
+        283,
+        58,
+        481
+      ],
+      "text": "",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "add-menu",
+      "selector": ".canvas-add-menu .ant-dropdown-menu",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        163,
+        399,
+        226,
+        327
+      ],
+      "text": "添加到画布生成节点AI 生成图像或视频G文字添加提示词或文案T图片引用图片或创建占位A画板组织多节点的区域F从作品库插入从已生成的内容中选择",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "13px",
+        "lineHeight": "21px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "inspector",
+      "selector": ".canvas-side-panel",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1214,
+        143,
+        360,
+        815
+      ],
+      "text": "属性图层4历史画布设置林间来信 · 视觉探索4节点3连线244 KB画布大小视图显示点阵网格小地图对齐参考线连线显示隐藏精简全部精简模式下仅显示主要连线，保持画布整洁。生成结果聚合独立聚合显示同一节点的结果，便于管理。全局提示词唯美的自然风光，电影级画面，真实摄影风格，高质量，细节丰富。30 / 2000从作品库插入",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "inspector-tabs",
+      "selector": ".canvas-side-panel-head",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1215,
+        144,
+        358,
+        60
+      ],
+      "text": "属性图层4历史",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "overview-symbol",
+      "selector": ".canvas-panel-intro .canvas-panel-symbol",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1230,
+        220,
+        52,
+        53
+      ],
+      "text": "",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(236, 238, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "overview-stats",
+      "selector": ".canvas-overview-stats",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1230,
+        289,
+        326,
+        75
+      ],
+      "text": "4节点3连线244 KB画布大小",
+      "computed": {
+        "display": "grid",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(245, 246, 248)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "view-settings",
+      "selector": ".canvas-view-settings",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1230,
+        388,
+        326,
+        117
+      ],
+      "text": "视图显示点阵网格小地图对齐参考线",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "connection-control",
+      "selector": ".canvas-connection-settings .ant-segmented",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1230,
+        556,
+        326,
+        42
+      ],
+      "text": "隐藏精简全部",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "13px",
+        "lineHeight": "21px",
+        "fontWeight": "400",
+        "color": "rgb(89, 99, 111)",
+        "backgroundColor": "rgb(245, 246, 248)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "generation-control",
+      "selector": ".canvas-generation-settings .ant-segmented",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1230,
+        676,
+        326,
+        44
+      ],
+      "text": "聚合独立",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "13px",
+        "lineHeight": "21px",
+        "fontWeight": "400",
+        "color": "rgb(89, 99, 111)",
+        "backgroundColor": "rgb(245, 246, 248)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "global-prompt",
+      "selector": ".canvas-global-prompt",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1230,
+        796,
+        326,
+        80
+      ],
+      "text": "唯美的自然风光，电影级画面，真实摄影风格，高质量，细节丰富。30 / 2000",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "22.6154px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "library-entry",
+      "selector": ".canvas-library-entry",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1230,
+        888,
+        326,
+        47
+      ],
+      "text": "从作品库插入",
+      "computed": {
+        "display": "inline-flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "21px",
+        "fontWeight": "400",
+        "color": "rgb(45, 51, 58)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "zoom-dock",
+      "selector": ".canvas-bottombar",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        99,
+        924,
+        375,
+        49
+      ],
+      "text": "75% 视角",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "minimap",
+      "selector": ".canvas-minimap",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        99,
+        814,
+        174,
+        101
+      ],
+      "text": "Mini Map",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "text-node",
+      "selector": "[data-id=\"brief\"] .canvas-node",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        285,
+        278,
+        250.9921875,
+        156.99609375
+      ],
+      "text": "创作灵感清晨的森林中，薄雾在树梢间流动，阳光穿过枝叶洒下斑驳的光束，空气湿润而清新，呈现出宁静、治愈、电影感的氛围。",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "color(srgb 0.990902 0.983373 1)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "reference-node",
+      "selector": "[data-id=\"reference\"] .canvas-node",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        371,
+        604,
+        202.9921875,
+        238.9921875
+      ],
+      "text": "森林 · 氛围参考自然光效，清晨雾气，森林氛围参考图",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "generator-node",
+      "selector": "[data-id=\"generate\"] .canvas-node",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        628,
+        410,
+        265.99224853515625,
+        333.99609375
+      ],
+      "text": "画面生成待提交图像工作流FLUX.1-dev（图像生成）提示词清晨的森林中，薄雾在树梢间流动，阳光穿过枝叶洒下斑驳的光束，空气湿润而清新，呈现出宁静、治愈、电影感的氛围。54 / 40001 张参考文字已连接生成",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "result-node",
+      "selector": "[data-id=\"result\"] .canvas-node",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        948,
+        423,
+        243.99609375,
+        304.9921875
+      ],
+      "text": "镜头 01 · 光穿过森林晨光穿过森林，雾气弥漫，宁静而充满生命力",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "node-toolbar",
+      "selector": ".canvas-node-toolbar",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        630.125,
+        364,
+        262,
+        38
+      ],
+      "text": "以此生成",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 30, 53)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    }
+  ],
+  "assets": {},
+  "full_page": false,
+  "screenshot_scale": "css",
+  "theme": "light"
+}

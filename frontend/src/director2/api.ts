@@ -642,6 +642,28 @@ export function retryJob(csrfToken: string, projectId: string, jobId: string): P
   )
 }
 
+export function confirmProjectVideoRefine(
+  csrfToken: string,
+  projectId: string,
+  jobId: string,
+): Promise<Director2Job> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/refine/confirm`,
+    jsonMutation(csrfToken),
+  )
+}
+
+export function skipProjectVideoRefine(
+  csrfToken: string,
+  projectId: string,
+  jobId: string,
+): Promise<Director2Job> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/refine/skip`,
+    jsonMutation(csrfToken),
+  )
+}
+
 export function upscaleProjectVideoJob(
   csrfToken: string,
   projectId: string,

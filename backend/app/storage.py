@@ -39,6 +39,7 @@ FINISHED_STATUSES = TERMINAL_STATUSES | {JobStatus.PARTIAL.value}
 CANCELABLE_STATUSES = {
     JobStatus.QUEUED.value,
     JobStatus.RUNNING.value,
+    JobStatus.AWAITING_REFINE.value,
     JobStatus.INTERRUPTED.value,
 }
 
@@ -111,6 +112,12 @@ class JobStore:
         with self.connection() as connection:
             if self._db.dialect == "mysql":
                 self._db.apply_mysql_schema(connection)
+                self._ensure_column(connection, "canvas_projects", "tags_json", "VARCHAR(512) NOT NULL DEFAULT '[]'")
+                self._ensure_column(connection, "canvas_projects", "is_favorite", "INTEGER NOT NULL DEFAULT 0")
+                self._ensure_column(connection, "canvas_projects", "deleted_at", "VARCHAR(64) NULL")
+                self._ensure_column(connection, "canvas_projects", "preview_json", "TEXT NULL")
+                self._ensure_column(connection, "llm_provider_settings", "assistant_models_json", "TEXT")
+                self._ensure_column(connection, "generation_items", "refine_state_json", "LONGTEXT NULL")
                 self._ensure_job_list_indexes(connection)
                 self._ensure_column(
                     connection,
@@ -359,16 +366,58 @@ class JobStore:
                     ON director_operations(project_id, updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_director_operations_owner_status
                     ON director_operations(owner_user_id, status, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS canvas_projects (
+                    id TEXT PRIMARY KEY,
+                    owner_user_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    tags_json TEXT NOT NULL DEFAULT '[]',
+                    is_favorite INTEGER NOT NULL DEFAULT 0,
+                    deleted_at TEXT,
+                    preview_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_canvas_projects_owner_updated
+                    ON canvas_projects(owner_user_id, updated_at);
+
+                CREATE TABLE IF NOT EXISTS canvas_drafts (
+                    canvas_id TEXT PRIMARY KEY REFERENCES canvas_projects(id) ON DELETE CASCADE,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    checksum TEXT NOT NULL DEFAULT '',
+                    content TEXT NOT NULL,
+                    node_count INTEGER NOT NULL DEFAULT 0,
+                    updated_by TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS canvas_draft_versions (
+                    id TEXT PRIMARY KEY,
+                    canvas_id TEXT NOT NULL REFERENCES canvas_projects(id) ON DELETE CASCADE,
+                    version INTEGER NOT NULL,
+                    checksum TEXT NOT NULL DEFAULT '',
+                    content TEXT NOT NULL,
+                    node_count INTEGER NOT NULL DEFAULT 0,
+                    created_by TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    UNIQUE(canvas_id, version)
+                );
                 """
             )
+            self._ensure_column(connection, "canvas_projects", "tags_json", "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(connection, "canvas_projects", "is_favorite", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "canvas_projects", "deleted_at", "TEXT")
+            self._ensure_column(connection, "canvas_projects", "preview_json", "TEXT")
             self._ensure_column(connection, "director_projects", "revision", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(connection, "director_projects", "content_revision", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(connection, "generation_items", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "generation_items", "refine_state_json", "TEXT")
             for table in ("jobs", "job_rounds", "generation_items"):
                 self._ensure_column(connection, table, "finished_at", "TEXT")
                 self._ensure_column(connection, table, "execution_elapsed_ms", "INTEGER")
             self._ensure_column(connection, "grs_provider_settings", "models", "TEXT NOT NULL DEFAULT 'gpt-image-2'")
             self._ensure_column(connection, "grs_provider_settings", "vip_models", "TEXT NOT NULL DEFAULT 'gpt-image-2-vip'")
+            self._ensure_column(connection, "llm_provider_settings", "assistant_models_json", "TEXT")
             self._ensure_column(
                 connection,
                 "vlm_provider_settings",
@@ -729,6 +778,7 @@ class JobStore:
         comfy_prompt_id: str | None = None, comfy_client_id: str | None = None,
         comfy_phase: str | None = None, clear_execution: bool = False,
         cancel_requested: bool | None = None,
+        refine_state: dict | None = None, clear_refine_state: bool = False,
     ) -> dict:
         incoming_status = status.value if isinstance(status, JobStatus) else status
         updates: dict[str, Any] = {"updated_at": now()}
@@ -777,6 +827,10 @@ class JobStore:
                 updates.update({"comfy_prompt_id": None, "comfy_client_id": None, "comfy_phase": None})
             if cancel_requested is not None:
                 updates["cancel_requested"] = 1 if cancel_requested else 0
+            if refine_state is not None:
+                updates["refine_state_json"] = json.dumps(refine_state, ensure_ascii=False)
+            if clear_refine_state:
+                updates["refine_state_json"] = None
             assignment = ", ".join(f"{column} = ?" for column in updates)
             connection.execute(f"UPDATE generation_items SET {assignment} WHERE id = ?", (*updates.values(), generation_item_id))
             self._refresh_round(connection, row["round_id"])
@@ -802,6 +856,14 @@ class JobStore:
         elif terminal and (successes or has_outputs):
             status, stage, progress = JobStatus.PARTIAL.value, "部分生成完成", round(100 * max(successes, 1) / len(statuses))
             error = next((row["error"] for row in items if row["error"]), None) or "部分生成项失败，可只重试失败项。"
+        elif any(value == JobStatus.AWAITING_REFINE.value for value in statuses):
+            waiting = next(row for row in items if row["status"] == JobStatus.AWAITING_REFINE.value)
+            status, stage, progress, error = (
+                JobStatus.AWAITING_REFINE.value,
+                waiting["stage"] or "一采预览待确认",
+                int(waiting["progress"] or 90),
+                None,
+            )
         elif any(value == JobStatus.RUNNING.value for value in statuses):
             status, stage, progress, error = JobStatus.RUNNING.value, "正在生成", round(sum(row["progress"] for row in items) / len(items)), None
         elif any(value == JobStatus.QUEUED.value for value in statuses):
@@ -1009,6 +1071,11 @@ class JobStore:
         data = dict(row)
         data["index"] = data.pop("item_index")
         data["outputs"] = cls._decode_outputs(data.pop("outputs_json"))
+        raw_refine_state = data.pop("refine_state_json", None)
+        try:
+            data["refine_state"] = json.loads(raw_refine_state) if raw_refine_state else {}
+        except (TypeError, ValueError):
+            data["refine_state"] = {}
         data["cancel_requested"] = bool(data.get("cancel_requested") or 0)
         return data
 
@@ -1280,7 +1347,7 @@ class JobStore:
 
     def update_llm_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {
-            "enabled", "base_url", "api_key_encrypted", "model",
+            "enabled", "base_url", "api_key_encrypted", "model", "assistant_models_json",
             "last_test_status", "last_test_message", "last_test_at",
         }
         merged = dict(values) if isinstance(values, dict) else {}
@@ -1538,16 +1605,6 @@ class JobStore:
 
     @classmethod
     def director_generation_progress(cls, payload: dict[str, Any]) -> tuple[str, int, int]:
-        from .director_recipe import PAYLOAD_KIND_HYPIT_REPLICATION, payload_kind
-
-        if payload_kind(payload) == PAYLOAD_KIND_HYPIT_REPLICATION:
-            result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
-            transcript = payload.get("transcript") if isinstance(payload.get("transcript"), dict) else {}
-            if result.get("url") or result.get("path"):
-                return "complete", 1, 1
-            if transcript.get("status") == "done" or payload.get("sourceVideo"):
-                return "partial", 0, 1
-            return "pending", 0, 0
         shots = cls._payload_shots(payload)
         total = len(shots)
         generated = sum(1 for shot in shots if cls._shot_is_generated(shot))

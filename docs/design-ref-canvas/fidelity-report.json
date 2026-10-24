@@ -1,0 +1,2777 @@
+{
+  "date": "2026-10-24",
+  "reference": {
+    "file": "01-editor-concept-light.png",
+    "sha256": "29d96fe563339e3e8095c6c6b30d342f9c4a520c1746d51bfb475a482524c767",
+    "size": [
+      1586,
+      992
+    ]
+  },
+  "capture": {
+    "file": "06-editor-fidelity-light.png",
+    "sha256": "810eca18577a995906c0f465b937a6656ca76e982001de6d35b89755b6fb6153",
+    "metadata": "fidelity-capture.json",
+    "url": "http://127.0.0.1:5173/canvas/canvas_56f32c285544475cb8573c39",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "fonts_ready": true,
+    "images_ready": true,
+    "full_page": false,
+    "screenshot_scale": "css",
+    "captured_at": "2026-10-24T02:58:16.323Z"
+  },
+  "geometry": {
+    "complete": true,
+    "regions_count": 21,
+    "max_abs_delta_css": 2.0,
+    "regions": [
+      {
+        "name": "global-header",
+        "selector": ".studio-header",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          0,
+          0,
+          1586,
+          60
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          0.0,
+          0.0,
+          1586.0,
+          60.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "global-navigation",
+        "selector": ".studio-icon-rail",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          0,
+          60,
+          86,
+          932
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          0.0,
+          60.0,
+          86.0,
+          932.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "command-header",
+        "selector": ".canvas-editor-header",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          86,
+          60,
+          1500,
+          64
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          86.0,
+          60.0,
+          1500.0,
+          64.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "tool-rail",
+        "selector": ".canvas-rail",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          108,
+          283,
+          58,
+          481
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          108.0,
+          283.0,
+          58.0,
+          481.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "add-menu",
+        "selector": ".canvas-add-menu .ant-dropdown-menu",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          163,
+          399,
+          226,
+          327
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "21px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          163.0,
+          399.0,
+          226.0,
+          327.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "inspector",
+        "selector": ".canvas-side-panel",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1214,
+          143,
+          360,
+          815
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          1214.0,
+          143.0,
+          360.0,
+          815.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "inspector-tabs",
+        "selector": ".canvas-side-panel-head",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1215,
+          144,
+          358,
+          60
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          1214.0,
+          143.0,
+          360.0,
+          61.0
+        ],
+        "delta_css": [
+          1.0,
+          1.0,
+          -2.0,
+          -1.0
+        ],
+        "max_abs_delta_css": 2.0
+      },
+      {
+        "name": "overview-symbol",
+        "selector": ".canvas-panel-intro .canvas-panel-symbol",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1230,
+          220,
+          52,
+          53
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(236, 238, 255)"
+        },
+        "reference_css_box": [
+          1230.0,
+          220.0,
+          52.0,
+          53.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "overview-stats",
+        "selector": ".canvas-overview-stats",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1230,
+          289,
+          326,
+          75
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(245, 246, 248)"
+        },
+        "reference_css_box": [
+          1230.0,
+          289.0,
+          326.0,
+          75.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "view-settings",
+        "selector": ".canvas-view-settings",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1230,
+          388,
+          326,
+          117
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          1230.0,
+          389.0,
+          326.0,
+          117.0
+        ],
+        "delta_css": [
+          0.0,
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "connection-control",
+        "selector": ".canvas-connection-settings .ant-segmented",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1230,
+          556,
+          326,
+          42
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "21px",
+          "fontWeight": "400",
+          "color": "rgb(89, 99, 111)",
+          "backgroundColor": "rgb(245, 246, 248)"
+        },
+        "reference_css_box": [
+          1230.0,
+          556.0,
+          326.0,
+          42.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "generation-control",
+        "selector": ".canvas-generation-settings .ant-segmented",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1230,
+          676,
+          326,
+          44
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "21px",
+          "fontWeight": "400",
+          "color": "rgb(89, 99, 111)",
+          "backgroundColor": "rgb(245, 246, 248)"
+        },
+        "reference_css_box": [
+          1230.0,
+          676.0,
+          326.0,
+          44.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "global-prompt",
+        "selector": ".canvas-global-prompt",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1230,
+          796,
+          326,
+          80
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22.6154px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          1230.0,
+          796.0,
+          326.0,
+          80.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "library-entry",
+        "selector": ".canvas-library-entry",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1230,
+          888,
+          326,
+          47
+        ],
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          1230.0,
+          888.0,
+          326.0,
+          47.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "zoom-dock",
+        "selector": ".canvas-bottombar",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          99,
+          924,
+          375,
+          49
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          99.0,
+          924.0,
+          375.0,
+          49.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "minimap",
+        "selector": ".canvas-minimap",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          99,
+          814,
+          174,
+          101
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          99.0,
+          814.0,
+          174.0,
+          101.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "text-node",
+        "selector": "[data-id=\"brief\"] .canvas-node",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          285,
+          278,
+          250.9921875,
+          156.99609375
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "color(srgb 0.990902 0.983373 1)"
+        },
+        "reference_css_box": [
+          285.0,
+          278.0,
+          251.0,
+          157.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          -0.008,
+          -0.004
+        ],
+        "max_abs_delta_css": 0.008
+      },
+      {
+        "name": "reference-node",
+        "selector": "[data-id=\"reference\"] .canvas-node",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          371,
+          604,
+          202.9921875,
+          238.9921875
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          371.0,
+          604.0,
+          203.0,
+          239.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          -0.008,
+          -0.008
+        ],
+        "max_abs_delta_css": 0.008
+      },
+      {
+        "name": "generator-node",
+        "selector": "[data-id=\"generate\"] .canvas-node",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          628,
+          410,
+          265.99224853515625,
+          333.99609375
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          628.0,
+          410.0,
+          266.0,
+          334.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          -0.008,
+          -0.004
+        ],
+        "max_abs_delta_css": 0.008
+      },
+      {
+        "name": "result-node",
+        "selector": "[data-id=\"result\"] .canvas-node",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          948,
+          423,
+          243.99609375,
+          304.9921875
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          948.0,
+          423.0,
+          244.0,
+          305.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          -0.004,
+          -0.008
+        ],
+        "max_abs_delta_css": 0.008
+      },
+      {
+        "name": "node-toolbar",
+        "selector": ".canvas-node-toolbar",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          630.125,
+          364,
+          262,
+          38
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 30, 53)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          630.0,
+          364.0,
+          262.0,
+          38.0
+        ],
+        "delta_css": [
+          0.125,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.125
+      }
+    ]
+  },
+  "pixels": {
+    "resized": false,
+    "full": {
+      "size": [
+        1586,
+        992
+      ],
+      "rms_diff": 28.188,
+      "mean_abs_diff": 8.429
+    },
+    "note": "Includes real data, font rasterization, media resampling and true minimap geometry; no fidelity percentage is inferred."
+  },
+  "interaction": {
+    "passed": true,
+    "basic_checks": [
+      {
+        "name": "light root theme",
+        "passed": true
+      },
+      {
+        "name": "light-add-menu remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light add menu has five actions",
+        "passed": true
+      },
+      {
+        "name": "light-zoom-menu remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light six zoom presets",
+        "passed": true
+      },
+      {
+        "name": "light-viewpoints remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light ten viewpoints",
+        "passed": true
+      },
+      {
+        "name": "light-shortcuts remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light-model-select remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light registry workflow visible",
+        "passed": true
+      },
+      {
+        "name": "light-branch-menu remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light branch choices",
+        "passed": true
+      },
+      {
+        "name": "light-image-dialog remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light placeholder action enabled",
+        "passed": true
+      },
+      {
+        "name": "light dialog blocks canvas shortcuts",
+        "passed": true
+      },
+      {
+        "name": "light invalid URL disables submit",
+        "passed": true
+      },
+      {
+        "name": "light invalid URL visible",
+        "passed": true
+      },
+      {
+        "name": "light-image-dialog-invalid remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light-context-menu remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light-library remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light library aligned with header",
+        "passed": true
+      },
+      {
+        "name": "light-generator-inspector remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light-image-inspector remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light-media-preview remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light-layers remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light four layer rows",
+        "passed": true
+      },
+      {
+        "name": "light-history remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light grid off",
+        "passed": true
+      },
+      {
+        "name": "light minimap off",
+        "passed": true
+      },
+      {
+        "name": "light connections hidden",
+        "passed": true
+      },
+      {
+        "name": "light independent result mode",
+        "passed": true
+      },
+      {
+        "name": "light no horizontal overflow",
+        "passed": true
+      },
+      {
+        "name": "dark root theme",
+        "passed": true
+      },
+      {
+        "name": "dark-add-menu remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark add menu has five actions",
+        "passed": true
+      },
+      {
+        "name": "dark-zoom-menu remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark six zoom presets",
+        "passed": true
+      },
+      {
+        "name": "dark-viewpoints remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark ten viewpoints",
+        "passed": true
+      },
+      {
+        "name": "dark-shortcuts remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark-model-select remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark registry workflow visible",
+        "passed": true
+      },
+      {
+        "name": "dark-branch-menu remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark branch choices",
+        "passed": true
+      },
+      {
+        "name": "dark-image-dialog remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark placeholder action enabled",
+        "passed": true
+      },
+      {
+        "name": "dark dialog blocks canvas shortcuts",
+        "passed": true
+      },
+      {
+        "name": "dark invalid URL disables submit",
+        "passed": true
+      },
+      {
+        "name": "dark invalid URL visible",
+        "passed": true
+      },
+      {
+        "name": "dark-image-dialog-invalid remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark-context-menu remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark-library remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark library aligned with header",
+        "passed": true
+      },
+      {
+        "name": "dark-generator-inspector remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark-image-inspector remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark-media-preview remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark-layers remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark four layer rows",
+        "passed": true
+      },
+      {
+        "name": "dark-history remains inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark grid off",
+        "passed": true
+      },
+      {
+        "name": "dark minimap off",
+        "passed": true
+      },
+      {
+        "name": "dark connections hidden",
+        "passed": true
+      },
+      {
+        "name": "dark independent result mode",
+        "passed": true
+      },
+      {
+        "name": "dark no horizontal overflow",
+        "passed": true
+      },
+      {
+        "name": "disconnect text edge",
+        "passed": true
+      },
+      {
+        "name": "prompt editable after unlink",
+        "passed": true
+      },
+      {
+        "name": "undo restores text edge",
+        "passed": true
+      },
+      {
+        "name": "undo restores linked prompt",
+        "passed": true
+      },
+      {
+        "name": "1440 no horizontal overflow",
+        "passed": true
+      },
+      {
+        "name": "1440 .canvas-rail visible",
+        "passed": true
+      },
+      {
+        "name": "1440 .canvas-side-panel visible",
+        "passed": true
+      },
+      {
+        "name": "1440 .canvas-bottombar visible",
+        "passed": true
+      },
+      {
+        "name": "1920 no horizontal overflow",
+        "passed": true
+      },
+      {
+        "name": "1920 .canvas-rail visible",
+        "passed": true
+      },
+      {
+        "name": "1920 .canvas-side-panel visible",
+        "passed": true
+      },
+      {
+        "name": "1920 .canvas-bottombar visible",
+        "passed": true
+      },
+      {
+        "name": "no application errors",
+        "passed": true
+      }
+    ],
+    "supplemental_checks": [
+      {
+        "name": "light-file-menu inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light-png-export inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light PNG preview rendered",
+        "passed": true
+      },
+      {
+        "name": "light-png-transparent inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light transparent preview",
+        "passed": true
+      },
+      {
+        "name": "light PNG fits 1440 desktop",
+        "passed": true
+      },
+      {
+        "name": "light-library-cards inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light first library page",
+        "passed": true
+      },
+      {
+        "name": "light library search and pagination stay visible",
+        "passed": true
+      },
+      {
+        "name": "light-library-pager inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light library pagination",
+        "passed": true
+      },
+      {
+        "name": "light-library-search-empty inside viewport",
+        "passed": true
+      },
+      {
+        "name": "light empty library feedback",
+        "passed": true
+      },
+      {
+        "name": "dark-file-menu inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark-png-export inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark PNG preview rendered",
+        "passed": true
+      },
+      {
+        "name": "dark-png-transparent inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark transparent preview",
+        "passed": true
+      },
+      {
+        "name": "dark PNG fits 1440 desktop",
+        "passed": true
+      },
+      {
+        "name": "dark-library-cards inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark first library page",
+        "passed": true
+      },
+      {
+        "name": "dark library search and pagination stay visible",
+        "passed": true
+      },
+      {
+        "name": "dark-library-pager inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark library pagination",
+        "passed": true
+      },
+      {
+        "name": "dark-library-search-empty inside viewport",
+        "passed": true
+      },
+      {
+        "name": "dark empty library feedback",
+        "passed": true
+      }
+    ],
+    "application_errors": [],
+    "states_count": 42,
+    "states": [
+      {
+        "name": "light-add-menu",
+        "box": {
+          "x": 163,
+          "y": 399,
+          "width": 226,
+          "height": 327
+        },
+        "file": "states/light-add-menu.png",
+        "sha256": "e341fbc7762a8d19e22a9abc3a3d4cfaf1c8a0419df1b904c96b81298ae655d7"
+      },
+      {
+        "name": "light-zoom-menu",
+        "box": {
+          "x": 180,
+          "y": 711,
+          "width": 128.4375,
+          "height": 218
+        },
+        "file": "states/light-zoom-menu.png",
+        "sha256": "d050ae482ba720cbfb48b2558c8bd7d39d6b37941b95d1e5acb20b1bab0a8821"
+      },
+      {
+        "name": "light-viewpoints",
+        "box": {
+          "x": 196,
+          "y": 721.46875,
+          "width": 270,
+          "height": 199.53125
+        },
+        "file": "states/light-viewpoints.png",
+        "sha256": "fc36058e5e16f28717b30d2d56dd959d0baad0f1127d04bb8fa26d5df22f3549"
+      },
+      {
+        "name": "light-shortcuts",
+        "box": {
+          "x": 170,
+          "y": 424.859375,
+          "width": 303.46875,
+          "height": 331.140625
+        },
+        "file": "states/light-shortcuts.png",
+        "sha256": "b6aff3a4e06bf1ab507caed3f8128fc15bd0690c8aac30b2311fd53434cc01e8"
+      },
+      {
+        "name": "light-model-select",
+        "box": {
+          "x": 645,
+          "y": 516,
+          "width": 231.484375,
+          "height": 270
+        },
+        "file": "states/light-model-select.png",
+        "sha256": "6e28ab22199e878445072895621af7db4b09413c594f6da5d7744000a09587ca"
+      },
+      {
+        "name": "light-branch-menu",
+        "box": {
+          "x": 636,
+          "y": 402,
+          "width": 100,
+          "height": 82
+        },
+        "file": "states/light-branch-menu.png",
+        "sha256": "eeb43763ffbcfcbf1722ba66c66dd494e01d250412455256e75c0cded8f26abe"
+      },
+      {
+        "name": "light-image-dialog",
+        "box": {
+          "x": 553,
+          "y": 100,
+          "width": 480,
+          "height": 338.53125
+        },
+        "file": "states/light-image-dialog.png",
+        "sha256": "f6304837a241be9b2a97f4a7d6fae83e3d9ae4c1a2edb42fa2d888ff0db5d8b0"
+      },
+      {
+        "name": "light-image-dialog-invalid",
+        "box": {
+          "x": 553,
+          "y": 100,
+          "width": 480,
+          "height": 338.53125
+        },
+        "file": "states/light-image-dialog-invalid.png",
+        "sha256": "d7ba6bcd614b63919cd93bae4d6c9062313d8009b6ae6aed44e57fb9431801c9"
+      },
+      {
+        "name": "light-context-menu",
+        "box": {
+          "x": 978,
+          "y": 220,
+          "width": 251.25,
+          "height": 389.765625
+        },
+        "file": "states/light-context-menu.png",
+        "sha256": "c0f74f24bd29cb7810a95c281b9007c82e2f07c37a00ae9c5021de9719376a47"
+      },
+      {
+        "name": "light-library",
+        "box": {
+          "x": 1026,
+          "y": 60,
+          "width": 560,
+          "height": 932
+        },
+        "file": "states/light-library.png",
+        "sha256": "2cf885eb9231039e61aa4499dbc82dc4c8e50ae334b98a49afb07ca65cf7a05a"
+      },
+      {
+        "name": "light-generator-inspector",
+        "box": {
+          "x": 1214,
+          "y": 143,
+          "width": 360,
+          "height": 815
+        },
+        "file": "states/light-generator-inspector.png",
+        "sha256": "1ec4fbf03e37046a037e1926916c9c0ded19924e665bf538a84dcbfada82d175"
+      },
+      {
+        "name": "light-image-inspector",
+        "box": {
+          "x": 1214,
+          "y": 143,
+          "width": 360,
+          "height": 815
+        },
+        "file": "states/light-image-inspector.png",
+        "sha256": "52e00ba14b0e3c3246e5c4f4c6a7f78db58cd79908b7037ee3778d03bdf559fc"
+      },
+      {
+        "name": "light-media-preview",
+        "box": {
+          "x": 333,
+          "y": 100,
+          "width": 920,
+          "height": 313.5625
+        },
+        "file": "states/light-media-preview.png",
+        "sha256": "b26a37c6096dde417ff806c039e2d0f84c005a353ffc029d7abef3538ebd7d07"
+      },
+      {
+        "name": "light-layers",
+        "box": {
+          "x": 1214,
+          "y": 143,
+          "width": 360,
+          "height": 815
+        },
+        "file": "states/light-layers.png",
+        "sha256": "af9c4e49b5c9eb43fc408c029394799da057f558af87ef0524c7a72e56f120ec"
+      },
+      {
+        "name": "light-history",
+        "box": {
+          "x": 1214,
+          "y": 143,
+          "width": 360,
+          "height": 815
+        },
+        "file": "states/light-history.png",
+        "sha256": "2264240a24b7ea5bb01f25bb25d21c853f473ffa116d1971de7f3e4a159ca7e3"
+      },
+      {
+        "name": "dark-add-menu",
+        "box": {
+          "x": 163,
+          "y": 399,
+          "width": 226,
+          "height": 327
+        },
+        "file": "states/dark-add-menu.png",
+        "sha256": "725d9eb820eb0974eb809f1fba28a661c5189fbc38ef5aa86ce8490fc807b949"
+      },
+      {
+        "name": "dark-zoom-menu",
+        "box": {
+          "x": 180,
+          "y": 711,
+          "width": 128.4375,
+          "height": 218
+        },
+        "file": "states/dark-zoom-menu.png",
+        "sha256": "f7aa7881c37f17d0ce97506721e55aff33a8441c7e9387bcb5983418c6cbd88a"
+      },
+      {
+        "name": "dark-viewpoints",
+        "box": {
+          "x": 196,
+          "y": 721.46875,
+          "width": 270,
+          "height": 199.53125
+        },
+        "file": "states/dark-viewpoints.png",
+        "sha256": "4588ea7287e3df24f0c79eef2bbe823e845206f5ae70934ab8a3f6def48344a6"
+      },
+      {
+        "name": "dark-shortcuts",
+        "box": {
+          "x": 170,
+          "y": 424.859375,
+          "width": 303.46875,
+          "height": 331.140625
+        },
+        "file": "states/dark-shortcuts.png",
+        "sha256": "0adb2648bbfb8b583f1fc86b90ac9fffe1b926f49e9a498d652a45ca57e51571"
+      },
+      {
+        "name": "dark-model-select",
+        "box": {
+          "x": 645,
+          "y": 516,
+          "width": 231.484375,
+          "height": 270
+        },
+        "file": "states/dark-model-select.png",
+        "sha256": "f372acef49556afa4b2f4e083b388f891aa89caccbd48a98c77016400c4c3084"
+      },
+      {
+        "name": "dark-branch-menu",
+        "box": {
+          "x": 636,
+          "y": 402,
+          "width": 100,
+          "height": 82
+        },
+        "file": "states/dark-branch-menu.png",
+        "sha256": "d6c802a61585b7b4d98265ec4b86823035de6f614d6a1fbe24c7ca199d2f35ff"
+      },
+      {
+        "name": "dark-image-dialog",
+        "box": {
+          "x": 553,
+          "y": 100,
+          "width": 480,
+          "height": 338.53125
+        },
+        "file": "states/dark-image-dialog.png",
+        "sha256": "f18133f28b279f1f4bf4c9999b0e3a18affd44541e68f8f90c47731cbef5d6ae"
+      },
+      {
+        "name": "dark-image-dialog-invalid",
+        "box": {
+          "x": 553,
+          "y": 100,
+          "width": 480,
+          "height": 338.53125
+        },
+        "file": "states/dark-image-dialog-invalid.png",
+        "sha256": "deef5b1473119762c4edcec601b0f4ed9e701d481562d7212d6b2b0e62762e99"
+      },
+      {
+        "name": "dark-context-menu",
+        "box": {
+          "x": 978,
+          "y": 220,
+          "width": 251.25,
+          "height": 389.765625
+        },
+        "file": "states/dark-context-menu.png",
+        "sha256": "99d234e4268bde6523f1e1878168ee6faf3c07dcd471eb72c9d26b9e79ebfe5f"
+      },
+      {
+        "name": "dark-library",
+        "box": {
+          "x": 1026,
+          "y": 60,
+          "width": 560,
+          "height": 932
+        },
+        "file": "states/dark-library.png",
+        "sha256": "828192aa6fac4a642b322b6f51518106b649473e3bc706a8941018a7f1a545d9"
+      },
+      {
+        "name": "dark-generator-inspector",
+        "box": {
+          "x": 1214,
+          "y": 143,
+          "width": 360,
+          "height": 815
+        },
+        "file": "states/dark-generator-inspector.png",
+        "sha256": "0869a3c28bffb77a0ca0aff9ebfd8333f2458ded4a5b39d81747d315832bced9"
+      },
+      {
+        "name": "dark-image-inspector",
+        "box": {
+          "x": 1214,
+          "y": 143,
+          "width": 360,
+          "height": 815
+        },
+        "file": "states/dark-image-inspector.png",
+        "sha256": "9382b7a3a0ea1df95c3bcc5b6ed70a35a336cd157c8af35c892a53fbc56a86ba"
+      },
+      {
+        "name": "dark-media-preview",
+        "box": {
+          "x": 333,
+          "y": 100,
+          "width": 920,
+          "height": 313.5625
+        },
+        "file": "states/dark-media-preview.png",
+        "sha256": "532b2c1b18089f21eb485f188c1781139adb1c4a358004f2908c377980c9faf6"
+      },
+      {
+        "name": "dark-layers",
+        "box": {
+          "x": 1214,
+          "y": 143,
+          "width": 360,
+          "height": 815
+        },
+        "file": "states/dark-layers.png",
+        "sha256": "6156271a5e5a86b572dad1f1f9af866d370ea002649be79612e6b66c5c536031"
+      },
+      {
+        "name": "dark-history",
+        "box": {
+          "x": 1214,
+          "y": 143,
+          "width": 360,
+          "height": 815
+        },
+        "file": "states/dark-history.png",
+        "sha256": "5020391fc607ce0a524928eb2dcfeef9e105ea082981264ffe8f8d96ee92ad40"
+      },
+      {
+        "name": "light-file-menu",
+        "box": {
+          "x": 1429,
+          "y": 114,
+          "width": 134.671875,
+          "height": 125
+        },
+        "file": "states/light-file-menu.png",
+        "sha256": "61e103cd838acaee20c0c6ce75e6a43adcac05fdf14317e007f23f43da6286f4"
+      },
+      {
+        "name": "light-png-export",
+        "box": {
+          "x": 353,
+          "y": 100,
+          "width": 880,
+          "height": 734.421875
+        },
+        "file": "states/light-png-export.png",
+        "sha256": "ab9ed3ed35e95d3642f74f12cf6e72e3bbdaec2fafb8b744d55125b951f2d489"
+      },
+      {
+        "name": "light-png-transparent",
+        "box": {
+          "x": 353,
+          "y": 100,
+          "width": 880,
+          "height": 734.421875
+        },
+        "file": "states/light-png-transparent.png",
+        "sha256": "6b1dcac12986a1b2a6a02382d6968148e75b753ffdc0d4b08d96a801f51bca23"
+      },
+      {
+        "name": "light-library-cards",
+        "box": {
+          "x": 1026,
+          "y": 60,
+          "width": 560,
+          "height": 932
+        },
+        "file": "states/light-library-cards.png",
+        "sha256": "b43504a5da2b8da6adab5238bd71998246dff0ed5113e475573648e80455ec0d"
+      },
+      {
+        "name": "light-library-pager",
+        "box": {
+          "x": 1026,
+          "y": 60,
+          "width": 560,
+          "height": 932
+        },
+        "file": "states/light-library-pager.png",
+        "sha256": "b43504a5da2b8da6adab5238bd71998246dff0ed5113e475573648e80455ec0d"
+      },
+      {
+        "name": "light-library-search-empty",
+        "box": {
+          "x": 1026,
+          "y": 60,
+          "width": 560,
+          "height": 932
+        },
+        "file": "states/light-library-search-empty.png",
+        "sha256": "5a518bb88159cfcd0a40f31827d986eb0b700d29fbb47fb4be761f1844ff2b14"
+      },
+      {
+        "name": "dark-file-menu",
+        "box": {
+          "x": 1429,
+          "y": 114,
+          "width": 134.671875,
+          "height": 125
+        },
+        "file": "states/dark-file-menu.png",
+        "sha256": "2cfd08dcb887280efcafe530202b18a51c74d033ba21c6539593667fc9b2c1fc"
+      },
+      {
+        "name": "dark-png-export",
+        "box": {
+          "x": 353,
+          "y": 100,
+          "width": 880,
+          "height": 734.421875
+        },
+        "file": "states/dark-png-export.png",
+        "sha256": "d008deda9ce393453ee2d2fed5c800d0086154f2be9fd9eb96736dfa9296a00b"
+      },
+      {
+        "name": "dark-png-transparent",
+        "box": {
+          "x": 353,
+          "y": 100,
+          "width": 880,
+          "height": 734.421875
+        },
+        "file": "states/dark-png-transparent.png",
+        "sha256": "d43873e267bf8907ae2b83d8026fe02a6e56b93044500aecd870cfd49451a7b7"
+      },
+      {
+        "name": "dark-library-cards",
+        "box": {
+          "x": 1026,
+          "y": 60,
+          "width": 560,
+          "height": 932
+        },
+        "file": "states/dark-library-cards.png",
+        "sha256": "43d534521ead883ed6c7e76e5e6662715efa416fa1f3f5306ef1df7f35d06867"
+      },
+      {
+        "name": "dark-library-pager",
+        "box": {
+          "x": 1026,
+          "y": 60,
+          "width": 560,
+          "height": 932
+        },
+        "file": "states/dark-library-pager.png",
+        "sha256": "43d534521ead883ed6c7e76e5e6662715efa416fa1f3f5306ef1df7f35d06867"
+      },
+      {
+        "name": "dark-library-search-empty",
+        "box": {
+          "x": 1026,
+          "y": 60,
+          "width": 560,
+          "height": 932
+        },
+        "file": "states/dark-library-search-empty.png",
+        "sha256": "c16c70f77db650a09a10882030cf65266f3bfbe52a687ba7b14b6abb2e5a240c"
+      }
+    ]
+  },
+  "contrast": {
+    "passed": true,
+    "results": [
+      {
+        "mode": "light",
+        "text": [
+          69,
+          84,
+          255
+        ],
+        "bg": [
+          236,
+          238,
+          255
+        ],
+        "contrast": 4.600151248544763,
+        "passed": true
+      },
+      {
+        "mode": "dark",
+        "text": [
+          176,
+          187,
+          255
+        ],
+        "bg": [
+          40,
+          47,
+          80
+        ],
+        "contrast": 7.067889892450943,
+        "passed": true
+      }
+    ]
+  },
+  "dark_node_icons": {
+    "passed": true,
+    "url": "http://127.0.0.1:5173/canvas/canvas_56f32c285544475cb8573c39",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "theme": "dark",
+    "icons": [
+      {
+        "type": "canvas-node-type-icon is-text",
+        "fore": [
+          15,
+          17,
+          21
+        ],
+        "back": [
+          195,
+          164,
+          255
+        ],
+        "contrast": 9.06544166984666
+      },
+      {
+        "type": "canvas-node-type-icon is-image",
+        "fore": [
+          15,
+          17,
+          21
+        ],
+        "back": [
+          255,
+          193,
+          108
+        ],
+        "contrast": 11.78466220189784
+      },
+      {
+        "type": "canvas-node-type-icon is-image",
+        "fore": [
+          15,
+          17,
+          21
+        ],
+        "back": [
+          255,
+          193,
+          108
+        ],
+        "contrast": 11.78466220189784
+      }
+    ]
+  },
+  "desktop_and_fonts": {
+    "passed": true,
+    "fonts": [
+      {
+        "selector": "[data-id=\"brief\"] .canvas-node-title strong",
+        "fonts": [
+          {
+            "familyName": "Microsoft YaHei",
+            "postScriptName": "MicrosoftYaHei-Bold",
+            "isCustomFont": false,
+            "glyphCount": 4
+          }
+        ]
+      },
+      {
+        "selector": ".canvas-panel-intro h3",
+        "fonts": [
+          {
+            "familyName": "Microsoft YaHei",
+            "postScriptName": "MicrosoftYaHei-Bold",
+            "isCustomFont": false,
+            "glyphCount": 4
+          }
+        ]
+      },
+      {
+        "selector": ".studio-header-canvas > div:first-child > div > span",
+        "fonts": [
+          {
+            "familyName": "Arial",
+            "postScriptName": "Arial-BoldMT",
+            "isCustomFont": false,
+            "glyphCount": 13
+          }
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "mode": "dark",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": [
+          {
+            "selector": "canvas-editor-header",
+            "box": [
+              86,
+              60,
+              1354,
+              64
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-rail",
+            "box": [
+              108,
+              283,
+              58,
+              481
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-bottombar",
+            "box": [
+              99,
+              832,
+              375,
+              49
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-side-panel",
+            "box": [
+              1098,
+              143,
+              330,
+              723
+            ],
+            "inside": true
+          }
+        ],
+        "overflow": false,
+        "passed": true
+      },
+      {
+        "mode": "dark",
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "boxes": [
+          {
+            "selector": "canvas-editor-header",
+            "box": [
+              86,
+              60,
+              1834,
+              64
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-rail",
+            "box": [
+              108,
+              283,
+              58,
+              481
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-bottombar",
+            "box": [
+              99,
+              1012,
+              375,
+              49
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-side-panel",
+            "box": [
+              1548,
+              143,
+              360,
+              903
+            ],
+            "inside": true
+          }
+        ],
+        "overflow": false,
+        "passed": true
+      },
+      {
+        "mode": "light",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": [
+          {
+            "selector": "canvas-editor-header",
+            "box": [
+              86,
+              60,
+              1354,
+              64
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-rail",
+            "box": [
+              108,
+              283,
+              58,
+              481
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-bottombar",
+            "box": [
+              99,
+              832,
+              375,
+              49
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-side-panel",
+            "box": [
+              1098,
+              143,
+              330,
+              723
+            ],
+            "inside": true
+          }
+        ],
+        "overflow": false,
+        "passed": true
+      },
+      {
+        "mode": "light",
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "boxes": [
+          {
+            "selector": "canvas-editor-header",
+            "box": [
+              86,
+              60,
+              1834,
+              64
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-rail",
+            "box": [
+              108,
+              283,
+              58,
+              481
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-bottombar",
+            "box": [
+              99,
+              1012,
+              375,
+              49
+            ],
+            "inside": true
+          },
+          {
+            "selector": "canvas-side-panel",
+            "box": [
+              1548,
+              143,
+              360,
+              903
+            ],
+            "inside": true
+          }
+        ],
+        "overflow": false,
+        "passed": true
+      }
+    ]
+  },
+  "legacy_node": {
+    "passed": true,
+    "metrics": {
+      "height": 94,
+      "scrollHeight": 298
+    },
+    "node": {
+      "x": 628,
+      "y": 410,
+      "width": 237.00006103515625,
+      "height": 180
+    },
+    "actions": {
+      "x": 645.25,
+      "y": 538.25,
+      "width": 202.5,
+      "height": 36
+    },
+    "previousUrl": "http://127.0.0.1:5173/canvas/canvas_56f32c285544475cb8573c39"
+  },
+  "tests": {
+    "frontend": {
+      "files": 60,
+      "passed": 397,
+      "command": "pnpm --dir frontend build",
+      "build_log_sha256": "e71847b21bf78b4b9be8dcf76de677707764f6702f6080daeb857ca195d9dd51"
+    },
+    "backend_canvas": {
+      "passed": 18,
+      "command": "python -X utf8 -m unittest backend.tests.test_canvas_store -q",
+      "log_sha256": "e7409698bb97f2d14873765ef760eea8044b7e3241b9d53164871ffd6b18bb23"
+    }
+  },
+  "scope": {
+    "desktop_only": true,
+    "frontend_port": 5173,
+    "isolated_api_port": 7866,
+    "database": "isolated SQLite",
+    "generation_requests": 0,
+    "test_responses": [
+      "health",
+      "visual-reference-image mode",
+      "library query paging/search in supplemental UI checks"
+    ],
+    "permanent_business_fixtures": false
+  },
+  "source_sha256": {
+    "frontend/src/App.tsx": "f64d489d9602e9c31dcd37bb1f9ed19315ea544d5997db66294db78a6b390fa4",
+    "frontend/src/components/ThemeToggle.tsx": "dc2ac8154b5f3735b91833f224c3bc2de43434bc88ce8e712a6f613a2202b078",
+    "frontend/src/canvas/AddToCanvasModal.tsx": "c237f691e750879a7020715cb573723b3b4509e42911d3072f70f54cfe075d9e",
+    "frontend/src/canvas/canvas-api.ts": "586b0ceb5c5aab9cab456403962b1c01b9a6742044a66b149df4159fd4c1290f",
+    "frontend/src/canvas/canvas-cover.test.ts": "135d1b62260ccb4dfd5e461e801f2d9da9a2b136e0e9ce57b63985ad5b7f4c4c",
+    "frontend/src/canvas/canvas-cover.ts": "803d82dcc1e76ae335132e910e68bd12354570c2c95f858b26d15801f0344086",
+    "frontend/src/canvas/canvas-export-render.ts": "5cd23a1e3e5ba0fb8bff2e5d189280c994dfdfabf57df5b9e6cf72eaaf3e9228",
+    "frontend/src/canvas/canvas-export.test.ts": "3c5f16aeb9ccba235f8f941c4c937fe2dc863b633455399638bcb279a5e88c18",
+    "frontend/src/canvas/canvas-export.ts": "381e0630c67c30968277bfbe78c9bb8a3cd053904c9c8ff8fe20f41a8ced3b83",
+    "frontend/src/canvas/canvas-fidelity.css": "93056192d8297050f2ca03e5bb54c2b6b9d8f8d245e612105ffc16182bb0d59b",
+    "frontend/src/canvas/canvas-generation.test.ts": "2b3b19ff9a3cc31faf0ca199144ccae6cb4cea5569d72af7818a4b760b6e9b7c",
+    "frontend/src/canvas/canvas-generation.ts": "0f0f616a7b34d90b5da839fb214c5964d2e7667457c275e5ff330d3c9dd49e68",
+    "frontend/src/canvas/canvas-manage.test.ts": "c63a3aa535d6c9ffb07a8c86e301c3a07f0c80ca6c46dc343ceef54200bebc23",
+    "frontend/src/canvas/canvas-manage.ts": "85a3c97de255f6c66dcc112c4cc492e1ff8df008102701889aacc12650a09511",
+    "frontend/src/canvas/canvas-model.test.ts": "7f00388565f156220bfe547fe841dd5b48d7c2169d2be585773ee7c094242f0c",
+    "frontend/src/canvas/canvas-model.ts": "c2fdf617993f66b101eea62f040b70f08455601cc3ef0fbb5c8800333c59fedf",
+    "frontend/src/canvas/canvas-save.test.ts": "b4b5c9b064e121ed20c4e9b44dac0c58b63b56c63f1bbc4fe7b9f05b43d9790a",
+    "frontend/src/canvas/canvas-save.ts": "1615b5b6238a0dfaec2b69d28d2b928ed798376a818d6fe299a00f11a56e0ba8",
+    "frontend/src/canvas/canvas.css": "ec81c3c9d82a2fcdf73dadd3e946cd6ce1a91b14f8df7b920075081912c69c00",
+    "frontend/src/canvas/CanvasEditor.tsx": "988287fae84f1af256539de79347e78e2c592497626b030601896b1a179d5c41",
+    "frontend/src/canvas/CanvasExportDialog.tsx": "e29046bbb107b10482490f4468c6d33cb793aa249f672e9ea64c6c37f3990f57",
+    "frontend/src/canvas/CanvasGeneratorInspector.tsx": "f791647e5f1b82b2397c04d107f81932dcc50bc585f15ffb92674314cbe49051",
+    "frontend/src/canvas/CanvasInspector.tsx": "dbb0e2308bef18a212b472bc0692d72ed588730638afe8646bdc0609e6a241de",
+    "frontend/src/canvas/CanvasNodes.tsx": "ba2347a9877f0f9bee09582d48b648e5bcb990a82c1168ff606e37781b76bd4c",
+    "frontend/src/canvas/CanvasPreviewThumbnail.tsx": "84049705ed22b5be1a173575cb8be0c62b1ecba761f51300bb94608333cfc885",
+    "frontend/src/canvas/CanvasRunTrace.tsx": "a941bd12079aaea4fedecceb55f24f31fc72328c55e40c903da0293f130ef55b",
+    "frontend/src/canvas/CanvasSidePanel.tsx": "66bf29ee525c98ed7ca16ed49125e7bee652f3eb0dcaea77e9b83b8f721e6c4c",
+    "frontend/src/canvas/CanvasWorkspace.tsx": "5992089349e96473a74a5a737d2b48720a90cfa5bf30f3f89ae7de0ed0ec7759"
+  },
+  "media_crops": {
+    "reference": {
+      "crop": [
+        374,
+        648,
+        565,
+        811
+      ],
+      "size": [
+        191,
+        163
+      ],
+      "sha256": "3d677acd9046be0d5dba4bfa59298a49ef7c8d343170c7060dbf23030aa534e4"
+    },
+    "result": {
+      "crop": [
+        958,
+        470,
+        1190,
+        692
+      ],
+      "size": [
+        232,
+        222
+      ],
+      "sha256": "a7217887bd4f026a17e4e90611d90be79bd5ff8d781de28befd9616d2e2a4f78"
+    }
+  },
+  "micro_ink": {
+    "method": "Same native-size ROI, visible glyph/icon pixels with Rec.709 RGB luminance < 145. This measures visible ink rather than DOM rectangles; raster and font differences remain.",
+    "regions": [
+      {
+        "name": "header-history-icon",
+        "region": [
+          1150,
+          77,
+          30,
+          30
+        ],
+        "reference_visible_ink": [
+          1156,
+          82,
+          19,
+          19
+        ],
+        "candidate_visible_ink": [
+          1157,
+          83,
+          18,
+          18
+        ],
+        "delta_pixels": [
+          1,
+          1,
+          -1,
+          -1
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "header-history-label",
+        "region": [
+          1182,
+          77,
+          42,
+          30
+        ],
+        "reference_visible_ink": [
+          1187,
+          85,
+          27,
+          13
+        ],
+        "candidate_visible_ink": [
+          1187,
+          86,
+          28,
+          12
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          1,
+          -1
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "header-settings-icon",
+        "region": [
+          1244,
+          77,
+          30,
+          30
+        ],
+        "reference_visible_ink": [
+          1250,
+          82,
+          18,
+          19
+        ],
+        "candidate_visible_ink": [
+          1251,
+          82,
+          18,
+          20
+        ],
+        "delta_pixels": [
+          1,
+          0,
+          0,
+          1
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "header-settings-label",
+        "region": [
+          1277,
+          77,
+          42,
+          30
+        ],
+        "reference_visible_ink": [
+          1281,
+          85,
+          26,
+          13
+        ],
+        "candidate_visible_ink": [
+          1281,
+          86,
+          28,
+          12
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          2,
+          -1
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "header-properties-icon",
+        "region": [
+          1337,
+          77,
+          29,
+          30
+        ],
+        "reference_visible_ink": [
+          1343,
+          84,
+          17,
+          16
+        ],
+        "candidate_visible_ink": [
+          1345,
+          83,
+          18,
+          18
+        ],
+        "delta_pixels": [
+          2,
+          -1,
+          1,
+          2
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "header-properties-label",
+        "region": [
+          1368,
+          77,
+          43,
+          30
+        ],
+        "reference_visible_ink": [
+          1373,
+          85,
+          27,
+          13
+        ],
+        "candidate_visible_ink": [
+          1375,
+          86,
+          27,
+          12
+        ],
+        "delta_pixels": [
+          2,
+          1,
+          0,
+          -1
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "panel-properties-icon",
+        "region": [
+          1244,
+          161,
+          26,
+          28
+        ],
+        "reference_visible_ink": [
+          1249,
+          169,
+          16,
+          15
+        ],
+        "candidate_visible_ink": [
+          1249,
+          168,
+          17,
+          17
+        ],
+        "delta_pixels": [
+          0,
+          -1,
+          1,
+          2
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "panel-properties-label",
+        "region": [
+          1270,
+          161,
+          38,
+          28
+        ],
+        "reference_visible_ink": [
+          1275,
+          169,
+          25,
+          13
+        ],
+        "candidate_visible_ink": [
+          1275,
+          170,
+          27,
+          12
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          2,
+          -1
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "panel-layers-icon",
+        "region": [
+          1340,
+          161,
+          25,
+          28
+        ],
+        "reference_visible_ink": [
+          1346,
+          169,
+          15,
+          15
+        ],
+        "candidate_visible_ink": [
+          1346,
+          169,
+          14,
+          14
+        ],
+        "delta_pixels": [
+          0,
+          0,
+          -1,
+          -1
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "panel-layers-label-count",
+        "region": [
+          1367,
+          161,
+          47,
+          28
+        ],
+        "reference_visible_ink": [
+          1372,
+          169,
+          36,
+          12
+        ],
+        "candidate_visible_ink": [
+          1372,
+          170,
+          36,
+          13
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          0,
+          1
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "panel-history-icon",
+        "region": [
+          1440,
+          161,
+          25,
+          28
+        ],
+        "reference_visible_ink": [
+          1446,
+          169,
+          15,
+          15
+        ],
+        "candidate_visible_ink": [
+          1445,
+          169,
+          14,
+          14
+        ],
+        "delta_pixels": [
+          -1,
+          0,
+          -1,
+          -1
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "panel-history-label",
+        "region": [
+          1467,
+          161,
+          37,
+          28
+        ],
+        "reference_visible_ink": [
+          1471,
+          169,
+          26,
+          12
+        ],
+        "candidate_visible_ink": [
+          1472,
+          170,
+          26,
+          12
+        ],
+        "delta_pixels": [
+          1,
+          1,
+          0,
+          0
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "panel-close-icon",
+        "region": [
+          1527,
+          158,
+          28,
+          32
+        ],
+        "reference_visible_ink": [
+          1535,
+          169,
+          14,
+          13
+        ],
+        "candidate_visible_ink": [
+          1534,
+          169,
+          14,
+          14
+        ],
+        "delta_pixels": [
+          -1,
+          0,
+          0,
+          1
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "overview-heading",
+        "region": [
+          1294,
+          223,
+          140,
+          28
+        ],
+        "reference_visible_ink": [
+          1295,
+          226,
+          70,
+          17
+        ],
+        "candidate_visible_ink": [
+          1295,
+          227,
+          71,
+          17
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          1,
+          0
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "view-heading",
+        "region": [
+          1230,
+          380,
+          112,
+          35
+        ],
+        "reference_visible_ink": [
+          1231,
+          388,
+          57,
+          14
+        ],
+        "candidate_visible_ink": [
+          1230,
+          389,
+          56,
+          12
+        ],
+        "delta_pixels": [
+          -1,
+          1,
+          -1,
+          -2
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "connection-heading",
+        "region": [
+          1230,
+          524,
+          112,
+          29
+        ],
+        "reference_visible_ink": [
+          1231,
+          531,
+          57,
+          14
+        ],
+        "candidate_visible_ink": [
+          1231,
+          532,
+          55,
+          12
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          -2,
+          -2
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "generation-heading",
+        "region": [
+          1230,
+          645,
+          112,
+          29
+        ],
+        "reference_visible_ink": [
+          1231,
+          650,
+          57,
+          14
+        ],
+        "candidate_visible_ink": [
+          1231,
+          651,
+          56,
+          12
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          -1,
+          -2
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "global-heading",
+        "region": [
+          1230,
+          763,
+          122,
+          31
+        ],
+        "reference_visible_ink": [
+          1231,
+          770,
+          72,
+          14
+        ],
+        "candidate_visible_ink": [
+          1230,
+          771,
+          70,
+          12
+        ],
+        "delta_pixels": [
+          -1,
+          1,
+          -2,
+          -2
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "add-menu-heading",
+        "region": [
+          177,
+          407,
+          150,
+          29
+        ],
+        "reference_visible_ink": [
+          181,
+          415,
+          70,
+          14
+        ],
+        "candidate_visible_ink": [
+          181,
+          416,
+          70,
+          12
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          0,
+          -2
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "text-node-heading",
+        "region": [
+          333,
+          286,
+          130,
+          28
+        ],
+        "reference_visible_ink": [
+          338,
+          295,
+          56,
+          13
+        ],
+        "candidate_visible_ink": [
+          338,
+          296,
+          56,
+          12
+        ],
+        "delta_pixels": [
+          0,
+          1,
+          0,
+          -1
+        ],
+        "max_abs_delta_pixels": 1
+      },
+      {
+        "name": "generator-node-heading",
+        "region": [
+          680,
+          422,
+          89,
+          28
+        ],
+        "reference_visible_ink": [
+          684,
+          430,
+          57,
+          14
+        ],
+        "candidate_visible_ink": [
+          683,
+          428,
+          56,
+          12
+        ],
+        "delta_pixels": [
+          -1,
+          -2,
+          -1,
+          -2
+        ],
+        "max_abs_delta_pixels": 2
+      },
+      {
+        "name": "reference-node-heading",
+        "region": [
+          420,
+          613,
+          126,
+          30
+        ],
+        "reference_visible_ink": [
+          427,
+          621,
+          119,
+          12
+        ],
+        "candidate_visible_ink": [
+          424,
+          622,
+          121,
+          13
+        ],
+        "delta_pixels": [
+          -3,
+          1,
+          2,
+          1
+        ],
+        "max_abs_delta_pixels": 3
+      }
+    ]
+  },
+  "manual_review": {
+    "complete": true,
+    "reviewed_at": "2026-10-24T03:03:43.565071+00:00",
+    "artifacts": {
+      "06-editor-fidelity-light.png": "810eca18577a995906c0f465b937a6656ca76e982001de6d35b89755b6fb6153",
+      "07-editor-fidelity-dark.png": "be872a566f904f1a368da08ce79c7dac12c564a36e2dcb263f170f6395d6afd3",
+      "08-components-fidelity-light.png": "988b09b99c608730608ac785b7b09f62f0967926bac69c42ed6e05b70f61f5e1",
+      "09-components-fidelity-dark.png": "077f0a97d532b45e897c2195b1a11778f9565ec967982acc6d67e674fdc0f8ae",
+      "10-reference-overlay.png": "0aafcfff745ca9a749455c7328262a42a17a1fb978cb907ef2cdc60951a1ce26",
+      "11-reference-heatmap.png": "96e1984d042a88f12ccaa74b09b805b7e11bb320cf8f8b708cbcbf2a6dcc60ad",
+      "12-export-library-light.png": "5165badeaf79eb9dc9d88a9f4f917b9aa2a9aed7f790a935e267b7b7a8fa396e",
+      "13-export-library-dark.png": "07b9145babfdebacb3cf215c717b3a17f107d0d84771e44b018d72ddc1b433cc",
+      "14-panels-fidelity-light.png": "de1b71b6cb43287f418d26a0b24ace0601d1fc202a6e9a7f588bb002872c002c",
+      "15-panels-fidelity-dark.png": "14025b5c8a2c6d819db441dc59653f0b2eae464f20ca46312fe5d33107b7acb9",
+      "16-media-library-light.png": "bc4639304bb471f0a6ec84e12c2d4c885a7d1e3b3b27b5fc3aeac2a437803cd1",
+      "17-media-library-dark.png": "4f365ccbdae9d9b4f810c2336db04cacb03fc7b36ae820a6a16beca3c73cc1f7"
+    },
+    "checks": [
+      "Original reference retained; full image and 50% overlay inspected",
+      "Container layout, internal labels/icons, menu indentation and control spacing inspected",
+      "Light and dark popup surfaces, focus/error/disabled states inspected",
+      "Properties, layers, history, media preview, export preview and library surfaces inspected",
+      "Media crops inspected to exclude baked-in UI handles",
+      "Documented data, font rasterization, media resampling and true minimap differences retained"
+    ]
+  },
+  "runtime_cleanup": {
+    "owned_browser_closed": true,
+    "isolated_api_7866_stopped": true,
+    "development_5173_preserved": true,
+    "business_7865_preserved": true,
+    "temporary_outputs": "Retained under ignored test-results after automatic approval rejected recursive deletion (blocked by policy)."
+  }
+}

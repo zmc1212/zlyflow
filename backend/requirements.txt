@@ -1,4 +1,6 @@
 fastapi==0.115.14
+starlette==0.46.2
+mcp==2.3.0
 cryptography==45.0.7
 pydantic==2.13.4
 pydantic-core==2.46.4
@@ -11,3 +13,4 @@ qiniu==7.16.0
 pymysql==1.1.1
 python-dotenv>=1.0.0
 Pillow>=10.2.0
+pypdf==6.21.1

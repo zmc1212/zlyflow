@@ -1,0 +1,57 @@
+{
+  "reference": "project-design.png",
+  "css_viewport_width": 1505,
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/projects/proj-265d52ad657f4e44/content?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1505,
+      "height": 1045
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "regions": [
+    {
+      "name": "project-header",
+      "box": [
+        88,
+        0,
+        1417,
+        80
+      ],
+      "selector": ".project-topbar"
+    },
+    {
+      "name": "content-panel",
+      "box": [
+        332,
+        232,
+        1144,
+        533
+      ],
+      "selector": ".empty-doc-box"
+    },
+    {
+      "name": "canvas",
+      "kind": "color",
+      "box": [
+        500,
+        850,
+        100,
+        20
+      ]
+    },
+    {
+      "name": "surface",
+      "kind": "color",
+      "box": [
+        500,
+        300,
+        100,
+        20
+      ]
+    }
+  ]
+}

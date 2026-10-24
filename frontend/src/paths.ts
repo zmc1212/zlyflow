@@ -6,10 +6,13 @@ export const PATHS = {
   login: "/login",
   setup: "/setup",
   password: "/password",
+  mcp: "/mcp",
+  mcpAuthorize: "/mcp/authorize",
   generateImage: "/generate/image",
   generateVideo: "/generate/video",
   director: "/director",
   director2: "/director2",
+  canvas: "/canvas",
   assets: "/assets",
   admin: "/admin",
   adminAccounts: "/admin/accounts",
@@ -24,14 +27,16 @@ export const ROUTE_PATTERNS = {
   generateImageJob: "/generate/image/:jobId",
   generateVideoJob: "/generate/video/:jobId",
   directorLegacyRecipe: "/director/:projectId",
+  directorDiagnosis: "/director/script-diagnosis",
   directorBatch: "/director/batch/:projectId",
   directorReplication: "/director/replication/:projectId",
-  directorHypit: "/director/hypit/:projectId",
   directorProject: "/director/projects/:projectId",
   directorProjectMenu: "/director/projects/:projectId/:menu",
   directorProjectEpisode: "/director/projects/:projectId/workshop/:episodeId",
+  directorProjectEdit: "/director/projects/:projectId/edit/:episodeId",
   director2: "/director2",
   director2Splat: "/director2/*",
+  canvasProject: "/canvas/:canvasId",
   director2Project: "/director2/projects/:projectId",
   director2ProjectMenu: "/director2/projects/:projectId/:menu",
   director2ProjectEpisode: "/director2/projects/:projectId/workshop/:episodeId",
@@ -45,17 +50,20 @@ export const SUPER_ADMIN_ONLY_TABS: readonly AdminTab[] = ["providers", "llm", "
 const AUTH_SCREEN_PATHS = new Set<string>([PATHS.login, PATHS.setup, PATHS.password])
 
 export const STUDIO_ROUTE_PATHS = [
+  ROUTE_PATTERNS.directorDiagnosis,
   PATHS.generateImage,
   ROUTE_PATTERNS.generateImageJob,
   PATHS.generateVideo,
   ROUTE_PATTERNS.generateVideoJob,
   ROUTE_PATTERNS.directorBatch,
   ROUTE_PATTERNS.directorReplication,
-  ROUTE_PATTERNS.directorHypit,
   ROUTE_PATTERNS.directorProject,
   ROUTE_PATTERNS.directorProjectMenu,
   ROUTE_PATTERNS.directorProjectEpisode,
+  ROUTE_PATTERNS.directorProjectEdit,
   PATHS.director,
+  PATHS.canvas,
+  ROUTE_PATTERNS.canvasProject,
   PATHS.assets,
 ] as const
 
@@ -71,10 +79,10 @@ export type LoginRedirectState = {
   from?: Pick<Location, "pathname" | "search" | "hash">
 }
 
-export type StudioWorkspace = "generate" | "director" | "assets"
+export type StudioWorkspace = "generate" | "director" | "canvas" | "assets"
 export type GenerateMediaType = "image" | "video"
 
-const DIRECTOR_LEGACY_STUDIO_SEGMENTS = new Set(["batch", "replication", "hypit"])
+const DIRECTOR_LEGACY_STUDIO_SEGMENTS = new Set(["batch", "replication"])
 
 export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
   const base = mediaType === "image" ? PATHS.generateImage : PATHS.generateVideo
@@ -83,6 +91,7 @@ export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
 
 export function studioWorkspaceFromPath(pathname: string): StudioWorkspace {
   if (pathname === PATHS.assets) return "assets"
+  if (pathname === PATHS.canvas || pathname.startsWith(`${PATHS.canvas}/`)) return "canvas"
   if (pathname === PATHS.director || pathname.startsWith(`${PATHS.director}/`)) return "director"
   if (pathname === PATHS.director2 || pathname.startsWith(`${PATHS.director2}/`)) return "director"
   return "generate"
@@ -122,6 +131,10 @@ export function parseGeneratePath(pathname: string): { mediaType: GenerateMediaT
   return null
 }
 
+export function canvasProjectPath(canvasId: string) {
+  return `${PATHS.canvas}/${encodeURIComponent(canvasId)}`
+}
+
 export function directorProjectPath(projectId: string) {
   return `${PATHS.director}/${encodeURIComponent(projectId)}`
 }
@@ -132,10 +145,6 @@ export function directorBatchPath(projectId: string) {
 
 export function directorReplicationPath(projectId: string) {
   return `${PATHS.director}/replication/${encodeURIComponent(projectId)}`
-}
-
-export function directorHypitPath(projectId: string) {
-  return `${PATHS.director}/hypit/${encodeURIComponent(projectId)}`
 }
 
 export function adminTabPath(tab: AdminTab) {

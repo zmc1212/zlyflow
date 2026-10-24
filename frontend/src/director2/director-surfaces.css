@@ -1,0 +1,165 @@
+/* 导演台子页面 · 2026-10-24。仅业务工作区；会话与剪辑保持各自设计基线。 */
+.director2-app .project-detail-layout:not(.has-smart-edit) .project-topbar { height: 72px; min-height: 72px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .topbar-content { padding-inline: 24px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .project-title { font-size: 20px; line-height: 28px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .project-info > .ant-btn { font-size: 13px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .project-topbar .ant-segmented { width: 176px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .project-topbar .ant-segmented-item-label { min-height: 42px; padding: 3px 8px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .director-creation-mode-option { gap: 2px; font-size: 12px; line-height: 16px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .director-creation-mode-option > svg { width: 16px; height: 16px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .project-sidebar { width: 200px; padding: 24px 14px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .menu-list { gap: 6px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .sidebar-menu-item { min-height: 44px; padding: 10px 14px; font-size: 14px; gap: 10px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .menu-icon { width: 18px; height: 18px; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .project-content-pane { padding: 28px; scroll-behavior: auto; }
+.director2-app .project-detail-layout:not(.has-smart-edit) .project-content-pane.is-workshop-detail { padding: 20px 24px; }
+.director2-app :is(.d2-content-library,.d2-assets-library,.d2-jobs-center) { padding: 0; min-width: 0; }
+.director2-app :is(.d2-content-library,.d2-assets-library,.d2-jobs-center) .sub-pane-header { align-items: flex-start; gap: 20px; margin-bottom: 24px; }
+.director2-app :is(.d2-content-library,.d2-assets-library,.d2-jobs-center) .sub-pane-title { font-size: 26px; line-height: 36px; font-weight: 650; margin: 0 0 4px; }
+.director2-app :is(.d2-content-library,.d2-assets-library,.d2-jobs-center) .sub-pane-subtitle { font-size: 13px; line-height: 22px; color: var(--studio-text-muted); margin: 0; }
+.director2-app :is(.d2-content-library,.d2-assets-library,.d2-jobs-center) .sub-pane-header .ant-btn { height: 40px; font-size: 14px; padding-inline: 16px; border-radius: 8px; }
+.director2-app .d2-content-library .sub-pane-header > .ant-space { padding-top: 0; gap: 10px !important; }
+.director2-app .d2-content-library .sub-pane-header .ant-btn svg { width: 16px; height: 16px; }
+.director2-app :is(.d2-assets-library,.d2-content-library,.d2-episode-workshop) :is(.ant-input:not(textarea),.ant-input-affix-wrapper,.ant-select,.ant-input-number) { min-height: 36px; border-radius: 8px; }
+.director2-app :is(.d2-assets-library,.d2-content-library,.d2-episode-workshop) .ant-input-affix-wrapper .ant-input { min-height: 0; }
+.director2-app .d2-content-library .empty-doc-box { min-height: 480px; padding: 70px 24px 44px; justify-content: center; }
+.director2-app .d2-content-library .empty-icon-wrap { width: 64px; height: 64px; border-radius: 16px; margin-bottom: 24px; }
+.director2-app .d2-content-library .empty-icon-wrap > svg { width: 30px; height: 30px; }
+.director2-app .d2-content-library .empty-doc-box h3 { font-size: 20px; line-height: 30px; margin-bottom: 10px; }
+.director2-app .d2-content-library .empty-doc-box p { font-size: 14px; line-height: 24px; max-width: 640px; margin-bottom: 24px; }
+.director2-app .d2-content-library .empty-doc-box .ant-btn { height: 40px; font-size: 14px; padding-inline: 18px; }
+.director2-app .d2-content-library .empty-doc-formats { margin-top: 32px; font-size: 12px; }
+.director2-app .d2-content-library .empty-doc-assistant-hint { margin-top: 22px; gap: 8px; font-size: 13px; }
+.director2-app .d2-content-library .empty-doc-assistant-hint > svg { width: 16px; height: 16px; }
+.director2-app .d2-content-library .content-layout { gap: 16px; }
+.director2-app .d2-content-library .doc-list-sidebar { width: 224px; padding: 12px; box-shadow: none; position: sticky; top: 0; }
+.director2-app .d2-content-library .doc-items-scroll { max-height: calc(100dvh - 290px); }
+.director2-app .d2-content-library .doc-item { width: 100%; text-align: left; font: inherit; background: transparent; }
+.director2-app .d2-content-library .doc-item.active { background: var(--studio-primary-soft); border-color: var(--studio-primary-soft); }
+.director2-app .d2-content-library .doc-icon { color: var(--studio-accent-text); }
+.director2-app .d2-content-library .detail-top-card { padding: 20px; box-shadow: none; }
+.director2-app .d2-content-library .detail-top-header { flex-wrap: wrap; gap: 16px; }
+.director2-app .d2-content-library .detail-top-actions { gap: 8px !important; }
+.director2-app .d2-content-library .detail-top-actions .ant-btn { font-size: 13px; height: 36px; }
+.director2-app .d2-content-library .detail-title { font-size: 18px; line-height: 28px; overflow-wrap: anywhere; }
+.director2-app .d2-content-library .analysis-tabs-wrap { box-shadow: none; }
+.director2-app .d2-assets-library { display: flex; flex-direction: column; height: calc(100dvh - 128px); }
+.director2-app .d2-assets-library .sub-pane-header { flex: none; }
+.director2-app .d2-assets-library .asset-library-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 16px; flex: none; }
+.director2-app .d2-assets-library .asset-kind-switch { width: 296px; height: 40px; padding: 3px; flex: none; background: var(--studio-surface-raised); border-radius: 8px; }
+.director2-app .d2-assets-library .asset-kind-switch .ant-segmented-group { display: flex; width: 100%; height: 100%; }
+.director2-app .d2-assets-library .asset-kind-switch .ant-segmented-item { flex: 1; color: var(--studio-text-secondary); border-radius: 6px; }
+.director2-app .d2-assets-library .asset-kind-switch .ant-segmented-item-selected { background: var(--studio-surface); color: var(--studio-accent-text); box-shadow: none; }
+.director2-app .d2-assets-library .asset-kind-switch .ant-segmented-item-label { min-height: 34px; padding: 0 10px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; }
+.director2-app .d2-assets-library .asset-kind-label { display: inline-flex; align-items: center; gap: 6px; }
+.director2-app .d2-assets-library .asset-kind-count { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--studio-text-muted); }
+.director2-app .d2-assets-library .batch-generate-bar { margin: 0; padding: 0; gap: 10px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.director2-app .d2-assets-library .batch-generate-bar .ant-btn { height: 36px; font-size: 13px; border-radius: 8px; }
+.director2-app .d2-assets-library .batch-generate-hint { font-size: 12px; line-height: 20px; }
+.director2-app .d2-assets-library > .ant-spin-nested-loading { flex: 1; min-height: 0; }
+.director2-app .d2-assets-library > .ant-spin-nested-loading > .ant-spin-container { height: 100%; }
+.director2-app .d2-assets-library .assets-split-container { height: 100%; min-height: 0; gap: 16px; }
+.director2-app .d2-assets-library .assets-sidebar-list { width: 248px; padding: 12px; min-height: 0; display: flex; flex-direction: column; box-shadow: none; }
+.director2-app .d2-assets-library .sidebar-items-scroll { flex: 1; min-height: 0; max-height: none; margin-top: 10px; }
+.director2-app .d2-assets-library .asset-list-item { width: 100%; text-align: left; font: inherit; border: 1px solid transparent; background: transparent; min-height: 66px; }
+.director2-app .d2-assets-library .asset-list-item.active { background: var(--studio-primary-soft); border-color: var(--studio-primary-soft); box-shadow: none; }
+.director2-app .d2-assets-library .item-active-bar { display: none; }
+.director2-app .d2-assets-library .item-avatar { background: var(--studio-surface-raised) !important; color: var(--studio-text-secondary); border: 1px solid var(--studio-border); }
+.director2-app .d2-assets-library .asset-detail-workspace { height: 100%; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+.director2-app .d2-assets-library .detail-header-card { padding: 16px 20px; box-shadow: none; flex-wrap: wrap; gap: 12px; }
+.director2-app .d2-assets-library .detail-asset-name { font-size: 18px; line-height: 28px; }
+.director2-app .d2-assets-library .detail-section { box-shadow: none; padding: 20px; }
+.director2-app .d2-assets-library .header-title-row { flex-wrap: wrap; gap: 8px; }
+.director2-app .d2-assets-library .empty-asset-box { min-height: 480px; height: 100%; }
+.director2-app :is(.d2-content-library .doc-item,.d2-assets-library .asset-list-item):focus-visible { outline: 2px solid var(--studio-accent-text); outline-offset: 2px; }
+.director2-app .d2-episode-workshop .xiaji-workshop { gap: 20px; padding: 0; }
+.director2-app .d2-episode-workshop .xiaji-workshop-hero { gap: 20px; margin-bottom: 4px; }
+.director2-app .d2-episode-workshop .hero-text-col h1 { font-size: 26px; line-height: 36px; }
+.director2-app .d2-episode-workshop .hero-text-col p { font-size: 13px; line-height: 22px; margin-top: 4px; }
+.director2-app .d2-episode-workshop .xiaji-workshop-hero .ant-btn { height: 40px; border-radius: 8px; }
+.director2-app .d2-episode-workshop .xiaji-workshop-stats { padding: 16px 20px; gap: 16px 28px; box-shadow: none; border-radius: 12px; }
+.director2-app .d2-episode-workshop .xiaji-episode-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.director2-app .d2-episode-workshop .xiaji-episode-card { padding: 20px; min-height: 208px; gap: 16px; box-shadow: none; cursor: default; transition: border-color 160ms; }
+.director2-app .d2-episode-workshop .xiaji-episode-card:hover { transform: none; box-shadow: none; border-color: var(--studio-border-strong); }
+.director2-app .d2-episode-workshop .card-title { min-width: 0; font-size: 15px; line-height: 24px; overflow-wrap: anywhere; }
+.director2-app .d2-episode-workshop .card-summary { font-size: 13px; line-height: 22px; min-height: 44px; }
+.director2-app .d2-episode-workshop .card-meta { font-size: 12px; font-style: normal; color: var(--studio-text-muted); }
+.director2-app .d2-episode-workshop .card-footer { flex-wrap: wrap; padding-top: 12px; gap: 8px; border-color: var(--studio-border); }
+.director2-app .d2-episode-workshop .episode-open { display: inline-flex; align-items: center; gap: 6px; color: var(--studio-accent-text); font-size: 13px; font-weight: 600; border-radius: 4px; }
+.director2-app .d2-episode-workshop .episode-open:focus-visible { outline: 2px solid var(--studio-accent-text); outline-offset: 4px; }
+.director2-app .d2-episode-workshop .card-actions { margin-left: auto; }
+.director2-app .d2-episode-workshop .empty-workshop-box { min-height: 480px; box-shadow: none; }
+.director2-app .d2-episode-workshop .xiaji-episode-head { gap: 12px 20px; padding-bottom: 14px; }
+.director2-app .d2-episode-workshop .xiaji-episode-head h2 { font-size: 18px; line-height: 28px; font-weight: 600; }
+.director2-app .d2-episode-workshop .xiaji-episode-head .ant-space { flex-wrap: wrap; gap: 8px !important; }
+.director2-app .d2-episode-workshop .xiaji-episode-head .ant-btn { height: 36px; border-radius: 8px; font-size: 13px; }
+.director2-app .d2-episode-workshop .workspace-tab-label { display: inline-flex; align-items: center; gap: 7px; }
+.director2-app .d2-episode-workshop .xiaji-shots-toolbar { flex-wrap: wrap; gap: 8px 16px; padding: 10px 12px; box-shadow: none; }
+.director2-app .d2-jobs-center .jobs-table-card { box-shadow: none; }
+.director2-app .d2-jobs-center .jobs-type-tabs { padding: 4px 20px 0; }
+.director2-app .d2-jobs-center .jobs-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--studio-border); }
+.director2-app .d2-jobs-center .jobs-search { width: 320px; max-width: 100%; }
+.director2-app .d2-jobs-center .jobs-filter-bar .ant-select { width: 164px; }
+.director2-app .d2-jobs-center .jobs-filter-bar :is(.ant-input-affix-wrapper,.ant-select) { height: 36px; border-radius: 8px; }
+.director2-app .d2-jobs-center .jobs-filter-bar .jobs-count { margin-left: auto; font-size: 12px; color: var(--studio-text-muted); font-variant-numeric: tabular-nums; }
+.director2-app .d2-jobs-center .jobs-table-card .ant-table-wrapper { padding: 0; }
+.director2-app .d2-jobs-center .ant-table-thead > tr > th { color: var(--studio-text-secondary); font-size: 12px; font-weight: 600; background: var(--studio-surface-raised); }
+.director2-app .d2-jobs-center .job-title-cell { gap: 4px; }
+.director2-app .d2-jobs-center .job-name { overflow-wrap: anywhere; }
+.director2-app .d2-jobs-center .jobs-empty-state { padding: 60px 24px; display: grid; justify-items: center; gap: 12px; }
+.director2-app .d2-jobs-center .jobs-empty-state > svg { color: var(--studio-text-muted); }
+.director2-app .d2-jobs-center .jobs-empty-state strong { color: var(--studio-text); font-size: 16px; font-weight: 600; }
+.director2-app .d2-jobs-center .jobs-empty-state p { color: var(--studio-text-muted); font-size: 13px; margin: 0; }
+.director2-app .sd-page .sd-topbar { min-height: 72px; padding-inline: 28px; }
+.director2-app .sd-page .sd-input-inner { max-width: 960px; }
+.director2-app .sd-page .sd-intro h1 { font-size: 26px; line-height: 36px; letter-spacing: 0; }
+.director2-app .sd-page .sd-input-panel { padding: 24px; }
+.director2-app .sd-page .sd-feature-list { margin-top: 20px; padding: 24px; gap: 28px; }
+.director2-app .sd-page .sd-input-panel :is(.ant-input:not(textarea),.ant-btn) { min-height: 36px; border-radius: 8px; }
+.director-specialist { font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+.director-specialist .director-recipe-shell { background: var(--studio-canvas); color: var(--studio-text); }
+.director-specialist .director-topbar { height: 72px; min-height: 72px; grid-template-columns: auto minmax(0, 1fr) auto; gap: 24px; padding-inline: 28px; background: var(--studio-chrome); border-color: var(--studio-border); }
+.director-specialist .director-project-heading .ant-typography { font-size: 18px; line-height: 28px; color: var(--studio-text); }
+.director-specialist .director-topbar > .ant-space { justify-self: end; }
+.director-specialist .director-topbar .ant-btn { height: 36px; border-radius: 8px; }
+.director-specialist .director-batch-scroll { padding: 28px; }
+.director-specialist .director-workspace-intro { margin-bottom: 24px; }
+.director-specialist .director-workspace-intro h1 { margin: 0 0 4px; font-size: 26px; line-height: 36px; font-weight: 650; color: var(--studio-text); }
+.director-specialist .director-workspace-intro p { margin: 0; font-size: 13px; line-height: 22px; color: var(--studio-text-muted); }
+.director-specialist .director-workspace-note { margin-bottom: 20px; }
+.director-specialist .director-batch-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); grid-template-rows: auto; align-items: start; gap: 20px; overflow: visible; }
+.director-specialist .director-batch-form { margin: 0; min-width: 0; }
+.director-specialist .ant-card { background: var(--studio-surface); border-color: var(--studio-border); border-radius: 12px; color: var(--studio-text); box-shadow: none; }
+.director-specialist .ant-card .ant-card-head { min-height: 54px; padding-inline: 20px; font-size: 15px; border-color: var(--studio-border); color: var(--studio-text); }
+.director-specialist .ant-card > .ant-card-body { padding: 20px; }
+.director-specialist .director-batch-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+.director-specialist .director-batch-fields label { min-width: 0; color: var(--studio-text-secondary); font-size: 13px; gap: 8px; }
+.director-specialist .director-batch-fields label:nth-child(n+3) { grid-column: 1 / -1; }
+.director-specialist .director-batch-form .ant-card-body { gap: 16px; }
+.director-specialist .director-batch-form :is(.ant-select,.ant-input-number) { width: 100%; min-width: 0; }
+.director-specialist :is(.replication-side,.director-batch-form) :is(.ant-select,.ant-input-number,.ant-btn,.ant-segmented) { min-height: 36px; border-radius: 8px; }
+.director-specialist .director-batch-list { padding: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 16px; }
+.director-specialist .director-result-empty { grid-column: 1 / -1; min-height: 500px; }
+.director-specialist .director-result-empty > .ant-card-body { display: grid; place-items: center; min-height: inherit; padding: 40px; }
+.director-specialist .director-result-empty-content { text-align: center; display: grid; justify-items: center; gap: 12px; max-width: 520px; }
+.director-specialist .director-result-empty-content > svg { color: var(--studio-text-muted); width: 44px; height: 44px; margin-bottom: 8px; }
+.director-specialist .director-result-empty-content h2 { margin: 0; font-size: 20px; line-height: 30px; font-weight: 600; color: var(--studio-text); }
+.director-specialist .director-result-empty-content p { margin: 0; font-size: 13px; line-height: 22px; color: var(--studio-text-muted); }
+.director-specialist .director-batch-scroll + .director-prompt-bar { flex: none; margin: 0 28px 20px; width: auto; max-width: none; }
+.director-specialist .replication-layout { padding: 0; gap: 20px; }
+.director-specialist .replication-side { top: 0; gap: 16px; max-height: calc(100dvh - 200px); scrollbar-width: thin; }
+.director-specialist .replication-side .ant-upload-drag { background: var(--studio-canvas); border-color: var(--studio-border-strong); border-radius: 8px; }
+.director-specialist .replication-side .ant-upload-drag .ant-upload { padding: 22px 14px; }
+.director-specialist .replication-side .ant-upload-drag .ant-upload-drag-icon { display: flex; justify-content: center; margin-bottom: 12px; color: var(--studio-text-muted); }
+.director-specialist .replication-side .ant-upload-drag .ant-upload-text { font-size: 14px; }
+.director-specialist .replication-side .ant-upload-drag .ant-upload-hint { font-size: 12px; line-height: 20px; }
+.director-specialist .replication-field { font-size: 13px; gap: 8px; }
+.director-specialist .replication-list { gap: 16px; }
+.director-specialist .replication-empty.ant-card { border-style: solid; min-height: 500px; }
+.director-specialist .replication-empty > .ant-card-body { min-height: inherit; }
+.director-specialist .replication-footer { background: var(--studio-chrome); padding: 10px 28px; font-size: 12px; }
+.director-specialist .director-shot-desc { color: var(--studio-text-secondary); }
+.director-specialist :is(.director-batch-scroll,.replication-side) { scrollbar-width: thin; }
+@media (prefers-reduced-motion: reduce) {
+  .director2-app .d2-episode-workshop .xiaji-episode-card { transition: none; }
+}

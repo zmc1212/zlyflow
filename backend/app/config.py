@@ -25,6 +25,9 @@ class Settings:
     data_dir_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_DATA_DIR")
     comfy_root_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_COMFY_ROOT")
     credential_key_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY")
+    local_media_roots: tuple[str, ...] = tuple(
+        part.strip() for part in os.getenv("ZLY_AI_VIDEO_STUDIO_LOCAL_MEDIA_ROOTS", "").split(os.pathsep) if part.strip()
+    )
     grs_poll_interval_seconds: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_POLL_INTERVAL_SECONDS", "5"))
     grs_timeout_seconds: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_TIMEOUT_SECONDS", "43200"))
     grs_max_concurrency: int = int(os.getenv("ZLY_AI_VIDEO_STUDIO_GRS_MAX_CONCURRENCY", "4"))
@@ -58,6 +61,10 @@ class Settings:
         return self.data_dir / "staging"
 
     @property
+    def exports_dir(self) -> Path:
+        return self.data_dir / "exports"
+
+    @property
     def comfy_output_dir(self) -> Path:
         # The local ComfyUI bundle sits next to the workbench directory. This
         # must be derived from this settings instance so /app is also valid in Docker.
@@ -89,10 +96,12 @@ class Settings:
         return mysql_settings_from_env_or_docs()
 
     def runtime_database(self):
-        from .db import MysqlDatabase, open_database
+        from .db import MysqlDatabase, is_isolated_sqlite_runtime, open_database
 
         backend = os.getenv("ZLY_AI_VIDEO_STUDIO_DB_BACKEND", "mysql").strip().lower()
-        if backend == "sqlite" or self.data_dir_override:
+        # DATA_DIR only relocates uploads/staging/sqlite-migration files.
+        # Docker always sets it, so it must not switch production onto SQLite.
+        if is_isolated_sqlite_runtime(backend):
             return open_database(self.database_path)
         return MysqlDatabase(self.mysql_config)
 

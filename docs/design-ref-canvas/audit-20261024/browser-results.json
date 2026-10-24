@@ -1,0 +1,482 @@
+{
+  "date": "2026-10-24",
+  "frontend": "Vite 5173",
+  "backend": "isolated SQLite 17966",
+  "total": 95,
+  "passed": 95,
+  "groups": {
+    "reproduce": [
+      {
+        "case": "离开画布保留最近编辑",
+        "pass": true,
+        "actual": 1
+      },
+      {
+        "case": "标题可改回原名",
+        "pass": true,
+        "actual": "复现-反复改标题"
+      },
+      {
+        "case": "画布设置进入撤销栈并可恢复",
+        "pass": true,
+        "canUndo": true,
+        "actual": "true"
+      },
+      {
+        "case": "重新聚焦时保留未保存编辑",
+        "pass": true,
+        "actual": 1
+      }
+    ],
+    "edge-probe": [
+      {
+        "case": "隐藏连线时删除节点同时清理关联边",
+        "pass": true,
+        "nodes": 1,
+        "edges": 0
+      },
+      {
+        "case": "撤销删除恢复节点和边",
+        "pass": true
+      },
+      {
+        "case": "导入撤销同步恢复节点和全局设置",
+        "pass": true,
+        "settings": {
+          "viewport": {
+            "x": 345.5,
+            "y": 259.5,
+            "zoom": 1
+          },
+          "connectionMode": "full",
+          "generationDisplayMode": "aggregate",
+          "gridVisible": true,
+          "minimapVisible": true,
+          "guidesVisible": true,
+          "globalPrompt": "原来的画风",
+          "viewpoints": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "case": "收藏空态可返回全部",
+        "pass": true
+      }
+    ],
+    "persistence-probe": [
+      {
+        "case": "保存尚在进行时返回会等待并补存最后修改",
+        "pass": true,
+        "detail": {
+          "requests": 2
+        }
+      },
+      {
+        "case": "保存失败进入自动重试",
+        "pass": true
+      },
+      {
+        "case": "失败时返回保留编辑器和内容",
+        "pass": true
+      },
+      {
+        "case": "网络恢复后自动保存且不被旧缓存覆盖",
+        "pass": true
+      },
+      {
+        "case": "实际版本竞争显示409冲突",
+        "pass": true
+      },
+      {
+        "case": "冲突不会覆盖新版本或直接离开",
+        "pass": true
+      },
+      {
+        "case": "加载最新版本恢复正确文字",
+        "pass": true
+      },
+      {
+        "case": "服务器历史恢复会产生新版本",
+        "pass": true
+      },
+      {
+        "case": "刷新恢复缩放和平移视口",
+        "pass": true,
+        "detail": {
+          "before": "transform: translate(7.2px, 9.2px) scale(1.2);",
+          "after": "transform: translate(7.2px, 9.2px) scale(1.2);"
+        }
+      },
+      {
+        "case": "已删除任务结束轮询并更新所有引用节点",
+        "pass": true
+      }
+    ],
+    "sidebar-probe": [
+      {
+        "case": "保存失败后从侧栏离开再回来保留草稿",
+        "pass": true,
+        "backedUp": true
+      }
+    ],
+    "editing-probe": [
+      {
+        "case": "真实鼠标连线可保存正确的三条边",
+        "pass": true
+      },
+      {
+        "case": "多个文字节点按连线顺序合并提示词",
+        "pass": true
+      },
+      {
+        "case": "编辑文字即时同步生成节点",
+        "pass": true
+      },
+      {
+        "case": "连入空文字会禁用提交",
+        "pass": true
+      },
+      {
+        "case": "切换工作流即时校验参考图数量",
+        "pass": true
+      },
+      {
+        "case": "编辑与连线没有自动创建计费任务",
+        "pass": true
+      },
+      {
+        "case": "Ctrl+A 选中全部节点",
+        "pass": true
+      },
+      {
+        "case": "多选复制保留内部连线",
+        "pass": true
+      },
+      {
+        "case": "多选删除同时清理关联边",
+        "pass": true
+      },
+      {
+        "case": "撤销恢复多选删除",
+        "pass": true
+      },
+      {
+        "case": "剪贴板复制粘贴完整节点集合",
+        "pass": true
+      },
+      {
+        "case": "真实拖动节点保存新坐标",
+        "pass": true
+      },
+      {
+        "case": "快捷键创建画板",
+        "pass": true
+      },
+      {
+        "case": "新增画板位于可操作的画布区域",
+        "pass": true
+      }
+    ],
+    "generation-probe": [
+      {
+        "case": "提交进入同一任务队列",
+        "pass": true
+      },
+      {
+        "case": "任务轮询显示运行进度",
+        "pass": true
+      },
+      {
+        "case": "成功结果落盘并自动插入独立节点",
+        "pass": true
+      },
+      {
+        "case": "重复轮询不重复插入结果",
+        "pass": true
+      },
+      {
+        "case": "视频自动生成封面",
+        "pass": true
+      },
+      {
+        "case": "一采待确认显示中文状态及两种处理动作",
+        "pass": true
+      },
+      {
+        "case": "确认二采复用原任务",
+        "pass": true
+      },
+      {
+        "case": "二采完成后展示精修成片",
+        "pass": true
+      },
+      {
+        "case": "结果版本与运行快照保留",
+        "pass": true
+      },
+      {
+        "case": "当前页面切换历史结果会真正更换视频",
+        "pass": true
+      },
+      {
+        "case": "检查器与节点显示同一历史版本",
+        "pass": true
+      },
+      {
+        "case": "保留一采成功并使用预览成片",
+        "pass": true
+      },
+      {
+        "case": "待确认任务可以停止",
+        "pass": true
+      },
+      {
+        "case": "提交接口立即完成也能保存结果",
+        "pass": true
+      },
+      {
+        "case": "刷新保留结果和来源",
+        "pass": true
+      },
+      {
+        "case": "任务创建次数符合显式提交次数",
+        "pass": true
+      }
+    ],
+    "list-probe": [
+      {
+        "case": "通过界面创建并打开画布",
+        "pass": true
+      },
+      {
+        "case": "列表按标题搜索",
+        "pass": true
+      },
+      {
+        "case": "收藏分组保留收藏画布",
+        "pass": true
+      },
+      {
+        "case": "标签保存到服务端",
+        "pass": true
+      },
+      {
+        "case": "列表支持标签搜索",
+        "pass": true
+      },
+      {
+        "case": "复制为独立画布",
+        "pass": true
+      },
+      {
+        "case": "移入回收站从正常列表移除",
+        "pass": true
+      },
+      {
+        "case": "回收站显示软删除画布",
+        "pass": true
+      },
+      {
+        "case": "恢复画布保留收藏与标签",
+        "pass": true
+      },
+      {
+        "case": "彻底删除仅清理隔离测试画布",
+        "pass": true
+      }
+    ],
+    "media-export-probe": [
+      {
+        "case": "视频自动封面保存并用作 poster",
+        "pass": true
+      },
+      {
+        "case": "按指定时间取帧",
+        "pass": true
+      },
+      {
+        "case": "超过时长夹取最后可用帧",
+        "pass": true
+      },
+      {
+        "case": "裁切比例与键盘缩放可用",
+        "pass": true
+      },
+      {
+        "case": "重置取景恢复 1x",
+        "pass": true
+      },
+      {
+        "case": "应用裁切保存 320px 方形封面",
+        "pass": true
+      },
+      {
+        "case": "取消裁切保留原封面",
+        "pass": true
+      },
+      {
+        "case": "自定义封面刷新后保留",
+        "pass": true
+      },
+      {
+        "case": "非法封面文件不改变数据",
+        "pass": true
+      },
+      {
+        "case": "自动取帧恢复开头封面",
+        "pass": true
+      },
+      {
+        "case": "JSON 导出包含完整节点与设置",
+        "pass": true
+      },
+      {
+        "case": "PNG 默认整个画布包含两节点",
+        "pass": true
+      },
+      {
+        "case": "透明 PNG 预览保留 alpha",
+        "pass": true
+      },
+      {
+        "case": "PNG 选中范围只导出一节点",
+        "pass": true
+      },
+      {
+        "case": "PNG 文件可下载且像素尺寸有效",
+        "pass": true
+      }
+    ],
+    "library-probe": [
+      {
+        "case": "作品库首屏按 40 项分页",
+        "pass": true
+      },
+      {
+        "case": "作品库缩略图可正常解码",
+        "pass": true
+      },
+      {
+        "case": "加载后续页并去重",
+        "pass": true
+      },
+      {
+        "case": "搜索重置分页并请求服务端",
+        "pass": true
+      },
+      {
+        "case": "点击插入素材并保存来源",
+        "pass": true
+      },
+      {
+        "case": "检索空态显示清除入口",
+        "pass": true
+      },
+      {
+        "case": "分类计数与视频筛选",
+        "pass": true
+      },
+      {
+        "case": "替换素材保留节点与标签",
+        "pass": true
+      },
+      {
+        "case": "浏览器拖放插入完整素材",
+        "pass": true
+      }
+    ],
+    "desktop-probe": [
+      {
+        "case": "1440 light 工具栏与属性面板完整可见",
+        "pass": true,
+        "detail": {
+          "header": true,
+          "rail": true,
+          "bottom": true,
+          "panel": true,
+          "overflow": false
+        }
+      },
+      {
+        "case": "1440 light 长标题省略显示且保留完整提示",
+        "pass": true
+      },
+      {
+        "case": "1440 dark 工具栏与属性面板完整可见",
+        "pass": true,
+        "detail": {
+          "header": true,
+          "rail": true,
+          "bottom": true,
+          "panel": true,
+          "overflow": false
+        }
+      },
+      {
+        "case": "1440 dark 长标题省略显示且保留完整提示",
+        "pass": true
+      },
+      {
+        "case": "1920 light 工具栏与属性面板完整可见",
+        "pass": true,
+        "detail": {
+          "header": true,
+          "rail": true,
+          "bottom": true,
+          "panel": true,
+          "overflow": false
+        }
+      },
+      {
+        "case": "1920 light 长标题省略显示且保留完整提示",
+        "pass": true
+      },
+      {
+        "case": "1920 dark 工具栏与属性面板完整可见",
+        "pass": true,
+        "detail": {
+          "header": true,
+          "rail": true,
+          "bottom": true,
+          "panel": true,
+          "overflow": false
+        }
+      },
+      {
+        "case": "1920 dark 长标题省略显示且保留完整提示",
+        "pass": true
+      },
+      {
+        "case": "主题选择刷新后保留",
+        "pass": true
+      },
+      {
+        "case": "350 节点按可见区域渲染",
+        "pass": true,
+        "detail": {
+          "stored": 350,
+          "rendered": 20
+        }
+      },
+      {
+        "case": "大画布适应视图可定位全体节点",
+        "pass": true
+      },
+      {
+        "case": "浏览器无未捕获异常",
+        "pass": true,
+        "detail": []
+      }
+    ]
+  }
+}

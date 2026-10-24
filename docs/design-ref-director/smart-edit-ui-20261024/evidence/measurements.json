@@ -1,0 +1,628 @@
+{
+  "source": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-director\\smart-edit-ui-20261024\\01-design-light.png",
+  "source_sha256": "04ea5bb669d1791a815e5b4fbd58b78277f0ed5e4b93c31e644a82548e910bbe",
+  "source_size": [
+    1672,
+    941
+  ],
+  "css_mapping": {
+    "assumed_viewport_width": 1672,
+    "css_per_image_pixel": 1.0,
+    "meaning": "实现约定，不证明参考图原始 DPR 或 CSS 视口"
+  },
+  "regions": [
+    {
+      "name": "command-header",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        93,
+        88,
+        1164,
+        46
+      ],
+      "normalized_box": [
+        0.055622,
+        0.093518,
+        0.696172,
+        0.048884
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        93.0,
+        88.0,
+        1164.0,
+        46.0
+      ],
+      "selector": ".se-header",
+      "dom_comparable": true
+    },
+    {
+      "name": "media-library",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        93,
+        146,
+        329,
+        491
+      ],
+      "normalized_box": [
+        0.055622,
+        0.155154,
+        0.19677,
+        0.521785
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        93.0,
+        146.0,
+        329.0,
+        491.0
+      ],
+      "selector": ".se-library",
+      "dom_comparable": true
+    },
+    {
+      "name": "tool-rail",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        94,
+        147,
+        60,
+        489
+      ],
+      "normalized_box": [
+        0.05622,
+        0.156217,
+        0.035885,
+        0.51966
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        94.0,
+        147.0,
+        60.0,
+        489.0
+      ],
+      "selector": ".se-tools",
+      "dom_comparable": true
+    },
+    {
+      "name": "preview",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        430,
+        146,
+        564,
+        491
+      ],
+      "normalized_box": [
+        0.257177,
+        0.155154,
+        0.337321,
+        0.521785
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        430.0,
+        146.0,
+        564.0,
+        491.0
+      ],
+      "selector": ".se-preview",
+      "dom_comparable": true
+    },
+    {
+      "name": "preview-heading",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        431,
+        147,
+        562,
+        42
+      ],
+      "normalized_box": [
+        0.257775,
+        0.156217,
+        0.336124,
+        0.044633
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        431.0,
+        147.0,
+        562.0,
+        42.0
+      ],
+      "selector": ".se-preview > .se-panel-heading",
+      "dom_comparable": true
+    },
+    {
+      "name": "player-controls",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        431,
+        570,
+        562,
+        66
+      ],
+      "normalized_box": [
+        0.257775,
+        0.605739,
+        0.336124,
+        0.070138
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        431.0,
+        570.0,
+        562.0,
+        66.0
+      ],
+      "selector": ".se-player-controls",
+      "dom_comparable": true
+    },
+    {
+      "name": "clip-inspector",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1001,
+        146,
+        257,
+        491
+      ],
+      "normalized_box": [
+        0.598684,
+        0.155154,
+        0.153708,
+        0.521785
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        1001.0,
+        146.0,
+        257.0,
+        491.0
+      ],
+      "selector": ".se-inspector",
+      "dom_comparable": true
+    },
+    {
+      "name": "timeline",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        93,
+        650,
+        1165,
+        276
+      ],
+      "normalized_box": [
+        0.055622,
+        0.690755,
+        0.69677,
+        0.293305
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        93.0,
+        650.0,
+        1165.0,
+        276.0
+      ],
+      "selector": ".se-timeline",
+      "dom_comparable": true
+    },
+    {
+      "name": "timeline-toolbar",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        94,
+        651,
+        1163,
+        48
+      ],
+      "normalized_box": [
+        0.05622,
+        0.691817,
+        0.695574,
+        0.05101
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        94.0,
+        651.0,
+        1163.0,
+        48.0
+      ],
+      "selector": ".se-timeline-toolbar",
+      "dom_comparable": true
+    },
+    {
+      "name": "track-labels",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        94,
+        699,
+        140,
+        192
+      ],
+      "normalized_box": [
+        0.05622,
+        0.742827,
+        0.083732,
+        0.204038
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        94.0,
+        699.0,
+        140.0,
+        192.0
+      ],
+      "selector": ".se-track-labels",
+      "dom_comparable": true
+    },
+    {
+      "name": "timeline-footer",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        94,
+        891,
+        1163,
+        34
+      ],
+      "normalized_box": [
+        0.05622,
+        0.946865,
+        0.695574,
+        0.036132
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        94.0,
+        891.0,
+        1163.0,
+        34.0
+      ],
+      "selector": ".se-timeline-footer",
+      "dom_comparable": true
+    },
+    {
+      "name": "assistant-dock",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1273,
+        0,
+        399,
+        941
+      ],
+      "normalized_box": [
+        0.761364,
+        0.0,
+        0.238636,
+        1.0
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        1273.0,
+        0.0,
+        399.0,
+        941.0
+      ],
+      "selector": ".is-editing-assistant .ant-drawer-section",
+      "dom_comparable": true
+    },
+    {
+      "name": "media-search",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        169,
+        190,
+        238,
+        34
+      ],
+      "normalized_box": [
+        0.101077,
+        0.201913,
+        0.142344,
+        0.036132
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        169.0,
+        190.0,
+        238.0,
+        34.0
+      ],
+      "selector": ".se-library-scroll > .ant-input-affix-wrapper",
+      "dom_comparable": true
+    },
+    {
+      "name": "media-filters",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        169,
+        235,
+        238,
+        32
+      ],
+      "normalized_box": [
+        0.101077,
+        0.249734,
+        0.142344,
+        0.034006
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        169.0,
+        235.0,
+        238.0,
+        32.0
+      ],
+      "selector": ".se-media-filter",
+      "dom_comparable": true
+    },
+    {
+      "name": "local-import",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        169,
+        279,
+        115,
+        36
+      ],
+      "normalized_box": [
+        0.101077,
+        0.296493,
+        0.06878,
+        0.038257
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        169.0,
+        279.0,
+        115.0,
+        36.0
+      ],
+      "selector": ".se-import-actions > button:first-child",
+      "dom_comparable": true
+    },
+    {
+      "name": "upload",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        292,
+        279,
+        115,
+        36
+      ],
+      "normalized_box": [
+        0.174641,
+        0.296493,
+        0.06878,
+        0.038257
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        292.0,
+        279.0,
+        115.0,
+        36.0
+      ],
+      "selector": ".se-import-actions > button:last-child",
+      "dom_comparable": true
+    },
+    {
+      "name": "first-thumbnail",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        169,
+        328,
+        115,
+        66
+      ],
+      "normalized_box": [
+        0.101077,
+        0.348565,
+        0.06878,
+        0.070138
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        169.0,
+        328.0,
+        115.0,
+        66.0
+      ],
+      "selector": ".se-asset:first-child .se-asset-thumbnail",
+      "dom_comparable": true
+    },
+    {
+      "name": "episode-select",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        262,
+        94,
+        210,
+        36
+      ],
+      "normalized_box": [
+        0.156699,
+        0.099894,
+        0.125598,
+        0.038257
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        262.0,
+        94.0,
+        210.0,
+        36.0
+      ],
+      "selector": ".se-header-title .ant-select",
+      "dom_comparable": true
+    },
+    {
+      "name": "export-button",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1165,
+        94,
+        88,
+        36
+      ],
+      "normalized_box": [
+        0.69677,
+        0.099894,
+        0.052632,
+        0.038257
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        1165.0,
+        94.0,
+        88.0,
+        36.0
+      ],
+      "selector": ".se-header-actions > .ant-btn-primary",
+      "dom_comparable": true
+    },
+    {
+      "name": "play-button",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        707,
+        586,
+        34,
+        34
+      ],
+      "normalized_box": [
+        0.422847,
+        0.622742,
+        0.020335,
+        0.036132
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        707.0,
+        586.0,
+        34.0,
+        34.0
+      ],
+      "selector": ".se-play-button",
+      "dom_comparable": true
+    },
+    {
+      "name": "clip-thumbnail",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1016,
+        203,
+        74,
+        52
+      ],
+      "normalized_box": [
+        0.607656,
+        0.215728,
+        0.044258,
+        0.05526
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        1016.0,
+        203.0,
+        74.0,
+        52.0
+      ],
+      "selector": ".se-inspector-thumbnail",
+      "dom_comparable": true
+    },
+    {
+      "name": "property-tabs",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1016,
+        269,
+        228,
+        32
+      ],
+      "normalized_box": [
+        0.607656,
+        0.285866,
+        0.136364,
+        0.034006
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        1016.0,
+        269.0,
+        228.0,
+        32.0
+      ],
+      "selector": ".se-inspector .ant-tabs-nav",
+      "dom_comparable": true
+    },
+    {
+      "name": "reset-picture",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1074,
+        567,
+        109,
+        36
+      ],
+      "normalized_box": [
+        0.642344,
+        0.60255,
+        0.065191,
+        0.038257
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        1074.0,
+        567.0,
+        109.0,
+        36.0
+      ],
+      "selector": ".se-reset-control",
+      "dom_comparable": true
+    }
+  ],
+  "groups": [],
+  "vertical_scans": [],
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1672,
+      "height": 941
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "expected_assets": {},
+  "input_manifest_sha256": "2229a06e5a348828b5abe9e2647d03f504a8ae6d9fb498aeaa26dd1f1fdf9b06"
+}

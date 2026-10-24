@@ -1,0 +1,831 @@
+{
+  "checks": [
+    {
+      "name": "light contrast .project-title",
+      "passed": true,
+      "ratio": 17.442218774298816
+    },
+    {
+      "name": "light visible .project-title",
+      "passed": true
+    },
+    {
+      "name": "light contrast .sub-pane-subtitle",
+      "passed": true,
+      "ratio": 4.586317274840255
+    },
+    {
+      "name": "light visible .sub-pane-subtitle",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box h3",
+      "passed": true,
+      "ratio": 17.442218774298816
+    },
+    {
+      "name": "light visible .empty-doc-box h3",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box p",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .empty-doc-box p",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-box .ant-btn-primary",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .empty-doc-box .ant-btn-primary",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-formats",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .empty-doc-formats",
+      "passed": true
+    },
+    {
+      "name": "light contrast .empty-doc-assistant-hint",
+      "passed": true,
+      "ratio": 4.586317274840255
+    },
+    {
+      "name": "light visible .empty-doc-assistant-hint",
+      "passed": true
+    },
+    {
+      "name": "light contrast .sidebar-menu-item.active",
+      "passed": true,
+      "ratio": 4.650725528084596
+    },
+    {
+      "name": "light visible .sidebar-menu-item.active",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .project-title",
+      "passed": true,
+      "ratio": 15.945428309857647
+    },
+    {
+      "name": "dark visible .project-title",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .sub-pane-subtitle",
+      "passed": true,
+      "ratio": 7.568146780976148
+    },
+    {
+      "name": "dark visible .sub-pane-subtitle",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box h3",
+      "passed": true,
+      "ratio": 15.945428309857647
+    },
+    {
+      "name": "dark visible .empty-doc-box h3",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box p",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .empty-doc-box p",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-box .ant-btn-primary",
+      "passed": true,
+      "ratio": 5.841852151642705
+    },
+    {
+      "name": "dark visible .empty-doc-box .ant-btn-primary",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-formats",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .empty-doc-formats",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .empty-doc-assistant-hint",
+      "passed": true,
+      "ratio": 7.568146780976148
+    },
+    {
+      "name": "dark visible .empty-doc-assistant-hint",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .sidebar-menu-item.active",
+      "passed": true,
+      "ratio": 6.033300146317954
+    },
+    {
+      "name": "dark visible .sidebar-menu-item.active",
+      "passed": true
+    },
+    {
+      "name": "light contrast .director-home-hero p",
+      "passed": true,
+      "ratio": 7.169429099006868
+    },
+    {
+      "name": "light visible .director-home-hero p",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-entry-copy small",
+      "passed": true,
+      "ratio": 7.169429099006868
+    },
+    {
+      "name": "light visible .dh-entry-copy small",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-entry-cta",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .dh-entry-cta",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-project-summary",
+      "passed": true,
+      "ratio": 7.557378129674007
+    },
+    {
+      "name": "light visible .dh-project-summary",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-project-meta",
+      "passed": true,
+      "ratio": 4.834490081424352
+    },
+    {
+      "name": "light visible .dh-project-meta",
+      "passed": true
+    },
+    {
+      "name": "light contrast .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true,
+      "ratio": 5.337052849464787
+    },
+    {
+      "name": "light visible .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .director-home-hero p",
+      "passed": true,
+      "ratio": 11.08724703118102
+    },
+    {
+      "name": "dark visible .director-home-hero p",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-entry-copy small",
+      "passed": true,
+      "ratio": 11.08724703118102
+    },
+    {
+      "name": "dark visible .dh-entry-copy small",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-entry-cta",
+      "passed": true,
+      "ratio": 4.720230076642482
+    },
+    {
+      "name": "dark visible .dh-entry-cta",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-project-summary",
+      "passed": true,
+      "ratio": 10.22489814340749
+    },
+    {
+      "name": "dark visible .dh-project-summary",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-project-meta",
+      "passed": true,
+      "ratio": 6.979508055715743
+    },
+    {
+      "name": "dark visible .dh-project-meta",
+      "passed": true
+    },
+    {
+      "name": "dark contrast .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true,
+      "ratio": 4.720230076642482
+    },
+    {
+      "name": "dark visible .dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "passed": true
+    }
+  ],
+  "failed": [],
+  "samples": [
+    {
+      "theme": "light",
+      "selector": ".project-title",
+      "color": "rgb(23, 26, 31)",
+      "background": [
+        255,
+        255,
+        255,
+        1
+      ],
+      "ratio": 17.442218774298816,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".sub-pane-subtitle",
+      "color": "rgb(107, 114, 128)",
+      "background": [
+        248,
+        249,
+        250,
+        1
+      ],
+      "ratio": 4.586317274840255,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".empty-doc-box h3",
+      "color": "rgb(23, 26, 31)",
+      "background": [
+        255,
+        255,
+        255,
+        1
+      ],
+      "ratio": 17.442218774298816,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".empty-doc-box p",
+      "color": "rgb(107, 114, 128)",
+      "background": [
+        255,
+        255,
+        255,
+        1
+      ],
+      "ratio": 4.834490081424352,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".empty-doc-box .ant-btn-primary",
+      "color": "rgb(255, 255, 255)",
+      "background": [
+        67,
+        92,
+        232,
+        1
+      ],
+      "ratio": 5.337052849464787,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".empty-doc-formats",
+      "color": "rgb(107, 114, 128)",
+      "background": [
+        255,
+        255,
+        255,
+        1
+      ],
+      "ratio": 4.834490081424352,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".empty-doc-assistant-hint",
+      "color": "rgb(107, 114, 128)",
+      "background": [
+        248,
+        249,
+        250,
+        1
+      ],
+      "ratio": 4.586317274840255,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".sidebar-menu-item.active",
+      "color": "rgb(67, 92, 232)",
+      "background": [
+        236.2,
+        238.7,
+        252.7,
+        1
+      ],
+      "ratio": 4.650725528084596,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".project-title",
+      "color": "rgb(243, 245, 247)",
+      "background": [
+        23,
+        26,
+        32,
+        1
+      ],
+      "ratio": 15.945428309857647,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".sub-pane-subtitle",
+      "color": "rgb(155, 165, 177)",
+      "background": [
+        15,
+        17,
+        21,
+        1
+      ],
+      "ratio": 7.568146780976148,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".empty-doc-box h3",
+      "color": "rgb(243, 245, 247)",
+      "background": [
+        23,
+        26,
+        32,
+        1
+      ],
+      "ratio": 15.945428309857647,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".empty-doc-box p",
+      "color": "rgb(155, 165, 177)",
+      "background": [
+        23,
+        26,
+        32,
+        1
+      ],
+      "ratio": 6.979508055715743,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".empty-doc-box .ant-btn-primary",
+      "color": "rgb(255, 255, 255)",
+      "background": [
+        80,
+        89,
+        199,
+        1
+      ],
+      "ratio": 5.841852151642705,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".empty-doc-formats",
+      "color": "rgb(155, 165, 177)",
+      "background": [
+        23,
+        26,
+        32,
+        1
+      ],
+      "ratio": 6.979508055715743,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".empty-doc-assistant-hint",
+      "color": "rgb(155, 165, 177)",
+      "background": [
+        15,
+        17,
+        21,
+        1
+      ],
+      "ratio": 7.568146780976148,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".sidebar-menu-item.active",
+      "color": "rgb(154, 168, 255)",
+      "background": [
+        40.68,
+        45.55,
+        68.38,
+        1
+      ],
+      "ratio": 6.033300146317954,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".director-home-hero p",
+      "color": "rgb(75, 85, 99)",
+      "background": [
+        248,
+        249,
+        250,
+        1
+      ],
+      "ratio": 7.169429099006868,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".dh-entry-copy small",
+      "color": "rgb(75, 85, 99)",
+      "background": [
+        248,
+        249,
+        250,
+        1
+      ],
+      "ratio": 7.169429099006868,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".dh-entry-cta",
+      "color": "rgb(255, 255, 255)",
+      "background": [
+        67,
+        92,
+        232,
+        1
+      ],
+      "ratio": 5.337052849464787,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".dh-project-summary",
+      "color": "rgb(75, 85, 99)",
+      "background": [
+        255,
+        255,
+        255,
+        1
+      ],
+      "ratio": 7.557378129674007,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".dh-project-meta",
+      "color": "rgb(107, 114, 128)",
+      "background": [
+        255,
+        255,
+        255,
+        1
+      ],
+      "ratio": 4.834490081424352,
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "selector": ".dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "color": "rgb(255, 255, 255)",
+      "background": [
+        67,
+        92,
+        232,
+        1
+      ],
+      "ratio": 5.337052849464787,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".director-home-hero p",
+      "color": "rgb(192, 199, 208)",
+      "background": [
+        15,
+        17,
+        21,
+        1
+      ],
+      "ratio": 11.08724703118102,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".dh-entry-copy small",
+      "color": "rgb(192, 199, 208)",
+      "background": [
+        15,
+        17,
+        21,
+        1
+      ],
+      "ratio": 11.08724703118102,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".dh-entry-cta",
+      "color": "rgb(255, 255, 255)",
+      "background": [
+        91,
+        101,
+        230,
+        1
+      ],
+      "ratio": 4.720230076642482,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".dh-project-summary",
+      "color": "rgb(192, 199, 208)",
+      "background": [
+        23,
+        26,
+        32,
+        1
+      ],
+      "ratio": 10.22489814340749,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".dh-project-meta",
+      "color": "rgb(155, 165, 177)",
+      "background": [
+        23,
+        26,
+        32,
+        1
+      ],
+      "ratio": 6.979508055715743,
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "selector": ".dh-kind-filter .ant-segmented-item-selected .ant-segmented-item-label",
+      "color": "rgb(255, 255, 255)",
+      "background": [
+        91,
+        101,
+        230,
+        1
+      ],
+      "ratio": 4.720230076642482,
+      "contained": true
+    }
+  ],
+  "platform_fonts": [
+    {
+      "familyName": "Microsoft YaHei",
+      "postScriptName": "MicrosoftYaHei-Bold",
+      "isCustomFont": false,
+      "glyphCount": 9
+    }
+  ],
+  "official_project_capture": {
+    "measurement_sha256": "a6691d243414f7b0d0044a63711915b60e534e75b6479973dfdc6c42daae2217",
+    "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1505,
+      "height": 1045
+    },
+    "dpr": 1,
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "document_height": 1045,
+    "fonts_ready": true,
+    "images_ready": true,
+    "document_overflow_x": false,
+    "captured_at": "2026-10-23T23:18:13.008Z",
+    "elements": [
+      {
+        "name": "project-header",
+        "selector": ".project-topbar",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          76,
+          0,
+          1429,
+          80
+        ],
+        "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "content-panel",
+        "selector": ".empty-doc-box",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          332,
+          232,
+          1143,
+          532
+        ],
+        "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "import-primary",
+        "selector": ".empty-doc-box .ant-btn-primary",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          666.5,
+          597,
+          174,
+          48
+        ],
+        "text": "立即导入剧本",
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "fontWeight": "400",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "import-secondary",
+        "selector": ".empty-doc-box .ant-space-item:nth-child(2) .ant-btn",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          854.5,
+          597,
+          286,
+          48
+        ],
+        "text": "一键导入《寒门硕士》标准范例",
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "empty-icon",
+        "selector": ".empty-icon-wrap",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          853.5,
+          343,
+          100,
+          100
+        ],
+        "text": "",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "first-menu",
+        "selector": ".sidebar-menu-item:first-child",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          102,
+          104,
+          185,
+          50
+        ],
+        "text": "内容库",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "600",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "creation-mode",
+        "selector": ".project-topbar .ant-segmented",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1209,
+          10.5,
+          208,
+          58
+        ],
+        "text": "AI 生成手动编辑",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(89, 99, 111)",
+          "backgroundColor": "rgb(248, 249, 250)"
+        },
+        "viewport_intersects": true
+      }
+    ],
+    "assets": {},
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "runtime_errors": []
+}

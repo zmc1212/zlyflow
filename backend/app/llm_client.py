@@ -4,13 +4,22 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import re
 import time
 from collections.abc import Callable
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 import requests
+
+from .zhipu_catalog import (
+    is_zhipu_official_base_url,
+    zhipu_can_disable_thinking,
+    zhipu_model_free,
+    zhipu_requires_thinking,
+)
 
 LLM_CONNECT_TIMEOUT_SECONDS = 20.0
 LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
@@ -398,6 +407,7 @@ def _payload_error_text(payload: Any) -> str:
 _FREE_WORD = re.compile(r"(?<![a-z])free(?![a-z])", re.I)
 _SKIP_FREE_TEXT_KEYS = {
     "description", "intro", "content", "about", "readme", "summary", "detail", "about_the_model",
+    "pricing",
 }
 SILICONFLOW_PLAZA_URL = "https://cloud.siliconflow.cn/open/models"
 _PLAZA_MODEL_NAME_RE = re.compile(r'"modelName"\s*:\s*"([^"]+)"')
@@ -585,7 +595,7 @@ def apply_plaza_free_ids(models: list[dict[str, Any]], free_ids: set[str]) -> li
     if not free_ids:
         return models
     for row in models:
-        if row.get("id") in free_ids:
+        if row.get("id") in free_ids and row.get("free") is not False:
             row["free"] = True
     return models
 
@@ -631,15 +641,16 @@ def _model_display_label(item: dict[str, Any], model_id: str) -> str:
 
 
 def _to_unit_price(value: Any) -> float | None:
-    if value is None or value == "":
+    if value is None or value == "" or isinstance(value, bool):
         return None
     try:
-        return float(value)
+        amount = float(value)
+        return amount if math.isfinite(amount) and amount >= 0 else None
     except (TypeError, ValueError):
         return None
 
 
-def classify_model_free(item: dict[str, Any], *, provider: str) -> bool | None:
+def classify_model_free(item: dict[str, Any], *, provider: str, base_url: str = "") -> bool | None:
     model_id = str(item.get("id") or "").strip()
     if not model_id:
         return None
@@ -649,24 +660,22 @@ def classify_model_free(item: dict[str, Any], *, provider: str) -> bool | None:
         return True
 
     pricing = item.get("pricing") if isinstance(item.get("pricing"), dict) else None
-    if pricing:
-        amounts = [
-            parsed
-            for key in ("prompt", "completion", "input", "output")
-            if (parsed := _to_unit_price(pricing.get(key))) is not None
-        ]
-        if amounts:
-            return all(amount == 0 for amount in amounts)
-
-    for flag in ("is_free", "free"):
-        if flag in item:
-            return bool(item[flag])
+    input_prices = [_to_unit_price(pricing.get(key)) for key in ("prompt", "input")] if pricing else []
+    output_prices = [_to_unit_price(pricing.get(key)) for key in ("completion", "output")] if pricing else []
+    flags = [item.get(flag) for flag in ("is_free", "free")]
+    if any(amount is not None and amount > 0 for amount in input_prices + output_prices) or any(flag is False for flag in flags):
+        return False
+    if any(flag is True for flag in flags) or (0 in input_prices and 0 in output_prices):
+        return True
+    official_free = zhipu_model_free(base_url, model_id)
+    if official_free is not None:
+        return official_free
     if item_has_free_label(item):
         return True
     return None
 
 
-def parse_model_catalog(payload: Any, *, provider: str, free_only: bool) -> list[dict[str, Any]]:
+def parse_model_catalog(payload: Any, *, provider: str, free_only: bool, base_url: str = "") -> list[dict[str, Any]]:
     raw_items: list[Any]
     if isinstance(payload, dict) and isinstance(payload.get("data"), list):
         raw_items = payload["data"]
@@ -684,7 +693,7 @@ def parse_model_catalog(payload: Any, *, provider: str, free_only: bool) -> list
         if not model_id or model_id in seen:
             continue
         seen.add(model_id)
-        free = classify_model_free(item, provider=provider)
+        free = classify_model_free(item, provider=provider, base_url=base_url)
         if free_only and free is not True:
             continue
         owned_by = item.get("owned_by")
@@ -727,6 +736,59 @@ SYSTEM_PROMPT_OPTIMIZE_IMAGE = """你是一位顶级的 AI 绘画与图像生成
 SYSTEM_PROMPT_ANALYZE_SUBJECT = """你是影视美术指导。用户会提供一张参考图。
 请根据图像本身撰写适合 MiniMax H3 识别的高精度外貌、服饰、材质或空间特征描述，控制在 40 个汉字以内。
 只输出描述本身，不要前言、标题或 markdown。"""
+
+_TRANSCRIPTION_MIME = {
+    ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+    ".ogg": "audio/ogg", ".flac": "audio/flac", ".webm": "audio/webm",
+}
+MAX_TRANSCRIPTION_SEGMENTS = 400
+MAX_TRANSCRIPTION_TEXT_CHARS = 400
+
+
+def _finite_seconds(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(result) or result < 0:
+        return None
+    return round(result, 3)
+
+
+def normalize_transcription(payload: dict[str, Any]) -> dict[str, Any]:
+    """Reduce an OpenAI-style transcription body to timestamped segments.
+
+    Segments without a usable ``start``/``end`` pair are dropped instead of
+    invented: word-level timing is not available on this provider, and a
+    subtitle without a real boundary is worse than no subtitle.
+    """
+    raw = payload.get("segments")
+    segments: list[dict[str, Any]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()[:MAX_TRANSCRIPTION_TEXT_CHARS]
+        if not text:
+            continue
+        start = _finite_seconds(item.get("start", item.get("start_seconds")))
+        end = _finite_seconds(item.get("end", item.get("end_seconds")))
+        if start is None or end is None or end <= start:
+            continue
+        segments.append({"start": start, "end": end, "text": text})
+        if len(segments) >= MAX_TRANSCRIPTION_SEGMENTS:
+            break
+    segments.sort(key=lambda segment: (segment["start"], segment["end"]))
+    usage = payload.get("usage")
+    usage_seconds = None
+    if isinstance(usage, dict):
+        usage_seconds = _finite_seconds(usage.get("seconds"))
+    return {
+        "text": str(payload.get("text") or "").strip()[:8000],
+        "language": str(payload.get("language") or "").strip()[:32] or None,
+        "duration": _finite_seconds(payload.get("duration")),
+        "segments": segments,
+        "usage_seconds": usage_seconds,
+    }
 
 
 class OpenAICompatibleClient:
@@ -800,7 +862,7 @@ class OpenAICompatibleClient:
             payload = response.json()
         except ValueError as error:
             raise LlmError("模型目录返回了无效 JSON") from error
-        models = parse_model_catalog(payload, provider=provider, free_only=False)
+        models = parse_model_catalog(payload, provider=provider, free_only=False, base_url=self.base_url)
         plaza_ok = False
         if provider == "siliconflow":
             plaza_ids = self._fetch_siliconflow_plaza_free_ids(timeout=timeout)
@@ -858,6 +920,7 @@ class OpenAICompatibleClient:
         on_chunk: Callable[[str], None] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
         reasoning_effort: str | None = None,
+        thinking_enabled: bool | None = None,
     ) -> str:
         url = f"{self.base_url}/chat/completions"
         connect_timeout, read_timeout = normalize_http_timeout(timeout)
@@ -872,12 +935,16 @@ class OpenAICompatibleClient:
             if reasoning_effort:
                 payload["reasoning_effort"] = reasoning_effort
         else:
-            payload["temperature"] = temperature
+            official_zhipu = is_zhipu_official_base_url(self.base_url)
+            if not official_zhipu or temperature > 0:
+                payload["temperature"] = temperature
             payload["max_tokens"] = max_tokens
-            # 关闭 Qwen3 / Qwen2.5 思考模式（enable_thinking=False），
-            # 不支持此参数的模型会忽略该字段，不影响兼容性
-            payload["enable_thinking"] = False
             payload.update(self._thinking_control_fields(model))
+            if official_zhipu:
+                if thinking_enabled is not None and zhipu_can_disable_thinking(model):
+                    payload["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
+                if reasoning_effort and model.lower().startswith("glm-5.3"):
+                    payload["reasoning_effort"] = reasoning_effort
         if stream:
             payload["stream"] = True
         try:
@@ -1099,15 +1166,15 @@ class OpenAICompatibleClient:
 
     @staticmethod
     def _thinking_control_fields(model: str) -> dict[str, Any]:
-        """DeepSeek V4 默认开启思考，会显著增加 token / 魔粒消耗。
-
-        官方 Chat Completions 需显式传入 thinking.type=disabled；
-        Qwen 的 enable_thinking=False 对 V4 无效。
-        """
+        """仅向已知支持切换的模型发送思考控制，固定 Thinking/VL 版本保留其默认模式。"""
         lowered = (model or "").strip().lower()
         official_aliases = {"deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro"}
         if "deepseek" in lowered and ("v4" in lowered or lowered in official_aliases):
             return {"thinking": {"type": "disabled"}}
+        # 原版 Qwen3 是混合推理模型；VL、Thinking、Instruct-2507 等独立版本
+        # 不支持同一开关，不能因为名称包含 Qwen 就发送 enable_thinking。
+        if re.search(r"(?:^|/)qwen3-\d+(?:\.\d+)?b(?:-a\d+b)?(?:-fp8)?(?::[\w.-]+)?$", lowered):
+            return {"enable_thinking": False}
         return {}
 
     @staticmethod
@@ -1216,13 +1283,21 @@ class OpenAICompatibleClient:
         try:
             # 一句略长的身份询问即可；有回复就算连通。GPT-5 测试时关掉思考，避免空等。
             extra: dict[str, Any] = {}
+            max_tokens = LLM_TEST_MAX_TOKENS
             if is_openai_reasoning_chat_model(model):
                 extra["reasoning_effort"] = "none"
+            elif is_zhipu_official_base_url(self.base_url):
+                if zhipu_can_disable_thinking(model):
+                    extra["thinking_enabled"] = False
+                elif zhipu_requires_thinking(model):
+                    max_tokens = 4096
+                    if model.lower().startswith("glm-5.3"):
+                        extra["reasoning_effort"] = "low"
             return self.chat_completion(
                 messages,
                 model=model,
                 temperature=0.7,
-                max_tokens=LLM_TEST_MAX_TOKENS,
+                max_tokens=max_tokens,
                 timeout=timeout,
                 **extra,
             )
@@ -1275,6 +1350,62 @@ class OpenAICompatibleClient:
         if not body:
             raise LlmError("语音合成返回了空音频")
         return body
+
+    def transcribe(
+        self,
+        *,
+        audio_path: "str | Path",
+        model: str,
+        language: str | None = None,
+        timeout: float = 180.0,
+    ) -> dict[str, Any]:
+        """Transcribe a local audio file and return normalized segments.
+
+        ``verbose_json`` is the only response format that carries per-segment
+        timestamps, and word-level timing is never available on this provider,
+        so callers must not present word boundaries.
+        """
+        path = Path(audio_path)
+        if not path.is_file():
+            raise LlmError("待转写的音频文件不存在")
+        size = path.stat().st_size
+        if size <= 0:
+            raise LlmError("待转写的音频文件为空，请先确认素材带有音轨")
+        mime = _TRANSCRIPTION_MIME.get(path.suffix.lower(), "application/octet-stream")
+        url = f"{self.base_url}/audio/transcriptions"
+        data: dict[str, str] = {"model": model, "response_format": "verbose_json"}
+        if language:
+            data["language"] = language
+        headers = {"Authorization": self.headers["Authorization"]}
+        try:
+            with path.open("rb") as handle:
+                response = self.session.post(
+                    url, headers=headers, data=data,
+                    files={"file": (path.name, handle, mime)},
+                    timeout=(LLM_CONNECT_TIMEOUT_SECONDS, timeout),
+                )
+        except requests.exceptions.Timeout as exc:
+            raise LlmTemporaryError(f"语音转写超时（等待 {timeout:.0f} 秒仍无响应）：{exc}") from exc
+        except requests.exceptions.ConnectionError as exc:
+            raise LlmTemporaryError(f"无法连接语音转写服务 {self.base_url}：{exc}") from exc
+        except requests.exceptions.RequestException as exc:
+            raise LlmTemporaryError(f"请求语音转写服务异常：{exc}") from exc
+        if response.status_code >= 400:
+            parsed: dict[str, Any] | None = None
+            try:
+                body = response.json()
+                parsed = body if isinstance(body, dict) else None
+            except Exception:
+                parsed = None
+            msg = _payload_error_text(parsed) or (response.text or "").strip()[:400] or f"HTTP {response.status_code}"
+            raise_llm_http_error(action="语音转写", status=response.status_code, upstream=msg)
+        try:
+            payload = response.json()
+        except Exception as exc:
+            raise LlmError("语音转写服务返回了无法解析的结果，请稍后重试") from exc
+        if not isinstance(payload, dict):
+            raise LlmError("语音转写服务返回了无法解析的结果，请稍后重试")
+        return normalize_transcription(payload)
 
     def optimize_prompt(
         self,
@@ -1388,7 +1519,13 @@ class OpenAICompatibleClient:
         try:
             payload = json.loads(clean_text)
         except json.JSONDecodeError as error:
-            raise LlmError(f"镜头拉片结果不是合法 JSON：{error}") from error
+            first_brace, last_brace = clean_text.find("{"), clean_text.rfind("}")
+            if first_brace == -1 or last_brace <= first_brace:
+                raise LlmError(f"镜头拉片结果不是合法 JSON：{error}") from error
+            try:
+                payload = json.loads(clean_text[first_brace:last_brace + 1])
+            except json.JSONDecodeError as nested:
+                raise LlmError(f"镜头拉片结果不是合法 JSON：{nested}") from nested
         if not isinstance(payload, dict) or not str(payload.get("promptText") or "").strip():
             raise LlmError("镜头拉片结果缺少 promptText")
         return payload

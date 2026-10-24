@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Alert, Button, Card, Col, Empty, Input, InputNumber, Popconfirm, Progress, Row, Segmented,
+  Alert, Button, Card, Col, Input, InputNumber, Popconfirm, Progress, Row, Segmented,
   Slider, Space, Switch, Tag, Typography, Upload, message,
 } from "antd"
 import { ArrowLeft, Film, Play, RefreshCw, Upload as UploadIcon, Wand2 } from "lucide-react"
@@ -259,6 +259,10 @@ export default function DirectorReplicationStudio({
       </header>
 
       <div className="director-batch-scroll">
+        <div className="director-workspace-intro">
+          <h1>参考片复刻</h1>
+          <p>按镜头拆解参考片，编辑提示词并生成新的画面。</p>
+        </div>
         <div className="replication-layout">
           <div className="replication-side">
             <Card title="参考片" size="small">
@@ -423,10 +427,11 @@ export default function DirectorReplicationStudio({
             </div>
             {!shots.length && !analyzing ? (
               <Card className="replication-empty">
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={<span className="replication-note">上传参考片并点击「开始拉片」，AI 会逐镜给出提示词与深度视频。</span>}
-                />
+                <div className="director-result-empty-content">
+                  <Film size={44} />
+                  <h2>拉片结果将在这里展示</h2>
+                  <p>上传参考片并开始拉片，逐镜查看提示词与参考画面。</p>
+                </div>
               </Card>
             ) : null}
             {shots.map((shot) => {

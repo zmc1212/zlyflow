@@ -1,0 +1,35 @@
+[
+  {
+    "name": "保存失败保留待重试界面",
+    "passed": true
+  },
+  {
+    "name": "失败时云端工程未被覆盖",
+    "passed": true
+  },
+  {
+    "name": "失败时本地修改仍保留",
+    "passed": true
+  },
+  {
+    "name": "重试后真实保存成功",
+    "passed": true
+  },
+  {
+    "name": "长工程名省略且保留完整标题",
+    "passed": true,
+    "detail": {
+      "width": 298,
+      "scroll": 2089,
+      "overflow": "ellipsis"
+    }
+  },
+  {
+    "name": "1440 长标题无页面横向溢出",
+    "passed": true
+  },
+  {
+    "name": "工程基本信息仍可真实编辑",
+    "passed": true
+  }
+]

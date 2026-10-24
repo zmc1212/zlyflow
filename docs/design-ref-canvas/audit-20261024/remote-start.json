@@ -1,0 +1,19 @@
+{
+  "projectId": "canvas_b12460d0733446d9b3999739",
+  "http": 202,
+  "jobId": "A2BqOPhd1zV9",
+  "status": "queued",
+  "options": {
+    "aspect_ratio": "16:9",
+    "quality": "0.2",
+    "duration": 2,
+    "speed": "fast",
+    "custom_steps": 8,
+    "weight_profile": "full",
+    "refine_preview": false,
+    "refine_enabled": false,
+    "refine_quality": "1.0"
+  },
+  "mode": "minimax-h3-lightx2v-t2v",
+  "url": "http://127.0.0.1:5173/canvas/canvas_b12460d0733446d9b3999739"
+}

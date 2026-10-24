@@ -5,13 +5,17 @@ import { useStudioTheme } from "../ThemeProvider"
 export default function ThemeToggle({
   appearance = "icon",
   className = "",
+  tooltipClassName,
+  showCurrent = false,
 }: {
   appearance?: "icon" | "menu"
   className?: string
+  tooltipClassName?: string
+  showCurrent?: boolean
 }) {
   const { mode, toggleMode } = useStudioTheme()
   const nextModeLabel = mode === "dark" ? "切换到浅色外观" : "切换到暗色外观"
-  const Icon = mode === "dark" ? Sun : Moon
+  const Icon = showCurrent ? (mode === "light" ? Sun : Moon) : (mode === "dark" ? Sun : Moon)
 
   if (appearance === "menu") {
     return (
@@ -29,7 +33,7 @@ export default function ThemeToggle({
   }
 
   return (
-    <Tooltip title={nextModeLabel} mouseEnterDelay={0.45}>
+    <Tooltip title={nextModeLabel} mouseEnterDelay={0.45} classNames={tooltipClassName ? { root: tooltipClassName } : undefined}>
       <Button
         type="text"
         icon={<Icon size={17} />}

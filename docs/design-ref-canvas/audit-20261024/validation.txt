@@ -1,0 +1,8 @@
+ Test Files  61 passed (61)
+      Tests  422 passed (422)
+✓ built in 8.23s
+Ran 163 tests in 36.826s
+OK
+UI component detector: [] (exit 0)
+Browser assertions: 95/95 passed
+Remote video: H.264/AAC, 608x352, 56 frames, duration 2.333333, 204280 bytes

@@ -1,17 +1,20 @@
 // 项目详情壳：顶部项目条 + 左侧 4 菜单 + 右侧面板 —— 逐行复刻自 dev0914 ProjectDetailView.vue
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Select, message } from "antd"
-import { BookOpen, Boxes, ChevronLeft, Film, ListChecks } from "lucide-react"
+import { Button, Form, Input, Modal, Select, message } from "antd"
+import { Boxes, ChevronLeft, FileText, Film, ListChecks, Pencil, Scissors } from "lucide-react"
 import { getProject, listSkillPacks, updateProject, director2ErrorDetail, type Director2Project, type Director2SkillPack } from "./api"
 import ContentLibraryPane from "./panes/ContentLibraryPane"
 import AssetsLibraryPane from "./panes/AssetsLibraryPane"
 import EpisodeWorkshopPane from "./panes/EpisodeWorkshopPane"
 import JobsCenterPane from "./panes/JobsCenterPane"
+import SmartEditPane from "./smart-edit/SmartEditPane"
 import { director2ProjectPath, director2HomePath, type Director2Route } from "./paths"
 import Director2AiStudioPane from "./panes/Director2AiStudioPane"
+import { useDirectorAssistant } from "./assistant/DirectorAssistant"
 import { parseDirector2CreationMode, readDirector2CreationMode, storeDirector2CreationMode, type Director2CreationMode } from "./creation-mode"
 import DirectorCreationModeSwitch from "../director/components/DirectorCreationModeSwitch"
+import ThemeToggle from "../components/ThemeToggle"
 import { MediaPreviewProvider } from "./media-preview"
 import {
   packIdFromSelectValue,
@@ -22,9 +25,10 @@ import {
 import "./project-detail.css"
 
 const MENU_ITEMS = [
-  { key: "content", label: "内容库", Icon: BookOpen },
+  { key: "content", label: "内容库", Icon: FileText },
   { key: "assets", label: "资产库", Icon: Boxes },
   { key: "workshop", label: "剧集工坊", Icon: Film },
+  { key: "edit", label: "智能剪辑", Icon: Scissors },
   { key: "jobs", label: "全部任务", Icon: ListChecks },
 ] as const
 
@@ -38,10 +42,15 @@ export default function Director2ProjectDetail({
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const projectId = route.projectId
+  const assistant = useDirectorAssistant()
 
   const [project, setProject] = useState<Director2Project | null>(null)
   const [skillPacks, setSkillPacks] = useState<Director2SkillPack[]>([])
   const [savingPack, setSavingPack] = useState(false)
+  const [editingInfo, setEditingInfo] = useState(false)
+  const [savingInfo, setSavingInfo] = useState(false)
+  const [infoForm] = Form.useForm<{ name: string; description: string }>()
+  const infoSnapshotRef = useRef({ name: "", description: "" })
   // 剧集工坊分集详情：外壳锁死视口，左右栏各自滚动
   const [inWorkshopDetail, setInWorkshopDetail] = useState(false)
   const [creationMode, setCreationMode] = useState<Director2CreationMode>(() => parseDirector2CreationMode(searchParams.get("mode")) ?? readDirector2CreationMode(projectId))
@@ -85,6 +94,31 @@ export default function Director2ProjectDetail({
     if (fromUrl) setCreationMode(fromUrl)
   }, [searchParams])
 
+  useEffect(() => {
+    if (assistant.enabled) assistant.setOpen(activeMenu === "edit" || creationMode === "agent")
+  }, [assistant.enabled, assistant.setOpen, creationMode, projectId, activeMenu])
+
+  useEffect(() => {
+    function syncMode(event: Event) {
+      const value = (event as CustomEvent).detail as Director2CreationMode
+      setCreationMode(value)
+      storeDirector2CreationMode(projectId, value)
+      setSearchParams(current => { current.set("mode", value); return current }, { replace: true })
+    }
+    function refreshProject(event: Event) {
+      if ((event as CustomEvent).detail.projectId !== projectId) return
+      void loadProjectInfo()
+      assetsPaneRef.current?.fetchAssets()
+      workshopPaneRef.current?.fetchEpisodes()
+    }
+    window.addEventListener("director-assistant-mode", syncMode)
+    window.addEventListener("director-assistant-project-updated", refreshProject)
+    return () => {
+      window.removeEventListener("director-assistant-mode", syncMode)
+      window.removeEventListener("director-assistant-project-updated", refreshProject)
+    }
+  }, [projectId, setSearchParams, loadProjectInfo])
+
   async function changeSkillPack(selectValue: string) {
     if (savingPack || aiBusy) return
     const packId = packIdFromSelectValue(selectValue)
@@ -111,6 +145,36 @@ export default function Director2ProjectDetail({
     }, { replace: true })
   }
 
+  function editProjectInfo() {
+    if (!project) return
+    infoForm.resetFields()
+    infoSnapshotRef.current = { name: project.name, description: project.description || "" }
+    infoForm.setFieldsValue(infoSnapshotRef.current)
+    setEditingInfo(true)
+  }
+
+  async function saveProjectInfo(values: { name: string; description: string }) {
+    if (savingInfo || !project) return
+    const changes: { name?: string; description?: string } = {}
+    if (values.name.trim() !== infoSnapshotRef.current.name) changes.name = values.name.trim()
+    if (values.description.trim() !== infoSnapshotRef.current.description) changes.description = values.description.trim()
+    if (!Object.keys(changes).length) {
+      setEditingInfo(false)
+      return
+    }
+    setSavingInfo(true)
+    try {
+      const updated = await updateProject(csrfToken, projectId, changes)
+      setProject(updated)
+      setEditingInfo(false)
+      message.success("已保存基本信息")
+    } catch (error) {
+      message.error(director2ErrorDetail(error, "保存基本信息失败，请重试"))
+    } finally {
+      setSavingInfo(false)
+    }
+  }
+
   function onAssetsTransferred() {
     assetsPaneRef.current?.fetchAssets()
   }
@@ -121,7 +185,7 @@ export default function Director2ProjectDetail({
 
   return (
     <MediaPreviewProvider>
-      <div className="project-detail-layout">
+      <div className={`project-detail-layout${activeMenu === "edit" ? " has-smart-edit" : ""}`}>
       {/* 顶部项目条 */}
       <header className="project-topbar">
         <div className="topbar-content">
@@ -135,19 +199,20 @@ export default function Director2ProjectDetail({
               }}
             >
               <ChevronLeft size={18} />
-              <span>全部项目</span>
+              <span>导演台</span>
             </a>
             <div className="divider" />
             <div className="project-info">
-              <h1 className="project-title">{project?.name || "加载中..."}</h1>
-              <span className="project-badge">进行中</span>
+              <h1 className="project-title" title={project?.name}>{project?.name || "加载中..."}</h1>
+              <Button type="text" size="small" aria-label="编辑基本信息" title="编辑基本信息" icon={<Pencil size={14} />} disabled={!project} onClick={editProjectInfo}>
+                {activeMenu !== "edit" && "编辑基本信息"}
+              </Button>
             </div>
           </div>
 
           <div className="topbar-right">
-            <Select
+            <div className="project-skill-pack-field"><span>制作配方</span><Select
               className="project-skill-pack-select"
-              size="small"
               aria-label="制作配方"
               popupMatchSelectWidth={false}
               value={selectValueForPackId(projectBoundSkillPackId(project))}
@@ -155,44 +220,70 @@ export default function Director2ProjectDetail({
               loading={savingPack}
               disabled={aiBusy || savingPack || skillPacks.length === 0}
               onChange={(value) => { void changeSkillPack(String(value)) }}
-            />
+            /></div>
             <DirectorCreationModeSwitch
               value={creationMode}
               disabled={aiBusy}
               onChange={(value) => changeCreationMode(value as Director2CreationMode)}
             />
-            <span className="project-id-tag">{project?.id ?? projectId}</span>
+            <ThemeToggle />
           </div>
         </div>
       </header>
 
+      <Modal
+        title="编辑基本信息"
+        forceRender
+        open={editingInfo}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={savingInfo}
+        onOk={() => infoForm.submit()}
+        onCancel={() => { if (!savingInfo) setEditingInfo(false) }}
+        closable={!savingInfo}
+        mask={{ closable: !savingInfo }}
+        cancelButtonProps={{ disabled: savingInfo }}
+      >
+        <Form form={infoForm} layout="vertical" onFinish={saveProjectInfo} disabled={savingInfo}>
+          <Form.Item name="name" label="剧本名称" extra="同时作为工程名称显示；手动保存后，AI 不会覆盖。" rules={[{ required: true, whitespace: true, message: "请输入剧本名称" }, { max: 255, message: "剧本名称最多 255 个字符" }]}>
+            <Input placeholder="给这部剧起一个名字" maxLength={255} autoFocus />
+          </Form.Item>
+          <Form.Item name="description" label="剧本简介">
+            <Input.TextArea placeholder="简要介绍故事内容、主角和创作方向" autoSize={{ minRows: 4, maxRows: 8 }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {/* 主体区域：左侧菜单 + 右侧工作区 */}
       <div className="project-main-body">
         {/* 左侧 4 个菜单导航 */}
-        <aside className={`project-sidebar${creationMode === "agent" ? " is-hidden" : ""}`}>
-          <div className="menu-list">
+        <aside className={`project-sidebar${creationMode === "agent" && assistant.ready && !assistant.enabled ? " is-hidden" : ""}`}>
+          <nav className="menu-list" aria-label="工程导航">
             {MENU_ITEMS.map(({ key, label, Icon }) => (
-              <div
+              <button
+                type="button"
                 key={key}
                 className={`sidebar-menu-item${activeMenu === key ? " active" : ""}`}
+                title={label}
+                aria-current={activeMenu === key ? "page" : undefined}
                 onClick={() => handleMenuClick(key)}
               >
                 <Icon size={18} className="menu-icon" />
                 <span className="menu-text">{label}</span>
-                {activeMenu === key && <div className="active-indicator" />}
-              </div>
+              </button>
             ))}
-          </div>
+          </nav>
         </aside>
 
         {/* 右侧子模块内容区 */}
-        <section className={`project-content-pane${isWorkshopDetail ? " is-workshop-detail" : ""}`}>
-          {creationMode === "agent" && (
+        <section className={`project-content-pane${isWorkshopDetail ? " is-workshop-detail" : ""}${activeMenu === "edit" ? " is-smart-edit" : ""}`}>
+          {creationMode === "agent" && assistant.ready && !assistant.enabled && activeMenu !== "edit" && (
             <div key="ai" className="d2-fade">
               <Director2AiStudioPane
                 csrfToken={csrfToken}
                 projectId={projectId}
                 onBusyChange={setAiBusy}
+                onProjectInfoChange={loadProjectInfo}
                 onNavigate={(menu) => {
                   changeCreationMode("manual")
                   handleMenuClick(menu)
@@ -200,7 +291,7 @@ export default function Director2ProjectDetail({
               />
             </div>
           )}
-          {creationMode === "manual" && activeMenu === "content" && (
+          {(creationMode === "manual" || assistant.enabled || !assistant.ready) && activeMenu === "content" && (
             <div key="content" className="d2-fade">
               <ContentLibraryPane
                 csrfToken={csrfToken}
@@ -210,12 +301,12 @@ export default function Director2ProjectDetail({
               />
             </div>
           )}
-          {creationMode === "manual" && activeMenu === "assets" && (
+          {(creationMode === "manual" || assistant.enabled || !assistant.ready) && activeMenu === "assets" && (
             <div key="assets" className="d2-fade">
               <AssetsLibraryPane ref={assetsPaneRef} csrfToken={csrfToken} projectId={projectId} />
             </div>
           )}
-          {creationMode === "manual" && activeMenu === "workshop" && (
+          {(creationMode === "manual" || assistant.enabled || !assistant.ready) && activeMenu === "workshop" && (
             <div key="workshop" className="d2-fade d2-workshop-host">
               <EpisodeWorkshopPane
                 ref={workshopPaneRef}
@@ -226,11 +317,12 @@ export default function Director2ProjectDetail({
               />
             </div>
           )}
-          {creationMode === "manual" && activeMenu === "jobs" && (
+          {(creationMode === "manual" || assistant.enabled || !assistant.ready) && activeMenu === "jobs" && (
             <div key="jobs" className="d2-fade">
               <JobsCenterPane csrfToken={csrfToken} projectId={projectId} />
             </div>
           )}
+          {activeMenu === "edit" && <SmartEditPane csrfToken={csrfToken} projectId={projectId} episodeId={route.episodeId} />}
         </section>
       </div>
       </div>

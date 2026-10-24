@@ -12,6 +12,8 @@ import {
 } from "./paths"
 
 const App = lazy(() => import("./App"))
+const McpPage = lazy(() => import("./mcp/McpPage"))
+const McpAuthorizePage = lazy(() => import("./mcp/McpAuthorizePage"))
 
 export { PATHS, ROUTE_PATTERNS, STUDIO_ROUTE_PATHS } from "./paths"
 export {
@@ -85,6 +87,8 @@ export function AppRoutes({
         }
       />
       <Route path={PATHS.home} element={<Navigate to={PATHS.generateVideo} replace />} />
+      <Route path={PATHS.mcp} element={studioSession ? <Suspense fallback={<CenteredStatus label="正在加载 MCP 连接" />}><McpPage user={studioSession.user} csrfToken={studioSession.csrfToken} onLogout={onLogout} logoutPending={logoutPending} /></Suspense> : <Navigate to={PATHS.login} replace />} />
+      <Route path={PATHS.mcpAuthorize} element={studioSession ? <Suspense fallback={<CenteredStatus label="正在读取授权请求" />}><McpAuthorizePage user={studioSession.user} csrfToken={studioSession.csrfToken} /></Suspense> : <Navigate to={PATHS.login} replace />} />
       {DIRECTOR2_REDIRECT_ROUTE_PATHS.map((path) => (
         <Route key={path} path={path} element={<Director2Redirect />} />
       ))}

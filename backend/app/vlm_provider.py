@@ -8,25 +8,18 @@ from .llm_client import (
     LLM_TEST_TIMEOUT_SECONDS,
     OpenAICompatibleClient,
     LlmError,
-    catalog_provider_key,
     normalize_api_key,
     summarize_llm_test_reply,
 )
 from .llm_provider import is_local_base_url, model_supports_vision
 from .storage import JobStore, now
 from .vision_runtime import overlay_vlm_credentials, resolve_analysis_endpoint
+from .zhipu_catalog import ZHIPU_VISION_CATALOG, is_zhipu_official_base_url
 
 
 DEFAULT_VLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_VLM_MODEL = "glm-4.6v-flash"
 
-ZHIPU_VISION_CATALOG = [
-    {"id": "glm-4.6v-flash", "label": "GLM-4.6V-Flash（免费）", "free": True},
-    {"id": "glm-4v-flash", "label": "GLM-4V-Flash（免费）", "free": True},
-    {"id": "glm-4.1v-thinking-flash", "label": "GLM-4.1V-Thinking-Flash（免费）", "free": True},
-    {"id": "glm-4v", "label": "GLM-4V", "free": False},
-    {"id": "glm-4v-plus", "label": "GLM-4V-Plus", "free": False},
-]
 VLM_UNAVAILABLE_MESSAGE = "视觉模型尚未启用。请在管理设置 → VLM 视觉模型 中配置后再使用看图功能。"
 VLM_NOT_VISION_MESSAGE = "当前视觉模型名称无法识别为看图模型。请在管理设置 → VLM 视觉模型 中改用名称含 VL/Vision 的模型，例如 glm-4.6v-flash。"
 ANALYSIS_UNAVAILABLE_MESSAGE = (
@@ -88,6 +81,7 @@ class VlmProviderService:
         return {
             "enabled": config["enabled"],
             "use_llm_credentials": bool(config.get("use_llm_credentials")),
+            "llm_base_url": self.store.get_llm_settings().get("base_url"),
             "base_url": self.base_url(config),
             "model": config["model"],
             "api_key_masked": _mask_api_key(api_key),
@@ -119,6 +113,15 @@ class VlmProviderService:
         values["model"] = model_name
 
         api_key = normalize_api_key(payload.get("api_key"))
+        previous = self.store.get_vlm_settings()
+        changed_endpoint = values["base_url"] != str(previous.get("base_url") or "").rstrip("/")
+        reuse = bool(values.get("use_llm_credentials", previous.get("use_llm_credentials")))
+        if changed_endpoint or values["model"] != previous.get("model") or reuse != bool(previous.get("use_llm_credentials")) or api_key:
+            values.update(last_test_status=None, last_test_message=None, last_test_at=None)
+        if changed_endpoint and not api_key:
+            if not reuse and previous.get("api_key_encrypted") and not is_local_base_url(values["base_url"]):
+                raise ValueError("切换服务地址后请填写对应的 API Key；已保存凭据仅用于原地址。")
+            values["api_key_encrypted"] = None
         if api_key:
             if not self.credentials.ready:
                 raise ValueError(self.credentials.error or "凭证主密钥不可用")
@@ -131,18 +134,21 @@ class VlmProviderService:
 
     def test(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         config = self.store.get_vlm_settings()
-        reuse = bool((payload or {}).get("use_llm_credentials", config.get("use_llm_credentials")))
+        requested_reuse = (payload or {}).get("use_llm_credentials")
+        reuse = bool(config.get("use_llm_credentials")) if requested_reuse is None else bool(requested_reuse)
         base_url = (payload.get("base_url") if payload else None) or self.base_url({**config, "use_llm_credentials": reuse})
         if reuse:
             base_url = self.base_url({**config, "use_llm_credentials": True})
         model = (payload.get("model") if payload else None) or config["model"]
         submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
-        api_key = submitted_key or self.api_key({**config, "use_llm_credentials": reuse})
+        saved_config = {**config, "use_llm_credentials": reuse}
+        same_endpoint = str(base_url or "").rstrip("/") == self.base_url(saved_config)
+        api_key = self.api_key(saved_config) if reuse else submitted_key or (self.api_key(saved_config) if same_endpoint else None)
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
 
         if not api_key:
-            if config.get("api_key_encrypted") and not submitted_key and not reuse:
+            if config.get("api_key_encrypted") and not submitted_key and not reuse and same_endpoint:
                 raise ValueError("已保存的视觉模型 Key 无法解密，请重新填写 API Key 后保存再测试。")
             raise ValueError("测试连接需要提供有效的 API Key / Token")
         if not base_url:
@@ -162,23 +168,31 @@ class VlmProviderService:
             test_status = "失败"
             test_message = str(exc)
 
-        self.store.update_vlm_settings(
-            last_test_status=test_status,
-            last_test_message=test_message,
-            last_test_at=test_time,
-        )
+        current = self.store.get_vlm_settings()
+        current_config = self._effective_config(current)
+        if (base_url.rstrip("/") == str(current_config.get("base_url") or "").rstrip("/")
+                and model == current["model"] and reuse == bool(current.get("use_llm_credentials"))
+                and api_key == self.api_key(current)):
+            self.store.update_vlm_settings(
+                last_test_status=test_status,
+                last_test_message=test_message,
+                last_test_at=test_time,
+            )
         if test_status != "成功":
             raise LlmError(f"视觉模型连接测试失败：{test_message}")
-        return self.public_config()
+        return {**self.public_config(), "last_test_status": test_status, "last_test_message": test_message, "last_test_at": test_time}
 
     def list_catalog(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         config = self.store.get_vlm_settings()
-        reuse = bool((payload or {}).get("use_llm_credentials", config.get("use_llm_credentials")))
+        requested_reuse = (payload or {}).get("use_llm_credentials")
+        reuse = bool(config.get("use_llm_credentials")) if requested_reuse is None else bool(requested_reuse)
         base_url = (payload.get("base_url") if payload else None) or self.base_url({**config, "use_llm_credentials": reuse})
         if reuse:
             base_url = self.base_url({**config, "use_llm_credentials": True})
         submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
-        api_key = submitted_key or self.api_key({**config, "use_llm_credentials": reuse})
+        saved_config = {**config, "use_llm_credentials": reuse}
+        same_endpoint = str(base_url or "").rstrip("/") == self.base_url(saved_config)
+        api_key = self.api_key(saved_config) if reuse else submitted_key or (self.api_key(saved_config) if same_endpoint else None)
         if not api_key and is_local_base_url(base_url or ""):
             api_key = "ollama"
         if not api_key:
@@ -192,12 +206,15 @@ class VlmProviderService:
             row for row in (catalog.get("models") or [])
             if isinstance(row, dict) and model_supports_vision(str(row.get("id") or ""))
         ]
-        if catalog_provider_key(base_url or "") == "zhipu":
+        if is_zhipu_official_base_url(base_url or ""):
             seen = {str(row.get("id") or "") for row in vision_models}
             for row in ZHIPU_VISION_CATALOG:
                 if row["id"] not in seen:
                     vision_models.insert(0, dict(row))
                     seen.add(row["id"])
+        if free_only:
+            vision_models = [row for row in vision_models if row.get("free") is True]
+        vision_models.sort(key=lambda row: (row.get("free") is not True, row["id"].lower()))
         message = catalog.get("message")
         if not vision_models:
             message = "上游目录中没有名称含 VL/Vision 的视觉模型。可手填 glm-4.6v-flash、qwen3-vl-flash 或 Qwen/Qwen3-VL-8B-Instruct。"

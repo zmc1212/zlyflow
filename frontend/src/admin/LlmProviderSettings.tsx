@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, AutoComplete, Button, Input, Select, Switch, message } from "antd"
+import { Alert, AutoComplete, Button, Input, Select, Switch, Tag, message } from "antd"
 import { Bot, CheckCircle2, ExternalLink, KeyRound, RefreshCw, Sparkles } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { buildModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
+import type { CatalogModel, CatalogResponse, ProviderPresetsResponse } from "./provider-models"
 
 type LlmConfig = {
   enabled: boolean
@@ -17,6 +19,7 @@ type LlmConfig = {
   last_test_message?: string | null
   last_test_at?: string | null
   supports_vision?: boolean
+  assistant_models?: string[]
 }
 
 function modelLooksLikeVision(model: string): boolean {
@@ -29,20 +32,6 @@ function modelLooksLikeVision(model: string): boolean {
     "glm-5v", "internvl", "phi-4-multimodal", "phi-3.5-vision", "gemma-3", "gemma-4",
     "minicpm-v", "step-1v", "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen-vl",
   ].some((marker) => lowered.includes(marker))
-}
-
-type CatalogModel = {
-  id: string
-  label: string
-  free?: boolean | null
-  owned_by?: string | null
-}
-
-type CatalogResponse = {
-  models: CatalogModel[]
-  provider: string
-  free_only: boolean
-  message?: string | null
 }
 
 const PROVIDER_PRESETS = [
@@ -135,46 +124,54 @@ const PROVIDER_PRESETS = [
   },
 ]
 
-function isShorterPrefixOf(candidate: string, target: string) {
-  const left = candidate.trim()
-  const right = target.trim()
-  return Boolean(left && right && left !== right && right.startsWith(left))
-}
-
 export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }) {
   const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: ["llm-provider"],
     queryFn: () => requestJson<LlmConfig>("/api/admin/providers/llm"),
   })
+  const presetsQuery = useQuery({
+    queryKey: ["model-provider-presets"],
+    queryFn: () => requestJson<ProviderPresetsResponse>("/api/admin/providers/model-presets"),
+  })
+  const officialPresets = presetsQuery.data?.presets
+  const providerPresets = useMemo(() => [
+    ...(officialPresets ?? []).map(preset => providerPresetFor(preset, "chat")),
+    ...PROVIDER_PRESETS,
+  ], [officialPresets])
 
   const [enabled, setEnabled] = useState(false)
   const [baseUrl, setBaseUrl] = useState("https://api-inference.modelscope.cn/v1")
   const [model, setModel] = useState("Qwen/Qwen2.5-7B-Instruct")
+  const [assistantModels, setAssistantModels] = useState<string[]>([])
   const [apiKey, setApiKey] = useState("")
   const [selectedPreset, setSelectedPreset] = useState("modelscope")
   const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([])
+  const [catalogBaseUrl, setCatalogBaseUrl] = useState("")
   const autoFetchedFor = useRef("")
+  const hydratedConnection = useRef("")
 
   useEffect(() => {
     if (!query.data) return
+    const connection = JSON.stringify([query.data.enabled, query.data.base_url, query.data.model, query.data.assistant_models, query.data.has_api_key])
+    if (connection === hydratedConnection.current) return
+    hydratedConnection.current = connection
     setEnabled(query.data.enabled)
     setBaseUrl(query.data.base_url)
     setModel(query.data.model)
+    setAssistantModels(query.data.assistant_models || [])
 
-    const matched = PROVIDER_PRESETS.find(
-      (p) => p.baseUrl && query.data.base_url.startsWith(p.baseUrl.replace(/\/v1$/, "")),
-    )
-    if (matched) {
-      setSelectedPreset(matched.value)
-    } else {
-      setSelectedPreset("custom")
-    }
-  }, [query.data?.enabled, query.data?.base_url, query.data?.model, query.data?.has_api_key])
+  }, [query.data])
+
+  useEffect(() => {
+    setSelectedPreset(providerPresets.find(preset => sameProviderEndpoint(baseUrl, preset.baseUrl))?.value ?? "custom")
+  }, [baseUrl, providerPresets])
 
   const handlePresetChange = (presetValue: string) => {
     setSelectedPreset(presetValue)
-    const found = PROVIDER_PRESETS.find((p) => p.value === presetValue)
+    setAssistantModels([])
+    setApiKey("")
+    const found = providerPresets.find((p) => p.value === presetValue)
     if (found && found.value !== "custom") {
       setBaseUrl(found.baseUrl)
       setModel(found.model)
@@ -193,6 +190,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
           enabled,
           base_url: baseUrl,
           model,
+          assistant_models: assistantModels,
           api_key: apiKey || null,
         }, "PUT"),
       ),
@@ -220,17 +218,21 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   })
 
   const catalog = useMutation({
-    mutationFn: () =>
-      requestJson<CatalogResponse>(
+    mutationFn: async () => {
+      const requestedBaseUrl = baseUrl
+      const response = await requestJson<CatalogResponse>(
         "/api/admin/providers/llm/models",
         jsonMutation(csrfToken, {
           base_url: baseUrl,
           api_key: apiKey || null,
           free_only: selectedPreset === "siliconflow" || selectedPreset === "ollama" || selectedPreset === "lmstudio",
         }),
-      ),
+      )
+      return { ...response, requestedBaseUrl }
+    },
     onSuccess: (data) => {
       setCatalogModels(data.models)
+      setCatalogBaseUrl(data.requestedBaseUrl)
       if (data.models.length) {
         message.success(`已拉取 ${data.models.length} 个${data.free_only ? "免费 " : ""}模型`)
       } else {
@@ -241,7 +243,8 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
 
   useEffect(() => {
     const canFetchLocal = selectedPreset === "ollama" || selectedPreset === "lmstudio"
-    const canFetchCloud = selectedPreset === "siliconflow" && Boolean(query.data?.has_api_key || apiKey)
+    const savedKeyMatches = query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url)
+    const canFetchCloud = (selectedPreset === "siliconflow" || selectedPreset === "zhipu") && Boolean(savedKeyMatches)
     if (!canFetchLocal && !canFetchCloud) return
     const key = `${selectedPreset}|${baseUrl}|${query.data?.has_api_key ? "saved" : "none"}`
     if (autoFetchedFor.current === key) return
@@ -249,26 +252,16 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
     catalog.mutate()
   }, [selectedPreset, baseUrl, query.data?.has_api_key])
 
-  const currentPreset = PROVIDER_PRESETS.find((p) => p.value === selectedPreset)
+  const currentPreset = providerPresets.find((p) => p.value === selectedPreset)
+  const activeCatalog = useMemo(() => sameProviderEndpoint(baseUrl, catalogBaseUrl) ? catalogModels : [], [baseUrl, catalogBaseUrl, catalogModels])
   const modelOptions = useMemo(() => {
-    const seen = new Set<string>()
-    const rows: { value: string; label: string }[] = []
-    const add = (id: string, label?: string, free?: boolean | null) => {
-      if (!id || seen.has(id)) return
-      // AutoComplete treats a shorter option as a match for a longer current value
-      // (`DeepSeek-R1` vs `DeepSeek-R1-0528-Qwen3-8B`) and can overwrite the field.
-      if (isShorterPrefixOf(id, model)) return
-      seen.add(id)
-      const text = label || id
-      rows.push({ value: id, label: free ? `${text} · Free` : text })
-    }
-    for (const item of catalogModels) add(item.id, item.label, item.free)
-    add(model)
-    for (const rec of currentPreset?.recommendedModels ?? []) add(rec.id, rec.name)
-    return rows
-  }, [catalogModels, model, currentPreset])
+    return buildModelOptions(baseUrl, model, activeCatalog, currentPreset, officialPresets ?? [])
+  }, [baseUrl, model, activeCatalog, currentPreset, officialPresets])
+  const selectedModelFree = resolveModelFree(baseUrl, model, activeCatalog, officialPresets ?? [])
+  const pricingPreset = officialPresets?.find(preset => sameProviderEndpoint(preset.base_url, baseUrl))
+  const savedKeyMatches = Boolean(query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url))
 
-  const error = save.error ?? test.error ?? catalog.error ?? query.error
+  const error = save.error ?? test.error ?? catalog.error ?? query.error ?? presetsQuery.error
 
   return (
     <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
@@ -308,9 +301,10 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
             <label className="block text-xs font-medium text-[#4b5563]">快速服务预设</label>
             <Select
               className="mt-1.5 w-full"
+              aria-label="快速服务预设"
               value={selectedPreset}
               onChange={handlePresetChange}
-              options={PROVIDER_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+              options={providerPresets.map((p) => ({ value: p.value, label: p.label }))}
             />
           </div>
 
@@ -340,6 +334,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
             </div>
             <Input
               className="mt-1.5"
+              aria-label="接口地址"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://api-inference.modelscope.cn/v1"
@@ -348,7 +343,10 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
 
           <div>
             <div className="flex items-center justify-between gap-3">
-              <label className="block text-xs font-medium text-[#4b5563]">Model (模型名称)</label>
+              <div className="flex items-center gap-2">
+                <label className="block text-xs font-medium text-[#4b5563]">Model (模型名称)</label>
+                <Tag style={modelPriceTagStyle(selectedModelFree)}>{modelPriceLabel(selectedModelFree)}</Tag>
+              </div>
               <Button
                 size="small"
                 loading={catalog.isPending}
@@ -360,6 +358,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
             </div>
             <AutoComplete
               className="mt-1.5 w-full"
+              aria-label="模型名称"
               value={model}
               options={modelOptions}
               defaultActiveFirstOption={false}
@@ -375,6 +374,11 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               }}
               listHeight={320}
             />
+            {pricingPreset ? (
+              <p className="mt-1.5 text-[11px] leading-4 text-[var(--studio-text-muted)]">
+                费用标记依据<a href={pricingPreset.pricing_url} target="_blank" rel="noreferrer" className="text-[var(--studio-accent-text)] hover:underline">智谱官方价目表</a>（{pricingPreset.pricing_verified_at} 核对）；未知型号显示价格未知。账号可用性请测试连接。
+              </p>
+            ) : null}
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
               {selectedPreset === "siliconflow"
                 ? "展开下拉框会列出已拉取的全部免费对话模型；输入关键字才搜索。填写 Token 后点「拉取官方列表」。"
@@ -398,16 +402,33 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
           </div>
 
           <div>
+            <label className="block text-xs font-medium text-[var(--studio-text-secondary)]">助手可选模型</label>
+            <Select
+              mode="tags"
+              className="mt-1.5 w-full"
+              aria-label="助手可选模型"
+              placeholder="选择或输入允许助手使用的模型 ID"
+              value={assistantModels}
+              options={modelOptions.map(option => ({ label: option.label, value: option.value }))}
+              onChange={setAssistantModels}
+              maxCount={32}
+              tokenSeparators={[","]}
+            />
+            <p className="mt-1.5 text-[11px] leading-4 text-[var(--studio-text-muted)]">留空时使用当前默认模型。所有模型共用本页地址和密钥；用户切换助手模型不会更改全局默认模型。</p>
+          </div>
+
+          <div>
             <label className="block text-xs font-medium text-[#4b5563]">API Key / Access Token</label>
             <Input.Password
               className="mt-1.5"
+              aria-label="API Key / Access Token"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
               placeholder={
                 selectedPreset === "ollama" || selectedPreset === "lmstudio"
                   ? "本地服务可留空"
-                  : query.data?.api_key_masked || "输入平台生成的 API Key / Token"
+                  : (savedKeyMatches ? query.data?.api_key_masked : null) || "输入平台生成的 API Key / Token"
               }
             />
             {selectedPreset === "ollama" ? (
@@ -473,6 +494,8 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                   ? "魔搭不再提供独立于账户余额的免费次数池。调用会扣魔粒；工作台已对 DeepSeek-V4 关闭思考模式以降低单次消耗，但无法阻止扣费。"
                   : selectedPreset === "siliconflow"
                     ? "会拉取硅基流动全部模型，再用名称或标记里的 Free 文字筛选免费项。Qwen2.5-7B-Instruct 等免费模型不扣魔搭魔粒。"
+                    : selectedPreset === "zhipu"
+                      ? "已填写智谱官方地址，默认使用免费 glm-4.7-flash；也可选择标记付费的型号。请填写智谱 API Key，保存配置后即可用于提示词优化、导演对话与助手。"
                     : "请按所选平台的官方文档配置 Base URL、模型名和 API Key。拉取列表只验证目录接口；「测试连接」会问一句「你是什么模型」，模型有回复即成功。GPT-5 测试时关闭思考。部分中转站会拦截过短探测，列表能拉到但对话失败时请以测试结果为准。"}
             </p>
           </div>

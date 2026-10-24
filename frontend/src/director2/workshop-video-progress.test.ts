@@ -36,8 +36,8 @@ describe("workshop video progress mapping", () => {
       "ep-1",
     )
     expect(mapped.beats).toEqual({
-      "beat-a": { status: "running", progress: 42, scope: "shot", stage: "" },
-      "beat-b": { status: "preparing", progress: 10, scope: "shot", stage: "" },
+      "beat-a": { status: "running", progress: 42, scope: "shot", stage: "", jobId: "", previewUrl: "", shotCount: 1 },
+      "beat-b": { status: "preparing", progress: 10, scope: "shot", stage: "", jobId: "", previewUrl: "", shotCount: 1 },
     })
     expect(mapped.episode).toBeNull()
   })
@@ -48,7 +48,7 @@ describe("workshop video progress mapping", () => {
       "ep-1",
     )
     expect(episode.beats).toEqual({})
-    expect(episode.episode).toEqual({ status: "running", progress: 55, scope: "episode" })
+    expect(episode.episode).toEqual({ status: "running", progress: 55, scope: "episode", jobId: "" })
 
     const compose = mapWorkshopVideoProgress(
       [
@@ -57,7 +57,7 @@ describe("workshop video progress mapping", () => {
       ],
       "ep-1",
     )
-    expect(compose.episode).toEqual({ status: "storing", progress: 90, scope: "compose" })
+    expect(compose.episode).toEqual({ status: "storing", progress: 90, scope: "compose", jobId: "" })
     expect(hasActiveWorkshopVideoProgress(compose)).toBe(true)
   })
 
@@ -73,7 +73,7 @@ describe("workshop video progress mapping", () => {
       "ep-1",
     )
     expect(mapped.beats).toEqual({
-      "beat-c": { status: "queued", progress: 0, scope: "shot", stage: "" },
+      "beat-c": { status: "queued", progress: 0, scope: "shot", stage: "", jobId: "", previewUrl: "", shotCount: 1 },
     })
     expect(hasActiveWorkshopVideoProgress(mapped)).toBe(true)
     expect(hasActiveWorkshopVideoProgress({ beats: {}, episode: null })).toBe(false)
@@ -84,13 +84,13 @@ describe("workshop video progress mapping", () => {
       [job({
         status: "preparing",
         progress: 12,
-        payload: { render_scope: "selection", beat_id: "beat-a", beat_ids: ["beat-a", "beat-b"] },
+        payload: { render_scope: "selection", beat_id: undefined, beat_ids: ["beat-a", "beat-b"] },
       })],
       "ep-1",
     )
     expect(mapped.beats).toEqual({
-      "beat-a": { status: "preparing", progress: 12, scope: "selection", stage: "" },
-      "beat-b": { status: "preparing", progress: 12, scope: "selection", stage: "" },
+      "beat-a": { status: "preparing", progress: 12, scope: "selection", stage: "", jobId: "", previewUrl: "", shotCount: 2 },
+      "beat-b": { status: "preparing", progress: 12, scope: "selection", stage: "", jobId: "", previewUrl: "", shotCount: 2 },
     })
     expect(mapped.episode).toBeNull()
   })
@@ -121,8 +121,19 @@ describe("workshop video progress mapping", () => {
       "ep-1",
     )
     expect(mapped.beats).toEqual({
-      "beat-a": { status: "upscaling", progress: 97, scope: "upscale", stage: "upscaling" },
+      "beat-a": { status: "upscaling", progress: 97, scope: "upscale", stage: "upscaling", jobId: "", previewUrl: "", shotCount: 1 },
     })
     expect(mapped.episode).toBeNull()
+  })
+
+  it("keeps a first-pass preview available while waiting for a refinement decision", () => {
+    const mapped = mapWorkshopVideoProgress([
+      job({ id: "preview-job", status: "awaiting_refine", progress: 50, result_url: "/api/preview/first-pass.mp4" }),
+    ], "ep-1")
+    expect(mapped.beats["beat-a"]).toMatchObject({
+      status: "awaiting_refine", jobId: "preview-job", previewUrl: "/api/preview/first-pass.mp4", shotCount: 1,
+    })
+    expect(hasActiveWorkshopVideoProgress(mapped)).toBe(false)
+    expect(workshopVideoStageLabel("awaiting_refine")).toBe("一采预览待确认")
   })
 })

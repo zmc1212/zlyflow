@@ -6,6 +6,12 @@ import json
 import re
 from typing import Any
 
+from ...skill_packs.aspect import (
+    apply_confirmed_aspect_to_shot,
+    aspect_orientation_zh,
+    resolve_workshop_aspect_ratio,
+)
+
 SHOT_DURATION_MIN_SEC = 5
 SHOT_DURATION_MAX_SEC = 15
 DEFAULT_SHOT_DURATION_SEC = 8
@@ -40,9 +46,11 @@ def clamp_shot_duration_sec(
     return max(SHOT_DURATION_MIN_SEC, min(SHOT_DURATION_MAX_SEC, rounded))
 
 
-def build_shot_plan_system_prompt() -> str:
+def build_shot_plan_system_prompt(*, aspect_ratio: str | None = None) -> str:
     min_sec = SHOT_DURATION_MIN_SEC
     max_sec = SHOT_DURATION_MAX_SEC
+    aspect = resolve_workshop_aspect_ratio(request=aspect_ratio)
+    orientation = aspect_orientation_zh(aspect)
     return (
         "你是短剧分镜导演，只根据【这一集】已经写好的动作和对白，规划 MiniMax H3 可出片镜头列表。"
         "集数已由程序按「# 第N集」切好，禁止增删、合并或改集号。"
@@ -52,6 +60,9 @@ def build_shot_plan_system_prompt() -> str:
         f"能一镜拍完就只出一条；只有 {max_sec} 秒拍不下，或同一时间里调度互斥（例如必须换机位才能看清下一拍）时才加镜。"
         f"禁止用「{' / '.join(_FORBIDDEN_TEMPLATE_TERMS)}」这类关键词模板去拆镜；不要因为有开口、内心或推近就固定拆成三条。"
         "不发明剧情、人名、道具或台词。台词可以拆到不同镜，但必须从原文逐字截取，不得改写、概括或补词。"
+        f"成片画幅以用户确认的 {aspect}（{orientation}）为权威。"
+        "确认画幅为权威；剧本原文里的竖屏、横屏、方形、9:16、16:9 只是素材，禁止写进 title、camera、action、visual_prompt 来覆盖确认画幅。"
+        f"新建镜头的 title 与 camera 按确认画幅 {aspect} 写，不要被原文竖屏/横屏或配方缺省带跑。"
         "只返回 JSON 对象，不要 markdown，不要解释。格式严格为："
         '{"shots":[{"title":"...","characters":["..."],"scene":"...","props":["..."],'
         '"action":"...","camera":"...","dialogue":"...","audio":"...","subtitle":"...",'
@@ -60,11 +71,13 @@ def build_shot_plan_system_prompt() -> str:
     )
 
 
-def build_shot_plan_user_prompt(episode: dict[str, Any]) -> str:
+def build_shot_plan_user_prompt(episode: dict[str, Any], *, aspect_ratio: str | None = None) -> str:
     episode_num = episode.get("episode_num")
     title = str(episode.get("title") or "").strip() or "未命名"
     summary = str(episode.get("summary") or "").strip() or "（无）"
     source = episode_source_text(episode)
+    aspect = resolve_workshop_aspect_ratio(request=aspect_ratio)
+    orientation = aspect_orientation_zh(aspect)
     parsed_shots = [
         _compact_source_shot(item)
         for item in (episode.get("shots") or [])
@@ -75,12 +88,15 @@ def build_shot_plan_user_prompt(episode: dict[str, Any]) -> str:
         f"本集集号：{episode_num if episode_num is not None else '（未知）'}\n"
         f"本集标题：{title}\n"
         f"剧情摘要：{summary}\n\n"
+        f"确认成片画幅：{aspect}（{orientation}）。这是权威值。"
+        "原文中的竖屏/横屏/方形/9:16/16:9 只作剧情素材，不要覆盖确认画幅，也不要写进镜头卡的 title、camera、action、visual_prompt。\n\n"
         "本集原文（只读，按这里的动作和对白规划出片镜）：\n"
         f"{source or '（无正文）'}\n\n"
         "解析器已抽出的镜头字段（仅作素材，不是必须遵守的镜数）：\n"
         f"{parsed_json}\n\n"
         f"请输出本集可出片 shots。单镜 {SHOT_DURATION_MIN_SEC}–{SHOT_DURATION_MAX_SEC} 整数秒。"
         "不要改集号，不要发明台词。"
+        f"镜头卡画幅按确认的 {aspect} 写。"
     )
 
 
@@ -138,10 +154,11 @@ def parse_shot_plan_response(raw: str) -> list[dict[str, Any]]:
     return _shots_from_payload(payload)
 
 
-def normalize_planned_shots(planned: Any) -> list[dict[str, Any]]:
+def normalize_planned_shots(planned: Any, *, aspect_ratio: Any = None) -> list[dict[str, Any]]:
     items = [_blank_shot(item) for item in _shots_from_payload(planned)]
     items = [item for item in items if _shot_has_content(item)]
     items = merge_short_adjacent_shots(items)
+    confirmed = resolve_workshop_aspect_ratio(request=aspect_ratio) if aspect_ratio else None
     normalized: list[dict[str, Any]] = []
     for index, item in enumerate(items, start=1):
         shot = _blank_shot(item)
@@ -150,6 +167,8 @@ def normalize_planned_shots(planned: Any) -> list[dict[str, Any]]:
             shot["title"] = f"镜头 {index}"
         shot["duration_sec"] = clamp_shot_duration_sec(shot.get("duration_sec"))
         shot.pop("episode_num", None)
+        if confirmed:
+            shot = apply_confirmed_aspect_to_shot(shot, confirmed)
         normalized.append(shot)
     return normalized
 
@@ -213,11 +232,11 @@ def document_needs_shot_plan(analysis: Any, *, input_mode: Any = "") -> bool:
     return bool(shot_plan_episode_indexes(analysis, input_mode=input_mode))
 
 
-def apply_episode_shot_plan(episode: dict[str, Any], planned: Any) -> dict[str, Any]:
+def apply_episode_shot_plan(episode: dict[str, Any], planned: Any, *, aspect_ratio: Any = None) -> dict[str, Any]:
     """用规划结果覆盖本集 shots；空结果回退解析器镜头，且不改 episode_num。"""
     result = copy.deepcopy(episode) if isinstance(episode, dict) else {}
     episode_num = episode.get("episode_num") if isinstance(episode, dict) else None
-    shots = normalize_planned_shots(planned)
+    shots = normalize_planned_shots(planned, aspect_ratio=aspect_ratio)
     if not shots:
         result["episode_num"] = episode_num
         return result

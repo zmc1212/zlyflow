@@ -1,12 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, Card, InputNumber, Select, Space, Tag, Typography, message } from "antd"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Film } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import ThemeToggle from "../components/ThemeToggle"
 import JobErrorNotice from "./components/JobErrorNotice"
 import DirectorPromptBar from "./components/DirectorPromptBar"
 import { DirectorMobileBottomBar, DirectorMobileHeader } from "./DirectorMobileChrome"
-import { BATCH_PROMPT_HINT, BATCH_PROMPT_PLACEHOLDER } from "./action-copy"
+import { BATCH_PROMPT_PLACEHOLDER } from "./action-copy"
 import {
   batchPayloadFromApi, createDirectorBatch, getDirectorProject, listDirectorArtStyles, listWorkflowModes,
   renderDirectorBatchItems, updateDirectorProjectRecord,
@@ -165,6 +165,10 @@ export default function DirectorBatchStudio({
       </header>
 
       <div className="director-batch-scroll">
+      <div className="director-workspace-intro">
+        <h1>从一个主题，开始批量创作</h1>
+        <p>设置生成参数，输入主题，查看每条脚本与视频的制作进度。</p>
+      </div>
       <div className="director-batch-layout">
         <Card className="director-batch-form" title="生成参数">
           <div className="director-batch-fields">
@@ -272,7 +276,13 @@ export default function DirectorBatchStudio({
             )
           })}
           {!payload.items.length && (
-            <Card><Typography.Text type="secondary">{BATCH_PROMPT_HINT}</Typography.Text></Card>
+            <Card className="director-result-empty">
+              <div className="director-result-empty-content">
+                <Film size={44} />
+                <h2>暂无生成结果</h2>
+                <p>输入一个主题，AI 会按所选参数裂变脚本并生成视频。</p>
+              </div>
+            </Card>
           )}
         </div>
       </div>

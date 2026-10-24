@@ -88,7 +88,7 @@ export function CredentialScreen({ setup = false, onAuthenticated }: { setup?: b
       <div className="max-w-md py-12">
         <p className="studio-auth-accent text-sm">ZLY AI Studio｜创作工作台</p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight sm:text-4xl">图片与视频的一站式创作空间</h1>
-        <p className="studio-auth-muted mt-4 max-w-[46ch] text-sm leading-6">任务只对账号本人可见，GRS 图片与本地 ComfyUI 视频结果统一交付到员工授权目录。</p>
+        <p className="studio-auth-muted mt-4 max-w-[46ch] text-sm leading-6">任务只对账号本人可见，GRS 图片与 ComfyUI 视频结果统一存入七牛云存储，可随时预览和下载。</p>
       </div>
       <p className="studio-auth-subtle text-xs">图片使用受管 GRS，视频使用工作站本机 ComfyUI</p>
     </section>

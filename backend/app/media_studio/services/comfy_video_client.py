@@ -17,6 +17,12 @@ from ...minimax_h3_director_accel_workflow import (
 )
 from ...minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from ...minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
+from ...minimax_h3_refine_workflow import (
+    add_first_pass_preview,
+    build_minimax_h3_refine_workflow,
+    build_refine_nodes,
+    numeric_aspect_ratio,
+)
 from ...minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from ...minimax_h3_workflow import AUDIO_VAE, TEXT_ENCODER, VIDEO_VAE, build_minimax_h3_workflow
 from ...models import JobMode
@@ -34,6 +40,7 @@ from ...workflow_registry import (
     DUAL_ACCEL_WORKFLOWS,
     LIGHTX2V_WORKFLOWS,
     T8_WORKFLOWS,
+    coerce_bool_option,
     h3_dimensions,
 )
 
@@ -345,7 +352,7 @@ class ComfyVideoClient:
         shift_audio = float(values.get("shift_audio") or 3.0)
         sage_allow_compile = bool(values.get("sage_allow_compile", True))
         unet = director_accel_unet(True, values)
-        return {
+        workflow = {
             "1": {"class_type": "UNETLoader", "inputs": {
                 "unet_name": unet, "weight_dtype": "default"
             }},
@@ -385,6 +392,26 @@ class ComfyVideoClient:
             }},
             "8": {"class_type": "PreviewAny", "inputs": {"source": ["12", 5]}},
         }
+        if coerce_bool_option(values.get("refine_enabled", False), label="二采精修"):
+            preview = coerce_bool_option(values.get("refine_preview", False), label="先预览一采")
+            refine_nodes, refine_link = build_refine_nodes(
+                task_type,
+                refine_quality=str(values.get("refine_quality") or "1.0"),
+                aspect_ratio=numeric_aspect_ratio(values),
+                length=total_frames,
+                use_sage=bool(values.get("use_sage_attention", True)),
+                sage_allow_compile=sage_allow_compile,
+                confirm_first_pass=preview,
+            )
+            workflow.update(refine_nodes)
+            workflow["12"]["inputs"]["refine"] = refine_link
+            workflow["12"]["inputs"]["clear_vram_before_refine"] = True
+            if preview:
+                add_first_pass_preview(
+                    workflow, "12", f"{filename_prefix}-preview",
+                    video_node="16", output_node="17",
+                )
+        return workflow
 
     @staticmethod
     def load_image_name(uploaded: dict[str, Any] | str) -> str:
@@ -427,7 +454,12 @@ class ComfyVideoClient:
         seed = int(values.get("seed") or 888)
         values["seed"] = seed
         references = [cls.load_image_name(item) for item in uploaded_refs if cls.load_image_name(item)]
-        if mode in T8_WORKFLOWS:
+        if coerce_bool_option(values.get("refine_enabled", False), label="二采精修"):
+            workflow = build_minimax_h3_refine_workflow(
+                mode, prompt, references, values, seed,
+                preview=coerce_bool_option(values.get("refine_preview", False), label="先预览一采"),
+            )
+        elif mode in T8_WORKFLOWS:
             workflow = build_minimax_h3_t8_workflow(mode, prompt, references, values)
         elif mode in LIGHTX2V_WORKFLOWS:
             workflow = build_minimax_h3_lightx2v_workflow(mode, prompt, references, values, seed)

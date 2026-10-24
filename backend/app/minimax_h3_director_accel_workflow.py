@@ -106,6 +106,7 @@ def build_minimax_h3_director_accel_workflow(
         "duration_sec": duration_sec,
     }
     if is_reference_mode:
+        group_inputs["ref_image_size"] = str(options.get("reference_image_size") or options.get("ref_image_size") or "match")
         for index, image_node in enumerate(image_nodes):
             group_inputs[f"ref_images.ref_image_{index}"] = [image_node, 0]
         group_class = "MiniMaxH3DirectorGroupReferenceToVideo"

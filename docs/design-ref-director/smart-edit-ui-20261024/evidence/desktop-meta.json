@@ -1,0 +1,2696 @@
+{
+  "screens": [
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "theme": "light",
+      "fonts_ready": true,
+      "images_ready": true,
+      "document_width": 1440,
+      "document_height": 900,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "boxes": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1004,
+          "height": 80,
+          "right": 1080,
+          "bottom": 80
+        },
+        ".project-title": {
+          "x": 233,
+          "y": 23,
+          "width": 152.609375,
+          "height": 33,
+          "right": 385.609375,
+          "bottom": 56
+        },
+        ".se-header": {
+          "x": 92,
+          "y": 88,
+          "width": 972,
+          "height": 46,
+          "right": 1064,
+          "bottom": 134
+        },
+        ".se-header-title": {
+          "x": 92,
+          "y": 90,
+          "width": 326,
+          "height": 42,
+          "right": 418,
+          "bottom": 132
+        },
+        ".se-header-actions": {
+          "x": 629,
+          "y": 93,
+          "width": 435,
+          "height": 36,
+          "right": 1064,
+          "bottom": 129
+        },
+        ".se-library": {
+          "x": 92,
+          "y": 146,
+          "width": 272,
+          "height": 450,
+          "right": 364,
+          "bottom": 596
+        },
+        ".se-preview": {
+          "x": 372,
+          "y": 146,
+          "width": 460,
+          "height": 450,
+          "right": 832,
+          "bottom": 596
+        },
+        ".se-preview-well": {
+          "x": 373,
+          "y": 189,
+          "width": 458,
+          "height": 340,
+          "right": 831,
+          "bottom": 529
+        },
+        ".se-stage": {
+          "x": 379,
+          "y": 233.5625,
+          "width": 446,
+          "height": 250.875,
+          "right": 825,
+          "bottom": 484.4375
+        },
+        ".se-inspector": {
+          "x": 840,
+          "y": 146,
+          "width": 224,
+          "height": 450,
+          "right": 1064,
+          "bottom": 596
+        },
+        ".se-inspector .ant-tabs-body-holder": {
+          "x": 841,
+          "y": 301,
+          "width": 222,
+          "height": 294,
+          "right": 1063,
+          "bottom": 595
+        },
+        ".se-timeline": {
+          "x": 92,
+          "y": 608,
+          "width": 972,
+          "height": 276,
+          "right": 1064,
+          "bottom": 884
+        },
+        ".se-timeline-toolbar": {
+          "x": 93,
+          "y": 609,
+          "width": 970,
+          "height": 48,
+          "right": 1063,
+          "bottom": 657
+        },
+        ".se-track-labels": {
+          "x": 93,
+          "y": 657,
+          "width": 128,
+          "height": 192,
+          "right": 221,
+          "bottom": 849
+        },
+        ".se-track-text": {
+          "x": 93,
+          "y": 689,
+          "width": 127,
+          "height": 44,
+          "right": 220,
+          "bottom": 733
+        },
+        ".se-track-video": {
+          "x": 93,
+          "y": 733,
+          "width": 127,
+          "height": 58,
+          "right": 220,
+          "bottom": 791
+        },
+        ".se-track-audio": {
+          "x": 93,
+          "y": 791,
+          "width": 127,
+          "height": 54,
+          "right": 220,
+          "bottom": 845
+        }
+      },
+      "inspector_overflow": "auto",
+      "contrast": [
+        {
+          "selector": ".se-header h2",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            248,
+            249,
+            250
+          ],
+          "ratio": 16.55,
+          "text": "智能剪辑"
+        },
+        {
+          "selector": ".se-save-status",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            248,
+            249,
+            250
+          ],
+          "ratio": 4.59,
+          "text": "已保存"
+        },
+        {
+          "selector": ".se-library .se-panel-heading strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "素材库6"
+        },
+        {
+          "selector": ".se-asset-name",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".se-library-hint",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 4.83,
+          "text": "双击或拖动素材到时间线"
+        },
+        {
+          "selector": ".se-track-label span",
+          "color": "rgb(75, 85, 99)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 7.56,
+          "text": "文字"
+        },
+        {
+          "selector": ".se-timeline-title strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "时间线"
+        },
+        {
+          "selector": ".se-timeline-footer",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 4.83,
+          "text": "5 个片段 · 24.00 秒空格 播放 / 暂停 · S 拆分 · 拖动片段两端裁切"
+        },
+        {
+          "selector": ".se-property > label",
+          "color": "rgb(75, 85, 99)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 7.56,
+          "text": "缩放"
+        },
+        {
+          "selector": ".se-inspector-summary strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".assistant-title",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 16.14,
+          "text": "智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome h2",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 16.14,
+          "text": "Hi，我是您的智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome > p",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 5.84,
+          "text": "铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，先读取画面理解或音轨转写依据，再预览清单，"
+        },
+        {
+          "selector": ".assistant-understanding-summary",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            247,
+            248,
+            249
+          ],
+          "ratio": 5.5,
+          "text": "检测时间线视频的镜头边界，抽样关键帧生成逐镜画面描述与剪辑依据。不做音频转写，也不改动时间线。"
+        },
+        {
+          "selector": ".assistant-transcript-summary",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            247,
+            248,
+            249
+          ],
+          "ratio": 5.5,
+          "text": "把时间线上有声素材的音轨转成带时间戳的真实语音段落，供「音轨字幕」按声音铺设字幕。不改动任何画面剪辑"
+        },
+        {
+          "selector": ".assistant-edit-group-label",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 5.84,
+          "text": "剪辑工具"
+        },
+        {
+          "selector": ".se-media-filter .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            226,
+            230,
+            247
+          ],
+          "ratio": 5.19,
+          "text": "全部"
+        },
+        {
+          "selector": ".se-inspector .ant-tabs-tab-active .ant-tabs-tab-btn",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            226,
+            230,
+            247
+          ],
+          "ratio": 5.19,
+          "text": "画面"
+        },
+        {
+          "selector": ".project-skill-pack-select .ant-select-content",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "半解说真人短剧"
+        },
+        {
+          "selector": ".project-topbar .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            230,
+            233,
+            248
+          ],
+          "ratio": 5.33,
+          "text": "手动编辑"
+        },
+        {
+          "selector": ".assistant-understanding-head .ant-tag",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            245,
+            245,
+            245
+          ],
+          "ratio": 14.8,
+          "text": "未开始"
+        },
+        {
+          "selector": ".assistant-transcript-head .ant-tag",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            245,
+            245,
+            245
+          ],
+          "ratio": 14.8,
+          "text": "未转写"
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "theme": "dark",
+      "fonts_ready": true,
+      "images_ready": true,
+      "document_width": 1440,
+      "document_height": 900,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "boxes": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1004,
+          "height": 80,
+          "right": 1080,
+          "bottom": 80
+        },
+        ".project-title": {
+          "x": 233,
+          "y": 23,
+          "width": 152.609375,
+          "height": 33,
+          "right": 385.609375,
+          "bottom": 56
+        },
+        ".se-header": {
+          "x": 92,
+          "y": 88,
+          "width": 972,
+          "height": 46,
+          "right": 1064,
+          "bottom": 134
+        },
+        ".se-header-title": {
+          "x": 92,
+          "y": 90,
+          "width": 326,
+          "height": 42,
+          "right": 418,
+          "bottom": 132
+        },
+        ".se-header-actions": {
+          "x": 629,
+          "y": 93,
+          "width": 435,
+          "height": 36,
+          "right": 1064,
+          "bottom": 129
+        },
+        ".se-library": {
+          "x": 92,
+          "y": 146,
+          "width": 272,
+          "height": 450,
+          "right": 364,
+          "bottom": 596
+        },
+        ".se-preview": {
+          "x": 372,
+          "y": 146,
+          "width": 460,
+          "height": 450,
+          "right": 832,
+          "bottom": 596
+        },
+        ".se-preview-well": {
+          "x": 373,
+          "y": 189,
+          "width": 458,
+          "height": 340,
+          "right": 831,
+          "bottom": 529
+        },
+        ".se-stage": {
+          "x": 379,
+          "y": 233.5625,
+          "width": 446,
+          "height": 250.875,
+          "right": 825,
+          "bottom": 484.4375
+        },
+        ".se-inspector": {
+          "x": 840,
+          "y": 146,
+          "width": 224,
+          "height": 450,
+          "right": 1064,
+          "bottom": 596
+        },
+        ".se-inspector .ant-tabs-body-holder": {
+          "x": 841,
+          "y": 301,
+          "width": 222,
+          "height": 294,
+          "right": 1063,
+          "bottom": 595
+        },
+        ".se-timeline": {
+          "x": 92,
+          "y": 608,
+          "width": 972,
+          "height": 276,
+          "right": 1064,
+          "bottom": 884
+        },
+        ".se-timeline-toolbar": {
+          "x": 93,
+          "y": 609,
+          "width": 970,
+          "height": 48,
+          "right": 1063,
+          "bottom": 657
+        },
+        ".se-track-labels": {
+          "x": 93,
+          "y": 657,
+          "width": 128,
+          "height": 192,
+          "right": 221,
+          "bottom": 849
+        },
+        ".se-track-text": {
+          "x": 93,
+          "y": 689,
+          "width": 127,
+          "height": 44,
+          "right": 220,
+          "bottom": 733
+        },
+        ".se-track-video": {
+          "x": 93,
+          "y": 733,
+          "width": 127,
+          "height": 58,
+          "right": 220,
+          "bottom": 791
+        },
+        ".se-track-audio": {
+          "x": 93,
+          "y": 791,
+          "width": 127,
+          "height": 54,
+          "right": 220,
+          "bottom": 845
+        }
+      },
+      "inspector_overflow": "auto",
+      "contrast": [
+        {
+          "selector": ".se-header h2",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            15,
+            17,
+            21
+          ],
+          "ratio": 17.29,
+          "text": "智能剪辑"
+        },
+        {
+          "selector": ".se-save-status",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            15,
+            17,
+            21
+          ],
+          "ratio": 7.57,
+          "text": "已保存"
+        },
+        {
+          "selector": ".se-library .se-panel-heading strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "素材库6"
+        },
+        {
+          "selector": ".se-asset-name",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".se-library-hint",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 6.98,
+          "text": "双击或拖动素材到时间线"
+        },
+        {
+          "selector": ".se-track-label span",
+          "color": "rgb(192, 199, 208)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 10.22,
+          "text": "文字"
+        },
+        {
+          "selector": ".se-timeline-title strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "时间线"
+        },
+        {
+          "selector": ".se-timeline-footer",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 6.98,
+          "text": "5 个片段 · 24.00 秒空格 播放 / 暂停 · S 拆分 · 拖动片段两端裁切"
+        },
+        {
+          "selector": ".se-property > label",
+          "color": "rgb(192, 199, 208)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 10.22,
+          "text": "缩放"
+        },
+        {
+          "selector": ".se-inspector-summary strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".assistant-title",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 13.97,
+          "text": "智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome h2",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 13.97,
+          "text": "Hi，我是您的智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome > p",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 6.51,
+          "text": "铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，先读取画面理解或音轨转写依据，再预览清单，"
+        },
+        {
+          "selector": ".assistant-understanding-summary",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            31,
+            32,
+            34
+          ],
+          "ratio": 6.84,
+          "text": "检测时间线视频的镜头边界，抽样关键帧生成逐镜画面描述与剪辑依据。不做音频转写，也不改动时间线。"
+        },
+        {
+          "selector": ".assistant-transcript-summary",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            31,
+            32,
+            34
+          ],
+          "ratio": 6.84,
+          "text": "把时间线上有声素材的音轨转成带时间戳的真实语音段落，供「音轨字幕」按声音铺设字幕。不改动任何画面剪辑"
+        },
+        {
+          "selector": ".assistant-edit-group-label",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 6.51,
+          "text": "剪辑工具"
+        },
+        {
+          "selector": ".se-media-filter .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            46,
+            52,
+            75
+          ],
+          "ratio": 6.19,
+          "text": "全部"
+        },
+        {
+          "selector": ".se-inspector .ant-tabs-tab-active .ant-tabs-tab-btn",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            46,
+            52,
+            75
+          ],
+          "ratio": 6.19,
+          "text": "画面"
+        },
+        {
+          "selector": ".project-skill-pack-select .ant-select-content",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            30,
+            34,
+            41
+          ],
+          "ratio": 14.6,
+          "text": "半解说真人短剧"
+        },
+        {
+          "selector": ".project-topbar .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            34,
+            38,
+            58
+          ],
+          "ratio": 7.54,
+          "text": "手动编辑"
+        },
+        {
+          "selector": ".assistant-understanding-head .ant-tag",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            32,
+            37,
+            45
+          ],
+          "ratio": 13.86,
+          "text": "未开始"
+        },
+        {
+          "selector": ".assistant-transcript-head .ant-tag",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            32,
+            37,
+            45
+          ],
+          "ratio": 13.86,
+          "text": "未转写"
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1672,
+        "height": 941
+      },
+      "dpr": 1,
+      "theme": "light",
+      "fonts_ready": true,
+      "images_ready": true,
+      "document_width": 1672,
+      "document_height": 941,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "boxes": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1196,
+          "height": 80,
+          "right": 1272,
+          "bottom": 80
+        },
+        ".project-title": {
+          "x": 233,
+          "y": 23,
+          "width": 152.609375,
+          "height": 33,
+          "right": 385.609375,
+          "bottom": 56
+        },
+        ".se-header": {
+          "x": 92,
+          "y": 88,
+          "width": 1164,
+          "height": 46,
+          "right": 1256,
+          "bottom": 134
+        },
+        ".se-header-title": {
+          "x": 92,
+          "y": 90,
+          "width": 380,
+          "height": 42,
+          "right": 472,
+          "bottom": 132
+        },
+        ".se-header-actions": {
+          "x": 813,
+          "y": 93,
+          "width": 443,
+          "height": 36,
+          "right": 1256,
+          "bottom": 129
+        },
+        ".se-library": {
+          "x": 92,
+          "y": 146,
+          "width": 328,
+          "height": 491,
+          "right": 420,
+          "bottom": 637
+        },
+        ".se-preview": {
+          "x": 428,
+          "y": 146,
+          "width": 564,
+          "height": 491,
+          "right": 992,
+          "bottom": 637
+        },
+        ".se-preview-well": {
+          "x": 429,
+          "y": 189,
+          "width": 562,
+          "height": 381,
+          "right": 991,
+          "bottom": 570
+        },
+        ".se-stage": {
+          "x": 435,
+          "y": 224.8125,
+          "width": 550,
+          "height": 309.375,
+          "right": 985,
+          "bottom": 534.1875
+        },
+        ".se-inspector": {
+          "x": 1000,
+          "y": 146,
+          "width": 256,
+          "height": 491,
+          "right": 1256,
+          "bottom": 637
+        },
+        ".se-inspector .ant-tabs-body-holder": {
+          "x": 1001,
+          "y": 301,
+          "width": 254,
+          "height": 335,
+          "right": 1255,
+          "bottom": 636
+        },
+        ".se-timeline": {
+          "x": 92,
+          "y": 649,
+          "width": 1164,
+          "height": 276,
+          "right": 1256,
+          "bottom": 925
+        },
+        ".se-timeline-toolbar": {
+          "x": 93,
+          "y": 650,
+          "width": 1162,
+          "height": 48,
+          "right": 1255,
+          "bottom": 698
+        },
+        ".se-track-labels": {
+          "x": 93,
+          "y": 698,
+          "width": 140,
+          "height": 192,
+          "right": 233,
+          "bottom": 890
+        },
+        ".se-track-text": {
+          "x": 93,
+          "y": 730,
+          "width": 139,
+          "height": 44,
+          "right": 232,
+          "bottom": 774
+        },
+        ".se-track-video": {
+          "x": 93,
+          "y": 774,
+          "width": 139,
+          "height": 58,
+          "right": 232,
+          "bottom": 832
+        },
+        ".se-track-audio": {
+          "x": 93,
+          "y": 832,
+          "width": 139,
+          "height": 54,
+          "right": 232,
+          "bottom": 886
+        }
+      },
+      "inspector_overflow": "auto",
+      "contrast": [
+        {
+          "selector": ".se-header h2",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            248,
+            249,
+            250
+          ],
+          "ratio": 16.55,
+          "text": "智能剪辑"
+        },
+        {
+          "selector": ".se-save-status",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            248,
+            249,
+            250
+          ],
+          "ratio": 4.59,
+          "text": "已保存"
+        },
+        {
+          "selector": ".se-library .se-panel-heading strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "素材库6"
+        },
+        {
+          "selector": ".se-asset-name",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".se-library-hint",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 4.83,
+          "text": "双击或拖动素材到时间线"
+        },
+        {
+          "selector": ".se-track-label span",
+          "color": "rgb(75, 85, 99)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 7.56,
+          "text": "文字"
+        },
+        {
+          "selector": ".se-timeline-title strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "时间线"
+        },
+        {
+          "selector": ".se-timeline-footer",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 4.83,
+          "text": "5 个片段 · 24.00 秒空格 播放 / 暂停 · S 拆分 · 拖动片段两端裁切"
+        },
+        {
+          "selector": ".se-property > label",
+          "color": "rgb(75, 85, 99)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 7.56,
+          "text": "缩放"
+        },
+        {
+          "selector": ".se-inspector-summary strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".assistant-title",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 16.14,
+          "text": "智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome h2",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 16.14,
+          "text": "Hi，我是您的智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome > p",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 5.84,
+          "text": "铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，先读取画面理解或音轨转写依据，再预览清单，"
+        },
+        {
+          "selector": ".assistant-understanding-summary",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            247,
+            248,
+            249
+          ],
+          "ratio": 5.5,
+          "text": "检测时间线视频的镜头边界，抽样关键帧生成逐镜画面描述与剪辑依据。不做音频转写，也不改动时间线。"
+        },
+        {
+          "selector": ".assistant-transcript-summary",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            247,
+            248,
+            249
+          ],
+          "ratio": 5.5,
+          "text": "把时间线上有声素材的音轨转成带时间戳的真实语音段落，供「音轨字幕」按声音铺设字幕。不改动任何画面剪辑"
+        },
+        {
+          "selector": ".assistant-edit-group-label",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 5.84,
+          "text": "剪辑工具"
+        },
+        {
+          "selector": ".se-media-filter .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            226,
+            230,
+            247
+          ],
+          "ratio": 5.19,
+          "text": "全部"
+        },
+        {
+          "selector": ".se-inspector .ant-tabs-tab-active .ant-tabs-tab-btn",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            226,
+            230,
+            247
+          ],
+          "ratio": 5.19,
+          "text": "画面"
+        },
+        {
+          "selector": ".project-skill-pack-select .ant-select-content",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "半解说真人短剧"
+        },
+        {
+          "selector": ".project-topbar .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            230,
+            233,
+            248
+          ],
+          "ratio": 5.33,
+          "text": "手动编辑"
+        },
+        {
+          "selector": ".assistant-understanding-head .ant-tag",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            245,
+            245,
+            245
+          ],
+          "ratio": 14.8,
+          "text": "未开始"
+        },
+        {
+          "selector": ".assistant-transcript-head .ant-tag",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            245,
+            245,
+            245
+          ],
+          "ratio": 14.8,
+          "text": "未转写"
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1672,
+        "height": 941
+      },
+      "dpr": 1,
+      "theme": "dark",
+      "fonts_ready": true,
+      "images_ready": true,
+      "document_width": 1672,
+      "document_height": 941,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "boxes": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1196,
+          "height": 80,
+          "right": 1272,
+          "bottom": 80
+        },
+        ".project-title": {
+          "x": 233,
+          "y": 23,
+          "width": 152.609375,
+          "height": 33,
+          "right": 385.609375,
+          "bottom": 56
+        },
+        ".se-header": {
+          "x": 92,
+          "y": 88,
+          "width": 1164,
+          "height": 46,
+          "right": 1256,
+          "bottom": 134
+        },
+        ".se-header-title": {
+          "x": 92,
+          "y": 90,
+          "width": 380,
+          "height": 42,
+          "right": 472,
+          "bottom": 132
+        },
+        ".se-header-actions": {
+          "x": 813,
+          "y": 93,
+          "width": 443,
+          "height": 36,
+          "right": 1256,
+          "bottom": 129
+        },
+        ".se-library": {
+          "x": 92,
+          "y": 146,
+          "width": 328,
+          "height": 491,
+          "right": 420,
+          "bottom": 637
+        },
+        ".se-preview": {
+          "x": 428,
+          "y": 146,
+          "width": 564,
+          "height": 491,
+          "right": 992,
+          "bottom": 637
+        },
+        ".se-preview-well": {
+          "x": 429,
+          "y": 189,
+          "width": 562,
+          "height": 381,
+          "right": 991,
+          "bottom": 570
+        },
+        ".se-stage": {
+          "x": 435,
+          "y": 224.8125,
+          "width": 550,
+          "height": 309.375,
+          "right": 985,
+          "bottom": 534.1875
+        },
+        ".se-inspector": {
+          "x": 1000,
+          "y": 146,
+          "width": 256,
+          "height": 491,
+          "right": 1256,
+          "bottom": 637
+        },
+        ".se-inspector .ant-tabs-body-holder": {
+          "x": 1001,
+          "y": 301,
+          "width": 254,
+          "height": 335,
+          "right": 1255,
+          "bottom": 636
+        },
+        ".se-timeline": {
+          "x": 92,
+          "y": 649,
+          "width": 1164,
+          "height": 276,
+          "right": 1256,
+          "bottom": 925
+        },
+        ".se-timeline-toolbar": {
+          "x": 93,
+          "y": 650,
+          "width": 1162,
+          "height": 48,
+          "right": 1255,
+          "bottom": 698
+        },
+        ".se-track-labels": {
+          "x": 93,
+          "y": 698,
+          "width": 140,
+          "height": 192,
+          "right": 233,
+          "bottom": 890
+        },
+        ".se-track-text": {
+          "x": 93,
+          "y": 730,
+          "width": 139,
+          "height": 44,
+          "right": 232,
+          "bottom": 774
+        },
+        ".se-track-video": {
+          "x": 93,
+          "y": 774,
+          "width": 139,
+          "height": 58,
+          "right": 232,
+          "bottom": 832
+        },
+        ".se-track-audio": {
+          "x": 93,
+          "y": 832,
+          "width": 139,
+          "height": 54,
+          "right": 232,
+          "bottom": 886
+        }
+      },
+      "inspector_overflow": "auto",
+      "contrast": [
+        {
+          "selector": ".se-header h2",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            15,
+            17,
+            21
+          ],
+          "ratio": 17.29,
+          "text": "智能剪辑"
+        },
+        {
+          "selector": ".se-save-status",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            15,
+            17,
+            21
+          ],
+          "ratio": 7.57,
+          "text": "已保存"
+        },
+        {
+          "selector": ".se-library .se-panel-heading strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "素材库6"
+        },
+        {
+          "selector": ".se-asset-name",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".se-library-hint",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 6.98,
+          "text": "双击或拖动素材到时间线"
+        },
+        {
+          "selector": ".se-track-label span",
+          "color": "rgb(192, 199, 208)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 10.22,
+          "text": "文字"
+        },
+        {
+          "selector": ".se-timeline-title strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "时间线"
+        },
+        {
+          "selector": ".se-timeline-footer",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 6.98,
+          "text": "5 个片段 · 24.00 秒空格 播放 / 暂停 · S 拆分 · 拖动片段两端裁切"
+        },
+        {
+          "selector": ".se-property > label",
+          "color": "rgb(192, 199, 208)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 10.22,
+          "text": "缩放"
+        },
+        {
+          "selector": ".se-inspector-summary strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".assistant-title",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 13.97,
+          "text": "智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome h2",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 13.97,
+          "text": "Hi，我是您的智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome > p",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 6.51,
+          "text": "铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，先读取画面理解或音轨转写依据，再预览清单，"
+        },
+        {
+          "selector": ".assistant-understanding-summary",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            31,
+            32,
+            34
+          ],
+          "ratio": 6.84,
+          "text": "检测时间线视频的镜头边界，抽样关键帧生成逐镜画面描述与剪辑依据。不做音频转写，也不改动时间线。"
+        },
+        {
+          "selector": ".assistant-transcript-summary",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            31,
+            32,
+            34
+          ],
+          "ratio": 6.84,
+          "text": "把时间线上有声素材的音轨转成带时间戳的真实语音段落，供「音轨字幕」按声音铺设字幕。不改动任何画面剪辑"
+        },
+        {
+          "selector": ".assistant-edit-group-label",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 6.51,
+          "text": "剪辑工具"
+        },
+        {
+          "selector": ".se-media-filter .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            46,
+            52,
+            75
+          ],
+          "ratio": 6.19,
+          "text": "全部"
+        },
+        {
+          "selector": ".se-inspector .ant-tabs-tab-active .ant-tabs-tab-btn",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            46,
+            52,
+            75
+          ],
+          "ratio": 6.19,
+          "text": "画面"
+        },
+        {
+          "selector": ".project-skill-pack-select .ant-select-content",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            30,
+            34,
+            41
+          ],
+          "ratio": 14.6,
+          "text": "半解说真人短剧"
+        },
+        {
+          "selector": ".project-topbar .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            34,
+            38,
+            58
+          ],
+          "ratio": 7.54,
+          "text": "手动编辑"
+        },
+        {
+          "selector": ".assistant-understanding-head .ant-tag",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            32,
+            37,
+            45
+          ],
+          "ratio": 13.86,
+          "text": "未开始"
+        },
+        {
+          "selector": ".assistant-transcript-head .ant-tag",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            32,
+            37,
+            45
+          ],
+          "ratio": 13.86,
+          "text": "未转写"
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "theme": "light",
+      "fonts_ready": true,
+      "images_ready": true,
+      "document_width": 1920,
+      "document_height": 1080,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "boxes": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1404,
+          "height": 80,
+          "right": 1480,
+          "bottom": 80
+        },
+        ".project-title": {
+          "x": 233,
+          "y": 23,
+          "width": 152.609375,
+          "height": 33,
+          "right": 385.609375,
+          "bottom": 56
+        },
+        ".se-header": {
+          "x": 92,
+          "y": 88,
+          "width": 1372,
+          "height": 46,
+          "right": 1464,
+          "bottom": 134
+        },
+        ".se-header-title": {
+          "x": 92,
+          "y": 90,
+          "width": 380,
+          "height": 42,
+          "right": 472,
+          "bottom": 132
+        },
+        ".se-header-actions": {
+          "x": 1021,
+          "y": 93,
+          "width": 443,
+          "height": 36,
+          "right": 1464,
+          "bottom": 129
+        },
+        ".se-library": {
+          "x": 92,
+          "y": 146,
+          "width": 328,
+          "height": 630,
+          "right": 420,
+          "bottom": 776
+        },
+        ".se-preview": {
+          "x": 428,
+          "y": 146,
+          "width": 772,
+          "height": 630,
+          "right": 1200,
+          "bottom": 776
+        },
+        ".se-preview-well": {
+          "x": 429,
+          "y": 189,
+          "width": 770,
+          "height": 520,
+          "right": 1199,
+          "bottom": 709
+        },
+        ".se-stage": {
+          "x": 435,
+          "y": 235.8125,
+          "width": 758,
+          "height": 426.375,
+          "right": 1193,
+          "bottom": 662.1875
+        },
+        ".se-inspector": {
+          "x": 1208,
+          "y": 146,
+          "width": 256,
+          "height": 630,
+          "right": 1464,
+          "bottom": 776
+        },
+        ".se-inspector .ant-tabs-body-holder": {
+          "x": 1209,
+          "y": 301,
+          "width": 254,
+          "height": 474,
+          "right": 1463,
+          "bottom": 775
+        },
+        ".se-timeline": {
+          "x": 92,
+          "y": 788,
+          "width": 1372,
+          "height": 276,
+          "right": 1464,
+          "bottom": 1064
+        },
+        ".se-timeline-toolbar": {
+          "x": 93,
+          "y": 789,
+          "width": 1370,
+          "height": 48,
+          "right": 1463,
+          "bottom": 837
+        },
+        ".se-track-labels": {
+          "x": 93,
+          "y": 837,
+          "width": 140,
+          "height": 192,
+          "right": 233,
+          "bottom": 1029
+        },
+        ".se-track-text": {
+          "x": 93,
+          "y": 869,
+          "width": 139,
+          "height": 44,
+          "right": 232,
+          "bottom": 913
+        },
+        ".se-track-video": {
+          "x": 93,
+          "y": 913,
+          "width": 139,
+          "height": 58,
+          "right": 232,
+          "bottom": 971
+        },
+        ".se-track-audio": {
+          "x": 93,
+          "y": 971,
+          "width": 139,
+          "height": 54,
+          "right": 232,
+          "bottom": 1025
+        }
+      },
+      "inspector_overflow": "auto",
+      "contrast": [
+        {
+          "selector": ".se-header h2",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            248,
+            249,
+            250
+          ],
+          "ratio": 16.55,
+          "text": "智能剪辑"
+        },
+        {
+          "selector": ".se-save-status",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            248,
+            249,
+            250
+          ],
+          "ratio": 4.59,
+          "text": "已保存"
+        },
+        {
+          "selector": ".se-library .se-panel-heading strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "素材库6"
+        },
+        {
+          "selector": ".se-asset-name",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".se-library-hint",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 4.83,
+          "text": "双击或拖动素材到时间线"
+        },
+        {
+          "selector": ".se-track-label span",
+          "color": "rgb(75, 85, 99)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 7.56,
+          "text": "文字"
+        },
+        {
+          "selector": ".se-timeline-title strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "时间线"
+        },
+        {
+          "selector": ".se-timeline-footer",
+          "color": "rgb(107, 114, 128)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 4.83,
+          "text": "5 个片段 · 24.00 秒空格 播放 / 暂停 · S 拆分 · 拖动片段两端裁切"
+        },
+        {
+          "selector": ".se-property > label",
+          "color": "rgb(75, 85, 99)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 7.56,
+          "text": "缩放"
+        },
+        {
+          "selector": ".se-inspector-summary strong",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".assistant-title",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 16.14,
+          "text": "智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome h2",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 16.14,
+          "text": "Hi，我是您的智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome > p",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 5.84,
+          "text": "铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，先读取画面理解或音轨转写依据，再预览清单，"
+        },
+        {
+          "selector": ".assistant-understanding-summary",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            247,
+            248,
+            249
+          ],
+          "ratio": 5.5,
+          "text": "检测时间线视频的镜头边界，抽样关键帧生成逐镜画面描述与剪辑依据。不做音频转写，也不改动时间线。"
+        },
+        {
+          "selector": ".assistant-transcript-summary",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            247,
+            248,
+            249
+          ],
+          "ratio": 5.5,
+          "text": "把时间线上有声素材的音轨转成带时间戳的真实语音段落，供「音轨字幕」按声音铺设字幕。不改动任何画面剪辑"
+        },
+        {
+          "selector": ".assistant-edit-group-label",
+          "color": "rgb(98, 101, 107)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 5.84,
+          "text": "剪辑工具"
+        },
+        {
+          "selector": ".se-media-filter .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            226,
+            230,
+            247
+          ],
+          "ratio": 5.19,
+          "text": "全部"
+        },
+        {
+          "selector": ".se-inspector .ant-tabs-tab-active .ant-tabs-tab-btn",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            226,
+            230,
+            247
+          ],
+          "ratio": 5.19,
+          "text": "画面"
+        },
+        {
+          "selector": ".project-skill-pack-select .ant-select-content",
+          "color": "rgb(23, 26, 31)",
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 17.44,
+          "text": "半解说真人短剧"
+        },
+        {
+          "selector": ".project-topbar .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.236863 0.321961 0.791569)",
+          "background": [
+            230,
+            233,
+            248
+          ],
+          "ratio": 5.33,
+          "text": "手动编辑"
+        },
+        {
+          "selector": ".assistant-understanding-head .ant-tag",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            245,
+            245,
+            245
+          ],
+          "ratio": 14.8,
+          "text": "未开始"
+        },
+        {
+          "selector": ".assistant-transcript-head .ant-tag",
+          "color": "rgb(31, 33, 36)",
+          "background": [
+            245,
+            245,
+            245
+          ],
+          "ratio": 14.8,
+          "text": "未转写"
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "theme": "dark",
+      "fonts_ready": true,
+      "images_ready": true,
+      "document_width": 1920,
+      "document_height": 1080,
+      "full_page": false,
+      "screenshot_scale": "css",
+      "boxes": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1404,
+          "height": 80,
+          "right": 1480,
+          "bottom": 80
+        },
+        ".project-title": {
+          "x": 233,
+          "y": 23,
+          "width": 152.609375,
+          "height": 33,
+          "right": 385.609375,
+          "bottom": 56
+        },
+        ".se-header": {
+          "x": 92,
+          "y": 88,
+          "width": 1372,
+          "height": 46,
+          "right": 1464,
+          "bottom": 134
+        },
+        ".se-header-title": {
+          "x": 92,
+          "y": 90,
+          "width": 380,
+          "height": 42,
+          "right": 472,
+          "bottom": 132
+        },
+        ".se-header-actions": {
+          "x": 1021,
+          "y": 93,
+          "width": 443,
+          "height": 36,
+          "right": 1464,
+          "bottom": 129
+        },
+        ".se-library": {
+          "x": 92,
+          "y": 146,
+          "width": 328,
+          "height": 630,
+          "right": 420,
+          "bottom": 776
+        },
+        ".se-preview": {
+          "x": 428,
+          "y": 146,
+          "width": 772,
+          "height": 630,
+          "right": 1200,
+          "bottom": 776
+        },
+        ".se-preview-well": {
+          "x": 429,
+          "y": 189,
+          "width": 770,
+          "height": 520,
+          "right": 1199,
+          "bottom": 709
+        },
+        ".se-stage": {
+          "x": 435,
+          "y": 235.8125,
+          "width": 758,
+          "height": 426.375,
+          "right": 1193,
+          "bottom": 662.1875
+        },
+        ".se-inspector": {
+          "x": 1208,
+          "y": 146,
+          "width": 256,
+          "height": 630,
+          "right": 1464,
+          "bottom": 776
+        },
+        ".se-inspector .ant-tabs-body-holder": {
+          "x": 1209,
+          "y": 301,
+          "width": 254,
+          "height": 474,
+          "right": 1463,
+          "bottom": 775
+        },
+        ".se-timeline": {
+          "x": 92,
+          "y": 788,
+          "width": 1372,
+          "height": 276,
+          "right": 1464,
+          "bottom": 1064
+        },
+        ".se-timeline-toolbar": {
+          "x": 93,
+          "y": 789,
+          "width": 1370,
+          "height": 48,
+          "right": 1463,
+          "bottom": 837
+        },
+        ".se-track-labels": {
+          "x": 93,
+          "y": 837,
+          "width": 140,
+          "height": 192,
+          "right": 233,
+          "bottom": 1029
+        },
+        ".se-track-text": {
+          "x": 93,
+          "y": 869,
+          "width": 139,
+          "height": 44,
+          "right": 232,
+          "bottom": 913
+        },
+        ".se-track-video": {
+          "x": 93,
+          "y": 913,
+          "width": 139,
+          "height": 58,
+          "right": 232,
+          "bottom": 971
+        },
+        ".se-track-audio": {
+          "x": 93,
+          "y": 971,
+          "width": 139,
+          "height": 54,
+          "right": 232,
+          "bottom": 1025
+        }
+      },
+      "inspector_overflow": "auto",
+      "contrast": [
+        {
+          "selector": ".se-header h2",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            15,
+            17,
+            21
+          ],
+          "ratio": 17.29,
+          "text": "智能剪辑"
+        },
+        {
+          "selector": ".se-save-status",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            15,
+            17,
+            21
+          ],
+          "ratio": 7.57,
+          "text": "已保存"
+        },
+        {
+          "selector": ".se-library .se-panel-heading strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "素材库6"
+        },
+        {
+          "selector": ".se-asset-name",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".se-library-hint",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 6.98,
+          "text": "双击或拖动素材到时间线"
+        },
+        {
+          "selector": ".se-track-label span",
+          "color": "rgb(192, 199, 208)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 10.22,
+          "text": "文字"
+        },
+        {
+          "selector": ".se-timeline-title strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "时间线"
+        },
+        {
+          "selector": ".se-timeline-footer",
+          "color": "rgb(155, 165, 177)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 6.98,
+          "text": "5 个片段 · 24.00 秒空格 播放 / 暂停 · S 拆分 · 拖动片段两端裁切"
+        },
+        {
+          "selector": ".se-property > label",
+          "color": "rgb(192, 199, 208)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 10.22,
+          "text": "缩放"
+        },
+        {
+          "selector": ".se-inspector-summary strong",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            23,
+            26,
+            32
+          ],
+          "ratio": 15.95,
+          "text": "山间日出.mp4"
+        },
+        {
+          "selector": ".assistant-title",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 13.97,
+          "text": "智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome h2",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 13.97,
+          "text": "Hi，我是您的智能剪辑助手"
+        },
+        {
+          "selector": ".assistant-welcome > p",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 6.51,
+          "text": "铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，先读取画面理解或音轨转写依据，再预览清单，"
+        },
+        {
+          "selector": ".assistant-understanding-summary",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            31,
+            32,
+            34
+          ],
+          "ratio": 6.84,
+          "text": "检测时间线视频的镜头边界，抽样关键帧生成逐镜画面描述与剪辑依据。不做音频转写，也不改动时间线。"
+        },
+        {
+          "selector": ".assistant-transcript-summary",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            31,
+            32,
+            34
+          ],
+          "ratio": 6.84,
+          "text": "把时间线上有声素材的音轨转成带时间戳的真实语音段落，供「音轨字幕」按声音铺设字幕。不改动任何画面剪辑"
+        },
+        {
+          "selector": ".assistant-edit-group-label",
+          "color": "rgb(165, 168, 173)",
+          "background": [
+            35,
+            36,
+            39
+          ],
+          "ratio": 6.51,
+          "text": "剪辑工具"
+        },
+        {
+          "selector": ".se-media-filter .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            46,
+            52,
+            75
+          ],
+          "ratio": 6.19,
+          "text": "全部"
+        },
+        {
+          "selector": ".se-inspector .ant-tabs-tab-active .ant-tabs-tab-btn",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            46,
+            52,
+            75
+          ],
+          "ratio": 6.19,
+          "text": "画面"
+        },
+        {
+          "selector": ".project-skill-pack-select .ant-select-content",
+          "color": "rgb(243, 245, 247)",
+          "background": [
+            30,
+            34,
+            41
+          ],
+          "ratio": 14.6,
+          "text": "半解说真人短剧"
+        },
+        {
+          "selector": ".project-topbar .ant-segmented-item-selected .ant-segmented-item-label",
+          "color": "color(srgb 0.656275 0.704118 0.995294)",
+          "background": [
+            34,
+            38,
+            58
+          ],
+          "ratio": 7.54,
+          "text": "手动编辑"
+        },
+        {
+          "selector": ".assistant-understanding-head .ant-tag",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            32,
+            37,
+            45
+          ],
+          "ratio": 13.86,
+          "text": "未开始"
+        },
+        {
+          "selector": ".assistant-transcript-head .ant-tag",
+          "color": "rgb(242, 243, 244)",
+          "background": [
+            32,
+            37,
+            45
+          ],
+          "ratio": 13.86,
+          "text": "未转写"
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "name": "light-1440 页面身份",
+      "passed": true
+    },
+    {
+      "name": "light-1440 DPR/字体/图片",
+      "passed": true
+    },
+    {
+      "name": "light-1440 视口无横向溢出",
+      "passed": true
+    },
+    {
+      "name": "light-1440 页面高度不挤出视口",
+      "passed": true
+    },
+    {
+      "name": "light-1440 命令栏左右操作无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1440 预览和素材无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1440 属性面板无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1440 时间线和预览无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1440 时间线在视口内",
+      "passed": true
+    },
+    {
+      "name": "light-1440 媒体画布保留完整画幅",
+      "passed": true
+    },
+    {
+      "name": "light-1440 属性内容独立滚动",
+      "passed": true
+    },
+    {
+      "name": "light-1440 22 个文字样本对比度 AA",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "dark-1440 页面身份",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 DPR/字体/图片",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 视口无横向溢出",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 页面高度不挤出视口",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 命令栏左右操作无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 预览和素材无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 属性面板无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 时间线和预览无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 时间线在视口内",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 媒体画布保留完整画幅",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 属性内容独立滚动",
+      "passed": true
+    },
+    {
+      "name": "dark-1440 22 个文字样本对比度 AA",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "light-1672 页面身份",
+      "passed": true
+    },
+    {
+      "name": "light-1672 DPR/字体/图片",
+      "passed": true
+    },
+    {
+      "name": "light-1672 视口无横向溢出",
+      "passed": true
+    },
+    {
+      "name": "light-1672 页面高度不挤出视口",
+      "passed": true
+    },
+    {
+      "name": "light-1672 命令栏左右操作无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1672 预览和素材无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1672 属性面板无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1672 时间线和预览无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1672 时间线在视口内",
+      "passed": true
+    },
+    {
+      "name": "light-1672 媒体画布保留完整画幅",
+      "passed": true
+    },
+    {
+      "name": "light-1672 属性内容独立滚动",
+      "passed": true
+    },
+    {
+      "name": "light-1672 22 个文字样本对比度 AA",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "dark-1672 页面身份",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 DPR/字体/图片",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 视口无横向溢出",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 页面高度不挤出视口",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 命令栏左右操作无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 预览和素材无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 属性面板无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 时间线和预览无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 时间线在视口内",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 媒体画布保留完整画幅",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 属性内容独立滚动",
+      "passed": true
+    },
+    {
+      "name": "dark-1672 22 个文字样本对比度 AA",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "light-1920 页面身份",
+      "passed": true
+    },
+    {
+      "name": "light-1920 DPR/字体/图片",
+      "passed": true
+    },
+    {
+      "name": "light-1920 视口无横向溢出",
+      "passed": true
+    },
+    {
+      "name": "light-1920 页面高度不挤出视口",
+      "passed": true
+    },
+    {
+      "name": "light-1920 命令栏左右操作无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1920 预览和素材无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1920 属性面板无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1920 时间线和预览无重叠",
+      "passed": true
+    },
+    {
+      "name": "light-1920 时间线在视口内",
+      "passed": true
+    },
+    {
+      "name": "light-1920 媒体画布保留完整画幅",
+      "passed": true
+    },
+    {
+      "name": "light-1920 属性内容独立滚动",
+      "passed": true
+    },
+    {
+      "name": "light-1920 22 个文字样本对比度 AA",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "dark-1920 页面身份",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 DPR/字体/图片",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 视口无横向溢出",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 页面高度不挤出视口",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 命令栏左右操作无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 预览和素材无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 属性面板无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 时间线和预览无重叠",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 时间线在视口内",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 媒体画布保留完整画幅",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 属性内容独立滚动",
+      "passed": true
+    },
+    {
+      "name": "dark-1920 22 个文字样本对比度 AA",
+      "passed": true,
+      "detail": []
+    }
+  ],
+  "passed": 72,
+  "total": 72
+}

@@ -7,6 +7,8 @@ from typing import Any
 from ..db import execute_sql, now_str, query_all, query_one
 from ..models import ProjectCreateRequest, ProjectItem, ProjectUpdateRequest
 
+UNTITLED_PROJECT_NAMES = {"未命名导演工程", "未命名工程", "未命名项目", "未命名剧本", "AI 生成剧本"}
+
 
 def _settings_and_extra(
     settings: dict[str, Any] | None,
@@ -69,10 +71,14 @@ class ProjectService:
         name = payload.name.strip()
         if not name:
             raise ValueError("项目名称不能为空")
+        if len(name) > 255:
+            raise ValueError("项目名称最多 255 个字符")
 
         project_id = f"proj-{uuid.uuid4().hex[:16]}"
         timestamp = now_str()
         settings, _extra = _settings_and_extra(payload.settings, payload.extra)
+        if name not in UNTITLED_PROJECT_NAMES:
+            settings.setdefault("extra", {})["name_source"] = "manual"
         settings_str = json.dumps(settings, ensure_ascii=False) if settings else "{}"
 
         execute_sql(
@@ -104,6 +110,8 @@ class ProjectService:
         name = payload.name.strip() if payload.name is not None else current.name
         if not name:
             raise ValueError("项目名称不能为空")
+        if len(name) > 255:
+            raise ValueError("项目名称最多 255 个字符")
 
         description = payload.description if payload.description is not None else current.description
         cover_url = payload.cover_url if payload.cover_url is not None else current.cover_url
@@ -111,7 +119,7 @@ class ProjectService:
         timestamp = now_str()
 
         settings_str = None
-        if payload.settings is not None or payload.extra is not None:
+        if payload.settings is not None or payload.extra is not None or payload.name is not None or payload.description is not None:
             current_settings = current.settings if isinstance(current.settings, dict) else {}
             current_extra = current.extra if isinstance(current.extra, dict) else {}
             merged, _extra = _settings_and_extra(
@@ -120,6 +128,10 @@ class ProjectService:
                 current_settings=current_settings,
                 current_extra=current_extra,
             )
+            if payload.name is not None:
+                merged.setdefault("extra", {})["name_source"] = "manual"
+            if payload.description is not None:
+                merged.setdefault("extra", {})["description_source"] = "manual"
             settings_str = json.dumps(merged, ensure_ascii=False)
 
         if settings_str is not None:
@@ -145,6 +157,44 @@ class ProjectService:
         if not updated:
             raise RuntimeError("更新项目失败")
         return updated
+
+    @classmethod
+    def sync_generated_script_info(cls, project_id: str, script: dict[str, Any]) -> None:
+        """Use the generated script's title/summary without replacing a user's edits."""
+        title = str(script.get("title") or "").strip()
+        if not title or title in UNTITLED_PROJECT_NAMES or len(title) > 255:
+            return
+        row = query_one("SELECT * FROM ai_projects WHERE id = %s", (project_id,))
+        if not row:
+            return
+        current = cls._to_project_item(row)
+        settings = dict(current.settings or {})
+        extra = dict(current.extra or {})
+        name = current.name
+        description = current.description or ""
+        if extra.get("name_source") != "manual" and (
+            name in UNTITLED_PROJECT_NAMES
+            or (extra.get("name_source") == "ai" and name == extra.get("ai_generated_name"))
+        ):
+            name = title
+            extra.update(name_source="ai", ai_generated_name=title)
+        summary = str(script.get("summary") or "").strip()
+        if summary and extra.get("description_source") != "manual" and (
+            not description or description == extra.get("ai_generated_description")
+        ):
+            description = summary
+            extra.update(description_source="ai", ai_generated_description=summary)
+        if name == current.name and description == (current.description or ""):
+            return
+        settings["extra"] = extra
+        # Optimistic guard: a concurrent manual edit or settings change wins.
+        execute_sql(
+            """UPDATE ai_projects SET name=%s, description=%s, settings_json=%s, updated_at=%s
+               WHERE id=%s AND name=%s AND (description=%s OR (description IS NULL AND %s IS NULL))
+               AND (settings_json=%s OR (settings_json IS NULL AND %s IS NULL))""",
+            (name, description, json.dumps(settings, ensure_ascii=False), now_str(), project_id,
+             current.name, row.get("description"), row.get("description"), row.get("settings_json"), row.get("settings_json")),
+        )
 
     @classmethod
     def delete_project(cls, project_id: str) -> bool:

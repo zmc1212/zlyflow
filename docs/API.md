@@ -1,6 +1,177 @@
 # ZLY AI Video Studio API 文档
 
-更新日期：2026-09-19
+## 2026-10-24 二采先预览一采
+
+开启 H3 的 `refine_enabled` 与 `refine_preview` 后，任务先完成 0.4 MP 一采并停在 `awaiting_refine`，`result_url` 指向可播放的一采预览。确认与保留使用以下接口，均要求现有登录权限：
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/jobs/{job_id}/refine/confirm` | 创作任务：校验唯一生成项处于 `awaiting_refine` 且保存了续跑工作流，改回 `queued`（阶段「等待二采精修」），用同一 seed 只跑二采。返回 202 `JobResponse`；状态不符或工作流缺失返回 409。 |
+| `POST /api/jobs/{job_id}/refine/skip` | 创作任务：把一采输出直接作为最终结果，状态改为 `succeeded`，清理续跑状态。返回 202 `JobResponse`。 |
+| `POST /api/projects/{project_id}/jobs/{job_id}/refine/confirm` | 工坊逐镜/选中镜：原子校验并提交 `refine_continuation` 中保存的续跑工作流，避免重复点击。 |
+| `POST /api/projects/{project_id}/jobs/{job_id}/refine/skip` | 工坊逐镜/选中镜：把预览写为镜头成片并结束任务。多段预览未合并时先合并；无法合并且未配置七牛云时返回 400。 |
+
+`awaiting_refine` 任务可取消，但不会在 worker 启动时自动恢复。确认二采后续跑状态标记为 `confirmed`，worker 只在该状态下复用续跑图；一采失败、取消或中断后的重试仍从一采预览开始。整集直出（`render_scope=episode`）不支持先预览，提交时返回 400。外部响应不包含内部 `refine_state`；旧任务没有 `refine_preview` 时按关闭处理。
+
+## 2026-10-23 MCP 本地剧目接入
+
+以下工具使用现有 Streamable HTTP `/api/mcp` 和 OAuth `studio:edit`，不是新增匿名 HTTP 接口。
+
+| 工具 | 参数 | 返回与边界 |
+|---|---|---|
+| `studio_prepare_edit_episode` | `project_name, episode_code, title?, version="v001", script_text?` | 唯一准确剧名的 `project_id` 与按集号/版本隔离的 `sequence_id`；缺失时创建，存在时复用，不覆盖旧剧本；同名歧义报错 |
+| `studio_import_edit_media` | `project_id, sequence_id, paths[], revision, document_name?` | 仅引用明确本机文件，返回按输入顺序排列的 `asset_ids`、新 `revision`、新增/复用数量；保留现有片段，任一文件失败不保存，CAS 冲突 409 |
+
+接续调用：读取时间线 → 导入清单 → 预览 `video_arrange(asset_ids=...)` → 确认 → 可选精剪/真实音轨字幕 → `studio_export_edit(output_dir=...)` → 查询成功导出。目录权限、账号隔离与既有本机素材规则一致。
+
+## 2026-10-23 MCP 智能剪辑工具
+
+在既有生成能力上新增 `studio:edit` 作用域和 11 个剪辑/导出工具，MCP 客户端可读取导演台工程/分集、预览并确认自动铺轨、自动字幕、对白精剪、成片速剪、高光合集、引流剪辑，查询或提交音轨转写，向文字轨添加标题/字幕，并把成片导出到指定本机目录。工具总数 20；旧的只含 `studio:read studio:generate` 的授权需重新授权才能获得剪辑权限。
+
+| 工具 | 作用域 | 参数与说明 |
+| --- | --- | --- |
+| `studio_list_edit_projects` | `studio:read` | 列出可剪辑的导演工程；每个工程返回 `main`（自由剪辑）和分集 `sequence_id`。 |
+| `studio_get_timeline` | `studio:read` | `project_id,sequence_id`；返回 `revision`、名称、设置、总时长、素材、片段和 `analysis`（画面与音轨摘要）。预览/确认前必须先读取。 |
+| `studio_get_transcript` | `studio:read` | `project_id,sequence_id`；返回音轨转写状态、带时间戳段落和摘要，不发起转写。 |
+| `studio_start_transcript` | `studio:edit` | `project_id,sequence_id`，可选 `force`；提取有声素材并提交异步转写，按音频秒数消耗转写服务，调用前需用户同意。 |
+| `studio_preview_edit` | `studio:edit` | `project_id,sequence_id,operation`，可选 `revision,asset_ids,strategy`；生成待确认方案，不写时间线。`operation` 同内置助手：`video_arrange`、`subtitle_arrange`、`audio_subtitle`、`dialogue_cut`、`quick_cut`、`highlight_cut`、`hook_cut`；`asset_ids` 仅用于 `video_arrange`，`strategy` 仅用于 `hook_cut`（`conflict_3s`、`climax_only`、`quote_open`、`ending_hook`、`trailer`）。 |
+| `studio_get_edit_action` | `studio:read` | `project_id,sequence_id,action_id`；查询方案清单、状态与结果，仅限本人创建的动作。 |
+| `studio_reorder_edit` | `studio:edit` | `project_id,sequence_id,action_id,asset_ids`；按新顺序调整待确认的智能铺轨清单，不写时间线。 |
+| `studio_confirm_edit` | `studio:edit` | `project_id,sequence_id,action_id`；原子执行方案并写入自己的时间线；幂等，重复确认返回同一结果。 |
+| `studio_add_text` | `studio:edit` | `project_id,sequence_id,text`，可选 `preset`（`title`/`subtitle`）、`start`、`duration`、`font_size`、`color`、`x`、`y`；直接写入文字轨。文字最多 1000 字，时间与颜色会校验，文字轨时间重叠返回冲突；不改动画面和音频。 |
+| `studio_export_edit` | `studio:edit` | `project_id,sequence_id`，可选 `output_dir`、`quality`（720/1080，默认 1080）；把已保存的时间线导出为 MP4。`output_dir` 为服务器本机绝对文件夹路径，留空写入 `data/exports/smart-edit/`；管理员/超管可写任意可创建目录，员工仅限 `ZLY_AI_VIDEO_STUDIO_LOCAL_MEDIA_ROOTS` 内。返回 `{ id, status, progress, output_path, download_url }`，异步执行。 |
+| `studio_get_edit_export` | `studio:read` | `project_id,job_id`；查询导出进度、成片本机路径 `output_path`、`download_url` 与错误；仅任务所属账号可读。 |
+
+行为与错误：
+
+- 时间线按账号隔离；工程和分集本身沿用导演台的共享可见性，但方案、动作和文字修改只属于当前令牌绑定的账号。其他账号的动作按不存在处理（404）。
+- `studio_preview_edit` 与 `studio_reorder_edit` 不修改时间线；只有 `studio_confirm_edit` 会执行方案。`studio_add_text` 是直接写入，不经过预览。
+- 写入使用工程行锁、时间线行锁和 revision CAS；时间线已被其他操作推进时返回 409，需重新读取后再操作。
+- 参数错误返回 400，方案/工程/动作不存在或无权访问返回 404，状态冲突（过期、已执行、运行中）返回 409；智能剪辑助手或 ASR 未启用返回 503。
+- 音轨转写是显式外发与计费动作，MCP 客户端应先向用户说明并取得同意；`studio_get_transcript` 只读，不会触发费用。
+- 导出使用已保存的时间线快照，不修改工程；指定 `output_dir` 时必须是服务器本机绝对路径，路径不存在会自动创建，文件名由工程名 + 时间戳 + 任务号后缀组成，避免覆盖。目标目录需可写；非管理员越出允许目录返回 400。
+
+## 2026-10-21 MCP 连接（Codex / Cursor）
+
+MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP（JSON 响应），鉴权为 OAuth 2.1 Bearer Token。MCP 客户端先在 `/.well-known/oauth-protected-resource/api/mcp` 与 `/.well-known/oauth-authorization-server/api/mcp/oauth` 读取发现元数据，再经动态注册、PKCE(S256) 授权码和令牌交换接入。所有工具调用只作用于令牌绑定账号自己的数据；管理员也没有跨账号能力。
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `GET /.well-known/oauth-protected-resource/api/mcp` | 返回 `resource`、授权服务器、`studio:read` / `studio:generate` 作用域和 Bearer 头方式。 |
+| `GET /.well-known/oauth-authorization-server/api/mcp/oauth` | 返回授权、令牌、注册、撤销端点及能力；允许匿名客户端和 `client_secret_post/basic`。 |
+| `POST /api/mcp/oauth/register` | 动态客户端注册；回调地址必须是 HTTPS 或 `127.0.0.1`/`localhost`/`::1` 回环 HTTP，最多 10 个。 |
+| `GET/POST /api/mcp/oauth/authorize` | 创建授权请求并跳转工作台 `/mcp/authorize?request_id=...` 等待账号确认；`resource` 必须等于当前 MCP 地址。 |
+| `POST /api/mcp/oauth/token` | `authorization_code` 或 `refresh_token` 换取令牌；刷新每次轮换，重用旧刷新令牌会撤销整个授权。 |
+| `POST /api/mcp/oauth/revoke` | 按 RFC 7009 撤销访问或刷新令牌，并撤销其授权连接。 |
+| `POST /api/mcp` | MCP JSON-RPC 入口；`Authorization: Bearer <access_token>`。 |
+
+浏览器侧接口沿用登录 Cookie，写操作需 `X-CSRF-Token`：
+
+| 方法与路径（前缀 `/api/mcp`） | 行为 |
+| --- | --- |
+| `GET /info` | 返回 MCP 是否启用、对外地址、传输方式和作用域；未配置地址时含可读原因。 |
+| `GET /connections` | 列出自己的授权连接：客户端名、作用域、创建/最近使用/过期时间和状态。 |
+| `DELETE /connections/{id}` | 撤销自己的授权连接；不存在或非本人返回 404。 |
+| `GET /authorization-requests/{request_id}` | 授权页读取客户端、账号、回调和作用域；过期/已用返回 410，绑定其他账号返回 403。 |
+| `POST /authorization-requests/{request_id}` | JSON `{allow:boolean}`；允许后返回带 `code` 的客户端回调地址，拒绝返回 `error=access_denied`。 |
+| `GET/POST /references` | 列出或上传参考图；POST 为 multipart `file`，仅 PNG/JPEG/WebP，单张 ≤ 50 MB，返回 201。 |
+| `GET /references/{id}/preview` | 返回自己的参考图二进制，禁止缓存。 |
+| `DELETE /references/{id}` | 删除自己的上传参考图；正在提交到任务时返回 409。 |
+| `GET /generated-images` | 列出自己最近任务中可复制的生成图片，最多 100 张。 |
+| `POST /references/from-output` | JSON `{job_id,generation_item_id,output_index}`，把自己的生成图片复制为参考图，返回 201。 |
+
+工具：
+
+| 工具 | 作用域 | 参数与说明 |
+| --- | --- | --- |
+| `studio_list_workflows` | `studio:read` | 可选 `media_type=image\|video`；只返回工作流摘要。 |
+| `studio_get_workflow` | `studio:read` | `workflow_id`；返回公开参数、默认值、约束、参考图数量与顺序。 |
+| `studio_list_reference_assets` | `studio:read` | 列出自己的参考图 ID、名称、尺寸和预览地址。 |
+| `studio_create_image` | `studio:generate` | `workflow_id,prompt,request_id`，可选 `options,reference_asset_ids,negative_prompt,image_size,title`；返回任务摘要。 |
+| `studio_create_video` | `studio:generate` | `workflow_id,prompt,request_id`，可选 `options,reference_asset_ids,title`；任务异步执行。 |
+| `studio_list_jobs` | `studio:read` | `limit` 默认 20，最大 100；只返回自己的任务。 |
+| `studio_get_job` | `studio:read` | `job_id`；返回状态、阶段、进度、生成项和创作参数。 |
+| `studio_get_results` | `studio:read` | `job_id`；返回成功输出与 5 分钟下载链接，部分失败也会返回成功项；过期后重新调用。 |
+| `studio_cancel_job` | `studio:generate` | `job_id`；停止自己的排队中/生成中任务。 |
+
+`request_id` 为 1–128 字符的客户端幂等键。同一账号用相同 `request_id` 和相同参数重试返回原任务；参数不同返回 409。`options` 只接受 `studio_get_workflow` 返回的参数，内部参数会被拒绝。参考图顺序对应提示词中的 `<Picture n>`，提交时复制为任务快照。
+
+令牌时效：授权码 5 分钟、待确认请求 10 分钟、访问令牌 1 小时、刷新令牌 30 天。授权码与令牌在库中只存 SHA-256 指纹；撤销连接、禁用账号或账号仍要求修改初始密码时，访问立即失效。
+
+## 2026-10-20 剧本诊断 V1
+
+所有接口要求登录，POST/DELETE还要求`X-CSRF-Token`。诊断记录仅发起账号可读写，越权和不存在均为404；输入错误400/422，状态冲突409。来源项目沿用既有共享项目权限，但必须校验文档归属；不创建工程或修改剧本文档。
+
+| 方法 | 路径（前缀 `/api/script-diagnoses`） | 行为 |
+| --- | --- | --- |
+| GET | `/capabilities` | 返回后端支持扩展名、最多10份、20MB/份、100000字符、LLM可用状态、默认模型和五项维度；不含凭据 |
+| GET | `/source-document?project_id=&document_id=` | 只读来源预览，返回`title,sources`，不发起模型请求 |
+| POST | `/extract` | multipart多项`files`，返回按上传顺序的`sources:[{name,text}|{name,error}]`；不发起模型请求或保存二进制 |
+| POST | 空路径 | JSON `client_request_id,title,sources:[{name,text}]`，或`client_request_id,title,project_id,document_id`（二者互斥）；返回202和完整任务，原子保存输入快照，账号内同幂等键返回同一记录 |
+| GET | `?offset=0&limit=30&document_id=` | 返回`items,total`；可按来源文档筛选，列表不带原文和报告大字段 |
+| GET | `/{id}` | 返回任务状态、阶段、片段数、来源快照、模型、错误及可选报告 |
+| POST | `/{id}/cancel` | 取消排队/执行中的诊断；已结束记录保持原状态 |
+| POST | `/{id}/retry` | JSON `client_request_id`；失败/中断/取消记录用原快照创建新记录，旧来源被删除也可重试 |
+| DELETE | `/{id}` | 删除已结束记录及其快照/报告；活动记录409，须先取消 |
+
+来源快照为`{id,name,text}`数组，文本统一换行并移除首尾空白。报告`schema_version=1`，包含`summary`、`duration`（秒数区间、依据及分集/分段估算）、五项`dimensions`和最多三项`priorities`。维度key为`duration/novelty/pacing/emotion/risk`；问题包含`title,priority,explanation,suggestion,evidence`，优先级为`high/medium/low`。每条引用包含`source_id,block_id,quote,start,end`；偏移是快照正文中的Unicode字符索引，前端须按code point切分，不得按UTF-16直接slice。
+
+状态为`queued/running/succeeded/failed/cancelled/interrupted`。阶段为`queued/analyzing/summarizing`及对应终态；`completed/total`表示已审阅片段数，汇总结束前不标成功。只使用当前已保存的默认LLM，不保存或返回密钥。复制和Markdown导出由前端对同一完整报告生成。
+
+## 2026-10-20 智能剪辑
+
+前缀 `/api/projects/{project_id}/smart-edit`，实现为 `backend/app/media_studio/routers/smart_edit_router.py`。读接口沿用登录，所有写接口必须带 `X-CSRF-Token`。剪辑文档与导出状态按当前账号隔离；单个工程最多 300 素材、200 片段和 30 分钟。`sequence_id=main` 表示自由剪辑，其余使用分集 ID。
+
+| 方法与相对路径 | 请求与响应 |
+| --- | --- |
+| `GET /{sequence_id}` | `{ revision, document, updated_at, draft_key }`；未保存时 revision=0，返回空工程。draft_key 用于账号隔离的浏览器草稿恢复。 |
+| `PUT /{sequence_id}` | `{ revision, document }`；条件更新返回新版本，旧版本或重复首次保存返回 409，不覆盖新内容。 |
+| `GET /{sequence_id}/sources` | 本集采用版视频（优先超分）、无视频时的分镜图、配音，以及项目图片列表。素材 ID 含 Take 地址摘要，避免更新原片时替换旧剪辑。 |
+| `POST /{sequence_id}/upload` | multipart `file`；读取实际时长/宽高/音轨并上传七牛云。单文件 512 MB，超限 413；类型/解码失败 400。 |
+| `POST /{sequence_id}/import-local` | `{ path: string, recursive?: boolean }`；直接引用服务器本机绝对路径的文件或文件夹，不复制、不上传。管理员可导入任意可读路径；员工仅限 `ZLY_AI_VIDEO_STUDIO_LOCAL_MEDIA_ROOTS` 列出的目录（`;` 分隔），且 `project_id` 仍校验归属。返回 `{ path, assets[], skipped[] }`，素材 `url` 为 HMAC 签名的 `/api/local-media/{token}`，并附 `local_path/duration/width/height/has_audio/has_video`。单次最多 200 个文件，按自然顺序；不支持的类型/解码失败进入 `skipped` 并说明原因。 |
+| `GET /api/local-media/{token}` | 按签名地址播放本机引用素材，需登录。令牌绑定绝对路径与服务器凭证密钥，篡改、越界或文件不存在返回 404；`FileResponse` 支持 Range（206）与拖动播放。该地址不能跨实例复用；更换 `credential.key` 后旧地址失效，需重新导入。 |
+| `GET /{sequence_id}/understanding` | 当前账号的视频画面理解记录 `{status,model,progress,message,items[],summary,video_count,analyzed_count,stale,updated_at,finished_at}`；未开始返回 `status=missing`。`items[]` 含 `beat_id/asset_id/name/duration/status/description/camera/subjects/frames/detected_count/sampled_count/shots[]/error`；`shots[]` 为内部镜头，含 `index/start/end/duration/status/description/camera/subjects/frames/error`。`summary` 含 `video_count/analyzed_count/failed_count/detected_shot_count/shot_count/shot_analyzed_count/shot_failed_count`。源视频或时间线变化后 `stale=true`，旧条目不再作为证据。 |
+| `POST /{sequence_id}/understanding` | `{force?:boolean}`；显式触发镜头检测、关键帧抽取与 VLM 画面理解，返回同一记录。FFmpeg 场景阈值 0.32、最短镜头 0.8 秒，检测异常回退整段素材；每条素材最多采样 4 镜、全时间线最多 40 镜，每个采样镜头抽 2 帧（0.2 秒与中点）。逐镜失败隔离并重试 2 次；状态 `running/succeeded/partial/failed/empty`，同范围运行中重复触发 409。需默认 VLM、可下载媒体与服务器 FFmpeg。 |
+| `GET /{sequence_id}/transcript` | 当前账号的音轨转写记录 `{status,model,progress,message,items[],summary,stale,updated_at,finished_at}`；未开始返回 `status=missing`。`items[]` 含 `asset_id/beat_id/name/kind/duration/timeline_start/spans[]/status/segments[]/segment_count/audio_seconds/language/error`；`segments[]` 为 `{id,start,end,text}` 段级时间戳（源素材秒，供应商不提供词级时间戳），`spans[]` 记录该素材在时间线上的 `clip_id/timeline_start/timeline_duration/in_point/speed` 映射。`summary` 含 `media_count/transcribed_count/failed_count/skipped_count/segment_count/audio_seconds`（`audio_seconds` 即按音频秒计费口径的合计）。源视频或时间线变化后读取时置 `stale=true`，旧段落不再作为字幕证据；遗留 running 超过 15 分钟在读取时判为失败。纯静音或无语音为 `status=empty`、`segments=[]`，不回退剧本对白。 |
+| `POST /{sequence_id}/transcript` | `{force?:boolean}`；显式下载时间线上仍在发声的素材（跳过静音与音量≤0 片段）、FFmpeg `-vn -ac 1 -ar 16000` 提取 16k 单声道 WAV 并调用转写，返回同一记录。单次最多 40 个素材、600 秒音频，超限素材标 `skipped` 并说明原因；每素材最多 200 段、200 条 span、单段 400 字；逐素材失败隔离，临时音频用后即删。模型取环境变量 `ZLY_AI_VIDEO_STUDIO_ASR_MODEL`（缺省 `XingChenAGI/XingChenASR-V3.2-Ultra`），复用大模型供应商的 base_url 与 API Key，超时 300 秒。状态 `queued/running/succeeded/partial/empty/failed`，同范围运行中重复触发 409；签名与模型未变且已完成时直接复用旧记录，`force=true` 强制重转。需服务器 FFmpeg/ffprobe 与已启用的大模型凭据。 |
+| `POST /exports/mp4` | `{ document, quality:720\|1080, output_dir?:string }`；202 返回 `{ id, status, progress, output_path }`，完整快照另存于账号隔离文档表。需要 FFmpeg、ffprobe 与中文字体；不再要求七牛云。`output_dir` 留空时保存在服务器 `data/exports/smart-edit/{job_id}.mp4`；指定时必须为服务器本机绝对文件夹路径，自动创建目录并使用工程名 + 时间戳命名。管理员/超管不限目录，员工仅限 `ZLY_AI_VIDEO_STUDIO_LOCAL_MEDIA_ROOTS`。任务记录的 `result_url` 为账号隔离的下载地址。 |
+| `GET /exports/{job_id}` | `{ id, status, progress, result_url, output_path, error_message }`；queued / running / completed / failed。`output_path` 为成片在服务器本机的绝对路径。服务重启中断的遗留任务标记失败，用户可重新导出。 |
+| `GET /exports/{job_id}/file` | 下载已完成的本机导出 MP4，仅任务所属账号可访问；未完成 409，非本人 404。 |
+| `POST /exports/bundle` | `{ document, format:"json"\|"xml"\|"otio"\|"jianying", include_media:boolean }`；返回 ZIP，始终附 `project.zly.json` 和说明；可选打包已用素材，上限 2 GB。 |
+
+工程 `version=1`，`settings` 含 ratio / fps / background，`assets` 含 id / name / kind / url / duration，`clips` 含 id / track / asset_id / start / duration / in_point / speed / volume / muted / opacity / scale / x / y / rotation / effect / fade_in / fade_out / text / color / font_size。track 为 video / audio / text；同轨不得重叠。start 和 duration 为输出秒，须按 fps 对齐；in_point 是原片秒，源区间长度为 duration×speed。详细合法值见后端 `smart_edit_document.py`，服务器拒绝 NaN、Infinity、失效素材引用和超出原片范围。
+
+完整效果以 MP4 / JSON 为准；XML / OTIO 和剪映基础草稿交换基础剪辑，外部软件需重新调整部分文字与特效。素材下载仅限管理员配置的当前媒体域名或本机签名引用，不能利用工程 JSON 访问任意服务或本地文件；bundle 的 `include_media` 内联读取本机文件，导出 MP4 同理，不会把本机路径写入通用任务 payload 之外的响应。
+
+## 2026-10-19 导演台智能助手 V2
+
+新增前缀`/api/director-assistant`，沿用登录与写入CSRF，个人内容按账号校验，内置资源共享。旧AI操作接口不变。实现位于`backend/app/director_assistant/`，增量存储为`sql/015_director_assistant.sql`。
+
+| 路径（相对前缀） | 功能 |
+| --- | --- |
+| `GET /catalog` | 开关、资源、知识库及可选模型 |
+| `GET/POST /sessions`、`GET/PATCH /sessions/{id}` | 会话列表/创建、完整快照/配置更新；PATCH带version |
+| `POST /sessions/{id}/messages` | text、client_message_id；question_id/answer_values/skip可选；按提交标识幂等 |
+| `GET /runs/{id}`、`GET /runs/{id}/events?since=N` | 运行状态、顺序SSE，支持Last-Event-ID |
+| `POST /runs/{id}/cancel`、`POST /runs/{id}/retry` | 停止、重试；重试带新client_message_id |
+| `POST /resources`、`PUT/DELETE /resources/{id}` | 个人资源及不可变版本 |
+| `PUT /resources/{id}/favorite` | 收藏enabled状态 |
+| `POST /resources/import-preview`、`GET /resources/{id}/export` | multipart导入预览、ZIP导出 |
+| `POST /knowledge`、`DELETE /knowledge/{id}` | 知识库创建、删除 |
+| `POST /knowledge/{id}/documents` | multipart上传并异步解析 |
+| `POST /knowledge/documents/{id}/retry`、`DELETE /knowledge/documents/{id}` | 解析重试、移除资料 |
+| `POST /artifacts/{id}/preview` | project_id、mapping生成变更清单，不写工程 |
+| `POST /applications/{id}/apply` | 原子、幂等采纳，并发冲突409 |
+| `GET /artifacts/{id}/export` | 完整Markdown |
+| `POST /media/{id}/confirm` | 明确确认后提交，重复确认返回同一记录 |
+
+选择项`selections`包含skill_id/expert_id（资源版本ID）、knowledge_ids及model_id。消息块为markdown/tool/question/citations/artifact/approval；问题块结构`{type:"question",question:{id,title,type,options,allow_custom}}`，题型single/multiple/text。SSE包含status/text/snapshot/done/terminal，带递增seq。账号外内容404、无效输入400、并发冲突409。LLM管理配置新增可选assistant_models，省略保留已有目录，空列表回退默认模型。
+
+每轮`run.production_recipe`独立冻结工程制作配方；结构化动作`project_read`可带`stage`读取对应规范。绑定了阶段规范时，`create_draft`必须在读取该阶段后执行。它与`selections.skill_id`互不替代，不改变旧制作配方配置。
+
+验证：`python -m unittest backend.tests.test_director_assistant`及前端构建/5173桌面回归。回滚：关闭`ZLY_AI_VIDEO_STUDIO_DIRECTOR_ASSISTANT_V2`并重启，不删数据。详见[助手说明](导演台智能助手V2.md)。
+
+更新日期：2026-10-21（MCP 连接 V1；旧接口章节保留原基线）
 
 ## 使用方式
 
@@ -17,7 +188,7 @@
 ## 通用约定
 
 - 所有业务接口以 `/api` 开头，响应为 JSON，媒体下载接口除外。
-- 除 `/api/health`、`/api/auth/status`、`/api/auth/setup` 和 `/api/auth/login` 外，业务接口都需要 `zly_ai_video_studio_session` HttpOnly Cookie。所有写操作还需要登录响应中的 `csrf_token`，通过 `X-CSRF-Token` 请求头提交。
+- 除 `/api/health`、`/api/auth/status`、`/api/auth/setup` 和 `/api/auth/login` 外，业务接口都需要 `zly_ai_video_studio_session` HttpOnly Cookie。所有写操作还需要登录响应中的 `csrf_token`，通过 `X-CSRF-Token` 请求头提交。例外是 MCP 协议端点：`/api/mcp` 使用 OAuth Bearer Token，`/api/mcp/oauth/*` 与 `/.well-known/oauth-*` 按 OAuth 规范匿名访问；`/api/mcp/info`、连接管理、参考图和授权确认仍走登录 Cookie + CSRF。
 - 本机访问可使用 `http://127.0.0.1:7865`；局域网员工端的目录写入必须通过受信任 HTTPS。不得将 `7865` 直接暴露到公网。
 - 创建任务使用 `multipart/form-data`，不是 JSON；`references` 可重复提交多个图片文件，上传顺序有业务含义。
 - 单张参考图最大 50 MB，且 `Content-Type` 必须为 `image/*`。
@@ -47,9 +218,17 @@
 | `GET` | `/api/jobs` | 按创建时间倒序读取任务列表。 |
 | `GET` | `/api/jobs/{job_id}` | 查询单个任务的进度、状态和输出。 |
 | `POST` | `/api/jobs/{job_id}/cancel` | 停止排队中、生成中或已中断的任务。 |
-| `GET` | `/api/library` | 列出当前用户已成功生成的资源元数据。 |
-| `POST` | `/api/admin/providers/llm/models` | 超级管理员向上游拉取模型目录；硅基流动对照模型广场价格 0 / Free 筛选免费模型。 |
-| `GET` | `/api/admin/providers/vlm` | 超级管理员读取 VLM 视觉模型配置。 |
+| `GET` | `/api/library` | 列出当前用户已成功生成的资源元数据（数组，兼容旧调用；最多读取最近 500 个任务）。 |
+| `GET` | `/api/library/query` | 分页检索作品库媒体：`q`、`kind`、`limit`、`offset` 与精确 `job_id`/`generation_item_id`/`output_index`；返回 `items/total/has_more/counts`。 |
+| `POST` | `/api/mcp` | MCP Streamable HTTP 入口，使用 OAuth Bearer Token；提供 20 个 `studio_*` 工具（含剪辑与成片导出）。 |
+| `GET/POST` | `/api/mcp/oauth/{authorize,register,token,revoke}` | OAuth 2.1 + PKCE 授权、动态注册、令牌与撤销端点；发现元数据见 `/.well-known/oauth-*`。 |
+| `GET` | `/api/mcp/info` | 读取 MCP 启用状态、对外地址、传输方式和作用域。 |
+| `GET/DELETE` | `/api/mcp/connections[/{id}]` | 列出或撤销自己的 MCP 授权连接。 |
+| `GET/POST` | `/api/mcp/references` | 列出或上传自己的 MCP 参考图；单张 ≤ 50 MB。 |
+| `GET/POST` | `/api/mcp/authorization-requests/{request_id}` | 授权页读取待确认请求并提交允许/拒绝。 |
+| `GET` | `/api/admin/providers/model-presets` | 超级管理员读取统一的官方服务预设，无需供应商 Key。`presets` 提供地址、Key/价格来源链接、核对日期及独立的 `chat_models` / `vision_models`，型号 `free=true/false/null` 对应免费/付费/价格未知；当前包含智谱官方。 |
+| `POST` | `/api/admin/providers/llm/models` | 超级管理员向上游拉取模型目录；硅基流动对照模型广场价格 0 / Free 筛选免费模型。智谱官方准确型号可回退到已核对价格，上游明确付费优先；输入和输出同时为零才据价格判为免费。 |
+| `GET` | `/api/admin/providers/vlm` | 超级管理员读取 VLM 视觉模型配置。可选 `llm_base_url` 表示复用开关开启后将使用的 LLM 地址，不含密钥；`base_url` 仍是当前生效地址。 |
 | `PUT` | `/api/admin/providers/vlm` | 超级管理员保存 VLM 视觉模型配置。可选 `use_llm_credentials` 复用 LLM 页 Base URL / Key，模型名仍在本页。 |
 | `POST` | `/api/admin/providers/vlm/test` | 测试 VLM 视觉模型连接。 |
 | `POST` | `/api/admin/providers/vlm/models` | 拉取上游目录并筛选名称含 VL/Vision 的视觉模型。 |
@@ -132,10 +311,11 @@
 | `POST` | `/api/director/recipes/{project_id}/shots/{shot_id}/translate-prompt` | 把镜头中文正文按官方 h3-prompt-writing skill 翻译为英文 H3 正文并返回，不落库。LLM 未配置 503、缺中文正文 422、未知 shot 404。 |
 | `POST` | `/api/projects` | 创建导台2项目。可选 `extra.skill_pack_id` 绑定技能包，写入 `settings_json.extra`。未知 id 返回 400。 |
 | `PUT` | `/api/projects/{project_id}` | 更新导台2项目。可单独提交 `extra` 合并进 `settings.extra`；只改 `settings` 时保留已有 extra。 |
-| `GET` | `/api/projects/{project_id}/documents` | 列出内容库文档。`analysis.episodes[]` 含程序切集结果：`episode_num`、`body`（本集 Markdown）、`shots`（出片镜，含 `duration_sec`）、规划成功时 `shots_source=llm`。进行中的镜头规划带 `shot_plan_job_id`，文档 `status` 为 `planning`。 |
-| `POST` | `/api/projects/{project_id}/documents` | 导入或粘贴剧本文档。JSON：`raw_text`，可选 `filename` / `spine_template` / `visual_style` / `input_mode`（缺省 `paste`）。程序按 `# 第N集` 切集（不改集号），每集写入 `body` 后立刻返回 200；粘贴/文件导入再入队 `shot_plan`，响应带 `shot_plan_job_id`，文档 `status=planning`。`input_mode=ai_pipeline` 不入队。某集规划失败则保留解析器镜头并写入 `analysis.logs`。 |
-| `POST` | `/api/projects/{project_id}/documents/{doc_id}/shot-plan` | 为未规划或规划失败的旧稿入队同一套 `shot_plan` 任务。**202** 返回 `job_id`。AI 流水线或已全部 `shots_source=llm` 返回 400；已有进行中任务返回原 `job_id` 并标 `duplicate`。 |
-| `GET` | `/api/projects/{project_id}/jobs` | 列出项目任务，含 `image_generation` / `video_generation` / `h3_prompt` / `shot_plan` / `ai_pipeline` / `tts_generation`。`shot_plan` 的 `payload.document_id` 用于跳回内容库该文档。 |
+| `GET` | `/api/projects/{project_id}/documents` | 列出内容库文档。`analysis.episodes[]` 含程序切集结果：`episode_num`、`body`（本集 Markdown）、`shots`（出片镜，含 `duration_sec`）、规划成功时 `shots_source=llm`。进行中的镜头规划带 `shot_plan_job_id`，文档 `status` 为 `planning`。导入后未确认画幅时 `status` 为 `awaiting_aspect`，并带 `aspect_hint`（`suggested` / `hits` / `conflicts`）。 |
+| `POST` | `/api/projects/{project_id}/documents` | 导入或粘贴剧本文档。JSON：`raw_text`，可选 `filename` / `spine_template` / `visual_style` / `input_mode`（缺省 `paste`）。程序按 `# 第N集` 切集（不改集号），每集写入 `body` 后立刻返回 200，**不**自动入队 `shot_plan`。需要规划时文档 `status=awaiting_aspect`，响应带 `aspect_hint` 与 `needs_shot_plan`。`input_mode=ai_pipeline` 不规划。 |
+| `POST` | `/api/projects/{project_id}/documents/{doc_id}/shot-plan` | 确认成片画幅后入队 `shot_plan`。JSON 可选 `aspect_ratio`，写入 `settings.extra.workshop_aspect_ratio` 并作为规划权威画幅。**202** 返回 `job_id`。AI 流水线或已全部 `shots_source=llm` 返回 400；已有进行中任务返回原 `job_id` 并标 `duplicate`。 |
+| `GET` | `/api/projects/{project_id}/jobs` | 列出项目任务，含 `image_generation` / `video_generation` / `h3_prompt` / `shot_plan` / `ai_pipeline` / `tts_generation`。列表 `payload` 只保留工坊/表格需要的字段（镜号、状态、结果 URL、精简 `shots`/`stream`），不含草稿、`request_body`、原始 `payload_json`。`shot_plan` 的 `payload.document_id` 用于跳回内容库该文档。 |
+| `GET` | `/api/projects/{project_id}/jobs/{job_id}` | 读取单条任务的完整 `payload`（含草稿、提示词、`request_body`）。不存在 **404**。 |
 | `GET` | `/api/voice-bank` | 读取内置短剧配音声线目录（IndexTTS 官方示例）。 |
 | `GET` | `/api/voice-bank/{preset_id}/audio` | 读取内置声线 wav。未知 id **404**。 |
 | `POST` | `/api/projects/{project_id}/assets/{asset_id}/generate` | 资产生图。JSON `target_type`：`identity` 为角色设定板（16:9、2K、`2048x1152`），不要求已有头像；无外观描述且无原片参考图时 **400**。参考图顺序：原片 > 其他已出图造型（排除当前 look）> 仅当两档都没有时才用旧 `avatar_url`。`avatar` 仍可用但不在界面露出。头像 / 场景 / 道具分辨率仍为 1K。 |
@@ -149,16 +329,17 @@
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/sync` | 从分镜同步台词轨并写回 `beats[].dubbing_lines`。 |
 | `PATCH` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/lines/{line_id}` | 更新单句文本/情绪/强度/语速/混音。改文本会清空已生成音频。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/generate` | 单句或批量入队 `tts_generation`。JSON 可选 `line_id` / `line_ids`；缺省生成本集全部。**202** 返回 `job_id`。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/generate-video` | 按工作流入队整集或逐镜视频。JSON 可带注册表 options，含 `upscale_after`。仅逐镜/选中镜会在原片写入后自动 2x 超分；整集直出不自动超分。**202** 返回 `job_id`。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video` | 单镜入队。可带 `upscale_after`；超分失败仍保留原片。**202**。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/compose` | 拼接各镜 `video_url` 为分集成片。JSON 可选 `mix_dubbing`（缺省 true）：内心/旁白叠到对应镜，`mix=replace` 的开口句静音该镜 H3 原声。半解说包旁白未配音 **400**。**202** 返回 `job_id`。不因 `upscale_after` 自动超分。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale` | 对本镜已成功成片提交独立 2x 超分。原片 `video_url` 不变，结果写入 `upscaled_video_url`。进行中任务 **409**；无成片或相对当前连接 GPU 显存预估过大 **422**。**202** 返回 `job_id`。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/generate-video` | 按工作流入队整集或逐镜视频。JSON 可带注册表 options，全部 H3 工作流支持 `refine_enabled`（开启后一采 0.4 MP）与 `refine_quality`（`1.0` / `2.0` MP，默认 `1.0`）。`upscale_after` 已停用并被忽略，不再自动超分。**202** 返回 `job_id`。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video` | 单镜入队。可带 `refine_enabled` / `refine_quality`，两段式在同一个任务内完成。成功后原片写入 `video_url` 并归档到 `video_takes`（默认采用最新）。**202**。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/compose` | 拼接各镜 `video_url` 为分集成片。JSON 可选 `mix_dubbing`（缺省 true）：内心/旁白叠到对应镜，`mix=replace` 的开口句静音该镜 H3 原声。半解说包旁白未配音 **400**。**202** 返回 `job_id`。拼接片不套用生成期二采，也不自动超分。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/video-takes/adopt` | 采用本镜一条成功成片为正式原片。JSON `{ url }` 或 `{ job_id }`。校验确属本镜 `shot`/`selection` 成功抽卡后写 `video_url`；该 Take 已有 2x 则同步 `upscaled_video_url`，否则清空。采用的那条留在 `video_takes`。不属于本镜 **400**。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale` | 对本镜已成功成片提交独立 2x 超分。原片 `video_url` 不变，结果写入 `upscaled_video_url` 并挂到当前采用 Take，2x 不单独成 Take。进行中任务 **409**；无成片或相对当前连接 GPU 显存预估过大 **422**。**202** 返回 `job_id`。 |
 | `POST` | `/api/projects/{project_id}/jobs/{job_id}/upscale` | 对导演台2「全部任务」里已成功的视频生成任务提交 2x 超分。用该任务 `result_url` 作原片；有关联单镜则写回 Beat。超分任务本身 / 未完成 / 多镜 selection **422**；同一成片进行中超分 **409**；相对当前连接 GPU 显存过大 **422**。整集直出和拼接片可手动点，过长可能被拒绝。**202**。 |
 | `POST` | `/api/projects/{project_id}/documents/{doc_id}/transfer-episodes` | 把内容库该文档的分集/出片镜头写入剧集工坊。JSON `{ mode }`：`overwrite`（缺省）按本剧本重写已有集的 `data_json.beats` 并删除剧本里没有的旧集；`append` 跳过已有集号只补新集。只拷贝文档里已有的出片镜，同步时不再调大模型规划。成功返回 `mode`、`replaced_episodes`、`created_episodes`、`skipped_episodes`、`deleted_episodes`、`transferred_shots`。未知 mode 或未识别到分集返回 400。 |
-| `PUT` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}` | 更新单条 Beat。可写 `h3_prompt` 与 `h3_prompt_source`（`manual` / `generated`），以及 `timestamped_zh_prompt`。手动保存的六段出片按原文使用。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` | 剧集工坊素材组：为当前分镜入队 **一个** `h3_prompt` 任务，不再按口型/内心/近景规则拆镜。未绑技能包时程序从本镜动作/运镜/台词编译六段 Ref2VA。绑定半解说包时由 LLM 一次写出中文八块分秒稿（时间码从本镜 `00:00` 起；可看图时看角色卡/场景卡/整张三联）和英文六段；配方临时 `skip_program_pack=true` 时出片英文用 GPT 六段原文（规范化 `<Picture>` / `<Subject>`、六段 `name:` 标题，并在 `detailed_description` 补 `[Shot 1]`；内心改成官方 `says in an off-screen voiceover` 且 `</d>` 后闭嘴），不再程序灌水、中文时间码或轿厢句，也不走第二次装箱 LLM；同一人连续多句按问号/句号切开后逐字校验；内心口型同步 `says:` 会先修补再校验；中文分秒仍写入 `timestamped_zh_prompt`。说明句 stub（例如只回「官方八块中文分秒稿与」）会打回重写，失败文案不再展开缺标题清单。看图写作对 GPT-5 / o 使用 `reasoning_effort=none`、`max_tokens=16000`。中文或英文未通过校验则任务 `failed`，`payload` 含 `author_errors` / `vision_*` / `author_raw_draft` 与残稿，不覆盖 Beat，不回退无时间码骨架。R2V 参考图为角色设定板 + 场景卡 + 三联起幅/中格/结果三张 9:16 裁切（不送整张三联）。设定板只锁身份/发型/服装，禁止把分格、白底、重复小人带进镜头。完成后把 `h3_prompt` 与 `timestamped_zh_prompt` 写回 Beat。工坊若已有拆开的出片镜，body 可带 `merge_as_one=true` 合并回一条再生成。`h3_prompt_source=manual` 的镜按原文出片。**202** 返回 `job_id`。生成过程通过 `GET /api/projects/{project_id}/jobs/{job_id}/events` 直播思考与正文。 |
+| `PUT` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}` | 更新单条 Beat。可写 `h3_prompt` 与 `h3_prompt_source`（`manual` / `generated`），以及 `timestamped_zh_prompt`。手动保存的六段出片按原文使用。服务端可写 `video_takes`；前端选用成片请走 `…/video-takes/adopt`，不要直接改 `video_url`。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` | 剧集工坊素材组：为当前分镜入队 **一个** `h3_prompt` 任务，不再按口型/内心/近景规则拆镜。JSON 可选 `aspect_ratio`，写入 `beat_info` 作为写稿权威画幅（否则读 `extra.workshop_aspect_ratio` / 配方缺省）。未绑技能包时程序从本镜动作/运镜/台词编译六段 Ref2VA。绑定半解说包时由 LLM 一次写出中文八块分秒稿（时间码从本镜 `00:00` 起；可看图时看角色卡/场景卡/整张三联）和英文六段；配方临时 `skip_program_pack=true` 时出片英文用 GPT 六段原文（规范化 `<Picture>` / `<Subject>`、六段 `name:` 标题，并在 `detailed_description` 补 `[Shot 1]`；内心改成官方 `says in an off-screen voiceover` 且 `</d>` 后闭嘴），不再程序灌水、中文时间码或轿厢句，也不走第二次装箱 LLM；写稿合同写清开口 / 角色内心 / 第三人称旁白三通道与编号表演顺序，无旁白时禁止用内心或开口句充数，也不再把内心折进旁白原文交给模型；内心挂在触发画面时段，表演顺序第 1 句不是内心时禁止写在 00:00 起幅；中文分秒接受小数时间码与标题首字乱码，英文 `<d>` 可省略 `[Chinese]`；同一人连续多句按问号/句号切开后逐字校验；内心口型同步 `says:` 会先修补再校验；半解说包另校验台词去重与 `<d>` 表演顺序；中文分秒仍写入 `timestamped_zh_prompt`。说明句 stub（例如只回「官方八块中文分秒稿与」）会打回重写，失败文案不再展开缺标题清单。看图写作对 GPT-5 / o 使用 `reasoning_effort=none`、`max_tokens=16000`。中文或英文未通过校验则任务 `failed`，`payload` 含 `author_errors` / `vision_*` / `author_raw_draft` 与残稿，不覆盖 Beat，不回退无时间码骨架。R2V 参考图为角色设定板 + 场景卡 + 三联起幅/中格/结果三张成片画幅构图（不送整张三联）。设定板只锁身份/发型/服装，禁止把分格、白底、重复小人带进镜头。工坊若已有拆开的出片镜，`payload.merge_as_one=true` 则合并回一条再生成。`h3_prompt_source=manual` 的镜按原文出片。**202** 返回 `job_id`。生成过程可通过 `GET /api/projects/{project_id}/jobs/{job_id}/events` 直播思考与正文。 |
 | `GET` | `/api/projects/{project_id}/jobs/{job_id}/events` | 按 `job_type` 订阅任务 SSE。`h3_prompt`：`status` / `reasoning` / `delta` / `done` / `error`。`shot_plan`：另有 `episode_done`（该集 `shots` 已写入 `analysis_json`），`status` 含第几集/共几集。可用 `since` 或 `Last-Event-ID` 续传。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych` | 为当前分镜入队 16:9 三联关键帧母图（内含三格 9:16，默认 2K）。参考图为选中造型设定板 + 场景卡；已有造型图时不再追加 `avatar_url`。完成后写入 `triptych_url`，裁切起幅/中格/结果到 `triptych_panels.start|mid|end` 供本地 H3 素材组使用；整张三联不作为 `<Picture n>`。**202** 返回 `job_id`。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych` | 为当前分镜入队 16:9 三联关键帧母图（内部三等分裁切，默认 2K）。JSON 可选 `aspect_ratio`，写入提示词里的成片画幅构图标签。参考图为选中造型设定板 + 场景卡；已有造型图时不再追加 `avatar_url`。完成后写入 `triptych_url`，裁切起幅/中格/结果到 `triptych_panels.start|mid|end` 供本地 H3 素材组使用；整张三联不作为 `<Picture n>`。**202** 返回 `job_id`。 |
 | `GET` | `/api/director/export-capabilities` | 查询本机 ffmpeg/ffprobe 与 TTS 是否可用，以及音色目录。 |
 | `POST` | `/api/director/recipes/{project_id}/tts` | 按对白调用 OpenAI 兼容 `/audio/speech` 生成逐镜 TTS；`character_id` 时写角色试听。不使用 Edge TTS。 |
 | `GET` | `/api/director/recipes/{project_id}/tts/{shot_id}` | 读取已生成的分镜 TTS 音频。 |
@@ -174,12 +355,6 @@
 | `POST` | `/api/admin/providers/tts/test` | 测试 TTS `/audio/speech` 连接。 |
 | `POST` | `/api/director/batches` | 主题裂变多条脚本并并行排队所选工作流族的文生。 |
 | `POST` | `/api/director/batches/{project_id}/render` | 对已有批量工程按 `item_ids` 重新排队 H3 文生。 |
-| `POST` | `/api/director/hypit/{project_id}/source-video` | 上传 Hypit 复刻参考片（与 VACE 复刻台分离）。 |
-| `GET` | `/api/director/hypit/{project_id}/source` | 读取 Hypit 复刻参考片。 |
-| `GET` | `/api/director/hypit/{project_id}/transcript` | 读取本机 WhisperX 转写 JSON。 |
-| `GET` | `/api/director/hypit/{project_id}/result` | 读取 Hypit 编译成片。 |
-| `POST` | `/api/director/hypit/{project_id}/reveal` | 打开本机 `data/hypit/{user}/{project}` 工程目录。 |
-| `POST` | `/api/director/hypit/{project_id}/operations` | `hypit_transcribe` 拉片或 `hypit_compile` 编译；不接受 VACE 操作。H3 画面默认 `http://192.168.10.54:8188`（`hypit.runtime.json` / `ZLY_HYPIT_COMFY_URL`），与工作台本机 Comfy 分离。 |
 | `GET` | `/api/jobs/{job_id}/outputs/{output_index}/download` | 下载当前用户待交付的暂存资源。 |
 | `POST` | `/api/jobs/{job_id}/outputs/{output_index}/delivered` | 确认浏览器已落盘并删除服务器暂存。 |
 | `GET` | `/api/media/{filename}` | 兼容读取当前用户的旧版结果文件。 |
@@ -406,7 +581,7 @@ Invoke-RestMethod -Method Post `
 
 ### `POST /api/jobs/{job_id}/upscale`
 
-对已成功的视频成片新建独立 `nvidia-rtx-vsr` 任务（固定 2x / ULTRA）。原片任务不变；超分结果是新任务的输出。同一原片已有排队中、生成中或已中断的超分时返回 `409`。按原片宽×高×帧数预估显存，与当前连接 ComfyUI `/system_stats` 的总显存比较，过大时返回 `422`（读不到显存则不编造限额）。当前连接的 ComfyUI 若未安装 `RTXVideoSuperResolution`（包名 `Nvidia_RTX_Nodes_ComfyUI`）也返回 `422`。不要通过 `POST /api/jobs` 直接创建 `nvidia-rtx-vsr`（该工作流 `hidden_from_catalog`）。H3 系列也可在创建时把 `options.upscale_after` 设为 `true`，成片成功后同一任务会先 `POST /free` 再接跑超分，失败仍保留原片。
+对已成功的视频成片新建独立 `nvidia-rtx-vsr` 任务（固定 2x / ULTRA）。原片任务不变；超分结果是新任务的输出。同一原片已有排队中、生成中或已中断的超分时返回 `409`。按原片宽×高×帧数预估显存，与当前连接 ComfyUI `/system_stats` 的总显存比较，过大时返回 `422`（读不到显存则不编造限额）。当前连接的 ComfyUI 若未安装 `RTXVideoSuperResolution`（包名 `Nvidia_RTX_Nodes_ComfyUI`）也返回 `422`。不要通过 `POST /api/jobs` 直接创建 `nvidia-rtx-vsr`（该工作流 `hidden_from_catalog`）。这是针对已成功成片的手动后处理；H3 生成参数不再提供自动超分开关，`refine_enabled` / `refine_quality` 是生成期二采，不创建独立的 `nvidia-rtx-vsr` 任务。
 
 ```powershell
 Invoke-RestMethod -Method Post `
@@ -416,7 +591,7 @@ Invoke-RestMethod -Method Post `
 
 ## 导台2 项目内容库（`/api/projects`）
 
-导演台2 内容库走 `POST /api/projects/{project_id}/documents`，不是 `/api/xiaji/documents`。集边界只认台本 `# 第N集`（无集头则整篇第 1 集）；剧本里的 `### 镜头` 只当素材。粘贴/文件导入立刻落库并入队 `shot_plan`，逐集调用大模型规划出片镜数和秒数（H3 合同 5–15 秒），成功则 `shots_source=llm`。旧稿可 `POST …/documents/{doc_id}/shot-plan`。过程通过 `GET …/jobs/{job_id}/events` 直播；内容库按集显示瘦进度，当前集用残缺 JSON 解析出的镜头卡逐张出现（思考默认折叠，不展示 JSON），`episode_done` 后换成归一化结果，规划中禁止同步工坊。全部任务有「镜头规划」Tab，可按 `payload.document_id` 跳回 `/director2/projects/:id/content?mode=manual&doc=:docId&tab=episodes`。AI 流水线回写的文档（`input_mode=ai_pipeline`）不二次规划。`POST …/transfer-episodes` 把文档已有出片镜写入剧集工坊，同步时不再调大模型。`POST …/h3-prompt` 点哪条入队一个任务，不再按口型/内心/近景规则改镜头列表。工坊 `POST …/generate-video` 可带 `options.upscale_after`：仅逐镜/选中镜在原片写入后自动 2x 超分；整集直出和 `POST …/compose` 不自动超分。已出片镜头可 `POST …/beats/{beat_id}/upscale`，结果写入 `upscaled_video_url`。全部任务已成功视频可 `POST …/jobs/{job_id}/upscale`。
+导演台2 内容库走 `POST /api/projects/{project_id}/documents`，不是 `/api/xiaji/documents`。集边界只认台本 `# 第N集`（无集头则整篇第 1 集）；剧本里的 `### 镜头` 只当素材。粘贴/文件导入立刻落库并扫描 `aspect_hint`，文档 `status=awaiting_aspect`，**不**自动入队 `shot_plan`。确认成片画幅后 `POST …/documents/{doc_id}/shot-plan`（JSON 可选 `aspect_ratio`）写入 `settings.extra.workshop_aspect_ratio` 再逐集规划（H3 合同 5–15 秒），成功则 `shots_source=llm`。规划 prompt 以确认画幅为权威。过程通过 `GET …/jobs/{job_id}/events` 直播；内容库按集显示瘦进度，当前集用残缺 JSON 解析出的镜头卡逐张出现（思考默认折叠，不展示 JSON），`episode_done` 后换成归一化结果，规划中禁止同步工坊。全部任务有「镜头规划」Tab，可按 `payload.document_id` 跳回 `/director2/projects/:id/content?mode=manual&doc=:docId&tab=episodes`。AI 流水线回写的文档（`input_mode=ai_pipeline`）不二次规划。`POST …/transfer-episodes` 把文档已有出片镜写入剧集工坊，同步时不再调大模型。`POST …/h3-prompt` 点哪条入队一个任务，不再按口型/内心/近景规则改镜头列表。工坊 `POST …/generate-video` 可带 `options.refine_enabled` / `options.refine_quality`：全部 H3 工作流开启后一采 0.4 MP、二采 1.0 / 2.0 MP；`upscale_after` 已停用，`POST …/compose` 不套用二采也不自动超分。逐镜/选中镜成功后把旧原片归档进 `video_takes`，`video_url` 默认采用最新；成片 Tab 用 `POST …/beats/{beat_id}/video-takes/adopt` 选用历史抽卡。已出片镜头可 `POST …/beats/{beat_id}/upscale`，结果写入 `upscaled_video_url` 并挂到当前采用 Take。全部任务已成功视频可 `POST …/jobs/{job_id}/upscale`。
 
 ## 导台2 内容库与资产库
 
@@ -430,7 +605,7 @@ Invoke-RestMethod -Method Post `
 
 `GET /api/director/art-styles` 返回 9 类 34 条画风（`id`、`name_zh`、`name_en`、`category`、`description`、`promptPrefix`、`imageUrl`、`keywords`）。`promptPrefix` 与 OpenDirector 公开种子一致。`imageUrl` 一律为同源 `/api/director/art-styles/{id}/preview`，浏览器不直连 `files.seme.cc`。`GET /api/director/art-styles/{style_id}/preview` 需要登录，优先返回本地缓存 JPEG；缺失时由服务端从 OpenDirector CDN（`style_01.jpg`–`style_34.jpg`）拉取并写入 `backend/app/director_catalog/previews/`。未知 id 返回 404。Recipe payload 的 `artStyle` 必须使用目录中的 id；保存时服务端用目录覆盖名称、`promptPrefix` 与预览地址，禁止自造风格。
 
-`payload.kind`：缺省或旧数据为时间轴；`director_recipe` 含 `script`（title/summary/fullStory）、`artStyle`、`characters`、`locations`、`scenes[].shots`、`agentStatus`；`batch_run` 为批量主题裂变；`shot_replication` 为 VACE 参考片复刻；`hypit_replication` 为 Hypit 结构复刻（与 VACE 并列，不混 payload）。`POST /api/director/projects/{project_id}/convert-to-recipe` 把时间轴 shots 映射为 scenes，不自动改写未请求转换的旧工程。
+`payload.kind`：缺省或旧数据为时间轴；`director_recipe` 含 `script`（title/summary/fullStory）、`artStyle`、`characters`、`locations`、`scenes[].shots`、`agentStatus`；`batch_run` 为批量主题裂变；`shot_replication` 为 VACE 参考片复刻。`POST /api/director/projects/{project_id}/convert-to-recipe` 把时间轴 shots 映射为 scenes，不自动改写未请求转换的旧工程。
 
 导演主路径不再走 `POST /api/llm/split-script`（该接口仍保留给兼容/测试，拆分时同样读取 MiniMax H3 官方 `h3-prompt-writing` 原文）。`POST /api/director/recipes/run` 顺序调用研究/脚本/画风/分镜/角色/场景/配音/配乐/媒体 9 个 Agent，复用现有 LLM Provider；可选 `agents` 只跑指定步骤（例如 `["script","storyboard"]` 按剧本一次生成全部分镜；该子集里脚本失败仍会继续拆镜，但上游余额不足/欠费会立即停止并返回 HTTP 502，`detail` 含上游原文）。分镜 Agent 必须覆盖完整剧本，通常一次输出 8–24 个独立镜头，失败时不再回退成单条「主镜头」。模型若返回 `[Shot n]` 散文也会拆成镜头。分镜 Agent 读取官方 skill 与 `base-en.txt`，同时生成中文 `description`（界面展示）和英文 `promptText`（官方镜头正文）。点击导演台左栏「镜头设计」（阶段内「设计 / 制作」切换）时，若还没有真实镜头列表，前端会自动按剧本调用上述子集。当前任务写在 `/director/:projectId?stage=`，桌面视图写在 `?view=plan|timeline`（默认方案；手机锁定方案视图），刷新与后退保持位置。桌面剪辑视图读写同一份 `director_recipe`，镜头轨与刻度直接按 `scenes[].shots[].durationSec` 铺开（不先转旧时间轴 shot），出片/静帧/配音/成片仍走现有 `render-shots` / `stills` / `tts` / `mux`，不新增 payload kind。媒体编译把 T2V/I2V 写成 `integrated_multimodal_description` / `overall_soundscape` / `non_diegetic_music`，把 R2V 写成 Ref2VA 六段式。画风只能选自目录。每个 Agent 开始时把 `payload.agentStatus` 写成 `running` 并落盘，因此运行中 `GET /api/director/projects/{id}` 可看到当前步；整次 POST 仍等全部 Agent 结束后才返回。`agentStatus[].message` 是给人看的阶段（例如「正在读剧本」「正在写分镜（已收到 1200 字）」「已写出 12 个镜头」），不是模型 token 或思考过程。`payload.pipelineRun` 记录本次实际跑的 `agents` 与是否仍在运行，供前端按子集计算进度（只跑 script+storyboard 时分母是 2 而不是 9）。思考模式保持关闭。导演对话走 SSE 流式读取：连接超时 20 秒，分块空闲 300 秒，完整分镜可超过原先 180 秒整段超时。分镜生成中 `agentStatus.message` 会更新为「正在写分镜（已收到 N 字）」，不回传原文。`generate-assets` 为角色和场景提交 GRS 生图任务；运行中 `GET /api/jobs` 的 `progress` 按约 2 分钟预期映射到 12–90%，完成时 100%。启用七牛云时，定妆输出会转存对象存储，任务带稳定 `cloud_url`（不含过期签名），并写入 Recipe 的 `imageUrl`；`download_url` 仍为同源 `/api/jobs/.../download`。`render-shots` 把本镜用到的定妆图编成最多 9 张 `<Picture n>` 参考图，再按 Recipe 的 `videoWorkflowFamily` 提交该族 T2V/I2V/R2V（缺省 `official_h3`；有人物/场景定妆走该族 R2V，仅有首帧/上一镜尾帧走该族 I2V，都没有走该族 T2V）；云端定妆会先拉到暂存再作为参考。配置了 LLM 时，入队前会先把镜头标为 `queued` 并调用大模型润色最终 H3 提示词，因此 `GET /api/director/projects/{id}` 在 `render-shots` 尚未返回时也能看到排队；未知 `shot_ids` 返回 422。勾选 `usePreviousEndFrame` 时编译器把上一镜 `endFrameUrl`（没有则用上一镜静帧）接到本镜首帧。`POST .../generate-stills` 复用定妆同一 GRS 通道，prompt 为本镜描述 + 画风 + 角色/场景图，结果写入 `stillJobId`/`stillUrl`。`POST .../frames` 保存首尾帧到 `data/uploads`。员工级资产库 `GET/POST /api/director/library-assets` 保存人物/场景/道具（图 + prompt），按登录用户隔离；`POST .../from-recipe` 从当前 Recipe 快照入库，`POST .../insert-library-assets` 复制进 `characters`/`locations` 并写 `libraryAssetId`。不引入系列/分集层级。`POST /api/director/batches` 把主题裂变成多条脚本并并行排队所选工作流族的文生（`video_workflow_family`，缺省官方 H3），不强制角色参考。`POST /api/director/batches/{project_id}/render` 对已有批量条目重新排队；`item_ids` 为空时提交全部条目。
 
@@ -442,7 +617,50 @@ Recipe 第三版声音层：`payload.audio`（配乐 URL/音量/淡入淡出）�
 
 ### `GET /api/library`
 
-返回完成任务的输出，并补充 `results` 中尚未写入任务记录的历史文件。每项包含 `kind`、`path`、`label`、`job_id` 与 `created_at`；历史文件的 `job_id` 为 `null`。
+返回完成任务的输出，并补充 `results` 中尚未写入任务记录的历史文件。每项包含 `kind`、`path`、`label`、`job_id`、`job_title` 与 `created_at`；历史文件的 `job_id` 为 `null`。响应仍是数组，供旧调用方兼容；画布素材面板已改用下面的分页接口。
+
+### `GET /api/library/query`
+
+分页检索当前账号可用的图片/视频产物。查询参数：
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `q` | string，≤100 | 大小写不敏感的包含匹配，覆盖任务标题、任务提示词、素材标签、素材路径、任务号与生成项号 |
+| `kind` | `image` / `video` | 只返回指定类型；省略时返回全部 |
+| `limit` | int，1–100，默认 40 | 每页数量 |
+| `offset` | int，0–1,000,000，默认 0 | 分页偏移 |
+| `job_id` | string，≤120 | 精确匹配来源任务号 |
+| `generation_item_id` | string，≤120 | 精确匹配生成项 |
+| `output_index` | int，0–999 | 精确匹配生成项输出序号 |
+| `user_id` | string | 仅管理员可用；`all` 表示全部账号 |
+
+返回：
+
+```json
+{
+  "items": [
+    {
+      "kind": "image",
+      "path": "seed-img-001.png",
+      "label": "",
+      "delivery_status": "pending",
+      "download_url": "/api/jobs/job-1/generations/item-1/outputs/0/download",
+      "job_id": "job-1",
+      "job_title": "示例任务",
+      "generation_item_id": "item-1",
+      "output_index": 0,
+      "created_at": "2026-10-24 10:00:00"
+    }
+  ],
+  "total": 55,
+  "limit": 40,
+  "offset": 0,
+  "has_more": true,
+  "counts": { "image": 55, "video": 8 }
+}
+```
+
+`counts` 在 `kind` 过滤前统计，因此两个分类标签可同时显示总数。`delivery_status` 为 `local` 或 `expired` 的产物不会返回；结果按 `created_at` 倒序稳定排序。接口要求登录，普通员工只能读取自己的作品库。
 
 ### `GET /api/media/{filename}`
 
@@ -479,3 +697,14 @@ X-CSRF-Token: <login response csrf_token>
 ```
 
 回执成功后 `delivery_status` 变为 `local`，`download_url` 变为 `null`，`data/staging` 暂存和固定 ComfyUI `output` 中记录的原始输出会同时删除。ComfyUI 清理目标必须是 `type=output` 且解析路径位于固定 `Comfyui/output` 根目录，否则回执失败并保留 ZLY AI Video Studio 暂存供重试。该操作表示调用方已经可靠落盘，不可在下载开始前提前调用。未来七牛云 provider 继续使用相同任务输出状态，云端对象定位由 provider 负责，不把七牛 SDK 参数暴露到任务接口。
+
+## 2026-10-20 智能剪辑动作（铺轨 / 精剪 / 引流）
+
+前缀：`/api/projects/{project_id}/smart-edit/{sequence_id}/actions`，sequence_id为分集ID或`main`。当前账号登录必需，POST沿用CSRF。
+
+- `POST /preview`：`{operation:"video_arrange"|"subtitle_arrange"|"audio_subtitle"|"dialogue_cut"|"quick_cut"|"highlight_cut"|"hook_cut",revision:number,session_id?:string|null,strategy?:string|null,asset_ids?:string[]}`。先保存当前编辑，再以该revision生成清单；不修改时间线。`video_arrange`可用`asset_ids`指定顺序；`hook_cut`必须带`strategy`，取值为`conflict_3s`、`climax_only`、`quote_open`、`ending_hook`、`trailer`，其它操作不得携带。`audio_subtitle`不读取分镜对白，自由剪辑（`main`）同样可用。返回`id,status,operation,project_id,sequence_id,base_revision,items,count,append_at,total_duration,skipped_count,missing_video_count,dropped_count,trimmed_count`；`hook_cut`另返回`strategy,strategy_title,principle`；`audio_subtitle`另返回`inaudible_count,replaced_count`（`replaced_count`为被替换的上一次自动字幕数，`skipped_count`为与手工文字或其它文字片段重叠而未铺设的段落数）。剪辑类`items[]`含`asset_id,beat_id,name,start,duration,action`，并带可选`reason`（逐镜保留理由）；`audio_subtitle`的`items[]`含`asset_id,beat_id,segment_id,name,start,duration,reason,action`，`name`即字幕文本，`reason`记录「已按镜头边界收短」「长句已分行」等处理。`extra.understanding`回显理解状态、模型、素材数、`shot_count/shot_analyzed_count/shot_used_count`与`used_count`，供授权弹窗展示镜头级依据；`extra.transcript`回显`status/model/transcribed_at/transcribed_count/used_count/segment_count/audio_seconds`，供授权弹窗展示音轨依据。无转写证据时`audio_subtitle`按状态返回中文错误（未开始、已过期、无语音、失败），不会退回剧本对白。无可用结果时status=`empty`，否则`pending`。
+- `GET /{action_id}`：查询账号隔离的清单及执行状态；完成后含`snapshot`，结构沿用剪辑GET的document/revision/draft_key/updated_at。
+- `POST /{action_id}/reorder`：仅`video_arrange`，`{asset_ids:[...]}`按新顺序重生成待确认清单。
+- `POST /{action_id}/confirm`：按预览的固定目标与版本执行，返回status=`succeeded`及snapshot；重复确认返回同一记录。文档与记录同一事务提交，版本变化409、目标不存在或非本人记录404、非法动作/策略400。
+
+助手SessionCreate/AssistantSession新增可选`context:{kind:"smart_edit",sequence_id}`，project_id必填且与分集匹配；旧会话context为空。详情新增`edit_proposals`，消息新增`{type:"edit_action",action_id}`。LLM工具`editor_read {}`返回素材与`analysis`理解摘要（分集含对白镜头数、对白秒数、高光候选与理由；来自分镜/对白文本，非画面识别），并附用户显式触发后的`analysis.understanding`（状态、模型、素材级条目与内部镜头描述/机位/主体、`detected_shot_count/shot_count/shot_analyzed_count`；未触发或已过期时为空）与`analysis.transcript`（`status/model/transcribed_at/stale/message/media_count/transcribed_count/segment_count/audio_seconds/progress`；未转写时`status=missing`且段落数为0）。`propose_edit {operation,strategy?}`只在冻结的剪辑会话内可用；`hook_cut`必须由用户选定策略，工具不能直接执行授权。`hook_cut`/`highlight_cut`评分会并入已成功的画面理解，授权清单的`reason`带「画面理解：…」并显示理解依据；过期或失败的理解不参与加权。system prompt 规定：用户说「按真实声音/原声/配音上字幕」「音轨字幕」「按转写铺字幕」时用`audio_subtitle`，说「自动字幕」时仍用`subtitle_arrange`；`analysis.transcript.status`不是`succeeded`或`partial`不得声称有转写结果，也不得把剧本对白冒充音轨转写。执行记录不提供给其它账号，返回摘要不含内部完整计划。

@@ -322,6 +322,9 @@ class H3PromptTests(unittest.TestCase):
         self.assertEqual(inner[0]["speaker"], "吴耐")
         self.assertEqual(inner[0]["text"], "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。")
         self.assertEqual([item["text"] for item in H3PromptBuilder._dialogue_turns(shot)], [item["text"] for item in spoken])
+        stuffed = {**shot, "narration": inner[0]["text"]}
+        self.assertEqual("", H3PromptBuilder.third_person_narration(stuffed))
+        self.assertTrue(any("内心" in str(item.get("speaker") or "") for item in H3PromptBuilder._raw_script_turns(shot)))
 
     def test_h3_user_prompt_does_not_echo_inner_line_repeatedly(self):
         from backend.app.media_studio.services.llm_service import LlmService
@@ -407,6 +410,12 @@ class H3PromptTests(unittest.TestCase):
         self.assertNotIn("rewrite from scratch", text.lower())
         self.assertNotIn("必须展开进画面正文", text)
         self.assertNotIn("Fill only missing", text)
+
+    def test_detect_pack_aspect_ratio_keeps_confirmed_values(self):
+        self.assertEqual("16:9", H3PromptBuilder.detect_pack_aspect_ratio({"aspect_ratio": "16:9"}))
+        self.assertEqual("1:1", H3PromptBuilder.detect_pack_aspect_ratio({"aspect_ratio": "1:1"}))
+        self.assertEqual("21:9", H3PromptBuilder.detect_pack_aspect_ratio({"aspect_ratio": "21 : 9"}))
+        self.assertEqual("9:16", H3PromptBuilder.detect_pack_aspect_ratio({"aspect_ratio": "9:16"}))
 
     def test_sanitize_beat_draft_strips_empty_quotes_inner_leak_and_lipsync(self):
         inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
@@ -542,6 +551,69 @@ class H3PromptTests(unittest.TestCase):
             },
         )
         self.assertTrue(any("lip-synced" in item or "off-screen voiceover" in item for item in errors))
+
+    def test_skip_program_pack_rejects_shot1_duplicate_and_out_of_order(self):
+        inner = "浓妆艳抹，昼伏夜出，红色吊带，黑色小短裙。"
+        spoken_a = "大爷，我什么都可以做。"
+        spoken_b = "那个，那个房租下个月一定给你。"
+        spoken_c = "不用想也知道，做的是什么。"
+        wrong = (
+            "subject_definitions:\n"
+            "<Picture 1> Wu. <Picture 2> Sha. <Picture 3> corridor. "
+            "<Picture 4> start. <Picture 5> mid. <Picture 6> end.\n"
+            "summary:\nA corridor beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            "[Shot 1] A third-person voiceover says in an off-screen voiceover: "
+            f"<d>[Chinese] {inner}</d> while all visible characters' lips remain completely closed. "
+            f"Sha Lili (S2) says: <d>[Chinese] {spoken_a}</d> "
+            f"Sha Lili (S2) says: <d>[Chinese] {spoken_b}</d> "
+            "An off-screen inner voice says in an off-screen voiceover: "
+            f"<d>[Chinese] {spoken_c}</d> while all visible characters' lips remain completely closed. "
+            f"Wu Nai (S1) says: <d>[Chinese] {spoken_c}</d>\n"
+            "overall_soundscape:\nQuiet corridor.\n"
+            "non_diegetic_music:\nNone.\n"
+        )
+        fixed = (
+            "subject_definitions:\n"
+            "<Picture 1> Wu. <Picture 2> Sha. <Picture 3> corridor. "
+            "<Picture 4> start. <Picture 5> mid. <Picture 6> end.\n"
+            "summary:\nA corridor beat.\n"
+            "retention_analysis:\nfully_preserved.\n"
+            "detailed_description:\n"
+            f"[Shot 1] Sha Lili (S2) says: <d>[Chinese] {spoken_a}</d> "
+            f"Sha Lili (S2) says: <d>[Chinese] {spoken_b}</d> "
+            "An off-screen inner voice (not produced by the on-screen mouth) "
+            f"says in an off-screen voiceover: <d>[Chinese] {inner}</d> "
+            "while all visible characters' lips remain completely closed. "
+            f"Wu Nai (S1) says: <d>[Chinese] {spoken_c}</d>\n"
+            "overall_soundscape:\nQuiet corridor.\n"
+            "non_diegetic_music:\nNone.\n"
+        )
+        beat_info = {
+            "dialogue": (
+                f"沙丽丽：“{spoken_a}{spoken_b}” "
+                f"吴耐（内心）：“{inner}” "
+                f"吴耐：“{spoken_c}”"
+            ),
+            "skill_pack_id": HALF_NARRATED_PACK_ID,
+            "ref_images": [{"index": i} for i in range(1, 7)],
+        }
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        wrong_errors = LlmService._validate_h3_prompt(wrong, "Ref2VA", beat_info)
+        self.assertTrue(any("duplicated" in item for item in wrong_errors))
+        self.assertTrue(any("performance order" in item for item in wrong_errors))
+        self.assertTrue(any("duplicated" in item for item in H3PromptBuilder.speech_schedule_errors(wrong, shot)))
+        leftover = fixed.replace(
+            f"Wu Nai (S1) says: <d>[Chinese] {spoken_c}</d>",
+            f"Wu Nai (S1) then speaks: <d>[Chinese] {spoken_c}</d>",
+        )
+        skip_errors = LlmService._validate_h3_prompt(leftover, "Ref2VA", beat_info)
+        self.assertEqual([], skip_errors)
+        self.assertTrue(
+            any("then speaks" in item for item in H3PromptBuilder.speech_contract_errors(leftover, shot))
+        )
+        self.assertEqual([], LlmService._validate_h3_prompt(fixed, "Ref2VA", beat_info))
 
     def test_skip_program_pack_repairs_inner_says(self):
         from backend.app.media_studio.services.h3_prompt_job_service import H3PromptJobService
@@ -2998,17 +3070,110 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
             })
         return {"number": 1, "title": "测试集", "beats": beats, "data": {"beats": beats}}
 
-    def test_resolve_generation_options_coerces_string_upscale_flag(self):
+    def test_resolve_generation_options_coerces_refine_flag_and_locks_first_pass(self):
         resolved = EpisodeVideoService.resolve_generation_options({
             "workflow": "minimax-h3-r2v",
-            "upscale_after": "true",
+            "refine_enabled": "true",
+            "refine_quality": "2.0",
+            "quality": "1.0",
         })
-        self.assertTrue(resolved["upscale_after"])
+        self.assertTrue(resolved["refine_enabled"])
+        self.assertEqual(resolved["refine_quality"], "2.0")
+        self.assertEqual(resolved["quality"], "0.4")
+        self.assertEqual(resolved["megapixels"], 0.4)
+        self.assertNotIn("upscale_after", resolved)
         off = EpisodeVideoService.resolve_generation_options({
             "workflow": "minimax-h3-r2v",
-            "upscale_after": "false",
+            "refine_enabled": "false",
         })
-        self.assertFalse(off["upscale_after"])
+        self.assertFalse(off["refine_enabled"])
+        self.assertEqual(off["refine_quality"], "1.0")
+        self.assertNotIn("upscale_after", off)
+
+    def test_refine_preview_is_coerced_and_disabled_without_two_pass(self):
+        on = EpisodeVideoService.resolve_generation_options({
+            "workflow": "minimax-h3-r2v",
+            "refine_enabled": "true",
+            "refine_preview": "true",
+        })
+        self.assertTrue(on["refine_preview"])
+        off = EpisodeVideoService.resolve_generation_options({
+            "workflow": "minimax-h3-r2v",
+            "refine_enabled": "false",
+            "refine_preview": True,
+        })
+        self.assertFalse(off["refine_preview"])
+
+    def test_episode_render_rejects_refine_preview_before_submitting(self):
+        with self.assertRaisesRegex(ValueError, "整集直出暂不支持先预览一采"):
+            EpisodeVideoService.create_job(
+                "p1", "e1",
+                options={
+                    "workflow": "minimax-h3-director-accel-r2v",
+                    "refine_enabled": True,
+                    "refine_preview": True,
+                },
+            )
+
+    def test_confirm_refine_requeues_the_saved_continuation(self):
+        payload = {
+            "project_id": "p1",
+            "episode_id": "e1",
+            "render_scope": "shot",
+            "refine_continuation": {
+                "status": "awaiting",
+                "mode": "shot_graph",
+                "chunks": [{
+                    "index": 0,
+                    "shot_ids": ["beat-1"],
+                    "beat_id": "beat-1",
+                    "workflow": {"45": {"class_type": "MiniMaxH3DirectorRefine"}},
+                }],
+            },
+        }
+        row = {
+            "id": "job-1", "job_type": "video_generation", "status": "awaiting_refine",
+            "result_url": "https://cdn/preview.mp4", "payload_json": json.dumps(payload),
+        }
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=row), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql", return_value=1) as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR") as executor:
+            EpisodeVideoService.confirm_refine("p1", "job-1")
+        sql, params = execute_sql.call_args.args
+        self.assertIn("status = 'queued'", sql)
+        saved = json.loads(params[0])
+        self.assertEqual("running", saved["refine_continuation"]["status"])
+        executor.submit.assert_called_once_with(EpisodeVideoService._run_job, "job-1")
+
+    def test_skip_refine_keeps_the_preview_as_the_shot_video(self):
+        payload = {
+            "project_id": "p1",
+            "episode_id": "e1",
+            "render_scope": "shot",
+            "result_kind": "shot_video",
+            "shots": [{"beat_id": "beat-1", "sequence": 1, "duration_sec": 8}],
+            "render_plan": {"status": "awaiting_refine", "chunks": []},
+            "refine_continuation": {
+                "status": "awaiting",
+                "mode": "shot_graph",
+                "chunks": [{"index": 0, "shot_ids": ["beat-1"], "preview_output": {"filename": "p.mp4"}}],
+            },
+        }
+        row = {
+            "id": "job-1", "job_type": "video_generation", "status": "awaiting_refine",
+            "result_url": "https://cdn/preview.mp4", "payload_json": json.dumps(payload),
+        }
+        with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=row), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql", return_value=1) as execute_sql, \
+             patch.object(EpisodeVideoService, "_write_selected_beat_videos") as write_videos:
+            EpisodeVideoService.skip_refine("p1", "job-1")
+        sql, params = execute_sql.call_args.args
+        self.assertIn("status = 'completed'", sql)
+        self.assertEqual("https://cdn/preview.mp4", params[0])
+        saved = json.loads(params[1])
+        self.assertEqual("skipped", saved["refine_continuation"]["status"])
+        write_videos.assert_called_once()
+        self.assertEqual("beat-1", write_videos.call_args.args[1][0]["beat_id"])
 
     def test_vsr_rejection_uses_connected_comfy_vram(self):
         shot = {"sequence": 1, "duration_sec": 15}
@@ -3246,7 +3411,14 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         self.assertEqual("https://cdn/2x.mp4", payload["upscaled_video_url"])
         self.assertEqual("https://cdn/orig.mp4", shots[0]["video_url"])
         self.assertEqual("https://cdn/2x.mp4", shots[0]["upscaled_video_url"])
-        update.assert_called_once_with("p1", "e1", "beat-1", {"upscaled_video_url": "https://cdn/2x.mp4"})
+        self.assertEqual("p1", update.call_args.args[0])
+        self.assertEqual("e1", update.call_args.args[1])
+        self.assertEqual("beat-1", update.call_args.args[2])
+        self.assertEqual("https://cdn/2x.mp4", update.call_args.args[3]["upscaled_video_url"])
+        takes = update.call_args.args[3]["video_takes"]
+        self.assertEqual(1, len(takes))
+        self.assertEqual("https://cdn/orig.mp4", takes[0]["url"])
+        self.assertEqual("https://cdn/2x.mp4", takes[0]["upscaled_url"])
         failed = {"render_scope": "selection", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
         failed_shots = [{"beat_id": "beat-2", "sequence": 2, "video_url": "https://cdn/orig2.mp4"}]
         with patch.object(EpisodeVideoService, "_upscale_source_url", side_effect=RuntimeError("显存不足")), \
@@ -3281,6 +3453,144 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         require.assert_called_once()
         free.assert_called_once_with(force=True)
         self.assertEqual("x.mp4", output["filename"])
+
+
+class EpisodeVideoTakesTests(unittest.TestCase):
+    def test_archive_old_url_before_adopting_latest(self):
+        beat = {
+            "id": "beat-1",
+            "video_url": "https://cdn/old.mp4",
+            "upscaled_video_url": "https://cdn/old-2x.mp4",
+            "video_takes": [],
+        }
+        updates = EpisodeVideoService._archive_and_adopt_beat_video(
+            beat, url="https://cdn/new.mp4", job_id="job-2", scope="shot",
+        )
+        self.assertEqual("https://cdn/new.mp4", updates["video_url"])
+        self.assertIsNone(updates["upscaled_video_url"])
+        urls = [item["url"] for item in updates["video_takes"]]
+        self.assertEqual(["https://cdn/old.mp4", "https://cdn/new.mp4"], urls)
+        self.assertEqual("https://cdn/old-2x.mp4", updates["video_takes"][0]["upscaled_url"])
+        self.assertEqual("take-job-2-beat-1", updates["video_take_id"])
+
+    def test_write_selected_archives_old_url_and_adopts_latest(self):
+        beat = {"id": "beat-1", "video_url": "https://cdn/old.mp4", "upscaled_video_url": "https://cdn/old-2x.mp4"}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value={"beats": [beat]}), \
+             patch.object(ProjectDetailService, "update_episode_beat") as update:
+            EpisodeVideoService._write_selected_beat_videos(
+                {"project_id": "p1", "episode_id": "e1", "render_scope": "shot"},
+                [{"beat_id": "beat-1", "sequence": 1}],
+                "https://cdn/new.mp4",
+                job_id="job-9",
+            )
+        fields = update.call_args.args[3]
+        self.assertEqual("https://cdn/new.mp4", fields["video_url"])
+        self.assertIsNone(fields["upscaled_video_url"])
+        self.assertEqual(
+            ["https://cdn/old.mp4", "https://cdn/new.mp4"],
+            [item["url"] for item in fields["video_takes"]],
+        )
+        self.assertEqual("https://cdn/old-2x.mp4", fields["video_takes"][0]["upscaled_url"])
+
+    def test_upscale_attaches_to_adopted_take_not_new_take(self):
+        beat = {
+            "id": "beat-1",
+            "video_url": "https://cdn/orig.mp4",
+            "video_takes": [{"id": "take-1", "url": "https://cdn/orig.mp4", "scope": "shot"}],
+        }
+        updates = EpisodeVideoService._attach_upscaled_to_adopted_take(beat, "https://cdn/2x.mp4")
+        self.assertEqual("https://cdn/2x.mp4", updates["upscaled_video_url"])
+        self.assertEqual(1, len(updates["video_takes"]))
+        self.assertEqual("https://cdn/orig.mp4", updates["video_takes"][0]["url"])
+        self.assertEqual("https://cdn/2x.mp4", updates["video_takes"][0]["upscaled_url"])
+
+    def test_adopt_then_compose_uses_adopted_url(self):
+        beats = [
+            {
+                "id": "beat-1",
+                "sequence": 1,
+                "video_url": "https://cdn/new.mp4",
+                "upscaled_video_url": "https://cdn/new-2x.mp4",
+                "video_takes": [
+                    {"id": "t1", "url": "https://cdn/old.mp4", "scope": "shot", "upscaled_url": "https://cdn/old-2x.mp4"},
+                    {"id": "t2", "url": "https://cdn/new.mp4", "scope": "shot", "upscaled_url": "https://cdn/new-2x.mp4"},
+                ],
+            },
+            {"id": "beat-2", "sequence": 2, "video_url": "https://cdn/b2.mp4"},
+            {"id": "beat-3", "sequence": 3, "video_url": "https://cdn/b3.mp4"},
+        ]
+        adopted = EpisodeVideoService._adopt_take_updates(beats[0], "https://cdn/old.mp4")
+        self.assertEqual("https://cdn/old.mp4", adopted["video_url"])
+        self.assertEqual("https://cdn/old-2x.mp4", adopted["upscaled_video_url"])
+        self.assertEqual(2, len(adopted["video_takes"]))
+        beats[0] = {**beats[0], **adopted}
+        detail = {"number": 1, "title": "t", "beats": beats, "data": {}}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value=detail), \
+             patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
+             patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=""), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR"):
+            EpisodeVideoService.create_compose_job("p1", "e1")
+        payload = json.loads(execute_sql.call_args.args[1][3])
+        self.assertEqual("https://cdn/old.mp4", payload["source_shots"][0]["video_url"])
+
+    def test_adopt_rejects_url_that_is_not_this_shot(self):
+        beat = {"id": "beat-1", "video_url": "https://cdn/a.mp4", "video_takes": [{"id": "t1", "url": "https://cdn/a.mp4", "scope": "shot"}]}
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value={"beats": [beat]}), \
+             patch.object(EpisodeVideoService, "_list_completed_video_jobs", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "不属于"):
+                EpisodeVideoService.adopt_beat_video_take("p1", "e1", "beat-1", {"url": "https://cdn/other.mp4"})
+
+    def test_collect_excludes_episode_compose_upscale_and_splits_selection(self):
+        beat = {"id": "beat-1", "video_url": "https://cdn/a.mp4"}
+        jobs = [
+            {
+                "id": "job-ep",
+                "job_type": "video_generation",
+                "status": "completed",
+                "result_url": "https://cdn/episode.mp4",
+                "created_at": "2026-09-20 01:00:00",
+                "payload_json": {"episode_id": "e1", "render_scope": "episode", "beat_id": "beat-1"},
+            },
+            {
+                "id": "job-sel",
+                "job_type": "video_generation",
+                "status": "completed",
+                "result_url": "https://cdn/timeline.mp4",
+                "created_at": "2026-09-20 02:00:00",
+                "payload_json": {
+                    "episode_id": "e1",
+                    "render_scope": "selection",
+                    "beat_ids": ["beat-1", "beat-2"],
+                    "shots": [
+                        {"beat_id": "beat-1", "video_url": "https://cdn/sel-1.mp4"},
+                        {"beat_id": "beat-2", "video_url": "https://cdn/sel-2.mp4"},
+                    ],
+                },
+            },
+            {
+                "id": "job-vsr",
+                "job_type": "video_generation",
+                "status": "completed",
+                "result_url": "https://cdn/a-2x.mp4",
+                "created_at": "2026-09-20 03:00:00",
+                "payload_json": {
+                    "episode_id": "e1",
+                    "render_scope": "upscale",
+                    "source_video_url": "https://cdn/a.mp4",
+                    "upscaled_video_url": "https://cdn/a-2x.mp4",
+                },
+            },
+        ]
+        takes = EpisodeVideoService.collect_beat_video_takes(beat, jobs, "e1")
+        urls = [item["url"] for item in takes]
+        self.assertIn("https://cdn/a.mp4", urls)
+        self.assertIn("https://cdn/sel-1.mp4", urls)
+        self.assertNotIn("https://cdn/episode.mp4", urls)
+        self.assertNotIn("https://cdn/timeline.mp4", urls)
+        self.assertNotIn("https://cdn/a-2x.mp4", urls)
+        adopted = next(item for item in takes if item["url"] == "https://cdn/a.mp4")
+        self.assertEqual("https://cdn/a-2x.mp4", adopted["upscaled_url"])
 
 
 if __name__ == "__main__":

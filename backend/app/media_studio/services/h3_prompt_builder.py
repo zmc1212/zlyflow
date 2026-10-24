@@ -518,9 +518,46 @@ class H3PromptBuilder:
         return spoken
 
     @classmethod
+    def third_person_narration(cls, shot: dict[str, Any]) -> str:
+        """Beat.narration 只保留第三人称/第一人称旁白；角色内心不算旁白原文。"""
+        narration = str(shot.get("narration") or "").strip()
+        if not narration:
+            return ""
+        inner_texts: list[str] = []
+        script_only = {
+            "dialogue": shot.get("dialogue"),
+            "speaker": shot.get("speaker"),
+            "dialogue_turns": shot.get("dialogue_turns"),
+            "narration": "",
+            "characters": shot.get("characters") or [],
+        }
+        _spoken, inner_turns = cls.split_spoken_and_inner(script_only)
+        for turn in inner_turns:
+            text = str(turn.get("text") or "").strip()
+            if text:
+                inner_texts.append(text)
+        extra_names = cls._known_speaker_names(shot)
+        for item in cls._parse_script_turns(str(shot.get("dialogue") or ""), extra_names):
+            if not cls._is_inner_speaker(str(item.get("speaker") or "")):
+                continue
+            text = str(item.get("text") or "").strip()
+            if text:
+                inner_texts.append(text)
+        leftover = narration
+        for inner in inner_texts:
+            if inner and inner in leftover:
+                leftover = leftover.replace(inner, "")
+                continue
+            inner_han = cls._han_only(inner)
+            leftover_han = cls._han_only(leftover)
+            if len(inner_han) >= 4 and leftover_han == inner_han:
+                return ""
+        return leftover.strip()
+
+    @classmethod
     def _inner_turns(cls, shot: dict[str, Any]) -> list[dict[str, Any]]:
         _spoken, inner = cls.split_spoken_and_inner(shot)
-        narration = str(shot.get("narration") or "").strip()
+        narration = cls.third_person_narration(shot)
         if narration:
             existing = {str(item.get("text") or "").strip() for item in inner}
             if narration not in existing and not any(
@@ -1240,8 +1277,10 @@ class H3PromptBuilder:
 
     @classmethod
     def detect_pack_aspect_ratio(cls, beat_info: dict[str, Any]) -> str:
-        explicit = re.sub(r"\s+", "", str(beat_info.get("aspect_ratio") or "").replace("：", ":"))
-        if explicit in {"9:16", "16:9"}:
+        from ...skill_packs.aspect import normalize_aspect_ratio
+
+        explicit = normalize_aspect_ratio(beat_info.get("aspect_ratio"))
+        if explicit:
             return explicit
         blob = " ".join(
             str(beat_info.get(key) or "")
@@ -1250,7 +1289,7 @@ class H3PromptBuilder:
         match = _ASPECT_RATIO_RE.search(blob)
         if not match:
             return ""
-        return re.sub(r"\s+", "", match.group(1).replace("：", ":"))
+        return normalize_aspect_ratio(match.group(1)) or re.sub(r"\s+", "", match.group(1).replace("：", ":"))
 
     @classmethod
     def packing_retry_block(
@@ -1855,6 +1894,48 @@ class H3PromptBuilder:
         return errors
 
     @classmethod
+    def _speech_tag_order_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
+        events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
+        expected = [cls._han_only(str(item.get("text") or "")) for item in events]
+        expected = [item for item in expected if item]
+        if not expected:
+            return []
+        bodies = [
+            cls._clean_dialogue(value, extra_names=cls._known_speaker_names(shot)).strip()
+            for value in re.findall(r"<d>(?:\[[^\]]+\]\s*)?(.*?)</d>", prompt, flags=re.S)
+            if str(value or "").strip()
+        ]
+        expected_set = set(expected)
+        actual = [cls._han_only(item) for item in bodies]
+        actual = [item for item in actual if item]
+        errors: list[str] = []
+        for body, han in zip(bodies, actual):
+            if han in expected_set:
+                continue
+            if any(len(exp) >= 6 and (han in exp or exp in han) for exp in expected_set):
+                continue
+            errors.append(f"unexpected spoken tag: {body[:40]}")
+        matched = [han for han in actual if han in expected_set]
+        blob = "".join(actual)
+        cursor = 0
+        sequential = True
+        for exp in expected:
+            idx = blob.find(exp, cursor)
+            if idx < 0:
+                sequential = False
+                break
+            cursor = idx + len(exp)
+        if expected and matched != expected and not sequential:
+            errors.append("speech tags missing or out of performance order")
+        return errors
+
+    @classmethod
+    def speech_schedule_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
+        errors = cls.speech_uniqueness_errors(prompt, shot)
+        errors.extend(cls._speech_tag_order_errors(prompt, shot))
+        return errors
+
+    @classmethod
     def _d_tag_spans_for_line(cls, prompt: str, line: str) -> list[tuple[int, int]]:
         needle = cls._han_only(line)
         locations: list[tuple[int, int]] = []
@@ -1901,39 +1982,11 @@ class H3PromptBuilder:
 
     @classmethod
     def speech_contract_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
-        errors = cls.speech_uniqueness_errors(prompt, shot)
+        errors = cls.speech_schedule_errors(prompt, shot)
         errors.extend(cls.inner_delivery_errors(prompt, shot))
         events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
-        expected = [cls._han_only(str(item.get("text") or "")) for item in events]
-        expected = [item for item in expected if item]
-        if not expected:
+        if not events:
             return errors
-        bodies = [
-            cls._clean_dialogue(value, extra_names=cls._known_speaker_names(shot)).strip()
-            for value in re.findall(r"<d>\[Chinese\]\s*(.*?)</d>", prompt, flags=re.S)
-            if str(value or "").strip()
-        ]
-        expected_set = set(expected)
-        actual = [cls._han_only(item) for item in bodies]
-        actual = [item for item in actual if item]
-        for body, han in zip(bodies, actual):
-            if han in expected_set:
-                continue
-            if any(len(exp) >= 6 and (han in exp or exp in han) for exp in expected_set):
-                continue
-            errors.append(f"unexpected spoken tag: {body[:40]}")
-        matched = [han for han in actual if han in expected_set]
-        blob = "".join(actual)
-        cursor = 0
-        sequential = True
-        for exp in expected:
-            idx = blob.find(exp, cursor)
-            if idx < 0:
-                sequential = False
-                break
-            cursor = idx + len(exp)
-        if expected and matched != expected and not sequential:
-            errors.append("speech tags missing or out of performance order")
         for match in re.finditer(r"\(S(\d+)\)\s*<Subject\s+(\d+)>", prompt, flags=re.I):
             if match.group(1) != match.group(2):
                 errors.append(

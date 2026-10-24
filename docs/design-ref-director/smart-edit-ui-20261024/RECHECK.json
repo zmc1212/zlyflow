@@ -1,0 +1,16 @@
+{
+  "reference": "01-design-light.png",
+  "candidate": "02-implementation-light.png",
+  "capture_metadata": "evidence/capture.json",
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/projects/proj-e69ad71f0da74048/edit?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1672,
+      "height": 941
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  }
+}

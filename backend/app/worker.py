@@ -315,11 +315,18 @@ class JobWorker:
         if job["status"] != JobStatus.RUNNING:
             return
 
+        item = job["rounds"][-1]["generation_items"][0]
+        item_id = item["id"]
+        refine_state = item.get("refine_state") or {}
+
         def update_stage(stage: str, progress: int | None = None) -> None:
             self.store.update(job_id, stage=stage, progress=progress)
 
         def on_submitted(prompt_id: str, client_id: str, phase: str) -> None:
             self.store.set_comfy_execution(job_id, prompt_id, client_id, phase)
+            pending_state = getattr(self.comfy, "last_refine_state", None)
+            if pending_state is not None:
+                self.store.update_generation(item_id, refine_state=pending_state)
             if self.store.is_cancelled(job_id):
                 self.comfy.stop_prompt(prompt_id)
                 self.store.clear_comfy_execution(job_id)
@@ -348,6 +355,14 @@ class JobWorker:
                             save_partial_outputs,
                             is_cancelled=is_cancelled,
                             options=job.get("options"),
+                            refine_state=refine_state,
+                        )
+                    if refine_state.get("status") == "confirmed" and refine_state.get("workflow"):
+                        return self.comfy.run_refine_continuation(
+                            refine_state,
+                            update_stage=update_stage,
+                            on_submitted=on_submitted,
+                            is_cancelled=is_cancelled,
                         )
                     return self.comfy.run(
                         JobMode(job["mode"]),
@@ -367,8 +382,26 @@ class JobWorker:
                 return
             self.store.clear_comfy_execution(job_id)
             self._auto_retries.pop(job_id, None)
-            self.store.update(
-                job_id, status=JobStatus.SUCCEEDED, stage="生成完成", progress=100, outputs=outputs,
+            pending_refine = getattr(self.comfy, "last_refine_state", None)
+            if pending_refine is not None:
+                self.store.update_generation(
+                    item_id,
+                    status=JobStatus.AWAITING_REFINE,
+                    stage="一采预览待确认",
+                    progress=90,
+                    outputs=outputs,
+                    refine_state=pending_refine,
+                    clear_execution=True,
+                )
+                return
+            self.store.update_generation(
+                item_id,
+                status=JobStatus.SUCCEEDED,
+                stage="生成完成",
+                progress=100,
+                outputs=outputs,
+                clear_refine_state=True,
+                clear_execution=True,
                 execution_elapsed_ms=self.comfy.last_execution_elapsed_ms,
             )
         except ComfyCancelled:

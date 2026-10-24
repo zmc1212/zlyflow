@@ -1,0 +1,123 @@
+/* Desktop design baseline: docs/design-ref-director/ui-20261023/home-design.png.
+   Business controls remain Ant Design; this layer owns layout and semantic colors. */
+@media (min-width: 1024px) {
+  .director2-app .director-home-v2 {
+    --dh-film-stage: #202b51;
+    --dh-film-ink: #b7c9ff;
+    --dh-film-edge: #d8dfef;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--studio-canvas);
+    box-shadow: none;
+  }
+  :root[data-theme="dark"] .director2-app .director-home-v2 {
+    --dh-film-stage: #10182b;
+    --dh-film-ink: #a4baff;
+    --dh-film-edge: #394155;
+  }
+  .director2-app .director-home-topbar {
+    height: 64px;
+    padding: 0 28px;
+    background: var(--studio-surface);
+  }
+  .dh-topbar-title { display: inline-flex; align-items: center; gap: 12px; }
+  .dh-topbar-title > svg { color: var(--studio-accent-text); }
+  .director2-app .director-home-topbar strong { font-size: 20px; font-weight: 650; }
+  .director2-app .director-home-scroll { padding: 40px 64px 12px 82px; }
+  .director2-app .director-home-hero,
+  .director2-app .director-home-entries,
+  .director2-app .director-home-projects { max-width: 1280px; padding: 0; }
+  .director2-app .director-home-hero h1 { font-size: 36px; line-height: 42px; font-weight: 650; }
+  .director2-app .director-home-hero p { margin-top: 8px; font-size: 16px; line-height: 24px; }
+  .director2-app .director-home-entries { grid-template-columns: minmax(0, 1.47fr) minmax(0, 1fr); gap: 16px; margin-top: 24px; }
+  .director2-app .dh-entry-primary {
+    min-height: 324px;
+    gap: 28px;
+    padding: 22px;
+    background: linear-gradient(110deg, var(--studio-surface), color-mix(in srgb, var(--studio-primary) 9%, var(--studio-surface)));
+    box-shadow: none;
+  }
+  .director2-app .dh-entry-primary:hover { transform: none; border-color: var(--studio-accent-text); box-shadow: none; }
+  .director2-app .dh-entry-head { gap: 28px; max-width: calc(100% - 200px); }
+  .director2-app .dh-entry-icon { width: 70px; height: 70px; border-radius: 12px; color: var(--studio-accent-text); background: var(--studio-primary-soft); box-shadow: none; }
+  .director2-app .dh-entry-icon > svg { width: 40px; height: 40px; }
+  .director2-app .dh-entry-copy { gap: 4px; }
+  .director2-app .dh-entry-copy strong { font-size: 26px; line-height: 32px; font-weight: 650; }
+  .director2-app .dh-entry-copy small { font-size: 16px; line-height: 22px; }
+  .director2-app .dh-entry-steps { gap: 20px; margin: 0 0 0 6px; }
+  .director2-app .dh-step { gap: 8px; font-size: 16px; }
+  .director2-app .dh-step i { width: 30px; height: 30px; font-size: 14px; font-weight: 600; }
+  .director2-app .dh-entry-cta { justify-content: center; gap: 8px; min-width: 212px; height: 52px; margin: 0 0 0 6px; padding: 0 24px; font-size: 18px; box-shadow: 0 6px 14px color-mix(in srgb, var(--studio-primary) 24%, transparent); }
+  .director2-app .dh-entry-cta > svg { width: 20px; height: 20px; }
+  .director2-app .dh-entry-art { width: 254px; }
+  .dh-film-frame { position: absolute; display: flex; flex-direction: column; gap: 9px; width: 154px; height: 144px; padding: 7px 7px 10px; border: 1px solid var(--dh-film-edge); border-radius: 7px; background: var(--studio-surface); box-shadow: 0 14px 28px color-mix(in srgb, var(--dh-film-stage) 16%, transparent); }
+  .dh-film-frame.is-back { top: 40px; right: 144px; width: 144px; height: 134px; transform: rotate(-10deg); }
+  .dh-film-frame.is-front { top: 104px; right: 30px; width: 166px; transform: rotate(9deg); }
+  .dh-film-preview { display: flex; flex: 1; align-items: center; justify-content: space-between; padding: 9px 7px; border-radius: 4px; background: var(--dh-film-stage); color: var(--dh-film-ink); }
+  .dh-film-perforations { display: grid; gap: 8px; }
+  .dh-film-perforations > i { width: 8px; height: 10px; border-radius: 1px; background: color-mix(in srgb, var(--dh-film-ink) 35%, var(--dh-film-stage)); }
+  .dh-film-caption { width: 52%; height: 6px; border-radius: 2px; background: var(--dh-film-edge); }
+  .director2-app .dh-entry-card { min-height: 96px; padding: 16px 20px; gap: 20px; border-color: var(--studio-border); background: var(--studio-surface); border-radius: 12px; }
+  .director2-app .dh-entry-card:hover { transform: none; border-color: var(--studio-border-strong); background: var(--studio-surface-raised); box-shadow: none; }
+  .director2-app .dh-entry-card .dh-entry-copy strong { font-size: 18px; line-height: 26px; }
+  .director2-app .dh-entry-card .dh-entry-copy small { font-size: 16px; line-height: 24px; }
+  .director2-app .dh-entry-card .dh-entry-icon { width: 62px; height: 62px; }
+  .director2-app .dh-entry-card .dh-entry-icon > svg { width: 30px; height: 30px; }
+  .director2-app .dh-entry-icon.is-replication { color: var(--studio-success); background: var(--studio-success-soft); }
+  .director2-app .dh-entry-go { background: var(--studio-primary-soft); color: var(--studio-accent-text); }
+  .director2-app .dh-diagnosis-entry { min-height: 64px; margin-top: 2px; padding: 14px 30px; gap: 24px; border-radius: 12px; background: var(--studio-surface); }
+  .director2-app .dh-diagnosis-entry > svg:first-child { width: 26px; height: 26px; }
+  .director2-app .dh-diagnosis-entry > span { gap: 18px; }
+  .director2-app .dh-diagnosis-entry strong { padding-right: 18px; border-right: 1px solid var(--studio-border-strong); font-size: 18px; }
+  .director2-app .dh-diagnosis-entry small { font-size: 14px; }
+  .director2-app .director-home-projects { margin-top: 28px; }
+  .director2-app .director-home-section-head { min-height: 36px; margin-bottom: 14px; gap: 12px; }
+  .director2-app .director-home-section-head h2 { flex: none; font-size: 20px; }
+  .dh-project-count { margin-left: 4px; font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .director2-app .director-home-section-tools { gap: 12px; flex-wrap: nowrap; }
+  .director2-app .dh-project-search { width: 200px; height: 36px; flex: none; border-radius: 8px; }
+  .dh-project-search .ant-input-prefix { color: var(--studio-text-muted); margin-right: 8px; }
+  .dh-project-search .ant-input::placeholder { color: var(--studio-text-muted); }
+  .director2-app .dh-kind-filter.ant-segmented { width: 408px; padding: 3px; background: var(--studio-surface-raised); }
+  .director2-app .dh-kind-filter.ant-segmented .ant-segmented-group { width: 100%; }
+  .director2-app .dh-kind-filter.ant-segmented .ant-segmented-item { flex: 1 0 auto; }
+  .director2-app .dh-kind-filter.ant-segmented .ant-segmented-item-label { min-height: 28px; line-height: 28px; padding: 0 9px; font-size: 14px; }
+  .director2-app .dh-kind-filter.ant-segmented .ant-segmented-item-selected { color: #fff; background: var(--studio-primary); box-shadow: 0 1px 3px var(--studio-border); }
+  .director2-app .dh-kind-filter.ant-segmented .ant-segmented-thumb { background: var(--studio-primary); }
+  .director2-app .dh-view-all { padding: 0; white-space: nowrap; color: var(--studio-accent-text); font-size: 14px; }
+  .director2-app .dh-project-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; }
+  .director2-app .dh-project { min-width: 0; padding: 12px 13px 10px; border-radius: 12px; background: var(--studio-surface); }
+  .director2-app .dh-project:hover { transform: none; border-color: var(--studio-border-strong); box-shadow: none; }
+  .director2-app .dh-project-main { min-height: 96px; }
+  .director2-app .dh-project-cover { width: 104px; height: 96px; min-height: 0; border-radius: 8px; color: var(--studio-accent-text); background: var(--studio-primary-soft); }
+  .director2-app .dh-project-cover::after { display: none; }
+  .director2-app .dh-project-cover > svg { width: 27px; height: 27px; }
+  .director2-app .dh-project-cover[data-kind="batch_run"] { color: var(--studio-accent-text); background: var(--studio-primary-soft); }
+  .director2-app .dh-project-cover[data-kind="shot_replication"] { color: var(--studio-success); background: var(--studio-success-soft); }
+  .director2-app .dh-project-info { gap: 4px; }
+  .director2-app .dh-project-info > strong { font-size: 16px; line-height: 22px; }
+  .director2-app .dh-project-summary { -webkit-line-clamp: 1; font-size: 14px; line-height: 20px; }
+  .director2-app .dh-chip.is-kind { color: var(--studio-accent-text); font-size: 12px; line-height: 22px; font-weight: 500; padding: 0 6px; }
+  .director2-app .dh-project-meta { margin-top: auto; font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
+  .director2-app .dh-project-actions { gap: 12px; margin-top: 10px; padding-top: 6px; }
+  .director2-app .dh-open-btn.ant-btn { height: 30px; min-width: 0; padding: 0 8px; background: var(--studio-primary-soft); color: var(--studio-accent-text); font-size: 13px; }
+  .director2-app .dh-ghost-btn.ant-btn { height: 30px; padding: 0 4px; font-size: 13px; }
+  .director2-app .dh-ghost-btn.is-danger:hover { color: var(--studio-danger); }
+  .director2-app .dh-project-skeleton { min-height: 164px; padding-top: 20px; }
+  .director2-app .dh-state { background: var(--studio-surface); }
+}
+
+@media (min-width: 1024px) and (max-width: 1399px) {
+  .director2-app .director-home-scroll { padding: 32px 36px; }
+  .director2-app .dh-entry-head { max-width: calc(100% - 140px); }
+  .director2-app .dh-entry-art { width: 190px; transform: scale(.85); transform-origin: right center; }
+  .director2-app .director-home-section-head { align-items: flex-start; }
+  .director2-app .director-home-section-tools { flex-wrap: wrap; }
+  .director2-app .dh-project-search { width: 160px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .director2-app .director-home-v2 button,
+  .director2-app .director-home-v2 article { transition: none; }
+}

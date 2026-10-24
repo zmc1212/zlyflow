@@ -141,6 +141,21 @@ class StoryboardDispatcherTests(unittest.TestCase):
     def test_bound_triptych_prompt_uses_pack_template(self, _resolve):
         prompt = StoryboardImageService._triptych_prompt("p1", {"action": "她转身关门", "camera": "固定机位"})
         self.assertIn("Generate ONE 16:9 keyframe master image", prompt)
+        self.assertIn("vertical 9:16", prompt)
+        self.assertIn("finished-shot 9:16", prompt)
+
+    @patch("backend.app.skill_packs.binding.resolve_skill_pack_id", return_value="half-narrated-live-action-short-drama")
+    def test_bound_triptych_prompt_uses_film_aspect_not_crop_label(self, _resolve):
+        prompt = StoryboardImageService._triptych_prompt(
+            "p1",
+            {"action": "她转身关门", "camera": "固定机位"},
+            {"aspect_ratio": "16:9"},
+        )
+        self.assertIn("Generate ONE 16:9 keyframe master image", prompt)
+        self.assertIn("finished-shot 16:9", prompt)
+        self.assertIn("horizontal 16:9 composition", prompt)
+        self.assertNotIn("vertical 9:16", prompt)
+        self.assertNotIn("9:16 裁切", prompt)
 
 
 class TransferEpisodesTests(unittest.TestCase):
@@ -283,20 +298,30 @@ LONG_DIALOGUE_SCRIPT = """# 第1集 超长对白
 class CreateDocumentShotPlanTests(unittest.TestCase):
     @patch("backend.app.media_studio.services.shot_plan_job_service.ShotPlanJobService.enqueue")
     @patch("backend.app.media_studio.services.project_detail_service.execute_sql")
-    def test_create_document_enqueues_shot_plan_and_keeps_parser_shots(self, execute_sql, enqueue):
-        enqueue.return_value = {"job_id": "job-plan-1", "status": "queued", "document_id": "doc-1"}
+    def test_create_document_awaits_aspect_and_keeps_parser_shots(self, execute_sql, enqueue):
         result = ProjectDetailService.create_document("proj-1", "花甲", LONG_DIALOGUE_SCRIPT, input_mode="paste")
         episode = result["analysis"]["episodes"][0]
-        self.assertEqual("planning", result["status"])
-        self.assertEqual("job-plan-1", result["shot_plan_job_id"])
+        self.assertEqual("awaiting_aspect", result["status"])
+        self.assertIsNone(result["shot_plan_job_id"])
+        self.assertTrue(result["needs_shot_plan"])
+        self.assertIn("suggested", result["aspect_hint"])
         self.assertEqual(1, episode["episode_num"])
         self.assertNotEqual("llm", episode.get("shots_source"))
         self.assertEqual(1, episode["shots_count"])
         self.assertIn("# 第1集", episode["body"])
-        enqueue.assert_called_once()
-        self.assertEqual("proj-1", enqueue.call_args.args[0])
+        enqueue.assert_not_called()
         insert_params = execute_sql.call_args_list[0].args[1]
-        self.assertEqual("planning", insert_params[5])
+        self.assertEqual("awaiting_aspect", insert_params[5])
+
+    @patch("backend.app.media_studio.services.shot_plan_job_service.ShotPlanJobService.enqueue")
+    @patch("backend.app.media_studio.services.project_detail_service.execute_sql")
+    def test_create_document_scans_landscape_hint(self, execute_sql, enqueue):
+        script = LONG_DIALOGUE_SCRIPT.replace("电梯里一次说完。", "横屏 16:9 拍摄。")
+        result = ProjectDetailService.create_document("proj-1", "横屏稿", script, input_mode="paste")
+        self.assertEqual("awaiting_aspect", result["status"])
+        self.assertEqual("16:9", result["aspect_hint"]["suggested"])
+        self.assertIn("横屏", result["aspect_hint"]["hits"])
+        enqueue.assert_not_called()
 
     @patch("backend.app.media_studio.services.shot_plan_job_service.ShotPlanJobService.enqueue")
     def test_enqueue_document_shot_plan_delegates_to_job_service(self, enqueue):
@@ -304,6 +329,16 @@ class CreateDocumentShotPlanTests(unittest.TestCase):
         result = ProjectDetailService.enqueue_document_shot_plan("proj-1", "doc-1")
         self.assertEqual("job-plan-2", result["job_id"])
         enqueue.assert_called_once_with("proj-1", "doc-1")
+
+    @patch("backend.app.media_studio.services.project_detail_service.persist_workshop_aspect_ratio")
+    @patch("backend.app.media_studio.services.shot_plan_job_service.ShotPlanJobService.enqueue")
+    def test_enqueue_document_shot_plan_persists_confirmed_aspect(self, enqueue, persist):
+        enqueue.return_value = {"job_id": "job-plan-3", "document_id": "doc-1", "status": "queued"}
+        persist.return_value = "16:9"
+        result = ProjectDetailService.enqueue_document_shot_plan("proj-1", "doc-1", aspect_ratio="16:9")
+        self.assertEqual("job-plan-3", result["job_id"])
+        persist.assert_called_once_with("proj-1", "16:9")
+        enqueue.assert_called_once_with("proj-1", "doc-1", aspect_ratio="16:9")
 
     @patch("backend.app.media_studio.services.shot_plan_job_service.ShotPlanJobService.enqueue")
     @patch("backend.app.media_studio.services.project_detail_service.execute_sql")

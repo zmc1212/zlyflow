@@ -1,8 +1,8 @@
 # 三联关键帧母图（官方第 5 步）
 
-Generate ONE 16:9 keyframe master image. Inside that single landscape frame, place THREE equal vertical 9:16 sub-keyframes side by side, left / center / right, with no gaps that read as a fourth scene. This is a continuity storyboard board, not a finished 9:16 video frame and not a filmstrip that will be interpolated as one wide shot.
+Generate ONE 16:9 keyframe master image. Inside that single landscape frame, place THREE equal {panel_geometry} sub-keyframes side by side, left / center / right, with no gaps that read as a fourth scene. All three panels are finished-shot {aspect} compositions. This is a continuity storyboard board, not a finished {aspect} video frame and not a filmstrip that will be interpolated as one wide shot.
 
-LEFT panel = spatial establishment / start frame: lock room geometry, where each person stands, who fills the vertical 9:16 frame, eyeline and depth. Frozen moment, no motion blur.
+LEFT panel = spatial establishment / start frame: lock room geometry, where each person stands, who fills the {aspect} frame, eyeline and depth. Frozen moment, no motion blur.
 
 CENTER panel = the main action of this beat at a later instant. Same people, costumes, faces, props, and location. Clearly different composition and visual focus from the left panel.
 

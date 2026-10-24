@@ -24,6 +24,7 @@ describe("director2 job types", () => {
       "shot_plan",
       "ai_pipeline",
       "tts_generation",
+      "smart_edit_export",
     ])
     expect(DIRECTOR2_DEFAULT_JOB_TYPE).toBe("image_generation")
   })
@@ -63,6 +64,7 @@ describe("director2 job types", () => {
       shot_plan: 1,
       ai_pipeline: 1,
       tts_generation: 1,
+      smart_edit_export: 0,
     })
   })
 

@@ -4,15 +4,13 @@
 // 自动保存队列（700ms 防抖 + 串行队列 + beforeunload keepalive）行为与原版一致。
 // 角色/场景/道具工作区与各弹窗已按原版内部分区下沉到 ./assets/ 子组件。
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
-import { Button, Form, Input, Modal, Popconfirm, Space, Spin, Tag, message } from "antd"
+import { Button, Form, Input, Modal, Popconfirm, Segmented, Space, Spin, Tag, message } from "antd"
 import {
   Boxes,
   Compass,
   Edit3,
   Eye,
   Layers,
-  MapPin,
-  Package,
   Plus,
   RefreshCw,
   Save,
@@ -20,7 +18,6 @@ import {
   Shirt,
   Sparkles,
   Trash2,
-  Users,
 } from "lucide-react"
 import {
   listAssets,
@@ -1507,27 +1504,30 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         <div className="header-copy">
           <h2 className="sub-pane-title">资产库</h2>
           <p className="sub-pane-subtitle">
-            管理角色设定板与身份造型、场景三大机位（Master主视角 / Reverse反打背面 / Pano 360全景）及道具特写参考。
+            统一角色造型、场景与道具，为每个镜头准备一致的视觉参考。
           </p>
         </div>
 
         <div className="header-actions">
-          <div className="stats-pills">
-            <span className={`stat-pill${currentTab === "character" ? " active" : ""}`} onClick={() => handleTabChange("character")}>
-              <Users size={13} /> 角色 {getCountByKind("character")}
-            </span>
-            <span className={`stat-pill${currentTab === "scene" ? " active" : ""}`} onClick={() => handleTabChange("scene")}>
-              <MapPin size={13} /> 场景 {getCountByKind("scene")}
-            </span>
-            <span className={`stat-pill${currentTab === "prop" ? " active" : ""}`} onClick={() => handleTabChange("prop")}>
-              <Package size={13} /> 道具 {getCountByKind("prop")}
-            </span>
-          </div>
           <Button type="primary" className="primary-btn" icon={<Plus size={16} />} onClick={openCreateModal}>
             新增{kindLabel(currentTab)}
           </Button>
         </div>
       </div>
+      <div className="asset-library-controls">
+        <Segmented
+          className="asset-kind-switch"
+          aria-label="资产分类"
+          value={currentTab}
+          onChange={(value) => handleTabChange(String(value))}
+          options={ASSET_TABS.map((tab) => {
+            const KindIcon = getKindIcon(tab.key)
+            return {
+              value: tab.key,
+              label: <span className="asset-kind-label"><KindIcon size={13} />{tab.label}<span className="asset-kind-count">{getCountByKind(tab.key)}</span></span>,
+            }
+          })}
+        />
       {currentTab === "character" ? (
         <div className="batch-generate-bar">
           <Button
@@ -1604,6 +1604,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           <span className="batch-generate-hint">仅处理尚未出图的道具；三视图和细节图需已有参考图</span>
         </div>
       ) : null}
+      </div>
 
       <Spin spinning={loading}>
         {assets.length === 0 ? (
@@ -1618,24 +1619,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           <div className="assets-split-container">
             {/* 左侧：分类、搜索与资产名称列表 */}
             <div className="assets-sidebar-list">
-              {/* 分类 Tabs (去掉全部，默认角色) */}
-              <div className="sidebar-tabs">
-                {ASSET_TABS.map((tab) => {
-                  const KindIcon = getKindIcon(tab.key)
-                  return (
-                    <div
-                      key={tab.key}
-                      className={`sidebar-tab-item${currentTab === tab.key ? " active" : ""}`}
-                      onClick={() => handleTabChange(tab.key)}
-                    >
-                      <KindIcon size={13} />
-                      <span>{tab.label}</span>
-                      <span className="tab-count-badge">{getCountByKind(tab.key)}</span>
-                    </div>
-                  )
-                })}
-              </div>
-
               {/* 搜索过滤 */}
               <div className="sidebar-search-box">
                 <Input
@@ -1656,9 +1639,11 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                   </div>
                 ) : null}
                 {filteredAssets.map((ast) => (
-                  <div
+                  <button
+                    type="button"
                     key={ast.id}
                     className={`asset-list-item${selectedAsset && selectedAsset.id === ast.id ? " active" : ""}`}
+                    aria-pressed={selectedAsset?.id === ast.id}
                     onClick={() => selectAsset(ast)}
                   >
                     {/* 缩略图或单字头像 */}
@@ -1708,7 +1693,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
 
                     {/* 选中激活指示条 */}
                     {selectedAsset && selectedAsset.id === ast.id ? <div className="item-active-bar" /> : null}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

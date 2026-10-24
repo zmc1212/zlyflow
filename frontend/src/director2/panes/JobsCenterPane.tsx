@@ -4,10 +4,10 @@
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Alert, Button, Modal, Progress, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
+import { Alert, Button, Input, Modal, Progress, Select, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
 import type { TableProps } from "antd"
-import { RefreshCw, ExternalLink, Copy } from "lucide-react"
-import { director2ErrorDetail, listJobs, retryJob, upscaleProjectVideoJob, type Director2Job } from "../api"
+import { RefreshCw, ExternalLink, Copy, ListChecks, Search } from "lucide-react"
+import { director2ErrorDetail, confirmProjectVideoRefine, listJobs, retryJob, skipProjectVideoRefine, upscaleProjectVideoJob, type Director2Job } from "../api"
 import {
   DIRECTOR2_DEFAULT_JOB_TYPE,
   DIRECTOR2_JOB_TYPES,
@@ -24,7 +24,7 @@ import {
   type Director2JobType,
 } from "../director2-job-types"
 import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "../paths"
-import { jobCanShowUpscaleAction, jobPreviewVideoUrl, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl } from "../director2-video-settings"
+import { jobCanConfirmRefine, jobCanShowUpscaleAction, jobPreviewVideoUrl, jobRefineShotCount, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl } from "../director2-video-settings"
 import { useMediaPreview } from "../media-preview"
 import "./jobs-center.css"
 
@@ -66,7 +66,10 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   const [selectedJob, setSelectedJob] = useState<Director2Job | null>(null)
   const [activeJobType, setActiveJobType] = useState<Director2JobType>(DIRECTOR2_DEFAULT_JOB_TYPE)
   const [page, setPage] = useState(1)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState("all")
   const [upscalingJobId, setUpscalingJobId] = useState<string | null>(null)
+  const [refineAction, setRefineAction] = useState<{ jobId: string; action: "confirm" | "skip" } | null>(null)
   const hasInitializedTab = useRef(false)
 
   // 与 Vue 实例级可变量（selectedJob）对应的同步 ref，供异步续体（fetchJobs 轮询）读取最新值
@@ -78,7 +81,25 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   }
 
   const typeCounts = useMemo(() => countJobsByType(jobs), [jobs])
-  const filteredJobs = useMemo(() => filterJobsByType(jobs, activeJobType), [jobs, activeJobType])
+  const typeJobs = useMemo(() => filterJobsByType(jobs, activeJobType), [jobs, activeJobType])
+  const filteredJobs = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase()
+    return typeJobs.filter((job) => {
+      const matchesText = !query || `${job.title} ${job.id}`.toLocaleLowerCase().includes(query)
+      const matchesStatus = statusFilter === "all"
+        || (statusFilter === "active" && ["queued", "pending", "preparing", "prompt_generation", "uploading", "comfy_queued", "running"].includes(job.status))
+        || (statusFilter === "completed" && ["completed", "succeeded"].includes(job.status))
+        || (statusFilter === "cancelled" && ["cancelled", "canceled", "interrupted"].includes(job.status))
+        || job.status === statusFilter
+      return matchesText && matchesStatus
+    })
+  }, [typeJobs, searchQuery, statusFilter])
+  const hasFilters = Boolean(searchQuery.trim()) || statusFilter !== "all"
+
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil(filteredJobs.length / 20))
+    if (page > lastPage) setPage(lastPage)
+  }, [filteredJobs.length, page])
 
   const columns: TableProps<Director2Job>["columns"] = [
     {
@@ -121,7 +142,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
         const upscaled = isVideoJob(record) && Boolean(jobUpscaledVideoUrl(record))
         return previewUrl ? (
           isTtsJob(record) ? (
-            <audio src={record.result_url} className="result-thumb" preload="metadata" controls />
+            <audio src={record.result_url || undefined} className="result-thumb" preload="metadata" controls />
           ) : (
           <button
             type="button"
@@ -129,17 +150,18 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             aria-label={upscaled ? "预览 2x 超分结果" : "预览结果"}
             onClick={() => openMediaPreview({
               src: previewUrl,
-              kind: record.job_type === "video_generation" ? "video" : "image",
+              kind: isVideoJob(record) ? "video" : "image",
               title: upscaled ? `${record.title || "生成结果"} · 2x` : record.title || "生成结果",
             })}
           >
-            {record.job_type === "video_generation" ? (
+            {isVideoJob(record) ? (
               <>
                 <video src={previewUrl} className="result-thumb" muted preload="metadata" />
+                {record.status === "awaiting_refine" ? <Tag color="gold" className="result-upscale-tag">一采</Tag> : null}
                 {upscaled ? <Tag color="purple" className="result-upscale-tag">2x</Tag> : null}
               </>
             ) : (
-              <img src={record.result_url} className="result-thumb" alt="结果图" />
+              <img src={record.result_url || undefined} className="result-thumb" alt="结果图" />
             )}
           </button>
           )
@@ -160,7 +182,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     {
       title: "操作",
       key: "action",
-      width: 260,
+      width: 340,
       render: (_, record) => (
         <Space>
           <Button size="small" type="primary" ghost onClick={() => openDetail(record)}>
@@ -191,7 +213,28 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               打开配音
             </Button>
           ) : null}
-          {record.status === "failed" ? (
+          {jobCanConfirmRefine(record) ? (
+            <>
+              <Button
+                size="small"
+                type="primary"
+                loading={refineAction?.jobId === record.id && refineAction.action === "confirm"}
+                disabled={Boolean(refineAction)}
+                onClick={() => void handleRefineDecision(record, "confirm")}
+              >
+                确认二采
+              </Button>
+              <Button
+                size="small"
+                loading={refineAction?.jobId === record.id && refineAction.action === "skip"}
+                disabled={Boolean(refineAction)}
+                onClick={() => void handleRefineDecision(record, "skip")}
+              >
+                保留一采
+              </Button>
+            </>
+          ) : null}
+          {record.status === "failed" && record.job_type !== "smart_edit_export" ? (
             <Button size="small" type="link" onClick={() => handleRetry(record.id)}>
               重试
             </Button>
@@ -209,9 +252,13 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       uploading: { color: "processing", text: "上传素材" },
       comfy_queued: { color: "cyan", text: "ComfyUI 排队" },
       running: { color: "processing", text: "执行中" },
+      awaiting_refine: { color: "gold", text: "一采预览待确认" },
       succeeded: { color: "green", text: "已完成" },
       completed: { color: "green", text: "已完成" },
       failed: { color: "red", text: "失败" },
+      cancelled: { color: "default", text: "已取消" },
+      canceled: { color: "default", text: "已取消" },
+      interrupted: { color: "default", text: "已中断" },
     }
     return map[s] || { color: "default", text: s }
   }
@@ -226,7 +273,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   }
 
   function isVideoJob(job: Director2Job | null): boolean {
-    return job?.job_type === "video_generation"
+    return job?.job_type === "video_generation" || job?.job_type === "smart_edit_export"
   }
 
   function copyH3Prompt(text: string) {
@@ -353,6 +400,29 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
   }
 
+  async function handleRefineDecision(job: Director2Job, action: "confirm" | "skip") {
+    if (!jobCanConfirmRefine(job)) {
+      message.warning("当前任务没有待确认的一采预览")
+      return
+    }
+    setRefineAction({ jobId: job.id, action })
+    try {
+      if (action === "confirm") {
+        message.loading({ content: "正在提交二采精修...", key: "jobRefine" })
+        await confirmProjectVideoRefine(csrfToken, projectId, job.id)
+        message.success({ content: "已开始二采精修，将复用一采缓存只跑第二遍", key: "jobRefine", duration: 6 })
+      } else {
+        await skipProjectVideoRefine(csrfToken, projectId, job.id)
+        message.success("已保留一采预览作为成片")
+      }
+      await fetchJobs(true)
+    } catch (err) {
+      message.error({ content: director2ErrorDetail(err, action === "confirm" ? "确认二采失败" : "保留一采失败"), key: "jobRefine", duration: 10 })
+    } finally {
+      setRefineAction(null)
+    }
+  }
+
   // 最新闭包 trampoline：1 秒静默轮询读取最新渲染的 fetchJobs（等价 Vue 闭包读响应式值）
   const fetchJobsRef = useRef(fetchJobs)
   useEffect(() => {
@@ -363,6 +433,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     hasInitializedTab.current = false
     setActiveJobType(DIRECTOR2_DEFAULT_JOB_TYPE)
     setPage(1)
+    setSearchQuery("")
+    setStatusFilter("all")
     fetchJobs()
     const pollTimer = window.setInterval(() => fetchJobsRef.current(true), 1000)
     return () => {
@@ -398,6 +470,32 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             label: `${director2JobTypeLabel(type)} (${typeCounts[type]})`,
           }))}
         />
+        <div className="jobs-filter-bar">
+          <Input
+            className="jobs-search"
+            aria-label="搜索任务"
+            placeholder="搜索任务名称或 ID"
+            prefix={<Search size={15} />}
+            allowClear
+            value={searchQuery}
+            onChange={(event) => { setSearchQuery(event.target.value); setPage(1) }}
+          />
+          <Select
+            aria-label="任务状态"
+            value={statusFilter}
+            onChange={(value) => { setStatusFilter(value); setPage(1) }}
+            options={[
+              { value: "all", label: "全部状态" },
+              { value: "active", label: "进行中" },
+              { value: "awaiting_refine", label: "一采预览待确认" },
+              { value: "completed", label: "已完成" },
+              { value: "failed", label: "失败" },
+              { value: "cancelled", label: "已取消 / 已中断" },
+            ]}
+          />
+          {hasFilters ? <Button type="text" onClick={() => { setSearchQuery(""); setStatusFilter("all"); setPage(1) }}>重置筛选</Button> : null}
+          <span className="jobs-count" aria-live="polite">{hasFilters ? `找到 ${filteredJobs.length} / ${typeJobs.length} 个任务` : `共 ${typeJobs.length} 个任务`}</span>
+        </div>
         <Table
           loading={loading}
           dataSource={filteredJobs}
@@ -407,9 +505,19 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             pageSize: 20,
             current: page,
             onChange: (nextPage) => setPage(nextPage),
+            hideOnSinglePage: true,
+            showSizeChanger: false,
           }}
+          scroll={{ x: 980 }}
           size="middle"
-          locale={{ emptyText: `暂无${director2JobTypeLabel(activeJobType)}任务` }}
+          locale={{ emptyText: (
+            <div className="jobs-empty-state">
+              <ListChecks size={36} />
+              <strong>{hasFilters ? "没有找到匹配的任务" : `暂无${director2JobTypeLabel(activeJobType)}任务`}</strong>
+              <p>{hasFilters ? "试试其他关键词，或重置筛选查看当前类型的任务。" : "在内容库或工坊开始制作后，可在这里查看进度与结果。"}</p>
+              {hasFilters ? <Button onClick={() => { setSearchQuery(""); setStatusFilter("all"); setPage(1) }}>重置筛选</Button> : null}
+            </div>
+          ) }}
         />
       </div>
 
@@ -490,7 +598,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               </div>
             ) : null}
 
-            {isVideoJob(selectedJob) ? (
+            {selectedJob.job_type === "smart_edit_export" && <div className="detail-section"><div className="detail-section-title">剪辑导出参数</div><div className="detail-grid"><div className="detail-row"><span className="detail-key">剪辑名称</span><span className="detail-val">{selectedJob.payload?.name || selectedJob.title}</span></div><div className="detail-row"><span className="detail-key">输出规格</span><span className="detail-val">{selectedJob.payload?.aspect_ratio} · {selectedJob.payload?.quality}P · {selectedJob.payload?.fps} fps</span></div><div className="detail-row"><span className="detail-key">片段数量</span><span className="detail-val">{selectedJob.payload?.clip_count}</span></div></div></div>}
+            {selectedJob.job_type === "video_generation" ? (
               <div className="detail-section">
                 <div className="detail-section-title">视频生成参数</div>
                 <div className="detail-grid">
@@ -838,7 +947,37 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             {/* 结果图片 */}
             {isVideoJob(selectedJob) && (jobPreviewVideoUrl(selectedJob) || selectedJob.result_url) ? (
               <div className="detail-section">
-                <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? " · 含 2x 超分" : ""}</div>
+                <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? " · 含 2x 超分" : selectedJob.status === "awaiting_refine" ? " · 一采预览" : ""}</div>
+                {jobCanConfirmRefine(selectedJob) ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    className="mt-3"
+                    message="一采预览已生成，尚未写入本镜成片"
+                    description={`确认后会用同一 seed 只跑二采精修${jobRefineShotCount(selectedJob) > 1 ? `（本任务共 ${jobRefineShotCount(selectedJob)} 镜）` : ""}；保留一采会把当前预览直接作为成片。`}
+                    action={
+                      <Space direction="vertical">
+                        <Button
+                          size="small"
+                          type="primary"
+                          loading={refineAction?.jobId === selectedJob.id && refineAction.action === "confirm"}
+                          disabled={Boolean(refineAction)}
+                          onClick={() => void handleRefineDecision(selectedJob, "confirm")}
+                        >
+                          确认二采
+                        </Button>
+                        <Button
+                          size="small"
+                          loading={refineAction?.jobId === selectedJob.id && refineAction.action === "skip"}
+                          disabled={Boolean(refineAction)}
+                          onClick={() => void handleRefineDecision(selectedJob, "skip")}
+                        >
+                          保留一采
+                        </Button>
+                      </Space>
+                    }
+                  />
+                ) : null}
                 <div className="result-preview">
                   {jobUpscaledVideoUrl(selectedJob) ? (
                     <>
@@ -846,7 +985,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                       <video src={jobUpscaledVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
                     </>
                   ) : (
-                    <video src={jobPreviewVideoUrl(selectedJob) || selectedJob.result_url} className="result-video" controls preload="metadata" />
+                    <video src={jobPreviewVideoUrl(selectedJob) || selectedJob.result_url || undefined} className="result-video" controls preload="metadata" />
                   )}
                   {jobSourceVideoUrl(selectedJob) && jobSourceVideoUrl(selectedJob) !== jobUpscaledVideoUrl(selectedJob) ? (
                     <>

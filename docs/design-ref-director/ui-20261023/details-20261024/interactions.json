@@ -1,0 +1,424 @@
+{
+  "checks": [
+    {
+      "name": "light 标准剧本规范 opens",
+      "passed": true
+    },
+    {
+      "name": "light 标准剧本规范 contained",
+      "passed": true
+    },
+    {
+      "name": "light 标准剧本规范 closes",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 opens",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 contained",
+      "passed": true
+    },
+    {
+      "name": "light 导入剧本文档 closes",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 opens",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 contained",
+      "passed": true
+    },
+    {
+      "name": "light 编辑基本信息 closes",
+      "passed": true
+    },
+    {
+      "name": "light recipe options visible",
+      "passed": true
+    },
+    {
+      "name": "light assistant opens",
+      "passed": true
+    },
+    {
+      "name": "light assistant closes",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 标准剧本规范 closes",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 导入剧本文档 closes",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 opens",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 contained",
+      "passed": true
+    },
+    {
+      "name": "dark 编辑基本信息 closes",
+      "passed": true
+    },
+    {
+      "name": "dark recipe options visible",
+      "passed": true
+    },
+    {
+      "name": "dark assistant opens",
+      "passed": true
+    },
+    {
+      "name": "dark assistant closes",
+      "passed": true
+    },
+    {
+      "name": "theme persists reload",
+      "passed": true
+    },
+    {
+      "name": "empty name feedback",
+      "passed": true
+    },
+    {
+      "name": "name unchanged after cancel",
+      "passed": true
+    },
+    {
+      "name": "simulated long title ellipsis",
+      "passed": true,
+      "detail": {
+        "ellipsis": "ellipsis",
+        "clipped": true,
+        "title": "导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性",
+        "box": [
+          264.140625,
+          503.859375
+        ],
+        "controls": [
+          944,
+          472
+        ],
+        "overlap": false,
+        "overflow": false
+      }
+    },
+    {
+      "name": "simulated long title controls fit",
+      "passed": true,
+      "detail": {
+        "ellipsis": "ellipsis",
+        "clipped": true,
+        "title": "导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性导演台超长工程名称用于验证头部省略与功能按钮可见性",
+        "box": [
+          264.140625,
+          503.859375
+        ],
+        "controls": [
+          944,
+          472
+        ],
+        "overlap": false,
+        "overflow": false
+      }
+    },
+    {
+      "name": "simulated long title full tooltip",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 资产库",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 剧集工坊",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 全部任务",
+      "passed": true
+    },
+    {
+      "name": "nav keyboard 内容库",
+      "passed": true
+    },
+    {
+      "name": "light edit rail 62",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit library title single line",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit library actions fit",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "light edit viewport fits",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit rail 62",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit library title single line",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit library actions fit",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "dark edit viewport fits",
+      "passed": true,
+      "detail": {
+        "sidebar": 62,
+        "titleHeight": 18,
+        "titleLineHeight": 18,
+        "titleWidth": 36,
+        "actions": [
+          {
+            "text": "引用本机",
+            "contained": true
+          },
+          {
+            "text": "上传",
+            "contained": true
+          }
+        ],
+        "overflow": false,
+        "topbarContained": true
+      }
+    },
+    {
+      "name": "home no search results",
+      "passed": true
+    },
+    {
+      "name": "home search clear restores",
+      "passed": true
+    },
+    {
+      "name": "home search real title",
+      "passed": true
+    },
+    {
+      "name": "filter 短视频批量",
+      "passed": true
+    },
+    {
+      "name": "filter 参考片复刻",
+      "passed": true
+    },
+    {
+      "name": "filter Hypit 复刻",
+      "passed": true
+    },
+    {
+      "name": "filter 全部",
+      "passed": true
+    },
+    {
+      "name": "filter 导演创作",
+      "passed": true
+    },
+    {
+      "name": "home show all",
+      "passed": true
+    },
+    {
+      "name": "home collapse",
+      "passed": true
+    },
+    {
+      "name": "light creation picker opens",
+      "passed": true
+    },
+    {
+      "name": "light creation recipe options",
+      "passed": true
+    },
+    {
+      "name": "light creation picker closes",
+      "passed": true
+    },
+    {
+      "name": "dark creation picker opens",
+      "passed": true
+    },
+    {
+      "name": "dark creation recipe options",
+      "passed": true
+    },
+    {
+      "name": "dark creation picker closes",
+      "passed": true
+    },
+    {
+      "name": "delete confirmation opens",
+      "passed": true
+    },
+    {
+      "name": "delete cancelled",
+      "passed": true
+    }
+  ],
+  "failed": [],
+  "runtime_errors": [],
+  "project_id": "proj-841b26724b414c55",
+  "synthetic_fixtures": [
+    "long project name via GET-only browser route; no saved production changes"
+  ]
+}

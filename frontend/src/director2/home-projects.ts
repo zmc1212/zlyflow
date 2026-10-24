@@ -1,7 +1,7 @@
 import type { DirectorPayloadKind, DirectorProjectListItem } from "../director/director-api"
 import type { Director2Project } from "./api"
 
-export const HOME_DIRECTOR_KINDS = ["batch_run", "shot_replication", "hypit_replication"] as const
+export const HOME_DIRECTOR_KINDS = ["batch_run", "shot_replication"] as const
 export type HomeDirectorKind = (typeof HOME_DIRECTOR_KINDS)[number]
 
 export type HomeProjectItem = {
@@ -62,14 +62,13 @@ export function mergeHomeProjects(
   })
 }
 
-export const HOME_PROJECT_FILTERS = ["studio", "batch_run", "shot_replication", "hypit_replication", "all"] as const
+export const HOME_PROJECT_FILTERS = ["studio", "batch_run", "shot_replication", "all"] as const
 export type HomeProjectFilter = (typeof HOME_PROJECT_FILTERS)[number]
 export const DEFAULT_HOME_PROJECT_FILTER: HomeProjectFilter = "studio"
 
 export function homeProjectKindLabel(kind: HomeProjectItem["kind"]): string {
   if (kind === "batch_run") return "短视频批量"
   if (kind === "shot_replication") return "参考片复刻"
-  if (kind === "hypit_replication") return "Hypit 复刻"
   return "创作项目"
 }
 
@@ -79,9 +78,10 @@ export function homeProjectFilterLabel(filter: HomeProjectFilter): string {
   return homeProjectKindLabel(filter)
 }
 
-export function filterHomeProjects(items: HomeProjectItem[], filter: HomeProjectFilter): HomeProjectItem[] {
-  if (filter === "all") return items
-  return items.filter((item) => item.kind === filter)
+export function filterHomeProjects(items: HomeProjectItem[], filter: HomeProjectFilter, query = ""): HomeProjectItem[] {
+  const keyword = query.trim().toLocaleLowerCase()
+  return items.filter((item) => (filter === "all" || item.kind === filter)
+    && (!keyword || `${item.title}\n${item.summary}`.toLocaleLowerCase().includes(keyword)))
 }
 
 export function homeProjectFilterEmptyCopy(filter: HomeProjectFilter): { title: string; hint: string; action: string } {
@@ -90,9 +90,6 @@ export function homeProjectFilterEmptyCopy(filter: HomeProjectFilter): { title: 
   }
   if (filter === "shot_replication") {
     return { title: "还没有参考片复刻工程", hint: "分析参考片，批量转绘。", action: "新建参考片复刻" }
-  }
-  if (filter === "hypit_replication") {
-    return { title: "还没有 Hypit 复刻工程", hint: "拆结构、换内容、合字幕图形。", action: "新建 Hypit 复刻" }
   }
   if (filter === "all") {
     return { title: "还没有工程", hint: "从上方选择一种创作方式，开始你的第一部片。", action: "新建导演工程" }

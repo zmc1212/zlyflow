@@ -87,6 +87,43 @@ class TimelineRenderingTests(unittest.TestCase):
         self.assertEqual(480, workflow["12"]["inputs"]["height"])
         self.assertEqual(H3_REF2VA_FULL, workflow["1"]["inputs"]["unet_name"])
 
+    def test_timeline_preview_adds_first_pass_outputs_without_touching_final_video(self):
+        from backend.app.minimax_h3_refine_workflow import continuation_workflow
+        from backend.app.workflow_registry import normalize_options
+
+        options = normalize_options("minimax-h3-director-accel-r2v", {
+            "refine_enabled": True,
+            "refine_preview": True,
+        })
+        timeline = ComfyVideoClient.build_timeline(shots(1), "r2v", options=options)
+        workflow = ComfyVideoClient.build_workflow(timeline, "r2v", "video/test", options=options)
+
+        self.assertTrue(workflow["45"]["inputs"]["confirm_first_pass"])
+        self.assertEqual(workflow["12"]["inputs"]["refine"], ["45", 0])
+        self.assertEqual(workflow["16"]["class_type"], "CreateVideo")
+        self.assertEqual(workflow["16"]["inputs"]["images"], ["12", 6])
+        self.assertEqual(workflow["17"]["class_type"], "SaveVideo")
+        self.assertEqual(workflow["17"]["inputs"]["video"], ["16", 0])
+        self.assertIn("video/test-preview", workflow["17"]["inputs"]["filename_prefix"])
+        # Final full-resolution output stays intact for the cached continuation.
+        self.assertEqual(workflow["7"]["inputs"]["video"], ["6", 0])
+
+        continuation = continuation_workflow(workflow, video_node="16", output_node="17")
+        self.assertNotIn("16", continuation)
+        self.assertNotIn("17", continuation)
+        self.assertEqual(continuation["7"]["inputs"]["video"], ["6", 0])
+        self.assertTrue(continuation["45"]["inputs"]["confirm_first_pass"])
+
+    def test_timeline_without_preview_keeps_confirm_flag_off(self):
+        from backend.app.workflow_registry import normalize_options
+
+        options = normalize_options("minimax-h3-director-accel-r2v", {"refine_enabled": True})
+        timeline = ComfyVideoClient.build_timeline(shots(1), "r2v", options=options)
+        workflow = ComfyVideoClient.build_workflow(timeline, "r2v", "video/test", options=options)
+        self.assertFalse(workflow["45"]["inputs"]["confirm_first_pass"])
+        self.assertNotIn("16", workflow)
+        self.assertNotIn("17", workflow)
+
 
 class EpisodeRenderModeTests(unittest.TestCase):
     def test_director_r2v_is_episode_and_other_r2v_are_shot(self):

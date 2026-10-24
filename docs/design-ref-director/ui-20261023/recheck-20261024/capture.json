@@ -1,0 +1,1730 @@
+{
+  "captures": [
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "theme": "light",
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "elements": {
+        "primary": {
+          "box": [
+            150.5,
+            202,
+            752.25,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "primaryIcon": {
+          "box": [
+            177.5,
+            229,
+            64,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)"
+        },
+        "primaryTitle": {
+          "box": [
+            265.5,
+            229.5,
+            182,
+            36
+          ],
+          "fontSize": "24px",
+          "lineHeight": "36px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演创作",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "primaryCta": {
+          "box": [
+            177.5,
+            367,
+            154,
+            44
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "新建导演工程",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)"
+        },
+        "secondary": {
+          "box": [
+            918.75,
+            202,
+            511.734375,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "短视频批量一个主题，生成多条短视频",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "secondaryIcon": {
+          "box": [
+            939.75,
+            226.65625,
+            48,
+            48
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)"
+        },
+        "secondaryTitle": {
+          "box": [
+            1003.75,
+            223.65625,
+            156,
+            27
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "短视频批量",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "diagnosis": {
+          "box": [
+            150.5,
+            544,
+            1279.984375,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "diagnosisTitle": {
+          "box": [
+            209.5,
+            565.5,
+            56,
+            21
+          ],
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "剧本诊断",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "search": {
+          "box": [
+            809.5,
+            637,
+            190,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "filter": {
+          "box": [
+            1011.5,
+            637,
+            343.640625,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部",
+          "color": "rgb(89, 99, 111)",
+          "background": "rgb(244, 246, 248)"
+        },
+        "firstProject": {
+          "box": [
+            150.5,
+            686,
+            416,
+            165
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "hero": {
+          "box": [
+            150.5,
+            104,
+            1280,
+            42
+          ],
+          "fontSize": "34px",
+          "lineHeight": "42px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "今天，想拍点什么？",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        }
+      },
+      "buttons": [],
+      "full_page": false,
+      "screenshot_scale": "css",
+      "file": "home-light-1505.png"
+    },
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "theme": "dark",
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "elements": {
+        "primary": {
+          "box": [
+            150.5,
+            202,
+            752.25,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "primaryIcon": {
+          "box": [
+            177.5,
+            229,
+            64,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)"
+        },
+        "primaryTitle": {
+          "box": [
+            265.5,
+            229.5,
+            182,
+            36
+          ],
+          "fontSize": "24px",
+          "lineHeight": "36px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演创作",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "primaryCta": {
+          "box": [
+            177.5,
+            367,
+            154,
+            44
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "新建导演工程",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(91, 101, 230)"
+        },
+        "secondary": {
+          "box": [
+            918.75,
+            202,
+            511.734375,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "短视频批量一个主题，生成多条短视频",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "secondaryIcon": {
+          "box": [
+            939.75,
+            226.65625,
+            48,
+            48
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)"
+        },
+        "secondaryTitle": {
+          "box": [
+            1003.75,
+            223.65625,
+            156,
+            27
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "短视频批量",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "diagnosis": {
+          "box": [
+            150.5,
+            544,
+            1279.984375,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "diagnosisTitle": {
+          "box": [
+            209.5,
+            565.5,
+            56,
+            21
+          ],
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "剧本诊断",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "search": {
+          "box": [
+            809.5,
+            637,
+            190,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "filter": {
+          "box": [
+            1011.5,
+            637,
+            343.640625,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部",
+          "color": "rgb(192, 199, 208)",
+          "background": "rgb(30, 34, 41)"
+        },
+        "firstProject": {
+          "box": [
+            150.5,
+            686,
+            416,
+            165
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "hero": {
+          "box": [
+            150.5,
+            104,
+            1280,
+            42
+          ],
+          "fontSize": "34px",
+          "lineHeight": "42px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "今天，想拍点什么？",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        }
+      },
+      "buttons": [],
+      "full_page": false,
+      "screenshot_scale": "css",
+      "file": "home-dark-1505.png"
+    },
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "dpr": 1,
+      "theme": "light",
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "elements": {
+        "primary": {
+          "box": [
+            140,
+            202,
+            726.0625,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "primaryIcon": {
+          "box": [
+            167,
+            229,
+            64,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)"
+        },
+        "primaryTitle": {
+          "box": [
+            255,
+            229.5,
+            182,
+            36
+          ],
+          "fontSize": "24px",
+          "lineHeight": "36px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演创作",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "primaryCta": {
+          "box": [
+            167,
+            367,
+            154,
+            44
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "新建导演工程",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)"
+        },
+        "secondary": {
+          "box": [
+            882.0625,
+            202,
+            493.9375,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "短视频批量一个主题，生成多条短视频",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "secondaryIcon": {
+          "box": [
+            903.0625,
+            226.65625,
+            48,
+            48
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)"
+        },
+        "secondaryTitle": {
+          "box": [
+            967.0625,
+            223.65625,
+            156,
+            27
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "短视频批量",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "diagnosis": {
+          "box": [
+            140,
+            544,
+            1236,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "diagnosisTitle": {
+          "box": [
+            199,
+            565.5,
+            56,
+            21
+          ],
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "剧本诊断",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "search": {
+          "box": [
+            755,
+            637,
+            190,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "filter": {
+          "box": [
+            957,
+            637,
+            343.640625,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部",
+          "color": "rgb(89, 99, 111)",
+          "background": "rgb(244, 246, 248)"
+        },
+        "firstProject": {
+          "box": [
+            140,
+            686,
+            401.328125,
+            165
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "hero": {
+          "box": [
+            140,
+            104,
+            1236,
+            42
+          ],
+          "fontSize": "34px",
+          "lineHeight": "42px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "今天，想拍点什么？",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        }
+      },
+      "buttons": [],
+      "full_page": false,
+      "screenshot_scale": "css",
+      "file": "home-light-1440.png"
+    },
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "theme": "dark",
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "elements": {
+        "primary": {
+          "box": [
+            358,
+            202,
+            752.25,
+            324
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "primaryIcon": {
+          "box": [
+            385,
+            229,
+            64,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)"
+        },
+        "primaryTitle": {
+          "box": [
+            473,
+            229.5,
+            182,
+            36
+          ],
+          "fontSize": "24px",
+          "lineHeight": "36px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演创作",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "primaryCta": {
+          "box": [
+            385,
+            367,
+            154,
+            44
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "新建导演工程",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(91, 101, 230)"
+        },
+        "secondary": {
+          "box": [
+            1126.25,
+            202,
+            511.734375,
+            97.328125
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "短视频批量一个主题，生成多条短视频",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "secondaryIcon": {
+          "box": [
+            1147.25,
+            226.65625,
+            48,
+            48
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)"
+        },
+        "secondaryTitle": {
+          "box": [
+            1211.25,
+            223.65625,
+            156,
+            27
+          ],
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "短视频批量",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "diagnosis": {
+          "box": [
+            358,
+            544,
+            1279.984375,
+            64
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "diagnosisTitle": {
+          "box": [
+            417,
+            565.5,
+            56,
+            21
+          ],
+          "fontSize": "14px",
+          "lineHeight": "21px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "剧本诊断",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "search": {
+          "box": [
+            1017,
+            637,
+            190,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "filter": {
+          "box": [
+            1219,
+            637,
+            343.640625,
+            34
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "text": "导演创作短视频批量参考片复刻Hypit 复刻全部",
+          "color": "rgb(192, 199, 208)",
+          "background": "rgb(30, 34, 41)"
+        },
+        "firstProject": {
+          "box": [
+            358,
+            686,
+            416,
+            165
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "hero": {
+          "box": [
+            358,
+            104,
+            1280,
+            42
+          ],
+          "fontSize": "34px",
+          "lineHeight": "42px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "今天，想拍点什么？",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        }
+      },
+      "buttons": [],
+      "full_page": false,
+      "screenshot_scale": "css",
+      "file": "home-dark-1920.png"
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-c886e82dfbef41b6/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "theme": "light",
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "elements": {
+        "header": {
+          "box": [
+            76,
+            0,
+            1429,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "projectTitle": {
+          "box": [
+            218,
+            24.5,
+            138.609375,
+            30
+          ],
+          "fontSize": "20px",
+          "lineHeight": "30px",
+          "fontWeight": "700",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "未命名导演工程",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            965
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "navFirst": {
+          "box": [
+            92,
+            104,
+            193,
+            46
+          ],
+          "fontSize": "15px",
+          "lineHeight": "22.5px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)"
+        },
+        "title": {
+          "box": [
+            332,
+            124,
+            260,
+            42
+          ],
+          "fontSize": "32px",
+          "lineHeight": "42px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "panel": {
+          "box": [
+            332,
+            226,
+            1143,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "icon": {
+          "box": [
+            853.5,
+            315,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)"
+        },
+        "emptyTitle": {
+          "box": [
+            804.5,
+            447,
+            198,
+            32
+          ],
+          "fontSize": "22px",
+          "lineHeight": "32px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "暂无导入的剧本文档",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "description": {
+          "box": [
+            693.5,
+            491,
+            420,
+            52
+          ],
+          "fontSize": "15px",
+          "lineHeight": "26px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "actions": {
+          "box": [
+            715.5,
+            571,
+            376,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "formats": {
+          "box": [
+            820.15625,
+            649,
+            166.671875,
+            20
+          ],
+          "fontSize": "12px",
+          "lineHeight": "20px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "TXT · Markdown · Word",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)"
+        }
+      },
+      "buttons": [
+        {
+          "box": [
+            715.5,
+            571,
+            126,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "立即导入剧本",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)"
+        },
+        {
+          "box": [
+            853.5,
+            571,
+            238,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "一键导入《寒门硕士》标准范例",
+          "color": "rgb(45, 51, 58)",
+          "background": "rgb(255, 255, 255)"
+        }
+      ],
+      "full_page": false,
+      "screenshot_scale": "css",
+      "file": "project-light-1505.png"
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-c886e82dfbef41b6/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "theme": "dark",
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "elements": {
+        "header": {
+          "box": [
+            76,
+            0,
+            1429,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "projectTitle": {
+          "box": [
+            218,
+            24.5,
+            138.609375,
+            30
+          ],
+          "fontSize": "20px",
+          "lineHeight": "30px",
+          "fontWeight": "700",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "未命名导演工程",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            965
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "navFirst": {
+          "box": [
+            92,
+            104,
+            193,
+            46
+          ],
+          "fontSize": "15px",
+          "lineHeight": "22.5px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)"
+        },
+        "title": {
+          "box": [
+            332,
+            124,
+            260,
+            42
+          ],
+          "fontSize": "32px",
+          "lineHeight": "42px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "panel": {
+          "box": [
+            332,
+            226,
+            1143,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "icon": {
+          "box": [
+            853.5,
+            315,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)"
+        },
+        "emptyTitle": {
+          "box": [
+            804.5,
+            447,
+            198,
+            32
+          ],
+          "fontSize": "22px",
+          "lineHeight": "32px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "暂无导入的剧本文档",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "description": {
+          "box": [
+            693.5,
+            491,
+            420,
+            52
+          ],
+          "fontSize": "15px",
+          "lineHeight": "26px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "actions": {
+          "box": [
+            715.5,
+            571,
+            376,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "formats": {
+          "box": [
+            820.15625,
+            649,
+            166.671875,
+            20
+          ],
+          "fontSize": "12px",
+          "lineHeight": "20px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "TXT · Markdown · Word",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)"
+        }
+      },
+      "buttons": [
+        {
+          "box": [
+            715.5,
+            571,
+            126,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "立即导入剧本",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(80, 89, 199)"
+        },
+        {
+          "box": [
+            853.5,
+            571,
+            238,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "一键导入《寒门硕士》标准范例",
+          "color": "rgb(232, 235, 239)",
+          "background": "rgb(30, 34, 41)"
+        }
+      ],
+      "full_page": false,
+      "screenshot_scale": "css",
+      "file": "project-dark-1505.png"
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-c886e82dfbef41b6/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "dpr": 1,
+      "theme": "light",
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "elements": {
+        "header": {
+          "box": [
+            76,
+            0,
+            1364,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "projectTitle": {
+          "box": [
+            218,
+            24.5,
+            138.609375,
+            30
+          ],
+          "fontSize": "20px",
+          "lineHeight": "30px",
+          "fontWeight": "700",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "未命名导演工程",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            920
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "navFirst": {
+          "box": [
+            92,
+            104,
+            193,
+            46
+          ],
+          "fontSize": "15px",
+          "lineHeight": "22.5px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)"
+        },
+        "title": {
+          "box": [
+            332,
+            124,
+            260,
+            42
+          ],
+          "fontSize": "32px",
+          "lineHeight": "42px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "panel": {
+          "box": [
+            332,
+            226,
+            1078,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgb(255, 255, 255)"
+        },
+        "icon": {
+          "box": [
+            821,
+            315,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(67, 92, 232)",
+          "background": "rgba(67, 92, 232, 0.1)"
+        },
+        "emptyTitle": {
+          "box": [
+            772,
+            447,
+            198,
+            32
+          ],
+          "fontSize": "22px",
+          "lineHeight": "32px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "暂无导入的剧本文档",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "description": {
+          "box": [
+            661,
+            491,
+            420,
+            52
+          ],
+          "fontSize": "15px",
+          "lineHeight": "26px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "actions": {
+          "box": [
+            683,
+            571,
+            376,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例",
+          "color": "rgb(23, 26, 31)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "formats": {
+          "box": [
+            787.65625,
+            649,
+            166.671875,
+            20
+          ],
+          "fontSize": "12px",
+          "lineHeight": "20px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "TXT · Markdown · Word",
+          "color": "rgb(107, 114, 128)",
+          "background": "rgba(0, 0, 0, 0)"
+        }
+      },
+      "buttons": [
+        {
+          "box": [
+            683,
+            571,
+            126,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "立即导入剧本",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(67, 92, 232)"
+        },
+        {
+          "box": [
+            821,
+            571,
+            238,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "一键导入《寒门硕士》标准范例",
+          "color": "rgb(45, 51, 58)",
+          "background": "rgb(255, 255, 255)"
+        }
+      ],
+      "full_page": false,
+      "screenshot_scale": "css",
+      "file": "project-light-1440.png"
+    },
+    {
+      "url": "http://127.0.0.1:5173/director/projects/proj-c886e82dfbef41b6/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "theme": "dark",
+      "fonts_ready": true,
+      "images_ready": true,
+      "overflow": false,
+      "elements": {
+        "header": {
+          "box": [
+            76,
+            0,
+            1844,
+            80
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "projectTitle": {
+          "box": [
+            218,
+            24.5,
+            138.609375,
+            30
+          ],
+          "fontSize": "20px",
+          "lineHeight": "30px",
+          "fontWeight": "700",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "未命名导演工程",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "sidebar": {
+          "box": [
+            76,
+            80,
+            226,
+            1000
+          ],
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库资产库剧集工坊智能剪辑全部任务",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "navFirst": {
+          "box": [
+            92,
+            104,
+            193,
+            46
+          ],
+          "fontSize": "15px",
+          "lineHeight": "22.5px",
+          "fontWeight": "600",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)"
+        },
+        "title": {
+          "box": [
+            332,
+            124,
+            260,
+            42
+          ],
+          "fontSize": "32px",
+          "lineHeight": "42px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "内容库",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "panel": {
+          "box": [
+            332,
+            226,
+            1558,
+            532
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgb(23, 26, 32)"
+        },
+        "icon": {
+          "box": [
+            1061,
+            315,
+            100,
+            100
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "",
+          "color": "rgb(154, 168, 255)",
+          "background": "rgba(127, 141, 246, 0.17)"
+        },
+        "emptyTitle": {
+          "box": [
+            1012,
+            447,
+            198,
+            32
+          ],
+          "fontSize": "22px",
+          "lineHeight": "32px",
+          "fontWeight": "650",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "暂无导入的剧本文档",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "description": {
+          "box": [
+            901,
+            491,
+            420,
+            52
+          ],
+          "fontSize": "15px",
+          "lineHeight": "26px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "actions": {
+          "box": [
+            923,
+            571,
+            376,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "立即导入剧本一键导入《寒门硕士》标准范例",
+          "color": "rgb(243, 245, 247)",
+          "background": "rgba(0, 0, 0, 0)"
+        },
+        "formats": {
+          "box": [
+            1027.65625,
+            649,
+            166.671875,
+            20
+          ],
+          "fontSize": "12px",
+          "lineHeight": "20px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "TXT · Markdown · Word",
+          "color": "rgb(155, 165, 177)",
+          "background": "rgba(0, 0, 0, 0)"
+        }
+      },
+      "buttons": [
+        {
+          "box": [
+            923,
+            571,
+            126,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "立即导入剧本",
+          "color": "rgb(255, 255, 255)",
+          "background": "rgb(80, 89, 199)"
+        },
+        {
+          "box": [
+            1061,
+            571,
+            238,
+            42
+          ],
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "text": "一键导入《寒门硕士》标准范例",
+          "color": "rgb(232, 235, 239)",
+          "background": "rgb(30, 34, 41)"
+        }
+      ],
+      "full_page": false,
+      "screenshot_scale": "css",
+      "file": "project-dark-1920.png",
+      "platformFonts": [
+        {
+          "familyName": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei",
+          "isCustomFont": false,
+          "glyphCount": 50
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "temporaryProjectRemoved": true
+}

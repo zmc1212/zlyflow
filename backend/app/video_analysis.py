@@ -52,7 +52,7 @@ def _find_binary(binary: str) -> str:
     return resolved
 
 
-def _run(command: list[str]) -> str:
+def _run(command: list[str], *, merge_stderr: bool = False) -> str:
     try:
         completed = subprocess.run(
             command, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -62,6 +62,8 @@ def _run(command: list[str]) -> str:
     except subprocess.CalledProcessError as error:
         detail = (error.stderr or error.stdout or str(error))[-600:]
         raise VideoAnalysisError(f"ffmpeg 处理失败：{detail}") from error
+    if merge_stderr:
+        return f"{completed.stderr or ''}\n{completed.stdout or ''}"
     return completed.stdout or ""
 
 
@@ -100,6 +102,27 @@ def probe_video(path: Path) -> VideoProbe:
     return VideoProbe(width=width, height=height, fps=fps, duration=duration)
 
 
+def parse_scene_times(output: str) -> list[float]:
+    """从 ffmpeg showinfo 日志中读取场景切换时间点。"""
+    times: list[float] = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("[Parsed_showinfo"):
+            continue
+        marker = "pts_time:"
+        index = line.find(marker)
+        if index < 0:
+            continue
+        raw = line[index + len(marker):].split("]")[0].split(" ")[0]
+        try:
+            time_value = float(raw)
+        except ValueError:
+            continue
+        if not times or time_value > times[-1] + 0.2:
+            times.append(time_value)
+    return times
+
+
 def detect_scenes(
     path: Path,
     *,
@@ -117,21 +140,9 @@ def detect_scenes(
         ffmpeg, "-hide_banner", "-i", str(path),
         "-vf", f"select='gt(scene,{max(0.05, min(0.95, threshold))})',showinfo",
         "-an", "-f", "null", "-",
-    ])
+    ], merge_stderr=True)
     boundaries: list[float] = [0.0]
-    for line in output.splitlines():
-        line = line.strip()
-        if not line.startswith("[Parsed_showinfo"):
-            continue
-        marker = "pts_time:"
-        index = line.find(marker)
-        if index < 0:
-            continue
-        raw = line[index + len(marker):].split("]")[0].split(" ")[0]
-        try:
-            time_value = float(raw)
-        except ValueError:
-            continue
+    for time_value in parse_scene_times(output):
         if time_value > boundaries[-1] + 0.2:
             boundaries.append(time_value)
     duration = probe_video(path).duration

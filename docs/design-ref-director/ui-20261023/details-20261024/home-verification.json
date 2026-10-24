@@ -1,0 +1,719 @@
+{
+  "status": "截图身份与渲染前提通过；视觉仍需复核",
+  "manifest": "D:\\zlyun\\Toonflow\\本地视频工作台\\test-results\\director-ui-details-20261024\\home-round-final\\run.json",
+  "capture": {
+    "measurement_sha256": "473aceaa464f0cc8b5ecc2ba302e58effe6bcc46d443d982112b4ea73f049ce0",
+    "url": "http://127.0.0.1:5173/director",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1505,
+      "height": 1045
+    },
+    "dpr": 1,
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "document_height": 1045,
+    "fonts_ready": true,
+    "images_ready": true,
+    "document_overflow_x": false,
+    "captured_at": "2026-10-23T23:16:29.365Z",
+    "elements": [
+      {
+        "name": "primary-entry",
+        "selector": ".dh-entry-primary",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          159.5,
+          202,
+          752.25,
+          324
+        ],
+        "text": "导演创作一句话开始，完成剧本与分镜1故事→2角色→3分镜新建导演工程",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "batch-entry",
+        "selector": ".dh-entry-card.is-batch",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          927.75,
+          202,
+          511.734375,
+          97.328125
+        ],
+        "text": "短视频批量一个主题，生成多条短视频",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "replication-entry",
+        "selector": ".dh-entry-card.is-replication",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          927.75,
+          315.328125,
+          511.734375,
+          97.328125
+        ],
+        "text": "参考片复刻分析参考片，批量转绘",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "hypit-entry",
+        "selector": ".dh-entry-card.is-hypit",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          927.75,
+          428.65625,
+          511.734375,
+          97.34375
+        ],
+        "text": "Hypit 复刻拆结构、换内容、合字幕图形",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "diagnosis-entry",
+        "selector": ".dh-diagnosis-entry",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          159.5,
+          544,
+          1279.984375,
+          64
+        ],
+        "text": "剧本诊断上传或粘贴剧本，查看五项评估与原文修改建议",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "first-project",
+        "selector": ".dh-project:first-child",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          159.5,
+          686,
+          416,
+          167
+        ],
+        "text": "未命名导演工程111暂无简介创作项目2026-10-20 09:44打开工程删除",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "second-project",
+        "selector": ".dh-project:nth-child(2)",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          591.5,
+          686,
+          416,
+          167
+        ],
+        "text": "未命名导演工程暂无简介创作项目2026-10-19 16:59打开工程删除",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "primary-cta",
+        "selector": ".dh-entry-cta",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          188.5,
+          381,
+          212,
+          52
+        ],
+        "text": "新建导演工程",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "fontWeight": "600",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "search",
+        "selector": ".dh-project-search",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          734.40625,
+          636,
+          200,
+          36
+        ],
+        "text": "",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "primary-icon",
+        "selector": ".dh-entry-head .dh-entry-icon",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          182.5,
+          225,
+          70,
+          70
+        ],
+        "text": "",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "batch-icon",
+        "selector": ".dh-entry-card.is-batch .dh-entry-icon",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          948.75,
+          219.65625,
+          62,
+          62
+        ],
+        "text": "",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "viewport_intersects": true
+      }
+    ],
+    "assets": {},
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "section_positions": [],
+  "comparison": "test-results\\director-ui-details-20261024\\home-round-final\\report-utf8\\verify-metrics.json",
+  "geometry": {
+    "measurement_sha256": "473aceaa464f0cc8b5ecc2ba302e58effe6bcc46d443d982112b4ea73f049ce0",
+    "complete": true,
+    "unavailable_regions": [],
+    "regions": [
+      {
+        "name": "primary-entry",
+        "selector": ".dh-entry-primary",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          159.5,
+          202,
+          752.25,
+          324
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          158.0,
+          201.0,
+          753.0,
+          325.0
+        ],
+        "delta_css": [
+          1.5,
+          1.0,
+          -0.75,
+          -1.0
+        ],
+        "max_abs_delta_css": 1.5
+      },
+      {
+        "name": "batch-entry",
+        "selector": ".dh-entry-card.is-batch",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          927.75,
+          202,
+          511.734375,
+          97.328125
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          925.0,
+          201.0,
+          515.0,
+          99.0
+        ],
+        "delta_css": [
+          2.75,
+          1.0,
+          -3.266,
+          -1.672
+        ],
+        "max_abs_delta_css": 3.266
+      },
+      {
+        "name": "replication-entry",
+        "selector": ".dh-entry-card.is-replication",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          927.75,
+          315.328125,
+          511.734375,
+          97.328125
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          925.0,
+          314.0,
+          515.0,
+          100.0
+        ],
+        "delta_css": [
+          2.75,
+          1.328,
+          -3.266,
+          -2.672
+        ],
+        "max_abs_delta_css": 3.266
+      },
+      {
+        "name": "hypit-entry",
+        "selector": ".dh-entry-card.is-hypit",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          927.75,
+          428.65625,
+          511.734375,
+          97.34375
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          925.0,
+          428.0,
+          515.0,
+          98.0
+        ],
+        "delta_css": [
+          2.75,
+          0.656,
+          -3.266,
+          -0.656
+        ],
+        "max_abs_delta_css": 3.266
+      },
+      {
+        "name": "diagnosis-entry",
+        "selector": ".dh-diagnosis-entry",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          159.5,
+          544,
+          1279.984375,
+          64
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          158.0,
+          545.0,
+          1282.0,
+          66.0
+        ],
+        "delta_css": [
+          1.5,
+          -1.0,
+          -2.016,
+          -2.0
+        ],
+        "max_abs_delta_css": 2.016
+      },
+      {
+        "name": "first-project",
+        "selector": ".dh-project:first-child",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          159.5,
+          686,
+          416,
+          167
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          158.0,
+          686.0,
+          419.0,
+          167.0
+        ],
+        "delta_css": [
+          1.5,
+          0.0,
+          -3.0,
+          0.0
+        ],
+        "max_abs_delta_css": 3.0
+      },
+      {
+        "name": "second-project",
+        "selector": ".dh-project:nth-child(2)",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          591.5,
+          686,
+          416,
+          167
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          591.0,
+          686.0,
+          419.0,
+          167.0
+        ],
+        "delta_css": [
+          0.5,
+          0.0,
+          -3.0,
+          0.0
+        ],
+        "max_abs_delta_css": 3.0
+      },
+      {
+        "name": "canvas",
+        "status": "reference_only",
+        "reason": "仅测量参考图，没有 DOM 选择器"
+      },
+      {
+        "name": "surface",
+        "status": "reference_only",
+        "reason": "仅测量参考图，没有 DOM 选择器"
+      },
+      {
+        "name": "primary-cta",
+        "selector": ".dh-entry-cta",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          188.5,
+          381,
+          212,
+          52
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "27px",
+          "fontWeight": "600",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "reference_css_box": [
+          188.0,
+          381.0,
+          212.0,
+          52.0
+        ],
+        "delta_css": [
+          0.5,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.5
+      },
+      {
+        "name": "search",
+        "selector": ".dh-project-search",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          734.40625,
+          636,
+          200,
+          36
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          732.0,
+          639.0,
+          200.0,
+          35.0
+        ],
+        "delta_css": [
+          2.406,
+          -3.0,
+          0.0,
+          1.0
+        ],
+        "max_abs_delta_css": 3.0
+      },
+      {
+        "name": "primary-icon",
+        "selector": ".dh-entry-head .dh-entry-icon",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          182.5,
+          225,
+          70,
+          70
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "reference_css_box": [
+          182.0,
+          226.0,
+          70.0,
+          70.0
+        ],
+        "delta_css": [
+          0.5,
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "batch-icon",
+        "selector": ".dh-entry-card.is-batch .dh-entry-icon",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          948.75,
+          219.65625,
+          62,
+          62
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "reference_css_box": [
+          945.0,
+          219.0,
+          62.0,
+          62.0
+        ],
+        "delta_css": [
+          3.75,
+          0.656,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 3.75
+      }
+    ],
+    "note": "偏差是 CSS 像素，不是还原率；布局可测量不证明未遮挡、字体正确或交互可用。"
+  }
+}

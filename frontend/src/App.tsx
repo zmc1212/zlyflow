@@ -1,19 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { DatePicker, Dropdown, Input, InputNumber, message, Modal, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
+import { DatePicker, Drawer, Dropdown, Empty, Input, InputNumber, message, Modal, Pagination, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
 import {
-  ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo,
+  ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
   Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, Link2, ListChecks, LoaderCircle, LogOut, Maximize2,
   Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Users, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
-import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
-import { jsonMutation, notifyUnauthorized, requestJson, User } from "./api"
+import { apiErrorMessage, jsonMutation, notifyUnauthorized, requestJson, User } from "./api"
 import { generateJobPath, isDirectorLegacyStudioPath, parseGeneratePath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
-import {
-  chooseResourceDirectory, DirectoryHandleLike, directoryApiSupported, directoryPermission,
-  getResourceDirectory, localResourceFile, localResourceUrl, saveToResourceDirectory,
-} from "./local-resource-store"
 import type { ImageResult } from "./media/ImageStudioModule"
 import type { VideoResult } from "./media/VideoStudioModule"
 import {
@@ -26,6 +22,7 @@ import {
 } from "./video-upscale"
 import JianyingExportModal from "./media/JianyingExportModal"
 import type { JianyingMediaItem } from "./media/jianying-draft-builder"
+import AddToCanvasModal, { type CanvasInsertAsset } from "./canvas/AddToCanvasModal"
 import { createLocalId } from "./lib/utils"
 import { restoreReferenceFiles, roundReferenceSources } from "./reference-assets"
 import MediaPreviewModal, { type PreviewMediaKind } from "./components/MediaPreviewModal"
@@ -45,8 +42,9 @@ const VideoStudioModule = lazy(() => import("./media/VideoStudioModule"))
 const DirectorStudioModule = lazy(() => import("./director/DirectorStudioModule"))
 const Director2App = lazy(() => import("./director2/Director2App"))
 const DirectorAssetLibrary = lazy(() => import("./director/DirectorAssetLibrary"))
+const CanvasWorkspace = lazy(() => import("./canvas/CanvasWorkspace"))
 
-type Status = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
+type Status = "queued" | "running" | "awaiting_refine" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
 type Output = {
   kind: "image" | "video"; path: string; label: string
   delivery_status?: "pending" | "local" | "cloud" | "expired"
@@ -82,6 +80,9 @@ type JobRound = {
   created_at?: string; updated_at?: string; finished_at?: string | null
   elapsed_ms?: number | null; execution_elapsed_ms?: number | null
 }
+type AssetEntry = {
+  id: string; job: Job; output: Output; outputIndex: number; generationItemId: string | null
+}
 type Workflow = {
   id: string; name: string; description: string; reference_mode: "none" | "keyframes" | "collection" | "fixed"
   min_references: number; max_references: number; reference_labels: string[]
@@ -99,37 +100,13 @@ type OptionDefinition = {
   megapixels_by_quality?: Record<string, number>
   ui_resolution_preview?: { multiple?: number; max_width?: number; max_height?: number }
   ui_visible_when?: Record<string, string | number | boolean>
+  ui_not_less_than?: string
+  ui_requires_references_when?: string
 }
 type WorkflowParameter = { name: string; schema?: { properties?: Record<string, OptionDefinition> } | null }
 type OptionInputValue = string | boolean
 type ModesPayload = { modes: Workflow[]; image_sizes: string[]; presets: Record<string, string> }
 type GrsBalanceSnapshot = { credits: number | null; queried_at: string | null; refresh_error?: string | null }
-type StorageCapability = { provider: string; requires_local_directory: boolean }
-// 记住上次 /api/storage 的能力结果：查询瞬时失败（后端重启、网络抖动）时不再误弹
-// 「设置作品存储目录」——七牛云等持久化存储开启时 requires_local_directory 为 false，无需本地目录。
-const STORAGE_CAPABILITY_CACHE_KEY = "zly-storage-capability"
-
-function readCachedStorageCapability(): StorageCapability | undefined {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_CAPABILITY_CACHE_KEY)
-    if (!raw) return undefined
-    const parsed = JSON.parse(raw) as StorageCapability
-    return typeof parsed?.requires_local_directory === "boolean" ? parsed : undefined
-  } catch {
-    return undefined
-  }
-}
-
-function cacheStorageCapability(capability: StorageCapability) {
-  try {
-    window.localStorage.setItem(STORAGE_CAPABILITY_CACHE_KEY, JSON.stringify({
-      provider: capability.provider,
-      requires_local_directory: Boolean(capability.requires_local_directory),
-    }))
-  } catch {
-    /* 忽略隐私模式等写入失败；仅影响瞬时错误时的兜底精度 */
-  }
-}
 type ReferenceAsset = { id: string; file: File; preview: string }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -141,12 +118,48 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error("无法解码参考图"))
+    image.src = src
+  })
+}
+
+const OPTIMIZE_IMAGE_MAX_EDGE = 1024
+
+async function optimizeImageUrl(file: File): Promise<string | null> {
+  if (!file.type.startsWith("image/")) return null
+  const dataUrl = await readFileAsDataUrl(file)
+  if (!dataUrl.startsWith("data:image/")) return null
+  if (file.type === "image/gif" || file.type === "image/svg+xml") return dataUrl
+  try {
+    const image = await loadImageElement(dataUrl)
+    const edge = Math.max(image.naturalWidth, image.naturalHeight)
+    if (!edge) return dataUrl
+    const scale = Math.min(1, OPTIMIZE_IMAGE_MAX_EDGE / edge)
+    // Small images are already cheap to send; only re-encode when it saves bytes.
+    if (scale === 1 && dataUrl.length <= 900_000) return dataUrl
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const context = canvas.getContext("2d")
+    if (!context) return dataUrl
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    const compressed = canvas.toDataURL("image/webp", 0.86)
+    return compressed.startsWith("data:image/webp") && compressed.length < dataUrl.length ? compressed : dataUrl
+  } catch {
+    return dataUrl
+  }
+}
+
 async function referenceImageUrls(assets: ReferenceAsset[], limit = 8): Promise<string[]> {
   const urls: string[] = []
   for (const asset of assets.slice(0, limit)) {
     try {
-      const dataUrl = await readFileAsDataUrl(asset.file)
-      if (dataUrl.startsWith("data:image/")) urls.push(dataUrl)
+      const url = await optimizeImageUrl(asset.file)
+      if (url) urls.push(url)
     } catch {
       /* skip unreadable local files */
     }
@@ -161,7 +174,6 @@ type MediaPreview = {
   job?: Job
   aspectRatio?: string
 }
-type DirectoryState = "checking" | "unsupported" | "missing" | "prompt" | "granted"
 type MediaDraft = {
   workflowId: string; prompt: string; negativePrompt: string; references: ReferenceAsset[]
   optionValues: Record<string, OptionInputValue>; selectedJobId?: string
@@ -175,17 +187,6 @@ type H3Skill = {
   icon: string
   category: string
 }
-
-function isRemoteIpAddress(hostname: string): boolean {
-  const normalized = hostname.trim().replace(/^\[|\]$/g, "").toLowerCase()
-  if (!normalized || normalized === "localhost" || normalized === "::1") return false
-  const ipv4 = normalized.split(".")
-  if (ipv4.length === 4 && ipv4.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) {
-    return normalized !== "127.0.0.1"
-  }
-  return normalized.includes(":")
-}
-
 
 function normalizeWorkflow(workflow: Workflow): Workflow {
   return {
@@ -220,9 +221,9 @@ const parameterValue = (parameter: RequestParameter) => {
   if (parameter.unit) return `${parameter.value} ${parameter.unit}`
   return String(parameter.value)
 }
-const statusText: Record<Status, string> = { queued: "等待队列", running: "生成中", succeeded: "已完成", partial: "部分完成", failed: "失败", interrupted: "已中断", cancelled: "已停止" }
+const statusText: Record<Status, string> = { queued: "等待队列", running: "生成中", awaiting_refine: "一采预览待确认", succeeded: "已完成", partial: "部分完成", failed: "失败", interrupted: "已中断", cancelled: "已停止" }
 const statusColor: Record<Status, string> = {
-  queued: "text-amber-600", running: "text-[#4d6bfe]", succeeded: "text-emerald-600", partial: "text-amber-600", failed: "text-red-600", interrupted: "text-[#6b7280]", cancelled: "text-[#6b7280]",
+  queued: "text-amber-600", running: "text-[#4d6bfe]", awaiting_refine: "text-amber-600", succeeded: "text-emerald-600", partial: "text-amber-600", failed: "text-red-600", interrupted: "text-[#6b7280]", cancelled: "text-[#6b7280]",
 }
 
 function formatTime(value: string) {
@@ -245,10 +246,12 @@ function formatCreatedShort(value: string, nowMs = Date.now()) {
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`
 }
 
-function waitCaption(
-  source: { created_at?: string; finished_at?: string | null; elapsed_ms?: number | null; execution_elapsed_ms?: number | null; status: Status },
-  now: number,
-) {
+type WaitSource = {
+  created_at?: string; finished_at?: string | null; elapsed_ms?: number | null
+  execution_elapsed_ms?: number | null; status: Status
+}
+
+function waitCaption(source: WaitSource, now: number) {
   const live = isLiveStatus(source.status)
   const text = elapsedCaption(jobElapsedMs({
     createdAt: source.created_at,
@@ -258,6 +261,19 @@ function waitCaption(
     live,
   }), live)
   return { text, title: executionCaption(source.execution_elapsed_ms) || undefined }
+}
+
+function RoundWait({ source }: { source: WaitSource }) {
+  const now = useNow(isLiveStatus(source.status))
+  const wait = waitCaption(source, now)
+  return wait.text ? <span title={wait.title || wait.text} className="studio-round-elapsed tabular-nums">{wait.text}</span> : null
+}
+
+function parseLocalDay(value: string) {
+  const [year, month, day] = value.split("-").map(Number)
+  if (!year || !month || !day) return null
+  const date = new Date(year, month - 1, day)
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
 function formatAssetDate(value: string) {
@@ -298,6 +314,13 @@ function defaultOptionValues(workflow?: Workflow): Record<string, OptionInputVal
     name,
     definition.type === "boolean" ? Boolean(definition.default) : String(definition.default),
   ]))
+}
+
+function compactSelectWidth(options: { label?: string }[]) {
+  const longest = options.reduce((max, item) => Math.max(max, String(item.label ?? "").length), 0)
+  if (longest > 18) return 300
+  if (longest > 12) return 240
+  return 188
 }
 
 function optionVisible(definition: OptionDefinition, values: Record<string, OptionInputValue>) {
@@ -361,18 +384,30 @@ function validateOptionValues(
       if (definition.maximum !== undefined && numericValue > definition.maximum) return `${definition.label}不能大于 ${definition.maximum}`
     }
   }
-  if (values.task_type === "Ref2VA" && referenceCount === 0) return "Ref2VA 任务类型至少需要 1 张参考图"
-  if (values.audio_steps !== undefined && Number(values.audio_steps) < Number(values.video_steps)) {
-    return "音频采样步数不能小于视频采样步数"
+  for (const [name, definition] of Object.entries(definitions)) {
+    const value = values[name]
+    if (value === undefined || String(value).trim() === "") continue
+    const otherName = definition.ui_not_less_than
+    if (otherName) {
+      const other = Number(values[otherName])
+      const current = Number(value)
+      if (Number.isFinite(current) && Number.isFinite(other) && current < other) {
+        return `${definition.label}不能小于 ${definitions[otherName]?.label ?? otherName}`
+      }
+    }
+    const trigger = definition.ui_requires_references_when
+    if (trigger !== undefined && String(value) === trigger && referenceCount < 1) {
+      return `${definition.label}为 ${trigger} 时至少需要 1 张参考图`
+    }
   }
   return ""
 }
 
 function groupedWorkflowOptions(workflows: Workflow[]) {
-  const groups = new Map<string, { label: string; order: number; options: { value: string; label: string; title?: string }[] }>()
-  const ungrouped: { value: string; label: string; title?: string }[] = []
+  const groups = new Map<string, { label: string; order: number; options: { value: string; label: string; title?: string; disabled?: boolean }[] }>()
+  const ungrouped: { value: string; label: string; title?: string; disabled?: boolean }[] = []
   for (const item of workflows) {
-    const option = { value: item.id, label: item.name, title: item.description }
+    const option = { value: item.id, label: item.name, title: item.description, disabled: !item.available }
     if (!item.catalog_group) {
       ungrouped.push(option)
       continue
@@ -394,84 +429,225 @@ function groupedWorkflowOptions(workflows: Workflow[]) {
   return ungrouped.length ? [...grouped, ...ungrouped] : grouped
 }
 
-function outputPreviewSrc(item: Output, localUrl?: string, allowSameOriginVideo = true): string | undefined {
-  if (item.delivery_status === "local") return localUrl
+function outputPreviewSrc(item: Output, allowSameOriginVideo = true): string | undefined {
   if (item.cloud_url) return item.cloud_url
   if (item.kind === "video" && !allowSameOriginVideo) return undefined
   return item.download_url ?? mediaUrl(item.path)
 }
 
-function MediaTile({ item, localUrl, allowSameOriginVideo = true }: { item: Output; localUrl?: string; allowSameOriginVideo?: boolean }) {
-  const src = outputPreviewSrc(item, localUrl, allowSameOriginVideo)
+function MediaTile({ item, allowSameOriginVideo = true }: { item: Output; allowSameOriginVideo?: boolean }) {
+  const src = outputPreviewSrc(item, allowSameOriginVideo)
   if (!src) return <div className="grid h-full w-full place-items-center bg-[#27282e] text-[#898993]">{item.kind === "video" ? <Video size={18} /> : <HardDrive size={18} />}</div>
   return item.kind === "video"
     ? <video className="h-full w-full object-cover" muted playsInline preload={item.cloud_url ? "metadata" : "none"} src={src} />
     : <img className="h-full w-full object-cover" loading="lazy" src={src} alt={item.label} />
 }
 
-function TaskRail({
-  jobs, selectedJobId, onSelect, onPinToggle, onRename, onDelete, onCancel, localMediaUrls, compact = false, showEmpty = true, scrollMode = "fill",
-}: {
-  jobs: Job[]
-  selectedJobId?: string
+type TaskRowHandlers = {
   onSelect: (jobId: string) => void
   onPinToggle: (job: Job) => void
   onRename: (job: Job) => void
   onDelete: (job: Job) => void
   onCancel: (job: Job) => void
-  localMediaUrls: Record<string, string>
-  compact?: boolean
-  showEmpty?: boolean
-  scrollMode?: "fill" | "content"
-}) {
-  return <div className={`studio-task-scroll overflow-y-auto ${scrollMode === "fill" ? "min-h-0 flex-1" : "max-h-[132px]"} ${compact ? "px-4 pb-3" : "px-4 pb-4"}`}>
-    {jobs.map((job) => {
-      const selected = selectedJobId === job.id
-      const cover = job.outputs[0]
-      const reference = job.references[0]
-      const created = formatCreatedShort(job.created_at)
-      const createdFull = formatCreatedFull(job.created_at)
-      return <div
-        key={job.id}
-        role="button"
-        tabIndex={0}
-        onClick={() => onSelect(job.id)}
-        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(job.id) } }}
-        className={`studio-task-card group mb-1 flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/30 ${selected ? "bg-[#eef1ff]" : "hover:bg-black/[0.035]"}`}
-      >
-        <div className="size-8 shrink-0 overflow-hidden rounded-md bg-[#eef1f4]">
-          {cover ? <MediaTile item={cover} localUrl={localMediaUrls[cover.path]} allowSameOriginVideo={false} /> : reference ? <img src={reference.url} alt="任务封面" className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full w-full place-items-center text-[#a0a8b2]">{job.media_type === "image" ? <ImagePlus size={15} /> : <Video size={15} />}</div>}
-        </div>
-        <span title={statusText[job.status]} className={`size-1.5 shrink-0 rounded-full ${job.status === "succeeded" ? "bg-emerald-500" : job.status === "failed" || job.status === "interrupted" || job.status === "cancelled" ? "bg-rose-500" : job.status === "running" ? "bg-[#4d6bfe]" : "bg-amber-400"}`} />
-        <p className="min-w-0 flex-1 truncate text-sm leading-[21px] text-[#171a1f]">{job.title || job.prompt}</p>
-        {created ? <span title={createdFull ? `创作时间 ${createdFull}` : "创作时间"} className="shrink-0 text-[10px] tabular-nums text-[#7c8794]">{created}</span> : null}
-        {job.pinned ? <Pin size={12} className="shrink-0 rotate-45 text-[#4d6bfe]" /> : null}
-        <Dropdown
-          trigger={["click"]}
-          popupRender={(menu) => <div className="studio-task-menu">{menu}</div>}
-          menu={{
-            items: [
-              { key: "pin", icon: <Pin size={14} />, label: job.pinned ? "取消置顶" : "置顶" },
-              { key: "rename", icon: <Pencil size={14} />, label: "重命名" },
-              ...((job.status === "queued" || job.status === "running" || job.status === "interrupted") ? [{ key: "cancel", danger: true as const, icon: <CircleStop size={14} />, label: "停止生成" }] : []),
-              { type: "divider" as const },
-              { key: "delete", danger: true, icon: <Trash2 size={14} />, label: "删除" },
-            ],
-            onClick: ({ key, domEvent }) => {
-              domEvent.stopPropagation()
-              if (key === "pin") onPinToggle(job)
-              if (key === "rename") onRename(job)
-              if (key === "cancel") onCancel(job)
-              if (key === "delete") onDelete(job)
-            },
-          }}
-        >
-          <button type="button" title="任务操作" aria-label={`任务操作：${job.title || job.prompt}`} onClick={(event) => event.stopPropagation()} className="grid size-7 shrink-0 place-items-center rounded-md text-[#65707c] opacity-0 transition hover:bg-white hover:text-[#171a1f] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/30"><MoreHorizontal size={16} /></button>
-        </Dropdown>
-      </div>
-    })}
+}
+
+const TASK_GROUP_PREVIEW = 5
+const TASK_DRAWER_PAGE_SIZE = 20
+
+function TaskRow({ job, selected = false, onSelect, onPinToggle, onRename, onDelete, onCancel }: TaskRowHandlers & { job: Job; selected?: boolean }) {
+  const cover = job.outputs[0]
+  const reference = job.references[0]
+  const created = formatCreatedShort(job.created_at)
+  const createdFull = formatCreatedFull(job.created_at)
+  return <div
+    role="button"
+    tabIndex={0}
+    onClick={() => onSelect(job.id)}
+    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(job.id) } }}
+    className={`studio-task-card group mb-1 flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/30 ${selected ? "bg-[#eef1ff]" : "hover:bg-black/[0.035]"}`}
+  >
+    <div className="size-8 shrink-0 overflow-hidden rounded-md bg-[#eef1f4]">
+      {cover ? <MediaTile item={cover} allowSameOriginVideo={false} /> : reference ? <img src={reference.url} alt="任务封面" className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full w-full place-items-center text-[#a0a8b2]">{job.media_type === "image" ? <ImagePlus size={15} /> : <Video size={15} />}</div>}
+    </div>
+    <span title={statusText[job.status]} className={`size-1.5 shrink-0 rounded-full ${job.status === "succeeded" ? "bg-emerald-500" : job.status === "failed" || job.status === "interrupted" || job.status === "cancelled" ? "bg-rose-500" : job.status === "running" ? "bg-[#4d6bfe]" : "bg-amber-400"}`} />
+    <p className="min-w-0 flex-1 truncate text-sm leading-[21px] text-[#171a1f]">{job.title || job.prompt}</p>
+    {created ? <span title={createdFull ? `创作时间 ${createdFull}` : "创作时间"} className="shrink-0 text-[10px] tabular-nums text-[#7c8794]">{created}</span> : null}
+    {job.pinned ? <Pin size={12} className="shrink-0 rotate-45 text-[#4d6bfe]" /> : null}
+    <Dropdown
+      trigger={["click"]}
+      popupRender={(menu) => <div className="studio-task-menu">{menu}</div>}
+      menu={{
+        items: [
+          { key: "pin", icon: <Pin size={14} />, label: job.pinned ? "取消置顶" : "置顶" },
+          { key: "rename", icon: <Pencil size={14} />, label: "重命名" },
+          ...((job.status === "queued" || job.status === "running" || job.status === "awaiting_refine" || job.status === "interrupted") ? [{ key: "cancel", danger: true as const, icon: <CircleStop size={14} />, label: "停止生成" }] : []),
+          { type: "divider" as const },
+          { key: "delete", danger: true, icon: <Trash2 size={14} />, label: "删除" },
+        ],
+        onClick: ({ key, domEvent }) => {
+          domEvent.stopPropagation()
+          if (key === "pin") onPinToggle(job)
+          if (key === "rename") onRename(job)
+          if (key === "cancel") onCancel(job)
+          if (key === "delete") onDelete(job)
+        },
+      }}
+    >
+      <button type="button" title="任务操作" aria-label={`任务操作：${job.title || job.prompt}`} onClick={(event) => event.stopPropagation()} className="grid size-7 shrink-0 place-items-center rounded-md text-[#65707c] opacity-0 transition hover:bg-white hover:text-[#171a1f] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/30"><MoreHorizontal size={16} /></button>
+    </Dropdown>
+  </div>
+}
+
+function TaskRowList({ jobs, selectedJobId, showEmpty = true, className = "", onSelect, onPinToggle, onRename, onDelete, onCancel }: TaskRowHandlers & { jobs: Job[]; selectedJobId?: string; showEmpty?: boolean; className?: string }) {
+  return <div className={className}>
+    {jobs.map((job) => <TaskRow key={job.id} job={job} selected={job.id === selectedJobId} onSelect={onSelect} onPinToggle={onPinToggle} onRename={onRename} onDelete={onDelete} onCancel={onCancel} />)}
     {showEmpty && !jobs.length && <div className="flex min-h-40 flex-col items-center justify-center px-5 text-center text-xs leading-5 text-[#7c8794]"><ListChecks className="mb-2 text-[#a0a8b2]" size={20} />当前类型还没有任务</div>}
   </div>
+}
+
+function localDayStart(ms: number) {
+  const date = new Date(ms)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+function shiftLocalDays(ms: number, days: number) {
+  const date = new Date(ms)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days).getTime()
+}
+
+function groupJobsByCreatedAt(jobs: Job[], nowMs: number) {
+  const todayStart = localDayStart(nowMs)
+  const buckets = [
+    { key: "today", label: "今天", from: todayStart, jobs: [] as Job[] },
+    { key: "yesterday", label: "昨天", from: shiftLocalDays(todayStart, -1), jobs: [] as Job[] },
+    { key: "week", label: "过去 7 天", from: shiftLocalDays(todayStart, -6), jobs: [] as Job[] },
+    { key: "older", label: "更早", from: Number.NEGATIVE_INFINITY, jobs: [] as Job[] },
+  ]
+  jobs.forEach((job) => {
+    const created = new Date(job.created_at).getTime()
+    const bucket = buckets.find((item) => !Number.isNaN(created) && created >= item.from) ?? buckets[buckets.length - 1]
+    bucket.jobs.push(job)
+  })
+  return buckets.filter((bucket) => bucket.jobs.length).map(({ key, label, jobs: groupedJobs }) => ({ key, label, jobs: groupedJobs }))
+}
+
+function taskMatchesQuery(job: Job, query: string) {
+  return `${job.title || ""}\n${job.prompt}`.toLocaleLowerCase().includes(query)
+}
+
+function TaskRailHistory({
+  jobs, selectedJobId, mediaType, onSelect, onPinToggle, onRename, onDelete, onCancel,
+}: TaskRowHandlers & { jobs: Job[]; selectedJobId?: string; mediaType: "image" | "video" }) {
+  const [query, setQuery] = useState("")
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([])
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerQuery, setDrawerQuery] = useState("")
+  const [drawerPage, setDrawerPage] = useState(1)
+
+  const recentJobs = useMemo(() => (selectedJobId ? jobs.filter((job) => job.id !== selectedJobId) : jobs), [jobs, selectedJobId])
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const searchResults = normalizedQuery ? recentJobs.filter((job) => taskMatchesQuery(job, normalizedQuery)) : null
+  const pinnedJobs = useMemo(() => recentJobs.filter((job) => job.pinned), [recentJobs])
+  const timeGroups = useMemo(() => groupJobsByCreatedAt(recentJobs.filter((job) => !job.pinned), Date.now()), [recentJobs])
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
+  }
+  const openHistory = () => {
+    setDrawerQuery("")
+    setDrawerPage(1)
+    setDrawerOpen(true)
+  }
+
+  const normalizedDrawerQuery = drawerQuery.trim().toLocaleLowerCase()
+  const drawerJobs = normalizedDrawerQuery ? jobs.filter((job) => taskMatchesQuery(job, normalizedDrawerQuery)) : jobs
+  const drawerPageCount = Math.max(1, Math.ceil(drawerJobs.length / TASK_DRAWER_PAGE_SIZE))
+  const activeDrawerPage = Math.min(drawerPage, drawerPageCount)
+  const drawerRows = drawerJobs.slice((activeDrawerPage - 1) * TASK_DRAWER_PAGE_SIZE, activeDrawerPage * TASK_DRAWER_PAGE_SIZE)
+
+  const renderGroup = (key: string, label: string, groupedJobs: Job[]) => {
+    const expanded = expandedGroups.includes(key)
+    const visibleJobs = expanded ? groupedJobs : groupedJobs.slice(0, TASK_GROUP_PREVIEW)
+    return <div key={key} className="mb-1">
+      <div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[11px] font-medium text-[#8a96a3]">
+        <span>{label}</span>
+        <span className="ml-auto text-[10px] font-normal tabular-nums text-[#a0a8b2]">{groupedJobs.length}</span>
+      </div>
+      {visibleJobs.map((job) => <TaskRow key={job.id} job={job} selected={job.id === selectedJobId} onSelect={onSelect} onPinToggle={onPinToggle} onRename={onRename} onDelete={onDelete} onCancel={onCancel} />)}
+      {groupedJobs.length > TASK_GROUP_PREVIEW
+        ? <button type="button" onClick={() => toggleGroup(key)} className="mb-1 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-[11px] text-[#7c8794] transition hover:bg-black/[0.035] hover:text-[#171a1f]">
+          <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+          {expanded ? "收起" : `显示其余 ${groupedJobs.length - TASK_GROUP_PREVIEW} 项`}
+        </button>
+        : null}
+    </div>
+  }
+
+  return <section className="flex min-h-0 flex-1 flex-col">
+    <p className="studio-task-section-title">最近</p>
+    <div className="px-4 pb-2">
+      <Input
+        allowClear
+        value={query}
+        onChange={(event) => { setQuery(event.target.value); setExpandedGroups([]) }}
+        prefix={<Search size={13} />}
+        placeholder="搜索标题或提示词"
+        aria-label="搜索最近任务"
+        className="studio-task-search"
+      />
+    </div>
+    <div className="studio-task-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-2">
+      {searchResults ? <>
+        <div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[11px] font-medium text-[#8a96a3]">
+          <span>搜索结果</span>
+          <span className="ml-auto text-[10px] font-normal tabular-nums text-[#a0a8b2]">{searchResults.length}</span>
+        </div>
+        {searchResults.map((job) => <TaskRow key={job.id} job={job} selected={job.id === selectedJobId} onSelect={onSelect} onPinToggle={onPinToggle} onRename={onRename} onDelete={onDelete} onCancel={onCancel} />)}
+        {!searchResults.length && <p className="px-2 py-6 text-center text-xs text-[#7c8794]">没有匹配的任务</p>}
+      </> : <>
+        {pinnedJobs.length ? renderGroup("pinned", "置顶", pinnedJobs) : null}
+        {pinnedJobs.length ? <div className="mx-2 mb-1 border-t border-black/[0.05]" /> : null}
+        {timeGroups.map((group) => renderGroup(group.key, group.label, group.jobs))}
+        {!recentJobs.length && <div className="flex min-h-40 flex-col items-center justify-center px-5 text-center text-xs leading-5 text-[#7c8794]"><ListChecks className="mb-2 text-[#a0a8b2]" size={20} />当前类型还没有任务</div>}
+      </>}
+    </div>
+    <div className="border-t border-black/[0.05] px-3 py-2">
+      <button type="button" onClick={openHistory} className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-xs text-[#536471] transition hover:bg-black/[0.04] hover:text-[#171a1f]">
+        <ListChecks size={15} />
+        <span>查看全部任务</span>
+        <span className="ml-auto text-[10px] tabular-nums text-[#8a96a3]">{jobs.length}</span>
+        <ChevronRight size={14} />
+      </button>
+    </div>
+    <Drawer
+      title={<span className="flex items-baseline gap-2">全部任务<span className="text-xs font-normal text-[#7c8794]">{jobs.length} 个{mediaType === "image" ? "图片" : "视频"}任务</span></span>}
+      size={480}
+      open={drawerOpen}
+      onClose={() => setDrawerOpen(false)}
+      styles={{ body: { display: "flex", flexDirection: "column", minHeight: 0, padding: 0 } }}
+      rootClassName="studio-task-drawer"
+    >
+      <div className="border-b border-black/[0.05] px-5 py-3">
+        <Input
+          allowClear
+          value={drawerQuery}
+          onChange={(event) => { setDrawerQuery(event.target.value); setDrawerPage(1) }}
+          prefix={<Search size={14} />}
+          placeholder="搜索标题或提示词"
+          aria-label="搜索全部任务"
+          className="studio-task-search"
+        />
+      </div>
+      <div className="studio-task-scroll min-h-0 flex-1 overflow-y-auto px-5 py-3">
+        {drawerRows.map((job) => <TaskRow key={job.id} job={job} selected={job.id === selectedJobId} onSelect={(jobId) => { onSelect(jobId); setDrawerOpen(false) }} onPinToggle={onPinToggle} onRename={onRename} onDelete={onDelete} onCancel={onCancel} />)}
+        {!drawerJobs.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的任务" />}
+      </div>
+      <div className="flex items-center justify-between gap-3 border-t border-black/[0.05] px-5 py-3">
+        <span className="text-xs text-[#7c8794]">共 {drawerJobs.length} 个</span>
+        <Pagination size="small" hideOnSinglePage current={activeDrawerPage} pageSize={TASK_DRAWER_PAGE_SIZE} total={drawerJobs.length} showSizeChanger={false} onChange={setDrawerPage} />
+      </div>
+    </Drawer>
+  </section>
 }
 
 function AdminUserFilterSelect({
@@ -533,7 +709,6 @@ export default function App({
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set())
   const [filterStatus, setFilterStatus] = useState<"all" | "succeeded" | "running" | "failed">("all")
   const [filterRatio, setFilterRatio] = useState<"all" | "16:9" | "9:16" | "1:1">("all")
-  const [filterStorage, setFilterStorage] = useState<"all" | "local" | "cloud">("all")
   const [timeFilter, setTimeFilter] = useState<"all" | "today" | "7days" | "30days" | "month" | "custom">("all")
   const [customDateRange, setCustomDateRange] = useState<[string, string] | null>(null)
   const [customDateModalOpen, setCustomDateModalOpen] = useState(false)
@@ -543,6 +718,7 @@ export default function App({
   >("created_desc")
   const [jianyingModalOpen, setJianyingModalOpen] = useState(false)
   const [jianyingSelectedItems, setJianyingSelectedItems] = useState<JianyingMediaItem[]>([])
+  const [canvasInsertAsset, setCanvasInsertAsset] = useState<CanvasInsertAsset | null>(null)
   const [isComposerCompact, setIsComposerCompact] = useState(false)
   const [renameTarget, setRenameTarget] = useState<Job | null>(null)
   const [renameValue, setRenameValue] = useState("")
@@ -561,17 +737,7 @@ export default function App({
   const [optionValues, setOptionValues] = useState<Record<string, OptionInputValue>>({})
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false)
   const [imageSize, setImageSize] = useState("横版 1280 x 720")
-  const [directoryHandle, setDirectoryHandle] = useState<DirectoryHandleLike>()
-  const [directoryState, setDirectoryState] = useState<DirectoryState>(
-    directoryApiSupported() ? "checking" : "unsupported",
-  )
-  const [storageOpen, setStorageOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
-  const [storageError, setStorageError] = useState<string>()
-  const [localMediaUrls, setLocalMediaUrls] = useState<Record<string, string>>({})
-  const [pendingDeliveries, setPendingDeliveries] = useState<Record<string, true>>({})
-  const deliveryInFlight = useRef(new Set<string>())
-  const localMediaUrlsRef = useRef<Record<string, string>>({})
   const [messageApi, messageContext] = message.useMessage()
   const restoringComposerRef = useRef(false)
   const [adminUserFilter, setAdminUserFilter] = useState<string>("all")
@@ -586,12 +752,13 @@ export default function App({
     queryFn: () => api<User[]>("/api/admin/users"),
     enabled: isAdminViewer,
   })
-  // Director shot/asset progress bars read `allJobs`; keep polling on generate + the three leftover studios.
-  // Assets / 导演台内容库与工坊 do not consume this list and should not hit remote MySQL on idle tabs.
+  // Assets renders from `allJobs`, so it needs an initial fetch but no periodic polling.
+  // Director shot/asset progress bars still keep polling on generate + the three leftover studios.
+  const jobsEnabled = workspaceView === "generate" || workspaceView === "assets" || directorLegacyStudio
   const jobsPollingEnabled = workspaceView === "generate" || directorLegacyStudio
   const jobsQuery = useQuery({
     queryKey: ["jobs", user.id, adminUserFilter],
-    enabled: jobsPollingEnabled,
+    enabled: jobsEnabled,
     queryFn: async () => {
       const search = new URLSearchParams()
       if (isAdminViewer && adminUserFilter !== user.id) {
@@ -609,16 +776,7 @@ export default function App({
       return hasActive ? 4000 : 15000
     },
   })
-  const storageQuery = useQuery({
-    queryKey: ["storage-capability"],
-    queryFn: async () => {
-      const capability = await api<StorageCapability>("/api/storage")
-      cacheStorageCapability(capability)
-      return capability
-    },
-    initialData: readCachedStorageCapability,
-  })
-  const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => api<{ comfy: { reachable: boolean }; grs: { available: boolean; message?: string | null } }>("/api/health"), refetchInterval: 8000 })
+  const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => api<{ comfy: { reachable: boolean }; grs: { available: boolean; message?: string | null } }>("/api/health"), refetchInterval: 30000 })
   const workflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === mediaType)
   const workflow = workflows.find((item) => item.id === workflowId) ?? workflows[0]
   const allJobs = jobsQuery.data ?? []
@@ -642,12 +800,13 @@ export default function App({
   const grsBalanceQuery = useQuery({
     queryKey: ["grs-balance"],
     queryFn: () => api<GrsBalanceSnapshot>("/api/providers/grs/balance"),
-    enabled: mediaType === "image",
+    enabled: workspaceView === "generate" && mediaType === "image",
     refetchInterval: imageGenerationActive ? 5_000 : 15_000,
   })
   const grsBalanceUnavailable = Boolean(grsBalanceQuery.error || (grsBalanceQuery.data?.refresh_error && grsBalanceQuery.data.credits === null))
   const grsBalanceStale = Boolean(grsBalanceQuery.data?.refresh_error)
   const [selectedSkillId, setSelectedSkillId] = useState<string>("general")
+  const [optimizeUndo, setOptimizeUndo] = useState<{ before: string; after: string } | null>(null)
   const skillsQuery = useQuery({
     queryKey: ["llm-skills"],
     queryFn: () => requestJson<{ skills: H3Skill[] }>("/api/llm/skills"),
@@ -656,34 +815,50 @@ export default function App({
   })
   const h3Skills = skillsQuery.data?.skills || []
   const activeSkill = h3Skills.find((s) => s.id === selectedSkillId) || h3Skills[0]
-  const selectedJob = selectedJobId ? jobs.find((job) => job.id === selectedJobId) : undefined
-  const now = useNow(Boolean(selectedJob && (isLiveStatus(selectedJob.status) || selectedJob.rounds.some((round) => isLiveStatus(round.status)))))
+  const selectedJobFromList = selectedJobId ? allJobs.find((job) => job.id === selectedJobId) : undefined
+  // Deep links to jobs outside the latest list page fall back to the single-job endpoint.
+  const jobDetailQuery = useQuery({
+    queryKey: ["job", selectedJobId],
+    queryFn: () => api<Job>(`/api/jobs/${selectedJobId}`).then(normalizeJob),
+    enabled: workspaceView === "generate" && Boolean(selectedJobId) && !selectedJobFromList && jobsQuery.isFetched,
+    retry: false,
+    refetchInterval: (query) => {
+      const job = query.state.data as Job | undefined
+      if (!job) return false
+      const live = isLiveStatus(job.status) || job.rounds.some((round) => isLiveStatus(round.status))
+      return live ? 4000 : false
+    },
+  })
+  const selectedJob = selectedJobFromList ?? jobDetailQuery.data
+  const selectedJobMediaType = selectedJob?.media_type
+  const selectedJobLoading = Boolean(selectedJobId && !selectedJob && (jobsQuery.isLoading || jobDetailQuery.isPending || jobDetailQuery.isFetching))
+  const selectedJobMissing = Boolean(selectedJobId && !selectedJob && !selectedJobLoading)
 
-  const recentJobs = selectedJob ? jobs.filter((job) => job.id !== selectedJob.id) : jobs
-  const assetEntries = useMemo(
-    () => allJobs.flatMap((job) => {
+  const assetEntries = useMemo<AssetEntry[]>(
+    () => workspaceView !== "assets" ? [] : allJobs.flatMap((job): AssetEntry[] => {
       const roundEntries = job.rounds.flatMap((round) => round.generation_items.flatMap((item) => item.outputs.map((output, outputIndex) => ({
         id: `${item.id}:${outputIndex}`,
         job,
         output,
         outputIndex,
+        generationItemId: item.id,
       }))))
       return roundEntries.length ? roundEntries : job.outputs.map((output, outputIndex) => ({
         id: `${job.id}:legacy:${outputIndex}`,
         job,
         output,
         outputIndex,
+        generationItemId: null,
       }))
     }),
-    [allJobs],
+    [allJobs, workspaceView],
   )
   const activeFilterCount = useMemo(() => {
     let count = 0
     if (filterStatus !== "all") count++
     if (filterRatio !== "all") count++
-    if (filterStorage !== "all") count++
     return count
-  }, [filterStatus, filterRatio, filterStorage])
+  }, [filterStatus, filterRatio])
 
   const visibleAssetEntries = useMemo(() => {
     const query = assetSearch.trim().toLocaleLowerCase()
@@ -714,12 +889,7 @@ export default function App({
         if (filterRatio === "1:1" && !(allText.includes("1:1") || allText.includes("方形") || allText.includes("1024 x 1024") || allText.includes("1024*1024"))) return false
       }
 
-      // 5. Storage Filter (全部/已存本地/云端暂存)
-      const isLocal = output.delivery_status === "local" || Boolean(localMediaUrls[output.path])
-      if (filterStorage === "local" && !isLocal) return false
-      if (filterStorage === "cloud" && isLocal) return false
-
-      // 6. Time Filter (全部/今天/近7天/近30天/本月/自定义)
+      // 5. Time Filter (全部/今天/近7天/近30天/本月/自定义)
       const createdDate = new Date(job.created_at)
       const createdTime = createdDate.getTime()
       if (!Number.isNaN(createdTime)) {
@@ -735,9 +905,13 @@ export default function App({
         } else if (timeFilter === "month") {
           if (createdDate.getFullYear() !== now.getFullYear() || createdDate.getMonth() !== now.getMonth()) return false
         } else if (timeFilter === "custom" && customDateRange) {
-          const start = new Date(customDateRange[0]).getTime()
-          const end = new Date(customDateRange[1]).getTime() + 86400 * 1000
-          if (createdTime < start || createdTime > end) return false
+          const startDate = parseLocalDay(customDateRange[0])
+          const endDate = parseLocalDay(customDateRange[1])
+          if (startDate && endDate) {
+            const start = startDate.getTime()
+            const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() + 1).getTime()
+            if (createdTime < start || createdTime >= end) return false
+          }
         }
       }
 
@@ -776,8 +950,6 @@ export default function App({
     customDateRange,
     filterRatio,
     filterStatus,
-    filterStorage,
-    localMediaUrls,
     sortOption,
     timeFilter,
   ])
@@ -835,11 +1007,11 @@ export default function App({
       generationItemId: item.id,
       outputIndex,
       output,
-      src: outputPreviewSrc(output, localMediaUrls[output.path]),
+      src: outputPreviewSrc(output),
     })))
     const extras = selectedJob ? extraUpscaleResults(selectedJob, allJobs).map((item) => ({
       ...item,
-      src: outputPreviewSrc(item.output, localMediaUrls[item.output.path]),
+      src: outputPreviewSrc(item.output),
     })) : []
     return [...own, ...extras]
   }
@@ -889,133 +1061,6 @@ export default function App({
   useEffect(() => {
     setReferencePreviewIndex((index) => index !== null && index >= references.length ? null : index)
   }, [references.length])
-  useEffect(() => { localMediaUrlsRef.current = localMediaUrls }, [localMediaUrls])
-  useEffect(() => () => {
-    Object.values(localMediaUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
-  }, [])
-  const ipAddressAccess = isRemoteIpAddress(window.location.hostname)
-  // 能力数据（含本地缓存）说不需要本地目录时，即使 /api/storage 瞬时报错也不再弹目录授权；
-  // 仅在完全拿不到任何能力数据且查询失败时保守回退为需要（默认 browser-stream 场景）。
-  const localDirectoryRequired = !ipAddressAccess && (
-    storageQuery.data
-      ? Boolean(storageQuery.data.requires_local_directory)
-      : storageQuery.isError
-  )
-
-  useEffect(() => {
-    let active = true
-    if (!localDirectoryRequired || !directoryApiSupported()) return
-    void getResourceDirectory(user.id).then(async (handle) => {
-      if (!active) return
-      if (!handle) {
-        setDirectoryState("missing")
-        return
-      }
-      const permission = await directoryPermission(handle)
-      if (!active) return
-      setDirectoryHandle(handle)
-      setDirectoryState(permission === "granted" ? "granted" : "prompt")
-    }).catch(() => { if (active) setDirectoryState("missing") })
-    return () => { active = false }
-  }, [localDirectoryRequired, user.id])
-
-  const loadLocalMedia = useCallback(async (handle: DirectoryHandleLike, sourceJobs: Job[]) => {
-    const outputs = sourceJobs.flatMap((job) => job.rounds.flatMap((round) => round.generation_items.flatMap((item) => item.outputs.map((output) => ({ job, output })))))
-      .filter(({ output }) => output.delivery_status !== "expired")
-    const resolved = await Promise.all(outputs.map(async ({ output }) => [
-      output.path,
-      await localResourceUrl(handle, user.id, output.path),
-    ] as const))
-    setLocalMediaUrls((current) => {
-      const next: Record<string, string> = {}
-      for (const [key, url] of resolved) if (url) next[key] = url
-      for (const [key, url] of Object.entries(current)) if (url !== next[key]) URL.revokeObjectURL(url)
-      return next
-    })
-  }, [user.id])
-
-  const connectDirectory = async (): Promise<DirectoryHandleLike | undefined> => {
-    try {
-      const handle = directoryHandle ?? await chooseResourceDirectory(user.id)
-      const permission = await directoryPermission(handle, true)
-      setDirectoryHandle(handle)
-      setDirectoryState(permission === "granted" ? "granted" : "prompt")
-      setStorageError(permission === "granted" ? undefined : "未获得本地目录写入权限")
-      return permission === "granted" ? handle : undefined
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return undefined
-      setStorageError(error instanceof Error ? error.message : "本地目录授权失败")
-      return undefined
-    }
-  }
-
-  const deliverOutput = useCallback(async (
-    job: Job, generationItemId: string, outputIndex: number, output: Output,
-    targetDirectory = directoryHandle, announce = false,
-  ): Promise<boolean> => {
-    if (!targetDirectory || !output?.download_url) return false
-    const key = `${job.id}:${generationItemId}:${outputIndex}`
-    if (deliveryInFlight.current.has(key)) return false
-    deliveryInFlight.current.add(key)
-    setPendingDeliveries((current) => ({ ...current, [key]: true }))
-    try {
-      await saveToResourceDirectory(
-        targetDirectory, user.id, job.id, outputIndex, output.path, output.download_url, csrfToken, generationItemId,
-      )
-      await api<Job>(`/api/jobs/${job.id}/generations/${generationItemId}/outputs/${outputIndex}/delivered`, {
-        method: "POST",
-        headers: { "X-CSRF-Token": csrfToken },
-      })
-      const url = await localResourceUrl(targetDirectory, user.id, output.path)
-      if (url) setLocalMediaUrls((current) => ({ ...current, [output.path]: url }))
-      setStorageError(undefined)
-      if (announce) {
-        await queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
-        messageApi.success("已保存到本地目录")
-      }
-      return true
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "保存本地资源失败"
-      setStorageError(detail)
-      if (announce) messageApi.error(detail)
-      return false
-    } finally {
-      deliveryInFlight.current.delete(key)
-      setPendingDeliveries((current) => {
-        const { [key]: _, ...remaining } = current
-        return remaining
-      })
-    }
-  }, [csrfToken, directoryHandle, messageApi, queryClient, user.id])
-
-  useEffect(() => {
-    if (directoryHandle && directoryState === "granted") void loadLocalMedia(directoryHandle, allJobs)
-  }, [directoryHandle, directoryState, allJobs, loadLocalMedia])
-  useEffect(() => {
-    if (!directoryHandle || directoryState !== "granted") return
-    let cancelled = false
-    const pending: Array<{ job: Job; generationItemId: string; outputIndex: number; output: Output }> = []
-    for (const job of allJobs) {
-      for (const round of job.rounds) {
-        for (const item of round.generation_items) {
-          item.outputs.forEach((output, outputIndex) => {
-            if (output.delivery_status !== "local" && output.download_url && !localMediaUrls[output.path]) {
-              pending.push({ job, generationItemId: item.id, outputIndex, output })
-            }
-          })
-        }
-      }
-    }
-    void (async () => {
-      for (const item of pending) {
-        if (cancelled) return
-        await deliverOutput(item.job, item.generationItemId, item.outputIndex, item.output)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [deliverOutput, directoryHandle, directoryState, allJobs, localMediaUrls])
-
-  const requiresDirectorySetup = localDirectoryRequired && directoryState !== "granted"
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -1035,8 +1080,9 @@ export default function App({
       references.forEach((asset) => form.append("references", asset.file))
       const response = await fetch("/api/jobs", { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } })
       if (response.status === 401) notifyUnauthorized()
-      if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "提交任务失败")
-      return response.json() as Promise<Job>
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(apiErrorMessage(payload, "提交任务失败"))
+      return payload as Job
     },
     onSuccess: (job) => {
       navigate(generateJobPath(job.media_type, job.id))
@@ -1054,6 +1100,29 @@ export default function App({
       navigate(generateJobPath(job.media_type, job.id))
       void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
     },
+    onError: (error: Error) => messageApi.error(error.message),
+  })
+
+  const confirmRefineMutation = useMutation({
+    mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${jobId}/refine/confirm`, {
+      method: "POST", headers: { "X-CSRF-Token": csrfToken },
+    }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
+      messageApi.success({ content: "已开始二采精修，将复用一采缓存只跑第二遍", duration: 5 })
+    },
+    onError: (error: Error) => messageApi.error(error.message),
+  })
+
+  const skipRefineMutation = useMutation({
+    mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${jobId}/refine/skip`, {
+      method: "POST", headers: { "X-CSRF-Token": csrfToken },
+    }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
+      messageApi.success("已保留一采预览作为成片")
+    },
+    onError: (error: Error) => messageApi.error(error.message),
   })
 
   const upscaleMutation = useMutation({
@@ -1075,6 +1144,7 @@ export default function App({
       navigate(generateJobPath(job.media_type, job.id))
       void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
     },
+    onError: (error: Error) => messageApi.error(error.message),
   })
 
   const createRoundMutation = useMutation({
@@ -1084,10 +1154,12 @@ export default function App({
       form.set("negative_prompt", job.negative_prompt)
       const response = await fetch(`/api/jobs/${job.id}/rounds`, { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } })
       if (response.status === 401) notifyUnauthorized()
-      if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "创建下一轮失败")
-      return response.json() as Promise<Job>
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(apiErrorMessage(payload, "创建下一轮失败"))
+      return payload as Job
     },
     onSuccess: (job) => { navigate(generateJobPath(job.media_type, job.id)); void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] }) },
+    onError: (error: Error) => messageApi.error(error.message),
   })
 
   const retryFailedMutation = useMutation({
@@ -1095,6 +1167,7 @@ export default function App({
       method: "POST", headers: { "X-CSRF-Token": csrfToken },
     }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] }),
+    onError: (error: Error) => messageApi.error(error.message),
   })
 
   const metadataMutation = useMutation({
@@ -1143,6 +1216,7 @@ export default function App({
     },
 
     onSuccess: (data) => {
+      setOptimizeUndo({ before: data.original_prompt, after: data.optimized_prompt })
       setPrompt(data.optimized_prompt)
       messageApi.success("提示词已使用 AI 优化完成")
     },
@@ -1178,27 +1252,40 @@ export default function App({
     ? `已添加 ${referenceCount} / ${workflow.max_references} 张`
     : workflow?.reference_mode === "keyframes" ? "首帧必填更稳定，尾帧用于锁定结尾" : ""
 
-  const saveImageResult = async (result: ImageResult) => {
-    if (!selectedJob) return
-    const handle = directoryHandle && directoryState === "granted" ? directoryHandle : await connectDirectory()
-    if (!handle) return
-    await deliverOutput(selectedJob, result.generationItemId, result.outputIndex, result.output, handle, true)
+  const downloadOutput = (job: Job, outputIndex: number, output: Output) => {
+    const url = output.download_url ?? output.cloud_url
+    if (!url) {
+      messageApi.warning("资源暂不可下载")
+      return
+    }
+    const extension = output.kind === "image" ? "png" : "mp4"
+    const title = (job.title || job.prompt.slice(0, 30) || `asset_${job.id.slice(0, 8)}`).replace(/[\\/:*?"<>|]/g, "_")
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `${title}_${outputIndex + 1}.${extension}`
+    link.rel = "noopener"
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
   }
 
   const createVideoFromImage = async (result: ImageResult) => {
     if (!selectedJob) return
-    const handle = directoryHandle && directoryState === "granted" ? directoryHandle : await connectDirectory()
-    if (!handle) {
-      setStorageOpen(true)
-      setStorageError("生成视频前需要选择可写入的本地目录。")
+    const url = result.output.download_url ?? result.output.cloud_url
+    if (!url) {
+      messageApi.error("原图暂不可下载，请稍后重试。")
       return
     }
-    let file = await localResourceFile(handle, user.id, result.output.path)
-    if (!file && !await deliverOutput(selectedJob, result.generationItemId, result.outputIndex, result.output, handle, true)) return
-    file ??= await localResourceFile(handle, user.id, result.output.path)
-    if (!file) {
-      setStorageOpen(true)
-      setStorageError("未能读取原图，请重新授权目录后再试。")
+    let file: File
+    try {
+      const response = await fetch(url)
+      if (response.status === 401) notifyUnauthorized()
+      if (!response.ok) throw new Error("下载原图失败，请稍后重试。")
+      const blob = await response.blob()
+      const extension = result.output.path.match(/\.[a-z0-9]{1,10}$/i)?.[0] ?? ".png"
+      file = new File([blob], `reference${extension}`, { type: blob.type || "image/png" })
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : "下载原图失败，请稍后重试。")
       return
     }
     const asset = newAssets([file])[0]
@@ -1283,13 +1370,17 @@ export default function App({
     applyMediaDraft(draft, mediaType)
   }, [mediaType])
   useEffect(() => {
-    if (workspaceView !== "generate" || !selectedJobId || jobsQuery.isLoading) return
-    const job = allJobs.find((item) => item.id === selectedJobId)
-    if (!job || job.media_type === mediaType) return
+    if (workspaceView !== "generate" || !selectedJobId || !selectedJobMediaType || selectedJobMediaType === mediaType) return
     draftsRef.current[mediaType] = currentDraft()
-    pendingMediaDraftRef.current = draftsRef.current[job.media_type] ?? "empty"
-    navigate(generateJobPath(job.media_type, job.id), { replace: true })
-  }, [workspaceView, selectedJobId, mediaType, allJobs, jobsQuery.isLoading, navigate])
+    pendingMediaDraftRef.current = draftsRef.current[selectedJobMediaType] ?? "empty"
+    navigate(generateJobPath(selectedJobMediaType, selectedJobId), { replace: true })
+  }, [workspaceView, selectedJobId, selectedJobMediaType, mediaType, navigate])
+  const lastScrolledJobRef = useRef<string | undefined>(selectedJobId)
+  useEffect(() => {
+    if (workspaceView !== "generate" || lastScrolledJobRef.current === selectedJobId) return
+    lastScrolledJobRef.current = selectedJobId
+    if (selectedJobId) window.scrollTo({ top: 0, behavior: "auto" })
+  }, [workspaceView, selectedJobId])
   const selectWorkflow = (nextWorkflowId: string) => {
     setWorkflowId(nextWorkflowId)
     setOptionValues(defaultOptionValues(workflows.find((item) => item.id === nextWorkflowId)))
@@ -1302,8 +1393,8 @@ export default function App({
       })
     }
   }
-  const appendFiles = (files: FileList | null) => {
-    if (!files || !workflow) return
+  const appendFiles = (files: FileList | File[] | null) => {
+    if (!files || !workflow || workflow.reference_mode === "none") return
     const incoming = newAssets(files)
     setReferences((current) => {
       const room = workflow.max_references - current.length
@@ -1358,7 +1449,7 @@ export default function App({
       if (focusEditor) promptRef.current?.focus()
     })
   }, [])
-  const submit = (event: FormEvent) => { event.preventDefault(); if (canSubmit && !storageQuery.isLoading && !requiresDirectorySetup) createMutation.mutate() }
+  const submit = (event: FormEvent) => { event.preventDefault(); if (canSubmit) createMutation.mutate() }
   const openRename = (job: Job) => { setRenameTarget(job); setRenameValue(job.title || job.prompt.slice(0, 40)) }
   const togglePinned = (job: Job) => metadataMutation.mutate({ jobId: job.id, pinned: !job.pinned })
   const confirmDelete = (job: Job) => Modal.confirm({
@@ -1451,7 +1542,7 @@ export default function App({
 
     messageApi.info(`正在准备下载 ${selectedEntries.length} 个资产文件...`)
     selectedEntries.forEach(({ job, output, outputIndex }, index) => {
-      const url = localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path)
+      const url = output.download_url ?? output.cloud_url ?? mediaUrl(output.path)
       if (!url) return
       setTimeout(() => {
         const ext = output.kind === "image" ? "png" : "mp4"
@@ -1483,15 +1574,18 @@ export default function App({
       cancelText: "取消",
       okButtonProps: { danger: true },
       onOk: async () => {
-        try {
-          for (const job of jobsToDelete) {
-            await deleteMutation.mutateAsync(job)
-          }
-          setSelectedAssetIds(new Set())
+        const results = await Promise.allSettled(jobsToDelete.map((job) =>
+          api<{ id: string }>(`/api/jobs/${job.id}`, jsonMutation(csrfToken, undefined, "DELETE")),
+        ))
+        const failed = results.filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        if (selectedJobId && uniqueJobIds.includes(selectedJobId)) navigate(generateJobPath(mediaType))
+        setSelectedAssetIds(new Set())
+        void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
+        if (failed.length) {
+          const reason = failed[0].reason instanceof Error ? failed[0].reason.message : "未知错误"
+          messageApi.warning(`已删除 ${results.length - failed.length} 个任务，${failed.length} 个失败：${reason}`)
+        } else {
           messageApi.success(`已批量删除 ${jobsToDelete.length} 个任务`)
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "批量删除失败"
-          messageApi.error(`删除失败: ${msg}`)
         }
       },
     })
@@ -1503,14 +1597,14 @@ export default function App({
       : visibleAssetEntries.filter((e) => e.output.kind === "video" || e.output.kind === "image")
 
     const items: JianyingMediaItem[] = targetEntries.map(({ id, job, output, outputIndex }) => {
-      const url = localMediaUrls[output.path] ?? output.download_url ?? mediaUrl(output.path)
+      const url = output.download_url ?? output.cloud_url ?? mediaUrl(output.path)
       return {
         id,
         title: job.title || job.prompt.slice(0, 30) || `素材_${outputIndex + 1}`,
         kind: output.kind,
         path: output.path,
         url,
-        durationSeconds: output.kind === "image" ? 3.0 : 5.0,
+        durationSeconds: output.kind === "image" ? 3.0 : undefined,
       }
     })
 
@@ -1567,17 +1661,6 @@ export default function App({
     },
     { type: "divider" as const },
     {
-      key: "storage_group",
-      type: "group" as const,
-      label: "存储状态",
-      children: [
-        { key: "storage:all", label: "全部存储", icon: filterStorage === "all" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
-        { key: "storage:local", label: "已保存至本地", icon: filterStorage === "local" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
-        { key: "storage:cloud", label: "云端暂存 / 未存", icon: filterStorage === "cloud" ? <Check size={14} className="text-[#4d6bfe]" /> : null },
-      ],
-    },
-    { type: "divider" as const },
-    {
       key: "reset_filter",
       danger: true,
       label: "重置所有筛选",
@@ -1606,67 +1689,54 @@ export default function App({
   ]
 
   return (
-    <div className={`${themeMode === "light" ? "studio-light" : "studio-dark"} min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]`}>
+    <div className={`${themeMode === "light" ? "studio-light" : "studio-dark"} ${workspaceView === "canvas" ? "studio-canvas-shell" : ""} min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]`}>
       {messageContext}
-      <header className={`studio-header fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-black/[0.05] bg-white px-3 sm:px-5 ${workspaceView === "director" ? "studio-header-director" : ""}`}>
+      <header className={`studio-header fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-black/[0.05] bg-white px-3 sm:px-5 ${workspaceView === "director" ? "studio-header-director" : ""} ${workspaceView === "canvas" ? "studio-header-canvas" : ""}`}>
         <div className="flex min-w-0 items-center gap-4">
           <div className="flex items-center gap-2 text-[#171a1f]">
-            <span className="grid size-7 place-items-center rounded-md border border-[#7655ff] text-[#a28cff]"><Sparkles size={15} /></span>
+            {workspaceView === "canvas" ? <svg className="canvas-brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M7 23 19 5M17 30 29 12M24 36 32 24M8 33 12 27" fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" /></svg> : <span className="grid size-7 place-items-center rounded-md border border-[#7655ff] text-[#a28cff]"><Sparkles size={15} /></span>}
             <span className="hidden text-[15px] font-semibold sm:inline">ZLY AI Studio</span>
           </div>
           <span className="h-6 w-px bg-black/[0.08]" />
           <h1 className="hidden truncate text-base font-medium lg:block">创作工作台</h1>
         </div>
         <div className="flex items-center gap-2 text-[#b6b6bf]">
-          {localDirectoryRequired ? <button type="button" title="本地资源目录" onClick={() => { setStorageOpen((open) => !open); setAccountOpen(false) }} className={`grid size-9 place-items-center rounded-lg border transition sm:flex sm:w-auto sm:gap-2 sm:px-3 ${directoryState === "granted" ? "border-emerald-400/25 bg-emerald-400/[0.07] text-emerald-300" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"}`}><HardDrive size={16} /><span className="hidden text-xs sm:inline">{directoryState === "granted" ? "本地目录" : "设置存储"}</span></button> : null}
           <Tooltip title={mediaType === "image" ? healthQuery.data?.grs?.message : undefined}>
-            <span className="hidden h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs md:flex"><span className={`size-2 rounded-full ${(mediaType === "image" ? healthQuery.data?.grs?.available : healthQuery.data?.comfy.reachable) ? "bg-emerald-400" : "bg-amber-400"}`} />{mediaType === "image" ? "GRS" : "ComfyUI"}</span>
+            <span className="studio-provider-status hidden h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs md:flex"><span className={`size-2 rounded-full ${(mediaType === "image" ? healthQuery.data?.grs?.available : healthQuery.data?.comfy.reachable) ? "bg-emerald-400" : "bg-amber-400"}`} />{mediaType === "image" ? "GRS" : "ComfyUI"}{workspaceView === "canvas" ? (healthQuery.data?.comfy?.reachable ? " · 运行中" : " · 未连接") : null}</span>
           </Tooltip>
-          <ThemeToggle className="studio-header-theme-toggle" />
-          <button type="button" title="账号菜单" onClick={() => { setAccountOpen((open) => !open); setStorageOpen(false) }} className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] sm:w-auto sm:gap-2 sm:px-3"><UserRound size={16} /><span className="hidden max-w-24 truncate text-xs text-[#e1e1e6] sm:inline">{user.display_name}</span></button>
-          {storageOpen ? <section className="absolute right-3 top-[60px] w-[min(360px,calc(100vw-24px))] rounded-xl border border-white/10 bg-[#1b1c22] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.45)] sm:right-16">
-            <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#7655ff]/15 text-[#a691ff]"><HardDrive size={18} /></span><div><h2 className="text-sm font-medium text-white">员工电脑本地目录</h2><p className="mt-1 text-xs leading-5 text-[#93939d]">生成完成后自动写入授权目录，成功回执后清理服务器暂存。</p></div></div>
-            {directoryState === "unsupported" ? <p className="mt-4 rounded-lg bg-amber-400/[0.08] px-3 py-2.5 text-xs leading-5 text-amber-200">当前访问环境不支持目录写入。请使用最新版 Chrome 或 Edge，并通过 HTTPS 或本机 127.0.0.1 访问。</p> : null}
-            {storageError ? <p className="mt-4 rounded-lg bg-red-500/10 px-3 py-2.5 text-xs leading-5 text-red-200">{storageError}</p> : null}
-            <button type="button" disabled={directoryState === "unsupported"} onClick={() => void connectDirectory()} className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-[#7047f6] text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"><FolderOpen size={15} />{directoryState === "granted" ? "更换资源目录" : directoryState === "prompt" ? "重新授权目录" : "选择资源目录"}</button>
-          </section> : null}
-          {accountOpen ? <section className="absolute right-3 top-[60px] w-56 overflow-hidden rounded-xl border border-white/10 bg-[#1b1c22] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
-            <div className="px-2 py-2"><p className="truncate text-sm font-medium text-white">{user.display_name}</p><p className="mt-0.5 truncate text-xs text-[#85858f]">{user.username}</p></div>
-            <ThemeToggle appearance="menu" />
-            {onOpenAdmin ? <button type="button" onClick={() => { setAccountOpen(false); onOpenAdmin() }} className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[#d6d6dc] hover:bg-white/[0.06]"><Users size={16} />管理设置</button> : null}
-            <button type="button" disabled={logoutPending} onClick={onLogout} className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[#d6d6dc] hover:bg-white/[0.06] disabled:opacity-40">{logoutPending ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />}退出登录</button>
-          </section> : null}
+          <ThemeToggle className="studio-header-theme-toggle" showCurrent={workspaceView === "canvas"} />
+          <Popover
+            open={accountOpen}
+            onOpenChange={setAccountOpen}
+            trigger="click"
+            placement="bottomRight"
+            arrow={false}
+            overlayClassName="studio-account-popover"
+            content={<div className="studio-account-menu" role="menu">
+              <div className="studio-account-menu-head"><p className="studio-account-menu-name">{user.display_name}</p><p className="studio-account-menu-username">{user.username}</p></div>
+              <ThemeToggle appearance="menu" />
+              <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); navigate(PATHS.mcp) }} className="studio-account-menu-item"><Link2 size={16} />MCP 连接</button>
+              {onOpenAdmin ? <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); onOpenAdmin() }} className="studio-account-menu-item"><Users size={16} />管理设置</button> : null}
+              <button type="button" role="menuitem" disabled={logoutPending} onClick={onLogout} className="studio-account-menu-item disabled:opacity-40">{logoutPending ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />}退出登录</button>
+            </div>}
+          >
+            <button type="button" title="账号菜单" aria-label={`账号菜单：${user.display_name}`} aria-haspopup="menu" aria-expanded={accountOpen} className={`flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] sm:w-auto sm:gap-2 sm:px-3 ${workspaceView === "canvas" ? "canvas-account-button" : ""}`}>{workspaceView === "canvas" ? <><span className="canvas-account-avatar">{user.display_name.slice(0, 1)}</span><ChevronDown size={14} /></> : <><UserRound size={16} /><span className="hidden max-w-24 truncate text-xs text-[#e1e1e6] sm:inline">{user.display_name}</span></>}</button>
+          </Popover>
         </div>
       </header>
 
-      {requiresDirectorySetup ? <section role="dialog" aria-modal="true" aria-labelledby="directory-setup-title" className="fixed inset-0 z-[100] grid place-items-center bg-[#0d0e12]/90 px-4 py-6 backdrop-blur-sm">
-        <div className="w-full max-w-md border border-white/[0.12] bg-[#1b1c22] p-5 shadow-[0_24px_64px_rgba(0,0,0,0.52)] sm:p-6">
-          <span className="grid size-11 place-items-center rounded-lg bg-[#7655ff]/15 text-[#ad9bff]">
-            {directoryState === "checking" ? <LoaderCircle className="animate-spin" size={21} /> : <HardDrive size={21} />}
-          </span>
-          <h2 id="directory-setup-title" className="mt-5 text-lg font-semibold text-white">设置作品存储目录</h2>
-          {directoryState === "checking" ? <p className="mt-2 text-sm leading-6 text-[#b4b4be]">正在检查此账号已授权的本地目录。</p> : <p className="mt-2 text-sm leading-6 text-[#b4b4be]">请选择员工电脑上的目录。新作品会自动保存到该目录的 ZLY AI Studio 子文件夹，完成交付后工作台会清理服务器暂存。</p>}
-          {directoryState === "unsupported" ? <p className="mt-4 bg-amber-400/[0.08] px-3 py-2.5 text-xs leading-5 text-amber-200">当前访问环境无法授权本地目录。请使用最新版 Chrome 或 Edge，并通过 HTTPS 或本机 127.0.0.1 打开工作台。</p> : null}
-          {storageError ? <p className="mt-4 bg-red-500/10 px-3 py-2.5 text-xs leading-5 text-red-200">{storageError}</p> : null}
-          <button type="button" autoFocus={directoryState !== "checking"} disabled={directoryState === "checking" || directoryState === "unsupported"} onClick={() => void connectDirectory()} className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#7047f6] text-sm font-medium text-white transition hover:bg-[#7c58f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a795ff] disabled:cursor-not-allowed disabled:opacity-45">
-            <FolderOpen size={17} />{directoryState === "prompt" ? "重新授权目录" : "选择存储目录"}
-          </button>
-          <button type="button" disabled={logoutPending} onClick={onLogout} className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm text-[#b4b4be] transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a795ff] disabled:opacity-45">
-            {logoutPending ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />}退出登录
-          </button>
-        </div>
-      </section> : null}
-
-      <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${directorLegacyStudio ? "studio-director-view" : ""} ${workspaceView === "director" && !directorLegacyStudio ? "studio-director2-view" : ""}`}>
+      <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "canvas" ? "studio-canvas-view" : ""} ${directorLegacyStudio ? "studio-director-view" : ""} ${workspaceView === "director" && !directorLegacyStudio ? "studio-director2-view" : ""}`}>
         <nav className="studio-mobile-nav" aria-label="工作区导航">
           <NavLink to={lastGeneratePathRef.current} className={() => workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</NavLink>
           <NavLink to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
+          <NavLink to={PATHS.canvas} className={() => workspaceView === "canvas" ? "is-active" : ""}><Frame size={16} />画布</NavLink>
           <NavLink to={PATHS.assets} end className={() => workspaceView === "assets" ? "is-active" : ""}><FolderOpen size={16} />资产</NavLink>
         </nav>
         <aside className="studio-icon-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[76px] flex-col items-center border-r border-black/[0.05] bg-white pt-5 xl:flex">
           <div className="flex flex-col items-center gap-2">
             <NavLink to={lastGeneratePathRef.current} title="生成" aria-label="生成" className={() => `studio-global-nav-item ${workspaceView === "generate" ? "studio-global-nav-item-active" : ""}`}><Sparkles size={19} /><span>生成</span></NavLink>
             <NavLink to={lastDirectorPathRef.current} title="导演台" aria-label="导演台" className={() => `studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><Clapperboard size={19} /><span>导演台</span></NavLink>
+            <NavLink to={PATHS.canvas} title="画布" aria-label="画布" className={() => `studio-global-nav-item ${workspaceView === "canvas" ? "studio-global-nav-item-active" : ""}`}>{workspaceView === "canvas" ? <span className="canvas-nine-dots" aria-hidden="true">{Array.from({ length: 9 }, (_, index) => <i key={index} />)}</span> : <Frame size={19} />}<span>画布</span></NavLink>
             <NavLink to={PATHS.assets} end title="资产" aria-label="资产" className={() => `studio-global-nav-item ${workspaceView === "assets" ? "studio-global-nav-item-active" : ""}`}><FolderOpen size={19} /><span>资产</span></NavLink>
           </div>
           {workspaceView === "generate" && taskRailCollapsed ? <Tooltip title="展开任务栏" placement="right"><button type="button" title="展开任务栏" aria-label="展开任务栏" onClick={() => setTaskRailCollapsed(false)} className="studio-task-rail-reopen"><PanelLeftOpen size={17} /></button></Tooltip> : null}
@@ -1686,12 +1756,11 @@ export default function App({
           <div className="flex min-h-0 flex-1 flex-col pt-3">
             <section className="studio-task-section">
               <p className="studio-task-section-title">当前创作</p>
-              {selectedJob ? <TaskRail jobs={[selectedJob]} selectedJobId={selectedJob.id} localMediaUrls={localMediaUrls} onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} scrollMode="content" showEmpty={false} /> : <p className="px-4 pb-3 text-xs text-[#98a2ad]">{isInspectingOtherUser ? "从最近任务中选择一条查看" : "新对话会从这里开始"}</p>}
+              {selectedJob
+                ? <div className="px-4 pb-3"><TaskRow job={selectedJob} selected onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} /></div>
+                : <p className="px-4 pb-3 text-xs text-[#98a2ad]">{isInspectingOtherUser ? "从最近任务中选择一条查看" : "新对话会从这里开始"}</p>}
             </section>
-            <section className="flex min-h-0 flex-1 flex-col">
-              <p className="studio-task-section-title">最近</p>
-              <TaskRail jobs={recentJobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
-            </section>
+            <TaskRailHistory jobs={jobs} selectedJobId={selectedJob?.id} mediaType={mediaType} onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
           </div>
         </aside>
 
@@ -1706,13 +1775,15 @@ export default function App({
           <div className="flex items-center justify-between border-b border-black/[0.05] px-4 pb-3 pt-4"><h2 className="text-base font-medium text-[#171a1f]">任务列表</h2><button type="button" onClick={() => setHistoryOpen(false)} title="关闭任务列表" className="grid size-8 place-items-center rounded-lg text-[#65707c] hover:bg-black/[0.05] hover:text-[#171a1f]"><X size={15} /></button></div>
           {isAdminViewer ? <div className="border-b border-black/[0.05] px-4 py-2"><AdminUserFilterSelect value={adminUserFilter} options={adminUserOptions} onChange={changeAdminUserFilter} className="w-full" /></div> : null}
           {isInspectingOtherUser ? <p className="border-b border-black/[0.05] px-4 py-2 text-[11px] leading-5 text-[#7c8794]">正在查看 {inspectedUserLabel} 的生成任务</p> : null}
-          <TaskRail compact jobs={jobs} selectedJobId={selectedJob?.id} localMediaUrls={localMediaUrls} onSelect={(jobId) => { selectJob(jobId); setHistoryOpen(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
+          <TaskRowList className="studio-task-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-4" jobs={jobs} selectedJobId={selectedJob?.id} onSelect={(jobId) => { selectJob(jobId); setHistoryOpen(false) }} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
         </section>}
 
         <main className={directorLegacyStudio
           ? "director-workspace-main relative flex !h-screen !max-h-screen !min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "director"
           ? "director2-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
+          : workspaceView === "canvas"
+          ? "canvas-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""}`
         }>
           {directorLegacyStudio ? (
@@ -1726,6 +1797,10 @@ export default function App({
           ) : workspaceView === "director" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载导演台...</div>}>
               <Director2App csrfToken={csrfToken} onExitDirector={() => navigate(lastGeneratePathRef.current)} />
+            </Suspense>
+          ) : workspaceView === "canvas" ? (
+            <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载无限画布...</div>}>
+              <CanvasWorkspace csrfToken={csrfToken} />
             </Suspense>
           ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
 
@@ -1827,13 +1902,11 @@ export default function App({
                       if (key === "reset_filter") {
                         setFilterStatus("all")
                         setFilterRatio("all")
-                        setFilterStorage("all")
                         messageApi.info("已重置所有筛选条件")
                         return
                       }
                       if (key.startsWith("status:")) setFilterStatus(key.slice(7) as typeof filterStatus)
                       else if (key.startsWith("ratio:")) setFilterRatio(key.slice(6) as typeof filterRatio)
-                      else if (key.startsWith("storage:")) setFilterStorage(key.slice(8) as typeof filterStorage)
                     },
                   }}
                   trigger={["click"]}
@@ -1899,7 +1972,7 @@ export default function App({
                   <section key={`${group.label}-${group.timestamp}`} className="studio-asset-group">
                     <h2>{group.label}</h2>
                     <div className="studio-asset-grid">
-                      {group.entries.map(({ id, job, output }) => {
+                      {group.entries.map(({ id, job, output, outputIndex, generationItemId }) => {
                         const isSelected = selectedAssetIds.has(id)
                         return (
                           <div
@@ -1912,7 +1985,7 @@ export default function App({
                               } else {
                                 setPreviewMedia({
                                   kind: output.kind,
-                                  src: outputPreviewSrc(output, localMediaUrls[output.path]) ?? "",
+                                  src: outputPreviewSrc(output) ?? "",
                                   title: output.label,
                                   description: job.title || job.prompt,
                                   job,
@@ -1931,9 +2004,26 @@ export default function App({
                             }`}
                           >
                             <div className="studio-asset-media-frame relative">
-                              <MediaTile item={output} localUrl={localMediaUrls[output.path]} allowSameOriginVideo={false} />
+                              <MediaTile item={output} allowSameOriginVideo={false} />
                               {output.kind === "video" ? (
                                 <span className="studio-asset-duration">{assetDuration(job, output.kind)}</span>
+                              ) : null}
+                              {!isBatchMode && !isInspectingOtherUser && output.delivery_status !== "expired" ? (
+                                <button
+                                  type="button"
+                                  className="studio-asset-canvas-button"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setCanvasInsertAsset({
+                                      jobId: job.id,
+                                      generationItemId,
+                                      outputIndex,
+                                      label: output.label,
+                                    })
+                                  }}
+                                >
+                                  <Frame size={13} />加入画布
+                                </button>
                               ) : null}
                               {(isBatchMode || isSelected) && (
                                 <div
@@ -1973,7 +2063,7 @@ export default function App({
             </>
             )}
           </section> : <>
-          {!selectedJob && <div className="relative z-10 mb-[112px] pt-12 text-center xl:mb-[130px]">{isInspectingOtherUser ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在查看 {inspectedUserLabel} 的任务</h2><p className="mt-3 text-base text-[#65707c]">从左侧选择一条生成任务查看详情</p></> : <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">今天想创作什么？</h2><p className="mt-3 text-base text-[#65707c]">输入想法，AI 帮你实现创意</p></>}</div>}
+          {!selectedJob && <div className="relative z-10 mb-[112px] pt-12 text-center xl:mb-[130px]">{selectedJobLoading ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在加载任务…</h2><p className="mt-3 text-base text-[#65707c]">正在读取任务详情</p></> : selectedJobMissing ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">任务不存在或已删除</h2><p className="mt-3 text-base text-[#65707c]">{jobDetailQuery.error?.message ? `${jobDetailQuery.error.message}，请从左侧重新选择任务。` : "请从左侧重新选择任务，或直接开始新的创作。"}</p></> : isInspectingOtherUser ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在查看 {inspectedUserLabel} 的任务</h2><p className="mt-3 text-base text-[#65707c]">从左侧选择一条生成任务查看详情</p></> : <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">今天想创作什么？</h2><p className="mt-3 text-base text-[#65707c]">输入想法，AI 帮你实现创意</p></>}</div>}
 
           {selectedJob && <section className="studio-task-stream relative z-10 mb-8" aria-label="任务详情">
             {selectedJob.rounds.map((round) => {
@@ -1983,22 +2073,16 @@ export default function App({
               const roundProgress = Math.max(0, Math.min(100, round.progress ?? 0))
               const canGenerateAgain = selectedJob.status === "succeeded" || selectedJob.status === "partial"
               const canRetryRound = round.status === "partial" || round.status === "failed" || round.status === "interrupted" || round.status === "cancelled"
-              const canCancelRound = round.status === "queued" || round.status === "running" || round.status === "interrupted"
+              const canCancelRound = round.status === "queued" || round.status === "running" || round.status === "awaiting_refine" || round.status === "interrupted"
+              const canRefineRound = round.status === "awaiting_refine"
               const relatedUpscale = activeUpscaleJob(allJobs, selectedJob.id)
               const showUpscale = mediaType === "video" && !isRtxVsrJob(selectedJob) && hasOriginalVideo(selectedJob) && !isInspectingOtherUser
               const failedItems = round.generation_items.filter((item) => item.status === "failed" || item.status === "interrupted" || item.status === "cancelled")
               const cover = roundResults[0]?.output
-              const wait = waitCaption({
-                created_at: round.created_at || selectedJob.created_at,
-                finished_at: round.finished_at,
-                elapsed_ms: round.elapsed_ms,
-                execution_elapsed_ms: round.execution_elapsed_ms,
-                status: round.status,
-              }, now)
               return <article key={round.id} className="studio-round">
                 <header className="studio-round-header flex min-w-0 gap-3">
                   <div className="studio-round-cover grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-[#f2f4f6] text-[#7c8794]">
-                    {cover ? <MediaTile item={cover} localUrl={localMediaUrls[cover.path]} allowSameOriginVideo={false} /> : round.references[0] ? <img src={round.references[0].url} alt="任务参考图" className="h-full w-full object-cover" loading="lazy" /> : <Clapperboard size={18} />}
+                    {cover ? <MediaTile item={cover} allowSameOriginVideo={false} /> : round.references[0] ? <img src={round.references[0].url} alt="任务参考图" className="h-full w-full object-cover" loading="lazy" /> : <Clapperboard size={18} />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-start gap-2">
@@ -2007,7 +2091,13 @@ export default function App({
                     </div>
                     <p className={`studio-round-status mt-1.5 flex flex-wrap items-center gap-x-2 text-xs ${statusColor[round.status]}`}>
                       <span>第 {round.sequence} 轮 · {statusText[round.status]} · {round.stage}</span>
-                      {wait.text ? <span title={wait.title || wait.text} className="studio-round-elapsed tabular-nums">{wait.text}</span> : null}
+                      <RoundWait source={{
+                        created_at: round.created_at || selectedJob.created_at,
+                        finished_at: round.finished_at,
+                        elapsed_ms: round.elapsed_ms,
+                        execution_elapsed_ms: round.execution_elapsed_ms,
+                        status: round.status,
+                      }} />
                     </p>
                     {round.error ? <div className="studio-round-error mt-1"><JobErrorNotice error={round.error} hideSummary /></div> : null}
                   </div>
@@ -2031,8 +2121,20 @@ export default function App({
                   <span className="w-9 text-right text-[11px] tabular-nums text-[#65707c]">{roundProgress}%</span>
                 </div>}
 
+                {canRefineRound && <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-xs leading-5 text-amber-800">一采预览已生成，尚未保存为最终成片。确认后会用同一 seed 只跑二采精修；保留一采则直接把预览作为成片。</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={confirmRefineMutation.isPending || skipRefineMutation.isPending} onClick={() => confirmRefineMutation.mutate(selectedJob.id)} className="studio-round-action">
+                      {confirmRefineMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <Sparkles size={16} />}确认二采
+                    </button>
+                    <button type="button" disabled={confirmRefineMutation.isPending || skipRefineMutation.isPending} onClick={() => skipRefineMutation.mutate(selectedJob.id)} className="studio-round-action">
+                      {skipRefineMutation.isPending ? <LoaderCircle className="animate-spin" size={16} /> : <Check size={16} />}保留一采
+                    </button>
+                  </div>
+                </div>}
+
                 {roundResults.length > 0 && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
-                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} pendingSave={(result) => Boolean(pendingDeliveries[`${selectedJob.id}:${result.generationItemId}:${result.outputIndex}`])} isLocallySaved={(result) => Boolean(localMediaUrls[result.output.path])} onSave={(result) => void saveImageResult(result)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} upscale={showUpscale ? { disabled: !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending, pending: upscaleMutation.isPending || Boolean(relatedUpscale), hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || "用本机 RTX 放大到 2 倍，原片保留", onClick: () => upscaleMutation.mutate(selectedJob.id) } : undefined} upscaleStage={relatedUpscale?.stage} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onSave={(result) => { const job = allJobs.find((item) => item.id === result.jobId) ?? selectedJob; directoryState === "granted" ? void deliverOutput(job, result.generationItemId, result.outputIndex, result.output) : void connectDirectory() }} />}
+                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} onDownload={(result) => downloadOutput(selectedJob, result.outputIndex, result.output)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} upscale={showUpscale ? { disabled: !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending, pending: upscaleMutation.isPending || Boolean(relatedUpscale), hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || "用本机 RTX 放大到 2 倍，原片保留", onClick: () => upscaleMutation.mutate(selectedJob.id) } : undefined} upscaleStage={relatedUpscale?.stage} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onDownload={(result) => downloadOutput(allJobs.find((item) => item.id === result.jobId) ?? selectedJob, result.outputIndex, result.output)} />}
                 </Suspense>}
 
                 {failedItems.length > 0 && mediaType === "image" && <ul className="mt-3 space-y-2 text-xs leading-5 text-red-600">
@@ -2062,7 +2164,22 @@ export default function App({
           </section>}
 
           {!isInspectingOtherUser && isComposerCompact && <button type="button" onClick={() => returnToComposer()} className="studio-return-bottom" title="回到底部"><span>回到底部</span><ChevronDown size={15} /></button>}
-          {!isInspectingOtherUser && <form id="studio-composer" onSubmit={submit} className={`studio-composer-form relative z-20 mx-auto max-w-[1080px] border border-black/[0.05] bg-white p-4 shadow-[0_16px_36px_rgba(22,31,44,0.10)] sm:rounded-[24px] sm:p-5 lg:sticky lg:bottom-5 ${isComposerCompact ? "studio-composer-collapsed" : ""}`}>
+          {!isInspectingOtherUser && <form
+            id="studio-composer"
+            onSubmit={submit}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes("Files")) return
+              event.preventDefault()
+              const canAccept = Boolean(workflow && workflow.reference_mode !== "none" && references.length < workflow.max_references)
+              event.dataTransfer.dropEffect = canAccept ? "copy" : "none"
+            }}
+            onDrop={(event) => {
+              if (!event.dataTransfer.files.length) return
+              event.preventDefault()
+              appendFiles(event.dataTransfer.files)
+            }}
+            className={`studio-composer-form relative z-20 mx-auto max-w-[1080px] border border-black/[0.05] bg-white p-4 shadow-[0_16px_36px_rgba(22,31,44,0.10)] sm:rounded-[24px] sm:p-5 lg:sticky lg:bottom-5 ${isComposerCompact ? "studio-composer-collapsed" : ""}`}
+          >
             <div className="absolute -top-8 right-7 flex max-w-[calc(100%-56px)] items-center gap-1.5 text-sm text-[#babac3]">
               <span className="studio-ai-badge grid size-5 shrink-0 place-items-center rounded-full bg-[#7046df] text-[10px] font-semibold text-white">AI</span>
               {mediaType === "image" ? <>
@@ -2085,9 +2202,16 @@ export default function App({
                     {mediaType === "video" && h3Skills.length > 0 ? (
                       <Dropdown
                         placement="bottomRight"
-                        trigger={["click", "hover"]}
+                        trigger={["click"]}
                         menu={{
                           items: [
+                            {
+                              key: "optimize-current",
+                              icon: <WandSparkles size={14} />,
+                              label: <span>用当前技能优化提示词</span>,
+                              onClick: () => optimizeMutation.mutate(selectedSkillId),
+                            },
+                            { type: "divider" as const },
                             {
                               key: "header",
                               type: "group",
@@ -2106,10 +2230,7 @@ export default function App({
                                   </div>
                                 </div>
                               ),
-                              onClick: () => {
-                                setSelectedSkillId(skill.id)
-                                optimizeMutation.mutate(skill.id)
-                              },
+                              onClick: () => setSelectedSkillId(skill.id),
                             })),
                           ],
                         }}
@@ -2117,8 +2238,7 @@ export default function App({
                         <button
                           type="button"
                           disabled={optimizeMutation.isPending}
-                          onClick={() => optimizeMutation.mutate(selectedSkillId)}
-                          title="点击使用当前技能优化，或展开切换 MiniMax H3 官方技能风格"
+                          title="展开技能列表；选择技能后点「用当前技能优化提示词」"
                           className="flex items-center gap-1 rounded-md border border-[#7655ff]/35 bg-[#7655ff]/15 px-2 py-0.5 text-xs text-[#7047f6] font-medium transition hover:bg-[#7655ff]/25 hover:text-[#5a32df] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {optimizeMutation.isPending ? <LoaderCircle className="animate-spin text-[#7047f6]" size={12} /> : <WandSparkles size={12} className="text-[#7047f6]" />}
@@ -2139,10 +2259,38 @@ export default function App({
                       </button>
                     )}
 
+                    {optimizeUndo && prompt === optimizeUndo.after && !optimizeMutation.isPending ? (
+                      <button
+                        type="button"
+                        onClick={() => { setPrompt(optimizeUndo.before); setOptimizeUndo(null) }}
+                        className="shrink-0 text-[11px] text-[#797982] transition hover:text-[#b5a4ff]"
+                      >
+                        撤销优化
+                      </button>
+                    ) : null}
                     <span className="truncate text-[11px] text-[#797982]">{referenceHint}</span>
                   </div>
                 </div>
-                <textarea ref={promptRef} value={prompt} onFocus={() => { if (isComposerCompact) returnToComposer(true) }} onChange={(event) => setPrompt(event.target.value)} placeholder={workflow?.description || "描述镜头、动作、运镜、音效和氛围"} className="studio-prompt-input h-[106px] w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 text-[#d7d7dc] outline-none placeholder:text-[#777780]" />
+                <textarea
+                  ref={promptRef}
+                  value={prompt}
+                  onFocus={() => { if (isComposerCompact) returnToComposer(true) }}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  onPaste={(event) => {
+                    const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"))
+                    if (!files.length || !workflow || workflow.reference_mode === "none") return
+                    event.preventDefault()
+                    appendFiles(files)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                      event.preventDefault()
+                      if (canSubmit) createMutation.mutate()
+                    }
+                  }}
+                  placeholder={workflow?.description || "描述镜头、动作、运镜、音效和氛围"}
+                  className="studio-prompt-input h-[106px] w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 text-[#d7d7dc] outline-none placeholder:text-[#777780]"
+                />
                 {workflow?.reference_mode === "collection" && references.length > 0 && <div className="studio-picture-tags mt-2 flex flex-wrap gap-1.5">{references.map((asset, index) => <button key={asset.id} type="button" onClick={() => addPictureTag(index + 1)} className="rounded-md border border-[#7047ff]/40 bg-[#7047ff]/10 px-2 py-1 text-[11px] text-[#b5a4ff] hover:bg-[#7047ff]/20">&lt;Picture {index + 1}&gt;</button>)}</div>}
               </div>
             </div>
@@ -2155,7 +2303,7 @@ export default function App({
                 </div>
                 <div className="studio-control-shell flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[280px]">
                   <Settings2 size={16} className="shrink-0 text-[#947dff]" />
-                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" options={groupedWorkflowOptions(workflows)} />
+                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} showSearch optionFilterProp="label" className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" options={groupedWorkflowOptions(workflows)} />
                 </div>
                 {primaryOptionDefinitions.map(([name, definition]) => <OptionControl
                   key={name}
@@ -2171,7 +2319,7 @@ export default function App({
                 {advancedOptionDefinitions.length > 0 && <button type="button" aria-expanded={advancedOptionsOpen} onClick={() => setAdvancedOptionsOpen((open) => !open)} className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-sm text-[#d8d8df] transition hover:bg-[#29292f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7047ff]/45"><SlidersHorizontal size={16} className="text-[#947dff]" />更多设置</button>}
               </div>
               <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : undefined}>
-                <button type="submit" disabled={!canSubmit || storageQuery.isLoading} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{createMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{mediaType === "image" ? "开始生图" : "开始生成"}</button>
+                <button type="submit" disabled={!canSubmit} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{createMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{mediaType === "image" ? "开始生图" : "开始生成"}</button>
               </Tooltip>
             </div>
             {advancedOptionsOpen && advancedOptionDefinitions.length > 0 && <section aria-label="更多生成设置" className="mt-4 border-t border-white/[0.08] pt-4">
@@ -2211,6 +2359,13 @@ export default function App({
             onClose={() => setJianyingModalOpen(false)}
             items={jianyingSelectedItems}
             onRemoveItem={(id) => setJianyingSelectedItems((prev) => prev.filter((item) => item.id !== id))}
+          />
+
+          <AddToCanvasModal
+            open={Boolean(canvasInsertAsset)}
+            csrfToken={csrfToken}
+            asset={canvasInsertAsset}
+            onClose={() => setCanvasInsertAsset(null)}
           />
 
           <Modal
@@ -2297,9 +2452,16 @@ function OptionControl({
 }) {
   const compactChrome = "flex h-9 min-w-0 items-center rounded-lg border border-[#37373b] bg-[#222226] shadow-[0_6px_16px_rgba(0,0,0,0.12)]"
   if (definition.type === "boolean") {
-    return <div title={definition.description} className={`studio-control-shell flex min-h-10 items-center justify-between gap-3 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-xs text-[#d8d8df] ${compact ? "w-full sm:w-[172px]" : ""}`}>
-      <span className="min-w-0 leading-4">{definition.label}</span>
-      <Switch aria-label={definition.label} checked={Boolean(value)} onChange={(checked) => onChange(name, checked)} size="small" />
+    const toggle = <Switch aria-label={definition.label} checked={Boolean(value)} onChange={(checked) => onChange(name, checked)} size="small" />
+    if (compact) {
+      return <div title={definition.description} className="studio-control-shell flex h-9 w-full min-w-0 items-center justify-between gap-3 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-xs text-[#d8d8df] sm:w-[172px]">
+        <span className="min-w-0 leading-4">{definition.label}</span>
+        {toggle}
+      </div>
+    }
+    return <div title={definition.description} className="studio-control-shell min-w-0">
+      <span className="mb-1.5 block text-[11px] text-[#9898a2]">{definition.label}</span>
+      <div className="flex min-h-8 items-center">{toggle}</div>
     </div>
   }
   const selectOptions = definition.ui_options?.map((item) => ({ ...item, value: String(item.value) }))
@@ -2309,7 +2471,7 @@ function OptionControl({
     const companionNames = definition.ui_companions ?? (definition.ui_companion ? [definition.ui_companion] : [])
     const companions = companionNames.flatMap((companionName) => {
       const companion = definitions[companionName]
-      if (!companion) return []
+      if (!companion || !optionVisible(companion, values)) return []
       const companionMinimum = companion.minimum
       const companionMaximum = companion.maximum
       const numericOptionCount = companionMinimum !== undefined && companionMaximum !== undefined
@@ -2347,7 +2509,7 @@ function OptionControl({
     return <DurationControl name={name} definition={definition} value={Number(value)} onChange={onChange} compact={compact} />
   }
   if (definition.ui_control === "select" || (selectOptions.length && definition.ui_control !== "input-number")) {
-    return <div title={definition.description} className={`studio-control-shell ${compact ? `${compactChrome} gap-2 px-3 w-full sm:w-[188px]` : "min-w-0"}`}>
+    return <div title={definition.description} className={`studio-control-shell ${compact ? `${compactChrome} gap-2 px-3 w-full studio-compact-select` : "min-w-0"}`} style={compact ? { "--studio-compact-select-width": `${compactSelectWidth(selectOptions)}px` } as CSSProperties : undefined}>
       {!compact && <span className="mb-1.5 block text-[11px] text-[#9898a2]">{definition.label}</span>}
       {compact ? <Gauge size={16} className="shrink-0 text-[#947dff]" /> : null}
       <Select
@@ -2472,7 +2634,7 @@ function DurationControl({
   </div>
   const displayValue = `${value}${definition.unit ?? ""}`
   return <Popover trigger="click" placement="topLeft" content={content} overlayClassName="studio-parameter-popover">
-    <button type="button" aria-label={`设置${definition.label}，当前${displayValue}`} className={`studio-parameter-trigger studio-duration-trigger ${compact ? "w-full sm:w-[76px]" : "w-full"}`}>
+    <button type="button" aria-label={`设置${definition.label}，当前${displayValue}`} className={`studio-parameter-trigger studio-duration-trigger ${compact ? "w-full sm:w-[92px]" : "w-full"}`}>
       <Clock3 size={16} className="shrink-0 text-[#a995ff]" />
       <span className="min-w-0 flex-1 text-left">{displayValue}</span>
       <ChevronDown size={14} className="shrink-0 text-[#85858d]" />
@@ -2483,7 +2645,7 @@ function DurationControl({
 function ReferencePanel({
   workflow, references, onAppend, onReplaceKeyframe, onRemove, onMove, onPreview, fileInputRef,
 }: {
-  workflow?: Workflow; references: ReferenceAsset[]; onAppend: (files: FileList | null) => void
+  workflow?: Workflow; references: ReferenceAsset[]; onAppend: (files: FileList | File[] | null) => void
   onReplaceKeyframe: (index: number, files: FileList | null) => void; onRemove: (index: number) => void
   onMove: (index: number, direction: -1 | 1) => void; onPreview: (index: number) => void
   fileInputRef: React.RefObject<HTMLInputElement | null>

@@ -17,17 +17,21 @@
 }
 
 .d2-jobs-center .sub-pane-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #111827;
-  margin: 0 0 4px;
+  font-size: 30px;
+  line-height: 42px;
+  font-weight: 650;
+  color: var(--studio-text);
+  margin: 0 0 8px;
 }
 
 .d2-jobs-center .sub-pane-subtitle {
   font-size: 13px;
-  color: #6b7280;
+  line-height: 24px;
+  color: var(--studio-text-muted);
   margin: 0;
 }
+
+.d2-jobs-center .sub-pane-header .ant-btn { height: 40px; border-radius: 8px; }
 
 .d2-jobs-center .jobs-table-card {
   background: var(--studio-surface, #ffffff);
@@ -57,13 +61,13 @@
 
 .d2-jobs-center .job-name {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--studio-text);
   font-size: 13px;
 }
 
 .d2-jobs-center .job-id {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--studio-text-muted);
   font-family: monospace;
 }
 
@@ -72,7 +76,7 @@
   height: 36px;
   object-fit: cover;
   border-radius: 4px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--studio-border);
   cursor: pointer;
   transition: transform 0.2s;
 }
@@ -102,7 +106,7 @@
 
 .d2-jobs-center .text-muted {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--studio-text-muted);
 }
 
 /* ---- 详情弹窗 ---- */
@@ -118,9 +122,9 @@
   flex-direction: column;
   gap: 4px;
   padding: 14px 16px;
-  background: #f9fafb;
+  background: var(--studio-canvas);
   border-radius: 10px;
-  border: 1px solid #f3f4f6;
+  border: 1px solid var(--studio-surface-raised);
 }
 
 .d2-jobs-center .detail-title-block {
@@ -131,12 +135,12 @@
 .d2-jobs-center .detail-job-name {
   font-size: 15px;
   font-weight: 700;
-  color: #111827;
+  color: var(--studio-text);
 }
 
 .d2-jobs-center .detail-job-id {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--studio-text-muted);
   font-family: monospace;
 }
 
@@ -149,9 +153,9 @@
 .d2-jobs-center .detail-section-title {
   font-size: 13px;
   font-weight: 700;
-  color: #374151;
+  color: var(--studio-text-secondary);
   padding-bottom: 6px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--studio-surface-raised);
 }
 
 .d2-jobs-center .detail-section-title.is-split {
@@ -178,20 +182,20 @@
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--studio-text-muted);
   padding-top: 2px;
 }
 
 .d2-jobs-center .detail-val {
   font-size: 13px;
-  color: #1f2937;
+  color: var(--studio-text);
   word-break: break-all;
 }
 
 .d2-jobs-center .model-tag {
   font-weight: 600;
-  color: #7047f6;
-  background: rgba(112, 71, 246, 0.08);
+  color: var(--studio-accent-text);
+  background: var(--studio-primary-soft);
   padding: 1px 8px;
   border-radius: 6px;
   font-size: 12px;
@@ -200,15 +204,15 @@
 .d2-jobs-center .mono {
   font-family: monospace;
   font-size: 12px;
-  color: #0284c7;
-  background: #f0f9ff;
+  color: var(--studio-accent-text);
+  background: var(--studio-primary-soft);
   padding: 2px 8px;
   border-radius: 4px;
 }
 
 .d2-jobs-center .prompt-block {
-  background: #f9fafb;
-  border: 1px solid #f3f4f6;
+  background: var(--studio-canvas);
+  border: 1px solid var(--studio-surface-raised);
   border-radius: 8px;
   padding: 10px 12px;
 }
@@ -216,7 +220,7 @@
 .d2-jobs-center .prompt-label {
   font-size: 11px;
   font-weight: 600;
-  color: #9ca3af;
+  color: var(--studio-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.3px;
   margin-bottom: 6px;
@@ -226,15 +230,15 @@
   font-family: monospace;
   font-size: 12px;
   line-height: 1.7;
-  color: #374151;
+  color: var(--studio-text-secondary);
   margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
 .d2-jobs-center .url-block {
-  background: #f0f9ff;
-  border: 1px solid #bae6fd;
+  background: var(--studio-primary-soft);
+  border: 1px solid var(--studio-primary-soft);
   border-radius: 8px;
   padding: 10px 12px;
   word-break: break-all;
@@ -243,7 +247,7 @@
 .d2-jobs-center .url-link {
   font-family: monospace;
   font-size: 11px;
-  color: #0284c7;
+  color: var(--studio-accent-text);
   text-decoration: none;
   line-height: 1.6;
 }
@@ -262,8 +266,8 @@
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: var(--studio-canvas);
+  border: 1px solid var(--studio-border);
   border-radius: 8px;
   padding: 10px;
 }
@@ -273,8 +277,8 @@
   height: 96px;
   object-fit: cover;
   border-radius: 6px;
-  border: 1px solid #e5e7eb;
-  background: #111827;
+  border: 1px solid var(--studio-border);
+  background: var(--studio-media);
   flex-shrink: 0;
   cursor: pointer;
 }
@@ -303,14 +307,14 @@
   max-height: 300px;
   object-fit: contain;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--studio-border);
   cursor: pointer;
 }
 
 .d2-jobs-center .result-video {
   width: 100%;
   max-height: 420px;
-  background: #111827;
+  background: var(--studio-media);
   border-radius: 6px;
 }
 
@@ -321,17 +325,17 @@
 }
 
 .d2-jobs-center .video-shot-item {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--studio-border);
   border-radius: 8px;
   padding: 12px;
-  background: #fff;
+  background: var(--studio-surface);
 }
 
 .d2-jobs-center .video-shot-head {
   margin-bottom: 10px;
   font-size: 13px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--studio-text);
 }
 
 .d2-jobs-center .video-ref-grid {
@@ -347,7 +351,7 @@
   gap: 8px;
   min-width: 0;
   font-size: 12px;
-  color: #4b5563;
+  color: var(--studio-text-secondary);
 }
 
 .d2-jobs-center .video-ref-item img {
@@ -355,7 +359,7 @@
   height: 72px;
   border-radius: 4px;
   object-fit: cover;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--studio-border);
   cursor: pointer;
 }
 
@@ -366,17 +370,17 @@
 }
 
 .d2-jobs-center .attempt-item {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--studio-border);
   border-radius: 6px;
   padding: 9px 11px;
-  background: #fff;
+  background: var(--studio-surface);
 }
 
 .d2-jobs-center .attempt-item summary {
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: var(--studio-text-secondary);
 }
 
 .d2-jobs-center .attempt-errors {
@@ -384,8 +388,8 @@
   padding: 8px;
   white-space: pre-wrap;
   font-size: 12px;
-  color: #b91c1c;
-  background: #fef2f2;
+  color: var(--studio-danger);
+  background: var(--studio-danger-soft);
   border-radius: 4px;
 }
 
@@ -397,11 +401,11 @@
   border: 0;
   background: none;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--studio-text-muted);
   text-decoration: none;
   cursor: pointer;
 }
 
 .d2-jobs-center .result-open-link:hover {
-  color: #7047f6;
+  color: var(--studio-accent-text);
 }

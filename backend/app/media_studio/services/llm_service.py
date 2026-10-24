@@ -114,7 +114,15 @@ class LlmService:
         if not row.get("enabled"):
             raise ValueError("大模型服务尚未启用，请先在管理后台启用大模型服务。")
         base_url = str(row.get("base_url") or cls.DEFAULT_URL).strip().rstrip("/")
-        model = str(row.get("model") or cls.DEFAULT_MODEL).strip()
+        from ...director_assistant.model_context import current_model
+        model = str(current_model() or row.get("model") or cls.DEFAULT_MODEL).strip()
+        if current_model():
+            try:
+                allowed_models = json.loads(row.get("assistant_models_json") or "[]") or [row.get("model")]
+            except (TypeError, ValueError):
+                allowed_models = [row.get("model")]
+            if model not in allowed_models:
+                raise ValueError("该助手模型已停用，请重新选择后再生成")
         encrypted_key = row.get("api_key_encrypted")
         api_key = credential_manager().decrypt(encrypted_key) if encrypted_key else None
         if not api_key and is_local_base_url(base_url):
@@ -286,7 +294,7 @@ class LlmService:
         raise RuntimeError(str(last_error or "大模型请求失败"))
 
     @classmethod
-    def plan_episode_shots(cls, episode: dict[str, Any]) -> list[dict[str, Any]]:
+    def plan_episode_shots(cls, episode: dict[str, Any], *, aspect_ratio: str | None = None) -> list[dict[str, Any]]:
         """按本集动作与对白规划出片镜头，单镜 5–15 秒。只处理这一集。"""
         if not isinstance(episode, dict):
             raise ValueError("本集数据无效，无法规划镜头。")
@@ -295,12 +303,12 @@ class LlmService:
         if not has_body and not has_shots:
             raise ValueError("本集没有可供规划的动作或对白。")
         raw = cls.chat_text(
-            build_shot_plan_system_prompt(),
-            build_shot_plan_user_prompt(episode),
+            build_shot_plan_system_prompt(aspect_ratio=aspect_ratio),
+            build_shot_plan_user_prompt(episode, aspect_ratio=aspect_ratio),
             max_tokens=4000,
             temperature=0.2,
         )
-        shots = normalize_planned_shots(parse_shot_plan_response(raw))
+        shots = normalize_planned_shots(parse_shot_plan_response(raw), aspect_ratio=aspect_ratio)
         if not shots:
             raise ValueError("大模型未返回可出片镜头。")
         return shots
@@ -344,8 +352,21 @@ class LlmService:
         info = dict(beat_info or {})
         template = str(template or "").strip() or str(recipe.reference_text("h3-video-prompt-template.md") or "")
         seconds = str(info.get("duration_seconds") or beat.get("duration_seconds") or beat.get("video_duration") or "8")
-        system_prompt = build_dual_author_system(recipe, template, duration_seconds=seconds)
-        user_prompt = build_timestamped_zh_author_user(recipe, beat, assets, beat_info=info)
+        aspect_ratio = info.get("aspect_ratio") or beat.get("aspect_ratio")
+        system_prompt = build_dual_author_system(
+            recipe,
+            template,
+            duration_seconds=seconds,
+            aspect_ratio=aspect_ratio,
+            beat_info=info,
+        )
+        user_prompt = build_timestamped_zh_author_user(
+            recipe,
+            beat,
+            assets,
+            beat_info=info,
+            aspect_ratio=aspect_ratio,
+        )
         image_urls = collect_zh_author_image_urls(recipe, beat, assets)
         last_errors: list[str] = []
         last_zh = ""
@@ -610,6 +631,7 @@ class LlmService:
         skip_pack = cls._skip_program_pack(beat_info)
         if skip_pack:
             errors.extend(H3PromptBuilder.inner_delivery_errors(text, shot_for_speech))
+            errors.extend(H3PromptBuilder.speech_schedule_errors(text, shot_for_speech))
         else:
             errors.extend(H3PromptBuilder.thickness_errors(text))
             errors.extend(H3PromptBuilder.speech_contract_errors(text, shot_for_speech))

@@ -1,0 +1,46 @@
+{
+  "remote": "http://192.168.10.54:8188",
+  "connectionTest": 200,
+  "queue": {
+    "running": 0,
+    "pending": 0
+  },
+  "devices": [
+    {
+      "name": "cuda:0 NVIDIA GeForce RTX 4080 : cudaMallocAsync",
+      "vram_total": 17170956288
+    }
+  ],
+  "modes": [
+    {
+      "id": "minimax-h3-lightx2v-t2v",
+      "name": "LightX2V 文生视频",
+      "executor": "comfyui"
+    },
+    {
+      "id": "minimax-h3-dual-accel-t2v",
+      "name": "八步双加速 文生视频",
+      "executor": "comfyui"
+    },
+    {
+      "id": "minimax-h3-director-accel-t2v",
+      "name": "H3 Director 加速版 文生视频",
+      "executor": "comfyui"
+    },
+    {
+      "id": "minimax-h3-t2v",
+      "name": "MiniMax H3 文生视频",
+      "executor": "comfyui"
+    },
+    {
+      "id": "minimax-h3-t8-all-reference",
+      "name": "MiniMax H3 全能参考（多速率）",
+      "executor": "comfyui"
+    },
+    {
+      "id": "minimax-h3-t8-dual-clock",
+      "name": "MiniMax H3 双时钟加速",
+      "executor": "comfyui"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { Button, Tooltip } from "antd"
-import { HardDrive, LoaderCircle, Maximize2 } from "lucide-react"
+import { Download, HardDrive, Maximize2 } from "lucide-react"
 import { useEffect, useMemo, useState, type CSSProperties } from "react"
 import { mediaAspectVars, parseMediaAspect, type MediaAspectSize } from "../lib/utils"
 import { UPSCALE_OUTPUT_LABEL, isUpscaleOutput } from "../video-upscale"
@@ -8,6 +8,7 @@ type Output = {
   kind: "image" | "video"; path: string; label: string
   delivery_status?: "pending" | "local" | "cloud" | "expired"
   download_url?: string | null
+  cloud_url?: string | null
 }
 
 export type VideoResult = {
@@ -25,12 +26,18 @@ export type VideoUpscaleAction = {
   onClick: () => void
 }
 
+function deliveryLabel(status: Output["delivery_status"]): { text: string; tone: string } {
+  if (status === "expired") return { text: "云端文件已过期", tone: "text-amber-200" }
+  if (status === "local") return { text: "已保存到员工电脑", tone: "text-emerald-300" }
+  if (status === "pending") return { text: "可下载", tone: "text-amber-200" }
+  return { text: "已存入云端", tone: "text-emerald-300" }
+}
+
 function VideoResultCard({
-  result, pendingSave, onSave, onPreview, aspectRatio, upscale,
+  result, onDownload, onPreview, aspectRatio, upscale,
 }: {
   result: VideoResult
-  pendingSave?: string
-  onSave: (result: VideoResult) => void
+  onDownload: (result: VideoResult) => void
   onPreview?: (result: VideoResult) => void
   aspectRatio?: string
   upscale?: VideoUpscaleAction
@@ -39,6 +46,7 @@ function VideoResultCard({
   const [measured, setMeasured] = useState<MediaAspectSize>()
   const aspect = measured || hint
   const orientation = aspect && aspect.height > aspect.width ? "portrait" : "landscape"
+  const delivery = deliveryLabel(result.output.delivery_status)
 
   useEffect(() => {
     setMeasured(undefined)
@@ -79,21 +87,21 @@ function VideoResultCard({
       <div className="flex min-h-11 items-center justify-between gap-3 px-3 py-2">
         <div className="min-w-0">
           <p className="truncate text-xs text-[#c7c7ce]">{result.output.label}</p>
-          <p className={`mt-0.5 text-[10px] ${result.output.delivery_status === "local" ? "text-emerald-300" : "text-amber-200"}`}>
-            {result.output.delivery_status === "local" ? "已保存到员工电脑" : "等待保存到本机"}
-          </p>
+          <p className={`mt-0.5 text-[10px] ${delivery.tone}`}>{delivery.text}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {upscale ? (
             <Tooltip title={upscale.hint}>
-              <Button size="small" disabled={upscale.disabled || upscale.pending} loading={Boolean(upscale.pending)} onClick={upscale.onClick} aria-label="2x 超分">
-                超分
-              </Button>
+              <span className="inline-flex">
+                <Button size="small" disabled={upscale.disabled || upscale.pending} loading={Boolean(upscale.pending)} onClick={upscale.onClick} aria-label="2x 超分">
+                  超分
+                </Button>
+              </span>
             </Tooltip>
           ) : null}
-          {result.output.delivery_status !== "local" && result.output.download_url ? (
-            <button type="button" disabled={pendingSave === result.output.path} onClick={() => onSave(result)} className="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-[#7047f6] px-2.5 text-xs text-white disabled:opacity-45">
-              {pendingSave === result.output.path ? <LoaderCircle className="animate-spin" size={13} /> : <HardDrive size={13} />}保存
+          {result.output.download_url || result.output.cloud_url ? (
+            <button type="button" onClick={() => onDownload(result)} className="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-[#7047f6] px-2.5 text-xs text-white disabled:opacity-45">
+              <Download size={13} />下载
             </button>
           ) : null}
         </div>
@@ -103,12 +111,11 @@ function VideoResultCard({
 }
 
 export default function VideoStudioModule({
-  results, roundCount, pendingSave, onSave, onPreview, embedded = false, showHeading = true, aspectRatio, upscale, upscaleStage,
+  results, roundCount, onDownload, onPreview, embedded = false, showHeading = true, aspectRatio, upscale, upscaleStage,
 }: {
   results: VideoResult[]
   roundCount: number
-  pendingSave?: string
-  onSave: (result: VideoResult) => void
+  onDownload: (result: VideoResult) => void
   onPreview?: (result: VideoResult) => void
   embedded?: boolean
   showHeading?: boolean
@@ -118,6 +125,9 @@ export default function VideoStudioModule({
 }) {
   const [featuredPath, setFeaturedPath] = useState<string>()
   const videos = results.filter((result) => result.output.kind === "video")
+  const originalRank = new Map(
+    videos.filter((result) => !isUpscaleOutput(result.output)).map((result, index) => [result.output.path, index + 1]),
+  )
   const featured = videos.find((result) => result.output.path === featuredPath) ?? videos.find((result) => isUpscaleOutput(result.output)) ?? videos[0]
   const displayResults = featured && videos.length > 1 ? [featured] : results
 
@@ -133,7 +143,7 @@ export default function VideoStudioModule({
               type={featured?.output.path === result.output.path ? "primary" : "default"}
               onClick={() => setFeaturedPath(result.output.path)}
             >
-              {result.output.label === UPSCALE_OUTPUT_LABEL ? "2x 超分" : "原片"}
+              {isUpscaleOutput(result.output) || result.output.label === UPSCALE_OUTPUT_LABEL ? "2x 超分" : `原片 ${originalRank.get(result.output.path) ?? 1}`}
             </Button>
           ))}
         </div>
@@ -144,8 +154,7 @@ export default function VideoStudioModule({
           <VideoResultCard
             key={`${result.jobId ?? ""}:${result.generationItemId}:${result.outputIndex}`}
             result={result}
-            pendingSave={pendingSave}
-            onSave={onSave}
+            onDownload={onDownload}
             onPreview={onPreview}
             aspectRatio={aspectRatio}
             upscale={upscale && !isUpscaleOutput(result.output) ? upscale : undefined}

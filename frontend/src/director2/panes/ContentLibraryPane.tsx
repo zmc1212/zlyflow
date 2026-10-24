@@ -2,7 +2,7 @@
 // Vue → React 对应：ref→useState、computed→useMemo、onMounted→useEffect；
 // ant-design-vue 组件 → antd 同名组件；API 调用首参补 csrfToken。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   Button,
   Col,
@@ -32,6 +32,7 @@ import {
   Package,
   Sparkles,
   BookOpen,
+  FileSearch,
 } from "lucide-react"
 import DirectorAssetSummaryCard from "../../director/components/DirectorAssetSummaryCard"
 import { normalizeDirectorAssetCard } from "../../director/components/director-asset-card"
@@ -72,6 +73,7 @@ import {
 } from "../shot-plan-live"
 import { streamH3PromptJobEvents } from "../workshop-prompt-stream"
 import "./content-library.css"
+import { director2DiagnosisPath } from "../paths"
 import "../../director/components/director-asset-card.css"
 
 interface ContentLibraryPaneProps {
@@ -158,6 +160,7 @@ export default function ContentLibraryPane({
   onAssetsTransferred,
   onEpisodesTransferred,
 }: ContentLibraryPaneProps) {
+  const navigate = useNavigate()
   const [documents, setDocuments] = useState<LibraryDocument[]>([])
   const [selectedDoc, setSelectedDoc] = useState<LibraryDocument | null>(null)
   const [loading, setLoading] = useState(false)
@@ -232,6 +235,14 @@ export default function ContentLibraryPane({
       if (!opts?.silent) setLoading(false)
     }
   }, [projectId, urlDocId])
+
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      if ((event as CustomEvent).detail.projectId === projectId) void loadDocs({ silent: true })
+    }
+    window.addEventListener("director-assistant-project-updated", refresh)
+    return () => window.removeEventListener("director-assistant-project-updated", refresh)
+  }, [projectId, loadDocs])
 
   function rememberSelectedDoc(doc: LibraryDocument) {
     selectedDocIdRef.current = doc.id
@@ -563,7 +574,7 @@ export default function ContentLibraryPane({
         <div>
           <h2 className="sub-pane-title">内容库</h2>
           <p className="sub-pane-subtitle">
-            导入标准分镜剧本：集数按文稿「# 第N集」划分，镜头数和秒数由大模型按本集动作、对白规划；同时拆解人物、道具、场景及全局视觉设定。
+            导入剧本，整理人物与场景，继续制作分镜。
           </p>
         </div>
 
@@ -580,17 +591,18 @@ export default function ContentLibraryPane({
       {/* 加载与主内容 */}
       <Spin spinning={loading}>
         {documents.length === 0 ? (
-          <div className="empty-doc-box">
+          <><div className="empty-doc-box">
             <div className="empty-icon-wrap">
               <FileText size={40} />
             </div>
             <h3>暂无导入的剧本文档</h3>
-            <p>支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。</p>
+            <p>支持导入符合《短剧详细分镜规范》的标准文档。<br />集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。</p>
             <Space>
               <Button type="primary" onClick={openImportModal}>立即导入剧本</Button>
               <Button onClick={quickImportSample}>一键导入《寒门硕士》标准范例</Button>
             </Space>
-          </div>
+            <div className="empty-doc-formats">TXT <span>·</span> Markdown <span>·</span> Word</div>
+          </div><p className="empty-doc-assistant-hint"><Sparkles size={18} />也可以打开智能助手，从一个想法开始。</p></>
         ) : (
           <div className="content-layout">
             {/* 左侧文档列表 */}
@@ -600,9 +612,11 @@ export default function ContentLibraryPane({
               </div>
               <div className="doc-items-scroll">
                 {documents.map((doc) => (
-                  <div
+                  <button
+                    type="button"
                     key={doc.id}
                     className={`doc-item${selectedDoc && selectedDoc.id === doc.id ? " active" : ""}`}
+                    aria-pressed={selectedDoc?.id === doc.id}
                     onClick={() => rememberSelectedDoc(doc)}
                   >
                     <div className="doc-item-title">
@@ -619,7 +633,7 @@ export default function ContentLibraryPane({
                       })()}
                       <span className="time">{doc.created_at.slice(5, 16)}</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -642,6 +656,9 @@ export default function ContentLibraryPane({
                     </div>
 
                     <Space className="detail-top-actions" wrap>
+                      <Button icon={<FileSearch size={15} />} onClick={() => navigate(director2DiagnosisPath({
+                        projectId, documentId: selectedDoc.id,
+                      }))}>剧本诊断</Button>
                       <Button
                         type="primary"
                         loading={transferring}

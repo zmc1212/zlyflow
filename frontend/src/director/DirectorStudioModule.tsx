@@ -1,9 +1,9 @@
 import { Navigate, useMatch, useNavigate } from "react-router-dom"
 import { PATHS, ROUTE_PATTERNS } from "../paths"
 import DirectorBatchStudio from "./DirectorBatchStudio"
-import DirectorHypitStudio from "./DirectorHypitStudio"
 import DirectorReplicationStudio from "./DirectorReplicationStudio"
 import "./guided-flow.css"
+import "../director2/director-surfaces.css"
 
 interface DirectorStudioModuleProps {
   csrfToken: string
@@ -19,8 +19,7 @@ export default function DirectorStudioModule({
   const navigate = useNavigate()
   const batchMatch = useMatch(ROUTE_PATTERNS.directorBatch)
   const replicationMatch = useMatch(ROUTE_PATTERNS.directorReplication)
-  const hypitMatch = useMatch(ROUTE_PATTERNS.directorHypit)
-  const activeProjectId = batchMatch?.params.projectId ?? replicationMatch?.params.projectId ?? hypitMatch?.params.projectId
+  const activeProjectId = batchMatch?.params.projectId ?? replicationMatch?.params.projectId
 
   function goHome() {
     navigate(PATHS.director)
@@ -31,7 +30,7 @@ export default function DirectorStudioModule({
   }
 
   return (
-    <div className="director-shell !h-0 !min-h-0 flex-1 overflow-hidden">
+    <div className="director-shell director-specialist !h-0 !min-h-0 flex-1 overflow-hidden">
       {batchMatch ? (
         <DirectorBatchStudio
           projectId={activeProjectId}
@@ -40,18 +39,11 @@ export default function DirectorStudioModule({
           onBack={goHome}
           onExitDirector={onExitDirector}
         />
-      ) : replicationMatch ? (
+      ) : (
         <DirectorReplicationStudio
           projectId={activeProjectId}
           csrfToken={csrfToken}
           allJobs={allJobs}
-          onBack={goHome}
-          onExitDirector={onExitDirector}
-        />
-      ) : (
-        <DirectorHypitStudio
-          projectId={activeProjectId}
-          csrfToken={csrfToken}
           onBack={goHome}
           onExitDirector={onExitDirector}
         />

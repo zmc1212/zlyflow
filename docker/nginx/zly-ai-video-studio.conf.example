@@ -1,0 +1,60 @@
+# Include from nginx.conf's http {} through /etc/nginx/conf.d/*.conf.
+# Replace the domain and certificate paths with those of your existing HTTPS site.
+# Match ZLY_AI_VIDEO_STUDIO_MCP_PUBLIC_BASE_URL to https://<server_name>.
+server {
+    listen 80;
+    server_name comfyui.zlyun168.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name comfyui.zlyun168.com;
+    ssl_certificate /etc/letsencrypt/live/comfyui.zlyun168.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/comfyui.zlyun168.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    # Preserve existing director video import sizes; MCP verifies each image at 50 MB.
+    client_max_body_size 1g;
+
+    location = /api/auth/setup {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        proxy_pass http://127.0.0.1:18189;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # Discovery must reach FastAPI and return JSON, including path-scoped issuers.
+    location ^~ /.well-known/oauth- {
+        proxy_pass http://127.0.0.1:18189;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    location ^~ /api/ {
+        proxy_pass http://127.0.0.1:18189;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:18189;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}

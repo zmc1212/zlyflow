@@ -35,8 +35,9 @@ _ACTIVE_STATUSES = ("queued", "preparing", "running")
 
 class ShotPlanJobService:
     @classmethod
-    def enqueue(cls, project_id: str, doc_id: str) -> dict[str, Any]:
+    def enqueue(cls, project_id: str, doc_id: str, aspect_ratio: str | None = None) -> dict[str, Any]:
         from .project_detail_service import ProjectDetailService
+        from ...skill_packs.aspect import resolve_workshop_aspect_ratio
 
         row = query_one(
             "SELECT * FROM ai_project_documents WHERE id = %s AND project_id = %s",
@@ -70,6 +71,7 @@ class ShotPlanJobService:
         title = f"规划出片镜头: {filename}"
         jid = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = now_str()
+        resolved_aspect = resolve_workshop_aspect_ratio(request=aspect_ratio, project_id=project_id)
         job_payload = {
             "target_type": JOB_TYPE,
             "project_id": project_id,
@@ -78,6 +80,7 @@ class ShotPlanJobService:
             "episode_indexes": indexes,
             "episode_total": len(indexes),
             "episodes_done": [],
+            "aspect_ratio": resolved_aspect,
         }
         execute_sql(
             "INSERT INTO ai_project_jobs (id,project_id,job_type,title,status,progress,result_url,payload_json,created_at,updated_at) "
@@ -308,7 +311,7 @@ class ShotPlanJobService:
         doc_id = str(payload.get("document_id") or "").strip()
         if not doc_id:
             raise ValueError("任务缺少文档")
-        return cls.enqueue(project_id, doc_id)
+        return cls.enqueue(project_id, doc_id, aspect_ratio=payload.get("aspect_ratio"))
 
     @classmethod
     def _run(cls, job_id: str) -> None:
@@ -463,8 +466,15 @@ class ShotPlanJobService:
                 }, force=True)
                 try:
                     with LlmStreamHook(on_delta=on_delta, on_status=on_status):
-                        planned_shots = LlmService.plan_episode_shots(episode)
-                    updated = apply_episode_shot_plan(episode, planned_shots)
+                        planned_shots = LlmService.plan_episode_shots(
+                            episode,
+                            aspect_ratio=payload.get("aspect_ratio"),
+                        )
+                    updated = apply_episode_shot_plan(
+                        episode,
+                        planned_shots,
+                        aspect_ratio=payload.get("aspect_ratio"),
+                    )
                     shot_count = len(updated.get("shots") or [])
                     log_line = (
                         f"第{updated.get('episode_num') if updated.get('episode_num') is not None else ep_num}"

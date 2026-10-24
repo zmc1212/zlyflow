@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-24",
+  "original_sha256": "04ea5bb669d1791a815e5b4fbd58b78277f0ed5e4b93c31e644a82548e910bbe",
+  "original_size": [
+    1672,
+    941
+  ],
+  "browser_ui": "http://127.0.0.1:5173",
+  "api_test_backend": "isolated SQLite on 17865",
+  "frontend_test_files": 60,
+  "frontend_tests": 414,
+  "backend_tests": 52,
+  "interaction_checks": 49,
+  "desktop_checks": 72,
+  "extra_checks": 7,
+  "total_ui_checks": 128,
+  "measured_regions": 23,
+  "major_geometry_max_css_px": 2.0,
+  "all_geometry_max_css_px": 4.0,
+  "contrast_samples": 132,
+  "minimum_text_contrast": 4.59,
+  "browser_page_errors": 0,
+  "model_requests": 0,
+  "official_source_sha256": {
+    "chat.tsx": "35118eb31c616a29d124868149ef3a565c56444f9a950a2eb11d1a7d9402e11b",
+    "globals.css": "c46bc5b54750efd57af8add3b227cf144f34047affae80c0391ffc5f026503df",
+    "prompt-bar.tsx": "a37c9525b903e43bef8169ae041fc97f4afda220af40168da20ce64fc559c4c0"
+  }
+}

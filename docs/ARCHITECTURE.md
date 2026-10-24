@@ -1,6 +1,630 @@
-﻿# ZLY AI Video Studio 架构快照
+# ZLY AI Video Studio 架构快照
 
-更新时间：2026-09-19
+## 2026-10-24 智能剪辑桌面 UI 设计还原（新增当前基线）
+
+- 日期与原因：2026-10-24。按用户要求先生成浅色设计图，再在既有智能剪辑中还原并进行真实 5173 浏览器验证，解决空白属性栏挤占预览、素材导入零散和工具层级不清晰的问题。
+- 界面基线：使用内置 imagegen 的原始 1672×941 设计图；46px 命令栏、12px 区域间距、10px 面板圆角、60px 工具轨、16:9 素材缩略图与居中圆形播放键。素材列 272px / 宽桌面 328px，属性列 224px / 宽桌面 256px；时间线 276px（低于 820px 高度时 235px），轨名列 128px / 宽桌面 140px。1560px 为编辑器宽桌面分界；助手停靠分别为 <1560px 的 360px、1560–1799px 的 400px、≥1800px 的 440px。
+- 前端状态与行为：`inspectorOpen` 仅为当前 `EditWorkspace` 的临时显示状态，默认关闭，选中片段自动打开，顶部切换按钮与面板关闭按钮可控制显示；不写入剪辑文档或浏览器草稿。剪辑页将工程图标栏整合为标题剪刀按钮的 Ant Design Dropdown，五项工程导航仍可使用，并在切换前等待 `saveLatest()`；项目基本信息按钮在剪辑页采用带无障碍名称的图标。
+- 助手与主题：助手展示三项主入口，「智能成片」下拉仍包含四种剪辑动作及引流的五策略，「字幕」下拉保留自动字幕 / 音轨字幕；授权、理解 / 转写证据和确认语义不变。修改前已读取官方 `app/globals.css`、`components/chat.tsx` 和 `components/prompt-bar.tsx`；保留原 `--director-*` 成对 token。修正 Ant Design 6 的 `ant-drawer-section` 与 `ant-tabs-body-holder` 选择器，保证表面、内边距和属性滚动生效；编辑器继续从 `--studio-*` 派生颜色，选中态和滑块在双主题下保持清晰。
+- 兼容性：未新增路由、API、数据库列、工作流参数、模型或依赖；剪辑 `version: 1`、revision CAS、自动保存、撤销重做、字幕、特效和导出协议不变。设计示例和测试媒体只存在于隔离验收工程，不进入业务代码。未切换 ComfyUI、未启动 ComfyUI，也未提交生成或转写任务。
+- 受影响文件：`frontend/src/director2/smart-edit/{SmartEditPane,Preview,Inspector,Timeline}.tsx`、`smart-edit.css`、`frontend/src/director2/assistant/{DirectorAssistant.tsx,assistant.css}`、`frontend/src/director2/Director2ProjectDetail.tsx`；同步 `.gitignore`、README、扩展指南、导演台流程快照及 `docs/design-ref-director/smart-edit-ui-20261024/`。
+- 验证命令：`pnpm --dir frontend build`（含前端测试、TypeScript、清理与构建）；`python -X utf8 -m unittest backend.tests.test_smart_edit backend.tests.test_editing_assistant -q`；真实 5173 + 隔离 SQLite 后端的桌面浅暗交互、三个宽度、控件 / 弹层截图、对比度与原图几何检查。最终数量、原图摘要、截图元数据和已知差异见[验收报告](design-ref-director/smart-edit-ui-20261024/ACCEPTANCE.md)。
+- 回滚方式：只逆向撤回本节所述文件中的本轮 UI 增量，恢复原工程图标栏、固定属性栏与助手分组展示后重新构建；不整文件或整目录 checkout，不覆盖用户原有未提交改动。无需数据库回滚或工作流迁移，现有剪辑文档继续可读。
+
+## 2026-10-24 无限画布 V4.9（上传封面裁切）（新增当前基线）
+
+- 日期与原因：2026-10-24。V4.8 上传本地图片只能整图压缩，无法去掉无关边缘或按视频画幅取景。本轮在文件选择与压缩之间加入裁切弹窗，先按比例与缩放确定取景，再只压缩裁切区域；仍为纯前端几何与 Canvas 2D，不改草稿字段、接口、表结构或依赖。
+- 当前基线：
+  - `frontend/src/canvas/canvas-cover.ts`：新增 `CANVAS_COVER_CROP_MAX_ZOOM = 4`、`CanvasCoverCropAspect`（`original | 16:9 | 9:16 | 1:1`）、源图像素坐标的 `CanvasCoverCropRect` 与归一化 `CanvasCoverFocus`。`canvasCoverAspectRatio` 解析预设，`original` 使用图片真实宽高比；`canvasCoverCropRect` 先取比例内最大可用框，再按 1–4x 与焦点缩小，焦点越界自动贴边；`canvasCoverCropFocus` / `moveCanvasCoverCropFocus` 在焦点与屏幕拖拽位移间换算，位移按 `stageWidth / crop.width` 折回源图像素。
+  - `canvasCoverFromFile(file, crop?)` 增加可选裁切区域：合法裁切用 9 参数 `drawImage` 只绘制选区后压缩；裁切越界时收敛到图片范围，完全无效则回退整图压缩。输出仍为 ≤64,000 字符 JPEG data URL，长边 320/240/200 px 三档质量回退，`time` 固定为 0。
+  - 新增 `frontend/src/canvas/CanvasCoverCropModal.tsx`：Ant Design `Modal`（宽 560、标题「裁切封面」、确认「应用裁切」、`destroyOnHidden`），每次打开重置为原始比例、1x、居中焦点。舞台长边 360 px，图片按裁切框等比定位并叠加三分线；`Segmented` 提供原始/16:9/9:16/1:1，`Slider` 提供 1–4x（步进 0.05），「重置取景」恢复 1x 居中。支持指针捕获拖动、方向键 8 px / `Shift` 24 px；摘要显示源图裁切尺寸与 320 px 内输出尺寸；加载中显示 Spin，图片读取失败显示错误并禁用应用。
+  - `CanvasInspector.tsx`：「上传封面」选择文件后先校验图片类型与 16 MB 上限，再打开裁切弹窗；应用时以 `canvasCoverFromFile(file, crop)` 得到封面，经既有 `onUpdateCover` 写入 `cover`、`coverSource = videoUrl`、`coverTime: undefined`，成功后提示「已裁切并写入封面」并清空草稿文件；取消或关闭不修改现有封面。`canvas.css` 增加 `.canvas-cover-crop-*` 弹窗、舞台与控件样式，沿用 `--studio-*` 语义变量。
+  - 裁切几何在应用前一次完成，结果仍是普通封面 data URL；节点缩略图、列表卡片、预览 poster、PNG 导出与服务端 `_preview_cover` 全部沿用现有链路，无需感知裁切。
+- 受影响文件：新增 `frontend/src/canvas/CanvasCoverCropModal.tsx`；修改 `frontend/src/canvas/{canvas-cover.ts,canvas-cover.test.ts,CanvasInspector.tsx,canvas.css}`；同步 `docs/无限画布开发计划.md`、本文件、`README.md`、`功能说明与扩展指南.md`。未新增后端文件、API、数据库表/列、依赖或 `schemaVersion` 字段；服务端预览摘要与 48 KB 预算不变。
+- 兼容性：`cover`/`coverSource`/`coverTime` 格式与语义不变，旧封面无需迁移；裁切只影响新上传的图片，取消弹窗或图片读取失败保持原封面。封面仍计入画布 8 MB 上限，手动裁切仍走仅封面变更判定，不进入撤销栈。裁切只支持固定比例与 1–4x 缩放，不提供自由画幅、旋转或输出分辨率选择；结果统一压缩为 320 px 内 JPEG，透明 PNG 仍转为无透明 JPEG。
+- 验证命令：`pnpm --dir frontend test`（60 个文件、407 项通过，其中画布 121 项：封面 10、模型 44、导出 12、保存 12、生成 27、管理 16）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_canvas_store backend.tests.test_library_query -q`（画布 18 项、作品库 10 项通过）。隔离 SQLite 后端 7866 托管生产构建 + 无头 Chrome 桌面验收：1200×800 图片原始比例裁切 1200×800、输出 320×213；16:9 裁切 1200×675、输出 320×180；9:16 裁切 450×800、输出 180×320，2x 时裁切 225×400、舞台 202.5×360；1:1 裁切 400×400、舞台 360×360、输出 320×320；4 次方向键累计位移 40 px、5 段拖动累计 50 px；应用得到 10,859 字符、实际 320×320 的 JPEG（显示 11 KB），草稿 v4 保存后重载封面保留、`preview_json` 视频项含同长度封面、预览 poster 生效、撤销保持禁用；取消后重开恢复原始/1x 且原封面不变；非图片提示「请选择图片文件」、超大文件提示「封面图片需小于 16 MB」；浅暗主题正常，控制台无报错。
+- 验收边界：验收图片在页面内用 canvas 生成，隔离后端数据只写入 `.tmp/canvas-cover-acceptance`，结束后后端已停止、临时目录已删除；未访问生产账号、未切换 ComfyUI、未提交生成任务。
+- 回滚方式：移除 `CanvasCoverCropModal` 渲染与「上传封面」的裁切入口，恢复 `canvasCoverFromFile(file)` 整图压缩调用，再删除弹窗组件、裁切几何函数、测试与 `.canvas-cover-crop-*` 样式即可；已生成封面仍是普通 data URL，无需数据库迁移或清理。
+
+## 2026-10-24 无限画布 V4.8（自定义视频封面）（新增当前基线）
+
+- 日期与原因：2026-10-24。V4.7 只能自动取视频开头一帧，片头黑场或空白时封面不可用，用户也无法为视频指定代表帧或使用本地图片。本轮在现有封面字段上增加显式时间取帧与本地图片上传，保持纯前端、`schemaVersion: 2` 与现有 API/表结构不变。
+- 当前基线：
+  - `frontend/src/canvas/canvas-cover.ts`：新增 `clampCanvasCoverTime(time, duration)` 把请求时间夹取到 `[0, duration]`；`captureCanvasCoverFromVideo` 对显式时间同样先夹取，返回实际取帧时间。取帧缓存键从 `url` 改为 `url#time`，同地址不同时间互不覆盖；`forgetCanvasCoverCapture(url)` 删除该地址全部时间缓存。
+  - 新增 `canvasCoverFromFile(file)`：只接受图片且 ≤`CANVAS_COVER_FILE_MAX_BYTES`（16 MB），读取后用 2D canvas 按 320/240/200 px 长边与逐档 JPEG 质量压缩，返回不超过 64,000 字符的 `data:image/jpeg`，全部尝试失败返回 `null`。
+  - `CanvasInspector.tsx`：「封面帧」区域新增取帧时间 `InputNumber`（`min=0`、`step=0.1`、`precision=2`，`aria-label=封面取帧时间（秒）`）、「按时间取帧」「上传封面」「自动取帧」与隐藏文件输入；摘要显示实际取帧时间与大小，上传封面不显示时间，底部提示上传会压缩为 320 px JPEG 且封面改动不进入撤销栈。
+  - `CanvasNodes.tsx` 自动取帧仍写入 `cover/coverSource/coverTime`；`canvas-model.ts` 新增共享类型 `CanvasCoverPatch = Pick<CanvasNodeData, "cover" | "coverSource" | "coverTime">`。`CanvasEditor.tsx` 的 `updateNodeCover` 统一接收 patch，先置 `coverOnlyChangeRef` 再写节点数据；`CanvasSidePanel.tsx` 把 `onUpdateCover` 透传到检查器。
+  - 撤销隔离：检查器的手动取帧、上传封面、清除封面与节点自动取帧全部经 `onUpdateCover` 进入 `isCoverOnlyCanvasChange` 判定，不再直接 `updateNodeData`。仅封面变更仍触发自动保存但不进入撤销/重做历史，修复了 V4.7 中手动封面编辑会污染撤销栈的问题。
+  - 视频地址变化或作品库替换仍清空三个封面字段；选择「自动取帧」或「重新截取」时清除当前地址全部时间缓存，由节点 effect 重新取开头帧。
+- 受影响文件：修改 `frontend/src/canvas/{canvas-cover.ts,canvas-cover.test.ts,CanvasInspector.tsx,CanvasNodes.tsx,CanvasEditor.tsx,CanvasSidePanel.tsx,canvas-model.ts,canvas.css}`；同步 `docs/无限画布开发计划.md`、本文件、`README.md`、`功能说明与扩展指南.md`。未新增后端文件、数据库表/列、API、依赖或 `schemaVersion` 字段；服务端预览校验与 48 KB 摘要预算不变。
+- 兼容性：`cover`/`coverSource`/`coverTime` 仍为可选字段，只接受 `coverSource === url` 的封面；上传封面同样写入当前视频地址，因此旧前端、列表缩略图、预览 poster、PNG 导出与服务端 `_preview_cover` 无需改动即可识别。显式时间跳转依赖媒体服务支持 HTTP Range 与 CORS；不支持 Range 时浏览器只能停在开头帧，不影响自动取帧与上传封面。
+- 验证命令：`pnpm --dir frontend test`（60 个文件、404 项通过，其中画布 118 项：封面 7、模型 44、导出 12、保存 12、生成 27、管理 16）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_canvas_store backend.tests.test_library_query -q`（画布 18 项、作品库 10 项通过）。隔离 SQLite 后端 7866 + 支持 Range/CORS 的本地媒体服务 7870 + Vite 代理 5174 桌面验收：2.334 秒视频在 1.5 秒取帧得到 16,287 字符封面并显示「取帧 1.5 秒 · 16 KB」；请求 3 秒夹取到 2.28 秒；本地上传 PNG 得到 5,343 字符封面且 `coverTime` 清空；「自动取帧」恢复 0.23 秒封面；手动取帧 1.2 秒后撤销保持禁用，改标签后撤销启用，撤销恢复标签且草稿 v14 仍保留 1.2 秒、16,819 字符封面，`preview_json` 含同长度封面；暗色主题下控件对比度正常。
+- 验收边界：测试视频与上传图只存在于 `.tmp/` 隔离目录，验证后媒体服务、隔离后端、代理与临时数据均已停止并清理；未访问生产账号、未切换 ComfyUI、未提交生成任务。
+- 回滚方式：移除检查器的时间输入、上传与「自动取帧」入口，恢复 V4.7 的 `captureCanvasCoverFromVideo` 缓存键与 `updateNodeData` 直写即可；`cover/coverSource/coverTime` 字段和既有封面数据继续兼容，无需数据库迁移或清理。回滚后手动封面编辑将重新绕过撤销隔离，需同时保留 `CanvasCoverPatch`/`onUpdateCover` 修复或接受该退化。
+
+## 2026-10-24 无限画布 V4.7（视频封面帧）（新增当前基线）
+
+- 日期与原因：2026-10-24。此前视频节点、画布列表缩略图和 PNG 导出只能显示类型色与播放标记，无法看出视频内容；本轮在浏览器端自动截取视频首帧作为封面，随画布草稿持久化，并复用到节点、检查器、列表与导出。纯前端取帧与摘要扩展，不新增 API、数据表、依赖或 `schemaVersion`。
+- 当前基线：
+  - 新增 `frontend/src/canvas/canvas-cover.ts`：`captureCanvasCoverFromVideo` 使用离屏 `<video crossOrigin="anonymous" preload="auto" muted playsinline>` 加载地址，等待 `loadeddata` 后 seek 到 `coverTime`，以长边 320 px 绘制到 2D canvas，输出 JPEG 质量 0.66；结果必须匹配 `data:image/jpeg` 且 ≤64,000 字符。10 秒超时、跨域污染或编码失败返回 `null`，不阻塞节点。
+  - `requestCanvasCoverCapture(url)` 按地址复用 Promise 缓存（最多 40 条，超出按插入顺序淘汰）；`forgetCanvasCoverCapture(url)` 供「重新截取」清除该地址缓存。`readCanvasCover`、`canvasCoverSummary`、`canvasCoverFrameSize`、`normalizeCanvasCover` 负责读取、摘要与尺寸校验。
+  - 视频节点 `data` 增加可选 `cover`（data URL）、`coverSource`（取帧时视频地址）与 `coverTime`（秒）；仅 `coverSource === url` 时使用。`CanvasNodes.tsx` 在节点已有 `url`、缺少封面时自动取帧并写回；`<video poster>` 与预览弹层使用该封面。
+  - `CanvasInspector.tsx` 新增「封面帧」区块：96×54 缩略图、大小与取帧时间、「重新截取」；修改视频地址或从作品库替换会清空三个封面字段并重新取帧；预览按钮传入 `poster`。
+  - 撤销栈：`canvas-model.ts` 的 `isCoverOnlyCanvasChange` 在序列化比较前剔除 `cover/coverSource/coverTime`，`CanvasEditor.tsx` 在自动取帧写入时标记并通过该判定跳过历史入栈；移动、改标签等其它变化仍正常进入撤销栈。
+  - 列表缩略图：`CanvasPreviewThumbnail.tsx` 对视频项优先用 `<image>` + `clipPath` 裁剪绘制 `cover`，再叠加播放标记；无封面时沿用类型色。
+  - 服务端 `canvas_store.py`：`_preview_cover` 只接受视频节点、`coverSource === data.url`、安全 `url`、≤64,000 字符且匹配 `data:image/(jpeg|webp|png);base64,...` 的封面；每个摘要最多 3 张封面、封面总预算 36 KB。`_fit_canvas_preview` 的摘要上限由 16 KB 提升到 48 KB（低于 MySQL `TEXT` 64 KB），超限时先移除封面（从最后一张开始），再清空 URL、连线与节点形状；解码 `decode_canvas_preview` 对封面做同样过滤。
+  - `CanvasPreviewItem`（`backend/app/models.py`）增加可选 `cover`；PNG 导出 `canvas-export.ts` 把封面加入视频节点的图片候选，`canvas-export-render.ts` 在视频卡片中绘制封面并保留播放标记。
+- 受影响文件：新增 `frontend/src/canvas/{canvas-cover.ts,canvas-cover.test.ts}`；修改 `frontend/src/canvas/{CanvasNodes.tsx,CanvasEditor.tsx,CanvasInspector.tsx,CanvasPreviewThumbnail.tsx,canvas-export.ts,canvas-model.ts,canvas-model.test.ts,canvas-export.test.ts,canvas.css}`、`backend/app/{canvas_store.py,models.py}`、`backend/tests/test_canvas_store.py`；同步 `docs/无限画布开发计划.md`、本文件、`README.md`、`功能说明与扩展指南.md`。未改数据库表/列、API、任务系统、工作流注册表或依赖。
+- 兼容性：`schemaVersion` 保持 2，封面字段全部可选，旧前端忽略未知字段、旧画布无封面时照常显示占位；服务端预览摘要上限提升只影响 `preview_json`，历史版本与草稿校验和不含摘要。封面为客户端压缩图，不是原视频帧的像素级副本；跨域视频需目标服务器返回 CORS 头，否则自动降级且不报错。封面数据计入画布 8 MB 上限。
+- 验证命令：`pnpm --dir frontend test`（60 个文件、397 项通过，其中画布 111 项：封面 5、模型 43、导出 12、保存 8、生成 27、管理 16）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_canvas_store backend.tests.test_library_query -q`（画布 18 项、作品库 10 项通过）。隔离 SQLite 后端 7866 托管生产构建 + 本地 CORS 媒体服务 7870 + 无头 Chrome 桌面验收：视频加载后自动生成 15,399 字符封面，`coverSource` 与地址一致、`coverTime=0`，节点 `poster` 生效；保存后 `preview_json` 含封面且总大小 15,635 字节，列表卡片渲染真实视频帧；检查器显示封面与「重新截取」，重截后自动保存且撤销保持禁用；重载后封面与禁用撤销状态保持；预览 poster 生效；浅暗主题正常，控制台无消息。
+- 验收边界：示例视频由 `.tmp/` 下的本地 CORS 服务提供，仅用于隔离验收，验证后媒体服务、后端与临时目录均已停止并清理；未访问生产账号、未切换 ComfyUI、未提交生成任务。
+- 回滚方式：移除节点/检查器/缩略图/导出的封面接线并删除 `canvas-cover.ts` 及其测试，服务端恢复 `PREVIEW_MAX_BYTES=16*1024`、移除 `_preview_cover` 与 `cover` 解码即可；旧草稿中的封面字段会被前端忽略、被服务端原样保留，无需迁移或清理数据。
+
+## 2026-10-24 无限画布 V4.6（作品库分页检索）（新增当前基线）
+
+- 日期与原因：2026-10-24。画布素材 Drawer 与「加入画布」此前都读取旧 `GET /api/library` 的全量数组，前端过滤并只显示前 80 项；作品库增长后首屏变慢，较旧的素材也无法被找到或插入。本轮增加服务端分页检索接口，旧接口保持兼容，不改画布草稿、任务表或存储协议。
+- 当前基线：
+  - `backend/app/library_query.py`：`build_library_entries` 把任务的轮次、生成项与输出扁平化为作品库条目，保留 `kind/path/label/delivery_status/download_url/job_id/generation_item_id/output_index/job_title/created_at`，并生成内部 `_search_text`；`query_library_entries` 排除 `delivery_status` 为 `local`/`expired` 的条目，支持大小写不敏感的标题/提示词/标签/路径/任务号包含匹配、`kind` 过滤、精确 `job_id`/`generation_item_id`/`output_index`、按 `created_at` 稳定倒序，并在返回前去掉 `_` 前缀内部字段。
+  - `GET /api/library/query`（`backend/app/main.py`）：`q` 最长 100 字符，`kind` 仅 `image|video`，`limit` 默认 40、范围 1–100，`offset` 0–1,000,000，`job_id`/`generation_item_id` 最长 120，`output_index` 0–999；管理员可传 `user_id`（`all` 表示全部），普通用户始终限定本人。响应为 `{items,total,limit,offset,has_more,counts}`，`counts` 在 `kind` 过滤前统计，保证两个分类标签都有总数。
+  - `GET /api/library`：改为复用 `build_library_entries`，保持数组响应，仅新增 `job_title` 字段；仍按账号最近 500 个任务生成，供旧调用方兼容。
+  - `backend/app/models.py`：新增 `LibraryQueryCounts`、`LibraryQueryResponse`，并给 `LibraryItemResponse` 补 `job_title`，避免 FastAPI 响应模型裁剪字段。
+  - 前端 `CanvasEditor.tsx`：素材 Drawer 用 `useInfiniteQuery` 每页 40 项、按 `kind` 与 300ms 防抖后的搜索词分页；图片/视频 Segmented 显示服务端计数，底部显示「已加载 X / Y」与「加载更多」；跨页按 `job:item:index` 去重。关闭 Drawer 清空搜索。`addJob/addItem/addOutput` 跳转改为精确筛选 `limit=1` 的独立查询，命中且可用才插入，插入一次后清理 URL 参数。
+  - 前端 `canvas-api.ts` 提供 `queryCanvasLibraryItems`；`canvas-manage.ts` 提供 `canvasLibraryQueryString`（边界收敛与编码）与 `mergeCanvasLibraryItems`（跨页去重）。
+- 受影响文件：新增 `backend/app/library_query.py`、`backend/tests/test_library_query.py`；修改 `backend/app/{main.py,models.py,api_documentation.py}`、`frontend/src/canvas/{CanvasEditor.tsx,canvas-api.ts,canvas-manage.ts,canvas-manage.test.ts,canvas-model.ts,canvas.css}`；同步 `docs/无限画布开发计划.md`、本文件、`README.md`、`功能说明与扩展指南.md` 与 `docs/API.md`。未新增数据库表/列、未改 `schemaVersion`、任务系统或工作流注册表。
+- 兼容性：旧 `/api/library` 仍返回数组且字段只增不减，旧前端可继续使用；新接口是加法路由，不改既有画布 API。检索为字符串包含匹配（大小写不敏感），不做分词；分页基于账号最近 500 个任务的已加载快照，更早任务的产物可能不在结果中。`local`/`expired` 产物在服务端统一排除，与旧画布过滤语义一致。
+- 验证命令：`pnpm --dir frontend test`（59 个文件、388 项通过，其中画布 102 项、画布管理 16 项）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_library_query backend.tests.test_canvas_store -q`（作品库 10 项、画布 14 项通过）。隔离 SQLite 后端 7866 + 临时 Vite 5174 桌面验收：图片 55 / 视频 8 计数、首屏 40/55、加载更多 55/55、搜索「灯塔」1/1、「产品展示」图片 5/视频 8、视频页 8/8、不可用产物不出现；旧接口返回 68 项数组并含 `job_title`；精确插入最旧素材 `seed-img-059.png` 成功；浅暗主题正常，控制台无报错。
+- 验收边界：种子任务与图片只写入 `.tmp/` 隔离数据目录，验证后已清理；未访问生产账号、未切换 ComfyUI、未提交生成任务。
+- 回滚方式：删除 `/api/library/query` 路由与 `library_query.py`，移除 `LibraryQueryCounts`/`LibraryQueryResponse` 与前端分页查询，恢复 Drawer 使用旧 `listCanvasLibraryItems` 即可；旧接口与既有数据无需迁移，已插入画布的内容不受影响。
+
+## 2026-10-24 无限画布 V4.5（PNG 导出）
+
+- 日期与原因：2026-10-24。画布此前只能导出 JSON，无法直接交付预览图。html-to-image 一类方案需处理跨域媒体且大画布成本高，服务端渲染需无头浏览器与队列；本次采用无依赖的客户端 Canvas 2D 导出，保留纯前端边界，不改后端与数据协议。
+- 当前基线：
+  - 编辑器「更多」菜单新增「导出 PNG」，弹窗位于 `frontend/src/canvas/CanvasExportDialog.tsx`：范围可选整个画布或选中节点，背景可选浅色/深色/透明，倍率可选 1x/2x；默认背景随当前主题（浅色主题默认浅色，暗色主题默认深色），倍率默认 2x，切换时实时重绘预览并显示输出像素、百万像素与自动降采样提示。
+  - `frontend/src/canvas/canvas-export.ts` 为纯函数场景构建：包围盒取包含节点的最小外接矩形并加 48px 留白；画板始终先绘制，其余按 zIndex 与原始顺序；只导出可见节点与可见连线，丢弃自环、悬空边和非选中范围的跨界连线；生成提示词优先合并相连文字节点（按连线顺序），无来源时回退手动提示词；生成节点只导出当前选中结果版本；图片候选优先同源 `/api/media/{encodeURIComponent(assetPath)}`，其次安全原 URL，并去重。
+  - `frontend/src/canvas/canvas-export-render.ts` 负责离屏绘制与图片加载：背景色浅色 `#f8f9fa`、深色 `#0f1115`，透明模式不填充；节点沿用编辑器类型色板；图片按 cover 裁切，视频绘制播放标记，生成节点绘制状态、提示词与结果，未知节点绘制虚线卡；图片请求 `crossOrigin=anonymous`（data URL 除外），10 秒超时或失败时绘制占位，避免污染画布导致 `toBlob` 失败。
+  - 安全边界：单边上限 8192 px、总像素上限 2400 万、倍率上限 3、下限 0.01；请求倍率超限时自动降采样并把实际倍率写回场景，弹窗提示降采样。文件名清洗 `[\\/:*?"<>|\s]+ → _`、截断 60 字符，格式 `${标题}-YYYYMMDD-HHmm.png`，空标题回退 `canvas`。
+  - 预览固定按 760×520 上限等比缩放，不放大；导出时才按实际倍率绘制。导出成功提示「PNG 已导出」并关闭弹窗。
+- 受影响文件：新增 `frontend/src/canvas/{canvas-export.ts,canvas-export-render.ts,CanvasExportDialog.tsx,canvas-export.test.ts}`；修改 `frontend/src/canvas/{CanvasEditor.tsx,canvas-fidelity.css}`；同步 `docs/无限画布开发计划.md`、本文件、`README.md`、`功能说明与扩展指南.md`。未改后端、数据库、API、任务系统、工作流注册表或草稿 schema。
+- 兼容性：导出只读取当前已加载的节点/边与生成节点状态，不写回草稿，不触发自动保存，不创建任务；关闭弹窗无副作用。旧画布与未知节点类型可正常导出（未知节点按通用卡片绘制）。导入 JSON、自动保存、版本历史、缩略图与任务追溯均不受影响。
+- 验证命令：`pnpm --dir frontend test`（59 个文件、386 项通过，其中画布 100 项、导出 11 项）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`（通过）；`python -X utf8 -m unittest backend.tests.test_canvas_store -q`（14 项通过）。隔离 SQLite 后端 7866 + FastAPI 静态入口 7866 桌面浏览器验收：浅色 2x 输出 2152×1512、四角 `#f8f9fa`；深色 1x 输出 1076×756、四角 `#0f1115`；选中两个节点透明 2x 输出 1440×572、RGBA alpha 0–255；暗色主题 2x 使用深色画布与深色卡；文件名与时间戳正确，刷新后 6 节点草稿仍为已保存，控制台无报错。
+- 验收边界：示例画布由临时脚本生成，仅存放于 `.tmp/` 并在验证后清理，不进入源码或数据库。当前使用隔离 SQLite 与静态构建，不访问生产账号、不切换 ComfyUI、不提交生成任务。跨域且未开 CORS 的图片在导出中以占位呈现，这是浏览器的画布安全限制，不是接口故障。
+- 回滚方式：删除导出菜单项与 `CanvasExportDialog` 渲染，移除上述新增文件与 `canvas-fidelity.css` 中的 `.canvas-export-*` 样式即可；不改数据库、接口或草稿，无需迁移或清理。
+
+## 2026-10-24 导演台内部控件与设计细节校准
+
+- 原因：复核发现首页主按钮偏小、内容库按钮组偏上、搜索筛选栏右移，沿用原设计图校准字号、尺寸、图标和间距。
+- 文件：`frontend/src/director2/director-home.css`、`project-detail.css`、`panes/content-library.css`、`Director2ProjectDetail.tsx`；同步 README、扩展指南、流程快照与设计验收产物。
+- 基线：主页 CTA 212×52px，搜索宽 200px；内容库主按钮 174×48px，1505 基线 y=597；项目模式 208×58px、主题按钮 40px、菜单高 50px。首页最大几何偏差 3.75px、项目 16.5px，保留导航 76px 与内容组数学居中的已声明差异。
+- 兼容：只有样式与导航文档图标变化，没有新增依赖、API、数据库、路由、业务状态或工作流协议。继承根级双主题，对话创作室官方 token 不变。
+- 验证：`pnpm --dir frontend build`（60 文件 / 397 测试、类型检查、构建通过）；`python -X utf8 -m unittest backend.tests.test_director_project_info backend.tests.test_director2_ai_generation -q`（51 项通过）。真实 5173 页面 12 张桌面浅暗截图，本轮 198 项检查通过；没有提交生成或转写任务。
+- 回滚：只逆向撤回上述四文件的本轮 UI 增量后构建，保留用户已有修改与历史数据；无需迁移。临时账号、会话和工程已清理。完整证据见[细节验收](design-ref-director/ui-20261023/details-20261024/REPORT.md)。
+
+## 2026-10-23 导演台桌面 UI 设计还原
+
+- 日期与原因：2026-10-23。导演台主入口占高较多、工程卡片信息层级接近，项目重复顶栏挤占工作空间。本轮先用真实 5173 截图与流程快照生成首页、内容库设计图，再在现有组件中还原。
+- 当前基线：首页一层 64px 顶栏、主次入口、剧本诊断条和三列工程卡；项目一层 80px 顶栏、226px 工程导航、内容库的实色导入按钮与空态。全局 76px 导航保持既有尺寸。主题由根 Provider / Ant Design / `--studio-*` 继承；资产库 / 工坊 / 全部任务的中性色与表面也改为现有语义变量，消除暗色白底和深色标题；媒体预览仍为近黑底。智能剪辑素材标题与操作区允许自然换行，标题本身保持单行，解决助手停靠时的控件裁切。对话创作室 `--director-*` 和官方 beautifului 组件设计不变。
+- 前端状态增量：`Director2StudioHome` 增加仅当前挂载期间的搜索文本与加载失败状态；`filterHomeProjects(items, filter, query = "")` 支持大小写不敏感的名称 / 简介查询，始终与类型过滤组合，保留服务器更新时间顺序。筛选或搜索时收起「查看全部」，空搜索结果可清空恢复；加载失败明确显示重试。没有新增持久化、API、数据库、路由或工作流映射。
+- 项目条移除原始 ID 和固定「进行中」标记（该标记没有任务依据），保留真实名称与基本信息编辑；原五项菜单使用语义按钮、`aria-current` 与焦点环。工坊两处 loading 表达式补齐可空 `refineAction` 防护，避免已有类型错误阻塞完整构建，不改变精修行为。
+- 受影响文件：`frontend/src/director2/{Director2StudioHome.tsx,director-home.css,home-projects.ts,home-projects.test.ts,Director2App.tsx,Director2ProjectDetail.tsx,director2.css,project-detail.css,panes/ContentLibraryPane.tsx,panes/content-library.css,panes/assets-library.css,panes/jobs-center.css,panes/episode-workshop.css,panes/EpisodeWorkshopPane.tsx,workshop-video-progress.test.ts,smart-edit/smart-edit.css}`；另同步当前画布节点默认宽度的既有测试断言 `frontend/src/canvas/canvas-model.test.ts`；`.gitignore`、本文件、README、扩展指南、导演台流程快照与 `docs/design-ref-director/ui-20261023/`。
+- 兼容性：保留现有项目、配方、AI / 手动模式、用户主题、助手会话和全部业务入口。搜索是客户端视图状态；旧调用不传 query 保持原结果。无数据库迁移，无新增依赖，不触发模型生成、不更改供应商。
+- 验证命令：`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_director_project_info backend.tests.test_director2_ai_generation -q`。真实 5173 页面通过 Playwright 采集相同 1505×1045 / DPR 1 的设计对照及 1440×1000、1920×1080 两种桌面浅暗状态，操作和偏差报告见[验收记录](design-ref-director/ui-20261023/ACCEPTANCE.md)。
+- 回滚方式：只逆向撤回本轮上述 UI 增量，保留用户原有未提交代码与历史数据；重新构建即可恢复生产静态包，无需修改数据库、端口或工作流。保留工坊可空判断也可独立回滚。
+
+2026-10-23 FFmpeg 本地工程互通补充：`frontend/src/director2/smart-edit/model.ts` 的 `parseDocument` 接受与后端相同格式的 `/api/local-media/[A-Za-z0-9_-]{4,2048}.[0-9a-f]{32}` 引用；后端仍验证签名、实际路径和权限，前端不接受 `file:`、裸路径或无签名引用。修复此前服务端已能引用本机素材但 JSON 导入/快照读取被前端拒绝的问题。`model.test.ts` 覆盖本机工程往返和非法路径；无数据库及 API 协议变化，可单独回退该校验分支。外部 Skill 使用本机原生序列化器保存工程，不写数据库或绕过 OAuth。
+
+## 2026-10-24 无限画布原图校准与自动截图验收
+
+- 日期与原因：2026-10-24。用户要求按已生成的原图还原，并在自动截图验证后才通过视觉验收。本次补齐精确尺寸、节点内联表单、连接点、菜单与弹窗细节；接口与数据基线继续包含当前 V4.5–V4.7 能力。
+- 当前视觉基线：画布专用全局顶栏 60px、导航 86px、命令栏 64px；58px 工具轨、226×327px 添加菜单、360px 属性面板、375×49px 视图栏、174×101px 小地图。`canvas-fidelity.css` 只扩展画布语义变量和主题样式；浅暗主题仍由根 Provider 驱动。原图保持不变，截图与测量记录在 `docs/design-ref-canvas/`。
+- 前端状态：画布设置可临时固定显示，不清除节点选择，浮动工具条因此可与画布设置共存；点击节点切回节点属性。生成节点内联 Select 读取实际 `/api/modes`，与检查器共用 `canvasWorkflowChangePatch`，切换工作流清除旧任务/结果并保留提示词与冻结运行快照。来源 Tag 可断开文字或图片连线，走既有撤销与保存链路。精简模式的已连接端口随可见边显示，输入端口颜色跟随来源。
+- 尺寸与兼容性：新建生成节点默认 356×446；已有草稿尺寸不回写，旧 316×240 节点通过内部滚动保留操作按钮。新增前端文字端口 `prompt`，原 `in` 保留；旧草稿无需迁移。`schemaVersion 2`、API、表结构、任务队列、ComfyUI graph 节点 ID 与供应商配置没有因本次视觉校准改变。后续 PNG 导出、素材分页与视频封面代码保留。
+- 细节补齐：Ant Design 弹层继承根主题；缩放菜单选中文字浅/暗对比度分别为 4.60/7.07，暗色节点类型图标改用深色前景；素材 Drawer 顶部对齐 60px 顶栏，搜索和分页固定于面板，网格独立滚动，避免正文和网格双重滚动。原图计数、字数等示意内容不覆盖真实业务状态。
+- 受影响文件：本轮 `frontend/src/App.tsx`、`frontend/src/components/ThemeToggle.tsx`，`frontend/src/canvas/{CanvasWorkspace.tsx,CanvasEditor.tsx,CanvasNodes.tsx,CanvasSidePanel.tsx,CanvasGeneratorInspector.tsx,CanvasExportDialog.tsx,canvas-generation.ts,canvas-generation.test.ts,canvas-model.ts,canvas-model.test.ts,canvas-fidelity.css}`；同步 README、扩展指南、画布开发计划与设计验收记录。原 V4.4 的 `canvas.css` 和检查器细节继续保留，不覆盖 V4.5–V4.7 的后续增量。
+- 验证命令：`pnpm --dir frontend build`（60 文件/397 项、类型检查、清理及构建通过）；`python -X utf8 -m unittest backend.tests.test_canvas_store -q`（18 项通过）。真实 5173 + 隔离 7866 SQLite 自动采集 21 区域，外框最大偏差 2 CSS px；浅暗 42 个控件和面板截图，基础 77 项交互断言、PNG/素材检索分页补充检查、旧尺寸节点和对比度检查通过；桌面 1440×900、1586×992、1920×1080，未做移动端检查。原图摘要、截图元数据与差异图见 `docs/design-ref-canvas/FIDELITY.md`，未触发生成任务。
+- 回滚方式：只逆向撤回上述文件中本轮增量，不执行整目录恢复，不删除用户原有或 V4.5–V4.7 改动。撤回节点默认尺寸仅影响后续新建；已保存尺寸保留。若回到没有 `prompt` 端口的旧渲染器，需将新增文字连线端口恢复到 `in` 后才在旧界面显示；边数据本身保留。无需数据库回滚。
+
+## 2026-10-23 无限画布 V4.4（设计稿还原与控件细节）
+
+- 日期与原因：2026-10-23。用户要求先出设计图再还原，并逐项打磨小控件与弹窗。本轮保留既有画布能力，用内置 imagegen 的浅色设计稿作为基线，在原 React / Ant Design / React Flow 架构中实现，补齐暗色与桌面交互。
+- 当前基线：64px 画布命令栏、48px 悬浮工具轨、12px 内边距的悬浮属性面板、300×42px 缩放栏；属性/图层/历史显示图标，素材入口固定在面板底部。节点新增类型标识、可读标题和说明，文字及生成提示词改用 Ant Design TextArea，画板名称改用 Input。位置尺寸与 ID 位于折叠区；原节点尺寸和草稿继续读取。
+- 细节与行为：添加菜单带图标、说明与键帽；缩放菜单提供 25–200% 六个预设；十个视角收进浮层（1–9、0），空位点击保存、已存点击跳转、右键清除，`Shift+数字` 使用物理键码，避免 `!/@` 等符号导致保存失败。图片地址弹窗提供行内错误、辅助文本关联和禁用提交；新建/标签/导入/预览弹窗、下拉与确认浮层统一间距和圆角，取消双字按钮自动插空格，局部 Provider 加中文语言包。Modal、素材 Drawer、预览和导入确认打开时屏蔽底层画布快捷键。
+- 主题与兼容：局部 ConfigProvider 仅继承根级主题并调整组件 token，不维护独立主题状态；类型色、点阵与阴影通过成对的 `--canvas-*` 补充变量提供。没有新增依赖、路由、API、数据列、工作流参数或持久化字段，`schemaVersion 2`、版本历史、自动保存与任务来源保持兼容，无需迁移。工作流与模型信息继续来自注册表；不把设计图示例写入业务。
+- 受影响文件：`frontend/src/canvas/{CanvasWorkspace.tsx,CanvasEditor.tsx,CanvasNodes.tsx,CanvasSidePanel.tsx,CanvasGeneratorInspector.tsx,CanvasInspector.tsx,canvas.css}`；新增设计与截图档案 `docs/design-ref-canvas/`，同步本文件、README、扩展指南和无限画布开发计划。
+- 验证命令：`pnpm --dir frontend build`（58 个测试文件、371 项、类型检查与 Vite 构建通过）；`python -X utf8 -m unittest backend.tests.test_canvas_store -q`（14 项通过）。真实 5173 + 隔离 SQLite 后端验收 28 个主要状态与补充交互，检查 1440×900、1586×992、1920×1080 桌面浅暗主题；节点保存刷新、菜单边界、JSON 导入取消、视角 0、Shift+1、弹窗快捷键隔离、全局提示词继承均正常。参考图与真实截图完成 URL/标题、DPR、字体、图片、视口与四个布局锚点核对；控件细节图为真实页面截图排版。仅有既有 List 弃用与构建大分块提示。
+- 验收边界：测试浏览器仍打开 5173，仅将其 API 请求转发到隔离后端，连通性状态为验收桩；没有访问生产账号数据、切换供应商、启动 ComfyUI 或提交生成任务。示例内容不进入源码。详细设计与可接受差异见 `docs/design-ref-canvas/DESIGN.md`。
+- 回滚：仅逆向撤回上列文件中本轮的界面和快捷键细节，保留已有画布模块与此前未提交改动；数据模型、`canvas-api.ts`、注册表和后端无需回退，不要整目录 checkout。
+
+## 2026-10-23 无限画布 V4.3（结构化缩略图）（新增当前基线）
+
+- 日期与原因：2026-10-23。画布列表长期只有占位图标，画布变多后只能靠标题、标签与保存时间辨认。客户端实时截图需要解析完整草稿、处理跨域媒体并承担大画布渲染成本；本次改为服务端在保存时生成轻量结构摘要，前端用无依赖 SVG 渲染缩略图，不新增第三方依赖、不引入无头浏览器。
+- 当前基线：
+  - `canvas_projects` 新增可空 `preview_json`（MySQL `TEXT NULL`、SQLite `TEXT`），通过 `JobStore._ensure_column` 幂等补列，`sql/019_canvas.sql` 同步更新；不新增表，不复制草稿内容，不改变版本历史与内容校验和。
+  - `save_draft` 保存成功后从草稿节点/边重建摘要并写入 `canvas_projects`；`create_project` 写入空摘要；`restore_version` 复用 `save_draft`，恢复历史版本时同步刷新。`list_projects`/`get_project` 读取并通过 `decode_canvas_preview` 返回 `preview`，无摘要或解析失败返回 `null`。
+  - 摘要结构 `{x,y,width,height,nodeCount,items,links}`：包围盒包含画板；`items` 最多 120 项，超出时按等距步长抽样并保留首尾；`links` 最多 80 条并映射到抽样后索引；媒体地址只取图片节点 `data.url` 与图片结果生成节点 `data.resultUrl`，最多 12 个、单个 768 字符，只接受 `/` 站内路径与 `http(s)`。序列化超过 16 KB 时按「清空 URL → 清空连线 → 缩减形状」降级。
+  - `frontend/src/canvas/canvas-model.ts` 新增 `CanvasPreview`/`CanvasPreviewItem` 类型与 `readCanvasPreview`，对接口数据再次限流与容错；`CanvasProject.preview` 可空。
+  - 新增 `frontend/src/canvas/CanvasPreviewThumbnail.tsx`：按包围盒与留白生成 `viewBox`，画板先绘制；节点按类型着色（文字紫、图片橙、视频蓝、生成绿、未知虚线），图片用 `clipPath` 裁切，视频画播放三角，文字画三条示意线，连线用三次贝塞尔曲线；SVG `aria-hidden`，不进入读屏顺序。
+  - `CanvasWorkspace` 列表卡片改为纵向布局，顶部 150px 预览区；有摘要用抬升表面背景，无摘要保留原对角线占位与图标。收藏星标、悬停操作与箭头绝对定位，不遮挡预览。
+  - `backend/app/models.py` 新增 `CanvasPreview`/`CanvasPreviewItem` 并给 `CanvasProjectListItem` 增加 `preview` 字段。FastAPI 会裁掉响应模型未声明的字段，此前即使存储层已返回 `preview`，列表接口也会丢失该字段；回归测试直接通过 `CanvasProjectListItem.model_validate` 覆盖此契约。
+- 受影响文件：`backend/app/canvas_store.py`、`backend/app/models.py`、`backend/app/storage.py`、`sql/019_canvas.sql`、`backend/tests/test_canvas_store.py`、`frontend/src/canvas/{canvas-model.ts,CanvasWorkspace.tsx,CanvasPreviewThumbnail.tsx,canvas.css,canvas-model.test.ts}`；同步 `docs/无限画布开发计划.md`、本文件、`README.md`、`功能说明与扩展指南.md`。编辑器、任务系统、工作流注册表与 API 路径均未改动。
+- 兼容性：`preview` 为可空增量字段，旧画布与新建空画布返回 `null`，列表显示原占位图标，下次保存或恢复历史版本后自动生成；旧前端忽略该字段。摘要只用于列表展示，不参与编辑器读写与内容校验，缩略图是结构示意而非像素级还原；视频不取封面。超大画布会抽样，摘要不覆盖的节点在缩略图中不出现。
+- 验证命令：`pnpm --dir frontend test`（58 个文件、371 项通过，其中画布 88 项）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`（通过，`✓ built in 11.16s`）；`python -X utf8 -m unittest backend.tests.test_canvas_store -q`（14 项通过）。隔离 SQLite 后端 7866 + Vite 5174 桌面浅暗检查：保存后缩略图立即出现，负坐标包围盒、12 张图片、空画布占位、收藏/悬停布局与刷新持久化均正常，网络 200/304，控制台仅有既有表单字段警告。
+- 回滚方式：停止读取 `preview` 并移除列表缩略图组件即可恢复占位图；`preview_json` 是加法列，可保留不读，不必立即删除。若需彻底回退，可在确认无旧代码运行后删除该列；不影响草稿、版本历史与任务数据。
+
+## 2026-10-23 本地漫剧工作流 MCP 素材入口
+
+- 日期与原因：2026-10-23。外部漫剧工作区已有按集落盘的 WorkRally 原片，需要直接接入本工作台智能剪辑，并将导出结果交回本地封面和抖音发布工作流。
+- 受影响文件：`backend/app/mcp_gateway/{editing_service,routes}.py`、`backend/tests/test_local_drama_mcp.py`。新增工具复用既有 `studio:edit` OAuth scope、项目/分集服务、本机路径权限与智能剪辑版本化保存，不新增表、服务或模型。
+- `studio_prepare_edit_episode(project_name, episode_code, title?, version?, script_text?)`：按准确名称选择唯一工程，必要时创建；用 `S01E09 v001 · 集名` 标识独立版本的剪辑分集。返回 `project_id/sequence_id`。同名歧义和同版本剧本冲突时报错，不覆盖旧脚本或手工时间线。
+- `studio_import_edit_media(project_id, sequence_id, paths, revision, document_name?)`：只接收 1–200 个明确文件路径，依清单顺序引用。沿用本机素材权限；按 URL 复用已有素材，返回相同顺序的 `asset_ids` 供 `studio_preview_edit(video_arrange)`。保留所有现有片段，任一导入失败不保存，CAS 冲突返回 409。文件夹拒绝，避免把封面或旧成片混入原片。
+- 外部约定：工作流在各剧 `02_分集制作/<集号>/04_生成素材/视频/<版本>/` 读取原片，封面在同集 `04_生成素材/图片/封面/<版本>/`，文案在 `06_后期工程/发布/`，正式 MP4 在 `03_交付成片/<集号>/待核验/`。调用既有 `studio_export_edit(output_dir=...)` 导出后由外部工作流校验归档；工作台不执行抖音发布或保存其 Cookie。
+- 兼容性：现有 HTTP、MCP、前端编辑和导出协议保持兼容；无界面变更。服务器加载新代码后，MCP 客户端重新发现工具即可使用。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_local_drama_mcp backend.tests.test_editing_assistant backend.tests.test_smart_edit`；`pnpm --dir frontend build`。外部 Skill 测试覆盖固定目录、阶段顺序、文案封面归档、可选合集、发布预演及重复发布阻止；不把模拟测试写成真实发布验收。
+- 回滚：仅停用两个新增 MCP 工具及对应 EditingService 方法；不删除既有项目、剪辑、原片或导出文件。外部工作流可停用，不影响工作台原入口。
+
+## 2026-10-23 智能剪辑 MCP 导出与本机输出目录（新增当前基线）
+
+- 日期与原因：2026-10-23。用户询问成片保存位置，并希望 MCP 能直接控制导出目录，而不是固定写入工作台 `data/exports/`。上一轮 MCP 剪辑工具只覆盖时间线编辑，没有导出能力；本次补齐导出工具，并允许在 API/MCP 指定服务器本机绝对文件夹。
+- 当前基线：
+  - 新增 MCP 工具 `studio_export_edit(project_id, sequence_id, output_dir?, quality=1080)`（`studio:edit`）与 `studio_get_edit_export(project_id, job_id)`（`studio:read`），工具总数由 18 增至 20。导出读取账号隔离的时间线快照，异步执行，返回 `{id,status,progress,output_path,download_url}`；用 `studio_get_edit_export` 轮询。
+  - `POST /api/projects/{project_id}/smart-edit/exports/mp4` 新增可选 `output_dir`。留空保持原行为：`data/exports/smart-edit/{job_id}.mp4`；指定目录时自动创建，文件名使用「工程名 + `YYYYMMDD-HHMMSS` + 任务号后 6 位」清洗后生成，避免覆盖。`GET …/exports/{job_id}` 与下载路由回显/读取 `output_path`。
+  - 权限：管理员/超管可写入任意可创建且可写的本机目录；员工仅限 `ZLY_AI_VIDEO_STUDIO_LOCAL_MEDIA_ROOTS`（`;` 分隔）内，越界或相对路径返回 400。导出目录权限与「引用本机」共用同一允许目录，便于短剧素材与成片留在同一项目盘。
+  - 任务 `payload_json` 保存输出绝对路径，但不含时间线文档；下载仍校验任务所属账号。通用项目任务接口（`GET /api/projects/{id}/jobs` 与 `…/jobs/{job_id}`）不返回 `output_path`，该字段只出现在本人的导出创建与查询响应中。目标文件被移动或删除后再下载返回 400，需重新导出。自定义目录中的成片不会随 `data/` 清理，也不会自动删除。
+- 受影响文件：`backend/app/local_media.py`（新增 `ensure_export_allowed`）、`backend/app/media_studio/services/smart_edit_service.py`（`create_export`/`_run_export`/`get_export`/`export_file_path`）、`backend/app/media_studio/services/job_payload.py`（通用任务不返回本机路径）、`backend/app/media_studio/routers/smart_edit_router.py`、`backend/app/mcp_gateway/{editing_service.py,routes.py}`、`backend/tests/{test_smart_edit.py,test_mcp_gateway.py}`；同步 `docs/API.md`、本文件、`README.md`、`功能说明与扩展指南.md`、`docs/智能剪辑助手开发计划.md`、`docs/导演台流程与界面结构.md`、`.env.example`。前端未改动，工作台导出面板继续使用默认目录。
+- 兼容性：不新增表或字段；旧导出任务无 `output_path` 时回退到 `data/exports/smart-edit/{job_id}.mp4`。未指定 `output_dir` 的 HTTP 调用行为不变；MCP 旧授权无需重新授权即可看到新增工具（作用域未变）。自定义目录权限依赖当前服务器文件系统与账号角色。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_smart_edit`（18 项通过）；`python -X utf8 -m unittest backend.tests.test_mcp_gateway`（26 项通过）；`python -X utf8 -m unittest backend.tests.test_core.ApiDocumentationTests.test_openapi_has_chinese_operation_and_field_documentation`（通过）；全量后端 952 项仅余 3 项与本改动无关的既有失败（`test_xiaji` 引用已删除模块、导演台提示词大小写断言、MySQL schema 迁移用例）。`pnpm --dir frontend build` 通过。
+- 回滚方式：撤销 MCP 两个工具、`EditingService.export/export_status`、服务层 `output_dir` 参数与 `ensure_export_allowed`，恢复默认导出路径；已写入自定义目录的成片保留在原位置，数据库中的 `output_path` 字段随 payload 保留但旧代码不读取。
+
+## 2026-10-23 智能剪辑本机素材直引与本机导出（新增当前基线）
+
+- 日期与原因：2026-10-23。用户指出短剧素材常由其他流程生成在任意本机目录（如 `G:\workspace\...`），此前智能剪辑只能先上传七牛云或复制到 `data/` 才能使用，不符合实际制作习惯。本次增加「引用本机」能力：时间线可直接引用原目录文件，不复制、不上传，导出 MP4 也不再依赖七牛云。
+- 当前基线：
+  - 新增 `backend/app/local_media.py`。素材地址为 `/api/local-media/{base64url(绝对路径)}.{HMAC-SHA256(credential_key, "local-media:"+payload)[:32]}`；令牌只读、绑定当前服务器凭证密钥，篡改或文件缺失返回 404。`GET /api/local-media/{token}` 需登录，使用 `FileResponse`（支持 Range 206，可拖动播放）。
+  - `POST /api/projects/{project_id}/smart-edit/{sequence_id}/import-local` 接受 `{path, recursive}`。管理员/超管可引用任意可读绝对路径；员工仅限环境变量 `ZLY_AI_VIDEO_STUDIO_LOCAL_MEDIA_ROOTS`（`;` 分隔的允许目录）内的文件。路径可指向单文件或文件夹；文件夹按自然顺序扫描，单次最多 200 个文件；逐个 `ffprobe` 校验，无法解码或无对应轨道的文件进入 `skipped[]`。素材记录新增 `local_path`，仍复用既有 `EditAsset` 结构，前端无需区分。
+  - 时间线文档中的 `url` 保存签名地址而不是本机路径，因此保存/刷新/重启后仍可播放；`download_asset` 遇到本机地址直接返回原文件路径，渲染、bundle 打包与 `ffprobe` 都读取原目录，不产生副本。
+  - 导出 MP4 不再要求七牛云：`_run_export` 将成品移动到 `data/exports/smart-edit/{job_id}.mp4`，`result_url` 为 `/api/projects/{project_id}/smart-edit/exports/{job_id}/file`；新增下载路由仅允许任务所属账号访问（未完成 409，非本人 404）。通用任务详情不暴露剪辑文档或其他账号路径。
+  - 前端剪辑工作台素材面板新增「引用本机」按钮与弹窗（路径输入、可选包含子文件夹），导入后按 URL 去重合并，并把失败文件以提示列出；素材标题悬停显示原始本机路径。上传七牛云的旧入口保留，两种来源可在同一时间线混用。
+- 安全边界：签名地址不是通用文件服务，只能读取导入时登记过的文件；员工不能借 `import-local` 遍历服务器任意目录；接口沿用登录与写操作 CSRF；`/api/local-media/*` 不写入通用任务 payload，导出快照仍按账号隔离。
+- 受影响文件：新增 `backend/app/local_media.py`；修改 `backend/app/config.py`、`backend/app/media_studio/services/{smart_edit_document,smart_edit_service}.py`、`backend/app/media_studio/routers/smart_edit_router.py`、`frontend/src/director2/smart-edit/{model.ts,api.ts,SmartEditPane.tsx,smart-edit.css}`、`backend/tests/test_smart_edit.py`、`.env.example`；同步 `docs/API.md`、本文件、`README.md`、`功能说明与扩展指南.md`、`docs/智能剪辑助手开发计划.md` 和 `docs/导演台流程与界面结构.md`。
+- 兼容性：不新增数据库表或字段；旧时间线（七牛云 URL）不变，仍可正常预览和导出。同一时间线可混合本机与云端素材。若播放服务器上另一个实例签发的本机地址会 404，需要在当前实例重新导入；更换 `data/credential.key` 会使旧本机地址全部失效。本机导出地址在 `data/exports/`，需随 `data/` 一同备份或定期清理。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_smart_edit`（17 项通过）；`python -X utf8 -m unittest backend.tests.test_smart_edit backend.tests.test_editing_assistant backend.tests.test_mcp_gateway backend.tests.test_director_assistant -q`（117 项通过）；`pnpm --dir frontend test`（58 个文件、366 项通过）；`pnpm --dir frontend build`（通过，16.15s）；5173 桌面端浅/暗主题检查「引用本机」弹窗、播放、时间线与导出下载，新增参考截图 `docs/design-ref-director/78-smart-edit-local-import-light.png` 与 `79-…-dark.png`。
+- 回滚方式：还原上述后端/前端文件并重建前端；已保存的含本机素材时间线需要重新导入素材（签名地址依赖代码），云端素材时间线不受影响。
+
+## 2026-10-22 移除本地作品存储目录
+
+- 日期与原因：2026-10-22。用户确认今后所有作品统一使用七牛云存储，员工电脑的授权目录不再需要；原功能会在登录后以不可关闭的「设置作品存储目录」弹窗阻塞工作台，并要求每台浏览器单独授权目录。
+- 当前基线：`frontend/src/App.tsx` 不再导入 `local-resource-store`，不再请求 `GET /api/storage`，也不再读取或缓存 `zly-storage-capability`；目录检查态、`requiresDirectorySetup` 弹窗、顶栏「设置存储」入口与资源「存储状态」筛选全部删除。`frontend/src/local-resource-store.ts`（IndexedDB 目录句柄、File System Access API、Tauri 写盘命令）删除。任务结果、批量下载、加入画布与剪映草稿链接统一使用 `download_url ?? cloud_url` 或现有媒体地址；结果卡「保存」改为云端直链下载。`ImageStudioModule`/`VideoStudioModule` 移除 `pendingSave`/`onSave`/本地状态判断，统一显示「已存入云端」。图片生成视频改为先 `fetch` 云端结果构造 `File` 再上传。登录页说明同步改为统一存入七牛云。
+- 后端边界：`/api/storage`、`requires_local_directory`、`delivery_status`、`browser-stream`/`browser-directory` provider 与受保护下载路由均保留，供既有部署、桌面客户端和旧任务兼容；Web 前端不再调用或依赖它们。七牛云输出仍标记为 `cloud` 并返回云端/同源下载地址，历史 `local` 输出仍可凭 `download_url` 读取。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/media/{ImageStudioModule.tsx,VideoStudioModule.tsx}`、`frontend/src/auth/AuthScreens.tsx`、删除 `frontend/src/local-resource-store.ts`；同步 `README.md`、`功能说明与扩展指南.md`、`frontend/PRODUCT.md`。
+- 兼容性：不修改后端 API、数据库、任务队列、ComfyUI 节点、端口、媒体对象或七牛云配置；旧任务输出、作品库和历史下载链接不受影响。浏览器中已有的 IndexedDB 目录记录不再读取，但不影响登录或其他本地偏好；回滚前端后仍可恢复目录授权流程。
+- 验证命令：`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend test`（58 个测试文件、365 项通过）；`pnpm --dir frontend build`（`✓ built in 6.29s`）；`python -X utf8 -m unittest backend.tests.test_core -q`（102 项通过）。隔离 SQLite 后端（7866）+ 隔离 Vite（5174）+ 无头 Chrome 桌面验收：登录后无「设置作品存储目录」弹窗、顶栏无「设置存储」、资源筛选无「存储状态」；种子云端任务显示「已存入云端」并可下载、继续生成视频；控制台无应用错误。
+- 清理：隔离后端与 Vite 已停止，`.tmp/storage-ui` 中的临时配置、SQLite、日志与截图已删除；未访问真实 MySQL、7865 后端或 ComfyUI，未提交生成任务。
+- 回滚方式：恢复本次前端改动与 `frontend/src/local-resource-store.ts` 并重建前端即可；后端与数据无需迁移。已下载到员工电脑的历史文件需由员工自行保留，七牛云对象不受影响。
+
+## 2026-10-22 无限画布 V4.2（标签、收藏与回收站）
+
+- 日期与原因：2026-10-22。V4.1 已补齐画布搜索、排序与复制，但画布一多仍只能靠标题和保存时间管理，误删也无法挽回。本版为画布列表增加标签、收藏与回收站，采用纯加法迁移，保留现有 `DELETE` 的永久删除语义与草稿乐观锁。改动涉及后端 `canvas_projects` 表结构、画布接口与列表界面，不改变草稿 JSON、`schemaVersion 2`、`jobs` 表、工作流注册表或 ComfyUI 配置。
+- 数据迁移：`canvas_projects` 新增 `tags_json`（MySQL `VARCHAR(512) NOT NULL DEFAULT '[]'`、SQLite `TEXT NOT NULL DEFAULT '[]'`）、`is_favorite`（0/1，默认 0）与 `deleted_at`（可空时间字符串），并增加 `(owner_user_id, deleted_at)` 索引。MySQL 每次启动重放 `sql/*.sql`，所以现有库的变更通过 `JobStore._ensure_column` 幂等补齐；SQLite 新库在 `CREATE TABLE` 中直接建列，旧库同样补列；`sql/019_canvas.sql` 同步更新供全新 MySQL 初始化。
+- 标签：`normalize_canvas_tags` 去除首尾空白、忽略空项、按首次出现去重，单个最多 24 字符、最多 8 个，超限抛 `CanvasValidationError`（422）；`tags_json` 以紧凑 JSON 数组落库，`decode_canvas_tags` 对历史脏数据容错。前端 `normalizeCanvasTags` 使用同一组上限，在保存前给出提示。
+- 部分更新与收藏：`CanvasStore.update_project` 接受 `title`/`tags`/`is_favorite` 任意组合，动态拼 SQL，空更新返回 422，只更新 `deleted_at IS NULL` 的画布；`PATCH /api/canvas/projects/{id}` 复用该入口，原 `rename_project` 委托给它。列表按 `is_favorite DESC, COALESCE(draft.updated_at, project.updated_at) DESC` 排序，收藏画布在服务端即置顶。
+- 回收站：新增 `POST /api/canvas/projects/{id}/trash`（写 `deleted_at`，返回 `{id, deleted_at}`）与 `POST /api/canvas/projects/{id}/restore`（清空标记并返回完整项目），两者都要求 CSRF、按 `owner_user_id` 隔离并写审计日志。`GET /api/canvas/projects?trashed=1` 才返回回收站；详情、草稿保存、版本列表/恢复、PATCH 与再次移入回收站都排除已删除画布，回收站画布返回 404。`DELETE` 仍是永久删除（含草稿和全部历史版本），未新增自动清理。
+- 列表界面：`CanvasWorkspace` 增加「全部 / 收藏 / 回收站」Segmented 视图、标签筛选（回收站隐藏）、标题或标签搜索与原有排序；卡片显示标签 chip、可点击星标和悬停操作列（编辑标签、复制、移入回收站），回收站卡片禁用打开并只保留恢复/彻底删除。标签编辑使用 Ant Design `Select mode="tags"`（`maxCount=8`、`maxTagTextLength=24`、中英文逗号分隔），收藏/移入/彻底删除都有即时提示与确认。
+- 前端筛选：`filterCanvasProjects` 支持 `favoriteOnly` 与 `tag` 条件，搜索同时匹配标题和标签；过滤后再排序，最后把收藏项稳定置顶，不修改输入数组。`collectCanvasTags` 汇总当前视图标签。`AddToCanvasModal` 只请求未删除画布（`listCanvasProjects()`），避免向回收站画布插入素材。
+- 兼容性：标签、收藏与删除标记都是列表级元数据，不写入草稿 JSON；旧前端加载的接口响应多出 `tags/is_favorite/deleted_at` 字段会被忽略，旧画布默认空标签、未收藏、未删除。复制画布仍只复制标题和草稿，不复制标签/收藏。回滚时可保留新增列（旧代码不读取），或撤销上述后端/前端改动并删除列；已移入回收站的画布在回滚后重新出现在列表中。
+- 受影响文件：后端 `backend/app/{storage.py, models.py, main.py, canvas_store.py, api_documentation.py}`、`backend/tests/test_canvas_store.py`、`sql/019_canvas.sql`；前端 `frontend/src/canvas/{CanvasWorkspace.tsx, canvas-api.ts, canvas-model.ts, canvas-manage.ts, canvas-manage.test.ts, AddToCanvasModal.tsx, canvas.css}`；同步 `docs/无限画布开发计划.md`、`README.md`、`功能说明与扩展指南.md`。
+- 验证命令：`pnpm --dir frontend test`（58 个测试文件、365 项通过，其中画布模型 37、保存 8、生成 26、画布管理 14，画布合计 85）；`pnpm --dir frontend exec tsc -b` 干净；`pnpm --dir frontend build` 通过（`✓ built in 9.96s`）；`python -X utf8 -m pytest backend/tests/test_canvas_store.py -q`（10 项通过）。隔离 SQLite 后端（7866）+ 隔离 Vite（5174）+ 无头 Chrome/CDP 桌面浅暗实测：收藏/取消收藏与置顶、标签编辑与筛选、按标签搜索、收藏视图、回收站恢复/再次移入/彻底删除、刷新持久化均正常；控制台无错误，并修复 Ant Design `Tag bordered` 弃用警告。隔离进程与 `.tmp/v42` 已清理，未访问真实 MySQL、7865 后端或 ComfyUI。
+- 后续计划：PNG 导出、画布缩略图与 `/api/library` 服务端分页/检索仍待评估；V5 多人协作与分享需单独立项并先做 Yjs/权限 spike，详见 `docs/无限画布开发计划.md`。
+
+## 2026-10-22 无限画布 V4.1（画布管理与素材流转）
+
+- 日期与原因：2026-10-22。V4.0 已补齐画布操作与生成闭环，但生成结果回流画布仍要手动打开素材面板查找，画布列表也没有搜索/复制，画布内容只能留在服务器上。本版打通生成历史 → 画布的素材流转，补齐列表管理与 JSON 导入导出。仅改前端画布模块、资产页、样式、测试与文档；不新增后端接口、数据表、迁移、`jobs` 记录、`schemaVersion` 变更或 ComfyUI 配置。
+- 加入画布：新增 `AddToCanvasModal.tsx`。生成历史资产卡在非批量、非查看他人资产且素材不是 `local`/`expired` 时显示悬停按钮；弹窗读取当前账号画布列表（搜索、最近更新排序），支持选择已有画布或「新建画布并加入」。跳转 URL 使用 `?addJob=<jobId>&addItem=<generationItemId>&addOutput=<index>`（旧任务无条目时省略 `addItem`），由 `canvas-manage.ts` 的 `canvasAssetInsertSearch`/`readCanvasAssetInsert` 统一构造与解析。
+- 一次性插入与权限：`CanvasEditor` 在 URL 含插入参数时启用 `GET /api/library` 查询；加载完成后用 `findCanvasInsertLibraryItem` 命中 `job_id + output_index`（有 `addItem` 时同时匹配 `generation_item_id`），并继续经过 `isUsableLibraryItem` 与安全媒体 URL 校验。`consumedInsertAssetRef` 按 `${jobId}:${generationItemId ?? ""}:${outputIndex}` 去重，保证 StrictMode/重渲染只插入一次；插入走普通素材节点工厂且强制新增（不替换当前选中节点），成功后以 `setSearchParams(..., { replace: true })` 删除三个参数。加载失败、素材不属于当前账号或已过期时提示原因并同样清理参数，避免刷新重复触发。作品库仍由后端按账号隔离，未新增接口。
+- 画布列表：`CanvasWorkspace` 新增标题搜索、排序（最近更新/最近创建/标题 A–Z）与无匹配空态；卡片新增复制按钮。复制由 `canvas-api.ts` 的 `duplicateCanvasProject` 组合现有接口完成：读取源画布 → 以 `canvasCopyTitle` 新建「标题 副本」→ 保存源草稿；保存失败会删除刚创建的空画布。后端画布表、归属隔离与删除语义不变。
+- JSON 导出：编辑器「更多 → 导出 JSON」通过 `serializeCurrent()` 生成当前 `schemaVersion`/`canvasSettings`/`nodes`/`edges`，用 Blob + 临时对象 URL 下载，文件名由 `canvasExportFileName` 生成（清洗标题 + 时间戳），随后释放 URL。
+- JSON 导入：隐藏 file input 读取文本，先在组件层按 `file.size` 拒绝超过 8 MB 的文件，再由 `canvas-manage.ts` 的 `parseCanvasImportContent` 做完整校验：去除 BOM、按 UTF-8 字节数复核 8 MB、`schemaVersion` 正整数、`canvasSettings` 为对象、`nodes`/`edges` 数组、节点 ≤ 3000、边 ≤ 6000、节点 id/type 非空且 id 唯一、坐标有限、`data` 为对象、图片/视频与生成结果及结果历史 URL 协议安全、边两端存在且不能自环。当前画布非空时使用受控 Ant Design `Modal` 二次确认（显示节点/连线数量与可撤销说明），确认前调用 `flushHistory()` 把替换前状态写入撤销栈；导入后的视口缺失时保留当前视口，节点/边/设置整体替换并触发自动保存。非法内容只提示、不修改画布。
+- 主题与兼容：导入确认不再使用静态 `Modal.confirm`（其 holder 在主题切换时不会实时重渲染，暗色下会显示浅色弹窗），改为组件内受控 `Modal`，由当前 `ConfigProvider`/`--studio-*` 驱动双主题。`schemaVersion` 仍为 2，草稿 JSON 结构不变；旧前端可正常打开导入结果，未知节点仍按既有 `unknown` 兜底。PNG 导出与缩略图本轮只做方案评估（客户端 `html-to-image` 需解决跨域媒体与大画布降采样；服务端渲染需无头浏览器与队列），未引入依赖、未写数据库、未新增迁移。
+- 受影响文件：新增 `frontend/src/canvas/AddToCanvasModal.tsx`、`frontend/src/canvas/canvas-manage.ts`、`frontend/src/canvas/canvas-manage.test.ts`；修改 `frontend/src/canvas/{CanvasWorkspace.tsx, CanvasEditor.tsx, canvas-api.ts, canvas-model.ts（复用）}`、`frontend/src/App.tsx`、`frontend/src/index.css`；同步 `docs/无限画布开发计划.md`、`README.md`、`功能说明与扩展指南.md`。
+- 验证命令：`pnpm --dir frontend test`（58 个测试文件、363 项通过，其中画布模型 37、保存 8、生成 26、画布管理 12，画布合计 83）；`pnpm --dir frontend exec tsc -b` 干净；`pnpm --dir frontend build` 通过（`✓ built in 11.15s`）；`python -X utf8 -m unittest backend.tests.test_canvas_store -q`（7 项通过）。隔离 SQLite 后端（7866）+ 隔离 Vite（5174）+ 无头 Chrome/CDP 桌面实测：种子资产「加入画布」在新建画布和已有画布两条路径均只插入 1 个节点、URL 参数清理、服务端草稿含 `sourceJobId` 且自动保存完成；导出 JSON 文件名/结构正确；导入 2 节点/1 边确认替换并自动保存，撤销恢复原 1 节点；`javascript:` 图片地址与 9 MB 文件分别被拒绝且画布不变；列表搜索、空态清除、排序、复制（「室内对话 副本」）正常；浅色/暗色加入画布弹窗、更多菜单与导入确认弹窗对比度正常，控制台无应用错误。
+- 清理：隔离后端（7866）、隔离 Vite（5174）与临时 Chrome 会话已停止，种子脚本、SQLite 数据、Cookie、截图与隔离配置位于已忽略的 `.tmp/v41/` 并已删除；未访问真实 MySQL 与 7865 后端，未启动或切换 ComfyUI，未提交生成任务。
+- 兼容与回滚：不新增后端契约、表、迁移或依赖；`schemaVersion` 仍为 2，导入导出只使用现有草稿结构。回滚只需撤销上述前端文件、样式、测试与文档；已导出 JSON 可被旧前端按既有 `parseCanvasContent` 打开，已复制画布与已插入素材节点是普通画布数据，不影响任务页。
+- 后续计划：标签/收藏/回收站、PNG 导出、缩略图、作品库服务端分页留待后续增量；V5 多人协作与分享需单独立项并先做 Yjs/权限 spike，详见 `docs/无限画布开发计划.md`。
+
+## 2026-10-22 无限画布 V3.3（结果与追溯）
+
+- 日期与原因：2026-10-22。V3.1/V3.2 已能在画布内生成并插入结果，但结果节点只有 `sourceJobId`，无法回显提交时实际使用的提示词与参数；任务被删除或产物过期时画布也没有明确状态。本版补齐运行快照、结果节点回链任务与失效状态，仍不新增后端接口、数据表、任务队列或第二套任务记录，任务状态以 `jobs` 表与 `GET /api/jobs/{id}` 为准。
+- 快照模型：`canvas-model.ts` 新增 `CanvasRunSnapshot`（`jobId/workflowId/workflowName/prompt/optionValues/parameterSummary/referenceCount/mediaKind/submittedAt`）。`canvas-generation.ts` 新增 `buildCanvasRunSnapshot`、`readCanvasRunSnapshot`、`canvasRunHistory`、`canvasRunSnapshotForJob`、`appendCanvasRunSnapshot` 与上限常量；提交成功后由 `CanvasEditor.submitGenerator` 写入生成节点 `lastRun`，并按任务号去重追加到 `runHistory`（最近 12 条）。快照在提交时冻结，提示词截断 4000 字、参数最多 40 项、字符串值 200 字、摘要最多 6 条且每条 120 字，读取时同样清洗，避免画布体积失控。
+- 结果溯源：`appendResultNode` 继续写入 `sourceJobId`、`assetPath`、`mediaKind`，并从生成节点的 `runHistory`/`lastRun` 复制对应 `sourceRun` 到图片/视频节点；手动插入、独立模式自动插入与分支生成共用这一路径。结果节点不保存任务状态副本，任务删除或产物过期时以实时查询结果为准。
+- 追溯界面：新增 `CanvasRunTrace.tsx` 与 `useCanvasSourceJob`。生成节点检查器显示「本次运行」，图片/视频节点检查器显示「来源任务与运行参数」；组件在挂载、任务号变化、生成节点状态变化或点击「刷新状态」时查询任务，显示状态标签、可复制任务号、「在任务详情中打开」，折叠区展示工作流、提交时间、参考图数量、参数摘要、提交时提示词与提交参数原样值。旧结果只有任务号、没有快照时显示「该结果由旧版本画布创建，未保存提交时的参数快照」。
+- 失效状态：404 显示「任务已删除」（画布结果保留，参数无法再从任务回读）；任务成功/部分成功但全部产物已过期或没有可用地址时由 `canvasJobOutputsExpired` 显示「结果产物已过期」；其它读取失败显示「无法核对来源任务」与重试入口。图片/视频节点在地址变化时重置加载状态，加载失败显示「素材无法加载 / 地址可能已过期」；生成节点结果加载失败显示「结果素材无法加载」并提示到属性面板核对来源任务，双重避免把过期产物当正常结果。
+- 持久化与兼容：`schemaVersion` 仍为 2，`lastRun`/`runHistory`/`sourceRun` 均为可选字段，服务端仍按不透明 JSON 保存；不改变自动保存、重试、8 MB 限制、409 冲突、撤销栈、版本历史、`jobs` 表和工作流注册表。旧前端忽略新字段；回滚只需撤销追溯组件、快照函数、节点接线、样式、测试与文档，已写入草稿的快照不影响旧前端，任务仍可在任务页访问。
+- 受影响文件：新增 `frontend/src/canvas/CanvasRunTrace.tsx`；修改 `frontend/src/canvas/{canvas-model.ts, canvas-model.test.ts, canvas-generation.ts, canvas-generation.test.ts, CanvasEditor.tsx, CanvasInspector.tsx, CanvasGeneratorInspector.tsx, CanvasSidePanel.tsx, CanvasNodes.tsx, canvas.css}`；同步 `docs/无限画布开发计划.md`、`README.md`、`功能说明与扩展指南.md`。生成逻辑新增 4 项单测。
+- 验证命令：`pnpm --dir frontend test`（57 个测试文件、351 项通过，其中画布模型 37 项、保存 8 项、生成逻辑 26 项，画布合计 71 项）；`pnpm --dir frontend exec tsc -b` 干净；`pnpm --dir frontend build` 通过（`✓ built in 11.45s`）；`python -X utf8 -m unittest backend.tests.test_canvas_store -q`（7 项通过）。隔离 SQLite 后端（7866）+ 隔离 Vite（5174）+ 无头 Chrome/CDP 桌面 1440×900 浅暗实测：真实提交 T2V（隔离后端指向不可达 ComfyUI）返回 `interrupted` 后，「本次运行」显示任务号、状态、提交时间、参考图 0 张、参数摘要、提示词与参数原样值；保存草稿版本 12、8 节点确认 `lastRun` 九字段、`runHistory` 与结果节点 `sourceRun` 持久化；种子任务验证产物过期（「已完成」+「结果产物已过期」）、任务删除（404 →「任务已删除」）、旧结果无快照提示与未关联任务不显示追溯块；「在任务详情中打开」进入 `/generate/video/job-v33-expired`；浅色/暗色对比度正常，控制台除预期缺失任务/媒体 404 外无应用错误。
+- 清理：隔离后端（7866）、隔离 Vite（5174）与无头 Chrome 已停止，临时 SQLite 数据、Vite 配置、Cookie、截图与种子脚本位于已忽略的 `.tmp/` 并已删除；未访问真实 MySQL 与 7865 后端，未启动或切换 ComfyUI。
+- 后续计划：V4.1 画布管理与素材流转（生成历史/作品库「加入画布」、画布搜索/排序/复制、JSON 导入导出、缩略图方案）见 `docs/无限画布开发计划.md`。
+
+## 2026-10-22 无限画布 V3.2（提示词与参考图连线）
+
+- 日期与原因：2026-10-22。V3.1 已有生成节点，但只有图片可以连入作为参考图；文字节点连线没有业务含义，参考图数量只在点击提交后才校验，用户容易在不知情的情况下提交失败。本版补齐「文字节点→提示词」「连线顺序即参考图顺序」和连线变化的即时校验。只改前端画布模块、样式、测试与文档；后端接口、数据库、`schemaVersion 2`、`jobs` 表、工作流注册表和 ComfyUI 配置均不变。
+- 提示词来源：指向生成节点的文字节点由 `incomingGeneratorPromptNodes` 按边数组顺序去重收集，`resolveGeneratorPrompt` 把非空文本以空行拼接为生效提示词；生成节点自身 `data.prompt` 只在没有文字来源时使用。已连接但内容为空的文字节点由 `generatorPromptIssue` 阻断提交并给出原因，不再静默忽略；节点卡片、浮动工具栏和检查器三处共享同一判定。
+- 参考图顺序：图片与带安全 URL 的生成结果节点由 `incomingGeneratorReferenceNodes` 按同一边数组顺序取参考图并去重，序号 1..n 与 `<Picture n>` 一一对应；连线顺序是唯一排序依据，不新增排序字段。`canvasReferenceEligible` 与 `isValidConnection` 共同限制可连类型：文字、图片、生成结果可连入生成节点，图片/视频结果节点只接受生成节点来源。
+- 即时校验：`generatorReferenceIssue` 在切换工作流或连线变化后立即按 `min_references`/`max_references` 生成提示（例如「支持 1-9 张参考图，当前 0 张」），`validateGeneratorInput` 在提交时做最终校验。数量不满足只禁用提交并说明原因，不删除边、不阻断继续编辑，也不自动创建任务；任务仍由卡片、浮动工具栏或检查器显式触发生成。
+- 编辑辅助：检查器参考图列表逐行显示 `<Picture n>` 标记，手动提示词编辑器提供「插入参考图标记」下拉把标记插入光标处，并说明标记与上传顺序对应；系统不自动改写用户提示词，避免把普通文本误替换为标记。文字节点「以此生成」会自动创建并连一条文字边；图片节点分支生成在参考数量兼容时自动连参考边。
+- 持久化与兼容：不新增草稿字段，边数组仍是提示词来源与参考图顺序的唯一事实来源；复制节点、撤销/重做、刷新和版本恢复后的语义保持一致。旧前端忽略新增的校验与提示，只把边当作普通连线，不丢数据。
+- 受影响文件：`frontend/src/canvas/{canvas-generation.ts, canvas-generation.test.ts, CanvasEditor.tsx, CanvasNodes.tsx, CanvasGeneratorInspector.tsx, CanvasSidePanel.tsx, canvas.css}`；`docs/无限画布开发计划.md`、`README.md`、`功能说明与扩展指南.md`。生成逻辑新增 4 项单测。
+- 验证命令：`pnpm --dir frontend test`（57 个测试文件、347 项通过，其中画布模型 37 项、保存 8 项、生成逻辑 22 项）；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过（`✓ built in 10.63s`）；`python -X utf8 -m unittest backend.tests.test_canvas_store -q`（7 项通过）。隔离 SQLite 后端（7866）+ 隔离 Vite（5174）+ 无头 Chrome/CDP 桌面 1440×900 浅暗实测：文字节点「以此生成」自动连线并显示文字来源与合并提示词，编辑文字实时同步到相连生成节点；切换「LightX2V 多参考视频」后立即显示「支持 1-9 张参考图，当前 0 张」，卡片/浮动工具栏/检查器提交同步禁用且未创建任务；连入合法图片后警告消失、提交恢复，检查器显示「连线顺序即提交顺序 · `<Picture 1>`」；断开图片或文字边分别回到数量警告与手动提示词，重连恢复；控制台无新增错误。未提交真实生成任务，未访问真实 MySQL 或 7865 后端。
+- 清理：验收使用临时管理员、SQLite 数据、Vite 临时配置、无头 Chrome 配置与截图，均位于已忽略的 `.tmp/`，验收后删除；未触碰真实业务数据。
+- 兼容与回滚：`schemaVersion` 与后端契约不变；回滚只需撤销上述前端文件、测试与文档，已保存画布中的边与文字节点数据不受影响，旧版本仍可按普通连线打开。
+- 后续计划：V3.3 已完成（见上一条）；V4.1 画布管理与素材流转见 `docs/无限画布开发计划.md`。
+
+## 2026-10-22 智能剪辑助手 A5：音轨转写与音轨字幕
+
+- 日期与原因：2026-10-22。`subtitle_arrange` 的字幕一直来自分镜/剧本对白，与成片实际配音或原声不同步，用户要求「按真实声音上字幕」时无路可走。本版接入已配置的 OpenAI 兼容转写接口，按素材生成带时间戳的段落，并新增 `audio_subtitle` 动作把转写段落铺成字幕轨。本增量只做字幕铺设，不用转写结果删镜头或改画面轨（属于 A6）。
+- 转写客户端：`backend/app/llm_client.py` 新增 `OpenAICompatibleClient.transcribe()`，走 `POST {base_url}/audio/transcriptions`（multipart、`response_format=verbose_json`）；`backend/app/llm_provider.py` 增加 `transcription_model() / transcription_availability() / transcribe_audio()`，base_url 与 API Key 复用 `llm_provider_settings`（与 LLM、VLM 同源），不新增供应商配置表；模型取环境变量 `ZLY_AI_VIDEO_STUDIO_ASR_MODEL`，缺省常量 `DEFAULT_ASR_MODEL = "XingChenAGI/XingChenASR-V3.2-Ultra"`，单次超时 `ASR_TIMEOUT_SECONDS = 300`。错误分类镜像既有 `speech()`：HTTP 500 空 body、400/20012、超时与供应商不可用（开关未启用、凭据主密钥不可用、API Key 缺失）都映射成中文可读失败文案，日志与响应不得出现密钥。上游只给段级时间戳（`segments[].words` 恒为空），后端不伪造词级对齐；不向用户暴露语言选择，非法 `language` 会被上游静默忽略，界面不得宣称支持英语。
+- 音频提取与预算：`backend/app/director_assistant/transcription.py`（新增 `MediaTranscription`）复用 `understanding.py` 的可信下载、`ffprobe` 探测与 `source_signature`；只处理时间线上仍在发声的片段，按素材用 FFmpeg `-vn -ac 1 -ar 16000` 输出 16k 单声道 WAV 到系统临时目录，转写成功或失败立即删除。单次上限 `MAX_MEDIA_PER_RUN=40` 条素材、`MAX_AUDIO_SECONDS_PER_RUN=600` 秒，另限制每素材 200 段/200 条 span、单段 400 字；超限素材标 `skipped` 并说明原因，不把上游容量当兜底。
+- 记录与生命周期：仍复用 `ai_assistant_records`，新增 kind `media_transcript`，id 为 `trn-<sha256[:40]>`，载荷含 `model/source_signature/items[]/summary/progress/message/started_at/finished_at`，逐素材段落保存在 `items[].segments[{id,start,end,text}]`（源素材秒）、时间线↔源素材映射保存在 `items[].spans[{clip_id,timeline_start,timeline_duration,in_point,speed}]`，计费口径的音频秒汇总在 `summary.audio_seconds`（逐素材另存 `audio_seconds`）；状态 `queued/running/succeeded/partial/empty/failed`，源素材或时间线变化后由读取接口计算 `stale=true`；`run_token` 乐观锁、最多 2 并发、遗留 running 超过 15 分钟由 `recover()` 与读取路径判失败。无新表、无迁移。
+- 接口：`GET /api/projects/{project_id}/smart-edit/{sequence_id}/transcript`（登录读取）与 `POST …/transcript`（CSRF，body `{force:boolean}` 重新转写），同一范围运行中返回 409。`editor_read.analysis.transcript` 与 `understanding` 并列暴露状态、段落数与音频秒数；助手 system prompt 明确 `audio_subtitle` 只能使用已完成/部分成功的转写证据，`missing/stale/empty/failed` 时必须说明原因并建议先点「转写音频」，不得把剧本对白冒充转写结果。
+- 时间映射与新动作：`audio_subtitle` 段起点按 `timeline_start = span.timeline_start + (seg.start - span.in_point) / span.speed` 计算并钳制在该素材的可听区间内，段尾按镜头边界收短，超长句复用既有显式断行规则拆条；与手工文字或其它文字片段重叠的段落计入 `skipped_count`；无可用转写时返回 `empty` 或明确错误，绝不回退剧本对白。预览项为 `asset_id/beat_id/segment_id/name/start/duration/reason/action`，结果另带 `count/skipped_count/inaudible_count/replaced_count/total_duration`；确认沿用 revision CAS、幂等与同一事务，只替换 `origin=auto_subtitle` 的上一次自动字幕，手工文字永不覆盖。
+- 前端：`frontend/src/director2/assistant/DirectorAssistant.tsx` 在画面理解卡片之外新增独立「音频转写」卡片（状态标签、进度、`模型 · N 段 / M 秒音频 · 完成时间`、可展开「逐段语音依据」逐素材与逐段时间、失败清单、开始/重新转写的按秒计费与外发披露）；`editing-tools.ts` 增加第 7 个动作「音轨字幕」；`smart-edit/api.ts` 增加 `MediaTranscript` 类型与读写请求。授权弹窗逐条列出字幕时间、文本与来源。两处桌面验收修复：运行中不再把服务端预置的「等待转写」素材列进「未转成功」；两张卡片的确认气泡统一限宽 340px（`assistant.css`）。
+- 兼容性：既有 6 个剪辑动作语义与参数不变；转写供应商未配置、超时或单素材失败只影响 `audio_subtitle`，手动剪辑、`subtitle_arrange` 与旧提案不受影响；`media_transcript` 记录只用于回显与铺字幕，删除后界面回到「未开始」。依赖服务器 FFmpeg/ffprobe 与已配置的转写模型。
+- 受影响文件：后端 `backend/app/{llm_client,llm_provider}.py`、`backend/app/director_assistant/transcription.py`（新增）、`backend/app/director_assistant/{editing,protocol,service}.py`、`backend/app/media_studio/routers/smart_edit_router.py`、`backend/tests/test_transcription.py`（新增）、`backend/tests/test_editing_assistant.py`；前端 `frontend/src/director2/assistant/{DirectorAssistant.tsx,editing-tools.ts,assistant.css}`、`frontend/src/director2/smart-edit/api.ts`、`frontend/src/director2/assistant/editing-tools.test.ts`；文档 README、`功能说明与扩展指南.md`、`docs/API.md`、`docs/导演台流程与界面结构.md`、`docs/智能剪辑助手开发计划.md`。
+- 验证命令：`E:\anaconda3\python.exe -X utf8 -m unittest backend.tests.test_transcription backend.tests.test_media_understanding backend.tests.test_editing_assistant backend.tests.test_director_assistant backend.tests.test_smart_edit backend.tests.test_video_analysis -q` 127 项通过；全量 `unittest discover -s backend/tests -p 'test_*.py' -q` 911 项，仅 2 项既有失败（`test_xiaji` 导入已删除模块、剧本提示词大小写断言）；`pnpm --dir frontend build` 通过（57 个测试文件、327 项、`tsc -b` 干净）。5173 桌面浅暗实测：2 条 7 秒自产物有声素材 → 转写 2/2 条、3 段、14.0 计费秒 → 授权弹窗 4 条字幕（含「长句已分行」「已按镜头边界收短」）→ 确认写入文字轨 6 个片段 → 工具栏单步撤销恢复 2 个片段 → 重铺与硬刷新持久化 → 手工文字在同一次重铺后保留，且铺字幕不把转写标记为 `stale`。
+- 清理：验收账号、工程、剪辑文档、5 条助手记录与 2 个七牛云对象已按 ID 删除；转写探针与中间 WAV 只放在仓库外的系统临时目录并已清理；未提交生成或导出任务，未向供应商外发真人音频。
+- 回滚：删除 `transcription.py`、`test_transcription.py`，撤销 `transcribe()`、transcript 路由、`audio_subtitle` 动作与前端卡片即可；历史 `media_transcript` 记录无人读取即失效，已铺设的字幕可在时间线上单步撤销或改用 `subtitle_arrange` 重铺；无数据库迁移、无供应商切换。
+- 后续计划：A6 语义分段与废片识别把转写段落作为语义段输入之一，新增 `remove_waste` 的可解释预览与确定性移除；见 `docs/智能剪辑助手开发计划.md` 第 5 节。
+
+## 2026-10-22 无限画布 V4.0（操作手感与生成闭环）
+
+- 日期与原因：用户手测 V3.1 后认为画布操作手感与参考平台差距较大，且生成闭环不完整。本版按「操作手感 + 生成闭环两层一起做」重做画布外壳与节点交互，并补齐生成节点内联、分支生成、结果版本与独立结果节点。仅改前端画布模块、样式、测试与文档；后端接口、数据库、`schemaVersion 2`、`jobs` 表、工作流注册表与 ComfyUI 配置不变。
+- 布局与工具：编辑器改为顶部命令栏 + 左侧工具轨 + 画布 + 右侧常驻 `CanvasSidePanel` + 底部视图栏。工具轨含选择（V）/移动（H）/添加/画板/作品库/撤销/重做/删除/快捷键说明；底栏含小地图（M）、缩小/当前缩放/放大/适应画布与 1–9/0 视角。视角存 `canvasSettings.viewpoints[10]`，`Shift+数字` 保存当前相机，数字跳转；工具状态 `select | pan` 控制左键拖拽语义。
+- 添加与菜单：画布右键菜单提供生成节点、文本、图片占位、画板、作品库插入、图片地址、粘贴与全选；节点右键菜单提供节点属性、生成、向右/向下生成、复制、删除。`T/A/G/F` 直接添加节点；无指针落点的添加调用 `findCanvasFreePosition` 做碰撞避让，`revealAddedNode` 在节点超出视口时用 `setCenter` 平移。菜单使用 Ant Design Menu，靠近视口底部时自动限高并滚动。
+- 节点交互：六类节点由 `NodeFloatingToolbar` 提供快捷操作，`NodeResizer` 提供八向缩放；生成节点工具栏含生成/重新生成 + 分支下拉、插入、属性、复制、下载与删除，媒体节点含「以此生成」。句柄按媒体类型着色（图片 `#f19d3c`、视频 `#5b9cf5`、文字 `#9d7cf4`）。拖动节点用 `computeSnapGuides` 以 `6 / zoom` 阈值吸附并绘制 `.canvas-guide`，开关为 `guidesVisible`。
+- 连线与设置：`canvasSettings.connectionMode` 为 `off | compact | full`；`compact` 用选中节点/边沿上下游闭包过滤边并短暂保留新边，`off` 只隐藏渲染、不删数据。设置新增 `generationDisplayMode`、`gridVisible`、`minimapVisible`、`guidesVisible`、`globalPrompt`（2000 字）与 `viewpoints`；`readCanvasSettings` 对旧草稿逐字段回退默认值。
+- 面板：`CanvasSidePanel.tsx` 常驻右侧，Tab 为属性/图层/历史。属性在选中节点时渲染检查器，否则显示画布信息与设置；图层支持搜索、定位、复制、删除；历史合并本地撤销/重做与服务端版本恢复。原节点检查器 Drawer 由常驻面板取代，素材 Drawer 保留。
+- 生成闭环：生成节点卡片内联提示词，结果区显示媒体、提示词摘要、双击预览与结果版本切换（`resultHistory` 最多 12 条，`resultIndex` 指向当前版本）。`canvasResultVersionPatch` 在任务快照变化时去重追加，`selectCanvasResultVersion` 切换版本。`branchGenerate(nodeId, direction)` 从生成/文本/图片节点读取提示词，优先继承生成节点工作流与参数，参考数量不兼容时用 `pickCanvasGenerationMode` 重选；`nextCanvasBranchSlot` 按方向与碰撞寻找槽位，图片源自动连边，相机按源+新节点包围盒自适应。全局提示词只用于新建节点与分支无提示词兜底。
+- 独立结果：`generationDisplayMode === "independent"` 时，终止任务快照在 `appendResultNode` 中自动插入结果节点（`auto` 不抢选择），`autoInsertedJobsRef` 加 `sourceJobId` 双重去重，避免轮询/刷新重复插入；结果节点仍写 `assetPath`/`sourceJobId`/`mediaKind`。`aggregate` 保留原行为。
+- 持久化与兼容：新增字段全部写入画布草稿 JSON，服务端仍按不透明 JSON 保存，自动保存/重试/8 MB/409/版本历史不变；`schemaVersion` 仍为 2，旧前端忽略新字段。回滚只需撤销画布前端、样式、测试与文档；已保存的 `branchDirection`/`resultHistory`/画布设置留在 JSON 中不影响旧前端，生成节点仍可回到任务页。
+- 受影响文件：`frontend/src/canvas/{CanvasEditor.tsx, CanvasNodes.tsx, CanvasSidePanel.tsx（新增）, CanvasInspector.tsx, CanvasGeneratorInspector.tsx, canvas-model.ts, canvas-generation.ts, canvas.css}`、`canvas-model.test.ts`（37 项）、`canvas-generation.test.ts`（18 项）、`canvas-save.test.ts`（8 项）；`docs/无限画布开发计划.md`、`功能说明与扩展指南.md`、`README.md`。
+- 验证命令：`pnpm --dir frontend build`（57 个测试文件、343 项通过；`tsc -b` 干净；`✓ built in 16.54s`）；`python -X utf8 -m unittest backend.tests.test_canvas_store -q`（7 项通过）。隔离 SQLite 后端（7866）+ 隔离 Vite（5174）+ 无头 Chrome/CDP 桌面 1440×900 浅暗实测：右键菜单限高与布局、分支生成避让/连线/揭视、G 空位添加、H/V/M、视角、连线三档、缩放、图层/历史、全局提示词预填、对齐参考线均正常；刷新后 9 节点/1 边、提示词、独立模式、完全连线、视口与视角 1 恢复；控制台仅有既有的 Ant Design `List` 弃用警告。未提交真实生成任务，独立模式自动插入与真实出片待远端 ComfyUI 可用时补验。
+- 后续计划：V3.2 文字节点→提示词与连线即时校验已完成（见上一条）；V3.3 参数快照与结果追溯已完成（见上方记录）；V4.1 画布管理（搜索/复制/导入导出/缩略图）见 `docs/无限画布开发计划.md`。
+
+## 2026-10-22 无限画布 V3.1（生成节点与任务联动）
+
+- 原因与范围：V2.5 后画布可摆放和整理素材，但不能在画布内发起生成。V3.0 spike 验证了 `/api/modes` 参数 schema、图片节点同源取字节和 `POST /api/jobs` 契约后，本版新增 `generator` 节点，把工作流选择、提示词、创作参数、有序参考图、任务提交/轮询/取消和结果回填接进画布。只改前端画布模块、样式、测试与文档，不改后端接口、数据库、工作流注册表或 ComfyUI 配置；任务仍以 `jobs` 表为准。
+- 节点与检查器：`generator` 节点左侧 `in` 接收图片参考、右侧 `out` 可继续连线；卡片显示工作流名、状态、提示词摘要、参考图数量、真实进度和结果缩略图，双击结果预览。检查器分「生成设置 / 参考图 / 任务 / 生成结果」四段：工作流 Select、提示词 TextArea、`primary` 参数内联、`advanced` 收进「更多设置」、`internal` 不显示也不提交；`ui_visible_when` 控制联动隐藏，切换工作流重置默认值并清空旧任务与结果。
+- 参考图与提交：从所有指向生成节点的图片入边按边数组顺序取参考图并去重，检查器显示 1..n 序号，提交顺序与 R2V 的 `<Picture n>` 一致；文字节点暂不参与。地址优先 `assetPath → /api/media/{path}`，使用同源 `fetch(..., {credentials:"include"})` + `fileFromReferenceBlob` 构造 `File`；跨域地址不通过后端代理抓取。提交前校验提示词、`min_references`/`max_references` 和每个地址，随后以 multipart `mode`、`prompt`、`options`（仅可见参数，数值转 number）、有序 `references`、`title` 调用 `POST /api/jobs` 并带 `X-CSRF-Token`。不新增接口、不开放任意 URL 抓取。
+- 状态与恢复：`jobId`、`jobStatus`、`jobError`、`resultUrl`、`resultKind`、`resultPath` 写入节点 `data`，随 1.2 秒防抖草稿保存；运行态另存 `liveJobs` 内存快照。只对 `queued`/`running` 每 2500ms 轮询 `GET /api/jobs/{id}`，全部终止后自动停止；刷新后从节点数据恢复任务号继续轮询。进度只取后端 `progress`，错误直接展示后端 `error`，不伪造进度、不显示模型思考过程；运行中禁用参数与提交，可调用 `POST /api/jobs/{id}/cancel`。
+- 结果：显示首个产物缩略图、预览和可复制素材路径；「插入为图片/视频节点」在生成节点右侧 48px 创建对应节点并写入 `assetPath`、`sourceJobId`、`mediaKind`；「在任务详情中打开」跳转现有任务页。任务删除或产物过期后画布不另存副本，仍以任务详情为准。
+- UI：布尔参数行改为两列 grid（标签 + 开关，说明占整行），修复标签被挤成竖排；生成节点与检查器沿用 Ant Design 和 `--studio-*` 主题变量，桌面浅色/暗色检查通过。
+- 受影响文件：新增 `frontend/src/canvas/canvas-generation.ts`、`canvas-generation.test.ts`、`CanvasGeneratorInspector.tsx`；修改 `CanvasEditor.tsx`（生成节点注册、模式查询、提交/轮询/取消、结果插入、任务页跳转）、`CanvasNodes.tsx`（`GeneratorCanvasNode` 与上下文）、`canvas-model.ts`/`canvas-model.test.ts`（生成节点工厂与类型）、`canvas.css`（生成节点与检查器样式）；同步 README、扩展指南和开发计划。后端与数据库无改动。
+- 验证：`pnpm --dir frontend test` 57 个测试文件、327 项通过（画布模型 27 项、保存 8 项、生成逻辑 12 项）；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过（`✓ built in 11.20s`）；`python -X utf8 -m unittest backend.tests.test_canvas_store` 7 项通过。桌面验收使用隔离 SQLite 后端（7866）与隔离 Vite 开发页（5174，代理到 7866，局域网地址访问）+ 无头 Chrome/CDP：真实提交 T2V（隔离后端故意指向不可达 ComfyUI）返回 `interrupted`，检查器显示「已中断」、任务号和后端错误；拦截 `POST /api/jobs` 与 `GET /api/jobs/{id}` 模拟运行中 42% 进度、提交禁用与停止按钮，模拟成功后显示结果缩略图、「重新生成」「在任务详情中打开」，点击插入在右侧生成带来源的图片节点；浅色/暗色下设置、更多设置、参考图、状态、错误和结果区对比度正常，控制台无应用错误。未访问真实 MySQL、7865 后端，未启动或切换 ComfyUI。
+- 清理：验收使用临时管理员、SQLite 数据、Vite 临时配置、无头 Chrome 配置、请求拦截脚本与截图，均位于已忽略的 `.tmp/` 与 `test-results/`，验收后已删除；未触碰真实业务数据。
+- 兼容与回滚：`generator` 是新增节点类型，旧前端会按 V2.1 的未知节点提示卡保留其数据；`schemaVersion` 仍为 2，节点 `data` 只新增可选字段，服务端仍按不透明 JSON 保存。回滚仅撤销画布生成节点、检查器、生成逻辑、样式、测试与文档；已保存的生成节点在旧前端显示为未知节点，任务仍可在任务页访问；不删除 `jobs`、画布草稿或历史版本。
+- 后续计划：V3.2 文字节点→提示词与连线即时校验已完成；V3.3 补参数快照与结果节点回链；详见 `docs/无限画布开发计划.md` 第 6 节。
+
+## 2026-10-22 无限画布 V2.5（保存可靠性与性能）
+
+- 原因与范围：V2.4 后画布已具备拖放与检查器，但保存失败只停在错误态、接近 8 MB 会静默失败、节点多时全量渲染、刷新后视口丢失。本版补齐保存重试、体积预警与拒绝、超过 300 节点的按需渲染和视口持久化。只改前端保存/渲染/视口逻辑、样式与测试，不涉及后端接口、表结构、工作流注册表或 ComfyUI 配置；草稿仍为 `{nodes, edges, schemaVersion, canvasSettings}` JSON，`canvasSettings.viewport` 是新增可选字段。
+- 保存状态机与重试：`CanvasSaveState` 扩展为 `saved | dirty | saving | retrying | error | conflict`，状态标签新增「重试中」。保存失败后按 2 秒、5 秒、10 秒退避自动重试，最多 3 次；手动保存会立即重试。仅非 `ApiRequestError` 的网络异常、5xx、408、429 可重试；其它 4xx 直接失败；409 仍立即暂停自动保存并显示「加载最新版本」，不进入重试。卸载、重新加载或成功保存都会清理计时器；重试期间继续编辑不会丢失最新内容，保存完成后按内容是否仍为当前快照回到 `saved` 或 `dirty`。
+- 体积保护：保存前用 `TextEncoder` 计算 UTF-8 字节数。≥6 MB 显示警示条「画布体积约 X MB，接近 8 MB 上限」；>8 MB 拒绝保存、显示「超过 8 MB 上限」错误条且不重试，并提示删除大型内嵌图片或改用素材地址。手动保存与自动保存共用同一检查，不会出现静默失败。阈值与后端 `MAX_CONTENT_BYTES = 8 * 1024 * 1024` 一致。
+- 大画布渲染：节点数超过 300 时给 React Flow 设置 `onlyRenderVisibleElements`，只渲染视口内节点；阈值不改变节点数组、历史栈、MiniMap 数据或保存内容，301 节点画布仍由 MiniMap 显示全部节点。300 及以下保持原有全量渲染。
+- 视口持久化：`onMoveEnd` 把 `{x, y, zoom}` 以 0.001 精度写入 `canvasSettings.viewport`；坐标变化 <0.5px、缩放变化 <0.001 时忽略。坐标和缩放均需有限且在 0.1–2 范围内才被视为合法。刷新后存在合法视口时作为 `defaultViewport` 并关闭 `fitView`，否则自动适配；从历史版本恢复时保留当前实时视口，避免画面跳走。视口变更会让画布进入待保存并随下一次防抖保存写入。首次打开没有视口记录的画布会因 `fitView` 保存一次视口，可能多出一个历史版本，属于已知限制。
+- 受影响文件：`frontend/src/canvas/canvas-save.ts`（新增：状态类型、重试序列/可重试判定、409 版本解析、状态转换、UTF-8 体积/阈值/格式化、虚拟化阈值）、`canvas-save.test.ts`（新增 8 项）、`canvas-model.ts`（`CANVAS_MIN_ZOOM`/`CANVAS_MAX_ZOOM`、`readCanvasViewport`、`canvasViewportChanged`）、`canvas-model.test.ts`（新增 2 项）、`CanvasEditor.tsx`（重试计时器、体积状态、预警/错误条、视口记录与恢复、按需渲染）、`canvas.css`（重试状态与保存提示条）；同步 README、扩展指南和开发计划。后端与数据库无改动。
+- 验证：`pnpm --dir frontend test` 56 个测试文件、314 项通过（画布模型 26 项、保存逻辑 8 项）；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过；`python -X utf8 -m unittest backend.tests.test_canvas_store` 7 项通过。桌面验收使用隔离 SQLite 后端（7866）与隔离 Vite 开发页（5174，代理到 7866，局域网地址访问）：断网添加节点后显示「重试中（2/3）」，恢复网络后下一次退避自动保存成功；6.2 MB 画布显示预警；超过 8 MB 的画布添加节点后显示错误且等待 7 秒未重试；外部推进版本后编辑触发 409，点击「加载最新版本」恢复且版本未额外递增；301 节点画布缩放到局部后仅渲染 80 个节点 DOM、MiniMap 保持 301 个，点击可选中并打开检查器；独立无头 Chrome 通过 CDP 原生鼠标拖动节点，草稿位置 (900,520)→(1040.75,607.30)、版本 4→5；视口刷新前后均为 `translate(-51.765px, -179.967px) scale(1.631)`；浅色与暗色下预警/错误条和状态标签对比度正常，控制台无错误。
+- 清理：验收使用临时管理员、SQLite 数据、Vite 临时配置、无头 Chrome 页面与脚本，均位于已忽略的 `.tmp/v25/`，验收后已删除；未访问真实 MySQL 与 7865 后端，未启动或切换 ComfyUI。
+- 兼容与回滚：`canvasSettings.viewport` 为可选字段，旧前端会忽略但保留；旧草稿没有该字段时仍按自动适配打开。保存状态、重试与体积检查只在前端，回滚仅撤销 V2.5 前端逻辑、样式、测试与文档，不删除画布表、草稿或历史版本；回滚后视口不再恢复，已写入的 `viewport` 留在 JSON 中不影响旧前端。保存重试不影响服务器乐观锁语义。
+- 后续计划：V2 已完成；V3.0 生成节点技术 spike 见 `docs/无限画布开发计划.md` 第 6 节。
+
+## 2026-10-21 无限画布 V2.4（作品库拖放）
+
+- 原因与范围：V2.3 已有点击插入与检查器，但素材库仍是带遮罩的 Modal，用户无法把素材直接放到画布上的目标位置。本版把素材库改为非模态右侧 Drawer，并为图片/视频卡片增加 HTML5 拖放、落点反馈和统一的插入路径。只改前端组件、模型函数、样式与测试，不涉及后端接口、表结构、工作流注册表或 ComfyUI 配置，画布 JSON 结构不变。
+- 素材面板：原 `Modal width={880}` 改为 Ant Design `Drawer`（`placement="right"`、`size={560}`、`mask={false}`、`styles.root.top=56`、`onClose` 可关闭、底部「完成」）。打开 Drawer 时画布仍可平移、缩放并接收落点；点击素材插入后 Drawer 不自动关闭，便于连续插入，替换模式仍沿用检查器的 `assetTargetNodeId` 分支并在替换后关闭。
+- 拖放协议：卡片在素材可用且非替换模式时设置 `draggable`，`onDragStart` 通过自定义 MIME `application/x-zly-canvas-asset` 写入 `{source:"zly-canvas-library", version:1, item}`。`canvas-model.ts` 的 `encodeCanvasAssetDrag`/`decodeCanvasAssetDrag` 在写入和读取两端校验来源、版本、媒体类型、交付状态与 URL 安全性；`local`/`expired`/无可用地址/任意协议/音频条目不会被拖动或在落点被拒绝。
+- 落点与插入：画布容器接管 `onDragEnter`/`onDragOver`/`onDragLeave`/`onDrop`，`onDragOver` 设置 `dropEffect="copy"`；嵌套子元素导致的 `dragleave` 用深度计数处理，`drop`/`dragend` 清理落点状态。落点先转成相对 `.canvas-stage` 的屏幕坐标，再经 `useReactFlow().screenToFlowPosition` 转成流坐标，传入统一的 `insertLibraryItem(item, dropAt)`。
+- 统一插入函数：`createLibraryNode(item, position, {center})` 统一做可用性校验、节点工厂、`assetPath`/`sourceJobId` 溯源和居中偏移，节点尺寸由 `CANVAS_LIBRARY_NODE_SIZES`（图片 320×200、视频 360×220）提供。点击插入仍使用窗口中心并叠加 `nodes.length % 6 * 28` 级联偏移；拖放则把节点中心对齐指针落点。两条路径共用同一函数和同一自动保存/撤销链路。
+- 落点反馈：拖放时显示 `.canvas-drop-feedback` 虚线高亮层、顶部「松开鼠标插入图片/视频」提示和按当前缩放计算的节点幽灵（尺寸 = 节点尺寸 × `useViewport().zoom`），鼠标离开画布或结束拖放后消失；幽灵使用 `pointer-events: none`，不会干扰命中测试。
+- 受影响文件：`frontend/src/canvas/CanvasEditor.tsx`（Drawer、拖放处理器、落点反馈、统一插入函数）、`canvas-model.ts`（拖放 MIME/编解码、`CANVAS_LIBRARY_NODE_SIZES`、`createLibraryNode`）、`canvas-model.test.ts`（拖放载荷与落点 4 项）、`canvas.css`（素材 Drawer、拖放反馈、幽灵与光标样式）；同步 README、扩展指南和开发计划。后端与数据库无改动。
+- 验证：`pnpm --dir frontend exec vitest run src/canvas/canvas-model.test.ts` 24 项通过；`pnpm --dir frontend test` 55 个测试文件、304 项通过；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过；`python -X utf8 -m unittest backend.tests.test_canvas_store` 7 项通过。桌面验收使用隔离 SQLite 后端（7866）与隔离 Vite 开发页（5174，代理到 7866，局域网地址访问）：Drawer 打开时画布 `elementFromPoint` 仍命中 `react-flow__pane`；CDP 真实拖拽在 50%/100%/200% 缩放下落点流坐标 (848.96,454.85)/(848.96,482.87)/(848.96,496.88) 与节点中心 (849,455)/(849,483)/(849,497) 一致；图片和视频均可插入，视频草稿保留 `mediaKind: "video"` 与 360×220；点击插入按窗口中心 + 级联偏移落位且 Drawer 保持打开；拖放与点击插入均可 `Ctrl+Z` 撤销并写回服务器；暗色下幽灵按 2× 显示 640×400，Drawer、提示与卡片对比度正常，浏览器控制台无错误。
+- 清理：验收使用临时管理员、SQLite 数据、Vite 临时配置、无头 Chrome 页面与脚本，均位于已忽略的 `.tmp/v24/`，验收后已删除；未访问真实 MySQL 与 7865 后端，未启动或切换 ComfyUI。
+- 兼容与回滚：草稿仍为 `{nodes, edges, schemaVersion, canvasSettings}` JSON，插入节点仍使用既有 `image`/`video` 类型与 `data.url`、`label`、`mediaKind`、`assetPath`、`sourceJobId`，旧 V1/V2 前端可继续打开；拖放载荷只存在于浏览器内存，不写入草稿。回滚仅撤销 V2.4 前端 Drawer、拖放处理器、模型函数、样式与文档，不删除画布表、草稿或历史版本；回滚后点击插入仍可用，已保存的素材节点保持有效。
+- 后续计划：V2.5 保存可靠性与性能与 V2.6 文档回归已完成；下一阶段 V3.0 技术 spike 见 `docs/无限画布开发计划.md`。
+
+## 2026-10-21 无限画布 V2.3（节点检查器）
+
+- 原因与范围：V2.2 完成选择与对齐后，V2.3 补齐节点属性的统一编辑入口，把原「修改图片」弹窗、图片地址修改和来源查看合并到右侧检查器，同时覆盖文字与画板。本版只改前端组件、样式与测试，不涉及后端接口、表结构、工作流注册表或 ComfyUI 配置；画布 JSON 结构不变。
+- 检查器交互：选中单个节点时自动打开右侧 Ant Design Drawer；Drawer 无遮罩并 `top: 56px` 下移到编辑器顶栏以下，画布仍可平移、缩放和选择其他节点。关闭后可点工具栏「编辑选中节点属性」重新打开；多选或选中边时不显示检查器。原工具栏图片编辑图标改为 `SlidersHorizontal`，编辑入口不再依赖节点类型。
+- 属性范围：图片/视频节点可编辑标签、说明/字幕和地址，查看媒体类型、`assetPath`、`sourceJobId`，并打开预览或从作品库替换；文字节点编辑 `text`；画板编辑 `label` 并显示当前尺寸；`unknown` 节点保持只读，显示提示、原始类型与节点 ID。
+- 状态与保存：检查器通过 `useReactFlow().updateNodeData` 写回节点 `data`，复用编辑器既有 `nodes` 状态、1.2 秒防抖自动保存和 350 毫秒历史快照；撤销/重做、刷新恢复和冲突处理没有第二套状态。URL 使用组件内草稿，只有空值或合法值写回节点，非法输入只显示行内错误，不进入自动保存。
+- 媒体 URL 校验：`canvas-model.ts` 新增 `isSafeMediaUrl(value, kind)`。图片接受 `http(s)://`、站内 `/...` 和 `data:image/`；视频接受 `http(s)://` 与站内 `/...`，不接受 `data:` 或任意协议。空地址允许保存为占位节点；添加图片、检查器与历史入口共用同一规则。
+- 作品库替换：原作品库弹窗增加替换模式，通过 `assetTargetNodeId` 区分插入与替换。替换模式固定当前媒体类型、隐藏图片/视频切换，点击素材后更新 `url`、`assetPath`、`sourceJobId`、`mediaKind` 并保留已有标签；插入模式仍按原逻辑在视口中心创建节点。插入与替换共用 `insertLibraryItem` 分支，关闭弹窗时清空替换目标。
+- 受影响文件：`frontend/src/canvas/CanvasInspector.tsx`（新增检查器主体）、`CanvasEditor.tsx`（单选自动打开、检查器 Drawer、插入/替换分支、添加图片入口）、`canvas-model.ts`（`CanvasMediaKind`、`isSafeMediaUrl`）、`canvas-model.test.ts`（媒体 URL 校验 2 项）、`canvas.css`（检查器与替换提示样式）；同步 README、扩展指南、开发计划和本文档。后端与数据库无改动。
+- 验证：`pnpm --dir frontend exec vitest run src/canvas/canvas-model.test.ts` 20 项通过；`pnpm --dir frontend test` 55 个测试文件、300 项通过；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过；`python -X utf8 -m unittest backend.tests.test_canvas_store` 7 项通过。桌面验收使用隔离 SQLite 后端（7866）与隔离 Vite 开发页（5174，代理到 7866，局域网地址访问）：标签/说明修改后草稿版本递增，原生输入事件到「已保存」耗时 1310ms；`javascript:alert(1)` 与视频 `data:video/mp4` 显示行内错误且未写入草稿；作品库替换更新来源并保留标签；预览、文字/画板/视频/未知节点检查器正常；文本修改后真实 `Ctrl+Z` 恢复；浅色与暗色下 Drawer、输入框、提示与来源信息对比度正常，浏览器控制台无应用错误。
+- 清理：验收使用临时管理员、SQLite 数据、Vite 临时配置、无头 Chrome 页面、截图与脚本，均位于已忽略的 `.tmp/canvas-v23/`，验收后已删除；未访问真实 MySQL 与 7865 后端。
+- 兼容与回滚：草稿仍为 `{nodes, edges, schemaVersion, canvasSettings}` JSON，检查器只写入既有 `data.label`、`data.caption`、`data.url`、`data.text` 和来源字段，旧前端可继续打开；`unknown` 节点仍不参与编辑。回滚仅撤销 V2.3 前端组件、样式、测试与文档，不删除画布表、草稿或历史版本；回滚后「修改图片」入口需随旧代码恢复，已保存的标签/字幕/地址保持有效。
+- 后续计划：V2.4 作品库拖放已完成；V2.5 保存可靠性与性能、V2.6 文档与回归见 `docs/无限画布开发计划.md`。
+
+## 2026-10-21 无限画布 V2.2（多选、对齐与连线管理）
+
+- 原因与范围：V2.1 稳固节点模型后，V2 的下一增量补齐编辑器的批量选择与整理能力，包括多选复制/删除、连线的选择与删除、六向对齐、水平/垂直等距和快捷键说明。本版仍只改前端、前端测试与样式，不涉及后端接口、表结构、工作流注册表或 ComfyUI 配置；画布 JSON 结构不变。
+- 选择模型：编辑器状态由单个 `selectedId` 改为 `selectedNodeIds` 和 `selectedEdgeIds`，通过 React Flow 的 `useOnSelectionChange` 接收节点与边选择。多选使用库默认键位：Windows/Linux 为 `Ctrl + 点击`，macOS 为 `⌘ + 点击`；框选为 `Shift + 拖拽`。点击空白、应用历史快照或删除后清空选择。工具栏按节点/边分别显示计数与可用性。
+- 多选复制：`duplicateCanvasSelection(nodes, edges, selectedNodeIds, 32)` 为选中节点生成新 ID 并把位置偏移 32px，只复制源和目标都在选择内的边，再用 `buildEdgeId` 生成新边 ID；复制结果替换当前选择。函数不修改入参数组，空选择返回空结果。
+- 多选删除：删除选中节点时同时移除所有关联边（无论另一端是否被选中），选中边可单独删除；工具栏删除与 `Delete`/`Backspace` 走同一处理路径，结果进入既有撤销/重做历史。
+- 对齐与分布：工具栏「对齐与分布」提供左对齐、水平居中、右对齐、顶部对齐、垂直居中、底部对齐、水平等距、垂直等距。`alignCanvasNodes` 按所有选中节点的联合包围盒计算目标坐标；`distributeCanvasNodes` 至少需要 3 个节点，按轴向排序后保持首尾位置并均分剩余间距。节点尺寸优先取 `measured.width/height`，缺失时取 `style.width/height`，再取节点顶层 `width/height`；仍缺失按 0 处理。
+- 撤销语义：执行对齐/分布前先调用 `flushHistory` 把当前状态压入历史栈，再应用位移，因此一次对齐操作可一步撤销；位置更新只影响 `position`，不重建节点或边。
+- 快捷键说明：工具栏新增 Popover，列出撤销、重做、复制、删除、多选、框选、平移/缩放和双击预览。键盘处理跳过 `input/textarea/select/contenteditable`，并在图片地址弹窗、历史版本、素材库和媒体预览打开时禁用，避免与表单输入冲突。
+- 受影响文件：`frontend/src/canvas/CanvasEditor.tsx`（选择状态、工具栏、多选复制/删除、对齐调度、快捷键）、`canvas-model.ts`（`alignCanvasNodes`、`distributeCanvasNodes`、`duplicateCanvasSelection` 与类型）、`canvas-model.test.ts`、`canvas.css`（快捷键 Popover 样式）；同步 README、扩展指南、开发计划和本文档。后端与数据库无改动。
+- 验证：`pnpm --dir frontend exec vitest run src/canvas/canvas-model.test.ts` 18 项通过；`pnpm --dir frontend test` 55 个测试文件、298 项通过；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过；`python -X utf8 -m unittest backend.tests.test_canvas_store` 7 项通过。桌面验收使用隔离 SQLite 后端（7866）与隔离 Vite 开发页（5174，代理到 7866，局域网地址访问），headless Chrome 通过 CDP 实际派发鼠标和键盘事件：三个节点多选并顶部对齐后坐标统一，真实 `Ctrl+Z` 恢复原坐标且撤销/重做按钮状态同步；多选复制节点 3→6、内部边 2→4，撤销恢复；多选删除清理关联边，撤销恢复；单条边删除只减少边，撤销恢复；浅色/暗色主题和快捷键 Popover 对比度正常，浏览器控制台无错误。
+- 清理：验收使用临时管理员、SQLite 数据、Vite 临时配置、无头 Chrome 配置、截图与脚本，均位于已忽略的 `.tmp/canvas-v22/`，验收后已删除；未访问真实 MySQL 与 7865 后端。
+- 兼容与回滚：选择状态和快捷键只存在于前端运行时，不写入草稿；对齐/分布/复制/删除仍通过既有序列化入口保存，草稿仍是 `{nodes, edges, schemaVersion, canvasSettings}` JSON，旧 V0/V1 前端可继续打开。回滚仅撤销 V2.2 前端代码与文档，不删除画布表、草稿或历史版本；回滚后多选和对齐入口消失，但已保存的坐标和边保持有效。
+- 后续计划：V2.3 节点检查器、V2.4 作品库拖放、V2.5 保存可靠性与性能见 `docs/无限画布开发计划.md`。
+
+## 2026-10-21 无限画布 V2.1（节点模型与兼容层）
+
+- 原因与范围：在 V1 编辑能力上先稳固画布的数据模型，解决 `canvasSettings` 保存后丢失、`zIndex` 未保留，以及旧/新版本互开时未注册节点类型静默消失的问题。本版只改前端与前端测试，后端接口、表结构、工作流注册表和 ComfyUI 配置不变。
+- Schema 版本：`CanvasDraft` 新增 `schemaVersion`，当前版本为 2。`parseCanvasContent` 对缺少或非法版本的草稿按 1 读取，兼容 V0/V1；`serializeCanvasDraft` 始终写入当前版本，因此旧草稿在首次编辑保存后升级为 2。
+- 序列化范围：`serializeCanvasDraft(nodes, edges, options)` 现在同时写入 `schemaVersion`、可选的 `canvasSettings` 和节点 `zIndex`，并继续保留 ID、类型、位置、宽高、`parentId`、`extent`、`expandParent`、`draggable`、`style` 与 `data`。历史快照、自动保存、手动保存和冲突重载共用同一入口，避免设置只存在于服务器或只存在于撤销栈。
+- 未知节点兼容：加载时把不在 `text/image/video/artboard` 中的类型归一为 `unknown`，把原始类型写入 `data.originalType`，业务 `data` 原样保留；保存时把 `type` 还原为原始类型并从 `data` 移除 `originalType`。因此新版本创建的节点在旧前端打开、移动、复制和保存后不会丢失类型或数据，升级前端注册该类型后可继续编辑。
+- 未知节点卡片：新增 `UnknownCanvasNode`，显示「未识别节点」、原始类型和内容保留说明，保留左右连线句柄；节点可拖动、复制、删除，并参与撤销/重做与自动保存。删除未知节点时 React Flow 同时清理关联边。
+- 解析健壮性：解析阶段为缺失或非法的 `position` 回落 `{x:0,y:0}`，为非对象 `data` 回落 `{}`，并继续过滤缺少字符串 `id` 的节点；不做阻断式字段校验，避免旧草稿因单个字段异常无法打开。URL 协议仍在添加/修改入口校验。
+- 受影响文件：`frontend/src/canvas/canvas-model.ts`、`canvas-model.test.ts`、`CanvasNodes.tsx`、`CanvasEditor.tsx`、`canvas.css`；同步 README、扩展指南、开发计划和本文档。后端与数据库无改动。
+- 验证：`pnpm --dir frontend exec vitest run src/canvas/canvas-model.test.ts` 14 项通过；`pnpm --dir frontend test` 55 个测试文件、294 项通过；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过；`python -X utf8 -m unittest backend.tests.test_canvas_store` 7 项通过。桌面验收使用隔离 SQLite 后端（7866）与隔离 Vite 开发页（5174，代理到 7866，局域网地址访问）：含 `generator` 未知节点的草稿正常显示提示卡，指针拖动后自动保存仍保留原类型、`data`、`canvasSettings` 和 `zIndex`；删除节点同步删除关联边，`Ctrl/⌘ Z` 恢复节点与边；浅色和暗色主题均检查。
+- 清理：验收使用临时管理员、SQLite 数据、Vite 临时配置、无头 Chrome 配置、截图与脚本，均位于已忽略的 `.tmp/canvas-v21/`，验收后已删除；未访问真实 MySQL 与 7865 后端。
+- 兼容与回滚：服务端仍按不透明的 `{nodes, edges, ...}` JSON 保存，不认识 `schemaVersion` 或 `originalType`，接口和校验规则不变。回滚到 V1 前端可以打开 V2.1 草稿，`schemaVersion` 与 `canvasSettings` 会被忽略、未知类型节点仍会因未注册而无法渲染，但数据仍保留在服务器；回滚前应保留历史版本。回滚仅撤销本版前端代码与文档，不删除画布表、草稿或历史版本。
+- 后续计划：V2.2 起的多选、对齐、检查器、拖放和保存重试见 `docs/无限画布开发计划.md`。
+
+## 2026-10-21 无限画布 V1（新增当前基线）
+
+- 原因与范围：在 V0 JSON 画布上补齐编辑器内的生产效率能力，包括本机撤销/重做、复制选中节点、从作品库插入图片/视频，以及可预览的视频节点。V1 仍以 JSON 草稿和乐观锁持久化，不引入 Yjs 实时协作、分享管理或素材生成节点。
+- 撤销/重做：以 `serializeCanvasDraft` 生成的规范化 JSON 快照作为历史单元，变更停止 350 ms 后入栈，最多保留 50 步；新操作会截断重做分支，快照与当前内容相同或由程序应用历史时不记录。工具栏提供撤销/重做按钮，快捷键为 `Ctrl/⌘ Z`、`Ctrl/⌘ Shift Z` 和 `Ctrl/⌘ Y`；焦点在输入框、画板标题或弹层内时不拦截快捷键。刷新页面、加载服务器最新版本或恢复历史版本后历史栈重置，撤销结果参与正常自动保存。
+- 节点复制：复制选中节点时生成新节点 ID、完整复制 `data/style` 并把位置偏移 `32px`，新节点成为当前选中项；工具栏与 `Ctrl/⌘ D` 行为一致，复制不会写入服务器草稿之外的新数据结构。
+- 作品库接入：新增 `listCanvasLibraryItems` 复用既有 `GET /api/library`，只在弹窗打开时请求并缓存 30 秒。弹窗按图片/视频分组，过滤非图片/视频以及 `delivery_status` 为 `local`、`expired` 的素材；地址优先 `cloud_url`，其次 `/api/media/{path}`，最后 `download_url`。每个分组最多展示最近 80 项，点击后按当前视口中心插入节点，并保存 `assetPath` 与 `sourceJobId` 作为来源记录。后端接口、查询范围和账号隔离规则均未改动。
+- 视频节点：新增 `video` 节点类型，画布内以静音、循环、`metadata` 预加载的视频展示，带「视频」标识和播放按钮；点击播放或双击节点打开带原生控制条的预览弹窗。图片节点同步支持双击预览。视频地址仍来自作品库的站内媒体路径，不新增上传或转码链路。
+- 受影响文件：`frontend/src/canvas/canvas-model.ts`（历史模型、视频节点、作品库 URL/可用性规则）、`canvas-model.test.ts`、`canvas-api.ts`、`CanvasNodes.tsx`、`CanvasEditor.tsx`、`canvas.css`；同步 README、扩展指南与本文档。后端、数据库、工作流注册表和 ComfyUI 配置无改动。
+- 验证：`pnpm --dir frontend exec vitest run src/canvas/canvas-model.test.ts` 9 项通过；`pnpm --dir frontend test` 55 个测试文件、289 项通过；`pnpm --dir frontend build` 通过（内含 `tsc -b`）。桌面端在隔离 SQLite 后端（7866）和隔离 Vite 开发页（与 5173 同源代码）上验收：工具栏与快捷键撤销/重做、按钮与 `Ctrl/⌘ D` 复制、作品库图片/视频页签与插入、视频节点和预览弹窗、自动保存与刷新恢复、浅色/暗色主题均正常；真实 MySQL 与 7865 后端未被访问或修改。
+- 清理：隔离验证使用临时账号、SQLite 数据、生成的 PNG/MP4、Cookie 和临时 Vite 配置，验收后已全部删除；项目根目录、业务源码目录和真实画布数据未留下测试产物。
+- 兼容与回滚：草稿仍是 `{nodes, edges}` JSON，文字/图片/画板节点与 V0 完全兼容，旧画布无需迁移。新增 `video` 节点类型只存在于本次持久化内容中，回滚到 V0 前端后该类型无法渲染，回滚前需保留 V1 版本或先删除视频节点；撤销历史仅存在于当前页面，不回写服务器。回滚仅撤销 V1 前端代码与文档，不删除画布表、草稿或历史版本。
+- 后续计划：V2–V5 的增量拆解、已知限制、验证手册和新对话接手步骤见 `docs/无限画布开发计划.md`。
+
+## 2026-10-21 无限画布 V0
+
+- 原因与范围：参考 WorkRally 无限画布，先交付 JSON 优先的最小可用画布，验证 React 19、Ant Design 6、双主题和中文输入链路。V0 只包含画布列表、React Flow 编辑器、JSON 自动保存/版本历史，不接入 Yjs 实时协作、撤销栈、素材库或分享管理。入口为 `/canvas`（列表）和 `/canvas/:canvasId`（编辑器），桌面图标导航与移动导航新增「画布」。
+- 前端：新增 `frontend/src/canvas/`，使用 `@xyflow/react@12.12.0`。支持文字、图片、画板三类节点，边连接、MiniMap、缩放控件和平移；节点可拖动、删除，文字双击编辑，画板可缩放并改标题，图片地址仅接受 `http(s)`、站内路径或 `data:image/`。编辑器用 `colorMode` 与 `--studio-*` 语义变量跟随根主题，浅色与暗色分别验证。画布工作区固定为 `calc(100vh - 56px)`，全局生成页的底部留白规则显式排除 `.canvas-workspace-main`，避免 MiniMap 和缩放控件被撑出视口。
+- 持久化与一致性：新增 `sql/019_canvas.sql` 加法表 `canvas_projects`、`canvas_drafts`、`canvas_draft_versions`，MySQL 随既有启动迁移幂等建立；`backend/app/storage.py` 为临时 SQLite 建立同构表和索引。每个画布只有一份当前草稿和一个单调递增版本号，保存使用 `base_version` 乐观锁并在事务内锁定读，旧版本写入返回 409 及 `current_version`。内容必须包含 `nodes` 和 `edges`，上限 8 MB、3000 节点、6000 边；历史版本每个画布保留最近 200 条。校验和由服务端按内容计算，恢复历史版本会写成新的当前版本，不覆盖历史。
+- API 与安全：新增 `GET/POST /api/canvas/projects`、`GET/PATCH/DELETE /api/canvas/projects/{canvas_id}`、`PUT /api/canvas/projects/{canvas_id}/draft`、`GET /api/canvas/projects/{canvas_id}/versions`、`POST /api/canvas/projects/{canvas_id}/versions/{version}/restore`。全部接口要求登录，写操作校验 CSRF；画布按 `owner_user_id` 隔离，管理员也不能读取他人画布。删除画布依赖外键级联清理草稿和历史。
+- 前端行为：编辑变更后 1.2 秒防抖自动保存，顶部显示「保存中 / 已保存 / 未保存 / 保存失败 / 版本冲突」；手动保存提供即时反馈。版本冲突时不覆盖服务器内容，弹窗可重新加载最新版本。历史版本弹窗显示版本号、节点数和保存时间，可恢复并重新载入。列表显示节点数、当前版本和最近保存时间，支持新建、打开、重命名和删除。
+- 受影响文件：新增 `backend/app/canvas_store.py`、`backend/tests/test_canvas_store.py`、`sql/019_canvas.sql`、`frontend/src/canvas/{CanvasWorkspace,CanvasEditor,CanvasNodes,canvas-api,canvas-model,canvas.css}.tsx|ts|css` 及 `canvas-model.test.ts`；接线 `backend/app/{main.py,models.py,storage.py}`、`frontend/src/{App.tsx,paths.ts}`、`frontend/src/index.css`、`frontend/package.json`，并同步 README 与扩展指南。`frontend/src/router.tsx` 通过 `STUDIO_ROUTE_PATHS` 自动注册路由，无需额外分支。
+- 验证：`python -m unittest backend.tests.test_canvas_store -q` 7 项通过；`pnpm --dir frontend test` 55 个测试文件、284 项通过；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过。5173 桌面端浅色、暗色分别检查画布列表、编辑器、图片加载、画板、连线、自动保存、刷新恢复、历史版本恢复和 409 冲突；不进行移动端验收。真实 MySQL 验证数据已按画布、账号和会话 ID 清理。
+- 兼容与回滚：新增表和接口均为加法变更，不改任务队列、工作流、ComfyUI、模型配置或既有页面协议；未配置画布时其余功能不受影响。回滚仅撤销画布路由、导航、前端模块、后端模块与初始化接线，保留三张画布表及其数据，不删除其它业务记录。
+
+## 2026-10-23 MCP 智能剪辑工具（新增当前基线）
+
+- 原因与产品行为：用户确认希望 MCP 客户端不仅能生成图片/视频，还能操作智能剪辑助手完成自动剪辑、视频铺轨、自动字幕和添加标题。本次把导演台既有的确定性剪辑与 ASR 能力暴露为 MCP 工具：客户端可列出工程/分集、读取时间线 revision 与画面/音轨摘要、预览并确认七种剪辑动作、调整铺轨顺序、查询或提交音轨转写，以及直接向文字轨添加标题/对白字幕。
+- 协议与作用域：新增 `studio:edit`，与 `studio:read`、`studio:generate` 分开授权；工具总数由 9 增至 18。只持有旧作用域的令牌无法调用剪辑工具，需在 `/mcp` 重新授权。OAuth 流程、resource 绑定、令牌时效和账号隔离沿用 2026-10-21 基线。
+- 工具与语义：`studio_list_edit_projects`、`studio_get_timeline`、`studio_get_transcript`、`studio_get_edit_action` 为只读；`studio_preview_edit`、`studio_reorder_edit` 只生成/调整待确认方案；`studio_confirm_edit` 原子写入时间线并保持幂等；`studio_add_text` 直接写文字轨；`studio_start_transcript` 显式提交 ASR（外发与计费，调用前需用户同意）。`operation` 复用 `video_arrange`、`subtitle_arrange`、`audio_subtitle`、`dialogue_cut`、`quick_cut`、`highlight_cut`、`hook_cut`，不新增第二套剪辑语义。
+- 安全与一致性：所有读写按令牌绑定的账号隔离，工程/分集沿用导演台共享可见性，但方案、动作、文字修改和转写记录只属于本人；越权按 404 处理，管理员无跨账号能力。方案执行沿用 `EditingActions` 的 revision CAS 与幂等确认；`add_text` 在工程行锁与时间线行锁后校验 revision，拒绝文字轨时间重叠，限制 1000 字、30 分钟时间线和 `#RRGGBB` 颜色，避免静默覆盖并发修改。动作/工程不存在映射为 404，状态冲突为 409，参数错误为 400，助手或 ASR 未启用为 503。
+- 持久化：不新增表、不迁移。时间线继续保存在 `ai_smart_edit_documents`（每账号每工程/分集一份），方案与证据继续保存在 `ai_assistant_records`；删除 MCP 工具不影响已有时间线、方案或转写记录。
+- 前端：`frontend/src/mcp/McpPage.tsx` 的连接表把 `studio:read`/`studio:generate`/`studio:edit` 显示为「读取 / 创作 / 剪辑」，并更新接入说明、步骤文案和「自动剪辑与字幕」示例；页面继续使用根级主题与 Ant Design。
+- 受影响文件：新增 `backend/app/mcp_gateway/editing_service.py`；修改 `backend/app/mcp_gateway/{config.py,routes.py}`、`backend/tests/test_mcp_gateway.py`、`frontend/src/mcp/McpPage.tsx`；同步 `docs/API.md`、本文件、`README.md`、`功能说明与扩展指南.md` 和 `docs/智能剪辑助手开发计划.md`。未修改导演助手执行逻辑、工作流注册表、ComfyUI 配置或既有 HTTP 剪辑接口。
+- 验证：`python -X utf8 -m unittest backend.tests.test_mcp_gateway -q` 25 项通过（含转写委托、越权、revision 冲突、文字轨重叠和幂等确认）；`python -X utf8 -m unittest backend.tests.test_editing_assistant backend.tests.test_smart_edit backend.tests.test_director_assistant -q` 87 项通过；`pnpm --dir frontend exec tsc -b` 干净；`pnpm --dir frontend test` 58 个文件、365 项通过；`pnpm --dir frontend build` 通过（`✓ built in 7.42s`）。隔离 SQLite 后端（7866）+ 隔离 Vite（5174）+ 桌面 Chrome 实测 `/mcp`：浅暗主题连接表显示「读取 · 创作 · 剪辑」、参考图与示例区排版正常、「自动剪辑与字幕」可复制，控制台无应用错误；未访问真实 MySQL、7865 后端或 ComfyUI，未提交生成/转写任务。
+- 清理：隔离后端（7866）、遗留的隔离 Vite（5174）和临时 SQLite 数据已停止/删除，`.tmp/mcp-edit` 已清理；未改动真实账号与媒体数据。
+- 兼容与回滚：不改变既有 HTTP 剪辑接口、OAuth 协议、任务队列、工作流或 ComfyUI 配置；旧 MCP 客户端保持原有 9 个工具可用。回滚仅撤销 MCP 剪辑工具注册、`studio:edit` 作用域、`editing_service.py` 与前端标签/文案，保留 `ai_smart_edit_documents`、`ai_assistant_records` 及已确认的时间线，不删除任务、参考图或其它工作区改动。
+
+## 2026-10-21 MCP 连接 V1（新增当前基线）
+
+- 原因与产品行为：让每个工作台账号把创作能力接入 Codex、Cursor 或其他支持 Streamable HTTP 的 MCP 客户端。新增连接页 `/mcp`（账号菜单入口）与授权确认页 `/mcp/authorize`，服务地址为 `<对外 origin>/api/mcp`；客户端在对话中可查询工作流、上传或选取有序参考图、创建图片/视频任务、查询进度、获取结果和停止任务，只访问当前授权账号自己的内容。
+- 协议基线：OAuth 2.1 Authorization Code + PKCE(S256)、动态客户端注册（RFC 7591）和 RFC 8707 `resource` 绑定；refresh token 每次使用即轮换，重放时撤销整个 grant。授权码 5 分钟、待确认请求 10 分钟、访问令牌 1 小时、刷新令牌 30 天。作用域 `studio:read`（读取工作流、参考图、任务和结果）与 `studio:generate`（创建与停止任务）。发现地址为 `/.well-known/oauth-protected-resource/api/mcp` 和 `/.well-known/oauth-authorization-server/api/mcp/oauth`；MCP 传输为无状态 Streamable HTTP，使用 JSON 响应。
+- 安全与隔离：OAuth 凭据绑定 client、resource、subject 和可撤销 grant，不保存“当前用户”。授权码与令牌只存 SHA-256 指纹，客户端密钥使用现有 GRS 主密钥加密；访问令牌每次校验 grant、有效期与账号可用状态，撤销连接、禁用账号或未完成初始密码修改立即失效。`GatewayGuard` 校验 Host/Origin、resource、PKCE S256 格式、请求体大小和注册/令牌接口速率，并复用会话 Cookie + CSRF 保护浏览器侧授权。管理员同样只能操作自己的任务与参考图。
+- 工具：`studio_list_workflows`、`studio_get_workflow`、`studio_list_reference_assets`、`studio_create_image`、`studio_create_video`、`studio_list_jobs`、`studio_get_job`、`studio_get_results`、`studio_cancel_job`。工作流详情只暴露 `workflow_registry.py` 标记为 `primary/advanced` 的参数；内部参数由后端默认值托管。参考图按 `reference_asset_ids` 顺序对应 `<Picture n>`，提交时复制为任务快照，之后删除素材不影响已提交任务。
+- 可靠性：创建工具要求 `request_id`，以账号 + 标识的指纹建立唯一提交记录并比较参数指纹；网络重试返回原任务，参数不同返回 409。并发相同请求复用同一确定性任务 ID。结果下载链接 5 分钟有效，过期后重新调用 `studio_get_results` 获取；已本地交付的产物按“不可用”如实返回。
+- 持久化：新增 `sql/018_mcp_gateway.sql` 的加法表 `mcp_gateway_records`（client/request/code/grant/access/refresh/reference/submission），MySQL 随既有启动迁移幂等建立；`McpStore` 为临时 SQLite 建立同构表与索引。授权状态变更使用事务和锁定读，刷新与撤销统一先锁 grant 再锁凭据，避免反向加锁死锁。任务、参考图文件与结果继续复用既有队列、存储和七牛云配置，不新增第二套任务系统。
+- 前端：`frontend/src/mcp/` 提供连接页、授权页、客户端配置生成和参考图排序工具；账号菜单增加「MCP 连接」。连接页含 Codex / Cursor / 通用客户端页签、服务地址与可复制片段、授权连接列表与撤销、参考图上传/从生成图片选取/预览/删除/上下移动。页面沿用根级主题、Ant Design 和 `--studio-*` token，支持浅色与暗色。
+- 接口：浏览器侧新增 `GET /api/mcp/info`、`GET/DELETE /api/mcp/connections[/{id}]`、`GET/POST /api/mcp/authorization-requests/{request_id}`、`GET/POST /api/mcp/references`、`GET /api/mcp/references/{id}/preview`、`DELETE /api/mcp/references/{id}`、`GET /api/mcp/generated-images`、`POST /api/mcp/references/from-output`；OAuth 端点位于 `/api/mcp/oauth/*`；工具入口为 `/api/mcp`。
+- 配置与部署：`ZLY_AI_VIDEO_STUDIO_MCP_PUBLIC_BASE_URL` 必须是对外 HTTPS origin（仅本机回环允许 HTTP，不能带路径、凭据、查询或片段），本地开发在 `backend/.env.dev` 配置为 `http://127.0.0.1:5173`。`ZLY_AI_VIDEO_STUDIO_MCP_ENABLED=false` 为关闭开关，仅停用入口并保留数据。Nginx 需代理 `/api/` 与 `/.well-known/oauth-`，示例见 `docker/nginx/zly-ai-video-studio.conf.example`；Vite 开发服务器同步代理 `/.well-known/oauth-`。
+- 受影响文件：新增 `backend/app/mcp_gateway/`、`frontend/src/mcp/`、`sql/018_mcp_gateway.sql`、`backend/tests/test_mcp_gateway.py`、`docker/nginx/zly-ai-video-studio.conf.example`；接线 `backend/app/main.py` 生命周期与路由、`backend/requirements.txt`（`mcp==2.3.0`）、`frontend/src/{App.tsx,paths.ts,router.tsx,ThemeProvider.tsx}`、`frontend/vite.config.ts`、`.env.example`、`compose.yaml`、`backend/.env.dev`；同步 README、扩展指南与 API 文档。
+- 验证：`python -X utf8 -m unittest backend.tests.test_mcp_gateway -q` 35 项通过；完整后端回归 844 项中仅 3 项既有失败（`test_xiaji` 引用已删除模块、导演台剧本提示词断言、导演助手日志断言），与 MCP 无关。前端类型检查、279 项单测和 `pnpm --dir frontend build` 通过；5173 桌面 1440×1000 浅暗主题检查连接页、参考图上传/排序、授权页和连接列表，并完成真实 OAuth 到 `studio_list_workflows` 的端到端调用。
+- 兼容与回滚：不改既有任务、工作流、ComfyUI 或供应商协议；MCP 关闭时其余功能不受影响。回滚仅撤销 MCP 路由注册、生命周期、新模块、前端入口与依赖，保留 `mcp_gateway_records` 数据和已上传参考图，不删除任务或回退其它工作区改动。开发验证继续使用 5173，静态产物只通过 `pnpm build` 清理后生成。
+
+## 2026-10-20 剧本诊断 V1
+
+- 原因与产品行为：参考用户提供的火龙漫剧 / WorkRally 上传页，新增独立的剧本审阅能力。首页入口与内容库当前文档入口统一进入 `/director/script-diagnosis`，`?id=`恢复报告，`?project=&doc=`预览项目来源，点击开始才发起任务。根路由必须显式注册该地址，避免被旧 `/director/:projectId` 书签回退规则拦截。
+- 五项报告：总时长、新颖度、节奏、情绪、风险；展示核心结论、优先修改的三项问题、各维度优点与建议。每项问题必须附可核对的连续原文，点击在右侧原文定位。无综合分数；新颖度不做全网查重，风险为辅助审阅。支持复制与 Markdown 导出，不产生修改稿。
+- 输入：复用既有 `extract_document`，新增 `.markdown` 别名；TXT支持UTF-8/GB18030，DOCX和文字型PDF复用既有解析。最多10份、单份20MB、规范化后合计100000 Unicode字符。逐文件回报错误，前端要求移除/重新上传错误项后再提交；顺序由客户端来源数组确定。DOC、空文件、扫描/加密/损坏PDF明确报错。二进制只在提取请求期间读取，不另存媒体或加入内容库。
+- 数据与任务：`sql/017_script_diagnosis.sql` 加法建表 `ai_script_diagnoses`，MySQL随既有启动迁移幂等建立，Repository为临时SQLite建立同构表及索引。记录账号、可选工程/文档引用、幂等键、标题、来源快照、阶段、片段完成数、实际模型、报告与错误；`(owner_id, client_request_id)`唯一。历史按账号隔离、分页读取摘要，不加载大字段。项目沿用既有共享访问规则，服务端检查文档确实属于指定项目；诊断结果属于发起账号。
+- 执行：独立两线程后台服务，复用已配置的统一OpenAI兼容客户端，单次执行固定客户端及默认模型，密钥不入诊断记录。正文按分集/章节和最多6000字符的片段审阅，块保留原文字符偏移；所有片段成功后两两汇总，避免截断长剧本。引用经Pydantic和字面子串校验后由服务端计算位置；汇总只能沿用已验证引用。结构/引用问题最多修复一次。明确总时长或完整镜头时长由程序汇总，其余使用分段估算区间。
+- 生命周期：`queued → running → succeeded/failed/cancelled/interrupted`，运行阶段为`analyzing/summarizing`。前端2秒轮询实际完成片段数，不显示虚构流式报告。数据库条件认领与条件写入保证重复执行、取消及迟到响应不会覆盖终态；重启将未结束记录标为中断，用户重试用相同输入快照建立新记录，旧记录保留。来源删除后仍可查看及重试。当前后台执行沿用单工作台后端进程部署。
+- 接口：新增 `/api/script-diagnoses` 能力、来源预览、提取、创建、分页历史、详情、取消、重试及删除已结束记录，沿用会话和CSRF；接口说明见API文档。独立诊断不创建工程、不触发镜头规划，不接入媒体任务队列，也不更改LLM/ComfyUI配置。
+- 受影响文件：新增 `backend/app/script_diagnosis/`、`frontend/src/director2/script-diagnosis/`、上述SQL及专项测试；接线后端main生命周期、前端根路由/导演台路由、首页及内容库。同步README、扩展指南、API与导演台流程快照；视觉沿用根级主题、Ant Design及`--studio-*`，对话创作室样式不在本次变更范围。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_script_diagnosis backend.tests.test_director_assistant backend.tests.test_llm backend.tests.test_media_studio_schema -q`；`python -X utf8 -m unittest discover -s backend/tests -p 'test_*.py' -q`；`pnpm --dir frontend build`。5173桌面1440×900、1920×1080浅暗主题检查上传、排序、失败阻止、粘贴、取消/重试、真实报告、引用、复制/导出、刷新和历史；不做移动端验收。真实短剧本使用已保存的`XingChenAGI/Xing4.0-29B`，五项报告成功，明示时长汇总60秒。
+- 兼容与回滚：旧工程/剧本文档、助手、任务及参数协议不变；保留当前工作区其它改动。回滚仅撤销本模块入口、路由、服务初始化和新增模块代码；保留独立诊断表与数据，不删除业务记录，不回退供应商配置。开发验证继续用5173，最终构建只通过`pnpm build`清理后生成静态产物。
+
+## 2026-10-20 智谱官方预设与模型费用标记
+
+- 原因：按对照对话补齐 LLM 的智谱官方入口，统一既有 VLM 智谱预设与费用显示，区分免费、付费和未知型号。
+- 当前基线：`backend/app/zhipu_catalog.py` 统一维护官方地址、文本/视觉推荐型号、费用标记、来源与核对日期。新增仅超级管理员可读的 `GET /api/admin/providers/model-presets`；两个设置页读取同一份元数据，不依赖供应商 Key。LLM 默认 `glm-4.7-flash`，VLM 默认 `glm-4.6v-flash`；保留付费型号和手填 ID。已保存的旧模型不被自动替换。
+- 协议：既有客户端一直直接在 Base URL 后追加 `/chat/completions`，本次以回归固定官方 `/api/paas/v4` 根路径，目录、探针和业务请求均不追加 `/v1`。官方端点的零温度省略；支持切换的型号在短探针中发送 `thinking.type=disabled`。GLM-5.3 和固定 Thinking 型号保留思考，探针使用 4096 Token 预算；GLM-5.3 使用 `reasoning_effort=low`。非智谱与中转地址保留既有策略。
+- 费用：上游明确付费或任一输入/输出价大于零时标为付费；仅一侧价格为零或缓存免费不推断为免费，需输入和输出同时为零或明确免费标记。官方元数据仅对准确的智谱官方端点和准确型号生效，不向未知 Flash 后缀、FlashX、国际站或中转站套用。VLM 补充目录仍遵守 `free_only`。来源：[官方定价](https://docs.bigmodel.cn/cn/guide/start/pricing)（2026-10-20 核对）。
+- 状态与凭据：保存、测试与目录仅在地址相同时复用已保存 Key；切换服务清空页面 Key 草稿，避免把另一家的凭据发送到智谱。VLM 显式复用由服务端决定真实 LLM 地址和凭据，响应新增可选 `llm_base_url` 供费用展示。测试结果只记录到匹配的已保存连接，修改连接参数时清除旧测试状态；测试回读不会丢掉未保存的表单草稿。目录结果绑定请求地址，旧地址的返回不参与新地址费用判断。
+- 受影响文件：`backend/app/{zhipu_catalog.py,llm_client.py,llm_provider.py,vlm_provider.py,models.py,main.py}`、`frontend/src/admin/{LlmProviderSettings.tsx,VlmProviderSettings.tsx,provider-models.ts}`、`backend/tests/test_zhipu_provider.py`、前端对应测试、`docs/API.md` 与三份主文档；`.gitignore` 为新增的规范后端测试补充白名单，测试输出仍忽略。
+- 兼容与迁移：只新增读取 API 和可选响应字段，不改数据库、端口、ComfyUI、模型文件或工作流协议；旧配置保留。没有 `/models` 能力或缺 Key 时仍可选择推荐型号，但目录失败会如实提示；型号是否可调用以账号权限及测试连接为准。
+- 验证命令：`python -m unittest backend.tests.test_zhipu_provider backend.tests.test_llm backend.tests.test_vlm backend.tests.test_vision_runtime -q`；`pnpm --dir frontend build`；5173 桌面浅暗主题验证预设、费用、手填、测试草稿、保存重进及 VLM 凭据复用。浏览器使用独立 SQLite 和合成供应商响应，不更改现有供应商配置，也未使用真实智谱 Key 实测。
+- 验收结果：相关后端 99 项通过；前端 52 个文件 / 270 项测试、类型检查及 `pnpm build` 通过。5173 的 1440×1000 桌面两页浅暗主题和保存/重进/显式复用已验证，无横向溢出；12 个价格状态的最低文字对比度为 4.65:1。独立复核为 `ship`，范围仅限本次功能。补充覆盖 VLM 复用开关前后更换地址不重绑旧独立 Key，以及省略/传 null 时继承已保存复用状态。未运行完整后端回归，未用真实智谱 Key 推理。
+- 回滚：仅撤销本次差异，保留其它工作区改动，重启后端并刷新前端；无需数据回滚或迁移。
+
+## 2026-10-20 智能剪辑助手与智能铺轨
+
+- 日期与原因：2026-10-20，补齐 WorkRally 参考图中剪辑页面自动切换专属助手、对话中部分组按钮与铺轨授权闭环。
+- 前端：`Director2App`向助手传入可选`{kind:"smart_edit",sequence_id}`；`DirectorAssistant`按工程/分集切换会话，账号隔离的恢复 key 来自剪辑`draft_key`，普通会话保留原工程关联。右栏在1440宽桌面为360px、1700以上为440px；编辑器素材/预览/属性与三轨保持可操作，关闭剪辑助手不切换工程创作模式。欢迎区中部按`EDITING_TOOL_GROUPS`显示「素材归位 → 智能铺轨」，有消息时收为可展开的「剪辑工具」。
+- 铺轨规则：本集采用版视频按`project_sources`的分镜顺序排列，随后处理库内导入视频；自由剪辑按库内顺序。跳过已使用的分镜、素材ID及同地址视频，不以图片代替缺失视频。追加到画面轨末尾，使用原速、原声和按fps向下对齐的完整时长，保留已有片段。工程上限沿用300素材、200片段、30分钟，超限整体拒绝。
+- API：在`/api/projects/{project_id}/smart-edit/{sequence_id}/actions`增加`POST /preview`（operation=`video_arrange`、revision、可选session_id）、`GET /{action_id}`和`POST /{action_id}/confirm`。预览返回有序items、数量、追加位置、总时长、跳过及缺视频数量与base_revision；确认返回succeeded及新文档snapshot。登录和CSRF沿用已有依赖；账号/工程/分集不符拒绝，过期版本409。
+- 后端：新增`director_assistant/editing.py`，按钮与`editor_read`/`propose_edit`工具共用确定性动作服务。模型仅提案，不能指定其它目标或跳过授权。提案使用`ai_assistant_records`的`edit_proposal`记录，无新表或列迁移；每轮冻结会话剪辑上下文。确认在同一DbConnection事务中锁定提案及剪辑，条件更新revision并保存执行记录；失败整体回滚，重复确认返回同一结果。状态查询可核对丢失响应后的执行结果。
+- 编辑器接线：预览/发送剪辑消息前先等待保存，确认期间锁定编辑；返回结果原子同步doc与revision，并把操作前状态压入一次撤销记录。撤销/重做沿用自动保存，重试前查询记录，旧执行结果不会覆盖后续版本。`EditDocument.version=1`及原接口、粗剪、原片保持兼容，不触发ComfyUI、FFmpeg导出或媒体生成。
+- 受影响文件：助手与smart-edit前端、`Director2App`/`Director2ProjectDetail`、助手protocol/service、剪辑router、新增editing动作与专项测试；同步README、扩展指南、API、流程快照、助手V2及前端设计记录。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_editing_assistant backend.tests.test_director_assistant backend.tests.test_smart_edit -q`；`python -X utf8 -m unittest discover -s backend/tests -p 'test_*.py' -q`；`pnpm --dir frontend build`。5173桌面1440×900和1920×1080浅暗主题核对欢迎区、清单、取消、执行、撤销/重做、刷新与自然语言入口。
+- 回滚：只回退本次接线、动作工具、接口及样式，保留新增JSON记录和现有剪辑文档；恢复普通助手及原粗剪即可，无需删除数据、修改供应商或回退SQL。历史pending提案不会自动执行。
+
+## 2026-10-21 智能剪辑理解摘要与引流剪辑
+
+- 日期与原因：2026-10-21，参考 WorkRally Smart Clip 的“视频理解 → 宿主策略卡 → 用户确认 → 确定性执行”流程，补齐剪辑助手的理解证据与五种钩子策略。REA Evidence、bundle 原文和差距矩阵见 [WorkRally 智能剪辑对照分析](WorkRally智能剪辑对照分析.md)。
+- 理解摘要：`editor_read` 返回 `analysis`。自由剪辑为 `kind/video_count/clip_count`；分集为 `kind/beat_count/video_count/dialogue_beat_count/dialogue_seconds/highlight_candidates`，候选最多 8 项，含 `beat_id/sequence/heading/duration/dialogue_seconds/score/reasons`。评分基于分镜标题、动作、对白文本的高光关键词、对白秒数和文本信息量。该摘要是**分镜与配音文本统计，不是视频画面或音频识别**；提示词要求引用时说明依据。
+- 引流剪辑：新增 `hook_cut` 与 `conflict_3s`、`climax_only`、`quote_open`、`ending_hook`、`trailer` 五种策略。`EditDraft` 要求 `hook_cut` 必带策略、其它操作不得携带；模型在用户未选择时必须先询问。`_hook_plan` 以 `min(30s, max(6s, 总时长×50%))` 为目标，按策略选择开场与后续镜头、排除结尾收束，并为每镜生成 `role/reason/trim`；确认后重建画面和配音轨，保留手工文字。
+- API：`POST /api/projects/{project_id}/smart-edit/{sequence_id}/actions/preview` 的 `operation` 增加 `hook_cut`，新增可选 `strategy`（仅 `hook_cut`）；返回增加 `strategy/strategy_title/principle`，`items[]` 增加可选 `reason`。确认、版本 CAS、幂等、账号隔离与事务语义不变。
+- 前端：`EditingOperation`/`HookStrategy` 扩展；「智能成片」组新增「引流剪辑」，点击显示五种策略菜单；授权弹窗显示策略名、逐镜保留/截取时长与理由、策略原则。理由文字 12px、无透明度，浅暗主题均保持对比。`STUDIO_ROUTE_PATHS` 同时注册 `directorProjectEdit`，直接打开 `/director/projects/:projectId/edit/:episodeId` 不再回退；`paths.test.ts` 覆盖精确路由。
+- 兼容性：未新增表或迁移，继续复用 `ai_assistant_records` 的 `edit_proposal`。旧操作、旧提案和旧客户端请求不受影响；旧记录缺少策略字段时前端按原样显示。不触发 ComfyUI、FFmpeg 导出或媒体生成。
+- 受影响文件：`backend/app/director_assistant/{protocol,editing,service}.py`、`backend/app/media_studio/routers/smart_edit_router.py`、`backend/tests/test_editing_assistant.py`；`frontend/src/director2/smart-edit/api.ts`、`frontend/src/director2/assistant/{editing-tools.ts,editing-tools.test.ts,DirectorAssistant.tsx,assistant.css}`；对照文档、助手V2、README、扩展指南、API、流程快照及截图 61–65。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_editing_assistant backend.tests.test_director_assistant backend.tests.test_smart_edit -q`（81 项通过）；`pnpm --dir frontend build`（55 个测试文件、284 项测试、类型检查与构建通过）。全量后端 `unittest discover` 共 865 项，仅 2 项既有失败：`test_xiaji` 导入已删除模块、剧本提示词大小写断言，与本次功能无关。Vite 开发页实测五种策略菜单与授权理由；确认 `conflict_3s` 后得到 3 个画面、2 条配音和 1 条手工文字（8.75 秒），刷新后仍保留，授权与结果截图归档 `docs/design-ref-director/61`–`65`。
+- 回滚：仅撤销上述前后端代码、接口字段和文档，保留历史提案与剪辑文档；历史 pending 提案不会自动执行，无需删除数据或切换供应商。
+
+## 2026-10-21 真实视频理解（关键帧 + VLM）
+
+- 日期与原因：2026-10-21，把上一节的纯文本统计升级为**显式触发的真实画面理解**，让理解摘要、引流评分和授权理由有可核对的视觉证据；不伪造 ASR 或 `understand_full`。最初每素材固定抽 2 帧，镜头边界检测与逐镜分析随后在同日「逐镜画面理解」章节补齐。
+- 后端：新增 `backend/app/director_assistant/understanding.py`。用户显式触发后，服务从本集采用版时间线取视频，经可信下载、ffprobe 探测后抽取 2 张关键帧（0.2 秒与中点），以 data URL 调用当前默认 VLM 的 `analyze_video_shot`，返回单镜 `description/camera/subjects/keywords`。逐镜隔离失败，每镜最多重试 2 次；模型名写入结果。结果存 `ai_assistant_records` 的 `media_understanding`，**无新表或迁移**；账号、工程、分集隔离。
+- 失效与并发：记录 `source_signature`（素材/时间线标识）。源视频或时间线变化后，`read` 返回 `stale`，`summary` 不下发旧条目，`evidence` 返回空；重新执行覆盖旧结果。同一范围运行中再次启动返回 409；遗留 running 记录超过 15 分钟后按失败回收，可重新触发。
+- 证据链：`editor_read.analysis.understanding` 提供状态与条目；`hook_cut`/`highlight_cut` 评分把画面关键词、机位、主体并入理由，未理解或失败镜头不参与画面加权；授权弹窗显示「理解依据：视频画面 N 个镜头的关键帧描述」，逐镜理由带「画面理解：…」。原有确定性剪辑、授权、revision CAS、幂等确认与账号隔离不变。
+- API：`GET/POST /api/projects/{project_id}/smart-edit/{sequence_id}/understanding`，POST 可选 `force` 重跑；写接口沿用登录与 CSRF。返回 `status/updated_at/model/items/stale`，运行中返回进度。实现位于 `backend/app/media_studio/routers/smart_edit_router.py`。
+- 前端：剪辑助手新增理解卡片，展示未开始/运行/完成/失败/过期状态、进度、VLM 模型与完成时间，可展开逐镜描述并重跑；运行中轮询。样式使用 `--director-*` 双主题 token。
+- 修复：GLM-4.5V 经 SiliconFlow 可能把 JSON 包在 `<|begin_of_box|>…<|end_of_box|>` 中，`llm_client.analyze_video_shot` 改为提取首个 `{` 到末个 `}` 再解析，并对单镜增加重试；真实 3 镜工程验证通过。
+- 兼容性：旧记录、旧提案和未触发理解的剪辑流程不受影响；不触发 ComfyUI、FFmpeg 导出或媒体生成。理解依赖已配置的默认 VLM 与可下载的媒体域名；未配置时返回明确错误且不影响其它操作。
+- 受影响文件：新增 `backend/app/director_assistant/understanding.py`、`backend/tests/test_media_understanding.py`；修改 `backend/app/llm_client.py`、`backend/app/director_assistant/{editing,service}.py`、`backend/app/media_studio/routers/smart_edit_router.py`；`frontend/src/director2/smart-edit/api.ts`、`frontend/src/director2/assistant/{DirectorAssistant.tsx,assistant.css}`；助手V2、对照文档、README、扩展指南、API、流程快照及截图 66–69。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_media_understanding backend.tests.test_editing_assistant backend.tests.test_director_assistant backend.tests.test_smart_edit -q`（93 项通过）；`pnpm --dir frontend build`（55 个测试文件、294 项测试、类型检查与构建通过）。5173 桌面 1440×900 浅暗主题实测：3/3 镜完成、授权弹窗显示理解依据与逐镜画面理由，确认后时间线为 6.13 秒。
+- 回滚：移除理解路由、服务、前端卡片与证据接线，并回退 `llm_client` 的 JSON 提取即可；历史 `media_understanding` 记录可保留，读取接口消失后不影响剪辑与提案；无需数据库迁移或供应商切换。
+
+## 2026-10-21 剪辑视频理解：镜头边界检测与逐镜分析
+
+- 日期与原因：2026-10-21，上一版每条素材只取 2 帧，素材内部切镜会丢失；本版先用 FFmpeg 检测镜头边界，再对采样镜头各抽 2 帧调用 VLM，使理解摘要与授权证据落到镜头粒度。仍不做 ASR 与 WorkRally 的整片 `understand_full`。
+- 镜头检测：`backend/app/video_analysis.py` 新增 `detect_scenes(path, duration)`，使用 `select='gt(scene,0.32)',showinfo`，解析 stderr 中的 `pts_time` 生成区间；最短镜头 0.8 秒，异常或未检出时回退为整段素材 1 个镜头。`showinfo` 日志固定合并 stderr，避免漏解析。
+- 采样上限：每条素材最多采样 4 个镜头，整个时间线最多 40 个；超限按等距抽样，保证每条素材至少 1 个。每个采样镜头在 0.2 秒与中点抽 2 帧，调用默认 VLM 的 `analyze_video_shot`；单镜失败隔离、最多重试 2 次。
+- 数据结构：仍复用 `ai_assistant_records.media_understanding`，无新表或迁移。`items[]` 增加 `detected_count/sampled_count/shots[]`，每个镜头含 `index/start/end/duration/status/description/camera/subjects/frames/error`；素材级 `description/camera/subjects` 由成功镜头聚合。`summary` 增加 `detected_shot_count/shot_count/shot_analyzed_count/shot_failed_count`，保留 `video_count/analyzed_count/failed_count`。
+- 证据链：`evidence()` 在成功或部分成功时返回素材证据与 `shot_used_count`；`hook_cut`/`highlight_cut` 授权弹窗的「理解依据」改为「镜头边界检测后采样的 N 个镜头关键帧描述」，`extra.understanding` 增加 `shot_count/shot_analyzed_count/shot_used_count`。过期、失败或旧记录没有镜头字段时，前端回退到素材级文案。
+- 前端：理解卡片显示检测/采样/成功镜头数，逐素材展开后列出内部镜头的时间范围、描述、机位、主体与失败原因；运行中显示「共检测 X 个镜头 · 已采样 Y 个 · 已理解 Z 个」。`api.ts` 增加 `UnderstandingShot/UnderstandingSummary` 与 `EditingAction.understanding` 的镜头字段，样式继续使用 `--director-*` 双主题 token。
+- 兼容性：旧 `media_understanding` 记录按原素材级结构读取；未触发、过期或失败的理解不参与评分。依赖服务器 FFmpeg/ffprobe；不做音频转写、全片语义分段、去废片或智能拆条。
+- 受影响文件：`backend/app/video_analysis.py`、`backend/app/director_assistant/{understanding,editing}.py`、`backend/tests/{test_media_understanding,test_video_analysis}.py`；`frontend/src/director2/smart-edit/api.ts`、`frontend/src/director2/assistant/{DirectorAssistant.tsx,assistant.css}`；README、扩展指南、API、流程快照、对照分析及截图 70–73。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_video_analysis backend.tests.test_media_understanding backend.tests.test_editing_assistant backend.tests.test_director_assistant backend.tests.test_smart_edit -q`；`pnpm --dir frontend build`。5173 桌面实测：2 条素材检测到 5 个内部镜头，采样分析 5/5；授权弹窗显示镜头级理解依据，确认 `conflict_3s` 后时间线为 2 个片段、6.38 秒，刷新后仍保留。
+- 回滚：撤销 `detect_scenes`、逐镜采样与前端镜头展示，恢复按素材 2 帧的理解与证据文案；历史记录与剪辑文档保留，无数据库迁移或供应商切换。
+
+更新时间：2026-10-22（含智能剪辑助手 A5 音轨转写与音轨字幕、无限画布 V2.5/V3.1/V3.2/V3.3/V4.0/V4.1/V4.2、真实视频理解、逐镜画面理解、智能剪辑理解摘要与引流剪辑）
+
+## 2026-10-20 Thinking 视觉模型参数兼容修复
+
+- 原因：共用客户端向所有非 GPT 模型发送 `enable_thinking=false`，Qwen3-VL-30B-A3B-Thinking 的上游拒绝该参数，VLM 测试连接返回 HTTP 400。
+- 当前基线与文件：`backend/app/llm_client.py` 仅给名称匹配原版混合推理 Qwen3 的模型添加该开关；固定 Thinking、Instruct-2507、VL 及未知模型不携带。保留 DeepSeek V4 的 `thinking.type=disabled` 与 GPT 的既有参数处理。回归在 `backend/tests/test_llm.py`、`backend/tests/test_vlm.py`，覆盖实际多模态请求及 VLM 测试接口。
+- 兼容性：测试连接、图像分析和文本创作共用该修复；不改 HTTP API、数据库或凭据。原版 Qwen3 仍关闭可切换思考，独立 Thinking 模型使用上游默认推理模式。升级后重启后端即可。
+- 验证：`python -m unittest backend.tests.test_llm backend.tests.test_vlm backend.tests.test_vision_runtime -q`（82 项通过）；`pnpm --dir frontend build`。使用当前已配置的供应商和凭据，临时指定 `Qwen/Qwen3-VL-30B-A3B-Thinking` 的真实连接测试成功，未修改保存的模型。
+- 验收结果：运行中的 5173 `/api/admin/providers/vlm/test` 使用与页面相同的模型及凭据复用开关返回 200、状态成功；原配置保持不变。前端 259 项测试、类型检查及构建通过。
+- 回滚：仅撤销本次客户端、测试和文档改动并重启，无数据迁移。
+- 参考：[Qwen3 混合推理说明](https://huggingface.co/Qwen/Qwen3-8B)、[Qwen3-VL Thinking 官方模型卡](https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Thinking)。
+
+## 2026-10-20 LLM 配置保存的 MySQL 字段迁移修复
+
+- 原因：助手模型列表新增的 `assistant_models_json` 只在 SQLite 初始化时补列，MySQL 启动分支提前返回，旧库保存 LLM 配置报 `1054 Unknown column` 并返回 HTTP 500。
+- 当前基线：`JobStore.initialize()` 在 MySQL 建表后通过既有 `ensure_column` 幂等补列；`sql/001_init_mysql.sql` 的 LLM 建表定义同步包含可空 TEXT 字段。已存在字段不重复执行 ALTER，不重写既有配置。
+- 受影响文件：`backend/app/storage.py`、`sql/001_init_mysql.sql`、`backend/tests/test_media_studio_schema.py` 及三份维护文档。
+- 兼容性与迁移：升级后重启后端自动补字段；原地址、模型、加密密钥和任务数据保留。空列表或 NULL 继续回退当前默认模型；HTTP API、端口及 ComfyUI 配置不变。
+- 验证命令：`python -m unittest backend.tests.test_media_studio_schema backend.tests.test_llm backend.tests.test_director_assistant -q`；`pnpm --dir frontend build`；5173 桌面验证配置保存及刷新后回显。
+- 验收结果：相关后端 94 项测试通过，前端 259 项测试、类型检查与构建通过；真实 5173 页面保存返回 200 并显示成功反馈，刷新回显一致，原有地址、模型和密钥保持不变。未运行后端全量回归。
+- 回滚：仅撤销上述文件本次修复并重启；可保留新增列，不删除用户配置，也不回滚其它工作区改动。
+
+## 2026-10-20 导演台智能剪辑
+
+- 原因：按用户提供的 WorkRally 智能剪辑截图，为导演工程增加素材、预览、属性与时间线相连的剪辑工作区，复用现有工坊媒体和七牛云存储。参考 OpenCut 的编辑器分区；采用独立实现，不引入第三方整套编辑器或新的前端依赖。
+- 前端：新增 `frontend/src/director2/smart-edit/`，路由为 `/director/projects/:projectId/edit/:episodeId?`（无分集时为自由剪辑）；项目菜单和工坊合成页均有入口。进入剪辑时右侧自动停靠智能剪辑助手，编辑器相应收窄；主题仍由根 Provider 管理。左工具轨和素材面板、中预览、右属性、底部文字/画面/音频三轨。包括素材导入、顺序粗剪、分帧拆分、裁切/移动/磁吸/排序、清除空隙、撤销重做、文字、画面变换、8 个基础色效、速度、音量/静音和淡入淡出。
+- 状态协议：`EditDocument.version=1`，`settings` 保存比例、fps、背景，`assets` 保存媒体 URL 和实际时长，`clips` 保存素材引用与三轨片段；`start` / `duration` 为输出秒且对齐项目帧率，`in_point` 为原素材秒，消耗原片区间为 `duration * speed`。同轨不重叠，跨轨可以叠加；最多 300 个素材、200 个片段、30 分钟。每个分集独立保存；`main` 是自由剪辑。原片地址随已采用 Take 固化，刷新素材追加新版本，不替换正在编辑的原片。
+- API：新增 `/api/projects/{project_id}/smart-edit/{sequence_id}` GET / PUT；`/{sequence_id}/sources` GET；`/{sequence_id}/upload` POST；`/exports/mp4` POST；`/exports/{job_id}` GET；`/exports/bundle` POST。读取沿用登录，写入沿用 CSRF。服务器再次验证工程、同轨重叠、原片区间和有限数字，不接受本地路径或任意服务器地址下载。
+- 存储：`sql/016_smart_edit.sql` 新建 `ai_smart_edit_documents`，用项目、账号、序列派生 ID 隔离文档；`revision` 条件更新阻止多窗口覆盖（409）。浏览器按服务器返回的账号隔离 key 暂存未保存草稿；网络失败保留，冲突先下载备份再加载云端。新安装表外键随项目级联删除。既有 `ai_project_jobs` 增加类型 `smart_edit_export`；通用任务 payload 只含参数摘要，完整导出快照保存在账号隔离的文档表，避免通用详情泄露其他账号的完整剪辑。
+- 导出：`smart_edit_render.py` 通过本机 CPU FFmpeg 真正执行裁切/变速/缩放/位置/旋转/透明度/色效/文字/淡入淡出及音轨混合，再发布到现有七牛云。每进程单个导出 worker，最多 4 个待完成任务；重启后的遗留任务查询时标记失败，可重新导出。原片和上传单文件限制 512 MB，工程 ZIP 素材总量限制 2 GB；临时媒体用系统临时目录并自动清理。素材下载只接受管理设置中的当前媒体域名，不跟随跳转。未调用 ComfyUI 或生成模型。
+- 交换兼容：JSON 是完整可恢复工程；XML / OTIO 交换剪辑点、轨道和速度，样式仍由目标软件解释。剪映基础草稿沿用 `frontend/src/media/jianying-draft-builder.ts` 的既有结构，保留基础音视频剪辑和变换，文字/色效/淡入淡出需重建，客户端兼容性尚未实机验证。不生成伪装的 `.prproj`。ZIP 始终附 JSON 与使用说明，可附已用素材；离线素材重连面向外部后期软件，工作台 JSON 恢复仍需可访问的原始媒体地址。
+- 字幕一致性：前后端共用同一逻辑画宽的显式断行规则，保留手动换行；后端复用已有 Pillow 依赖绘制居中行盒为透明字幕层，再由 FFmpeg 按时间、透明度和淡入淡出合成，避免系统字体的 drawtext 多行度量与浏览器不同。UI 使用同一行高和相对内边距。视频代表帧从非零时间提取并重试黑帧，提取失败明确回退示意。
+- 受影响文件：上述目录、`smart_edit_document.py` / `smart_edit_render.py` / `smart_edit_service.py`、`routers/smart_edit_router.py`、项目路由注册、`main.py` 的 OpenAPI 标签、`Director2ProjectDetail.tsx`、`paths.ts`、工坊合成入口、任务类型/预览、测试、`.gitignore` 与四份主文档。
+- 验证：`python -X utf8 -m unittest backend.tests.test_smart_edit -q`；`python -X utf8 -m unittest discover -s backend/tests -p 'test_*.py' -q`；`pnpm --dir frontend build`；真实 `http://127.0.0.1:5173` 的 1440×900 浅暗主题与交互。单元测试覆盖账号/工程/分集隔离、旧版本拒绝、非法工程、真实 FFmpeg、工程包；浏览器验收音频上传、粗剪、文字、拆分、排序、撤销、特效、自动保存和刷新恢复。真实接口导出 2 秒 H.264/AAC MP4，ffprobe 核对 1280×720 与准确时长。全量后端既有失败是 API 文档标签断言、剧本场景账本提示断言以及已下线 `test_xiaji` 模块导入，见恢复基线；本次不掩盖这些结果。
+- 回滚：撤销本次新增模块、路由菜单/注册与文档改动并重启；保留新表和已有导出媒体即可，无需迁移旧项目、恢复业务数据或切换供应商。仅在确认不再保留剪辑工程后另行清理新表；不要回滚工作区其他已有修改。
+
+2026-10-20 验收结果：前端 50 个文件的 259 项测试、类型检查与构建通过；新增后端 12 项通过，包含真实 FFmpeg 合成。后端全量 768 项保留上述既有 2 失败、1 导入错误。实际导出的 OTIO 经官方 OpenTimelineIO 0.18.1 解析成功（3 轨、5 片段）；长中文和手动换行字幕另经真实 MP4 抽帧对照。当前开发库的新表已对齐 `utf8mb4_unicode_ci` 与项目级联外键。验收临时账号、项目和本次上传/导出的云端测试对象在完成后清理，界面基线保存至 `docs/design-ref-director/28`–`31`。
+
+## 2026-10-19 导演台全局智能助手 V2（新增当前基线）
+
+- 原因：以Skill、专家、知识检索、会话模型组合替代固定AI入口，独立保存草稿，采纳后写入，媒体单独确认。
+- 文件：`backend/app/director_assistant/`、`frontend/src/director2/assistant/`、`sql/015_director_assistant.sql`，主应用、LLM供应商、项目壳、管理页及媒体模型上下文同步接线。
+- 接口和存储：新增`/api/director-assistant`，三表保存账号隔离的类型化聚合、顺序事件与项目锁；LLM配置幂等增加`assistant_models_json`。消息内顺序独立于时间戳。
+- 兼容：保留项目路由、mode参数、旧AI接口、四阶段ID与制作配方；旧任务可恢复或取消，新旧入口共用项目写入互斥。
+- 验证：`python -m unittest backend.tests.test_director_assistant`、完整后端回归、`pnpm --dir frontend build`及5173桌面浅暗主题检查；恢复代码已有失败单列。
+- 验收结果：助手41项新增测试通过；后端发现式回归770项，仅保留恢复前已有2失败和1导入错误；另159项角色/H3/分镜媒体回归通过。前端50个文件、259项测试通过，TypeScript与正式构建通过。为解除恢复基线构建阻塞，修复9处原有类型错误，未回滚恢复代码。真实5173完成问答、剧本与11项资产的预览采纳、修订、个人ZIP资源版本、资料上传解析、跨页关联保持及媒体提案检查；未确认或执行真实媒体生成。详细失败项与范围见助手说明。
+- 回滚：设置`ZLY_AI_VIDEO_STUDIO_DIRECTOR_ASSISTANT_V2=false`并重启，保留新表和历史。详见[助手V2说明](导演台智能助手V2.md)。
+
+## 2026-10-19 导演工程基本信息与自动命名
+
+- 原因：工程名称、简介已有更新接口但没有界面入口，AI 剧本标题也没有同步到项目条和首页。
+- 行为：项目顶栏「编辑基本信息」使用 Ant Design Form / Input / Modal，支持名称与简介保存、错误提示和空白/255 字符校验，两个创作模式都可编辑。项目条颜色改用 `--studio-*` 双主题变量，长名称省略显示。
+- 自动命名：`AiGenerationService._adapt_recipe` 仅在 `script` 阶段落库后调用 `ProjectService.sync_generated_script_info`，从已生成的 `script.title` / `script.summary` 填入默认工程名及空简介；来源记录在现有 `settings_json.extra` 的 `name_source` / `description_source` 和 `ai_generated_name` / `ai_generated_description`。手动保存分别标为 `manual`，后续重新生成不覆盖；存量自定义名称/简介保持。更新使用旧名称、简介、设置快照作条件，避免覆盖同时发生的手动编辑。AI 阶段结束刷新父层项目数据，自动名称无需硬刷新。
+- 受影响文件：`backend/app/media_studio/{models.py,services/project_service.py,services/ai_generation_service.py}`、`frontend/src/director2/{Director2App.tsx,Director2ProjectDetail.tsx,project-detail.css,panes/Director2AiStudioPane.tsx}`、`backend/tests/test_director_project_info.py`、`.gitignore` 和维护文档。`Director2App` 只保留尺寸 token，移除强制浅色算法及颜色覆盖，继承根级主题以保证新弹层的暗色对比度。
+- 兼容性：沿用 `PUT /api/projects/{id}`，不新增 API、表或迁移；可选 extra 字段旧代码可忽略。端口和远端 ComfyUI 连接不变。
+- 验证：`python -m unittest backend.tests.test_director_project_info backend.tests.test_director2_ai_generation -q`（51 项通过，新增 7 项 SQLite 测试）；`python -m unittest discover -s backend/tests -p 'test_*.py'`（717 项，原有 2 失败、1 导入错误，与恢复基线相同）；`pnpm --dir frontend build`（245 项前端测试通过，TypeScript 被恢复基线已记录的 9 处旧错误阻塞，未改写原静态产物）。5173 桌面验证实际项目入口、临时工程的自动命名、名称/简介编辑、空白校验、保存刷新与手动信息保护；浅/暗参考截图见导演台流程文档。
+- 回滚：仅撤销上述文件本次功能变更并重启 7865；已保存的项目名称和简介可继续读取，来源字段可保留，无需迁移或恢复业务数据。
+
+## 2026-10-19 恢复最近一次部署镜像代码
+
+- 原因：用户要求将代码恢复到最近一次 `zly-ai-video-studio_latest` 打包时的版本。根目录普通镜像包构建时间为 `2026-09-20T03:23:02.765460036Z`（北京时间 11:23:02），比带数据包及 `packages/` 内的包更新。
+- 来源：镜像 config ID 与原包 SHA256 记录在备份 `restore-manifest.json` 的 `image_id`、`archive_sha256` 中。镜像内 352 个有效文件在恢复后逐一通过 SHA256 比对，随后仅补充本次维护文档。
+- 范围：`backend/`、`local_video_studio.py`、`sql/`、`frontend/dist/` 与 `docs/` 使用镜像原文件；其他已跟踪项目代码使用打包前最后提交 `9965babffaaf9005a0d6493b945c987360cdc690`。镜像没有前端源码或 source map，`frontend/src/` 只能恢复到该 Git 提交，不能声称与原编译产物完全可复现。
+- 当前导演台回到项目级 AI／手动模式与剧集工坊，后续统一工坊、制作方案、全局资产等新代码从恢复分支移除。旧流程与原截图基线见 `docs/导演台流程与界面结构.md`。
+- 兼容性：没有执行数据库回退；保留业务数据、媒体、所有实际 `.env*` 配置、`docs/存储配置.md`、当前 `AGENTS.md` 与 `.gitignore`。7865 与 5173 端口不变，ComfyUI 继续使用已保存的远端实例；未启动或切换 ComfyUI。
+- 验证命令：`python -X utf8 -m unittest discover -s backend/tests -p "test*.py" -q` 运行 710 项，2 项失败、1 项错误；失败为 API 文档断言和剧本场景账本提示断言，错误为历史 `test_xiaji` 引用已下线模块。`pnpm --dir frontend build` 中 48 个测试文件、245 项测试通过，TypeScript 检查报告 9 处旧错误，未进入清理或重建静态产物阶段。原镜像静态前端仍保留，不将本次验证标为全量通过。
+- 补充专项：`python -X utf8 -m unittest backend.tests.media_studio_test_character_content backend.tests.media_studio_test_h3_video backend.tests.media_studio_test_storyboard_images -q`，159 项全部通过。
+- 运行检查：恢复后 5173 首页、7865 静态首页与 `/api/health` 均返回 200，实际远端 ComfyUI 可达。桌面浏览器到达登录页；未登录的业务页面和真实生成未验收。
+- 恢复前备份：父目录 `code-backups/zly-ai-video-studio-before-restore-20261019-164754/workspace-before-restore.zip`，995 个文件，已校验 ZIP 完整性；清单与原文件 SHA256 见同目录 `restore-manifest.json`。Git 安全分支 `codex/backup-before-latest-20261019-164754` 保存原工作区快照，原 `dev` 分支仍指向 `53a9ae1`。
+- 回滚：先停止本机 5173／7865，保留当前恢复分支，再依据备份清单恢复 ZIP 中的原工作区文件，并切回原 `dev` 分支；已跟踪的原修改另可从上述 Git 安全分支恢复。原来未跟踪及忽略的文件以 ZIP 为准，原删除状态以 `git-status-before.bin` 为准。数据库与媒体无需回滚。
+
+## 2026-09-20 导演台2 任务列表瘦 payload，避免占满连接
+
+- 变更原因：线上点「全部任务」后 `GET /api/projects/{id}/jobs` 把每条任务的 LONGTEXT `payload_json` 和 N+1 资产查询打进同步线程池，其它 API 一起排队。
+- 当前基线：列表返回瘦 `payload`（镜号、结果 URL、精简 `shots`/`stream`，不含草稿/`request_body`/`payload_json`）。`GET /api/projects/{id}/jobs/{job_id}` 返回完整 payload。全部任务轮询进行中 2 秒、空闲 8 秒且禁止重叠。内容库规划兜底改为拉单条任务。`media_studio.db` 对 autocommit 查询复用最多 16 条 MySQL 连接。
+- 受影响文件：`backend/app/media_studio/services/job_payload.py`、`project_detail_service.py`、`routers/project_router.py`、`media_studio/db.py`、前端任务中心/工坊/内容库、`backend/tests/test_job_list_payload.py` 与四份主文档。
+- 兼容性：不改表结构。列表 JSON 不再带原始 `payload_json` 和超长草稿。
+- 验证命令：`python -m unittest backend.tests.test_job_list_payload`。
+- 回滚方式：还原上述文件并重新部署。
+
+## 2026-09-20 导入确认成片画幅，规划/写稿/出片共用
+
+- 变更原因：出片比例在工坊 localStorage，写稿锁死 9:16，导入立刻规划会把剧本里的竖屏写进镜头卡。
+- 当前基线：成片画幅解析顺序为本次请求 `aspect_ratio` > 项目 `settings.extra.workshop_aspect_ratio` > 配方 `confirm_format.aspect_ratio` > `9:16`；横竖语文案随比例（高>宽竖屏、宽>高横屏、相等方形）。内容库导入仍立刻切集落库，但不再自动入队 `shot_plan`；文档 `status=awaiting_aspect`，响应带 `aspect_hint`（扫描原文 `9:16`/`16:9`/`1:1`/`3:4`/`4:3`/`21:9` 与竖屏/横屏/方形）。用户确认后写入 extra 再 `POST …/shot-plan`（body 可带 `aspect_ratio`）。工坊改生成设置除 localStorage 外写入同一 extra；`POST …/h3-prompt` 与 `POST …/generate-triptych` 请求体带 `aspect_ratio`，入队写入 `beat_info.aspect_ratio`。写稿 system/user、槽位标签、骨架、`inject_craft` 用解析结果；user 复制镜头目的/运镜时覆盖旧 heading 画幅用语，不改库里 Beat 原文。三联母图仍 16:9 三等分裁切，标签按成片比例说（不再写死 9:16 裁切）。规划 system/user 写明确认画幅为权威。`ai_pipeline` 仍不规划。角色/场景设定板仍 16:9 白底。
+- 受影响文件：`skill_packs/aspect.py`、`handlers.py`、`triptych.py`、`h3_prompt_job_service.py`、`episode_shot_planner.py`、`project_detail_service.py`、工坊/内容库前端、测试与四份主文档、`docs/API.md`。
+- 兼容性：不改表结构、端口或 ComfyUI。旧客户端仍可直接 `POST …/shot-plan`（无 body 则用 extra/配方缺省）。半解说配方 yaml 缺省仍是 9:16。
+- 验证命令：`python -m unittest backend.tests.test_workshop_aspect backend.tests.test_skill_packs backend.tests.test_episode_shot_planner backend.tests.media_studio_test_storyboard_images backend.tests.test_shot_plan_job backend.tests.media_studio_test_h3_video -q`；`pnpm --dir frontend exec vitest run src/director2/workshop-aspect.test.ts src/director2/shot-plan-live.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 工坊成片多 Take 选用
+
+- 变更原因：重新出片会覆盖 `beat.video_url` 并清空超分，历史成功抽卡仍在任务里但成片 Tab / 合成只认最新一条。
+- 当前基线：逐镜/选中镜写入时把旧原片归档进 `beat.video_takes`（`data_json`，不新建表），`video_url` 默认采用最新。成片 Tab 列出本镜全部成功 Take，预览任意一条，`POST …/video-takes/adopt` 才把它变成正式成片。合成、配音提取、顶栏超分仍只读采用版 `video_url`。2x 挂在对应原片 Take 的 `upscaled_url`，不单独成 Take。整集直出 / 拼接不进单镜条带。历史任务由工坊已有 `listJobs` 按镜回填。不改 H3 节点，不引入已下线的 Recipe `shot.takes`。
+- 受影响文件：`episode_video_service.py`、`project_detail_service.py`、`project_router.py`、工坊成片 Tab、`director2-video-settings.ts`、测试与四份主文档、`docs/API.md`。
+- 兼容性：旧镜没有 `video_takes` 时由任务列表回填；未采用预览不影响镜头卡「已出片」和合成。
+- 验证命令：`python -m unittest backend.tests.media_studio_test_h3_video.EpisodeVideoTakesTests backend.tests.media_studio_test_h3_video.EpisodeVideoUpscaleTests -q`；`pnpm --dir frontend exec vitest run src/director2/director2-video-settings.test.ts`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 写稿不再把角色内心塞进旁白原文
+
+- 变更原因：工坊入队 H3 时把内心折进 `beat_info.narration`，user 同时写「内心不要进旁白」和「旁白原文必须抄内心」。5.6 按合同把内心写进了中文旁白块。
+- 当前基线：`dialogue_turns` 保留完整台词（含（内心））；`narration` 只留第三人称/第一人称旁白。写稿 user / 八块骨架 / 通道校验都用 `third_person_narration`，内心与旁白原文相同则视为无旁白。不改表结构、端口或 ComfyUI。镜头一需再生成 H3 提示词。
+- 受影响文件：`h3_prompt_job_service.py`、`h3_prompt_builder.py`、`skill_packs/handlers.py`、官方模板、测试与四份主文档。
+- 兼容性：真旁白仍进旁白块。程序装箱仍从对白里的（内心）取内心。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_h3_coverage -q`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 镜头一写稿失败改为拦通道与 00:00 内心，不再误杀小数时间码
+
+- 变更原因：工坊重新生成镜头一 H3 时，正确挂在下摇看衣的草稿因小数时间码、`00:00:15`、缺 `[Chinese]`、UTF-8 流把「参」打成 U+FFFD 而失败，Beat 仍是旧稿（内心从 00:00 起念），用户按旧稿出片。
+- 当前基线：中文薄校验接受 `00:02.50`、`00:00:15` 和标题首字乱码；英文 `<d>` 可省略 `[Chinese]`。表演顺序第 1 句不是内心时，禁止内心原文出现在任何 00:00 起幅时间段。无旁白时仍禁止旁白块抄内心。半解说包不恢复 thickness / packing leftover。写稿失败仍不覆盖上一版提示词。不改表结构、端口或 ComfyUI。工坊需再生成镜头一 H3 提示词后再出片。
+- 受影响文件：`skill_packs/handlers.py`、`h3_prompt_builder.py`、测试与四份主文档、`docs/API.md`。
+- 兼容性：镜头二多句切开仍通过。旧的 00:00 内心稿不会自动改。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_h3_coverage -q`。
+- 回滚方式：还原上述文件。
+
+## 2026-09-20 内心与旁白改由写稿合同约束三通道
+
+- 变更原因：镜头一不是画外音关键字失效，而是模型为填满「旁白」把内心提前到 00:00，又把开口判断句复制进第二个 `<d>`。复杂时间码规则已经误杀过镜头二。
+- 当前基线：双稿 system/user 写清开口 / 角色内心 / 第三人称旁白三通道，并按 `ordered_speech_events` + `split_speech_atoms` 给出编号表演顺序。无 `narration` 时八块「旁白」固定写「本镜无第三人称旁白」，内心只进对白并标（内心）。中文薄校验：内心进第三人称/第一人称旁白、开口被标成内心、无旁白却用台词充数。半解说包 `skip_program_pack` 在既有内心交付校验之外增加 `speech_schedule_errors`（台词去重 + `<d>` 表演顺序），不打开 thickness / packing leftover。不改表结构、端口或 ComfyUI。工坊需重新生成镜头一 H3 提示词后再出片。
+- 受影响文件：`skill_packs/handlers.py`、`h3-video-prompt-template.md`、`h3_prompt_builder.py`、`llm_service.py`、测试与四份主文档、`docs/API.md`。
+- 兼容性：手动粘贴六段仍按原文出片。未绑技能包仍走程序装箱。镜头二多句切开不被新规则误杀。
+- 验证命令：`python -m unittest backend.tests.test_skill_packs backend.tests.media_studio_test_h3_video backend.tests.test_h3_coverage -q`。
+- 回滚方式：还原上述文件。
 
 ## 2026-09-19 工坊内心戏改用官方 H3 画外音句式
 
@@ -95,7 +719,7 @@
 ## 2026-09-19 导演台并入 `/director`，九阶段 Recipe 界面下线
 
 - 变更原因：侧栏「导演台」实际打开的是原 `/director2` 项目壳，「导演台2」才是旧九阶段 `/director`。产品只保留一套导演台。
-- 当前基线：`DIRECTOR2_PREFIX` 改为 `"/director"`。侧栏只留「导演台」。`/director` 为首页；`/director/projects/:id/{content|assets|workshop|jobs}` 为导演创作；`/director/batch|replication|hypit/:id` 路径不改。`/director2/*` `Navigate` 到对应 `/director/*`。旧 `/director/:recipeId` 回首页。首页合并 `/api/projects` 与三项 `/api/director/projects`（过滤 recipe / timeline）。前端删除九阶段 Recipe 页面与专属组件（`DirectorRecipeStudio`、时间线、`opencut-timeline` 等）。本轮不重命名 `frontend/src/director2/`，不改后端 `surface: "director2"`，不拆除 `/api/director/recipes/*`。`/api/jobs` 轮询只在生成页和三条工作室开启。
+- 当前基线：`DIRECTOR2_PREFIX` 改为 `"/director"`。侧栏只留「导演台」。`/director` 为首页；`/director/projects/:id/{content|assets|workshop|jobs}` 为导演创作；`/director/batch|replication|hypit/:id` 路径不改。`/director2/*` `Navigate` 到对应 `/director/*`。旧 `/director/:recipeId` 回首页。首页合并 `/api/projects` 与三项 `/api/director/projects`（过滤 recipe / timeline）。前端删除九阶段 Recipe 页面与专属组件（`DirectorRecipeStudio`、时间线、`opencut-timeline` 等）。本轮不重命名 `frontend/src/director2/`，不改后端 `surface: "director2"`，不拆除 `/api/director/recipes/*`。`/api/jobs` 轮询只在生成页和三条工作室开启。（2026-10-25 更新：资产页会拉取一次任务快照但不再周期轮询，见文末「生成页性能与错误反馈优化」。）
 - 受影响文件：`frontend/src/paths.ts`、`frontend/src/router.tsx`、`frontend/src/App.tsx`、`frontend/src/director2/paths.ts`、`Director2StudioHome.tsx`、`DirectorStudioModule.tsx`、`frontend/src/director/` 九阶段专属文件（删除）、四份主文档。
 - 兼容性：三项工作室与 `/assets`、生成页 URL 不变；旧 `/director2` 书签可跳转；旧 Recipe 书签不再打开九阶段界面。
 - 验证命令：`pnpm --dir frontend exec vitest run`；5173 自查首页、四类入口、重定向与生成/资产页。
@@ -651,15 +1275,15 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 | `frontend/src/router.tsx` | `BrowserRouter` 路由表：登录/改密、管理设置、创作台壳 |
 | `frontend/src/auth/AuthScreens.tsx` | 登录、首次超级管理员初始化与强制改密界面 |
 | `frontend/src/admin/AdminSettings.tsx` | 管理设置（账号 / AI 供应商 / LLM / VLM / TTS / 媒体存储） |
-| `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成 / 导演台（`/director` 首页与项目壳，`/director/batch|replication|hypit` 三项工作室）/ 资产；图/视频与选中任务；工作流、参考图草稿仍在组件 state |
+| `frontend/src/App.tsx` | 已登录创作台壳：由 URL 驱动生成 / 导演台（`/director` 首页与项目壳，`/director/batch|replication` 两项工作室）/ 资产；图/视频与选中任务；工作流、参考图草稿仍在组件 state |
 | `frontend/src/xiaji/XiajiStudioModule.tsx` | 导台2：项目内内容库、资产库、剧集工坊、全部任务 |
 | `frontend/src/xiaji/XiajiHome.tsx` | 导台2 项目列表与新建 |
 | `frontend/src/xiaji/XiajiAssetsModule.tsx` | 导台2 资产库：角色/场景/道具/声线定义与生成 |
 | `frontend/src/xiaji/XiajiWorkshopModule.tsx` | 导台2 剧集工坊：规划落库、脚本 Beat、镜头与成片合成 |
 | `frontend/src/xiaji/XiajiShotsWorkbench.tsx` | 导台2 镜头工作台：左 Beat 网格、右文案/单帧/参考图 |
-| `frontend/src/director2/Director2StudioHome.tsx` | 导演台首页：四入口 + 合并最近工程 |
+| `frontend/src/director2/Director2StudioHome.tsx` | 导演台首页：导演创作主入口 + 两项工作室 + 剧本诊断 + 合并最近工程 |
 | `frontend/src/director2/Director2ProjectDetail.tsx` | 导演创作项目壳：内容库 / 资产库 / 剧集工坊 / 全部任务 |
-| `frontend/src/director/DirectorStudioModule.tsx` | 短视频批量 / 参考片复刻 / Hypit 复刻装配 |
+| `frontend/src/director/DirectorStudioModule.tsx` | 短视频批量 / 参考片复刻装配 |
 | `frontend/src/director/types.ts` | 批量/画风辅助与 Recipe 类型兼容层（九阶段 UI 已下线） |
 | `frontend/src/local-resource-store.ts` | 目录句柄/资源索引 IndexedDB 持久化及本地文件读写 |
 | `desktop/client/` | ZLYUN AI 客户端本地启动页与品牌图标 |
@@ -698,7 +1322,7 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 | `backend/app/media_studio/services/dubbing_service.py` | 导演台2 台词轨展开、单句导演参数、配音生成调度 |
 | `backend/app/director_export.py` | 逐镜 TTS、BGM、ffmpeg 成片、FCPXML/EDL；失败镜头不进入成片 |
 | `backend/app/director_agents.py` | 顺序调度；导演对话走 SSE 流式读取（连接 20 秒、分块空闲 300 秒）；独立 `episodes` agent 写集大纲，分镜优先消费已确认结构；分镜读取官方 h3-prompt-writing，并依次做时长润色与 Seedance 风格衔接润色；配音/配乐写可播放媒体元数据；绑定技能包时 `_system` 注入 `inject_craft` |
-| `backend/app/skill_packs/` | 技能包配方（Hub 官方 Markdown + `meta.yaml` + `summary`）与步骤注册表；首页/顶栏绑定项目 `extra.skill_pack_id`；工坊一次写官方八块中文分秒稿和英文六段；半解说包临时 `skip_program_pack` 出片用 GPT 英文、不程序装箱；R2V 绑角色卡+场景卡+三联三格 9:16 裁切（不送 16:9 母图）；导台2 四阶段按官方标题 `inject_craft` |
+| `backend/app/skill_packs/` | 技能包配方（Hub 官方 Markdown + `meta.yaml` + `summary`）与步骤注册表；首页/顶栏绑定项目 `extra.skill_pack_id`；工坊一次写官方八块中文分秒稿和英文六段；半解说包临时 `skip_program_pack` 出片用 GPT 英文、不程序装箱；R2V 绑角色卡+场景卡+三联三格成片画幅构图（不送 16:9 母图）；导台2 四阶段按官方标题 `inject_craft` |
 | `backend/app/media_studio/services/ai_generation_service.py` | 导台2 项目级 AI 流水：澄清 → 四步卡点（`awaiting_review` / `advance` / `revise` / `rerun_stage`）；`retry(stage=…)` 可从已完成的更早阶段重跑并作废后续步骤；结果适配写入内容库/资产库/剧集工坊；阶段生成套 `skill_pack_scope` |
 | `backend/app/llm_minimax_skills.py` | MiniMax H3 风格技能、官方 prompt-writing、shot-timing 与 shot-continuity 加载器，供生成页优化和导演台分镜共用 |
 | `backend/app/script_full_story.py` | 剧本 `fullStory` 规范化与按 `【` / `### 镜头` 切场景，供导演台与导台2 共用 |
@@ -748,13 +1372,13 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 
 当前 `/api/modes` 注册以下视频工作流，并下发 `catalog_group` / `catalog_group_label` / `catalog_group_order` 供创作页分组：
 
-- LightX2V：`minimax-h3-lightx2v-t2v`（0 张）、`minimax-h3-lightx2v-i2v`（1-2 张首尾帧）、`minimax-h3-lightx2v-r2v`（1-9 张参考图）。默认 1.0 MP、快速 4 步、euler 采样，加载 `G:\ComfyUI-Models\lightx2v` 下的 LightX2V LoRA；官方 H3 三个模式的节点 ID 不改动。
-- 八步双加速：`minimax-h3-dual-accel-t2v`（0 张）、`minimax-h3-dual-accel-i2v`（1-2 张首尾帧）、`minimax-h3-dual-accel-r2v`（1-9 张参考图）。复用参考 JSON 的加速链：`LoraLoaderModelOnly`（`minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors`，强度 1.0）→ `PathchSageAttentionKJ`（`auto` / 禁止 compile）→ `MiniMaxH3MemoryEfficientSageAttentionPatch`，默认 0.4 MP、8 步 `res_multistep` 与 video/audio Shift 12/3。不接入 `MiniMaxH3Director` 节点；文生/首尾帧用全量 INT8 FL2VA，多参考用全量 INT8 Ref2VA。
-- 官方 MiniMax H3：`minimax-h3-t2v`、`minimax-h3-i2v`、`minimax-h3-r2v`。动态 API graph 在既有节点 1–15 之后接入 `ReservedVRAMSetter`（预留 3 GB 并在采样前清缓存）与 `MiniMaxH3MemoryEfficientSageAttentionPatch`，避免 16GB 显卡在 `SamplerCustomAdvanced` 的 INT8 QKV 上 OOM。既有节点 ID 不变。
-- 自定义：`minimax-h3-t8-all-reference`（0-9 张；无图 `T2VA`+FL2VA，有图 `Ref2VA`+Ref2VA，`MiniMaxH3MultiRateSamplerEXPT8`）、`minimax-h3-t8-dual-clock`（0-1 张；无图 `T2VA`，单图 `I2VA` 首帧，`MiniMaxH3DualClockSamplerT8`）。
-- 隐藏：`nvidia-rtx-vsr` 不出现在创作页模型列表。把已成功成片交给当前连接 ComfyUI 的 `RTXVideoSuperResolution`（固定 2x / ULTRA），由创作页「出片后 2x 超分」、`POST /api/jobs/{job_id}/upscale`、工坊逐镜 `upscale_after` / `POST …/beats/{id}/upscale`，或全部任务 `POST …/projects/{id}/jobs/{job_id}/upscale` 触发。整集直出与拼接片不自动超分，可在全部任务手动点。显存门闸读当前连接 GPU 的 `vram_total`，过长可能被拒绝。
+- LightX2V：`minimax-h3-lightx2v-t2v`（0 张）、`minimax-h3-lightx2v-i2v`（1-2 张首尾帧）、`minimax-h3-lightx2v-r2v`（1-9 张参考图）。默认 1.0 MP、快速 4 步、euler 采样，加载 `G:\ComfyUI-Models\lightx2v` 下的 LightX2V LoRA；官方 H3 三个模式的节点 ID 不改动。开启二采精修时改走 Director 两段式，但一采仍沿用当前 LightX2V 速度、LoRA 与 euler。
+- 八步双加速：`minimax-h3-dual-accel-t2v`（0 张）、`minimax-h3-dual-accel-i2v`（1-2 张首尾帧）、`minimax-h3-dual-accel-r2v`（1-9 张参考图）。复用参考 JSON 的加速链：`LoraLoaderModelOnly`（`minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors`，强度 1.0）→ `PathchSageAttentionKJ`（`auto` / 禁止 compile）→ `MiniMaxH3MemoryEfficientSageAttentionPatch`，默认 0.4 MP、8 步 `res_multistep` 与 video/audio Shift 12/3。默认不接入 `MiniMaxH3Director` 节点；仅开启二采精修时改用 Director 两段式，一采保留 8 步 LoRA 与双 Sage。文生/首尾帧用全量 INT8 FL2VA，多参考用全量 INT8 Ref2VA。
+- 官方 MiniMax H3：`minimax-h3-t2v`、`minimax-h3-i2v`、`minimax-h3-r2v`。动态 API graph 在既有节点 1–15 之后接入 `ReservedVRAMSetter`（预留 3 GB 并在采样前清缓存）与 `MiniMaxH3MemoryEfficientSageAttentionPatch`，避免 16GB 显卡在 `SamplerCustomAdvanced` 的 INT8 QKV 上 OOM。既有节点 ID 不变。三个官方模式支持可选的「二采精修」（`refine_enabled`）：开启后改走 `minimax_h3_refine_workflow.py` 的 Director + `MiniMaxH3DirectorRefine` 两段式 graph。全部 H3 工作流（官方、LightX2V、八步双加速、Director 加速、T8）都不再暴露 `upscale_after`，统一提供 `refine_enabled` / `refine_quality`；一采按所属工作流保留速度、步数、LoRA、unet 与 Sage 设置。
+- 自定义：`minimax-h3-t8-all-reference`（0-9 张；无图 `T2VA`+FL2VA，有图 `Ref2VA`+Ref2VA，`MiniMaxH3MultiRateSamplerEXPT8`）、`minimax-h3-t8-dual-clock`（0-1 张；无图 `T2VA`，单图 `I2VA` 首帧，`MiniMaxH3DualClockSamplerT8`）。默认使用 T8 专有采样器；开启二采精修时一采改走 Director 两段式并沿用当前步数，T8 专有采样器与音频模式不参与二采。
+- 隐藏：`nvidia-rtx-vsr` 不出现在创作页模型列表。把已成功成片交给当前连接 ComfyUI 的 `RTXVideoSuperResolution`（固定 2x / ULTRA），由已成功视频结果卡的「超分」、`POST /api/jobs/{job_id}/upscale`、工坊逐镜 `POST …/beats/{id}/upscale`，或全部任务 `POST …/projects/{id}/jobs/{job_id}/upscale` 触发。H3 生成选项不再自动接跑 RTX 超分；整集直出与拼接片可在全部任务手动点。显存门闸读当前连接 GPU 的 `vram_total`，过长可能被拒绝。
 
-H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`、`weight_profile`，以及自定义时的 `custom_steps`，可选 `upscale_after`。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。`weight_profile` 为 `full`（默认，约 32 GB 全量 INT8，可挂加速 LoRA）或 `pruned`（约 20 GB 精简 INT8，强制关闭加速 LoRA，步数仍由 `speed` 决定）。`upscale_after` 为更多设置中的布尔开关，成片成功后卸载 H3 再跑独立 2x 超分（工坊仅逐镜/选中镜自动接跑）。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
+H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`、`weight_profile`，以及自定义时的 `custom_steps`。全部 H3 工作流另有 `refine_enabled` / `refine_quality`，且不再向界面或标准化结果暴露 `upscale_after`（旧客户端传入会被忽略）。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。`weight_profile` 为 `full`（默认，约 32 GB 全量 INT8，可挂加速 LoRA）或 `pruned`（约 20 GB 精简 INT8，强制关闭加速 LoRA，步数仍由 `speed` 决定）。开启 `refine_enabled` 后，一采固定 0.4 MP，二采目标 `refine_quality` 取 `1.0` / `2.0`；一采步数、LoRA、unet、采样器与 Sage 由所属工作流保留（官方 H3 固定 8 步 FL2V LoRA；T8 改用 Director 管线并沿用当前步数）。`quality` 在二采开启时隐藏，运行参数快照回写实际生效的一采值与二采目标。RTX 2x 超分仍是已成功成片的独立手动操作，不再由 H3 创建选项自动触发。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
 
 两个 T8 模式的 options schema 同样由 `workflow_registry.py` 提供，覆盖任务类型、比例、画质预设、内部像素、对齐倍数、时长、种子、音频策略、采样步数、video/audio shift、模型、LoRA、SageAttention、显存策略和 H.264 编码参数。每项使用 `ui_group=primary|advanced|internal` 声明产品可见性；前端只生成主参数与“更多设置”，内部参数由后端默认值托管。随机种子每次由后端自动生成，不接受用户指定。SQLite 保存标准化 options 与显式提交字段；`request_parameters` 返回当前生效的有效值和 `visibility`，并遵守 `ui_visible_when`（例如未选自定义时不回显 `custom_steps`），前端将内部值折叠到“运行参数”。输出文件前缀、`save_output=true` 与 graph 连线属于集成协议，不允许调用方覆盖。
 
@@ -2077,7 +2701,7 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 ## 2026-09-03 导演台镜头进度条恢复实时刷新
 
 - 原因：迁库后为减少远程 MySQL 压力，`GET /api/jobs` 轮询被限制为仅在「生成」工作区启用；导演台分镜/定妆进度条依赖同一 `allJobs` 列表，停在导演台时进度冻结。
-- 当前基线：`App.tsx` 在 `generate` 与 `director` 工作区启用任务列表轮询（资产页、导台2 仍关闭）。有排队/运行/中断任务时约 4 秒刷新，空闲约 15 秒。`DirectorRecipeStudio` 在镜头出片或静帧进行中也会 1.5 秒轮询工程，打开工程时后端 `sync_recipe_asset_images` 继续把 `jobs.progress` 写回 Recipe。
+- 当前基线：`App.tsx` 在 `generate` 与 `director` 工作区启用任务列表轮询（资产页、导台2 仍关闭）。有排队/运行/中断任务时约 4 秒刷新，空闲约 15 秒。（2026-10-25 更新：资产页改为仅拉取一次快照，用于冷启动与删除后刷新；仍不周期轮询。导台2 仍不请求列表。系统健康检查由 8 秒放宽到 30 秒，GRS 余额仅在生成页图片模式查询。）`DirectorRecipeStudio` 在镜头出片或静帧进行中也会 1.5 秒轮询工程，打开工程时后端 `sync_recipe_asset_images` 继续把 `jobs.progress` 写回 Recipe。
 - 受影响文件：`frontend/src/App.tsx`、`frontend/src/director/DirectorRecipeStudio.tsx` 与三份主文档。
 - 兼容性：不改 `GET /api/jobs` 契约、数据库、工作流或 ComfyUI；仅恢复导演台侧轮询。
 - 验证命令：`pnpm --dir frontend exec tsc -b --pretty false`、`pnpm --dir frontend build`；导演台出片时确认进度条与按钮百分比随 `jobs.progress` 递增。
@@ -2581,6 +3205,112 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 验证命令：`python -m unittest backend.tests.test_director2_ai_generation`、`pnpm --dir frontend test`。
 - 回滚方式：还原上述文件即可。
 
+## 2026-09-20 服务器启动补建导演台2 表，DATA_DIR 不再改走 SQLite
+
+- 变更原因：`deploy-server-image.sh` 健康检查失败，容器反复退出，日志 `pymysql.err.ProgrammingError: (1146, "Table 'ai-media.ai_project_jobs' doesn't exist")`，栈在 `EpisodeVideoService.recover_orphaned_jobs()`。
+- 当前基线：Compose 的 `ZLY_AI_VIDEO_STUDIO_DATA_DIR` 只用于上传/暂存/凭证/SQLite 迁移源，不再把生产后端切到 SQLite。`ZLY_AI_VIDEO_STUDIO_DB_BACKEND` 默认 `mysql`，unittest 仍隔离 SQLite。`media_studio.db.ensure_schema()` 在首次 MySQL 连接和 FastAPI lifespan（恢复孤儿任务之前）重放 `sql/*.sql`，含 `ai_project_jobs` 等 `ai_*` 表。
+- 受影响文件：`backend/app/config.py`、`backend/app/db.py`、`backend/app/media_studio/db.py`、`backend/app/main.py`、`compose.yaml`、`.env.example`、`backend/tests/test_media_studio_schema.py` 与三份主文档。
+- 兼容性：已有 `ai-media` 库用 `CREATE TABLE IF NOT EXISTS` 补表，不改既有行。旧 Docker 卷里的 SQLite 仍可由 `deploy-server-image.sh` 的迁移步骤导入 MySQL。
+- 验证命令：`python -m unittest backend.tests.test_media_studio_schema`。
+- 回滚方式：还原上述文件并重新导出镜像；缺表时也可对目标库手动执行 `sql/013_media_studio_init.sql`。
+
+2026-10-20 模型格式兼容：实际可选模型可能返回`<tool_call>`及成对`param_key/param_value`标签；后端仅接受完整、有界的工具块，规范化后仍通过同一工具/参数白名单校验，拒绝未知工具、跨目标参数、声明实体及块外正文，不跳过用户确认。JSON协议继续兼容。
+
+2026-10-20 验收结果：前端52个测试文件、270项测试及类型检查/构建通过；助手与剪辑后端专项67项通过，其中新增铺轨专项14项。完整后端789项保留既有2失败（OpenAPI旧标签、剧本场景账本大小写）与1导入错误（已下线xiaji_api），不标为全量通过。真实5173在1440×900与1920×1080浅暗主题无横向溢出或右栏遮挡，截图46–52已归档。按钮实测清单取消不写入、确认追加保存、整次撤销/重做、刷新和重复跳过；实际可选Qwen/Qwen3-8B完成自然语言editor_read→propose_edit→同一授权弹窗→保存。并发改版本返回409且无部分写入，重新预览可执行，旧待授权记录不再在新动作完成后重复弹出。验收未提交视频生成或导出任务。
+
+本次验收临时账号、工程、助手记录及2个上传云端视频均已按ID核对后清理；46–52桌面基线已归档。本地临时目录的批量清理及明确列出的4个认证/媒体文件删除均被自动审批以blocked by policy拒绝，未执行删除；临时文件和验证报告保留在Git忽略的test-results/editing-assistant。
+
+## 2026-10-22 官方 H3 二采精修替代出片后 2x 超分
+
+- 变更原因：官方 H3 的「出片后 2x 超分」只做后处理放大，对生成细节没有提升；用户实测有效的做法是 0.4 MP 精简权重一采 → H3 3D latent 放大 → 3 步 beta denoise 0.2 二采。把该配方产品化为「二采精修」，官方 T2V/I2V/R2V 不再暴露 `upscale_after`；LightX2V、八步双加速、Director 加速和 T8 继续保留 RTX 2x 超分。
+- 当前基线：`workflow_registry.py` 的官方 H3 schema 新增 `refine_enabled`（primary 布尔，默认关，创建栏与导演台弹层直接显示）与 `refine_quality`（primary 枚举 `1.0` / `2.0`，默认 `1.0`，仅开启时显示）。开启后 `normalize_options` 强制一采为 0.4 MP、`pruned`、8 步、`minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` 强度 1.0，并忽略传入的 `quality` / `weight_profile` / `speed` / `upscale_after`；`quality`、`weight_profile`、`speed`、`custom_steps` 通过 `ui_visible_when` 隐藏。`comfy_service` 在官方模式且 `refine_enabled` 时改用新增的 `backend/app/minimax_h3_refine_workflow.py`。
+- Graph 结构：一采为 `MiniMaxH3Director` + 对应 Group（R2V 用 `MiniMaxH3DirectorGroupReferenceToVideo`，其余用 `MiniMaxH3DirectorGroupImageToVideo`），节点 1 pruned FL2VA → 15 八步 LoRA → 18 `ReservedVRAMSetter`（3 GB）→ 16/17 Sage；二采节点 40（R2V 用 `ExperimentalW4A8UNETLoader` + `minimax_h3_ref2va_pruned_w4a8_mixed`，其余用 `UNETLoader` + pruned FL2VA）→ 41 四步 LoRA → 42/43 Sage → 44 `BasicScheduler`（beta / 3 步 / denoise 0.2）→ 45 `MiniMaxH3DirectorRefine`（`mode=upscale`、`upscale_method=h3_latent`、`minimax_h3_latent_upscaler_3d_bf16`、euler、passes 1、seed 继承、`aspect_ratio=跟随导演台`、`skip_fl2v` 仅非首尾帧为 true）。`CreateVideo` 13 → `SaveVideo` 14 保持下载节点不变；帧数超过 60 时开启 latent chunking，不启用 tiling。
+- 兼容性：不新增表字段、端口或 API 路由。旧任务 options 缺 `refine_enabled` 时按默认关处理；缺 `refine_quality` 时按当前 schema 默认 `1.0` 回显，API 客户端省略该字段也会得到 1.0 MP 二采（此前默认 2.0）。`main.py` 的有效参数快照在判断 `ui_visible_when` 时回落到 schema 默认值，因此旧任务仍会回显 `quality` / `speed`。API 仍接受官方 H3 传入 `upscale_after`（`H3_OPTION_NAMES` 保留），但界面不再展示；开启二采时该字段被强制为 false。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_refine_workflow.py`（新增）、`backend/app/comfy_service.py`、`backend/app/main.py`、`backend/tests/test_h3_refine.py`（新增）、`backend/tests/test_rtx_vsr.py`、`backend/tests/test_core.py`、`frontend/src/App.tsx`、`README.md`、`功能说明与扩展指南.md` 和本文档。
+- 验证命令：`python -m unittest backend.tests.test_h3_refine backend.tests.test_rtx_vsr backend.tests.test_core backend.tests.test_h3_coverage backend.tests.test_director_workflow_speed`、`pnpm --dir frontend test`、`pnpm --dir frontend build`。
+- 远端验收（2026-10-22，用户确认地址 `http://192.168.10.54:8188`，`.env` 已同步）：I2V、5 秒、2.0 MP、seed `5359709363136135826` 跑通两段式。远端节点与模型齐全；一采 8 步 54 秒，latent 放大 864×480 → 1952×1088 约 34 秒，二采 3 步采样约 48.5 分钟（三步步进波动大，总耗时约 52 分钟，RTX 4080 16 GB）。产物 1952×1088、124 帧、24 fps、带 AAC 音频、5.167 秒；抽帧检查主体一致、运镜稳定、霓虹文字清晰，未见明显接缝或崩坏。2.0 MP 的实际画布由 `aspect_ratio=跟随导演台` 按一采 864×480 比例计算为 1952×1088（UI 标签写 16:9 约 1920×1088）。二采耗时远高于旧文案的“约两倍”，用户可见说明已改为“5 秒 2.0 MP 在 16 GB 显卡上约 50 分钟”。若后续需要缩短耗时，再评估 1.0 MP 或开启 spatial tiling；本轮未改动已验证的采样参数。
+- 1.0 MP 对比（2026-10-23，同一首帧、提示词与 seed `5359709363136135826`）：1.0 MP 任务（prompt `a61d0750-ddbd-41ce-bb3a-f0b6862b59a7`）总耗时 215.5 秒（约 3 分 36 秒），产物 1376×768、124 帧、24 fps、AAC、5.167 秒、1.88 MB；2.0 MP 任务（prompt `93f92dfe-f045-412a-b1ec-ad22b470774b`）总耗时 3126.9 秒（约 52 分 7 秒），产物 1952×1088、3.18 MB。将 2.0 MP 缩到 1376×768 与 1.0 MP 原生逐帧对比：构图、色彩、运镜一致；2.0 MP 在雨丝、湿发和霓虹边缘略多微细节，1.0 MP 更平滑，正常观看尺寸下差异很小。耗时相差约 14.5 倍而观感接近，判断 2.0 MP 在 16 GB 显存上已受显存压力影响。按该结论，`refine_quality` 默认值已由 `2.0` 改为 `1.0`（2026-10-23），2.0 MP 仍可手动选择；如后续确需 2.0 MP 的额外细节，再评估开启 `enable_tiling`（2 tiles、overlap 128）。已验证的采样参数未改动。
+- 验收产物：远端 `output/video/ZLY_AI_VIDEO_STUDIO_MiniMax_H3_Refine_00001_.mp4`（2.0 MP）与 `..._00002_.mp4`（1.0 MP）；本地副本、抽帧与 `compare_full.png` / `compare_face.png` 位于已忽略的 `.tmp/acceptance/`，确认后可清理。
+- 回滚方式：恢复上述文件并重启后端、重建前端；已提交任务不受影响。
+
+## 2026-10-23 二采精修扩展到全部 H3 工作流
+
+- 变更原因：2026-10-22 只在官方 H3 上线了「二采精修」，LightX2V、八步双加速、H3 Director 加速版和 T8 仍保留无效的「出片后 2x 超分」。用户要求所有 H3 工作流统一替换为二采，并让每个工作流用自己更快的一采设置生成首段，以缩短两段式总耗时。
+- 当前基线：`H3_STANDARD_OPTION_SCHEMA` 及 LightX2V / 八步双加速 / Director 加速 / T8 的专属 schema 全部提供 `refine_enabled`（primary 布尔，默认关）与 `refine_quality`（primary 枚举 `1.0` / `2.0`，默认 `1.0`，仅在开启时显示）；所有 H3 schema 删除 `upscale_after`。`normalize_options` 对全部 H3 工作流先丢弃旧客户端或旧草稿里的 `upscale_after`，开启二采时统一把一采 `quality` 固定为 `0.4`、`megapixels` 固定为 `0.4`，并保留各工作流自己的步数、采样器、模型体积、LoRA 与 Sage 设置。分辨率选项通过 `ui_visible_when={"refine_enabled": false}` 隐藏，二采画质只在开启后出现。
+- 调度：`comfy_service` 在 `refine_enabled` 时统一调用 `build_minimax_h3_refine_workflow`，否则按原工作流族分派；导演台2 逐镜 / 选中镜经 `ComfyVideoClient.build_shot_workflow` 走同一入口；整集直出与时间线合成经 `ComfyVideoClient.build_workflow` 在原有 Director 时间线图（节点 12）上追加 `build_refine_nodes` 生成的 40–45 节点，并把节点 12 的 `refine` 连接到 45。
+- 一采按工作流族保留各自速度特征：官方 H3 固定 8 步、pruned FL2VA/REF2VA、8 步 LoRA 强度 1.0、`ReservedVRAMSetter` 3 GB 与双 Sage；LightX2V 沿用当前 speed（默认快速 4 步）选择 4/8 步 LoRA（强度 0.75）和 euler，LoRA 开启时用完整 INT8，仅挂 H3 显存高效 Sage；八步双加速沿用 8 / 20 / 自定义步数与 8 步 LoRA 强度 1.0，full INT8 + 双 Sage；Director 加速沿用 20 / 25 步、`director_accel_unet` 的完整/精简体积、cfg 与双 Sage，不挂 LoRA；T8 一采改用 Director 管线并沿用 `video_steps`（多速率）或 `steps`（双时钟）、完整 INT8 + T8 Turbo LoRA、`res_multistep` 与 H3 Sage，但 T8 专有采样器与音频模式不参与二采（界面与文档已注明）。
+- 二采图与官方 H3 一致：节点 40 加载 pruned FL2VA（R2V 用 `minimax_h3_ref2va_pruned_w4a8_mixed`）→ 41 四步 LoRA → 42/43 Sage → 44 `BasicScheduler`（beta / 3 步 / denoise 0.2）→ 45 `MiniMaxH3DirectorRefine`（`mode=upscale`、`upscale_method=h3_latent`、`minimax_h3_latent_upscaler_3d_bf16`、euler、passes 1、seed 继承、`aspect_ratio=跟随导演台`、目标 1.0 / 2.0 MP、`skip_fl2v` 仅非首尾帧为 true、帧数超过 60 时开 latent chunking、不启用 tiling）。`CreateVideo` 13 → `SaveVideo` 14 与下载协议不变。
+- 兼容性：不新增表字段、端口或 API 路由。旧任务 options 缺 `refine_enabled` 时按关闭处理，缺 `refine_quality` 时按默认 `1.0` 回显；旧任务里的 `upscale_after` 仅在任务详情作为历史快照保留，不参与新任务。已成功视频结果卡、「全部任务」与工坊的「超分」按钮及 `POST /api/jobs/{job_id}/upscale`、`…/beats/{beat_id}/upscale`、`…/projects/{id}/jobs/{job_id}/upscale` 手动 RTX 接口继续保留；自动超分分支因归一化不再产生 `upscale_after` 而停用。T8 开启二采后不再保留原 T8 采样器与音频模式，这是二采节点的硬约束，需要 T8 原味输出时关闭二采。
+- 界面层级（2026-10-23 补充）：`refine_enabled` / `refine_quality` 的 `ui_group` 由 `advanced` 提升为 `primary`，创建栏与导演台视频设置弹层默认显示；二采画质仍由 `ui_visible_when` 只在开启精修后出现。创建栏紧凑布尔开关固定 36px，与相邻下拉等高；「更多设置」网格里的布尔项改为标签在上、开关在下，避免被同行控件拉伸。浅色主题的工具栏通用按钮底色规则已排除 `.ant-switch`，并为开关轨道显式设置关闭灰 `#aeb7c1` / 开启蓝 `#435ce8`（悬停变体同步），避免 Ant Design 轨道被刷白、开合无法辨认。创建栏紧凑下拉按选项最长文案自适应宽度：超过 18 字符 300px、超过 12 字符 240px、其余 188px，经内联 `--studio-compact-select-width` 与 `index.css` 的 `@media (min-width: 640px)` 规则生效，确保「二采画质」的 2.0 MP 长文案完整显示。前端 `DIRECTOR2_VIDEO_FALLBACK_FIELDS` 同步为 primary，避免目录加载前回退到旧层级。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_refine_workflow.py`、`backend/app/comfy_service.py`、`backend/app/media_studio/services/comfy_video_client.py`、`backend/app/media_studio/services/episode_video_service.py`、`frontend/src/App.tsx`、`frontend/src/index.css`、`frontend/src/director2/director2-video-settings.ts`、`frontend/src/director2/panes/Director2VideoSettingsPopover.tsx`、`backend/tests/test_h3_refine.py`、`backend/tests/media_studio_test_h3_video.py`、`backend/tests/test_rtx_vsr.py`、`backend/tests/test_core.py`、`docs/API.md`、`backend/app/api_documentation.py`、`README.md`、`功能说明与扩展指南.md`、`docs/导演台流程与界面结构.md` 和本文档。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_h3_refine backend.tests.test_rtx_vsr backend.tests.test_core backend.tests.media_studio_test_h3_video -q`（275 项，仅保留既有 `GET /api/local-media/{token}` 参数说明失败）、`pnpm --dir frontend exec vitest run src/director2/director2-video-settings.test.ts`（13 项通过）、`pnpm --dir frontend exec tsc -b`（通过）。
+- 远端验收（2026-10-23，`http://192.168.10.54:8188`，ComfyUI 0.30.0 / RTX 4080 16 GB，队列空闲时提交）：先校验全部 14 个 H3 工作流生成的二采图，14 个节点类型与所需 unet / LoRA / 3D latent 放大权重在远端均存在。随后以 2 秒、1.0 MP 二采各跑一条：LightX2V 首尾帧 146.1 秒、Director 加速文生 127.4 秒、T8 全能参考 127.5 秒；三条产物均为 1376×768、56 帧、24 fps、AAC 双声道、2.334 秒，远端文件为 `video/ZLY_REFINE_CHECK_<case>_00001_.mp4`，本地副本在已忽略的 `.tmp/acceptance/family_<case>_1mp.mp4`。首尾帧链路同时验证了 `MiniMaxH3DirectorGroupImageToVideo` 与二采节点 45 的连接。
+- 回滚方式：恢复上述文件并重启后端、重建前端；已提交任务与其产物不受影响。旧客户端若仍发送 `upscale_after`，回滚后可重新触发自动 RTX 超分。
+
+## 2026-10-23 FRP 大参考图上传超时与单文件重试
+
+- 变更原因：线上工作台经 `127.0.0.1:18188` 的 FRP 转发连接既有 ComfyUI，内网开发环境直连同一实例。7 图 R2V 的逐文件诊断中，前 5 张成功，第 6 张 15.16 MB PNG 在 5.02 秒触发 `ConnectionError / TimeoutError`；ComfyUI 对应报错位于 `/upload/image` 的 multipart 接收阶段。Requests/urllib3 在发送请求体前设置连接超时，在发送结束后才切换到响应读取超时，原 `(5, 30)` 因而对大图发送形成 5 秒限制。官方依据：[urllib3 connectionpool.py](https://github.com/urllib3/urllib3/blob/main/src/urllib3/connectionpool.py)。
+- 当前基线：`backend/app/comfy_service.py` 的上传专用常量 `COMFY_UPLOAD_TIMEOUT=(120, 180)` 分别作为连接/发送与响应读取等待时间；短请求、提交 prompt、队列与历史查询仍沿用各自的既有超时。
+- 重传与幂等：一次 `upload_image` 调用固定解析后的上传 URL 与远端文件名，最多尝试 3 次；只在 `requests.ConnectionError` / `requests.Timeout` 时重传，间隔 1、2 秒。每次从头打开本地原文件，以相同名称及 `overwrite=true` 上传；此前已上传的其他参考图不因单文件的这次重传重复上传。HTTP 拒绝与无效请求不进入重传。超过次数后继续走既有 `ComfyUnavailable` → 中断/恢复流程。
+- 日志与回显：每次网络异常记录文件名、文件大小、次数、耗时、原始类型和异常堆栈；最终异常保留 `__cause__`，任务 error 显示失败素材与原始原因，便于用 Docker 日志定位发送超时。日志不输出图片内容。
+- 受影响文件：`backend/app/comfy_service.py`、新增 `backend/tests/test_comfy_upload.py`、`.gitignore` 中该正式测试的白名单、`README.md`、`功能说明与扩展指南.md` 与本文档。
+- 兼容性与迁移：无数据库迁移、接口、端口或新配置项；不更改模型、节点 ID、ComfyUI 目标、媒体内容与参考图顺序。`upload_video` 复用同一方法。仅需更新线上后端镜像并重启工作台；已中断任务按原参数重新提交，完成的视频与旧参数快照保持有效。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_comfy_upload backend.tests.test_comfy_provider backend.tests.test_core backend.tests.test_minimax_h3_director_accel -q`（121 项通过，覆盖重传回卷、同名覆盖、有界重试、底层异常和 HTTP 拒绝）；`pnpm --dir frontend build`（58 个测试文件、368 项测试及构建通过）。本次没有前端代码或界面变化。
+- FRP 传输验收：本机通过已核对的 `124.70.90.30:18188` FRP 映射入口连接同一 RTX 4080 ComfyUI，使用新的 `(120, 180)` 超时上传 15,160,000 字节随机二进制诊断数据，37.62 秒返回 HTTP 200。该探测只验证 multipart 上传传输，没有提交视频生成任务，也未修改线上容器；原任务在更新后端后仍需重新提交验收。所有本轮诊断文件在验证后清理。
+- 回滚方式：仅撤销本次上传专用常量、单文件重传和日志改动并重新部署后端，测试和文档同步撤销本节；不回滚其他工作区改动或删除数据、素材、历史任务与产物。
+
+## 2026-10-23 H3 R2V 分组必填尺寸参数兼容
+
+- 变更原因：线上提交 7 图 Director 加速 R2V 返回 HTTP 400 `prompt_outputs_failed_validation`，节点 `30` 的 `MiniMaxH3DirectorGroupReferenceToVideo` 缺少 `ref_image_size`。当前生效地址已核对：开发侧 `http://192.168.10.54:8188`，线上侧经 FRP 的 `http://127.0.0.1:18188`，连接同一实例。远端 `/object_info/MiniMaxH3DirectorGroupReferenceToVideo` 声明 `prompt`、`duration_sec`、`ref_image_size` 为必填输入；尺寸是 COMBO，取值 `match` / `1024` / `1280` / `1536` / `max`，默认 `match`。
+- 当前基线：`build_minimax_h3_director_accel_workflow` 和 `build_minimax_h3_refine_workflow` 仅在创建 R2V 分组时写入 `ref_image_size`。优先使用注册表归一化的 `reference_image_size`，其次沿用 T8 全能参考的 `ref_image_size`，均缺失时使用 `match`。正常 Director、官方/LightX2V/八步双加速的二采 R2V 和 T8 全能参考二采均得到该字段；T2V/I2V/FL2V 分组以及 T8 双时钟的既有路由保持原样。
+- 兼容性与迁移：无数据库、端口、模型、API 路由或界面变更；继续使用节点 `30`、`12`、`14` 与有序 `ref_images.ref_image_0…8`。新增字段由后端托管，不暴露 ComfyUI 技术控件。旧任务按原参数重新生成 graph 即可，线上必须更新本次后端代码；上传超时修复属于独立问题，继续保留。
+- 受影响文件：`backend/app/minimax_h3_director_accel_workflow.py`、`backend/app/minimax_h3_refine_workflow.py`、`backend/tests/test_minimax_h3_director_accel.py`、`backend/tests/test_h3_refine.py`、`README.md`、`功能说明与扩展指南.md` 与本文档。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_minimax_h3_director_accel backend.tests.test_h3_refine backend.tests.media_studio_test_h3_video backend.tests.test_core backend.tests.test_comfy_upload -q`（274 项通过）；`pnpm --dir frontend build`（58 个文件、371 项前端测试及构建通过）。当前远端 32 类节点定义对照 14 个工作流、64 组组合，3301 个必填输入检查及枚举值检查无错误，其中 R2V 分组 18 组。
+- 实际推理验收：远端队列空闲时提交 7 张已上传参考图的 Director 加速 R2V，2 秒时长参数、2 步、0.4 MP、seed 12345、`sage_allow_compile=false`、`ref_image_size=match`。提交返回 HTTP 200、`node_errors={}`，prompt `4130da03-0598-4983-afef-26e7c707f670` 在 58.733 秒后 `success`，输出 `test-results/ref-image-size-20261023/smoke_00001_.mp4`（325,260 字节）。临时输出随后清理；未重新提交用户原有 15 秒任务，也未直接更改线上容器，线上仍需部署本次两个工作流构建器的修复。
+- 回滚方式：仅撤销两处 R2V 分组字段映射和对应测试/文档后重新部署后端；保持上传超时修复，不删除数据、参考素材或既有产物。
+
+## 2026-10-24 H3 二采先预览一采（单条创作与工坊单镜/选中镜）
+
+- 变更原因：二采精修在 16 GB 显卡上按 1.0 MP 约需数分钟、2.0 MP 可达数十分钟。此前开启精修后一采与二采连续执行，用户只能在全部跑完后看到结果。本次增加「先预览一采」：先只跑 0.4 MP 一采并停下，用户看过预览再决定是否用同一 seed 只跑二采。当前范围是单条创作任务与剧集工坊的逐镜/选中镜生成；整集直出仍为一次跑完两段式，后端明确拒绝该组合。
+- 选项与界面：全部 H3 家族（官方 H3、LightX2V、八步双加速、Director 加速、T8）的 option schema 新增 `refine_preview`，中文名「先预览一采」，布尔、默认 `false`、`ui_group=primary`、`ui_visible_when={"refine_enabled": true}`。创建栏、导演台视频设置弹层与工坊生成设置都在「二采画质」之后显示；未开启二采精修时不出现，且归一化会把 `refine_preview` 强制为 `false`。开启后生成摘要显示「二采 X MP · 先预览」。
+- 一采预览图：`minimax_h3_refine_workflow.build_refine_nodes(..., confirm_first_pass=True)` 在 Director 采样节点 `12` 之后增加预览输出，二采采样节点 `45` 使用 `ExecutionBlocker(None)` 阻止下游执行。单镜图使用节点 `46`（`VHS_VideoCombine` 预览）与 `47`（预览输出），时间线图使用节点 `16` / `17`，两者都读取精修前的 Director 图像与音频。`add_first_pass_preview()` 负责接入，`continuation_workflow()` 只移除预览输出节点。确认二采时把保留下来的同一份工作流（去掉预览输出）重新提交，ComfyUI 命中一采缓存，只执行放大与二采采样；因此无需重新上传参考图或重新跑一采。
+- 任务状态与持久化：新增 `JobStatus.AWAITING_REFINE="awaiting_refine"`。创作任务在 `generation_items.refine_state_json` 保存 `{status, workflow, seed, preview_outputs, refine_quality}`，`update_generation()` 新增 `refine_state` / `clear_refine_state` 参数；worker 在预览阶段结束后把生成项置为待确认，确认后续跑使用保存的 seed 与工作流，二采成功后清除该状态。工坊任务把续跑信息写入 `ai_project_jobs.payload_json.refine_continuation`，内容为 `{status, mode, quality, preview_url, preview_merged, chunks[]}`，每个 chunk 保存续跑 graph、镜头 ID 和预览输出。
+- 状态语义：`awaiting_refine` 属于可取消但非活动的状态，不计入 worker 启动恢复、也不允许中断恢复；同一镜头已有待确认任务时继续计入重复任务拦截。对外任务响应仍隐藏内部 `refine_state`，只通过 `status`、`stage`、`result_url`/`outputs` 暴露预览。待确认任务在工坊与任务中心隐藏「超分」入口，创作页保留按钮但禁用；确认或保留后再按既有规则出现。
+- 创作页接口：`POST /api/jobs/{job_id}/refine/confirm`（202，校验唯一生成项处于 `awaiting_refine` 且保存了工作流，把续跑状态标记为 `confirmed`，任务改回 `queued`、阶段「等待二采精修」并重新入队）；`POST /api/jobs/{job_id}/refine/skip`（202，把一采输出直接作为最终结果、状态改为 `succeeded`、清理续跑状态）。接口沿用现有任务权限校验。worker 只有看到 `refine_state.status="confirmed"` 才走续跑图；一采预览失败、取消或进程中断后重试时状态仍是 `awaiting`，会重新执行一采预览，不会跳过预览直接跑二采。工坊续跑以 `refine_continuation.status="running"` 为闸门，失败后重试同样回到常规生成路径。
+- 工坊接口：`POST /api/projects/{project_id}/jobs/{job_id}/refine/confirm` 与 `/refine/skip`。确认用原子 `UPDATE … WHERE status='awaiting_refine'` 防止重复点击，并提交已保存的续跑图；跳过把预览写为镜头成片并结束任务，多段预览未合并时先经 FFmpeg 合并并上传七牛云，未配置七牛云且无法合并时拒绝跳过并提示确认二采或重新生成。二采成功后才写入镜头 Take 与自动超分；待确认期间镜头卡只播放预览，不把预览写成正式成片。
+- 前端：创作页 `App.tsx` 增加待确认状态文案/颜色、取消入口与轮次确认/保留按钮；创建栏新增开关后底部工具行变长，暗色主题此前缺少浅色已有的 `flex-shrink: 0` 与时长文案不换行规则，导致时长按钮被压成两行；本次把两条规则移到基础样式，并把紧凑时长按钮由 76px 调至 92px，浅暗主题均为单行。「全部任务 → 视频生成」显示金色「一采预览待确认」、结果卡「一采」标签和确认/保留操作。工坊在镜头检视器顶部显示「一采预览已生成」与「确认二采 / 保留一采」，成片 Tab 的角标在待确认时为「一采预览」，确认后二采期间为「二采中」并继续播放预览；只有待确认项时轮询间隔回落到 3 秒。`workshop-video-progress.ts` 将 `awaiting_refine` 视为非活动状态，避免永久 1 秒轮询。
+- 兼容性与迁移：`generation_items.refine_state_json` 是启动时自动补齐的加法列（SQLite `TEXT`、MySQL `LONGTEXT`），无独立迁移脚本，旧任务为空即可；`refine_preview` 未出现在旧参数快照时按关闭处理，旧任务行为不变。不改变 ComfyUI 地址、模型、既有节点 `12`/`14`/`45` 的采样参数、参考图顺序或媒体存储位置。整集直出 + 先预览会被后端拒绝（提示改为逐镜或选中镜），前端在提交前给出同样拦截。线上需同时更新前后端镜像；已处于 `awaiting_refine` 的任务升级后可直接确认或保留。
+- 受影响文件：`backend/app/{workflow_registry.py,minimax_h3_refine_workflow.py,comfy_service.py,worker.py,storage.py,models.py,main.py}`、`backend/app/media_studio/services/{comfy_video_client.py,episode_video_service.py}`、`backend/app/media_studio/routers/project_router.py`；`frontend/src/{App.tsx,index.css,director2/api.ts,director2/director2-video-settings.ts,director2/workshop-video-progress.ts,director2/panes/EpisodeWorkshopPane.tsx,director2/panes/JobsCenterPane.tsx,director2/panes/episode-workshop.css}`；测试 `backend/tests/{test_h3_refine.py,test_timeline_rendering.py,test_core.py,media_studio_test_h3_video.py}`、`frontend/src/director2/{director2-video-settings.test.ts,workshop-video-progress.test.ts}`；`README.md`、`功能说明与扩展指南.md`、`docs/导演台流程与界面结构.md` 与本文档。
+- 验证命令：`E:\anaconda3\python.exe -X utf8 -B -m unittest backend.tests.test_core backend.tests.test_h3_refine backend.tests.media_studio_test_h3_video backend.tests.test_director2_ai_generation -q`（316 项通过）；`pnpm --dir frontend test`（58 个文件、375 项通过）；`pnpm --dir frontend exec tsc -b`（通过）。后端全量 976 项保留 2 失败、2 错误（OpenAPI/画布 mock、已下线 `xiaji_api`、MCP 工具数量、剧本提示词断言），均与本节无关。预览专项覆盖：选项层级/默认值/归一化、单镜与时间线预览节点及 filename、`continuation_workflow()` 仅移除预览输出、待确认状态与公开响应脱敏、worker 续跑不重新执行 `run`、未确认的续跑状态会重新执行一采、创作页确认接口写入 `confirmed` 并可续跑、创作页保留接口、工坊逐镜与选中镜确认/保留及整集拒绝。桌面自查（2026-10-24，隔离 SQLite 后端 7867 + 隔离 Vite 5174 + 临时管理员，未访问真实 MySQL、7865 后端或 ComfyUI）：开启二采后创建栏按序显示「二采精修 / 二采画质 / 先预览一采」，关闭精修时新开关隐藏；浅暗主题下开关状态、标签和时长按钮均为单行，控制台仅有既有的 Ant Design `popupClassName` 弃用与表单 id 警告。工坊与任务中心的待确认条、确认/保留按钮和轮次状态由前端/后端专项测试覆盖，本轮未在页面中构造真实待确认任务。尚未提交真实远端预览任务（避免占用远端队列与消耗二采时间），远端二采图本身已在 2026-10-23 验证。
+- 回滚方式：移除 `refine_preview` 选项与归一化、预览图构造及 `awaiting_refine` 状态流转，恢复确认/保留接口和前端按钮后重新部署。已产生的一采预览与 `refine_state_json` / `refine_continuation` 数据可保留不读；不要删除既有成片、镜头 Take 或媒体文件。
+
+
+## 2026-10-24 无限画布自动化回归修复
+
+- 原因：对当前无限画布做实际浏览器自动化时，发现并发保存、离开页面、网络恢复、撤销和生成任务状态之间存在内容丢失或展示不一致。
+- 前端状态基线：`canvas-save.ts` 的保存队列按版本串行提交，等待请求期间的新编辑补存后才允许返回；错误/409 时保留当前草稿。`canvas-recovery.ts` 保存 `{baseVersion, content}` 到项目级 `sessionStorage`，在同一标签页刷新或侧栏切换后恢复，存储受限时使用会话内存；编辑器所有权防止旧请求回写，已与服务器内容一致的备份按已保存处理。`CanvasWorkspace` 由稳定项目 ID 挂载编辑器，禁用后台重连替换编辑器草稿；恢复历史版本前先保存当前内容，冲突允许导出本页草稿后再加载服务器版本。
+- 编辑基线：重命名与最新保存标题比较；撤销包含画布设置，排除相机与封面变更；删除节点清理完整关联边；导入和旧草稿归一化校验常见文本字段；新增节点按可用舞台区域定位。检查器长标题按剩余宽度省略，保存/取帧操作有稳定无障碍名称，收藏空态能回到全部画布。
+- 生成基线：画布接入现有 `POST /api/jobs/{id}/refine/confirm`、`/refine/skip` 与取消接口；`awaiting_refine` 保持预览与确认操作，不自动插入独立结果。正式完成后插入并按任务号去重，立即完成也可落盘；优先最终输出并跳过过期产物；当前选中的历史结果优先于终止任务的最新快照；404 终止轮询并更新所有引用节点。提交锁按节点隔离；多个文字来源中有任何空文本都会阻断提交。
+- 受影响文件：`frontend/src/canvas/{CanvasWorkspace,CanvasEditor,CanvasNodes,CanvasGeneratorInspector,CanvasSidePanel,CanvasInspector}.tsx`、`canvas.css`、`canvas-save.ts`、新增 `canvas-recovery.ts`、`canvas-model.ts`、`canvas-manage.ts`、`canvas-generation.ts` 及相应 `*.test.ts`；README、扩展指南、开发计划和 `docs/design-ref-canvas/audit-20261024/`。
+- 兼容性：仅客户端状态与展示修复，草稿仍为 `schemaVersion: 2`，无 API、数据库、ComfyUI 图、模型、节点 ID 或依赖变更。生产环境实际 ComfyUI 地址从健康检查读取，始终为 `http://192.168.10.54:8188`；隔离后端测试连接同一远端，未修改生产供应商设置、未启动其他 ComfyUI。
+- 验证命令：`pnpm --dir frontend build`（61 文件、422 项测试、TypeScript、clean、Vite 全部通过）；`python -X utf8 -m unittest backend.tests.test_canvas_store backend.tests.test_library_query backend.tests.test_core backend.tests.test_h3_refine -q`（163 项通过）。Playwright CLI 驱动真实 5173，API 转发到隔离 SQLite 17966，覆盖桌面浅暗、保存故障/冲突、编辑/生成、素材、导出、封面和 350 节点；当前远端实际生成 H.264/AAC 视频 608×352、56 帧、2.333333 秒、204280 字节，画布内播放与下载通过。预览确认/保留/取消及作品库多页数据使用受控响应，接口由后端 unittest 补充；未调用付费图片生成。截图与结果见本轮验收报告。
+- 回滚方式：仅逆向撤回上述本轮画布增量后执行 `pnpm --dir frontend build`，不整文件覆盖用户已有改动，不移除 V4.8/V4.9 或其他模块。恢复备份可保留不读，服务器原画布和版本不变，无需数据库回滚。
+
+## 2026-10-25 生成页性能与错误反馈优化
+
+- 变更原因：生成页每次进入都会同时拉取任务列表、健康状态和图片余额，并持续轮询；资产页与导演台二也复用同一列表查询；长历史页面每秒由根组件触发整页重渲染；部分提交/重试/取消/批量删除失败没有用户可见反馈；深链到不在最新列表分页内的任务会显示空态。
+- 查询与轮询基线：`jobsQuery` 仅在生成页、资产页和旧导演工坊启用；周期轮询只在生成页与旧导演工坊启用，生成页有运行中任务时 4 秒、空闲时 15 秒，并跳过上一轮未完成的请求。资产页只取一次任务快照、不再周期轮询，运行中的新产物需重新进入或刷新资产页才能看到。导演台二不请求任务列表。`healthQuery` 轮询由 8 秒调整为 30 秒；图片余额仅在生成页且媒体类型为图片时启用，生成中 5 秒、空闲 15 秒。
+- 深链与加载态：选中任务不在最新列表结果中时，改为请求 `GET /api/jobs/{id}` 单任务接口，并只在任务或轮次仍活跃时 4 秒轮询；列表加载、单任务加载和任务缺失分别显示「正在加载任务…」与「任务不存在或已删除」，后者附带接口错误信息。
+- 渲染与交互：回合等待计时改为每个 `RoundWait` 局部每秒更新，取消根组件级整页定时重渲染；自定义日期筛选按本地自然日解析并以次日零点为开区间；切换选中任务时自动回到顶部；参考图选择在 `reference_mode === "none"` 时直接忽略；提示词输入支持拖拽/粘贴图片、`Ctrl/Cmd+Enter` 提交，工作流选择可搜索，技能菜单改为点击触发且「优化当前提示词」为独立菜单项，并提供「撤销优化」。
+- 上传与媒体：参考图在前端按最长边 1024 px、WebP 0.86 压缩，仅在体积确实更小时替换，GIF/SVG 保持原样；单次仍最多 8 张。剪映导出弹窗用隐藏 `<video preload="metadata">` 探测未知视频时长（12 秒超时，失败按 5 秒估算），总时长、ZIP 和 JSON 使用探测结果；超分按钮禁用时通过外层容器显示提示，切换器以「原片 N / 2x 超分」区分版本。
+- 错误反馈：原始创建、追加回合按 `apiErrorMessage` 解析响应；重试、取消、追加上下文、重试失败项均补充失败提示；批量删除使用 `Promise.allSettled`，只触发一次列表刷新，并按全部成功/部分失败给出一次汇总提示。
+- 参数校验基线：工作流注册表新增通用 `ui_not_less_than` 与 `ui_requires_references_when` 元数据，前后端校验由选项定义驱动，不再在 `validate_option_relationships` 中硬编码 T8 字段。
+- 视觉回归修复：吸底输入框样式在移除 `.studio-light` 前缀后，选择器优先级低于 Tailwind `.lg:sticky`，导致暗色主题下 `position` 回落为 `sticky` 并横向偏移。现以 `.studio-workspace .studio-composer-form` 和 `.studio-workspace:not(.studio-task-rail-collapsed)` / `.studio-workspace.studio-task-rail-collapsed` 提升优先级，1024/1280 两种侧栏宽度下浅暗主题都保持 `fixed` 与正确居中偏移。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/index.css`、`frontend/src/media/VideoStudioModule.tsx`、`frontend/src/media/JianyingExportModal.tsx`、`backend/app/workflow_registry.py`、`backend/tests/test_core.py`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：不新增或修改 API 路由、数据库表/列、任务队列、ComfyUI 节点、模型路径、工作流 graph 和前端路由；任务、资产、导演台与画布数据保持原格式。行为差异是资产页不再自动轮询、健康检查间隔变长，以及深链任务改走单任务接口。未切换或启动任何 ComfyUI 实例，未访问真实 MySQL。
+- 验证命令与证据：`python -X utf8 -m unittest backend.tests.test_core backend.tests.test_h3_refine backend.tests.test_job_list_payload backend.tests.media_studio_test_h3_video -q`（276 项通过）；`pnpm --dir frontend build`（61 个测试文件、422 项测试、TypeScript、clean、Vite 构建通过，构建 7.32 秒）；`pnpm --dir frontend test`（61 文件 / 422 项通过）。隔离 Vite 5174 + SQLite 后端 7867 + 本地媒体 7871 完成桌面 1440 浅暗检查：任务与资产加载、自定义日期筛选、吸底输入框 `position: fixed`、账号菜单、剪映弹窗真实视频时长 2.3 秒、总时长 10.7 秒。未触碰真实 5173/7865 和真实数据库。
+- 回滚方式：逆向撤回本轮上述前端查询/渲染/交互改动、CSS 优先级修复、注册表元数据与测试，再执行 `pnpm --dir frontend build`；不整文件覆盖用户其他改动，不删除任务、资产或上传文件，无需数据库迁移或 ComfyUI 配置回滚。仍保留的后续结构优化（`App.tsx` 拆分为独立组件、后端任务列表分页/资产虚拟化、健康检查服务端缓存）不在本轮范围内。
+
 ## 2026-10-25 仓库废弃代码与历史产物清理
 
 - 日期与原因：2026-10-25。仓库长期累积一次性改写脚本、已下线模块的测试与建表脚本、无引用前端残留，以及约 8GB 旧归档、日志、测试截图与构建缓存；本次只做删除和依赖收敛，不改变运行时行为。
@@ -2590,3 +3320,13 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不新增或修改 API 路由、数据库已有表与列、任务队列、ComfyUI 节点、模型路径、工作流 graph 或前端路由；`frontend` 仍使用 Ant Design，不恢复 shadcn/Tailwind UI 依赖。删除的 `sql/002–012` 只影响全新 MySQL 初始化，旧库无需迁移；`mysql-init` 与 `workflows/` 目录删除后不被 Dockerfile、Compose 或运行时代码引用。被忽略的历史产物不进入 Git，无法回滚恢复；最新部署镜像与运行数据均保留。
 - 验证命令：`pnpm --dir frontend test`（61 个文件、422 项通过）；`pnpm --dir frontend build`（TypeScript、clean 与 Vite 构建通过，13.10s）；`python -X utf8 -m unittest backend.tests.test_core backend.tests.test_db backend.tests.test_canvas_store backend.tests.test_h3_refine backend.tests.test_job_list_payload -q`（162 项通过）；补充运行 `backend.tests.test_db` 与 `backend.tests.test_dev_reloader` 通过，`backend.tests.test_media_studio_schema` 仍有既有的 `canvas_projects` mock 失败，与本轮删除无关。全量后端套件未完整重跑，避免触发依赖外部服务的长等待用例。
 - 回滚方式：从 Git 恢复本次删除的跟踪文件，执行 `pnpm install` 恢复前端依赖后重新 `pnpm --dir frontend build`；如需恢复旧 MySQL 初始化行为，只恢复 `sql/002–012` 即可，无需迁移现有表。`desktop/` 源码、`data/`、`results/` 和最新部署镜像未删除，无需回滚；忽略目录中的历史日志、截图和缓存在删除后不可恢复。
+
+## 2026-10-25 移除 Hypit 复刻
+
+- 变更原因：Hypit 复刻依赖本机 `D:\zlyun\hypit-poc` CLI、WhisperX 与独立 SVML 工程目录，长期只有实验价值；产品保留 VACE 参考片复刻即可覆盖结构复刻需求，继续维护两套复刻链路成本高于收益。本次按要求完整删除该功能。
+- 当前基线：导演台首页只有导演创作、短视频批量、参考片复刻三个创作卡（主卡 `grid-row: 1 / 3`），下方为整行剧本诊断入口；最近工程筛选为导演创作 / 短视频批量 / 参考片复刻 / 全部，只保留 `batch_run` / `shot_replication`，并过滤 recipe / timeline / 旧 `hypit_replication`。`DirectorStudioModule` 只装配批量与 VACE 复刻；`isDirectorLegacyStudioPath` 只识别 `batch` / `replication`。后端 payload kind 仅保留 `timeline`、`director_recipe`、`batch_run`、`shot_replication`；durable operation 不再有 `hypit_transcribe` / `hypit_compile`。
+- 删除范围：后端删除 `backend/app/director_hypit.py` 及 `main.py` 中六个 `/api/director/hypit/*` 端点与绑定辅助函数；`director_recipe.py` 删除 `hypit_replication` 常量、注册项与归一化分支；`director_operations.py` 删除 Hypit 进程登记/回收、任务分派与取消清理；`models.py` 删除 Hypit kind、operation 与 `language` 字段；`storage.py` 删除 Hypit 进度特判；`api_documentation.py` 删除端点文档。前端删除 `DirectorHypitStudio.tsx`、`hypit-model.ts`、`hypit-model.test.ts`，并清理 `DirectorStudioModule`、`paths.ts`、`director-api.ts`、`home-projects.ts`、`Director2StudioHome.tsx`、`Director2App.tsx`、`index.css`、`director-home.css` 中的路由、类型、入口、样式与筛选。测试删除 `backend/tests/test_director_hypit.py`，并从 `test_core.py` / `test_director.py` 移除 Hypit 用例。
+- 兼容性：不新增或修改数据库表/列，不迁移既有数据。历史 `payload.kind = "hypit_replication"` 在 `payload_kind()` 中回退为 `timeline`，工程记录仍保留，但不再出现在导演台首页；`data/hypit/{user}/{project}` 工作目录及其中已有产物未删除。旧 `/director/hypit/*` 书签由导演台路由兜底回首页。VACE `shot_replication` 的 `/director/replication/:id`、分析/转绘接口与任务协议不受影响。Hypit 原先使用的局域网 ComfyUI、`ZLY_HYPIT_*` 环境变量与 `hypit.runtime.json` 均不再由工作台读取。
+- 受影响文件：`backend/app/{main,director_hypit,director_recipe,director_operations,models,storage,api_documentation}.py`、`backend/tests/{test_director_hypit,test_core,test_director}.py`、`frontend/src/paths.ts`、`frontend/src/director/{DirectorStudioModule,DirectorHypitStudio,hypit-model,director-api}.tsx`、`frontend/src/director2/{Director2StudioHome,Director2App,home-projects}.tsx`、`frontend/src/index.css`、`frontend/src/director2/director-home.css`、四份主文档与 `docs/API.md`、`docs/导演台流程与界面结构.md`。
+- 验证命令：`python -m compileall -q backend/app`（通过）；`python -X utf8 -m unittest backend.tests.test_core backend.tests.test_director backend.tests.test_director_project_info -q`（253 项，1 项既有无关失败：`test_script_agent_uses_scene_ledger_continuity_guidance` 期望小写 `opening spatial state`，实际提示词为大写开头）；`pnpm --dir frontend build`（60 个测试文件、415 项前端测试、TypeScript、clean 与 Vite 构建通过）。桌面端首页在 1505×1045、1440×1000、1920×1080 三种视口完成浅暗主题检查（三创作卡、主卡 `grid-row: 1 / 3`、四项筛选、无横向溢出），截图与元数据见 `docs/design-ref-director/ui-20261023/details-20261025/`；未触发 LLM 或出片任务。
+- 回滚方式：从 Git 恢复被删除的 `backend/app/director_hypit.py`、`backend/tests/test_director_hypit.py`、`frontend/src/director/{DirectorHypitStudio.tsx,hypit-model.ts,hypit-model.test.ts}` 以及上述文件中被移除的 Hypit 分支与样式，再执行 `pnpm --dir frontend build` 并重启后端。无需数据库回滚；既有工程数据和 `data/hypit/` 目录在删除期间保持原样。

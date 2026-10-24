@@ -1,0 +1,475 @@
+{
+  "status": "截图身份与渲染前提通过；视觉仍需复核",
+  "manifest": "D:\\zlyun\\Toonflow\\本地视频工作台\\test-results\\director-ui-details-20261024\\project-round-02\\run.json",
+  "capture": {
+    "measurement_sha256": "a6691d243414f7b0d0044a63711915b60e534e75b6479973dfdc6c42daae2217",
+    "url": "http://127.0.0.1:5173/director/projects/proj-841b26724b414c55/content?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1505,
+      "height": 1045
+    },
+    "dpr": 1,
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "document_height": 1045,
+    "fonts_ready": true,
+    "images_ready": true,
+    "document_overflow_x": false,
+    "captured_at": "2026-10-23T23:18:13.008Z",
+    "elements": [
+      {
+        "name": "project-header",
+        "selector": ".project-topbar",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          76,
+          0,
+          1429,
+          80
+        ],
+        "text": "导演台未命名导演工程编辑基本信息制作配方半解说真人短剧AI 生成手动编辑",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "content-panel",
+        "selector": ".empty-doc-box",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          332,
+          232,
+          1143,
+          532
+        ],
+        "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "import-primary",
+        "selector": ".empty-doc-box .ant-btn-primary",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          666.5,
+          597,
+          174,
+          48
+        ],
+        "text": "立即导入剧本",
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "fontWeight": "400",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "import-secondary",
+        "selector": ".empty-doc-box .ant-space-item:nth-child(2) .ant-btn",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          854.5,
+          597,
+          286,
+          48
+        ],
+        "text": "一键导入《寒门硕士》标准范例",
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "empty-icon",
+        "selector": ".empty-icon-wrap",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          853.5,
+          343,
+          100,
+          100
+        ],
+        "text": "",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "first-menu",
+        "selector": ".sidebar-menu-item:first-child",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          102,
+          104,
+          185,
+          50
+        ],
+        "text": "内容库",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "600",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "creation-mode",
+        "selector": ".project-topbar .ant-segmented",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1209,
+          10.5,
+          208,
+          58
+        ],
+        "text": "AI 生成手动编辑",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(89, 99, 111)",
+          "backgroundColor": "rgb(248, 249, 250)"
+        },
+        "viewport_intersects": true
+      }
+    ],
+    "assets": {},
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "section_positions": [],
+  "comparison": "test-results\\director-ui-details-20261024\\project-round-02\\report\\verify-metrics.json",
+  "geometry": {
+    "measurement_sha256": "a6691d243414f7b0d0044a63711915b60e534e75b6479973dfdc6c42daae2217",
+    "complete": true,
+    "unavailable_regions": [],
+    "regions": [
+      {
+        "name": "project-header",
+        "selector": ".project-topbar",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          76,
+          0,
+          1429,
+          80
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          88.0,
+          0.0,
+          1417.0,
+          80.0
+        ],
+        "delta_css": [
+          -12.0,
+          0.0,
+          12.0,
+          0.0
+        ],
+        "max_abs_delta_css": 12.0
+      },
+      {
+        "name": "content-panel",
+        "selector": ".empty-doc-box",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          332,
+          232,
+          1143,
+          532
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(23, 26, 31)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          332.0,
+          232.0,
+          1144.0,
+          533.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          -1.0,
+          -1.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "canvas",
+        "status": "reference_only",
+        "reason": "仅测量参考图，没有 DOM 选择器"
+      },
+      {
+        "name": "surface",
+        "status": "reference_only",
+        "reason": "仅测量参考图，没有 DOM 选择器"
+      },
+      {
+        "name": "import-primary",
+        "selector": ".empty-doc-box .ant-btn-primary",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          666.5,
+          597,
+          174,
+          48
+        ],
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "fontWeight": "400",
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(67, 92, 232)"
+        },
+        "reference_css_box": [
+          655.0,
+          597.0,
+          174.0,
+          47.0
+        ],
+        "delta_css": [
+          11.5,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "max_abs_delta_css": 11.5
+      },
+      {
+        "name": "import-secondary",
+        "selector": ".empty-doc-box .ant-space-item:nth-child(2) .ant-btn",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          854.5,
+          597,
+          286,
+          48
+        ],
+        "computed": {
+          "display": "inline-flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "28.2857px",
+          "fontWeight": "400",
+          "color": "rgb(45, 51, 58)",
+          "backgroundColor": "rgb(255, 255, 255)"
+        },
+        "reference_css_box": [
+          844.0,
+          597.0,
+          287.0,
+          47.0
+        ],
+        "delta_css": [
+          10.5,
+          0.0,
+          -1.0,
+          1.0
+        ],
+        "max_abs_delta_css": 10.5
+      },
+      {
+        "name": "empty-icon",
+        "selector": ".empty-icon-wrap",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          853.5,
+          343,
+          100,
+          100
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "reference_css_box": [
+          837.0,
+          343.0,
+          102.0,
+          100.0
+        ],
+        "delta_css": [
+          16.5,
+          0.0,
+          -2.0,
+          0.0
+        ],
+        "max_abs_delta_css": 16.5
+      },
+      {
+        "name": "first-menu",
+        "selector": ".sidebar-menu-item:first-child",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          102,
+          104,
+          185,
+          50
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "600",
+          "color": "rgb(67, 92, 232)",
+          "backgroundColor": "rgba(67, 92, 232, 0.1)"
+        },
+        "reference_css_box": [
+          103.0,
+          104.0,
+          184.0,
+          50.0
+        ],
+        "delta_css": [
+          -1.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "creation-mode",
+        "selector": ".project-topbar .ant-segmented",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1209,
+          10.5,
+          208,
+          58
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(89, 99, 111)",
+          "backgroundColor": "rgb(248, 249, 250)"
+        },
+        "reference_css_box": [
+          1205.0,
+          11.0,
+          208.0,
+          58.0
+        ],
+        "delta_css": [
+          4.0,
+          -0.5,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 4.0
+      }
+    ],
+    "note": "偏差是 CSS 像素，不是还原率；布局可测量不证明未遮挡、字体正确或交互可用。"
+  }
+}

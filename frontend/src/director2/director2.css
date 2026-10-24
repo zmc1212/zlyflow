@@ -10,8 +10,8 @@
    新建/编辑项目弹窗也会挂 director2-app（传送到 body 后仍要命中画幅选项等后代样式），
    若把 margin:0 写在 .director2-app 上会盖掉 antd Modal 的 margin:0 auto，弹窗贴左。 */
 .director2-app {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  color: #1f2937;
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  color: var(--studio-text);
   -webkit-font-smoothing: antialiased;
   box-sizing: border-box;
 }
@@ -31,7 +31,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: #f8f9fa;
+  background-color: var(--studio-canvas);
 }
 
 /* 导演台首页：home 分支不带 top-nav，
@@ -46,8 +46,8 @@
 
 .director2-app .top-nav {
   height: 64px;
-  background: #ffffff;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--studio-chrome);
+  border-bottom: 1px solid var(--studio-border);
   position: sticky;
   top: 0;
   z-index: 50;
@@ -88,7 +88,7 @@
 .director2-app .brand-title {
   font-size: 16px;
   font-weight: 700;
-  color: #111827;
+  color: var(--studio-text);
   letter-spacing: -0.3px;
 }
 
@@ -103,14 +103,14 @@
   border-radius: 6px;
   font-size: 14px;
   font-weight: 500;
-  color: #4b5563;
+  color: var(--studio-text-secondary);
   text-decoration: none;
   transition: all 0.2s;
 }
 
 .director2-app .nav-item:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: #111827;
+  background: var(--studio-surface-raised);
+  color: var(--studio-text);
 }
 
 .director2-app .nav-item.active {
