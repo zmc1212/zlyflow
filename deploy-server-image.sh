@@ -60,7 +60,3 @@ fi
 echo "[5/5] Migrating old SQLite data to MySQL (if any)..."
 docker compose exec -T zly-ai-video-studio python backend/scripts/migrate_sqlite_to_mysql.py --sqlite /var/lib/zly-ai-video-studio/zly-ai-video-studio.db || echo "No SQLite data found or migration skipped."
 exit 0
-
-echo "[5/5] Migrating old SQLite data to MySQL (if any)..."
-docker compose exec -T zly-ai-video-studio python backend/scripts/migrate_sqlite_to_mysql.py --sqlite /var/lib/zly-ai-video-studio/zly-ai-video-studio.db || echo "No SQLite data found or migration skipped."
-exit 0

@@ -1,10 +1,3 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
-
 /** Local unique id. Avoids crypto.randomUUID, which is missing on HTTP LAN IPs and older browsers. */
 export function createLocalId(): string {
   const cryptoObj = globalThis.crypto
