@@ -1,0 +1,212 @@
+{
+  "source": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-director\\subpages-ui-20261024\\design-assets-v2-dark.png",
+  "source_sha256": "b3dd01a464313d13c370d8c569114e06ead58df08a2446da8e956ea65d533050",
+  "source_size": [
+    1600,
+    1000
+  ],
+  "css_mapping": {
+    "assumed_viewport_width": 1600,
+    "css_per_image_pixel": 1.0,
+    "meaning": "实现约定，不证明参考图原始 DPR 或 CSS 视口"
+  },
+  "regions": [
+    {
+      "name": "topbar",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        76,
+        0,
+        1524,
+        72
+      ],
+      "normalized_box": [
+        0.0475,
+        0.0,
+        0.9525,
+        0.072
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        76.0,
+        0.0,
+        1524.0,
+        72.0
+      ],
+      "selector": ".project-topbar",
+      "dom_comparable": true
+    },
+    {
+      "name": "navigation",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        76,
+        72,
+        200,
+        928
+      ],
+      "normalized_box": [
+        0.0475,
+        0.072,
+        0.125,
+        0.928
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        76.0,
+        72.0,
+        200.0,
+        928.0
+      ],
+      "selector": ".project-sidebar",
+      "dom_comparable": true
+    },
+    {
+      "name": "header",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        304,
+        100,
+        1268,
+        62
+      ],
+      "normalized_box": [
+        0.19,
+        0.1,
+        0.7925,
+        0.062
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        304.0,
+        100.0,
+        1268.0,
+        62.0
+      ],
+      "selector": ".sub-pane-header",
+      "dom_comparable": true
+    },
+    {
+      "name": "categories",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        304,
+        186,
+        296,
+        40
+      ],
+      "normalized_box": [
+        0.19,
+        0.186,
+        0.185,
+        0.04
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        304.0,
+        186.0,
+        296.0,
+        40.0
+      ],
+      "selector": ".asset-kind-switch",
+      "dom_comparable": true
+    },
+    {
+      "name": "workspace",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        304,
+        242,
+        1268,
+        730
+      ],
+      "normalized_box": [
+        0.19,
+        0.242,
+        0.7925,
+        0.73
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        304.0,
+        242.0,
+        1268.0,
+        730.0
+      ],
+      "selector": ".assets-split-container",
+      "dom_comparable": true
+    },
+    {
+      "name": "list",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        304,
+        242,
+        248,
+        730
+      ],
+      "normalized_box": [
+        0.19,
+        0.242,
+        0.155,
+        0.73
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        304.0,
+        242.0,
+        248.0,
+        730.0
+      ],
+      "selector": ".assets-sidebar-list",
+      "dom_comparable": true
+    },
+    {
+      "name": "detail",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        568,
+        242,
+        1004,
+        730
+      ],
+      "normalized_box": [
+        0.355,
+        0.242,
+        0.6275,
+        0.73
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        568.0,
+        242.0,
+        1004.0,
+        730.0
+      ],
+      "selector": ".asset-detail-workspace",
+      "dom_comparable": true
+    }
+  ],
+  "groups": [],
+  "vertical_scans": [],
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/assets?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1600,
+      "height": 1000
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "expected_assets": {},
+  "input_manifest_sha256": "5c1e85016a8ad7ec68eec55095d9d72ce85aa9c5a565842719c6f0034ec1a403"
+}

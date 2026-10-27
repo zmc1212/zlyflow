@@ -3,7 +3,7 @@ import { DatePicker, Drawer, Dropdown, Empty, Input, InputNumber, message, Modal
 import {
   ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
   Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, Link2, ListChecks, LoaderCircle, LogOut, Maximize2,
-  Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Users, Video, WalletCards, WandSparkles, X,
+  Languages, Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Users, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
@@ -23,10 +23,13 @@ import {
 import JianyingExportModal from "./media/JianyingExportModal"
 import type { JianyingMediaItem } from "./media/jianying-draft-builder"
 import AddToCanvasModal, { type CanvasInsertAsset } from "./canvas/AddToCanvasModal"
+import { formatRefineDuration, refineForceWarning, refinePlan } from "./director2/director2-video-settings"
 import { createLocalId } from "./lib/utils"
 import { restoreReferenceFiles, roundReferenceSources } from "./reference-assets"
+import { cloudThumbnailSrc } from "./media-thumbnails"
 import MediaPreviewModal, { type PreviewMediaKind } from "./components/MediaPreviewModal"
 import ThemeToggle from "./components/ThemeToggle"
+import { groupTasksByCreatedAt } from "./task-groups"
 import JobErrorNotice from "./director/components/JobErrorNotice"
 import { useStudioTheme } from "./ThemeProvider"
 
@@ -74,12 +77,13 @@ type GenerationItem = {
 }
 type JobRound = {
   id: string; sequence: number; mode: string; media_type: "image" | "video"; status: Status; stage: string
-  progress: number; prompt: string; options?: Record<string, unknown>
+  progress: number; prompt: string; display_prompt?: string | null; options?: Record<string, unknown>
   reference_count: number; references: { index: number; url: string }[]
   request_parameters: RequestParameter[]; generation_items: GenerationItem[]; error?: string | null
   created_at?: string; updated_at?: string; finished_at?: string | null
   elapsed_ms?: number | null; execution_elapsed_ms?: number | null
 }
+type OptimizedPrompt = { english: string; chinese: string; context: string }
 type AssetEntry = {
   id: string; job: Job; output: Output; outputIndex: number; generationItemId: string | null
 }
@@ -212,7 +216,21 @@ function normalizeJob(job: Job): Job {
   return { ...job, media_type: job.media_type ?? "video", rounds: [round] }
 }
 
+function jobDisplayPrompt(job: Job): string {
+  const rounds = job.rounds ?? []
+  return rounds[rounds.length - 1]?.display_prompt?.trim() || job.prompt
+}
+
 const FALLBACK_WORKFLOW = "minimax-h3-i2v"
+const PROMPT_OPTIMIZE_STORAGE_KEY = "zly-ai-video-studio.prompt-optimize"
+
+function readPromptOptimizePreference() {
+  try {
+    return window.localStorage.getItem(PROMPT_OPTIMIZE_STORAGE_KEY) === "1"
+  } catch {
+    return false
+  }
+}
 const api = requestJson
 const mediaUrl = (path: string) => `/api/media/${encodeURIComponent(path)}`
 const parameterValue = (parameter: RequestParameter) => {
@@ -438,9 +456,22 @@ function outputPreviewSrc(item: Output, allowSameOriginVideo = true): string | u
 function MediaTile({ item, allowSameOriginVideo = true }: { item: Output; allowSameOriginVideo?: boolean }) {
   const src = outputPreviewSrc(item, allowSameOriginVideo)
   if (!src) return <div className="grid h-full w-full place-items-center bg-[#27282e] text-[#898993]">{item.kind === "video" ? <Video size={18} /> : <HardDrive size={18} />}</div>
+  const thumbnail = cloudThumbnailSrc(item.kind, item.cloud_url)
   return item.kind === "video"
-    ? <video className="h-full w-full object-cover" muted playsInline preload={item.cloud_url ? "metadata" : "none"} src={src} />
-    : <img className="h-full w-full object-cover" loading="lazy" src={src} alt={item.label} />
+    ? <video className="h-full w-full object-cover" muted playsInline preload="none" poster={thumbnail ?? undefined} src={src} />
+    : <img
+        className="h-full w-full object-cover"
+        loading="lazy"
+        decoding="async"
+        src={thumbnail ?? src}
+        alt={item.label}
+        onError={(event) => {
+          const image = event.currentTarget
+          if (image.dataset.thumbnailFallback === "1") return
+          image.dataset.thumbnailFallback = "1"
+          image.src = src
+        }}
+      />
 }
 
 type TaskRowHandlers = {
@@ -453,6 +484,7 @@ type TaskRowHandlers = {
 
 const TASK_GROUP_PREVIEW = 5
 const TASK_DRAWER_PAGE_SIZE = 20
+const ASSET_LOAD_BATCH = 24
 
 function TaskRow({ job, selected = false, onSelect, onPinToggle, onRename, onDelete, onCancel }: TaskRowHandlers & { job: Job; selected?: boolean }) {
   const cover = job.outputs[0]
@@ -470,7 +502,7 @@ function TaskRow({ job, selected = false, onSelect, onPinToggle, onRename, onDel
       {cover ? <MediaTile item={cover} allowSameOriginVideo={false} /> : reference ? <img src={reference.url} alt="任务封面" className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full w-full place-items-center text-[#a0a8b2]">{job.media_type === "image" ? <ImagePlus size={15} /> : <Video size={15} />}</div>}
     </div>
     <span title={statusText[job.status]} className={`size-1.5 shrink-0 rounded-full ${job.status === "succeeded" ? "bg-emerald-500" : job.status === "failed" || job.status === "interrupted" || job.status === "cancelled" ? "bg-rose-500" : job.status === "running" ? "bg-[#4d6bfe]" : "bg-amber-400"}`} />
-    <p className="min-w-0 flex-1 truncate text-sm leading-[21px] text-[#171a1f]">{job.title || job.prompt}</p>
+    <p className="min-w-0 flex-1 truncate text-sm leading-[21px] text-[#171a1f]">{job.title || jobDisplayPrompt(job)}</p>
     {created ? <span title={createdFull ? `创作时间 ${createdFull}` : "创作时间"} className="shrink-0 text-[10px] tabular-nums text-[#7c8794]">{created}</span> : null}
     {job.pinned ? <Pin size={12} className="shrink-0 rotate-45 text-[#4d6bfe]" /> : null}
     <Dropdown
@@ -493,7 +525,7 @@ function TaskRow({ job, selected = false, onSelect, onPinToggle, onRename, onDel
         },
       }}
     >
-      <button type="button" title="任务操作" aria-label={`任务操作：${job.title || job.prompt}`} onClick={(event) => event.stopPropagation()} className="grid size-7 shrink-0 place-items-center rounded-md text-[#65707c] opacity-0 transition hover:bg-white hover:text-[#171a1f] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/30"><MoreHorizontal size={16} /></button>
+      <button type="button" title="任务操作" aria-label={`任务操作：${job.title || jobDisplayPrompt(job)}`} onClick={(event) => event.stopPropagation()} className="grid size-7 shrink-0 place-items-center rounded-md text-[#65707c] opacity-0 transition hover:bg-white hover:text-[#171a1f] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/30"><MoreHorizontal size={16} /></button>
     </Dropdown>
   </div>
 }
@@ -505,34 +537,8 @@ function TaskRowList({ jobs, selectedJobId, showEmpty = true, className = "", on
   </div>
 }
 
-function localDayStart(ms: number) {
-  const date = new Date(ms)
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
-}
-
-function shiftLocalDays(ms: number, days: number) {
-  const date = new Date(ms)
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days).getTime()
-}
-
-function groupJobsByCreatedAt(jobs: Job[], nowMs: number) {
-  const todayStart = localDayStart(nowMs)
-  const buckets = [
-    { key: "today", label: "今天", from: todayStart, jobs: [] as Job[] },
-    { key: "yesterday", label: "昨天", from: shiftLocalDays(todayStart, -1), jobs: [] as Job[] },
-    { key: "week", label: "过去 7 天", from: shiftLocalDays(todayStart, -6), jobs: [] as Job[] },
-    { key: "older", label: "更早", from: Number.NEGATIVE_INFINITY, jobs: [] as Job[] },
-  ]
-  jobs.forEach((job) => {
-    const created = new Date(job.created_at).getTime()
-    const bucket = buckets.find((item) => !Number.isNaN(created) && created >= item.from) ?? buckets[buckets.length - 1]
-    bucket.jobs.push(job)
-  })
-  return buckets.filter((bucket) => bucket.jobs.length).map(({ key, label, jobs: groupedJobs }) => ({ key, label, jobs: groupedJobs }))
-}
-
 function taskMatchesQuery(job: Job, query: string) {
-  return `${job.title || ""}\n${job.prompt}`.toLocaleLowerCase().includes(query)
+  return `${job.title || ""}\n${jobDisplayPrompt(job)}\n${job.prompt}`.toLocaleLowerCase().includes(query)
 }
 
 function TaskRailHistory({
@@ -548,7 +554,7 @@ function TaskRailHistory({
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const searchResults = normalizedQuery ? recentJobs.filter((job) => taskMatchesQuery(job, normalizedQuery)) : null
   const pinnedJobs = useMemo(() => recentJobs.filter((job) => job.pinned), [recentJobs])
-  const timeGroups = useMemo(() => groupJobsByCreatedAt(recentJobs.filter((job) => !job.pinned), Date.now()), [recentJobs])
+  const timeGroups = useMemo(() => groupTasksByCreatedAt(recentJobs.filter((job) => !job.pinned), Date.now()), [recentJobs])
 
   const toggleGroup = (key: string) => {
     setExpandedGroups((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
@@ -575,7 +581,7 @@ function TaskRailHistory({
       </div>
       {visibleJobs.map((job) => <TaskRow key={job.id} job={job} selected={job.id === selectedJobId} onSelect={onSelect} onPinToggle={onPinToggle} onRename={onRename} onDelete={onDelete} onCancel={onCancel} />)}
       {groupedJobs.length > TASK_GROUP_PREVIEW
-        ? <button type="button" onClick={() => toggleGroup(key)} className="mb-1 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-[11px] text-[#7c8794] transition hover:bg-black/[0.035] hover:text-[#171a1f]">
+        ? <button type="button" aria-expanded={expanded} onClick={() => toggleGroup(key)} className="mb-1 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-[11px] text-[#7c8794] transition hover:bg-black/[0.035] hover:text-[#171a1f]">
           <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
           {expanded ? "收起" : `显示其余 ${groupedJobs.length - TASK_GROUP_PREVIEW} 项`}
         </button>
@@ -607,7 +613,7 @@ function TaskRailHistory({
       </> : <>
         {pinnedJobs.length ? renderGroup("pinned", "置顶", pinnedJobs) : null}
         {pinnedJobs.length ? <div className="mx-2 mb-1 border-t border-black/[0.05]" /> : null}
-        {timeGroups.map((group) => renderGroup(group.key, group.label, group.jobs))}
+        {timeGroups.map((group) => renderGroup(group.key, group.label, group.tasks))}
         {!recentJobs.length && <div className="flex min-h-40 flex-col items-center justify-center px-5 text-center text-xs leading-5 text-[#7c8794]"><ListChecks className="mb-2 text-[#a0a8b2]" size={20} />当前类型还没有任务</div>}
       </>}
     </div>
@@ -716,6 +722,8 @@ export default function App({
   const [sortOption, setSortOption] = useState<
     "created_desc" | "created_asc" | "title_asc" | "title_desc" | "prompt_len_desc" | "prompt_len_asc"
   >("created_desc")
+  const [assetVisibleLimit, setAssetVisibleLimit] = useState(ASSET_LOAD_BATCH)
+  const assetLoadMoreRef = useRef<HTMLDivElement | null>(null)
   const [jianyingModalOpen, setJianyingModalOpen] = useState(false)
   const [jianyingSelectedItems, setJianyingSelectedItems] = useState<JianyingMediaItem[]>([])
   const [canvasInsertAsset, setCanvasInsertAsset] = useState<CanvasInsertAsset | null>(null)
@@ -807,12 +815,52 @@ export default function App({
   const grsBalanceStale = Boolean(grsBalanceQuery.data?.refresh_error)
   const [selectedSkillId, setSelectedSkillId] = useState<string>("general")
   const [optimizeUndo, setOptimizeUndo] = useState<{ before: string; after: string } | null>(null)
+  const [optimizedPrompt, setOptimizedPrompt] = useState<OptimizedPrompt | null>(null)
+  const [englishPromptOpen, setEnglishPromptOpen] = useState(false)
+  const [roundPromptLanguage, setRoundPromptLanguage] = useState<Record<string, "zh" | "en">>({})
+  const [promptOptimizeEnabled, setPromptOptimizeEnabled] = useState(readPromptOptimizePreference)
+  const [autoOptimizing, setAutoOptimizing] = useState(false)
   const skillsQuery = useQuery({
     queryKey: ["llm-skills"],
     queryFn: () => requestJson<{ skills: H3Skill[] }>("/api/llm/skills"),
     enabled: Boolean(user),
     staleTime: 1000 * 60 * 10,
   })
+  const llmStatusQuery = useQuery({
+    queryKey: ["llm-status"],
+    queryFn: () => api<{ available: boolean; message?: string | null; model?: string | null }>("/api/llm/status"),
+    enabled: Boolean(user),
+    staleTime: 1000 * 60,
+    retry: false,
+  })
+  const llmAvailable = llmStatusQuery.data ? llmStatusQuery.data.available : true
+  const autoOptimizeActive = promptOptimizeEnabled && llmAvailable
+  const optimizationContext = [
+    workflowId,
+    references.map((asset) => asset.id).join(","),
+    selectedSkillId,
+    String(optionValues.duration ?? ""),
+  ].join("\u0000")
+  const reusableOptimized = optimizedPrompt
+    && optimizedPrompt.chinese === prompt.trim()
+    && optimizedPrompt.context === optimizationContext
+    ? optimizedPrompt
+    : null
+  const togglePromptOptimize = (enabled: boolean) => {
+    setPromptOptimizeEnabled(enabled)
+    try {
+      window.localStorage.setItem(PROMPT_OPTIMIZE_STORAGE_KEY, enabled ? "1" : "0")
+    } catch {
+      // Private browsing can deny localStorage; keep the in-memory toggle.
+    }
+  }
+  const optimizeToggleTooltip = !llmAvailable
+    ? (llmStatusQuery.data?.message || "大模型服务不可用，请先在管理设置 → AI 供应商 → 大模型中配置。")
+    : autoOptimizeActive
+      ? "已开启：点击生成会先调用语言大模型润色当前提示词。"
+      : mediaType === "video"
+        ? "开启后，点击生成会先调用语言大模型，按 MiniMax H3 官方规范润色；多参考视频输出官方六段式。"
+        : "开启后，点击生成会先调用语言大模型润色当前提示词。"
   const h3Skills = skillsQuery.data?.skills || []
   const activeSkill = h3Skills.find((s) => s.id === selectedSkillId) || h3Skills[0]
   const selectedJobFromList = selectedJobId ? allJobs.find((job) => job.id === selectedJobId) : undefined
@@ -835,7 +883,7 @@ export default function App({
   const selectedJobMissing = Boolean(selectedJobId && !selectedJob && !selectedJobLoading)
 
   const assetEntries = useMemo<AssetEntry[]>(
-    () => workspaceView !== "assets" ? [] : allJobs.flatMap((job): AssetEntry[] => {
+    () => workspaceView !== "assets" || assetSection !== "history" ? [] : allJobs.flatMap((job): AssetEntry[] => {
       const roundEntries = job.rounds.flatMap((round) => round.generation_items.flatMap((item) => item.outputs.map((output, outputIndex) => ({
         id: `${item.id}:${outputIndex}`,
         job,
@@ -851,7 +899,7 @@ export default function App({
         generationItemId: null,
       }))
     }),
-    [allJobs, workspaceView],
+    [allJobs, workspaceView, assetSection],
   )
   const activeFilterCount = useMemo(() => {
     let count = 0
@@ -872,7 +920,7 @@ export default function App({
       if (!matchesType) return false
 
       // 2. Search query (label, title, prompt)
-      const searchable = `${output.label} ${job.title ?? ""} ${job.prompt}`.toLocaleLowerCase()
+      const searchable = `${output.label} ${job.title ?? ""} ${jobDisplayPrompt(job)} ${job.prompt}`.toLocaleLowerCase()
       if (query && !searchable.includes(query)) return false
 
       // 3. Status Filter (全部/成功/进行中/失败)
@@ -925,20 +973,20 @@ export default function App({
       if (sortOption === "created_desc") return timeB - timeA
       if (sortOption === "created_asc") return timeA - timeB
       if (sortOption === "title_asc") {
-        const titleA = a.job.title || a.job.prompt || ""
-        const titleB = b.job.title || b.job.prompt || ""
+        const titleA = a.job.title || jobDisplayPrompt(a.job)
+        const titleB = b.job.title || jobDisplayPrompt(b.job)
         return titleA.localeCompare(titleB, "zh-CN")
       }
       if (sortOption === "title_desc") {
-        const titleA = a.job.title || a.job.prompt || ""
-        const titleB = b.job.title || b.job.prompt || ""
+        const titleA = a.job.title || jobDisplayPrompt(a.job)
+        const titleB = b.job.title || jobDisplayPrompt(b.job)
         return titleB.localeCompare(titleA, "zh-CN")
       }
       if (sortOption === "prompt_len_desc") {
-        return (b.job.prompt?.length || 0) - (a.job.prompt?.length || 0)
+        return jobDisplayPrompt(b.job).length - jobDisplayPrompt(a.job).length
       }
       if (sortOption === "prompt_len_asc") {
-        return (a.job.prompt?.length || 0) - (b.job.prompt?.length || 0)
+        return jobDisplayPrompt(a.job).length - jobDisplayPrompt(b.job).length
       }
       return timeB - timeA
     })
@@ -954,16 +1002,22 @@ export default function App({
     timeFilter,
   ])
 
+  const loadedAssetEntries = useMemo(
+    () => visibleAssetEntries.slice(0, assetVisibleLimit),
+    [visibleAssetEntries, assetVisibleLimit],
+  )
+  const hasMoreAssetEntries = loadedAssetEntries.length < visibleAssetEntries.length
+
   const assetGroups = useMemo(() => {
     if (sortOption.startsWith("title_") || sortOption.startsWith("prompt_len_")) {
       return [{
         label: sortOption.startsWith("title_") ? "按名称排列" : "按提示词长度排列",
         timestamp: 0,
-        entries: visibleAssetEntries,
+        entries: loadedAssetEntries,
       }]
     }
-    const groups = new Map<string, { label: string; timestamp: number; entries: typeof visibleAssetEntries }>()
-    visibleAssetEntries.forEach((entry) => {
+    const groups = new Map<string, { label: string; timestamp: number; entries: typeof loadedAssetEntries }>()
+    loadedAssetEntries.forEach((entry) => {
       const date = new Date(entry.job.created_at)
       const key = Number.isNaN(date.getTime()) ? "unknown" : `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
       const current = groups.get(key)
@@ -975,7 +1029,27 @@ export default function App({
       return list.sort((left, right) => left.timestamp - right.timestamp)
     }
     return list.sort((left, right) => right.timestamp - left.timestamp)
-  }, [visibleAssetEntries, sortOption])
+  }, [loadedAssetEntries, sortOption])
+
+  useEffect(() => {
+    setAssetVisibleLimit(ASSET_LOAD_BATCH)
+  }, [assetSection, assetMediaFilter, assetSearch, filterStatus, filterRatio, timeFilter, customDateRange, sortOption])
+
+  useEffect(() => {
+    if (assetSection !== "history" || !hasMoreAssetEntries) return
+    const sentinel = assetLoadMoreRef.current
+    if (!sentinel || typeof IntersectionObserver === "undefined") return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setAssetVisibleLimit((current) => current + ASSET_LOAD_BATCH)
+        }
+      },
+      { rootMargin: "480px 0px" },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [assetSection, hasMoreAssetEntries, loadedAssetEntries.length])
   const optionDefinitions = useMemo(() => workflowOptionDefinitions(workflow), [workflow])
   const primaryOptionDefinitions = useMemo(
     () => {
@@ -1001,6 +1075,18 @@ export default function App({
     },
     [optionDefinitions, optionValues],
   )
+  const refineHint = useMemo(() => {
+    if (String(optionValues.refine_enabled ?? false) !== "true") return null
+    const duration = Number(optionValues.duration ?? 5)
+    if (!Number.isFinite(duration) || duration <= 0) return null
+    const plan = refinePlan(
+      String(optionValues.refine_quality ?? "1.0"),
+      String(optionValues.refine_quality_mode ?? "auto"),
+      duration,
+      String(optionValues.aspect_ratio ?? "16:9"),
+    )
+    return { ...plan, durationLabel: formatRefineDuration(plan.estimatedSeconds) }
+  }, [optionValues])
   const resultsForRound = (round: JobRound) => {
     const own = round.generation_items.flatMap((item) => item.outputs.map((output, outputIndex) => ({
       jobId: selectedJob?.id,
@@ -1063,10 +1149,13 @@ export default function App({
   }, [references.length])
 
   const createMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ prompt: submittedPrompt, displayPrompt }: { prompt: string; displayPrompt?: string }) => {
       const form = new FormData()
       form.set("mode", workflowId)
-      form.set("prompt", prompt)
+      form.set("prompt", submittedPrompt)
+      if (displayPrompt && displayPrompt.trim() && displayPrompt.trim() !== submittedPrompt.trim()) {
+        form.set("display_prompt", displayPrompt.trim())
+      }
       form.set("negative_prompt", negativePrompt)
       if (workflow?.accepts_image_size) form.set("image_size", imageSize)
       if (Object.keys(optionDefinitions).length) {
@@ -1151,6 +1240,8 @@ export default function App({
     mutationFn: async (job: Job) => {
       const form = new FormData()
       form.set("prompt", job.prompt)
+      const displayPrompt = job.rounds[job.rounds.length - 1]?.display_prompt?.trim()
+      if (displayPrompt && displayPrompt !== job.prompt.trim()) form.set("display_prompt", displayPrompt)
       form.set("negative_prompt", job.negative_prompt)
       const response = await fetch(`/api/jobs/${job.id}/rounds`, { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } })
       if (response.status === 401) notifyUnauthorized()
@@ -1193,32 +1284,55 @@ export default function App({
     onError: (error: Error) => messageApi.error(error.message),
   })
 
+  const requestOptimizedPrompt = async (sourcePrompt: string, skillIdOverride?: string) => {
+    const cleanPrompt = sourcePrompt.trim()
+    if (!cleanPrompt) {
+      throw new Error("请先输入简短的画面描述或想法")
+    }
+    const targetSkillId = skillIdOverride || selectedSkillId
+    const imageUrls = await referenceImageUrls(references)
+    const durationSeconds = Number(optionValues.duration)
+    return requestJson<{
+      original_prompt: string; optimized_prompt: string; optimized_prompt_zh?: string | null; skill_id?: string
+    }>(
+      "/api/llm/optimize-prompt",
+      jsonMutation(csrfToken, {
+        prompt: cleanPrompt,
+        media_type: mediaType,
+        workflow_name: workflow?.name,
+        skill_id: mediaType === "video" ? targetSkillId : undefined,
+        reference_count: references.length,
+        workflow_id: workflowId,
+        duration_seconds: mediaType === "video" && Number.isFinite(durationSeconds) && durationSeconds > 0
+          ? durationSeconds
+          : undefined,
+        image_urls: imageUrls.length ? imageUrls : undefined,
+      }),
+    )
+  }
+
   const optimizeMutation = useMutation({
-    mutationFn: async (skillIdOverride?: string | void) => {
-      const cleanPrompt = prompt.trim()
-      if (!cleanPrompt) {
-        throw new Error("请先输入简短的画面描述或想法")
-      }
-      const targetSkillId = (typeof skillIdOverride === "string" ? skillIdOverride : undefined) || selectedSkillId
-      const imageUrls = await referenceImageUrls(references)
-      return requestJson<{ original_prompt: string; optimized_prompt: string; skill_id?: string }>(
-        "/api/llm/optimize-prompt",
-        jsonMutation(csrfToken, {
-          prompt: cleanPrompt,
-          media_type: mediaType,
-          workflow_name: workflow?.name,
-          skill_id: mediaType === "video" ? targetSkillId : undefined,
-          reference_count: references.length,
-          workflow_id: workflowId,
-          image_urls: imageUrls.length ? imageUrls : undefined,
-        }),
-      )
-    },
+    mutationFn: async (skillIdOverride?: string | void) => requestOptimizedPrompt(
+      prompt,
+      typeof skillIdOverride === "string" ? skillIdOverride : undefined,
+    ),
 
     onSuccess: (data) => {
-      setOptimizeUndo({ before: data.original_prompt, after: data.optimized_prompt })
-      setPrompt(data.optimized_prompt)
-      messageApi.success("提示词已使用 AI 优化完成")
+      const english = data.optimized_prompt.trim()
+      if (mediaType === "video") {
+        const chinese = data.optimized_prompt_zh?.trim() || data.original_prompt.trim()
+        setOptimizedPrompt({ english, chinese, context: optimizationContext })
+        setOptimizeUndo({ before: data.original_prompt, after: chinese })
+        setPrompt(chinese)
+        messageApi.success(data.optimized_prompt_zh?.trim()
+          ? "提示词已润色，生成时使用英文版；可点击「查看英文」对照"
+          : "提示词已润色为英文 H3 格式；中文对照暂不可用，已保留原文")
+        return
+      }
+      setOptimizedPrompt(null)
+      setOptimizeUndo({ before: data.original_prompt, after: english })
+      setPrompt(english)
+      messageApi.success("提示词已润色，可继续修改或直接生成")
     },
     onError: (error: Error) => {
       messageApi.warning(error.message || "提示词优化失败")
@@ -1247,7 +1361,7 @@ export default function App({
   const optionError = Object.keys(optionDefinitions).length
     ? validateOptionValues(optionDefinitions, optionValues, referenceCount)
     : ""
-  const canSubmit = Boolean(!isInspectingOtherUser && workflow?.available && prompt.trim() && referenceCount >= workflow.min_references && referenceCount <= workflow.max_references && !optionError && !createMutation.isPending)
+  const canSubmit = Boolean(!isInspectingOtherUser && workflow?.available && prompt.trim() && referenceCount >= workflow.min_references && referenceCount <= workflow.max_references && !optionError && !createMutation.isPending && !autoOptimizing && !optimizeMutation.isPending)
   const referenceHint = workflow?.reference_mode === "collection"
     ? `已添加 ${referenceCount} / ${workflow.max_references} 张`
     : workflow?.reference_mode === "keyframes" ? "首帧必填更稳定，尾帧用于锁定结尾" : ""
@@ -1449,8 +1563,91 @@ export default function App({
       if (focusEditor) promptRef.current?.focus()
     })
   }, [])
-  const submit = (event: FormEvent) => { event.preventDefault(); if (canSubmit) createMutation.mutate() }
-  const openRename = (job: Job) => { setRenameTarget(job); setRenameValue(job.title || job.prompt.slice(0, 40)) }
+  const submitTask = async () => {
+    if (!canSubmit) return
+    const refineWarning = refineForceWarning(
+      {
+        refine_enabled: String(optionValues.refine_enabled ?? false),
+        refine_quality_mode: String(optionValues.refine_quality_mode ?? "auto"),
+        refine_quality: String(optionValues.refine_quality ?? "1.0"),
+        aspect_ratio: String(optionValues.aspect_ratio ?? "16:9"),
+      },
+      Number(optionValues.duration ?? 5),
+    )
+    if (refineWarning) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        Modal.confirm({
+          title: "强制高清会显著延长出片时间",
+          content: refineWarning,
+          okText: "仍然提交",
+          cancelText: "取消",
+          centered: true,
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      })
+      if (!confirmed) return
+    }
+    const originalPrompt = prompt.trim()
+    if (!autoOptimizeActive) {
+      if (reusableOptimized) {
+        createMutation.mutate({ prompt: reusableOptimized.english, displayPrompt: reusableOptimized.chinese })
+      } else {
+        createMutation.mutate({ prompt: originalPrompt })
+      }
+      return
+    }
+    if (reusableOptimized) {
+      createMutation.mutate({ prompt: reusableOptimized.english, displayPrompt: reusableOptimized.chinese })
+      return
+    }
+    setAutoOptimizing(true)
+    try {
+      const data = await requestOptimizedPrompt(originalPrompt)
+      const optimized = data.optimized_prompt.trim()
+      if (!optimized) {
+        messageApi.warning("提示词润色结果为空，已按原文生成")
+        createMutation.mutate({ prompt: originalPrompt })
+        return
+      }
+      if (mediaType === "video") {
+        const chinese = data.optimized_prompt_zh?.trim() || originalPrompt
+        setOptimizedPrompt({ english: optimized, chinese, context: optimizationContext })
+        setOptimizeUndo({ before: originalPrompt, after: chinese })
+        setPrompt(chinese)
+        messageApi.success({
+          content: data.optimized_prompt_zh?.trim()
+            ? "提示词已按 H3 官方规范润色，生成将使用英文版"
+            : "已生成英文 H3 提示词，中文对照暂不可用",
+          duration: 2,
+        })
+        createMutation.mutate({ prompt: optimized, displayPrompt: chinese })
+        return
+      }
+      setOptimizeUndo({ before: originalPrompt, after: optimized })
+      setPrompt(optimized)
+      messageApi.success({ content: "提示词已自动润色", duration: 2 })
+      createMutation.mutate({ prompt: optimized })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "未知错误"
+      messageApi.warning(`提示词润色失败，已按原文生成：${detail}`)
+      createMutation.mutate({ prompt: originalPrompt })
+    } finally {
+      setAutoOptimizing(false)
+    }
+  }
+  const copyEnglishPrompt = async () => {
+    const value = reusableOptimized?.english || optimizedPrompt?.english
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      messageApi.success("英文提示词已复制")
+    } catch {
+      messageApi.error("复制失败，请手动选择文本复制")
+    }
+  }
+  const submit = (event: FormEvent) => { event.preventDefault(); void submitTask() }
+  const openRename = (job: Job) => { setRenameTarget(job); setRenameValue(job.title || jobDisplayPrompt(job).slice(0, 40)) }
   const togglePinned = (job: Job) => metadataMutation.mutate({ jobId: job.id, pinned: !job.pinned })
   const confirmDelete = (job: Job) => Modal.confirm({
     title: "删除任务？",
@@ -1480,26 +1677,43 @@ export default function App({
       ...defaultOptionValues(targetWorkflow),
       ...Object.fromEntries(Object.entries(round.options ?? {}).map(([name, value]) => [name, typeof value === "boolean" ? value : String(value)])),
     }
+    const displayPrompt = round.display_prompt?.trim()
     restoringDraftRef.current = targetWorkflow.id !== workflowId
     restoringComposerRef.current = true
     setIsComposerCompact(false)
     setWorkflowId(targetWorkflow.id)
     setOptionValues(nextOptions)
-    setPrompt(round.prompt)
+    setPrompt(displayPrompt || round.prompt)
     setNegativePrompt(job.negative_prompt)
     setSource(undefined)
     setAdvancedOptionsOpen(false)
+    setOptimizeUndo(null)
+    setOptimizedPrompt(null)
     const sources = roundReferenceSources(job, round)
+    let restoredReferences: ReferenceAsset[] = []
     try {
       const referenceFiles = await restoreReferenceFiles(sources)
       const nextReferences = newAssets(referenceFiles)
       if (sources.length > 0 && nextReferences.length !== sources.length) {
         throw new Error("参考图未能还原为可上传图片")
       }
+      restoredReferences = nextReferences
       setReferences((current) => { releaseAssets(current); return nextReferences })
     } catch {
       setReferences((current) => { releaseAssets(current); return [] })
       messageApi.warning("已带回提示词和参数；原参考图无法读取，请重新添加。")
+    }
+    if (displayPrompt && displayPrompt !== round.prompt) {
+      setOptimizedPrompt({
+        english: round.prompt,
+        chinese: displayPrompt,
+        context: [
+          targetWorkflow.id,
+          restoredReferences.map((asset) => asset.id).join(","),
+          selectedSkillId,
+          String(nextOptions.duration ?? ""),
+        ].join("\u0000"),
+      })
     }
     setIsSelectedPromptExpanded(false)
     const nextPath = generateJobPath(job.media_type)
@@ -1987,7 +2201,7 @@ export default function App({
                                   kind: output.kind,
                                   src: outputPreviewSrc(output) ?? "",
                                   title: output.label,
-                                  description: job.title || job.prompt,
+                                  description: job.title || jobDisplayPrompt(job),
                                   job,
                                   aspectRatio: mediaAspectHint(job),
                                 })
@@ -2047,6 +2261,22 @@ export default function App({
                     </div>
                   </section>
                 ))}
+                {hasMoreAssetEntries ? (
+                  <div ref={assetLoadMoreRef} className="studio-asset-load-more">
+                    <span>已显示 {loadedAssetEntries.length} / {visibleAssetEntries.length} 项</span>
+                    <button
+                      type="button"
+                      className="studio-asset-action-button"
+                      onClick={() => setAssetVisibleLimit((current) => current + ASSET_LOAD_BATCH)}
+                    >
+                      加载更多
+                    </button>
+                  </div>
+                ) : visibleAssetEntries.length > ASSET_LOAD_BATCH ? (
+                  <div className="studio-asset-load-more">
+                    <span>已加载全部 {visibleAssetEntries.length} 项</span>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="studio-asset-empty">
@@ -2079,6 +2309,9 @@ export default function App({
               const showUpscale = mediaType === "video" && !isRtxVsrJob(selectedJob) && hasOriginalVideo(selectedJob) && !isInspectingOtherUser
               const failedItems = round.generation_items.filter((item) => item.status === "failed" || item.status === "interrupted" || item.status === "cancelled")
               const cover = roundResults[0]?.output
+              const roundDisplayPrompt = round.display_prompt?.trim()
+              const roundPromptShownInEnglish = roundPromptLanguage[round.id] === "en" || !roundDisplayPrompt
+              const roundPromptText = roundPromptShownInEnglish ? round.prompt : roundDisplayPrompt
               return <article key={round.id} className="studio-round">
                 <header className="studio-round-header flex min-w-0 gap-3">
                   <div className="studio-round-cover grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-[#f2f4f6] text-[#7c8794]">
@@ -2086,7 +2319,17 @@ export default function App({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-start gap-2">
-                      <p id={`round-prompt-${round.id}`} className={`min-w-0 flex-1 text-sm leading-5 text-[#1f2933] ${isSelectedPromptExpanded ? "whitespace-pre-wrap break-words" : "line-clamp-2"}`}>{round.prompt}</p>
+                      <p id={`round-prompt-${round.id}`} className={`min-w-0 flex-1 text-sm leading-5 text-[#1f2933] ${isSelectedPromptExpanded ? "whitespace-pre-wrap break-words" : "line-clamp-2"}`}>{roundPromptText}</p>
+                      {roundDisplayPrompt && roundDisplayPrompt !== round.prompt ? (
+                        <button
+                          type="button"
+                          onClick={() => setRoundPromptLanguage((current) => ({ ...current, [round.id]: roundPromptShownInEnglish ? "zh" : "en" }))}
+                          aria-label={roundPromptShownInEnglish ? "查看中文提示词" : "查看英文提示词"}
+                          className="shrink-0 text-xs text-[#4d6bfe] hover:text-[#314bc7]"
+                        >
+                          {roundPromptShownInEnglish ? "中文" : "English"}
+                        </button>
+                      ) : null}
                       <button type="button" onClick={() => setIsSelectedPromptExpanded((expanded) => !expanded)} aria-controls={`round-prompt-${round.id}`} aria-expanded={isSelectedPromptExpanded} className="shrink-0 text-xs text-[#4d6bfe] hover:text-[#314bc7]">{isSelectedPromptExpanded ? "收起" : "展开"}</button>
                     </div>
                     <p className={`studio-round-status mt-1.5 flex flex-wrap items-center gap-x-2 text-xs ${statusColor[round.status]}`}>
@@ -2134,7 +2377,7 @@ export default function App({
                 </div>}
 
                 {roundResults.length > 0 && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
-                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} onDownload={(result) => downloadOutput(selectedJob, result.outputIndex, result.output)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} upscale={showUpscale ? { disabled: !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending, pending: upscaleMutation.isPending || Boolean(relatedUpscale), hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || "用本机 RTX 放大到 2 倍，原片保留", onClick: () => upscaleMutation.mutate(selectedJob.id) } : undefined} upscaleStage={relatedUpscale?.stage} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onDownload={(result) => downloadOutput(allJobs.find((item) => item.id === result.jobId) ?? selectedJob, result.outputIndex, result.output)} />}
+                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} onDownload={(result) => downloadOutput(selectedJob, result.outputIndex, result.output)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} upscale={showUpscale ? { disabled: !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending, pending: upscaleMutation.isPending || Boolean(relatedUpscale), hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || "用本机 RTX 放大到 2 倍，原片保留", onClick: () => upscaleMutation.mutate(selectedJob.id) } : undefined} upscaleStage={relatedUpscale?.stage} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onDownload={(result) => downloadOutput(allJobs.find((item) => item.id === result.jobId) ?? selectedJob, result.outputIndex, result.output)} />}
                 </Suspense>}
 
                 {failedItems.length > 0 && mediaType === "image" && <ul className="mt-3 space-y-2 text-xs leading-5 text-red-600">
@@ -2196,9 +2439,26 @@ export default function App({
             <div className="studio-composer-prompt grid min-h-[142px] grid-cols-1 gap-4 sm:grid-cols-[minmax(102px,154px)_minmax(0,1fr)]">
               <ReferencePanel workflow={workflow} references={references} onAppend={appendFiles} onReplaceKeyframe={replaceKeyframe} onRemove={removeReference} onMove={moveReference} onPreview={openReferencePreview} fileInputRef={fileInputRef} />
               <div className="studio-composer-editor min-w-0 pt-1">
-                <div className="studio-composer-editor-meta mb-2 flex items-center justify-between gap-3">
-                  <span className="text-xs text-[#aaaab4]">{workflow?.name || "正在加载工作流"}</span>
-                  <div className="flex items-center gap-2">
+                <div className="studio-composer-editor-meta mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="truncate text-xs text-[#aaaab4]">{workflow?.name || "正在加载工作流"}</span>
+                    {referenceHint ? <span className="studio-composer-hint">{referenceHint}</span> : null}
+                    {reusableOptimized && mediaType === "video" ? <span className="studio-composer-hint">中文预览 · 生成用英文</span> : null}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <Tooltip title={optimizeToggleTooltip}>
+                      <span className={`studio-prompt-optimize ${autoOptimizeActive ? "is-on" : ""}`}>
+                        <Sparkles size={12} aria-hidden />
+                        <span className="whitespace-nowrap">提示词优化</span>
+                        <Switch
+                          size="small"
+                          checked={autoOptimizeActive}
+                          disabled={!llmAvailable || isInspectingOtherUser || autoOptimizing || optimizeMutation.isPending || createMutation.isPending}
+                          onChange={togglePromptOptimize}
+                          aria-label="生成前自动优化提示词"
+                        />
+                      </span>
+                    </Tooltip>
                     {mediaType === "video" && h3Skills.length > 0 ? (
                       <Dropdown
                         placement="bottomRight"
@@ -2206,16 +2466,9 @@ export default function App({
                         menu={{
                           items: [
                             {
-                              key: "optimize-current",
-                              icon: <WandSparkles size={14} />,
-                              label: <span>用当前技能优化提示词</span>,
-                              onClick: () => optimizeMutation.mutate(selectedSkillId),
-                            },
-                            { type: "divider" as const },
-                            {
                               key: "header",
                               type: "group",
-                              label: <span className="text-[11px] font-semibold text-[#6b7280]">MiniMax H3 官方技能体系</span>,
+                              label: <span className="text-[11px] font-semibold text-[#6b7280]">提示词优化风格</span>,
                             },
                             ...h3Skills.map((skill) => ({
                               key: skill.id,
@@ -2237,38 +2490,45 @@ export default function App({
                       >
                         <button
                           type="button"
-                          disabled={optimizeMutation.isPending}
-                          title="展开技能列表；选择技能后点「用当前技能优化提示词」"
-                          className="flex items-center gap-1 rounded-md border border-[#7655ff]/35 bg-[#7655ff]/15 px-2 py-0.5 text-xs text-[#7047f6] font-medium transition hover:bg-[#7655ff]/25 hover:text-[#5a32df] disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={autoOptimizing || optimizeMutation.isPending}
+                          title="选择提示词优化风格"
+                          className="studio-prompt-tool"
                         >
-                          {optimizeMutation.isPending ? <LoaderCircle className="animate-spin text-[#7047f6]" size={12} /> : <WandSparkles size={12} className="text-[#7047f6]" />}
-                          <span>{activeSkill?.name ? `${activeSkill.icon} ${activeSkill.name}` : "AI 优化"}</span>
-                          <ChevronDown size={11} className="opacity-60 text-[#7047f6]" />
+                          <span className="max-w-[150px] truncate">{activeSkill?.name ? `${activeSkill.icon} ${activeSkill.name}` : "通用风格"}</span>
+                          <ChevronDown size={11} className="opacity-60" />
                         </button>
                       </Dropdown>
-                    ) : (
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={!llmAvailable || isInspectingOtherUser || !prompt.trim() || autoOptimizing || optimizeMutation.isPending || createMutation.isPending}
+                      onClick={() => optimizeMutation.mutate()}
+                      title={mediaType === "video" ? "立即调用大模型，按 MiniMax H3 官方规范润色当前提示词" : "立即调用大模型润色当前提示词"}
+                      className="studio-prompt-polish"
+                    >
+                      {optimizeMutation.isPending ? <LoaderCircle className="animate-spin" size={12} /> : <WandSparkles size={12} />}
+                      <span>{optimizeMutation.isPending ? "润色中" : "立即润色"}</span>
+                    </button>
+                    {reusableOptimized && mediaType === "video" ? (
                       <button
                         type="button"
-                        disabled={optimizeMutation.isPending}
-                        onClick={() => optimizeMutation.mutate()}
-                        title="AI 提示词优化（Midjourney / FLUX 风格增强）"
-                        className="flex items-center gap-1 rounded-md border border-[#7655ff]/35 bg-[#7655ff]/15 px-2 py-0.5 text-xs text-[#7047f6] font-medium transition hover:bg-[#7655ff]/25 hover:text-[#5a32df] disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => setEnglishPromptOpen(true)}
+                        title="查看本次生成实际提交的英文 H3 提示词"
+                        className="studio-prompt-tool"
                       >
-                        {optimizeMutation.isPending ? <LoaderCircle className="animate-spin text-[#7047f6]" size={12} /> : <WandSparkles size={12} className="text-[#7047f6]" />}
-                        <span>AI 优化</span>
+                        <Languages size={12} />
+                        <span>查看英文</span>
                       </button>
-                    )}
-
+                    ) : null}
                     {optimizeUndo && prompt === optimizeUndo.after && !optimizeMutation.isPending ? (
                       <button
                         type="button"
-                        onClick={() => { setPrompt(optimizeUndo.before); setOptimizeUndo(null) }}
+                        onClick={() => { setPrompt(optimizeUndo.before); setOptimizeUndo(null); setOptimizedPrompt(null) }}
                         className="shrink-0 text-[11px] text-[#797982] transition hover:text-[#b5a4ff]"
                       >
                         撤销优化
                       </button>
                     ) : null}
-                    <span className="truncate text-[11px] text-[#797982]">{referenceHint}</span>
                   </div>
                 </div>
                 <textarea
@@ -2285,7 +2545,7 @@ export default function App({
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                       event.preventDefault()
-                      if (canSubmit) createMutation.mutate()
+                      if (canSubmit) void submitTask()
                     }
                   }}
                   placeholder={workflow?.description || "描述镜头、动作、运镜、音效和氛围"}
@@ -2319,9 +2579,23 @@ export default function App({
                 {advancedOptionDefinitions.length > 0 && <button type="button" aria-expanded={advancedOptionsOpen} onClick={() => setAdvancedOptionsOpen((open) => !open)} className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-sm text-[#d8d8df] transition hover:bg-[#29292f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7047ff]/45"><SlidersHorizontal size={16} className="text-[#947dff]" />更多设置</button>}
               </div>
               <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : undefined}>
-                <button type="submit" disabled={!canSubmit} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{createMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{mediaType === "image" ? "开始生图" : "开始生成"}</button>
+                <button type="submit" disabled={!canSubmit} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"}</button>
               </Tooltip>
             </div>
+            {refineHint ? (
+              <p className="mt-3 text-xs leading-5 text-[#b9b6c9]">
+                二采输出 {refineHint.resolutionLabel || `${refineHint.effectiveMegapixels.toFixed(1)} MP`}
+                （{refineHint.effectiveMegapixels.toFixed(1)} MP）
+                {refineHint.estimatedSeconds
+                  ? `，预计全程 ${refineHint.durationLabel}（一采 + 二采）`
+                  : "，超出平台安全预算，可能超过 30 分钟并可能因显存不足失败"}
+                {refineHint.capped
+                  ? `；目标 ${refineHint.requestedMegapixels.toFixed(1)} MP 已按片长自动降档`
+                  : refineHint.forced
+                    ? "；强制高清将严格按目标输出"
+                    : ""}
+              </p>
+            ) : null}
             {advancedOptionsOpen && advancedOptionDefinitions.length > 0 && <section aria-label="更多生成设置" className="mt-4 border-t border-white/[0.08] pt-4">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {advancedOptionDefinitions.map(([name, definition]) => <OptionControl
@@ -2340,6 +2614,25 @@ export default function App({
             {mediaType === "video" && workflow?.reference_mode === "collection" && references.length > 3 && <p className="mt-3 text-xs text-amber-200">较多参考图会显著增加显存和耗时，建议先使用 1K 预览。</p>}
             {createMutation.isError && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-200">{createMutation.error.message}</p>}
           </form>}
+
+          <Modal
+            open={englishPromptOpen && Boolean(reusableOptimized)}
+            title="英文 H3 提示词"
+            width={760}
+            okText="复制英文"
+            cancelText="关闭"
+            onOk={() => void copyEnglishPrompt()}
+            onCancel={() => setEnglishPromptOpen(false)}
+            destroyOnHidden
+          >
+            <p className="mb-2 text-xs leading-5 text-[#65707c]">这是生成 MiniMax H3 视频时实际提交的英文提示词；界面默认显示中文对照。</p>
+            <Input.TextArea
+              value={reusableOptimized?.english || ""}
+              readOnly
+              autoSize={{ minRows: 8, maxRows: 18 }}
+              className="font-mono text-xs"
+            />
+          </Modal>
           </>}
 
           <Modal

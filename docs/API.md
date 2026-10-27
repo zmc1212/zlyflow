@@ -1,5 +1,13 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-10-27 二采清晰度策略
+
+H3 二采新增可选字段 `refine_quality_mode`：`auto`（默认）按片长×目标像素约 200 封顶并自动降档；`force` 严格按 `refine_quality` 输出，长片显著变慢并可能因显存不足失败。非法值返回 400「清晰度策略请选择自动或强制高清。」，缺省按 `auto` 处理，旧客户端与旧任务行为不变。实际生效像素写入任务运行参数的 `refine_megapixels`，`refine_quality` 保留为用户选择的上限值。
+
+## 2026-10-27 二采固定先预览一采
+
+H3 二采任务中 `refine_preview` 由平台托管：`refine_enabled=true` 时固定为 `true`，任务先完成 0.4 MP 一采并停在 `awaiting_refine`，请求显式传 `false` 也会被忽略；`refine_enabled=false` 时固定为 `false`。旧任务没有该字段时继续按关闭处理。整集直出（`render_scope=episode`）无法暂停，提交时后端把 payload 中的 `refine_preview` 强制为 `false` 并连续跑完两段式，不再返回 400。API/MCP 自动化提交二采任务时需处理 `awaiting_refine` 状态并调用确认或保留接口。
+
 ## 2026-10-24 二采先预览一采
 
 开启 H3 的 `refine_enabled` 与 `refine_preview` 后，任务先完成 0.4 MP 一采并停在 `awaiting_refine`，`result_url` 指向可播放的一采预览。确认与保留使用以下接口，均要求现有登录权限：
@@ -11,7 +19,7 @@
 | `POST /api/projects/{project_id}/jobs/{job_id}/refine/confirm` | 工坊逐镜/选中镜：原子校验并提交 `refine_continuation` 中保存的续跑工作流，避免重复点击。 |
 | `POST /api/projects/{project_id}/jobs/{job_id}/refine/skip` | 工坊逐镜/选中镜：把预览写为镜头成片并结束任务。多段预览未合并时先合并；无法合并且未配置七牛云时返回 400。 |
 
-`awaiting_refine` 任务可取消，但不会在 worker 启动时自动恢复。确认二采后续跑状态标记为 `confirmed`，worker 只在该状态下复用续跑图；一采失败、取消或中断后的重试仍从一采预览开始。整集直出（`render_scope=episode`）不支持先预览，提交时返回 400。外部响应不包含内部 `refine_state`；旧任务没有 `refine_preview` 时按关闭处理。
+`awaiting_refine` 任务可取消，但不会在 worker 启动时自动恢复。确认二采后续跑状态标记为 `confirmed`，worker 只在该状态下复用续跑图；一采失败、取消或中断后的重试仍从一采预览开始。整集直出（`render_scope=episode`）不支持先预览，提交时后端自动连续跑完两段式（2026-10-27 起不再返回 400）。外部响应不包含内部 `refine_state`；旧任务没有 `refine_preview` 时按关闭处理。
 
 ## 2026-10-23 MCP 本地剧目接入
 
@@ -234,7 +242,7 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 | `POST` | `/api/admin/providers/vlm/models` | 拉取上游目录并筛选名称含 VL/Vision 的视觉模型。 |
 | `GET` | `/api/vlm/status` | 查询视觉模型是否可用及当前模型名。 |
 | `GET` | `/api/llm/status` | 查询文本大模型是否可用。`supports_vision` 表示写稿路径能否附图；`authoring_vision` / `analysis_vision` 分别给出写稿与反推/拉片路由。 |
-| `POST` | `/api/llm/optimize-prompt` | 按工作流/H3 风格技能/可选技能包优化提示词，不创建生成任务。可选 `skill_pack_id`（须为 `GET /api/skill-packs` 中的 id）。可选 `image_urls`（最多 8 张）；解析器可看图时带图优化，否则只写张数。 |
+| `POST` | `/api/llm/optimize-prompt` | 按工作流/H3 风格技能/可选技能包优化提示词，不创建生成任务。服务端按 `workflow_id` 的参考图模式与数量选择 T2VA / I2VA / FL2VA / Ref2VA；R2V 输出官方六段式。可选 `duration_seconds`（1-60，缺省 5 秒）用于时间码与首尾帧对齐。可选 `skill_pack_id`（须为 `GET /api/skill-packs` 中的 id）。可选 `image_urls`（最多 8 张）；解析器可看图时带图优化，否则只写张数。视频响应含 `optimized_prompt`（英文，用于生成）与 `optimized_prompt_zh`（中文对照，仅展示；译文缺字段时自动重试一次，仍不完整或翻译失败为空串）。模型输出中的思维链不会进入 `optimized_prompt`，无法提取完整 H3 提示词时接口报错。 |
 | `GET` | `/api/skill-packs` | 列出导演台技能包配方（含空 id 的默认程序装箱，含 `summary` / `author` / `cover`）。`cover` 仅为 http(s) 地址，选择页热链播放。首页新建与项目顶栏用此列表绑定 `extra.skill_pack_id`。Plaza 短剧模板不是生成页 H3 风格芯片。 |
 | `POST` | `/api/llm/analyze-subject` | 上传主体参考图提取外貌描述。默认走 VLM；VLM 未开且 LLM 可看图时回退 LLM。 |
 | `POST` | `/api/llm/split-script` | 将剧本拆成结构化分镜头脚本。 |
@@ -329,8 +337,8 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/sync` | 从分镜同步台词轨并写回 `beats[].dubbing_lines`。 |
 | `PATCH` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/lines/{line_id}` | 更新单句文本/情绪/强度/语速/混音。改文本会清空已生成音频。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/dubbing/generate` | 单句或批量入队 `tts_generation`。JSON 可选 `line_id` / `line_ids`；缺省生成本集全部。**202** 返回 `job_id`。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/generate-video` | 按工作流入队整集或逐镜视频。JSON 可带注册表 options，全部 H3 工作流支持 `refine_enabled`（开启后一采 0.4 MP）与 `refine_quality`（`1.0` / `2.0` MP，默认 `1.0`）。`upscale_after` 已停用并被忽略，不再自动超分。**202** 返回 `job_id`。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video` | 单镜入队。可带 `refine_enabled` / `refine_quality`，两段式在同一个任务内完成。成功后原片写入 `video_url` 并归档到 `video_takes`（默认采用最新）。**202**。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/generate-video` | 按工作流入队整集或逐镜视频。JSON 可带注册表 options，全部 H3 工作流支持 `refine_enabled`（开启后一采 0.4 MP）、`refine_quality`（`1.0` / `2.0` MP，默认 `1.0`）、`refine_quality_mode`（`auto` 默认自动降档 / `force` 强制目标清晰度）与 `refine_preview`（平台托管：开启二采固定先预览，显式传 `false` 会被忽略；整集直出强制连续两段式，不再返回 400）。`upscale_after` 已停用并被忽略，不再自动超分。**202** 返回 `job_id`。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video` | 单镜入队。可带 `refine_enabled` / `refine_quality` / `refine_quality_mode` / `refine_preview`，两段式在同一个任务内完成；`refine_preview` 由平台托管，开启二采固定先预览。成功后原片写入 `video_url` 并归档到 `video_takes`（默认采用最新）。**202**。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/compose` | 拼接各镜 `video_url` 为分集成片。JSON 可选 `mix_dubbing`（缺省 true）：内心/旁白叠到对应镜，`mix=replace` 的开口句静音该镜 H3 原声。半解说包旁白未配音 **400**。**202** 返回 `job_id`。拼接片不套用生成期二采，也不自动超分。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/video-takes/adopt` | 采用本镜一条成功成片为正式原片。JSON `{ url }` 或 `{ job_id }`。校验确属本镜 `shot`/`selection` 成功抽卡后写 `video_url`；该 Take 已有 2x 则同步 `upscaled_video_url`，否则清空。采用的那条留在 `video_takes`。不属于本镜 **400**。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale` | 对本镜已成功成片提交独立 2x 超分。原片 `video_url` 不变，结果写入 `upscaled_video_url` 并挂到当前采用 Take，2x 不单独成 Take。进行中任务 **409**；无成片或相对当前连接 GPU 显存预估过大 **422**。**202** 返回 `job_id`。 |
@@ -444,7 +452,8 @@ GET /api/modes/minimax-h3-r2v
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `mode` | string | 是 | 工作流 ID，必须是 `/api/modes` 的一个 `id`。 |
-| `prompt` | string | 是 | 创作提示词。 |
+| `prompt` | string | 是 | 创作提示词；H3 视频须使用英文并直接提交生成。 |
+| `display_prompt` | string | 否 | 中文展示提示词；与 `prompt` 不同时随轮次保存，`GET /api/jobs/{job_id}` 在轮次中回显。仅影响界面展示，不参与生成；轮次接口同样支持。 |
 | `negative_prompt` | string | 否 | 仅 `image` 模式生效，默认空字符串。 |
 | `image_size` | string | `image` 时是 | `横版 1280 x 720`、`方图 1024 x 1024` 或 `竖版 720 x 1280`。 |
 | `options` | string | 否 | JSON 字符串；仅 H3 模式使用，其他模式传 `{}`。 |
@@ -591,7 +600,7 @@ Invoke-RestMethod -Method Post `
 
 ## 导台2 项目内容库（`/api/projects`）
 
-导演台2 内容库走 `POST /api/projects/{project_id}/documents`，不是 `/api/xiaji/documents`。集边界只认台本 `# 第N集`（无集头则整篇第 1 集）；剧本里的 `### 镜头` 只当素材。粘贴/文件导入立刻落库并扫描 `aspect_hint`，文档 `status=awaiting_aspect`，**不**自动入队 `shot_plan`。确认成片画幅后 `POST …/documents/{doc_id}/shot-plan`（JSON 可选 `aspect_ratio`）写入 `settings.extra.workshop_aspect_ratio` 再逐集规划（H3 合同 5–15 秒），成功则 `shots_source=llm`。规划 prompt 以确认画幅为权威。过程通过 `GET …/jobs/{job_id}/events` 直播；内容库按集显示瘦进度，当前集用残缺 JSON 解析出的镜头卡逐张出现（思考默认折叠，不展示 JSON），`episode_done` 后换成归一化结果，规划中禁止同步工坊。全部任务有「镜头规划」Tab，可按 `payload.document_id` 跳回 `/director2/projects/:id/content?mode=manual&doc=:docId&tab=episodes`。AI 流水线回写的文档（`input_mode=ai_pipeline`）不二次规划。`POST …/transfer-episodes` 把文档已有出片镜写入剧集工坊，同步时不再调大模型。`POST …/h3-prompt` 点哪条入队一个任务，不再按口型/内心/近景规则改镜头列表。工坊 `POST …/generate-video` 可带 `options.refine_enabled` / `options.refine_quality`：全部 H3 工作流开启后一采 0.4 MP、二采 1.0 / 2.0 MP；`upscale_after` 已停用，`POST …/compose` 不套用二采也不自动超分。逐镜/选中镜成功后把旧原片归档进 `video_takes`，`video_url` 默认采用最新；成片 Tab 用 `POST …/beats/{beat_id}/video-takes/adopt` 选用历史抽卡。已出片镜头可 `POST …/beats/{beat_id}/upscale`，结果写入 `upscaled_video_url` 并挂到当前采用 Take。全部任务已成功视频可 `POST …/jobs/{job_id}/upscale`。
+导演台2 内容库走 `POST /api/projects/{project_id}/documents`，不是 `/api/xiaji/documents`。集边界只认台本 `# 第N集`（无集头则整篇第 1 集）；剧本里的 `### 镜头` 只当素材。粘贴/文件导入立刻落库并扫描 `aspect_hint`，文档 `status=awaiting_aspect`，**不**自动入队 `shot_plan`。确认成片画幅后 `POST …/documents/{doc_id}/shot-plan`（JSON 可选 `aspect_ratio`）写入 `settings.extra.workshop_aspect_ratio` 再逐集规划（H3 合同 5–15 秒），成功则 `shots_source=llm`。规划 prompt 以确认画幅为权威。过程通过 `GET …/jobs/{job_id}/events` 直播；内容库按集显示瘦进度，当前集用残缺 JSON 解析出的镜头卡逐张出现（思考默认折叠，不展示 JSON），`episode_done` 后换成归一化结果，规划中禁止同步工坊。全部任务有「镜头规划」Tab，可按 `payload.document_id` 跳回 `/director2/projects/:id/content?mode=manual&doc=:docId&tab=episodes`。AI 流水线回写的文档（`input_mode=ai_pipeline`）不二次规划。`POST …/transfer-episodes` 把文档已有出片镜写入剧集工坊，同步时不再调大模型。`POST …/h3-prompt` 点哪条入队一个任务，不再按口型/内心/近景规则改镜头列表。工坊 `POST …/generate-video` 可带 `options.refine_enabled` / `options.refine_quality` / `options.refine_quality_mode`：全部 H3 工作流开启后一采 0.4 MP、二采按策略输出（`auto` 默认降档，`force` 严格 1.0 / 2.0 MP）；`upscale_after` 已停用，`POST …/compose` 不套用二采也不自动超分。逐镜/选中镜成功后把旧原片归档进 `video_takes`，`video_url` 默认采用最新；成片 Tab 用 `POST …/beats/{beat_id}/video-takes/adopt` 选用历史抽卡。已出片镜头可 `POST …/beats/{beat_id}/upscale`，结果写入 `upscaled_video_url` 并挂到当前采用 Take。全部任务已成功视频可 `POST …/jobs/{job_id}/upscale`。
 
 ## 导台2 内容库与资产库
 

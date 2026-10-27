@@ -3090,11 +3090,11 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         self.assertEqual(off["refine_quality"], "1.0")
         self.assertNotIn("upscale_after", off)
 
-    def test_refine_preview_is_coerced_and_disabled_without_two_pass(self):
+    def test_refine_preview_is_forced_on_with_two_pass_and_disabled_without(self):
         on = EpisodeVideoService.resolve_generation_options({
             "workflow": "minimax-h3-r2v",
             "refine_enabled": "true",
-            "refine_preview": "true",
+            "refine_preview": "false",
         })
         self.assertTrue(on["refine_preview"])
         off = EpisodeVideoService.resolve_generation_options({
@@ -3104,16 +3104,13 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         })
         self.assertFalse(off["refine_preview"])
 
-    def test_episode_render_rejects_refine_preview_before_submitting(self):
-        with self.assertRaisesRegex(ValueError, "整集直出暂不支持先预览一采"):
-            EpisodeVideoService.create_job(
-                "p1", "e1",
-                options={
-                    "workflow": "minimax-h3-director-accel-r2v",
-                    "refine_enabled": True,
-                    "refine_preview": True,
-                },
-            )
+    def test_episode_render_runs_two_pass_without_pausing(self):
+        settings = {"refine_enabled": True, "refine_preview": True}
+        EpisodeVideoService._apply_render_scope_settings(settings, "episode")
+        self.assertFalse(settings["refine_preview"])
+        shot = {"refine_enabled": True, "refine_preview": True}
+        EpisodeVideoService._apply_render_scope_settings(shot, "shot")
+        self.assertTrue(shot["refine_preview"])
 
     def test_confirm_refine_requeues_the_saved_continuation(self):
         payload = {

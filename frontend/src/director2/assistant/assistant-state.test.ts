@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { emptySelections, isAssistantRunning, mergeAssistantEvent, type AssistantDetail } from "./api"
+import { releaseTerminalAssistantRun } from "./assistant-state"
 
 function detail(): AssistantDetail {
   return { session: { id: "s", status: "ready", version: 1, created_at: "now", updated_at: "now", title: "西游创作", project_id: "project-a", selections: emptySelections(), resource_snapshot: {}, active_run_id: "r", pending_question: null },
@@ -24,5 +25,13 @@ describe("assistant event recovery", () => {
     expect(isAssistantRunning(detail().run)).toBe(true)
     expect(isAssistantRunning({ ...detail().run!, status: "succeeded" })).toBe(false)
     expect(isAssistantRunning(null)).toBe(false)
+  })
+  it("releases a stale terminal run when the follow-up detail read fails", () => {
+    const state = detail()
+    const released = releaseTerminalAssistantRun(state, "r")
+    expect(released.run).toBeNull()
+    expect(released.session.active_run_id).toBeNull()
+    expect(released.messages).toEqual(state.messages)
+    expect(releaseTerminalAssistantRun(state, "other")).toBe(state)
   })
 })

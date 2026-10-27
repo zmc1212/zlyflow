@@ -25,6 +25,7 @@ from fastapi.openapi.utils import get_openapi
 
 from .api_documentation import enrich_openapi_documentation
 from .auth import AuthStore, LastSuperAdminError, SESSION_HOURS, csrf_token
+from .cache import EpochCache, TTLCache
 from .comfy_provider import ComfyProviderError, ComfyProviderService
 from .comfy_service import ComfyService
 from .config import settings
@@ -126,6 +127,7 @@ from .library_query import (
     build_library_entries,
     query_library_entries,
 )
+from .media_index import MediaOutputIndex
 from .canvas_store import (
     CanvasConflictError,
     CanvasNotFoundError,
@@ -756,6 +758,9 @@ async def lifespan(app: FastAPI):
     worker = JobWorker(store, comfy, grs_provider, resource_storage)
     app.state.auth_store = auth_store
     app.state.store = store
+    app.state.library_cache = EpochCache(max_entries=16)
+    app.state.media_index = MediaOutputIndex(store)
+    app.state.health_cache = TTLCache(ttl_seconds=10)
     app.state.canvas_store = CanvasStore(store)
     app.state.resource_storage = resource_storage
     app.state.grs_provider = grs_provider
@@ -1055,9 +1060,14 @@ def health() -> dict:
     config = provider.public_config()
     comfy_provider = getattr(app.state, "comfy_provider", None)
     url_resolver = comfy_provider.current_url if comfy_provider is not None else None
+    comfy_url = url_resolver() if url_resolver is not None else settings.comfy_url
+    comfy_status = app.state.health_cache.get_or_create(
+        comfy_url,
+        lambda: ComfyService(settings, url_resolver=url_resolver).health(),
+    )
     return {
         "webui": "ok",
-        "comfy": ComfyService(settings, url_resolver=url_resolver).health(),
+        "comfy": comfy_status,
         "grs": {
             "configured": config["has_api_key"],
             "enabled": config["enabled"],
@@ -1565,6 +1575,7 @@ async def optimize_prompt_endpoint(
             reference_count=payload.reference_count or 0,
             workflow_id=payload.workflow_id,
             image_urls=payload.image_urls,
+            duration_seconds=payload.duration_seconds,
         )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
@@ -1579,7 +1590,8 @@ async def optimize_prompt_endpoint(
     )
     return {
         "original_prompt": payload.prompt,
-        "optimized_prompt": optimized,
+        "optimized_prompt": optimized["optimized_prompt"],
+        "optimized_prompt_zh": optimized["optimized_prompt_zh"],
         "skill_id": payload.skill_id,
         "skill_pack_id": pack_id,
     }
@@ -3959,6 +3971,7 @@ async def create_job(
     image_size: Annotated[str | None, Form(description="仅 image 模式必填，值来自 image_sizes。")]= None,
     options: Annotated[str | None, Form(description="MiniMax H3 参数 JSON；其他模式传 {}。")]= None,
     title: Annotated[str | None, Form(description="任务标题。")]= None,
+    display_prompt: Annotated[str | None, Form(description="中文展示提示词；省略时界面显示 prompt。")]= None,
     source_job_id: Annotated[str | None, Form(description="图片转视频来源任务 ID。")]= None,
     source_generation_item_id: Annotated[str | None, Form(description="图片转视频来源生成项 ID。")]= None,
     source_output_index: Annotated[int | None, Form(description="图片转视频来源输出序号。")]= None,
@@ -3966,7 +3979,7 @@ async def create_job(
 ) -> dict:
     return await submit_generation(
         user=user, mode=mode, prompt=prompt, negative_prompt=negative_prompt, image_size=image_size,
-        options=options, title=title, source_job_id=source_job_id,
+        options=options, title=title, display_prompt=display_prompt, source_job_id=source_job_id,
         source_generation_item_id=source_generation_item_id, source_output_index=source_output_index,
         references=references,
     )
@@ -3974,7 +3987,8 @@ async def create_job(
 
 async def submit_generation(
     *, user: dict, mode: str, prompt: str, negative_prompt: str = "", image_size: str | None = None,
-    options: str | None = None, title: str | None = None, source_job_id: str | None = None,
+    options: str | None = None, title: str | None = None, display_prompt: str | None = None,
+    source_job_id: str | None = None,
     source_generation_item_id: str | None = None, source_output_index: int | None = None,
     references: list[UploadFile] | None = None, job_id: str | None = None,
 ) -> dict:
@@ -4037,6 +4051,7 @@ async def submit_generation(
         raise
 
     store: JobStore = app.state.store
+    normalized_display_prompt = display_prompt.strip() if display_prompt and display_prompt.strip() != prompt else None
     job = await asyncio.to_thread(
         store.create,
         job_id,
@@ -4050,6 +4065,7 @@ async def submit_generation(
         owner_user_id=user["id"],
         title=title.strip() if title else None,
         source=source,
+        display_prompt=normalized_display_prompt,
     )
     await app.state.worker.enqueue(job_id)
     return public_job(await asyncio.to_thread(store.get, job_id))
@@ -4066,6 +4082,7 @@ async def create_job_round(
     negative_prompt: Annotated[str, Form()] = "",
     image_size: Annotated[str | None, Form()] = None,
     options: Annotated[str | None, Form()] = None,
+    display_prompt: Annotated[str | None, Form()] = None,
     references: list[UploadFile] = File(default=[]),
 ) -> dict:
     existing = job_or_404(app.state.store, job_id, user, include_references=True)
@@ -4115,6 +4132,7 @@ async def create_job_round(
             image_size=image_size if definition is not None and definition.accepts_image_size else None,
             references=reference_paths, options=generation_options,
             submitted_options=raw_options if options is not None else None,
+            display_prompt=display_prompt.strip() if display_prompt and display_prompt.strip() != prompt else None,
         )
     except ValueError as error:
         shutil.rmtree(upload_dir, ignore_errors=True)
@@ -4426,13 +4444,21 @@ def _library_target_user_id(user: dict, user_id: str | None) -> str | None:
     return user["id"]
 
 
+def _library_entries(target_user_id: str | None) -> list[dict]:
+    store = app.state.store
+    return app.state.library_cache.get_or_build(
+        (target_user_id, settings.public_api_prefix),
+        store.content_epoch(),
+        lambda: build_library_entries(
+            store.list_library_sources(target_user_id, 500),
+            api_prefix=settings.public_api_prefix,
+        ),
+    )
+
+
 @app.get("/api/library", response_model=list[LibraryItemResponse], tags=["作品库"], summary="列出作品库媒体")
 def library(user: Annotated[dict, Depends(current_user)], user_id: str | None = None) -> list[dict]:
-    target_user_id = _library_target_user_id(user, user_id)
-    return build_library_entries(
-        app.state.store.list_jobs(target_user_id, 500),
-        api_prefix=settings.public_api_prefix,
-    )
+    return _library_entries(_library_target_user_id(user, user_id))
 
 
 @app.get(
@@ -4453,12 +4479,8 @@ def library_query(
     user_id: str | None = None,
 ) -> dict:
     target_user_id = _library_target_user_id(user, user_id)
-    entries = build_library_entries(
-        app.state.store.list_jobs(target_user_id, 500),
-        api_prefix=settings.public_api_prefix,
-    )
     return query_library_entries(
-        entries,
+        _library_entries(target_user_id),
         q=q,
         kind=kind,
         limit=limit,
@@ -4477,12 +4499,7 @@ def library_query(
 )
 def media(filename: str, request: Request, user: Annotated[dict, Depends(current_user)]) -> Response:
     target_user_id = None if user["role"] in {"admin", "super_admin"} else user["id"]
-    output = next((
-        output
-        for job in app.state.store.list_jobs(target_user_id, 1000)
-        for output in job["outputs"]
-        if output["path"] == filename
-    ), None)
+    output = app.state.media_index.lookup(target_user_id, filename)
     if output is None:
         raise HTTPException(status_code=404, detail="媒体文件不存在")
     if output.get("delivery_status") == "local":

@@ -394,14 +394,20 @@ class ComfyVideoClient:
         }
         if coerce_bool_option(values.get("refine_enabled", False), label="二采精修"):
             preview = coerce_bool_option(values.get("refine_preview", False), label="先预览一采")
+            segments = (
+                (timeline.get("batchWorkspaces") or {}).get("r2v") or {}
+            ).get("segments") or []
+            refine_length = max(
+                [int(segment.get("frameCount") or 0) for segment in segments] or [total_frames]
+            )
             refine_nodes, refine_link = build_refine_nodes(
                 task_type,
                 refine_quality=str(values.get("refine_quality") or "1.0"),
                 aspect_ratio=numeric_aspect_ratio(values),
-                length=total_frames,
-                use_sage=bool(values.get("use_sage_attention", True)),
-                sage_allow_compile=sage_allow_compile,
+                length=refine_length or total_frames,
+                first_pass_model=["15", 0],
                 confirm_first_pass=preview,
+                refine_mode=str(values.get("refine_quality_mode") or "auto"),
             )
             workflow.update(refine_nodes)
             workflow["12"]["inputs"]["refine"] = refine_link

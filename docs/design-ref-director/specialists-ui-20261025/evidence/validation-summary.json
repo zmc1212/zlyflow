@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-25",
+  "design_first": true,
+  "baseline_screens": 4,
+  "desktop_screens": 8,
+  "interaction_checks": 48,
+  "geometry_regions": 16,
+  "max_geometry_delta_css": 0,
+  "pixel_identical_default_frames": 4,
+  "frontend": {
+    "files": 63,
+    "tests": 430,
+    "build_passed": true
+  },
+  "backend": {
+    "tests": 33,
+    "passed": true
+  },
+  "runtime_errors": [],
+  "unknown_fixture_api": [],
+  "scope": "Vite 5173, browser-isolated API fixtures; no production account, project, media, model or ComfyUI changes."
+}

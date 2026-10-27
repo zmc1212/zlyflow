@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Button, Card, InputNumber, Select, Space, Tag, Typography, message } from "antd"
+import { Button, Card, Form, InputNumber, Select, Space, Tag, Typography, message } from "antd"
 import { ArrowLeft, Film } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import ThemeToggle from "../components/ThemeToggle"
@@ -14,7 +14,7 @@ import {
 import { jobVideoUrl, mergeDirectorStatus, shotGenerationState, shotStatusFromJob } from "./director-submit"
 import { DEFAULT_DIRECTOR_WORKFLOW_FAMILY, directorWorkflowFamilies } from "./director-workflows"
 import { directorStatusColor, directorStatusLabel, isDirectorFailedStatus } from "./status-labels"
-import { BatchRunPayload, createEmptyBatch, artStylePreviewUrl, recipeArtStyleFromCatalog, userFacingCopy, DIRECTOR_WEIGHT_OPTIONS, DirectorWeightProfile } from "./types"
+import { BatchRunPayload, createEmptyBatch, artStylePreviewUrl, recipeArtStyleFromCatalog, userFacingCopy } from "./types"
 
 type JobLike = {
   id: string
@@ -170,75 +170,65 @@ export default function DirectorBatchStudio({
         <p>设置生成参数，输入主题，查看每条脚本与视频的制作进度。</p>
       </div>
       <div className="director-batch-layout">
-        <Card className="director-batch-form" title="生成参数">
-          <div className="director-batch-fields">
-            <label>
-              条数
-              <InputNumber min={1} max={8} value={payload.count} onChange={(value) => setPayload((current) => ({ ...current, count: Number(value) || 1 }))} />
-            </label>
-            <label>
-              比例
+        <Card className="director-batch-form" title="创作设置">
+          <Form component="div" layout="vertical" requiredMark={false} className="director-creative-fields">
+            <Form.Item label="视频数量">
+              <InputNumber aria-label="视频数量" min={1} max={8} value={payload.count} onChange={(value) => setPayload((current) => ({ ...current, count: Number(value) || 1 }))} />
+            </Form.Item>
+            <Form.Item label="画面比例">
               <Select
+                aria-label="画面比例"
                 value={payload.aspectRatio}
                 options={[{ value: "9:16", label: "9:16 竖屏" }, { value: "16:9", label: "16:9 横屏" }, { value: "1:1", label: "1:1" }]}
                 onChange={(value: string) => setPayload((current) => ({ ...current, aspectRatio: value }))}
               />
-            </label>
-            <label>
-              时长（秒）
-              <InputNumber min={2} max={15} value={payload.durationSec} onChange={(value) => setPayload((current) => ({ ...current, durationSec: Number(value) || 8 }))} />
-            </label>
-            <label>
-              工作流
+            </Form.Item>
+            <Form.Item label="单条时长（秒）">
+              <InputNumber aria-label="单条时长（秒）" min={2} max={15} value={payload.durationSec} onChange={(value) => setPayload((current) => ({ ...current, durationSec: Number(value) || 8 }))} />
+            </Form.Item>
+            <Form.Item label="视频工作流">
               <Select
-                aria-label="工作流"
+                aria-label="视频工作流"
                 value={workflowFamilyId}
                 options={workflowFamilyOptions}
                 onChange={(value: string) => setPayload((current) => ({ ...current, videoWorkflowFamily: value }))}
                 popupMatchSelectWidth={false}
               />
-            </label>
-            <label>
-              模型体积
+            </Form.Item>
+            <Form.Item label="画风（可选）">
               <Select
-                aria-label="模型体积"
-                value={payload.weightProfile || "full"}
-                options={DIRECTOR_WEIGHT_OPTIONS}
-                onChange={(value: DirectorWeightProfile) => setPayload((current) => ({ ...current, weightProfile: value }))}
-                popupMatchSelectWidth={false}
+                aria-label="画风（可选）"
+                allowClear
+                placeholder="选择画风"
+                value={payload.artStyle?.id}
+                options={categories.map((category) => ({
+                  label: category.name_zh,
+                  options: styles.filter((style) => style.category === category.id).map((style) => ({
+                    value: style.id,
+                    label: `${style.name_zh} / ${style.name_en}`,
+                  })),
+                }))}
+                optionRender={(option) => {
+                  const style = styles.find((item) => item.id === option.value)
+                  return (
+                    <span className="director-style-option">
+                      {style ? (
+                        <img src={artStylePreviewUrl(style)} alt="" onError={(event) => { event.currentTarget.style.display = "none" }} />
+                      ) : null}
+                      <span>{option.label}</span>
+                    </span>
+                  )
+                }}
+                onChange={(styleId: string | undefined) => {
+                  const style = styles.find((item) => item.id === styleId)
+                  setPayload((current) => ({
+                    ...current,
+                    artStyle: style ? recipeArtStyleFromCatalog(style) : null,
+                  }))
+                }}
               />
-            </label>
-          </div>
-          <Select
-            allowClear
-            placeholder="可选画风"
-            value={payload.artStyle?.id}
-            options={categories.map((category) => ({
-              label: category.name_zh,
-              options: styles.filter((style) => style.category === category.id).map((style) => ({
-                value: style.id,
-                label: `${style.name_zh} / ${style.name_en}`,
-              })),
-            }))}
-            optionRender={(option) => {
-              const style = styles.find((item) => item.id === option.value)
-              return (
-                <span className="director-style-option">
-                  {style ? (
-                    <img src={artStylePreviewUrl(style)} alt="" onError={(event) => { event.currentTarget.style.display = "none" }} />
-                  ) : null}
-                  <span>{option.label}</span>
-                </span>
-              )
-            }}
-            onChange={(styleId: string | undefined) => {
-              const style = styles.find((item) => item.id === styleId)
-              setPayload((current) => ({
-                ...current,
-                artStyle: style ? recipeArtStyleFromCatalog(style) : null,
-              }))
-            }}
-          />
+            </Form.Item>
+          </Form>
         </Card>
 
         <div className="director-batch-list">

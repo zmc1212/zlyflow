@@ -1,0 +1,124 @@
+{
+  "measurement_sha256": "d425c8037ff84a139fe03075b1da413e522a770ea890f1c2283a4a837262774a",
+  "url": "http://127.0.0.1:5173/director/replication/visual-replication-refinement",
+  "title": "ZLY AI 视频创作平台",
+  "viewport": {
+    "width": 1600,
+    "height": 1000
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "document_height": 1000,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "captured_at": "2026-10-25T13:18:54.693Z",
+  "elements": [
+    {
+      "name": "column",
+      "selector": ".replication-side",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        104,
+        186,
+        320,
+        684
+      ],
+      "text": "参考片点击或拖入参考片支持 mp4 / mov / webm，最大 2GB。仅用于分镜学习与参考复刻，发布合规责任由使用者承担。拉片设置分镜方式智能分镜固定分段目标风格（可选）更多设置开始拉片上传参考片后即可开始拉片。",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "fields",
+      "selector": ".replication-creative-form",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        125,
+        543,
+        278,
+        306
+      ],
+      "text": "分镜方式智能分镜固定分段目标风格（可选）更多设置开始拉片上传参考片后即可开始拉片。",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "advanced",
+      "selector": ".replication-more-settings",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        125,
+        715,
+        278,
+        42
+      ],
+      "text": "更多设置",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(244, 246, 248)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "results",
+      "selector": ".replication-empty",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        444,
+        232,
+        1128,
+        502
+      ],
+      "text": "拉片结果将在这里展示上传参考片并开始拉片，逐镜查看提示词与参考画面。",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    }
+  ],
+  "assets": {},
+  "full_page": false,
+  "screenshot_scale": "css"
+}

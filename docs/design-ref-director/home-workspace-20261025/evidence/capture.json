@@ -1,0 +1,499 @@
+{
+  "measurement_sha256": "f8b8287a7da9cb22a06974e1116a94e9f45ef1bf0c19a993442990fd21154729",
+  "url": "http://127.0.0.1:5173/director",
+  "title": "ZLY AI 视频创作平台",
+  "viewport": {
+    "width": 1505,
+    "height": 1045
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "document_height": 1045,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "captured_at": "2026-10-24T23:46:57.422Z",
+  "elements": [
+    {
+      "name": "start-panel",
+      "selector": ".dh-start-panel",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        118,
+        95,
+        358,
+        831
+      ],
+      "text": "开始创作选择创作模式，开启你的故事。导演创作一句话开始，完成剧本与分镜短视频批量一个主题，生成多条短视频参考片复刻分析参考片，批量转绘一句话开始，完成剧本与分镜1故事输入你的创意或主题2角色让角色和世界更加丰满3分镜自动生成分镜脚本与画面提示新建导演工程",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "mode-menu",
+      "selector": ".dh-create-menu",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        134,
+        199,
+        326,
+        239
+      ],
+      "text": "导演创作一句话开始，完成剧本与分镜短视频批量一个主题，生成多条短视频参考片复刻分析参考片，批量转绘",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "0px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "studio-mode",
+      "selector": ".dh-create-menu .ant-menu-item:nth-child(1)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        134,
+        199,
+        326,
+        73
+      ],
+      "text": "导演创作一句话开始，完成剧本与分镜",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "normal",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(127, 141, 246, 0.17)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "batch-mode",
+      "selector": ".dh-create-menu .ant-menu-item:nth-child(2)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        134,
+        282,
+        326,
+        73
+      ],
+      "text": "短视频批量一个主题，生成多条短视频",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "normal",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(30, 34, 41)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "replication-mode",
+      "selector": ".dh-create-menu .ant-menu-item:nth-child(3)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        134,
+        365,
+        326,
+        73
+      ],
+      "text": "参考片复刻分析参考片，批量转绘",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "normal",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(30, 34, 41)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "lens-visual",
+      "selector": ".dh-start-visual",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        134,
+        450,
+        326,
+        160
+      ],
+      "text": "",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "create-cta",
+      "selector": ".dh-start-create",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        134,
+        854,
+        326,
+        56
+      ],
+      "text": "新建导演工程",
+      "computed": {
+        "display": "inline-flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "18px",
+        "lineHeight": "27px",
+        "fontWeight": "600",
+        "color": "rgb(255, 255, 255)",
+        "backgroundColor": "rgb(80, 89, 199)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "diagnosis",
+      "selector": ".dh-workspace-diagnosis",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        118,
+        938,
+        358,
+        84
+      ],
+      "text": "剧本诊断查看评估与修改建议",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "21px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "refresh",
+      "selector": ".dh-workspace-refresh",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1377,
+        109,
+        104,
+        50
+      ],
+      "text": "刷新",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "21px",
+        "fontWeight": "400",
+        "color": "rgb(192, 199, 208)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "toolbar",
+      "selector": ".dh-workspace-toolbar",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        505,
+        201,
+        976,
+        48
+      ],
+      "text": "导演创作短视频批量参考片复刻全部",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "kind-filter",
+      "selector": ".dh-kind-filter",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        505,
+        201,
+        528,
+        48
+      ],
+      "text": "导演创作短视频批量参考片复刻全部",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(192, 199, 208)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "search",
+      "selector": ".dh-project-search",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1121,
+        201,
+        360,
+        48
+      ],
+      "text": "",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "table-shell",
+      "selector": ".dh-workspace-table-shell",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        505,
+        269,
+        976,
+        737
+      ],
+      "text": "工程创作类型最近编辑林间来信一封信，串起森林里的故事创作项目2026-10-24 22:11打开星际回声一段来自深空的讯息创作项目2026-10-24 21:36打开雨夜来客雨夜里的意外重逢创作项目2026-10-24 18:24打开未命名导演工程暂无简介创作项目2026-10-24 16:30打开山海漫游少年的山海旅程创作项目2026-10-24 14:20打开周末的一天城市生活短片创作项目2026-10-24 12:10打开显示 6 个工程按最近编辑排序",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "table-header",
+      "selector": ".dh-workspace-table .ant-table-thead",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        506,
+        270,
+        974,
+        55
+      ],
+      "text": "工程创作类型最近编辑",
+      "computed": {
+        "display": "table-header-group",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "project-one",
+      "selector": ".dh-workspace-project:nth-child(1)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        506,
+        325,
+        974,
+        102
+      ],
+      "text": "林间来信一封信，串起森林里的故事创作项目2026-10-24 22:11打开",
+      "computed": {
+        "display": "table-row",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "project-two",
+      "selector": ".dh-workspace-project:nth-child(2)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        506,
+        427,
+        974,
+        102
+      ],
+      "text": "星际回声一段来自深空的讯息创作项目2026-10-24 21:36打开",
+      "computed": {
+        "display": "table-row",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "project-six",
+      "selector": ".dh-workspace-project:nth-child(6)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        506,
+        835,
+        974,
+        102
+      ],
+      "text": "周末的一天城市生活短片创作项目2026-10-24 12:10打开",
+      "computed": {
+        "display": "table-row",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "project-cover",
+      "selector": ".dh-workspace-project:first-child .dh-workspace-cover",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        526,
+        340.5,
+        112,
+        70
+      ],
+      "text": "",
+      "computed": {
+        "display": "grid",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "14px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(192, 199, 208)",
+        "backgroundColor": "rgb(30, 34, 41)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "footer",
+      "selector": ".dh-workspace-list-footer",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        506,
+        937,
+        974,
+        68
+      ],
+      "text": "显示 6 个工程按最近编辑排序",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "21px",
+        "fontWeight": "400",
+        "color": "rgb(192, 199, 208)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    }
+  ],
+  "assets": {},
+  "full_page": false,
+  "screenshot_scale": "css"
+}

@@ -1,0 +1,357 @@
+{
+  "core": {
+    "passed": 48,
+    "checks": [
+      "dark: 六集列表",
+      "dark: 真实镜头合计",
+      "dark: 移除虚构的每集身份统计",
+      "dark: 第六集菜单未被助手遮挡",
+      "dark: 集数搜索忽略首尾空格",
+      "dark: 草稿筛选",
+      "dark: 重置搜索与状态",
+      "dark: 制作中筛选真实状态",
+      "dark: 集数降序",
+      "dark: 编辑时集数只读",
+      "dark: 编辑正确回显标题",
+      "dark: 新集从最大序号递增",
+      "dark: 必填错误就地展示",
+      "dark: 阻止重复集号",
+      "dark: 删除提示含真实分集名称",
+      "dark: 删除默认焦点在取消",
+      "dark: 取消删除保留分集",
+      "light: 六集列表",
+      "light: 真实镜头合计",
+      "light: 移除虚构的每集身份统计",
+      "light: 第六集菜单未被助手遮挡",
+      "light: 集数搜索忽略首尾空格",
+      "light: 草稿筛选",
+      "light: 重置搜索与状态",
+      "light: 制作中筛选真实状态",
+      "light: 集数降序",
+      "light: 编辑时集数只读",
+      "light: 编辑正确回显标题",
+      "light: 新集从最大序号递增",
+      "light: 必填错误就地展示",
+      "light: 阻止重复集号",
+      "light: 删除提示含真实分集名称",
+      "light: 删除默认焦点在取消",
+      "light: 取消删除保留分集",
+      "编辑失败保留输入",
+      "编辑成功写入接口",
+      "编辑保留已有镜头数",
+      "保存中禁止重复提交",
+      "保存中取消禁用",
+      "保存中 Escape 不丢失表单",
+      "新增真实写入且只提交一次",
+      "空新集不虚构规划镜头",
+      "删除失败保留确认与原数据",
+      "删除成功刷新列表",
+      "分集入口连接真实镜头工作区",
+      "返回概览成功",
+      "浅色主题刷新后持久化",
+      "未出现 JavaScript 运行异常"
+    ],
+    "screens": [
+      "overview-dark",
+      "no-results-dark",
+      "sort-dark",
+      "menu-dark",
+      "edit-state-dark",
+      "create-dark",
+      "validation-dark",
+      "delete-dark",
+      "overview-light",
+      "no-results-light",
+      "sort-light",
+      "menu-light",
+      "edit-state-light",
+      "create-light",
+      "validation-light",
+      "delete-light",
+      "save-failure-light",
+      "saving-light"
+    ],
+    "errors": []
+  },
+  "final_styles_states": {
+    "passed": 47,
+    "checks": [
+      "dark: 空状态没有虚构分集",
+      "dark: 空状态通向真实内容库",
+      "dark: 初始错误不误报空列表",
+      "dark: 列表未知时不允许撞号创建",
+      "dark: 错误重试恢复",
+      "dark: 首次加载呈现六张骨架",
+      "dark: 刷新失败保留已有六集",
+      "dark: 资产请求失败不伪报零数量",
+      "dark: 正文、小字与状态对比度达 4.5",
+      "dark: 减少动态效果生效",
+      "dark: 更多菜单可用键盘打开",
+      "dark/1440: 无横向溢出且三列排版",
+      "dark/1440: 末集菜单可滚动到并点击",
+      "dark/1586: 无横向溢出且三列排版",
+      "dark/1586: 末集菜单可滚动到并点击",
+      "dark/1920: 无横向溢出且三列排版",
+      "dark/1920: 末集菜单可滚动到并点击",
+      "dark: 长标题省略并保留 Tooltip",
+      "dark: 未知中文状态保留",
+      "dark: 非法日期有可读回退",
+      "dark: 长剧本仍限制两行",
+      "dark: 大量分集正常滚动",
+      "dark: 大量分集搜索准确",
+      "light: 空状态没有虚构分集",
+      "light: 空状态通向真实内容库",
+      "light: 初始错误不误报空列表",
+      "light: 列表未知时不允许撞号创建",
+      "light: 错误重试恢复",
+      "light: 首次加载呈现六张骨架",
+      "light: 刷新失败保留已有六集",
+      "light: 资产请求失败不伪报零数量",
+      "light: 正文、小字与状态对比度达 4.5",
+      "light: 减少动态效果生效",
+      "light: 更多菜单可用键盘打开",
+      "light/1440: 无横向溢出且三列排版",
+      "light/1440: 末集菜单可滚动到并点击",
+      "light/1586: 无横向溢出且三列排版",
+      "light/1586: 末集菜单可滚动到并点击",
+      "light/1920: 无横向溢出且三列排版",
+      "light/1920: 末集菜单可滚动到并点击",
+      "light: 长标题省略并保留 Tooltip",
+      "light: 未知中文状态保留",
+      "light: 非法日期有可读回退",
+      "light: 长剧本仍限制两行",
+      "light: 大量分集正常滚动",
+      "light: 大量分集搜索准确",
+      "状态回归没有 JS 异常"
+    ],
+    "screens": [
+      "empty-dark",
+      "list-error-dark",
+      "loading-dark",
+      "desktop-1440-dark",
+      "desktop-1586-dark",
+      "desktop-1920-dark",
+      "long-title-dark",
+      "empty-light",
+      "list-error-light",
+      "loading-light",
+      "desktop-1440-light",
+      "desktop-1586-light",
+      "desktop-1920-light",
+      "long-title-light"
+    ],
+    "contrasts": [
+      {
+        "theme": "dark",
+        "items": [
+          {
+            "selector": ".series-heading p",
+            "background": [
+              15,
+              17,
+              21
+            ],
+            "foreground": [
+              192,
+              199,
+              208
+            ],
+            "ratio": 11.08724703118102
+          },
+          {
+            "selector": ".series-card-description",
+            "background": [
+              23,
+              26,
+              32
+            ],
+            "foreground": [
+              192,
+              199,
+              208
+            ],
+            "ratio": 10.22489814340749
+          },
+          {
+            "selector": ".series-card-meta",
+            "background": [
+              23,
+              26,
+              32
+            ],
+            "foreground": [
+              155,
+              165,
+              177
+            ],
+            "ratio": 6.979508055715743
+          },
+          {
+            "selector": ".series-card h2",
+            "background": [
+              23,
+              26,
+              32
+            ],
+            "foreground": [
+              243,
+              245,
+              247
+            ],
+            "ratio": 15.945428309857647
+          },
+          {
+            "selector": ".series-summary-assets p",
+            "background": [
+              23,
+              26,
+              32
+            ],
+            "foreground": [
+              192,
+              199,
+              208
+            ],
+            "ratio": 10.22489814340749
+          },
+          {
+            "selector": ".series-episode-number span",
+            "background": [
+              40,
+              46,
+              68
+            ],
+            "foreground": [
+              154,
+              168,
+              255
+            ],
+            "ratio": 6.020520268978074
+          },
+          {
+            "selector": ".series-status",
+            "background": [
+              22,
+              47,
+              45
+            ],
+            "foreground": [
+              110,
+              231,
+              183
+            ],
+            "ratio": 9.317613381550565
+          }
+        ]
+      },
+      {
+        "theme": "light",
+        "items": [
+          {
+            "selector": ".series-heading p",
+            "background": [
+              248,
+              249,
+              250
+            ],
+            "foreground": [
+              75,
+              85,
+              99
+            ],
+            "ratio": 7.169429099006868
+          },
+          {
+            "selector": ".series-card-description",
+            "background": [
+              255,
+              255,
+              255
+            ],
+            "foreground": [
+              75,
+              85,
+              99
+            ],
+            "ratio": 7.557378129674007
+          },
+          {
+            "selector": ".series-card-meta",
+            "background": [
+              255,
+              255,
+              255
+            ],
+            "foreground": [
+              107,
+              114,
+              128
+            ],
+            "ratio": 4.834490081424352
+          },
+          {
+            "selector": ".series-card h2",
+            "background": [
+              255,
+              255,
+              255
+            ],
+            "foreground": [
+              23,
+              26,
+              31
+            ],
+            "ratio": 17.442218774298816
+          },
+          {
+            "selector": ".series-summary-assets p",
+            "background": [
+              255,
+              255,
+              255
+            ],
+            "foreground": [
+              75,
+              85,
+              99
+            ],
+            "ratio": 7.557378129674007
+          },
+          {
+            "selector": ".series-episode-number span",
+            "background": [
+              236,
+              238,
+              253
+            ],
+            "foreground": [
+              67,
+              92,
+              232
+            ],
+            "ratio": 4.629196342856939
+          },
+          {
+            "selector": ".series-status",
+            "background": [
+              230,
+              244,
+              240
+            ],
+            "foreground": [
+              4,
+              120,
+              87
+            ],
+            "ratio": 4.847560731405577
+          }
+        ]
+      }
+    ],
+    "errors": []
+  },
+  "total_assertions": 95,
+  "viewport_screens": 32,
+  "component_crops": 12,
+  "javascript_errors": []
+}

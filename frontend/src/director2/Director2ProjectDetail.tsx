@@ -276,7 +276,7 @@ export default function Director2ProjectDetail({
         </aside>
 
         {/* 右侧子模块内容区 */}
-        <section className={`project-content-pane${isWorkshopDetail ? " is-workshop-detail" : ""}${activeMenu === "edit" ? " is-smart-edit" : ""}`}>
+        <section className={`project-content-pane${isWorkshopDetail ? " is-workshop-detail" : ""}${activeMenu === "workshop" && !isWorkshopDetail ? " is-workshop-overview" : ""}${activeMenu === "edit" ? " is-smart-edit" : ""}`}>
           {creationMode === "agent" && assistant.ready && !assistant.enabled && activeMenu !== "edit" && (
             <div key="ai" className="d2-fade">
               <Director2AiStudioPane

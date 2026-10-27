@@ -1,0 +1,74 @@
+$ pnpm test && tsc -b && pnpm clean && vite build
+$ vitest run
+
+ RUN  v4.1.11 D:/zlyun/Toonflow/本地视频工作台/frontend
+
+
+ Test Files  63 passed (63)
+      Tests  430 passed (430)
+   Start at  21:23:04
+   Duration  4.87s (transform 5.58s, setup 0ms, import 39.85s, tests 874ms, environment 6ms)
+
+$ node scripts/clean-dist.mjs
+[clean-dist] 已清理 D:\zlyun\Toonflow\本地视频工作台\frontend\dist
+vite v6.4.3 building for production...
+transforming...
+✓ 3814 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                  1.06 kB │ gzip:   0.54 kB
+dist/assets/mcp-BC6XVnV9.css                     7.63 kB │ gzip:   1.77 kB
+dist/assets/CanvasWorkspace-CHcX4-6P.css        93.75 kB │ gzip:  15.20 kB
+dist/assets/director-surfaces-BXikE9Zq.css     121.37 kB │ gzip:  17.54 kB
+dist/assets/Director2App-Bzyhth2W.css          205.18 kB │ gzip:  31.97 kB
+dist/assets/index-CcCZXl5H.css                 230.30 kB │ gzip:  40.27 kB
+dist/assets/arrow-right-Bapu2ZLv.js              0.33 kB │ gzip:   0.26 kB
+dist/assets/circle-check-5jFBWwZX.js             0.34 kB │ gzip:   0.27 kB
+dist/assets/rotate-ccw-Dj3bYHXk.js               0.37 kB │ gzip:   0.29 kB
+dist/assets/external-link-De_VhFFw.js            0.42 kB │ gzip:   0.30 kB
+dist/assets/mic-CUF9SEcu.js                      0.44 kB │ gzip:   0.32 kB
+dist/assets/refresh-cw-OqGBL5sk.js               0.49 kB │ gzip:   0.33 kB
+dist/assets/wallet-cards-DYRVUjWk.js             0.50 kB │ gzip:   0.35 kB
+dist/assets/link-2-Ckrcs6Uz.js                   0.65 kB │ gzip:   0.34 kB
+dist/assets/FileOutlined-CQZYtJ3_.js             0.88 kB │ gzip:   0.61 kB
+dist/assets/McpAuthorizePage-BDHpoc97.js         2.76 kB │ gzip:   1.34 kB
+dist/assets/undo-2-BQqmcM3o.js                   2.86 kB │ gzip:   0.86 kB
+dist/assets/provider-models-BN_sW7yb.js          3.37 kB │ gzip:   1.69 kB
+dist/assets/ImageStudioModule-BxyDCVFi.js        3.46 kB │ gzip:   1.55 kB
+dist/assets/index-B8btC3sf.js                    3.56 kB │ gzip:   1.55 kB
+dist/assets/InfoCircleFilled-D9OTIpkl.js         3.88 kB │ gzip:   1.26 kB
+dist/assets/VideoStudioModule-DV546LkW.js        4.37 kB │ gzip:   1.96 kB
+dist/assets/ComfyProviderSettings-Dp6GJQe6.js    4.43 kB │ gzip:   2.14 kB
+dist/assets/useForm-CltxxX6P.js                  4.93 kB │ gzip:   2.23 kB
+dist/assets/index-KA-sP4WC.js                    6.39 kB │ gzip:   2.58 kB
+dist/assets/index-ber95PVF.js                    6.44 kB │ gzip:   2.73 kB
+dist/assets/index-Dg-mZH75.js                    7.53 kB │ gzip:   3.10 kB
+dist/assets/QiniuStorageSettings-DbFLVr2W.js     7.55 kB │ gzip:   2.96 kB
+dist/assets/index-ck1DykJS.js                    7.59 kB │ gzip:   2.59 kB
+dist/assets/DirectorAssetLibrary-DHE6vpC5.js     7.74 kB │ gzip:   3.39 kB
+dist/assets/index-D8ve521j.js                    9.13 kB │ gzip:   3.23 kB
+dist/assets/index-CgbJFXRf.js                   10.02 kB │ gzip:   3.90 kB
+dist/assets/GrsProviderSettings-gxbNwqqq.js     10.37 kB │ gzip:   3.85 kB
+dist/assets/index-BcTeBbTA.js                   12.43 kB │ gzip:   4.99 kB
+dist/assets/TtsProviderSettings-BARql9YC.js     12.50 kB │ gzip:   5.02 kB
+dist/assets/VlmProviderSettings-DV4FozHV.js     13.31 kB │ gzip:   5.25 kB
+dist/assets/LlmProviderSettings-DU5Zv_SQ.js     16.93 kB │ gzip:   7.01 kB
+dist/assets/index-q2XwmcI5.js                   21.75 kB │ gzip:   8.47 kB
+dist/assets/index-DYjUcYh2.js                   22.07 kB │ gzip:   8.74 kB
+dist/assets/DirectorStudioModule-C3ZCy3cE.js    23.25 kB │ gzip:   8.60 kB
+dist/assets/director-surfaces-BIYmV6jo.js       27.26 kB │ gzip:  11.04 kB
+dist/assets/McpPage-D9YYUNcY.js                 47.72 kB │ gzip:  17.87 kB
+dist/assets/director-api-BGt6T6d4.js            51.83 kB │ gzip:  18.21 kB
+dist/assets/index-BZTbIUAk.js                  102.33 kB │ gzip:  30.18 kB
+dist/assets/index-2yf5Vyr_.js                  139.97 kB │ gzip:  45.39 kB
+dist/assets/Table-DkkrwtBG.js                  165.95 kB │ gzip:  53.58 kB
+dist/assets/CanvasWorkspace-CG04lli0.js        382.89 kB │ gzip: 121.89 kB
+dist/assets/App-v4cnizVa.js                    441.55 kB │ gzip: 139.15 kB
+dist/assets/index-vKqL_Geo.js                  619.01 kB │ gzip: 202.91 kB
+dist/assets/Director2App-rpOVmXuS.js           767.99 kB │ gzip: 229.93 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 10.52s

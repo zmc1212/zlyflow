@@ -1,0 +1,199 @@
+{
+  "measurement_sha256": "3f3c569acc3d214305120b0f70c8f2f4adbd381007d705f43c437bacdc7c6757",
+  "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/assets?mode=manual",
+  "title": "ZLY AI 视频创作平台",
+  "viewport": {
+    "width": 1600,
+    "height": 1000
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "document_height": 1000,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "captured_at": "2026-10-24T18:44:40.097Z",
+  "elements": [
+    {
+      "name": "topbar",
+      "selector": ".project-topbar",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        76,
+        0,
+        1524,
+        72
+      ],
+      "text": "导演台林间来信 · 制作示例编辑基本信息制作配方不绑定配方 · 默认程序装箱AI 生成手动编辑",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "navigation",
+      "selector": ".project-sidebar",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        76,
+        72,
+        200,
+        928
+      ],
+      "text": "内容库资产库剧集工坊智能剪辑全部任务",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "header",
+      "selector": ".sub-pane-header",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        304,
+        100,
+        1268,
+        62
+      ],
+      "text": "资产库统一角色造型、场景与道具，为每个镜头准备一致的视觉参考。新增角色",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "categories",
+      "selector": ".asset-kind-switch",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        304,
+        186,
+        296,
+        40
+      ],
+      "text": "角色2场景1道具1",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(192, 199, 208)",
+        "backgroundColor": "rgb(30, 34, 41)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "workspace",
+      "selector": ".assets-split-container",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        304,
+        242,
+        1268,
+        730
+      ],
+      "text": "陈陈远角色配角1造型林林夏角色主角1造型陈远角色配角更新于 10-24 22:11+ 新增身份/造型修改后自动保存删除角色定义填写姓名、五官与身形。有原片截图时生成设定板会按截图锁脸和服装。原片参考0/9拖入原片截图也可以点击选择文件从原片截正脸或半身，生成设定板时会按这些图锁五官、发型与服装。角色定义 (Character Definition)* 姓名别名描述角色定位请选择年龄段请选择面部提示词性别请选择身形请选择风格请选择画风可不选族裔请选择角色参考音可先选内置短剧声线，上传一句干净口播，或从成片框选该角色单独说话的片段。配音台用 IndexTTS 克隆。旁白角色同样适用。尚未绑定参考音",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "list",
+      "selector": ".assets-sidebar-list",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        304,
+        242,
+        248,
+        730
+      ],
+      "text": "陈陈远角色配角1造型林林夏角色主角1造型",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(23, 26, 32)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "detail",
+      "selector": ".asset-detail-workspace",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        568,
+        242,
+        1004,
+        730
+      ],
+      "text": "陈远角色配角更新于 10-24 22:11+ 新增身份/造型修改后自动保存删除角色定义填写姓名、五官与身形。有原片截图时生成设定板会按截图锁脸和服装。原片参考0/9拖入原片截图也可以点击选择文件从原片截正脸或半身，生成设定板时会按这些图锁五官、发型与服装。角色定义 (Character Definition)* 姓名别名描述角色定位请选择年龄段请选择面部提示词性别请选择身形请选择风格请选择画风可不选族裔请选择角色参考音可先选内置短剧声线，上传一句干净口播，或从成片框选该角色单独说话的片段。配音台用 IndexTTS 克隆。旁白角色同样适用。尚未绑定参考音，可先选内置短剧声线。选用内置短剧声线上",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "22px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    }
+  ],
+  "assets": {},
+  "full_page": false,
+  "screenshot_scale": "css"
+}

@@ -1,0 +1,16 @@
+{
+  "fonts": [
+    {
+      "familyName": "Segoe UI",
+      "postScriptName": "SegoeUI-Bold",
+      "isCustomFont": false,
+      "glyphCount": 4
+    },
+    {
+      "familyName": "Microsoft YaHei",
+      "postScriptName": "MicrosoftYaHei-Bold",
+      "isCustomFont": false,
+      "glyphCount": 4
+    }
+  ]
+}

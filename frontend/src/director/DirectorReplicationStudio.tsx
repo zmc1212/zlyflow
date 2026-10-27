@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Alert, Button, Card, Col, Input, InputNumber, Popconfirm, Progress, Row, Segmented,
+  Alert, Button, Card, Col, Collapse, Form, Input, InputNumber, Popconfirm, Progress, Row, Segmented,
   Slider, Space, Switch, Tag, Typography, Upload, message,
 } from "antd"
 import { ArrowLeft, Film, Play, RefreshCw, Upload as UploadIcon, Wand2 } from "lucide-react"
@@ -27,7 +27,7 @@ type JobLike = {
   outputs?: Array<{ kind?: string; download_url?: string; path?: string }>
 }
 
-const ANALYZE_HINT = "拉片会把参考片按镜头切分，逐镜反推英文提示词并提取深度视频；随后可用 Wan VACE 保留原片运镜与构图，重塑画面内容。"
+const ANALYZE_HINT = "先拆解参考片中的镜头，再编辑提示词，生成新画面。"
 
 function formatTime(seconds: number): string {
   const total = Math.max(0, Math.round(seconds * 10) / 10)
@@ -296,23 +296,27 @@ export default function DirectorReplicationStudio({
             </Card>
 
             <Card title="拉片设置" size="small">
-              <Space direction="vertical" style={{ width: "100%" }} size={10}>
-                <Segmented
-                  value={analysis.mode}
-                  disabled={analyzing}
-                  onChange={(value) => queueSave((current) => ({
-                    ...current,
-                    analysis: { ...current.analysis, mode: value as "smart" | "fixed" },
-                  }))}
-                  options={[
-                    { label: "智能分镜", value: "smart" },
-                    { label: "固定分段", value: "fixed" },
-                  ]}
-                />
+              <Form component="div" layout="vertical" requiredMark={false} className="replication-creative-form">
+                <Form.Item label="分镜方式">
+                  <Segmented
+                    aria-label="分镜方式"
+                    block
+                    value={analysis.mode}
+                    disabled={analyzing}
+                    onChange={(value) => queueSave((current) => ({
+                      ...current,
+                      analysis: { ...current.analysis, mode: value as "smart" | "fixed" },
+                    }))}
+                    options={[
+                      { label: "智能分镜", value: "smart" },
+                      { label: "固定分段", value: "fixed" },
+                    ]}
+                  />
+                </Form.Item>
                 {analysis.mode === "fixed" ? (
-                  <label className="replication-field">
-                    每段秒数
+                  <Form.Item label="每段秒数">
                     <InputNumber
+                      aria-label="每段秒数"
                       min={3}
                       max={30}
                       value={analysis.segmentSeconds}
@@ -322,60 +326,48 @@ export default function DirectorReplicationStudio({
                         analysis: { ...current.analysis, segmentSeconds: Number(value) || 15 },
                       }))}
                     />
-                  </label>
-                ) : (
-                  <label className="replication-field">
-                    切镜灵敏度 {analysis.sceneThreshold.toFixed(2)}
-                    <Slider
-                      min={0.1}
-                      max={0.8}
-                      step={0.05}
-                      value={analysis.sceneThreshold}
-                      disabled={analyzing}
-                      onChange={(value) => queueSave((current) => ({
-                        ...current,
-                        analysis: { ...current.analysis, sceneThreshold: value },
-                      }))}
-                    />
-                  </label>
-                )}
-                <label className="replication-field">
-                  目标风格（可选）
+                  </Form.Item>
+                ) : null}
+                <Form.Item label="目标风格（可选）">
                   <Input
-                    placeholder="例如：吉卜力动画 / 赛博朋克 / 水墨"
+                    aria-label="目标风格（可选）"
+                    placeholder="例如：写实摄影 / 赛博朋克 / 水墨"
                     value={settings.artStyle}
                     onChange={(event) => queueSave((current) => ({
                       ...current,
                       renderSettings: { ...current.renderSettings, artStyle: event.target.value },
                     }))}
                   />
-                </label>
-                <label className="replication-field">
-                  深度控制强度 {settings.vaceStrength.toFixed(2)}
-                  <Slider
-                    min={0.1}
-                    max={1}
-                    step={0.05}
-                    value={settings.vaceStrength}
-                    onChange={(value) => queueSave((current) => ({
-                      ...current,
-                      renderSettings: { ...current.renderSettings, vaceStrength: value },
-                    }))}
+                </Form.Item>
+                {analysis.mode === "smart" ? (
+                  <Collapse
+                    ghost
+                    size="small"
+                    className="replication-more-settings"
+                    items={[{
+                      key: "cutting",
+                      label: "更多设置",
+                      children: (
+                        <Form.Item label={`切镜灵敏度 ${analysis.sceneThreshold.toFixed(2)}`}>
+                          <Slider
+                            ariaLabelForHandle="切镜灵敏度"
+                            min={0.1}
+                            max={0.8}
+                            step={0.05}
+                            value={analysis.sceneThreshold}
+                            disabled={analyzing}
+                            onChange={(value) => queueSave((current) => ({
+                              ...current,
+                              analysis: { ...current.analysis, sceneThreshold: value },
+                            }))}
+                          />
+                        </Form.Item>
+                      ),
+                    }]}
                   />
-                </label>
-                <label className="replication-field">
-                  采样步数
-                  <InputNumber
-                    min={4}
-                    max={60}
-                    value={settings.steps}
-                    onChange={(value) => queueSave((current) => ({
-                      ...current,
-                      renderSettings: { ...current.renderSettings, steps: Number(value) || 30 },
-                    }))}
-                  />
-                </label>
+                ) : null}
                 <Button
+                  block
                   type="primary"
                   icon={<Wand2 size={15} />}
                   disabled={!hasSource}
@@ -384,7 +376,7 @@ export default function DirectorReplicationStudio({
                 >
                   {payload.shots.length ? "重新拉片" : "开始拉片"}
                 </Button>
-                <p className="replication-note">{ANALYZE_HINT}</p>
+                <p className="replication-note">{hasSource ? ANALYZE_HINT : "上传参考片后即可开始拉片。"}</p>
                 {analyzing && statusLine ? (
                   <div className="replication-progress">
                     <Progress
@@ -406,7 +398,7 @@ export default function DirectorReplicationStudio({
                     description="尚未启用独立视觉模型，拉片仍可切分镜头与提取深度，但提示词需要手动填写。请到管理设置 → VLM 视觉模型 配置带 VL 的模型。"
                   />
                 ) : null}
-              </Space>
+              </Form>
             </Card>
           </div>
 
@@ -535,7 +527,7 @@ export default function DirectorReplicationStudio({
       </div>
       <div className="replication-footer">
         <Film size={14} />
-        <span>本地 Wan2.1 VACE 1.3B 深度复刻 · 任务与创作台共用同一执行队列</span>
+        <span>参考片复刻 · 拉片后可逐镜编辑，再生成新画面。</span>
       </div>
     </div>
   )

@@ -548,8 +548,9 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(t8_options["duration"]["ui_control"], "duration-slider")
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "primary"},
-            {"aspect_ratio", "duration", "speed", "custom_steps", "weight_profile", "refine_enabled", "refine_quality", "refine_preview"},
+            {"aspect_ratio", "duration", "speed", "custom_steps", "weight_profile", "refine_enabled", "refine_quality", "refine_quality_mode"},
         )
+        self.assertEqual(t8_options["refine_preview"]["ui_group"], "internal")
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "advanced"},
             {"quality"},
@@ -1117,6 +1118,28 @@ class StoreTests(unittest.TestCase):
             job = reloaded.get("job-1")
             self.assertEqual(job["status"], JobStatus.RUNNING)
             self.assertEqual(job["comfy_prompt_id"], "prompt-1")
+
+    def test_round_display_prompt_round_trips(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            created = store.create(
+                "job-1", JobMode.MINIMAX_H3_T2V,
+                "integrated_multimodal_description: Rainy night.",
+                "", None, [], display_prompt="整合多模态描述：雨夜。",
+            )
+            first_round = created["rounds"][0]
+            self.assertEqual(first_round["prompt"], "integrated_multimodal_description: Rainy night.")
+            self.assertEqual(first_round["display_prompt"], "整合多模态描述：雨夜。")
+
+            updated = store.create_round(
+                "job-1", prompt="[Shot 1] A cat on the windowsill.",
+                display_prompt="[镜头 1] 窗台上的一只猫。",
+            )
+            self.assertEqual(updated["rounds"][-1]["prompt"], "[Shot 1] A cat on the windowsill.")
+            self.assertEqual(updated["rounds"][-1]["display_prompt"], "[镜头 1] 窗台上的一只猫。")
+
+            without_display = store.create("job-2", JobMode.MINIMAX_H3_T2V, "提示词", "", None, [])
+            self.assertIsNone(without_display["rounds"][0]["display_prompt"])
 
     def test_awaiting_refine_round_keeps_preview_outputs_without_finishing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

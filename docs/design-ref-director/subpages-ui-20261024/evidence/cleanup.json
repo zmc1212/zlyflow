@@ -1,0 +1,50 @@
+{
+  "completed_at": "2026-10-25T01:02:47.512239+00:00",
+  "scope": "Only this task's five explicitly recorded QA projects and dedicated employee account.",
+  "project_deletions": [
+    {
+      "project_id": "proj-7f85a7040e4f4746",
+      "status": 200
+    },
+    {
+      "project_id": "proj-bc873f8cf95a4d58",
+      "status": 200
+    },
+    {
+      "project_id": "proj-e2adc592eac64883",
+      "status": 204
+    },
+    {
+      "project_id": "proj-0a73fcb3c5104f61",
+      "status": 204
+    },
+    {
+      "project_id": "proj-7050e66587514554",
+      "status": 204
+    }
+  ],
+  "orphan_child_rows_deleted": {
+    "ai_project_documents": 1,
+    "ai_project_assets": 4,
+    "ai_project_episodes": 3,
+    "ai_project_jobs": 7
+  },
+  "sessions_revoked": 3,
+  "qa_user_deleted": true,
+  "remaining_rows": {
+    "ai_projects": 0,
+    "ai_project_documents": 0,
+    "ai_project_assets": 0,
+    "ai_project_episodes": 0,
+    "ai_project_jobs": 0,
+    "ai_smart_edit_documents": 0,
+    "director_projects": 0,
+    "users": 0,
+    "sessions": 0
+  },
+  "generated_media_jobs": 0,
+  "private_browser_state_removed": true,
+  "temporary_output_removed": true,
+  "browser_session_closed": true,
+  "removal_method": "305 individually checked files, then 16 empty directories; no recursive deletion."
+}

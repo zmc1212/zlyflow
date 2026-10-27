@@ -1,0 +1,124 @@
+{
+  "measurement_sha256": "d5ab304db692a6c800a78406ab1a34154040815626c516a32a9b30c54f813351",
+  "url": "http://127.0.0.1:5173/director/batch/proj-e2adc592eac64883",
+  "title": "ZLY AI 视频创作平台",
+  "viewport": {
+    "width": 1600,
+    "height": 1000
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "document_height": 1000,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "captured_at": "2026-10-24T18:44:41.398Z",
+  "elements": [
+    {
+      "name": "topbar",
+      "selector": ".director-topbar",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        76,
+        0,
+        1524,
+        72
+      ],
+      "text": "返回短视频批量创作工作台",
+      "computed": {
+        "display": "grid",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgb(19, 22, 27)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "intro",
+      "selector": ".director-workspace-intro",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        104,
+        100,
+        1468,
+        62
+      ],
+      "text": "从一个主题，开始批量创作设置生成参数，输入主题，查看每条脚本与视频的制作进度。",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "workspace",
+      "selector": ".director-batch-layout",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        104,
+        186,
+        1468,
+        502
+      ],
+      "text": "生成参数条数比例9:16 竖屏时长（秒）工作流官方 MiniMax H3模型体积完整（32 GB）可选画风暂无生成结果输入一个主题，AI 会按所选参数裂变脚本并生成视频。",
+      "computed": {
+        "display": "grid",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "results",
+      "selector": ".director-batch-list",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        444,
+        186,
+        1128,
+        502
+      ],
+      "text": "暂无生成结果输入一个主题，AI 会按所选参数裂变脚本并生成视频。",
+      "computed": {
+        "display": "grid",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(243, 245, 247)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    }
+  ],
+  "assets": {},
+  "full_page": false,
+  "screenshot_scale": "css"
+}

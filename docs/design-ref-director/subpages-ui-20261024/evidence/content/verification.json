@@ -1,0 +1,282 @@
+{
+  "status": "截图身份与渲染前提通过；视觉仍需复核",
+  "manifest": "D:\\zlyun\\Toonflow\\本地视频工作台\\test-results\\director-subpages-20261025\\content-comparison\\round-01\\run.json",
+  "capture": {
+    "measurement_sha256": "337be95cf7b83cc828152695aabe54728147ccc465547411f825b447dd13de88",
+    "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/content?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1600,
+      "height": 1000
+    },
+    "dpr": 1,
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "document_height": 1000,
+    "fonts_ready": true,
+    "images_ready": true,
+    "document_overflow_x": false,
+    "captured_at": "2026-10-24T18:44:37.721Z",
+    "elements": [
+      {
+        "name": "topbar",
+        "selector": ".project-topbar",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          76,
+          0,
+          1524,
+          72
+        ],
+        "text": "导演台林间来信 · 界面验收编辑基本信息制作配方不绑定配方 · 默认程序装箱AI 生成手动编辑",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "navigation",
+        "selector": ".project-sidebar",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          76,
+          72,
+          200,
+          928
+        ],
+        "text": "内容库资产库剧集工坊智能剪辑全部任务",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "header",
+        "selector": ".sub-pane-header",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          304,
+          100,
+          1268,
+          62
+        ],
+        "text": "内容库导入剧本，整理人物与场景，继续制作分镜。标准剧本规范导入剧本文档",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "empty-panel",
+        "selector": ".empty-doc-box",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          304,
+          186,
+          1268,
+          480
+        ],
+        "text": "暂无导入的剧本文档支持导入符合《短剧详细分镜规范》的标准文档。集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。立即导入剧本一键导入《寒门硕士》标准范例TXT · Markdown · Word",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      }
+    ],
+    "assets": {},
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "section_positions": [],
+  "comparison": "test-results\\director-subpages-20261025\\content-comparison\\round-01\\report-final\\verify-metrics.json",
+  "geometry": {
+    "measurement_sha256": "337be95cf7b83cc828152695aabe54728147ccc465547411f825b447dd13de88",
+    "complete": true,
+    "unavailable_regions": [],
+    "regions": [
+      {
+        "name": "topbar",
+        "selector": ".project-topbar",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          76,
+          0,
+          1524,
+          72
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          76.0,
+          0.0,
+          1524.0,
+          72.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "navigation",
+        "selector": ".project-sidebar",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          76,
+          72,
+          200,
+          928
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          76.0,
+          72.0,
+          200.0,
+          928.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "header",
+        "selector": ".sub-pane-header",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          304,
+          100,
+          1268,
+          62
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          304.0,
+          100.0,
+          1268.0,
+          62.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "empty-panel",
+        "selector": ".empty-doc-box",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          304,
+          186,
+          1268,
+          480
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          304.0,
+          186.0,
+          1268.0,
+          480.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      }
+    ],
+    "note": "偏差是 CSS 像素，不是还原率；布局可测量不证明未遮挡、字体正确或交互可用。"
+  }
+}

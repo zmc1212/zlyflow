@@ -1,0 +1,610 @@
+[
+  {
+    "surface": "batch",
+    "theme": "light",
+    "name": "intro",
+    "selector": ".director-workspace-intro",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      104,
+      100,
+      1468,
+      62
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(23, 26, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      104.0,
+      100.0,
+      1468.0,
+      62.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "theme": "light",
+    "name": "settings",
+    "selector": ".director-batch-form",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      104,
+      186,
+      320,
+      423
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(23, 26, 31)",
+      "backgroundColor": "rgb(255, 255, 255)"
+    },
+    "reference_css_box": [
+      104.0,
+      186.0,
+      320.0,
+      423.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "theme": "light",
+    "name": "fields",
+    "selector": ".director-creative-fields",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      125,
+      260,
+      278,
+      328
+    ],
+    "computed": {
+      "display": "grid",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(23, 26, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      125.0,
+      260.0,
+      278.0,
+      328.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "theme": "light",
+    "name": "results",
+    "selector": ".director-result-empty",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      444,
+      186,
+      1128,
+      502
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(23, 26, 31)",
+      "backgroundColor": "rgb(255, 255, 255)"
+    },
+    "reference_css_box": [
+      444.0,
+      186.0,
+      1128.0,
+      502.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "theme": "dark",
+    "name": "intro",
+    "selector": ".director-workspace-intro",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      104,
+      100,
+      1468,
+      62
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      104.0,
+      100.0,
+      1468.0,
+      62.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "theme": "dark",
+    "name": "settings",
+    "selector": ".director-batch-form",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      104,
+      186,
+      320,
+      423
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      104.0,
+      186.0,
+      320.0,
+      423.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "theme": "dark",
+    "name": "fields",
+    "selector": ".director-creative-fields",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      125,
+      260,
+      278,
+      328
+    ],
+    "computed": {
+      "display": "grid",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      125.0,
+      260.0,
+      278.0,
+      328.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "theme": "dark",
+    "name": "results",
+    "selector": ".director-result-empty",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      444,
+      186,
+      1128,
+      502
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      444.0,
+      186.0,
+      1128.0,
+      502.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "replication",
+    "theme": "light",
+    "name": "column",
+    "selector": ".replication-side",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      104,
+      186,
+      320,
+      684
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(23, 26, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      104.0,
+      186.0,
+      320.0,
+      684.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "replication",
+    "theme": "light",
+    "name": "fields",
+    "selector": ".replication-creative-form",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      125,
+      543,
+      278,
+      306
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(23, 26, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      125.0,
+      543.0,
+      278.0,
+      306.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "replication",
+    "theme": "light",
+    "name": "advanced",
+    "selector": ".replication-more-settings",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      125,
+      715,
+      278,
+      42
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(23, 26, 31)",
+      "backgroundColor": "rgb(244, 246, 248)"
+    },
+    "reference_css_box": [
+      125.0,
+      715.0,
+      278.0,
+      42.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "replication",
+    "theme": "light",
+    "name": "results",
+    "selector": ".replication-empty",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      444,
+      232,
+      1128,
+      502
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(23, 26, 31)",
+      "backgroundColor": "rgb(255, 255, 255)"
+    },
+    "reference_css_box": [
+      444.0,
+      232.0,
+      1128.0,
+      502.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "replication",
+    "theme": "dark",
+    "name": "column",
+    "selector": ".replication-side",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      104,
+      186,
+      320,
+      684
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      104.0,
+      186.0,
+      320.0,
+      684.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "replication",
+    "theme": "dark",
+    "name": "fields",
+    "selector": ".replication-creative-form",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      125,
+      543,
+      278,
+      306
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      125.0,
+      543.0,
+      278.0,
+      306.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "replication",
+    "theme": "dark",
+    "name": "advanced",
+    "selector": ".replication-more-settings",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      125,
+      715,
+      278,
+      42
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(30, 34, 41)"
+    },
+    "reference_css_box": [
+      125.0,
+      715.0,
+      278.0,
+      42.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "replication",
+    "theme": "dark",
+    "name": "results",
+    "selector": ".replication-empty",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      444,
+      232,
+      1128,
+      502
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      444.0,
+      232.0,
+      1128.0,
+      502.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  }
+]

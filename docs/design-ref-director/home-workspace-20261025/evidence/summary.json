@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-25",
+  "reference_sha256": "fb2c2765d2c7a118cebdea93b61f17eaa8c3728acd049c689ebf1bad6ad56cac",
+  "reference_size": [
+    1505,
+    1045
+  ],
+  "source_sha256": {
+    "frontend/src/director2/Director2StudioHome.tsx": "2bc2062edf432181c215f585cfd3b43545a33f62308eeb49aee4a1d8430421b9",
+    "frontend/src/director2/director-home.css": "745a5c0bd6a723544e2e45c146c263ca06da4939b7624d200aa97213df889fd9"
+  },
+  "ui_checks": 71,
+  "desktop_cases": 6,
+  "text_contrast_samples": 132,
+  "minimum_text_contrast": 4.628563974139376,
+  "page_errors": [],
+  "unknown_api_routes": [],
+  "api_fixture": "isolated browser fixture; all API calls intercepted; no generation or production mutation",
+  "cleanup_verified": false,
+  "frontend_tests": 429,
+  "frontend_files": 63,
+  "backend_tests": 55,
+  "geometry_regions": 19,
+  "geometry_max_css_px": 2,
+  "review": {
+    "initial": "fix",
+    "finding": "lens depth and reflections",
+    "verdict": "resolved",
+    "disposition": "ship",
+    "scope": "verdict covered the single material fix; full review preceded it"
+  },
+  "cleanup_blocked": "Automatic approval rejected directory cleanup and a bounded per-file alternative: blocked by policy",
+  "retained_ignored_directories": [
+    "test-results/director-home-tech-20261025",
+    "docs/design-ref-director/home-tech-20261025"
+  ]
+}

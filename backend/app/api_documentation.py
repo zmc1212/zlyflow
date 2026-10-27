@@ -47,10 +47,12 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "description": ("说明", "面向调用方的业务说明。"),
     "detail": ("错误明细", "请求失败时的结构化校验错误列表。"),
     "display_name": ("显示名称", "在工作台界面展示的员工姓名或昵称。"),
+    "display_prompt": ("中文展示提示词", "随任务轮次保存的中文提示词，仅用于界面默认展示；实际提交生成的是 prompt（H3 要求英文）。为空时界面回退显示 prompt。"),
     "domain": ("访问域名", "七牛云 Bucket 绑定的访问域名，须包含协议且可被员工浏览器访问。"),
     "download_url": ("临时下载地址", "当前用户或桌面客户端下载指定输出的临时地址；过期后须重新签发。"),
     "draft_version": ("草稿版本", "画布当前草稿的版本号；没有草稿时为 null。保存时须作为 base_version 提交。"),
     "draft_updated_at": ("草稿更新时间", "画布草稿最后保存的 ISO 8601 时间；没有草稿时为 null。列表按此时间倒序。"),
+    "duration_seconds": ("目标视频时长（秒）", "提示词优化时用于首尾帧对齐声明与镜头时间码；省略时按 5 秒处理。"),
     "enabled": ("已启用", "是否启用该供应商或存储能力。"),
     "elapsed_ms": ("等待耗时（毫秒）", "从任务发起到进入终态的墙上时钟毫秒数；排队或生成中为 null，由前端按 created_at 实时计时。"),
     "error": ("错误信息", "生成项、轮次或任务失败时的错误摘要；成功时为 null。"),
@@ -108,7 +110,8 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "new_password": ("新密码", "要设置的新密码，长度须符合接口约束；不会保存或回显原文。"),
     "node_count": ("节点数量", "画布草稿中 nodes 数组的节点数量；服务端保存时按内容重新计算。"),
     "object_prefix": ("对象前缀", "七牛云对象键的统一前缀，用于隔离本工作台写入的资源。"),
-    "optimized_prompt": ("优化后提示词", "大模型依据目标媒体、工作流和技能改写后的可直接使用提示词。"),
+    "optimized_prompt": ("优化后提示词", "大模型依据目标媒体、工作流和技能改写后的可直接使用提示词；视频 H3 为英文，直接用于生成。"),
+    "optimized_prompt_zh": ("优化后中文对照", "optimized_prompt 的简体中文对照，仅用于界面展示；翻译失败时为空字符串，前端应回退原文。"),
     "options": ("工作流参数 JSON", "JSON 对象字符串。字段、默认值、枚举和约束以 GET /api/modes/{mode_id} 返回的 parameters 中 options.schema 为准；不要传入未声明字段。"),
     "original_prompt": ("原始提示词", "提交给提示词优化接口的原文，便于调用方比对优化结果。"),
     "output_index": ("输出序号", "输出数组的从 0 开始索引。"),
@@ -235,8 +238,8 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("get", "/api/health"): "无需登录。检查工作台、固定 ComfyUI 与 GRS 图片能力的可用性；不返回任何密钥。",
     ("get", "/api/modes"): "需要登录。获取当前注册的工作流摘要、提示词预设和图片尺寸能力；创建任务前应先调用。",
     ("get", "/api/modes/{mode_id}"): "需要登录。获取指定工作流在 POST /api/jobs 中可提交的字段、参考图数量和 options JSON Schema；这是动态工作流参数的唯一来源。",
-    ("post", "/api/jobs"): "需要登录和 X-CSRF-Token。使用 multipart/form-data 创建任务，仅表示已入队（202）；随后轮询 GET /api/jobs/{job_id} 直至进入终态。references 可重复提交，上传顺序不能改变。options 是 JSON 对象字符串，例如 {\"aspect_ratio\":\"16:9\",\"duration\":5}。",
-    ("post", "/api/jobs/{job_id}/rounds"): "需要登录和 X-CSRF-Token。为既有同媒介任务创建新的生成轮次，表单字段与创建任务相同；成功后返回更新后的任务。",
+    ("post", "/api/jobs"): "需要登录和 X-CSRF-Token。使用 multipart/form-data 创建任务，仅表示已入队（202）；随后轮询 GET /api/jobs/{job_id} 直至进入终态。references 可重复提交，上传顺序不能改变。options 是 JSON 对象字符串，例如 {\"aspect_ratio\":\"16:9\",\"duration\":5}。可选 display_prompt 与 prompt 不同时随轮次保存，仅用于界面中文展示；生成始终使用 prompt。",
+    ("post", "/api/jobs/{job_id}/rounds"): "需要登录和 X-CSRF-Token。为既有同媒介任务创建新的生成轮次，表单字段与创建任务相同（含可选 display_prompt）；成功后返回更新后的任务。",
     ("post", "/api/jobs/{job_id}/rounds/{round_id}/retry-failed-items"): "需要登录和 X-CSRF-Token。仅重新入队该轮次中失败的生成项；没有失败项时返回 409。",
     ("get", "/api/jobs"): "需要登录。默认只返回当前用户的最近任务，使用 limit 控制数量。管理员和超级管理员可传 user_id 查看指定账号，或传 user_id=all 查看全部；员工传入该参数会被忽略。",
     ("get", "/api/jobs/{job_id}"): "需要登录。获取当前用户任务、轮次、生成项和输出的最新状态；推荐用于创建任务后的轮询。",
@@ -313,8 +316,8 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/sync"): "需要登录和 X-CSRF-Token。从分镜同步台词轨并写回 beats[].dubbing_lines。",
     ("patch", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/lines/{line_id}"): "需要登录和 X-CSRF-Token。更新单句配音导演参数。改文本会清空已生成音频。",
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/generate"): "需要登录和 X-CSRF-Token。单句或批量入队 tts_generation。可选 line_id / line_ids；缺省本集全部。202 返回 job_id。",
-    ("post", "/api/projects/{project_id}/episodes/{episode_id}/generate-video"): "需要登录和 X-CSRF-Token。按当前工作流一键生成整集或逐镜视频。JSON 可带注册表 options；全部 H3 工作流支持 refine_enabled（开启后一采 0.4 MP）与 refine_quality（1.0/2.0 MP，默认 1.0）。upscale_after 已停用并被忽略，生成任务不再自动超分。202 返回 job_id。",
-    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video"): "需要登录和 X-CSRF-Token。为单个 Beat 入队逐镜视频。可带 options.refine_enabled / refine_quality，两段式在同一任务内完成。成功后原片写入 beat.video_url 并归档到 video_takes（默认采用最新）。202 返回 job_id。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/generate-video"): "需要登录和 X-CSRF-Token。按当前工作流一键生成整集或逐镜视频。JSON 可带注册表 options；全部 H3 工作流支持 refine_enabled（开启后一采 0.4 MP）、refine_quality（1.0/2.0 MP，默认 1.0）与 refine_quality_mode（auto/force，默认 auto：按片长自动降档；force：严格按目标清晰度输出）。upscale_after 已停用并被忽略，生成任务不再自动超分。202 返回 job_id。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video"): "需要登录和 X-CSRF-Token。为单个 Beat 入队逐镜视频。可带 options.refine_enabled / refine_quality / refine_quality_mode，两段式在同一任务内完成。成功后原片写入 beat.video_url 并归档到 video_takes（默认采用最新）。202 返回 job_id。",
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/compose"): "需要登录和 X-CSRF-Token。拼接各镜视频为分集成片。JSON 可选 mix_dubbing（缺省 true）：内心/旁白叠到成片，mix=replace 的开口句静音原声。半解说包旁白未配音时 400。202 返回 job_id。拼接片不套用生成期二采，也不自动超分。",
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/video-takes/adopt"): "需要登录和 X-CSRF-Token。采用本镜一条成功成片为正式原片。JSON { url } 或 { job_id }。校验该地址/任务确属本镜 shot|selection 成功抽卡后写入 video_url；若该 Take 已有 2x 则同步 upscaled_video_url，否则清空。采用的那条必须留在 video_takes。400 表示不属于本镜成功成片。",
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale"): "需要登录和 X-CSRF-Token。对本镜已成功的成片提交独立 2x 超分（RTX Video Super Resolution，固定 2x / ULTRA）。先 POST /free 卸载 H3。原片 video_url 不变，结果写入 beat.upscaled_video_url 并挂到当前采用 Take，2x 不单独成 Take。同一镜头已有进行中的视频或超分时 409；无成片、相对当前连接 GPU 显存预估过大、或该 ComfyUI 未安装 RTXVideoSuperResolution 时 422。超分失败不影响原片。202 返回 job_id。生成任务不再提供自动超分开关；refine_enabled 是生成期二采，不会创建独立的 nvidia-rtx-vsr 任务。",
@@ -391,7 +394,7 @@ def _provider_operation_detail(method: str, path: str) -> str | None:
             return "需要登录和 X-CSRF-Token。上传主体参考图提取外貌描述；默认走 VLM，VLM 未启用且 LLM 可看图时回退 LLM，否则 503。"
         if path.endswith("/split-script"):
             return "需要登录和 X-CSRF-Token。将剧本或故事拆成结构化分镜头，不会创建生成任务。"
-        return "需要登录和 X-CSRF-Token。按目标媒体、工作流、可选 H3 风格技能和可选技能包优化提示词；可附带最多 8 张参考图 URL。写稿解析器可看图时带图优化，否则只写张数。不会创建生成任务。"
+        return "需要登录和 X-CSRF-Token。按目标媒体、工作流、可选 H3 风格技能和可选技能包优化提示词；可附带最多 8 张参考图 URL。写稿解析器可看图时带图优化，否则只写张数。视频响应含 optimized_prompt（英文，用于生成）与 optimized_prompt_zh（中文对照，用于界面展示，翻译失败时为空）。不会创建生成任务。"
     if path.startswith("/api/vlm/"):
         return "需要登录。查询独立视觉模型是否已启用且可用。"
     return None
@@ -408,7 +411,7 @@ def _add_examples(operation: dict[str, Any], method: str, path: str) -> None:
     if (method, path) == ("post", "/api/auth/login"):
         operation.setdefault("requestBody", {}).setdefault("content", {}).setdefault("application/json", {}).setdefault("example", {"username": "zhangsan", "password": "请使用真实密码"})
     elif (method, path) == ("post", "/api/llm/optimize-prompt"):
-        operation.setdefault("requestBody", {}).setdefault("content", {}).setdefault("application/json", {}).setdefault("example", {"prompt": "雨夜城市中一辆汽车驶过霓虹灯", "media_type": "video", "workflow_id": "minimax-h3-t2v", "reference_count": 0, "image_urls": []})
+        operation.setdefault("requestBody", {}).setdefault("content", {}).setdefault("application/json", {}).setdefault("example", {"prompt": "雨夜城市中一辆汽车驶过霓虹灯", "media_type": "video", "workflow_id": "minimax-h3-t2v", "reference_count": 0, "duration_seconds": 5, "image_urls": []})
     elif (method, path) == ("post", "/api/jobs"):
         content = operation.get("requestBody", {}).get("content", {}).get("multipart/form-data")
         if content is not None:

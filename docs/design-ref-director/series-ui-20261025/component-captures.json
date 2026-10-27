@@ -1,0 +1,194 @@
+[
+  {
+    "name": "component-create-dark",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "dark",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 509,
+      "y": 137,
+      "width": 568,
+      "height": 718
+    }
+  },
+  {
+    "name": "component-validation-dark",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "dark",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 509,
+      "y": 137,
+      "width": 568,
+      "height": 718
+    }
+  },
+  {
+    "name": "component-menu-dark",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "dark",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 506,
+      "y": 638,
+      "width": 184,
+      "height": 103
+    }
+  },
+  {
+    "name": "component-edit-dark",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "dark",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 509,
+      "y": 137,
+      "width": 568,
+      "height": 718
+    }
+  },
+  {
+    "name": "component-status-dark",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "dark",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 534,
+      "y": 433,
+      "width": 518,
+      "height": 160
+    }
+  },
+  {
+    "name": "component-delete-dark",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "dark",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 573,
+      "y": 365.5,
+      "width": 440,
+      "height": 261
+    }
+  },
+  {
+    "name": "component-create-light",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "light",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 509,
+      "y": 137,
+      "width": 568,
+      "height": 718
+    }
+  },
+  {
+    "name": "component-validation-light",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "light",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 509,
+      "y": 137,
+      "width": 568,
+      "height": 718
+    }
+  },
+  {
+    "name": "component-menu-light",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "light",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 506,
+      "y": 638,
+      "width": 184,
+      "height": 103
+    }
+  },
+  {
+    "name": "component-edit-light",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "light",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 509,
+      "y": 137,
+      "width": 568,
+      "height": 718
+    }
+  },
+  {
+    "name": "component-status-light",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "light",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 534,
+      "y": 433,
+      "width": 518,
+      "height": 160
+    }
+  },
+  {
+    "name": "component-delete-light",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "theme": "light",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "box": {
+      "x": 573,
+      "y": 365.5,
+      "width": 440,
+      "height": 261
+    }
+  }
+]

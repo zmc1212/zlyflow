@@ -1,0 +1,257 @@
+[
+  {
+    "name": "content",
+    "theme": "light",
+    "reference": "design-content-light.png",
+    "actual": "actual-content-light.png",
+    "reference_sha256": "f7fd0a5f487703c2633798d45b666e256acdc0883d0853f299b9f6bfb1a85394",
+    "actual_sha256": "f7fd0a5f487703c2633798d45b666e256acdc0883d0853f299b9f6bfb1a85394",
+    "mean_absolute_rgb_difference_0_255": 0.0,
+    "difference_bounds": null
+  },
+  {
+    "name": "content",
+    "theme": "dark",
+    "reference": "design-content-dark.png",
+    "actual": "actual-content-dark.png",
+    "reference_sha256": "adc391cedeadd9e9d7411e4e6f925dd808fc531e1c8f8c2e0c25ad074c831efc",
+    "actual_sha256": "bd5cbbfb07915a5f64ddc18f447482821b414096f27ed9ee9873d0518b8b71de",
+    "mean_absolute_rgb_difference_0_255": 0.01772729166666667,
+    "difference_bounds": [
+      1535,
+      15,
+      1576,
+      56
+    ]
+  },
+  {
+    "name": "content-filled",
+    "theme": "light",
+    "reference": "design-content-filled-light.png",
+    "actual": "actual-content-filled-light.png",
+    "reference_sha256": "f1836b9792448b5c11c2ad77875e619585b90a87332a4f98d7dc0aee831f5d7a",
+    "actual_sha256": "c7b417113dcda2391d0493b1d4ddcaa802c96ec943a97d658ddf029d52a4edb6",
+    "mean_absolute_rgb_difference_0_255": 0.014508541666666666,
+    "difference_bounds": [
+      763,
+      16,
+      1576,
+      397
+    ]
+  },
+  {
+    "name": "content-filled",
+    "theme": "dark",
+    "reference": "design-content-filled-dark.png",
+    "actual": "actual-content-filled-dark.png",
+    "reference_sha256": "c8da6b0814d71c5653ac5b47a764a3cd9f145713570167525f7cb81e0315848a",
+    "actual_sha256": "f3fe1588c7af1d125bfa4959c5a3802a7bffb14f954558ed9d10c79c0d12067b",
+    "mean_absolute_rgb_difference_0_255": 0.23060916666666667,
+    "difference_bounds": [
+      763,
+      16,
+      1600,
+      397
+    ]
+  },
+  {
+    "name": "assets",
+    "theme": "light",
+    "reference": "design-assets-v2-light.png",
+    "actual": "actual-assets-light.png",
+    "reference_sha256": "493d49048688a888b3e845ee8b04a4f6c969de5f776553cd7cb80df3e859ce3c",
+    "actual_sha256": "493d49048688a888b3e845ee8b04a4f6c969de5f776553cd7cb80df3e859ce3c",
+    "mean_absolute_rgb_difference_0_255": 0.0,
+    "difference_bounds": null
+  },
+  {
+    "name": "assets",
+    "theme": "dark",
+    "reference": "design-assets-v2-dark.png",
+    "actual": "actual-assets-dark.png",
+    "reference_sha256": "b3dd01a464313d13c370d8c569114e06ead58df08a2446da8e956ea65d533050",
+    "actual_sha256": "b3dd01a464313d13c370d8c569114e06ead58df08a2446da8e956ea65d533050",
+    "mean_absolute_rgb_difference_0_255": 0.0,
+    "difference_bounds": null
+  },
+  {
+    "name": "workshop",
+    "theme": "light",
+    "reference": "design-workshop-light.png",
+    "actual": "actual-workshop-light.png",
+    "reference_sha256": "a50aa2688b8161d56e78f137274132c7e9a69ad9f5ea561329315ecd764ccb67",
+    "actual_sha256": "92a1a35e195e7a486b4b26cf1c95fa942e8bd777793dd5f12721409d00fc1a03",
+    "mean_absolute_rgb_difference_0_255": 0.014509166666666665,
+    "difference_bounds": [
+      1535,
+      15,
+      1576,
+      56
+    ]
+  },
+  {
+    "name": "workshop",
+    "theme": "dark",
+    "reference": "design-workshop-dark.png",
+    "actual": "actual-workshop-dark.png",
+    "reference_sha256": "3c3078c38e2df13fa0d8dda5a06b2e460cdc3edae67ded7ce9b92ac080fa3d62",
+    "actual_sha256": "b2977f5af5d9409cf95252658b729a7dd63b35da14ff90259b8bd534bec9c3cf",
+    "mean_absolute_rgb_difference_0_255": 0.23242458333333335,
+    "difference_bounds": [
+      1473,
+      16,
+      1600,
+      133
+    ]
+  },
+  {
+    "name": "shots",
+    "theme": "light",
+    "reference": "design-shots-light.png",
+    "actual": "actual-shots-light.png",
+    "reference_sha256": "80016c6c4c763b460b12aa2faf8e855cd3dda16997c11df4831a8f672a782049",
+    "actual_sha256": "4887e279617f473908f5fe67205b97eeb3fa466be8829ae581ce56d00bb1de7b",
+    "mean_absolute_rgb_difference_0_255": 0.04370583333333333,
+    "difference_bounds": [
+      300,
+      16,
+      1576,
+      226
+    ]
+  },
+  {
+    "name": "shots",
+    "theme": "dark",
+    "reference": "design-shots-dark.png",
+    "actual": "actual-shots-dark.png",
+    "reference_sha256": "5100c994b91c30224b5af84450b2e6d920f66bcf3d3d2b23a7e6553ecbe7dfc3",
+    "actual_sha256": "65a7ea4f0fbf2c7155af357c54d01758a450dc1a914bc80564df8f66b5d4887e",
+    "mean_absolute_rgb_difference_0_255": 0.253705,
+    "difference_bounds": [
+      300,
+      16,
+      1600,
+      226
+    ]
+  },
+  {
+    "name": "jobs",
+    "theme": "light",
+    "reference": "design-jobs-light.png",
+    "actual": "actual-jobs-light.png",
+    "reference_sha256": "2d2d5b6a87970244166c5f15da5596b906e660242af61176641e9d1230cb3fb8",
+    "actual_sha256": "dbb2ba82c5136a5879ff467f644c75771317708d3cf33cf4a37d623fe1e4d2f7",
+    "mean_absolute_rgb_difference_0_255": 0.5864822916666667,
+    "difference_bounds": [
+      303,
+      15,
+      1576,
+      609
+    ]
+  },
+  {
+    "name": "jobs",
+    "theme": "dark",
+    "reference": "design-jobs-dark.png",
+    "actual": "actual-jobs-dark.png",
+    "reference_sha256": "16789f2bb773f3d241ea527cb79fcbb3e6a2fdf56ea643ddc5292b9bbe5ec699",
+    "actual_sha256": "0b29e593bf303202fd9b66a7fd1fa14af561e642ead442a7f65e7ed7e0d7011d",
+    "mean_absolute_rgb_difference_0_255": 0.960230625,
+    "difference_bounds": [
+      303,
+      15,
+      1600,
+      609
+    ]
+  },
+  {
+    "name": "batch",
+    "theme": "light",
+    "reference": "design-batch-light.png",
+    "actual": "actual-batch-light.png",
+    "reference_sha256": "15df1335d33ffc95ce866100d4beceaff65f6957a586d863dfd59e4af2e8a6b8",
+    "actual_sha256": "cef39e61f2f1485769fab4f1b9ae0e1ec58abe454a663eb963dca8a6753172de",
+    "mean_absolute_rgb_difference_0_255": 0.053180625,
+    "difference_bounds": [
+      987,
+      17,
+      1462,
+      416
+    ]
+  },
+  {
+    "name": "batch",
+    "theme": "dark",
+    "reference": "design-batch-dark.png",
+    "actual": "actual-batch-dark.png",
+    "reference_sha256": "286c3d70abdbd0c46b0dfe4d409bf1b79a3acf5126b412152d05dfc405137c26",
+    "actual_sha256": "60ff0478fa6e679451d3cf51abdfcf02f7de83bdda361776ff815cd6b000e10b",
+    "mean_absolute_rgb_difference_0_255": 0.30013625,
+    "difference_bounds": [
+      103,
+      17,
+      1572,
+      688
+    ]
+  },
+  {
+    "name": "replication",
+    "theme": "light",
+    "reference": "design-replication-light.png",
+    "actual": "actual-replication-light.png",
+    "reference_sha256": "f6ac5026baeba4bf6a37a29ed2fa01b8a39d1df82e349f565aaf67c8c6b2043b",
+    "actual_sha256": "2fd69bc98dba6afbd0182112f4d696e7959734d299ae8d3b8add98a95b63fa0a",
+    "mean_absolute_rgb_difference_0_255": 0.053152291666666664,
+    "difference_bounds": [
+      987,
+      18,
+      1462,
+      462
+    ]
+  },
+  {
+    "name": "replication",
+    "theme": "dark",
+    "reference": "design-replication-dark.png",
+    "actual": "actual-replication-dark.png",
+    "reference_sha256": "7475e1f04977d2cb2d4bb3a0b7e6510c12beb37e01a663e380bbc6f0cfbd09bd",
+    "actual_sha256": "5ca32021072ee95b6dff7e22eb4168bdfc583aa6c4570db92649e9539f8f46ca",
+    "mean_absolute_rgb_difference_0_255": 0.2999104166666667,
+    "difference_bounds": [
+      987,
+      18,
+      1515,
+      462
+    ]
+  },
+  {
+    "name": "diagnosis",
+    "theme": "light",
+    "reference": "design-diagnosis-light.png",
+    "actual": "actual-diagnosis-light.png",
+    "reference_sha256": "103e69bf62c90835526441adb2e0612ad9ce3258a41a0ce75020d0de0196361c",
+    "actual_sha256": "5ba53a71a1a2f59803a52cee694ae599e0eb17e4f2f10357a33b9944898f70bf",
+    "mean_absolute_rgb_difference_0_255": 0.012124999999999999,
+    "difference_bounds": [
+      1536,
+      18,
+      1572,
+      54
+    ]
+  },
+  {
+    "name": "diagnosis",
+    "theme": "dark",
+    "reference": "design-diagnosis-dark.png",
+    "actual": "actual-diagnosis-dark.png",
+    "reference_sha256": "87031f83e51953d8a93b74f69cf006fc8d3c639cb5b93f4e1b93dc62a024f087",
+    "actual_sha256": "934a134d4b1c18e6cb42c0886655a3b6b937a91f6a6e9bfeca753b119d08c6f8",
+    "mean_absolute_rgb_difference_0_255": 0.25795708333333334,
+    "difference_bounds": [
+      1472,
+      18,
+      1600,
+      136
+    ]
+  }
+]

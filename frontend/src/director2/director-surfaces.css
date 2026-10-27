@@ -56,10 +56,10 @@
 .director2-app .d2-assets-library .batch-generate-bar { margin: 0; padding: 0; gap: 10px; flex: 1; min-width: 0; flex-wrap: wrap; }
 .director2-app .d2-assets-library .batch-generate-bar .ant-btn { height: 36px; font-size: 13px; border-radius: 8px; }
 .director2-app .d2-assets-library .batch-generate-hint { font-size: 12px; line-height: 20px; }
-.director2-app .d2-assets-library > .ant-spin-nested-loading { flex: 1; min-height: 0; }
-.director2-app .d2-assets-library > .ant-spin-nested-loading > .ant-spin-container { height: 100%; }
-.director2-app .d2-assets-library .assets-split-container { height: 100%; min-height: 0; gap: 16px; }
-.director2-app .d2-assets-library .assets-sidebar-list { width: 248px; padding: 12px; min-height: 0; display: flex; flex-direction: column; box-shadow: none; }
+.director2-app .d2-assets-library > :is(.ant-spin,.ant-spin-nested-loading) { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; }
+.director2-app .d2-assets-library > :is(.ant-spin,.ant-spin-nested-loading) > .ant-spin-container { flex: 1; min-height: 0; height: 100%; }
+.director2-app .d2-assets-library .assets-split-container { height: 100%; min-height: 0; gap: 16px; align-items: stretch; }
+.director2-app .d2-assets-library .assets-sidebar-list { width: 248px; height: 100%; padding: 12px; min-height: 0; display: flex; flex-direction: column; box-shadow: none; }
 .director2-app .d2-assets-library .sidebar-items-scroll { flex: 1; min-height: 0; max-height: none; margin-top: 10px; }
 .director2-app .d2-assets-library .asset-list-item { width: 100%; text-align: left; font: inherit; border: 1px solid transparent; background: transparent; min-height: 66px; }
 .director2-app .d2-assets-library .asset-list-item.active { background: var(--studio-primary-soft); border-color: var(--studio-primary-soft); box-shadow: none; }
@@ -132,9 +132,6 @@
 .director-specialist .ant-card { background: var(--studio-surface); border-color: var(--studio-border); border-radius: 12px; color: var(--studio-text); box-shadow: none; }
 .director-specialist .ant-card .ant-card-head { min-height: 54px; padding-inline: 20px; font-size: 15px; border-color: var(--studio-border); color: var(--studio-text); }
 .director-specialist .ant-card > .ant-card-body { padding: 20px; }
-.director-specialist .director-batch-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
-.director-specialist .director-batch-fields label { min-width: 0; color: var(--studio-text-secondary); font-size: 13px; gap: 8px; }
-.director-specialist .director-batch-fields label:nth-child(n+3) { grid-column: 1 / -1; }
 .director-specialist .director-batch-form .ant-card-body { gap: 16px; }
 .director-specialist .director-batch-form :is(.ant-select,.ant-input-number) { width: 100%; min-width: 0; }
 .director-specialist :is(.replication-side,.director-batch-form) :is(.ant-select,.ant-input-number,.ant-btn,.ant-segmented) { min-height: 36px; border-radius: 8px; }
@@ -163,3 +160,19 @@
 @media (prefers-reduced-motion: reduce) {
   .director2-app .d2-episode-workshop .xiaji-episode-card { transition: none; }
 }
+
+/* 批量与复刻的创作设置：2026-10-25 补充设计稿。 */
+.director-specialist .director-creative-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+.director-specialist .director-creative-fields > .ant-form-item:nth-child(n+3) { grid-column: 1 / -1; }
+.director-specialist :is(.director-creative-fields,.replication-creative-form) .ant-form-item { min-width: 0; margin: 0; }
+.director-specialist :is(.director-creative-fields,.replication-creative-form) .ant-form-item-label { padding-bottom: 8px; }
+.director-specialist :is(.director-creative-fields,.replication-creative-form) .ant-form-item-label > label { height: auto; min-height: 20px; color: var(--studio-text-secondary); font-size: 13px; line-height: 20px; }
+.director-specialist :is(.director-creative-fields,.replication-creative-form) :is(.ant-input-number,.ant-select) { width: 100%; height: 40px; min-width: 0; }
+.director-specialist .replication-creative-form { display: flex; flex-direction: column; gap: 16px; }
+.director-specialist .replication-creative-form .ant-segmented { width: 100%; }
+.director-specialist .replication-creative-form .ant-segmented-item-label { min-height: 36px; line-height: 36px; }
+.director-specialist .replication-more-settings { border-radius: 8px; background: var(--studio-surface-raised); }
+.director-specialist .replication-more-settings .ant-collapse-header { min-height: 40px; align-items: center; padding: 10px 12px; color: var(--studio-text-secondary); font-size: 13px; line-height: 20px; }
+.director-specialist .replication-more-settings .ant-collapse-content-box { padding: 4px 12px 12px; }
+.director-specialist .replication-creative-form > .ant-btn { height: 40px; }
+.director-specialist .replication-creative-form > .replication-note { margin: 0; color: var(--studio-text-muted); font-size: 12px; line-height: 20px; }

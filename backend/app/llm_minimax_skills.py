@@ -982,6 +982,56 @@ def build_h3_prompt_translate_prompt() -> str:
     ])
 
 
+H3_TRANSLATION_FIELD_LABELS = {
+    "subject_definitions": "主体定义",
+    "summary": "摘要",
+    "retention_analysis": "保留性分析",
+    "detailed_description": "详细描述",
+    "integrated_multimodal_description": "整合多模态描述",
+    "overall_soundscape": "整体声场",
+    "non_diegetic_music": "画外音乐",
+}
+
+
+def h3_prompt_field_names(text: str) -> list[str]:
+    lowered = (text or "").lower()
+    return [
+        field for field in _H3_PROMPT_FIELD_NAMES
+        if f"{field}:" in lowered or f"{field}：" in lowered
+    ]
+
+
+def missing_h3_translation_fields(english: str, chinese: str) -> list[str]:
+    translated = chinese or ""
+    lowered = translated.lower()
+    return [
+        field for field in h3_prompt_field_names(english)
+        if field not in lowered and H3_TRANSLATION_FIELD_LABELS[field] not in translated
+    ]
+
+
+def clean_h3_translation_output(text: str) -> str:
+    lines = [
+        re.sub(r"^\s{0,3}>\s?", "", raw).rstrip()
+        for raw in (text or "").strip().splitlines()
+    ]
+    return "\n".join(lines).strip()
+
+
+def build_h3_prompt_chinese_translation_prompt() -> str:
+    """Translate an English H3 prompt into a readable Simplified Chinese display version."""
+    return """你是影视 AI 提示词的中文翻译。用户会提供一段英文 MiniMax H3 提示词；请把它完整翻译成简体中文，供中文创作者阅读和核对。
+
+要求：
+- 完整保留所有镜头、段落与信息，不得摘要、合并或省略。原文有几个字段就必须输出几个字段；漏掉任何一个字段都视为翻译失败。
+- 逐个字段翻译，字段名单独起行，保留英文原名并附中文说明，例如 integrated_multimodal_description（整合多模态描述）：、overall_soundscape（整体声场）：、non_diegetic_music（画外音乐）：、subject_definitions（主体定义）：、summary（摘要）：、retention_analysis（保留性分析）：、detailed_description（详细描述）：。
+- 不要在字段名前加 >、#、- 等 Markdown 标记；不要使用引用块。
+- 保留 [Shot n]、00:02.500、<Picture n>、<Subject n>、<Video n>、<Audio n> 等标记与时间码原样不变。
+- 除对白、歌词、画面中出现的文字和上述标记外，其余英文句子都必须翻译成简体中文；包括 For the target video…is fully referenced、How the reference pictures align… 这类首尾帧对齐说明也要翻译，不得整句保留英文。
+- 术语 T2VA、I2VA、FL2VA、Ref2VA、H3 保留英文。
+- 只输出中文译文，不要前言、解释、思考过程、Markdown 代码块或英文原文。"""
+
+
 def build_h3_split_script_prompt(*, script_mode: str = "literal") -> str:
     mode_rules = ("Literal mode: preserve every original dialogue word-for-word, keep event order, and do not add dialogue, characters, props, or events. Only divide the supplied material into shots."
                   if script_mode == "literal" else
@@ -1048,12 +1098,129 @@ def list_h3_skills_payload() -> list[dict[str, Any]]:
     ]
 
 
+def resolve_h3_prompt_mode(reference_mode: str | None, reference_count: int) -> str:
+    """Pick the official H3 writing mode from the workflow's reference slots.
+
+    ``reference_mode`` comes from ``workflow_registry``. Without it, fall back to
+    the historical count-only heuristic used by direct provider callers.
+    """
+    mode = str(reference_mode or "").strip()
+    if mode == "collection":
+        # R2V treats even one upload as a reference subject, so it needs Ref2VA.
+        return "REF2VA" if reference_count > 0 else "T2VA"
+    if mode == "keyframes":
+        if reference_count >= 2:
+            return "FL2VA"
+        if reference_count == 1:
+            return "I2VA"
+        return "T2VA"
+    if mode == "none":
+        return "T2VA"
+    if reference_count >= 2:
+        return "REF2VA"
+    if reference_count == 1:
+        return "I2VA"
+    return "T2VA"
+
+
+_H3_PROMPT_FIELD_NAMES = (
+    "subject_definitions",
+    "summary",
+    "retention_analysis",
+    "detailed_description",
+    "integrated_multimodal_description",
+    "overall_soundscape",
+    "non_diegetic_music",
+)
+
+_H3_PROMPT_FIELD_LINE = re.compile(
+    r"^\s*(?:"
+    + "|".join(_H3_PROMPT_FIELD_NAMES)
+    + r")\s*[:：]",
+    re.IGNORECASE,
+)
+
+_H3_PROMPT_START = re.compile(
+    r"(?im)^(?=(?:For the target video\b|How the reference pictures align\b|"
+    r"subject_definitions\s*[:：]|integrated_multimodal_description\s*[:：]))"
+)
+
+_H3_REASONING_HINTS = (
+    "the user wants",
+    "let me ",
+    "i need to",
+    "we need to",
+    "我需要",
+    "让我",
+    "用户想要",
+    "用户提供的是",
+    "首先，我",
+)
+
+
+def _h3_prompt_field_count(text: str) -> int:
+    lowered = text.lower()
+    return sum(
+        1
+        for field in _H3_PROMPT_FIELD_NAMES
+        if f"{field}:" in lowered or f"{field}：" in lowered
+    )
+
+
+def looks_like_h3_prompt(text: str) -> bool:
+    return _h3_prompt_field_count(text) >= 2
+
+
+def _has_reasoning_prefix(text: str) -> bool:
+    head = text.strip().lower()[:240]
+    return any(hint in head for hint in _H3_REASONING_HINTS)
+
+
+def _trim_trailing_reasoning(text: str) -> str:
+    """Keep the last field's paragraph and drop commentary that follows it."""
+    lines = text.splitlines()
+    last_field = max(
+        (index for index, line in enumerate(lines) if _H3_PROMPT_FIELD_LINE.match(line)),
+        default=-1,
+    )
+    if last_field < 0:
+        return text.strip()
+    end = last_field + 1
+    while end < len(lines) and lines[end].strip():
+        end += 1
+    return "\n".join(lines[:end]).strip()
+
+
+def extract_h3_prompt_from_model_output(text: str) -> str:
+    """Return the final H3 prompt when a reasoning model mixes analysis into content."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+
+    fenced = re.findall(r"```[^\n`]*\n?(.*?)```", raw, flags=re.DOTALL)
+    for block in reversed(fenced):
+        candidate = block.strip()
+        if candidate and looks_like_h3_prompt(candidate):
+            return candidate
+
+    if not _has_reasoning_prefix(raw) and looks_like_h3_prompt(raw):
+        return _trim_trailing_reasoning(raw)
+
+    for start in reversed(list(_H3_PROMPT_START.finditer(raw))):
+        candidate = _trim_trailing_reasoning(raw[start.start():])
+        if looks_like_h3_prompt(candidate) and not _has_reasoning_prefix(candidate):
+            return candidate
+    return ""
+
+
 def build_h3_system_prompt(
     skill_id: str | None = None,
     reference_count: int = 0,
     media_type: str = "video",
     workflow_name: str | None = None,
     skill_pack_id: str | None = None,
+    reference_mode: str | None = None,
+    duration_seconds: float | None = None,
 ) -> str:
     """Build a specialized system prompt integrating MiniMax H3 skills and multimodal prompt rules."""
     if media_type != "video":
@@ -1069,19 +1236,45 @@ def build_h3_system_prompt(
 6. 输出格式：直接输出优化后的提示词文本，严禁包含任何前言、解释、分析或 markdown 格式块。输出纯文本。"""
 
     selected_skill = H3_SKILLS_BY_ID.get(skill_id or "general", H3_SKILLS[0])
+    prompt_mode = resolve_h3_prompt_mode(reference_mode, reference_count)
+
+    duration_label = ""
+    if duration_seconds is not None:
+        try:
+            parsed_duration = float(duration_seconds)
+        except (TypeError, ValueError):
+            parsed_duration = 0.0
+        if parsed_duration > 0:
+            duration_label = f"{parsed_duration:.2f}"
 
     mode_alignment_instruction = ""
-    if reference_count == 1:
+    if prompt_mode == "I2VA":
         mode_alignment_instruction = """
 【当前任务模式：I2VA (单图首帧生成)】
 - 必须在输出第一行放置 MiniMax H3 官方首帧对齐声明：
 For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.
 - [Shot 1] 必须基于 <Picture 1> 中确立的主体人物/物品、服饰、构图与环境展开，描述其随后的动作发展与镜头运动。
 """
-    elif reference_count >= 2:
+    elif prompt_mode == "FL2VA":
+        end_seconds = duration_label or "5.00"
+        mode_alignment_instruction = f"""
+【当前任务模式：FL2VA (首尾帧生成，共 2 张参考图)】
+- 输出第一行必须是 MiniMax H3 官方首尾帧对齐声明，Picture 2 对齐视频结束时间（当前 {end_seconds} 秒）；单镜头时写成：
+How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the {end_seconds}-second mark of the target video.
+- 正文必须描述从首帧连续运动到尾帧的单一镜头路径，重点写动作、姿态、物体状态和构图的中间变化，不要把两张图写成静态说明。
+"""
+    elif prompt_mode == "REF2VA":
         mode_alignment_instruction = f"""
 【当前任务模式：Ref2VA (多参考图生成，共 {reference_count} 张参考图)】
-- 必须在分镜描述中依次合理引用并标注 <Picture 1> 到 <Picture {reference_count}>，不得遗漏或随意篡改序号。
+- 必须严格输出 MiniMax H3 官方六段式，六个英文标题各独占一行、使用英文冒号，顺序固定：
+subject_definitions:
+summary:
+retention_analysis:
+detailed_description:
+overall_soundscape:
+non_diegetic_music:
+- 不得增删段落、翻译标题、改写标题或调换顺序。
+- 必须在对应段落中依次合理引用 <Picture 1> 到 <Picture {reference_count}>，不得遗漏或篡改序号；<Subject N> 标签一旦定义必须全文保持一致。
 - 明确指出各个参考图所对应的主体特征、外观服饰、场景环境或关键帧位置。
 """
     else:
@@ -1090,8 +1283,23 @@ For the target video, at 0.00 seconds into the target video, <Picture 1> (from [
 - 无需首行对齐声明，直接以 integrated_multimodal_description 开头构建完整的视听时间线。
 """
 
+    duration_instruction = ""
+    if duration_label:
+        duration_instruction = (
+            f"\n- 目标视频时长为 {duration_label} 秒：所有 [Shot n] 切镜时间码、"
+            "音画节奏和首尾帧对齐声明都必须与这个时长一致。\n"
+        )
+
+    if prompt_mode == "REF2VA":
+        output_contract = "- 只输出上述六段英文正文；不要输出 JSON、Markdown 代码块、前言或分析。"
+    else:
+        output_contract = (
+            "- 只输出三个核心字段，顺序固定：integrated_multimodal_description、"
+            "overall_soundscape、non_diegetic_music；不要输出 JSON、Markdown 代码块、前言或分析。"
+        )
+
     guides = [load_h3_prompt_writing_skill(), load_h3_prompt_writing_guide(mode="base")]
-    if reference_count >= 2:
+    if prompt_mode == "REF2VA":
         guides.append(load_h3_prompt_writing_guide(mode="ref"))
     official = "\n\n".join(guides)
     pack_overlay = ""
@@ -1130,9 +1338,10 @@ Current style skill: [{selected_skill.name}] ({selected_skill.description})
 {selected_skill.guidance}
 
 {mode_alignment_instruction}
-
+{duration_instruction}
 {official}
 {overlay_block}
+{output_contract}
 Output only the final prompt text. No preamble, no markdown fences."""
 
 

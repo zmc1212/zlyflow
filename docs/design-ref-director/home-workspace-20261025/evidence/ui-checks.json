@@ -1,0 +1,2367 @@
+{
+  "environment": {
+    "url": "http://127.0.0.1:5173/director",
+    "api": "isolated browser fixture; all API calls intercepted; no generation or production mutation",
+    "dpr": 1
+  },
+  "checks": [
+    {
+      "name": "dark-1505: theme and viewport",
+      "passed": true
+    },
+    {
+      "name": "dark-1505: workspace inside viewport",
+      "passed": true
+    },
+    {
+      "name": "dark-1505: six full-width project rows",
+      "passed": true
+    },
+    {
+      "name": "dark-1505: equal filter segments",
+      "passed": true,
+      "detail": [
+        130,
+        130,
+        130,
+        130
+      ]
+    },
+    {
+      "name": "dark-1505: text contrast",
+      "passed": true,
+      "detail": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 12.34
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 7.91
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 6.05
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.84
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 17.29
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 11.09
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 4.72
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 9.36
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 6.05
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 7.82
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 10.22
+        }
+      ]
+    },
+    {
+      "name": "dark-1440: theme and viewport",
+      "passed": true
+    },
+    {
+      "name": "dark-1440: workspace inside viewport",
+      "passed": true
+    },
+    {
+      "name": "dark-1440: six full-width project rows",
+      "passed": true
+    },
+    {
+      "name": "dark-1440: equal filter segments",
+      "passed": true,
+      "detail": [
+        130,
+        130,
+        130,
+        130
+      ]
+    },
+    {
+      "name": "dark-1440: text contrast",
+      "passed": true,
+      "detail": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 12.34
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 7.91
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 6.05
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.84
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 17.29
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 11.09
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 4.72
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 9.36
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 6.05
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 7.82
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 10.22
+        }
+      ]
+    },
+    {
+      "name": "dark-1920: theme and viewport",
+      "passed": true
+    },
+    {
+      "name": "dark-1920: workspace inside viewport",
+      "passed": true
+    },
+    {
+      "name": "dark-1920: six full-width project rows",
+      "passed": true
+    },
+    {
+      "name": "dark-1920: equal filter segments",
+      "passed": true,
+      "detail": [
+        130,
+        130,
+        130,
+        130
+      ]
+    },
+    {
+      "name": "dark-1920: text contrast",
+      "passed": true,
+      "detail": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 12.34
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 7.91
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 6.05
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.84
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 17.29
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 11.09
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 4.72
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 9.36
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 15.95
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 6.05
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 10.22
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 7.82
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 10.22
+        }
+      ]
+    },
+    {
+      "name": "dark: theme changes",
+      "passed": true
+    },
+    {
+      "name": "dark: theme persists",
+      "passed": true
+    },
+    {
+      "name": "dark: no page errors",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "light-1505: theme and viewport",
+      "passed": true
+    },
+    {
+      "name": "light-1505: workspace inside viewport",
+      "passed": true
+    },
+    {
+      "name": "light-1505: six full-width project rows",
+      "passed": true
+    },
+    {
+      "name": "light-1505: equal filter segments",
+      "passed": true,
+      "detail": [
+        130,
+        130,
+        130,
+        130
+      ]
+    },
+    {
+      "name": "light-1505: text contrast",
+      "passed": true,
+      "detail": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 15.13
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 6.55
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 4.63
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 16.55
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 7.17
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 6.98
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 4.63
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 7.56
+        }
+      ]
+    },
+    {
+      "name": "light-1440: theme and viewport",
+      "passed": true
+    },
+    {
+      "name": "light-1440: workspace inside viewport",
+      "passed": true
+    },
+    {
+      "name": "light-1440: six full-width project rows",
+      "passed": true
+    },
+    {
+      "name": "light-1440: equal filter segments",
+      "passed": true,
+      "detail": [
+        130,
+        130,
+        130,
+        130
+      ]
+    },
+    {
+      "name": "light-1440: text contrast",
+      "passed": true,
+      "detail": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 15.13
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 6.55
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 4.63
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 16.55
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 7.17
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 6.98
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 4.63
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 7.56
+        }
+      ]
+    },
+    {
+      "name": "light-1920: theme and viewport",
+      "passed": true
+    },
+    {
+      "name": "light-1920: workspace inside viewport",
+      "passed": true
+    },
+    {
+      "name": "light-1920: six full-width project rows",
+      "passed": true
+    },
+    {
+      "name": "light-1920: equal filter segments",
+      "passed": true,
+      "detail": [
+        130,
+        130,
+        130,
+        130
+      ]
+    },
+    {
+      "name": "light-1920: text contrast",
+      "passed": true,
+      "detail": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 15.13
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 6.55
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 4.63
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 16.55
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 7.17
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 6.98
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 17.44
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 4.63
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 7.56
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 5.34
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 7.56
+        }
+      ]
+    },
+    {
+      "name": "light: theme changes",
+      "passed": true
+    },
+    {
+      "name": "light: theme persists",
+      "passed": true
+    },
+    {
+      "name": "light: no page errors",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "mode selection does not create an empty project",
+      "passed": true
+    },
+    {
+      "name": "batch mode updates CTA and steps",
+      "passed": true
+    },
+    {
+      "name": "replication mode updates CTA and steps",
+      "passed": true
+    },
+    {
+      "name": "search by title",
+      "passed": true
+    },
+    {
+      "name": "search by summary",
+      "passed": true
+    },
+    {
+      "name": "search empty result with clear action",
+      "passed": true
+    },
+    {
+      "name": "clear search restores rows",
+      "passed": true
+    },
+    {
+      "name": "batch filter",
+      "passed": true
+    },
+    {
+      "name": "copy from row menu",
+      "passed": true
+    },
+    {
+      "name": "replication filter",
+      "passed": true
+    },
+    {
+      "name": "all kinds count",
+      "passed": true
+    },
+    {
+      "name": "default recent list limited to six",
+      "passed": true
+    },
+    {
+      "name": "show all",
+      "passed": true
+    },
+    {
+      "name": "collapse all",
+      "passed": true
+    },
+    {
+      "name": "long title truncates with complete title",
+      "passed": true,
+      "detail": {
+        "width": 169,
+        "scroll": 1536,
+        "overflow": "hidden",
+        "title": "超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题超长工程标题"
+      }
+    },
+    {
+      "name": "long description stays one line",
+      "passed": true
+    },
+    {
+      "name": "keyboard opens original recipe picker",
+      "passed": true
+    },
+    {
+      "name": "cancel recipe creates no project",
+      "passed": true
+    },
+    {
+      "name": "failed creation retains recipe picker",
+      "passed": true
+    },
+    {
+      "name": "create preserves recipe payload and route",
+      "passed": true
+    },
+    {
+      "name": "batch creation payload and route",
+      "passed": true
+    },
+    {
+      "name": "replication creation payload and route",
+      "passed": true
+    },
+    {
+      "name": "diagnosis opens existing route",
+      "passed": true
+    },
+    {
+      "name": "project link opens existing route",
+      "passed": true
+    },
+    {
+      "name": "cancel deletion keeps row",
+      "passed": true
+    },
+    {
+      "name": "failed deletion keeps row",
+      "passed": true
+    },
+    {
+      "name": "confirmed deletion updates list",
+      "passed": true
+    },
+    {
+      "name": "refresh shows loading state",
+      "passed": true
+    },
+    {
+      "name": "load error offers retry",
+      "passed": true
+    },
+    {
+      "name": "retry restores projects",
+      "passed": true
+    },
+    {
+      "name": "director empty state",
+      "passed": true
+    },
+    {
+      "name": "batch empty action",
+      "passed": true
+    },
+    {
+      "name": "replication empty action",
+      "passed": true
+    },
+    {
+      "name": "all mutations carry original CSRF",
+      "passed": true
+    },
+    {
+      "name": "no page errors in verified flows",
+      "passed": true,
+      "detail": []
+    }
+  ],
+  "desktop": [
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "theme": "dark",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "overflow": false,
+      "boxes": {
+        ".dh-start-panel": {
+          "x": 118,
+          "y": 95,
+          "width": 358,
+          "height": 831
+        },
+        ".dh-create-menu": {
+          "x": 134,
+          "y": 199,
+          "width": 326,
+          "height": 239
+        },
+        ".dh-start-create": {
+          "x": 134,
+          "y": 854,
+          "width": 326,
+          "height": 56
+        },
+        ".dh-workspace-diagnosis": {
+          "x": 118,
+          "y": 938,
+          "width": 358,
+          "height": 84
+        },
+        ".dh-project-workspace": {
+          "x": 505,
+          "y": 95,
+          "width": 976,
+          "height": 926
+        },
+        ".dh-workspace-heading": {
+          "x": 505,
+          "y": 95,
+          "width": 976,
+          "height": 88
+        },
+        ".dh-workspace-toolbar": {
+          "x": 505,
+          "y": 201,
+          "width": 976,
+          "height": 48
+        },
+        ".dh-kind-filter": {
+          "x": 505,
+          "y": 201,
+          "width": 528,
+          "height": 48
+        },
+        ".dh-project-search": {
+          "x": 1121,
+          "y": 201,
+          "width": 360,
+          "height": 48
+        },
+        ".dh-workspace-table-shell": {
+          "x": 505,
+          "y": 269,
+          "width": 976,
+          "height": 737
+        }
+      },
+      "contrasts": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 15.945428309857647,
+          "fontSize": "26px"
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 12.33748558930551,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 7.91132925657566,
+          "fontSize": "13px"
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 6.0477546710057055,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.841852151642705,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "17px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 17.290236069819926,
+          "fontSize": "30px"
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 11.08724703118102,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 4.720230076642482,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 9.362582651097835,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 6.0477546710057055,
+          "fontSize": "12px"
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 10.22489814340749,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 7.816344573947873,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        }
+      ],
+      "filterWidths": [
+        130,
+        130,
+        130,
+        130
+      ],
+      "rows": [
+        {
+          "x": 506,
+          "y": 325,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 427,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 529,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 631,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 733,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 835,
+          "width": 974,
+          "height": 102
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "theme": "dark",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "dpr": 1,
+      "overflow": false,
+      "boxes": {
+        ".dh-start-panel": {
+          "x": 118,
+          "y": 95,
+          "width": 358,
+          "height": 831
+        },
+        ".dh-create-menu": {
+          "x": 134,
+          "y": 199,
+          "width": 326,
+          "height": 239
+        },
+        ".dh-start-create": {
+          "x": 134,
+          "y": 854,
+          "width": 326,
+          "height": 56
+        },
+        ".dh-workspace-diagnosis": {
+          "x": 118,
+          "y": 938,
+          "width": 358,
+          "height": 84
+        },
+        ".dh-project-workspace": {
+          "x": 505,
+          "y": 95,
+          "width": 911,
+          "height": 881
+        },
+        ".dh-workspace-heading": {
+          "x": 505,
+          "y": 95,
+          "width": 911,
+          "height": 88
+        },
+        ".dh-workspace-toolbar": {
+          "x": 505,
+          "y": 201,
+          "width": 911,
+          "height": 48
+        },
+        ".dh-kind-filter": {
+          "x": 505,
+          "y": 201,
+          "width": 528,
+          "height": 48
+        },
+        ".dh-project-search": {
+          "x": 1056,
+          "y": 201,
+          "width": 360,
+          "height": 48
+        },
+        ".dh-workspace-table-shell": {
+          "x": 505,
+          "y": 269,
+          "width": 911,
+          "height": 737
+        }
+      },
+      "contrasts": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 15.945428309857647,
+          "fontSize": "26px"
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 12.33748558930551,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 7.91132925657566,
+          "fontSize": "13px"
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 6.0477546710057055,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.841852151642705,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "17px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 17.290236069819926,
+          "fontSize": "30px"
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 11.08724703118102,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 4.720230076642482,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 9.362582651097835,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 6.0477546710057055,
+          "fontSize": "12px"
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 10.22489814340749,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 7.816344573947873,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        }
+      ],
+      "filterWidths": [
+        130,
+        130,
+        130,
+        130
+      ],
+      "rows": [
+        {
+          "x": 506,
+          "y": 325,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 427,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 529,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 631,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 733,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 835,
+          "width": 909,
+          "height": 102
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "theme": "dark",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "boxes": {
+        ".dh-start-panel": {
+          "x": 118,
+          "y": 95,
+          "width": 358,
+          "height": 831
+        },
+        ".dh-create-menu": {
+          "x": 134,
+          "y": 199,
+          "width": 326,
+          "height": 239
+        },
+        ".dh-start-create": {
+          "x": 134,
+          "y": 854,
+          "width": 326,
+          "height": 56
+        },
+        ".dh-workspace-diagnosis": {
+          "x": 118,
+          "y": 938,
+          "width": 358,
+          "height": 84
+        },
+        ".dh-project-workspace": {
+          "x": 505,
+          "y": 95,
+          "width": 1391,
+          "height": 961
+        },
+        ".dh-workspace-heading": {
+          "x": 505,
+          "y": 95,
+          "width": 1391,
+          "height": 88
+        },
+        ".dh-workspace-toolbar": {
+          "x": 505,
+          "y": 201,
+          "width": 1391,
+          "height": 48
+        },
+        ".dh-kind-filter": {
+          "x": 505,
+          "y": 201,
+          "width": 528,
+          "height": 48
+        },
+        ".dh-project-search": {
+          "x": 1536,
+          "y": 201,
+          "width": 360,
+          "height": 48
+        },
+        ".dh-workspace-table-shell": {
+          "x": 505,
+          "y": 269,
+          "width": 1391,
+          "height": 737
+        }
+      },
+      "contrasts": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 15.945428309857647,
+          "fontSize": "26px"
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 12.33748558930551,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 7.91132925657566,
+          "fontSize": "13px"
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 6.0477546710057055,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.841852151642705,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "17px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 17.290236069819926,
+          "fontSize": "30px"
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 11.08724703118102,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 4.720230076642482,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 9.362582651097835,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 15.945428309857647,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 6.0477546710057055,
+          "fontSize": "12px"
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 10.22489814340749,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 7.816344573947873,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 10.22489814340749,
+          "fontSize": "14px"
+        }
+      ],
+      "filterWidths": [
+        130,
+        130,
+        130,
+        130
+      ],
+      "rows": [
+        {
+          "x": 506,
+          "y": 325,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 427,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 529,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 631,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 733,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 835,
+          "width": 1389,
+          "height": 102
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "theme": "light",
+      "viewport": {
+        "width": 1505,
+        "height": 1045
+      },
+      "dpr": 1,
+      "overflow": false,
+      "boxes": {
+        ".dh-start-panel": {
+          "x": 118,
+          "y": 95,
+          "width": 358,
+          "height": 831
+        },
+        ".dh-create-menu": {
+          "x": 134,
+          "y": 199,
+          "width": 326,
+          "height": 239
+        },
+        ".dh-start-create": {
+          "x": 134,
+          "y": 854,
+          "width": 326,
+          "height": 56
+        },
+        ".dh-workspace-diagnosis": {
+          "x": 118,
+          "y": 938,
+          "width": 358,
+          "height": 84
+        },
+        ".dh-project-workspace": {
+          "x": 505,
+          "y": 95,
+          "width": 976,
+          "height": 926
+        },
+        ".dh-workspace-heading": {
+          "x": 505,
+          "y": 95,
+          "width": 976,
+          "height": 88
+        },
+        ".dh-workspace-toolbar": {
+          "x": 505,
+          "y": 201,
+          "width": 976,
+          "height": 48
+        },
+        ".dh-kind-filter": {
+          "x": 505,
+          "y": 201,
+          "width": 528,
+          "height": 48
+        },
+        ".dh-project-search": {
+          "x": 1121,
+          "y": 201,
+          "width": 360,
+          "height": 48
+        },
+        ".dh-workspace-table-shell": {
+          "x": 505,
+          "y": 269,
+          "width": 976,
+          "height": 737
+        }
+      },
+      "contrasts": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 17.442218774298816,
+          "fontSize": "26px"
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 15.126780214640934,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 6.554143107926275,
+          "fontSize": "13px"
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 4.628563974139376,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.337052849464787,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "17px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 16.546843189001052,
+          "fontSize": "30px"
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 7.169429099006868,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 5.337052849464787,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 6.975959656282942,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 4.628563974139376,
+          "fontSize": "12px"
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 7.557378129674007,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 5.337052849464787,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        }
+      ],
+      "filterWidths": [
+        130,
+        130,
+        130,
+        130
+      ],
+      "rows": [
+        {
+          "x": 506,
+          "y": 325,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 427,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 529,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 631,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 733,
+          "width": 974,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 835,
+          "width": 974,
+          "height": 102
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "theme": "light",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "dpr": 1,
+      "overflow": false,
+      "boxes": {
+        ".dh-start-panel": {
+          "x": 118,
+          "y": 95,
+          "width": 358,
+          "height": 831
+        },
+        ".dh-create-menu": {
+          "x": 134,
+          "y": 199,
+          "width": 326,
+          "height": 239
+        },
+        ".dh-start-create": {
+          "x": 134,
+          "y": 854,
+          "width": 326,
+          "height": 56
+        },
+        ".dh-workspace-diagnosis": {
+          "x": 118,
+          "y": 938,
+          "width": 358,
+          "height": 84
+        },
+        ".dh-project-workspace": {
+          "x": 505,
+          "y": 95,
+          "width": 911,
+          "height": 881
+        },
+        ".dh-workspace-heading": {
+          "x": 505,
+          "y": 95,
+          "width": 911,
+          "height": 88
+        },
+        ".dh-workspace-toolbar": {
+          "x": 505,
+          "y": 201,
+          "width": 911,
+          "height": 48
+        },
+        ".dh-kind-filter": {
+          "x": 505,
+          "y": 201,
+          "width": 528,
+          "height": 48
+        },
+        ".dh-project-search": {
+          "x": 1056,
+          "y": 201,
+          "width": 360,
+          "height": 48
+        },
+        ".dh-workspace-table-shell": {
+          "x": 505,
+          "y": 269,
+          "width": 911,
+          "height": 737
+        }
+      },
+      "contrasts": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 17.442218774298816,
+          "fontSize": "26px"
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 15.126780214640934,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 6.554143107926275,
+          "fontSize": "13px"
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 4.628563974139376,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.337052849464787,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "17px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 16.546843189001052,
+          "fontSize": "30px"
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 7.169429099006868,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 5.337052849464787,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 6.975959656282942,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 4.628563974139376,
+          "fontSize": "12px"
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 7.557378129674007,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 5.337052849464787,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        }
+      ],
+      "filterWidths": [
+        130,
+        130,
+        130,
+        130
+      ],
+      "rows": [
+        {
+          "x": 506,
+          "y": 325,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 427,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 529,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 631,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 733,
+          "width": 909,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 835,
+          "width": 909,
+          "height": 102
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "theme": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "boxes": {
+        ".dh-start-panel": {
+          "x": 118,
+          "y": 95,
+          "width": 358,
+          "height": 831
+        },
+        ".dh-create-menu": {
+          "x": 134,
+          "y": 199,
+          "width": 326,
+          "height": 239
+        },
+        ".dh-start-create": {
+          "x": 134,
+          "y": 854,
+          "width": 326,
+          "height": 56
+        },
+        ".dh-workspace-diagnosis": {
+          "x": 118,
+          "y": 938,
+          "width": 358,
+          "height": 84
+        },
+        ".dh-project-workspace": {
+          "x": 505,
+          "y": 95,
+          "width": 1391,
+          "height": 961
+        },
+        ".dh-workspace-heading": {
+          "x": 505,
+          "y": 95,
+          "width": 1391,
+          "height": 88
+        },
+        ".dh-workspace-toolbar": {
+          "x": 505,
+          "y": 201,
+          "width": 1391,
+          "height": 48
+        },
+        ".dh-kind-filter": {
+          "x": 505,
+          "y": 201,
+          "width": 528,
+          "height": 48
+        },
+        ".dh-project-search": {
+          "x": 1536,
+          "y": 201,
+          "width": 360,
+          "height": 48
+        },
+        ".dh-workspace-table-shell": {
+          "x": 505,
+          "y": 269,
+          "width": 1391,
+          "height": 737
+        }
+      },
+      "contrasts": [
+        {
+          "selector": ".dh-start-heading h1",
+          "ratio": 17.442218774298816,
+          "fontSize": "26px"
+        },
+        {
+          "selector": ".dh-start-heading p",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-create-menu-label strong",
+          "ratio": 15.126780214640934,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-create-menu-label small",
+          "ratio": 6.554143107926275,
+          "fontSize": "13px"
+        },
+        {
+          "selector": ".dh-start-summary",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-start-steps small",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-start-step-number",
+          "ratio": 4.628563974139376,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-start-create",
+          "ratio": 5.337052849464787,
+          "fontSize": "18px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "17px"
+        },
+        {
+          "selector": ".dh-workspace-diagnosis small",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-heading h2",
+          "ratio": 16.546843189001052,
+          "fontSize": "30px"
+        },
+        {
+          "selector": ".dh-workspace-heading p",
+          "ratio": 7.169429099006868,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-refresh",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".ant-segmented-item-selected .ant-segmented-item-label",
+          "ratio": 5.337052849464787,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-table th",
+          "ratio": 6.975959656282942,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy strong",
+          "ratio": 17.442218774298816,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-project-copy > span",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        },
+        {
+          "selector": ".dh-workspace-kind",
+          "ratio": 4.628563974139376,
+          "fontSize": "12px"
+        },
+        {
+          "selector": ".dh-workspace-time",
+          "ratio": 7.557378129674007,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-open",
+          "ratio": 5.337052849464787,
+          "fontSize": "16px"
+        },
+        {
+          "selector": ".dh-workspace-list-footer",
+          "ratio": 7.557378129674007,
+          "fontSize": "14px"
+        }
+      ],
+      "filterWidths": [
+        130,
+        130,
+        130,
+        130
+      ],
+      "rows": [
+        {
+          "x": 506,
+          "y": 325,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 427,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 529,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 631,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 733,
+          "width": 1389,
+          "height": 102
+        },
+        {
+          "x": 506,
+          "y": 835,
+          "width": 1389,
+          "height": 102
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "fonts": {
+    "fonts": [
+      {
+        "familyName": "Segoe UI",
+        "postScriptName": "SegoeUI-Bold",
+        "isCustomFont": false,
+        "glyphCount": 4
+      },
+      {
+        "familyName": "Microsoft YaHei",
+        "postScriptName": "MicrosoftYaHei-Bold",
+        "isCustomFont": false,
+        "glyphCount": 4
+      }
+    ]
+  },
+  "mutations": [
+    {
+      "key": "POST /api/director/projects/visual-batch/copy",
+      "body": {},
+      "csrf": "visual-test-csrf"
+    },
+    {
+      "key": "POST /api/projects",
+      "body": {
+        "name": "未命名导演工程",
+        "extra": {
+          "skill_pack_id": "half-narrated-live-action-short-drama"
+        }
+      },
+      "csrf": "visual-test-csrf"
+    },
+    {
+      "key": "POST /api/projects",
+      "body": {
+        "name": "未命名导演工程",
+        "extra": {
+          "skill_pack_id": "half-narrated-live-action-short-drama"
+        }
+      },
+      "csrf": "visual-test-csrf"
+    },
+    {
+      "key": "POST /api/director/projects",
+      "body": {
+        "title": "批量短视频",
+        "summary": "",
+        "source_script": "",
+        "payload": {
+          "kind": "batch_run",
+          "theme": "",
+          "count": 3,
+          "aspectRatio": "9:16",
+          "durationSec": 8,
+          "artStyle": null,
+          "items": [],
+          "videoWorkflowFamily": "official_h3",
+          "weightProfile": "full"
+        }
+      },
+      "csrf": "visual-test-csrf"
+    },
+    {
+      "key": "POST /api/director/projects",
+      "body": {
+        "title": "参考片复刻",
+        "summary": "",
+        "source_script": "",
+        "payload": {
+          "kind": "shot_replication",
+          "schemaVersion": 1,
+          "title": "",
+          "sourceVideo": null,
+          "analysis": {
+            "status": "idle",
+            "mode": "smart",
+            "segmentSeconds": 15,
+            "sceneThreshold": 0.35,
+            "depthStatus": "idle",
+            "depthPath": null,
+            "depthUrl": null,
+            "visionModel": null,
+            "error": null,
+            "startedAt": null,
+            "finishedAt": null
+          },
+          "renderSettings": {
+            "engine": "vace_depth",
+            "keepFirstFrame": true,
+            "artStyle": "",
+            "vaceStrength": 1,
+            "steps": 30,
+            "seed": null
+          },
+          "subjects": [],
+          "shots": []
+        }
+      },
+      "csrf": "visual-test-csrf"
+    },
+    {
+      "key": "DELETE /api/projects/visual-studio-6",
+      "body": null,
+      "csrf": "visual-test-csrf"
+    },
+    {
+      "key": "DELETE /api/projects/visual-studio-6",
+      "body": null,
+      "csrf": "visual-test-csrf"
+    }
+  ],
+  "unknown": []
+}

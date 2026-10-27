@@ -4,8 +4,6 @@ from backend.app.minimax_h3_refine_workflow import (
     PREVIEW_OUTPUT_NODE,
     PREVIEW_VIDEO_NODE,
     REFINE_LATENT_UPSCALER,
-    REFINE_LORA_4STEP,
-    REFINE_UNET_REF2V,
     build_minimax_h3_refine_workflow,
     continuation_workflow,
     first_pass_lora,
@@ -13,6 +11,7 @@ from backend.app.minimax_h3_refine_workflow import (
     first_pass_task_type,
     first_pass_unet,
     numeric_aspect_ratio,
+    refine_tiling,
 )
 from backend.app.minimax_h3_director_accel_workflow import (
     TASK_TYPE_FL2V,
@@ -34,6 +33,7 @@ from backend.app.workflow_registry import (
     LIGHTX2V_REF2V_4STEP_LORA,
     DUAL_ACCEL_LORA_NAME,
     normalize_options,
+    refine_target_megapixels,
     workflow_for,
 )
 
@@ -62,11 +62,17 @@ class H3RefineOptionTests(unittest.TestCase):
                 self.assertEqual(properties["refine_quality"]["default"], "1.0")
                 self.assertEqual(properties["refine_quality"]["ui_group"], "primary")
                 self.assertEqual(properties["refine_quality"]["ui_visible_when"], {"refine_enabled": True})
+                self.assertEqual(properties["refine_quality_mode"]["type"], "string")
+                self.assertEqual(properties["refine_quality_mode"]["default"], "auto")
+                self.assertEqual(properties["refine_quality_mode"]["ui_group"], "primary")
+                self.assertEqual(properties["refine_quality_mode"]["ui_visible_when"], {"refine_enabled": True})
                 self.assertEqual(properties["refine_preview"]["type"], "boolean")
-                self.assertEqual(properties["refine_preview"]["default"], False)
-                self.assertEqual(properties["refine_preview"]["ui_group"], "primary")
-                self.assertEqual(properties["refine_preview"]["ui_visible_when"], {"refine_enabled": True})
+                self.assertEqual(properties["refine_preview"]["default"], True)
+                self.assertEqual(properties["refine_preview"]["ui_group"], "internal")
+                self.assertNotIn("ui_visible_when", properties["refine_preview"])
                 self.assertEqual(properties["quality"]["ui_visible_when"], {"refine_enabled": False})
+                self.assertEqual(properties["weight_profile"]["ui_visible_when"], {"refine_enabled": False})
+                self.assertEqual(properties["speed"]["ui_visible_when"], {"refine_enabled": False})
 
     def test_refine_quality_accepts_one_or_two_megapixels_only(self) -> None:
         for mode in sorted(H3_WORKFLOWS, key=lambda item: item.value):
@@ -87,14 +93,35 @@ class H3RefineOptionTests(unittest.TestCase):
                 normalized = normalize_options(mode, t8_aspect(mode, {}))
                 self.assertFalse(normalized["refine_enabled"])
                 self.assertEqual(normalized["refine_quality"], "1.0")
+                self.assertEqual(normalized["refine_quality_mode"], "auto")
                 self.assertFalse(normalized["refine_preview"])
                 self.assertNotIn("upscale_after", normalized)
 
-    def test_refine_preview_requires_two_pass_and_is_normalized_to_boolean(self) -> None:
-        enabled = normalize_options(
-            JobMode.MINIMAX_H3_R2V, {"refine_enabled": True, "refine_preview": "true"},
+    def test_refine_quality_mode_defaults_to_auto_and_rejects_unknown_values(self) -> None:
+        for mode in sorted(H3_WORKFLOWS, key=lambda item: item.value):
+            with self.subTest(mode=mode.value):
+                forced = normalize_options(
+                    mode,
+                    t8_aspect(mode, {
+                        "refine_enabled": True, "refine_quality": "1.0", "refine_quality_mode": "force",
+                    }),
+                )
+                self.assertEqual(forced["refine_quality_mode"], "force")
+                with self.assertRaises(ValueError):
+                    normalize_options(
+                        mode,
+                        t8_aspect(mode, {"refine_enabled": True, "refine_quality_mode": "turbo"}),
+                    )
+
+    def test_refine_preview_is_platform_managed_and_disabled_without_two_pass(self) -> None:
+        defaulted = normalize_options(
+            JobMode.MINIMAX_H3_R2V, {"refine_enabled": True},
         )
-        self.assertTrue(enabled["refine_preview"])
+        self.assertTrue(defaulted["refine_preview"])
+        opted_out = normalize_options(
+            JobMode.MINIMAX_H3_R2V, {"refine_enabled": True, "refine_preview": False},
+        )
+        self.assertTrue(opted_out["refine_preview"])
         disabled = normalize_options(
             JobMode.MINIMAX_H3_R2V, {"refine_enabled": False, "refine_preview": True},
         )
@@ -161,10 +188,12 @@ class OfficialH3RefineTests(unittest.TestCase):
         self.assertEqual(graph["12"]["inputs"]["total_frames"], 124)
         self.assertTrue(graph["12"]["inputs"]["clear_vram_before_refine"])
 
-        self.assertEqual(graph["40"]["class_type"], "UNETLoader")
-        self.assertEqual(graph["40"]["inputs"]["unet_name"], H3_FL2VA_PRUNED)
-        self.assertEqual(graph["41"]["class_type"], "LoraLoaderModelOnly")
-        self.assertEqual(graph["41"]["inputs"]["lora_name"], REFINE_LORA_4STEP)
+        self.assertNotIn("40", graph)
+        self.assertNotIn("41", graph)
+        self.assertNotIn("42", graph)
+        self.assertNotIn("43", graph)
+        self.assertNotIn("refine_model", graph["45"]["inputs"])
+        self.assertEqual(graph["44"]["inputs"]["model"], graph["12"]["inputs"]["model"])
         self.assertEqual(graph["44"]["class_type"], "BasicScheduler")
         self.assertEqual(graph["44"]["inputs"]["scheduler"], "beta")
         self.assertEqual(graph["44"]["inputs"]["steps"], 3)
@@ -177,18 +206,21 @@ class OfficialH3RefineTests(unittest.TestCase):
         self.assertEqual(graph["45"]["inputs"]["passes"], 1)
         self.assertEqual(graph["45"]["inputs"]["seed_mode"], "inherit")
         self.assertEqual(graph["45"]["inputs"]["aspect_ratio"], "跟随导演台")
-        self.assertEqual(graph["45"]["inputs"]["width"], 1920)
-        self.assertEqual(graph["45"]["inputs"]["height"], 1088)
+        # 5 s = 124 frames; 2.0 MP is capped to 200/124 ≈ 1.6 MP.
+        self.assertEqual(graph["45"]["inputs"]["megapixels"], 1.6)
+        self.assertEqual(graph["45"]["inputs"]["width"], 1728)
+        self.assertEqual(graph["45"]["inputs"]["height"], 960)
         self.assertFalse(graph["45"]["inputs"]["skip_fl2v"])
         self.assertFalse(graph["45"]["inputs"]["confirm_first_pass"])
         self.assertFalse(graph["45"]["inputs"]["enable_tiling"])
         self.assertTrue(graph["45"]["inputs"]["enable_latent_chunking"])
+        self.assertFalse(graph["16"]["inputs"]["allow_compile"])
 
         self.assertEqual(graph["13"]["class_type"], "CreateVideo")
         self.assertEqual(graph["14"]["class_type"], "SaveVideo")
         self.assertEqual(graph["14"]["inputs"]["video"], ["13", 0])
 
-    def test_r2v_graph_uses_reference_group_and_w4a8_second_pass(self) -> None:
+    def test_r2v_graph_reuses_the_reference_first_pass_model_for_refine(self) -> None:
         options = self.options(JobMode.MINIMAX_H3_R2V)
         graph = build_minimax_h3_refine_workflow(
             JobMode.MINIMAX_H3_R2V,
@@ -204,8 +236,8 @@ class OfficialH3RefineTests(unittest.TestCase):
         self.assertEqual(graph["30"]["inputs"]["ref_images.ref_image_0"], ["20", 0])
         self.assertEqual(graph["12"]["inputs"]["task_type"], TASK_TYPE_R2V)
         self.assertEqual(graph["12"]["inputs"]["r2v_groups"], ["30", 0])
-        self.assertEqual(graph["40"]["class_type"], "ExperimentalW4A8UNETLoader")
-        self.assertEqual(graph["40"]["inputs"]["unet_name"], REFINE_UNET_REF2V)
+        self.assertEqual(graph["44"]["inputs"]["model"], graph["12"]["inputs"]["model"])
+        self.assertNotIn("40", graph)
         self.assertTrue(graph["45"]["inputs"]["skip_fl2v"])
 
     def test_t2v_graph_skips_fl2v_refine_and_has_no_frames(self) -> None:
@@ -223,6 +255,34 @@ class OfficialH3RefineTests(unittest.TestCase):
         graph = build_minimax_h3_refine_workflow(JobMode.MINIMAX_H3_I2V, "A preview.", ["start.png"], options, 7)
 
         self.assertEqual(graph["12"]["inputs"]["task_type"], TASK_TYPE_I2V)
+        self.assertEqual(graph["45"]["inputs"]["megapixels"], 1.0)
+        self.assertEqual(graph["45"]["inputs"]["width"], 1376)
+        self.assertEqual(graph["45"]["inputs"]["height"], 768)
+
+    def test_long_clips_cap_the_refine_canvas_to_keep_sampling_fast(self) -> None:
+        options = self.options(JobMode.MINIMAX_H3_R2V, {"duration": 13, "refine_quality": "1.0"})
+        graph = build_minimax_h3_refine_workflow(JobMode.MINIMAX_H3_R2V, "Long take.", ["ref.png"], options, 7)
+
+        self.assertEqual(options["refine_megapixels"], 0.6)
+        self.assertEqual(graph["45"]["inputs"]["megapixels"], 0.6)
+        self.assertEqual(graph["45"]["inputs"]["width"], 1056)
+        self.assertEqual(graph["12"]["inputs"]["total_frames"], 328)
+
+        larger = self.options(JobMode.MINIMAX_H3_R2V, {"duration": 13, "refine_quality": "2.0"})
+        self.assertEqual(larger["refine_megapixels"], 0.6)
+        self.assertEqual(larger["refine_quality"], "2.0")
+
+    def test_force_mode_keeps_the_requested_canvas_on_long_clips(self) -> None:
+        options = self.options(
+            JobMode.MINIMAX_H3_R2V,
+            {"duration": 13, "refine_quality": "1.0", "refine_quality_mode": "force"},
+        )
+        graph = build_minimax_h3_refine_workflow(
+            JobMode.MINIMAX_H3_R2V, "Long take.", ["ref.png"], options, 7,
+        )
+
+        self.assertEqual(options["refine_quality_mode"], "force")
+        self.assertEqual(options["refine_megapixels"], 1.0)
         self.assertEqual(graph["45"]["inputs"]["megapixels"], 1.0)
         self.assertEqual(graph["45"]["inputs"]["width"], 1376)
         self.assertEqual(graph["45"]["inputs"]["height"], 768)
@@ -263,8 +323,27 @@ class OfficialH3RefineTests(unittest.TestCase):
         self.assertNotIn("42", no_sage_graph)
         self.assertNotIn("43", no_sage_graph)
         self.assertEqual(no_sage_graph["12"]["inputs"]["model"], ["18", 0])
-        self.assertEqual(no_sage_graph["45"]["inputs"]["refine_model"], ["41", 0])
-        self.assertEqual(no_sage_graph["44"]["inputs"]["model"], ["41", 0])
+        self.assertNotIn("refine_model", no_sage_graph["45"]["inputs"])
+        self.assertEqual(no_sage_graph["44"]["inputs"]["model"], ["18", 0])
+
+    def test_long_clips_tile_the_second_pass(self) -> None:
+        ten = self.options(JobMode.MINIMAX_H3_I2V, {"duration": 10})
+        ten_graph = build_minimax_h3_refine_workflow(
+            JobMode.MINIMAX_H3_I2V, "A preview.", ["start.png"], ten, 7,
+        )
+        self.assertEqual(ten_graph["12"]["inputs"]["total_frames"], 243)
+        self.assertTrue(ten_graph["45"]["inputs"]["enable_tiling"])
+        self.assertEqual(ten_graph["45"]["inputs"]["tile_count"], 2)
+        self.assertEqual(ten_graph["45"]["inputs"]["tile_overlap"], 128)
+
+        thirteen = self.options(JobMode.MINIMAX_H3_I2V, {"duration": 13})
+        thirteen_graph = build_minimax_h3_refine_workflow(
+            JobMode.MINIMAX_H3_I2V, "A preview.", ["start.png"], thirteen, 7,
+        )
+        self.assertEqual(thirteen_graph["12"]["inputs"]["total_frames"], 328)
+        self.assertTrue(thirteen_graph["45"]["inputs"]["enable_tiling"])
+        self.assertEqual(thirteen_graph["45"]["inputs"]["tile_count"], 4)
+        self.assertEqual(thirteen_graph["44"]["inputs"]["model"], thirteen_graph["12"]["inputs"]["model"])
 
 
 class FamilyRefineNormalizationTests(unittest.TestCase):
@@ -302,22 +381,57 @@ class FamilyRefineNormalizationTests(unittest.TestCase):
         self.assertEqual(normalized["sampler_name"], "res_multistep")
         self.assertTrue(normalized["sage_allow_compile"])
 
-    def test_t8_keeps_its_step_count(self) -> None:
+    def test_refine_locks_t8_first_pass_steps(self) -> None:
         multirate = normalize_options(
             JobMode.MINIMAX_H3_T8_ALL_REFERENCE,
             {"refine_enabled": True, "aspect_ratio": "16:9 (Widescreen)", "video_steps": 12, "audio_steps": 12},
         )
         self.assertEqual(multirate["quality"], "0.4")
         self.assertEqual(multirate["megapixels"], 0.4)
-        self.assertEqual(multirate["video_steps"], 12)
+        self.assertEqual(multirate["video_steps"], 8)
+        self.assertEqual(multirate["audio_steps"], 10)
+        self.assertEqual(multirate["weight_profile"], "full")
         self.assertEqual(multirate["lora_name"], H3_TURBO_LORA_NAME)
+        self.assertEqual(multirate["lora_strength"], 1.0)
 
         dual_clock = normalize_options(
             JobMode.MINIMAX_H3_T8_DUAL_CLOCK,
             {"refine_enabled": True, "aspect_ratio": "16:9 (Widescreen)", "steps": 6},
         )
         self.assertEqual(dual_clock["quality"], "0.4")
-        self.assertEqual(dual_clock["steps"], 6)
+        self.assertEqual(dual_clock["steps"], 8)
+
+    def test_refine_ignores_conflicting_first_pass_choices(self) -> None:
+        director = normalize_options(
+            JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V,
+            {"refine_enabled": True, "weight_profile": "full", "speed": "quality", "steps": 25},
+        )
+        self.assertEqual(director["weight_profile"], "pruned")
+        self.assertEqual(director["speed"], "balanced")
+        self.assertEqual(director["steps"], 20)
+        self.assertEqual(director["video_steps"], 20)
+        self.assertEqual(director["audio_steps"], 20)
+        self.assertEqual(director["lora_strength"], 0.0)
+
+        lightx2v = normalize_options(
+            JobMode.MINIMAX_H3_LIGHTX2V_I2V,
+            {"refine_enabled": True, "weight_profile": "pruned", "speed": "quality", "steps": 25},
+        )
+        self.assertEqual(lightx2v["weight_profile"], "full")
+        self.assertEqual(lightx2v["speed"], "fast")
+        self.assertEqual(lightx2v["steps"], 4)
+        self.assertEqual(lightx2v["lora_name"], LIGHTX2V_FL2V_4STEP_LORA)
+        self.assertEqual(lightx2v["lora_strength"], 0.75)
+
+        dual = normalize_options(
+            JobMode.MINIMAX_H3_DUAL_ACCEL_T2V,
+            {"refine_enabled": True, "weight_profile": "pruned", "speed": "quality", "steps": 25},
+        )
+        self.assertEqual(dual["weight_profile"], "full")
+        self.assertEqual(dual["speed"], "balanced")
+        self.assertEqual(dual["steps"], 8)
+        self.assertEqual(dual["lora_name"], DUAL_ACCEL_LORA_NAME)
+        self.assertEqual(dual["lora_strength"], 1.0)
 
 
 class FamilyRefineGraphTests(unittest.TestCase):
@@ -378,7 +492,8 @@ class FamilyRefineGraphTests(unittest.TestCase):
         self.assertEqual(graph["15"]["inputs"]["lora_name"], LIGHTX2V_REF2V_4STEP_LORA)
         self.assertEqual(graph["30"]["class_type"], "MiniMaxH3DirectorGroupReferenceToVideo")
         self.assertEqual(graph["12"]["inputs"]["task_type"], TASK_TYPE_R2V)
-        self.assertEqual(graph["40"]["class_type"], "ExperimentalW4A8UNETLoader")
+        self.assertEqual(graph["44"]["inputs"]["model"], graph["12"]["inputs"]["model"])
+        self.assertNotIn("40", graph)
 
     def test_dual_accel_graph_uses_eight_steps_and_dual_sage(self) -> None:
         options = self.options(JobMode.MINIMAX_H3_DUAL_ACCEL_T2V)
@@ -401,6 +516,8 @@ class FamilyRefineGraphTests(unittest.TestCase):
         self.assertEqual(graph["1"]["inputs"]["unet_name"], H3_REF2VA_PRUNED)
         self.assertNotIn("15", graph)
         self.assertEqual(graph["16"]["class_type"], "PathchSageAttentionKJ")
+        self.assertTrue(graph["16"]["inputs"]["allow_compile"])
+        self.assertEqual(graph["44"]["inputs"]["model"], graph["12"]["inputs"]["model"])
         self.assertEqual(graph["12"]["inputs"]["steps"], 20)
         self.assertEqual(graph["12"]["inputs"]["sampler"], "res_multistep")
         self.assertEqual(graph["12"]["inputs"]["task_type"], TASK_TYPE_R2V)
@@ -433,13 +550,13 @@ class FamilyRefineGraphTests(unittest.TestCase):
         self.assertEqual(graph["30"]["inputs"]["first_frame"], ["20", 0])
         self.assertEqual(graph["12"]["inputs"]["steps"], 8)
 
-    def test_t8_video_steps_drive_the_first_pass(self) -> None:
+    def test_t8_first_pass_ignores_user_step_overrides(self) -> None:
         options = self.options(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, {"video_steps": 12, "audio_steps": 12})
-        self.assertEqual(first_pass_steps(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, options), 12)
+        self.assertEqual(first_pass_steps(JobMode.MINIMAX_H3_T8_ALL_REFERENCE, options), 8)
         graph = build_minimax_h3_refine_workflow(
             JobMode.MINIMAX_H3_T8_ALL_REFERENCE, "A preview.", [], options, 7,
         )
-        self.assertEqual(graph["12"]["inputs"]["steps"], 12)
+        self.assertEqual(graph["12"]["inputs"]["steps"], 8)
 
 
 class RefineHelperTests(unittest.TestCase):
@@ -461,11 +578,12 @@ class RefineHelperTests(unittest.TestCase):
         self.assertEqual(first_pass_task_type(JobMode.MINIMAX_H3_T8_DUAL_CLOCK, ["a.png"]), TASK_TYPE_I2V)
         self.assertEqual(first_pass_task_type(JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V, ["a.png"]), TASK_TYPE_R2V)
 
-    def test_first_pass_unet_follows_family_weight_settings(self) -> None:
+    def test_first_pass_unet_follows_locked_family_settings(self) -> None:
         lightx2v = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"refine_enabled": True})
         self.assertEqual(first_pass_unet(JobMode.MINIMAX_H3_LIGHTX2V_T2V, TASK_TYPE_T2V, lightx2v), H3_FL2VA_FULL)
-        no_lora = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"refine_enabled": True, "speed": "quality"})
-        self.assertEqual(first_pass_unet(JobMode.MINIMAX_H3_LIGHTX2V_T2V, TASK_TYPE_T2V, no_lora), H3_FL2VA_PRUNED)
+        overridden = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"refine_enabled": True, "speed": "quality"})
+        self.assertEqual(overridden["speed"], "fast")
+        self.assertEqual(first_pass_unet(JobMode.MINIMAX_H3_LIGHTX2V_T2V, TASK_TYPE_T2V, overridden), H3_FL2VA_FULL)
         director = normalize_options(JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V, {"refine_enabled": True})
         self.assertEqual(first_pass_unet(JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V, TASK_TYPE_R2V, director), H3_REF2VA_PRUNED)
 
@@ -473,6 +591,50 @@ class RefineHelperTests(unittest.TestCase):
         self.assertEqual(numeric_aspect_ratio({"aspect_ratio": "16:9 (Widescreen)"}), "16:9")
         self.assertEqual(numeric_aspect_ratio({"aspect_ratio": " 9:16 "}), "9:16")
         self.assertEqual(numeric_aspect_ratio({}), "16:9")
+
+    def test_refine_tiling_scales_with_clip_length(self) -> None:
+        self.assertEqual(refine_tiling(56), (False, 2))
+        self.assertEqual(refine_tiling(124), (False, 2))
+        self.assertEqual(refine_tiling(191), (False, 2))
+        self.assertEqual(refine_tiling(192), (True, 2))
+        self.assertEqual(refine_tiling(243), (True, 2))
+        self.assertEqual(refine_tiling(244), (True, 4))
+        self.assertEqual(refine_tiling(328), (True, 4))
+
+    def test_refine_target_megapixels_stays_under_the_frames_budget(self) -> None:
+        self.assertEqual(refine_target_megapixels("2.0", 56), 2.0)
+        self.assertEqual(refine_target_megapixels("2.0", 124), 1.6)
+        self.assertEqual(refine_target_megapixels("1.0", 124), 1.0)
+        self.assertEqual(refine_target_megapixels("1.0", 192), 1.0)
+        self.assertEqual(refine_target_megapixels("2.0", 328), 0.6)
+        self.assertEqual(refine_target_megapixels("1.0", 328), 0.6)
+        self.assertEqual(refine_target_megapixels("1.0", 362), 0.5)
+        self.assertEqual(refine_target_megapixels("1.0", 2000), 0.4)
+        self.assertEqual(refine_target_megapixels("1.0", 328, force=True), 1.0)
+        self.assertEqual(refine_target_megapixels("2.0", 328, force=True), 2.0)
+
+    def test_normalized_options_echo_the_capped_refine_megapixels(self) -> None:
+        for mode in sorted(H3_WORKFLOWS, key=lambda item: item.value):
+            with self.subTest(mode=mode.value):
+                long_clip = normalize_options(
+                    mode, t8_aspect(mode, {"refine_enabled": True, "refine_quality": "1.0", "duration": 13}),
+                )
+                self.assertEqual(long_clip["refine_quality"], "1.0")
+                self.assertEqual(long_clip["refine_quality_mode"], "auto")
+                self.assertEqual(long_clip["refine_megapixels"], 0.6)
+                forced_clip = normalize_options(
+                    mode,
+                    t8_aspect(mode, {
+                        "refine_enabled": True, "refine_quality": "1.0", "refine_quality_mode": "force", "duration": 13,
+                    }),
+                )
+                self.assertEqual(forced_clip["refine_megapixels"], 1.0)
+                short_clip = normalize_options(
+                    mode, t8_aspect(mode, {"refine_enabled": True, "refine_quality": "1.0", "duration": 5}),
+                )
+                self.assertEqual(short_clip["refine_megapixels"], 1.0)
+                disabled = normalize_options(mode, t8_aspect(mode, {"duration": 13}))
+                self.assertNotIn("refine_megapixels", disabled)
 
     def test_non_h3_mode_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported H3 refine"):

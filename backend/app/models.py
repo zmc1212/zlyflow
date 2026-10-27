@@ -106,6 +106,9 @@ class JobRoundResponse(BaseModel):
     stage: str
     progress: int = Field(ge=0, le=100)
     prompt: str
+    display_prompt: str | None = Field(
+        default=None, description="中文展示提示词，界面默认显示；为空时回退到 prompt。",
+    )
     negative_prompt: str = ""
     image_size: str | None = None
     options: dict = Field(default_factory=dict)
@@ -555,6 +558,12 @@ class PromptOptimizeRequest(BaseModel):
     skill_pack_id: str | None = Field(default=None, max_length=128, description="导演台技能包 ID；空表示默认程序装箱")
     reference_count: int | None = Field(default=0, ge=0, le=10, description="当前参考图数量")
     workflow_id: str | None = Field(default=None, max_length=64, description="当前工作流 ID")
+    duration_seconds: float | None = Field(
+        default=None,
+        ge=1,
+        le=60,
+        description="当前选择的视频时长（秒）；用于首尾帧对齐声明和镜头时间码。",
+    )
     image_urls: list[str] | None = Field(
         default=None,
         max_length=8,
@@ -565,6 +574,9 @@ class PromptOptimizeRequest(BaseModel):
 class PromptOptimizeResponse(BaseModel):
     original_prompt: str
     optimized_prompt: str
+    optimized_prompt_zh: str | None = Field(
+        default=None, description="视频 H3 提示词的中文对照，仅用于界面展示；为空时前端回退到英文或原文。",
+    )
     skill_id: str | None = None
     skill_pack_id: str | None = None
 

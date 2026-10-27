@@ -1,7 +1,7 @@
 export const DIRECTOR2_DEFAULT_VIDEO_WORKFLOW = "minimax-h3-director-accel-r2v"
 export const DIRECTOR2_VIDEO_SETTINGS_STORAGE_PREFIX = "director2-episode-video-settings:"
 export const DIRECTOR2_EPISODE_HIDDEN_OPTIONS = new Set(["duration", "custom_steps"])
-export const DIRECTOR2_BOOLEAN_VIDEO_OPTIONS = new Set(["refine_enabled", "refine_preview"])
+export const DIRECTOR2_BOOLEAN_VIDEO_OPTIONS = new Set(["refine_enabled"])
 
 export type Director2OptionVisibility = "primary" | "advanced" | "internal"
 
@@ -91,6 +91,7 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
         { value: "pruned", label: "精简（20 GB）" },
         { value: "full", label: "完整（32 GB）" },
       ],
+      ui_visible_when: { refine_enabled: false },
     },
   },
   {
@@ -107,6 +108,7 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
         "1.8": 1.8, "2.0": 2.0,
       },
       ui_resolution_preview: { multiple: 32 },
+      ui_visible_when: { refine_enabled: false },
       ui_options: [
         { value: "0.2", label: "0.2 MP" }, { value: "0.3", label: "0.3 MP" },
         { value: "0.4", label: "0.4 MP" }, { value: "0.5", label: "0.5 MP" },
@@ -130,6 +132,7 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
         { value: "balanced", label: "均衡（20 步）" },
         { value: "quality", label: "精细（25 步）" },
       ],
+      ui_visible_when: { refine_enabled: false },
     },
   },
   {
@@ -144,30 +147,34 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
     },
   },
   {
-    name: "refine_quality",
+    name: "refine_quality_mode",
     ui_group: "primary",
     definition: {
-      label: "二采画质",
+      label: "清晰度策略",
       type: "string",
-      default: "1.0",
+      default: "auto",
       ui_group: "primary",
-      enum: ["1.0", "2.0"],
+      enum: ["auto", "force"],
       ui_options: [
-        { value: "1.0", label: "1.0 MP" },
-        { value: "2.0", label: "2.0 MP" },
+        { value: "auto", label: "自动（推荐）" },
+        { value: "force", label: "强制高清" },
       ],
       ui_visible_when: { refine_enabled: true },
     },
   },
   {
-    name: "refine_preview",
+    name: "refine_quality",
     ui_group: "primary",
     definition: {
-      label: "先预览一采",
-      type: "boolean",
-      default: false,
+      label: "目标清晰度",
+      type: "string",
+      default: "1.0",
       ui_group: "primary",
-      description: "先只跑一采并停下，你看过成片后再决定是否跑二采。",
+      enum: ["1.0", "2.0"],
+      ui_options: [
+        { value: "1.0", label: "高清 1.0 MP" },
+        { value: "2.0", label: "超清 2.0 MP" },
+      ],
       ui_visible_when: { refine_enabled: true },
     },
   },
@@ -301,27 +308,36 @@ export function shotVideoReadyCount(beats: Array<{ video_url?: string | null }> 
   return (beats || []).filter((beat) => Boolean(String(beat.video_url || "").trim())).length
 }
 
-export function generatedResolutionLabel(
-  definition: Director2OptionDefinition,
-  quality: string,
+export function resolutionLabelForMegapixels(
+  megapixels: number,
   aspectRatio: string,
+  preview?: { multiple?: number; max_width?: number; max_height?: number },
 ): string | undefined {
-  const megapixels = definition.megapixels_by_quality?.[quality]
   const match = aspectRatio.match(/(?:\d+(?:\.\d+)?|\.\d+)\s*:\s*(?:\d+(?:\.\d+)?|\.\d+)/)?.[0]
   const [aspectWidth, aspectHeight] = match?.split(":").map(Number) ?? []
   if (!megapixels || !aspectWidth || !aspectHeight) return undefined
-  const multiple = definition.ui_resolution_preview?.multiple ?? 32
+  const multiple = preview?.multiple ?? 32
   const ratio = aspectWidth / aspectHeight
   let width = Math.round(Math.sqrt(megapixels * 1024 * 1024 * ratio) / multiple) * multiple
   let height = Math.round(Math.sqrt((megapixels * 1024 * 1024) / ratio) / multiple) * multiple
-  const maxWidth = ratio >= 1 ? definition.ui_resolution_preview?.max_width : definition.ui_resolution_preview?.max_height
-  const maxHeight = ratio >= 1 ? definition.ui_resolution_preview?.max_height : definition.ui_resolution_preview?.max_width
+  const maxWidth = ratio >= 1 ? preview?.max_width : preview?.max_height
+  const maxHeight = ratio >= 1 ? preview?.max_height : preview?.max_width
   if (maxWidth && maxHeight && (width > maxWidth || height > maxHeight)) {
     const scale = Math.min(maxWidth / width, maxHeight / height)
     width = Math.max(multiple, Math.round((width * scale) / multiple) * multiple)
     height = Math.max(multiple, Math.round((height * scale) / multiple) * multiple)
   }
   return `${width} × ${height}`
+}
+
+export function generatedResolutionLabel(
+  definition: Director2OptionDefinition,
+  quality: string,
+  aspectRatio: string,
+): string | undefined {
+  const megapixels = definition.megapixels_by_quality?.[quality]
+  if (!megapixels) return undefined
+  return resolutionLabelForMegapixels(megapixels, aspectRatio, definition.ui_resolution_preview)
 }
 
 export function optionChoices(
@@ -387,13 +403,93 @@ export function playbackAspectRatio(values?: Record<string, string> | null): str
   return raw || "16:9"
 }
 
+// Mirrors backend workflow_registry.refine_target_megapixels: the 16 GB remote card
+// stays fast only while frames × target megapixels stays around 200.
+const REFINE_FRAME_MEGAPIXEL_BUDGET = 200
+const REFINE_MIN_MEGAPIXELS = 0.4
+
+export function refineFrames(durationSec: number): number {
+  const frames = Math.max(5, Math.round(durationSec * 24))
+  return frames + ((((5 - frames) % 17) + 17) % 17)
+}
+
+export function refineEffectiveMegapixels(
+  refineQuality: string | number,
+  durationSec: number,
+  qualityMode = "auto",
+): number {
+  const requested = Number(refineQuality) || 1
+  if (qualityMode === "force") return Math.floor(requested * 10 + 1e-6) / 10
+  const frames = refineFrames(durationSec)
+  const budgeted = REFINE_FRAME_MEGAPIXEL_BUDGET / frames
+  return Math.max(REFINE_MIN_MEGAPIXELS, Math.floor(Math.min(requested, budgeted) * 10 + 1e-6) / 10)
+}
+
+export type RefinePlan = {
+  requestedMegapixels: number
+  effectiveMegapixels: number
+  forced: boolean
+  capped: boolean
+  overBudget: boolean
+  resolutionLabel?: string
+  estimatedSeconds?: number
+}
+
+// Calibrated from real remote runs: 2 s / 1.0 MP = 174 s, 13 s / 0.6 MP = 674 s.
+// The estimate is only offered inside the safe budget; beyond it the card pages.
+export function refinePlan(
+  refineQuality: string | number,
+  qualityMode: string,
+  durationSec: number,
+  aspectRatio = "16:9",
+): RefinePlan {
+  const requested = Math.max(0.1, Number(refineQuality) || 1)
+  const forced = qualityMode === "force"
+  const frames = refineFrames(Math.max(0, durationSec))
+  const effective = refineEffectiveMegapixels(requested, durationSec, qualityMode)
+  const capped = !forced && effective < requested - 1e-6
+  const overBudget = frames * effective > REFINE_FRAME_MEGAPIXEL_BUDGET + 1e-6
+  return {
+    requestedMegapixels: requested,
+    effectiveMegapixels: effective,
+    forced,
+    capped,
+    overBudget,
+    resolutionLabel: resolutionLabelForMegapixels(effective, aspectRatio),
+    estimatedSeconds: overBudget ? undefined : Math.round(frames * (1.37 + 0.75 * effective) + 52),
+  }
+}
+
+export function formatRefineDuration(seconds?: number): string | undefined {
+  if (!seconds || seconds <= 0) return undefined
+  if (seconds < 60) return `${Math.max(10, Math.round(seconds / 10) * 10)} 秒`
+  return `约 ${Math.round(seconds / 60)} 分钟`
+}
+
+export function refineForceWarning(
+  values: Record<string, string>,
+  durationSec: number,
+): string | undefined {
+  if (values.refine_enabled !== "true" || values.refine_quality_mode !== "force") return undefined
+  const plan = refinePlan(
+    values.refine_quality || "1.0", "force", durationSec, values.aspect_ratio || "16:9",
+  )
+  if (!plan.overBudget) return undefined
+  return `按 ${Math.round(durationSec)} 秒片长强制 ${plan.requestedMegapixels.toFixed(1)} MP 超出平台安全预算（片长×像素约 200）。RTX 4080 16 GB 实测 13 秒 1.0 MP 全程约 37 分钟；更长片长或 2.0 MP 可能超过 1 小时，并有显存不足失败的风险。`
+}
+
 export function playbackAspectIsPortrait(aspect?: string | null): boolean {
   const match = String(aspect || "").match(/(\d+(?:\.\d+)?)\s*[:/x×]\s*(\d+(?:\.\d+)?)/i)
   if (!match) return false
   return Number(match[2]) > Number(match[1])
 }
 
-export function videoSettingsSummary(fields: Director2VideoOptionField[], values: Record<string, string>): string {
+export function videoSettingsSummary(
+  fields: Director2VideoOptionField[],
+  values: Record<string, string>,
+  durationSec?: number,
+  previewFirstPass = true,
+): string {
   const aspect = values.aspect_ratio || "16:9"
   const qualityField = fields.find((item) => item.name === "quality")
   const quality = values.quality || String(qualityField?.definition.default || "0.4")
@@ -403,13 +499,24 @@ export function videoSettingsSummary(fields: Director2VideoOptionField[], values
   const weightLabel = weightField?.definition.ui_options?.find((item) => String(item.value) === weight)?.label || weight
   const parts = [aspect]
   if (values.refine_enabled === "true") {
-    parts.push(values.refine_preview === "true" ? `二采 ${values.refine_quality || "1.0"} MP · 先预览` : `二采 ${values.refine_quality || "1.0"} MP`)
+    const requested = Number(values.refine_quality || "1.0") || 1
+    const mode = values.refine_quality_mode || "auto"
+    const effective = durationSec && durationSec > 0
+      ? refineEffectiveMegapixels(requested, durationSec, mode)
+      : requested
+    const capped = mode !== "force" && effective < requested - 1e-6
+    let refine = `二采 ${effective.toFixed(1)} MP`
+    if (capped) refine += " · 自动降档"
+    else if (mode === "force") refine += " · 强制"
+    parts.push(previewFirstPass ? `${refine} · 先预览` : refine)
   } else if (qualityChoice) {
     parts.push(qualityChoice.label.split(" · ")[0])
   } else if (quality) {
     parts.push(`${quality} MP`)
   }
-  if (weightLabel) parts.push(weightLabel.replace(/（.*?）/g, "").trim() || weightLabel)
+  if (values.refine_enabled !== "true" && weightLabel) {
+    parts.push(weightLabel.replace(/（.*?）/g, "").trim() || weightLabel)
+  }
   return parts.join(" · ")
 }
 

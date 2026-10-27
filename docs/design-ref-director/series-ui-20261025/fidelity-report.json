@@ -1,0 +1,1308 @@
+{
+  "status": "截图身份与渲染前提通过；视觉仍需复核",
+  "manifest": "D:\\zlyun\\Toonflow\\本地视频工作台\\test-results\\series-ui-20261025\\round-02\\run.json",
+  "capture": {
+    "measurement_sha256": "479e25c553b4da053b2781aafb4c3e41b52acd6c980fc47f3e6b44c2883ed0be",
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1586,
+      "height": 992
+    },
+    "dpr": 1,
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "document_height": 992,
+    "fonts_ready": true,
+    "images_ready": true,
+    "document_overflow_x": false,
+    "captured_at": "2026-10-25T01:28:51.540Z",
+    "elements": [
+      {
+        "name": "summary",
+        "selector": ".series-summary",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          300,
+          184,
+          1258,
+          92
+        ],
+        "text": "06总集数4 集脚本已就绪1 集分镜已完成39规划镜头项目资产0 角色 · 0 场景 · 0 道具",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "status-filter",
+        "selector": ".series-toolbar .ant-segmented",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          300,
+          294,
+          558,
+          46
+        ],
+        "text": "全部 6草稿 2脚本就绪 2制作中 1分镜完成 1",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(192, 199, 208)",
+          "backgroundColor": "rgb(30, 34, 41)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "search",
+        "selector": ".series-search-tools .ant-input-affix-wrapper",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1080,
+          294,
+          278,
+          46
+        ],
+        "text": "",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "sort",
+        "selector": ".series-search-tools .ant-select",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1370,
+          294,
+          188,
+          46
+        ],
+        "text": "集数从小到大",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(30, 34, 41)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "episode-1",
+        "selector": ".series-card[data-episode-number='1']",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          300,
+          358,
+          408.65625,
+          290
+        ],
+        "text": "01第 1 集雨夜来客分镜完成旧城雨夜，林澈收到一封没有署名的信。熟悉的字迹，将他带回十年前的街角。草稿脚本出图分镜12 个镜头更新于 10-25进入工坊",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "episode-2",
+        "selector": ".series-card[data-episode-number='2']",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          724.65625,
+          358,
+          408.671875,
+          290
+        ],
+        "text": "02第 2 集消失的底片出图中沿着信中的线索，他来到一家即将关门的照相馆，一张底片指向失踪多年的故人。草稿脚本出图分镜10 个镜头更新于 10-25进入工坊",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "episode-3",
+        "selector": ".series-card[data-episode-number='3']",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          1149.328125,
+          358,
+          408.65625,
+          290
+        ],
+        "text": "03第 3 集旧站台脚本就绪末班车缓缓驶入旧站台，苏晚带来了另一封信。两条时间线，在午夜交汇。草稿脚本出图分镜8 个镜头更新于 10-25进入工坊",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "episode-4",
+        "selector": ".series-card[data-episode-number='4']",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          300,
+          664,
+          408.65625,
+          290
+        ],
+        "text": "04第 4 集暗处的回声脚本就绪林澈重新整理父亲留下的录音，电话另一端，一个熟悉的声音打破了沉默。草稿脚本出图分镜9 个镜头更新于 10-25进入工坊",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "number-tile",
+        "selector": ".series-card[data-episode-number='1'] .series-episode-number",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          319,
+          375,
+          58,
+          58
+        ],
+        "text": "01第 1 集",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(154, 168, 255)",
+          "backgroundColor": "rgba(127, 141, 246, 0.17)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "status-tag",
+        "selector": ".series-card[data-episode-number='1'] .series-status",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          586.65625,
+          383,
+          103,
+          32
+        ],
+        "text": "分镜完成",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "20px",
+          "fontWeight": "400",
+          "color": "rgb(110, 231, 183)",
+          "backgroundColor": "rgba(16, 185, 129, 0.13)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "stage-icon",
+        "selector": ".series-card[data-episode-number='1'] .ant-steps-item:first-child .ant-steps-item-icon",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          340.828125,
+          499,
+          22,
+          22
+        ],
+        "text": "",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "24px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(80, 89, 199)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "card-footer",
+        "selector": ".series-card[data-episode-number='1'] .series-card-footer",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          319,
+          587,
+          370.65625,
+          60
+        ],
+        "text": "进入工坊",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "more-button",
+        "selector": ".series-card[data-episode-number='1'] .series-more",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          651.65625,
+          600.5,
+          38,
+          34
+        ],
+        "text": "",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(192, 199, 208)",
+          "backgroundColor": "rgb(30, 34, 41)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "heading-ink",
+        "selector": ".series-heading h1",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          300,
+          94,
+          210,
+          38
+        ],
+        "text": "剧集工坊",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "30px",
+          "lineHeight": "38px",
+          "fontWeight": "650",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "description-ink",
+        "selector": ".series-card[data-episode-number='1'] .series-card-description",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          319,
+          443,
+          370.65625,
+          44
+        ],
+        "text": "旧城雨夜，林澈收到一封没有署名的信。熟悉的字迹，将他带回十年前的街角。",
+        "computed": {
+          "display": "flow-root",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(192, 199, 208)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "card-title-ink",
+        "selector": ".series-card[data-episode-number='1'] h2",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          395,
+          375,
+          173.65625,
+          34
+        ],
+        "text": "雨夜来客",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "26px",
+          "fontWeight": "600",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "stage-labels-ink",
+        "selector": ".series-card[data-episode-number='1'] .series-stages",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          301,
+          499,
+          406.65625,
+          46
+        ],
+        "text": "草稿脚本出图分镜",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "meta-ink",
+        "selector": ".series-card[data-episode-number='1'] .series-card-meta",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          319,
+          559,
+          370.65625,
+          20
+        ],
+        "text": "12 个镜头更新于 10-25",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "20px",
+          "fontWeight": "400",
+          "color": "rgb(155, 165, 177)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "open-link-ink",
+        "selector": ".series-card[data-episode-number='1'] .series-open",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          319,
+          599.5,
+          93,
+          36
+        ],
+        "text": "进入工坊",
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "20px",
+          "fontWeight": "600",
+          "color": "rgb(154, 168, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      }
+    ],
+    "assets": {},
+    "full_page": false,
+    "screenshot_scale": "css",
+    "theme": "dark",
+    "platform_fonts": [
+      {
+        "selector": ".series-heading h1",
+        "fonts": [
+          {
+            "familyName": "Microsoft YaHei",
+            "postScriptName": "MicrosoftYaHei-Bold",
+            "isCustomFont": false,
+            "glyphCount": 4
+          }
+        ]
+      },
+      {
+        "selector": ".series-card-description",
+        "fonts": [
+          {
+            "familyName": "Microsoft YaHei",
+            "postScriptName": "MicrosoftYaHei",
+            "isCustomFont": false,
+            "glyphCount": 35
+          }
+        ]
+      },
+      {
+        "selector": ".series-card-heading h2",
+        "fonts": [
+          {
+            "familyName": "Microsoft YaHei",
+            "postScriptName": "MicrosoftYaHei-Bold",
+            "isCustomFont": false,
+            "glyphCount": 4
+          }
+        ]
+      }
+    ]
+  },
+  "section_positions": [],
+  "comparison": "test-results\\series-ui-20261025\\round-02\\report\\verify-metrics.json",
+  "geometry": {
+    "measurement_sha256": "479e25c553b4da053b2781aafb4c3e41b52acd6c980fc47f3e6b44c2883ed0be",
+    "complete": true,
+    "unavailable_regions": [],
+    "regions": [
+      {
+        "name": "summary",
+        "selector": ".series-summary",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          300,
+          184,
+          1258,
+          92
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          300.0,
+          183.0,
+          1258.0,
+          92.0
+        ],
+        "delta_css": [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "status-filter",
+        "selector": ".series-toolbar .ant-segmented",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          300,
+          294,
+          558,
+          46
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(192, 199, 208)",
+          "backgroundColor": "rgb(30, 34, 41)"
+        },
+        "reference_css_box": [
+          300.0,
+          293.0,
+          558.0,
+          46.0
+        ],
+        "delta_css": [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "search",
+        "selector": ".series-search-tools .ant-input-affix-wrapper",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1080,
+          294,
+          278,
+          46
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          1079.0,
+          293.0,
+          277.0,
+          46.0
+        ],
+        "delta_css": [
+          1.0,
+          1.0,
+          1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "sort",
+        "selector": ".series-search-tools .ant-select",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1370,
+          294,
+          188,
+          46
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(30, 34, 41)"
+        },
+        "reference_css_box": [
+          1370.0,
+          293.0,
+          188.0,
+          46.0
+        ],
+        "delta_css": [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "episode-1",
+        "selector": ".series-card[data-episode-number='1']",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          300,
+          358,
+          408.65625,
+          290
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          300.0,
+          359.0,
+          409.0,
+          291.0
+        ],
+        "delta_css": [
+          0.0,
+          -1.0,
+          -0.344,
+          -1.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "episode-2",
+        "selector": ".series-card[data-episode-number='2']",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          724.65625,
+          358,
+          408.671875,
+          290
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          725.0,
+          359.0,
+          409.0,
+          291.0
+        ],
+        "delta_css": [
+          -0.344,
+          -1.0,
+          -0.328,
+          -1.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "episode-3",
+        "selector": ".series-card[data-episode-number='3']",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1149.328125,
+          358,
+          408.65625,
+          290
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          1150.0,
+          359.0,
+          408.0,
+          291.0
+        ],
+        "delta_css": [
+          -0.672,
+          -1.0,
+          0.656,
+          -1.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "episode-4",
+        "selector": ".series-card[data-episode-number='4']",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          300,
+          664,
+          408.65625,
+          290
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          300.0,
+          664.0,
+          409.0,
+          286.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          -0.344,
+          4.0
+        ],
+        "max_abs_delta_css": 4.0
+      },
+      {
+        "name": "number-tile",
+        "selector": ".series-card[data-episode-number='1'] .series-episode-number",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          319,
+          375,
+          58,
+          58
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(154, 168, 255)",
+          "backgroundColor": "rgba(127, 141, 246, 0.17)"
+        },
+        "reference_css_box": [
+          318.0,
+          375.0,
+          58.0,
+          59.0
+        ],
+        "delta_css": [
+          1.0,
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "max_abs_delta_css": 1.0
+      },
+      {
+        "name": "status-tag",
+        "selector": ".series-card[data-episode-number='1'] .series-status",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          586.65625,
+          383,
+          103,
+          32
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "20px",
+          "fontWeight": "400",
+          "color": "rgb(110, 231, 183)",
+          "backgroundColor": "rgba(16, 185, 129, 0.13)"
+        },
+        "reference_css_box": [
+          589.0,
+          384.0,
+          104.0,
+          32.0
+        ],
+        "delta_css": [
+          -2.344,
+          -1.0,
+          -1.0,
+          0.0
+        ],
+        "max_abs_delta_css": 2.344
+      },
+      {
+        "name": "stage-icon",
+        "selector": ".series-card[data-episode-number='1'] .ant-steps-item:first-child .ant-steps-item-icon",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          340.828125,
+          499,
+          22,
+          22
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "24px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(80, 89, 199)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          340.0,
+          501.0,
+          22.0,
+          22.0
+        ],
+        "delta_css": [
+          0.828,
+          -2.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 2.0
+      },
+      {
+        "name": "card-footer",
+        "selector": ".series-card[data-episode-number='1'] .series-card-footer",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          319,
+          587,
+          370.65625,
+          60
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          318.0,
+          588.0,
+          372.0,
+          60.0
+        ],
+        "delta_css": [
+          1.0,
+          -1.0,
+          -1.344,
+          0.0
+        ],
+        "max_abs_delta_css": 1.344
+      },
+      {
+        "name": "more-button",
+        "selector": ".series-card[data-episode-number='1'] .series-more",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          651.65625,
+          600.5,
+          38,
+          34
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(192, 199, 208)",
+          "backgroundColor": "rgb(30, 34, 41)"
+        },
+        "reference_css_box": [
+          652.0,
+          600.0,
+          38.0,
+          34.0
+        ],
+        "delta_css": [
+          -0.344,
+          0.5,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.5
+      },
+      {
+        "name": "heading-ink",
+        "selector": ".series-heading h1",
+        "status": "visual_only",
+        "box_type": "ink",
+        "actual_css_box": [
+          300,
+          94,
+          210,
+          38
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "30px",
+          "lineHeight": "38px",
+          "fontWeight": "650",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reason": "字形框或采样区不与 DOM 元素外框比较"
+      },
+      {
+        "name": "description-ink",
+        "selector": ".series-card[data-episode-number='1'] .series-card-description",
+        "status": "visual_only",
+        "box_type": "ink",
+        "actual_css_box": [
+          319,
+          443,
+          370.65625,
+          44
+        ],
+        "computed": {
+          "display": "flow-root",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(192, 199, 208)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reason": "字形框或采样区不与 DOM 元素外框比较"
+      },
+      {
+        "name": "card-title-ink",
+        "selector": ".series-card[data-episode-number='1'] h2",
+        "status": "visual_only",
+        "box_type": "ink",
+        "actual_css_box": [
+          395,
+          375,
+          173.65625,
+          34
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "18px",
+          "lineHeight": "26px",
+          "fontWeight": "600",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reason": "字形框或采样区不与 DOM 元素外框比较"
+      },
+      {
+        "name": "stage-labels-ink",
+        "selector": ".series-card[data-episode-number='1'] .series-stages",
+        "status": "visual_only",
+        "box_type": "ink",
+        "actual_css_box": [
+          301,
+          499,
+          406.65625,
+          46
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reason": "字形框或采样区不与 DOM 元素外框比较"
+      },
+      {
+        "name": "meta-ink",
+        "selector": ".series-card[data-episode-number='1'] .series-card-meta",
+        "status": "visual_only",
+        "box_type": "ink",
+        "actual_css_box": [
+          319,
+          559,
+          370.65625,
+          20
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "13px",
+          "lineHeight": "20px",
+          "fontWeight": "400",
+          "color": "rgb(155, 165, 177)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reason": "字形框或采样区不与 DOM 元素外框比较"
+      },
+      {
+        "name": "open-link-ink",
+        "selector": ".series-card[data-episode-number='1'] .series-open",
+        "status": "visual_only",
+        "box_type": "ink",
+        "actual_css_box": [
+          319,
+          599.5,
+          93,
+          36
+        ],
+        "computed": {
+          "display": "flex",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "20px",
+          "fontWeight": "600",
+          "color": "rgb(154, 168, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reason": "字形框或采样区不与 DOM 元素外框比较"
+      },
+      {
+        "name": "canvas-color",
+        "status": "reference_only",
+        "reason": "仅测量参考图，没有 DOM 选择器"
+      }
+    ],
+    "note": "偏差是 CSS 像素，不是还原率；布局可测量不证明未遮挡、字体正确或交互可用。",
+    "changes": [
+      {
+        "name": "summary",
+        "before": 1.0,
+        "after": 1.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "status-filter",
+        "before": 1.0,
+        "after": 1.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "search",
+        "before": 1.0,
+        "after": 1.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "sort",
+        "before": 1.0,
+        "after": 1.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "episode-1",
+        "before": 1.0,
+        "after": 1.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "episode-2",
+        "before": 1.0,
+        "after": 1.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "episode-3",
+        "before": 1.0,
+        "after": 1.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "episode-4",
+        "before": 4.0,
+        "after": 4.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "number-tile",
+        "before": 1.0,
+        "after": 1.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "status-tag",
+        "before": 5.0,
+        "after": 2.344,
+        "delta": -2.656,
+        "change": "reduced"
+      },
+      {
+        "name": "stage-icon",
+        "before": 2.0,
+        "after": 2.0,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "card-footer",
+        "before": 1.344,
+        "after": 1.344,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "more-button",
+        "before": 0.5,
+        "after": 0.5,
+        "delta": 0.0,
+        "change": "unchanged"
+      },
+      {
+        "name": "heading-ink",
+        "before": null,
+        "after": null,
+        "delta": null,
+        "change": "unavailable"
+      },
+      {
+        "name": "description-ink",
+        "before": null,
+        "after": null,
+        "delta": null,
+        "change": "unavailable"
+      },
+      {
+        "name": "card-title-ink",
+        "before": null,
+        "after": null,
+        "delta": null,
+        "change": "unavailable"
+      },
+      {
+        "name": "stage-labels-ink",
+        "before": null,
+        "after": null,
+        "delta": null,
+        "change": "unavailable"
+      },
+      {
+        "name": "meta-ink",
+        "before": null,
+        "after": null,
+        "delta": null,
+        "change": "unavailable"
+      },
+      {
+        "name": "open-link-ink",
+        "before": null,
+        "after": null,
+        "delta": null,
+        "change": "unavailable"
+      },
+      {
+        "name": "canvas-color",
+        "before": null,
+        "after": null,
+        "delta": null,
+        "change": "unavailable"
+      }
+    ]
+  }
+}

@@ -6,6 +6,7 @@ import hmac
 import json
 import math
 import re
+import threading
 import time
 from collections.abc import Callable
 from contextvars import ContextVar
@@ -170,6 +171,10 @@ def llm_error_raw(error: Exception | None) -> str:
 
 class LlmTemporaryError(LlmError):
     pass
+
+
+class LlmStreamStalled(LlmTemporaryError):
+    """The stream stopped delivering content while the connection stayed open."""
 
 
 class LlmBillingError(LlmError):
@@ -921,6 +926,8 @@ class OpenAICompatibleClient:
         on_delta: Callable[[str, str], None] | None = None,
         reasoning_effort: str | None = None,
         thinking_enabled: bool | None = None,
+        stream_idle_timeout: float | None = None,
+        stream_total_timeout: float | None = None,
     ) -> str:
         url = f"{self.base_url}/chat/completions"
         connect_timeout, read_timeout = normalize_http_timeout(timeout)
@@ -977,6 +984,8 @@ class OpenAICompatibleClient:
                     on_chunk=on_chunk,
                     on_delta=on_delta or _LLM_STREAM_DELTA.get(),
                     read_timeout=read_timeout,
+                    stream_idle_timeout=stream_idle_timeout,
+                    stream_total_timeout=stream_total_timeout,
                 )
             else:
                 data = self._json(response, "对话推理")
@@ -1005,6 +1014,8 @@ class OpenAICompatibleClient:
         on_chunk: Callable[[str], None] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
         read_timeout: float | None = None,
+        stream_idle_timeout: float | None = None,
+        stream_total_timeout: float | None = None,
     ) -> str:
         if response.status_code >= 400:
             data = self._json(response, "对话推理")
@@ -1016,7 +1027,13 @@ class OpenAICompatibleClient:
         if stream:
             try:
                 response.encoding = "utf-8"
-                return self._read_sse_chat(response, on_chunk=on_chunk, on_delta=on_delta)
+                return self._read_sse_chat(
+                    response,
+                    on_chunk=on_chunk,
+                    on_delta=on_delta,
+                    stream_idle_timeout=stream_idle_timeout,
+                    stream_total_timeout=stream_total_timeout,
+                )
             except requests.exceptions.RequestException as exc:
                 # urllib3 wraps a streaming ReadTimeoutError in ConnectionError
                 # after the response headers have already been received.  Treat
@@ -1041,6 +1058,9 @@ class OpenAICompatibleClient:
         response: requests.Response,
         on_chunk: Callable[[str], None] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
+        *,
+        stream_idle_timeout: float | None = None,
+        stream_total_timeout: float | None = None,
     ) -> str:
         pieces: list[str] = []
         last_emit = 0.0
@@ -1071,32 +1091,90 @@ class OpenAICompatibleClient:
                     pieces.append(piece)
                     notify()
 
-        for raw_line in response.iter_lines(decode_unicode=False):
-            if raw_line is None:
-                continue
-            line = _decode_sse_line(raw_line)
-            text = line.strip()
-            if not text or text.startswith(":"):
-                continue
-            if text.startswith("event:"):
-                continue
-            payload_text = text[5:].strip() if text.startswith("data:") else text
-            if payload_text == "[DONE]":
-                break
-            if not payload_text.startswith("{") and not payload_text.startswith("["):
-                continue
+        # A provider can finish the answer and then leave the SSE connection
+        # open without sending [DONE].  The read timeout never fires in that
+        # case, so watch actual content activity and close the socket ourselves.
+        started = time.monotonic()
+        last_activity = [started]
+        stalled = threading.Event()
+        stall_reason = ["idle"]
+        stop_watchdog = threading.Event()
+        watchdog: threading.Thread | None = None
+
+        def watch_stream() -> None:
+            while not stop_watchdog.wait(0.5):
+                now = time.monotonic()
+                if stream_total_timeout is not None and now - started >= stream_total_timeout:
+                    stall_reason[0] = "total"
+                    stalled.set()
+                    response.close()
+                    return
+                if stream_idle_timeout is not None and now - last_activity[0] >= stream_idle_timeout:
+                    stall_reason[0] = "idle"
+                    stalled.set()
+                    response.close()
+                    return
+
+        def stalled_error() -> LlmStreamStalled:
+            if stall_reason[0] == "total":
+                return LlmStreamStalled(
+                    f"大模型流式响应持续超过 {stream_total_timeout:.0f} 秒仍未结束，已中断读取。"
+                )
+            return LlmStreamStalled(
+                f"大模型流式响应已超过 {stream_idle_timeout:.0f} 秒没有返回新内容，已中断读取；"
+                "将改用非流式请求重试。"
+            )
+
+        if stream_idle_timeout is not None or stream_total_timeout is not None:
+            watchdog = threading.Thread(target=watch_stream, name="llm-stream-watchdog", daemon=True)
+            watchdog.start()
+        try:
             try:
-                data = json.loads(payload_text)
-            except ValueError:
-                continue
-            if not isinstance(data, dict):
-                continue
-            self._raise_if_embedded_stream_error(data)
-            reasoning, content = self._stream_delta_parts(data)
-            if reasoning and delta_hook is not None:
-                delta_hook("reasoning", reasoning)
-            if content:
-                emit_parts(splitter.feed(content))
+                for raw_line in response.iter_lines(decode_unicode=False):
+                    if raw_line is None:
+                        continue
+                    line = _decode_sse_line(raw_line)
+                    text = line.strip()
+                    if not text or text.startswith(":"):
+                        continue
+                    if text.startswith("event:"):
+                        continue
+                    payload_text = text[5:].strip() if text.startswith("data:") else text
+                    if payload_text == "[DONE]":
+                        break
+                    if not payload_text.startswith("{") and not payload_text.startswith("["):
+                        continue
+                    try:
+                        data = json.loads(payload_text)
+                    except ValueError:
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    self._raise_if_embedded_stream_error(data)
+                    reasoning, content = self._stream_delta_parts(data)
+                    if reasoning:
+                        last_activity[0] = time.monotonic()
+                        if delta_hook is not None:
+                            delta_hook("reasoning", reasoning)
+                    if content:
+                        last_activity[0] = time.monotonic()
+                        emit_parts(splitter.feed(content))
+                    choices = data.get("choices")
+                    finished = isinstance(choices, list) and any(
+                        isinstance(choice, dict) and choice.get("finish_reason") for choice in choices
+                    )
+                    if finished:
+                        break
+            except Exception as exc:
+                if stalled.is_set():
+                    raise stalled_error() from exc
+                raise
+        finally:
+            stop_watchdog.set()
+            if watchdog is not None:
+                watchdog.join(timeout=1)
+        if stalled.is_set():
+            raise stalled_error()
         emit_parts(splitter.flush())
         if not pieces:
             raise LlmError("大模型返回的内容为空")
@@ -1418,6 +1496,9 @@ class OpenAICompatibleClient:
         reference_count: int = 0,
         workflow_id: str | None = None,
         model: str,
+        reference_mode: str | None = None,
+        duration_seconds: float | None = None,
+        max_tokens: int = 1800,
     ) -> str:
         clean_prompt = prompt.strip()
         if not clean_prompt:
@@ -1431,6 +1512,8 @@ class OpenAICompatibleClient:
             media_type=media_type,
             workflow_name=workflow_name,
             skill_pack_id=skill_pack_id,
+            reference_mode=reference_mode,
+            duration_seconds=duration_seconds,
         )
         user_content = f"原始创意需求：{clean_prompt}"
         if workflow_name:
@@ -1444,13 +1527,55 @@ class OpenAICompatibleClient:
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": user_content},
         ]
-        optimized = self.chat_completion(messages, model=model, temperature=0.7, max_tokens=1536, timeout=60.0)
+        optimized = self.chat_completion(messages, model=model, temperature=0.7, max_tokens=max_tokens, timeout=60.0)
         # 移除模型可能包裹的 markdown 代码块标签（如 ``` 或 ```markdown ）
         if optimized.startswith("```") and optimized.endswith("```"):
             lines = optimized.splitlines()
             if len(lines) >= 3:
                 optimized = "\n".join(lines[1:-1]).strip()
         return optimized
+
+    def translate_h3_prompt_to_chinese(
+        self, prompt: str, *, model: str, max_tokens: int = 3200,
+        field_reminder: list[str] | None = None,
+    ) -> str:
+        """Translate an English H3 prompt into a Simplified Chinese display version."""
+        clean_prompt = prompt.strip()
+        if not clean_prompt:
+            return ""
+
+        from .llm_minimax_skills import (
+            H3_TRANSLATION_FIELD_LABELS,
+            build_h3_prompt_chinese_translation_prompt,
+            clean_h3_translation_output,
+        )
+
+        user_content = clean_prompt
+        if field_reminder:
+            labels = "、".join(
+                f"{field}（{H3_TRANSLATION_FIELD_LABELS.get(field, field)}）"
+                for field in field_reminder
+            )
+            user_content = (
+                f"{clean_prompt}\n\n"
+                f"【完整性要求】上一次译文遗漏了以下字段：{labels}。"
+                "本次必须逐段翻译并完整输出，缺少任何字段都视为失败。"
+            )
+
+        translated = self.chat_completion(
+            [
+                {"role": "system", "content": build_h3_prompt_chinese_translation_prompt()},
+                {"role": "user", "content": user_content},
+            ],
+            model=model,
+            temperature=0.2,
+            max_tokens=max_tokens,
+            timeout=60.0,
+        )
+        blocks = re.findall(r"```[^\n`]*\n?(.*?)```", translated, flags=re.DOTALL)
+        if blocks:
+            translated = blocks[-1].strip()
+        return clean_h3_translation_output(translated)
 
     def analyze_subject(
         self,

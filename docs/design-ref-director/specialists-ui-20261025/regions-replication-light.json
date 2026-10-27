@@ -1,0 +1,57 @@
+{
+  "reference": "design-replication-light.png",
+  "css_viewport_width": 1600,
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/replication/visual-replication-refinement",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1600,
+      "height": 1000
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "regions": [
+    {
+      "name": "column",
+      "box": [
+        104,
+        186,
+        320,
+        684
+      ],
+      "selector": ".replication-side"
+    },
+    {
+      "name": "fields",
+      "box": [
+        125,
+        543,
+        278,
+        306
+      ],
+      "selector": ".replication-creative-form"
+    },
+    {
+      "name": "advanced",
+      "box": [
+        125,
+        715,
+        278,
+        42
+      ],
+      "selector": ".replication-more-settings"
+    },
+    {
+      "name": "results",
+      "box": [
+        444,
+        232,
+        1128,
+        502
+      ],
+      "selector": ".replication-empty"
+    }
+  ]
+}

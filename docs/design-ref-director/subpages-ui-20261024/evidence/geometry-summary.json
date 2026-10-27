@@ -1,0 +1,557 @@
+[
+  {
+    "surface": "content",
+    "name": "topbar",
+    "selector": ".project-topbar",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      76,
+      0,
+      1524,
+      72
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      76.0,
+      0.0,
+      1524.0,
+      72.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "content",
+    "name": "navigation",
+    "selector": ".project-sidebar",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      76,
+      72,
+      200,
+      928
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      76.0,
+      72.0,
+      200.0,
+      928.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "content",
+    "name": "header",
+    "selector": ".sub-pane-header",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      304,
+      100,
+      1268,
+      62
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      304.0,
+      100.0,
+      1268.0,
+      62.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "content",
+    "name": "empty-panel",
+    "selector": ".empty-doc-box",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      304,
+      186,
+      1268,
+      480
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      304.0,
+      186.0,
+      1268.0,
+      480.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "assets",
+    "name": "topbar",
+    "selector": ".project-topbar",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      76,
+      0,
+      1524,
+      72
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      76.0,
+      0.0,
+      1524.0,
+      72.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "assets",
+    "name": "navigation",
+    "selector": ".project-sidebar",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      76,
+      72,
+      200,
+      928
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      76.0,
+      72.0,
+      200.0,
+      928.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "assets",
+    "name": "header",
+    "selector": ".sub-pane-header",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      304,
+      100,
+      1268,
+      62
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      304.0,
+      100.0,
+      1268.0,
+      62.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "assets",
+    "name": "categories",
+    "selector": ".asset-kind-switch",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      304,
+      186,
+      296,
+      40
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(192, 199, 208)",
+      "backgroundColor": "rgb(30, 34, 41)"
+    },
+    "reference_css_box": [
+      304.0,
+      186.0,
+      296.0,
+      40.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "assets",
+    "name": "workspace",
+    "selector": ".assets-split-container",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      304,
+      242,
+      1268,
+      730
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      304.0,
+      242.0,
+      1268.0,
+      730.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "assets",
+    "name": "list",
+    "selector": ".assets-sidebar-list",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      304,
+      242,
+      248,
+      730
+    ],
+    "computed": {
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(23, 26, 32)"
+    },
+    "reference_css_box": [
+      304.0,
+      242.0,
+      248.0,
+      730.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "assets",
+    "name": "detail",
+    "selector": ".asset-detail-workspace",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      568,
+      242,
+      1004,
+      730
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      568.0,
+      242.0,
+      1004.0,
+      730.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "name": "topbar",
+    "selector": ".director-topbar",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      76,
+      0,
+      1524,
+      72
+    ],
+    "computed": {
+      "display": "grid",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgb(19, 22, 27)"
+    },
+    "reference_css_box": [
+      76.0,
+      0.0,
+      1524.0,
+      72.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "name": "intro",
+    "selector": ".director-workspace-intro",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      104,
+      100,
+      1468,
+      62
+    ],
+    "computed": {
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      104.0,
+      100.0,
+      1468.0,
+      62.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "name": "workspace",
+    "selector": ".director-batch-layout",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      104,
+      186,
+      1468,
+      502
+    ],
+    "computed": {
+      "display": "grid",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      104.0,
+      186.0,
+      1468.0,
+      502.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  },
+  {
+    "surface": "batch",
+    "name": "results",
+    "selector": ".director-batch-list",
+    "status": "measured",
+    "box_type": "element",
+    "actual_css_box": [
+      444,
+      186,
+      1128,
+      502
+    ],
+    "computed": {
+      "display": "grid",
+      "visibility": "visible",
+      "opacity": "1",
+      "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": "400",
+      "color": "rgb(243, 245, 247)",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "reference_css_box": [
+      444.0,
+      186.0,
+      1128.0,
+      502.0
+    ],
+    "delta_css": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_abs_delta_css": 0.0
+  }
+]

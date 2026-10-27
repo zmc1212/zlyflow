@@ -1,0 +1,134 @@
+{
+  "source": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-director\\subpages-ui-20261024\\design-batch-dark.png",
+  "source_sha256": "286c3d70abdbd0c46b0dfe4d409bf1b79a3acf5126b412152d05dfc405137c26",
+  "source_size": [
+    1600,
+    1000
+  ],
+  "css_mapping": {
+    "assumed_viewport_width": 1600,
+    "css_per_image_pixel": 1.0,
+    "meaning": "实现约定，不证明参考图原始 DPR 或 CSS 视口"
+  },
+  "regions": [
+    {
+      "name": "topbar",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        76,
+        0,
+        1524,
+        72
+      ],
+      "normalized_box": [
+        0.0475,
+        0.0,
+        0.9525,
+        0.072
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        76.0,
+        0.0,
+        1524.0,
+        72.0
+      ],
+      "selector": ".director-topbar",
+      "dom_comparable": true
+    },
+    {
+      "name": "intro",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        104,
+        100,
+        1468,
+        62
+      ],
+      "normalized_box": [
+        0.065,
+        0.1,
+        0.9175,
+        0.062
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        104.0,
+        100.0,
+        1468.0,
+        62.0
+      ],
+      "selector": ".director-workspace-intro",
+      "dom_comparable": true
+    },
+    {
+      "name": "workspace",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        104,
+        186,
+        1468,
+        502
+      ],
+      "normalized_box": [
+        0.065,
+        0.186,
+        0.9175,
+        0.502
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        104.0,
+        186.0,
+        1468.0,
+        502.0
+      ],
+      "selector": ".director-batch-layout",
+      "dom_comparable": true
+    },
+    {
+      "name": "results",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        444,
+        186,
+        1128,
+        502
+      ],
+      "normalized_box": [
+        0.2775,
+        0.186,
+        0.705,
+        0.502
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        444.0,
+        186.0,
+        1128.0,
+        502.0
+      ],
+      "selector": ".director-batch-list",
+      "dom_comparable": true
+    }
+  ],
+  "groups": [],
+  "vertical_scans": [],
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/batch/proj-e2adc592eac64883",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1600,
+      "height": 1000
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "expected_assets": {},
+  "input_manifest_sha256": "1293b159e4bdeed1aa1aba81b3c2001736c5c8b27efa9da54f4734184cdd38c8"
+}

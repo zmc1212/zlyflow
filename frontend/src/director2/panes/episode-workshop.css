@@ -2035,6 +2035,25 @@
   grid-column: 1 / -1;
 }
 
+.d2-video-settings-popover .d2-video-settings-refine-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--studio-border);
+  border-radius: 8px;
+  background: var(--studio-surface-raised, rgba(127, 127, 127, .06));
+  color: var(--studio-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.d2-video-settings-popover .d2-video-settings-refine-hint strong {
+  color: var(--studio-text, #171a1f);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .d2-episode-workshop .h3-material-content {
   display: flex;
   flex: 1 1 0%;

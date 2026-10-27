@@ -118,6 +118,8 @@ class TimelineRenderingTests(unittest.TestCase):
         from backend.app.workflow_registry import normalize_options
 
         options = normalize_options("minimax-h3-director-accel-r2v", {"refine_enabled": True})
+        # Whole-episode payloads persist preview off because they cannot pause for confirmation.
+        options["refine_preview"] = False
         timeline = ComfyVideoClient.build_timeline(shots(1), "r2v", options=options)
         workflow = ComfyVideoClient.build_workflow(timeline, "r2v", "video/test", options=options)
         self.assertFalse(workflow["45"]["inputs"]["confirm_first_pass"])

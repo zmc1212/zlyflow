@@ -12,17 +12,19 @@ import {
   Alert,
   Button,
   Checkbox,
-  Col,
+  Dropdown,
+  Empty,
   Form,
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Progress,
-  Row,
+  Segmented,
   Select,
   Space,
+  Skeleton,
   Spin,
+  Steps,
   Switch,
   Tabs,
   Tag,
@@ -53,7 +55,20 @@ import {
   Mic,
   Layers,
   Copy,
+  ArrowRight,
+  CheckCircle2,
+  CircleAlert,
+  Info,
+  LoaderCircle,
+  MoreHorizontal,
+  Search,
+  Trash2,
 } from "lucide-react"
+import {
+  EPISODE_FILTERS, episodeOverviewCounts, episodeScriptSummary, episodeStageStates,
+  episodeStatusLabel, episodeUpdatedLabel, nextEpisodeNumber, visibleEpisodes,
+  type EpisodeFilter, type EpisodeSort,
+} from "../episode-overview"
 import {
   listEpisodes,
   createEpisode,
@@ -110,6 +125,7 @@ import {
   groupedVideoWorkflowOptions,
   loadSavedVideoSettings,
   playbackAspectRatio,
+  refineForceWarning,
   sanitizeVideoOptionValues,
   saveVideoSettings,
   selectedShotGenerateExtra,
@@ -150,6 +166,7 @@ import {
   type WorkshopShotVideoProgress,
 } from "../workshop-video-progress"
 import "./episode-workshop.css"
+import "./episode-overview.css"
 
 interface EpisodeWorkshopPaneProps {
   csrfToken: string
@@ -171,14 +188,29 @@ type H3RefImage = {
   category?: string
 }
 
-// 新增/编辑分集弹窗表单（openEditModal 会整表 spread 分集数据）
+// 分集表单只保存可编辑字段，原有镜头数由编辑快照保留。
 type EpisodeFormState = {
-  id: string
-  episode_num: number | null
+  episode_num: number
   title: string
   status: string
-  script_text: string | null
-  shots_count: number
+  script_text: string
+}
+
+const episodeStatusOptions = [
+  { value: "draft", label: "草稿" },
+  { value: "script_ready", label: "脚本就绪" },
+  { value: "sketching", label: "出图中" },
+  { value: "sketched", label: "分镜完成" },
+]
+
+function episodeStageItems(status: string) {
+  return episodeStageStates(status).map((state, index) => ({
+    title: ["草稿", "脚本", "出图", "分镜"][index],
+    status: state,
+    icon: <span className={`series-stage-icon is-${state}${status === "sketched" && index === 3 ? " is-complete" : ""}`}>
+      {state === "finish" ? <Check size={12} strokeWidth={2.6} /> : state === "process" ? <span className="series-stage-current" /> : null}
+    </span>,
+  }))
 }
 
 type LookOption = {
@@ -218,7 +250,11 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     // 剧集列表与当前选中的分集
     const [episodes, setEpisodes] = useState<Director2Episode[]>([])
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(true)
+    const [episodeListError, setEpisodeListError] = useState("")
+    const [episodeSearch, setEpisodeSearch] = useState("")
+    const [episodeFilter, setEpisodeFilter] = useState<EpisodeFilter>("all")
+    const [episodeSort, setEpisodeSort] = useState<EpisodeSort>("number_asc")
     const [currentEpisodeId, setCurrentEpisodeId] = useState<string | null>(episodeId ?? null)
     const [currentEpisode, setCurrentEpisode] = useState<Director2EpisodeDetail | null>(null)
     const [refreshingDetail, setRefreshingDetail] = useState(false)
@@ -239,6 +275,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     // 资产关联与选项
     const [projectAssets, setProjectAssets] = useState<Director2Asset[]>([])
+    const [projectAssetsState, setProjectAssetsState] = useState<"loading" | "ready" | "error">("loading")
     const projectCharacters = useMemo(() => projectAssets.filter((a) => a.kind === "character"), [projectAssets])
     const projectScenes = useMemo(() => projectAssets.filter((a) => a.kind === "scene"), [projectAssets])
     const projectProps = useMemo(() => projectAssets.filter((a) => a.kind === "prop"), [projectAssets])
@@ -315,16 +352,21 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     // 新增/编辑分集弹窗表单
     const [modalVisible, setModalVisible] = useState(false)
-    const [isEdit, setIsEdit] = useState(false)
+    const [editingEpisode, setEditingEpisode] = useState<Director2Episode | null>(null)
+    const isEdit = Boolean(editingEpisode)
     const [submitting, setSubmitting] = useState(false)
-    const [form, setForm] = useState<EpisodeFormState>({
-      id: "",
-      episode_num: 1,
-      title: "",
-      status: "draft",
-      script_text: "",
-      shots_count: 8,
-    })
+    const [episodeFormError, setEpisodeFormError] = useState("")
+    const [episodeForm] = Form.useForm<EpisodeFormState>()
+    const formStatus = Form.useWatch("status", episodeForm) || "draft"
+    const submitEpisodeRef = useRef(false)
+    const [deletingEpisode, setDeletingEpisode] = useState<Director2Episode | null>(null)
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+    const [deleting, setDeleting] = useState(false)
+    const [deleteError, setDeleteError] = useState("")
+    const deleteEpisodeRef = useRef(false)
+    const deleteCancelRef = useRef<HTMLButtonElement>(null)
+    const episodeCounts = useMemo(() => episodeOverviewCounts(episodes), [episodes])
+    const displayedEpisodes = useMemo(() => visibleEpisodes(episodes, episodeSearch, episodeFilter, episodeSort), [episodes, episodeSearch, episodeFilter, episodeSort])
 
     // —— 同步 ref 双写辅助 ——
     function applyCurrentEpisode(next: Director2EpisodeDetail | null) {
@@ -580,34 +622,13 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const allBeatsChecked = beatCount > 0 && checkedBeatCount === beatCount
     const selectedBeatSplit = workshopBeatHasSplitTakes(selectedBeat, currentEpisode?.beats)
 
-    const stats = useMemo(() => {
-      const eps = episodes || []
-      return {
-        total: eps.length,
-        ready: eps.filter((e) => e.status !== "draft").length,
-        characters: projectCharacters.length,
-        scenes: projectScenes.length,
-        props: projectProps.length,
-        beats: eps.reduce((sum, e) => sum + (e.shots_count || 0), 0),
-      }
-    }, [episodes, projectCharacters, projectScenes, projectProps])
-
     function getStatusColor(s: string): string {
       const map: Record<string, string> = { draft: "default", script_ready: "blue", scripting: "processing", sketching: "processing", sketched: "green" }
       return map[s] || "default"
     }
 
     function getStatusText(s: string): string {
-      const map: Record<string, string> = { draft: "草稿", script_ready: "脚本就绪", scripting: "生成中", sketching: "出图中", sketched: "分镜完成" }
-      return map[s] || s || "草稿"
-    }
-
-    function getEpisodeCharCount(ep: Director2Episode): number {
-      return projectCharacters.length || 2
-    }
-
-    function getEpisodeSceneCount(ep: Director2Episode): number {
-      return projectScenes.length || 1
+      return episodeStatusLabel(s)
     }
 
     function getCharName(cid: string): string {
@@ -915,6 +936,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     // ---------------- 剧集列表与详情流转 ----------------
     async function fetchEpisodes() {
       setLoading(true)
+      setEpisodeListError("")
       try {
         const res = await listEpisodes(projectId)
         const list = res || []
@@ -926,18 +948,21 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           return
         }
         await loadEpisodeDetail(epId)
-      } catch {
-        message.error("加载剧集列表失败")
+      } catch (error) {
+        setEpisodeListError(director2ErrorDetail(error, "加载剧集列表失败，请稍后重试。"))
       } finally {
         setLoading(false)
       }
     }
 
     async function loadAssets() {
+      setProjectAssetsState("loading")
       try {
         const res = await listAssets(projectId)
         setProjectAssets(res || [])
+        setProjectAssetsState("ready")
       } catch (err) {
+        setProjectAssetsState("error")
         console.error("加载资产列表失败", err)
       }
     }
@@ -1568,10 +1593,27 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       message.success("已自动提炼视频运镜提示词")
     }
 
+    function confirmForceRefine(durationSec: number): Promise<boolean> {
+      const warning = refineForceWarning(videoOptions, durationSec)
+      if (!warning) return Promise.resolve(true)
+      return new Promise((resolve) => {
+        Modal.confirm({
+          title: "强制高清会显著延长出片时间",
+          content: warning,
+          okText: "仍然提交",
+          cancelText: "取消",
+          centered: true,
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      })
+    }
+
     async function handleGenerateVideo() {
       const ep = currentEpisodeRef.current
       const beat = resolveSelectedBeat(ep)
       if (!ep || !beat) return
+      if (!(await confirmForceRefine(beatDurationSec(beat.video_duration)))) return
       setGeneratingVideo(true)
       try {
         message.loading({ content: "正在提交单镜视频任务...", key: "vGen" })
@@ -1652,9 +1694,13 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     async function handleGenerateEpisodeVideo() {
       const ep = currentEpisodeRef.current
       if (!ep || generatingEpisodeVideo) return
-      if (videoOptions.refine_enabled === "true" && videoOptions.refine_preview === "true") {
-        message.warning("整集直出暂不支持先预览一采，请改为逐镜或勾选镜头生成")
-        return
+      const refineDurationSec = videoRenderMode === "episode"
+        ? episodeDurationSec
+        : Math.max(0, ...(ep.beats || []).map((beat) => beatDurationSec(beat.video_duration)))
+      if (!(await confirmForceRefine(refineDurationSec))) return
+      const jobOptions = buildVideoJobOptions(videoWorkflow, videoOptions)
+      if (videoRenderMode === "episode" && videoOptions.refine_enabled === "true") {
+        message.info({ content: "整集直出无法中途确认，本次将连续跑完两段式", duration: 6 })
       }
       setGeneratingEpisodeVideo(true)
       try {
@@ -1662,7 +1708,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           csrfToken,
           projectId,
           ep.id,
-          buildVideoJobOptions(videoWorkflow, videoOptions),
+          jobOptions,
         )
         rememberVideoJobIds(res.job_ids?.length ? res.job_ids : [res.job_id])
         message.success({
@@ -1680,13 +1726,16 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     async function handleGenerateSelectedShots() {
       const ep = currentEpisodeRef.current
       if (!ep || generatingEpisodeVideo) return
-      const beatIds = (ep.beats || [])
-        .map((beat) => beat.id)
-        .filter((id) => checkedBeatIds.has(id))
+      const selectedBeats = (ep.beats || []).filter((beat) => checkedBeatIds.has(beat.id))
+      const beatIds = selectedBeats.map((beat) => beat.id)
       if (!beatIds.length) {
         message.warning("请先勾选要生成的镜头")
         return
       }
+      const refineDurationSec = Math.max(
+        0, ...selectedBeats.map((beat) => beatDurationSec(beat.video_duration)),
+      )
+      if (!(await confirmForceRefine(refineDurationSec))) return
       setGeneratingEpisodeVideo(true)
       try {
         const res = await generateEpisodeVideo(
@@ -1782,54 +1831,68 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     // ---------------- 新建/修改分集弹窗 ----------------
     function openCreateModal() {
-      setIsEdit(false)
-      setForm({
-        id: "",
-        episode_num: episodes.length + 1,
-        title: `第 ${episodes.length + 1} 集`,
-        status: "draft",
-        script_text: "",
-        shots_count: 6,
-      })
+      setEditingEpisode(null)
+      setEpisodeFormError("")
+      episodeForm.resetFields()
+      episodeForm.setFieldsValue({ episode_num: nextEpisodeNumber(episodes), title: "", status: "draft", script_text: "" })
       setModalVisible(true)
     }
 
     function openEditModal(ep: Director2Episode) {
-      setIsEdit(true)
-      setForm({ ...ep })
+      setEditingEpisode(ep)
+      setEpisodeFormError("")
+      episodeForm.resetFields()
+      episodeForm.setFieldsValue({ episode_num: ep.episode_num, title: ep.title, status: ep.status || "draft", script_text: ep.script_text || "" })
       setModalVisible(true)
     }
 
-    async function handleSubmit() {
-      if (!form.title.trim()) {
-        message.warning("请输入分集标题")
-        return
-      }
+    async function handleSubmit(values: EpisodeFormState) {
+      if (submitEpisodeRef.current) return
+      submitEpisodeRef.current = true
       setSubmitting(true)
+      setEpisodeFormError("")
       try {
-        if (isEdit) {
-          await updateEpisode(csrfToken, projectId, form.id, form)
+        const payload = { ...values, title: values.title.trim(), script_text: values.script_text || "", shots_count: editingEpisode?.shots_count ?? 0 }
+        if (editingEpisode) {
+          await updateEpisode(csrfToken, projectId, editingEpisode.id, payload)
           message.success("分集已更新")
         } else {
-          await createEpisode(csrfToken, projectId, form)
+          await createEpisode(csrfToken, projectId, payload)
           message.success("分集已创建")
+          setEpisodeSearch("")
+          setEpisodeFilter("all")
         }
         setModalVisible(false)
         await fetchEpisodes()
-      } catch {
-        message.error("操作失败")
+      } catch (error) {
+        setEpisodeFormError(director2ErrorDetail(error, "保存失败，请重试。你的输入仍保留在此处。"))
       } finally {
+        submitEpisodeRef.current = false
         setSubmitting(false)
       }
     }
 
-    async function handleDeleteEpisode(id: string) {
+    function confirmDeleteEpisode(ep: Director2Episode) {
+      setDeletingEpisode(ep)
+      setDeleteError("")
+      setDeleteModalOpen(true)
+    }
+
+    async function handleDeleteEpisode() {
+      if (!deletingEpisode || deleteEpisodeRef.current) return
+      deleteEpisodeRef.current = true
+      setDeleting(true)
+      setDeleteError("")
       try {
-        await deleteEpisode(csrfToken, projectId, id)
+        await deleteEpisode(csrfToken, projectId, deletingEpisode.id)
         message.success("分集已删除")
+        setDeleteModalOpen(false)
         await fetchEpisodes()
-      } catch {
-        message.error("删除失败")
+      } catch (error) {
+        setDeleteError(director2ErrorDetail(error, "删除失败，请重试。原分集仍保留。"))
+      } finally {
+        deleteEpisodeRef.current = false
+        setDeleting(false)
       }
     }
 
@@ -1935,80 +1998,92 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       <div className={`d2-episode-workshop workshop-container${currentEpisodeId ? " in-episode-detail" : ""}`}>
         {/* ==================== 层级 1: 剧集工坊概览列表 (xiaji-workshop) ==================== */}
         {!currentEpisodeId ? (
-          <div className="xiaji-workshop">
-            <header className="xiaji-workshop-hero">
-              <div className="hero-text-col">
+          <div className="series-overview">
+            <header className="series-heading">
+              <div>
                 <h1>剧集工坊</h1>
-                <p>把内容库规划落成剧集，生成脚本 Beat，再按镜头出草图与视频。</p>
+                <p>把故事分集，逐镜完成你的作品。</p>
               </div>
-              <Space>
-                <Button loading={loading} icon={<RefreshCw size={14} />} onClick={() => fetchEpisodes()}>
+              <Space size={10}>
+                <Button loading={loading} icon={<RefreshCw size={14} />} onClick={() => { void fetchEpisodes(); void loadAssets() }}>
                   刷新
                 </Button>
-                <Button type="primary" className="primary-action-btn" icon={<Plus size={15} />} onClick={openCreateModal}>
+                <Button type="primary" icon={<Plus size={16} />} onClick={openCreateModal} disabled={!episodes.length && (loading || Boolean(episodeListError))}>
                   新增分集
                 </Button>
               </Space>
             </header>
 
-            {/* 统计栏 (对齐 source1) */}
-            <div className="xiaji-workshop-stats">
-              <span>总集数 <strong>{stats.total}</strong></span>
-              <span>已就绪脚本 <strong>{stats.ready}</strong></span>
-              <span>出场身份 <strong>{stats.characters}</strong></span>
-              <span>规划场景 <strong>{stats.scenes}</strong></span>
-              <span>关键道具 <strong>{stats.props}</strong></span>
-              <span>规划 Beat 分镜 <strong>{stats.beats}</strong></span>
+            <section className="series-summary" aria-label="剧集制作概览">
+              <div className="series-summary-total"><strong>{loading && !episodes.length ? "—" : String(episodeCounts.all).padStart(2, "0")}</strong><span>总集数</span></div>
+              <div className="series-summary-item"><strong>{episodeCounts.scriptReady} <small>集</small></strong><span>脚本已就绪</span></div>
+              <div className="series-summary-item"><strong>{episodeCounts.complete} <small>集</small></strong><span>分镜已完成</span></div>
+              <div className="series-summary-item"><strong>{episodeCounts.shots}</strong><span>规划镜头</span></div>
+              <div className="series-summary-assets"><span>项目资产</span>{projectAssetsState === "ready" ? <p>{projectCharacters.length} 角色 <i>·</i> {projectScenes.length} 场景 <i>·</i> {projectProps.length} 道具</p> : <p>{projectAssetsState === "loading" ? "正在加载资产…" : "资产暂未加载，刷新重试"}</p>}</div>
+            </section>
+
+            <div className="series-toolbar" aria-label="查找分集">
+              <Segmented
+                aria-label="按制作状态筛选分集"
+                value={episodeFilter}
+                onChange={(value) => setEpisodeFilter(value as EpisodeFilter)}
+                options={EPISODE_FILTERS.map((item) => ({ value: item.value, label: <span>{item.label} <b>{episodeCounts[item.value]}</b></span> }))}
+              />
+              <div className="series-search-tools">
+                <Input aria-label="搜索集数、标题或剧本" placeholder="搜索集数、标题或剧本" prefix={<Search size={17} />} allowClear value={episodeSearch} onChange={(event) => setEpisodeSearch(event.target.value)} />
+                <Select<EpisodeSort> aria-label="分集排序" value={episodeSort} onChange={setEpisodeSort} options={[
+                  { value: "number_asc", label: "集数从小到大" },
+                  { value: "number_desc", label: "集数从大到小" },
+                  { value: "updated_desc", label: "最近更新优先" },
+                ]} />
+              </div>
+              <span className="series-sr-only" role="status">显示 {displayedEpisodes.length} 集，共 {episodeCounts.all} 集</span>
             </div>
 
-            {/* 列表内容区 */}
-            <Spin spinning={loading}>
-              {episodes.length === 0 ? (
-                <div className="empty-workshop-box">
-                  <Film size={48} className="empty-icon" />
-                  <h3>暂无编排剧集</h3>
-                  <p>可直接在上方新增剧集，或在「内容库」导入剧本后一键同步各集分镜。</p>
-                  <Button type="primary" onClick={openCreateModal}>新增第 1 集</Button>
+            {episodeListError && <Alert type="error" showIcon title="剧集列表加载失败" description={episodeListError} action={<Button size="small" loading={loading} onClick={() => fetchEpisodes()}>重新加载</Button>} />}
+
+            <Spin spinning={loading && episodes.length > 0} delay={150}>
+              {loading && episodes.length === 0 ? (
+                <div className="series-grid" aria-label="正在加载分集">{Array.from({ length: 6 }, (_, i) => <div className="series-skeleton" key={i}><Skeleton active title={{ width: "60%" }} paragraph={{ rows: 4 }} /></div>)}</div>
+              ) : episodes.length === 0 && !episodeListError ? (
+                <div className="series-empty">
+                  <Empty image={<span className="series-empty-icon"><Film size={38} /></span>} description={<><h2>从第一集开始</h2><p>新增分集写下故事，或到内容库导入完整剧本。</p></>}>
+                    <Space size={12}><Button type="primary" icon={<Plus size={16} />} onClick={openCreateModal}>新增第 1 集</Button><Button type="link" onClick={() => navigate(director2ProjectPath(projectId, "content"))}>前往内容库 <ArrowRight size={16} /></Button></Space>
+                  </Empty>
+                </div>
+              ) : episodes.length > 0 && displayedEpisodes.length === 0 ? (
+                <div className="series-empty">
+                  <Empty image={<span className="series-empty-icon"><Search size={38} /></span>} description={<><h2>没有匹配的分集</h2><p>试试其他关键词，或清空当前筛选条件。</p></>}>
+                    <Button onClick={() => { setEpisodeSearch(""); setEpisodeFilter("all") }}>重置筛选</Button>
+                  </Empty>
                 </div>
               ) : (
-                <div className="xiaji-episode-grid">
-                  {episodes.map((ep) => (
-                    <div
-                      key={ep.id}
-                      className="xiaji-episode-card"
-                    >
-                      <div className="card-head">
-                        <strong className="card-title">第 {ep.episode_num} 集 · {ep.title}</strong>
-                        <Tag color={getStatusColor(ep.status)}>{getStatusText(ep.status)}</Tag>
+                <div className="series-grid" aria-label="分集列表" aria-busy={loading}>
+                  {displayedEpisodes.map((ep) => (
+                    <article key={ep.id} className="series-card" data-episode-number={ep.episode_num} aria-label={`第 ${ep.episode_num} 集：${ep.title}`}>
+                      <div className="series-card-heading">
+                        <div className="series-episode-number" aria-hidden="true"><strong>{String(ep.episode_num).padStart(2, "0")}</strong><span>第 {ep.episode_num} 集</span></div>
+                        <Tooltip title={ep.title}><h2>{ep.title}</h2></Tooltip>
+                        <Tag className="series-status" data-status={ep.status} title={episodeStatusLabel(ep.status)} icon={ep.status === "sketched" ? <CheckCircle2 size={14} /> : ["scripting", "sketching"].includes(ep.status) ? <LoaderCircle size={14} className="series-status-spinner" /> : <FileText size={14} />}>{episodeStatusLabel(ep.status)}</Tag>
                       </div>
-                      <p className="card-summary">
-                        {ep.script_text ? ep.script_text.replace(/[#\n-]/g, " ").slice(0, 85) + "..." : "暂未编排镜头对白内容"}
-                      </p>
-                      <em className="card-meta">
-                        {ep.shots_count || 0} 个分镜 · {getEpisodeCharCount(ep)} 身份 · {getEpisodeSceneCount(ep)} 场景
-                      </em>
-                      <div className="card-footer">
+                      <p className={`series-card-description${episodeScriptSummary(ep.script_text) ? "" : " is-empty"}`}>{episodeScriptSummary(ep.script_text) || "尚未添加剧本，先写下这一集的故事。"}</p>
+                      <div className="series-stages" role="img" aria-label={`制作阶段：${episodeStatusLabel(ep.status)}`}><Steps size="small" titlePlacement="vertical" responsive={false} items={episodeStageItems(ep.status)} /></div>
+                      <div className="series-card-meta"><span><FileText size={14} />{Math.max(0, ep.shots_count || 0)} 个镜头</span><time dateTime={ep.updated_at.replace(" ", "T")} title={ep.updated_at}>{episodeUpdatedLabel(ep.updated_at)}</time></div>
+                      <div className="series-card-footer">
                         <a
-                          className="episode-open"
+                          className="series-open"
                           href={director2ProjectPath(projectId, "workshop", ep.id)}
-                          onClick={(event) => { event.preventDefault(); openEpisodeDetail(ep.id) }}
-                        >进入工坊</a>
-                        <div className="card-actions" onClick={(e) => e.stopPropagation()}>
-                          <Button type="link" size="small" onClick={() => openEditModal(ep)}>
-                            修改分集
-                          </Button>
-                          <Popconfirm
-                            title="确定删除此集？"
-                            okText="删除"
-                            cancelText="取消"
-                            okButtonProps={{ danger: true }}
-                            onConfirm={() => handleDeleteEpisode(ep.id)}
-                          >
-                            <Button type="link" danger size="small">删除</Button>
-                          </Popconfirm>
-                        </div>
+                          aria-label={`进入第 ${ep.episode_num} 集工坊`}
+                          onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); openEpisodeDetail(ep.id) } }}
+                        >进入工坊 <ArrowRight size={17} /></a>
+                        <Dropdown trigger={["click"]} placement="bottomRight" classNames={{ root: "series-episode-menu" }} menu={{
+                          items: [{ key: "edit", label: "编辑分集", icon: <Pencil size={15} /> }, { type: "divider" }, { key: "delete", label: "删除分集", icon: <Trash2 size={15} />, danger: true }],
+                          onClick: ({ key }) => { if (key === "edit") openEditModal(ep); else if (key === "delete") confirmDeleteEpisode(ep) },
+                        }}>
+                          <Button className="series-more" aria-label={`第 ${ep.episode_num} 集更多操作`} title="更多操作" icon={<MoreHorizontal size={18} />} />
+                        </Dropdown>
                       </div>
-                    </div>
+                    </article>
                   ))}
                 </div>
               )}
@@ -2042,6 +2117,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                   workflows={videoWorkflows}
                   fields={videoOptionFields}
                   values={videoOptions}
+                  durationSec={selectedBeat ? beatDurationSec(selectedBeat.video_duration) : undefined}
                   onWorkflowChange={handleVideoWorkflowChange}
                   onChange={handleVideoOptionChange}
                 />
@@ -3137,57 +3213,83 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
         {/* ==================== 新建/编辑分集弹窗 ==================== */}
         <Modal
-          open={modalVisible}
-          title={isEdit ? "编辑分集信息" : "新增剧集"}
-          confirmLoading={submitting}
-          okText="确认保存"
-          cancelText="取消"
-          width={600}
-          destroyOnHidden
-          onOk={() => handleSubmit()}
-          onCancel={() => setModalVisible(false)}
-          className="d2-episode-workshop"
+          open={deleteModalOpen}
+          title={<div className="series-delete-heading"><CircleAlert size={24} className="series-delete-icon" /><h2>{deletingEpisode ? `删除第 ${deletingEpisode.episode_num} 集？` : "删除分集"}</h2></div>}
+          width={440}
+          centered
+          className="series-delete-modal"
+          mask={{ closable: false }}
+          keyboard={!deleting}
+          closable={!deleting}
+          onCancel={() => { if (!deleteEpisodeRef.current) setDeleteModalOpen(false) }}
+          afterClose={() => setDeletingEpisode(null)}
+          afterOpenChange={(open) => { if (open) deleteCancelRef.current?.focus() }}
+          footer={<><Button ref={deleteCancelRef} aria-label="取消" disabled={deleting} onClick={() => { if (!deleteEpisodeRef.current) setDeleteModalOpen(false) }}>取消</Button><Button type="primary" danger aria-label="删除分集" aria-busy={deleting} loading={deleting} disabled={deleting} onClick={() => { void handleDeleteEpisode() }}>删除分集</Button></>}
         >
-          <Form layout="vertical">
-            <Row gutter={16}>
-              <Col span={8}>
-                <Form.Item label="集数序号" required>
+          {deleteError && <Alert type="error" showIcon title="删除未完成" description={deleteError} className="series-form-error" />}
+          <div className="series-delete-content"><strong>{deletingEpisode?.title}</strong><p>该分集的剧本和镜头编排将被删除，且无法恢复。项目资产仍会保留。</p></div>
+        </Modal>
+        <Modal
+          open={modalVisible}
+          title={<div className="series-form-heading"><span><Film size={22} /></span><div><h2>{isEdit ? "编辑分集" : "新增分集"}</h2><p>写下这一集的故事，接着进入工坊制作镜头。</p></div></div>}
+          confirmLoading={submitting}
+          okButtonProps={{ disabled: submitting, "aria-label": isEdit ? "保存修改" : "创建分集", "aria-busy": submitting }}
+          okText={isEdit ? "保存修改" : "创建分集"}
+          cancelText="取消"
+          width={568}
+          forceRender
+          centered
+          onOk={() => episodeForm.submit()}
+          onCancel={() => { if (!submitEpisodeRef.current) setModalVisible(false) }}
+          closable={!submitting}
+          keyboard={!submitting}
+          mask={{ closable: !submitting }}
+          cancelButtonProps={{ disabled: submitting, "aria-label": "取消" }}
+          afterOpenChange={(open) => { if (open) episodeForm.getFieldInstance("title")?.focus({ cursor: "end" }) }}
+          className="series-form-modal"
+        >
+          <Form<EpisodeFormState> form={episodeForm} name="series-episode" layout="vertical" onFinish={handleSubmit} disabled={submitting} requiredMark={false}>
+            {episodeFormError && <Alert type="error" showIcon title="保存未完成" description={episodeFormError} className="series-form-error" />}
+            <div className="series-form-first-row">
+                <Form.Item name="episode_num" label={<span>集数序号 <i className="series-required">*</i></span>} extra={isEdit ? "集数在创建后固定" : "创建后集数固定，请确认序号。"} rules={[
+                  { required: true, message: "请输入集数序号" },
+                  { validator: (_, value) => {
+                    if (value == null) return Promise.resolve()
+                    if (!Number.isSafeInteger(value) || value < 1) return Promise.reject(new Error("请输入大于 0 的整数"))
+                    if (!isEdit && episodes.some((ep) => ep.episode_num === value)) return Promise.reject(new Error("该集数已存在，请使用其他序号"))
+                    return Promise.resolve()
+                  } },
+                ]}>
                   <InputNumber
-                    value={form.episode_num}
                     min={1}
+                    precision={0}
+                    disabled={isEdit || submitting}
                     style={{ width: "100%" }}
-                    onChange={(value) => setForm((prev) => ({ ...prev, episode_num: value }))}
                   />
                 </Form.Item>
-              </Col>
-              <Col span={16}>
-                <Form.Item label="分集标题" required>
-                  <Input
-                    value={form.title}
-                    placeholder="例如：风起青萍"
-                    onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-                  />
+                <Form.Item name="title" label={<span>分集标题 <i className="series-required">*</i></span>} rules={[
+                  { required: true, whitespace: true, message: "请输入分集标题" },
+                  { max: 255, message: "分集标题最多 255 个字符" },
+                ]}>
+                  <Input placeholder="例如：黎明的来信" maxLength={255} />
                 </Form.Item>
-              </Col>
-            </Row>
+            </div>
 
-            <Form.Item label="制作状态">
-              <Select value={form.status} onChange={(value: string | undefined) => setForm((prev) => ({ ...prev, status: value ?? prev.status }))}>
-                <Select.Option value="draft">草稿规划</Select.Option>
-                <Select.Option value="script_ready">脚本就绪</Select.Option>
-                <Select.Option value="sketching">出图中</Select.Option>
-                <Select.Option value="sketched">分镜完成</Select.Option>
-              </Select>
+            <Form.Item name="status" label="制作状态" rules={[{ required: true, message: "请选择制作状态" }]}>
+              <Select aria-label="分集制作状态" classNames={{ popup: { root: "series-status-popup" } }} options={editingEpisode && !episodeStatusOptions.some((item) => item.value === editingEpisode.status)
+                ? [{ value: editingEpisode.status, label: episodeStatusLabel(editingEpisode.status), disabled: true }, ...episodeStatusOptions]
+                : episodeStatusOptions} />
             </Form.Item>
+            <div className="series-stages series-form-stages" role="img" aria-label={`制作阶段：${episodeStatusLabel(formStatus)}`}><Steps size="small" titlePlacement="vertical" responsive={false} items={episodeStageItems(formStatus)} /></div>
 
-            <Form.Item label="分镜剧本内容">
+            <Form.Item name="script_text" label={<span>分集剧本 <span className="series-optional">（选填）</span></span>}>
               <Input.TextArea
-                value={form.script_text || ""}
-                placeholder="输入分集对白、画面提示与镜头描述..."
+                placeholder="写下对白、画面与镜头描述…"
                 rows={6}
-                onChange={(e) => setForm((prev) => ({ ...prev, script_text: e.target.value }))}
+                showCount
               />
             </Form.Item>
+            <p className="series-form-note"><Info size={15} />也可以在内容库导入完整剧本，再同步为分集。</p>
           </Form>
         </Modal>
       </div>

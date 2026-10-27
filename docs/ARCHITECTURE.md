@@ -1,5 +1,138 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-10-27 二采新增清晰度策略（自动 / 强制高清）
+
+- 变更原因：按片长强制封顶后，用户选 1.0 MP 却拿到 0.6 MP，界面无法表达“要绝对清晰、可以等”的诉求；而完全不封顶会让长片退回 27 分钟以上的单次二采，并伴随显存分页失败风险。因此把隐式封顶改为显式的清晰度策略：默认自动降档，强制高清由用户主动选择并在超出预算时二次确认。
+- 当前基线：`workflow_registry.py` 新增选项 `refine_quality_mode`（`auto` / `force`，默认 `auto`，`ui_group=primary`，`ui_visible_when={"refine_enabled": true}`）；`refine_target_megapixels(quality, frames, force=False)` 在 `force` 时跳过 `REFINE_FRAME_MEGAPIXEL_BUDGET` 直接返回请求档位（向下取到 0.1 MP）。`_refine_settings()` 返回四元组并校验取值（非法值报「清晰度策略请选择自动或强制高清。」），`_apply_refine_first_pass()` 将模式写入标准化结果并按模式写入 `refine_megapixels` 回显；官方 H3 与 T8 分支同样处理。`build_refine_nodes()` 增加 `refine_mode` 参数，节点 45 的像素与宽高随模式变化；`build_minimax_h3_refine_workflow()` 与 `comfy_video_client` 时间线路径从 options 读取 `refine_quality_mode`。
+- 前端：`director2-video-settings.ts` 新增 `refineFrames()`、`refinePlan()`、`formatRefineDuration()`、`refineForceWarning()`，`refineEffectiveMegapixels()` 增加 `qualityMode` 参数（默认 `auto`，签名向后兼容），`videoSettingsSummary()` 输出「· 自动降档」或「· 强制」。`Director2VideoSettingsPopover` 在二采开启时显示实际输出分辨率与预计全程时长；超出预算不估算时长，改为风险提示，并说明降档 / 强制语义。`EpisodeWorkshopPane` 的逐镜、选中镜、整集直出与 `App.tsx` 生成页在强制高清超预算时用 `Modal.confirm` 二次确认，取消则不提交。
+- 估算口径：二采预计时长 `frames × (1.37 + 0.75 × effectiveMP) + 52` 秒，仅在 `frames × effectiveMP ≤ 200` 时给出；帧数按 `round(duration × 24)` 并对齐 17 帧网格（最小 5 帧）；分辨率按 `h3_dimensions` 的 32 对齐规则从 MP × 1024² 推导，与后端一致。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_refine_workflow.py`、`backend/app/media_studio/services/comfy_video_client.py`、`backend/app/comfy_service.py`、`backend/app/media_studio/services/episode_video_service.py`、`backend/app/api_documentation.py`、`backend/tests/test_h3_refine.py`、`backend/tests/test_core.py`、`frontend/src/director2/director2-video-settings.ts`、`frontend/src/director2/director2-video-settings.test.ts`、`frontend/src/director2/panes/Director2VideoSettingsPopover.tsx`、`frontend/src/director2/panes/EpisodeWorkshopPane.tsx`、`frontend/src/director2/panes/episode-workshop.css`、`frontend/src/App.tsx`、README、`功能说明与扩展指南.md`、`docs/导演台流程与界面结构.md`、`docs/API.md` 与本文件。
+- 兼容性：`refine_quality_mode` 为新增可选字段，缺省按 `auto` 处理，旧客户端、旧任务与正在运行的任务行为不变；`refine_quality` 仍只接受 1.0 / 2.0；一采托管参数、先预览流程与节点结构不变。任务运行参数回显 `refine_quality_mode` 与实际 `refine_megapixels`。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_h3_refine -q`（37 项通过）；`python -X utf8 -m unittest backend.tests.test_core backend.tests.test_rtx_vsr -q`（120 项通过）；`python -X utf8 -m unittest backend.tests.media_studio_test_h3_video -q`（137 项通过）；`pnpm --dir frontend test`（63 文件 / 433 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`；真实 5173 桌面端浅暗检查二采设置、实际分辨率与强制确认。
+- 回滚方式：移除 `refine_quality_mode` 选项及其 schema / 校验 / 回显，撤回 `refine_target_megapixels()` 的 `force` 参数、`refine_mode` 透传与前端策略控件、预估和确认逻辑，恢复 `refineEffectiveMegapixels()` 调用与摘要输出；重启后端并重新构建前端。已提交任务按保存的 graph 回放，无需数据库回滚。
+
+## 2026-10-27 二采固定先预览一采（平台托管）
+
+- 变更原因：二采总耗时由片长与目标像素决定，先预览只增加一个暂停确认点、不增加算力。保留用户开关会允许关掉预览后连续跑两段式，但把勾选框删掉却仍不预览会让用户困惑；因此改为平台托管：界面不提供开关，开启二采就固定先预览一采。
+- 当前基线：全部 H3 家族的 `refine_preview` schema 默认 `true`、`ui_group=internal`，创建页、导演台视频设置与工坊生成设置都不再渲染该控件。`normalize_options()` 在 `refine_enabled=true` 时强制 `refine_preview=true`，请求显式传 `false` 也会被忽略；关闭二采时强制 `false`。任务运行参数回显与旧任务续跑仍以保存值为准，旧任务缺该字段时执行端继续按关闭处理。
+- 整集直出：`render_scope=episode` 无法暂停。`EpisodeVideoService._apply_render_scope_settings()` 把 payload 中的 `refine_preview` 置为 `false`，不再因请求携带该字段返回 400；工坊「一键生成视频」在二采开启且当前为整集直出时提示「整集直出无法中途确认，本次将连续跑完两段式」。逐镜与选中镜固定先预览。
+- 前端摘要：`videoSettingsSummary()` 增加 `previewFirstPass` 参数；可暂停的逐镜/选中镜二采摘要固定追加「先预览」，整集直出摘要不追加。`DIRECTOR2_VIDEO_FALLBACK_FIELDS` 移除预览字段；不再需要 localStorage 版本迁移，旧存档里的 `refine_preview` 值既不会渲染也不会提交。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/media_studio/services/episode_video_service.py`、`backend/tests/test_h3_refine.py`、`backend/tests/test_timeline_rendering.py`、`backend/tests/media_studio_test_h3_video.py`、`frontend/src/director2/director2-video-settings.ts`、`frontend/src/director2/director2-video-settings.test.ts`、`frontend/src/director2/panes/Director2VideoSettingsPopover.tsx`、`frontend/src/director2/panes/EpisodeWorkshopPane.tsx`、README、`功能说明与扩展指南.md`、`docs/导演台流程与界面结构.md`、`docs/API.md` 与本文件。
+- 兼容性：不新增 API、数据库列、节点 ID 或 ComfyUI 协议；旧任务和正在运行的任务按已保存参数执行。行为变化仅影响新提交的二采任务：API/MCP 显式传 `refine_preview=false` 不再生效，逐镜/选中镜固定停在 `awaiting_refine`；整集直出不再返回 400，改为自动连续两段式并写入 `refine_preview=false`。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_h3_refine backend.tests.test_timeline_rendering -q`（49 项通过）；`python -X utf8 -m unittest backend.tests.media_studio_test_h3_video -q`（137 项通过）；`pnpm --dir frontend test`（63 文件 / 431 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`；真实 5173 生成页开启「二采精修」后确认设置只显示「二采画质」、不再出现「先预览一采」，工坊逐镜摘要的「先预览」由前端单元测试覆盖（验收项目集数为 0，未在真实工坊触发摘要）。本轮未提交真实远端生成任务。
+- 回滚方式：恢复 `refine_preview_option()` 的 `ui_group=primary` 与 `ui_visible_when`、`_refine_settings()` 读取显式值、整集直出的 400 校验与前端设置字段/摘要参数，重启后端并重新构建前端；已生成任务与数据库不受影响，无需迁移。
+
+## 2026-10-27 二采按片长限制目标像素并清理显存
+
+- 原因：用户反馈远端二采任务耗时异常。真实远端（RTX 4080 16 GB / 68 GB 内存 / ComfyUI 动态显存）实测 13 秒 / 328 帧二采：0.4 MP 为 16.9 秒/步，0.6 MP 为 29.4 秒/步，1.0 MP 为 557 秒/步（二采 27:46，全任务 36:45）。1.0 MP 已越过显存与内存阈值：一采模型驻留时二采再产生 SigmaShift 模型副本，第二个 20 GB 权重暂存把可用内存压到 5 GB 左右，Windows 随即分页，单步继续放大到 17 分钟以上。远端的二采空间切片在当前节点版本不生效（无 `spatial tiles` 运行日志），因此不能靠切片解决。
+- 当前基线：`workflow_registry.py` 新增 `REFINE_FRAME_MEGAPIXEL_BUDGET = 200`、`REFINE_MIN_MEGAPIXELS = 0.4` 与 `refine_target_megapixels(quality, frames)`，按“片长×目标像素”封顶并向下取到 0.1 MP：328 帧 1.0/2.0 MP 均实际 0.6 MP；192 帧仍可用 1.0 MP；124 帧 2.0 MP 降为 1.6 MP；更长片段最低 0.4 MP。`normalize_options()` 在二采开启时写入 `refine_megapixels` 作为任务运行参数回显，`build_refine_nodes()` 以同一函数计算节点 45 的 `megapixels`/`width`/`height`，用户选择的 `refine_quality` 保留为上限值。
+- 显存：`build_minimax_h3_refine_workflow()` 与 `media_studio/services/comfy_video_client.build_workflow()` 均把节点 12 的 `clear_vram_before_refine` 设为 `true`，在一采结束、二采开始前卸载一采模型再重新暂存，避免两份权重同时驻留主机内存；此前该值为 `false` 是为了避免卸载后重载，但实测重载约 13 秒，远低于分页代价。整集直出的二采长度改用时间线中最长的分段帧数计算，节点 44/45 的切片与像素封顶都按单段成本评估。
+- 界面：导演台「生成设置 → 二采画质」说明改为“平台按片长自动控制二采像素”；`videoSettingsSummary()` 新增可选片长参数，工坊顶栏按当前选中镜头的时长显示生效值，例如「二采 0.6 MP · 自动降档」。未传片长时仍显示用户上限值，保持旧调用与测试兼容。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_refine_workflow.py`、`backend/app/media_studio/services/comfy_video_client.py`、`backend/tests/test_h3_refine.py`、`frontend/src/director2/director2-video-settings.ts`、`frontend/src/director2/director2-video-settings.test.ts`、`frontend/src/director2/panes/Director2VideoSettingsPopover.tsx`、`frontend/src/director2/panes/EpisodeWorkshopPane.tsx`、README、`功能说明与扩展指南.md`、`docs/导演台流程与界面结构.md` 与本文件。
+- 兼容性：不新增 API、数据库列、节点 ID 或 ComfyUI 协议；`refine_quality` 仍只接受 1.0 / 2.0，封顶只影响生成的 graph 与回显。旧任务按已保存 graph 回放，不重算；正在运行的任务不受影响。关闭二采的工作流完全不变。
+- 验证命令：`python -m unittest backend.tests.test_h3_refine -v`（35 项通过）；`python -m unittest backend.tests.media_studio_test_h3_video backend.tests.test_rtx_vsr backend.tests.test_core`（257 项通过）；`pnpm --dir frontend exec vitest run src/director2/director2-video-settings.test.ts`（15 项通过）；`pnpm --dir frontend exec tsc -b`；真实远端直连探针 `test-results/refine-06mp-20261027-011504`（13 秒 0.6 MP：328 帧、1056×576、AAC 32 kHz 双声道、全任务 581 秒）；本机后端真实链路 `test-results/preview-refine-13s-20261027-013558`（任务 `Q0nhLeqATP49`：预览→确认→二采全流程 674.0 秒，一采 465.3 秒、二采 207.3 秒，成片 1056×576 / 328 帧 / 13.667 秒 / AAC 32 kHz 双声道，`effective_options.refine_megapixels=0.6`）。
+- 回滚方式：撤回 `refine_target_megapixels()` 及其调用、回显字段与前端摘要参数，把两处 `clear_vram_before_refine` 改回 `false` 并重启后端、重新构建前端；已提交任务不受影响，无需数据库回滚。
+
+## 2026-10-26 长片二采复用一采模型，避免第二个 UNET 初始化卡死
+
+- 原因：13 秒 / 328 帧 / 1.0 MP 的二采任务停在 `0/3 Model Initializing` 17 分钟以上；远端日志显示一采模型、TE 与 VAE 仍驻留、可用显存约 1 GB 时，二采再次加载第二个 UNET（`minimax_h3_ref2va_pruned_w4a8_mixed`，11956 MB、208 patches）后无法完成 DynamicVRAM 初始化。`/interrupt` 需多次才生效，`/free` 无效。上一版“空间切片 + 关闭 Sage 编译”只作用于采样前向，而卡死发生在采样前的模型初始化，因此未能消除问题。
+- 当前基线：`build_refine_nodes()` 不再创建第二个 UNET / LoRA / Sage 节点（原 40–43），节点 45（`MiniMaxH3DirectorRefine`）不接线 `refine_model`，由 Director 复用一采模型；节点 44（`BasicScheduler`）与节点 12 使用同一一采模型链路，sigma 与采样模型保持一致。两个构造器把 `clear_vram_before_refine` 设为 `false`，避免卸载后重载同一模型。上游 `refine_model_for()` 明确空接线回退到 Director 主模型，短 sigma 精修也建议复用一采 UNET。
+- 画质与音频：二采使用一采权重（含该工作流的 LoRA 与 Sage 补丁）做 3 步 beta、denoise 0.2 精修；音频仍由一采生成，二采不重新生成音频。长片空间切片保留：`refine_tiling()` 在 `192–243` 帧 2 片、`>243` 帧 4 片，重叠 128px；`enable_latent_chunking` 仍在帧数 >60 时开启。
+- 兼容性：不新增 API、数据库列、节点 ID 或模型；旧任务保留已保存的工作流与参数，正在运行的任务不受影响。关闭二采的工作流与一采参数托管逻辑不变。
+- 受影响文件：`backend/app/minimax_h3_refine_workflow.py`、`backend/app/media_studio/services/comfy_video_client.py`、`backend/tests/test_h3_refine.py`、`README.md`、本文件和 `功能说明与扩展指南.md`。
+- 验证命令：`python -m unittest backend.tests.test_h3_refine -v`（32 项通过）；`python -m unittest backend.tests.test_minimax_h3_director_accel backend.tests.test_h3_coverage backend.tests.test_director_workflow_speed backend.tests.test_director2_ai_generation backend.tests.test_director_concurrency`（77 项通过）。
+- 回滚方式：恢复 `build_refine_nodes()` 中第二个 UNET / LoRA / Sage 节点（40–43）、把节点 45 的 `refine_model` 接回 43、节点 44 接回二采模型，并把 `clear_vram_before_refine` 改回 `true`；重启后端。已提交任务不受影响。
+
+## 2026-10-26 二采一采参数改为平台托管
+
+- 原因：真实远端 13 秒 / 5 参考图 / 2.0 MP 任务把一采设为完整权重、高质量 25 步，单是一采就远超常规出片时间；普通用户无法判断一采应使用哪种速度、模型体积与 LoRA。二采开启后一采只是生成底片的实现细节，应由平台按工作流选择已验证的最优组合。
+- 当前基线：`refine_enabled=true` 时 `workflow_registry.py` 的 `_apply_refine_first_pass()` 强制写入 `quality=0.4`、`megapixels=0.4`，并由 `_refine_first_pass_defaults()` 按工作流族覆盖一采技术参数：官方 H3 精简权重 + 8 步 FL2V Turbo LoRA（强度 1.0）；LightX2V 完整权重 + 快速 4 步 + 对应 FL2V / REF2V 4 步 LoRA（0.75）；八步双加速完整权重 + 均衡 8 步 + 双加速 LoRA（1.0）；Director 加速版精简权重 + 均衡 20 步 + 关闭 LoRA；T8 完整权重 + 均衡 8 步 + Turbo LoRA（1.0），全能参考视频 8 步 / 音频 10 步，双时钟统一 8 步。请求中冲突的一采值被覆盖，标准化结果与任务运行参数快照回写平台实际值。
+- 界面：LightX2V、八步双加速、Director 加速版与 T8 的 `speed`、`weight_profile`、`custom_steps` 均声明 `ui_visible_when={"refine_enabled": false}`；前端 `videoOptionVisible()` 在开启二采后不再渲染这些字段，生成摘要也不再显示模型体积，只显示比例、二采画质与可选的「先预览」。关闭二采时原选项、默认值与提交行为不变。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/tests/test_h3_refine.py`、`frontend/src/director2/director2-video-settings.ts`、`frontend/src/director2/director2-video-settings.test.ts` 及四份主文档。
+- 兼容性：不新增 API、数据库列、工作流节点或 ComfyUI 协议；旧任务按已保存参数回显，不重算。只有新建或重新提交的二采任务使用锁定的一采参数，正在运行的历史任务不受影响。
+- 验证命令：`python -m unittest backend.tests.test_h3_refine -v`（30 项）；`python -m unittest backend.tests.test_minimax_h3_director_accel backend.tests.test_h3_coverage backend.tests.test_director_workflow_speed backend.tests.test_director2_ai_generation backend.tests.test_director_concurrency`（77 项）；`pnpm --dir frontend exec vitest run src/director2/director2-video-settings.test.ts`（14 项）；`pnpm --dir frontend build`。
+- 回滚方式：撤回上述 registry helper、schema 可见性与前端摘要改动，重启后端并重新构建前端；二采任务恢复为沿用用户提交的一采参数，无需数据库回滚。
+
+## 2026-10-25 批量与复刻创作设置精修
+
+- 原因：继续精修导演台子页面。旧批量表单直接展示模型体积，复刻表单直接展示采样步数与深度控制强度，创作设置和内部运行参数混在同一层级；复刻底栏还包含与当前远端连接环境不符的「本地」说明。
+- 当前布局：沿用 320px 设置栏、根级双主题和原工作室外壳。批量以 Ant Design Form 呈现数量 / 画面比例、单条时长、注册表提供的视频工作流与可选画风；复刻以 Form 呈现分镜方式、固定分段时的每段秒数、目标风格和开始操作，智能分镜的切镜灵敏度放入 Ant Design Collapse「更多设置」。控件标签和键盘可访问名称补齐。
+- 参数兼容：UI 不主动改写旧载荷中的 `weightProfile`、`renderSettings.steps`、`renderSettings.vaceStrength` 和 seed；自动保存继续合并原载荷，内部设置不移入展开区。重新批量生成仍遵循原有后端创建流程，本轮不改后端默认值、图映射或任务提交协议。
+- 受影响文件：`frontend/src/director/{DirectorBatchStudio,DirectorReplicationStudio}.tsx`、`frontend/src/director2/director-surfaces.css`、`.gitignore`，以及 README、扩展指南、导演台流程快照和 `docs/design-ref-director/specialists-ui-20261025/`。
+- 验证：`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_core.WorkflowTests backend.tests.test_core.ApiDocumentationTests.test_shot_replication_payload_normalization backend.tests.test_core.ApiDocumentationTests.test_wan_vace_depth_workflow_parameter_layers_and_builder_mapping backend.tests.test_director_project_info -q`；5173 / DPR 1 下 1600×1000 冻结稿对照和 1440×900、1920×1080 桌面浅暗检查。浏览器 API fixture 隔离，未入队模型或访问用户数据；原始证据与边界见[验收报告](design-ref-director/specialists-ui-20261025/ACCEPTANCE.md)。
+- 兼容与回滚：无新依赖、路由、API、数据库迁移或工作流变化；Prompt Bar 的官方 token 与内部视觉未改。仅逆向撤回上述三份 UI 文件的本轮增量及对应文档后构建，保留用户同期的首页、工坊、助手、生成页和后端修改。
+
+## 2026-10-25 生成页提示词中文优先展示与英文对照
+
+- 原因：MiniMax H3 润色结果按官方规范为全英文，任务卡直接显示英文对中文创作者不友好。用户要求界面默认显示中文，同时提供查看 / 翻译成英文的入口；实际提交 H3 的提示词必须保持英文。
+- 当前基线：`POST /api/llm/optimize-prompt` 的 `optimized_prompt` 仍是直接用于生成的英文 H3 提示词；新增 `optimized_prompt_zh` 作为简体中文对照，仅供展示。中文翻译使用 `build_h3_prompt_chinese_translation_prompt` 与 `OpenAICompatibleClient.translate_h3_prompt_to_chinese`，失败时返回空串并静默降级，不阻塞生成。图片工作流不生成中文对照。
+- 模型输出加固：真实 `XingChenAGI/Xing4.0-29B` 会把思维链直接写进 `content` 且不加 `<think>` 标签。`extract_h3_prompt_from_model_output` 优先取最后一个合法围栏代码块（至少包含两个官方字段），否则取未包裹的最终提示词并截掉尾随说明；判定为分析过程但找不到完整提示词时抛错，由前端回退原文，避免把 6,000 字推理当提示词提交。
+- 中文翻译完整性：`missing_h3_translation_fields` 按英文原文中的官方字段逐项核对中文译文（认英文原名或中文标签）；缺段时带缺失字段提醒重试一次，仍不完整则返回空串并提示「中文对照暂不可用」。译文同时清理 Markdown 引用标记 `>`，字段名单独成行。
+- 持久化：`POST /api/jobs` 与 `POST /api/jobs/{job_id}/rounds` 新增可选表单字段 `display_prompt`，与 `prompt` 不同时随轮次写入 `job_rounds.display_prompt`；`GET /api/jobs/{job_id}` 的每个轮次回显该字段。SQLite 与 MySQL 初始化都会自动补列（MySQL `LONGTEXT NULL`，SQLite `TEXT`），旧轮次保持 `NULL`。
+- 前端：润色成功后编辑框展示中文，任务卡默认展示 `display_prompt` 并可切换 English；编辑器提供「查看英文」只读弹层与复制。未改动的已润色结果在按工作流、参考图、风格、时长匹配时直接复用英文提交，避免重复调用大模型；自动润色关闭时，匹配到已润色英文仍提交英文。任务列表、搜索、排序、重命名默认值和预览描述优先使用中文展示。
+- 受影响文件：`backend/app/{llm_minimax_skills,llm_client,llm_provider,main,models,storage,api_documentation}.py`、`backend/tests/{test_llm,test_core}.py`、`sql/001_init_mysql.sql`、`frontend/src/App.tsx`、`docs/API.md` 及三份主文档。
+- 兼容性：不新增路由、不改变 `prompt` 的提交语义；旧任务无 `display_prompt` 时前端回退英文。翻译失败、模型不可用或中文为空时，界面保留原文，任务卡仍可切换英文。
+- 验证命令：`python -m unittest backend.tests.test_llm backend.tests.test_core.StoreTests backend.tests.test_core.ApiDocumentationTests -q`；`pnpm --dir frontend test`；`pnpm --dir frontend build`；真实 5173 桌面验证中文默认显示、English 切换、查看英文与重新编辑。2026-10-25 追加真实任务 `XC2o2unhNuv0` 验证中文轮次持久化与刷新后默认展示。
+- 回滚：恢复上述文件本轮增量并重启后端；`job_rounds.display_prompt` 可保留为空列，不影响旧客户端读取，无数据回填需求。
+
+## 2026-10-25 自然语言剧本创作与会话恢复
+
+- 原因：真实 5173 默认模型已写出六镜剧本，却以顶层工具数组返回，原解析器报错且模型格式修复失败；代码回归另复现了自然表达漏判、只读工具调用后仍无剧本草稿却报告成功，以及点击当前历史会话后空白、终态详情读取失败后输入锁定。
+- 当前基线：模型响应先做有界格式归一化，再走原工具白名单与参数校验，制作配方读取和采纳权限不变。明确剧本创作必须得到实际会话草稿或待答问题才可成功结束；只读工具调用不算草稿完成。意图继承以当前未完成任务为界，支持多轮澄清与已有剧本的自然语言修改，排除否定、标题/简介咨询和智能剪辑操作；重试保留来源任务，新写下一集不关联上一集的修订链。本节取代下方旧记录的「最近四条」意图窗口。
+- 内容库：兼容 `## 主要人物` 下的简短人物设定，以及 `**动作**`、`**运镜**`、`**对白**`、`**旁白**` 等粗体字段。各字段分别保存，动作中照片上的引号文字不再被误识别为对白；保留原文和既有标准台本格式。
+- 2026-10-26 解析补充：同集中的「同上 / 同前」继承前镜场景，跨集不继承；场景实体按逗号前的名称聚合，光线等说明仍保留在镜头与场景描述中，避免创建「同上」或同一地点的多个描述副本。镜头标题的 `0-8秒` 等明确时间段用于补齐 `duration_sec`，显式「时长」字段优先，六镜 `8/8/8/12/12/12` 正确合计 60 秒。
+- 会话恢复：前端显式重新加载当前历史会话，终态读取失败释放陈旧运行锁并提供「重新加载」，成功恢复清除旧错误；不把失败标记成成功。
+- 真实修订兼容：明确剧本请求在调用模型前通过既有 `project_read(stage=script)` 读取本轮配方并提供完整规范，界面显示「读取制作规范」，避免模型漏读后重复丢弃有效草稿。其他阶段的先读约束保留。格式修复若返回旧产物形状，只从合法 JSON 的完整 `content` 提取正文建立会话草稿，忽略模型自报的 `applied`、版本和产物 ID；修订关系使用当前会话的真实记录，仍需预览采纳。资产、媒体和剪辑的普通格式修复保留原工具类型。
+- 2026-10-26 对话历史：发送给模型的历史以普通对话正文为主，澄清问题、草稿 ID 和工具结果明确标为历史数据；不再把前端 `markdown/tool/artifact` 事件数组直接当作聊天正文，避免模型照抄界面记录、引用旧草稿冒充新修订。持久化消息与前端事件协议保持原样。
+- 文件：`backend/app/director_assistant/service.py`、`backend/app/media_studio/services/script_parser.py`、`backend/tests/{test_director_assistant,test_standard_script_parser}.py`、`frontend/src/director2/assistant/{DirectorAssistant.tsx,assistant-state.ts,assistant-state.test.ts}`、`frontend/src/director2/panes/content-library.css`、`.gitignore` 及四份主文档。
+- 兼容性：不新增 API 路由、数据库字段、任务队列、ComfyUI 配置或媒体任务；保留现有 JSON envelope 与工具块格式。剧本仍先保存为会话草稿，预览后由用户采纳；内容库与剧集工坊同步仍为现有独立步骤。前端调整会话恢复逻辑，内容库镜头卡改用已有 `--studio-*` 表面、文本和边框变量以修复暗色残留白底，不修改官方对话视觉 token。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_director_assistant backend.tests.test_llm backend.tests.test_standard_script_parser backend.tests.test_director_project_info backend.tests.test_editing_assistant -q`；`pnpm --dir frontend build`；真实 5173 桌面自然语言多轮创作、修订、采纳、历史与刷新恢复。
+- 2026-10-26 最终验收：上述后端 181 项通过，前端测试、TypeScript 与构建通过（最终 Vite 10.48 秒，仅既有大 chunk 提示）。真实 `XingChenAGI/Xing4.0-29B` 在工程 `proj-a402b136409c48be` 完成自然语言想法、普通文字回答澄清、首稿及两次改稿，草稿版本依次为 1/2/3；均经预览采纳，最终仍只有 1 份文档，解析为 1 集、6 镜、2 角色、1 场景、60 秒。刷新后内容与第 3 版采纳记录恢复。1440×900 浅暗截图见 `docs/design-ref-director/language-flow-20261025/content-light.png`、`content-dark.png`。当前模型仍可能触发格式整理并增加等待时间，无法产生有效正文时继续如实失败，不以旧草稿冒充新结果。
+- 回滚：只逆向撤回上述文件本轮增量，保留此前流式修复和其他用户改动，重启后端并按需构建前端。已有会话、草稿和内容库文档保留，无需数据库迁移。
+
+## 2026-10-25 导演台智能助手流式与剧本草稿可靠性修复
+
+- 原因：真实 5173 对话验收发现三类问题：模型输出完内容后连接不关闭，运行长时间不结束；默认模型以 `<tool_call>工具名{JSON}</tool_call>` 返回调用时被当成工具名，触发整轮重写；用户明确要求写剧本时模型只把正文放进 `text`，没有创建可采纳的 `create_draft`。另外观察到模型在合法 JSON 前加 Markdown 引用符 `>`，导致首轮校验失败并整轮重写。
+- 流式基线：`OpenAICompatibleClient._read_sse_chat` 在任一 choice 返回非空 `finish_reason` 时立即结束读取；守护线程在连续 90 秒没有新的正文或推理增量时关闭连接并抛出 `LlmStreamStalled`（总时长上限 900 秒）。`LlmProviderService.assistant_chat` 捕获 `LlmTemporaryError` 后用 `stream=False` 重试一次（连接 / 读取超时 15 / 300 秒），同一轮的模型、消息和 `max_tokens` 不变。其他同步调用和流式入口的超时行为不变。
+- 格式基线：`AssistantService._parse` 先去掉 Markdown 引用符 `>` 与代码围栏，再按单个 JSON envelope 校验；流式预览正则和格式修复前的原始解析使用同一归一化规则。`<tool_call>` 分支继续只接受完整、有界、无块外正文的内容，并新增 `工具名{"参数":...}` 与裸工具名两种无子标签写法；参数必须是 JSON 对象，工具名仍受白名单约束。
+- 剧本落草稿：系统提示要求用户明确要求写剧本、台本或某一集正文时必须调用 `create_draft(artifact_type="script")` 并把完整正文放进 `content`。服务端从最近用户消息判断剧本意图，排除“方向 / 建议 / 大纲 / 怎么 / 如何”等讨论型请求；若模型只返回正文且没有工具调用或问题，先修复调用一次；仍只有正文且文本达到剧本特征阈值（长度、场景 / 镜头 / 对白标记）时，确定性生成草稿工具调用，标题取 `《…》` 或“第 X 集”；否则整轮失败并明确反馈“没有生成可采纳的剧本草稿”，不伪造成功，也不写入工程。
+- 受影响文件：`backend/app/{llm_client,llm_provider}.py`、`backend/app/director_assistant/{service,protocol}.py`、`backend/tests/{test_llm,test_director_assistant}.py`、`docs/导演台智能助手V2.md`、`README.md`、`功能说明与扩展指南.md` 与本文件。
+- 兼容性：不新增或修改 API 路由、数据库表 / 列、任务队列、ComfyUI 节点、模型路径、工作流 graph 或前端路由；协议仍是单个 JSON envelope，已有 `<tool_call>` 成对参数格式和无工具纯文本回复继续可用。新增的确定性剧本草稿只是会话草稿，仍需用户“查看并采纳”后才写工程，不触发媒体任务。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_director_assistant backend.tests.test_llm -q`（101 项通过，覆盖 `finish_reason` 提前结束、静默流中断与回退、内联工具格式、`>` 归一化与流式预览、剧本自动草稿、讨论型请求不强制草稿、无可用正文时如实失败）；`pnpm --dir frontend build`（63 个测试文件、429 项测试、TypeScript、clean 与 Vite 构建通过，8.82 秒）。真实 5173 使用 `XingChenAGI/Xing4.0-29B` 完成“写第一集完整剧本”，run 成功并生成「雨夜回声 第一集」会话草稿（4567 字），界面显示「查看并采纳」，未写入工程；该次首轮格式失败由 `>` 触发，修复后已由单元测试覆盖，未再次发起付费重跑。
+- 回滚方式：逆向撤回上述后端与测试改动并重启后端。提示词、意图判定和确定性草稿可单独回退；已保存的会话、草稿、采纳结果和数据库记录不受影响。
+
+## 2026-10-25 多集短剧 / 剧集管理桌面设计还原
+
+- 日期与原因：2026-10-25。用户确认“系列”为导演台的多集短剧 / 剧集管理；先生成完整主界面和微组件稿，再还原剧集工坊概览，修正暗色白底、假身份 / 场景数量、分集浏览和弹窗反馈不足。
+- 当前界面：工程 → 分集 → 镜头层级及 `/director/projects/:id/workshop` 路由不变。概览采用单条制作统计、五项带数量的状态筛选、集数 / 标题 / 剧本搜索、集数升降序 / 更新时间排序与三列分集卡；卡片显示真实规划镜头、更新日期及由制作状态推导的四阶段位置，不展示出片完成百分比。项目资产加载失败显示可重试说明，不冒充零数量。
+- 前端状态：`episode-overview.ts` 只做派生筛选、排序、统计、摘要、阶段和下一个集号；查询、筛选、排序、列表错误、新增 / 编辑 Form、删除确认和请求中标记均为组件挂载期状态，不新增持久化或协议字段。`is-workshop-overview` 只负责概览布局；助手原入口仅在该页移到项目导航底部，不修改 AI 对话与 Prompt Bar。
+- 表单与删除：直接使用 Ant Design Form / Input / InputNumber / Select / Modal / Dropdown / Steps。新集序号为当前最大整数 + 1，创建前校验必填标题、正整数和本列表重复集数；编辑时集数只读（既有更新接口不写此字段），保留快照镜头数。空新集镜头数为 0。保存失败保留输入；请求中防重入并禁止关闭。删除使用受控 Modal，默认聚焦取消；失败就地显示错误并保留目标，捕获异常后允许重试。
+- 兼容性：无依赖、API、数据库表 / 列、工作流、ComfyUI 地址或模型路径变更；原 `data_json`、镜头和媒体数据不迁移。浅暗沿用根级 Provider、Ant Design token 和 `--studio-*`。默认只验桌面。
+- 受影响文件：`frontend/src/director2/{episode-overview.ts,episode-overview.test.ts,Director2ProjectDetail.tsx}`、`panes/{EpisodeWorkshopPane.tsx,episode-overview.css}`、`.gitignore` 和四份主文档；设计参考位于 `docs/design-ref-director/series-ui-20261025/`。另补齐 `backend/tests/test_media_studio_schema.py` 的存量画布 / 二采列 fixture，使原用例继续只验证 LLM 列的单次迁移，不修改后端业务实现。
+- 验证命令：`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_director_project_info backend.tests.test_media_studio_schema -q`；5173 桌面浅暗交互 / 错误注入 / 三种宽度 / 原图几何与微组件截图对照。最终结果与已知差异见[验收报告](design-ref-director/series-ui-20261025/ACCEPTANCE.md)。
+- 验证环境说明：本项目 `media_studio.db` 有独立 MySQL 连接池，单独设置 `DB_BACKEND=sqlite` 不会隔离该层。首次验证误建的 1 个样例工程、6 个分集已按明确 ID 与创建时间校验并清理，余量核对为 0，未修改其他记录。后续专用测试启动器在忽略的测试目录中适配该数据层到 SQLite，并直接拒绝 MySQL 连接；该启动器不是生产实现，不应把单一环境变量当作完整隔离保证。
+- 回滚方式：只逆向撤回上述文件本轮的概览、表单和文档增量，保留工作区其他改动后执行前端构建。无需数据库回滚；既有分集和镜头继续可读。样例清理已完成，不应在回滚时重建到用户数据库。
+
+## 2026-10-25 导演台首页：创作启动台与工程工作区（当前基线）
+
+- 原因：将创建工程与继续工程分成两个工作区，替换原欢迎区、左一大右两小入口、横向诊断条与三列工程卡。
+- 当前布局：全局 76px 导航 / 64px 顶栏；左侧 358px 创作启动台选择三类模式、查看对应三步说明并创建，剧本诊断独立位于左下；右侧标题、刷新、Ant Design Segmented / Input 与 Table 宽列表。主体在桌面内独立滚动。低于 1400px 的桌面将启动台收为 300px。浅色默认，所有业务控件继承根 Provider；新增视觉仅为局部蓝青 SVG 镜头核心。
+- 状态与协议：新增局部 `createKind`，仅决定说明与按钮；点击模式不写库。批量与复刻共用既有 `creatingProject` 防止重复提交。`/api/projects`、`/api/director/projects`、`/api/skill-packs` 及三种创建目标路由保持原协议；列表仍按更新日期合并，默认筛选导演创作、显示六项。删除继续二次确认，改用 Ant Design Modal；复制 / 删除收于行操作 Dropdown。无持久状态或数据库迁移。
+- 文件：`frontend/src/director2/Director2StudioHome.tsx`、`director-home.css`、`.gitignore`；README、扩展指南、导演台流程快照与 `docs/design-ref-director/home-workspace-20261025/`。并行子页面与后端改动不属于本轮。
+- 验证：`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_director_project_info backend.tests.test_skill_packs -q`；5173 的 1505×1045、1440×1000、1920×1080 / DPR 1 桌面浅暗与隔离接口交互。19 个主体锚点及未达到逐像素一致的边界见[验收报告](design-ref-director/home-workspace-20261025/ACCEPTANCE.md)。
+- 回滚：只逆向撤回本轮首页两文件与文档增量后构建，不回滚其他同期改动；无需迁移或恢复生产数据。
+
+## 2026-10-25 导演台子页面设计与还原
+
+- 日期与原因：2026-10-24 先制作设计图，2026-10-25 完成精修与验收。原子页面标题、控件和空态尺寸各异，批量参数列被压缩，资产库分类重复。用户确认沿用现有风格，统一到根级双主题。
+- 当前界面基线：内容库、资产库、工坊分集、任务中心、短视频批量、参考片复刻和剧本诊断，共用 26px 标题、40px 主操作、36px 紧凑表单、12px 面板圆角。工坊概览后续采用同期[多集短剧设计](design-ref-director/series-ui-20261025/DESIGN.md)的 28px 标题、制作概览、搜索筛选排序与分集阶段卡，首轮设计对照保留为历史。项目顶栏 72px、导航 200px、内容留白 28px。剪辑保留既有独立布局，助手与 Prompt Bar 沿用官方 beautifului token。当前已下线的 Hypit 只保留历史设计，不恢复模块。
+- 资产库：分类用 Ant Design Segmented 显示真实数量；侧栏 248px，搜索与角色 / 场景 / 道具列表可键盘操作。首轮验收发现 Ant Design 6 的 Spin 根为 `.ant-spin`，修订设计后兼容新旧包装结构，锁住剩余高度；名单和长详情分别滚动。完整定义、参考音、原片参考、设定板、场景与道具功能仍按原接口保存。
+- 前端视图状态：任务页新增名称 / ID 搜索、状态筛选、筛选结果数量与无结果恢复；完成状态兼容 `completed/succeeded`，取消组兼容 `cancelled/canceled/interrupted`。切换筛选回第一页，结果缩减时校正页码；用户主动切换类型后，首次请求返回不再覆盖用户选择。筛选仅在本次页面挂载期间生效。
+- 受影响文件：`frontend/src/director2/{Director2App.tsx,director-surfaces.css,panes/ContentLibraryPane.tsx,panes/AssetsLibraryPane.tsx,panes/EpisodeWorkshopPane.tsx,panes/JobsCenterPane.tsx}`，`frontend/src/director/{DirectorStudioModule.tsx,DirectorBatchStudio.tsx,DirectorReplicationStudio.tsx}`；`.gitignore`、README、扩展指南、导演台流程快照和 `docs/design-ref-director/subpages-ui-20261024/`。
+- 兼容性：继续使用现有 React / Ant Design、路由、根级主题、项目与媒体保存接口。新增筛选为客户端视图状态，不新增依赖、API 或数据库迁移。历史 Hypit 设计与本轮当前路由验收分开归档。
+- 验证命令：`pnpm --dir frontend build`；`python -X utf8 -m unittest backend.tests.test_director_project_info backend.tests.test_director2_ai_generation -q`。界面在真实 5173 入口按 1600×1000 同视口对照，并检查 1440×900、1920×1080 桌面浅暗主题。设计和交互证据、原稿差异与验证边界见[验收报告](design-ref-director/subpages-ui-20261024/ACCEPTANCE.md)。临时样例没有入队模型生成。
+- 回滚：仅逆向撤回上述子页面 UI 增量及本次说明，并重新执行前端构建；保留用户同期的首页、生成页、缓存和后端修改。任务筛选可独立撤回，资产 Spin 包装修复也可单独恢复；无需迁移历史数据。
+
 ## 2026-10-24 智能剪辑桌面 UI 设计还原（新增当前基线）
 
 - 日期与原因：2026-10-24。按用户要求先生成浅色设计图，再在既有智能剪辑中还原并进行真实 5173 浏览器验证，解决空白属性栏挤占预览、素材导入零散和工具层级不清晰的问题。
@@ -1372,13 +1505,13 @@ Windows 本地开发由 `启动本地视频工作台.bat` 同时启动 Vite（`0
 
 当前 `/api/modes` 注册以下视频工作流，并下发 `catalog_group` / `catalog_group_label` / `catalog_group_order` 供创作页分组：
 
-- LightX2V：`minimax-h3-lightx2v-t2v`（0 张）、`minimax-h3-lightx2v-i2v`（1-2 张首尾帧）、`minimax-h3-lightx2v-r2v`（1-9 张参考图）。默认 1.0 MP、快速 4 步、euler 采样，加载 `G:\ComfyUI-Models\lightx2v` 下的 LightX2V LoRA；官方 H3 三个模式的节点 ID 不改动。开启二采精修时改走 Director 两段式，但一采仍沿用当前 LightX2V 速度、LoRA 与 euler。
-- 八步双加速：`minimax-h3-dual-accel-t2v`（0 张）、`minimax-h3-dual-accel-i2v`（1-2 张首尾帧）、`minimax-h3-dual-accel-r2v`（1-9 张参考图）。复用参考 JSON 的加速链：`LoraLoaderModelOnly`（`minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors`，强度 1.0）→ `PathchSageAttentionKJ`（`auto` / 禁止 compile）→ `MiniMaxH3MemoryEfficientSageAttentionPatch`，默认 0.4 MP、8 步 `res_multistep` 与 video/audio Shift 12/3。默认不接入 `MiniMaxH3Director` 节点；仅开启二采精修时改用 Director 两段式，一采保留 8 步 LoRA 与双 Sage。文生/首尾帧用全量 INT8 FL2VA，多参考用全量 INT8 Ref2VA。
-- 官方 MiniMax H3：`minimax-h3-t2v`、`minimax-h3-i2v`、`minimax-h3-r2v`。动态 API graph 在既有节点 1–15 之后接入 `ReservedVRAMSetter`（预留 3 GB 并在采样前清缓存）与 `MiniMaxH3MemoryEfficientSageAttentionPatch`，避免 16GB 显卡在 `SamplerCustomAdvanced` 的 INT8 QKV 上 OOM。既有节点 ID 不变。三个官方模式支持可选的「二采精修」（`refine_enabled`）：开启后改走 `minimax_h3_refine_workflow.py` 的 Director + `MiniMaxH3DirectorRefine` 两段式 graph。全部 H3 工作流（官方、LightX2V、八步双加速、Director 加速、T8）都不再暴露 `upscale_after`，统一提供 `refine_enabled` / `refine_quality`；一采按所属工作流保留速度、步数、LoRA、unet 与 Sage 设置。
-- 自定义：`minimax-h3-t8-all-reference`（0-9 张；无图 `T2VA`+FL2VA，有图 `Ref2VA`+Ref2VA，`MiniMaxH3MultiRateSamplerEXPT8`）、`minimax-h3-t8-dual-clock`（0-1 张；无图 `T2VA`，单图 `I2VA` 首帧，`MiniMaxH3DualClockSamplerT8`）。默认使用 T8 专有采样器；开启二采精修时一采改走 Director 两段式并沿用当前步数，T8 专有采样器与音频模式不参与二采。
+- LightX2V：`minimax-h3-lightx2v-t2v`（0 张）、`minimax-h3-lightx2v-i2v`（1-2 张首尾帧）、`minimax-h3-lightx2v-r2v`（1-9 张参考图）。默认 1.0 MP、快速 4 步、euler 采样，加载 `G:\ComfyUI-Models\lightx2v` 下的 LightX2V LoRA；官方 H3 三个模式的节点 ID 不改动。开启二采精修时改走 Director 两段式，一采由平台固定为快速 4 步、对应 4 步 LoRA 与 euler，不再读取用户的速度选择。
+- 八步双加速：`minimax-h3-dual-accel-t2v`（0 张）、`minimax-h3-dual-accel-i2v`（1-2 张首尾帧）、`minimax-h3-dual-accel-r2v`（1-9 张参考图）。复用参考 JSON 的加速链：`LoraLoaderModelOnly`（`minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors`，强度 1.0）→ `PathchSageAttentionKJ`（`auto` / 禁止 compile）→ `MiniMaxH3MemoryEfficientSageAttentionPatch`，默认 0.4 MP、8 步 `res_multistep` 与 video/audio Shift 12/3。默认不接入 `MiniMaxH3Director` 节点；仅开启二采精修时改用 Director 两段式，一采由平台固定为完整权重、8 步 LoRA 与双 Sage。文生/首尾帧用全量 INT8 FL2VA，多参考用全量 INT8 Ref2VA。
+- 官方 MiniMax H3：`minimax-h3-t2v`、`minimax-h3-i2v`、`minimax-h3-r2v`。动态 API graph 在既有节点 1–15 之后接入 `ReservedVRAMSetter`（预留 3 GB 并在采样前清缓存）与 `MiniMaxH3MemoryEfficientSageAttentionPatch`，避免 16GB 显卡在 `SamplerCustomAdvanced` 的 INT8 QKV 上 OOM。既有节点 ID 不变。三个官方模式支持可选的「二采精修」（`refine_enabled`）：开启后改走 `minimax_h3_refine_workflow.py` 的 Director + `MiniMaxH3DirectorRefine` 两段式 graph。全部 H3 工作流（官方、LightX2V、八步双加速、Director 加速、T8）都不再暴露 `upscale_after`，统一提供 `refine_enabled` / `refine_quality`；开启二采后一采固定 0.4 MP，步数、LoRA、unet 与 Sage 由平台按工作流族锁定，不再读取用户选择。
+- 自定义：`minimax-h3-t8-all-reference`（0-9 张；无图 `T2VA`+FL2VA，有图 `Ref2VA`+Ref2VA，`MiniMaxH3MultiRateSamplerEXPT8`）、`minimax-h3-t8-dual-clock`（0-1 张；无图 `T2VA`，单图 `I2VA` 首帧，`MiniMaxH3DualClockSamplerT8`）。默认使用 T8 专有采样器；开启二采精修时一采改走 Director 两段式，由平台固定为完整权重、8 步 Turbo LoRA（全能参考视频 8 步 / 音频 10 步），T8 专有采样器与音频模式不参与二采。
 - 隐藏：`nvidia-rtx-vsr` 不出现在创作页模型列表。把已成功成片交给当前连接 ComfyUI 的 `RTXVideoSuperResolution`（固定 2x / ULTRA），由已成功视频结果卡的「超分」、`POST /api/jobs/{job_id}/upscale`、工坊逐镜 `POST …/beats/{id}/upscale`，或全部任务 `POST …/projects/{id}/jobs/{job_id}/upscale` 触发。H3 生成选项不再自动接跑 RTX 超分；整集直出与拼接片可在全部任务手动点。显存门闸读当前连接 GPU 的 `vram_total`，过长可能被拒绝。
 
-H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`、`weight_profile`，以及自定义时的 `custom_steps`。全部 H3 工作流另有 `refine_enabled` / `refine_quality`，且不再向界面或标准化结果暴露 `upscale_after`（旧客户端传入会被忽略）。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。`weight_profile` 为 `full`（默认，约 32 GB 全量 INT8，可挂加速 LoRA）或 `pruned`（约 20 GB 精简 INT8，强制关闭加速 LoRA，步数仍由 `speed` 决定）。开启 `refine_enabled` 后，一采固定 0.4 MP，二采目标 `refine_quality` 取 `1.0` / `2.0`；一采步数、LoRA、unet、采样器与 Sage 由所属工作流保留（官方 H3 固定 8 步 FL2V LoRA；T8 改用 Director 管线并沿用当前步数）。`quality` 在二采开启时隐藏，运行参数快照回写实际生效的一采值与二采目标。RTX 2x 超分仍是已成功成片的独立手动操作，不再由 H3 创建选项自动触发。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
+H3 options 使用 JSON：`aspect_ratio`、`quality`、`duration`、`speed`、`weight_profile`，以及自定义时的 `custom_steps`。全部 H3 工作流另有 `refine_enabled` / `refine_quality`，且不再向界面或标准化结果暴露 `upscale_after`（旧客户端传入会被忽略）。比例接受任意有限正数的 `宽:高` 格式；分辨率由注册表提供可用尺寸档位并映射到内部 `megapixels`。`speed` 为语义预设：`fast`（4 步加速）、`balanced`（8 步加速，默认）、`quality`（20 步、关闭加速 LoRA）、`custom`（1–40 步）。`weight_profile` 为 `full`（默认，约 32 GB 全量 INT8，可挂加速 LoRA）或 `pruned`（约 20 GB 精简 INT8，强制关闭加速 LoRA，步数仍由 `speed` 决定）。开启 `refine_enabled` 后，一采固定 0.4 MP，二采目标 `refine_quality` 取 `1.0` / `2.0`；一采步数、LoRA、unet、采样器与 Sage 由平台按工作流族锁定，用户提交的 `speed` / `weight_profile` / `custom_steps` 会被覆盖（官方 H3 精简权重 8 步 FL2V LoRA；LightX2V 完整权重 4 步；八步双加速完整权重 8 步；Director 加速精简权重 20 步；T8 完整权重 8 步并改用 Director 管线）。`quality`、`speed`、`weight_profile`（及 T8 `custom_steps`）在二采开启时隐藏，运行参数快照回写实际生效的一采值与二采目标。RTX 2x 超分仍是已成功成片的独立手动操作，不再由 H3 创建选项自动触发。界面按当前比例显示实际输出尺寸，尺寸会按 32 的倍数计算并保持模型画布上限，时长为 2–15 秒，帧数按 H3 的 24fps、17n+5 时间网格对齐。
 
 两个 T8 模式的 options schema 同样由 `workflow_registry.py` 提供，覆盖任务类型、比例、画质预设、内部像素、对齐倍数、时长、种子、音频策略、采样步数、video/audio shift、模型、LoRA、SageAttention、显存策略和 H.264 编码参数。每项使用 `ui_group=primary|advanced|internal` 声明产品可见性；前端只生成主参数与“更多设置”，内部参数由后端默认值托管。随机种子每次由后端自动生成，不接受用户指定。SQLite 保存标准化 options 与显式提交字段；`request_parameters` 返回当前生效的有效值和 `visibility`，并遵守 `ui_visible_when`（例如未选自定义时不回显 `custom_steps`），前端将内部值折叠到“运行参数”。输出文件前缀、`save_output=true` 与 graph 连线属于集成协议，不允许调用方覆盖。
 
@@ -3330,3 +3463,16 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 受影响文件：`backend/app/{main,director_hypit,director_recipe,director_operations,models,storage,api_documentation}.py`、`backend/tests/{test_director_hypit,test_core,test_director}.py`、`frontend/src/paths.ts`、`frontend/src/director/{DirectorStudioModule,DirectorHypitStudio,hypit-model,director-api}.tsx`、`frontend/src/director2/{Director2StudioHome,Director2App,home-projects}.tsx`、`frontend/src/index.css`、`frontend/src/director2/director-home.css`、四份主文档与 `docs/API.md`、`docs/导演台流程与界面结构.md`。
 - 验证命令：`python -m compileall -q backend/app`（通过）；`python -X utf8 -m unittest backend.tests.test_core backend.tests.test_director backend.tests.test_director_project_info -q`（253 项，1 项既有无关失败：`test_script_agent_uses_scene_ledger_continuity_guidance` 期望小写 `opening spatial state`，实际提示词为大写开头）；`pnpm --dir frontend build`（60 个测试文件、415 项前端测试、TypeScript、clean 与 Vite 构建通过）。桌面端首页在 1505×1045、1440×1000、1920×1080 三种视口完成浅暗主题检查（三创作卡、主卡 `grid-row: 1 / 3`、四项筛选、无横向溢出），截图与元数据见 `docs/design-ref-director/ui-20261023/details-20261025/`；未触发 LLM 或出片任务。
 - 回滚方式：从 Git 恢复被删除的 `backend/app/director_hypit.py`、`backend/tests/test_director_hypit.py`、`frontend/src/director/{DirectorHypitStudio.tsx,hypit-model.ts,hypit-model.test.ts}` 以及上述文件中被移除的 Hypit 分支与样式，再执行 `pnpm --dir frontend build` 并重启后端。无需数据库回滚；既有工程数据和 `data/hypit/` 目录在删除期间保持原样。
+
+## 2026-10-25 只读接口与轮询负载优化
+
+- 变更原因：作品库每次分页都会重新水合 500 个完整任务聚合（含参数、参考图与体积很大的二采续跑状态）；`GET /api/media/{filename}` 为查找一个文件要完整水合最多 1000 个任务；健康检查每个请求都同步探测 ComfyUI；请求日志中间件把整个 multipart 上传体拼进内存；导演台二任务中心固定 1 秒轮询。多用户同时轮询时，这些重复的同步工作叠加在单进程后端上。
+- 后端读取基线：`JobStore.list_jobs()`/`list()` 默认不再解析 `generation_items.refine_state_json`，单任务 `get()`、worker 恢复与续跑路径仍完整读取。新增 `list_library_sources()` 只投影 job/round/item/output 字段，`output_locations()` 一次构建路径到输出的索引。`JobStore` 新增进程内 `content_epoch`，在任务创建、追加轮次、写回 outputs（含交付状态）、标题/置顶修改、删除和账号归属变更后自增；作品库条目与媒体路径索引只在 epoch 变化后重建。缓存实例挂在 `app.state`，随应用生命周期创建，unittest 的临时 SQLite 不会串数据。
+- 接口行为：`GET /api/library` 与 `GET /api/library/query` 共用按 `(目标用户, API 前缀)` 缓存的条目，搜索、筛选与分页仍每次在内存执行；`GET /api/media/{filename}` 改为查询路径索引，仍按普通用户本人 / 管理员全量隔离，并保留原有 404 与 410 语义。媒体索引现在覆盖同一任务的各轮输出（旧实现只覆盖最新轮），与作品库链接一致。
+- 健康检查：`GET /api/health` 对 ComfyUI `/system_stats` 的探测结果按当前生效地址缓存 10 秒；切换「管理设置 → AI 供应商 → ComfyUI」地址后缓存 key 改变，会立即重新探测。`webui` 与 `grs` 仍每次从数据库读取实时配置。
+- 上传日志：`RequestLogMiddleware` 对 GET/HEAD/DELETE/OPTIONS 不再读取请求体；`multipart/form-data` 与 `application/octet-stream` 改为边转发边计数，日志仍记录 `<binary N bytes>`；JSON 与表单仅在 64 KiB 内合并记录，超过后按原分块转发上游并在日志标记截断。原有断连与流式响应行为保持不变。
+- 前端轮询：导演台二「全部任务」改为自适应定时器：存在活动任务（queued/pending/preparing/prompt_generation/uploading/comfy_queued/running）时 1 秒，空闲 5 秒，标签页隐藏 15 秒，并跳过重入请求；切回标签页立即刷新。任务列表与当前选中项在状态、进度、更新时间、结果地址和错误均未变化时复用旧对象，避免每次静默轮询重渲染整页。
+- 兼容性：不新增或修改 API 路由、响应 schema、数据库表/列、任务队列、ComfyUI 节点、模型路径与前端路由，任务、资产、导演台和画布数据格式不变。缓存只存在于单进程内存；当前 Dockerfile 为单 uvicorn 进程，多 worker 部署时每进程各自持有。行为差异是媒体接口可读取旧轮次输出、健康检查最多滞后 10 秒、导演台二空闲任务列表最多滞后 5 秒。
+- 受影响文件：`backend/app/{cache.py,media_index.py,storage.py,main.py,request_log.py}`、`backend/tests/{test_storage_projections.py,test_read_caches.py,test_request_log.py}`、`frontend/src/director2/panes/JobsCenterPane.tsx`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md`。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_core backend.tests.test_h3_refine backend.tests.test_job_list_payload backend.tests.media_studio_test_h3_video backend.tests.test_storage_projections backend.tests.test_read_caches backend.tests.test_request_log backend.tests.test_library_query -q`（297 项通过）；`pnpm --dir frontend build`（62 个测试文件、423 项测试、TypeScript、clean 与 Vite 全部通过）；`pnpm --dir frontend test`（62 文件 / 423 项通过）。健康检查缓存使用 mock 的 `ComfyService.health` 验证，未启动或切换 ComfyUI，未访问真实 MySQL。
+- 回滚方式：逆向撤回上述缓存模块、存储投影、端点接线、日志中间件与轮询改动，重启后端并执行 `pnpm --dir frontend build`。缓存都是进程内派生数据，无需数据库迁移，也不影响已生成的任务、资产与媒体文件。

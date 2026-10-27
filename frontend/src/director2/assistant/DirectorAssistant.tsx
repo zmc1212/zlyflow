@@ -13,6 +13,7 @@ import KnowledgeManager from "./KnowledgeManager"
 import QuestionCard from "./QuestionCard"
 import ResourceMarket from "./ResourceMarket"
 import { ASSISTANT_API, artifactLabels, assistantGet, assistantMutate, emptySelections, isAssistantRunning, mediaLabels, mergeAssistantEvent, type AssistantArtifact, type AssistantCatalog, type AssistantDetail, type AssistantResource, type AssistantRun, type AssistantSelections, type AssistantSession, type MediaExecution, type MediaProposal } from "./api"
+import { releaseTerminalAssistantRun } from "./assistant-state"
 import { EDITING_TOOL_GROUPS, matchesAssistantScope, newestPendingEditingAction, type EditingContext, type EditingOperation, type EditorBridge, type HookStrategy } from "./editing-tools"
 import { confirmEditingAction, previewEditingAction, readEditingAction, readTranscript, readUnderstanding, reorderEditingAction, startTranscript, startUnderstanding, type EditingAction, type MediaTranscript, type MediaUnderstanding, type UnderstandingStatus } from "../smart-edit/api"
 import "./assistant.css"
@@ -302,20 +303,36 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
   const loadDetail = useCallback(async (id: string) => {
     const generation = ++loadGeneration.current
     const next = await assistantGet<AssistantDetail>(`/sessions/${id}`)
-    if (sidRef.current !== id || generation !== loadGeneration.current) return
+    if (sidRef.current !== id || generation !== loadGeneration.current) return false
     if (!matchesAssistantScope(next.session, projectId, editingContext)) throw new Error("该会话属于其它工作区，请创建新对话")
     setDetail(next); setSelections(next.session.selections)
+    return true
   }, [projectId, editingContext?.sequence_id])
+  const restoreSession = useCallback(async (id: string) => {
+    if (sidRef.current !== id) return
+    setLoading(true)
+    try { if (activeStorageKey.current) localStorage.setItem(activeStorageKey.current, id) } catch { /* Server history remains available. */ }
+    try {
+      const loaded = await loadDetail(id)
+      if (loaded && sidRef.current === id) setError("")
+    } catch (e) {
+      if (sidRef.current !== id) return
+      const hasCurrentDetail = detailRef.current?.session.id === id
+      if (!hasCurrentDetail) {
+        sidRef.current = null
+        setSid(null); setDetail(null)
+        try { if (activeStorageKey.current) localStorage.removeItem(activeStorageKey.current) } catch { /* Local preference only. */ }
+      }
+      setLoading(false)
+      setError(director2ErrorDetail(e, "无法恢复上次会话，可创建新对话"))
+    } finally {
+      if (sidRef.current === id) setLoading(false)
+    }
+  }, [loadDetail])
   useEffect(() => {
     if (!enabled || !sid || sidRef.current !== sid) return
-    setLoading(true)
-    loadDetail(sid).catch(e => {
-      if (sidRef.current !== sid) return
-      setSid(null); setDetail(null); setLoading(false); try { if (activeStorageKey.current) localStorage.removeItem(activeStorageKey.current) } catch { /* Local preference only. */ }
-      setError(director2ErrorDetail(e, "无法恢复上次会话，可创建新对话"))
-    }).finally(() => { if (sidRef.current === sid) setLoading(false) })
-    try { if (activeStorageKey.current) localStorage.setItem(activeStorageKey.current, sid) } catch { /* Server history remains available. */ }
-  }, [sid, enabled, loadDetail])
+    void restoreSession(sid)
+  }, [sid, enabled, restoreSession])
   useEffect(() => {
     const id = detail?.session.project_id || (isEditing ? projectId : null)
     setProjectName(""); setLegacy(null)
@@ -339,7 +356,10 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
       if (finished) return
       finished = true; source.close(); setPhase("")
       const current = sidRef.current
-      if (current) loadDetail(current).catch(e => setError(director2ErrorDetail(e, "回复已完成，读取结果失败，请刷新")))
+      if (current) loadDetail(current).catch(e => {
+        setDetail(state => state ? releaseTerminalAssistantRun(state, runId) : state)
+        if (sidRef.current === current) setError(director2ErrorDetail(e, "回复已完成，读取结果失败，请刷新"))
+      })
     }
     source.addEventListener("text", event => {
       const data = JSON.parse((event as MessageEvent).data)
@@ -368,6 +388,15 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
   function changeOpen(value: boolean, syncMode = false) {
     setOpen(value)
     if (syncMode && !isEditing) window.dispatchEvent(new CustomEvent("director-assistant-mode", { detail: value ? "agent" : "manual" }))
+  }
+  function selectHistorySession(id: string) {
+    if (busy) return
+    const reloadCurrent = sidRef.current === id
+    if (!reloadCurrent) setDetail(null)
+    sidRef.current = id
+    setSid(id)
+    followTail.current = true
+    if (reloadCurrent) void restoreSession(id)
   }
   async function newConversation() {
     if (busy) return
@@ -664,7 +693,7 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
     {(enabled || catalogError) && !open && <Tooltip classNames={{ root: "director-assistant-tooltip" }} title={catalogError || "打开智能助手"}><Button className="director-assistant-launcher" type="primary" icon={<Sparkles size={18} />} onClick={() => { if (catalogError) void refreshCatalog().catch(e => setCatalogError(director2ErrorDetail(e, "助手加载失败"))); changeOpen(true, true) }}>智能助手</Button></Tooltip>}
     <Drawer title={<span className="assistant-title"><Sparkles size={16} />{isEditing ? "智能剪辑助手" : "智能助手"}</span>} open={open} onClose={() => changeOpen(false, true)} closable={false} mask={false} autoFocus={false} size={isEditing ? dockWidth : expanded ? Math.min(800, window.innerWidth - 100) : 480} rootClassName={`director-assistant-drawer${isEditing ? " is-editing-assistant" : ""}`} zIndex={1000} styles={{ root: { pointerEvents: "none" }, wrapper: { pointerEvents: "auto" }, body: { padding: 0, overflow: "hidden" }, header: { padding: "10px 14px" } }} extra={<Space size={2}>
       <Tooltip classNames={{ root: "director-assistant-tooltip" }} title="新对话"><Button type="text" size="small" aria-label="新对话" disabled={busy} icon={<Plus size={16} />} onClick={newConversation} /></Tooltip>
-      <Dropdown trigger={["click"]} onOpenChange={value => { if (value) assistantGet<AssistantSession[]>("/sessions").then(sessions => setHistory(sessions.filter(s => matchesAssistantScope(s, projectId, editingContext)))).catch(e => message.error(director2ErrorDetail(e, "读取历史失败"))) }} menu={{ items: scopedHistory.length ? scopedHistory.map(s => ({ key: s.id, label: <span className="assistant-history-title">{s.title}<small>{s.project_id ? "工程对话" : "独立创作"}</small></span> })) : [{ key: "empty", label: "还没有历史对话", disabled: true }], onClick: ({ key }) => { if (busy) return; setDetail(null); setSid(key); sidRef.current = key; followTail.current = true }, style: { maxWidth: 360, maxHeight: 420, overflowY: "auto" } }}><Button type="text" size="small" aria-label="历史对话" disabled={busy} icon={<History size={15} />} /></Dropdown>
+      <Dropdown trigger={["click"]} onOpenChange={value => { if (value) assistantGet<AssistantSession[]>("/sessions").then(sessions => setHistory(sessions.filter(s => matchesAssistantScope(s, projectId, editingContext)))).catch(e => message.error(director2ErrorDetail(e, "读取历史失败"))) }} menu={{ items: scopedHistory.length ? scopedHistory.map(s => ({ key: s.id, label: <span className="assistant-history-title">{s.title}<small>{s.project_id ? "工程对话" : "独立创作"}</small></span> })) : [{ key: "empty", label: "还没有历史对话", disabled: true }], onClick: ({ key }) => selectHistorySession(key), style: { maxWidth: 360, maxHeight: 420, overflowY: "auto" } }}><Button type="text" size="small" aria-label="历史对话" disabled={busy} icon={<History size={15} />} /></Dropdown>
       {!isEditing && <Tooltip classNames={{ root: "director-assistant-tooltip" }} title={expanded ? "收起宽度" : "展开宽度"}><Button type="text" size="small" aria-label={expanded ? "收起宽度" : "展开宽度"} icon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />} onClick={() => setExpanded(v => !v)} /></Tooltip>}
       <ThemeToggle tooltipClassName="director-assistant-tooltip" />
       <Button type="text" size="small" aria-label="关闭智能助手" icon={<X size={16} />} onClick={() => changeOpen(false, true)} />
@@ -702,7 +731,7 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
           {busy && <div className="assistant-phase"><Spin size="small" /><span>{editingBusy && editingOperation ? `正在准备${OPERATION_TITLES[editingOperation]}…` : confirmingAction && editingOperation ? `正在应用${OPERATION_TITLES[editingOperation]}并保存…` : phase || "正在准备回复…"}</span></div>}
           {isEditing && actionFeedback && !detail?.edit_proposals?.some(p => p.id === actionFeedback.id) && <Alert className="assistant-edit-feedback" showIcon type={actionFeedback.status === "succeeded" ? "success" : "info"} title={actionFeedback.status === "succeeded" ? successText(actionFeedback) : emptyHint(actionFeedback.operation)} description={actionFeedback.status === "succeeded" ? feedbackDetail(actionFeedback) : "请先完成对应素材准备后重试。"} />}
         </div>
-        {error && <Alert className="assistant-error" type="error" showIcon title={error} closable onClose={() => setError("")} />}
+        {error && <Alert className="assistant-error" type="error" showIcon title={error} action={sid ? <Button size="small" onClick={() => { setError(""); void restoreSession(sid) }}>重新加载</Button> : undefined} closable onClose={() => setError("")} />}
         {catalogError && <Alert type="error" title={catalogError} action={<Button size="small" onClick={() => refreshCatalog().catch(e => setCatalogError(director2ErrorDetail(e, "加载失败")))}>重试</Button>} />}
         {catalog && !catalog.available && <Alert type="warning" title={catalog.unavailable_reason || "请管理员配置大模型服务后开始对话"} />}
         <div className="assistant-composer-shell">

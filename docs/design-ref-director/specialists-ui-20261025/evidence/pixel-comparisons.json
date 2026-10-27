@@ -1,0 +1,42 @@
+[
+  {
+    "name": "batch",
+    "theme": "light",
+    "reference": "design-batch-light.png",
+    "actual": "actual-batch-light.png",
+    "reference_sha256": "25f6ebac21b7f590b716ed954e2c6b1e99044e08e635ae14748324965684ae05",
+    "actual_sha256": "25f6ebac21b7f590b716ed954e2c6b1e99044e08e635ae14748324965684ae05",
+    "mean_absolute_rgb_difference_0_255": 0.0,
+    "difference_bounds": null
+  },
+  {
+    "name": "batch",
+    "theme": "dark",
+    "reference": "design-batch-dark.png",
+    "actual": "actual-batch-dark.png",
+    "reference_sha256": "22c542fccd6de6ee931eb6a34dcd2ff9ecf1dbc86011f4f3d7e0e35fab182860",
+    "actual_sha256": "22c542fccd6de6ee931eb6a34dcd2ff9ecf1dbc86011f4f3d7e0e35fab182860",
+    "mean_absolute_rgb_difference_0_255": 0.0,
+    "difference_bounds": null
+  },
+  {
+    "name": "replication",
+    "theme": "light",
+    "reference": "design-replication-light.png",
+    "actual": "actual-replication-light.png",
+    "reference_sha256": "981763652ad00316bb5d84234c398a8910f68f3ba60d9ed4f3d3fa0d6c78b682",
+    "actual_sha256": "981763652ad00316bb5d84234c398a8910f68f3ba60d9ed4f3d3fa0d6c78b682",
+    "mean_absolute_rgb_difference_0_255": 0.0,
+    "difference_bounds": null
+  },
+  {
+    "name": "replication",
+    "theme": "dark",
+    "reference": "design-replication-dark.png",
+    "actual": "actual-replication-dark.png",
+    "reference_sha256": "3aa9e2e826ef596c764954d6d943778e6992a1664eddeb3b3b5a022bf1b273de",
+    "actual_sha256": "3aa9e2e826ef596c764954d6d943778e6992a1664eddeb3b3b5a022bf1b273de",
+    "mean_absolute_rgb_difference_0_255": 0.0,
+    "difference_bounds": null
+  }
+]

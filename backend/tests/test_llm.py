@@ -21,6 +21,7 @@ from backend.app.llm_client import (
     OpenAICompatibleClient,
     LlmBillingError,
     LlmError,
+    LlmStreamStalled,
     LlmTemporaryError,
     looks_like_short_input_probe,
     looks_like_gateway_timeout,
@@ -211,6 +212,53 @@ class ChatCompletionTimeoutAndStreamTests(unittest.TestCase):
 
         self.assertIn("等待 300 秒仍无响应", str(ctx.exception))
         self.assertNotIn("HTTPSConnectionPool", str(ctx.exception))
+
+    @patch("requests.Session.post")
+    def test_stream_stops_on_finish_reason_without_done(self, mock_post: MagicMock) -> None:
+        def lines():
+            yield 'data: {"choices":[{"delta":{"content":"完成"},"finish_reason":"stop"}]}'
+            raise AssertionError("finish_reason 之后不应继续等待流结束")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "text/event-stream"}
+        mock_response.iter_lines.return_value = lines()
+        mock_post.return_value = mock_response
+        text = self._client().chat_completion(
+            [{"role": "user", "content": "hi"}],
+            "Qwen/Qwen2.5-7B-Instruct",
+            stream=True,
+        )
+        self.assertEqual(text, "完成")
+
+    @patch("requests.Session.post")
+    def test_stream_idle_watchdog_aborts_silent_connection(self, mock_post: MagicMock) -> None:
+        import threading
+
+        closed = threading.Event()
+
+        class SilentStream:
+            status_code = 200
+            headers = {"Content-Type": "text/event-stream"}
+            encoding = "utf-8"
+
+            def iter_lines(self, decode_unicode: bool = False):
+                yield 'data: {"choices":[{"delta":{"content":"前半"}}]}'
+                closed.wait(5)
+
+            def close(self) -> None:
+                closed.set()
+
+        mock_post.return_value = SilentStream()
+        with self.assertRaises(LlmStreamStalled) as ctx:
+            self._client().chat_completion(
+                [{"role": "user", "content": "hi"}],
+                "Qwen/Qwen2.5-7B-Instruct",
+                stream=True,
+                stream_idle_timeout=0.2,
+            )
+        self.assertIn("没有返回新内容", str(ctx.exception))
+        self.assertTrue(closed.is_set())
 
     @patch("requests.Session.post")
     def test_stream_ignores_reasoning_deltas(self, mock_post: MagicMock) -> None:
@@ -516,6 +564,106 @@ class StripThinkingTests(unittest.TestCase):
         self.assertEqual(self._strip(raw), "The result.")
 
 
+class H3PromptExtractionTests(unittest.TestCase):
+    def test_extracts_last_fenced_prompt_from_reasoning(self) -> None:
+        from backend.app.llm_minimax_skills import extract_h3_prompt_from_model_output
+
+        raw = (
+            "The user wants me to rewrite their idea into an H3 prompt.\n\n"
+            "```\nintegrated_multimodal_description: draft one\n\noverall_soundscape: rain\n```\n\n"
+            "Let me refine the timing.\n\n"
+            "```\nFor the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\n"
+            "integrated_multimodal_description: [Shot 1] final action.\n\n"
+            "overall_soundscape: final rain.\n\n"
+            "non_diegetic_music: piano.\n```\n\nThis looks good."
+        )
+        result = extract_h3_prompt_from_model_output(raw)
+        self.assertTrue(result.startswith("For the target video"))
+        self.assertIn("final action", result)
+        self.assertNotIn("The user wants", result)
+        self.assertNotIn("This looks good", result)
+
+    def test_keeps_clean_h3_prompt(self) -> None:
+        from backend.app.llm_minimax_skills import extract_h3_prompt_from_model_output
+
+        raw = (
+            "integrated_multimodal_description: [Shot 1] A cat jumps.\n\n"
+            "overall_soundscape: Soft wind.\n\n"
+            "non_diegetic_music: Piano."
+        )
+        self.assertEqual(extract_h3_prompt_from_model_output(raw), raw)
+
+    def test_trims_commentary_after_unwrapped_prompt(self) -> None:
+        from backend.app.llm_minimax_skills import extract_h3_prompt_from_model_output
+
+        raw = (
+            "I need to plan the shots first.\n\n"
+            "integrated_multimodal_description: [Shot 1] Final action.\n\n"
+            "overall_soundscape: Rain.\n\n"
+            "non_diegetic_music: Piano.\n\n"
+            "This looks good. Let me check the timing."
+        )
+        result = extract_h3_prompt_from_model_output(raw)
+        self.assertTrue(result.startswith("integrated_multimodal_description"))
+        self.assertNotIn("This looks good", result)
+        self.assertNotIn("I need to", result)
+
+    def test_rejects_reasoning_without_final_prompt(self) -> None:
+        from backend.app.llm_minimax_skills import extract_h3_prompt_from_model_output
+
+        raw = (
+            "The user wants me to rewrite this. "
+            "Maybe integrated_multimodal_description: something? Wait, the timing is wrong."
+        )
+        self.assertEqual(extract_h3_prompt_from_model_output(raw), "")
+
+
+class H3TranslationCoverageTests(unittest.TestCase):
+    ENGLISH = (
+        "integrated_multimodal_description: [Shot 1] Rainy street.\n\n"
+        "overall_soundscape: Rain and traffic.\n\n"
+        "non_diegetic_music: Low strings."
+    )
+
+    def test_complete_translation_has_no_missing_fields(self) -> None:
+        from backend.app.llm_minimax_skills import missing_h3_translation_fields
+
+        chinese = (
+            "integrated_multimodal_description（整合多模态描述）：\n[Shot 1] 雨夜街道。\n\n"
+            "overall_soundscape（整体声场）：雨声与车流。\n\n"
+            "non_diegetic_music（画外音乐）：低音弦乐。"
+        )
+        self.assertEqual(missing_h3_translation_fields(self.ENGLISH, chinese), [])
+
+    def test_partial_translation_reports_missing_fields(self) -> None:
+        from backend.app.llm_minimax_skills import missing_h3_translation_fields
+
+        chinese = "integrated_multimodal_description（整合多模态描述）：\n[Shot 1] 雨夜街道。"
+        self.assertEqual(
+            missing_h3_translation_fields(self.ENGLISH, chinese),
+            ["overall_soundscape", "non_diegetic_music"],
+        )
+
+    def test_translation_keeps_english_field_names(self) -> None:
+        from backend.app.llm_minimax_skills import missing_h3_translation_fields
+
+        chinese = (
+            "integrated_multimodal_description: 雨夜街道。\n"
+            "overall_soundscape: 雨声。\n"
+            "non_diegetic_music: 弦乐。"
+        )
+        self.assertEqual(missing_h3_translation_fields(self.ENGLISH, chinese), [])
+
+    def test_clean_translation_strips_blockquote_markers(self) -> None:
+        from backend.app.llm_minimax_skills import clean_h3_translation_output
+
+        raw = "> integrated_multimodal_description（整合多模态描述）：\n> [Shot 1] 雨夜街道。"
+        self.assertEqual(
+            clean_h3_translation_output(raw),
+            "integrated_multimodal_description（整合多模态描述）：\n[Shot 1] 雨夜街道。",
+        )
+
+
 class LLMProviderTests(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -552,15 +700,122 @@ class LLMProviderTests(unittest.TestCase):
         self.assertTrue(cfg["available"])
         self.assertEqual(self.provider.api_key(), "ms-secret-token-12345678")
 
+    def test_assistant_chat_falls_back_to_non_streaming_after_stall(self) -> None:
+        self.provider.update({
+            "enabled": True,
+            "base_url": "http://localhost:1234/v1",
+            "model": "model-a",
+            "assistant_models": ["model-a"],
+        })
+        client = MagicMock()
+        client.chat_completion.side_effect = [LlmStreamStalled("流式中断"), "完整回复"]
+        with patch.object(self.provider, "_chat_client", return_value=(client, "model-a")):
+            result = self.provider.assistant_chat([{"role": "user", "content": "hi"}], "model-a")
+        self.assertEqual(result, "完整回复")
+        self.assertEqual(client.chat_completion.call_count, 2)
+        self.assertTrue(client.chat_completion.call_args_list[0].kwargs["stream"])
+        self.assertFalse(client.chat_completion.call_args_list[1].kwargs["stream"])
+        self.assertEqual(client.chat_completion.call_args_list[0].kwargs["stream_idle_timeout"], 90)
+
     @patch("requests.Session.post")
-    def test_optimize_prompt_video(self, mock_post: MagicMock) -> None:
+    def test_translate_h3_prompt_to_chinese_strips_code_fence(self, mock_post: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "```\n整合多模态描述：雨夜街头。\n```"}}]
+        }
+        mock_post.return_value = mock_response
+        client = OpenAICompatibleClient("https://api-inference.modelscope.cn/v1", "ms-token")
+        result = client.translate_h3_prompt_to_chinese(
+            "integrated_multimodal_description: Rainy street.",
+            model="Qwen/Qwen2.5-72B-Instruct",
+        )
+        self.assertEqual(result, "整合多模态描述：雨夜街头。")
+        messages = mock_post.call_args.kwargs["json"]["messages"]
+        self.assertIn("中文翻译", messages[0]["content"])
+        self.assertEqual(messages[1]["content"], "integrated_multimodal_description: Rainy street.")
+
+    def test_translate_h3_prompt_to_chinese_skips_empty(self) -> None:
+        client = OpenAICompatibleClient("https://api-inference.modelscope.cn/v1", "ms-token")
+        self.assertEqual(client.translate_h3_prompt_to_chinese("   ", model="Qwen/Qwen2.5-72B-Instruct"), "")
+
+    @patch(
+        "backend.app.llm_provider.OpenAICompatibleClient.translate_h3_prompt_to_chinese",
+        side_effect=[
+            "integrated_multimodal_description（整合多模态描述）：雨夜街道。",
+            "integrated_multimodal_description（整合多模态描述）：雨夜街道。\n\n"
+            "overall_soundscape（整体声场）：雨声。\n\n"
+            "non_diegetic_music（画外音乐）：弦乐。",
+        ],
+    )
+    def test_translate_display_retries_when_sections_missing(self, mock_translate: MagicMock) -> None:
+        english = (
+            "integrated_multimodal_description: Rainy street.\n\n"
+            "overall_soundscape: Rain.\n\n"
+            "non_diegetic_music: Strings."
+        )
+        result = self.provider._translate_prompt_for_display(
+            english, {"base_url": "https://api-inference.modelscope.cn/v1", "model": "test-model"}, "key",
+        )
+        self.assertIn("non_diegetic_music", result)
+        self.assertEqual(mock_translate.call_count, 2)
+        self.assertEqual(
+            mock_translate.call_args_list[1].kwargs["field_reminder"],
+            ["overall_soundscape", "non_diegetic_music"],
+        )
+
+    @patch(
+        "backend.app.llm_provider.OpenAICompatibleClient.translate_h3_prompt_to_chinese",
+        return_value="integrated_multimodal_description（整合多模态描述）：雨夜街道。",
+    )
+    def test_translate_display_returns_empty_when_retry_still_incomplete(self, mock_translate: MagicMock) -> None:
+        english = (
+            "integrated_multimodal_description: Rainy street.\n\n"
+            "overall_soundscape: Rain.\n\n"
+            "non_diegetic_music: Strings."
+        )
+        result = self.provider._translate_prompt_for_display(
+            english, {"base_url": "https://api-inference.modelscope.cn/v1", "model": "test-model"}, "key",
+        )
+        self.assertEqual(result, "")
+        self.assertEqual(mock_translate.call_count, 2)
+
+    @patch(
+        "backend.app.llm_provider.OpenAICompatibleClient.translate_h3_prompt_to_chinese",
+        return_value=(
+            "integrated_multimodal_description（整合多模态描述）：雨夜街道。\n\n"
+            "overall_soundscape（整体声场）：雨声。\n\n"
+            "non_diegetic_music（画外音乐）：弦乐。"
+        ),
+    )
+    def test_translate_display_skips_retry_when_complete(self, mock_translate: MagicMock) -> None:
+        english = (
+            "integrated_multimodal_description: Rainy street.\n\n"
+            "overall_soundscape: Rain.\n\n"
+            "non_diegetic_music: Strings."
+        )
+        result = self.provider._translate_prompt_for_display(
+            english, {"base_url": "https://api-inference.modelscope.cn/v1", "model": "test-model"}, "key",
+        )
+        self.assertIn("non_diegetic_music", result)
+        self.assertEqual(mock_translate.call_count, 1)
+
+    @patch.object(LlmProviderService, "_translate_prompt_for_display", return_value="女子在雨夜街道漫步")
+    @patch("requests.Session.post")
+    def test_optimize_prompt_video(self, mock_post: MagicMock, mock_translate: MagicMock) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "choices": [
                 {
                     "message": {
-                        "content": "电影级中景，一位穿着风衣的女子缓步走在雨夜街道，霓虹倒影在湿漉的地面，镜头平稳向前推进。"
+                        "content": (
+                            "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\n"
+                            "integrated_multimodal_description: [Shot 1] Cinematic medium shot, a woman in a trench coat walks along a rainy night street, "
+                            "neon reflections on the wet pavement, the camera pushes in steadily.\n\n"
+                            "overall_soundscape: Rain and distant traffic.\n\n"
+                            "non_diegetic_music: Low strings."
+                        )
                     }
                 }
             ]
@@ -573,8 +828,10 @@ class LLMProviderTests(unittest.TestCase):
             "model": "Qwen/Qwen2.5-72B-Instruct",
         })
         result = self.provider.optimize_prompt("女子在下雨天散步", media_type="video", skill_id="minimalist-product-ad", reference_count=1)
-        self.assertIn("电影级中景", result)
+        self.assertIn("Cinematic medium shot", result["optimized_prompt"])
+        self.assertEqual(result["optimized_prompt_zh"], "女子在雨夜街道漫步")
         mock_post.assert_called_once()
+        mock_translate.assert_called_once()
         # 验证 system prompt 包含 MiniMax H3 技能指导与首帧对齐
         call_kwargs = mock_post.call_args[1]
         sent_messages = call_kwargs["json"]["messages"]
@@ -583,8 +840,58 @@ class LLMProviderTests(unittest.TestCase):
         self.assertIn("极简电商产品广告", system_content)
         self.assertIn("For the target video, at 0.00 seconds into the target video, <Picture 1>", system_content)
 
+    @patch.object(LlmProviderService, "_translate_prompt_for_display", return_value="雨夜街道，镜头推进")
     @patch("requests.Session.post")
-    def test_optimize_prompt_dashscope_format(self, mock_post: MagicMock) -> None:
+    def test_optimize_prompt_extracts_answer_from_reasoning(self, mock_post: MagicMock, mock_translate: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": (
+                "The user wants me to rewrite their idea into an H3 prompt.\n\n"
+                "```\nintegrated_multimodal_description: draft\n\noverall_soundscape: rain\n```\n\n"
+                "Let me refine it.\n\n"
+                "```\nintegrated_multimodal_description: [Shot 1] Final rainy street.\n\n"
+                "overall_soundscape: Final rain.\n\n"
+                "non_diegetic_music: Piano.\n```\n\nThis looks good."
+            )}}]
+        }
+        mock_post.return_value = mock_response
+        self.provider.update({
+            "enabled": True,
+            "api_key": "dummy-token",
+            "model": "XingChenAGI/Xing4.0-29B",
+        })
+
+        result = self.provider.optimize_prompt("女子在雨夜散步", media_type="video")
+
+        self.assertTrue(result["optimized_prompt"].startswith("integrated_multimodal_description: [Shot 1] Final rainy street."))
+        self.assertNotIn("The user wants", result["optimized_prompt"])
+        self.assertNotIn("This looks good", result["optimized_prompt"])
+        mock_translate.assert_called_once()
+        self.assertEqual(mock_translate.call_args.args[0], result["optimized_prompt"])
+
+    @patch.object(LlmProviderService, "_translate_prompt_for_display", return_value="")
+    @patch("requests.Session.post")
+    def test_optimize_prompt_rejects_reasoning_without_answer(self, mock_post: MagicMock, mock_translate: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "The user wants me to rewrite this. Maybe integrated_multimodal_description: something? Wait, the timing is wrong."}}]
+        }
+        mock_post.return_value = mock_response
+        self.provider.update({
+            "enabled": True,
+            "api_key": "dummy-token",
+            "model": "XingChenAGI/Xing4.0-29B",
+        })
+
+        with self.assertRaises(LlmError):
+            self.provider.optimize_prompt("女子在雨夜散步", media_type="video")
+        mock_translate.assert_not_called()
+
+    @patch.object(LlmProviderService, "_translate_prompt_for_display", return_value="小猫在草地上玩耍")
+    @patch("requests.Session.post")
+    def test_optimize_prompt_dashscope_format(self, mock_post: MagicMock, mock_translate: MagicMock) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -600,7 +907,85 @@ class LLMProviderTests(unittest.TestCase):
             "model": "qwen-max",
         })
         result = self.provider.optimize_prompt("小猫在草地上玩耍", media_type="video")
-        self.assertIn("3D Animation", result)
+        self.assertIn("3D Animation", result["optimized_prompt"])
+        self.assertEqual(result["optimized_prompt_zh"], "小猫在草地上玩耍")
+
+    @patch.object(LlmProviderService, "_translate_prompt_for_display", return_value="")
+    @patch("requests.Session.post")
+    def test_optimize_prompt_collection_single_reference_uses_ref2va(self, mock_post: MagicMock, mock_translate: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": (
+                "subject_definitions:\n<Subject 1> is the woman in a red coat.\n\n"
+                "summary:\nA woman walks through a rainy street.\n\n"
+                "retention_analysis:\nKeep the coat color and street layout.\n\n"
+                "detailed_description:\n[Shot 1] The woman walks toward the camera.\n\n"
+                "overall_soundscape:\nRain falls on the pavement.\n\n"
+                "non_diegetic_music:\nSoft piano."
+            )}}],
+        }
+        mock_post.return_value = mock_response
+        self.provider.update({
+            "enabled": True,
+            "api_key": "dummy-token",
+            "model": "Qwen/Qwen2.5-72B-Instruct",
+        })
+
+        self.provider.optimize_prompt(
+            "女主站在雨夜街头",
+            media_type="video",
+            reference_count=1,
+            workflow_id="minimax-h3-r2v",
+            duration_seconds=8,
+        )
+
+        system_content = next(
+            item["content"] for item in mock_post.call_args[1]["json"]["messages"] if item["role"] == "system"
+        )
+        self.assertIn("【当前任务模式：Ref2VA (多参考图生成，共 1 张参考图)", system_content)
+        self.assertIn("subject_definitions:", system_content)
+        self.assertIn("目标视频时长为 8.00 秒", system_content)
+        self.assertNotIn("【当前任务模式：I2VA", system_content)
+
+    @patch.object(LlmProviderService, "_translate_prompt_for_display", return_value="")
+    @patch("requests.Session.post")
+    def test_optimize_prompt_keyframes_two_references_uses_fl2va(self, mock_post: MagicMock, mock_translate: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": (
+                "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; "
+                "Picture 2 (from Shot 1) aligns with the 10.00-second mark of the target video.\n\n"
+                "integrated_multimodal_description: [Shot 1] She walks from the door to the window.\n\n"
+                "overall_soundscape: Footsteps and rain.\n\n"
+                "non_diegetic_music: Warm strings."
+            )}}],
+        }
+        mock_post.return_value = mock_response
+        self.provider.update({
+            "enabled": True,
+            "api_key": "dummy-token",
+            "model": "Qwen/Qwen2.5-72B-Instruct",
+        })
+
+        self.provider.optimize_prompt(
+            "她从门口走到窗前",
+            media_type="video",
+            reference_count=2,
+            workflow_id="minimax-h3-i2v",
+            duration_seconds=10,
+        )
+
+        system_content = next(
+            item["content"] for item in mock_post.call_args[1]["json"]["messages"] if item["role"] == "system"
+        )
+        self.assertIn("【当前任务模式：FL2VA (首尾帧生成", system_content)
+        self.assertIn(
+            "Picture 2 (from Shot 1) aligns with the 10.00-second mark of the target video.",
+            system_content,
+        )
+        self.assertNotIn("【当前任务模式：Ref2VA", system_content)
 
 
 
@@ -686,8 +1071,9 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.assertIn("3d-animation-short", skill_ids)
         self.assertIn("papercraft-stop-motion", skill_ids)
 
+    @patch.object(LlmProviderService, "_translate_prompt_for_display", return_value="航拍日落，电影感光影")
     @patch("requests.Session.post")
-    def test_optimize_prompt_api(self, mock_post: MagicMock) -> None:
+    def test_optimize_prompt_api(self, mock_post: MagicMock, mock_translate: MagicMock) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -725,10 +1111,24 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.assertEqual(data["original_prompt"], "航拍日落")
         self.assertEqual(data["skill_id"], "3d-animation-short")
         self.assertIn("integrated_multimodal_description", data["optimized_prompt"])
+        self.assertEqual(data["optimized_prompt_zh"], "航拍日落，电影感光影")
+        sent_messages = mock_post.call_args[1]["json"]["messages"]
+        system_content = next(item["content"] for item in sent_messages if item["role"] == "system")
+        self.assertIn("【当前任务模式：Ref2VA", system_content)
+        self.assertIn("subject_definitions:", system_content)
+        self.assertIn("retention_analysis:", system_content)
+        self.assertIn("non_diegetic_music:", system_content)
+        self.assertIn("必须严格输出 MiniMax H3 官方六段式", system_content)
 
+    @patch.object(LlmProviderService, "_translate_prompt_for_display", return_value="雨夜城市，霓虹倒影")
     @patch("backend.app.vision_runtime.complete_authoring")
-    def test_optimize_prompt_sends_images_when_provided(self, mock_complete: MagicMock) -> None:
-        mock_complete.return_value = ("subject_definitions:\nLook at <Picture 1>.", MagicMock())
+    def test_optimize_prompt_sends_images_when_provided(self, mock_complete: MagicMock, mock_translate: MagicMock) -> None:
+        mock_complete.return_value = (
+            "integrated_multimodal_description: [Shot 1] A rainy city at night with neon reflections, <Picture 1> is the main character.\n\n"
+            "overall_soundscape: Rain and traffic.\n\n"
+            "non_diegetic_music: Soft synth.",
+            MagicMock(),
+        )
         self.llm_provider.update({
             "enabled": True,
             "api_key": "test-modelscope-token",
@@ -748,6 +1148,7 @@ class LLMAppEndpointsTests(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 200)
         self.assertIn("<Picture 1>", res.json()["optimized_prompt"])
+        self.assertEqual(res.json()["optimized_prompt_zh"], "雨夜城市，霓虹倒影")
         mock_complete.assert_called_once()
         self.assertEqual(["https://cdn.example/ref.png"], mock_complete.call_args.args[5])
 

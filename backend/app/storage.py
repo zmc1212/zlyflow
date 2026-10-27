@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 import time
 import uuid
 from copy import deepcopy
@@ -90,6 +91,8 @@ class JobStore:
         self.initialize()
         self._grs_model_cache: dict[str, dict[str, Any] | None] = {}
         self._comfy_settings_cache: dict[str, Any] | None = None
+        self._content_epoch = 0
+        self._content_epoch_lock = threading.Lock()
 
     def _backup_before_migration(self) -> None:
         path = self.database_path
@@ -118,6 +121,7 @@ class JobStore:
                 self._ensure_column(connection, "canvas_projects", "preview_json", "TEXT NULL")
                 self._ensure_column(connection, "llm_provider_settings", "assistant_models_json", "TEXT")
                 self._ensure_column(connection, "generation_items", "refine_state_json", "LONGTEXT NULL")
+                self._ensure_column(connection, "job_rounds", "display_prompt", "LONGTEXT NULL")
                 self._ensure_job_list_indexes(connection)
                 self._ensure_column(
                     connection,
@@ -191,6 +195,7 @@ class JobStore:
                     stage TEXT NOT NULL,
                     progress INTEGER NOT NULL DEFAULT 0,
                     prompt TEXT NOT NULL,
+                    display_prompt TEXT,
                     negative_prompt TEXT NOT NULL DEFAULT '',
                     image_size TEXT,
                     options_json TEXT NOT NULL DEFAULT '{}',
@@ -412,6 +417,7 @@ class JobStore:
             self._ensure_column(connection, "director_projects", "content_revision", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(connection, "generation_items", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(connection, "generation_items", "refine_state_json", "TEXT")
+            self._ensure_column(connection, "job_rounds", "display_prompt", "TEXT")
             for table in ("jobs", "job_rounds", "generation_items"):
                 self._ensure_column(connection, table, "finished_at", "TEXT")
                 self._ensure_column(connection, table, "execution_elapsed_ms", "INTEGER")
@@ -668,6 +674,7 @@ class JobStore:
         *,
         title: str | None = None,
         source: dict[str, Any] | None = None,
+        display_prompt: str | None = None,
     ) -> dict:
         mode_value = self._mode_value(mode)
         media_type = self._media_for_mode(mode_value)
@@ -694,27 +701,28 @@ class JobStore:
             )
             self._insert_round(
                 connection, round_id, job_id, 1, mode_value, media_type, prompt, negative_prompt,
-                image_size, references, options or {}, submitted_options,
+                image_size, references, options or {}, submitted_options, display_prompt,
             )
+        self._bump_content_epoch()
         return self.get(job_id)
 
     def _insert_round(
         self, connection: DbConnection, round_id: str, job_id: str, sequence: int,
         mode: JobMode | str, media_type: str, prompt: str, negative_prompt: str,
         image_size: str | None, references: list[str], options: dict,
-        submitted_options: dict | None,
+        submitted_options: dict | None, display_prompt: str | None = None,
     ) -> None:
         timestamp = now()
         mode_value = self._mode_value(mode)
         connection.execute(
             """INSERT INTO job_rounds
-            (id, job_id, sequence, mode, media_type, status, stage, progress, prompt,
+            (id, job_id, sequence, mode, media_type, status, stage, progress, prompt, display_prompt,
              negative_prompt, image_size, options_json, submitted_options_json,
              options_submitted, references_json, error, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)""",
             (
                 round_id, job_id, sequence, mode_value, media_type, JobStatus.QUEUED.value, "等待排队",
-                prompt, negative_prompt, image_size, json.dumps(options, ensure_ascii=False),
+                prompt, display_prompt, negative_prompt, image_size, json.dumps(options, ensure_ascii=False),
                 json.dumps(submitted_options or {}, ensure_ascii=False), int(submitted_options is not None),
                 json.dumps(references, ensure_ascii=False), timestamp, timestamp,
             ),
@@ -732,7 +740,7 @@ class JobStore:
     def create_round(
         self, job_id: str, *, prompt: str, negative_prompt: str = "", image_size: str | None = None,
         references: list[str] | None = None, options: dict | None = None,
-        submitted_options: dict | None = None,
+        submitted_options: dict | None = None, display_prompt: str | None = None,
     ) -> dict:
         job = self.get(job_id, include_references=True)
         if job.get("legacy_read_only"):
@@ -746,7 +754,7 @@ class JobStore:
             try:
                 self._insert_round(
                     connection, round_id, job_id, sequence, mode, job["media_type"], prompt,
-                    negative_prompt, image_size, refs, effective_options, submitted_options,
+                    negative_prompt, image_size, refs, effective_options, submitted_options, display_prompt,
                 )
             except IntegrityError as error:
                 # UNIQUE(job_id, sequence): a concurrent request created the
@@ -754,6 +762,7 @@ class JobStore:
                 raise ValueError("该任务刚刚创建了新的轮次，请刷新后重试。") from error
             connection.execute("UPDATE jobs SET last_round_id = ?, updated_at = ? WHERE id = ?", (round_id, now(), job_id))
             self._refresh_job(connection, job_id)
+        self._bump_content_epoch()
         return self.get(job_id)
 
     def update(
@@ -835,6 +844,8 @@ class JobStore:
             connection.execute(f"UPDATE generation_items SET {assignment} WHERE id = ?", (*updates.values(), generation_item_id))
             self._refresh_round(connection, row["round_id"])
             self._refresh_job(connection, row["job_id"])
+        if outputs is not None:
+            self._bump_content_epoch()
         return self.get_generation(generation_item_id)
 
     @staticmethod
@@ -1067,23 +1078,31 @@ class JobStore:
         return outputs
 
     @classmethod
-    def _decode_generation(cls, row: Row) -> dict:
+    def _decode_generation(cls, row: Row, *, include_refine_state: bool = True) -> dict:
         data = dict(row)
         data["index"] = data.pop("item_index")
         data["outputs"] = cls._decode_outputs(data.pop("outputs_json"))
         raw_refine_state = data.pop("refine_state_json", None)
-        try:
-            data["refine_state"] = json.loads(raw_refine_state) if raw_refine_state else {}
-        except (TypeError, ValueError):
-            data["refine_state"] = {}
+        data["refine_state"] = {}
+        if include_refine_state:
+            try:
+                data["refine_state"] = json.loads(raw_refine_state) if raw_refine_state else {}
+            except (TypeError, ValueError):
+                data["refine_state"] = {}
         data["cancel_requested"] = bool(data.get("cancel_requested") or 0)
         return data
 
-    def _rounds_for_job(self, connection: DbConnection, job_id: str, include_references: bool) -> list[dict]:
-        return self._rounds_for_jobs(connection, [job_id], include_references).get(job_id, [])
+    def _rounds_for_job(
+        self, connection: DbConnection, job_id: str, include_references: bool,
+        *, include_refine_state: bool = True,
+    ) -> list[dict]:
+        return self._rounds_for_jobs(
+            connection, [job_id], include_references, include_refine_state=include_refine_state,
+        ).get(job_id, [])
 
     def _rounds_for_jobs(
         self, connection: DbConnection, job_ids: list[str], include_references: bool,
+        *, include_refine_state: bool = True,
     ) -> dict[str, list[dict]]:
         rounds_by_job = {job_id: [] for job_id in job_ids}
         if not job_ids:
@@ -1102,7 +1121,9 @@ class JobStore:
                 tuple(round_ids),
             ).fetchall()
             for item in item_rows:
-                items_by_round[str(item["round_id"])].append(self._decode_generation(item))
+                items_by_round[str(item["round_id"])].append(
+                    self._decode_generation(item, include_refine_state=include_refine_state)
+                )
         for row in round_rows:
             data = dict(row)
             job_id = str(data["job_id"])
@@ -1119,9 +1140,12 @@ class JobStore:
 
     def _hydrate_job_rows(
         self, connection: DbConnection, rows: list[Row], *, include_references: bool = False,
+        include_refine_state: bool = True,
     ) -> list[dict]:
         job_ids = [str(row["id"]) for row in rows]
-        rounds_by_job = self._rounds_for_jobs(connection, job_ids, include_references)
+        rounds_by_job = self._rounds_for_jobs(
+            connection, job_ids, include_references, include_refine_state=include_refine_state,
+        )
         jobs: list[dict] = []
         for row in rows:
             job = self.decode(
@@ -1207,11 +1231,15 @@ class JobStore:
             id_rows = connection.execute(
                 "SELECT id FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,),
             ).fetchall()
-            return self._hydrate_job_rows(connection, self._job_rows_by_ids(
-                connection, [str(row["id"]) for row in id_rows],
-            ))
+            return self._hydrate_job_rows(
+                connection,
+                self._job_rows_by_ids(connection, [str(row["id"]) for row in id_rows]),
+                include_refine_state=False,
+            )
 
-    def list_jobs(self, user_id: str | None = None, limit: int = 100) -> list[dict]:
+    def list_jobs(
+        self, user_id: str | None = None, limit: int = 100, *, include_refine_state: bool = False,
+    ) -> list[dict]:
         with self.connection() as connection:
             if user_id is not None:
                 id_rows = connection.execute(
@@ -1225,7 +1253,99 @@ class JobStore:
                     (limit,),
                 ).fetchall()
             job_ids = [str(row["id"]) for row in id_rows]
-            return self._hydrate_job_rows(connection, self._job_rows_by_ids(connection, job_ids))
+            return self._hydrate_job_rows(
+                connection,
+                self._job_rows_by_ids(connection, job_ids),
+                include_refine_state=include_refine_state,
+            )
+
+    def list_library_sources(self, user_id: str | None = None, limit: int = 500) -> list[dict]:
+        """Return only the job/round/output fields needed by the media library.
+
+        The full job graph carries option schemas, references and continuation
+        state that the library never reads; hydrating hundreds of those rows is
+        the main cost of library paging.
+        """
+        owner_clause = "WHERE owner_user_id = ?" if user_id is not None else ""
+        parameters: tuple[Any, ...] = (user_id, limit) if user_id is not None else (limit,)
+        with self.connection() as connection:
+            rows = connection.execute(
+                f"""SELECT j.id AS job_id, j.title, j.prompt,
+                    r.id AS round_id, r.created_at AS round_created_at,
+                    i.id AS item_id, i.outputs_json
+                FROM (
+                    SELECT id, title, prompt, pinned, created_at
+                    FROM jobs {owner_clause}
+                    ORDER BY pinned DESC, created_at DESC
+                    LIMIT ?
+                ) j
+                JOIN job_rounds r ON r.job_id = j.id
+                JOIN generation_items i ON i.round_id = r.id
+                ORDER BY j.pinned DESC, j.created_at DESC, r.sequence, i.item_index""",
+                parameters,
+            ).fetchall()
+        jobs_by_id: dict[str, dict] = {}
+        rounds_by_key: dict[tuple[str, str], dict] = {}
+        ordered: list[dict] = []
+        for row in rows:
+            job_id = str(row["job_id"])
+            job = jobs_by_id.get(job_id)
+            if job is None:
+                job = {
+                    "id": job_id,
+                    "title": row["title"],
+                    "prompt": row["prompt"] or "",
+                    "rounds": [],
+                }
+                jobs_by_id[job_id] = job
+                ordered.append(job)
+            round_id = str(row["round_id"])
+            round_key = (job_id, round_id)
+            round_data = rounds_by_key.get(round_key)
+            if round_data is None:
+                round_data = {
+                    "id": round_id,
+                    "created_at": row["round_created_at"],
+                    "generation_items": [],
+                }
+                rounds_by_key[round_key] = round_data
+                job["rounds"].append(round_data)
+            round_data["generation_items"].append({
+                "id": str(row["item_id"]),
+                "outputs": self._decode_outputs(row["outputs_json"] or "[]"),
+            })
+        return ordered
+
+    def output_locations(self, user_id: str | None = None, limit: int = 1000) -> dict[str, dict]:
+        """Map output paths to their stored output records for media previews."""
+        owner_clause = "WHERE owner_user_id = ?" if user_id is not None else ""
+        parameters: tuple[Any, ...] = (user_id, limit) if user_id is not None else (limit,)
+        with self.connection() as connection:
+            rows = connection.execute(
+                f"""SELECT i.outputs_json
+                FROM (
+                    SELECT id FROM jobs {owner_clause}
+                    ORDER BY pinned DESC, created_at DESC
+                    LIMIT ?
+                ) j
+                JOIN job_rounds r ON r.job_id = j.id
+                JOIN generation_items i ON i.round_id = r.id""",
+                parameters,
+            ).fetchall()
+        locations: dict[str, dict] = {}
+        for row in rows:
+            for output in self._decode_outputs(row["outputs_json"] or "[]"):
+                path = str(output.get("path") or "")
+                if path and path not in locations:
+                    locations[path] = output
+        return locations
+
+    def content_epoch(self) -> int:
+        return self._content_epoch
+
+    def _bump_content_epoch(self) -> None:
+        with self._content_epoch_lock:
+            self._content_epoch += 1
 
     def _job_rows_by_ids(self, connection: DbConnection, job_ids: list[str]) -> list[Row]:
         if not job_ids:
@@ -1260,11 +1380,15 @@ class JobStore:
             if cursor.rowcount == 0:
                 raise KeyError(job_id)
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-            return self.decode(row, connection=connection)
+            result = self.decode(row, connection=connection)
+        self._bump_content_epoch()
+        return result
 
     def delete(self, job_id: str) -> bool:
         with self.connection() as connection:
             cursor = connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        if cursor.rowcount > 0:
+            self._bump_content_epoch()
         return cursor.rowcount > 0
 
     def assign_unowned(self, user_id: str) -> int:
@@ -1272,6 +1396,8 @@ class JobStore:
             cursor = connection.execute(
                 "UPDATE jobs SET owner_user_id = ?, updated_at = ? WHERE owner_user_id IS NULL", (user_id, now())
             )
+        if cursor.rowcount > 0:
+            self._bump_content_epoch()
         return cursor.rowcount
 
     def mark_output_delivered(self, job_id: str, output_index: int, delivered_at: str, status: str = "local") -> dict:

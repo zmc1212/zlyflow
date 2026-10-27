@@ -13,6 +13,8 @@ LOGGER = logging.getLogger("zly.request")
 LOG_PATH = Path(__file__).resolve().parents[2] / "dev-log" / "api-requests.log"
 _SECRET_KEY = re.compile(r"(password|passwd|secret|token|api[_-]?key|authorization|cookie|ticket|^code$|code_verifier|^state$)", re.I)
 _MAX_BODY = 4000
+_BODY_CAPTURE_LIMIT = 64 * 1024
+_BINARY_CONTENT_TYPES = ("multipart/", "application/octet-stream")
 
 
 def _redact(value: Any) -> Any:
@@ -65,30 +67,10 @@ class RequestLogMiddleware:
             return
 
         path = scope.get("path") or ""
-        method = (scope.get("method") or "GET").upper()
+        method = (scope.get("method") or "").upper()
         if not str(path).startswith("/api/"):
             await self.app(scope, receive, send)
             return
-
-        chunks: list[bytes] = []
-        more = True
-        while more:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            chunks.append(message.get("body") or b"")
-            more = bool(message.get("more_body"))
-        body = b"".join(chunks)
-        replayed = False
-
-        async def replay() -> Message:
-            nonlocal replayed
-            if replayed:
-                # StreamingResponse waits here for a real disconnect. Returning
-                # synthetic requests forever starves the entire event loop.
-                return await receive()
-            replayed = True
-            return {"type": "http.request", "body": body, "more_body": False}
 
         headers = {key.decode("latin-1"): value.decode("latin-1") for key, value in scope.get("headers") or []}
         content_type = headers.get("content-type", "")
@@ -99,17 +81,81 @@ class RequestLogMiddleware:
                 status_box["status"] = int(message.get("status") or 0)
             await send(message)
 
+        def log_request(body_bytes: int, body: Any) -> None:
+            write_request_log(
+                "http",
+                {
+                    "method": method,
+                    "path": path,
+                    "query": _redact(dict(parse_qsl(scope.get("query_string", b"").decode("latin-1")))) if scope.get("query_string") else "",
+                    "content_type": content_type,
+                    "body_bytes": body_bytes,
+                    "body": ("<OAuth credentials omitted>" if path.startswith("/api/mcp/oauth/") else body),
+                    "status": status_box.get("status"),
+                },
+            )
+
+        if method in {"GET", "HEAD", "DELETE", "OPTIONS"}:
+            await self.app(scope, receive, send_wrapper)
+            log_request(0, "")
+            return
+
+        if any(token in content_type for token in _BINARY_CONTENT_TYPES):
+            body_bytes = 0
+
+            async def counted_receive() -> Message:
+                nonlocal body_bytes
+                message = await receive()
+                if message["type"] == "http.request":
+                    body_bytes += len(message.get("body") or b"")
+                return message
+
+            await self.app(scope, counted_receive, send_wrapper)
+            log_request(body_bytes, f"<binary {body_bytes} bytes>")
+            return
+
+        captured: list[bytes] = []
+        captured_size = 0
+        pending_more = True
+        while pending_more:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body") or b""
+            captured.append(chunk)
+            captured_size += len(chunk)
+            pending_more = bool(message.get("more_body"))
+            if captured_size > _BODY_CAPTURE_LIMIT:
+                # Keep the already-read chunks intact for replay, then stream the
+                # remainder through untouched instead of buffering large bodies.
+                break
+        body_bytes = captured_size
+        truncated = captured_size > _BODY_CAPTURE_LIMIT
+        whole_body = None if truncated else b"".join(captured)
+        replayed = False
+        cursor = 0
+
+        async def replay() -> Message:
+            nonlocal replayed, cursor, body_bytes
+            if whole_body is not None:
+                if not replayed:
+                    replayed = True
+                    return {"type": "http.request", "body": whole_body, "more_body": False}
+            elif cursor < len(captured):
+                chunk = captured[cursor]
+                cursor += 1
+                return {
+                    "type": "http.request",
+                    "body": chunk,
+                    "more_body": pending_more if cursor == len(captured) else True,
+                }
+            message = await receive()
+            if message["type"] == "http.request":
+                body_bytes += len(message.get("body") or b"")
+            return message
+
         await self.app(scope, replay, send_wrapper)
-        write_request_log(
-            "http",
-            {
-                "method": method,
-                "path": path,
-                "query": _redact(dict(parse_qsl(scope.get("query_string", b"").decode("latin-1")))) if scope.get("query_string") else "",
-                "content_type": content_type,
-                "body_bytes": len(body),
-                "body": ("<OAuth credentials omitted>" if path.startswith("/api/mcp/oauth/")
-                         else _decode_body(body, content_type)) if method in {"POST", "PUT", "PATCH"} else "",
-                "status": status_box.get("status"),
-            },
-        )
+        if truncated:
+            log_request(body_bytes, f"<body truncated after {captured_size} bytes>")
+        else:
+            log_request(body_bytes, _decode_body(whole_body or b"", content_type))

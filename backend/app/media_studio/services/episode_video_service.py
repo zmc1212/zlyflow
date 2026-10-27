@@ -532,8 +532,8 @@ class EpisodeVideoService:
             raise ValueError("逐镜工作流必须指定 Beat，请使用一键生成或「生成本镜」")
         else:
             render_scope = "episode"
-        if render_scope == "episode" and cls._refine_preview_enabled(settings):
-            raise ValueError("整集直出暂不支持先预览一采，请改为逐镜或选中镜生成")
+        if render_scope == "episode":
+            cls._apply_render_scope_settings(settings, render_scope)
 
         llm = H3PromptBuilder.ensure_available()
         comfy_config = ComfyService.get_config()
@@ -1894,6 +1894,7 @@ class EpisodeVideoService:
                 "status": "awaiting",
                 "mode": "timeline",
                 "quality": str(payload.get("refine_quality") or "1.0"),
+                "quality_mode": str(payload.get("refine_quality_mode") or "auto"),
                 "preview_url": preview_url,
                 "preview_merged": merged,
                 "chunks": continuations,
@@ -1986,6 +1987,7 @@ class EpisodeVideoService:
                 "status": "awaiting",
                 "mode": "shot_graph",
                 "quality": str(payload.get("refine_quality") or "1.0"),
+                "quality_mode": str(payload.get("refine_quality_mode") or "auto"),
                 "preview_url": preview_url,
                 "preview_merged": merged,
                 "chunks": continuations,
@@ -2180,6 +2182,12 @@ class EpisodeVideoService:
     @staticmethod
     def _merge_chunk_videos(comfy: ComfyVideoClient, outputs: list[dict[str, str]]) -> bytes:
         return concat_video_bytes([comfy.download_output(output) for output in outputs])
+
+    @staticmethod
+    def _apply_render_scope_settings(settings: dict[str, Any], render_scope: str) -> None:
+        # Two-pass always stops after the first pass; a whole-episode render cannot pause.
+        if render_scope == "episode":
+            settings["refine_preview"] = False
 
     @staticmethod
     def _refine_preview_enabled(options: dict[str, Any] | None) -> bool:

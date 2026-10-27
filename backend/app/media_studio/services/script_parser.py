@@ -178,13 +178,29 @@ class StandardScriptParser:
     def _extract_characters(cls, text: str, character_prompts: dict[str, str]) -> list[dict[str, Any]]:
         characters: list[dict[str, Any]] = []
         # 注意：不要在 ### 处提前截断，截断条件必须是 #{1,2} 并且后面不是 #
-        match = re.search(r"#{1,3}\s*(?:一[、.])?\s*主要人物固定设定\s*\n(.*?)(?=\n#{1,2}\s+[^\n#]|\Z)", text, re.DOTALL)
+        match = re.search(r"#{1,3}\s*(?:一[、.])?\s*(?:主要人物固定设定|主要人物(?:设定)?)\s*\n(.*?)(?=\n#{1,2}\s+[^\n#]|\Z)", text, re.DOTALL)
         if not match:
             return characters
 
         block = match.group(1).strip()
         char_blocks = re.split(r"\n(?=###\s*)", block)
-        for cb in char_blocks:
+        # 简短剧本常用「**角色名**：人物简介」而不是 ### 子标题；转换为
+        # 已有角色块，继续复用固定道具、性别、年龄和提示词提取逻辑。
+        normalized_blocks: list[str] = []
+        direct_line = re.compile(
+            r"^\s*(?:[-+*]\s*)?(?:[*_`]{1,3})?([^*_：:\n]+?)(?:[*_`]{1,3})?\s*[：:]\s*(.+?)\s*$"
+        )
+        for char_block in char_blocks:
+            char_block = char_block.strip()
+            if char_block.startswith("###"):
+                normalized_blocks.append(char_block)
+                continue
+            for line in char_block.splitlines():
+                line_match = direct_line.match(line)
+                if line_match:
+                    normalized_blocks.append(f"### {line_match.group(1).strip()}\n{line_match.group(2).strip()}")
+
+        for cb in normalized_blocks:
             cb_str = cb.strip()
             if not cb_str.startswith("###"):
                 continue
@@ -330,6 +346,7 @@ class StandardScriptParser:
 
         cn_map = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
 
+        previous_scene = ""
         for i, m in enumerate(shot_splits):
             s_num_raw = m.group(1).strip()
             s_num = int(s_num_raw) if s_num_raw.isdigit() else cn_map.get(s_num_raw, i + 1)
@@ -340,6 +357,16 @@ class StandardScriptParser:
             content_block = episode_block[start_pos:end_pos].strip()
 
             shot_data = cls._parse_single_shot(s_num, s_title, content_block)
+            if re.fullmatch(r"同上|同前|同上一镜|同前一镜", shot_data["scene"].strip().rstrip("。；;")):
+                shot_data["scene"] = previous_scene
+            elif shot_data["scene"]:
+                previous_scene = shot_data["scene"]
+            if shot_data["duration_sec"] is None:
+                time_range = re.search(r"(\d+(?:\.\d+)?)\s*[-–—~～至]\s*(\d+(?:\.\d+)?)\s*(?:秒|s)", s_title, re.I)
+                if time_range:
+                    seconds = float(time_range.group(2)) - float(time_range.group(1))
+                    if seconds > 0:
+                        shot_data["duration_sec"] = max(1, int(round(seconds)))
             shots.append(shot_data)
 
         return shots
@@ -351,10 +378,26 @@ class StandardScriptParser:
     _TEXT_SHOT_FIELDS = ("action", "camera", "dialogue", "visual_prompt", "audio", "subtitle")
 
     @classmethod
+    def _normalize_shot_label(cls, line: str) -> str:
+        """去掉列表标记及字段名外层强调符，不改字段值中的 Markdown。"""
+        line_s = line.strip()
+        # 只移除真正的列表标记；不要像 lstrip("-*") 那样剥掉字段值或说话人
+        # 名称前的粗体起始符。
+        line_s = re.sub(r"^(?:[-+•]\s*|\*(?!\*)\s*)", "", line_s).strip()
+        labels = r"人物|角色|场景|道具|时长|duration|动作|画面|镜头|运镜|景别|台词|对白|提示词|生图提示词|画面提示词|音效|声音|字幕|旁白"
+        line_s = re.sub(
+            rf"^(?:[*_`]+)?({labels})(?:[*_`]+)?\s*([：:])",
+            r"\1\2",
+            line_s,
+            flags=re.I,
+        )
+        return line_s
+
+    @classmethod
     def _shot_content_segments(cls, content: str) -> list[str]:
         segments: list[str] = []
         for line in content.split("\n"):
-            line_s = line.strip().lstrip("-* ").strip()
+            line_s = cls._normalize_shot_label(line)
             if not line_s:
                 continue
             # 只在「人物：…；场景：…」这种多字段同行时按分号切开，避免把动作/提示词里的分号截断。
@@ -438,11 +481,22 @@ class StandardScriptParser:
                 shot["action"] = seg
                 last_text_field = "action"
 
-        # 若台词为空但内容里有引号对话
+        # 若没有显式台词标签，只接受「说话人：带引号或舞台提示的台词」作为兜底。
+        # 不能从任意动作/道具描述中抓第一个引号，否则照片上的文字会被当成对白。
         if not shot["dialogue"] and content:
-            dialogue_match = re.search(r"[“\"「](.*?)[”\"」]", content)
-            if dialogue_match:
-                shot["dialogue"] = dialogue_match.group(0)
+            dialogue_lines = []
+            for line in content.splitlines():
+                line_s = cls._normalize_shot_label(line)
+                if cls._SHOT_FIELD_START.match(line_s):
+                    continue
+                dialogue_match = re.match(r"^([^：:\n]{1,20})[：:]\s*(.+)$", line_s)
+                if not dialogue_match:
+                    continue
+                value = dialogue_match.group(2).strip()
+                if re.search(r"[“\"「]|（[^）\n]+）|\([^\)\n]+\)", value):
+                    dialogue_lines.append(line_s)
+            if dialogue_lines:
+                shot["dialogue"] = " ".join(dialogue_lines)
 
         # 若动作仍为空，用全文非标签行代替
         if not shot["action"] and content:
@@ -541,7 +595,8 @@ class StandardScriptParser:
 
         for ep in episodes:
             for shot in ep.get("shots", []):
-                s_name = shot.get("scene", "").strip()
+                scene_description = shot.get("scene", "").strip()
+                s_name = re.split(r"[，,。；;\n]", scene_description, maxsplit=1)[0].strip()
                 if not s_name:
                     continue
                 shot_ref = f"第{ep['episode_num']}集 {shot['title']}"
@@ -559,7 +614,7 @@ class StandardScriptParser:
                         scenes_map[s_name] = {
                             "name": s_name,
                             "type": "分镜实拍场景",
-                            "description": f"拍摄场地：{s_name}",
+                            "description": f"拍摄场地：{scene_description}",
                             "elements": [],
                             "shots_count": 1,
                             "related_shots": [shot_ref],

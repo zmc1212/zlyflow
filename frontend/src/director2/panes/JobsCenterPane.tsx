@@ -1,5 +1,5 @@
 // 全部任务面板 —— 逐行复刻自 dev0914 z-admin/src/views/project/JobsCenterPane.vue
-// Vue → React 对应：ref→useState、onMounted/onUnmounted→useEffect（1 秒静默轮询与清理保留）；
+// Vue → React 对应：ref→useState、onMounted/onUnmounted→useEffect（静默轮询与清理保留）；
 // a-table bodyCell 自定义渲染 → columns render；a-* 组件 → antd 同名组件；
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -27,6 +27,26 @@ import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "..
 import { jobCanConfirmRefine, jobCanShowUpscaleAction, jobPreviewVideoUrl, jobRefineShotCount, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl } from "../director2-video-settings"
 import { useMediaPreview } from "../media-preview"
 import "./jobs-center.css"
+
+const ACTIVE_JOB_STATUSES = new Set([
+  "queued", "pending", "preparing", "prompt_generation", "uploading", "comfy_queued", "running",
+])
+const ACTIVE_POLL_MS = 1000
+const IDLE_POLL_MS = 5000
+const HIDDEN_POLL_MS = 15000
+
+function sameJobSummary(left: Director2Job, right: Director2Job): boolean {
+  return left.status === right.status
+    && left.progress === right.progress
+    && left.updated_at === right.updated_at
+    && left.result_url === right.result_url
+    && left.error_message === right.error_message
+}
+
+function sameJobList(previous: Director2Job[], next: Director2Job[]): boolean {
+  return previous.length === next.length
+    && previous.every((job, index) => job.id === next[index].id && sameJobSummary(job, next[index]))
+}
 
 interface JobsCenterPaneProps {
   csrfToken: string
@@ -71,6 +91,14 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   const [upscalingJobId, setUpscalingJobId] = useState<string | null>(null)
   const [refineAction, setRefineAction] = useState<{ jobId: string; action: "confirm" | "skip" } | null>(null)
   const hasInitializedTab = useRef(false)
+  const requestInFlight = useRef(false)
+  const requestSequence = useRef(0)
+  const activeProjectRef = useRef(projectId)
+  const jobsRef = useRef<Director2Job[]>([])
+
+  useEffect(() => {
+    jobsRef.current = jobs
+  }, [jobs])
 
   // 与 Vue 实例级可变量（selectedJob）对应的同步 ref，供异步续体（fetchJobs 轮询）读取最新值
   const selectedJobRef = useRef<Director2Job | null>(null)
@@ -268,6 +296,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   }
 
   function handleJobTypeChange(key: string) {
+    hasInitializedTab.current = true
     setActiveJobType(key as Director2JobType)
     setPage(1)
   }
@@ -349,25 +378,39 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     setDetailVisible(true)
   }
 
-  async function fetchJobs(silent = false) {
+  async function fetchJobs(silent = false): Promise<Director2Job[] | undefined> {
+    if (requestInFlight.current) return undefined
+    requestInFlight.current = true
+    const sequence = ++requestSequence.current
     if (!silent) setLoading(true)
     try {
       const res = await listJobs(projectId)
+      if (sequence !== requestSequence.current || activeProjectRef.current !== projectId) return undefined
       const list = res || []
-      setJobs(list)
+      setJobs((previous) => (sameJobList(previous, list) ? previous : list))
       if (!hasInitializedTab.current) {
         hasInitializedTab.current = true
         setActiveJobType(defaultJobTypeTab(list))
         setPage(1)
       }
-      if (selectedJobRef.current) {
-        const found = list.find((job) => job.id === selectedJobRef.current?.id) || selectedJobRef.current
-        applySelectedJob(found)
+      const selected = selectedJobRef.current
+      if (selected) {
+        const found = list.find((job) => job.id === selected.id)
+        if (found && sameJobSummary(selected, found)) {
+          // Reuse the previous object so polling an unchanged selection does not re-render the detail.
+        } else if (found) {
+          applySelectedJob(found)
+        }
       }
+      return list
     } catch {
-      if (!silent) message.error("加载任务列表失败")
+      if (!silent && sequence === requestSequence.current) message.error("加载任务列表失败")
+      return undefined
     } finally {
-      if (!silent) setLoading(false)
+      if (sequence === requestSequence.current) {
+        requestInFlight.current = false
+        if (!silent) setLoading(false)
+      }
     }
   }
 
@@ -423,7 +466,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
   }
 
-  // 最新闭包 trampoline：1 秒静默轮询读取最新渲染的 fetchJobs（等价 Vue 闭包读响应式值）
+  // 最新闭包 trampoline：轮询读取最新渲染的 fetchJobs（等价 Vue 闭包读响应式值）
   const fetchJobsRef = useRef(fetchJobs)
   useEffect(() => {
     fetchJobsRef.current = fetchJobs
@@ -431,14 +474,46 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
 
   useEffect(() => {
     hasInitializedTab.current = false
+    activeProjectRef.current = projectId
+    requestInFlight.current = false
+    requestSequence.current += 1
     setActiveJobType(DIRECTOR2_DEFAULT_JOB_TYPE)
     setPage(1)
     setSearchQuery("")
     setStatusFilter("all")
-    fetchJobs()
-    const pollTimer = window.setInterval(() => fetchJobsRef.current(true), 1000)
+    let cancelled = false
+    let pollTimer = 0
+
+    function schedule(list?: Director2Job[]) {
+      if (cancelled) return
+      const hasActive = (list ?? jobsRef.current).some((job) => ACTIVE_JOB_STATUSES.has(job.status))
+      pollTimer = window.setTimeout(poll, hasActive ? ACTIVE_POLL_MS : IDLE_POLL_MS)
+    }
+
+    async function poll() {
+      if (cancelled) return
+      if (document.visibilityState === "hidden") {
+        pollTimer = window.setTimeout(poll, HIDDEN_POLL_MS)
+        return
+      }
+      const list = await fetchJobsRef.current(true)
+      schedule(list)
+    }
+
+    function handleVisibility() {
+      if (cancelled || document.visibilityState !== "visible") return
+      window.clearTimeout(pollTimer)
+      void poll()
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility)
+    void fetchJobs().then((list) => schedule(list))
     return () => {
-      window.clearInterval(pollTimer)
+      cancelled = true
+      requestSequence.current += 1
+      requestInFlight.current = false
+      window.clearTimeout(pollTimer)
+      document.removeEventListener("visibilitychange", handleVisibility)
     }
     // 对应原版 onMounted + onUnmounted；projectId 变化时重新拉列表并重置默认 Tab
     // eslint-disable-next-line react-hooks/exhaustive-deps

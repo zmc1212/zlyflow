@@ -1,0 +1,25 @@
+{
+  "reference": "01-design-dark.png", "css_viewport_width": 1505,
+  "expected": {"url": "http://127.0.0.1:5173/director", "title": "ZLY AI 视频创作平台", "viewport": {"width": 1505, "height": 1045}, "dpr": 1, "full_page": false, "screenshot_scale": "css"},
+  "regions": [
+    {"name":"start-panel","box":[118,95,358,831],"selector":".dh-start-panel"},
+    {"name":"mode-menu","box":[134,199,326,239],"selector":".dh-create-menu"},
+    {"name":"studio-mode","box":[134,199,326,73],"selector":".dh-create-menu .ant-menu-item:nth-child(1)"},
+    {"name":"batch-mode","box":[134,282,326,73],"selector":".dh-create-menu .ant-menu-item:nth-child(2)"},
+    {"name":"replication-mode","box":[134,365,326,73],"selector":".dh-create-menu .ant-menu-item:nth-child(3)"},
+    {"name":"lens-visual","box":[134,450,326,160],"selector":".dh-start-visual"},
+    {"name":"create-cta","box":[134,854,326,56],"selector":".dh-start-create"},
+    {"name":"diagnosis","box":[118,937,358,84],"selector":".dh-workspace-diagnosis"},
+    {"name":"refresh","box":[1378,110,104,50],"selector":".dh-workspace-refresh"},
+    {"name":"toolbar","box":[505,201,976,49],"selector":".dh-workspace-toolbar"},
+    {"name":"kind-filter","box":[505,201,528,49],"selector":".dh-kind-filter"},
+    {"name":"search","box":[1121,201,360,48],"selector":".dh-project-search"},
+    {"name":"table-shell","box":[505,269,976,736],"selector":".dh-workspace-table-shell"},
+    {"name":"table-header","box":[505,269,976,56],"selector":".dh-workspace-table .ant-table-thead"},
+    {"name":"project-one","box":[505,325,976,102],"selector":".dh-workspace-project:nth-child(1)"},
+    {"name":"project-two","box":[505,427,976,102],"selector":".dh-workspace-project:nth-child(2)"},
+    {"name":"project-six","box":[505,833,976,102],"selector":".dh-workspace-project:nth-child(6)"},
+    {"name":"project-cover","box":[525,340,112,70],"selector":".dh-workspace-project:first-child .dh-workspace-cover"},
+    {"name":"footer","box":[505,935,976,69],"selector":".dh-workspace-list-footer"}
+  ]
+}

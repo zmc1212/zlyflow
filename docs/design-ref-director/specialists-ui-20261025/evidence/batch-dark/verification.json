@@ -1,0 +1,282 @@
+{
+  "status": "截图身份与渲染前提通过；视觉仍需复核",
+  "manifest": "D:\\zlyun\\Toonflow\\本地视频工作台\\test-results\\director-specialists-20261025\\batch-dark-capture\\run.json",
+  "capture": {
+    "measurement_sha256": "67b89c46c8dc589c1c314a3fc016f94bd21a185c4031013572b3eaccad8d0ffb",
+    "url": "http://127.0.0.1:5173/director/batch/visual-batch-refinement",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1600,
+      "height": 1000
+    },
+    "dpr": 1,
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "document_height": 1000,
+    "fonts_ready": true,
+    "images_ready": true,
+    "document_overflow_x": false,
+    "captured_at": "2026-10-25T13:18:52.905Z",
+    "elements": [
+      {
+        "name": "intro",
+        "selector": ".director-workspace-intro",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          104,
+          100,
+          1468,
+          62
+        ],
+        "text": "从一个主题，开始批量创作设置生成参数，输入主题，查看每条脚本与视频的制作进度。",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "settings",
+        "selector": ".director-batch-form",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          104,
+          186,
+          320,
+          423
+        ],
+        "text": "创作设置视频数量画面比例9:16 竖屏单条时长（秒）视频工作流官方 MiniMax H3画风（可选）选择画风",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "fields",
+        "selector": ".director-creative-fields",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          125,
+          260,
+          278,
+          328
+        ],
+        "text": "视频数量画面比例9:16 竖屏单条时长（秒）视频工作流官方 MiniMax H3画风（可选）选择画风",
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "viewport_intersects": true
+      },
+      {
+        "name": "results",
+        "selector": ".director-result-empty",
+        "count": 1,
+        "status": "measured",
+        "box": [
+          444,
+          186,
+          1128,
+          502
+        ],
+        "text": "暂无生成结果输入一个主题，AI 会按所选参数裂变脚本并生成视频。",
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "viewport_intersects": true
+      }
+    ],
+    "assets": {},
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "section_positions": [],
+  "comparison": "test-results\\director-specialists-20261025\\batch-dark-capture\\report\\verify-metrics.json",
+  "geometry": {
+    "measurement_sha256": "67b89c46c8dc589c1c314a3fc016f94bd21a185c4031013572b3eaccad8d0ffb",
+    "complete": true,
+    "unavailable_regions": [],
+    "regions": [
+      {
+        "name": "intro",
+        "selector": ".director-workspace-intro",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          104,
+          100,
+          1468,
+          62
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "16px",
+          "lineHeight": "24px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          104.0,
+          100.0,
+          1468.0,
+          62.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "settings",
+        "selector": ".director-batch-form",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          104,
+          186,
+          320,
+          423
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          104.0,
+          186.0,
+          320.0,
+          423.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "fields",
+        "selector": ".director-creative-fields",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          125,
+          260,
+          278,
+          328
+        ],
+        "computed": {
+          "display": "grid",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgba(0, 0, 0, 0)"
+        },
+        "reference_css_box": [
+          125.0,
+          260.0,
+          278.0,
+          328.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      },
+      {
+        "name": "results",
+        "selector": ".director-result-empty",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          444,
+          186,
+          1128,
+          502
+        ],
+        "computed": {
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "lineHeight": "22px",
+          "fontWeight": "400",
+          "color": "rgb(243, 245, 247)",
+          "backgroundColor": "rgb(23, 26, 32)"
+        },
+        "reference_css_box": [
+          444.0,
+          186.0,
+          1128.0,
+          502.0
+        ],
+        "delta_css": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_abs_delta_css": 0.0
+      }
+    ],
+    "note": "偏差是 CSS 像素，不是还原率；布局可测量不证明未遮挡、字体正确或交互可用。"
+  }
+}

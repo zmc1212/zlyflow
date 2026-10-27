@@ -1,0 +1,34 @@
+{
+  "reference": "01-design-dark.png",
+  "css_viewport_width": 1586,
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/projects/proj-ee42e9c2313a4e12/workshop?mode=manual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {"width": 1586, "height": 992},
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "regions": [
+    {"name":"summary","box":[300,183,1258,92],"selector":".series-summary"},
+    {"name":"status-filter","box":[300,293,558,46],"selector":".series-toolbar .ant-segmented"},
+    {"name":"search","box":[1079,293,277,46],"selector":".series-search-tools .ant-input-affix-wrapper"},
+    {"name":"sort","box":[1370,293,188,46],"selector":".series-search-tools .ant-select"},
+    {"name":"episode-1","box":[300,359,409,291],"group":"first-row","selector":".series-card[data-episode-number='1']"},
+    {"name":"episode-2","box":[725,359,409,291],"group":"first-row","selector":".series-card[data-episode-number='2']"},
+    {"name":"episode-3","box":[1150,359,408,291],"group":"first-row","selector":".series-card[data-episode-number='3']"},
+    {"name":"episode-4","box":[300,664,409,286],"selector":".series-card[data-episode-number='4']"},
+    {"name":"number-tile","box":[318,375,58,59],"selector":".series-card[data-episode-number='1'] .series-episode-number"},
+    {"name":"status-tag","box":[589,384,104,32],"selector":".series-card[data-episode-number='1'] .series-status"},
+    {"name":"stage-icon","box":[340,501,22,22],"selector":".series-card[data-episode-number='1'] .ant-steps-item:first-child .ant-steps-item-icon"},
+    {"name":"card-footer","box":[318,588,372,60],"selector":".series-card[data-episode-number='1'] .series-card-footer"},
+    {"name":"more-button","box":[652,600,38,34],"selector":".series-card[data-episode-number='1'] .series-more"},
+    {"name":"heading-ink","box":[299,98,127,32],"box_type":"ink","selector":".series-heading h1"},
+    {"name":"description-ink","box":[318,447,372,40],"box_type":"ink","selector":".series-card[data-episode-number='1'] .series-card-description"},
+    {"name":"card-title-ink","box":[395,388,115,27],"box_type":"ink","selector":".series-card[data-episode-number='1'] h2"},
+    {"name":"stage-labels-ink","box":[336,532,335,16],"box_type":"ink","selector":".series-card[data-episode-number='1'] .series-stages"},
+    {"name":"meta-ink","box":[318,561,372,18],"box_type":"ink","selector":".series-card[data-episode-number='1'] .series-card-meta"},
+    {"name":"open-link-ink","box":[321,608,96,18],"box_type":"ink","selector":".series-card[data-episode-number='1'] .series-open"},
+    {"name":"canvas-color","kind":"color","box":[800,964,300,18],"inset":2}
+  ]
+}

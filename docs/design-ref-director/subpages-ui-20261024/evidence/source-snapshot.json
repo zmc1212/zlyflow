@@ -1,0 +1,53 @@
+{
+  "captured_at": "2026-10-25T01:05:11.431428+00:00",
+  "files": [
+    {
+      "path": "frontend/src/director2/Director2App.tsx",
+      "sha256": "a30a765f2a29b5210f48b52d7551d8dfc2378e309c7a939482a334518abd04ce"
+    },
+    {
+      "path": "frontend/src/director2/director-surfaces.css",
+      "sha256": "472d31a5e4ebce10277384871d7171f4288e5182eff492c4213250dfeada9dbd"
+    },
+    {
+      "path": "frontend/src/director2/panes/ContentLibraryPane.tsx",
+      "sha256": "9ea2c267ff8be7e1ef4581562b057d71d0ec4c2b0f9c3867ef60366a7508c910"
+    },
+    {
+      "path": "frontend/src/director2/panes/AssetsLibraryPane.tsx",
+      "sha256": "2e60f898d643f0bf8b3e52f87962f23427a32fde6881508e5daa9817f46c89a2"
+    },
+    {
+      "path": "frontend/src/director2/panes/EpisodeWorkshopPane.tsx",
+      "sha256": "6d446050a5fc4558bf530341b0a01b294ed38eafb45638a6054b0e084351ac05"
+    },
+    {
+      "path": "frontend/src/director2/panes/JobsCenterPane.tsx",
+      "sha256": "29c273a58ab1b03cf7898131b346121bc9d7e547a5d7714cb25465359af80431"
+    },
+    {
+      "path": "frontend/src/director/DirectorStudioModule.tsx",
+      "sha256": "69c3b34edb4be32b9e1a180a40b0f1975a746016a4235540a24277b37ad919ea"
+    },
+    {
+      "path": "frontend/src/director/DirectorBatchStudio.tsx",
+      "sha256": "fa7152e03b2799b21b188158d171cb2674bcf0c187029d2d0307c7065e4f8ae4"
+    },
+    {
+      "path": "frontend/src/director/DirectorReplicationStudio.tsx",
+      "sha256": "aaf5057939ea180a4ae9ec1846d53551a3f1519070c7de400d502a607c3c5fb3"
+    },
+    {
+      "path": "frontend/src/director2/panes/episode-overview.css",
+      "sha256": "85a2b7fbc7e8e40151f8567ac2cc7d6d2624dd24bd1d4bab9c433e8140a64b18"
+    },
+    {
+      "path": "frontend/src/director2/episode-overview.ts",
+      "sha256": "0e20a96816271b6da0def86c40205b87702740732704bdf58620aed55ea08286"
+    },
+    {
+      "path": "frontend/src/index.css",
+      "sha256": "a1c89935cad3d1af96577554750cb5e816d9d73e5f335fe5596ed7414e2c751e"
+    }
+  ]
+}

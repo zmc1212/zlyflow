@@ -12,13 +12,31 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app.director_assistant.knowledge import extract_document, split_sections
-from backend.app.director_assistant.protocol import AssistantTurn
+from backend.app.director_assistant.protocol import ArtifactDraft, AssistantTurn
 from backend.app.director_assistant.repository import AssistantConflict, AssistantNotFound, dumps
 from backend.app.director_assistant.routes import register_assistant_routes
 from backend.app.director_assistant.service import AssistantService
 from backend.app.director_assistant.resources import ResourceService
 from backend.app.llm_provider import LlmProviderService
 from backend.app.storage import JobStore
+
+
+SCRIPT_TEXT = """《雨夜回声》
+
+第1集 巷口来电
+
+场景一 老城区巷口·夜·外
+暴雨砸在青石板上，林夏撑着黑伞快步穿过巷口。手机在口袋里震动。
+林夏（接起）：喂？
+陌生男声（电话）：别回头，他就在你身后。
+林夏猛地停住，伞沿的水珠连成一线。她缓缓回头，巷子尽头只有一盏忽明忽暗的路灯。
+林夏（低声）：你是谁？
+陌生男声：明天零点前，别让那卷录音带离开你。
+
+场景二 林夏家·夜·内
+林夏反锁房门，把录音带塞进随身包，又用椅子顶住门把手。
+旁白：她不知道，录音带里的声音，正是三年前的自己。
+"""
 
 
 class AssistantTests(unittest.TestCase):
@@ -174,12 +192,472 @@ class AssistantTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             AssistantTurn.model_validate({"tool_calls": [{"name": "run_shell", "arguments": {}}]})
 
+    def test_model_history_uses_dialogue_instead_of_ui_event_arrays(self):
+        history = AssistantService._history_content({"parts": [
+            {"type": "markdown", "text": "想走温情结尾。"},
+            {"type": "question", "question": {"id": "q1", "title": "结尾方向", "options": [{"value": "warm", "label": "温情"}]}},
+            {"type": "artifact", "artifact_id": "draft-existing"},
+            {"type": "tool", "name": "project_read", "status": "succeeded"},
+        ]})
+        self.assertIn("想走温情结尾。", history)
+        self.assertIn("draft-existing", history)
+        self.assertIn("结尾方向", history)
+        self.assertIn('"value":"warm"', history)
+        self.assertNotIn('"type":"markdown"', history)
+        self.assertNotIn('"type":"artifact"', history)
+
+        self.run_message(self.session(), {"text": "可以先确定方向。"})
+        messages = self.llm.assistant_chat.call_args.args[0]
+        self.assertEqual(["帮我做西游悬疑故事"], [message["content"] for message in messages if message["role"] == "user"])
+
     def test_generation_creates_draft_without_project_write(self):
         session = self.session(project_id="p")
         detail = self.run_message(session, {"text": "剧本已写好，先看看。", "tool_calls": [{"name": "create_draft", "arguments": {"artifact_type": "script", "title": "西游悬疑", "content": "# 西游悬疑\n完整故事。", "data": {"summary": "悬疑"}}}]})
         self.assertEqual(len(detail["artifacts"]), 1)
         with self.store.connection() as conn:
             self.assertEqual(len(conn.execute("SELECT * FROM ai_project_documents").fetchall()), 0)
+
+    def test_inline_tool_call_format_is_normalized(self):
+        turn = AssistantService._parse('<tool_call>load_skill_reference{"path":"剧本创作"}</tool_call>')
+        self.assertEqual(turn.tool_calls[0].name, "load_skill_reference")
+        self.assertEqual(turn.tool_calls[0].arguments, {"path": "剧本创作"})
+        bare = AssistantService._parse("<tool_call>editor_read</tool_call>")
+        self.assertEqual(bare.tool_calls[0].arguments, {})
+        with self.assertRaises(ValueError):
+            AssistantService._parse('<tool_call>load_skill_reference{not-json}</tool_call>')
+        with self.assertRaises(ValueError):
+            AssistantService._parse('<tool_call>run_shell{"cmd":"ls"}</tool_call>')
+
+    def test_paired_tag_script_draft_survives_invalid_summary_and_escaped_newlines(self):
+        raw = (
+            "<tool_call>create_draft"
+            "<param_key>artifact_type</param_key><param_value>script</param_value>"
+            "<param_key>title</param_key><param_value>《雨夜回声》第1集</param_value>"
+            "<param_key>content</param_key><param_value># 雨夜回声\\n\\n## 故事定位\\n雨夜，她收到一封信。</param_value>"
+            "<param_key>data</param_key><param_value>{\"summary\": \"收到信\"别回头\"\"}</param_value>"
+            "<param_key>revises_id</param_key><param_value>null</param_value>"
+            "</tool_call>"
+        )
+        turn = AssistantService._parse(raw)
+        args = turn.tool_calls[0].arguments
+        self.assertEqual(args["artifact_type"], "script")
+        self.assertIn("\n", args["content"])
+        self.assertNotIn("\\n", args["content"])
+        self.assertEqual(args["data"], {})
+
+    def test_asset_draft_tolerates_null_optional_text_from_model(self):
+        raw = dumps({"text": "资产设定已整理。", "tool_calls": [{"name": "create_draft", "arguments": {
+            "artifact_type": "assets",
+            "title": "雨夜回声资产",
+            "content": "# 资产",
+            "data": {"assets": [
+                {"kind": "character", "name": "林深", "role": "主角", "description": "侦探", "visual_prompt": "雨夜风衣"},
+                {"kind": "scene", "name": "公寓楼下", "role": None, "description": None, "visual_prompt": None},
+            ]},
+        }}]})
+        assets = AssistantService._parse(raw).tool_calls[0].arguments
+        assets = ArtifactDraft.model_validate(assets).data["assets"]
+        self.assertEqual(assets[1]["role"], "")
+        self.assertEqual(assets[1]["description"], "")
+        self.assertEqual(assets[1]["visual_prompt"], "")
+
+    def test_envelope_tolerates_raw_control_characters_in_content(self):
+        raw = '{"text": "已整理。", "tool_calls": [{"name": "create_draft", "arguments": {"artifact_type": "script", "title": "雨夜回声", "content": "# 第一集\n\n林深回头。"}}]}'
+        turn = AssistantService._parse(raw)
+        self.assertIn("\n\n林深回头。", turn.tool_calls[0].arguments["content"])
+
+    def test_top_level_tool_array_is_strictly_normalized(self):
+        flat = AssistantService._parse(dumps([{
+            "type": "create_draft",
+            "artifact_type": "script",
+            "title": "雨夜回声",
+            "content": SCRIPT_TEXT,
+        }]))
+        self.assertEqual(flat.tool_calls[0].name, "create_draft")
+        self.assertEqual(flat.tool_calls[0].arguments["artifact_type"], "script")
+        nested = AssistantService._parse(dumps([{
+            "type": "create_draft",
+            "arguments": {"artifact_type": "script", "title": "雨夜回声", "content": SCRIPT_TEXT},
+        }]))
+        self.assertEqual(nested.tool_calls[0].arguments["content"], SCRIPT_TEXT)
+        with self.assertRaises(ValueError):
+            AssistantService._parse(dumps([flat.tool_calls[0].model_dump(), {"type": "run_shell", "cmd": "dir"}]))
+        with self.assertRaises(ValueError):
+            AssistantService._parse(dumps([{"type": "editor_read", "permission": "write"}]))
+        with self.assertRaises(ValueError):
+            AssistantService._parse(dumps([{"type": "create_draft", "artifact_type": "script", "title": "坏参数", "content": 123}]))
+
+    def test_tool_id_alias_is_narrow_and_still_uses_protocol_validation(self):
+        payload = {"tool_calls": [{"id": "create_draft", "arguments": {
+            "artifact_type": "script", "title": "雨夜回声", "content": SCRIPT_TEXT,
+        }}]}
+        turn = AssistantService._parse(dumps(payload))
+        self.assertEqual(turn.tool_calls[0].name, "create_draft")
+        with self.assertRaises(ValueError):
+            AssistantService._parse(dumps({"tool_calls": [{"id": "run_shell", "arguments": {}}]}))
+        with self.assertRaises(ValueError):
+            AssistantService._parse(dumps({"tool_calls": [{"id": "create_draft", "name": "create_draft", "arguments": payload["tool_calls"][0]["arguments"]}]}))
+
+    def test_invalid_script_array_repair_preserves_write_obligation(self):
+        session = self.session()
+        invalid = dumps([{"type": "create_draft", "artifact_type": "script", "title": "雨夜回声", "content": 123}])
+        self.llm.assistant_chat.side_effect = [invalid, dumps({"text": SCRIPT_TEXT})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "写一集完整剧本", "client_message_id": "script-array-repair-123"})
+        self.service.run("alice", run["id"])
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        artifacts = self.repo.list("alice", "artifact", parent=session["id"])
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0]["artifact_type"], "script")
+
+    def test_format_repair_preserves_media_proposal(self):
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_assets (id,project_id,kind,name) VALUES ('hero','p','character','悟空')")
+        session = self.session(project_id="p")
+        invalid = dumps([{"type": "propose_media", "title": "角色定妆", "media_type": "asset_image"}])
+        repaired = dumps({"text": "已经准备好定妆提案。", "tool_calls": [{"name": "propose_media", "arguments": {"title": "角色定妆", "media_type": "asset_image", "asset_id": "hero"}}]})
+        self.llm.assistant_chat.side_effect = [invalid, repaired]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "准备生图", "client_message_id": "repair-media-123"})
+        self.service.run("alice", run["id"])
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        self.assertEqual(len(self.repo.list("alice", "media_proposal")), 1)
+
+    def test_top_level_tool_array_creates_draft_through_normal_tool_path(self):
+        session = self.session()
+        self.llm.assistant_chat.side_effect = [dumps([{
+            "type": "create_draft",
+            "artifact_type": "script",
+            "title": "雨夜回声",
+            "content": SCRIPT_TEXT,
+        }])]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "给我一集完整的剧本",
+                "client_message_id": "script-array-tool-123",
+            })
+        self.service.run("alice", run["id"])
+        artifacts = self.repo.list("alice", "artifact", parent=session["id"])
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0]["artifact_type"], "script")
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+
+    def test_blockquote_wrapped_envelope_is_normalized(self):
+        turn = AssistantService._parse('>{"text":"已整理","tool_calls":[],"citation_ids":[]}')
+        self.assertEqual(turn.text, "已整理")
+        fenced = AssistantService._parse('> ```json\n{"text":"第二段","tool_calls":[],"citation_ids":[]}\n```')
+        self.assertEqual(fenced.text, "第二段")
+
+    def test_parse_ignores_content_after_the_first_envelope(self):
+        envelope = {
+            "text": "接下来明确核心冲突。",
+            "question": {"title": "明确核心冲突", "type": "single", "options": [{"label": "人际关系", "value": "interpersonal"}]},
+            "tool_calls": [], "citation_ids": [],
+        }
+        aside = AssistantService._parse(dumps(envelope) + "\n\n（等待用户明确创作方向后，可继续检索相关题材范例。）")
+        self.assertEqual(aside.text, "接下来明确核心冲突。")
+        self.assertEqual(aside.question.title, "明确核心冲突")
+        stray = AssistantService._parse(dumps({"text": "已整理", "tool_calls": [], "citation_ids": []}) + "%")
+        self.assertEqual(stray.text, "已整理")
+        repeated = AssistantService._parse(
+            dumps({"text": "第一版", "tool_calls": [], "citation_ids": []})
+            + "\n\n" + dumps({"text": "第一版", "tool_calls": [], "citation_ids": []})
+        )
+        self.assertEqual(repeated.text, "第一版")
+        with self.assertRaises(ValueError):
+            AssistantService._parse("不是 JSON")
+        # A second value carrying the real tool call must not be dropped silently.
+        with self.assertRaises(ValueError):
+            AssistantService._parse(
+                dumps({"text": "已经准备好定妆提案。", "tool_calls": [], "citation_ids": []})
+                + "\n" + dumps({"tool_calls": [{"name": "propose_media", "arguments": {"title": "主角定妆", "media_type": "asset_image", "asset_id": "hero"}}]})
+            )
+
+    def test_turn_with_trailing_model_note_is_not_a_format_error(self):
+        session = self.session()
+        raw = dumps({
+            "text": "接下来明确核心冲突。",
+            "question": {"title": "明确核心冲突", "type": "single", "options": [{"label": "人际关系", "value": "interpersonal"}]},
+            "tool_calls": [], "citation_ids": [],
+        }) + "\n\n（等待用户选择后再继续。）"
+        self.llm.assistant_chat.side_effect = lambda messages, model, callback=None: raw
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "帮我做西游悬疑故事", "client_message_id": "trailing-note-123"})
+        self.service.run("alice", run["id"])
+        self.assertEqual(self.llm.assistant_chat.call_count, 1)
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        parts = self.service.detail("alice", session["id"])["messages"][-1]["parts"]
+        self.assertEqual([p["type"] for p in parts if p["type"] == "question"], ["question"])
+        markdown = [p for p in parts if p["type"] == "markdown"][0]
+        self.assertEqual(markdown["text"], "接下来明确核心冲突。")
+
+    def test_stream_preview_accepts_blockquote_wrapped_envelope(self):
+        session = self.session()
+        long_text = SCRIPT_TEXT * 2
+        raw = ">" + dumps({"text": long_text})
+        previews = []
+        original_emit = self.repo.emit
+
+        def emit(owner, run_id, event, payload):
+            if event == "text":
+                previews.append(payload["text"])
+            return original_emit(owner, run_id, event, payload)
+
+        def chat(messages, model, callback=None):
+            if callback:
+                callback(raw[:25])
+                callback(raw)
+            return raw
+
+        self.llm.assistant_chat.side_effect = chat
+        with patch.object(self.repo, "emit", side_effect=emit), patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "继续", "client_message_id": "request-blockquote"})
+            self.service.run("alice", run["id"])
+        self.assertTrue(previews)
+        self.assertTrue(previews[-1].startswith("《雨夜回声》"))
+        markdown = [p for p in self.service.detail("alice", session["id"])["messages"][-1]["parts"] if p["type"] == "markdown"][0]
+        self.assertEqual(markdown["text"], long_text)
+
+    def test_script_request_repairs_text_only_reply_into_draft(self):
+        session = self.session()
+        repaired = {
+            "text": "已整理成可采纳的剧本草稿。",
+            "tool_calls": [{"name": "create_draft", "arguments": {"artifact_type": "script", "title": "雨夜回声", "content": SCRIPT_TEXT}}],
+        }
+        self.llm.assistant_chat.side_effect = [dumps({"text": SCRIPT_TEXT}), dumps(repaired)]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "帮我写第一集完整剧本", "client_message_id": "script-repair-123"})
+        self.service.run("alice", run["id"])
+        self.assertEqual(self.llm.assistant_chat.call_count, 2)
+        self.assertIn("create_draft", self.llm.assistant_chat.call_args.args[0][-1]["content"])
+        artifacts = self.repo.list("alice", "artifact")
+        self.assertEqual([a["artifact_type"] for a in artifacts], ["script"])
+        self.assertEqual(artifacts[0]["content"], SCRIPT_TEXT)
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+
+    def test_script_request_creates_draft_when_repair_stays_text_only(self):
+        session = self.session()
+        self.llm.assistant_chat.side_effect = [dumps({"text": SCRIPT_TEXT}), dumps({"text": SCRIPT_TEXT})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "写一集悬疑短剧剧本", "client_message_id": "script-fallback-123"})
+        self.service.run("alice", run["id"])
+        self.assertEqual(self.llm.assistant_chat.call_count, 2)
+        artifacts = self.repo.list("alice", "artifact")
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0]["title"], "雨夜回声")
+        self.assertEqual(artifacts[0]["content"], SCRIPT_TEXT.strip())
+
+    def test_script_format_repair_extracts_content_from_legacy_artifact_shape(self):
+        session = self.session()
+        previous = self.service.actions.create_draft(
+            "alice", session, {"artifact_type": "script", "title": "初稿", "content": SCRIPT_TEXT}, "seed-run"
+        )
+        legacy = dumps({
+            "artifact_id": previous["id"], "revision": 2, "applied": True,
+            "content": SCRIPT_TEXT, "extra": "ignored",
+        })
+        self.llm.assistant_chat.side_effect = ['{"text": "第一段"', legacy]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "把最后一句改成新的结尾",
+                "client_message_id": "script-legacy-artifact-repair-123",
+            })
+        self.service.run("alice", run["id"])
+        artifacts = self.repo.list("alice", "artifact", parent=session["id"])
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(artifacts[-1]["revises_id"], previous["id"])
+        self.assertEqual(artifacts[-1]["revision"], previous["revision"] + 1)
+        self.assertEqual(artifacts[-1]["content"], SCRIPT_TEXT.strip())
+
+    def test_script_intent_accepts_creation_revision_and_context_followups_without_consultation_overmatch(self):
+        self.assertTrue(AssistantService._has_script_intent("给我一集完整的剧本"))
+        self.assertTrue(AssistantService._has_script_intent("我想做一个短剧，先从剧本开始"))
+        self.assertTrue(AssistantService._has_script_intent("把这个想法发展成一集剧本"))
+        self.assertTrue(AssistantService._has_script_intent("修改现有剧本的结局"))
+        self.assertFalse(AssistantService._has_script_intent("把最后一句改成‘原来，你一直在等我回家。’，删掉手机短信这个细节，其余镜头和60秒时长保持。"))
+        self.assertTrue(AssistantService._has_script_intent("把最后一句改成‘原来，你一直在等我回家。’，删掉手机短信这个细节，其余镜头和60秒时长保持。", script_context=True))
+        self.assertFalse(AssistantService._has_script_intent("不要写完整剧本"))
+        self.assertTrue(AssistantService._has_script_intent("不要只给大纲，直接写完整剧本"))
+        self.assertFalse(AssistantService._has_script_intent("给我一个剧本标题"))
+        self.assertFalse(AssistantService._has_script_intent("给我一个剧本简介"))
+        self.assertFalse(AssistantService._has_script_intent("删除最后一个镜头"))
+        self.assertTrue(AssistantService._has_script_intent("删除最后一个镜头", script_context=True))
+        self.assertFalse(AssistantService._has_script_intent("给我几个剧本方向"))
+        self.assertFalse(AssistantService._has_script_intent("给修改建议"))
+        self.assertFalse(AssistantService._has_script_intent("不要改动"))
+        self.assertFalse(AssistantService._has_script_intent("剧本怎么写"))
+        self.assertFalse(AssistantService._has_script_intent("不要写剧本，先讨论方向"))
+
+        history = [{"role": "user", "parts": [{"type": "markdown", "text": "我要创作一部悬疑剧本"}]}]
+        for index in range(5):
+            history.append({"role": "assistant", "parts": [{"type": "question", "question": {"title": f"问题{index}"}}]})
+            history.append({"role": "user", "parts": [{"type": "markdown", "text": f"第{index + 1}轮回答"}]})
+        self.assertTrue(AssistantService._script_requested(history))
+        self.assertTrue(AssistantService._script_requested(history + [
+            {"role": "user", "parts": [{"type": "markdown", "text": "按刚才方向继续"}]},
+        ]))
+        self.assertFalse(AssistantService._script_requested([
+            {"role": "user", "parts": [{"type": "markdown", "text": "继续"}]},
+        ]))
+        existing_script = [
+            {"role": "user", "parts": [{"type": "markdown", "text": "我要创作一部悬疑剧本"}]},
+            {"role": "assistant", "parts": [{"type": "artifact", "artifact_id": "draft-1"}]},
+            {"role": "user", "parts": [{"type": "markdown", "text": "给我几个剧本方向"}]},
+        ]
+        self.assertFalse(AssistantService._script_requested(existing_script))
+        self.assertFalse(AssistantService._script_requested(existing_script[:-1] + [
+            {"role": "user", "parts": [{"type": "markdown", "text": "继续"}]},
+        ]))
+        self.assertTrue(AssistantService._script_requested(existing_script[:-1] + [
+            {"role": "user", "parts": [{"type": "markdown", "text": "删除最后一个镜头"}]},
+        ], script_context=True))
+        self.assertFalse(AssistantService._script_requested([
+            {"role": "user", "parts": [{"type": "markdown", "text": "我要创作一部悬疑剧本"}]},
+            {"role": "assistant", "parts": [{"type": "artifact", "artifact_id": "draft-1"}]},
+            {"role": "user", "parts": [{"type": "markdown", "text": "我要三个角色设定"}]},
+            {"role": "assistant", "parts": [{"type": "question", "question": {"title": "角色数量"}}]},
+            {"role": "user", "parts": [{"type": "markdown", "text": "三个角色"}]},
+        ], script_context=True))
+        self.assertFalse(AssistantService._script_revision_requested([
+            {"role": "user", "parts": [{"type": "markdown", "text": "写第二集，保留原来角色"}]},
+        ], script_context=True))
+        self.assertTrue(AssistantService._script_revision_requested([
+            {"role": "user", "parts": [{"type": "markdown", "text": "修改上一版，不要写超自然情节"}]},
+        ], script_context=True))
+        self.assertFalse(AssistantService._script_revision_requested([
+            {"role": "user", "parts": [{"type": "markdown", "text": "不要修改上一版"}]},
+        ], script_context=True))
+        self.assertTrue(AssistantService._script_revision_requested([
+            {"role": "user", "parts": [{"type": "markdown", "text": "修改第二集的结尾"}]},
+        ], script_context=True))
+
+    def test_script_fallback_revises_latest_script_draft(self):
+        session = self.session()
+        previous = self.service.actions.create_draft(
+            "alice",
+            session,
+            {"artifact_type": "script", "title": "初稿", "content": SCRIPT_TEXT},
+            "seed-run",
+        )
+        self.llm.assistant_chat.side_effect = [dumps({"text": SCRIPT_TEXT}), dumps({"text": SCRIPT_TEXT})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "把这个想法发展成一集剧本",
+                "client_message_id": "script-revise-fallback-123",
+            })
+        self.service.run("alice", run["id"])
+        artifacts = self.repo.list("alice", "artifact", parent=session["id"])
+        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(artifacts[-1]["revises_id"], previous["id"])
+        self.assertEqual(artifacts[-1]["revision"], previous["revision"] + 1)
+
+    def test_new_episode_fallback_starts_a_new_revision_chain(self):
+        session = self.session()
+        previous = self.service.actions.create_draft(
+            "alice",
+            session,
+            {"artifact_type": "script", "title": "初稿", "content": SCRIPT_TEXT},
+            "seed-run",
+        )
+        self.llm.assistant_chat.side_effect = [dumps({"text": SCRIPT_TEXT}), dumps({"text": SCRIPT_TEXT})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "写第二集完整剧本，保留原来角色",
+                "client_message_id": "script-new-episode-fallback-123",
+            })
+        self.service.run("alice", run["id"])
+        artifacts = self.repo.list("alice", "artifact", parent=session["id"])
+        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(artifacts[-1]["revises_id"], None)
+        self.assertEqual(artifacts[-1]["revision"], 1)
+        self.assertNotEqual(artifacts[-1]["id"], previous["id"])
+
+    def test_smart_edit_shot_request_does_not_force_script_draft(self):
+        session = self.session(project_id="p", context={"kind": "smart_edit", "sequence_id": "main"})
+        self.llm.assistant_chat.side_effect = [dumps({"text": "我会按剪辑工作区处理这个请求。"})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "删除最后一个镜头",
+                "client_message_id": "smart-edit-shot-123",
+            })
+        self.service.run("alice", run["id"])
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        self.assertEqual(self.repo.list("alice", "artifact", parent=session["id"]), [])
+        self.assertEqual(self.llm.assistant_chat.call_count, 1)
+
+    def test_retry_preserves_script_source_without_turning_all_retries_into_script(self):
+        def failed_run(text, *, artifact=None):
+            session = self.session()
+            if artifact:
+                self.service.actions.create_draft("alice", session, {"artifact_type": "script", "title": "初稿", "content": SCRIPT_TEXT}, "seed")
+            user = self.repo.insert("alice", "message", {
+                "session_id": session["id"], "role": "user", "run_id": "old-run", "sequence": 1,
+                "parts": [{"type": "markdown", "text": text}],
+            }, parent=session["id"])
+            response = self.repo.insert("alice", "message", {
+                "session_id": session["id"], "role": "assistant", "run_id": "old-run", "sequence": 2, "parts": [],
+            }, parent=session["id"], status="failed")
+            run = self.repo.insert("alice", "run", {
+                "session_id": session["id"], "user_message_id": user["id"], "message_id": response["id"],
+                "context": None,
+            }, parent=session["id"], status="failed")
+            return session, run
+
+        script_session, script_run = failed_run("写一集完整剧本")
+        with patch.object(self.service, "send", return_value={"id": "retry-script"}) as send:
+            self.service.retry("alice", script_run["id"], "retry-script-123")
+        self.assertIn("剧本创作", send.call_args.args[2]["text"])
+
+        edit_session, edit_run = failed_run("把最后一句改成新的结尾", artifact=True)
+        with patch.object(self.service, "send", return_value={"id": "retry-edit"}) as send:
+            self.service.retry("alice", edit_run["id"], "retry-edit-123")
+        self.assertIn("剧本修改", send.call_args.args[2]["text"])
+
+        ordinary_session, ordinary_run = failed_run("给我三个角色方向")
+        with patch.object(self.service, "send", return_value={"id": "retry-ordinary"}) as send:
+            self.service.retry("alice", ordinary_run["id"], "retry-ordinary-123")
+        self.assertNotIn("剧本创作", send.call_args.args[2]["text"])
+        self.assertNotIn("剧本修改", send.call_args.args[2]["text"])
+
+    def test_script_repair_read_only_tool_cannot_finish_without_draft(self):
+        session = self.session()
+        self.llm.assistant_chat.side_effect = [
+            dumps({"text": SCRIPT_TEXT}),
+            dumps({"text": "正在读取工程。", "tool_calls": [{"name": "project_read", "arguments": {}}]}),
+            dumps({"text": SCRIPT_TEXT}),
+        ]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "帮我写第一集完整剧本",
+                "client_message_id": "script-read-only-loop-123",
+            })
+        self.service.run("alice", run["id"])
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        artifacts = self.repo.list("alice", "artifact", parent=session["id"])
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0]["artifact_type"], "script")
+
+    def test_script_idea_request_is_not_forced_into_a_draft(self):
+        session = self.session()
+        self.llm.assistant_chat.side_effect = [dumps({"text": "可以先从职场、家庭、悬疑三个方向考虑。"})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "给我几个剧本方向", "client_message_id": "script-idea-123"})
+        self.service.run("alice", run["id"])
+        self.assertEqual(self.llm.assistant_chat.call_count, 1)
+        self.assertEqual(self.repo.list("alice", "artifact"), [])
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+
+    def test_script_request_without_usable_text_fails_honestly(self):
+        session = self.session()
+        self.llm.assistant_chat.side_effect = [dumps({"text": "好的，我先梳理一下。"}), dumps({"text": "好的。"})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "写剧本", "client_message_id": "script-empty-123"})
+        self.service.run("alice", run["id"])
+        saved = self.repo.get("alice", run["id"])
+        self.assertEqual(saved["status"], "failed")
+        self.assertIn("没有生成可采纳的剧本草稿", saved["error"])
+        self.assertEqual(self.repo.list("alice", "artifact"), [])
 
     def test_preview_does_not_write_and_adoption_is_idempotent(self):
         artifact = self.draft()
@@ -245,6 +723,76 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(saved["production_recipe"]["id"], HALF_NARRATED_PACK_ID)
         self.assertTrue(saved["production_recipe"]["stages"]["script"])
         self.assertEqual(saved["selections"]["skill_id"], skill["version_id"])
+
+    def test_script_request_auto_reads_recipe_before_first_create_draft(self):
+        from backend.app.skill_packs.recipe import HALF_NARRATED_PACK_ID
+        with self.store.connection() as conn:
+            conn.execute("UPDATE ai_projects SET settings_json=? WHERE id='p'", (dumps({"extra": {"skill_pack_id": HALF_NARRATED_PACK_ID}}),))
+        session = self.session(project_id="p")
+        self.llm.assistant_chat.side_effect = [dumps({
+            "text": "已整理成可采纳的剧本草稿。",
+            "tool_calls": [{"name": "create_draft", "arguments": {
+                "artifact_type": "script", "title": "雨夜回声", "content": SCRIPT_TEXT,
+            }}],
+        })]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "请直接写一集完整剧本",
+                "client_message_id": "script-auto-recipe-123",
+            })
+        self.service.run("alice", run["id"])
+
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        self.assertEqual(self.llm.assistant_chat.call_count, 1)
+        messages = self.llm.assistant_chat.call_args.args[0]
+        recipe_instructions = run["production_recipe"]["stages"]["script"]
+        self.assertTrue(any("工作台已读取本轮剧本制作规范" in message["content"] for message in messages))
+        self.assertTrue(any(
+            "visual_lock=photoreal-live-action-short-drama" in message["content"]
+            and "## 2. Story and script" in message["content"]
+            for message in messages
+        ))
+        tool_calls = self.repo.list("alice", "tool_call", parent=run["id"])
+        self.assertEqual(tool_calls[0]["name"], "project_read")
+        self.assertEqual(tool_calls[0]["arguments"], {"stage": "script"})
+        self.assertEqual(tool_calls[1]["name"], "create_draft")
+        self.assertEqual(len(self.repo.list("alice", "artifact", parent=session["id"])), 1)
+
+    def test_non_script_request_does_not_auto_read_script_recipe(self):
+        from backend.app.skill_packs.recipe import HALF_NARRATED_PACK_ID
+        with self.store.connection() as conn:
+            conn.execute("UPDATE ai_projects SET settings_json=? WHERE id='p'", (dumps({"extra": {"skill_pack_id": HALF_NARRATED_PACK_ID}}),))
+        session = self.session(project_id="p")
+        self.llm.assistant_chat.side_effect = [dumps({"text": "可以先从人物关系和冲突方向展开。"})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "给我几个剧本方向",
+                "client_message_id": "non-script-no-recipe-123",
+            })
+        self.service.run("alice", run["id"])
+
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        self.assertEqual(self.repo.list("alice", "tool_call", parent=run["id"]), [])
+        messages = self.llm.assistant_chat.call_args.args[0]
+        self.assertFalse(any("工作台已读取本轮剧本制作规范" in message["content"] for message in messages))
+
+    def test_smart_edit_request_does_not_auto_read_script_recipe(self):
+        from backend.app.skill_packs.recipe import HALF_NARRATED_PACK_ID
+        with self.store.connection() as conn:
+            conn.execute("UPDATE ai_projects SET settings_json=? WHERE id='p'", (dumps({"extra": {"skill_pack_id": HALF_NARRATED_PACK_ID}}),))
+        session = self.session(project_id="p", context={"kind": "smart_edit", "sequence_id": "main"})
+        self.llm.assistant_chat.side_effect = [dumps({"text": "我会按智能剪辑工作区处理这个请求。"})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "删除最后一个镜头",
+                "client_message_id": "smart-edit-no-recipe-123",
+            })
+        self.service.run("alice", run["id"])
+
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        self.assertEqual(self.repo.list("alice", "tool_call", parent=run["id"]), [])
+        messages = self.llm.assistant_chat.call_args.args[0]
+        self.assertFalse(any("工作台已读取本轮剧本制作规范" in message["content"] for message in messages))
 
     def test_project_draft_requires_reading_frozen_recipe_stage(self):
         session = self.session(project_id="p")
@@ -378,7 +926,7 @@ class AssistantTests(unittest.TestCase):
         reply = self.service.detail("alice", session["id"])["messages"][-1]
         self.assertNotIn("已提交", reply["parts"][-1]["text"])
 
-    def test_format_repair_keeps_the_original_creation_action(self):
+    def test_format_repair_preserves_non_script_creation_action(self):
         session = self.session()
         invalid = {"text": "准备草稿。", "tool_calls": [{"name": "create_draft", "arguments": {"artifact_type": "asset", "title": "角色", "content": "设定"}}]}
         valid = {"text": "先查看这份设定。", "tool_calls": [{"name": "create_draft", "arguments": {"artifact_type": "assets", "title": "角色", "content": "悟空设定", "data": {"assets": [{"kind": "character", "name": "悟空"}]}}}]}
@@ -387,8 +935,21 @@ class AssistantTests(unittest.TestCase):
             run = self.service.send("alice", session["id"], {"text": "资产设定", "client_message_id": "repair-keep-tool-123"})
         self.service.run("alice", run["id"])
         self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
-        self.assertEqual(len(self.repo.list("alice", "artifact")), 1)
+        artifacts = self.repo.list("alice", "artifact")
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0]["artifact_type"], "assets")
         self.assertTrue(any("均未执行" in message["content"] for message in self.llm.assistant_chat.call_args.args[0]))
+
+    def test_script_format_repair_cannot_fall_back_to_text_without_script_intent(self):
+        session = self.session()
+        invalid = dumps([{"type": "create_draft", "artifact_type": "script", "title": "雨夜回声", "content": 123}])
+        self.llm.assistant_chat.side_effect = [invalid, dumps({"text": SCRIPT_TEXT})]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "先聊聊方向", "client_message_id": "script-repair-no-intent-123"})
+        with self.assertLogs("backend.app.director_assistant.service", level="ERROR"):
+            self.service.run("alice", run["id"])
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "failed")
+        self.assertEqual(self.repo.list("alice", "artifact"), [])
 
     def test_missing_tool_prerequisite_returns_to_conversation(self):
         session = self.session()

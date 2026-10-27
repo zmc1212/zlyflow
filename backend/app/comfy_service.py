@@ -1189,6 +1189,7 @@ class ComfyService:
                     "seed": seed,
                     "preview_outputs": [],
                     "refine_quality": str(options.get("refine_quality") or "1.0"),
+                    "refine_quality_mode": str(options.get("refine_quality_mode") or "auto"),
                 }
             record = self.run_workflow(
                 workflow, generation_stage(mode), update_stage, on_submitted=on_submitted,

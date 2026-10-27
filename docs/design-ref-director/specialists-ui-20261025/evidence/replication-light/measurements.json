@@ -1,0 +1,134 @@
+{
+  "source": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-director\\specialists-ui-20261025\\design-replication-light.png",
+  "source_sha256": "981763652ad00316bb5d84234c398a8910f68f3ba60d9ed4f3d3fa0d6c78b682",
+  "source_size": [
+    1600,
+    1000
+  ],
+  "css_mapping": {
+    "assumed_viewport_width": 1600,
+    "css_per_image_pixel": 1.0,
+    "meaning": "实现约定，不证明参考图原始 DPR 或 CSS 视口"
+  },
+  "regions": [
+    {
+      "name": "column",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        104,
+        186,
+        320,
+        684
+      ],
+      "normalized_box": [
+        0.065,
+        0.186,
+        0.2,
+        0.684
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        104.0,
+        186.0,
+        320.0,
+        684.0
+      ],
+      "selector": ".replication-side",
+      "dom_comparable": true
+    },
+    {
+      "name": "fields",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        125,
+        543,
+        278,
+        306
+      ],
+      "normalized_box": [
+        0.078125,
+        0.543,
+        0.17375,
+        0.306
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        125.0,
+        543.0,
+        278.0,
+        306.0
+      ],
+      "selector": ".replication-creative-form",
+      "dom_comparable": true
+    },
+    {
+      "name": "advanced",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        125,
+        715,
+        278,
+        42
+      ],
+      "normalized_box": [
+        0.078125,
+        0.715,
+        0.17375,
+        0.042
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        125.0,
+        715.0,
+        278.0,
+        42.0
+      ],
+      "selector": ".replication-more-settings",
+      "dom_comparable": true
+    },
+    {
+      "name": "results",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        444,
+        232,
+        1128,
+        502
+      ],
+      "normalized_box": [
+        0.2775,
+        0.232,
+        0.705,
+        0.502
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        444.0,
+        232.0,
+        1128.0,
+        502.0
+      ],
+      "selector": ".replication-empty",
+      "dom_comparable": true
+    }
+  ],
+  "groups": [],
+  "vertical_scans": [],
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/replication/visual-replication-refinement",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1600,
+      "height": 1000
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "expected_assets": {},
+  "input_manifest_sha256": "5cf4e5910314436ac23e0b14f95000abee91c60b75ed3d69b1681b7eb0ce5557"
+}

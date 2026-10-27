@@ -1,0 +1,83 @@
+{
+  "reference": "test-results\\director-specialists-20261025\\replication-light-capture\\..\\..\\..\\docs\\design-ref-director\\specialists-ui-20261025\\design-replication-light.png",
+  "candidate": "test-results\\director-specialists-20261025\\replication-light-capture\\candidate.png",
+  "reference_size": [
+    1600,
+    1000
+  ],
+  "candidate_size_original": [
+    1600,
+    1000
+  ],
+  "candidate_size_compared": [
+    1600,
+    1000
+  ],
+  "resized": false,
+  "geometry_match": true,
+  "height_delta": 0,
+  "unmatched_tails": {},
+  "regions": [
+    {
+      "name": "full",
+      "size": [
+        1600,
+        1000
+      ],
+      "rms_diff": 0.0,
+      "mean_abs_diff": 0.0,
+      "candidate": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-full-candidate.png",
+      "diff": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-full-diff.png",
+      "heatmap": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-full-heatmap.png"
+    },
+    {
+      "name": "region-000",
+      "size": [
+        320,
+        684
+      ],
+      "rms_diff": 0.0,
+      "mean_abs_diff": 0.0,
+      "candidate": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-000-candidate.png",
+      "diff": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-000-diff.png",
+      "heatmap": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-000-heatmap.png"
+    },
+    {
+      "name": "region-001",
+      "size": [
+        278,
+        306
+      ],
+      "rms_diff": 0.0,
+      "mean_abs_diff": 0.0,
+      "candidate": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-001-candidate.png",
+      "diff": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-001-diff.png",
+      "heatmap": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-001-heatmap.png"
+    },
+    {
+      "name": "region-002",
+      "size": [
+        278,
+        42
+      ],
+      "rms_diff": 0.0,
+      "mean_abs_diff": 0.0,
+      "candidate": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-002-candidate.png",
+      "diff": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-002-diff.png",
+      "heatmap": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-002-heatmap.png"
+    },
+    {
+      "name": "region-003",
+      "size": [
+        1128,
+        502
+      ],
+      "rms_diff": 0.0,
+      "mean_abs_diff": 0.0,
+      "candidate": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-003-candidate.png",
+      "diff": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-003-diff.png",
+      "heatmap": "test-results\\director-specialists-20261025\\replication-light-capture\\report\\verify-region-003-heatmap.png"
+    }
+  ],
+  "note": "误差不等于还原度；字体、摄影和位置分别判断。尺寸一致也不代表视觉通过。"
+}

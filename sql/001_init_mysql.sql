@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS job_rounds (
     stage VARCHAR(255) NOT NULL,
     progress INTEGER NOT NULL DEFAULT 0,
     prompt LONGTEXT NOT NULL,
+    display_prompt LONGTEXT NULL,
     negative_prompt LONGTEXT NOT NULL,
     image_size VARCHAR(64) NULL,
     options_json LONGTEXT NOT NULL,

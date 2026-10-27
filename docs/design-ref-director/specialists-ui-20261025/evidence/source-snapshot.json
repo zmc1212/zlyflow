@@ -1,0 +1,17 @@
+{
+  "captured_at": "2026-10-25T13:28:32.186820+00:00",
+  "files": [
+    {
+      "path": "frontend/src/director/DirectorBatchStudio.tsx",
+      "sha256": "2a325aa142322a7380c1eb11ddbcf848ebfb5fe45af653be5a8296fdff701ab8"
+    },
+    {
+      "path": "frontend/src/director/DirectorReplicationStudio.tsx",
+      "sha256": "c9d3c47f9fd84a1f236c0e9bd1eb4012f8d48163f119bbecfdb5206c8ab6f892"
+    },
+    {
+      "path": "frontend/src/director2/director-surfaces.css",
+      "sha256": "0689e2d71dd18a3059255748e6de75d34c25bc96f8775bd93cd792cb072f720e"
+    }
+  ]
+}

@@ -23,6 +23,11 @@ import {
   optionChoices,
   playbackAspectIsPortrait,
   playbackAspectRatio,
+  formatRefineDuration,
+  refineEffectiveMegapixels,
+  refineForceWarning,
+  refinePlan,
+  resolutionLabelForMegapixels,
   sanitizeVideoOptionValues,
   shotVideoActionLabel,
   selectedShotGenerateExtra,
@@ -52,7 +57,7 @@ function directorAccelMode(): Director2WorkflowMode {
         properties: {
           aspect_ratio: { label: "画面比例", type: "string", default: "16:9", ui_group: "primary", ui_options: [{ value: "16:9", label: "16:9 横屏" }] },
           duration: { label: "时长", type: "number", default: 5, ui_group: "primary" },
-          weight_profile: { label: "模型体积", type: "string", default: "pruned", ui_group: "primary", ui_options: [{ value: "pruned", label: "精简（20 GB）" }] },
+          weight_profile: { label: "模型体积", type: "string", default: "pruned", ui_group: "primary", ui_options: [{ value: "pruned", label: "精简（20 GB）" }], ui_visible_when: { refine_enabled: false } },
           quality: {
             label: "分辨率", type: "string", default: "0.4", ui_group: "advanced",
             megapixels_by_quality: { "0.4": 0.4, "1.0": 1.0 },
@@ -60,19 +65,21 @@ function directorAccelMode(): Director2WorkflowMode {
             ui_visible_when: { refine_enabled: false },
             ui_options: [{ value: "0.4", label: "0.4 MP" }, { value: "1.0", label: "1.0 MP" }],
           },
-          speed: { label: "生成质量", type: "string", default: "balanced", ui_group: "advanced", ui_options: [{ value: "balanced", label: "均衡（20 步）" }, { value: "quality", label: "精细（25 步）" }] },
+          speed: { label: "生成质量", type: "string", default: "balanced", ui_group: "advanced", ui_options: [{ value: "balanced", label: "均衡（20 步）" }, { value: "quality", label: "精细（25 步）" }], ui_visible_when: { refine_enabled: false } },
           megapixels: { label: "内部像素面积", type: "number", default: 0.4, ui_group: "internal" },
           steps: { label: "采样步数", type: "integer", default: 20, ui_group: "internal" },
           refine_enabled: { label: "二采精修", type: "boolean", default: false, ui_group: "primary" },
+          refine_quality_mode: {
+            label: "清晰度策略", type: "string", default: "auto", ui_group: "primary",
+            enum: ["auto", "force"],
+            ui_visible_when: { refine_enabled: true },
+            ui_options: [{ value: "auto", label: "自动（推荐）" }, { value: "force", label: "强制高清" }],
+          },
           refine_quality: {
-            label: "二采画质", type: "string", default: "1.0", ui_group: "primary",
+            label: "目标清晰度", type: "string", default: "1.0", ui_group: "primary",
             enum: ["1.0", "2.0"],
             ui_visible_when: { refine_enabled: true },
-            ui_options: [{ value: "1.0", label: "1.0 MP" }, { value: "2.0", label: "2.0 MP" }],
-          },
-          refine_preview: {
-            label: "先预览一采", type: "boolean", default: false, ui_group: "primary",
-            ui_visible_when: { refine_enabled: true },
+            ui_options: [{ value: "1.0", label: "高清 1.0 MP" }, { value: "2.0", label: "超清 2.0 MP" }],
           },
         },
       },
@@ -84,7 +91,7 @@ describe("director2 video settings", () => {
   it("exposes registry primary and advanced options and hides duration plus internals", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     expect(fields.map((item) => item.name)).toEqual([
-      "aspect_ratio", "weight_profile", "quality", "speed", "refine_enabled", "refine_quality", "refine_preview",
+      "aspect_ratio", "weight_profile", "quality", "speed", "refine_enabled", "refine_quality_mode", "refine_quality",
     ])
     expect(defaultVideoOptionValues(fields)).toEqual({
       aspect_ratio: "16:9",
@@ -92,36 +99,42 @@ describe("director2 video settings", () => {
       quality: "0.4",
       speed: "balanced",
       refine_enabled: "false",
+      refine_quality_mode: "auto",
       refine_quality: "1.0",
-      refine_preview: "false",
     })
   })
 
-  it("keeps both two-pass controls in the primary group", () => {
+  it("keeps two-pass controls in the primary group", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     expect(fields.filter((item) => item.ui_group === "primary").map((item) => item.name)).toEqual([
-      "aspect_ratio", "weight_profile", "refine_enabled", "refine_quality", "refine_preview",
+      "aspect_ratio", "weight_profile", "refine_enabled", "refine_quality_mode", "refine_quality",
     ])
     expect(fields.filter((item) => item.ui_group === "advanced").map((item) => item.name)).toEqual([
       "quality", "speed",
     ])
   })
 
-  it("hides quality and reveals refine quality and preview when two-pass is enabled", () => {
+  it("hides quality, model size and generation quality when two-pass is enabled", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     const quality = fields.find((item) => item.name === "quality")!
+    const weightProfile = fields.find((item) => item.name === "weight_profile")!
+    const speed = fields.find((item) => item.name === "speed")!
     const refineQuality = fields.find((item) => item.name === "refine_quality")!
-    const refinePreview = fields.find((item) => item.name === "refine_preview")!
     expect(videoOptionVisible(quality, { refine_enabled: "false" })).toBe(true)
     expect(videoOptionVisible(quality, { refine_enabled: "true" })).toBe(false)
+    expect(videoOptionVisible(weightProfile, { refine_enabled: "false" })).toBe(true)
+    expect(videoOptionVisible(weightProfile, { refine_enabled: "true" })).toBe(false)
+    expect(videoOptionVisible(speed, { refine_enabled: "false" })).toBe(true)
+    expect(videoOptionVisible(speed, { refine_enabled: "true" })).toBe(false)
     expect(videoOptionVisible(refineQuality, { refine_enabled: "false" })).toBe(false)
     expect(videoOptionVisible(refineQuality, { refine_enabled: "true" })).toBe(true)
-    expect(videoOptionVisible(refinePreview, { refine_enabled: "false" })).toBe(false)
-    expect(videoOptionVisible(refinePreview, { refine_enabled: "true" })).toBe(true)
   })
 
   it("falls back when the catalog has not loaded", () => {
     expect(visibleVideoOptionFields(undefined)).toEqual(DIRECTOR2_VIDEO_FALLBACK_FIELDS)
+    const fallbackQuality = DIRECTOR2_VIDEO_FALLBACK_FIELDS.find((item) => item.name === "quality")!
+    expect(videoOptionVisible(fallbackQuality, { refine_enabled: "false" })).toBe(true)
+    expect(videoOptionVisible(fallbackQuality, { refine_enabled: "true" })).toBe(false)
   })
 
   it("rejects stale 4-step speed and 0.2 MP values that this workflow does not use", () => {
@@ -132,8 +145,8 @@ describe("director2 video settings", () => {
       quality: "0.4",
       speed: "balanced",
       refine_enabled: "false",
+      refine_quality_mode: "auto",
       refine_quality: "1.0",
-      refine_preview: "false",
     })
   })
 
@@ -164,19 +177,69 @@ describe("director2 video settings", () => {
       quality: "0.4",
       speed: "balanced",
       refine_enabled: false,
+      refine_quality_mode: "auto",
       refine_quality: "1.0",
-      refine_preview: false,
       duration_per_beat: 8,
     })
+    const defaultRefined = { ...values, refine_enabled: "true" }
+    expect(videoSettingsSummary(fields, defaultRefined)).toBe("16:9 · 二采 1.0 MP · 先预览")
     const refined = { ...values, refine_enabled: "true", refine_quality: "2.0" }
-    expect(videoSettingsSummary(fields, refined)).toBe("16:9 · 二采 2.0 MP · 精简")
+    expect(videoSettingsSummary(fields, refined)).toBe("16:9 · 二采 2.0 MP · 先预览")
+    expect(videoSettingsSummary(fields, refined, 13)).toBe("16:9 · 二采 0.6 MP · 自动降档 · 先预览")
+    expect(videoSettingsSummary(fields, refined, 2)).toBe("16:9 · 二采 2.0 MP · 先预览")
+    expect(videoSettingsSummary(fields, refined, undefined, false)).toBe("16:9 · 二采 2.0 MP")
+    expect(videoSettingsSummary(fields, refined, 13, false)).toBe("16:9 · 二采 0.6 MP · 自动降档")
+    const forced = { ...values, refine_enabled: "true", refine_quality: "1.0", refine_quality_mode: "force" }
+    expect(videoSettingsSummary(fields, forced, 13)).toBe("16:9 · 二采 1.0 MP · 强制 · 先预览")
+    expect(videoSettingsSummary(fields, forced)).toBe("16:9 · 二采 1.0 MP · 强制 · 先预览")
     const refinedOptions = buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, refined)
     expect(refinedOptions.refine_enabled).toBe(true)
     expect(refinedOptions.refine_quality).toBe("2.0")
-    expect(refinedOptions.refine_preview).toBe(false)
-    const previewed = { ...refined, refine_preview: "true" }
-    expect(videoSettingsSummary(fields, previewed)).toBe("16:9 · 二采 2.0 MP · 先预览 · 精简")
-    expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, previewed).refine_preview).toBe(true)
+    expect(refinedOptions.refine_quality_mode).toBe("auto")
+    expect(refinedOptions.refine_preview).toBeUndefined()
+  })
+
+  it("caps refine megapixels by clip length like the backend", () => {
+    expect(refineEffectiveMegapixels(2, 2)).toBe(2)
+    expect(refineEffectiveMegapixels(2, 5)).toBe(1.6)
+    expect(refineEffectiveMegapixels(1, 5)).toBe(1)
+    expect(refineEffectiveMegapixels(1, 8)).toBe(1)
+    expect(refineEffectiveMegapixels(2, 13)).toBe(0.6)
+    expect(refineEffectiveMegapixels(1, 13)).toBe(0.6)
+    expect(refineEffectiveMegapixels(1, 15)).toBe(0.5)
+    expect(refineEffectiveMegapixels(1, 13, "force")).toBe(1)
+    expect(refineEffectiveMegapixels(2, 13, "force")).toBe(2)
+  })
+
+  it("shows the effective refine canvas and estimates time only inside the safe budget", () => {
+    const auto = refinePlan("1.0", "auto", 13, "16:9")
+    expect(auto.effectiveMegapixels).toBe(0.6)
+    expect(auto.capped).toBe(true)
+    expect(auto.overBudget).toBe(false)
+    expect(auto.resolutionLabel).toBe("1056 × 608")
+    expect(auto.estimatedSeconds).toBeGreaterThan(600)
+    expect(auto.estimatedSeconds).toBeLessThan(720)
+    expect(formatRefineDuration(auto.estimatedSeconds)).toMatch(/分钟/)
+
+    const forced = refinePlan("1.0", "force", 13, "16:9")
+    expect(forced.effectiveMegapixels).toBe(1)
+    expect(forced.capped).toBe(false)
+    expect(forced.overBudget).toBe(true)
+    expect(forced.resolutionLabel).toBe("1376 × 768")
+    expect(forced.estimatedSeconds).toBeUndefined()
+
+    const safeForce = refinePlan("2.0", "force", 2, "16:9")
+    expect(safeForce.overBudget).toBe(false)
+    expect(safeForce.resolutionLabel).toBe("1920 × 1088")
+    expect(safeForce.estimatedSeconds).toBeTruthy()
+    expect(resolutionLabelForMegapixels(0.4, "9:16")).toBe("480 × 864")
+  })
+
+  it("warns only when forced quality exceeds the platform budget", () => {
+    expect(refineForceWarning({ refine_enabled: "true" }, 13)).toBeUndefined()
+    expect(refineForceWarning({ refine_enabled: "true", refine_quality_mode: "auto", refine_quality: "1.0" }, 13)).toBeUndefined()
+    expect(refineForceWarning({ refine_enabled: "true", refine_quality_mode: "force", refine_quality: "1.0" }, 2)).toBeUndefined()
+    expect(refineForceWarning({ refine_enabled: "true", refine_quality_mode: "force", refine_quality: "1.0" }, 13)).toMatch(/超出平台安全预算/)
   })
 
   it("lists all unhidden multi-reference R2V workflows and labels episode vs shot", () => {

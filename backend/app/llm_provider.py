@@ -11,6 +11,7 @@ from .llm_client import (
     LLM_TEST_TIMEOUT_SECONDS,
     OpenAICompatibleClient,
     LlmError,
+    LlmTemporaryError,
     normalize_api_key,
     summarize_llm_test_reply,
 )
@@ -157,8 +158,29 @@ class LlmProviderService:
         if model_id not in self.assistant_models():
             raise ValueError("该模型未向助手开放，请重新选择模型")
         client, _ = self._chat_client()
-        return client.chat_completion(messages, model=model_id, stream=True, on_chunk=on_chunk,
-                                      max_tokens=16000, temperature=0.5, timeout=(15, 240))
+        try:
+            return client.chat_completion(
+                messages,
+                model=model_id,
+                stream=True,
+                on_chunk=on_chunk,
+                max_tokens=16000,
+                temperature=0.5,
+                timeout=(15, 240),
+                stream_idle_timeout=90,
+                stream_total_timeout=900,
+            )
+        except LlmTemporaryError:
+            # Free providers often keep the SSE socket open after the answer.
+            # Retry once without streaming so the run still finishes.
+            return client.chat_completion(
+                messages,
+                model=model_id,
+                stream=False,
+                max_tokens=16000,
+                temperature=0.5,
+                timeout=(15, 300),
+            )
 
 
     def test(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -227,7 +249,9 @@ class LlmProviderService:
         reference_count: int = 0,
         workflow_id: str | None = None,
         image_urls: list[str] | None = None,
-    ) -> str:
+        reference_mode: str | None = None,
+        duration_seconds: float | None = None,
+    ) -> dict[str, str]:
         available, reason = self.availability()
         if not available:
             raise LlmError(reason or "大模型服务不可用")
@@ -237,17 +261,31 @@ class LlmProviderService:
         if not api_key:
             raise LlmError("大模型凭据未配置")
 
-        from .llm_minimax_skills import build_h3_system_prompt
+        from .llm_minimax_skills import build_h3_system_prompt, resolve_h3_prompt_mode
         from .vision_runtime import complete_authoring, normalize_image_urls
 
         urls = normalize_image_urls(image_urls)
+        resolved_reference_mode = reference_mode
+        if not resolved_reference_mode and media_type == "video" and workflow_id:
+            from .workflow_registry import workflow_for
+
+            try:
+                resolved_reference_mode = workflow_for(workflow_id).reference_mode
+            except KeyError:
+                resolved_reference_mode = None
+        effective_reference_count = max(reference_count, len(urls)) if media_type == "video" else reference_count
+        prompt_mode = resolve_h3_prompt_mode(resolved_reference_mode, effective_reference_count)
+        max_tokens = 2600 if prompt_mode == "REF2VA" else 1800
+
         if urls:
             system_instruction = build_h3_system_prompt(
                 skill_id=skill_id,
-                reference_count=max(reference_count, len(urls)),
+                reference_count=effective_reference_count,
                 media_type=media_type,
                 workflow_name=workflow_name,
                 skill_pack_id=skill_pack_id,
+                reference_mode=resolved_reference_mode,
+                duration_seconds=duration_seconds,
             )
             user_content = f"原始创意需求：{prompt.strip()}"
             if workflow_name:
@@ -262,7 +300,7 @@ class LlmProviderService:
                 system_instruction,
                 user_content,
                 urls,
-                max_tokens=1536,
+                max_tokens=max_tokens,
                 temperature=0.7,
                 timeout=60.0,
             )
@@ -273,19 +311,57 @@ class LlmProviderService:
                     optimized = "\n".join(lines[1:-1]).strip()
             if not optimized:
                 raise LlmError("大模型未返回优化后的提示词")
-            return optimized
+            optimized = self._finalize_optimized_prompt(optimized, media_type)
+            display = self._translate_prompt_for_display(optimized, config, api_key) if media_type == "video" else ""
+            return {"optimized_prompt": optimized, "optimized_prompt_zh": display}
 
         client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
-        return client.optimize_prompt(
+        optimized = client.optimize_prompt(
             prompt,
             media_type=media_type,
             workflow_name=workflow_name,
             skill_id=skill_id,
             skill_pack_id=skill_pack_id,
-            reference_count=reference_count,
+            reference_count=effective_reference_count,
             workflow_id=workflow_id,
             model=config["model"],
+            reference_mode=resolved_reference_mode,
+            duration_seconds=duration_seconds,
+            max_tokens=max_tokens,
         )
+        optimized = self._finalize_optimized_prompt(optimized, media_type)
+        display = self._translate_prompt_for_display(optimized, config, api_key) if media_type == "video" else ""
+        return {"optimized_prompt": optimized, "optimized_prompt_zh": display}
+
+    @staticmethod
+    def _finalize_optimized_prompt(optimized: str, media_type: str) -> str:
+        text = (optimized or "").strip()
+        if media_type != "video":
+            return text
+        from .llm_minimax_skills import extract_h3_prompt_from_model_output
+
+        extracted = extract_h3_prompt_from_model_output(text)
+        if not extracted:
+            raise LlmError("大模型返回了分析过程，但没有可用的 H3 提示词。请重试或更换模型。")
+        return extracted
+
+    def _translate_prompt_for_display(self, prompt: str, config: dict[str, Any], api_key: str) -> str:
+        """Best-effort Chinese display copy; generation still uses the English H3 prompt."""
+        from .llm_minimax_skills import missing_h3_translation_fields
+
+        try:
+            client = OpenAICompatibleClient(base_url=config["base_url"], api_key=api_key)
+            display = client.translate_h3_prompt_to_chinese(prompt, model=config["model"]).strip()
+            missing = missing_h3_translation_fields(prompt, display)
+            if missing:
+                display = client.translate_h3_prompt_to_chinese(
+                    prompt, model=config["model"], field_reminder=missing,
+                ).strip()
+                if missing_h3_translation_fields(prompt, display):
+                    return ""
+            return display
+        except Exception:
+            return ""
 
     def split_script(
         self,

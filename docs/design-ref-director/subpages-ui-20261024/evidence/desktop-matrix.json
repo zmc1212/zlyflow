@@ -1,0 +1,1694 @@
+{
+  "result": [
+    {
+      "name": "content",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".empty-doc-box": {
+          "x": 304,
+          "y": 186,
+          "width": 1108,
+          "height": 480
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "content",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".empty-doc-box": {
+          "x": 304,
+          "y": 186,
+          "width": 1108,
+          "height": 480
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "content-filled",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".content-layout": {
+          "x": 304,
+          "y": 186,
+          "width": 1108,
+          "height": 380.484375
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "content-filled",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".content-layout": {
+          "x": 304,
+          "y": 186,
+          "width": 1108,
+          "height": 380.484375
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "assets",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/assets?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".assets-split-container": {
+          "x": 304,
+          "y": 242,
+          "width": 1108,
+          "height": 630
+        },
+        ".asset-kind-switch": {
+          "x": 304,
+          "y": 186,
+          "width": 296,
+          "height": 40
+        },
+        ".assets-sidebar-list": {
+          "x": 304,
+          "y": 242,
+          "width": 248,
+          "height": 630
+        },
+        ".asset-detail-workspace": {
+          "x": 568,
+          "y": 242,
+          "width": 844,
+          "height": 630
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "assets",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/assets?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".assets-split-container": {
+          "x": 304,
+          "y": 242,
+          "width": 1108,
+          "height": 630
+        },
+        ".asset-kind-switch": {
+          "x": 304,
+          "y": 186,
+          "width": 296,
+          "height": 40
+        },
+        ".assets-sidebar-list": {
+          "x": 304,
+          "y": 242,
+          "width": 248,
+          "height": 630
+        },
+        ".asset-detail-workspace": {
+          "x": 568,
+          "y": 242,
+          "width": 844,
+          "height": 630
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "workshop",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/workshop?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".xiaji-workshop-hero": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".xiaji-workshop-stats": {
+          "x": 304,
+          "y": 186,
+          "width": 1108,
+          "height": 53.5
+        },
+        ".xiaji-episode-grid": {
+          "x": 304,
+          "y": 259.5,
+          "width": 1108,
+          "height": 221.84375
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "workshop",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/workshop?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".xiaji-workshop-hero": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".xiaji-workshop-stats": {
+          "x": 304,
+          "y": 186,
+          "width": 1108,
+          "height": 53.5
+        },
+        ".xiaji-episode-grid": {
+          "x": 304,
+          "y": 259.5,
+          "width": 1108,
+          "height": 221.84375
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "shots",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/workshop/ep-1039d6e7c8c3?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".xiaji-episode": {
+          "x": 300,
+          "y": 92,
+          "width": 1116,
+          "height": 788
+        },
+        ".xiaji-shots-toolbar": {
+          "x": 300,
+          "y": 233.5,
+          "width": 1116,
+          "height": 45
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "shots",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/workshop/ep-1039d6e7c8c3?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".xiaji-episode": {
+          "x": 300,
+          "y": 92,
+          "width": 1116,
+          "height": 788
+        },
+        ".xiaji-shots-toolbar": {
+          "x": 300,
+          "y": 233.5,
+          "width": 1116,
+          "height": 45
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "jobs",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/jobs?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".jobs-table-card": {
+          "x": 304,
+          "y": 186,
+          "width": 1108,
+          "height": 423.40625
+        },
+        ".jobs-filter-bar": {
+          "x": 305,
+          "y": 237,
+          "width": 1106,
+          "height": 69
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "jobs",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/jobs?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 828
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1108,
+          "height": 62
+        },
+        ".jobs-table-card": {
+          "x": 304,
+          "y": 186,
+          "width": 1108,
+          "height": 423.40625
+        },
+        ".jobs-filter-bar": {
+          "x": 305,
+          "y": 237,
+          "width": 1106,
+          "height": 69
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "batch",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/batch/proj-e2adc592eac64883",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".director-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".director-workspace-intro": {
+          "x": 104,
+          "y": 100,
+          "width": 1308,
+          "height": 62
+        },
+        ".director-batch-layout": {
+          "x": 104,
+          "y": 186,
+          "width": 1308,
+          "height": 502
+        },
+        ".director-batch-form": {
+          "x": 104,
+          "y": 186,
+          "width": 320,
+          "height": 472.6875
+        },
+        ".director-batch-list": {
+          "x": 444,
+          "y": 186,
+          "width": 968,
+          "height": 502
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "batch",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/batch/proj-e2adc592eac64883",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".director-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".director-workspace-intro": {
+          "x": 104,
+          "y": 100,
+          "width": 1308,
+          "height": 62
+        },
+        ".director-batch-layout": {
+          "x": 104,
+          "y": 186,
+          "width": 1308,
+          "height": 502
+        },
+        ".director-batch-form": {
+          "x": 104,
+          "y": 186,
+          "width": 320,
+          "height": 472.6875
+        },
+        ".director-batch-list": {
+          "x": 444,
+          "y": 186,
+          "width": 968,
+          "height": 502
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "replication",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/replication/proj-0a73fcb3c5104f61",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".director-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".director-workspace-intro": {
+          "x": 104,
+          "y": 100,
+          "width": 1308,
+          "height": 62
+        },
+        ".replication-layout": {
+          "x": 104,
+          "y": 186,
+          "width": 1308,
+          "height": 700
+        },
+        ".replication-side": {
+          "x": 104,
+          "y": 186,
+          "width": 320,
+          "height": 700
+        },
+        ".replication-list": {
+          "x": 444,
+          "y": 186,
+          "width": 968,
+          "height": 548
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "replication",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/replication/proj-0a73fcb3c5104f61",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".director-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".director-workspace-intro": {
+          "x": 104,
+          "y": 100,
+          "width": 1308,
+          "height": 62
+        },
+        ".replication-layout": {
+          "x": 104,
+          "y": 186,
+          "width": 1308,
+          "height": 700
+        },
+        ".replication-side": {
+          "x": 104,
+          "y": 186,
+          "width": 320,
+          "height": 700
+        },
+        ".replication-list": {
+          "x": 444,
+          "y": 186,
+          "width": 968,
+          "height": 548
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "diagnosis",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/script-diagnosis",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".sd-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".sd-input-panel": {
+          "x": 302,
+          "y": 203.09375,
+          "width": 912,
+          "height": 445.90625
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "diagnosis",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/script-diagnosis",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".sd-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1364,
+          "height": 72
+        },
+        ".sd-input-panel": {
+          "x": 302,
+          "y": 203.09375,
+          "width": 912,
+          "height": 445.90625
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "home",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {},
+      "activeNav": 0
+    },
+    {
+      "name": "home",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {},
+      "activeNav": 0
+    },
+    {
+      "name": "edit",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1004,
+          "height": 80
+        },
+        ".project-sidebar": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "edit",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1004,
+          "height": 80
+        },
+        ".project-sidebar": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "content",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".empty-doc-box": {
+          "x": 304,
+          "y": 186,
+          "width": 1588,
+          "height": 480
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "content",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".empty-doc-box": {
+          "x": 304,
+          "y": 186,
+          "width": 1588,
+          "height": 480
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "content-filled",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".content-layout": {
+          "x": 304,
+          "y": 186,
+          "width": 1588,
+          "height": 380.484375
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "content-filled",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/content?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".content-layout": {
+          "x": 304,
+          "y": 186,
+          "width": 1588,
+          "height": 380.484375
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "assets",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/assets?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".assets-split-container": {
+          "x": 304,
+          "y": 242,
+          "width": 1588,
+          "height": 810
+        },
+        ".asset-kind-switch": {
+          "x": 304,
+          "y": 186,
+          "width": 296,
+          "height": 40
+        },
+        ".assets-sidebar-list": {
+          "x": 304,
+          "y": 242,
+          "width": 248,
+          "height": 810
+        },
+        ".asset-detail-workspace": {
+          "x": 568,
+          "y": 242,
+          "width": 1324,
+          "height": 810
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "assets",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/assets?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".assets-split-container": {
+          "x": 304,
+          "y": 242,
+          "width": 1588,
+          "height": 810
+        },
+        ".asset-kind-switch": {
+          "x": 304,
+          "y": 186,
+          "width": 296,
+          "height": 40
+        },
+        ".assets-sidebar-list": {
+          "x": 304,
+          "y": 242,
+          "width": 248,
+          "height": 810
+        },
+        ".asset-detail-workspace": {
+          "x": 568,
+          "y": 242,
+          "width": 1324,
+          "height": 810
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "workshop",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/workshop?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".xiaji-workshop-hero": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".xiaji-workshop-stats": {
+          "x": 304,
+          "y": 186,
+          "width": 1588,
+          "height": 53.5
+        },
+        ".xiaji-episode-grid": {
+          "x": 304,
+          "y": 259.5,
+          "width": 1588,
+          "height": 221.84375
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "workshop",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/workshop?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".xiaji-workshop-hero": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".xiaji-workshop-stats": {
+          "x": 304,
+          "y": 186,
+          "width": 1588,
+          "height": 53.5
+        },
+        ".xiaji-episode-grid": {
+          "x": 304,
+          "y": 259.5,
+          "width": 1588,
+          "height": 221.84375
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "shots",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/workshop/ep-1039d6e7c8c3?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".xiaji-episode": {
+          "x": 300,
+          "y": 92,
+          "width": 1596,
+          "height": 968
+        },
+        ".xiaji-shots-toolbar": {
+          "x": 300,
+          "y": 233.5,
+          "width": 1596,
+          "height": 45
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "shots",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-bc873f8cf95a4d58/workshop/ep-1039d6e7c8c3?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".xiaji-episode": {
+          "x": 300,
+          "y": 92,
+          "width": 1596,
+          "height": 968
+        },
+        ".xiaji-shots-toolbar": {
+          "x": 300,
+          "y": 233.5,
+          "width": 1596,
+          "height": 45
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "jobs",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/jobs?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".jobs-table-card": {
+          "x": 304,
+          "y": 186,
+          "width": 1588,
+          "height": 423.40625
+        },
+        ".jobs-filter-bar": {
+          "x": 305,
+          "y": 237,
+          "width": 1586,
+          "height": 69
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "jobs",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/jobs?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".project-sidebar": {
+          "x": 76,
+          "y": 72,
+          "width": 200,
+          "height": 1008
+        },
+        ".sub-pane-header": {
+          "x": 304,
+          "y": 100,
+          "width": 1588,
+          "height": 62
+        },
+        ".jobs-table-card": {
+          "x": 304,
+          "y": 186,
+          "width": 1588,
+          "height": 423.40625
+        },
+        ".jobs-filter-bar": {
+          "x": 305,
+          "y": 237,
+          "width": 1586,
+          "height": 69
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "batch",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/batch/proj-e2adc592eac64883",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".director-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".director-workspace-intro": {
+          "x": 104,
+          "y": 100,
+          "width": 1788,
+          "height": 62
+        },
+        ".director-batch-layout": {
+          "x": 104,
+          "y": 186,
+          "width": 1788,
+          "height": 502
+        },
+        ".director-batch-form": {
+          "x": 104,
+          "y": 186,
+          "width": 320,
+          "height": 472.6875
+        },
+        ".director-batch-list": {
+          "x": 444,
+          "y": 186,
+          "width": 1448,
+          "height": 502
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "batch",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/batch/proj-e2adc592eac64883",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".director-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".director-workspace-intro": {
+          "x": 104,
+          "y": 100,
+          "width": 1788,
+          "height": 62
+        },
+        ".director-batch-layout": {
+          "x": 104,
+          "y": 186,
+          "width": 1788,
+          "height": 502
+        },
+        ".director-batch-form": {
+          "x": 104,
+          "y": 186,
+          "width": 320,
+          "height": 472.6875
+        },
+        ".director-batch-list": {
+          "x": 444,
+          "y": 186,
+          "width": 1448,
+          "height": 502
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "replication",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/replication/proj-0a73fcb3c5104f61",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".director-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".director-workspace-intro": {
+          "x": 104,
+          "y": 100,
+          "width": 1788,
+          "height": 62
+        },
+        ".replication-layout": {
+          "x": 104,
+          "y": 186,
+          "width": 1788,
+          "height": 848.25
+        },
+        ".replication-side": {
+          "x": 104,
+          "y": 186,
+          "width": 320,
+          "height": 848.25
+        },
+        ".replication-list": {
+          "x": 444,
+          "y": 186,
+          "width": 1448,
+          "height": 548
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "replication",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/replication/proj-0a73fcb3c5104f61",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".director-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".director-workspace-intro": {
+          "x": 104,
+          "y": 100,
+          "width": 1788,
+          "height": 62
+        },
+        ".replication-layout": {
+          "x": 104,
+          "y": 186,
+          "width": 1788,
+          "height": 848.25
+        },
+        ".replication-side": {
+          "x": 104,
+          "y": 186,
+          "width": 320,
+          "height": 848.25
+        },
+        ".replication-list": {
+          "x": 444,
+          "y": 186,
+          "width": 1448,
+          "height": 548
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "diagnosis",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/script-diagnosis",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".sd-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".sd-input-panel": {
+          "x": 542,
+          "y": 203.09375,
+          "width": 912,
+          "height": 445.90625
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "diagnosis",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/script-diagnosis",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".sd-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1844,
+          "height": 72
+        },
+        ".sd-input-panel": {
+          "x": 542,
+          "y": 203.09375,
+          "width": 912,
+          "height": 445.90625
+        }
+      },
+      "activeNav": 0
+    },
+    {
+      "name": "home",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {},
+      "activeNav": 0
+    },
+    {
+      "name": "home",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {},
+      "activeNav": 0
+    },
+    {
+      "name": "edit",
+      "theme": "light",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1404,
+          "height": 80
+        },
+        ".project-sidebar": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        }
+      },
+      "activeNav": 1
+    },
+    {
+      "name": "edit",
+      "theme": "dark",
+      "url": "http://127.0.0.1:5173/director/projects/proj-7f85a7040e4f4746/edit?mode=manual",
+      "title": "ZLY AI 视频创作平台",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "dpr": 1,
+      "overflow": false,
+      "geometry": {
+        ".project-topbar": {
+          "x": 76,
+          "y": 0,
+          "width": 1404,
+          "height": 80
+        },
+        ".project-sidebar": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        }
+      },
+      "activeNav": 1
+    }
+  ],
+  "errors": [],
+  "failed": []
+}

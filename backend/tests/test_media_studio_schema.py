@@ -34,6 +34,8 @@ class MediaStudioSchemaTests(unittest.TestCase):
         columns = {
             "llm_provider_settings": {"id", "enabled", "base_url", "model", "api_key_encrypted"},
             "vlm_provider_settings": {"use_llm_credentials"},
+            "canvas_projects": {"tags_json", "is_favorite", "deleted_at", "preview_json"},
+            "generation_items": {"refine_state_json"},
         }
         database.column_names.side_effect = lambda conn, table: columns[table]
         database.ensure_column.side_effect = lambda *args: Database.ensure_column(database, *args)

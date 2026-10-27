@@ -102,6 +102,10 @@ dev-log/
 docs/design-ref-director/*
 !docs/design-ref-director/ui-20261023/
 !docs/design-ref-director/smart-edit-ui-20261024/
+!docs/design-ref-director/subpages-ui-20261024/
+!docs/design-ref-director/specialists-ui-20261025/
+!docs/design-ref-director/series-ui-20261025/
+!docs/design-ref-director/language-flow-20261025/
 !docs/design-ref-director/26-project-info-light.png
 !docs/design-ref-director/27-project-info-dark.png
 !docs/design-ref-director/28-assistant-question-light.png
@@ -135,6 +139,7 @@ docs/design-ref-director/*
 !docs/design-ref-director/59-diagnosis-history-dark.png
 !docs/design-ref-director/60-diagnosis-project-source-light.png
 docs/导演台设计图/
+!docs/design-ref-director/home-workspace-20261025/
 submit_*.py
 backend/tests/test_*.py
 !backend/tests/test_llm_request_policy.py
@@ -171,6 +176,7 @@ backend/tests/test_*.py
 !backend/tests/test_skill_packs.py
 !backend/tests/test_director_project_info.py
 !backend/tests/test_director_assistant.py
+!backend/tests/test_standard_script_parser.py
 !backend/tests/test_smart_edit.py
 !backend/tests/test_editing_assistant.py
 !backend/tests/test_canvas_store.py

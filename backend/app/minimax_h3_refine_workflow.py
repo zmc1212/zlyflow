@@ -38,14 +38,15 @@ from .workflow_registry import (
     h3_dimensions,
     h3_length,
     h3_lora_loader_class,
+    refine_target_megapixels,
 )
 
-REFINE_UNET_REF2V = "minimax_h3_ref2va_pruned_w4a8_mixed.safetensors"
-REFINE_LORA_4STEP = "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors"
 REFINE_LATENT_UPSCALER = "minimax_h3_latent_upscaler_3d_bf16.safetensors"
 REFINE_STEPS = 3
 REFINE_DENOISE = 0.2
 FIRST_PASS_MEGAPIXELS = 0.4
+REFINE_TILING_MIN_FRAMES = 192
+REFINE_MORE_TILES_MIN_FRAMES = 243
 PREVIEW_VIDEO_NODE = "46"
 PREVIEW_OUTPUT_NODE = "47"
 PREVIEW_FILENAME_PREFIX = "video/ZLY_AI_VIDEO_STUDIO_MiniMax_H3_Refine_Preview"
@@ -57,11 +58,11 @@ REFERENCE_ROUTE_MODES = {
     JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V,
 }
 FAMILY_REFINE_DESCRIPTIONS = {
-    "official": "开启后先以 0.4 MP 精简权重生成一采，再用 H3 3D latent 放大到目标画质做第二步精修（3 步 beta，denoise 0.2）。",
-    "lightx2v": "开启后先以 0.4 MP 使用当前 LightX2V 速度与加速 LoRA 生成一采，再用 H3 3D latent 放大到目标画质精修。",
-    "dual": "开启后先以 0.4 MP 使用当前八步双加速设置生成一采，再用 H3 3D latent 放大到目标画质精修。",
-    "director": "开启后先以 0.4 MP 使用当前 Director 采样设置生成一采，再用 H3 3D latent 放大到目标画质精修。",
-    "t8": "开启后一采改用 Director 两段式管线（0.4 MP）、沿用当前步数设置；T8 专有采样器与音频模式不参与二采。",
+    "official": "开启后先以 0.4 MP 精简权重 8 步加速生成一采，再用 H3 3D latent 放大到目标画质做第二步精修（3 步 beta，denoise 0.2）。",
+    "lightx2v": "开启后平台固定以 0.4 MP、完整权重、快速 4 步 LightX2V 与对应加速 LoRA 生成一采，再用 H3 3D latent 放大到目标画质精修。",
+    "dual": "开启后平台固定以 0.4 MP、完整权重、八步双加速设置生成一采，再用 H3 3D latent 放大到目标画质精修。",
+    "director": "开启后平台固定以 0.4 MP、精简权重、均衡 20 步生成一采，再用 H3 3D latent 放大到目标画质精修。",
+    "t8": "开启后一采改用 Director 两段式管线（0.4 MP、完整权重、8 步 Turbo LoRA）；T8 专有采样器与音频模式不参与二采。",
 }
 NATIVE_ASPECT_RATIO = re.compile(
     r"((?:\d+(?:\.\d*)?|\.\d+)\s*:\s*(?:\d+(?:\.\d*)?|\.\d+))"
@@ -130,78 +131,75 @@ def _first_pass_sampler(mode: JobMode, options: dict[str, Any]) -> str:
     return str(options.get("sampler_name") or options.get("sampler") or "res_multistep")
 
 
+def refine_tiling(length: int) -> tuple[bool, int]:
+    if length > REFINE_MORE_TILES_MIN_FRAMES:
+        return True, 4
+    if length >= REFINE_TILING_MIN_FRAMES:
+        return True, 2
+    return False, 2
+
+
 def build_refine_nodes(
     task_type: str,
     *,
     refine_quality: str,
     aspect_ratio: str,
     length: int,
-    use_sage: bool,
-    sage_allow_compile: bool = False,
+    first_pass_model: list[Any],
     confirm_first_pass: bool = False,
+    refine_mode: str = "auto",
 ) -> tuple[dict[str, dict[str, Any]], list[Any]]:
-    """Second-pass nodes shared by Director-based and timeline graphs."""
+    """Second-pass nodes shared by Director-based and timeline graphs.
+
+    The refine leaves ``refine_model`` unwired so the Director reuses the already
+    resident first-pass UNET. Loading a second ~12 GB UNET alongside the first
+    pass deadlocks DynamicVRAM model init on 16 GB cards for long clips. The
+    target canvas is capped by frame count in auto mode; 1.0+ MP on long clips
+    costs minutes per step on the same card. ``refine_mode="force"`` skips the
+    cap and accepts that cost.
+    """
+    target_megapixels = refine_target_megapixels(
+        refine_quality, length, force=refine_mode == "force",
+    )
     target_options = {
         "aspect_ratio": aspect_ratio,
-        "quality": refine_quality,
-        "megapixels": float(refine_quality),
+        "quality": f"{target_megapixels:.1f}",
+        "megapixels": target_megapixels,
     }
     target_width, target_height = h3_dimensions(target_options)
+    enable_tiling, tile_count = refine_tiling(length)
     nodes: dict[str, dict[str, Any]] = {
-        "40": (
-            {"class_type": "ExperimentalW4A8UNETLoader", "inputs": {"unet_name": REFINE_UNET_REF2V}}
-            if task_type == TASK_TYPE_R2V
-            else {
-                "class_type": "UNETLoader",
-                "inputs": {"unet_name": H3_FL2VA_PRUNED, "weight_dtype": "default"},
-            }
-        ),
-        "41": {
-            "class_type": "LoraLoaderModelOnly",
-            "inputs": {"model": ["40", 0], "lora_name": REFINE_LORA_4STEP, "strength_model": 1.0},
-        },
-    }
-    refine_model: list[Any] = ["41", 0]
-    if use_sage:
-        nodes["42"] = {
-            "class_type": "PathchSageAttentionKJ",
+        "44": {
+            "class_type": "BasicScheduler",
             "inputs": {
-                "model": refine_model,
-                "sage_attention": "auto",
-                "allow_compile": sage_allow_compile,
+                "model": first_pass_model,
+                "scheduler": "beta",
+                "steps": REFINE_STEPS,
+                "denoise": REFINE_DENOISE,
             },
-        }
-        nodes["43"] = {
-            "class_type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
-            "inputs": {"model": ["42", 0]},
-        }
-        refine_model = ["43", 0]
-    nodes["44"] = {
-        "class_type": "BasicScheduler",
-        "inputs": {"model": refine_model, "scheduler": "beta", "steps": REFINE_STEPS, "denoise": REFINE_DENOISE},
-    }
-    nodes["45"] = {
-        "class_type": "MiniMaxH3DirectorRefine",
-        "inputs": {
-            "refine_model": refine_model,
-            "sigmas": ["44", 0],
-            "mode": "upscale",
-            "upscale_method": "h3_latent",
-            "latent_upscale_model": REFINE_LATENT_UPSCALER,
-            "sampler": "euler",
-            "passes": 1,
-            "seed_mode": "inherit",
-            "aspect_ratio": "跟随导演台",
-            "megapixels": float(refine_quality),
-            "width": target_width,
-            "height": target_height,
-            "skip_fl2v": task_type != TASK_TYPE_FL2V,
-            "confirm_first_pass": confirm_first_pass,
-            "enable_latent_chunking": length > 60,
-            "enable_tiling": False,
-            "tile_count": 2,
-            "tile_overlap": 128,
-            "seed": 0,
+        },
+        "45": {
+            "class_type": "MiniMaxH3DirectorRefine",
+            "inputs": {
+                "sigmas": ["44", 0],
+                "mode": "upscale",
+                "upscale_method": "h3_latent",
+                "latent_upscale_model": REFINE_LATENT_UPSCALER,
+                "sampler": "euler",
+                "passes": 1,
+                "seed_mode": "inherit",
+                "aspect_ratio": "跟随导演台",
+                "megapixels": target_megapixels,
+                "width": target_width,
+                "height": target_height,
+                "skip_fl2v": task_type != TASK_TYPE_FL2V,
+                "confirm_first_pass": confirm_first_pass,
+                "enable_latent_chunking": length > 60,
+                "enable_tiling": enable_tiling,
+                "tile_count": tile_count,
+                "tile_overlap": 128,
+                "seed": 0,
+            },
         },
     }
     return nodes, ["45", 0]
@@ -232,6 +230,7 @@ def build_minimax_h3_refine_workflow(
     use_sage = bool(options.get("use_sage_attention", True))
     sage_allow_compile = bool(options.get("sage_allow_compile", False))
     refine_quality = str(options.get("refine_quality") or "1.0")
+    refine_mode = str(options.get("refine_quality_mode") or "auto")
     width, height = h3_dimensions({
         "aspect_ratio": aspect_ratio,
         "quality": str(FIRST_PASS_MEGAPIXELS),
@@ -339,6 +338,7 @@ def build_minimax_h3_refine_workflow(
             "shift_audio": float(options.get("shift_audio", 3.0)),
             "bd_grp_perf": "性能",
             "clear_vram_between_segments": True,
+            # 一采模型仍驻留时二采会再暂存一份 20GB 权重，68GB 内存机器随即分页，单步放大到分钟级。
             "clear_vram_before_refine": True,
             "export_source_images": False,
         },
@@ -349,9 +349,9 @@ def build_minimax_h3_refine_workflow(
         refine_quality=refine_quality,
         aspect_ratio=aspect_ratio,
         length=length,
-        use_sage=use_sage,
-        sage_allow_compile=sage_allow_compile,
+        first_pass_model=model_source,
         confirm_first_pass=preview,
+        refine_mode=refine_mode,
     )
     workflow.update(refine_nodes)
     workflow[DIRECTOR_NODE]["inputs"]["refine"] = refine_link

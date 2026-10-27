@@ -1,0 +1,57 @@
+{
+  "reference": "design-batch-dark.png",
+  "css_viewport_width": 1600,
+  "expected": {
+    "url": "http://127.0.0.1:5173/director/batch/visual-batch-refinement",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1600,
+      "height": 1000
+    },
+    "dpr": 1,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "regions": [
+    {
+      "name": "intro",
+      "box": [
+        104,
+        100,
+        1468,
+        62
+      ],
+      "selector": ".director-workspace-intro"
+    },
+    {
+      "name": "settings",
+      "box": [
+        104,
+        186,
+        320,
+        423
+      ],
+      "selector": ".director-batch-form"
+    },
+    {
+      "name": "fields",
+      "box": [
+        125,
+        260,
+        278,
+        328
+      ],
+      "selector": ".director-creative-fields"
+    },
+    {
+      "name": "results",
+      "box": [
+        444,
+        186,
+        1128,
+        502
+      ],
+      "selector": ".director-result-empty"
+    }
+  ]
+}

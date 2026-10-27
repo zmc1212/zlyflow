@@ -1,0 +1,133 @@
+{
+  "checks": [
+    {
+      "name": "light asset categories",
+      "passed": true
+    },
+    {
+      "name": "light asset search and clear",
+      "passed": true
+    },
+    {
+      "name": "light asset keyboard selection and independent scroll",
+      "passed": true
+    },
+    {
+      "name": "light new asset modal cancel",
+      "passed": true
+    },
+    {
+      "name": "dark asset categories",
+      "passed": true
+    },
+    {
+      "name": "dark asset search and clear",
+      "passed": true
+    },
+    {
+      "name": "dark asset keyboard selection and independent scroll",
+      "passed": true
+    },
+    {
+      "name": "dark new asset modal cancel",
+      "passed": true
+    },
+    {
+      "name": "asset autosave and refresh",
+      "passed": true
+    },
+    {
+      "name": "task search trims spaces and matches ID",
+      "passed": true
+    },
+    {
+      "name": "task status aliases and reset",
+      "passed": true
+    },
+    {
+      "name": "task type navigation and empty recovery",
+      "passed": true
+    },
+    {
+      "name": "light import modal and guide",
+      "passed": true
+    },
+    {
+      "name": "light workshop keyboard entry and four tabs",
+      "passed": true
+    },
+    {
+      "name": "light inspector selection and video settings",
+      "passed": true
+    },
+    {
+      "name": "light diagnosis paste and history",
+      "passed": true
+    },
+    {
+      "name": "dark import modal and guide",
+      "passed": true
+    },
+    {
+      "name": "dark workshop keyboard entry and four tabs",
+      "passed": true
+    },
+    {
+      "name": "dark inspector selection and video settings",
+      "passed": true
+    },
+    {
+      "name": "dark diagnosis paste and history",
+      "passed": true
+    },
+    {
+      "name": "batch workflow options readable",
+      "passed": true
+    },
+    {
+      "name": "light document tabs including native overflow",
+      "passed": true
+    },
+    {
+      "name": "dark document tabs including native overflow",
+      "passed": true
+    },
+    {
+      "name": "task type selection survives initial delayed fetch",
+      "passed": true
+    },
+    {
+      "name": "task details dialog and close",
+      "passed": true
+    },
+    {
+      "name": "replication segment duration and restore",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "fonts": [
+    {
+      "theme": "light",
+      "fonts": [
+        {
+          "familyName": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-Bold",
+          "isCustomFont": false,
+          "glyphCount": 3
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "fonts": [
+        {
+          "familyName": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-Bold",
+          "isCustomFont": false,
+          "glyphCount": 3
+        }
+      ]
+    }
+  ]
+}

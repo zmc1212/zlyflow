@@ -1,0 +1,27 @@
+{
+  "verified_at": "2026-10-25T01:05:11.452164+00:00",
+  "design_first": [
+    "PROMPTS.md",
+    "concept-core.png",
+    "concept-specialists.png",
+    "DESIGN.md",
+    "../series-ui-20261025/DESIGN.md"
+  ],
+  "paired_baseline_images": 18,
+  "desktop_matrix_images": 44,
+  "current_workshop_additional_images": 8,
+  "baseline_behavior_groups": 26,
+  "current_workshop_behavior_groups": 2,
+  "geometry_regions_zero_delta": 15,
+  "all_image_hashes_match": true,
+  "all_local_report_links_exist": true,
+  "source_change_limits": "Existing beautifului conversation tokens retained; UI uses Ant Design, root semantic themes and existing routes/APIs.",
+  "current_workshop": "Current source uses the separately frozen series design; original workshop comparisons remain historical.",
+  "tests": {
+    "frontend_files": 63,
+    "frontend_tests": 429,
+    "backend_tests": 51,
+    "build_passed": true
+  },
+  "cleanup_evidence": "cleanup.json"
+}
