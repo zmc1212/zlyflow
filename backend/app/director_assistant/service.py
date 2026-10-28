@@ -49,6 +49,9 @@ _TOOL_ARRAY_FIELDS = {
     "editor_read": set(),
     "propose_edit": {"operation", "strategy"},
 }
+_TOOL_CALL_METADATA = {"label", "title", "description"}
+_FORMAT_ERROR = "模型返回格式无法解析，请重试；若多次失败请换一个模型。"
+_RESOLUTION_TITLE = re.compile(r"(?:出片|视频|整集).{0,8}分辨率|分辨率.{0,8}(?:出片|视频|整集)")
 _TOOL_ARRAY_STRING_FIELDS = {
     "query", "chunk_id", "stage", "path", "artifact_type", "title", "content",
     "revises_id", "media_type", "asset_id", "episode_id", "beat_id", "operation", "strategy",
@@ -177,6 +180,10 @@ class AssistantService:
                 text = "跳过这个问题，请按已有信息继续。"
             if not text:
                 raise ValueError("请输入想法或选择答案")
+            if pending and request["question_id"] and not request["skip"] and session.get("project_id"):
+                setting = self._project_setting_from_answer(pending, request["answer_values"], text)
+                if setting:
+                    self.actions.set_project_extra(session["project_id"], setting, conn=conn)
             sequence = int(session.get("message_sequence", 0))
             user_message = self.repo.insert(owner, "message", {"session_id": sid, "role": "user", "run_id": run_id, "sequence": sequence + 1,
                          "parts": [{"type": "markdown", "text": text}], "answer_to": pending["id"] if pending else None,
@@ -192,6 +199,24 @@ class AssistantService:
                        "title": text[:32] if session["title"] == "新对话" else session["title"]}, conn=conn)
         _EXECUTOR.submit(self.run, owner, run_id)
         return run
+
+    @staticmethod
+    def _project_setting_from_answer(pending: dict, values: list[str], text: str) -> dict | None:
+        title = str(pending.get("title") or "").strip()
+        if not title or not _RESOLUTION_TITLE.search(title):
+            return None
+        labels = {
+            str(item.get("value")): str(item.get("label") or "")
+            for item in pending.get("options") or []
+            if isinstance(item, dict)
+        }
+        for candidate in [f"{labels.get(str(value), '')} {value}" for value in values] + [text]:
+            normalized = candidate.lower().replace(" ", "")
+            if "768" in normalized:
+                return {"video_resolution": "768p", "video_resolution_label": "768P"}
+            if "2k" in normalized or "2048" in normalized:
+                return {"video_resolution": "2k", "video_resolution_label": "2K"}
+        return None
 
     def cancel(self, owner: str, run_id: str) -> dict:
         with self.repo.transaction() as conn:
@@ -815,7 +840,10 @@ class AssistantService:
             if text.startswith("<tool_call>") and len(text) <= 200000 and "<!" not in text:
                 import xml.etree.ElementTree as ET
                 try:
-                    root = ET.fromstring("<calls>" + text + "</calls>")
+                    # Qwen-style outputs sometimes wrap the call in a stray
+                    # <tool_response> tag; it carries no protocol meaning.
+                    wrapped = re.sub(r"</?tool_response>", "", text).strip()
+                    root = ET.fromstring("<calls>" + wrapped + "</calls>")
                     if (root.text or "").strip():
                         raise ValueError("工具标签之外不能混入正文")
                     calls = []
@@ -825,8 +853,23 @@ class AssistantService:
                         content = (call.text or "").strip()
                         fields = list(call)
                         if not fields:
-                            # Some models emit <tool_call>name{"arg":...}</tool_call>
-                            # instead of the paired param_key/param_value tags.
+                            # Some models emit <tool_call>{"name":...,"arguments":{...}}</tool_call>
+                            # or <tool_call>name{"arg":...}</tool_call> instead of
+                            # the paired param_key/param_value tags.
+                            if content.startswith("{"):
+                                try:
+                                    envelope = json.loads(content)
+                                except ValueError as error:
+                                    raise ValueError("工具参数不是有效 JSON") from error
+                                if (
+                                    not isinstance(envelope, dict)
+                                    or set(envelope) - {"name", "arguments"}
+                                    or not isinstance(envelope.get("name"), str)
+                                    or not isinstance(envelope.get("arguments") or {}, dict)
+                                ):
+                                    raise ValueError("无效的工具调用格式")
+                                calls.append({"name": envelope["name"], "arguments": envelope.get("arguments") or {}})
+                                continue
                             match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\{.*\})?", content, re.S)
                             if not match:
                                 raise ValueError("无效的工具调用格式")
@@ -867,8 +910,10 @@ class AssistantService:
                         calls.append({"name": name, "arguments": arguments})
                     return AssistantTurn.model_validate({"tool_calls": calls})
                 except Exception as tag_error:
-                    raise ValueError(str(tag_error)) from tag_error
-            raise ValueError(f"模型返回格式无法解析：{exc}") from exc
+                    logger.warning("助手工具标签解析失败：%s", tag_error, exc_info=True)
+                    raise ValueError(_FORMAT_ERROR) from tag_error
+            logger.warning("助手返回格式无法解析：%s", exc, exc_info=True)
+            raise ValueError(_FORMAT_ERROR) from exc
 
     @staticmethod
     def _decode_param_text(value: str) -> str:
@@ -877,7 +922,7 @@ class AssistantService:
 
     @staticmethod
     def _normalize_tool_alias(payload: Any) -> Any:
-        """Accept one observed model alias without widening the protocol."""
+        """Accept observed model aliases without widening the protocol."""
         if not isinstance(payload, dict) or not isinstance(payload.get("tool_calls"), list):
             return payload
         calls = []
@@ -890,6 +935,26 @@ class AssistantService:
                 and isinstance(item.get("arguments"), dict)
             ):
                 calls.append({"name": item["id"], "arguments": item["arguments"]})
+            elif (
+                isinstance(item, dict)
+                and "name" in item
+                and "arguments" in item
+                and set(item) - _TOOL_CALL_METADATA <= {"name", "arguments"}
+            ):
+                # Some models add a human-readable label/title next to the tool
+                # call. It is display-only, so drop it and keep name+arguments
+                # subject to the same strict validation.
+                calls.append({key: item[key] for key in ("name", "arguments") if key in item})
+            elif (
+                isinstance(item, dict)
+                and isinstance(item.get("name"), str)
+                and isinstance(item.get("input"), dict)
+                and set(item) - _TOOL_CALL_METADATA <= {"name", "input"}
+            ):
+                # Some OpenAI-compatible models name the argument object "input".
+                # Map it onto arguments; the tool allowlist and parameter
+                # validation below are unchanged.
+                calls.append({"name": item["name"], "arguments": item["input"]})
             else:
                 calls.append(item)
         return {**payload, "tool_calls": calls}

@@ -583,7 +583,7 @@ def register_project_routes(
             text = str(err)
             if "进行中" in text:
                 raise HTTPException(status_code=409, detail=text) from err
-            if "显存" in text or "成片" in text or "不存在" in text or "未安装" in text:
+            if "显存" in text or "成片" in text or "不存在" in text or "未安装" in text or "缺少" in text or "未找到" in text:
                 raise HTTPException(status_code=422, detail=text) from err
             raise HTTPException(status_code=400, detail=text) from err
         except Exception as err:
@@ -608,7 +608,7 @@ def register_project_routes(
             text = str(err)
             if "进行中" in text:
                 raise HTTPException(status_code=409, detail=text) from err
-            if "显存" in text or "成片" in text or "不存在" in text or "不能再超分" in text or "未安装" in text:
+            if "显存" in text or "成片" in text or "不存在" in text or "不能再超分" in text or "未安装" in text or "缺少" in text or "未找到" in text:
                 raise HTTPException(status_code=422, detail=text) from err
             raise HTTPException(status_code=400, detail=text) from err
         except Exception as err:

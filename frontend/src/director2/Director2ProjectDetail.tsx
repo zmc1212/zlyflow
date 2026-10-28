@@ -14,7 +14,6 @@ import Director2AiStudioPane from "./panes/Director2AiStudioPane"
 import { useDirectorAssistant } from "./assistant/DirectorAssistant"
 import { parseDirector2CreationMode, readDirector2CreationMode, storeDirector2CreationMode, type Director2CreationMode } from "./creation-mode"
 import DirectorCreationModeSwitch from "../director/components/DirectorCreationModeSwitch"
-import ThemeToggle from "../components/ThemeToggle"
 import { MediaPreviewProvider } from "./media-preview"
 import {
   packIdFromSelectValue,
@@ -226,7 +225,6 @@ export default function Director2ProjectDetail({
               disabled={aiBusy}
               onChange={(value) => changeCreationMode(value as Director2CreationMode)}
             />
-            <ThemeToggle />
           </div>
         </div>
       </header>

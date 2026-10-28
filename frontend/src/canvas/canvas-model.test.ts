@@ -659,6 +659,19 @@ describe("canvas free placement", () => {
 })
 
 describe("canvas preview", () => {
+  it("reads bounded optional node annotations and remains compatible with old previews", () => {
+    const preview = readCanvasPreview({
+      x: 0, y: 0, width: 300, height: 200,
+      items: [
+        { type: "text", x: 0, y: 0, width: 120, height: 80, label: "  开场\n 提示  ", text: "雨".repeat(200) },
+        { type: "image", x: 160, y: 0, width: 120, height: 80, label: {}, text: ["bad"] },
+      ],
+    })
+    expect(preview?.items[0].label).toBe("开场 提示")
+    expect(preview?.items[0].text).toHaveLength(160)
+    expect(preview?.items[1].label).toBeUndefined()
+    expect(preview?.items[1].text).toBeUndefined()
+  })
   it("reads bounds, nodes, links and safe media urls", () => {
     const preview = readCanvasPreview({
       x: -10,

@@ -2881,7 +2881,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         onClose={closeAssetLibrary}
         footer={<Button type="primary" onClick={closeAssetLibrary}>完成</Button>}
         destroyOnHidden
-        styles={{ root: { top: 60 }, body: { padding: "16px 20px 24px" }, footer: { padding: "12px 20px" } }}
+        styles={{ root: { top: 76 }, body: { padding: "16px 20px 24px" }, footer: { padding: "12px 20px" } }}
       >
         <div className="canvas-asset-toolbar">
           <div className="canvas-asset-toolbar-row">

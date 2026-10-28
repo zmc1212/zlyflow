@@ -292,7 +292,6 @@ export default function Director2StudioHome({ csrfToken, onExitDirector }: Direc
       <button type="button" aria-label="返回创作工作台" onClick={onExitDirector}><ArrowLeft size={20} /></button>
       <strong>导演台</strong><div className="director-home-mobile-actions"><ThemeToggle /></div>
     </header>
-    <header className="director-home-topbar"><span className="dh-topbar-title"><Clapperboard size={22} /><strong>导演台</strong></span><ThemeToggle /></header>
     <div className="director-home-scroll dh-workspace">
       <aside className="dh-start-column" aria-label="创作启动台">
         <section className="dh-start-panel">

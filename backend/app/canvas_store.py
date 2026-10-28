@@ -187,9 +187,21 @@ def _preview_bytes(preview: dict[str, Any]) -> int:
     return len(json.dumps(preview, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
+def _preview_text(value: Any, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return re.sub(r"\s+", " ", value).strip()[:limit] or None
+
+
 def _fit_canvas_preview(preview: dict[str, Any]) -> dict[str, Any]:
     if _preview_bytes(preview) <= PREVIEW_MAX_BYTES:
         return preview
+    # Optional annotations must not displace existing media or geometry budgets.
+    for key in ("text", "label"):
+        for item in reversed(preview["items"]):
+            item.pop(key, None)
+            if _preview_bytes(preview) <= PREVIEW_MAX_BYTES:
+                return preview
     while _preview_bytes(preview) > PREVIEW_MAX_BYTES:
         covered = [item for item in preview["items"] if "cover" in item]
         if not covered:
@@ -252,6 +264,14 @@ def build_canvas_preview(payload: dict[str, Any]) -> dict[str, Any]:
             "width": round(width),
             "height": round(height),
         }
+        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+        label = _preview_text(data.get("label"), 48)
+        text_key = "text" if node_type == "text" else "prompt" if node_type == "generator" else "caption"
+        text = _preview_text(data.get(text_key), 160)
+        if label:
+            item["label"] = label
+        if text:
+            item["text"] = text
         if url_count < PREVIEW_MAX_URLS:
             url = _preview_node_url(node, node_type)
             if url:
@@ -335,6 +355,12 @@ def decode_canvas_preview(raw: Any) -> dict[str, Any] | None:
             "height": round(item_height),
         }
         url = _preview_url(raw_item.get("url"))
+        label = _preview_text(raw_item.get("label"), 48)
+        text = _preview_text(raw_item.get("text"), 160)
+        if label:
+            item["label"] = label
+        if text:
+            item["text"] = text
         if url:
             item["url"] = url
         cover = raw_item.get("cover")

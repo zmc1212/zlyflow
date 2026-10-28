@@ -85,11 +85,11 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
     definition: {
       label: "模型体积",
       type: "string",
-      default: "pruned",
+      default: "full",
       ui_group: "primary",
       ui_options: [
-        { value: "pruned", label: "精简（20 GB）" },
         { value: "full", label: "完整（32 GB）" },
+        { value: "pruned", label: "精简（20 GB）" },
       ],
       ui_visible_when: { refine_enabled: false },
     },
@@ -403,6 +403,14 @@ export function playbackAspectRatio(values?: Record<string, string> | null): str
   return raw || "16:9"
 }
 
+// Mirrors backend episode_video_service.PROJECT_VIDEO_RESOLUTION_QUALITIES.
+export function videoResolutionQuality(resolution: unknown, refine = false): string | undefined {
+  const value = String(resolution ?? "").trim().toLowerCase()
+  if (value === "768p" || value === "768") return refine ? "1.0" : "0.98"
+  if (value === "2k" || value === "2048") return "2.0"
+  return undefined
+}
+
 // Mirrors backend workflow_registry.refine_target_megapixels: the 16 GB remote card
 // stays fast only while frames × target megapixels stays around 200.
 const REFINE_FRAME_MEGAPIXEL_BUDGET = 200
@@ -495,7 +503,7 @@ export function videoSettingsSummary(
   const quality = values.quality || String(qualityField?.definition.default || "0.4")
   const qualityChoice = qualityField ? optionChoices(qualityField, values).find((item) => item.value === quality) : undefined
   const weightField = fields.find((item) => item.name === "weight_profile")
-  const weight = values.weight_profile || String(weightField?.definition.default || "pruned")
+  const weight = values.weight_profile || String(weightField?.definition.default || "full")
   const weightLabel = weightField?.definition.ui_options?.find((item) => String(item.value) === weight)?.label || weight
   const parts = [aspect]
   if (values.refine_enabled === "true") {
@@ -643,9 +651,9 @@ export function jobUpscaleHint(job: {
 } | null | undefined): string {
   const scope = String(job?.payload?.render_scope || "")
   if (scope === "episode" || scope === "compose") {
-    return "提交整段 2x 超分。过长可能因显存被拒绝，原片仍保留。"
+    return "提交整段超分：RTX 秒级出片，SeedVR2 分钟级更清晰。过长可能因显存被拒绝，原片仍保留。"
   }
-  return "用当前连接的 ComfyUI 做 RTX 2x 超分，原片保留"
+  return "RTX 快速超分（秒级）或 SeedVR2 高清增强（分钟级），原片保留"
 }
 
 export function jobUpscaleDisabledReason(

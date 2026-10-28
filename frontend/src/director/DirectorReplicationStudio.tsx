@@ -5,7 +5,6 @@ import {
 } from "antd"
 import { ArrowLeft, Film, Play, RefreshCw, Upload as UploadIcon, Wand2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
-import ThemeToggle from "../components/ThemeToggle"
 import JobErrorNotice from "./components/JobErrorNotice"
 import { DirectorMobileHeader } from "./DirectorMobileChrome"
 import {
@@ -253,7 +252,6 @@ export default function DirectorReplicationStudio({
           <Typography.Title level={4} style={{ margin: 0 }}>参考片复刻</Typography.Title>
         </div>
         <Space>
-          <ThemeToggle />
           <Button onClick={onExitDirector}>创作工作台</Button>
         </Space>
       </header>

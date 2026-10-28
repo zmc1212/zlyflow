@@ -1,0 +1,267 @@
+{
+  "date": "2026-10-27",
+  "surface": "5173 Vite, controlled API responses, existing local videos",
+  "checks": [
+    {
+      "name": "bounded preview and actions above composer at 1584x993",
+      "passed": true
+    },
+    {
+      "name": "hover reveals tools and menu survives pointer leaving video",
+      "passed": true
+    },
+    {
+      "name": "Escape restores focus to more button",
+      "passed": true
+    },
+    {
+      "name": "tools hide with pointer and focus outside, show for keyboard focus",
+      "passed": true
+    },
+    {
+      "name": "keyboard playback, pause, seek and sound use real media",
+      "passed": true
+    },
+    {
+      "name": "version change selects the correct output and guards job-level upscale",
+      "passed": true
+    },
+    {
+      "name": "creative parameters hide internals; runtime menu expands them",
+      "passed": true
+    },
+    {
+      "name": "all references remain ordered and open original image preview",
+      "passed": true
+    },
+    {
+      "name": "canvas action receives selected version",
+      "passed": true
+    },
+    {
+      "name": "Jianying export contains only selected version and real duration",
+      "passed": true
+    },
+    {
+      "name": "download points to selected output",
+      "passed": true
+    },
+    {
+      "name": "fullscreen uses browser fullscreen and exits",
+      "passed": true
+    },
+    {
+      "name": "delete is explicitly task-wide and cancel sends no mutation",
+      "passed": true
+    },
+    {
+      "name": "English and Chinese prompt switching",
+      "passed": true
+    },
+    {
+      "name": "1440x900 and 1366x768 desktop fit above composer",
+      "passed": true
+    },
+    {
+      "name": "portrait keeps actual aspect and controls fit at desktop size",
+      "passed": true
+    },
+    {
+      "name": "dark theme reaches menus and persists on refresh",
+      "passed": true
+    },
+    {
+      "name": "running, awaiting-refine, failed and expired critical states stay visible",
+      "passed": true
+    },
+    {
+      "name": "no browser runtime errors and no real writes",
+      "passed": true
+    }
+  ],
+  "mutations": [],
+  "unknown": [],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead."
+  ],
+  "geometry": [
+    {
+      "label": "1584x993 landscape",
+      "viewport": {
+        "width": 1584,
+        "height": 993
+      },
+      "media": {
+        "x": 410,
+        "y": 215,
+        "width": 480,
+        "height": 267.90625
+      },
+      "actions": {
+        "x": 410,
+        "y": 494.90625,
+        "width": 242,
+        "height": 36
+      },
+      "composer": {
+        "x": 410,
+        "y": 668,
+        "width": 1080,
+        "height": 305
+      }
+    },
+    {
+      "label": "1440x900 landscape",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "media": {
+        "x": 348,
+        "y": 215,
+        "width": 480,
+        "height": 267.90625
+      },
+      "actions": {
+        "x": 348,
+        "y": 494.90625,
+        "width": 242,
+        "height": 36
+      },
+      "composer": {
+        "x": 338,
+        "y": 575,
+        "width": 1080,
+        "height": 305
+      }
+    },
+    {
+      "label": "1366x768 landscape",
+      "viewport": {
+        "width": 1366,
+        "height": 768
+      },
+      "media": {
+        "x": 348,
+        "y": 215,
+        "width": 301,
+        "height": 168
+      },
+      "actions": {
+        "x": 348,
+        "y": 395,
+        "width": 242,
+        "height": 36
+      },
+      "composer": {
+        "x": 301,
+        "y": 443,
+        "width": 1080,
+        "height": 305
+      }
+    },
+    {
+      "label": "1440x900 portrait",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "media": {
+        "x": 348,
+        "y": 215,
+        "width": 166.65625,
+        "height": 299.96875
+      },
+      "actions": {
+        "x": 348,
+        "y": 526.96875,
+        "width": 242,
+        "height": 36
+      },
+      "composer": {
+        "x": 338,
+        "y": 575,
+        "width": 1080,
+        "height": 305
+      }
+    }
+  ],
+  "scrollTrace": [
+    [
+      "before hover",
+      0
+    ],
+    [
+      "after hover",
+      0
+    ],
+    [
+      "after click",
+      0
+    ],
+    [
+      "after menu",
+      0
+    ],
+    [
+      "before hover",
+      0
+    ],
+    [
+      "after hover",
+      0
+    ],
+    [
+      "after click",
+      0
+    ],
+    [
+      "after menu",
+      0
+    ],
+    [
+      "before hover",
+      0
+    ],
+    [
+      "after hover",
+      0
+    ],
+    [
+      "after click",
+      0
+    ],
+    [
+      "after menu",
+      0
+    ],
+    [
+      "before hover",
+      0
+    ],
+    [
+      "after hover",
+      0
+    ],
+    [
+      "after click",
+      0
+    ],
+    [
+      "after menu",
+      0
+    ]
+  ],
+  "status": "passed"
+}

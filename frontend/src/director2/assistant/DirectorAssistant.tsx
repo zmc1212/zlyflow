@@ -441,7 +441,11 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
       }
       const signature = JSON.stringify({ sid: currentSid, ...answer, text })
       if (submission.current?.signature !== signature) submission.current = { signature, id: crypto.randomUUID() }
+      const answeredQuestion = answer?.question_id ? detail?.session.pending_question : undefined
       await assistantMutate<AssistantRun>(csrfToken, `/sessions/${currentSid}/messages`, { ...answer, text, client_message_id: submission.current.id })
+      if (projectId && answeredQuestion?.title?.includes("分辨率")) {
+        window.dispatchEvent(new CustomEvent("director-assistant-project-updated", { detail: { projectId } }))
+      }
       await loadDetail(currentSid)
       submission.current = null
       if (!answer && scopeRef.current === targetScope) setDraft("")

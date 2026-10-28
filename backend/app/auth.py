@@ -225,8 +225,16 @@ class AuthStore:
         with self.connection() as connection:
             connection.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
 
-    def update_user(self, user_id: str, *, role: UserRole | None = None, is_active: bool | None = None) -> dict:
+    def update_user(
+        self, user_id: str, *, display_name: str | None = None,
+        role: UserRole | None = None, is_active: bool | None = None,
+    ) -> dict:
         updates: dict[str, object] = {"updated_at": iso()}
+        if display_name is not None:
+            display_name = display_name.strip()
+            if not display_name:
+                raise ValueError("姓名不能为空")
+            updates["display_name"] = display_name
         if role is not None:
             updates["role"] = role.value
         if is_active is not None:

@@ -1,4 +1,8 @@
+import json
 import unittest
+from unittest.mock import patch
+
+from backend.app.media_studio.services.episode_video_service import EpisodeVideoService
 
 from backend.app.minimax_h3_refine_workflow import (
     PREVIEW_OUTPUT_NODE,
@@ -645,6 +649,38 @@ class RefineHelperTests(unittest.TestCase):
                 {},
                 7,
             )
+
+
+class ConfirmedVideoResolutionTests(unittest.TestCase):
+    @staticmethod
+    def apply(resolution: str, options: dict) -> dict:
+        settings = {"extra": {"video_resolution": resolution}} if resolution else {}
+        with patch(
+            "backend.app.media_studio.services.episode_video_service.query_one",
+            return_value={"settings_json": json.dumps(settings)},
+        ):
+            return EpisodeVideoService.apply_confirmed_video_resolution("p", options)
+
+    def test_768p_locks_requested_quality(self) -> None:
+        options = self.apply("768p", {"workflow": "minimax-h3-director-accel-r2v", "quality": "0.4", "aspect_ratio": "9:16"})
+        self.assertEqual(options["quality"], "0.98")
+
+    def test_2k_locks_requested_quality(self) -> None:
+        options = self.apply("2k", {"workflow": "minimax-h3-director-accel-r2v", "quality": "0.4"})
+        self.assertEqual(options["quality"], "2.0")
+
+    def test_refine_uses_confirmed_resolution_target(self) -> None:
+        options = self.apply("768p", {"workflow": "minimax-h3-director-accel-r2v", "refine_enabled": True, "refine_quality": "2.0"})
+        self.assertEqual(options["refine_quality"], "1.0")
+        self.assertNotIn("quality", options)
+
+    def test_workflow_with_lower_ceiling_uses_highest_preset(self) -> None:
+        options = self.apply("2k", {"workflow": "minimax-h3-t8-all-reference", "quality": "0.4"})
+        self.assertEqual(options["quality"], "0.98")
+
+    def test_no_confirmed_resolution_keeps_incoming_options(self) -> None:
+        options = self.apply("", {"workflow": "minimax-h3-director-accel-r2v", "quality": "0.4"})
+        self.assertEqual(options["quality"], "0.4")
 
 
 if __name__ == "__main__":

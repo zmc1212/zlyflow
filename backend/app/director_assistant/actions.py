@@ -208,6 +208,22 @@ class ProjectActions:
             extra.update(description_source="ai", ai_generated_description=description)
         conn.execute("UPDATE ai_projects SET name=?,description=?,settings_json=?,updated_at=? WHERE id=?", (name, description, dumps(settings), timestamp(), project["id"]))
 
+    def set_project_extra(self, project_id: str, values: dict, *, conn=None) -> dict:
+        from contextlib import nullcontext
+        with nullcontext(conn) if conn is not None else self.repo.store.connection() as db:
+            row = db.execute("SELECT settings_json FROM ai_projects WHERE id=?", (project_id,)).fetchone()
+            if not row:
+                raise AssistantNotFound("关联工程不存在")
+            settings = json.loads(row.get("settings_json") or "{}")
+            if not isinstance(settings, dict):
+                settings = {}
+            extra = settings.get("extra")
+            if not isinstance(extra, dict):
+                extra = settings["extra"] = {}
+            extra.update(values)
+            db.execute("UPDATE ai_projects SET settings_json=?,updated_at=? WHERE id=?", (dumps(settings), timestamp(), project_id))
+        return extra
+
     def propose_media(self, owner: str, session: dict, arguments: dict, run_id: str) -> dict:
         draft = MediaDraft.model_validate(arguments).model_dump()
         project_id = session.get("project_id")
@@ -246,6 +262,7 @@ class ProjectActions:
         elif media_type == "video":
             from ..media_studio.services.episode_video_service import EpisodeVideoService
             from ..workflow_registry import workflow_for
+            options = EpisodeVideoService.apply_confirmed_video_resolution(project_id, options)
             resolved = EpisodeVideoService.resolve_generation_options(options)
             if resolved.get("workflow_fallback"):
                 raise ValueError("所选视频工作流不可用，请重新选择")

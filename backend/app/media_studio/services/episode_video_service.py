@@ -33,6 +33,7 @@ from .timeline_rendering import (
 from ...gpu_runtime import occupy_gpu
 from ...minimax_h3_refine_workflow import continuation_workflow
 from ...rtx_vsr_workflow import should_auto_upscale, source_video_shape, vsr_memory_rejection
+from ...seedvr2_upscale_workflow import UPSCALE_ENGINE_SEEDVR2, normalize_upscale_engine
 from ...workflow_registry import (
     H3_STANDARD_OPTION_SCHEMA,
     coerce_bool_option,
@@ -59,6 +60,17 @@ _ACTIVE_VIDEO_STATUSES = (
 _SUCCEEDED_VIDEO_STATUSES = ("completed", "succeeded")
 _SHOT_TAKE_SCOPES = frozenset({"shot", "selection"})
 _EXCLUDED_TAKE_SCOPES = frozenset({"episode", "compose", "upscale"})
+PROJECT_VIDEO_RESOLUTION_QUALITIES = {
+    "768p": {"quality": "0.98", "refine_quality": "1.0"},
+    "2k": {"quality": "2.0", "refine_quality": "2.0"},
+}
+
+
+def _numeric_text(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def concat_video_bytes(chunks: list[bytes]) -> bytes:
@@ -213,6 +225,51 @@ class EpisodeVideoService:
                 seen.add(beat_id)
                 ids.append(beat_id)
         return ids
+
+    @staticmethod
+    def confirmed_video_resolution(project_id: str) -> str:
+        row = query_one("SELECT settings_json FROM ai_projects WHERE id=%s", (project_id,))
+        if not row:
+            return ""
+        try:
+            settings = json.loads(row.get("settings_json") or "{}")
+        except (TypeError, ValueError):
+            return ""
+        extra = settings.get("extra") if isinstance(settings, dict) else None
+        resolution = str((extra or {}).get("video_resolution") or "").strip().lower()
+        return resolution if resolution in PROJECT_VIDEO_RESOLUTION_QUALITIES else ""
+
+    @classmethod
+    def apply_confirmed_video_resolution(
+        cls,
+        project_id: str,
+        options: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """The clarification answer is a production lock, not a UI default."""
+        incoming = dict(options or {})
+        resolution = cls.confirmed_video_resolution(project_id)
+        if not resolution:
+            return incoming
+        workflow_id = str(incoming.get("workflow") or incoming.get("workflow_id") or cls.DEFAULTS["workflow"])
+        try:
+            properties = (workflow_for(workflow_id).option_schema or {}).get("properties") or {}
+        except KeyError:
+            properties = {}
+        refine = incoming.get("refine_enabled")
+        refine_enabled = refine is True or str(refine).lower() in {"1", "true", "yes", "on"}
+        field = "refine_quality" if refine_enabled else "quality"
+        spec = properties.get(field) or {}
+        enum = [str(item) for item in spec.get("enum") or []]
+        if not enum:
+            return incoming
+        desired = PROJECT_VIDEO_RESOLUTION_QUALITIES[resolution][field]
+        if desired not in enum:
+            numeric = [(float(item), item) for item in enum if _numeric_text(item) is not None]
+            if not numeric:
+                return incoming
+            desired = max(numeric)[1]
+        incoming[field] = desired
+        return incoming
 
     @classmethod
     def generate_episode_videos(
@@ -426,11 +483,19 @@ class EpisodeVideoService:
         incoming = dict(options or {})
         incoming.pop("beat_ids", None)
         incoming.pop("force", None)
+        engine_value = incoming.pop("engine", None)
+        if engine_value is None:
+            engine_value = incoming.pop("upscale_engine", None)
+        else:
+            incoming.pop("upscale_engine", None)
+        engine = normalize_upscale_engine(engine_value)
+        seedvr2 = engine == UPSCALE_ENGINE_SEEDVR2
         settings = {**cls.DEFAULTS, **cls.resolve_generation_options(incoming)}
         workflow_id = str(settings.get("workflow") or cls.DEFAULTS["workflow"])
-        rejection = cls._vsr_rejection_for_shot(settings, beat, workflow_id)
-        if rejection:
-            raise ValueError(rejection)
+        if not seedvr2:
+            rejection = cls._vsr_rejection_for_shot(settings, beat, workflow_id)
+            if rejection:
+                raise ValueError(rejection)
         cls._assert_can_enqueue(
             project_id,
             episode_id,
@@ -441,13 +506,17 @@ class EpisodeVideoService:
         comfy_config = ComfyService.get_config()
         comfy = ComfyVideoClient(comfy_config.base_url)
         comfy.ping()
-        comfy.require_rtx_vsr_node()
+        if seedvr2:
+            comfy.require_seedvr2()
+        else:
+            comfy.require_rtx_vsr_node()
         jid = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = now_str()
         sequence = title_label or beat.get("sequence") or "?"
         payload = {
             **settings,
-            "model": "RTX 2x 超分",
+            "upscale_engine": engine,
+            "model": "SeedVR2 高清增强" if seedvr2 else "RTX 2x 超分",
             "api_endpoint": f"{comfy_config.base_url}/prompt",
             "target_type": "shot_upscale" if beat_id else "episode_upscale",
             "render_scope": "upscale",
@@ -481,7 +550,7 @@ class EpisodeVideoService:
             (
                 jid,
                 project_id,
-                f"2x 超分：第 {detail.get('number')} 集 Beat {sequence}",
+                f"{'高清增强' if seedvr2 else '2x 超分'}：第 {detail.get('number')} 集 Beat {sequence}",
                 json.dumps(payload, ensure_ascii=False),
                 timestamp,
                 timestamp,
@@ -507,6 +576,7 @@ class EpisodeVideoService:
         render_scope: str = "episode",
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        options = cls.apply_confirmed_video_resolution(project_id, options)
         settings = {**cls.DEFAULTS, **cls.resolve_generation_options(options)}
         workflow_id = str(settings.get("workflow") or cls.DEFAULTS["workflow"])
         render_mode = episode_video_render_mode(workflow_id)
@@ -2455,13 +2525,16 @@ class EpisodeVideoService:
         return response.content
 
     @classmethod
-    def _store_upscaled_video(cls, comfy: ComfyVideoClient, output: dict[str, str], job_id: str, beat_id: str) -> str:
+    def _store_upscaled_video(
+        cls, comfy: ComfyVideoClient, output: dict[str, str], job_id: str, beat_id: str, *, engine: str = "rtx",
+    ) -> str:
         result_url = comfy.view_url(output)
         if QiniuService.get_config().available:
             content = comfy.download_output(output)
+            prefix = "seedvr2" if normalize_upscale_engine(engine) == UPSCALE_ENGINE_SEEDVR2 else "vsr"
             _, result_url = QiniuService.store_bytes(
                 "video",
-                f"vsr-{beat_id or job_id}-{secrets.token_hex(4)}.mp4",
+                f"{prefix}-{beat_id or job_id}-{secrets.token_hex(4)}.mp4",
                 content,
             )
         return result_url
@@ -2475,11 +2548,14 @@ class EpisodeVideoService:
         source_url: str,
         shot: dict[str, Any],
     ) -> str:
-        rejection = cls._vsr_rejection_for_shot(
-            payload, shot, str(payload.get("workflow_id") or ""), comfy=comfy,
-        )
-        if rejection:
-            raise RuntimeError(rejection)
+        engine = normalize_upscale_engine(payload.get("upscale_engine"))
+        seedvr2 = engine == UPSCALE_ENGINE_SEEDVR2
+        if not seedvr2:
+            rejection = cls._vsr_rejection_for_shot(
+                payload, shot, str(payload.get("workflow_id") or ""), comfy=comfy,
+            )
+            if rejection:
+                raise RuntimeError(rejection)
         content = cls._download_video_bytes(source_url)
         cls._set_state(job_id, payload, "upscaling", 97)
 
@@ -2493,14 +2569,24 @@ class EpisodeVideoService:
             })
             cls._set_state(job_id, payload, "upscaling", 97)
 
-        output = comfy.run_rtx_vsr(
-            content,
-            preferred_name=f"beat-{shot.get('sequence') or shot.get('beat_id') or 'shot'}.mp4",
-            progress=on_progress,
-            on_submitted=on_submitted,
-            filename_prefix=f"video/{payload.get('project_id')}/{payload.get('episode_id')}/{job_id}/vsr",
-        )
-        return cls._store_upscaled_video(comfy, output, job_id, str(shot.get("beat_id") or ""))
+        preferred_name = f"beat-{shot.get('sequence') or shot.get('beat_id') or 'shot'}.mp4"
+        if seedvr2:
+            output = comfy.run_seedvr2(
+                content,
+                preferred_name=preferred_name,
+                progress=on_progress,
+                on_submitted=on_submitted,
+                filename_prefix=f"video/{payload.get('project_id')}/{payload.get('episode_id')}/{job_id}/seedvr2",
+            )
+        else:
+            output = comfy.run_rtx_vsr(
+                content,
+                preferred_name=preferred_name,
+                progress=on_progress,
+                on_submitted=on_submitted,
+                filename_prefix=f"video/{payload.get('project_id')}/{payload.get('episode_id')}/{job_id}/vsr",
+            )
+        return cls._store_upscaled_video(comfy, output, job_id, str(shot.get("beat_id") or ""), engine=engine)
 
     @classmethod
     def _auto_upscale_if_requested(

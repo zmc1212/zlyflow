@@ -1,0 +1,137 @@
+{
+  "measurement_sha256": "f9608732349e0337321ad66d5fefc291c383c91c79027bf0b6d74ea28d4da370",
+  "url": "http://127.0.0.1:5173/generate/video",
+  "title": "ZLY AI 视频创作平台",
+  "viewport": {
+    "width": 1586,
+    "height": 992
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "document_height": 1192,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "captured_at": "2026-10-28T09:14:30.976Z",
+  "elements": [
+    {
+      "name": "composer",
+      "selector": "#studio-composer",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        348,
+        142,
+        1206,
+        238
+      ],
+      "text": "AI本地推理 GPU首帧点击上传尾帧（可选）MiniMax H3 首尾帧视频首帧必填更稳定，尾帧用于锁定结尾灵感提示词优化🎬 电影级通用叙事立即润色支持粘贴图片，或拖入参考图视频生成MiniMax H3 首尾帧视频16:9 · 608 × 3525秒均衡（8 步）完整（32 GB）二采精修开始生成Ctrl + Enter",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "doorways",
+      "selector": ".studio-home-doorways",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        348,
+        396,
+        1206,
+        188
+      ],
+      "text": "导演台 从剧本到镜头，连成一个故事图片生成 把想法变成参考画面无限画布 把素材放在一起，自由编排",
+      "computed": {
+        "display": "grid",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "recent-header",
+      "selector": ".studio-home-recent-header",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        348,
+        608,
+        1206,
+        36
+      ],
+      "text": "最近创作全部视频图片查看全部",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "director-image",
+      "selector": ".studio-home-doorway-director img",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        348,
+        396,
+        663.328125,
+        188
+      ],
+      "text": "",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true,
+      "asset": {
+        "src": "http://127.0.0.1:5173/generation-home/director-coast.png",
+        "natural_width": 2172,
+        "natural_height": 724,
+        "version": null
+      }
+    }
+  ],
+  "assets": {
+    "director-image": {
+      "src": "http://127.0.0.1:5173/generation-home/director-coast.png",
+      "natural_width": 2172,
+      "natural_height": 724,
+      "version": null
+    }
+  },
+  "full_page": false,
+  "screenshot_scale": "css"
+}

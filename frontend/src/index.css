@@ -70,6 +70,8 @@
   * { border-color: var(--studio-border); }
   html { background: var(--studio-canvas); }
   body { @apply m-0 min-w-[320px] font-sans antialiased; background: var(--studio-canvas); color: var(--studio-text); }
+  /* 工作区的 mt-14 不能在根节点折叠出去，否则空页面会多出一段等于顶栏高度的幽灵滚动。 */
+  #root { display: flow-root; }
   button, input, textarea, select { font: inherit; }
   ::selection { background: var(--studio-primary-soft); color: var(--studio-text); }
   /* 滚动条默认隐藏滑块、随所在容器悬停显现；轨道宽度常驻，显隐不引起布局跳动。 */
@@ -277,30 +279,29 @@
 .studio-global-nav-item-active { background: #eef1ff; color: #4d6bfe; }
 .studio-global-nav-item:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.3); }
 .studio-mobile-nav { display: none; }
-.studio-header-director { display: none !important; }
 .studio-workspace.studio-director-view {
-  margin-top: 0 !important;
-  height: 100vh;
-  max-height: 100vh;
+  margin-top: 76px !important;
+  height: calc(100vh - 76px);
+  max-height: calc(100vh - 76px);
   min-height: 0;
   overflow: hidden;
 }
 .studio-workspace.studio-director2-view {
-  margin-top: 0 !important;
-  height: 100vh;
-  max-height: 100vh;
+  margin-top: 76px !important;
+  height: calc(100vh - 76px);
+  max-height: calc(100vh - 76px);
   min-height: 0;
   overflow: hidden;
 }
-.studio-director2-view .studio-icon-rail { top: 0; }
-.studio-director-view .studio-icon-rail { top: 0; }
+.studio-director2-view .studio-icon-rail { top: 76px; }
+.studio-director-view .studio-icon-rail { top: 76px; }
 .studio-director-view > main,
 .director-workspace-main {
   display: flex;
   max-width: none !important;
   min-height: 0 !important;
-  max-height: 100vh !important;
-  height: 100vh !important;
+  max-height: 100% !important;
+  height: 100% !important;
   flex: 1 1 0%;
   flex-direction: column;
   overflow: hidden !important;
@@ -1227,9 +1228,11 @@
   .studio-workspace:not(.studio-task-rail-collapsed) .studio-composer-form,
   .studio-workspace:not(.studio-task-rail-collapsed) .studio-return-bottom { left: calc(50% + 120px); }
   /* Extra bottom space so generation history can scroll above the fixed composer.
+     Only the generate view needs it; other mains (auth, admin, MCP, assets) must keep their own height.
+     空状态没有历史内容，也不再预留，否则页面会出现无意义的空白滚动。
      Director, 导台2 and 无限画布 use viewport-locked panes; this rule must not apply to those mains.
      导台2 内部还有 <main class="app-main">，必须一并排除，否则会把分集页撑出套娃滚动条。 */
-  main:not(.director-workspace-main):not(.director2-workspace-main):not(.canvas-workspace-main):not(.app-main) { min-height: calc(100vh - 56px + 340px) !important; padding-bottom: 340px; }
+  main.studio-generate-main:not(.studio-generate-empty) { padding-bottom: 340px; }
   .studio-light .director-workspace-main {
     min-height: 0 !important;
     height: 100vh !important;
@@ -1301,6 +1304,40 @@
   .studio-workspace.studio-task-rail-collapsed .studio-composer-form,
   .studio-workspace.studio-task-rail-collapsed .studio-return-bottom { left: calc(50% + 38px); }
 }
+/* 空状态首屏参考即梦：输入面板跟随问候语留在文档流里，有任务历史时才恢复底部停靠。 */
+@media (min-width: 1024px) {
+  .studio-workspace.studio-floating-workspace .studio-composer-form.studio-composer-inline {
+    position: relative;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    transform: none;
+  }
+}
+.studio-idea-row { position: relative; z-index: 10; }
+.studio-idea-chip {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--studio-border);
+  border-radius: 999px;
+  background: var(--studio-surface);
+  padding: 0 14px;
+  color: var(--studio-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+.studio-idea-chip svg { color: var(--studio-text-muted); transition: color 160ms ease; }
+.studio-idea-chip:hover {
+  border-color: color-mix(in srgb, var(--studio-primary) 38%, var(--studio-border));
+  background: var(--studio-primary-soft);
+  color: var(--studio-accent-text);
+}
+.studio-idea-chip:hover svg { color: var(--studio-accent-text); }
+.studio-idea-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--studio-focus); }
 .studio-light .studio-composer-toolbar { border-top-color: #edf0f3; }
 .studio-light .studio-composer-toolbar > div > div,
 .studio-light .studio-composer-toolbar .studio-media-select,
@@ -1708,50 +1745,26 @@
 .studio-light .studio-round-runtime-parameter { opacity: 0.76; }
 .studio-light .studio-round-references { display: flex; max-width: 760px; gap: 8px; margin: 0 0 14px 60px; overflow-x: auto; padding-bottom: 1px; }
 .studio-light .studio-round-progress { max-width: 760px; margin: 0 0 14px 60px; }
-.studio-light .studio-round .studio-image-results,
-.studio-light .studio-round .studio-video-results { margin-left: 60px; max-width: min(100% - 60px, 900px); }
-.studio-video-result-grid { display: grid; gap: 16px; justify-items: start; }
-.studio-video-result-grid:not(.is-single) { grid-template-columns: 1fr; }
-@media (min-width: 640px) {
-  .studio-video-result-grid:not(.is-single) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-.studio-video-result-card { width: max-content; max-width: 100%; }
-.studio-video-result-media {
-  --studio-video-max-h: min(68vh, 680px);
-  --media-aspect-w: 16;
-  --media-aspect-h: 9;
-  position: relative;
-  width: min(100%, calc(var(--studio-video-max-h) * var(--media-aspect-w) / var(--media-aspect-h)));
-  max-height: var(--studio-video-max-h);
-  aspect-ratio: var(--media-aspect-w) / var(--media-aspect-h);
-  overflow: hidden;
-}
-.studio-video-result-card.is-portrait .studio-video-result-media { --media-aspect-w: 9; --media-aspect-h: 16; }
+.studio-light .studio-round .studio-image-results { margin-left: 60px; max-width: min(100% - 60px, 900px); }
 .studio-light .studio-round .studio-image-result-grid { gap: 12px; }
-.studio-light .studio-round .studio-image-result-card,
-.studio-light .studio-round .studio-video-result-card { border-color: #e4e8ed; border-radius: 8px; background: #fff; }
+.studio-light .studio-round .studio-image-result-card { border-color: #e4e8ed; border-radius: 8px; background: #fff; }
 .studio-light .studio-round .studio-image-result-media { background: #f8f9fa; }
-.studio-light .studio-round .studio-video-result-grid { gap: 12px; }
-.studio-light .studio-round .studio-video-result-media { background: #111827; }
-.studio-light .studio-round .studio-video-results article p { color: #27303a !important; }
-.studio-light .studio-round-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 12px 0 0 60px; }
-.studio-light .studio-round-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 36px; min-width: 94px; border: 0; border-radius: 8px; background: rgba(0, 0, 0, 0.05); padding: 8px 14px 8px 12px; color: #0f1419 !important; font-size: 12px; line-height: 20px; transition: background-color 160ms ease; }
-.studio-light .studio-round-action:hover { background: rgba(0, 0, 0, 0.08); }
-.studio-light .studio-round-action:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.25); }
-.studio-light .studio-round-action-stop { color: #dc2626 !important; }
-.studio-light .studio-round-status.text-\[\#6b7280\] { color: #6b7280 !important; }
-.studio-light .studio-round-more { min-width: 36px; width: 36px; padding: 8px 10px; }
-.studio-light .studio-round-menu .ant-dropdown-menu { width: 144px; }
+.studio-light .studio-round:not(.studio-video-round) .studio-round-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 12px 0 0 60px; }
+.studio-light .studio-round:not(.studio-video-round) .studio-round-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 36px; min-width: 94px; border: 0; border-radius: 8px; background: rgba(0, 0, 0, 0.05); padding: 8px 14px 8px 12px; color: #0f1419 !important; font-size: 12px; line-height: 20px; transition: background-color 160ms ease; }
+.studio-light .studio-round:not(.studio-video-round) .studio-round-action:hover { background: rgba(0, 0, 0, 0.08); }
+.studio-light .studio-round:not(.studio-video-round) .studio-round-action:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.25); }
+.studio-light .studio-round:not(.studio-video-round) .studio-round-action-stop { color: #dc2626 !important; }
+.studio-light .studio-round:not(.studio-video-round) .studio-round-status.text-\[\#6b7280\] { color: #6b7280 !important; }
+.studio-light .studio-round:not(.studio-video-round) .studio-round-more { min-width: 36px; width: 36px; padding: 8px 10px; }
+.studio-light .studio-round:not(.studio-video-round) .studio-round-menu .ant-dropdown-menu { width: 144px; }
 
 @media (max-width: 639px) {
-  .studio-light .studio-round-details,
-  .studio-light .studio-round-references,
-  .studio-light .studio-round-progress,
+  .studio-light .studio-round:not(.studio-video-round) .studio-round-details,
+  .studio-light .studio-round:not(.studio-video-round) .studio-round-references,
+  .studio-light .studio-round:not(.studio-video-round) .studio-round-progress,
   .studio-light .studio-round .studio-image-results,
-  .studio-light .studio-round .studio-video-results,
-  .studio-light .studio-round-actions { margin-left: 0; max-width: 100%; }
+  .studio-light .studio-round:not(.studio-video-round) .studio-round-actions { margin-left: 0; max-width: 100%; }
   .studio-light .studio-round .studio-image-result-media { height: min(58vh, 520px); }
-  .studio-video-result-media { --studio-video-max-h: min(58vh, 520px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1831,8 +1844,6 @@
   --dh-chip-done-bg: rgba(74, 222, 128, .14);
   --dh-chip-done-text: #4ade80;
 }
-.director-home-topbar { display: flex; flex: none; align-items: center; justify-content: space-between; height: 54px; padding: 0 26px; border-bottom: 1px solid var(--dh-border); }
-.director-home-topbar strong { font-size: 15px; font-weight: 650; letter-spacing: .01em; }
 .director-home-scroll { flex: 1 1 0%; min-height: 0; overflow-y: auto; }
 .director-home-hero { max-width: 1128px; margin: 0 auto; padding: 34px 30px 4px; }
 .director-home-hero h1 { margin: 0; color: var(--dh-text); font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; }
@@ -2005,7 +2016,6 @@
 }
 @media (max-width: 767px) {
   .director-home-v2 { flex: none; height: auto; margin: 10px; border-radius: 14px; }
-  .director-home-v2 .director-home-topbar { display: none; }
   .director-home-scroll { overflow: visible; }
   .director-home-mobile-header { grid-template-columns: 44px minmax(0, 1fr) auto; }
   .director-home-mobile-header strong { text-align: left; }
@@ -4216,13 +4226,6 @@
 .studio-dark .studio-composer-collapsed { box-shadow: var(--studio-shadow); }
 .studio-dark .studio-return-bottom { border: 1px solid var(--studio-border); background: var(--studio-surface-raised); color: var(--studio-text-secondary); }
 .studio-dark .studio-return-bottom:hover { background: var(--studio-hover); color: var(--studio-text); }
-.studio-account-popover .ant-popover-inner { padding: 0; border: 1px solid var(--studio-border); border-radius: 12px; background: var(--studio-surface); box-shadow: var(--studio-shadow); }
-.studio-account-menu { width: 224px; padding: 8px; }
-.studio-account-menu-head { padding: 8px 8px 10px; }
-.studio-account-menu-name { overflow: hidden; color: var(--studio-text); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.studio-account-menu-username { margin-top: 2px; overflow: hidden; color: var(--studio-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.studio-account-menu-item { display: flex; width: 100%; height: 36px; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; padding: 0 8px; color: var(--studio-text-secondary); font-size: 14px; text-align: left; transition: background-color 160ms ease, color 160ms ease; }
-.studio-account-menu-item:hover { background: var(--studio-hover); color: var(--studio-text); }
 :root[data-theme="dark"] :is(
   .studio-task-rail-reopen,
   .studio-asset-tile,

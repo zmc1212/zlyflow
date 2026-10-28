@@ -1,5 +1,11 @@
 export const RTX_VSR_MODE = "nvidia-rtx-vsr"
+export const SEEDVR2_MODE = "seedvr2-upscale"
+export const UPSCALE_MODES = [RTX_VSR_MODE, SEEDVR2_MODE] as const
 export const UPSCALE_OUTPUT_LABEL = "2x 超分"
+export const SEEDVR2_OUTPUT_LABEL = "2x 高清增强"
+export const UPSCALE_OUTPUT_LABELS = [UPSCALE_OUTPUT_LABEL, SEEDVR2_OUTPUT_LABEL] as const
+
+export type UpscaleEngine = "rtx" | "seedvr2"
 
 export type UpscaleOutputLike = {
   kind: "image" | "video"
@@ -33,12 +39,24 @@ export type UpscaleVideoResult = {
 
 const LIVE_STATUSES = new Set(["queued", "running", "interrupted"])
 
-export function isRtxVsrJob(job: Pick<UpscaleJobLike, "mode"> | null | undefined): boolean {
-  return job?.mode === RTX_VSR_MODE
+export function isUpscaleJob(job: Pick<UpscaleJobLike, "mode"> | null | undefined): boolean {
+  return UPSCALE_MODES.some((mode) => job?.mode === mode)
+}
+
+export function upscaleJobEngine(job: Pick<UpscaleJobLike, "mode"> | null | undefined): UpscaleEngine | undefined {
+  if (job?.mode === SEEDVR2_MODE) return "seedvr2"
+  if (job?.mode === RTX_VSR_MODE) return "rtx"
+  return undefined
 }
 
 export function isUpscaleOutput(output: Pick<UpscaleOutputLike, "label"> | null | undefined): boolean {
-  return output?.label === UPSCALE_OUTPUT_LABEL
+  return UPSCALE_OUTPUT_LABELS.some((label) => output?.label === label)
+}
+
+export function upscaleOutputLabel(output: Pick<UpscaleOutputLike, "label"> | null | undefined): string {
+  if (output?.label === SEEDVR2_OUTPUT_LABEL) return "2× 高清增强"
+  if (output?.label === UPSCALE_OUTPUT_LABEL) return "2× 超分"
+  return ""
 }
 
 export function hasOriginalVideo(job: UpscaleJobLike | null | undefined): boolean {
@@ -51,7 +69,7 @@ export function hasOriginalVideo(job: UpscaleJobLike | null | undefined): boolea
 }
 
 export function relatedUpscaleJobs(jobs: UpscaleJobLike[], sourceJobId: string): UpscaleJobLike[] {
-  return jobs.filter((job) => isRtxVsrJob(job) && job.source?.job_id === sourceJobId)
+  return jobs.filter((job) => isUpscaleJob(job) && job.source?.job_id === sourceJobId)
 }
 
 export function activeUpscaleJob(jobs: UpscaleJobLike[], sourceJobId: string): UpscaleJobLike | undefined {
@@ -63,7 +81,7 @@ export function canRequestJobUpscale(
   jobs: UpscaleJobLike[],
   inspectingOther = false,
 ): boolean {
-  if (!job || inspectingOther || isRtxVsrJob(job)) return false
+  if (!job || inspectingOther || isUpscaleJob(job)) return false
   if (job.status !== "succeeded") return false
   if (!hasOriginalVideo(job)) return false
   return activeUpscaleJob(jobs, job.id) == null
@@ -74,7 +92,7 @@ export function upscaleDisabledReason(
   jobs: UpscaleJobLike[],
   inspectingOther = false,
 ): string | undefined {
-  if (!job || inspectingOther || isRtxVsrJob(job)) return undefined
+  if (!job || inspectingOther || isUpscaleJob(job)) return undefined
   if (job.status !== "succeeded") return "成片成功后才能超分"
   if (!hasOriginalVideo(job)) return "没有可超分的原片"
   const active = activeUpscaleJob(jobs, job.id)

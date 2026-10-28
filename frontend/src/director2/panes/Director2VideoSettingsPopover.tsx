@@ -19,6 +19,7 @@ export default function Director2VideoSettingsPopover({
   fields,
   values,
   durationSec,
+  confirmedResolutionLabel,
   onWorkflowChange,
   onChange,
 }: {
@@ -27,6 +28,7 @@ export default function Director2VideoSettingsPopover({
   fields: Director2VideoOptionField[]
   values: Record<string, string>
   durationSec?: number
+  confirmedResolutionLabel?: string
   onWorkflowChange: (workflowId: string) => void
   onChange: (name: string, value: string) => void
 }) {
@@ -41,6 +43,7 @@ export default function Director2VideoSettingsPopover({
   )
   const workflowOptions = groupedVideoWorkflowOptions(workflows)
   const previewFirstPass = episodeVideoRenderMode(workflows.find((item) => item.id === workflowId)) !== "episode"
+  const lockedField = confirmedResolutionLabel ? (values.refine_enabled === "true" ? "refine_quality" : "quality") : ""
   const summary = `生成设置 · ${videoSettingsSummary(fields, values, durationSec, previewFirstPass)}`
   const refineHint = useMemo(() => {
     if (values.refine_enabled !== "true" || !durationSec || durationSec <= 0) return null
@@ -80,6 +83,7 @@ export default function Director2VideoSettingsPopover({
           aria-label={field.definition.label}
           value={current}
           options={options}
+          disabled={field.name === lockedField}
           onChange={(next) => onChange(field.name, String(next))}
         />
         {field.definition.description ? <em>{field.definition.description}</em> : null}
@@ -99,6 +103,12 @@ export default function Director2VideoSettingsPopover({
             onChange={(next) => onWorkflowChange(String(next))}
           />
         </label>
+      ) : null}
+      {confirmedResolutionLabel ? (
+        <div className="d2-video-settings-refine-hint">
+          <strong>整集分辨率已确认：{confirmedResolutionLabel}</strong>
+          <span>出片按该分辨率锁定；如需更换，请在智能助手中重新确认。</span>
+        </div>
       ) : null}
       {primary.map(renderField)}
       {refineHint ? (

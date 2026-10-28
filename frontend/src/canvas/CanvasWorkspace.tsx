@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Button, ConfigProvider, Empty, Input, Modal, Popconfirm, Segmented, Select, Spin, Tag, message, type ThemeConfig } from "antd"
+import { Button, ConfigProvider, Dropdown, Empty, Input, Modal, Select, Spin, Tabs, Tag, Tooltip, message, type ThemeConfig } from "antd"
 import zhCN from "antd/locale/zh_CN"
-import { ArrowRight, CopyPlus, Frame, Plus, RefreshCw, RotateCcw, Search, Star, Tags, Trash2 } from "lucide-react"
+import { ArrowRight, CopyPlus, Frame, History, MoreHorizontal, Network, Plus, RefreshCw, RotateCcw, Search, Star, Tags, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { canvasProjectPath, PATHS } from "../paths"
@@ -27,8 +27,11 @@ import {
 import { formatCanvasTime, type CanvasProject } from "./canvas-model"
 import CanvasEditor from "./CanvasEditor"
 import CanvasPreviewThumbnail from "./CanvasPreviewThumbnail"
+import CanvasCreateGraphic from "./CanvasCreateGraphic"
+import { canvasSavedTime, recentCanvasProject } from "./canvas-home"
 import "./canvas.css"
 import "./canvas-fidelity.css"
+import "./canvas-home.css"
 
 type CanvasListView = "active" | "favorites" | "trash"
 
@@ -61,8 +64,9 @@ const canvasTheme: ThemeConfig = {
 
 export default function CanvasWorkspace({ csrfToken }: { csrfToken: string }) {
   const { mode } = useStudioTheme()
+  const isHome = /^\/canvas\/?$/.test(useLocation().pathname)
   return (
-    <ConfigProvider theme={{ ...canvasTheme, token: { ...canvasTheme.token, colorPrimary: mode === "light" ? "#4554ff" : "#6977f5" } }} locale={zhCN} button={{ autoInsertSpace: false }}>
+    <ConfigProvider theme={{ ...canvasTheme, token: { ...canvasTheme.token, fontSize: isHome ? 14 : 13, colorPrimary: isHome ? (mode === "light" ? "#435ce8" : "#5b65e6") : (mode === "light" ? "#4554ff" : "#6977f5") } }} locale={zhCN} button={{ autoInsertSpace: false }}>
       <CanvasWorkspaceContent csrfToken={csrfToken} />
     </ConfigProvider>
   )
@@ -116,11 +120,18 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [view, setView] = useState<CanvasListView>("active")
+  const [modal, modalContext] = Modal.useModal()
   const isTrash = view === "trash"
-  const projectsQuery = useQuery({
-    queryKey: ["canvas-projects", isTrash],
-    queryFn: () => listCanvasProjects(isTrash),
+  const activeProjectsQuery = useQuery({
+    queryKey: ["canvas-projects", false],
+    queryFn: () => listCanvasProjects(),
   })
+  const trashProjectsQuery = useQuery({
+    queryKey: ["canvas-projects", true],
+    queryFn: () => listCanvasProjects(true),
+    enabled: isTrash,
+  })
+  const projectsQuery = isTrash ? trashProjectsQuery : activeProjectsQuery
   const [createOpen, setCreateOpen] = useState(false)
   const [newTitle, setNewTitle] = useState("")
   const [creating, setCreating] = useState(false)
@@ -132,8 +143,10 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [tagEditing, setTagEditing] = useState<CanvasProject | null>(null)
   const [tagDraft, setTagDraft] = useState<string[]>([])
+  const [tagSuggestionsOpen, setTagSuggestionsOpen] = useState(false)
   const [savingTags, setSavingTags] = useState(false)
   const projects = projectsQuery.data ?? []
+  const recent = useMemo(() => recentCanvasProject(activeProjectsQuery.data ?? []), [activeProjectsQuery.data])
   const tagOptions = useMemo(() => collectCanvasTags(projects), [projects])
   const visibleProjects = useMemo(
     () => filterCanvasProjects(projects, search, sort, {
@@ -146,6 +159,7 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
   const refreshProjects = () => queryClient.invalidateQueries({ queryKey: ["canvas-projects"] })
 
   const createProject = async () => {
+    if (creating) return
     setCreating(true)
     try {
       const created = await createCanvasProject(csrfToken, newTitle.trim() || "未命名画布")
@@ -229,6 +243,7 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
   const openTagEditor = (project: CanvasProject) => {
     setTagEditing(project)
     setTagDraft(project.tags ?? [])
+    setTagSuggestionsOpen(false)
   }
 
   const saveTags = async () => {
@@ -286,66 +301,99 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
     )
   }
 
+  const confirmTrash = (project: CanvasProject) => {
+    modal.confirm({
+      title: "移入回收站？",
+      content: `「${project.title}」会保留在回收站，可随时恢复。`,
+      okText: "移入回收站",
+      cancelText: "取消",
+      onOk: () => moveToTrash(project.id),
+    })
+  }
+
+  const confirmDelete = (project: CanvasProject) => {
+    modal.confirm({
+      title: "彻底删除这张画布？",
+      content: `「${project.title}」的内容和历史版本会永久删除，无法恢复。`,
+      okText: "彻底删除",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      onOk: () => removeProject(project.id),
+    })
+  }
+
   return (
-    <div className="canvas-list-page">
-      <div className="canvas-list-heading">
-        <div>
-          <h1><Frame size={22} />无限画布</h1>
-          <p>从文字、参考图出发连续生成图片与视频，结果留在同一张画布上继续分支创作。</p>
-        </div>
-        <Button type="primary" icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>新建画布</Button>
+    <div className="canvas-list-page canvas-home">
+      {modalContext}
+      <div className="canvas-home-heading">
+        <span className="canvas-home-eyebrow"><Network size={22} aria-hidden="true" />CREATIVE WORKSPACE</span>
+        <h1>无限画布</h1>
+        <p>从文字、参考图出发，让灵感连接成作品。</p>
       </div>
 
-      <Segmented
-        className="canvas-list-views"
-        value={view}
-        onChange={(value) => switchView(value as CanvasListView)}
-        options={[
-          { label: "全部", value: "active" },
-          { label: "收藏", value: "favorites" },
-          { label: "回收站", value: "trash" },
-        ]}
-      />
+      <section className={`canvas-home-features${recent && !isTrash ? " has-recent" : ""}`} aria-label="开始画布创作">
+        {recent && !isTrash && (
+          <article className="canvas-home-recent">
+            <div className="canvas-home-recent-info">
+              <span className="canvas-home-recent-label"><History size={19} aria-hidden="true" />继续创作</span>
+              <Tooltip title={recent.title}><h2>{recent.title}</h2></Tooltip>
+              <p>把一个镜头，延展成一个故事</p>
+              {recent.tags?.length ? <div className="canvas-home-tags">{recent.tags.slice(0, 2).map((tag) => <Tag key={tag}>{tag}</Tag>)}{recent.tags.length > 2 && <Tooltip title={recent.tags.join("、")}><Tag>+{recent.tags.length - 2}</Tag></Tooltip>}</div> : null}
+              <span className="canvas-home-recent-saved">{recent.node_count ?? 0} 个节点<span aria-hidden="true"> · </span><time dateTime={recent.draft_updated_at ?? recent.updated_at} title={formatCanvasTime(recent.draft_updated_at ?? recent.updated_at)}>{canvasSavedTime(recent.draft_updated_at ?? recent.updated_at)}保存</time></span>
+              <Button type="primary" className="canvas-home-open-recent" onClick={() => navigate(canvasProjectPath(recent.id))}>打开画布<ArrowRight size={18} aria-hidden="true" /></Button>
+            </div>
+            <button type="button" className="canvas-home-recent-preview" aria-label={`继续创作 ${recent.title}`} onClick={() => navigate(canvasProjectPath(recent.id))}>
+              <CanvasPreviewThumbnail key={recent.id} preview={recent.preview} nodeCount={recent.node_count} featured />
+            </button>
+          </article>
+        )}
+        <article className="canvas-home-create">
+          <CanvasCreateGraphic />
+          <div className="canvas-home-create-copy">
+            <h2>从一张空白开始</h2>
+            <p>连接文字、图片与视频，自由分支创作。</p>
+            <Button type="primary" icon={<Plus size={20} />} onClick={() => setCreateOpen(true)}>新建画布</Button>
+          </div>
+        </article>
+      </section>
 
-      {projectsQuery.isLoading ? (
-        <div className="canvas-loading"><Spin /><span>正在加载画布列表…</span></div>
-      ) : projectsQuery.isError ? (
-        <Empty description={errorText(projectsQuery.error)}>
-          <Button icon={<RefreshCw size={15} />} onClick={() => { projectsQuery.refetch().catch(() => undefined) }}>重试</Button>
-        </Empty>
-      ) : !projects.length ? (
-        renderEmpty()
-      ) : (
-        <>
-          <div className="canvas-list-toolbar">
+      <section className="canvas-home-library" aria-labelledby="canvas-home-library-title">
+        <div className="canvas-home-library-bar">
+          <h2 id="canvas-home-library-title">我的画布</h2>
+          <Tabs
+            className="canvas-home-tabs"
+            activeKey={view}
+            onChange={(value) => switchView(value as CanvasListView)}
+            items={[
+              { key: "active", label: <span>全部画布{activeProjectsQuery.data && <span className="canvas-home-tab-count">{activeProjectsQuery.data.length}</span>}</span> },
+              { key: "favorites", label: <span><Star size={16} aria-hidden="true" />已收藏</span> },
+              { key: "trash", label: <span><Trash2 size={16} aria-hidden="true" />回收站</span> },
+            ]}
+          />
+          <div className="canvas-home-filters">
             <Input
-              className="canvas-list-search"
               allowClear
-              prefix={<Search size={15} />}
+              prefix={<Search size={17} />}
               value={search}
               placeholder="搜索标题或标签"
               aria-label="搜索画布"
               onChange={(event) => setSearch(event.target.value)}
             />
-            {!isTrash && tagOptions.length ? (
-              <Select
-                classNames={{ popup: { root: "canvas-select-popup" } }}
-                className="canvas-list-tag-filter"
-                allowClear
-                value={tagFilter ?? undefined}
-                placeholder="按标签筛选"
-                aria-label="按标签筛选"
-                suffixIcon={<Tags size={14} />}
-                options={tagOptions.map((tag) => ({ label: tag, value: tag }))}
-                onChange={(value) => setTagFilter(value ?? null)}
-              />
-            ) : null}
+            {!isTrash && <Select
+              classNames={{ popup: { root: "canvas-select-popup" } }}
+              allowClear
+              disabled={!tagOptions.length}
+              value={tagFilter ?? undefined}
+              placeholder="全部标签"
+              aria-label="按标签筛选"
+              options={tagOptions.map((tag) => ({ label: tag, value: tag }))}
+              onChange={(value) => setTagFilter(value ?? null)}
+            />}
             <Select
               classNames={{ popup: { root: "canvas-select-popup" } }}
-              className="canvas-list-sort"
               value={sort}
               aria-label="画布排序"
-              onChange={(value) => setSort(value)}
+              onChange={setSort}
               options={[
                 { label: "最近更新", value: "updated_desc" },
                 { label: "最近创建", value: "created_desc" },
@@ -353,147 +401,66 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
               ]}
             />
           </div>
-          {!visibleProjects.length ? (
-            <div className="canvas-empty">
-              <Empty description={view === "favorites" && !search.trim() && !tagFilter ? "还没有收藏的画布，点击画布右上角的星标即可收藏" : "没有匹配的画布"} />
-              {view === "favorites" && !search.trim() && !tagFilter
-                ? <Button onClick={() => switchView("active")}>查看全部画布</Button>
-                : <Button onClick={clearFilters}>清除筛选</Button>}
-            </div>
-          ) : (
-            <div className="canvas-project-grid">
-              {visibleProjects.map((project) => {
-                const favorite = Boolean(project.is_favorite)
-                const preview = project.preview?.items.length ? project.preview : null
-                return (
-                  <article
-                    key={project.id}
-                    className={[
-                      "canvas-project-card",
-                      favorite ? "is-favorite" : "",
-                      isTrash ? "is-trash" : "",
-                    ].filter(Boolean).join(" ")}
-                  >
-                    <button
-                      type="button"
-                      className="canvas-project-open"
-                      disabled={isTrash}
-                      onClick={() => navigate(canvasProjectPath(project.id))}
-                    >
-                      <span
-                        className={`canvas-project-preview${preview ? " has-preview" : ""}`}
-                        aria-hidden="true"
-                      >
-                        {preview
-                          ? <CanvasPreviewThumbnail preview={preview} />
-                          : <Frame size={30} />}
-                      </span>
-                      <span className="canvas-project-meta">
-                        <strong>{project.title}</strong>
-                        {project.tags?.length ? (
-                          <span className="canvas-project-tags">
-                            {project.tags.map((tag) => (
-                              <Tag key={tag} variant="filled">{tag}</Tag>
-                            ))}
-                          </span>
-                        ) : null}
-                        <span className="canvas-project-stats">
-                          <Tag variant="filled">{project.node_count ?? 0} 个节点</Tag>
-                          <Tag variant="filled">v{project.draft_version ?? 1}</Tag>
-                        </span>
-                        <small>
-                          {isTrash
-                            ? `删除于 ${formatCanvasTime(project.deleted_at)}`
-                            : `最近保存 ${formatCanvasTime(project.draft_updated_at ?? project.updated_at)}`}
-                        </small>
-                      </span>
-                      {!isTrash ? <ArrowRight size={16} className="canvas-project-arrow" /> : null}
-                    </button>
+        </div>
 
-                    {!isTrash ? (
-                      <Button
-                        type="text"
-                        className={`canvas-project-favorite${favorite ? " is-active" : ""}`}
-                        title={favorite ? "取消收藏" : "收藏画布"}
-                        aria-label={favorite ? `取消收藏 ${project.title}` : `收藏画布 ${project.title}`}
-                        loading={updatingId === project.id}
-                        icon={<Star size={15} fill={favorite ? "currentColor" : "none"} />}
-                        onClick={() => { void toggleFavorite(project) }}
-                      />
-                    ) : null}
-
-                    <div className="canvas-project-actions">
-                      {isTrash ? (
-                        <>
-                          <Button
-                            type="text"
-                            title="恢复画布"
-                            loading={updatingId === project.id}
-                            icon={<RotateCcw size={15} />}
-                            aria-label={`恢复画布 ${project.title}`}
-                            onClick={() => { void restoreProject(project.id) }}
-                          />
-                          <Popconfirm
-                            classNames={{ root: "canvas-popover canvas-confirm-popover" }}
-                            title="彻底删除这张画布？"
-                            description="画布内容和历史版本会永久删除，无法恢复。"
-                            okText="彻底删除"
-                            okButtonProps={{ danger: true }}
-                            cancelText="取消"
-                            onConfirm={() => { void removeProject(project.id) }}
-                          >
-                            <Button
-                              type="text"
-                              danger
-                              loading={deletingId === project.id}
-                              icon={<Trash2 size={15} />}
-                              aria-label={`彻底删除画布 ${project.title}`}
-                            />
-                          </Popconfirm>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            type="text"
-                            title="编辑标签"
-                            icon={<Tags size={15} />}
-                            aria-label={`编辑画布标签 ${project.title}`}
-                            onClick={() => openTagEditor(project)}
-                          />
-                          <Button
-                            type="text"
-                            title="复制画布"
-                            loading={duplicatingId === project.id}
-                            icon={<CopyPlus size={15} />}
-                            aria-label={`复制画布 ${project.title}`}
-                            onClick={() => { void duplicateProject(project.id) }}
-                          />
-                          <Popconfirm
-                            classNames={{ root: "canvas-popover canvas-confirm-popover" }}
-                            title="移入回收站？"
-                            description="画布会保留在回收站，可随时恢复。"
-                            okText="移入回收站"
-                            cancelText="取消"
-                            onConfirm={() => { void moveToTrash(project.id) }}
-                          >
-                            <Button
-                              type="text"
-                              danger
-                              loading={deletingId === project.id}
-                              icon={<Trash2 size={15} />}
-                              aria-label={`移入回收站 ${project.title}`}
-                            />
-                          </Popconfirm>
-                        </>
-                      )}
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
-          )}
-        </>
-      )}
+        {projectsQuery.isLoading ? (
+          <div className="canvas-home-state" role="status"><Spin /><span>正在加载画布列表…</span></div>
+        ) : projectsQuery.isError ? (
+          <div className="canvas-home-state" role="alert"><Empty description={errorText(projectsQuery.error)}><Button icon={<RefreshCw size={15} />} onClick={() => { projectsQuery.refetch().catch(() => undefined) }}>重试</Button></Empty></div>
+        ) : !projects.length ? renderEmpty() : !visibleProjects.length ? (
+          <div className="canvas-empty">
+            <Empty description={view === "favorites" && !search.trim() && !tagFilter ? "还没有收藏的画布，点击画布右上角的星标即可收藏" : "没有匹配的画布"} />
+            {view === "favorites" && !search.trim() && !tagFilter
+              ? <Button onClick={() => switchView("active")}>查看全部画布</Button>
+              : <Button onClick={clearFilters}>清除筛选</Button>}
+          </div>
+        ) : (
+          <div className="canvas-home-grid">
+            {visibleProjects.map((project) => {
+              const favorite = Boolean(project.is_favorite)
+              const busy = updatingId === project.id || deletingId === project.id || duplicatingId === project.id
+              const savedAt = isTrash ? project.deleted_at : project.draft_updated_at ?? project.updated_at
+              return (
+                <article key={project.id} className={`canvas-home-card${isTrash ? " is-trash" : ""}`}>
+                  <button type="button" className="canvas-home-card-open" disabled={isTrash} aria-label={`打开画布 ${project.title}`} onClick={() => navigate(canvasProjectPath(project.id))}>
+                    <span className="canvas-home-card-preview"><CanvasPreviewThumbnail preview={project.preview} nodeCount={project.node_count} /></span>
+                    <span className="canvas-home-card-info">
+                      <Tooltip title={project.title}><strong>{project.title}</strong></Tooltip>
+                      {project.tags?.length ? <span className="canvas-home-tags">{project.tags.slice(0, 2).map((tag) => <Tag key={tag}>{tag}</Tag>)}{project.tags.length > 2 && <Tooltip title={project.tags.join("、")}><Tag>+{project.tags.length - 2}</Tag></Tooltip>}</span> : null}
+                      <span className="canvas-home-card-saved">{project.node_count ?? 0} 个节点<span aria-hidden="true"> · </span><time dateTime={savedAt ?? undefined} title={formatCanvasTime(savedAt)}>{isTrash ? "删除于 " : ""}{canvasSavedTime(savedAt)}</time></span>
+                    </span>
+                  </button>
+                  {!isTrash && <Button type="text" className={`canvas-home-favorite${favorite ? " is-active" : ""}`} title={favorite ? "取消收藏" : "收藏画布"} aria-label={`${favorite ? "取消收藏" : "收藏画布"} ${project.title}`} aria-pressed={favorite} loading={updatingId === project.id} disabled={busy && updatingId !== project.id} icon={<Star size={18} fill={favorite ? "currentColor" : "none"} />} onClick={() => { void toggleFavorite(project) }} />}
+                  <Dropdown
+                    trigger={["click"]}
+                    placement="bottomRight"
+                    classNames={{ root: "canvas-home-card-menu" }}
+                    menu={{
+                      items: isTrash ? [
+                        { key: "restore", label: "恢复画布", icon: <RotateCcw size={15} /> },
+                        { type: "divider" },
+                        { key: "delete", label: "彻底删除", icon: <Trash2 size={15} />, danger: true },
+                      ] : [
+                        { key: "tags", label: "编辑标签", icon: <Tags size={15} /> },
+                        { key: "duplicate", label: "复制画布", icon: <CopyPlus size={15} /> },
+                        { type: "divider" },
+                        { key: "trash", label: "移入回收站", icon: <Trash2 size={15} />, danger: true },
+                      ],
+                      onClick: ({ key }) => {
+                        if (key === "tags") openTagEditor(project)
+                        else if (key === "duplicate") void duplicateProject(project.id)
+                        else if (key === "trash") confirmTrash(project)
+                        else if (key === "restore") void restoreProject(project.id)
+                        else if (key === "delete") confirmDelete(project)
+                      },
+                    }}
+                  ><Button type="text" className="canvas-home-more" aria-label={`更多画布操作 ${project.title}`} loading={deletingId === project.id || duplicatingId === project.id} disabled={busy} icon={<MoreHorizontal size={18} />} /></Dropdown>
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </section>
 
       <Modal
         className="canvas-dialog"
@@ -539,13 +506,16 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
           mode="tags"
           autoFocus
           className="canvas-tag-editor"
+          open={tagSuggestionsOpen}
+          onOpenChange={setTagSuggestionsOpen}
+          listHeight={160}
           value={tagDraft}
           maxCount={CANVAS_MAX_TAGS}
           maxTagTextLength={CANVAS_MAX_TAG_LENGTH}
           tokenSeparators={[",", "，"]}
           placeholder={`输入标签后回车，最多 ${CANVAS_MAX_TAGS} 个`}
           options={tagOptions.map((tag) => ({ label: tag, value: tag }))}
-          onChange={(values) => setTagDraft(values)}
+          onChange={(values) => { setTagDraft(values); setTagSuggestionsOpen(false) }}
         />
         <p className="canvas-tag-editor-hint">
           标签用于筛选画布；单个标签最多 {CANVAS_MAX_TAG_LENGTH} 个字符，最多 {CANVAS_MAX_TAGS} 个。

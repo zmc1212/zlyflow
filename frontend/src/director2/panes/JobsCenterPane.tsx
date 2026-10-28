@@ -4,9 +4,10 @@
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Alert, Button, Input, Modal, Progress, Select, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
+import { Alert, Button, Dropdown, Input, Modal, Progress, Select, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
 import type { TableProps } from "antd"
 import { RefreshCw, ExternalLink, Copy, ListChecks, Search } from "lucide-react"
+import type { UpscaleEngine } from "../../video-upscale"
 import { director2ErrorDetail, confirmProjectVideoRefine, listJobs, retryJob, skipProjectVideoRefine, upscaleProjectVideoJob, type Director2Job } from "../api"
 import {
   DIRECTOR2_DEFAULT_JOB_TYPE,
@@ -219,15 +220,22 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
           {jobCanShowUpscaleAction(record) ? (
             <Tooltip title={jobUpscaleDisabledReason(record, jobs) || jobUpscaleHint(record)}>
               <span>
-                <Button
+                <Dropdown.Button
                   size="small"
                   disabled={Boolean(jobUpscaleDisabledReason(record, jobs)) || upscalingJobId === record.id}
                   loading={upscalingJobId === record.id}
                   onClick={() => void handleUpscaleJob(record)}
+                  menu={{
+                    items: [
+                      { key: "rtx", label: "RTX 快速超分（秒级）" },
+                      { key: "seedvr2", label: "SeedVR2 高清增强（分钟级，更清晰）" },
+                    ],
+                    onClick: ({ key }) => void handleUpscaleJob(record, key as UpscaleEngine),
+                  }}
                   aria-label={`2x 超分 ${record.title || record.id}`}
                 >
                   超分
-                </Button>
+                </Dropdown.Button>
               </span>
             </Tooltip>
           ) : null}
@@ -424,20 +432,21 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
   }
 
-  async function handleUpscaleJob(job: Director2Job) {
+  async function handleUpscaleJob(job: Director2Job, engine: UpscaleEngine = "rtx") {
     const reason = jobUpscaleDisabledReason(job, jobs)
     if (reason) {
       message.warning(reason)
       return
     }
+    const engineLabel = engine === "seedvr2" ? "SeedVR2 高清增强" : "2x 超分"
     setUpscalingJobId(job.id)
     try {
-      message.loading({ content: "正在提交 2x 超分...", key: "jobUpscale" })
-      const res = await upscaleProjectVideoJob(csrfToken, projectId, job.id)
-      message.success({ content: `超分任务已进入队列：${res.job_id}`, key: "jobUpscale", duration: 6 })
+      message.loading({ content: `正在提交${engineLabel}...`, key: "jobUpscale" })
+      const res = await upscaleProjectVideoJob(csrfToken, projectId, job.id, { engine })
+      message.success({ content: `${engineLabel}任务已进入队列：${res.job_id}`, key: "jobUpscale", duration: 6 })
       await fetchJobs(true)
     } catch (err) {
-      message.error({ content: director2ErrorDetail(err, "超分任务创建失败"), key: "jobUpscale", duration: 10 })
+      message.error({ content: director2ErrorDetail(err, `${engineLabel}任务创建失败`), key: "jobUpscale", duration: 10 })
     } finally {
       setUpscalingJobId(null)
     }
@@ -1073,16 +1082,22 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                   ) : null}
                   {jobCanShowUpscaleAction(selectedJob) ? (
                     <Tooltip title={jobUpscaleDisabledReason(selectedJob, jobs) || jobUpscaleHint(selectedJob)}>
-                      <span>
-                        <Button
-                          className="mt-3"
+                      <span className="mt-3">
+                        <Dropdown.Button
                           disabled={Boolean(jobUpscaleDisabledReason(selectedJob, jobs)) || upscalingJobId === selectedJob.id}
                           loading={upscalingJobId === selectedJob.id}
                           onClick={() => void handleUpscaleJob(selectedJob)}
+                          menu={{
+                            items: [
+                              { key: "rtx", label: "RTX 快速超分（秒级）" },
+                              { key: "seedvr2", label: "SeedVR2 高清增强（分钟级，更清晰）" },
+                            ],
+                            onClick: ({ key }) => void handleUpscaleJob(selectedJob, key as UpscaleEngine),
+                          }}
                           aria-label="2x 超分"
                         >
                           2x 超分
-                        </Button>
+                        </Dropdown.Button>
                       </span>
                     </Tooltip>
                   ) : null}

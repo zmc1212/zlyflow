@@ -72,6 +72,15 @@ class TimelineRenderingTests(unittest.TestCase):
         self.assertEqual(768, timeline["height"])
         self.assertEqual("16:9 (宽屏)", timeline["output"]["aspectRatio"])
 
+    def test_director_defaults_to_full_weight(self):
+        from backend.app.workflow_registry import H3_REF2VA_FULL, normalize_options
+
+        options = normalize_options("minimax-h3-director-accel-r2v", {"quality": "0.4"})
+        self.assertEqual("full", options["weight_profile"])
+        timeline = ComfyVideoClient.build_timeline(shots(1), "r2v", options=options)
+        workflow = ComfyVideoClient.build_workflow(timeline, "r2v", "video/test", options=options)
+        self.assertEqual(H3_REF2VA_FULL, workflow["1"]["inputs"]["unet_name"])
+
     def test_workflow_maps_weight_profile_and_steps(self):
         from backend.app.workflow_registry import H3_REF2VA_FULL, normalize_options
 

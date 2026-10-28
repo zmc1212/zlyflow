@@ -111,6 +111,8 @@ export type CanvasPreviewItem = {
   height: number
   url?: string
   cover?: string
+  label?: string
+  text?: string
 }
 
 export type CanvasPreview = {
@@ -870,6 +872,12 @@ function previewUrl(value: unknown): string | undefined {
   return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : undefined
 }
 
+function previewText(value: unknown, limit: number): string | undefined {
+  if (typeof value !== "string") return undefined
+  const normalized = Array.from(value.replace(/\s+/g, " ").trim()).slice(0, limit).join("")
+  return normalized || undefined
+}
+
 export function readCanvasPreview(value: unknown): CanvasPreview | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const payload = value as Record<string, unknown>
@@ -893,6 +901,8 @@ export function readCanvasPreview(value: unknown): CanvasPreview | null {
     if (itemX === null || itemY === null || itemWidth === null || itemHeight === null) return null
     const url = previewUrl(item.url)
     const cover = rawType === "video" ? normalizeCanvasCover(item.cover) : null
+    const label = previewText(item.label, 48)
+    const text = previewText(item.text, 160)
     items.push({
       type: rawType as CanvasPreviewItemType,
       x: itemX,
@@ -901,6 +911,8 @@ export function readCanvasPreview(value: unknown): CanvasPreview | null {
       height: itemHeight,
       ...(url ? { url } : {}),
       ...(cover ? { cover } : {}),
+      ...(label ? { label } : {}),
+      ...(text ? { text } : {}),
     })
   }
   const links: [number, number][] = []

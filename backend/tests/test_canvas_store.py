@@ -253,6 +253,37 @@ class CanvasStoreTests(unittest.TestCase):
         )
         self.assertGreater(preview["items"][-1]["x"], preview["items"][0]["x"])
 
+    def test_preview_annotations_roundtrip_with_bounded_plain_text(self) -> None:
+        project = self.canvas.create_project(self.user_id, "展板预览")
+        content = canvas_content([
+            {"id": "text", "type": "text", "position": {"x": 0, "y": 0},
+             "data": {"label": "  开场\n 提示  ", "text": "雨" * 300}},
+            {"id": "generator", "type": "generator", "position": {"x": 300, "y": 0},
+             "data": {"label": "镜头" * 80, "prompt": "雨夜街头"}},
+            {"id": "legacy", "type": "image", "position": {"x": 600, "y": 0},
+             "data": {"label": {}, "caption": ["bad"]}},
+        ])
+        self.canvas.save_draft(self.user_id, project["id"], 1, content)
+        preview = self.canvas.list_projects(self.user_id)[0]["preview"]
+        self.assertEqual(preview["items"][0]["label"], "开场 提示")
+        self.assertEqual(len(preview["items"][0]["text"]), 160)
+        self.assertEqual(len(preview["items"][1]["label"]), 48)
+        self.assertEqual(preview["items"][1]["text"], "雨夜街头")
+        self.assertNotIn("label", preview["items"][2])
+        self.assertNotIn("text", preview["items"][2])
+        self.assertEqual(json.loads(self.canvas.get_project(self.user_id, project["id"])["content"]), json.loads(content))
+
+    def test_annotation_budget_keeps_media_and_bounds_with_large_unicode_summaries(self) -> None:
+        preview = build_canvas_preview({"nodes": [
+            {"id": f"n{i}", "type": "image", "position": {"x": i * 300, "y": 0},
+             "data": {"label": "景" * 100, "caption": "光" * 300, "url": f"/real-{i}.jpg"}}
+            for i in range(120)
+        ], "edges": []})
+        self.assertLessEqual(len(json.dumps(preview, ensure_ascii=False, separators=(",", ":")).encode("utf-8")), PREVIEW_MAX_BYTES)
+        self.assertEqual(len(preview["items"]), 120)
+        self.assertEqual(preview["items"][0]["url"], "/real-0.jpg")
+        self.assertEqual(decode_canvas_preview(json.dumps(preview)), preview)
+
     def test_preview_includes_only_matching_video_covers(self) -> None:
         cover = "data:image/jpeg;base64," + "A" * 4000
         nodes = [

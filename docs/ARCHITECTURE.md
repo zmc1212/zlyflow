@@ -1,5 +1,86 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-10-28 H3 Director 加速版默认改用完整 32 GB 权重
+
+- 变更原因：用户要求把 H3 Director 系列（`minimax-h3-director-accel-t2v/-i2v/-r2v`，整集直出、逐镜与短视频共用）的默认模型体积从精简 20 GB 改为完整 32 GB，并提交一条真实任务看速度。该系列加速来自双 Sage、cfg 1 与 `res_multistep`，不挂 Turbo LoRA，精简权重此前只是节省内存的回退档。
+- 当前基线：`workflow_registry.director_accel_weight_profile_option()` 默认 `full`，界面仍提供「完整（32 GB）」与「精简（20 GB）」两档；`minimax_h3_director_accel_workflow.py` 缺省 profile 回退到 full；前端 `director2-video-settings.ts` 的兜底 schema 与生成摘要同步为 full。二采精修的一采（`_refine_first_pass_defaults`）仍由平台托管为精简 20 GB + 均衡 20 步，不受本次改动影响；显式传 `weight_profile=pruned` 的 API 调用、草稿与已保存的工程设置继续使用精简权重。
+- 实测（2026-10-28，远端 `192.168.10.54:8188`，RTX 4080 16 GB / 约 68.5 GB 内存 / ComfyUI 0.30.0 + PyTorch 2.11.0+cu128）：创作页提交 Director 加速 T2V，任务 `ZuEsPLO9KziD`，参数 5 秒 / 16:9 / 0.4 MP / 均衡 20 步 / full / 未开二采，端到端 156.2 秒，ComfyUI 执行 152.5 秒；输出 864×480、24 fps、5.167 秒、H.264 + AAC、456 KB，并自动交付七牛。加载完整 UNET 时远端可用内存从约 52 GB 降到 3.4 GB，完成后回到约 55.8 GB。
+- 运行成本：后端在本地视频队列空闲后主动 `/free` + `VRAMCleanup` / `RAMCleanup`（`comfy_service.free_resources()`），因此单条任务每次都重新加载 32 GB 权重；本次 156 秒中约 100 秒为权重加载与模型初始化，20 步采样约 48 秒（按 ComfyUI 进度时间戳估算）。队列里已有后续任务时不卸载，背靠背提交可复用已加载权重。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/minimax_h3_director_accel_workflow.py`、`backend/tests/test_minimax_h3_director_accel.py`、`backend/tests/test_timeline_rendering.py`、`frontend/src/director2/director2-video-settings.ts`、`frontend/src/director2/director2-video-settings.test.ts`；README、`功能说明与扩展指南.md` 与本文件。
+- 兼容性：不新增 API、数据库列、任务队列、ComfyUI 节点 ID 或模型路径；`weight_profile` 字段与两档枚举保持不变，历史任务按已保存参数回放。默认值变化只影响新提交且未显式传值的请求；Director 二采的一采托管值不变。
+- 验证命令：`python -X utf8 -m pytest backend/tests/test_minimax_h3_director_accel.py backend/tests/test_timeline_rendering.py -q`（23 项通过）；`pnpm --dir frontend exec vitest run src/director2/director2-video-settings.test.ts`（18 项通过）、`pnpm --dir frontend exec tsc -b`、`pnpm --dir frontend build`；`/api/modes` 确认 `minimax-h3-director-accel-t2v` 的 `weight_profile.default` 为 `full`；真实任务 `ZuEsPLO9KziD` 完成并交付。全量后端测试仍有 3 项与本轮无关的既有失败（`test_director` 大小写断言、`test_mcp_gateway` 工具数量、`test_media_studio_schema` 迁移夹具）。
+- 回滚方式：把 `director_accel_weight_profile_option()`、`minimax_h3_director_accel_workflow.py` 与前端兜底 schema / 摘要回退都改回 `pruned`，重启后端并重新构建前端；已提交任务不受影响，无需数据库回滚。
+
+## 2026-10-28 生成、导演台与画布共用悬浮 Header
+
+- 原因：用户要求参考即梦的悬浮工具区，先出设计图再还原；原通栏顶栏占据完整宽度，现改为两块独立悬浮表面。同日用户要求导演台与画布（画布首页、画布编辑）与生成页共用该悬浮 Header，不再保留各自的通栏 / 独立顶栏。
+- 当前基线：`frontend/src/components/StudioHeader.tsx` 与 `studio-header.css` 是所有工作区唯一的页头，`App.tsx` 始终渲染，不再按工作区分支隐藏。桌面 Header 距顶 12px、左右 16px、高 48px，品牌块最小 312px、工具块最小 364px、圆角 16px；生成、资产、导演台、画布的工作区及图标 / 任务左栏都从 y=76 起始。中间区域透明且不截获指针。
+- 壳层统一：`App.tsx` 的工作区始终带 `studio-floating-workspace`；导演台 `studio-director-view`（批量 / 复刻 / 旧壳）与 `studio-director2-view`（首页 / 项目壳 / 剧本诊断）以及画布 `studio-canvas-view` 统一 `margin-top: 76px`、高度 `calc(100vh - 76px)`，主区域不再叠加内边距；`.studio-icon-rail` 在导演台与画布顶部对齐 76px。导演台首页原 64px 单层顶栏删除；项目条、批量、复刻与剧本诊断顶栏只保留业务控件，主题切换统一从全局页头或账号菜单进入。画布原有 56 / 60px Header 覆盖样式与首页私有 Header 覆盖全部删除。
+- 浮层：无遮罩的智能助手 Drawer 与画布素材 Drawer 停在页头下方（桌面 `top: 76px`、`height: calc(100vh - 76px)`），页头保持可见可点；带遮罩的 Modal / Drawer 仍按标准覆盖全屏。助手停靠（`is-editing-assistant`）与页面右侧留白规则不变。
+- 组件与主题：直接使用 Ant Design Button / Avatar / Dropdown / Tooltip，账号菜单保留 MCP、按权限显示的管理设置与退出登录；主题沿用根 Provider 和浏览器持久化，连接状态由既有 `/api/health` 返回值驱动，加载 / 可用 / 不可用均以文字加圆点展示。新增阴影与标志颜色成对声明为 `--studio-header-*` token，其余使用 `--studio-*`。
+- 受影响文件：`frontend/src/App.tsx`、`frontend/src/components/StudioHeader.tsx`、`frontend/src/components/studio-header.css`、`frontend/src/index.css`、`frontend/src/canvas/canvas.css`、`frontend/src/canvas/canvas-fidelity.css`、`frontend/src/canvas/canvas-home.css`、`frontend/src/canvas/CanvasEditor.tsx`、`frontend/src/canvas/CanvasPreviewThumbnail.tsx`、`frontend/src/director2/Director2StudioHome.tsx`、`frontend/src/director2/director-home.css`、`frontend/src/director2/Director2ProjectDetail.tsx`、`frontend/src/director2/assistant/assistant.css`、`frontend/src/director2/script-diagnosis/ScriptDiagnosisPage.tsx`、`frontend/src/director/DirectorBatchStudio.tsx`、`frontend/src/director/DirectorReplicationStudio.tsx`；README、功能说明与扩展指南、`docs/导演台流程与界面结构.md`、`docs/design-ref-generation/header-floating-20261028/DESIGN.md`、`docs/design-ref-canvas/DESIGN.md`、`docs/design-ref-canvas/FIDELITY.md` 与本文件。
+- 兼容性：不改 API、数据库、任务队列、工作流注册表、ComfyUI graph 或前端路由；仅前端壳层样式、页头接线与页面局部顶栏。生成 / 资产工作区、任务侧栏、输入框与历史任务行为保留；导演台与画布的数据与交互协议不变。无新依赖或数据迁移。移动端（≤767）不纳入本轮验证范围。
+- 设计与证据：`docs/design-ref-generation/header-floating-20261028/` 保存先生成的 `design-light.png`、实际桌面浅暗截图、几何与交互记录；基线为真实 5173、1584×993 / DPR 1，并覆盖 1440×900 和 1920×1080。即梦未登录访问深链跳转首页，参考范围以实际可见工具分组为限。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_core -q`（107 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`（66 个测试文件 / 454 项通过，含前端测试与 clean-dist，`✓ built in 15.03s`）；隔离 SQLite 后端 + 隔离 Vite 在 1440×900 浅暗主题检查生成页、导演台首页 / 项目壳 / 剧本诊断、画布首页 / 编辑以及两个无遮罩 Drawer，均确认页头可见、左栏从 76px 起始、Drawer `top` 76px / 高 824px 且页头可点击；另以独立登录会话检查菜单键盘、刷新记忆、导航与退出，不改后台配置、不提交生成任务。
+- 回滚：撤回 `App.tsx` 的页头 / 工作区壳层接线，删除 `StudioHeader.tsx` 与 `studio-header.css`，并恢复上述导演台 / 画布文件中被删除的局部顶栏与 Header 覆盖样式后重新构建；保留其他视频结果、超分与账号改名改动，无需数据库或 ComfyUI 回滚。
+
+## 2026-10-28 新增 SeedVR2 生成式超分引擎
+
+- 变更原因：RTX VSR 只做传统锐化与去块，2× 放大后细节仍偏软，用户实测最近任务「看起来没效果，还是模糊」。为用户提供第二档「高清增强」：用当前 ComfyUI 的原生 SeedVR2 3B Int8 节点做生成式 2× 重建，接受分钟级耗时换回细节；RTX 保留为默认的秒级档。
+- 当前基线：新增隐藏工作流 `seedvr2-upscale`（`JobMode.SEEDVR2_UPSCALE`，`hidden_from_catalog=True`），graph 在 `backend/app/seedvr2_upscale_workflow.py`，节点编号 30–44，避开 H3 的输出 14 与 RTX VSR 的 20–24。graph 对照官方模板 `utility_seedvr2_3b_int8_upscale_video.json` 展开子图并把开关分支拍平：LoadVideo → GetVideoComponents → ResizeImageMaskNode（`resize_type=scale by multiplier`，`resize_type.multiplier=2.0`，lanczos）→ SeedVR2Preprocess → VAEEncodeTiled（tile 512 / overlap 128 / temporal 64 / temporal_overlap 8）→ SeedVR2TemporalChunk（`chunking_mode=auto`，`temporal_overlap=0`）→ SeedVR2Conditioning + KSampler（seed 42、1 step、cfg 1、euler / simple、denoise 1）→ SeedVR2TemporalMerge → VAEDecodeTiled → SeedVR2PostProcessing（`color_correction_method=none`）→ CreateVideo（画面 + 原片 audio / fps / bit_depth）→ SaveVideo（`video/ZLY_AI_VIDEO_STUDIO_SEEDVR2`）。`SeedVR2Conditioning.vae_conditioning` 与 `KSampler.latent_image` 必须共用同一个 `SeedVR2TemporalChunk` 输出：条件接收 16 通道 5-D latent 后补成 17 通道，若仍接切分前的 `VAEEncodeTiled`，长片会报 `SeedVR2 conditioning shape must match latent ...`。
+- 引擎路由：`UPSCALE_ENGINES = {"rtx": "RTX 快速超分", "seedvr2": "SeedVR2 高清增强"}`，默认 `rtx`；`POST /api/jobs/{job_id}/upscale` 的 JSON body 可选 `{"engine":"rtx"|"seedvr2"}`，导演台 `episodes/{episode_id}/beats/{beat_id}/upscale` 与 `projects/{project_id}/jobs/{job_id}/upscale` 同步透传，任务 `payload.upscale_engine` 记录实际引擎。`comfy_service.append_upscale_if_requested()` / `run_upscale_output()` 按引擎选择 stage、上传标签（`rtx_vsr_source` / `seedvr2_source`）、输出标签（`2x 超分` / `2x 高清增强`）与文件名前缀；RTX 显存拒绝只对 `rtx` 生效，SeedVR2 由 `SeedVR2TemporalChunk` 按当前显存自动切块并在节点内合并。重试逻辑、失败/中断自动重提与「超分结果不可再次超分」的 422 对两个引擎一致生效。
+- 能力探测：`GET /api/upscale/capabilities` 探测 `RTXVideoSuperResolution` 节点与 5 个 SeedVR2 原生节点、`UNETLoader` 的扩散模型枚举、`VAELoader` 的 VAE 枚举，返回 `engines[{id,label,available,reason}]` 与 `default`，结果缓存 30 秒。`comfy_service.require_seedvr2()` 在节点或模型缺失时返回可操作文案（升级 ComfyUI / 放入 `models/diffusion_models` 或 `models/vae`）。
+- 前端：`frontend/src/video-upscale.ts` 统一两个引擎 id、标签与超分输出判定；生成页 `VideoStudioModule` 的超分按钮改为可下拉的引擎菜单（「快速超分（RTX）秒级完成…」/「高清增强（SeedVR2）生成式重建细节…」）；导演剧集工坊和「全部任务」的「超分」改为 Ant Design `Dropdown.Button`，默认 RTX，右侧箭头可选 SeedVR2；`jobUpscaleHint()`、成功提示与失败提示都带引擎名。
+- 实测（远端 `192.168.10.54:8188`，RTX 4080 16 GB，3B Int8 convrot 模型 + fp16 VAE）：4 秒 / 98 帧 / 1056×576 样片 301.5 秒，输出 2112×1152（2×）、98 帧 / 24 fps、AAC 32 kHz 立体声完整保留，文件 5.2 MB；A/B 帧对比可见细节更干净、噪声更少。产品链路 E2E（生成页任务 `XC2o2unhNuv0` → 超分任务 `rQcIrKXU57IZ`，`engine=seedvr2`）：源片 608×352 / 5.2 秒 / 124 帧，140.8 秒完成，输出 1216×704、124 帧 / 24 fps、AAC 32 kHz 立体声，已自动交付七牛（`seedvr2_upscale/20261028/...mp4`，2.66 MB）；生成页原任务显示「原片 1」与「2× 高清增强」两个版本，默认选中增强版。同源 13.7 秒 / 328 帧样片在自动分块下超过 25 分钟未完成（本轮为优先验证产品路径而中止），耗时随帧数明显超线性增长。chunk auto 模式预算为 `free_gb - 8.5 - k*0.55`、约 0.55 GiB /（MP×帧），16 GB 实例上长片会切成几十段依次采样再合并，因此整段耗时为分钟级、长片可能十几分钟；这是「高清增强（慢）」的产品定位，不替换 RTX。
+- 受影响文件：新增 `backend/app/seedvr2_upscale_workflow.py`；修改 `backend/app/models.py`、`workflow_registry.py`、`comfy_service.py`、`main.py`、`rtx_vsr_workflow.py`、`media_studio/services/comfy_video_client.py`、`media_studio/services/episode_video_service.py`、`media_studio/routers/project_router.py`、`backend/tests/test_rtx_vsr.py`、`backend/tests/test_core.py`；前端 `frontend/src/video-upscale.ts`、`video-upscale.test.ts`、`media/VideoStudioModule.tsx`、`media/video-results.css`、`media/video-result-model.ts`（版本菜单按引擎显示「2× 超分」/「2× 高清增强」，超分版本不再重复副标题）、`media/video-result-model.test.ts`、`media/VideoRoundHeader.tsx`、`App.tsx`、`director2/panes/EpisodeWorkshopPane.tsx`、`director2/panes/JobsCenterPane.tsx`、`director2/director2-video-settings.ts`；`backend/app/api_documentation.py`、`docs/API.md`、README、`功能说明与扩展指南.md`、`docs/导演台流程与界面结构.md` 与本文件。
+- 兼容性：不新增数据库表或列、不新增队列；超分接口 body 可省略（默认 `rtx`），旧调用完全兼容；新增模式与隐藏工作流只由超分入口使用，不进入创作页模型列表；既有 H3 / RTX VSR 的节点 ID、graph 与模型路径不变。远端实例缺少 SeedVR2 节点或模型时仅 SeedVR2 显示不可用，RTX 不受影响。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_rtx_vsr -v`（21 项通过）、`python -X utf8 -m unittest backend.tests.test_core -q`（106 项通过）、`python -X utf8 -m unittest backend.tests.test_h3_refine backend.tests.test_job_list_payload -q`；`pnpm --dir frontend test`（64 文件 / 441 项通过）、`pnpm --dir frontend exec tsc -b`、`pnpm --dir frontend build`。真实 5173 登录后 `GET /api/upscale/capabilities` 返回两个引擎均 `available`；生成页超分下拉展示两条引擎与说明；剧集工坊「超分」已渲染为拆分下拉按钮（当前工程 0/4 镜视频时为禁用态）。JobsCenterPane 与工坊共用同一 `Dropdown.Button` 配置，未额外造数据。产品 E2E 已用真实任务跑通（`XC2o2unhNuv0` → `rQcIrKXU57IZ`），生成页版本菜单显示「原片 1」/「2× 高清增强」并默认选中增强版。
+- 回滚方式：删除 `seedvr2_upscale_workflow.py`，撤回 `models.py` / `workflow_registry.py` / `comfy_service.py` / `main.py` / 导演媒体服务中的 SeedVR2 分支与 `/api/upscale/capabilities`，前端恢复超分单按钮并移除引擎菜单后重新构建；远端 SeedVR2 节点与模型可保留，不影响 RTX。已提交任务按保存的 graph 回放，无需数据库回滚或媒体清理。
+
+## 2026-10-27 生成页 V4：紧凑视频预览、摘要版本切换与悬浮操作
+
+- 变更原因：按已确认的即梦参考 V4 局部设计，还原生成详情；原视频铺满结果列、版本按钮和下载脚注使主要操作容易落到吸底输入框下方。
+- 当前基线：保留全局顶栏、76px 图标栏、240px 任务栏、单列轮次与原输入框。视频预览左对齐、最多 480px，按实际媒体元数据保持比例，较矮桌面窗口按高度收小。浅暗主题使用同一 `--studio-*` 与 Ant Design Provider。参考图以有序缩略图入口展开；摘要回显注册表模型名、最多两项非布尔主参数、轮次和状态，多个视频通过中性文本「版本 N/M」切换。
+- 状态模型：`App.tsx` 的 `videoVersionByRound` 按轮次记录输出身份，键包含任务、生成项、输出索引和路径，轮询追加超分时保留用户选择；输出消失时回退有效版本。`videoRoundDetails` 控制当前参数弹层及运行参数展开态。上述状态仅存在于页面内存，不新增存储键。`VideoRoundHeader` 承担视频轮次摘要与参数层级；`VideoStudioModule` 只渲染选中版本、管理原生视频播放与悬浮层。
+- 交互与能力：下载、加入画布、剪映导出使用选中输出的来源任务、生成项、索引与真实 URL；更多菜单提供查看运行参数及需确认的「删除任务」。原生媒体 API 驱动播放、声音、进度与全屏，菜单打开或键盘焦点进入时保持工具条，Esc 关闭后恢复焦点。生成中阶段/停止、失败摘要/重试、一采预览确认/保留继续常驻。
+- 超分边界：现有 `POST /api/jobs/{id}/upscale` 处理最新生成项中的第一份原片，本轮不改变接口；其他版本上禁用超分并说明原因，避免让用户误以为会处理当前显示的另一个版本。
+- 2026-10-27 补充交互：`VideoStudioModule` 通过原生 Slider 的局部组件 token 将圆点设为 6px（悬浮/聚焦不放大），页面不再自行覆盖滑块定位。`seekEngaged` 只管理单个播放器的进度交互状态：普通悬浮不显示圆点，点击/拖动时显示，离开进度条后隐藏，键盘焦点继续可操作。媒体容器原生 `mouseleave` 负责暂停，包括进入其边界外的 Dropdown portal，不因离开播放按钮或进入容器内其他控件而暂停；移回行为按下面 2026-10-28 更新执行。预期的播放取消 `AbortError` 不弹播放失败提示。只增加组件内存状态与事件监听，无新 API/持久化字段；验证命令与回滚沿用本节，详细结果见本轮验收说明。
+- 2026-10-28 悬浮自动预览：按用户补充要求，原生 `mouseenter` 现在自动播放并显示现有进度条，同时重置鼠标的圆点显示状态；移出仍暂停，重新移入从原位置续播。手动暂停只影响当前停留，不会被容器内鼠标移动打断。悬浮预览遵从浏览器自动播放策略，拦截或正常中止不弹错误提示，原手动播放入口保留。受影响文件仅为 `VideoStudioModule.tsx` 与文档，无 API/持久化变化；可逆向撤回新增 `mouseenter` 监听与预览回调后重新构建，不撤回此前移出暂停与小圆点交互。验证命令同本节，浏览器验收记录见 `docs/design-ref-generation/v4-20261027/ACCEPTANCE.md` 的 2026-10-28 章节。
+- 受影响文件：`frontend/src/App.tsx`、`index.css`、`media/{VideoRoundHeader.tsx,VideoStudioModule.tsx,video-results.css,video-result-model.ts,video-result-model.test.ts}`，三份主文档与 `docs/design-ref-generation/v4-20261027/`。
+- 兼容性：不改路由、HTTP API、数据库、工作流注册表/graph、队列、ComfyUI 实例、节点或模型路径；已有任务、中文对照、超分与二采确认协议保持兼容。旧图片轮次保留原布局；只移除旧视频专用的铺满尺寸和脚注样式。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_core backend.tests.test_job_list_payload backend.tests.test_h3_refine -q`；`pnpm --dir frontend build`（内含全部前端测试与 TypeScript）。浏览器在真实 5173 的桌面浅暗主题检查，任务/登录/媒体使用隔离的受控响应与已有本地成片，不写真实数据库、不提交生成或切换 ComfyUI。证据与范围见本轮设计验收说明。
+- 回滚方式：逆向撤回上述本轮前端增量与文档，删除新增的四个视频辅助文件并恢复 `VideoStudioModule.tsx` 的旧版渲染，再执行 `pnpm --dir frontend build`。不得覆盖其他并行改动；不需要数据库迁移、媒体清理或 ComfyUI 回滚。
+
+## 2026-10-27 生成页视频轮次改为紧凑头部与单卡版本切换
+
+- 变更原因：生成页原先每轮重复渲染完整提示词、参考图、创作参数与全部结果卡；多版本任务（原片 + 2× 超分）把消息流拉得很长，播放器又依赖浏览器原生控件，无法在同轮内切换版本或快速执行常用操作。本轮把视频轮改成「一个轮次头部 + 一张主视频卡」的紧凑结构，版本切换留在头部元信息里。
+- 当前基线：`frontend/src/media/video-result-model.ts` 统一轮次结果模型：`videoResultKey` 由 `jobId + generationItemId + outputIndex + path` 组成，避免相关任务或同路径输出互相覆盖；`selectVideoResult` 优先用户显式选择，其次最新 2× 超分，最后原片；`videoVersions` 只统计真实视频输出，标签为「原片 N / 2× 超分」；`videoDeliveryLabel` 与 `formatVideoTime` 负责交付状态与时间码。`VideoRoundHeader.tsx` 负责参考图缩略堆叠与弹层预览、两行提示词（展开 / 收起、中英切换）、元信息行（模型名、最多 3 个 primary 创作参数、第 N 轮、状态、版本下拉、详细信息弹层）；`mode` 原始工作流 id 不再重复展示，创作参数与运行参数分层收在「详细信息」中。
+- 播放与轮次渲染：`App.tsx` 每个视频轮只把当前选中的 `featuredVideo` 交给 `VideoStudioModule`，版本切换同时暂停旧视频；`VideoStudioModule.tsx` 使用自绘 `<video>` 播放层与悬停工具栏（下载、加入画布、导出剪映、查看运行参数、删除任务、全屏、播放 / 暂停、时间码、2× 超分、静音、进度条），竖屏卡片允许控制条换行，`prefers-reduced-motion` 关闭悬停过渡。视频轮的错误信息在头部下方独立展示；图片轮继续使用旧头部、参考图与详情结构。
+- 元数据同步：缓存视频可能在 React 挂载监听器前就完成 metadata 加载，导致时间码停在 `00:00 / 00:00`。`[result.src]` 副作用在 `readyState >= 1` 时主动同步一次宽高与时长，并监听 `durationchange`，进度条与总时长因此始终取真实媒体值；封面继续使用云端缩略图。
+- 受影响文件：新增 `frontend/src/media/video-result-model.ts`、`video-result-model.test.ts`、`VideoRoundHeader.tsx`、`video-results.css`；修改 `frontend/src/App.tsx`、`frontend/src/media/VideoStudioModule.tsx`、`frontend/src/index.css`。文档同步 README、`功能说明与扩展指南.md` 与本文件。
+- 兼容性：不新增或修改 API、数据库、任务队列、ComfyUI 节点与模型路径；版本模型只读任务既有输出，超分、加入画布、导出剪映与运行参数接口保持原协议；旧任务、图片轮与失败轮无需迁移。选择消失时回退到可用输出，不阻塞轮次展示。
+- 验证命令：`pnpm --dir frontend test`（64 文件 / 438 项通过）、`pnpm --dir frontend exec tsc -b`、`pnpm --dir frontend build`；真实 5173 在 1440×900 桌面浅色与暗色下检查任务 `Q0nhLeqATP49`（横屏双版本）、`Zjmy2ZdEFv1N`（9:16 竖屏）与 `sqXCOO5vZF9p`（失败轮）：提示词展开、参考图弹层、播放 / 暂停、进度拖动、版本切换（旧视频暂停、标签 2/2）、详细信息与运行参数、竖屏控制条换行均正常；修复后在缓存命中的视频上复查时间码为 `00:00 / 00:13` 且进度条可用。
+- 回滚方式：恢复 `App.tsx` 的旧轮次头部 / 全部结果卡渲染与 `index.css` 旧视频样式，删除四个新文件与对应样式引用后重新构建；任务数据与生成结果不受影响，无需数据库回滚。
+
+## 2026-10-27 整集分辨率确认写入工程并锁定出片画质
+
+- 变更原因：制作配方要求出片前确认整集统一分辨率（2K / 768P），但此前只存在于对话里；工坊按各工作流的默认画质出片，同一工程不同镜头或切换工作流后可能落到不同分辨率。现在把确认结果写入工程设置，并在后端创建任务时强制按锁定档位映射画质。
+- 当前基线：智能助手问题卡提交标题匹配「出片 / 视频 / 整集 + 分辨率」的答案时，`AssistantService._project_setting_from_answer` 从选项 label 或随附文本识别 768 / 2K / 2048，写入 `settings.extra.video_resolution`（`768p` / `2k`）与 `video_resolution_label`（`768P` / `2K`）；写入与回答消息在同一事务内完成，非分辨率问题或未携带 `question_id` 的普通消息不触碰工程设置。`EpisodeVideoService.confirmed_video_resolution(project_id)` 读取 `ai_projects.settings_json.extra`；`apply_confirmed_video_resolution(project_id, options)` 按 `PROJECT_VIDEO_RESOLUTION_QUALITIES` 映射：`768p → quality 0.98 / refine_quality 1.0`，`2k → 2.0 / 2.0`；开启二采时锁定 `refine_quality`，否则锁定 `quality`；工作流枚举缺少该档位时取最高可用值（例如 T8 最高 0.98）。`create_job` 对所有创作台来源（整集直出、逐镜、选中镜）统一调用该函数，智能助手 `propose_media` 在解析生成参数前同样先应用锁定。
+- 工坊界面：`Director2VideoSettingsPopover` 接收 `confirmedResolutionLabel`，把对应字段的 Ant Design Select 置灰，并在设置区显示「整集分辨率已确认：{label}」与「出片按该分辨率锁定；如需更换，请在智能助手中重新确认。」；`EpisodeWorkshopPane` 进入分集时从工程详情读取锁定并同步画质值，监听 `director-assistant-project-updated` 事件，在助手回答分辨率问题后无需刷新即可更新锁定；切换视频工作流时重新套用锁定值，避免新工作流默认画质覆盖确认结果。
+- 受影响文件：`backend/app/director_assistant/service.py`、`backend/app/director_assistant/actions.py`、`backend/app/media_studio/services/episode_video_service.py`、`backend/tests/test_director_assistant.py`、`backend/tests/test_h3_refine.py`、`frontend/src/director2/assistant/DirectorAssistant.tsx`、`frontend/src/director2/director2-video-settings.ts`、`frontend/src/director2/director2-video-settings.test.ts`、`frontend/src/director2/panes/Director2VideoSettingsPopover.tsx`、`frontend/src/director2/panes/EpisodeWorkshopPane.tsx`、`docs/导演台智能助手V2.md`、`docs/导演台流程与界面结构.md`、README、`功能说明与扩展指南.md` 与本文件。
+- 兼容性：不新增 API、数据库列、任务队列或 ComfyUI 节点；仅在工程 `settings.extra` 增加两个可选键，未确认分辨率的旧工程保持原有默认值。存在锁定时，API / MCP 显式传入的 `quality` / `refine_quality` 会被锁定值覆盖，这是本轮有意的行为变化；历史任务按已保存参数回放，不重算。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_director_assistant -q`（76 项通过）、`python -X utf8 -m unittest backend.tests.test_h3_refine -q`（42 项通过）；`pnpm --dir frontend test`（64 文件 / 438 项通过）、`pnpm --dir frontend exec tsc -b`、`pnpm --dir frontend build`；真实 5173 在剧集工坊用受控工程详情响应验证：768P 锁显示「整集分辨率已确认：768P」且分辨率档位为 0.98 MP、2K 锁切换为 2 MP 且切换工作流后仍锁定，解除锁后提示消失、字段恢复可选；验证过程未写入或改动任何工程数据。
+- 回滚方式：移除助手回答写入、`apply_confirmed_video_resolution` 的两处调用与前端锁定提示 / 事件监听 / 切换工作流重套逻辑，重启后端并重新构建前端；如需清除已写入的锁定，删除对应工程 `settings.extra.video_resolution` 与 `video_resolution_label`。已提交任务与数据库结构不受影响。
+
+## 2026-10-27 智能助手工具调用格式兼容（百炼 Qwen）
+
+- 变更原因：真实 5173 使用阿里云百炼 `qwen3.8-max` 跑通剧本、资产、分镜后，分镜轮和分辨率回答轮先后因三种未声明的工具调用写法被 Pydantic 拒绝：`tool_calls[]` 附带 `label/title/description` 展示字段；`<tool_call>{"name":...,"arguments":{...}}</tool_call></tool_response>` 这种 JSON-in-tag 加多余结束标签；以及用 `input` 代替 `arguments` 承载参数对象。模型内容本身完整，不应整轮作废。
+- 当前基线：`AssistantService._normalize_tool_alias` 仅在工具项除展示字段外只含 `name+arguments`，或只含 `name+input` 时归一化；`input` 映射为 `arguments`，其余未知字段、同时出现 `input` 与 `arguments` 仍判格式错误。`_parse` 的 `<tool_call>` 分支先移除无协议含义的 `<tool_response>` 包裹标签；无子标签且正文为 JSON 时接受严格 `{"name","arguments"}` envelope，裸工具名与 `工具名{JSON}` 写法继续可用。规范化后仍经过同一 AssistantTurn / ToolCall 白名单与参数校验。
+- 受影响文件：`backend/app/director_assistant/service.py`、`backend/tests/test_director_assistant.py`、`docs/导演台智能助手V2.md`、`功能说明与扩展指南.md` 与本文件。
+- 兼容性：无 API、数据库、任务队列、ComfyUI 节点、模型路径或前端变化；JSON envelope、配对 `param_key/param_value`、裸工具名和 `工具名{JSON}` 原有写法保持不变。草稿仍需“查看并采纳”；媒体提案仍需确认执行。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_director_assistant -q`（73 项通过，新增展示元数据、Qwen JSON 标签、`input` 别名与歧义拒绝四项覆盖）；真实 5173 用 `qwen3.8-max` 重试分镜轮成功出 4 镜草稿并采纳，分辨率回答轮确认 768P，生成 4 条待确认三联关键帧提案。
+- 回滚方式：撤回 `_TOOL_CALL_METADATA` 展示字段容忍、`<tool_response>` 清理、JSON-in-tag 分支与 `input` 别名，重启后端；无需数据库回滚。
+
 ## 2026-10-27 二采新增清晰度策略（自动 / 强制高清）
 
 - 变更原因：按片长强制封顶后，用户选 1.0 MP 却拿到 0.6 MP，界面无法表达“要绝对清晰、可以等”的诉求；而完全不封顶会让长片退回 27 分钟以上的单次二采，并伴随显存分页失败风险。因此把隐式封顶改为显式的清晰度策略：默认自动降档，强制高清由用户主动选择并在超出预算时二次确认。
@@ -3476,3 +3557,24 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 受影响文件：`backend/app/{cache.py,media_index.py,storage.py,main.py,request_log.py}`、`backend/tests/{test_storage_projections.py,test_read_caches.py,test_request_log.py}`、`frontend/src/director2/panes/JobsCenterPane.tsx`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md`。
 - 验证命令：`python -X utf8 -m unittest backend.tests.test_core backend.tests.test_h3_refine backend.tests.test_job_list_payload backend.tests.media_studio_test_h3_video backend.tests.test_storage_projections backend.tests.test_read_caches backend.tests.test_request_log backend.tests.test_library_query -q`（297 项通过）；`pnpm --dir frontend build`（62 个测试文件、423 项测试、TypeScript、clean 与 Vite 全部通过）；`pnpm --dir frontend test`（62 文件 / 423 项通过）。健康检查缓存使用 mock 的 `ComfyService.health` 验证，未启动或切换 ComfyUI，未访问真实 MySQL。
 - 回滚方式：逆向撤回上述缓存模块、存储投影、端点接线、日志中间件与轮询改动，重启后端并执行 `pnpm --dir frontend build`。缓存都是进程内派生数据，无需数据库迁移，也不影响已生成的任务、资产与媒体文件。
+
+## 2026-10-28 员工姓名自助修改与管理员修改全部账号
+
+- 日期与原因：2026-10-28。姓名只在管理员创建账号时填写，员工无法自行纠正错字或改名，管理员也无法修改既有账号姓名；本次补齐姓名维护能力。
+- 用户可见行为：生成 / 资产页账号菜单、导演台与画布的旧账号菜单新增「修改姓名」，所有已登录账号都可以修改自己的显示姓名；「管理设置 → 账号管理」为每个账号新增「修改姓名」，管理员与超级管理员可修改任意账号（含管理员、超级管理员）的姓名。保存后当前账号界面立即刷新，并写入审计日志。
+- 接口与权限：新增 `PATCH /api/auth/profile`，JSON body 为 `{"display_name":"新姓名"}`（1–80 字符，去首尾空白后不能为空），沿用会话 Cookie 与 `X-CSRF-Token`，返回最新 `AuthStatusResponse`（含 `user` 与 `csrf_token`），不换发会话。`PATCH /api/admin/users/{user_id}` 新增可选 `display_name`；姓名对全部账号开放给管理员/超级管理员，`role` 与 `is_active` 仍沿用原范围，管理员调整非员工账号的角色或启停继续返回 403。
+- 受影响文件：`backend/app/{auth,models,main,api_documentation}.py`、`backend/tests/{test_accounts,test_core}.py`、`frontend/src/components/{RenameUserModal,StudioHeader}.tsx`、`frontend/src/admin/AdminSettings.tsx`、`frontend/src/App.tsx`、`docs/API.md`、README、本文件与功能说明。
+- 兼容性：复用 `users.display_name`，不新增或修改表/列；不改任务、媒体、导演台、画布、ComfyUI、工作流、端口或前端路由。旧客户端不调用新接口时行为不变，管理接口既有请求体仍合法。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_accounts backend.tests.test_core -q`；`pnpm --dir frontend build`；5173 桌面端浅暗主题检查账号菜单与管理设置改名。
+- 回滚方式：撤回新增接口、管理接口的姓名参数与前端入口/弹窗，恢复原权限判断后重启后端并重新构建前端；无需数据库迁移，已修改的姓名保留。
+
+
+## 2026-10-28 生成首页 V3：创作优先与真实作品预览
+
+- 日期与原因：2026-10-28。按用户确认的 V3 设计稿实现，解决生成首页留白过大、V2 等尺寸网格缺少主次的问题；保留紧凑操作尺寸与现有工作流能力。
+- 当前基线：未选择任务的生成首页展示一行问候、现有创建表单、导演台 / 图片生成 / 无限画布入口及最近作品；任务详情仍使用原有轮次和吸底输入框。提示词灵感从首页芯片移入 Ant Design Dropdown；编辑器改为 Input.TextArea，ref 同步适配；任务栏以图标加文字语义表达状态。新增样式限定于 studio-generation-home，复用根 Provider 与 --studio-*，支持桌面浅暗主题。
+- 数据与状态：GenerationHomeSections 复用现有 jobsQuery 的可见任务数据，不新增接口或轮询。generation-home.ts 从最近可用轮次选取每任务一份产物，回退旧结果，跳过过期 / 无产物，保留真实 URL、比例和时长。媒介筛选为组件内存状态，过滤后最多显示 12 项，不写存储键。作品通过原 openGenerateJob 打开正确媒介路由；暂无、加载、错误、重试和媒体失效均有界面反馈。保留媒介草稿、提示词优化、首尾帧 / R2V 及参数 schema 的既有处理。
+- 受影响文件：frontend/src/App.tsx；新增 frontend/src/generation/{GenerationHomeSections.tsx,generation-home.ts,generation-home.css,generation-home.test.ts}、frontend/public/generation-home/ 三张入口图片；frontend/DESIGN.md、README、本文件、功能说明与扩展指南及 docs/design-ref-generation/home-v3-20261028/ 设计 / 素材 / 实现记录。未修改既有 index.css，保留工作区原有未提交改动。
+- 兼容性：不改 API、HTTP 请求体、路由、数据库、队列、工作流注册表、ComfyUI 节点 / 模型路径 / 地址；无新依赖。表单继续按 registry 展示，默认 H3 的额外主选项使工具行自然排成两行，不按参数名隐藏。导演台与画布仅复用既有链接，未调整其内部流程。
+- 验证命令：pnpm --dir frontend build（65 文件、447 项前端测试，TypeScript / clean-dist / Vite 通过）；python -X utf8 -m unittest backend.tests.test_core backend.tests.test_job_list_payload -q（111 项通过）。真实 5173、独立 Edge，1586×992 / 1440×900 / 1920×1080 桌面及暗色检查，27 项浏览器检查通过；登录、服务、任务及提交响应在独立会话内受控模拟，未写真实数据库或提交远端 / 付费任务。截图、边界及数据见同目录设计验收记录，未做移动端检查。
+- 回滚方式：只撤回 App.tsx 本节首页与 TextArea ref 增量，删除本次新增的 generation 模块及 public/generation-home 后重新运行 pnpm --dir frontend build。不得用整文件回滚覆盖已有 Header、超分、视频结果或账号改名改动；无需数据库或 ComfyUI 回滚。

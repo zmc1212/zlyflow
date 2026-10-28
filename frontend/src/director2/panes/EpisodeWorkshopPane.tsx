@@ -88,6 +88,7 @@ import {
   confirmProjectVideoRefine,
   skipProjectVideoRefine,
   getEpisodeDubbing,
+  getProject,
   listAssets,
   listJobs,
   listVideoWorkflowModes,
@@ -132,10 +133,12 @@ import {
   shotVideoActionLabel,
   shotVideoReadyCount,
   timelineVideoWorkflows,
+  videoResolutionQuality,
   visibleVideoOptionFields,
   type Director2WorkflowMode,
 } from "../director2-video-settings"
 import { useMediaPreview } from "../media-preview"
+import type { UpscaleEngine } from "../../video-upscale"
 import { mediaAspectVars, parseMediaAspect, type MediaAspectSize } from "../../lib/utils"
 import { firstCharacterLookImageUrl } from "./assets/shared"
 import { renderH3PromptHtml } from "../h3-prompt-display"
@@ -202,6 +205,20 @@ const episodeStatusOptions = [
   { value: "sketching", label: "出图中" },
   { value: "sketched", label: "分镜完成" },
 ]
+
+async function projectVideoResolution(projectId: string): Promise<{ value: string; label: string } | null> {
+  try {
+    const project = await getProject(projectId)
+    const extra = (project.extra || (project.settings as { extra?: Record<string, unknown> } | null)?.extra || {}) as Record<string, unknown>
+    const value = String(extra.video_resolution || "").trim().toLowerCase()
+    if (value === "768p" || value === "2k") {
+      return { value, label: String(extra.video_resolution_label || (value === "768p" ? "768P" : "2K")) }
+    }
+  } catch {
+    // 工程元数据失败时沿用当前设置
+  }
+  return null
+}
 
 function episodeStageItems(status: string) {
   return episodeStageStates(status).map((state, index) => ({
@@ -349,6 +366,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [videoWorkflows, setVideoWorkflows] = useState<Director2WorkflowMode[]>([])
     const [videoOptionFields, setVideoOptionFields] = useState(DIRECTOR2_VIDEO_FALLBACK_FIELDS)
     const [videoOptions, setVideoOptions] = useState(() => defaultVideoOptionValues(DIRECTOR2_VIDEO_FALLBACK_FIELDS))
+    const [confirmedVideoResolution, setConfirmedVideoResolution] = useState<{ value: string; label: string } | null>(null)
 
     // 新增/编辑分集弹窗表单
     const [modalVisible, setModalVisible] = useState(false)
@@ -390,7 +408,13 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     function handleVideoWorkflowChange(nextId: string) {
       const mode = videoWorkflows.find((item) => item.id === nextId)
-      applyVideoSettings(nextId, mode, videoOptions)
+      const lockedQuality = videoResolutionQuality(confirmedVideoResolution?.value)
+      const lockedRefine = videoResolutionQuality(confirmedVideoResolution?.value, true)
+      applyVideoSettings(nextId, mode, {
+        ...videoOptions,
+        ...(lockedQuality ? { quality: lockedQuality } : {}),
+        ...(lockedRefine ? { refine_quality: lockedRefine } : {}),
+      })
       if (episodeVideoRenderMode(mode) !== "shot") setCheckedBeatIds(new Set())
     }
 
@@ -1631,7 +1655,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       }
     }
 
-    async function handleUpscaleBeat(beat: Director2Beat) {
+    async function handleUpscaleBeat(beat: Director2Beat, engine: UpscaleEngine = "rtx") {
       const ep = currentEpisodeRef.current
       if (!ep || !beat) return
       const reason = beatUpscaleDisabledReason(beat, beatVideoProgress[beat.id])
@@ -1639,20 +1663,21 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         message.warning(reason)
         return
       }
+      const engineLabel = engine === "seedvr2" ? "SeedVR2 高清增强" : "2x 超分"
       setUpscalingBeatId(beat.id)
       try {
-        message.loading({ content: "正在提交 2x 超分...", key: "vUpscale" })
+        message.loading({ content: `正在提交${engineLabel}...`, key: "vUpscale" })
         const res = await upscaleBeatVideo(
           csrfToken,
           projectId,
           ep.id,
           beat.id,
-          buildVideoJobOptions(videoWorkflow, videoOptions),
+          { ...buildVideoJobOptions(videoWorkflow, videoOptions), engine },
         )
         rememberVideoJobIds([res.job_id])
-        message.success({ content: `超分任务已进入队列：${res.job_id}`, key: "vUpscale", duration: 6 })
+        message.success({ content: `${engineLabel}任务已进入队列：${res.job_id}`, key: "vUpscale", duration: 6 })
       } catch (err) {
-        message.error({ content: director2ErrorDetail(err, "超分任务创建失败"), key: "vUpscale", duration: 10 })
+        message.error({ content: director2ErrorDetail(err, `${engineLabel}任务创建失败`), key: "vUpscale", duration: 10 })
       } finally {
         setUpscalingBeatId(null)
       }
@@ -1956,6 +1981,15 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       let cancelled = false
       const saved = loadSavedVideoSettings(projectId)
       ;(async () => {
+        const resolution = await projectVideoResolution(projectId)
+        if (cancelled) return
+        setConfirmedVideoResolution(resolution)
+        const incoming: Record<string, string> = { ...(saved || {}) }
+        const lockedQuality = videoResolutionQuality(resolution?.value)
+        const lockedRefine = videoResolutionQuality(resolution?.value, true)
+        if (lockedQuality) incoming.quality = lockedQuality
+        if (lockedRefine) incoming.refine_quality = lockedRefine
+        const initial = Object.keys(incoming).length ? incoming : null
         try {
           const payload = await listVideoWorkflowModes()
           if (cancelled) return
@@ -1963,16 +1997,35 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           setVideoWorkflows(workflows)
           const requested = saved?.workflow || videoWorkflow
           const selected = workflows.find((item) => item.id === requested) || workflows[0]
-          applyVideoSettings(selected?.id || DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, selected, saved)
+          applyVideoSettings(selected?.id || DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, selected, initial)
         } catch {
           if (cancelled) return
-          applyVideoSettings(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, undefined, saved)
+          applyVideoSettings(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, undefined, initial)
         }
       })()
       return () => {
         cancelled = true
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [projectId])
+
+    useEffect(() => {
+      const syncResolution = async (event: Event) => {
+        if ((event as CustomEvent<{ projectId?: string }>).detail?.projectId !== projectId) return
+        const resolution = await projectVideoResolution(projectId)
+        setConfirmedVideoResolution(resolution)
+        const lockedQuality = videoResolutionQuality(resolution?.value)
+        const lockedRefine = videoResolutionQuality(resolution?.value, true)
+        if (!lockedQuality && !lockedRefine) return
+        setVideoOptions(current => {
+          const next = { ...current }
+          if (lockedQuality && "quality" in next) next.quality = lockedQuality
+          if (lockedRefine && "refine_quality" in next) next.refine_quality = lockedRefine
+          return next
+        })
+      }
+      window.addEventListener("director-assistant-project-updated", syncResolution)
+      return () => window.removeEventListener("director-assistant-project-updated", syncResolution)
     }, [projectId])
 
     useEffect(() => {
@@ -2017,8 +2070,8 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
             <section className="series-summary" aria-label="剧集制作概览">
               <div className="series-summary-total"><strong>{loading && !episodes.length ? "—" : String(episodeCounts.all).padStart(2, "0")}</strong><span>总集数</span></div>
               <div className="series-summary-item"><strong>{episodeCounts.scriptReady} <small>集</small></strong><span>脚本已就绪</span></div>
-              <div className="series-summary-item"><strong>{episodeCounts.complete} <small>集</small></strong><span>分镜已完成</span></div>
-              <div className="series-summary-item"><strong>{episodeCounts.shots}</strong><span>规划镜头</span></div>
+              <div className="series-summary-item" title="整集关键帧全部生成的集数"><strong>{episodeCounts.complete} <small>集</small></strong><span>整集分镜完成</span></div>
+              <div className="series-summary-item" title="全部分集已规划的镜头总数"><strong>{episodeCounts.shots}</strong><span>规划镜头总数</span></div>
               <div className="series-summary-assets"><span>项目资产</span>{projectAssetsState === "ready" ? <p>{projectCharacters.length} 角色 <i>·</i> {projectScenes.length} 场景 <i>·</i> {projectProps.length} 道具</p> : <p>{projectAssetsState === "loading" ? "正在加载资产…" : "资产暂未加载，刷新重试"}</p>}</div>
             </section>
 
@@ -2118,6 +2171,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                   fields={videoOptionFields}
                   values={videoOptions}
                   durationSec={selectedBeat ? beatDurationSec(selectedBeat.video_duration) : undefined}
+                  confirmedResolutionLabel={confirmedVideoResolution?.label}
                   onWorkflowChange={handleVideoWorkflowChange}
                   onChange={handleVideoOptionChange}
                 />
@@ -2315,16 +2369,25 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                   <em className="topbar-duration">{formatBeatDurationZh(selectedBeat.video_duration)}</em>
                                 </span>
                                 <Space size="small">
-                                  <Tooltip title={beatUpscaleDisabledReason(selectedBeat, beatVideoProgress[selectedBeat.id]) || "用本机 RTX 放大到 2 倍，原片保留"}>
-                                    <Button
-                                      size="small"
-                                      disabled={Boolean(beatUpscaleDisabledReason(selectedBeat, beatVideoProgress[selectedBeat.id])) || upscalingBeatId === selectedBeat.id}
-                                      loading={upscalingBeatId === selectedBeat.id || beatVideoProgress[selectedBeat.id]?.scope === "upscale" || beatVideoProgress[selectedBeat.id]?.status === "upscaling"}
-                                      onClick={() => void handleUpscaleBeat(selectedBeat)}
-                                      aria-label="2x 超分"
-                                    >
-                                      超分
-                                    </Button>
+                                  <Tooltip title={beatUpscaleDisabledReason(selectedBeat, beatVideoProgress[selectedBeat.id]) || "默认 RTX 快速超分；点右侧箭头可选 SeedVR2 高清增强，原片保留"}>
+                                    <span>
+                                      <Dropdown.Button
+                                        size="small"
+                                        disabled={Boolean(beatUpscaleDisabledReason(selectedBeat, beatVideoProgress[selectedBeat.id])) || upscalingBeatId === selectedBeat.id}
+                                        loading={upscalingBeatId === selectedBeat.id || beatVideoProgress[selectedBeat.id]?.scope === "upscale" || beatVideoProgress[selectedBeat.id]?.status === "upscaling"}
+                                        onClick={() => void handleUpscaleBeat(selectedBeat)}
+                                        menu={{
+                                          items: [
+                                            { key: "rtx", label: "RTX 快速超分（秒级）" },
+                                            { key: "seedvr2", label: "SeedVR2 高清增强（分钟级，更清晰）" },
+                                          ],
+                                          onClick: ({ key }) => void handleUpscaleBeat(selectedBeat, key as UpscaleEngine),
+                                        }}
+                                        aria-label="2x 超分"
+                                      >
+                                        超分
+                                      </Dropdown.Button>
+                                    </span>
                                   </Tooltip>
                                   <button type="button" className="xiaji-pane-btn" onClick={() => saveCurrentBeat()}>
                                     <Check size={12} />
@@ -3180,17 +3243,25 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                 </div>
                                 <div className="shot-title">Shot {b.sequence} ({formatBeatDurationLabel(b.video_duration)})</div>
                                 <div className="shot-status">{upscaled ? "已出片 · 2x" : ready ? "已出片" : busy ? "生成中" : "未出片"}</div>
-                                <Tooltip title={beatUpscaleDisabledReason(b, beatVideoProgress[b.id]) || "用本机 RTX 放大到 2 倍，原片保留"}>
-                                  <Button
-                                    size="small"
-                                    className="mt-1"
-                                    disabled={Boolean(beatUpscaleDisabledReason(b, beatVideoProgress[b.id])) || upscalingBeatId === b.id}
-                                    loading={upscalingBeatId === b.id}
-                                    onClick={() => void handleUpscaleBeat(b)}
-                                    aria-label={`2x 超分 ${workshopBeatLabel(b)}`}
-                                  >
-                                    超分
-                                  </Button>
+                                <Tooltip title={beatUpscaleDisabledReason(b, beatVideoProgress[b.id]) || "默认 RTX 快速超分；点右侧箭头可选 SeedVR2 高清增强，原片保留"}>
+                                  <span className="mt-1">
+                                    <Dropdown.Button
+                                      size="small"
+                                      disabled={Boolean(beatUpscaleDisabledReason(b, beatVideoProgress[b.id])) || upscalingBeatId === b.id}
+                                      loading={upscalingBeatId === b.id}
+                                      onClick={() => void handleUpscaleBeat(b)}
+                                      menu={{
+                                        items: [
+                                          { key: "rtx", label: "RTX 快速超分（秒级）" },
+                                          { key: "seedvr2", label: "SeedVR2 高清增强（分钟级，更清晰）" },
+                                        ],
+                                        onClick: ({ key }) => void handleUpscaleBeat(b, key as UpscaleEngine),
+                                      }}
+                                      aria-label={`2x 超分 ${workshopBeatLabel(b)}`}
+                                    >
+                                      超分
+                                    </Dropdown.Button>
+                                  </span>
                                 </Tooltip>
                               </div>
                             )

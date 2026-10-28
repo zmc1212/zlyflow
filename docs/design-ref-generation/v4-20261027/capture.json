@@ -1,0 +1,99 @@
+{
+  "measurement_sha256": "feb0fed81267101e8c11f7ffd38109d9242a8b72fed0cb1a05c90b7b5b6f5695",
+  "url": "http://127.0.0.1:5173/generate/video/v4-ui-fixture",
+  "title": "ZLY AI 视频创作平台",
+  "viewport": {
+    "width": 1584,
+    "height": 993
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "document_height": 1333,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "captured_at": "2026-10-27T13:37:42.668Z",
+  "elements": [
+    {
+      "name": "video-preview",
+      "selector": ".studio-video-round .studio-video-result-media",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        410,
+        215,
+        480,
+        267.90625
+      ],
+      "text": "00:00 / 00:132× 超分加入画布导出剪映",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(17, 24, 39)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "result-actions",
+      "selector": ".studio-video-round .studio-round-actions",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        410,
+        494.90625,
+        242,
+        36
+      ],
+      "text": "重新编辑再次生成",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "request-header",
+      "selector": ".studio-video-round .studio-round-header",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        410,
+        104,
+        1080,
+        73
+      ],
+      "text": "5以 <Picture 1> 至 <Picture 5> 中的角色、服装与场景为参考，生成一段电影感雨夜街道长镜头。镜头缓慢向前推进，霓虹灯倒影在湿润路面闪烁。展开EnglishH3 Director 加速版 多参考视频16:913 秒第 1 轮已完成版本 1/2详细信息",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    }
+  ],
+  "assets": {},
+  "full_page": false,
+  "screenshot_scale": "css"
+}

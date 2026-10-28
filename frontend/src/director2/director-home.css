@@ -5,10 +5,6 @@
 
 @media (min-width: 1024px) {
   .director2-app .dh-home-workspace { margin: 0; border: 0; border-radius: 0; background: var(--studio-canvas); box-shadow: none; }
-  .dh-home-workspace .director-home-topbar { height: 64px; padding: 0 28px; background: var(--studio-surface); }
-  .dh-topbar-title { display: inline-flex; align-items: center; gap: 12px; }
-  .dh-topbar-title > svg { color: var(--studio-accent-text); }
-  .dh-home-workspace .director-home-topbar strong { font-size: 20px; font-weight: 650; }
   .dh-home-workspace .dh-workspace { display: grid; grid-template-columns: 358px minmax(0, 1fr); align-items: start; gap: 29px; padding: 31px 24px 24px 42px; overflow: hidden; }
   .dh-start-column { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; overflow-y: auto; }
   .dh-start-panel { flex: none; padding: 23px 15px 15px; border: 1px solid var(--studio-border-strong); border-radius: 14px; background: var(--studio-surface); }

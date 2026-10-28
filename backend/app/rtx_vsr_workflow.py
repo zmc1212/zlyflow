@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 from .models import JobMode
+from .seedvr2_upscale_workflow import SEEDVR2_OUTPUT_LABEL
 
 VSR_LOAD_NODE = "20"
 VSR_COMPONENTS_NODE = "21"
@@ -29,6 +30,8 @@ VSR_RESIZE_TYPE = "scale by multiplier"
 RTX_VSR_NODE_TYPE = "RTXVideoSuperResolution"
 RTX_VSR_PHASE = "rtx-vsr"
 UPSCALE_OUTPUT_LABEL = "2x 超分"
+# 两种引擎的输出都算超分结果，找原片时必须一起排除。
+UPSCALE_OUTPUT_LABELS = frozenset({UPSCALE_OUTPUT_LABEL, SEEDVR2_OUTPUT_LABEL})
 VSR_FILENAME_PREFIX = "video/ZLY_AI_VIDEO_STUDIO_RTX_VSR"
 # 卸 H3 后仍要给 CUDA/运行时留余量；真正额度来自当前连接 ComfyUI /system_stats 的 vram_total。
 VSR_VRAM_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
@@ -136,6 +139,10 @@ def should_auto_upscale(render_scope: str | None, options: dict[str, Any] | None
     return str(render_scope or "") in AUTO_UPSCALE_SCOPES and wants_upscale(options)
 
 
+def is_upscale_output(output: dict | None) -> bool:
+    return str((output or {}).get("label") or "") in UPSCALE_OUTPUT_LABELS
+
+
 def original_video_output(outputs: list[dict] | None) -> dict | None:
     videos = [
         item for item in (outputs or [])
@@ -144,7 +151,7 @@ def original_video_output(outputs: list[dict] | None) -> dict | None:
     if not videos:
         return None
     for item in videos:
-        if str(item.get("label") or "") != UPSCALE_OUTPUT_LABEL:
+        if not is_upscale_output(item):
             return item
     return videos[0]
 
@@ -158,10 +165,10 @@ def original_video_locator(job: dict | None) -> tuple[dict, str | None, int] | N
             if not isinstance(item, dict):
                 continue
             for index, output in enumerate(item.get("outputs") or []):
-                if isinstance(output, dict) and output.get("kind") == "video" and str(output.get("label") or "") != UPSCALE_OUTPUT_LABEL:
+                if isinstance(output, dict) and output.get("kind") == "video" and not is_upscale_output(output):
                     return output, item.get("id"), index
     for index, output in enumerate((job or {}).get("outputs") or []):
-        if isinstance(output, dict) and output.get("kind") == "video" and str(output.get("label") or "") != UPSCALE_OUTPUT_LABEL:
+        if isinstance(output, dict) and output.get("kind") == "video" and not is_upscale_output(output):
             return output, None, index
     return None
 

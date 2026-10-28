@@ -1,0 +1,136 @@
+{
+  "date": "2026-10-27",
+  "surface": "5173 Vite, controlled API responses, existing local videos",
+  "checks": [
+    {
+      "name": "light: video hover and handle hover do not reveal a dot",
+      "passed": true
+    },
+    {
+      "name": "light: click shows a 6px dot aligned at start, middle and end",
+      "passed": true
+    },
+    {
+      "name": "light: dragging stays available and leaving the seek area hides the dot",
+      "passed": true
+    },
+    {
+      "name": "light: moving among controls keeps playback; leaving video pauses it",
+      "passed": true
+    },
+    {
+      "name": "light: leaving into an outside menu also pauses and keeps the menu usable",
+      "passed": true
+    },
+    {
+      "name": "light: keyboard can reveal and operate the small handle",
+      "passed": true
+    },
+    {
+      "name": "dark: video hover and handle hover do not reveal a dot",
+      "passed": true
+    },
+    {
+      "name": "dark: click shows a 6px dot aligned at start, middle and end",
+      "passed": true
+    },
+    {
+      "name": "dark: dragging stays available and leaving the seek area hides the dot",
+      "passed": true
+    },
+    {
+      "name": "dark: moving among controls keeps playback; leaving video pauses it",
+      "passed": true
+    },
+    {
+      "name": "dark: leaving into an outside menu also pauses and keeps the menu usable",
+      "passed": true
+    },
+    {
+      "name": "dark: keyboard can reveal and operate the small handle",
+      "passed": true
+    }
+  ],
+  "mutations": [],
+  "unknown": [],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead."
+  ],
+  "geometry": [],
+  "samples": [
+    {
+      "theme": "light",
+      "fraction": 0,
+      "opacity": 1,
+      "width": 6,
+      "height": 6,
+      "shadow": "none",
+      "dx": 0,
+      "dy": 0,
+      "value": 0,
+      "max": 13.667
+    },
+    {
+      "theme": "light",
+      "fraction": 0.5,
+      "opacity": 1,
+      "width": 6,
+      "height": 6,
+      "shadow": "none",
+      "dx": -0.008734543059972566,
+      "dy": 0,
+      "value": 6.83,
+      "max": 13.667
+    },
+    {
+      "theme": "light",
+      "fraction": 1,
+      "opacity": 1,
+      "width": 6,
+      "height": 6,
+      "shadow": "none",
+      "dx": -0.009345046462385653,
+      "dy": 0,
+      "value": 13.64,
+      "max": 13.667
+    },
+    {
+      "theme": "dark",
+      "fraction": 0,
+      "opacity": 1,
+      "width": 6,
+      "height": 6,
+      "shadow": "none",
+      "dx": 0,
+      "dy": 0,
+      "value": 0,
+      "max": 13.667
+    },
+    {
+      "theme": "dark",
+      "fraction": 0.5,
+      "opacity": 1,
+      "width": 6,
+      "height": 6,
+      "shadow": "none",
+      "dx": -0.008734543059972566,
+      "dy": 0,
+      "value": 6.83,
+      "max": 13.667
+    },
+    {
+      "theme": "dark",
+      "fraction": 1,
+      "opacity": 1,
+      "width": 6,
+      "height": 6,
+      "shadow": "none",
+      "dx": -0.009345046462385653,
+      "dy": 0,
+      "value": 13.64,
+      "max": 13.667
+    }
+  ],
+  "status": "passed"
+}

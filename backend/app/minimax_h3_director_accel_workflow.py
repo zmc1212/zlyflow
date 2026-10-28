@@ -31,7 +31,7 @@ TASK_TYPE_R2V = "r2v — 参考主体生视频(Reference to Video)"
 
 def director_accel_unet(is_reference: bool, options: dict[str, Any]) -> str:
     """Pick FL2VA / REF2VA by route; honor weight_profile (no Turbo LoRA on this family)."""
-    profile = str(options.get("weight_profile") or H3_WEIGHT_PRUNED)
+    profile = str(options.get("weight_profile") or H3_WEIGHT_FULL)
     use_full = profile == H3_WEIGHT_FULL
     if is_reference:
         return H3_REF2VA_FULL if use_full else H3_REF2VA_PRUNED

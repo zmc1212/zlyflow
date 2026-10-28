@@ -35,6 +35,11 @@ from ...rtx_vsr_workflow import (
     RTX_VSR_NODE_TYPE,
     rtx_vsr_node_missing_message,
 )
+from ...seedvr2_upscale_workflow import (
+    SEEDVR2_OBJECT_INFO_TYPES,
+    build_seedvr2_upscale_workflow,
+    seedvr2_missing_message,
+)
 from ...workflow_registry import (
     DIRECTOR_ACCEL_WORKFLOWS,
     DUAL_ACCEL_WORKFLOWS,
@@ -112,6 +117,22 @@ class ComfyVideoClient:
             payload = {}
         if not comfy_has_rtx_vsr_node(payload if isinstance(payload, dict) else {}):
             raise ValueError(rtx_vsr_node_missing_message(self.base_url, self.vram_device_name()))
+
+    def require_seedvr2(self) -> None:
+        info: dict[str, Any] = {}
+        for class_type in SEEDVR2_OBJECT_INFO_TYPES:
+            try:
+                response = self.session.get(f"{self.base_url}/object_info/{class_type}", timeout=12)
+                payload = response.json() if response.ok else {}
+            except requests.RequestException as err:
+                raise ValueError(f"无法连接 ComfyUI {self.base_url}: {err}") from err
+            except ValueError:
+                payload = {}
+            if isinstance(payload, dict):
+                info.update(payload)
+        reason = seedvr2_missing_message(info, comfy_url=self.base_url, device_name=self.vram_device_name())
+        if reason:
+            raise ValueError(reason)
 
     def preflight(self, *, require_director: bool = True) -> str:
         self.ping()
@@ -752,6 +773,30 @@ class ComfyVideoClient:
         self.free_resources(force=True)
         uploaded = self.upload_video_bytes(content, preferred_name=preferred_name)
         workflow = build_rtx_vsr_workflow(uploaded)
+        if filename_prefix:
+            self._set_output_prefix(workflow, filename_prefix)
+        _submitted, _history, output = self.submit_and_wait(
+            workflow,
+            progress=progress,
+            on_submitted=on_submitted,
+        )
+        return output
+
+    def run_seedvr2(
+        self,
+        content: bytes,
+        *,
+        preferred_name: str,
+        progress: Callable[[int], None] | None = None,
+        on_submitted: Callable[[dict[str, Any]], None] | None = None,
+        filename_prefix: str | None = None,
+    ) -> dict[str, str]:
+        self.require_seedvr2()
+        self.free_resources(force=True)
+        uploaded = self.upload_video_bytes(
+            content, preferred_name=preferred_name, subfolder="seedvr2-upscale",
+        )
+        workflow = build_seedvr2_upscale_workflow(uploaded)
         if filename_prefix:
             self._set_output_prefix(workflow, filename_prefix)
         _submitted, _history, output = self.submit_and_wait(

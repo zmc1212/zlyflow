@@ -2,6 +2,8 @@
 
 日期：2026-10-24。参考为 [原始设计图](01-editor-concept-light.png)，1586×992；SHA-256 为 `29d96fe563339e3e8095c6c6b30d342f9c4a520c1746d51bfb475a482524c767`。原图未覆盖、裁短或替换。开发界面在 Vite 5173 采集，DPR 1，视口截图，未拉伸图片。
 
+> **2026-10-28 更新**：画布已删除 60px 专用顶栏，与生成页、导演台共用全局悬浮 Header（距顶 12px、两侧 16px、48px 高），画布工作区、导航与素材 Drawer 都从 76px 页头下方开始。下文「60px 全局顶栏」「素材 Drawer 顶部与 60px 顶栏对齐」是 2026-10-24 验收时的状态，保留为历史记录；其余工具轨、面板、节点与截图证据继续有效。
+
 当前界面见 [浅色](06-editor-fidelity-light.png)、[暗色](07-editor-fidelity-dark.png)。[叠加对照](10-reference-overlay.png) 为原图与浅色实拍各 50% 混合；[差异热图](11-reference-heatmap.png) 用于定位偏差。两者均为检查产物，未用于界面渲染。[浅色细节](08-components-fidelity-light.png) 与 [暗色细节](09-components-fidelity-dark.png) 由真实控件截图排版，原始局部截图保存在 `states/`。
 
 ## 布局与控件

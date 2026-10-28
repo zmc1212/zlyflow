@@ -1,0 +1,226 @@
+{
+  "date": "2026-10-28",
+  "scope": "真实 5173 前端；独立浏览器内模拟登录、任务、服务状态和提交响应；未写真实 MySQL、未提交 ComfyUI 或付费图片任务。",
+  "checks": [
+    {
+      "name": "real results render",
+      "pass": true
+    },
+    {
+      "name": "image filter",
+      "pass": true
+    },
+    {
+      "name": "video filter",
+      "pass": true
+    },
+    {
+      "name": "image creation workflow",
+      "pass": true
+    },
+    {
+      "name": "video draft preserved",
+      "pass": true
+    },
+    {
+      "name": "new conversation clears prompt",
+      "pass": true
+    },
+    {
+      "name": "prompt ideas retained",
+      "pass": true
+    },
+    {
+      "name": "registry workflow switch",
+      "pass": true
+    },
+    {
+      "name": "first-last frames restored",
+      "pass": true
+    },
+    {
+      "name": "submit enabled after required first frame",
+      "pass": true
+    },
+    {
+      "name": "submission same API and fields",
+      "pass": true
+    },
+    {
+      "name": "task opens without home shortcuts",
+      "pass": true
+    },
+    {
+      "name": "detail composer still docked",
+      "pass": true
+    },
+    {
+      "name": "recent cross-media task uses correct route",
+      "pass": true
+    },
+    {
+      "name": "no horizontal overflow at 1586",
+      "pass": true
+    },
+    {
+      "name": "no horizontal overflow at 1440",
+      "pass": true
+    },
+    {
+      "name": "no horizontal overflow at 1920",
+      "pass": true
+    },
+    {
+      "name": "theme persists on refresh",
+      "pass": true
+    },
+    {
+      "name": "no uncaught page errors",
+      "pass": true
+    },
+    {
+      "name": "dark popup surface",
+      "pass": true
+    },
+    {
+      "name": "empty recent work is honest",
+      "pass": true
+    },
+    {
+      "name": "empty state keeps creation routes",
+      "pass": true
+    },
+    {
+      "name": "list error visible",
+      "pass": true
+    },
+    {
+      "name": "retry restores real work",
+      "pass": true
+    },
+    {
+      "name": "broken image has actionable fallback",
+      "pass": true
+    },
+    {
+      "name": "no uncaught UI errors",
+      "pass": true
+    },
+    {
+      "name": "sidebar collapse and restore",
+      "pass": true
+    }
+  ],
+  "captures": [
+    {
+      "viewport": {
+        "width": 1586,
+        "height": 992
+      },
+      "overflow": false,
+      "composer": {
+        "x": 348,
+        "y": 142,
+        "width": 1206,
+        "height": 238
+      },
+      "imagesReady": true
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "overflow": false,
+      "composer": {
+        "x": 348,
+        "y": 142,
+        "width": 1060,
+        "height": 238
+      },
+      "imagesReady": true
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "overflow": false,
+      "composer": {
+        "x": 394,
+        "y": 142,
+        "width": 1448,
+        "height": 238
+      },
+      "imagesReady": true
+    }
+  ],
+  "submission": [
+    {
+      "prompt": true,
+      "reference": true,
+      "csrf": true,
+      "mode": true,
+      "internalExposed": false
+    }
+  ],
+  "viewport": {
+    "width": 1586,
+    "height": 992
+  },
+  "dpr": 1,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "regions": [
+    {
+      "name": "composer",
+      "selector": "#studio-composer",
+      "box": [
+        348,
+        142,
+        1206,
+        238
+      ],
+      "status": "measured"
+    },
+    {
+      "name": "doorways",
+      "selector": ".studio-home-doorways",
+      "box": [
+        348,
+        396,
+        1206,
+        188
+      ],
+      "status": "measured"
+    },
+    {
+      "name": "recent-header",
+      "selector": ".studio-home-recent-header",
+      "box": [
+        348,
+        608,
+        1206,
+        36
+      ],
+      "status": "measured"
+    },
+    {
+      "name": "director-image",
+      "selector": ".studio-home-doorway-director img",
+      "box": [
+        348,
+        396,
+        663.328125,
+        188
+      ],
+      "status": "measured"
+    }
+  ],
+  "url_refresh": {"failedStateShown":true,"recoveredOnNewUrl":true,"uncaughtErrors":[]},
+  "validation": {
+    "frontend": "pnpm --dir frontend build: 65 files, 447 tests; TypeScript, clean-dist and Vite passed",
+    "backend": "python -X utf8 -m unittest backend.tests.test_core backend.tests.test_job_list_payload -q: 111 passed"
+  }
+}

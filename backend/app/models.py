@@ -26,6 +26,7 @@ class JobMode(str, Enum):
     MINIMAX_H3_T8_ALL_REFERENCE = "minimax-h3-t8-all-reference"
     MINIMAX_H3_T8_DUAL_CLOCK = "minimax-h3-t8-dual-clock"
     NVIDIA_RTX_VSR = "nvidia-rtx-vsr"
+    SEEDVR2_UPSCALE = "seedvr2-upscale"
     WAN_VACE_DEPTH_V2V = "wan21-vace-depth-v2v"
     GRS_GPT_IMAGE_2 = "grs-gpt-image-2"
     GRS_GPT_IMAGE_2_VIP = "grs-gpt-image-2-vip"
@@ -162,6 +163,10 @@ class JobMetadataUpdateRequest(BaseModel):
     pinned: bool | None = None
 
 
+class UpscaleJobRequest(BaseModel):
+    engine: Literal["rtx", "seedvr2"] = "rtx"
+
+
 class UserResponse(BaseModel):
     id: str
     username: str
@@ -197,8 +202,13 @@ class CreateUserRequest(SetupAdminRequest):
 
 
 class UpdateUserRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=80)
     role: UserRole | None = None
     is_active: bool | None = None
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
 
 
 class ResetPasswordRequest(BaseModel):

@@ -5,6 +5,7 @@ import { lazy, Suspense, useState } from "react"
 import { Navigate, useNavigate, useParams } from "react-router-dom"
 import { jsonMutation, requestJson, User, UserRole } from "../api"
 import { CenteredStatus, PASSWORD_MIN_LENGTH, PasswordField } from "../auth/AuthScreens"
+import RenameUserModal from "../components/RenameUserModal"
 import ThemeToggle from "../components/ThemeToggle"
 import { adminTabPath, canAccessAdminTab, isAdminTab, PATHS } from "../paths"
 
@@ -29,6 +30,7 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
   const [displayName, setDisplayName] = useState("")
   const [password, setPassword] = useState("")
   const [role, setRole] = useState<UserRole>("employee")
+  const [renamingAccount, setRenamingAccount] = useState<User>()
   const [resettingUserId, setResettingUserId] = useState<string>()
   const [resetPassword, setResetPassword] = useState("")
   const usersQuery = useQuery({ queryKey: ["admin-users"], queryFn: () => requestJson<User[]>("/api/admin/users") })
@@ -149,7 +151,7 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
             </div>
           </div>
           <div className="overflow-x-auto rounded-lg border border-black/[0.06]">
-            <table className="w-full min-w-[640px] text-left text-sm">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-black/[0.06] bg-[#f9fafb] text-xs font-medium text-[#6b7280]">
                 <tr>
                   <th className="px-4 py-3">员工</th>
@@ -197,6 +199,13 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
+                          onClick={() => setRenamingAccount(account)}
+                          className="h-8 rounded-md border border-black/10 bg-white px-2.5 text-xs font-medium text-[#4b5563] hover:bg-[#f3f4f6]"
+                        >
+                          修改姓名
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => { setResettingUserId(account.id); setResetPassword("") }}
                           className="h-8 rounded-md border border-black/10 bg-white px-2.5 text-xs font-medium text-[#7047f6] hover:bg-[#7047f6]/10"
                         >
@@ -231,6 +240,15 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
           ) : null}
           {(updateMutation.isError || resetMutation.isError) ? <p className="mt-4 text-sm text-red-600">{updateMutation.error?.message ?? resetMutation.error?.message}</p> : null}
         </section>
+        {renamingAccount ? (
+          <RenameUserModal
+            target={renamingAccount}
+            csrfToken={csrfToken}
+            self={renamingAccount.id === user.id}
+            onClose={() => setRenamingAccount(undefined)}
+            onUpdated={refresh}
+          />
+        ) : null}
       </main>
     ) : (
       <Suspense fallback={<CenteredStatus label="正在加载设置" />}>

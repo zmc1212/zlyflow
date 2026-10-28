@@ -584,14 +584,14 @@ def director_accel_speed_option() -> dict[str, Any]:
 
 def director_accel_weight_profile_option() -> dict[str, Any]:
     return option(
-        "模型体积", "string", H3_WEIGHT_PRUNED, group="primary",
+        "模型体积", "string", H3_WEIGHT_FULL, group="primary",
         enum=[H3_WEIGHT_FULL, H3_WEIGHT_PRUNED],
         ui_control="select",
         ui_options=[
             {"value": H3_WEIGHT_FULL, "label": "完整（32 GB）"},
             {"value": H3_WEIGHT_PRUNED, "label": "精简（20 GB）"},
         ],
-        description="加速版默认精简 INT8；加速来自双 Sage，不挂 Turbo LoRA。完整权重约 32 GB。",
+        description="加速版默认完整 INT8；加速来自双 Sage，不挂 Turbo LoRA。精简权重约 20 GB，适合内存紧张的机器。",
     )
 
 
@@ -1185,6 +1185,25 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         catalog_group=CATALOG_GROUP_CUSTOM,
         hidden_from_catalog=True,
     ),
+    WorkflowDefinition(
+        JobMode.SEEDVR2_UPSCALE.value,
+        "SeedVR2 高清增强",
+        "用当前连接 ComfyUI 的原生 SeedVR2 3B Int8 节点做生成式 2x 重建，比 RTX 超分慢很多，但能补回细节。该实例必须已安装 SeedVR2 节点与模型。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
+        "collection",
+        1,
+        1,
+        ("原片",),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "width": option("原片宽", "integer", 864, group="internal", minimum=8, maximum=8192, step=1),
+                "height": option("原片高", "integer", 480, group="internal", minimum=8, maximum=8192, step=1),
+                "frames": option("原片帧数", "integer", 120, group="internal", minimum=1, maximum=16384, step=1),
+            },
+        },
+        catalog_group=CATALOG_GROUP_CUSTOM,
+        hidden_from_catalog=True,
+    ),
 )
 
 WORKFLOW_BY_ID = {definition.id: definition for definition in WORKFLOWS}
@@ -1272,6 +1291,8 @@ def resolve_director_workflow(family: str | None, route: str) -> str:
     return str(routes.get(wanted) or routes.get("t2v") or JobMode.MINIMAX_H3_T2V.value)
 H3_WORKFLOW_IDS = {item.value for item in H3_WORKFLOWS}
 RTX_VSR_WORKFLOW_IDS = {JobMode.NVIDIA_RTX_VSR.value}
+SEEDVR2_UPSCALE_WORKFLOW_IDS = {JobMode.SEEDVR2_UPSCALE.value}
+UPSCALE_WORKFLOW_IDS = RTX_VSR_WORKFLOW_IDS | SEEDVR2_UPSCALE_WORKFLOW_IDS
 _catalog_lookup: Callable[[str], dict[str, Any] | None] | None = None
 
 
@@ -1288,9 +1309,17 @@ def is_rtx_vsr_workflow(mode: JobMode | str) -> bool:
     return mode_key(mode) in RTX_VSR_WORKFLOW_IDS
 
 
+def is_seedvr2_upscale_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in SEEDVR2_UPSCALE_WORKFLOW_IDS
+
+
+def is_upscale_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in UPSCALE_WORKFLOW_IDS
+
+
 def is_local_comfy_job(mode: JobMode | str) -> bool:
     """Creation-page ComfyUI jobs that occupy the serial video worker."""
-    return is_h3_workflow(mode) or is_rtx_vsr_workflow(mode)
+    return is_h3_workflow(mode) or is_upscale_workflow(mode)
 
 
 def is_t8_workflow(mode: JobMode | str) -> bool:

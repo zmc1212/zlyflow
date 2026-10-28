@@ -48,6 +48,17 @@ from .rtx_vsr_workflow import (
     vsr_memory_rejection,
     wants_upscale,
 )
+from .seedvr2_upscale_workflow import (
+    SEEDVR2_OBJECT_INFO_TYPES,
+    SEEDVR2_OUTPUT_LABEL,
+    SEEDVR2_OUTPUT_NODE,
+    SEEDVR2_PHASE,
+    UPSCALE_ENGINE_RTX,
+    UPSCALE_ENGINE_SEEDVR2,
+    build_seedvr2_upscale_workflow,
+    normalize_upscale_engine,
+    seedvr2_missing_message,
+)
 from .video_depth_workflow import DEPTH_OUTPUT_NODE, build_depth_video_workflow
 from .wan_vace_depth_workflow import VACE_OUTPUT_NODE, build_vace_depth_workflow
 from .workflow_registry import (
@@ -60,6 +71,7 @@ from .workflow_registry import (
     generation_output_label,
     generation_stage,
     is_rtx_vsr_workflow,
+    is_seedvr2_upscale_workflow,
     normalize_options,
 )
 
@@ -350,6 +362,18 @@ class ComfyService:
             raise legacy.ComfyError(
                 rtx_vsr_node_missing_message(self.comfy_url, comfy_vram_device_name(self.system_stats()))
             )
+
+    def require_seedvr2(self) -> None:
+        info: dict = {}
+        for class_type in SEEDVR2_OBJECT_INFO_TYPES:
+            info.update(self.object_info(class_type))
+        reason = seedvr2_missing_message(
+            info,
+            comfy_url=self.comfy_url,
+            device_name=comfy_vram_device_name(self.system_stats()),
+        )
+        if reason:
+            raise legacy.ComfyError(reason)
 
     def upload_image(self, local_path: str, tag: str) -> str:
         source = Path(local_path)
@@ -947,7 +971,7 @@ class ComfyService:
             return dest
         raise legacy.ComfyError("找不到可用于超分的原片文件")
 
-    def append_rtx_vsr_if_requested(
+    def append_upscale_if_requested(
         self, mode: JobMode, outputs: list[dict], options: dict | None,
         update_stage: Callable[[str, int | None], None],
         on_submitted: Callable[[str, str, str], None],
@@ -957,13 +981,16 @@ class ComfyService:
         if not wants_upscale(options):
             return outputs
         save_partial_outputs(outputs)
-        reason = self.reject_vsr_memory(mode, options)
-        if reason:
-            update_stage(f"原片已完成，已跳过 2x 超分：{reason}", 100)
-            return outputs
+        engine = normalize_upscale_engine((options or {}).get("upscale_engine"))
+        if engine == UPSCALE_ENGINE_RTX:
+            reason = self.reject_vsr_memory(mode, options)
+            if reason:
+                update_stage(f"原片已完成，已跳过 2x 超分：{reason}", 100)
+                return outputs
         try:
-            return outputs + [self.run_rtx_vsr_output(
-                outputs, options, update_stage, on_submitted, is_cancelled, source_mode=mode,
+            return outputs + [self.run_upscale_output(
+                outputs, options, update_stage, on_submitted, is_cancelled,
+                source_mode=mode, engine=engine,
             )]
         except ComfyCancelled:
             raise
@@ -971,7 +998,7 @@ class ComfyService:
             update_stage(f"原片已完成，2x 超分失败：{error}", 100)
             return outputs
 
-    def run_rtx_vsr_output(
+    def run_upscale_output(
         self, outputs: list[dict], options: dict | None,
         update_stage: Callable[[str, int | None], None],
         on_submitted: Callable[[str, str, str], None] | None,
@@ -979,15 +1006,24 @@ class ComfyService:
         *,
         source_mode: JobMode | None = None,
         source_path: str | None = None,
+        engine: str = UPSCALE_ENGINE_RTX,
     ) -> dict:
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
-        check_mode = source_mode if source_mode is not None else JobMode.NVIDIA_RTX_VSR
-        reason = self.reject_vsr_memory(check_mode, options)
-        if reason:
-            raise legacy.ComfyError(reason)
+        engine = normalize_upscale_engine(engine)
+        seedvr2 = engine == UPSCALE_ENGINE_SEEDVR2
+        check_mode = source_mode if source_mode is not None else (
+            JobMode.SEEDVR2_UPSCALE if seedvr2 else JobMode.NVIDIA_RTX_VSR
+        )
+        if not seedvr2:
+            reason = self.reject_vsr_memory(check_mode, options)
+            if reason:
+                raise legacy.ComfyError(reason)
         if getattr(self, "comfy_url", None):
-            self.require_rtx_vsr_node()
+            if seedvr2:
+                self.require_seedvr2()
+            else:
+                self.require_rtx_vsr_node()
         if source_path:
             local = Path(source_path)
             if not local.is_file():
@@ -1001,16 +1037,23 @@ class ComfyService:
         self.free_resources(force=True)
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
-        update_stage("正在 2x 超分", 97)
-        uploaded = self.upload_video(str(local), "rtx_vsr_source")
+        if seedvr2:
+            stage_text = "SeedVR2 正在高清增强"
+            workflow = build_seedvr2_upscale_workflow(self.upload_video(str(local), "seedvr2_source"))
+            phase, output_node, folder, label = SEEDVR2_PHASE, SEEDVR2_OUTPUT_NODE, "seedvr2_upscale", SEEDVR2_OUTPUT_LABEL
+        else:
+            stage_text = "正在 2x 超分"
+            workflow = build_rtx_vsr_workflow(self.upload_video(str(local), "rtx_vsr_source"))
+            phase, output_node, folder, label = RTX_VSR_PHASE, VSR_OUTPUT_NODE, "rtx_vsr", UPSCALE_OUTPUT_LABEL
+        update_stage(stage_text, 97)
         record = self.run_workflow(
-            build_rtx_vsr_workflow(uploaded), "正在 2x 超分", update_stage,
-            on_submitted=on_submitted, phase=RTX_VSR_PHASE, is_cancelled=is_cancelled,
+            workflow, stage_text, update_stage,
+            on_submitted=on_submitted, phase=phase, is_cancelled=is_cancelled,
         )
         output = self.download(
-            legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr",
+            legacy.output_file(record, output_node, ("videos", "gifs", "images")), folder,
         )
-        return self.output_payload(output, "video", UPSCALE_OUTPUT_LABEL)
+        return self.output_payload(output, "video", label)
 
     def completed_outputs(self, mode: JobMode, record: dict) -> list[dict]:
         if mode in H3_WORKFLOWS:
@@ -1019,6 +1062,11 @@ class ComfyService:
         if is_rtx_vsr_workflow(mode):
             output = self.download(legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr")
             return [self.output_payload(output, "video", UPSCALE_OUTPUT_LABEL)]
+        if is_seedvr2_upscale_workflow(mode):
+            output = self.download(
+                legacy.output_file(record, SEEDVR2_OUTPUT_NODE, ("videos", "gifs", "images")), "seedvr2_upscale",
+            )
+            return [self.output_payload(output, "video", SEEDVR2_OUTPUT_LABEL)]
         if mode is JobMode.IMAGE:
             output = self.download(legacy.output_file(record, legacy.T2I_OUTPUT_NODE, ("images",)), "text_to_image")
             return [self.output_payload(output, "image", "生成图片")]
@@ -1082,15 +1130,24 @@ class ComfyService:
             )
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3_refine")
             return [self.output_payload(output, "video", "二采精修成片"), *existing_outputs]
-        if phase == RTX_VSR_PHASE:
+        if phase in (RTX_VSR_PHASE, SEEDVR2_PHASE):
+            seedvr2 = phase == SEEDVR2_PHASE
             try:
                 record = self.wait_for_existing(
-                    prompt_id, client_id, update_stage, "正在恢复 2x 超分", (96, 100), is_cancelled,
+                    prompt_id, client_id, update_stage,
+                    "正在恢复高清增强" if seedvr2 else "正在恢复 2x 超分", (96, 100), is_cancelled,
                 )
-                vsr = self.download(
-                    legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr",
-                )
-                payload = self.output_payload(vsr, "video", UPSCALE_OUTPUT_LABEL)
+                if seedvr2:
+                    output = self.download(
+                        legacy.output_file(record, SEEDVR2_OUTPUT_NODE, ("videos", "gifs", "images")),
+                        "seedvr2_upscale",
+                    )
+                    payload = self.output_payload(output, "video", SEEDVR2_OUTPUT_LABEL)
+                else:
+                    output = self.download(
+                        legacy.output_file(record, VSR_OUTPUT_NODE, ("videos", "gifs", "images")), "rtx_vsr",
+                    )
+                    payload = self.output_payload(output, "video", UPSCALE_OUTPUT_LABEL)
             except ComfyCancelled:
                 raise
             except Exception as error:
@@ -1098,7 +1155,7 @@ class ComfyService:
                     update_stage(f"原片已完成，2x 超分失败：{error}", 100)
                     return existing_outputs
                 raise
-            if is_rtx_vsr_workflow(mode):
+            if is_rtx_vsr_workflow(mode) or is_seedvr2_upscale_workflow(mode):
                 return [payload]
             return existing_outputs + [payload]
         if phase == "generation":
@@ -1106,7 +1163,7 @@ class ComfyService:
                 prompt_id, client_id, update_stage, "已重新连接 ComfyUI 任务", is_cancelled=is_cancelled,
             )
             outputs = self.completed_outputs(mode, record)
-            return self.append_rtx_vsr_if_requested(
+            return self.append_upscale_if_requested(
                 mode, outputs, options, update_stage, on_submitted, save_partial_outputs, is_cancelled,
             )
 
@@ -1148,12 +1205,13 @@ class ComfyService:
         self.last_refine_state = None
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
-        if is_rtx_vsr_workflow(mode):
+        if is_rtx_vsr_workflow(mode) or is_seedvr2_upscale_workflow(mode):
             if not references:
                 raise legacy.ComfyError("超分需要原片视频。")
-            return [self.run_rtx_vsr_output(
+            return [self.run_upscale_output(
                 [], options, update_stage, on_submitted, is_cancelled,
                 source_mode=mode, source_path=references[0],
+                engine=UPSCALE_ENGINE_SEEDVR2 if is_seedvr2_upscale_workflow(mode) else UPSCALE_ENGINE_RTX,
             )]
         if mode in H3_WORKFLOWS:
             resolved_prompt = resolve_minimax_picture_prompt(prompt, len(references))
@@ -1209,7 +1267,7 @@ class ComfyService:
                 return outputs
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
             outputs = [self.output_payload(output, "video", generation_output_label(mode))]
-            return self.append_rtx_vsr_if_requested(
+            return self.append_upscale_if_requested(
                 mode, outputs, options, update_stage, on_submitted, save_partial_outputs, is_cancelled,
             )
 

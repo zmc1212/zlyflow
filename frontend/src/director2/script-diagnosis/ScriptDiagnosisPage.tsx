@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Alert, Button, Drawer, Empty, Input, Popconfirm, Progress, Segmented, Space, Spin, Table, Tag, Tooltip, Upload, message } from "antd"
 import { ArrowDown, ArrowLeft, ArrowUp, Clipboard, Copy, Download, FilePlus2, FileSearch, FileText, History, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react"
-import ThemeToggle from "../../components/ThemeToggle"
 import { director2ErrorDetail } from "../api"
 import { director2HomePath, director2ProjectPath, director2DiagnosisPath } from "../paths"
 import {
@@ -235,7 +234,6 @@ export default function ScriptDiagnosisPage({ csrfToken }: { csrfToken: string }
         </>}
         {diagnosisId && <Button icon={<Plus size={15} />} onClick={() => navigate(director2DiagnosisPath())}>新诊断</Button>}
         <Button type="text" icon={<History size={16} />} onClick={() => { setHistoryOpen(true); setHistoryRevision(value => value + 1) }}>诊断历史</Button>
-        <ThemeToggle />
       </Space>
     </header>
 

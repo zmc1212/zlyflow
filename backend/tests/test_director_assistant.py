@@ -165,6 +165,43 @@ class AssistantTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.session(selections={"model_id": "private-model"})
 
+    def test_resolution_answer_is_persisted_to_project_settings(self):
+        session = self.session(project_id="p")
+        detail = self.run_message(session, {"text": "先确认规格。", "question": {
+            "title": "出片分辨率（整集统一）", "type": "single",
+            "options": [
+                {"label": "768P：先快速过一遍节奏", "value": "768p"},
+                {"label": "2K：直接上高清", "value": "2k"},
+            ],
+        }})
+        question = detail["session"]["pending_question"]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            self.service.send("alice", session["id"], {"question_id": question["id"], "answer_values": ["768p"], "client_message_id": "resolution-answer-123"})
+        with self.store.connection() as conn:
+            row = conn.execute("SELECT settings_json FROM ai_projects WHERE id='p'").fetchone()
+        extra = json.loads(row["settings_json"])["extra"]
+        self.assertEqual(extra["video_resolution"], "768p")
+        self.assertEqual(extra["video_resolution_label"], "768P")
+
+    def test_non_resolution_answer_leaves_project_settings_untouched(self):
+        session = self.session(project_id="p")
+        detail = self.run_message(session, {"text": "先定方向。", "question": {
+            "title": "更喜欢哪种悬疑？", "type": "single",
+            "options": [{"label": "古风悬疑", "value": "period"}, {"label": "现代悬疑", "value": "modern"}],
+        }})
+        question = detail["session"]["pending_question"]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            self.service.send("alice", session["id"], {"question_id": question["id"], "answer_values": ["period"], "client_message_id": "direction-answer-123"})
+        with self.store.connection() as conn:
+            row = conn.execute("SELECT settings_json FROM ai_projects WHERE id='p'").fetchone()
+        self.assertNotIn("video_resolution", json.loads(row["settings_json"]).get("extra", {}))
+
+    def test_parse_failure_hides_raw_validation_details(self):
+        with self.assertRaises(ValueError) as raised:
+            AssistantService._parse(dumps({"tool_calls": [{"name": "project_read", "arguments": {}, "unexpected": True}]}))
+        self.assertEqual(str(raised.exception), "模型返回格式无法解析，请重试；若多次失败请换一个模型。")
+        self.assertNotIn("validation error", str(raised.exception))
+
     def test_question_card_is_typed_and_answered_in_free_text(self):
         session = self.session()
         detail = self.run_message(session, {"text": "我们先定方向。", "question": {"title": "更喜欢哪种悬疑？", "type": "single", "options": [{"label": "古风悬疑", "value": "period"}, {"label": "现代悬疑", "value": "modern"}]}})
@@ -227,6 +264,17 @@ class AssistantTests(unittest.TestCase):
             AssistantService._parse('<tool_call>load_skill_reference{not-json}</tool_call>')
         with self.assertRaises(ValueError):
             AssistantService._parse('<tool_call>run_shell{"cmd":"ls"}</tool_call>')
+
+    def test_qwen_style_json_tool_call_and_stray_response_tag_are_tolerated(self):
+        turn = AssistantService._parse(
+            '<tool_call>\n{"name": "project_read", "arguments": {"stage": "storyboard"}}\n</tool_call>\n</tool_response>'
+        )
+        self.assertEqual(turn.tool_calls[0].name, "project_read")
+        self.assertEqual(turn.tool_calls[0].arguments, {"stage": "storyboard"})
+        with self.assertRaises(ValueError):
+            AssistantService._parse('<tool_call>{"name": "run_shell", "arguments": {}}</tool_call>')
+        with self.assertRaises(ValueError):
+            AssistantService._parse('<tool_call>{"name": "project_read", "arguments": {}, "permission": "write"}</tool_call>')
 
     def test_paired_tag_script_draft_survives_invalid_summary_and_escaped_newlines(self):
         raw = (
@@ -297,6 +345,38 @@ class AssistantTests(unittest.TestCase):
             AssistantService._parse(dumps({"tool_calls": [{"id": "run_shell", "arguments": {}}]}))
         with self.assertRaises(ValueError):
             AssistantService._parse(dumps({"tool_calls": [{"id": "create_draft", "name": "create_draft", "arguments": payload["tool_calls"][0]["arguments"]}]}))
+
+    def test_tool_call_display_metadata_is_stripped_but_unknown_fields_still_fail(self):
+        payload = {"tool_calls": [{
+            "name": "create_draft",
+            "label": "分镜设计",
+            "description": "生成4镜分镜",
+            "arguments": {"artifact_type": "plan", "title": "雨夜回声 第1集资产设定", "content": "资产设定"},
+        }]}
+        turn = AssistantService._parse(dumps(payload))
+        self.assertEqual(turn.tool_calls[0].name, "create_draft")
+        self.assertEqual(turn.tool_calls[0].arguments["artifact_type"], "plan")
+        with self.assertRaises(ValueError):
+            AssistantService._parse(dumps({"tool_calls": [{
+                "name": "create_draft",
+                "permission": "write",
+                "arguments": {"artifact_type": "plan", "title": "x", "content": "x"},
+            }]}))
+
+    def test_tool_call_input_alias_is_normalized_without_widening_protocol(self):
+        turn = AssistantService._parse(dumps({"tool_calls": [{
+            "name": "project_read",
+            "input": {"stage": "storyboard"},
+            "label": "读取工程",
+        }]}))
+        self.assertEqual(turn.tool_calls[0].name, "project_read")
+        self.assertEqual(turn.tool_calls[0].arguments, {"stage": "storyboard"})
+        with self.assertRaises(ValueError):
+            AssistantService._parse(dumps({"tool_calls": [{
+                "name": "project_read",
+                "input": {"stage": "storyboard"},
+                "arguments": {"stage": "assets"},
+            }]}))
 
     def test_invalid_script_array_repair_preserves_write_obligation(self):
         session = self.session()

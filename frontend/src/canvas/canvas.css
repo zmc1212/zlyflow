@@ -15,16 +15,16 @@
 }
 
 .studio-workspace.studio-canvas-view {
-  height: calc(100vh - 56px);
-  max-height: calc(100vh - 56px);
+  height: calc(100vh - 76px);
+  max-height: calc(100vh - 76px);
   min-height: 0;
   overflow: hidden;
   padding-left: 0;
 }
 
 .studio-canvas-view > main.canvas-workspace-main {
-  height: calc(100vh - 56px) !important;
-  max-height: calc(100vh - 56px) !important;
+  height: calc(100vh - 76px) !important;
+  max-height: calc(100vh - 76px) !important;
   min-height: 0 !important;
   max-width: none !important;
   flex: 0 0 auto !important;

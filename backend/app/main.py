@@ -96,8 +96,8 @@ from .models import (
     DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsImageModelCreateRequest,
     GrsImageModelsResponse, GrsImageModelsUpdateRequest, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
     LibraryItemResponse, LibraryQueryResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest,
-    SetupAdminRequest, JobMode, JobStatus,
-    QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateUserRequest, UserResponse, UserRole,
+    SetupAdminRequest, UpscaleJobRequest, JobMode, JobStatus,
+    QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateProfileRequest, UpdateUserRequest, UserResponse, UserRole,
     JobMetadataUpdateRequest,
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
     ModelProviderPresetsResponse,
@@ -155,8 +155,16 @@ from .resource_storage import create_resource_storage, resource_object_url
 from .storage import DirectorProjectConflictError, FINISHED_STATUSES, JobStore, elapsed_ms_between
 from .worker import JobWorker
 from .rtx_vsr_workflow import original_video_locator, source_video_shape, vsr_memory_rejection
+from .seedvr2_upscale_workflow import (
+    SEEDVR2_OUTPUT_LABEL,
+    UPSCALE_ENGINE_RTX,
+    UPSCALE_ENGINE_SEEDVR2,
+    UPSCALE_ENGINES,
+    normalize_upscale_engine,
+)
 from .workflow_registry import (
     WORKFLOWS, is_h3_workflow, is_image_workflow, is_local_comfy_job, is_rtx_vsr_workflow,
+    is_seedvr2_upscale_workflow, is_upscale_workflow,
     normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
     validate_option_relationships, validate_references, workflow_for,
 )
@@ -632,11 +640,12 @@ def public_job(job: dict) -> dict:
 _UPSCALE_ACTIVE_STATUSES = {
     JobStatus.QUEUED.value, JobStatus.RUNNING.value, JobStatus.INTERRUPTED.value,
 }
+upscale_capabilities_cache = TTLCache(ttl_seconds=30)
 
 
 def active_upscale_job_for(store: JobStore, owner_user_id: str | None, source_job_id: str) -> dict | None:
     for job in store.list_jobs(owner_user_id, 200):
-        if not is_rtx_vsr_workflow(job.get("mode") or ""):
+        if not is_upscale_workflow(job.get("mode") or ""):
             continue
         source = job.get("source") or {}
         if source.get("job_id") != source_job_id:
@@ -957,6 +966,22 @@ def change_password(
     return auth_payload(updated, token)
 
 
+@app.patch("/api/auth/profile", response_model=AuthStatusResponse, tags=["账号"], summary="修改当前账号姓名")
+def update_profile(
+    payload: UpdateProfileRequest, request: Request,
+    user: Annotated[dict, Depends(csrf_user)],
+) -> dict:
+    try:
+        updated = app.state.auth_store.update_user(user["id"], display_name=payload.display_name)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_profile", "user", actor_user_id=user["id"], target_id=user["id"],
+        ip_address=client_ip(request),
+    )
+    return auth_payload(updated, request.state.session_token)
+
+
 @app.get("/api/admin/users", response_model=list[UserResponse], tags=["管理后台"], summary="列出员工账号")
 def list_users(_: Annotated[dict, Depends(admin_user)]) -> list[dict]:
     return app.state.auth_store.list_users()
@@ -985,7 +1010,7 @@ def create_user(
     return user
 
 
-@app.patch("/api/admin/users/{user_id}", response_model=UserResponse, tags=["管理后台"], summary="更新员工角色或状态")
+@app.patch("/api/admin/users/{user_id}", response_model=UserResponse, tags=["管理后台"], summary="更新员工姓名、角色或状态")
 def update_user(
     user_id: str, payload: UpdateUserRequest, request: Request,
     actor: Annotated[dict, Depends(mutating_admin_user)],
@@ -994,7 +1019,11 @@ def update_user(
         target = app.state.auth_store.get_user(user_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="账号不存在") from error
-    if actor["role"] == UserRole.ADMIN.value and target["role"] != UserRole.EMPLOYEE.value:
+    if (
+        actor["role"] == UserRole.ADMIN.value
+        and target["role"] != UserRole.EMPLOYEE.value
+        and (payload.role is not None or payload.is_active is not None)
+    ):
         raise HTTPException(status_code=403, detail="管理员只能管理员工账号")
     if payload.role is not None:
         ensure_manageable_role(actor, payload.role)
@@ -1008,14 +1037,19 @@ def update_user(
     if actor["id"] == user_id and payload.is_active is False:
         raise HTTPException(status_code=409, detail="不能停用当前登录账号")
     try:
-        updated = app.state.auth_store.update_user(user_id, role=payload.role, is_active=payload.is_active)
+        updated = app.state.auth_store.update_user(
+            user_id, display_name=payload.display_name, role=payload.role, is_active=payload.is_active,
+        )
     except LastSuperAdminError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except KeyError as error:
         raise HTTPException(status_code=404, detail="账号不存在") from error
     app.state.auth_store.audit(
         "update_user", "user", actor_user_id=actor["id"], target_id=user_id,
-        detail=f"role={updated['role']},active={updated['is_active']}", ip_address=client_ip(request),
+        detail=f"display_name={updated['display_name']},role={updated['role']},active={updated['is_active']}",
+        ip_address=client_ip(request),
     )
     return updated
 
@@ -4001,8 +4035,8 @@ async def submit_generation(
         definition = workflow_for(mode)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="工作流不存在") from error
-    if is_rtx_vsr_workflow(mode):
-        raise HTTPException(status_code=422, detail="请对已成功的视频调用超分接口，不要直接创建 nvidia-rtx-vsr 任务")
+    if is_upscale_workflow(mode):
+        raise HTTPException(status_code=422, detail="请对已成功的视频调用超分接口，不要直接创建超分任务")
     try:
         raw_options = json.loads(options) if options is not None else {}
         if not isinstance(raw_options, dict):
@@ -4288,13 +4322,19 @@ async def skip_refine(job_id: str, user: Annotated[dict, Depends(mutating_user)]
     status_code=202,
     response_model=JobResponse,
     tags=["任务"],
-    summary="对已成功的成片提交 2x 超分",
-    description="根据已成功视频输出新建独立的 nvidia-rtx-vsr 任务。接跑前 worker 会强制 POST /free 卸载 H3。同一原片已有进行中的超分时返回 409。超分失败不影响原片。",
+    summary="对已成功的成片提交 2x 超分（可选 RTX / SeedVR2 引擎）",
+    description="根据已成功视频输出新建独立超分任务：engine=rtx 用 RTXVideoSuperResolution（秒级），engine=seedvr2 用 SeedVR2 生成式高清增强（分钟级）。接跑前 worker 会强制 POST /free 卸载 H3。同一原片已有进行中的超分时返回 409。超分失败不影响原片。",
 )
-async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
+async def upscale_job(
+    job_id: str,
+    user: Annotated[dict, Depends(mutating_user)],
+    payload: UpscaleJobRequest | None = None,
+) -> dict:
     source = job_or_404(app.state.store, job_id, user)
-    if is_rtx_vsr_workflow(source["mode"]):
+    if is_upscale_workflow(source["mode"]):
         raise HTTPException(status_code=422, detail="该任务已经是超分结果")
+    engine = normalize_upscale_engine(payload.engine if payload else None)
+    seedvr2 = engine == UPSCALE_ENGINE_SEEDVR2
     if source.get("status") != JobStatus.SUCCEEDED.value:
         raise HTTPException(status_code=409, detail="仅已成功出片的视频可以超分")
     located = original_video_locator(source)
@@ -4304,10 +4344,10 @@ async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]
     owner_id = source.get("owner_user_id") or user["id"]
     active = active_upscale_job_for(app.state.store, owner_id, job_id)
     if active is not None:
-        raise HTTPException(status_code=409, detail="该成片已有进行中的 2x 超分")
+        raise HTTPException(status_code=409, detail="该成片已有进行中的超分")
     vsr_options = vsr_job_options_from_source(source)
-    if vsr_options:
-        comfy = getattr(app.state.worker, "comfy", None)
+    comfy = getattr(app.state.worker, "comfy", None)
+    if vsr_options and not seedvr2:
         if comfy is not None and hasattr(comfy, "reject_vsr_memory"):
             reason = comfy.reject_vsr_memory(source["mode"], source.get("options") or vsr_options)
         else:
@@ -4318,17 +4358,19 @@ async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]
             )
         if reason:
             raise HTTPException(status_code=422, detail=reason)
+    upscale_mode = JobMode.SEEDVR2_UPSCALE if seedvr2 else JobMode.NVIDIA_RTX_VSR
     try:
-        generation_options = normalize_options(JobMode.NVIDIA_RTX_VSR, vsr_options)
+        generation_options = normalize_options(upscale_mode, vsr_options)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
-    comfy = getattr(app.state.worker, "comfy", None)
-    if comfy is not None and hasattr(comfy, "require_rtx_vsr_node"):
-        try:
-            comfy.require_rtx_vsr_node()
-        except Exception as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
+    if comfy is not None:
+        check = getattr(comfy, "require_seedvr2", None) if seedvr2 else getattr(comfy, "require_rtx_vsr_node", None)
+        if callable(check):
+            try:
+                check()
+            except Exception as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
     try:
         if comfy is not None:
             local = Path(comfy.local_path_for_output(original))
@@ -4351,14 +4393,15 @@ async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]
         raise HTTPException(status_code=422, detail=f"复制原片失败: {error}") from error
 
     source_title = str(source.get("title") or source.get("prompt") or "成片").strip()
-    title = f"{source_title[:80]} · 2x超分"
-    prompt = str(source.get("prompt") or "").strip() or "2x 超分"
+    title = f"{source_title[:80]} · {'高清增强' if seedvr2 else '2x超分'}"
+    default_prompt = "SeedVR2 高清增强" if seedvr2 else "2x 超分"
+    prompt = str(source.get("prompt") or "").strip() or default_prompt
     store: JobStore = app.state.store
     try:
         job = await asyncio.to_thread(
             store.create,
             new_job_id,
-            JobMode.NVIDIA_RTX_VSR,
+            upscale_mode,
             prompt,
             "",
             None,
@@ -4378,6 +4421,49 @@ async def upscale_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]
         raise
     await app.state.worker.enqueue(new_job_id)
     return public_job(job)
+
+
+@app.get(
+    "/api/upscale/capabilities",
+    tags=["任务"],
+    summary="查询当前 ComfyUI 可用的超分引擎",
+    description="探测当前连接的 ComfyUI 是否装了 RTX VSR 节点，以及 SeedVR2 节点与模型是否齐全。结果缓存 30 秒。",
+)
+def upscale_capabilities(user: Annotated[dict, Depends(current_user)]) -> dict:
+    def build() -> dict:
+        comfy = getattr(app.state.worker, "comfy", None)
+        if comfy is None:
+            return {
+                "engines": [
+                    {"id": engine_id, "label": label, "available": False, "reason": "ComfyUI 未配置"}
+                    for engine_id, label in UPSCALE_ENGINES.items()
+                ],
+                "default": UPSCALE_ENGINE_RTX,
+            }
+        health = comfy.health()
+        if not health.get("reachable"):
+            reason = f"ComfyUI 连接失败：{health.get('error') or health.get('url')}"
+            return {
+                "engines": [
+                    {"id": engine_id, "label": label, "available": False, "reason": reason}
+                    for engine_id, label in UPSCALE_ENGINES.items()
+                ],
+                "default": UPSCALE_ENGINE_RTX,
+            }
+        engines = []
+        for engine_id, label in UPSCALE_ENGINES.items():
+            try:
+                if engine_id == UPSCALE_ENGINE_SEEDVR2:
+                    comfy.require_seedvr2()
+                else:
+                    comfy.require_rtx_vsr_node()
+            except Exception as error:
+                engines.append({"id": engine_id, "label": label, "available": False, "reason": str(error)})
+            else:
+                engines.append({"id": engine_id, "label": label, "available": True, "reason": None})
+        return {"engines": engines, "default": UPSCALE_ENGINE_RTX}
+
+    return upscale_capabilities_cache.get_or_create("caps", build)
 
 
 @app.post(

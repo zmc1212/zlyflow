@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { DatePicker, Drawer, Dropdown, Empty, Input, InputNumber, message, Modal, Pagination, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
+import { Button, DatePicker, Drawer, Dropdown, Empty, Input, InputNumber, message, Modal, Pagination, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
+import type { TextAreaRef } from "antd/es/input/TextArea"
 import {
-  ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
-  Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, Link2, ListChecks, LoaderCircle, LogOut, Maximize2,
-  Languages, Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Users, Video, WalletCards, WandSparkles, X,
+  ArrowUpDown, Check, CheckCircle2, CircleAlert, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
+  Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, Link2, ListChecks, LoaderCircle, Maximize2,
+  Languages, Minus, MoreHorizontal, MoveLeft, MoveRight, Network, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
@@ -12,13 +13,16 @@ import { generateJobPath, isDirectorLegacyStudioPath, parseGeneratePath, PATHS, 
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import type { ImageResult } from "./media/ImageStudioModule"
 import type { VideoResult } from "./media/VideoStudioModule"
+import VideoRoundHeader from "./media/VideoRoundHeader"
+import { jobUpscaleSourceKey, selectVideoResult, videoResultKey } from "./media/video-result-model"
 import {
   activeUpscaleJob,
   canRequestJobUpscale,
   extraUpscaleResults,
   hasOriginalVideo,
-  isRtxVsrJob,
+  isUpscaleJob,
   upscaleDisabledReason,
+  type UpscaleEngine,
 } from "./video-upscale"
 import JianyingExportModal from "./media/JianyingExportModal"
 import type { JianyingMediaItem } from "./media/jianying-draft-builder"
@@ -28,7 +32,9 @@ import { createLocalId } from "./lib/utils"
 import { restoreReferenceFiles, roundReferenceSources } from "./reference-assets"
 import { cloudThumbnailSrc } from "./media-thumbnails"
 import MediaPreviewModal, { type PreviewMediaKind } from "./components/MediaPreviewModal"
-import ThemeToggle from "./components/ThemeToggle"
+import RenameUserModal from "./components/RenameUserModal"
+import StudioHeader from "./components/StudioHeader"
+import GenerationHomeSections from "./generation/GenerationHomeSections"
 import { groupTasksByCreatedAt } from "./task-groups"
 import JobErrorNotice from "./director/components/JobErrorNotice"
 import { useStudioTheme } from "./ThemeProvider"
@@ -37,7 +43,7 @@ import { useStudioTheme } from "./ThemeProvider"
  * THESIS: A conversation-first AI studio, not a dashboard of cards.
  * OWN-WORLD: cool white canvas, hairline dividers, compact black text and one periwinkle action color.
  * STORY: scan a task in the left conversation rail, then create or continue in a quiet central canvas.
- * FIRST VIEWPORT: 76px icon rail, 240px task rail, open workspace and a bottom-anchored composer.
+ * FIRST VIEWPORT: 76px icon rail, 240px task rail, and a Jimeng-style starter canvas (greeting, inline composer, prompt ideas); once a task is open the composer docks to the bottom.
  * FORM: a light operational workspace informed by the observed Jimeng conversation layout.
  */
 const ImageStudioModule = lazy(() => import("./media/ImageStudioModule"))
@@ -110,6 +116,9 @@ type OptionDefinition = {
 type WorkflowParameter = { name: string; schema?: { properties?: Record<string, OptionDefinition> } | null }
 type OptionInputValue = string | boolean
 type ModesPayload = { modes: Workflow[]; image_sizes: string[]; presets: Record<string, string> }
+type UpscaleEngineCapability = { id: UpscaleEngine; label: string; available: boolean; reason?: string | null }
+type UpscaleCapabilities = { engines: UpscaleEngineCapability[]; default: UpscaleEngine }
+type UpscaleEngineOption = { id: UpscaleEngine; label: string; hint?: string; disabled?: boolean }
 type GrsBalanceSnapshot = { credits: number | null; queried_at: string | null; refresh_error?: string | null }
 type ReferenceAsset = { id: string; file: File; preview: string }
 
@@ -421,6 +430,22 @@ function validateOptionValues(
   return ""
 }
 
+const VIDEO_PROMPT_IDEAS = [
+  { label: "电影感运镜", icon: Clapperboard, prompt: "黄昏的旧城街道，雨后的地面反射霓虹，镜头低角度缓慢推进，电影感浅景深" },
+  { label: "人物情绪", icon: UserRound, prompt: "年轻女性在窗边回头，眼神从平静到微笑，柔和侧光，浅景深特写" },
+  { label: "产品特写", icon: ImagePlus, prompt: "白色台面上的香水瓶缓慢旋转，水珠滑落，棚拍高光，微距镜头" },
+  { label: "自然风光", icon: Frame, prompt: "清晨云海翻涌的山谷，航拍缓慢穿云，金色阳光照亮山脊" },
+  { label: "赛博夜景", icon: WandSparkles, prompt: "雨夜霓虹街头，镜头跟随人物穿过人群，青紫色霓虹反光，赛博朋克氛围" },
+  { label: "动画分镜", icon: Video, prompt: "手绘动画分镜，少女从站台跑向列车，镜头横移跟随，暖色夕阳" },
+]
+
+const IMAGE_PROMPT_IDEAS = [
+  { label: "人像写真", icon: UserRound, prompt: "窗边的年轻女性，柔和侧光，浅景深人像摄影，自然肤色，背景虚化" },
+  { label: "产品海报", icon: ImagePlus, prompt: "极简白色台面上的香水瓶，硬光棚拍，水珠与倒影，产品广告质感" },
+  { label: "场景概念", icon: Frame, prompt: "黄昏的东方古城屋顶群，远处群山与云海，电影概念场景，体积光" },
+  { label: "平面插画", icon: Clapperboard, prompt: "扁平风格插画，夏日海边小镇，明亮配色，干净构图，海报比例" },
+]
+
 function groupedWorkflowOptions(workflows: Workflow[]) {
   const groups = new Map<string, { label: string; order: number; options: { value: string; label: string; title?: string; disabled?: boolean }[] }>()
   const ungrouped: { value: string; label: string; title?: string; disabled?: boolean }[] = []
@@ -501,7 +526,9 @@ function TaskRow({ job, selected = false, onSelect, onPinToggle, onRename, onDel
     <div className="size-8 shrink-0 overflow-hidden rounded-md bg-[#eef1f4]">
       {cover ? <MediaTile item={cover} allowSameOriginVideo={false} /> : reference ? <img src={reference.url} alt="任务封面" className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full w-full place-items-center text-[#a0a8b2]">{job.media_type === "image" ? <ImagePlus size={15} /> : <Video size={15} />}</div>}
     </div>
-    <span title={statusText[job.status]} className={`size-1.5 shrink-0 rounded-full ${job.status === "succeeded" ? "bg-emerald-500" : job.status === "failed" || job.status === "interrupted" || job.status === "cancelled" ? "bg-rose-500" : job.status === "running" ? "bg-[#4d6bfe]" : "bg-amber-400"}`} />
+    <span role="img" aria-label={statusText[job.status]} title={statusText[job.status]} className={`studio-task-state studio-task-state-${job.status}`}>
+      {job.status === "succeeded" || job.status === "partial" ? <CheckCircle2 size={13} aria-hidden /> : job.status === "running" ? <LoaderCircle size={13} className="animate-spin" aria-hidden /> : job.status === "cancelled" ? <CircleStop size={13} aria-hidden /> : job.status === "failed" || job.status === "interrupted" ? <CircleAlert size={13} aria-hidden /> : <Clock3 size={13} aria-hidden />}
+    </span>
     <p className="min-w-0 flex-1 truncate text-sm leading-[21px] text-[#171a1f]">{job.title || jobDisplayPrompt(job)}</p>
     {created ? <span title={createdFull ? `创作时间 ${createdFull}` : "创作时间"} className="shrink-0 text-[10px] tabular-nums text-[#7c8794]">{created}</span> : null}
     {job.pinned ? <Pin size={12} className="shrink-0 rotate-45 text-[#4d6bfe]" /> : null}
@@ -687,8 +714,9 @@ export default function App({
   const navigate = useNavigate()
   const { mode: themeMode } = useStudioTheme()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const promptRef = useRef<HTMLTextAreaElement>(null)
+  const promptRef = useRef<TextAreaRef>(null)
   const workspaceView = studioWorkspaceFromPath(location.pathname)
+  const isCanvasHome = workspaceView === "canvas" && /^\/canvas\/?$/.test(location.pathname)
   const generateRoute = parseGeneratePath(location.pathname)
   const lastGeneratePathRef = useRef<string>(PATHS.generateVideo)
   const lastDirectorPathRef = useRef<string>(PATHS.director)
@@ -700,6 +728,7 @@ export default function App({
   }
   if (workspaceView === "director") lastDirectorPathRef.current = location.pathname
   const mediaType: GenerateMediaType = generateRoute?.mediaType ?? lastMediaTypeRef.current
+  const headerUsesGrs = mediaType === "image" && (workspaceView === "generate" || workspaceView === "assets")
   const selectedJobId = workspaceView === "generate" ? generateRoute?.jobId : undefined
   const [workflowId, setWorkflowId] = useState(FALLBACK_WORKFLOW)
   const [prompt, setPrompt] = useState("")
@@ -727,6 +756,8 @@ export default function App({
   const [jianyingModalOpen, setJianyingModalOpen] = useState(false)
   const [jianyingSelectedItems, setJianyingSelectedItems] = useState<JianyingMediaItem[]>([])
   const [canvasInsertAsset, setCanvasInsertAsset] = useState<CanvasInsertAsset | null>(null)
+  const [videoVersionByRound, setVideoVersionByRound] = useState<Record<string, string>>({})
+  const [videoRoundDetails, setVideoRoundDetails] = useState<{ id: string; runtime: boolean } | null>(null)
   const [isComposerCompact, setIsComposerCompact] = useState(false)
   const [renameTarget, setRenameTarget] = useState<Job | null>(null)
   const [renameValue, setRenameValue] = useState("")
@@ -745,7 +776,7 @@ export default function App({
   const [optionValues, setOptionValues] = useState<Record<string, OptionInputValue>>({})
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false)
   const [imageSize, setImageSize] = useState("横版 1280 x 720")
-  const [accountOpen, setAccountOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const [messageApi, messageContext] = message.useMessage()
   const restoringComposerRef = useRef(false)
   const [adminUserFilter, setAdminUserFilter] = useState<string>("all")
@@ -754,6 +785,23 @@ export default function App({
     const payload = await api<ModesPayload>("/api/modes")
     return { ...payload, modes: payload.modes.map(normalizeWorkflow) }
   } })
+  const upscaleCapabilitiesQuery = useQuery({
+    queryKey: ["upscale_capabilities"],
+    queryFn: () => api<UpscaleCapabilities>("/api/upscale/capabilities"),
+    staleTime: 60_000,
+  })
+  const upscaleEngines = useMemo<UpscaleEngineOption[] | undefined>(() => {
+    const caps = upscaleCapabilitiesQuery.data
+    if (!caps) return undefined
+    return caps.engines.map((engine) => ({
+      id: engine.id,
+      label: engine.id === "seedvr2" ? "高清增强（SeedVR2）" : "快速超分（RTX）",
+      disabled: !engine.available,
+      hint: engine.available
+        ? engine.id === "seedvr2" ? "生成式重建细节，整段通常需要几分钟" : "秒级完成，主要锐化与去块"
+        : engine.reason || "当前 ComfyUI 不可用",
+    }))
+  }, [upscaleCapabilitiesQuery.data])
   const isAdminViewer = user.role === "admin" || user.role === "super_admin"
   const adminUsersQuery = useQuery({
     queryKey: ["admin_users"],
@@ -787,6 +835,7 @@ export default function App({
   const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => api<{ comfy: { reachable: boolean }; grs: { available: boolean; message?: string | null } }>("/api/health"), refetchInterval: 30000 })
   const workflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === mediaType)
   const workflow = workflows.find((item) => item.id === workflowId) ?? workflows[0]
+  const promptIdeas = mediaType === "image" ? IMAGE_PROMPT_IDEAS : VIDEO_PROMPT_IDEAS
   const allJobs = jobsQuery.data ?? []
   const jobs = allJobs.filter((job) => job.media_type === mediaType)
   const adminUserOptions = useMemo(() => [
@@ -881,6 +930,7 @@ export default function App({
   const selectedJobMediaType = selectedJob?.media_type
   const selectedJobLoading = Boolean(selectedJobId && !selectedJob && (jobsQuery.isLoading || jobDetailQuery.isPending || jobDetailQuery.isFetching))
   const selectedJobMissing = Boolean(selectedJobId && !selectedJob && !selectedJobLoading)
+  const isGenerationHome = workspaceView === "generate" && !selectedJobId && !isInspectingOtherUser
 
   const assetEntries = useMemo<AssetEntry[]>(
     () => workspaceView !== "assets" || assetSection !== "history" ? [] : allJobs.flatMap((job): AssetEntry[] => {
@@ -1215,12 +1265,14 @@ export default function App({
   })
 
   const upscaleMutation = useMutation({
-    mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${jobId}/upscale`, {
-      method: "POST", headers: { "X-CSRF-Token": csrfToken },
-    }),
-    onSuccess: () => {
+    mutationFn: async ({ jobId, engine }: { jobId: string; engine?: UpscaleEngine }) => api<Job>(
+      `/api/jobs/${jobId}/upscale`,
+      jsonMutation(csrfToken, engine ? { engine } : {}),
+    ),
+    onSuccess: (_job, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["jobs", user.id] })
-      messageApi.success("已提交 2x 超分")
+      messageApi.success(variables.engine === "seedvr2" ? "已提交 SeedVR2 高清增强" : "已提交 2x 超分")
+      void queryClient.invalidateQueries({ queryKey: ["upscale_capabilities"] })
     },
     onError: (error: Error) => messageApi.error(error.message),
   })
@@ -1546,7 +1598,7 @@ export default function App({
   })
   const addPictureTag = (index: number) => {
     const token = `<Picture ${index}>`
-    const input = promptRef.current
+    const input = promptRef.current?.resizableTextArea?.textArea
     const start = input?.selectionStart ?? prompt.length
     const end = input?.selectionEnd ?? prompt.length
     const before = prompt.slice(0, start)
@@ -1554,6 +1606,10 @@ export default function App({
     const padded = `${before && !/\s$/.test(before) ? " " : ""}${token}${after && !/^\s/.test(after) ? " " : ""}`
     setPrompt(`${before}${padded}${after}`)
     requestAnimationFrame(() => { input?.focus(); input?.setSelectionRange(start + padded.length, start + padded.length) })
+  }
+  const applyPromptIdea = (idea: string) => {
+    setPrompt((current) => current.trim() ? `${current.trimEnd()}\n${idea}` : idea)
+    requestAnimationFrame(() => promptRef.current?.focus())
   }
   const returnToComposer = useCallback((focusEditor = false) => {
     restoringComposerRef.current = true
@@ -1903,43 +1959,22 @@ export default function App({
   ]
 
   return (
-    <div className={`${themeMode === "light" ? "studio-light" : "studio-dark"} ${workspaceView === "canvas" ? "studio-canvas-shell" : ""} min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]`}>
+    <div className={`${themeMode === "light" ? "studio-light" : "studio-dark"} ${workspaceView === "canvas" ? "studio-canvas-shell" : ""} ${isCanvasHome ? "studio-canvas-home-shell" : ""} min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]`}>
       {messageContext}
-      <header className={`studio-header fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-black/[0.05] bg-white px-3 sm:px-5 ${workspaceView === "director" ? "studio-header-director" : ""} ${workspaceView === "canvas" ? "studio-header-canvas" : ""}`}>
-        <div className="flex min-w-0 items-center gap-4">
-          <div className="flex items-center gap-2 text-[#171a1f]">
-            {workspaceView === "canvas" ? <svg className="canvas-brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M7 23 19 5M17 30 29 12M24 36 32 24M8 33 12 27" fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" /></svg> : <span className="grid size-7 place-items-center rounded-md border border-[#7655ff] text-[#a28cff]"><Sparkles size={15} /></span>}
-            <span className="hidden text-[15px] font-semibold sm:inline">ZLY AI Studio</span>
-          </div>
-          <span className="h-6 w-px bg-black/[0.08]" />
-          <h1 className="hidden truncate text-base font-medium lg:block">创作工作台</h1>
-        </div>
-        <div className="flex items-center gap-2 text-[#b6b6bf]">
-          <Tooltip title={mediaType === "image" ? healthQuery.data?.grs?.message : undefined}>
-            <span className="studio-provider-status hidden h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs md:flex"><span className={`size-2 rounded-full ${(mediaType === "image" ? healthQuery.data?.grs?.available : healthQuery.data?.comfy.reachable) ? "bg-emerald-400" : "bg-amber-400"}`} />{mediaType === "image" ? "GRS" : "ComfyUI"}{workspaceView === "canvas" ? (healthQuery.data?.comfy?.reachable ? " · 运行中" : " · 未连接") : null}</span>
-          </Tooltip>
-          <ThemeToggle className="studio-header-theme-toggle" showCurrent={workspaceView === "canvas"} />
-          <Popover
-            open={accountOpen}
-            onOpenChange={setAccountOpen}
-            trigger="click"
-            placement="bottomRight"
-            arrow={false}
-            overlayClassName="studio-account-popover"
-            content={<div className="studio-account-menu" role="menu">
-              <div className="studio-account-menu-head"><p className="studio-account-menu-name">{user.display_name}</p><p className="studio-account-menu-username">{user.username}</p></div>
-              <ThemeToggle appearance="menu" />
-              <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); navigate(PATHS.mcp) }} className="studio-account-menu-item"><Link2 size={16} />MCP 连接</button>
-              {onOpenAdmin ? <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); onOpenAdmin() }} className="studio-account-menu-item"><Users size={16} />管理设置</button> : null}
-              <button type="button" role="menuitem" disabled={logoutPending} onClick={onLogout} className="studio-account-menu-item disabled:opacity-40">{logoutPending ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />}退出登录</button>
-            </div>}
-          >
-            <button type="button" title="账号菜单" aria-label={`账号菜单：${user.display_name}`} aria-haspopup="menu" aria-expanded={accountOpen} className={`flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] sm:w-auto sm:gap-2 sm:px-3 ${workspaceView === "canvas" ? "canvas-account-button" : ""}`}>{workspaceView === "canvas" ? <><span className="canvas-account-avatar">{user.display_name.slice(0, 1)}</span><ChevronDown size={14} /></> : <><UserRound size={16} /><span className="hidden max-w-24 truncate text-xs text-[#e1e1e6] sm:inline">{user.display_name}</span></>}</button>
-          </Popover>
-        </div>
-      </header>
+      {profileOpen ? <RenameUserModal target={user} csrfToken={csrfToken} self onClose={() => setProfileOpen(false)} /> : null}
+      <StudioHeader
+        user={user}
+        provider={headerUsesGrs ? "GRS" : "ComfyUI"}
+        providerStatus={healthQuery.isPending ? "checking" : (headerUsesGrs ? healthQuery.data?.grs?.available : healthQuery.data?.comfy?.reachable) ? "online" : "offline"}
+        providerMessage={headerUsesGrs ? healthQuery.data?.grs?.message : undefined}
+        onOpenMcp={() => navigate(PATHS.mcp)}
+        onOpenAdmin={onOpenAdmin}
+        onOpenProfile={() => { setProfileOpen(true) }}
+        onLogout={onLogout}
+        logoutPending={logoutPending}
+      />
 
-      <div className={`studio-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "canvas" ? "studio-canvas-view" : ""} ${directorLegacyStudio ? "studio-director-view" : ""} ${workspaceView === "director" && !directorLegacyStudio ? "studio-director2-view" : ""}`}>
+      <div className={`studio-workspace studio-floating-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "canvas" ? "studio-canvas-view" : ""} ${directorLegacyStudio ? "studio-director-view" : ""} ${workspaceView === "director" && !directorLegacyStudio ? "studio-director2-view" : ""}`}>
         <nav className="studio-mobile-nav" aria-label="工作区导航">
           <NavLink to={lastGeneratePathRef.current} className={() => workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</NavLink>
           <NavLink to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
@@ -1950,10 +1985,11 @@ export default function App({
           <div className="flex flex-col items-center gap-2">
             <NavLink to={lastGeneratePathRef.current} title="生成" aria-label="生成" className={() => `studio-global-nav-item ${workspaceView === "generate" ? "studio-global-nav-item-active" : ""}`}><Sparkles size={19} /><span>生成</span></NavLink>
             <NavLink to={lastDirectorPathRef.current} title="导演台" aria-label="导演台" className={() => `studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><Clapperboard size={19} /><span>导演台</span></NavLink>
-            <NavLink to={PATHS.canvas} title="画布" aria-label="画布" className={() => `studio-global-nav-item ${workspaceView === "canvas" ? "studio-global-nav-item-active" : ""}`}>{workspaceView === "canvas" ? <span className="canvas-nine-dots" aria-hidden="true">{Array.from({ length: 9 }, (_, index) => <i key={index} />)}</span> : <Frame size={19} />}<span>画布</span></NavLink>
+            <NavLink to={PATHS.canvas} title="画布" aria-label="画布" className={() => `studio-global-nav-item ${workspaceView === "canvas" ? "studio-global-nav-item-active" : ""}`}>{isCanvasHome ? <Network size={23} /> : workspaceView === "canvas" ? <span className="canvas-nine-dots" aria-hidden="true">{Array.from({ length: 9 }, (_, index) => <i key={index} />)}</span> : <Frame size={19} />}<span>画布</span></NavLink>
             <NavLink to={PATHS.assets} end title="资产" aria-label="资产" className={() => `studio-global-nav-item ${workspaceView === "assets" ? "studio-global-nav-item-active" : ""}`}><FolderOpen size={19} /><span>资产</span></NavLink>
           </div>
           {workspaceView === "generate" && taskRailCollapsed ? <Tooltip title="展开任务栏" placement="right"><button type="button" title="展开任务栏" aria-label="展开任务栏" onClick={() => setTaskRailCollapsed(false)} className="studio-task-rail-reopen"><PanelLeftOpen size={17} /></button></Tooltip> : null}
+          {isCanvasHome && onOpenAdmin ? <Tooltip title="管理设置" placement="right"><Button type="text" className="canvas-home-nav-settings" aria-label="管理设置" icon={<Settings2 size={22} />} onClick={onOpenAdmin} /></Tooltip> : null}
         </aside>
 
         <aside className={`studio-task-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[240px] flex-col border-r border-black/[0.05] bg-white xl:left-[76px] ${workspaceView === "generate" ? "lg:flex" : "!hidden"}`}>
@@ -1968,12 +2004,12 @@ export default function App({
               : <button type="button" onClick={resetCreation} className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-black/[0.06] bg-white text-sm text-[#27303a] transition hover:bg-[#f5f7f9]"><Pencil size={15} />新对话</button>}
           </div>
           <div className="flex min-h-0 flex-1 flex-col pt-3">
-            <section className="studio-task-section">
+            {(selectedJob || isInspectingOtherUser) && <section className="studio-task-section">
               <p className="studio-task-section-title">当前创作</p>
               {selectedJob
                 ? <div className="px-4 pb-3"><TaskRow job={selectedJob} selected onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} /></div>
                 : <p className="px-4 pb-3 text-xs text-[#98a2ad]">{isInspectingOtherUser ? "从最近任务中选择一条查看" : "新对话会从这里开始"}</p>}
-            </section>
+            </section>}
             <TaskRailHistory jobs={jobs} selectedJobId={selectedJob?.id} mediaType={mediaType} onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} />
           </div>
         </aside>
@@ -1993,12 +2029,12 @@ export default function App({
         </section>}
 
         <main className={directorLegacyStudio
-          ? "director-workspace-main relative flex !h-screen !max-h-screen !min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
+          ? "director-workspace-main relative flex !h-full !max-h-full !min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "director"
           ? "director2-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "canvas"
           ? "canvas-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
-          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""}`
+          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
         }>
           {directorLegacyStudio ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 导演台...</div>}>
@@ -2293,7 +2329,7 @@ export default function App({
             </>
             )}
           </section> : <>
-          {!selectedJob && <div className="relative z-10 mb-[112px] pt-12 text-center xl:mb-[130px]">{selectedJobLoading ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在加载任务…</h2><p className="mt-3 text-base text-[#65707c]">正在读取任务详情</p></> : selectedJobMissing ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">任务不存在或已删除</h2><p className="mt-3 text-base text-[#65707c]">{jobDetailQuery.error?.message ? `${jobDetailQuery.error.message}，请从左侧重新选择任务。` : "请从左侧重新选择任务，或直接开始新的创作。"}</p></> : isInspectingOtherUser ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在查看 {inspectedUserLabel} 的任务</h2><p className="mt-3 text-base text-[#65707c]">从左侧选择一条生成任务查看详情</p></> : <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">今天想创作什么？</h2><p className="mt-3 text-base text-[#65707c]">输入想法，AI 帮你实现创意</p></>}</div>}
+          {!selectedJob && <div className={`relative z-10 text-center ${isGenerationHome ? "studio-home-heading" : "mb-12 pt-12"}`}>{selectedJobLoading ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在加载任务…</h2><p className="mt-3 text-base text-[#65707c]">正在读取任务详情</p></> : selectedJobMissing ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">任务不存在或已删除</h2><p className="mt-3 text-base text-[#65707c]">{jobDetailQuery.error?.message ? `${jobDetailQuery.error.message}，请从左侧重新选择任务。` : "请从左侧重新选择任务，或直接开始新的创作。"}</p></> : isInspectingOtherUser ? <><h2 className="text-3xl font-semibold tracking-normal text-[#171a1f] sm:text-4xl">正在查看 {inspectedUserLabel} 的任务</h2><p className="mt-3 text-base text-[#65707c]">从左侧选择一条生成任务查看详情</p></> : <h1>{mediaType === "image" ? "今天，想画点什么？" : "今天，想拍点什么？"}</h1>}</div>}
 
           {selectedJob && <section className="studio-task-stream relative z-10 mb-8" aria-label="任务详情">
             {selectedJob.rounds.map((round) => {
@@ -2306,14 +2342,30 @@ export default function App({
               const canCancelRound = round.status === "queued" || round.status === "running" || round.status === "awaiting_refine" || round.status === "interrupted"
               const canRefineRound = round.status === "awaiting_refine"
               const relatedUpscale = activeUpscaleJob(allJobs, selectedJob.id)
-              const showUpscale = mediaType === "video" && !isRtxVsrJob(selectedJob) && hasOriginalVideo(selectedJob) && !isInspectingOtherUser
+              const showUpscale = mediaType === "video" && !isUpscaleJob(selectedJob) && hasOriginalVideo(selectedJob) && !isInspectingOtherUser
               const failedItems = round.generation_items.filter((item) => item.status === "failed" || item.status === "interrupted" || item.status === "cancelled")
               const cover = roundResults[0]?.output
               const roundDisplayPrompt = round.display_prompt?.trim()
               const roundPromptShownInEnglish = roundPromptLanguage[round.id] === "en" || !roundDisplayPrompt
               const roundPromptText = roundPromptShownInEnglish ? round.prompt : roundDisplayPrompt
-              return <article key={round.id} className="studio-round">
-                <header className="studio-round-header flex min-w-0 gap-3">
+              const featuredVideo = selectVideoResult(roundResults, videoVersionByRound[round.id])
+              const isUpscaleSource = featuredVideo != null && videoResultKey(featuredVideo) === jobUpscaleSourceKey(selectedJob)
+              return <article key={round.id} className={`studio-round ${mediaType === "video" ? "studio-video-round" : ""}`}>
+                {mediaType === "video" ? <VideoRoundHeader
+                  roundId={round.id} sequence={round.sequence} prompt={roundPromptText || ""}
+                  expanded={isSelectedPromptExpanded} onExpand={() => setIsSelectedPromptExpanded((expanded) => !expanded)}
+                  language={roundDisplayPrompt && roundDisplayPrompt !== round.prompt ? (roundPromptShownInEnglish ? "en" : "zh") : undefined}
+                  onLanguageChange={() => setRoundPromptLanguage((current) => ({ ...current, [round.id]: roundPromptShownInEnglish ? "zh" : "en" }))}
+                  references={round.references} modelName={modesQuery.data?.modes.find((mode) => mode.id === round.mode)?.name || round.mode}
+                  status={round.status} statusLabel={statusText[round.status]} stage={round.stage}
+                  parameters={round.request_parameters} formatParameter={parameterValue}
+                  elapsed={<RoundWait source={{ created_at: round.created_at || selectedJob.created_at, finished_at: round.finished_at, elapsed_ms: round.elapsed_ms, execution_elapsed_ms: round.execution_elapsed_ms, status: round.status }} />}
+                  results={roundResults} selected={featuredVideo}
+                  onSelect={(key) => setVideoVersionByRound((current) => ({ ...current, [round.id]: key }))}
+                  detailsOpen={videoRoundDetails?.id === round.id} runtimeExpanded={videoRoundDetails?.id === round.id && videoRoundDetails.runtime}
+                  onDetailsChange={(open, runtime) => setVideoRoundDetails(open ? { id: round.id, runtime } : null)}
+                  onReferencePreview={(index, url) => setPreviewMedia({ kind: "image", src: url, title: `参考图 ${index}` })}
+                /> : <header className="studio-round-header flex min-w-0 gap-3">
                   <div className="studio-round-cover grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-[#f2f4f6] text-[#7c8794]">
                     {cover ? <MediaTile item={cover} allowSameOriginVideo={false} /> : round.references[0] ? <img src={round.references[0].url} alt="任务参考图" className="h-full w-full object-cover" loading="lazy" /> : <Clapperboard size={18} />}
                   </div>
@@ -2344,9 +2396,11 @@ export default function App({
                     </p>
                     {round.error ? <div className="studio-round-error mt-1"><JobErrorNotice error={round.error} hideSummary /></div> : null}
                   </div>
-                </header>
+                </header>}
+                {mediaType === "video" && ["queued", "running", "awaiting_refine", "interrupted"].includes(round.status) ? <p className="studio-video-live-stage" role="status">{round.stage}</p> : null}
+                {mediaType === "video" && round.error ? <div className="studio-round-error"><JobErrorNotice error={round.error} /></div> : null}
 
-                {(creativeParameters.length > 0 || runtimeParameters.length > 0) && <details className="studio-round-details">
+                {mediaType !== "video" && (creativeParameters.length > 0 || runtimeParameters.length > 0) && <details className="studio-round-details">
                   <summary>任务详情</summary>
                   <dl className="studio-round-parameter-list">
                     {creativeParameters.map((parameter) => <div key={parameter.name}><dt>{parameter.label}</dt><dd>{parameterValue(parameter)}</dd></div>)}
@@ -2354,7 +2408,7 @@ export default function App({
                   </dl>
                 </details>}
 
-                {round.references.length > 0 && <div className="studio-round-references">{round.references.map((reference) => <button key={reference.index} type="button" onClick={() => setPreviewMedia({ kind: "image", src: reference.url, title: `参考图 ${reference.index}` })} className="group relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border border-black/[0.08] bg-[#f2f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/40">
+                {mediaType !== "video" && round.references.length > 0 && <div className="studio-round-references">{round.references.map((reference) => <button key={reference.index} type="button" onClick={() => setPreviewMedia({ kind: "image", src: reference.url, title: `参考图 ${reference.index}` })} className="group relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border border-black/[0.08] bg-[#f2f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d6bfe]/40">
                   <img src={reference.url} alt={`参考图 ${reference.index}`} className="h-full w-full object-cover transition duration-200 group-hover:scale-105" />
                   <span className="studio-reference-thumb-label absolute inset-x-0 bottom-0 px-1.5 py-1 text-left text-[10px]">参考图 {reference.index}</span>
                 </button>)}</div>}
@@ -2377,7 +2431,33 @@ export default function App({
                 </div>}
 
                 {roundResults.length > 0 && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
-                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} onDownload={(result) => downloadOutput(selectedJob, result.outputIndex, result.output)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false} results={roundResults as VideoResult[]} roundCount={1} aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)} upscale={showUpscale ? { disabled: !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending, pending: upscaleMutation.isPending || Boolean(relatedUpscale), hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || "用本机 RTX 放大到 2 倍，原片保留", onClick: () => upscaleMutation.mutate(selectedJob.id) } : undefined} upscaleStage={relatedUpscale?.stage} onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} onDownload={(result) => downloadOutput(allJobs.find((item) => item.id === result.jobId) ?? selectedJob, result.outputIndex, result.output)} />}
+                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} onDownload={(result) => downloadOutput(selectedJob, result.outputIndex, result.output)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => result.src && setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })} /> : <VideoStudioModule embedded showHeading={false}
+                    results={featuredVideo ? [featuredVideo] : []} roundCount={1}
+                    aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)}
+                    upscale={showUpscale ? {
+                      disabled: !isUpscaleSource || !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending,
+                      pending: upscaleMutation.isPending || Boolean(relatedUpscale),
+                      hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || (!isUpscaleSource ? "超分使用此任务的最新原片，请切换到对应原片版本" : "把此原片放大 2 倍，原片保留"),
+                      engines: upscaleEngines,
+                      onClick: (engine) => upscaleMutation.mutate({ jobId: selectedJob.id, engine }),
+                    } : undefined}
+                    upscaleStage={relatedUpscale?.stage}
+                    onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })}
+                    onDownload={(result) => downloadOutput(allJobs.find((item) => item.id === result.jobId) ?? selectedJob, result.outputIndex, result.output)}
+                    onAddToCanvas={isInspectingOtherUser ? undefined : (result) => setCanvasInsertAsset({
+                      jobId: result.jobId ?? selectedJob.id, generationItemId: result.generationItemId,
+                      outputIndex: result.outputIndex, label: result.output.label,
+                    })}
+                    onExportJianying={(result) => {
+                      setJianyingSelectedItems([{
+                        id: videoResultKey(result), title: result.output.label, kind: "video", path: result.output.path,
+                        url: result.output.download_url ?? result.output.cloud_url ?? result.src ?? mediaUrl(result.output.path),
+                      }])
+                      setJianyingModalOpen(true)
+                    }}
+                    onShowRuntime={() => setVideoRoundDetails({ id: round.id, runtime: true })}
+                    onDeleteTask={() => confirmDelete(selectedJob)}
+                  />}
                 </Suspense>}
 
                 {failedItems.length > 0 && mediaType === "image" && <ul className="mt-3 space-y-2 text-xs leading-5 text-red-600">
@@ -2409,6 +2489,7 @@ export default function App({
           {!isInspectingOtherUser && isComposerCompact && <button type="button" onClick={() => returnToComposer()} className="studio-return-bottom" title="回到底部"><span>回到底部</span><ChevronDown size={15} /></button>}
           {!isInspectingOtherUser && <form
             id="studio-composer"
+            data-media-type={mediaType}
             onSubmit={submit}
             onDragOver={(event) => {
               if (!event.dataTransfer.types.includes("Files")) return
@@ -2421,9 +2502,9 @@ export default function App({
               event.preventDefault()
               appendFiles(event.dataTransfer.files)
             }}
-            className={`studio-composer-form relative z-20 mx-auto max-w-[1080px] border border-black/[0.05] bg-white p-4 shadow-[0_16px_36px_rgba(22,31,44,0.10)] sm:rounded-[24px] sm:p-5 lg:sticky lg:bottom-5 ${isComposerCompact ? "studio-composer-collapsed" : ""}`}
+            className={`studio-composer-form relative z-20 mx-auto max-w-[1080px] border border-black/[0.05] bg-white p-4 shadow-[0_16px_36px_rgba(22,31,44,0.10)] sm:rounded-[24px] sm:p-5 lg:sticky lg:bottom-5 ${!selectedJob ? "studio-composer-inline" : ""} ${isComposerCompact ? "studio-composer-collapsed" : ""}`}
           >
-            <div className="absolute -top-8 right-7 flex max-w-[calc(100%-56px)] items-center gap-1.5 text-sm text-[#babac3]">
+            <div className="studio-composer-service-meta absolute -top-8 right-7 flex max-w-[calc(100%-56px)] items-center gap-1.5 text-sm text-[#babac3]">
               <span className="studio-ai-badge grid size-5 shrink-0 place-items-center rounded-full bg-[#7046df] text-[10px] font-semibold text-white">AI</span>
               {mediaType === "image" ? <>
                 <span className="whitespace-nowrap">GRS 云端生图</span>
@@ -2440,12 +2521,15 @@ export default function App({
               <ReferencePanel workflow={workflow} references={references} onAppend={appendFiles} onReplaceKeyframe={replaceKeyframe} onRemove={removeReference} onMove={moveReference} onPreview={openReferencePreview} fileInputRef={fileInputRef} />
               <div className="studio-composer-editor min-w-0 pt-1">
                 <div className="studio-composer-editor-meta mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <div className="studio-composer-workflow-meta flex min-w-0 flex-wrap items-center gap-1.5">
                     <span className="truncate text-xs text-[#aaaab4]">{workflow?.name || "正在加载工作流"}</span>
                     {referenceHint ? <span className="studio-composer-hint">{referenceHint}</span> : null}
                     {reusableOptimized && mediaType === "video" ? <span className="studio-composer-hint">中文预览 · 生成用英文</span> : null}
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <Dropdown trigger={["click"]} menu={{ items: promptIdeas.map(({ label, icon: Icon, prompt: ideaPrompt }) => ({ key: label, label, icon: <Icon size={14} />, onClick: () => applyPromptIdea(ideaPrompt) })) }}>
+                      <Button type="text" size="small" className="studio-prompt-tool" title="提示词灵感">灵感</Button>
+                    </Dropdown>
                     <Tooltip title={optimizeToggleTooltip}>
                       <span className={`studio-prompt-optimize ${autoOptimizeActive ? "is-on" : ""}`}>
                         <Sparkles size={12} aria-hidden />
@@ -2531,7 +2615,8 @@ export default function App({
                     ) : null}
                   </div>
                 </div>
-                <textarea
+                <Input.TextArea
+                  aria-label="创作提示词"
                   ref={promptRef}
                   value={prompt}
                   onFocus={() => { if (isComposerCompact) returnToComposer(true) }}
@@ -2548,9 +2633,10 @@ export default function App({
                       if (canSubmit) void submitTask()
                     }
                   }}
-                  placeholder={workflow?.description || "描述镜头、动作、运镜、音效和氛围"}
+                  placeholder={isGenerationHome ? (workflow?.reference_mode === "none" ? "描述画面、动作和运镜，让想法成为下一帧…" : "描述一个画面，或上传参考图开始创作…") : workflow?.description || "描述镜头、动作、运镜、音效和氛围"}
                   className="studio-prompt-input h-[106px] w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 text-[#d7d7dc] outline-none placeholder:text-[#777780]"
                 />
+                {isGenerationHome && workflow?.reference_mode !== "none" && !prompt.trim() && <p className="studio-home-upload-hint">支持粘贴图片，或拖入参考图</p>}
                 {workflow?.reference_mode === "collection" && references.length > 0 && <div className="studio-picture-tags mt-2 flex flex-wrap gap-1.5">{references.map((asset, index) => <button key={asset.id} type="button" onClick={() => addPictureTag(index + 1)} className="rounded-md border border-[#7047ff]/40 bg-[#7047ff]/10 px-2 py-1 text-[11px] text-[#b5a4ff] hover:bg-[#7047ff]/20">&lt;Picture {index + 1}&gt;</button>)}</div>}
               </div>
             </div>
@@ -2576,11 +2662,12 @@ export default function App({
                   onChange={(optionName, value) => setOptionValues((current) => ({ ...current, [optionName]: value }))}
                 />)}
                 {workflow?.accepts_image_size && <div className="studio-control-shell flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[172px]"><Maximize2 size={16} className="shrink-0 text-[#947dff]" /><Select aria-label="选择图片尺寸" value={imageSize} onChange={(value) => setImageSize(String(value))} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup" options={(modesQuery.data?.image_sizes ?? []).map((size) => ({ value: size, label: size }))} /></div>}
-                {advancedOptionDefinitions.length > 0 && <button type="button" aria-expanded={advancedOptionsOpen} onClick={() => setAdvancedOptionsOpen((open) => !open)} className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-sm text-[#d8d8df] transition hover:bg-[#29292f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7047ff]/45"><SlidersHorizontal size={16} className="text-[#947dff]" />更多设置</button>}
+                {advancedOptionDefinitions.length > 0 && <Button aria-expanded={advancedOptionsOpen} onClick={() => setAdvancedOptionsOpen((open) => !open)} className="studio-more-settings flex h-10 items-center justify-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-sm text-[#d8d8df] transition hover:bg-[#29292f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7047ff]/45"><SlidersHorizontal size={16} className="text-[#947dff]" />更多设置</Button>}
               </div>
               <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : undefined}>
-                <button type="submit" disabled={!canSubmit} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7047f6] px-5 text-sm text-white shadow-[0_8px_24px_rgba(83,48,190,0.26)] hover:bg-[#7c58f8] disabled:cursor-not-allowed disabled:bg-[#55555c] disabled:text-[#bdbdc4] lg:w-[154px]">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"}</button>
+                <Button htmlType="submit" type="primary" disabled={!canSubmit} className="studio-generate-submit flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-sm lg:w-[154px]">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"}</Button>
               </Tooltip>
+              {isGenerationHome && <span className="studio-home-submit-shortcut" aria-hidden>Ctrl + Enter</span>}
             </div>
             {refineHint ? (
               <p className="mt-3 text-xs leading-5 text-[#b9b6c9]">
@@ -2614,6 +2701,13 @@ export default function App({
             {mediaType === "video" && workflow?.reference_mode === "collection" && references.length > 3 && <p className="mt-3 text-xs text-amber-200">较多参考图会显著增加显存和耗时，建议先使用 1K 预览。</p>}
             {createMutation.isError && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-200">{createMutation.error.message}</p>}
           </form>}
+
+          {isGenerationHome && <GenerationHomeSections
+            jobs={allJobs} loading={jobsQuery.isLoading} error={jobsQuery.error?.message}
+            onRetry={() => void jobsQuery.refetch()}
+            onOpen={(jobId) => { const job = allJobs.find((item) => item.id === jobId); if (job) openGenerateJob(job) }}
+            onImageCreate={() => { switchMedia("image"); requestAnimationFrame(() => promptRef.current?.focus()) }}
+          />}
 
           <Modal
             open={englishPromptOpen && Boolean(reusableOptimized)}

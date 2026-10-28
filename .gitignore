@@ -182,4 +182,5 @@ backend/tests/test_*.py
 !backend/tests/test_canvas_store.py
 !backend/tests/test_media_studio_schema.py
 !backend/tests/test_zhipu_provider.py
+!backend/tests/test_accounts.py
 scripts/action_previs_worker/vendor/

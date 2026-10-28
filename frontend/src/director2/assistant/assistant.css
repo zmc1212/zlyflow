@@ -34,6 +34,10 @@
 .director-assistant-drawer .ant-drawer-header { background: var(--director-surface); border-bottom: 1px solid var(--director-line); }
 .director-assistant-drawer .ant-drawer-title, .director-assistant-drawer .ant-drawer-close { color: var(--director-ink); }
 .director-assistant-drawer .ant-drawer-extra .ant-btn { color: var(--director-ink-2); }
+/* The assistant panel docks below the shared floating header instead of covering it. */
+@media (min-width: 768px) {
+  .director-assistant-drawer .ant-drawer-content-wrapper { top: 76px; height: calc(100vh - 76px) !important; }
+}
 .assistant-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
 .assistant-workspace { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 13px; background: var(--director-surface); }
 .assistant-project-link { display: flex; align-items: center; gap: 7px; padding: 8px 16px; min-height: 34px; color: var(--director-ink-2); border-bottom: 1px solid var(--director-line); font-size: 11.5px; }

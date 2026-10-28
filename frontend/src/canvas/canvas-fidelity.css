@@ -32,28 +32,15 @@
 }
 
 .studio-canvas-shell { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; color: var(--canvas-ink); }
-.studio-canvas-shell .studio-header-canvas { height: 60px; padding: 0 24px 0 20px; background: var(--studio-surface); border-color: var(--canvas-ui-border); }
-.studio-header-canvas > div:first-child > span,
-.studio-header-canvas h1 { display: none; }
-.studio-header-canvas > div:first-child > div { gap: 11px; }
-.studio-header-canvas > div:first-child > div > span { font-size: 20px; font-weight: 700; color: var(--canvas-ink); }
-.studio-header-canvas > div:first-child > div > span { font-family: Arial, sans-serif; }
-.canvas-brand-mark { width: 36px; height: 37px; color: var(--studio-primary); }
-.studio-header-canvas > div:last-child { gap: 14px; }
-.studio-header-canvas .studio-provider-status { height: 36px; border: 0; background: transparent; padding: 0; font-size: 13px; color: var(--canvas-secondary); }
-.studio-header-canvas .studio-header-theme-toggle { width: 46px; height: 32px; padding: 0 10px; border: 0; border-left: 1px solid var(--canvas-ui-border); border-right: 1px solid var(--canvas-ui-border); border-radius: 0; background: transparent; color: var(--canvas-ink); }
-.studio-header-canvas .studio-header-theme-toggle svg { width: 23px; height: 23px; stroke-width: 1.6; }
-.studio-header-canvas .canvas-account-button { width: 72px; padding: 0; gap: 12px; border: 0; background: transparent; color: var(--canvas-ink); }
-.canvas-account-avatar { display: grid; width: 37px; height: 37px; place-items: center; border-radius: 50%; background: var(--studio-primary-soft); color: var(--studio-accent-text); font-size: 14px; }
-.studio-canvas-shell .studio-icon-rail { top: 60px; width: 86px; padding-top: 11px; background: var(--studio-surface); border-color: var(--canvas-ui-border); }
+.studio-canvas-shell .studio-icon-rail { top: 76px; width: 86px; padding-top: 11px; background: var(--studio-surface); border-color: var(--canvas-ui-border); }
 .studio-canvas-shell .studio-icon-rail > div { gap: 4px; }
 .studio-canvas-shell .studio-global-nav-item { width: 72px; height: 76px; gap: 7px; border-radius: 9px; color: var(--canvas-ink); font-size: 14px; }
 .studio-canvas-shell .studio-global-nav-item svg { width: 24px; height: 24px; stroke-width: 1.65; }
 .studio-canvas-shell .studio-global-nav-item-active { background: var(--studio-primary-soft); color: var(--studio-accent-text); }
 .canvas-nine-dots { display: grid; grid-template-columns: repeat(3, 5px); gap: 3px; width: 21px; height: 21px; }
 .canvas-nine-dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.studio-canvas-shell .studio-workspace.studio-canvas-view { height: calc(100vh - 60px); max-height: calc(100vh - 60px); margin-top: 60px; padding-left: 86px; }
-.studio-canvas-shell .studio-canvas-view > main.canvas-workspace-main { height: calc(100vh - 60px) !important; max-height: calc(100vh - 60px) !important; }
+.studio-canvas-shell .studio-workspace.studio-canvas-view { height: calc(100vh - 76px); max-height: calc(100vh - 76px); margin-top: 76px; padding-left: 86px; }
+.studio-canvas-shell .studio-canvas-view > main.canvas-workspace-main { height: calc(100vh - 76px) !important; max-height: calc(100vh - 76px) !important; }
 .canvas-editor-workspace { background: var(--canvas-stage); color: var(--canvas-ink); }
 .canvas-stage { background: var(--canvas-stage); }
 .canvas-editor-header { height: 64px; gap: 8px; padding: 0 16px 0 14px; border-color: var(--canvas-ui-border); }

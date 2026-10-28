@@ -34,6 +34,7 @@ import {
   shotVideoReadyCount,
   timelineVideoWorkflows,
   videoOptionVisible,
+  videoResolutionQuality,
   videoSettingsSummary,
   videoWorkflowRenderLabel,
   visibleVideoOptionFields,
@@ -57,7 +58,7 @@ function directorAccelMode(): Director2WorkflowMode {
         properties: {
           aspect_ratio: { label: "画面比例", type: "string", default: "16:9", ui_group: "primary", ui_options: [{ value: "16:9", label: "16:9 横屏" }] },
           duration: { label: "时长", type: "number", default: 5, ui_group: "primary" },
-          weight_profile: { label: "模型体积", type: "string", default: "pruned", ui_group: "primary", ui_options: [{ value: "pruned", label: "精简（20 GB）" }], ui_visible_when: { refine_enabled: false } },
+          weight_profile: { label: "模型体积", type: "string", default: "full", ui_group: "primary", ui_options: [{ value: "full", label: "完整（32 GB）" }, { value: "pruned", label: "精简（20 GB）" }], ui_visible_when: { refine_enabled: false } },
           quality: {
             label: "分辨率", type: "string", default: "0.4", ui_group: "advanced",
             megapixels_by_quality: { "0.4": 0.4, "1.0": 1.0 },
@@ -95,7 +96,7 @@ describe("director2 video settings", () => {
     ])
     expect(defaultVideoOptionValues(fields)).toEqual({
       aspect_ratio: "16:9",
-      weight_profile: "pruned",
+      weight_profile: "full",
       quality: "0.4",
       speed: "balanced",
       refine_enabled: "false",
@@ -141,7 +142,7 @@ describe("director2 video settings", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     expect(sanitizeVideoOptionValues(fields, { quality: "0.2", speed: "fast", refine_preview: "yes" })).toEqual({
       aspect_ratio: "16:9",
-      weight_profile: "pruned",
+      weight_profile: "full",
       quality: "0.4",
       speed: "balanced",
       refine_enabled: "false",
@@ -169,11 +170,11 @@ describe("director2 video settings", () => {
   it("summarizes and serializes job options without duration", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     const values = defaultVideoOptionValues(fields)
-    expect(videoSettingsSummary(fields, values)).toBe("16:9 · 0.4 MP · 精简")
+    expect(videoSettingsSummary(fields, values)).toBe("16:9 · 0.4 MP · 完整")
     expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, values, { duration_per_beat: 8 })).toEqual({
       workflow: DIRECTOR2_DEFAULT_VIDEO_WORKFLOW,
       aspect_ratio: "16:9",
-      weight_profile: "pruned",
+      weight_profile: "full",
       quality: "0.4",
       speed: "balanced",
       refine_enabled: false,
@@ -387,6 +388,14 @@ describe("director2 video settings", () => {
     expect(jobRefineShotCount({ payload: { render_scope: "shot", beat_id: "beat-1" } })).toBe(1)
     expect(jobRefineShotCount({ payload: { beat_ids: ["beat-1", "beat-1", "beat-2"] } })).toBe(2)
     expect(jobRefineShotCount(null)).toBe(0)
+  })
+
+  it("maps a confirmed project resolution to the locked quality presets", () => {
+    expect(videoResolutionQuality("768p")).toBe("0.98")
+    expect(videoResolutionQuality("768P", true)).toBe("1.0")
+    expect(videoResolutionQuality("2k")).toBe("2.0")
+    expect(videoResolutionQuality("2K", true)).toBe("2.0")
+    expect(videoResolutionQuality("")).toBeUndefined()
   })
 })
 

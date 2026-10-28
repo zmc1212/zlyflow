@@ -1,166 +1,271 @@
-import { Button, Tooltip } from "antd"
-import { Download, HardDrive, Maximize2 } from "lucide-react"
-import { useEffect, useMemo, useState, type CSSProperties } from "react"
+import { Button, ConfigProvider, Dropdown, Slider, Tooltip, message } from "antd"
+import { ChevronDown, Clapperboard, Download, FileSliders, Frame, HardDrive, LoaderCircle, Maximize2, MoreHorizontal, Pause, Play, Trash2, Volume2, VolumeX, WandSparkles } from "lucide-react"
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react"
 import { mediaAspectVars, parseMediaAspect, type MediaAspectSize } from "../lib/utils"
-import { UPSCALE_OUTPUT_LABEL, isUpscaleOutput } from "../video-upscale"
+import { cloudThumbnailSrc } from "../media-thumbnails"
+import { isUpscaleOutput } from "../video-upscale"
+import { formatVideoTime, videoResultKey, type VideoResult } from "./video-result-model"
+import "./video-results.css"
 
-type Output = {
-  kind: "image" | "video"; path: string; label: string
-  delivery_status?: "pending" | "local" | "cloud" | "expired"
-  download_url?: string | null
-  cloud_url?: string | null
-}
+export type { VideoResult } from "./video-result-model"
 
-export type VideoResult = {
-  generationItemId: string
-  outputIndex: number
-  output: Output
-  src?: string
-  jobId?: string
+export type VideoUpscaleEngine = {
+  id: "rtx" | "seedvr2"; label: string; hint?: string; disabled?: boolean
 }
 
 export type VideoUpscaleAction = {
-  disabled: boolean
-  pending?: boolean
-  hint?: string
-  onClick: () => void
+  disabled: boolean; pending?: boolean; hint?: string; engines?: VideoUpscaleEngine[]
+  onClick: (engine?: "rtx" | "seedvr2") => void
 }
 
-function deliveryLabel(status: Output["delivery_status"]): { text: string; tone: string } {
-  if (status === "expired") return { text: "云端文件已过期", tone: "text-amber-200" }
-  if (status === "local") return { text: "已保存到员工电脑", tone: "text-emerald-300" }
-  if (status === "pending") return { text: "可下载", tone: "text-amber-200" }
-  return { text: "已存入云端", tone: "text-emerald-300" }
-}
-
-function VideoResultCard({
-  result, onDownload, onPreview, aspectRatio, upscale,
-}: {
-  result: VideoResult
+type ResultActions = {
   onDownload: (result: VideoResult) => void
   onPreview?: (result: VideoResult) => void
-  aspectRatio?: string
-  upscale?: VideoUpscaleAction
+  onAddToCanvas?: (result: VideoResult) => void
+  onExportJianying?: (result: VideoResult) => void
+  onShowRuntime?: () => void
+  onDeleteTask?: () => void
+}
+
+const videoSeekTheme = {
+  components: {
+    Slider: { handleSize: 6, handleSizeHover: 6, handleActiveOutlineColor: "transparent" },
+  },
+}
+
+function VideoResultCard({ result, aspectRatio, upscale, ...actions }: ResultActions & {
+  result: VideoResult; aspectRatio?: string; upscale?: VideoUpscaleAction
 }) {
   const hint = useMemo(() => parseMediaAspect(aspectRatio), [aspectRatio])
   const [measured, setMeasured] = useState<MediaAspectSize>()
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [playing, setPlaying] = useState(false)
+  const [muted, setMuted] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [upscaleMenuOpen, setUpscaleMenuOpen] = useState(false)
+  const [playError, setPlayError] = useState(false)
+  const [seekEngaged, setSeekEngaged] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const mediaRef = useRef<HTMLDivElement>(null)
+  const moreRef = useRef<HTMLButtonElement>(null)
+  const seekAreaRef = useRef<HTMLDivElement>(null)
+  const seekPointerDownRef = useRef(false)
+  const menuId = useId()
+  const [messageApi, messageHolder] = message.useMessage()
   const aspect = measured || hint
-  const orientation = aspect && aspect.height > aspect.width ? "portrait" : "landscape"
-  const delivery = deliveryLabel(result.output.delivery_status)
+  const portrait = aspect && aspect.height > aspect.width
+  const available = Boolean(result.src) && result.output.delivery_status !== "expired"
+  const unavailableReason = result.output.delivery_status === "expired" ? "云端文件已过期" : "视频暂不可用"
+  const canDownload = available && Boolean(result.output.download_url || result.output.cloud_url)
 
   useEffect(() => {
-    setMeasured(undefined)
+    const video = videoRef.current
+    const syncMetadata = () => {
+      if (!video || video.readyState < 1) return
+      if (video.videoWidth > 0 && video.videoHeight > 0) setMeasured({ width: video.videoWidth, height: video.videoHeight })
+      setDuration(Number.isFinite(video.duration) ? video.duration : 0)
+    }
+    // A cached video can finish loading metadata before React attaches its
+    // handlers, which would leave the timeline stuck at 00:00.
+    syncMetadata()
+    video?.addEventListener("durationchange", syncMetadata)
+    return () => { video?.removeEventListener("durationchange", syncMetadata); video?.pause() }
   }, [result.src])
 
-  return (
-    <article className={`studio-video-result-card overflow-hidden rounded-xl border border-white/[0.1] bg-[#202127] is-${orientation}`}>
-      <div className="studio-video-result-media group relative bg-[#17181e]" style={mediaAspectVars(aspect) as CSSProperties}>
-        {result.src ? onPreview ? (
-          <button type="button" onClick={() => onPreview(result)} title="预览视频" className="h-full w-full cursor-zoom-in">
-            <video
-              className="h-full w-full object-contain"
-              muted
-              playsInline
-              preload="metadata"
-              src={result.src}
-              onLoadedMetadata={(event) => {
-                const { videoWidth, videoHeight } = event.currentTarget
-                if (videoWidth > 0 && videoHeight > 0) setMeasured({ width: videoWidth, height: videoHeight })
-              }}
-            />
-          </button>
-        ) : (
-          <video
-            className="h-full w-full object-contain"
-            controls
-            playsInline
-            preload="metadata"
-            src={result.src}
-            onLoadedMetadata={(event) => {
-              const { videoWidth, videoHeight } = event.currentTarget
-              if (videoWidth > 0 && videoHeight > 0) setMeasured({ width: videoWidth, height: videoHeight })
-            }}
-          />
-        ) : <div className="grid h-full place-items-center text-[#777781]"><HardDrive size={20} /></div>}
-        {result.src && onPreview ? <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/25 group-hover:opacity-100"><Maximize2 size={20} /></span> : null}
+  useEffect(() => {
+    if (!menuOpen) return
+    // Focusing a portal before it is positioned can scroll the entire feed.
+    const frame = requestAnimationFrame(() => document.getElementById(menuId)?.focus({ preventScroll: true }))
+    return () => cancelAnimationFrame(frame)
+  }, [menuId, menuOpen])
+
+  useEffect(() => {
+    const media = mediaRef.current
+    const enterPreview = () => {
+      setSeekEngaged(false)
+      const video = videoRef.current
+      if (video?.paused) {
+        // Hover previews are best-effort; browsers can block audible autoplay.
+        void video.play().catch(() => {})
+      }
+    }
+    const leavePreview = () => {
+      videoRef.current?.pause()
+      setSeekEngaged(false)
+    }
+    const finishSeek = () => {
+      if (!seekPointerDownRef.current) return
+      seekPointerDownRef.current = false
+      if (!seekAreaRef.current?.matches(":hover")) setSeekEngaged(false)
+    }
+    const cancelSeek = () => {
+      seekPointerDownRef.current = false
+      setSeekEngaged(false)
+    }
+    // Native mouse events follow the visible container boundary, including when
+    // the pointer enters a Dropdown portal rendered outside that boundary.
+    media?.addEventListener("mouseenter", enterPreview)
+    media?.addEventListener("mouseleave", leavePreview)
+    if (media?.matches(":hover")) enterPreview()
+    window.addEventListener("pointerup", finishSeek)
+    window.addEventListener("pointercancel", cancelSeek)
+    return () => {
+      media?.removeEventListener("mouseenter", enterPreview)
+      media?.removeEventListener("mouseleave", leavePreview)
+      window.removeEventListener("pointerup", finishSeek)
+      window.removeEventListener("pointercancel", cancelSeek)
+    }
+  }, [])
+
+  const togglePlayback = async () => {
+    const video = videoRef.current
+    if (!video || !available) return
+    if (!video.paused) { video.pause(); return }
+    try { await video.play() }
+    catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return
+      void messageApi.error("视频暂时无法播放，请重新加载或下载查看")
+    }
+  }
+
+  const fullscreen = async () => {
+    try {
+      if (document.fullscreenElement === mediaRef.current) await document.exitFullscreen()
+      else if (mediaRef.current?.requestFullscreen) await mediaRef.current.requestFullscreen()
+      else actions.onPreview?.(result)
+    } catch { actions.onPreview?.(result) }
+  }
+
+  const moreItems = [
+    ...(actions.onAddToCanvas ? [{ key: "canvas", label: "加入画布", icon: <Frame size={16} />, disabled: !available }] : []),
+    ...(actions.onExportJianying ? [{ key: "jianying", label: "导出剪映", icon: <Clapperboard size={16} />, disabled: !available }] : []),
+    ...(actions.onShowRuntime ? [{ key: "runtime", label: "查看运行参数", icon: <FileSliders size={16} /> }] : []),
+    ...(actions.onDeleteTask ? [{ type: "divider" as const }, { key: "delete", label: "删除任务", icon: <Trash2 size={16} />, danger: true }] : []),
+  ]
+
+  return <article className={`studio-video-result-card ${portrait ? "is-portrait" : "is-landscape"} ${menuOpen || upscaleMenuOpen ? "is-menu-open" : ""}`} style={mediaAspectVars(aspect) as CSSProperties}>
+    {messageHolder}
+    <div ref={mediaRef} className="studio-video-result-media">
+      {available ? <video ref={videoRef} className="studio-video-player" src={result.src}
+        poster={cloudThumbnailSrc("video", result.output.cloud_url) ?? undefined}
+        muted={muted} playsInline preload="metadata" tabIndex={0} aria-label={`${result.output.label}，空格播放或暂停`}
+        onClick={() => void togglePlayback()}
+        onKeyDown={(event) => {
+          if (event.key === " " || event.key === "Enter") { event.preventDefault(); void togglePlayback() }
+        }}
+        onLoadedMetadata={(event) => {
+          const video = event.currentTarget
+          if (video.videoWidth > 0 && video.videoHeight > 0) setMeasured({ width: video.videoWidth, height: video.videoHeight })
+          setDuration(Number.isFinite(video.duration) ? video.duration : 0)
+        }}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onPlay={(event) => {
+          document.querySelectorAll<HTMLVideoElement>(".studio-video-player").forEach((other) => { if (other !== event.currentTarget) other.pause() })
+          setPlaying(true)
+        }}
+        onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+        onVolumeChange={(event) => setMuted(event.currentTarget.muted || event.currentTarget.volume === 0)}
+        onError={() => setPlayError(true)} onLoadedData={() => setPlayError(false)}
+      /> : <div className="studio-video-unavailable"><HardDrive size={22} /><span>{unavailableReason}</span></div>}
+      {playError ? <div className="studio-video-unavailable studio-video-play-error"><span>视频暂时无法播放</span><Button size="small" onClick={() => { setPlayError(false); videoRef.current?.load() }}>重新加载</Button></div> : null}
+      <div className="studio-video-hover-top">
+        {canDownload ? <Tooltip title="下载当前视频"><Button type="text" className="studio-video-tool" icon={<Download size={17} />} aria-label="下载当前视频" onClick={() => actions.onDownload(result)} /></Tooltip> : null}
+        {moreItems.length ? <Dropdown trigger={["click"]} placement="bottomLeft" open={menuOpen}
+          onOpenChange={setMenuOpen} classNames={{ root: "studio-video-more-popup" }}
+          popupRender={(menu) => <div onKeyDownCapture={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault()
+              event.stopPropagation()
+              setMenuOpen(false)
+              requestAnimationFrame(() => moreRef.current?.focus({ preventScroll: true }))
+            }
+          }}>{menu}</div>}
+          menu={{ id: menuId, items: moreItems, onClick: ({ key }) => {
+            setMenuOpen(false)
+            if (key === "canvas") actions.onAddToCanvas?.(result)
+            if (key === "jianying") actions.onExportJianying?.(result)
+            if (key === "runtime") actions.onShowRuntime?.()
+            if (key === "delete") actions.onDeleteTask?.()
+          } }}>
+          <Button ref={moreRef} type="text" className="studio-video-tool" icon={<MoreHorizontal size={19} />} aria-label="更多视频操作" aria-expanded={menuOpen} />
+        </Dropdown> : null}
+        {available ? <Tooltip title="全屏预览"><Button type="text" className="studio-video-tool" icon={<Maximize2 size={17} />} aria-label="全屏预览" onClick={() => void fullscreen()} /></Tooltip> : null}
       </div>
-      <div className="flex min-h-11 items-center justify-between gap-3 px-3 py-2">
-        <div className="min-w-0">
-          <p className="truncate text-xs text-[#c7c7ce]">{result.output.label}</p>
-          <p className={`mt-0.5 text-[10px] ${delivery.tone}`}>{delivery.text}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {upscale ? (
-            <Tooltip title={upscale.hint}>
-              <span className="inline-flex">
-                <Button size="small" disabled={upscale.disabled || upscale.pending} loading={Boolean(upscale.pending)} onClick={upscale.onClick} aria-label="2x 超分">
-                  超分
+      {available ? <div className="studio-video-hover-bottom">
+        <div className="studio-video-bottom-row">
+          <div className="studio-video-playback">
+            <Tooltip title={playing ? "暂停" : "播放"}><Button type="text" className="studio-video-play-button" icon={playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} aria-label={playing ? "暂停视频" : "播放视频"} onClick={() => void togglePlayback()} /></Tooltip>
+            <span className="studio-video-time">{formatVideoTime(currentTime)} / {formatVideoTime(duration)}</span>
+          </div>
+          <div className="studio-video-quick-tools">
+            {upscale ? <Tooltip title={upscale.hint || "2× 超分"}><span className="studio-video-quick-item">
+              {upscale.engines?.length ? <Dropdown
+                trigger={["click"]}
+                disabled={upscale.disabled || upscale.pending}
+                classNames={{ root: "studio-video-upscale-popup" }}
+                open={upscaleMenuOpen}
+                onOpenChange={setUpscaleMenuOpen}
+                menu={{
+                  items: upscale.engines.map((engine) => ({
+                    key: engine.id,
+                    disabled: engine.disabled,
+                    label: <span className="studio-video-upscale-option">
+                      <span>{engine.label}</span>
+                      {engine.hint ? <em className="studio-video-upscale-hint">{engine.hint}</em> : null}
+                    </span>,
+                  })),
+                  onClick: ({ key }) => {
+                    setUpscaleMenuOpen(false)
+                    upscale.onClick(key as "rtx" | "seedvr2")
+                  },
+                }}
+              >
+                <Button type="text" disabled={upscale.disabled || upscale.pending} aria-label="超分当前任务" className="studio-video-quick-button">
+                  {upscale.pending ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}<span>2× 超分</span><ChevronDown size={13} />
                 </Button>
-              </span>
-            </Tooltip>
-          ) : null}
-          {result.output.download_url || result.output.cloud_url ? (
-            <button type="button" onClick={() => onDownload(result)} className="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-[#7047f6] px-2.5 text-xs text-white disabled:opacity-45">
-              <Download size={13} />下载
-            </button>
-          ) : null}
+              </Dropdown> : <Button type="text" disabled={upscale.disabled || upscale.pending} onClick={() => upscale.onClick()} aria-label="2× 超分当前任务" className="studio-video-quick-button">
+                {upscale.pending ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}<span>2× 超分</span>
+              </Button>}
+            </span></Tooltip> : null}
+            {actions.onAddToCanvas ? <Tooltip title="将当前视频加入画布"><Button type="text" onClick={() => actions.onAddToCanvas?.(result)} aria-label="将当前视频加入画布" className="studio-video-quick-button"><Frame size={16} /><span>加入画布</span></Button></Tooltip> : null}
+            {actions.onExportJianying ? <Tooltip title="将当前视频导出为剪映草稿"><Button type="text" onClick={() => actions.onExportJianying?.(result)} aria-label="导出当前视频到剪映" className="studio-video-quick-button"><Clapperboard size={16} /><span>导出剪映</span></Button></Tooltip> : null}
+            <Tooltip title={muted ? "开启声音" : "静音"}><Button type="text" className="studio-video-volume-button" icon={muted ? <VolumeX size={17} /> : <Volume2 size={17} />} aria-label={muted ? "开启声音" : "静音"} onClick={() => { if (videoRef.current) videoRef.current.muted = !muted }} /></Tooltip>
+          </div>
         </div>
-      </div>
-    </article>
-  )
+        <div ref={seekAreaRef} className={`studio-video-seek-area ${seekEngaged ? "is-seek-engaged" : ""}`}
+          onPointerDownCapture={(event) => {
+            if (event.button !== 0 || !duration) return
+            seekPointerDownRef.current = true
+            setSeekEngaged(true)
+          }}
+          onMouseLeave={() => { if (!seekPointerDownRef.current) setSeekEngaged(false) }}
+          onFocusCapture={(event) => { if (event.target.matches(":focus-visible")) setSeekEngaged(true) }}
+          onBlurCapture={() => {
+            requestAnimationFrame(() => {
+              if (!seekAreaRef.current?.contains(document.activeElement)) setSeekEngaged(false)
+            })
+          }}>
+          <ConfigProvider theme={videoSeekTheme}>
+            <Slider min={0} max={duration || 1} step={0.01} value={currentTime} disabled={!duration}
+              ariaLabelForHandle="视频播放进度" tooltip={{ open: seekEngaged ? undefined : false, formatter: (value) => formatVideoTime(value ?? 0) }}
+              onChange={(value) => { if (videoRef.current) { videoRef.current.currentTime = value; setCurrentTime(value) } }}
+              className="studio-video-seek" />
+          </ConfigProvider>
+        </div>
+      </div> : null}
+    </div>
+  </article>
 }
 
-export default function VideoStudioModule({
-  results, roundCount, onDownload, onPreview, embedded = false, showHeading = true, aspectRatio, upscale, upscaleStage,
-}: {
-  results: VideoResult[]
-  roundCount: number
-  onDownload: (result: VideoResult) => void
-  onPreview?: (result: VideoResult) => void
-  embedded?: boolean
-  showHeading?: boolean
-  aspectRatio?: string
-  upscale?: VideoUpscaleAction
-  upscaleStage?: string
+export default function VideoStudioModule({ results, roundCount, embedded = false, showHeading = true, aspectRatio, upscale, upscaleStage, ...actions }: ResultActions & {
+  results: VideoResult[]; roundCount: number; embedded?: boolean; showHeading?: boolean
+  aspectRatio?: string; upscale?: VideoUpscaleAction; upscaleStage?: string
 }) {
-  const [featuredPath, setFeaturedPath] = useState<string>()
   const videos = results.filter((result) => result.output.kind === "video")
-  const originalRank = new Map(
-    videos.filter((result) => !isUpscaleOutput(result.output)).map((result, index) => [result.output.path, index + 1]),
-  )
-  const featured = videos.find((result) => result.output.path === featuredPath) ?? videos.find((result) => isUpscaleOutput(result.output)) ?? videos[0]
-  const displayResults = featured && videos.length > 1 ? [featured] : results
-
-  return (
-    <section className={embedded ? "studio-video-results min-w-0" : "studio-video-results relative z-10 mx-auto mt-8 max-w-[1080px]"} aria-label="视频生成结果">
-      {showHeading && <div className="mb-3"><h2 className="text-sm font-medium text-[#dedee5]">视频结果</h2><p className="mt-1 text-xs text-[#85858f]">共 {roundCount} 轮</p></div>}
-      {videos.length > 1 ? (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {videos.map((result) => (
-            <Button
-              key={result.output.path}
-              size="small"
-              type={featured?.output.path === result.output.path ? "primary" : "default"}
-              onClick={() => setFeaturedPath(result.output.path)}
-            >
-              {isUpscaleOutput(result.output) || result.output.label === UPSCALE_OUTPUT_LABEL ? "2x 超分" : `原片 ${originalRank.get(result.output.path) ?? 1}`}
-            </Button>
-          ))}
-        </div>
-      ) : null}
-      {upscaleStage ? <p className="mb-2 text-xs text-[#c7c7ce]">{upscaleStage}</p> : null}
-      <div className={`studio-video-result-grid ${displayResults.length === 1 ? "is-single" : ""}`}>
-        {displayResults.map((result) => (
-          <VideoResultCard
-            key={`${result.jobId ?? ""}:${result.generationItemId}:${result.outputIndex}`}
-            result={result}
-            onDownload={onDownload}
-            onPreview={onPreview}
-            aspectRatio={aspectRatio}
-            upscale={upscale && !isUpscaleOutput(result.output) ? upscale : undefined}
-          />
-        ))}
-      </div>
-    </section>
-  )
+  return <section className={`studio-video-results ${embedded ? "" : "is-standalone"}`} aria-label="视频生成结果">
+    {showHeading ? <div className="studio-video-results-heading"><h2>视频结果</h2><p>共 {roundCount} 轮</p></div> : null}
+    {upscaleStage ? <p className="studio-video-upscale-stage">{upscaleStage}</p> : null}
+    <div className="studio-video-result-grid is-single">{videos.map((result) => <VideoResultCard key={videoResultKey(result)} result={result} aspectRatio={aspectRatio} upscale={isUpscaleOutput(result.output) ? undefined : upscale} {...actions} />)}</div>
+  </section>
 }

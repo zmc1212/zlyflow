@@ -448,6 +448,7 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertIn("/api/jobs", schema["paths"])
         self.assertIn("/api/jobs/{job_id}/references/{reference_index}", schema["paths"])
         self.assertIn("/api/auth/login", schema["paths"])
+        self.assertIn("/api/auth/profile", schema["paths"])
         self.assertIn("/api/admin/users", schema["paths"])
         self.assertIn("/api/jobs/{job_id}/retry", schema["paths"])
         self.assertIn("/api/jobs/{job_id}/cancel", schema["paths"])
@@ -568,7 +569,12 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertTrue(
             all(
                 workflow.id.startswith("minimax-h3-")
-                or workflow.id in {JobMode.WAN_VACE_DEPTH_V2V.value, JobMode.NVIDIA_RTX_VSR.value}
+                or workflow.id
+                in {
+                    JobMode.WAN_VACE_DEPTH_V2V.value,
+                    JobMode.NVIDIA_RTX_VSR.value,
+                    JobMode.SEEDVR2_UPSCALE.value,
+                }
                 for workflow in WORKFLOWS
             )
         )
@@ -1359,6 +1365,19 @@ class AuthenticationTests(unittest.TestCase):
         finally:
             with login_failures_lock:
                 login_failures.clear()
+
+    def test_update_user_renames_display_name_with_trimming(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            auth = AuthStore(Path(directory) / "auth.db")
+            user = auth.create_user("staff", "员工", "secure-pass-123", UserRole.EMPLOYEE, must_change_password=False)
+
+            renamed = auth.update_user(user["id"], display_name="  张三  ")
+            self.assertEqual(renamed["display_name"], "张三")
+            self.assertEqual(auth.get_user(user["id"])["display_name"], "张三")
+
+            with self.assertRaises(ValueError):
+                auth.update_user(user["id"], display_name="   ")
+            self.assertEqual(auth.get_user(user["id"])["display_name"], "张三")
 
     def test_password_reset_revokes_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

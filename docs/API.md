@@ -214,15 +214,17 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 | `POST` | `/api/auth/login` | 登录并设置 HttpOnly 会话 Cookie。 |
 | `POST` | `/api/auth/logout` | 注销当前会话。 |
 | `POST` | `/api/auth/password` | 修改当前密码；初始密码用户必须先调用。 |
+| `PATCH` | `/api/auth/profile` | 修改当前账号的显示姓名；登录账号与会话不变。 |
 | `GET/POST` | `/api/admin/users` | 管理员读取或创建员工账号。 |
-| `PATCH` | `/api/admin/users/{user_id}` | 调整角色或启停账号。 |
+| `PATCH` | `/api/admin/users/{user_id}` | 调整姓名、角色或启停账号；角色与启停仍按管理范围限制。 |
 | `POST` | `/api/admin/users/{user_id}/reset-password` | 重置初始密码并撤销该用户会话。 |
 | `GET/PUT` | `/api/admin/providers/comfy` | 超级管理员读取或保存 ComfyUI 连接地址。 |
 | `POST` | `/api/admin/providers/comfy/test` | 超级管理员测试当前输入的 ComfyUI 地址，不必先保存。 |
 | `GET` | `/api/modes` | 获取工作流能力注册表、图片尺寸和提示词预设。 |
 | `GET` | `/api/modes/{mode_id}` | 获取一个工作流在 `POST /api/jobs` 中的完整参数契约。 |
 | `POST` | `/api/jobs` | 提交一个生成任务。 |
-| `POST` | `/api/jobs/{job_id}/upscale` | 对已成功成片提交独立 2x 超分任务。 |
+| `POST` | `/api/jobs/{job_id}/upscale` | 对已成功成片提交独立超分任务；JSON 可选 `engine`（`rtx` 缺省 / `seedvr2`）。 |
+| `GET` | `/api/upscale/capabilities` | 查询当前 ComfyUI 可用的超分引擎（RTX VSR / SeedVR2 节点与模型），缓存 30 秒。 |
 | `GET` | `/api/jobs` | 按创建时间倒序读取任务列表。 |
 | `GET` | `/api/jobs/{job_id}` | 查询单个任务的进度、状态和输出。 |
 | `POST` | `/api/jobs/{job_id}/cancel` | 停止排队中、生成中或已中断的任务。 |
@@ -341,8 +343,8 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video` | 单镜入队。可带 `refine_enabled` / `refine_quality` / `refine_quality_mode` / `refine_preview`，两段式在同一个任务内完成；`refine_preview` 由平台托管，开启二采固定先预览。成功后原片写入 `video_url` 并归档到 `video_takes`（默认采用最新）。**202**。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/compose` | 拼接各镜 `video_url` 为分集成片。JSON 可选 `mix_dubbing`（缺省 true）：内心/旁白叠到对应镜，`mix=replace` 的开口句静音该镜 H3 原声。半解说包旁白未配音 **400**。**202** 返回 `job_id`。拼接片不套用生成期二采，也不自动超分。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/video-takes/adopt` | 采用本镜一条成功成片为正式原片。JSON `{ url }` 或 `{ job_id }`。校验确属本镜 `shot`/`selection` 成功抽卡后写 `video_url`；该 Take 已有 2x 则同步 `upscaled_video_url`，否则清空。采用的那条留在 `video_takes`。不属于本镜 **400**。 |
-| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale` | 对本镜已成功成片提交独立 2x 超分。原片 `video_url` 不变，结果写入 `upscaled_video_url` 并挂到当前采用 Take，2x 不单独成 Take。进行中任务 **409**；无成片或相对当前连接 GPU 显存预估过大 **422**。**202** 返回 `job_id`。 |
-| `POST` | `/api/projects/{project_id}/jobs/{job_id}/upscale` | 对导演台2「全部任务」里已成功的视频生成任务提交 2x 超分。用该任务 `result_url` 作原片；有关联单镜则写回 Beat。超分任务本身 / 未完成 / 多镜 selection **422**；同一成片进行中超分 **409**；相对当前连接 GPU 显存过大 **422**。整集直出和拼接片可手动点，过长可能被拒绝。**202**。 |
+| `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale` | 对本镜已成功成片提交独立超分；JSON 可选 `engine`（`rtx` 缺省为 RTX VSR 秒级 / `seedvr2` 为生成式高清增强，分钟级）。原片 `video_url` 不变，结果写入 `upscaled_video_url` 并挂到当前采用 Take，超分结果不单独成 Take。进行中任务 **409**；无成片、RTX 显存预估过大、SeedVR2 节点或模型缺失 **422**。**202** 返回 `job_id`。 |
+| `POST` | `/api/projects/{project_id}/jobs/{job_id}/upscale` | 对导演台2「全部任务」里已成功的视频生成任务提交独立超分；JSON 可选 `engine`（`rtx` 缺省 / `seedvr2`）。用该任务 `result_url` 作原片；有关联单镜则写回 Beat，`payload.upscale_engine` 记录引擎。超分任务本身 / 未完成 / 多镜 selection **422**；同一成片进行中超分 **409**；RTX 显存过大或 SeedVR2 节点/模型缺失 **422**。整集直出和拼接片可手动点，过长可能被拒绝。**202**。 |
 | `POST` | `/api/projects/{project_id}/documents/{doc_id}/transfer-episodes` | 把内容库该文档的分集/出片镜头写入剧集工坊。JSON `{ mode }`：`overwrite`（缺省）按本剧本重写已有集的 `data_json.beats` 并删除剧本里没有的旧集；`append` 跳过已有集号只补新集。只拷贝文档里已有的出片镜，同步时不再调大模型规划。成功返回 `mode`、`replaced_episodes`、`created_episodes`、`skipped_episodes`、`deleted_episodes`、`transferred_shots`。未知 mode 或未识别到分集返回 400。 |
 | `PUT` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}` | 更新单条 Beat。可写 `h3_prompt` 与 `h3_prompt_source`（`manual` / `generated`），以及 `timestamped_zh_prompt`。手动保存的六段出片按原文使用。服务端可写 `video_takes`；前端选用成片请走 `…/video-takes/adopt`，不要直接改 `video_url`。 |
 | `POST` | `/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt` | 剧集工坊素材组：为当前分镜入队 **一个** `h3_prompt` 任务，不再按口型/内心/近景规则拆镜。JSON 可选 `aspect_ratio`，写入 `beat_info` 作为写稿权威画幅（否则读 `extra.workshop_aspect_ratio` / 配方缺省）。未绑技能包时程序从本镜动作/运镜/台词编译六段 Ref2VA。绑定半解说包时由 LLM 一次写出中文八块分秒稿（时间码从本镜 `00:00` 起；可看图时看角色卡/场景卡/整张三联）和英文六段；配方临时 `skip_program_pack=true` 时出片英文用 GPT 六段原文（规范化 `<Picture>` / `<Subject>`、六段 `name:` 标题，并在 `detailed_description` 补 `[Shot 1]`；内心改成官方 `says in an off-screen voiceover` 且 `</d>` 后闭嘴），不再程序灌水、中文时间码或轿厢句，也不走第二次装箱 LLM；写稿合同写清开口 / 角色内心 / 第三人称旁白三通道与编号表演顺序，无旁白时禁止用内心或开口句充数，也不再把内心折进旁白原文交给模型；内心挂在触发画面时段，表演顺序第 1 句不是内心时禁止写在 00:00 起幅；中文分秒接受小数时间码与标题首字乱码，英文 `<d>` 可省略 `[Chinese]`；同一人连续多句按问号/句号切开后逐字校验；内心口型同步 `says:` 会先修补再校验；半解说包另校验台词去重与 `<d>` 表演顺序；中文分秒仍写入 `timestamped_zh_prompt`。说明句 stub（例如只回「官方八块中文分秒稿与」）会打回重写，失败文案不再展开缺标题清单。看图写作对 GPT-5 / o 使用 `reasoning_effort=none`、`max_tokens=16000`。中文或英文未通过校验则任务 `failed`，`payload` 含 `author_errors` / `vision_*` / `author_raw_draft` 与残稿，不覆盖 Beat，不回退无时间码骨架。R2V 参考图为角色设定板 + 场景卡 + 三联起幅/中格/结果三张成片画幅构图（不送整张三联）。设定板只锁身份/发型/服装，禁止把分格、白底、重复小人带进镜头。工坊若已有拆开的出片镜，`payload.merge_as_one=true` 则合并回一条再生成。`h3_prompt_source=manual` 的镜按原文出片。**202** 返回 `job_id`。生成过程可通过 `GET /api/projects/{project_id}/jobs/{job_id}/events` 直播思考与正文。 |
@@ -590,13 +592,24 @@ Invoke-RestMethod -Method Post `
 
 ### `POST /api/jobs/{job_id}/upscale`
 
-对已成功的视频成片新建独立 `nvidia-rtx-vsr` 任务（固定 2x / ULTRA）。原片任务不变；超分结果是新任务的输出。同一原片已有排队中、生成中或已中断的超分时返回 `409`。按原片宽×高×帧数预估显存，与当前连接 ComfyUI `/system_stats` 的总显存比较，过大时返回 `422`（读不到显存则不编造限额）。当前连接的 ComfyUI 若未安装 `RTXVideoSuperResolution`（包名 `Nvidia_RTX_Nodes_ComfyUI`）也返回 `422`。不要通过 `POST /api/jobs` 直接创建 `nvidia-rtx-vsr`（该工作流 `hidden_from_catalog`）。这是针对已成功成片的手动后处理；H3 生成参数不再提供自动超分开关，`refine_enabled` / `refine_quality` 是生成期二采，不创建独立的 `nvidia-rtx-vsr` 任务。
+对已成功的视频成片新建独立超分任务。JSON body 可选 `{"engine":"rtx"}`（缺省）或 `{"engine":"seedvr2"}`：
+
+- `rtx`：`nvidia-rtx-vsr` 任务（RTXVideoSuperResolution，固定 2x / ULTRA，秒级）。按原片宽×高×帧数预估显存，与当前连接 ComfyUI `/system_stats` 的总显存比较，过大时返回 `422`（读不到显存则不编造限额）。当前连接的 ComfyUI 若未安装 `RTXVideoSuperResolution`（包名 `Nvidia_RTX_Nodes_ComfyUI`）也返回 `422`。
+- `seedvr2`：`seedvr2-upscale` 任务（ComfyUI 原生 SeedVR2 3B Int8，生成式 2x 高清增强，分钟级）。不套用 RTX 显存门槛，由节点按当前显存自动切分 latent；当前实例缺少 SeedVR2 节点、`seedvr2_3b_int8_convrot.safetensors` 或 `seedvr2_ema_vae_fp16.safetensors` 时返回 `422`。
+
+原片任务不变；超分结果是新任务的输出。同一原片已有排队中、生成中或已中断的超分时返回 `409`。不要通过 `POST /api/jobs` 直接创建 `nvidia-rtx-vsr` / `seedvr2-upscale`（两个工作流均 `hidden_from_catalog`）。这是针对已成功成片的手动后处理；H3 生成参数不再提供自动超分开关，`refine_enabled` / `refine_quality` 是生成期二采，不创建独立的超分任务。
 
 ```powershell
 Invoke-RestMethod -Method Post `
   -Headers @{"X-CSRF-Token" = "<login response csrf_token>"} `
+  -ContentType "application/json" `
+  -Body '{"engine":"seedvr2"}' `
   http://127.0.0.1:7865/api/jobs/WvhSEuCWne1d/upscale
 ```
+
+### `GET /api/upscale/capabilities`
+
+返回 `{ engines: [{ id, label, available, reason }], default: "rtx" }`。`rtx` 探测 `RTXVideoSuperResolution` 节点；`seedvr2` 探测 5 个 SeedVR2 原生节点、UNETLoader 的扩散模型枚举与 VAELoader 的 VAE 枚举。结果缓存 30 秒。
 
 ## 导台2 项目内容库（`/api/projects`）
 
@@ -697,6 +710,8 @@ POST /api/auth/setup
 ```
 
 登录和初始化响应包含 `user` 与 `csrf_token`，并通过 `Set-Cookie` 写入会话。非浏览器客户端必须同时维护 Cookie，并在 `POST/PATCH` 请求中发送 `X-CSRF-Token`。员工接口的任务列表、单任务、参考图、作品库和输出下载都会校验 `jobs.owner_user_id`；普通员工访问其他人的资源时按不存在处理。
+
+任何已登录账号都可调用 `PATCH /api/auth/profile`（body `{"display_name":"新姓名"}`）修改自己的显示姓名，响应与登录一致并回传最新 `user` 与 `csrf_token`。管理员和超级管理员也可通过 `PATCH /api/admin/users/{user_id}` 修改任意账号的姓名；角色与启停仍按原有管理范围限制（管理员只能调整员工）。姓名只影响展示，登录账号、密码和会话均不变。
 
 任务的每个 `outputs[]` 包含 `delivery_status`。只要输出尚未本地交付（`pending` 或 `cloud`），就会返回短路径 `download_url`，包括部分完成或失败但已落盘的图片；启用七牛云时另有稳定 `cloud_url`（对象域名+键，不含过期签名）。浏览器将响应体写入员工授权目录后调用：
 

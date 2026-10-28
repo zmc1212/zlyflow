@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-28",
+  "surface": "5173 Vite, controlled API responses, existing local videos",
+  "checks": [
+    {
+      "name": "light: mouse entry starts real playback with progress visible and no round handle",
+      "passed": true
+    },
+    {
+      "name": "light: mouse entry into the progress area does not reveal a handle",
+      "passed": true
+    },
+    {
+      "name": "light: manual pause stays paused within the container",
+      "passed": true
+    },
+    {
+      "name": "light: leaving pauses, reentering resumes from the existing position",
+      "passed": true
+    },
+    {
+      "name": "light: clicking progress still shows a small aligned handle, moving away hides it",
+      "passed": true
+    },
+    {
+      "name": "light: rapid enter and leave remains paused without playback errors",
+      "passed": true
+    },
+    {
+      "name": "dark: mouse entry starts real playback with progress visible and no round handle",
+      "passed": true
+    },
+    {
+      "name": "dark: mouse entry into the progress area does not reveal a handle",
+      "passed": true
+    },
+    {
+      "name": "dark: manual pause stays paused within the container",
+      "passed": true
+    },
+    {
+      "name": "dark: leaving pauses, reentering resumes from the existing position",
+      "passed": true
+    },
+    {
+      "name": "dark: clicking progress still shows a small aligned handle, moving away hides it",
+      "passed": true
+    },
+    {
+      "name": "dark: rapid enter and leave remains paused without playback errors",
+      "passed": true
+    }
+  ],
+  "mutations": [],
+  "unknown": [],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead."
+  ],
+  "geometry": [],
+  "status": "passed"
+}
