@@ -253,7 +253,7 @@ export function ImageCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
           <div className="canvas-image-placeholder">
             {loadFailed ? <TriangleAlert size={28} /> : <ImageIcon size={28} />}
             <span>{loadFailed ? "素材无法加载" : data.label || "图片占位"}</span>
-            {loadFailed ? <small>地址可能已过期</small> : null}
+            {loadFailed ? <small>地址可能已过期</small> : data.pendingGeneratorId ? <small>等待上游生成完成，自动填入</small> : null}
           </div>
         )}
         </div>
@@ -320,7 +320,7 @@ export function VideoCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
           <div className="canvas-image-placeholder">
             {loadFailed ? <TriangleAlert size={28} /> : <Video size={28} />}
             <span>{loadFailed ? "素材无法加载" : data.label || "视频占位"}</span>
-            {loadFailed ? <small>地址可能已过期</small> : null}
+            {loadFailed ? <small>地址可能已过期</small> : data.pendingGeneratorId ? <small>等待上游生成完成，自动填入</small> : null}
           </div>
         )}
         </div>
@@ -359,9 +359,10 @@ export function ArtboardCanvasNode({ id, data, selected }: NodeProps<CanvasNode>
       />
       <NodeFloatingToolbar id={id} type="artboard" data={data} selected={selected} />
       <div className={`canvas-node canvas-node-artboard ${selected ? "is-selected" : ""}`}>
-        <div className="canvas-artboard-title nodrag nopan">
+        <div className="canvas-artboard-title">
           <Input
             variant="borderless"
+            className="nodrag nopan"
             value={data.label ?? "画板"}
             id={`canvas-artboard-${id}`}
             name={`canvas-artboard-${id}`}
@@ -432,11 +433,12 @@ export function GeneratorCanvasNode({ id, data, selected }: NodeProps<CanvasNode
         </div>
 
         <div className="canvas-generator-body nowheel">
-        <div className="canvas-node-workflow-field nodrag nopan">
+        <div className="canvas-node-workflow-field">
           <label htmlFor={`canvas-node-workflow-${id}`}>{mode?.media_type === "video" ? "视频工作流" : "图像工作流"}</label>
           <Select
             id={`canvas-node-workflow-${id}`}
             aria-label="节点生成工作流"
+            className="nodrag nopan"
             classNames={{ popup: { root: "canvas-select-popup" } }}
             value={mode?.id}
             placeholder="选择工作流"
@@ -509,10 +511,10 @@ export function GeneratorCanvasNode({ id, data, selected }: NodeProps<CanvasNode
             ) : null}
           </div>
         ) : (
-          <div className="canvas-node-prompt-field nodrag nopan nowheel">
+          <div className="canvas-node-prompt-field nowheel">
             <label htmlFor={`canvas-generator-prompt-${id}`}>提示词</label>
             <Input.TextArea
-              className="canvas-generator-prompt-input"
+              className="canvas-generator-prompt-input nodrag nopan"
               id={`canvas-generator-prompt-${id}`}
               aria-label={promptInfo.fromTextNodes ? "来自文字节点的提示词" : "生成提示词"}
               value={promptInfo.fromTextNodes ? prompt : data.prompt ?? ""}
@@ -530,9 +532,9 @@ export function GeneratorCanvasNode({ id, data, selected }: NodeProps<CanvasNode
 
         {result && prompt ? <p className="canvas-generator-prompt-caption">{prompt}</p> : null}
 
-        <div className="canvas-generator-meta nodrag nopan" title={summary.join(" · ")}>
-          {referenceCount ? <Tag closable={!active && !submitting(id)} icon={<ImageIcon size={18} />} onClose={(event) => { event.preventDefault(); disconnectInput(id, "image") }} title={`按连线顺序对应 ${canvasPictureToken(1)} 至 ${canvasPictureToken(referenceCount)}`}>{referenceCount} 张参考</Tag> : <Tag icon={<ImageIcon size={18} />}>连接参考图</Tag>}
-          {promptInfo.fromTextNodes ? <Tag closable={!active && !submitting(id)} icon={<Type size={18} />} onClose={(event) => { event.preventDefault(); disconnectInput(id, "text") }}>文字已连接</Tag> : null}
+        <div className="canvas-generator-meta" title={summary.join(" · ")}>
+          {referenceCount ? <Tag className="nodrag nopan" closable={!active && !submitting(id)} icon={<ImageIcon size={18} />} onClose={(event) => { event.preventDefault(); disconnectInput(id, "image") }} title={`按连线顺序对应 ${canvasPictureToken(1)} 至 ${canvasPictureToken(referenceCount)}`}>{referenceCount} 张参考</Tag> : <Tag className="nodrag nopan" icon={<ImageIcon size={18} />}>连接参考图</Tag>}
+          {promptInfo.fromTextNodes ? <Tag className="nodrag nopan" closable={!active && !submitting(id)} icon={<Type size={18} />} onClose={(event) => { event.preventDefault(); disconnectInput(id, "text") }}>文字已连接</Tag> : null}
         </div>
 
         {!active && issue ? (
