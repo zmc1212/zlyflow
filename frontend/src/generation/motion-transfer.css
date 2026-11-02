@@ -1,0 +1,95 @@
+.studio-motion-references {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+.studio-motion-reference {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 54px;
+  gap: 8px;
+  padding: 6px;
+  border: 1px dashed var(--studio-border-strong);
+  border-radius: 10px;
+  background: var(--studio-surface-raised);
+  color: var(--studio-text);
+}
+.studio-motion-reference:hover, .studio-motion-reference:focus-within {
+  border-color: var(--studio-accent-text);
+}
+.studio-motion-reference.is-filled { border-style: solid; }
+.studio-motion-reference-placeholder, .studio-motion-reference-preview.ant-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 40px;
+  min-width: 36px;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--studio-accent-text);
+  background: var(--studio-primary-soft);
+  cursor: pointer;
+}
+.studio-motion-reference-preview.ant-btn img, .studio-motion-reference-preview.ant-btn video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.studio-motion-reference-enlarge {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px #000);
+}
+.studio-motion-reference-label { flex: 1; min-width: 0; cursor: pointer; }
+.studio-motion-reference-label strong, .studio-motion-reference-label span { display: block; }
+.studio-motion-reference-label strong { font-size: 11px; font-weight: 500; color: var(--studio-text); }
+.studio-motion-reference-label span {
+  overflow: hidden;
+  margin-top: 3px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  color: var(--studio-text-muted);
+}
+.studio-motion-reference .studio-motion-reference-remove.ant-btn {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--studio-border-strong);
+  border-radius: 50%;
+  background: var(--studio-surface);
+  color: var(--studio-text-secondary);
+}
+.studio-motion-validation { margin-top: 6px; color: var(--studio-danger); font-size: 12px; }
+.studio-toolbar-label { flex: none; white-space: nowrap; color: var(--studio-text-secondary); font-size: 11px; }
+
+/* The shared composer still has legacy dark-only number styles. Keep this
+   mixed-media form on root theme tokens, including Ant Design v6's input/actions. */
+#studio-composer:has(.studio-motion-references) .studio-number.ant-input-number {
+  background: var(--studio-field);
+  border-color: var(--studio-border-strong);
+  color: var(--studio-text);
+  box-shadow: none;
+}
+#studio-composer:has(.studio-motion-references) .studio-number .ant-input-number-input {
+  color: var(--studio-text) !important;
+}
+#studio-composer:has(.studio-motion-references) .studio-number .ant-input-number-actions {
+  background: var(--studio-surface-raised);
+  color: var(--studio-text-secondary);
+}
+#studio-composer:has(.studio-motion-references) .studio-more-settings.ant-btn {
+  background: var(--studio-field);
+  border-color: var(--studio-border-strong);
+  color: var(--studio-text);
+}

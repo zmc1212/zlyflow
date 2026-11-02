@@ -29,7 +29,7 @@ from .workflow_registry import (
     H3_FL2VA_PRUNED,
     H3_FPS,
     H3_REF2VA_PRUNED,
-    H3_WORKFLOWS,
+    H3_REFINE_WORKFLOWS,
     LIGHTX2V_FL2V_4STEP_LORA,
     LIGHTX2V_FL2V_8STEP_LORA,
     LIGHTX2V_REF2V_4STEP_LORA,
@@ -214,7 +214,7 @@ def build_minimax_h3_refine_workflow(
     *,
     preview: bool = False,
 ) -> dict[str, dict[str, Any]]:
-    if mode not in H3_WORKFLOWS:
+    if mode not in H3_REFINE_WORKFLOWS:
         raise ValueError(f"Unsupported H3 refine workflow: {mode}")
 
     aspect_ratio = numeric_aspect_ratio(options)

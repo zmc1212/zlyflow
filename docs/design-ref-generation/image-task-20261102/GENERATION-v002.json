@@ -1,0 +1,49 @@
+{
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x864",
+  "quality": "medium",
+  "reference_count": 2,
+  "n": 1,
+  "images": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-generation\\image-task-20261102\\image-task-v002.png",
+      "sha256": "4e9c9f40fa17352ac30866c16f477e5212b00b37b6b4d1f35e78f46c107e6185"
+    }
+  ],
+  "request_id": "req_4827f53bf553484b866dc6a5ac4ca1e7",
+  "usage": {
+    "input_tokens": 4386,
+    "input_tokens_details": {
+      "image_tokens": 2808,
+      "text_tokens": 1578
+    },
+    "output_tokens": 280,
+    "output_tokens_details": {
+      "image_tokens": 280,
+      "text_tokens": 0
+    },
+    "total_tokens": 4666
+  },
+  "prompt_version": "v002",
+  "prompt_file": "docs/design-ref-generation/image-task-20261102/PROMPT-v002.txt",
+  "prompt_sha256": "1d31da33da13333e34924e2b8dedf2b6382d9e05c8e69ecd7c225ce141daf15a",
+  "reference_sources": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-generation\\image-task-20261102\\image-task-v001.png",
+      "sha256": "39802f6d49fa153401226689a6845b7f4ab235a63f0f9e678c8de4d01ecbfd90"
+    },
+    {
+      "path": "G:\\AppData\\Local\\Temp\\codex-clipboard-5c56b27e-405e-4c7a-8463-a66a377961f0.png",
+      "sha256": "01abf6ac125ed7505aa0cb5a93da2738f8ca60e1102b9ab4ad1c4279ddcc39a4",
+      "type": "user_attached_jimeng_screenshot"
+    }
+  ],
+  "review": {
+    "visually_inspected": true,
+    "user_approved": false,
+    "delivered_to_user": false,
+    "passed": false,
+    "reason": "Generated four-image row and single-image thumbnail had different widths; replaced by focused single-task revision."
+  }
+}

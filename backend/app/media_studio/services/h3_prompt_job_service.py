@@ -540,9 +540,11 @@ class H3PromptJobService:
 
         beat_info = payload.get("beat_info") if isinstance(payload.get("beat_info"), dict) else {}
         pack_id = str(beat_info.get("skill_pack_id") or payload.get("skill_pack_id") or "").strip()
-        if skip_program_pack_enabled(pack_id):
-            return H3PromptBuilder.canonicalize_authored_ref2va(prompt, cls._beat_info_shot(payload))
         shot = cls._beat_info_shot(payload)
+        if skip_program_pack_enabled(pack_id):
+            if pack_id:
+                return H3PromptBuilder.canonicalize_authored_ref2va(prompt, shot)
+            return H3PromptBuilder.prepare_generated_prompt(prompt, shot, pad_thickness=False)
         speaker_map = H3PromptBuilder._speaker_map([shot])
         return H3PromptBuilder.prepare_generated_prompt(prompt, shot, speaker_map)
 

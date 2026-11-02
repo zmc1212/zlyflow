@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-31",
+  "purpose": "按用户确认的v005重建供网页使用的独立透明图标",
+  "provider": "OpenAI Images API",
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x1024",
+  "quality": "high",
+  "background": "transparent",
+  "n": 1,
+  "prompt": "asset-prompt-v001.txt",
+  "reference": "../zly-navigation-brand-v005.png",
+  "output": "studio-icon-atlas-v001.png",
+  "sha256": "c3fa0b3d76e237a1051d648837c0348c82a1429275d263301d155332bf4fa1c3",
+  "request_id": "req_950fe47217724247b763dd16055e6d66",
+  "usage": {
+    "input_tokens": 2473,
+    "input_tokens_details": {
+      "image_tokens": 1536,
+      "text_tokens": 937
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 3845
+  },
+  "postprocessing": "3列×2行裁切，移除极低Alpha噪点，按可见边缘裁切并等比缩放到256×256透明画布，保存无损WebP；具体范围和哈希见assets.json。",
+  "provenance": "根据已确认图标重建的位图素材；保留Z胶片结构与画布卡片/节点构图，局部微小纹理与截图可能不同，不宣称原始矢量或像素完全相同。",
+  "alpha_check": {
+    "passed": true,
+    "source_mode": "RGBA",
+    "transparent_pixels": 861474,
+    "partial_alpha_pixels": 711390,
+    "source_alpha_range": [
+      0,
+      254
+    ],
+    "production_alpha_range": [
+      0,
+      255
+    ]
+  }
+}

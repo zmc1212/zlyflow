@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import re
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import websocket
@@ -17,6 +18,7 @@ from backend.app.media_studio.services.comfy_video_client import ComfyVideoClien
 from backend.app.media_studio.services.episode_image_prompts import beat_reference_urls, beat_render_prompt
 from backend.app.media_studio.services.episode_video_service import EpisodeVideoService
 from backend.app.media_studio.services.h3_prompt_builder import H3PromptBuilder, _THICKNESS_PAD
+from backend.app.media_studio.services.job_payload import slim_job_payload
 from backend.app.media_studio.services.llm_service import LlmService
 from backend.app.media_studio.services.project_detail_service import ProjectDetailService
 from backend.app.skill_packs import HALF_NARRATED_PACK_ID
@@ -325,6 +327,30 @@ class H3PromptTests(unittest.TestCase):
         stuffed = {**shot, "narration": inner[0]["text"]}
         self.assertEqual("", H3PromptBuilder.third_person_narration(stuffed))
         self.assertTrue(any("内心" in str(item.get("speaker") or "") for item in H3PromptBuilder._raw_script_turns(shot)))
+
+    def test_split_unquoted_multi_speaker_dialogue(self):
+        shot = {
+            "dialogue": "王主管：小李，脸色不好？记住规矩。李明：主...主管，我有点急事...",
+            "characters": [{"name": "王主管"}, {"name": "李明"}],
+        }
+        spoken, inner = H3PromptBuilder.split_spoken_and_inner(shot)
+        self.assertEqual(["王主管", "李明"], [item["speaker"] for item in spoken])
+        self.assertEqual(
+            ["小李，脸色不好？记住规矩。", "主...主管，我有点急事..."],
+            [item["text"] for item in spoken],
+        )
+        self.assertEqual([], inner)
+
+    def test_split_unquoted_dialogue_keeps_inner_speaker(self):
+        shot = {
+            "dialogue": "吴耐（内心）：浓妆艳抹，昼伏夜出。沙丽丽：你好。",
+            "characters": [{"name": "吴耐"}, {"name": "沙丽丽"}],
+        }
+        spoken, inner = H3PromptBuilder.split_spoken_and_inner(shot)
+        self.assertEqual(["沙丽丽"], [item["speaker"] for item in spoken])
+        self.assertEqual("你好。", spoken[0]["text"])
+        self.assertEqual("吴耐", inner[0]["speaker"])
+        self.assertEqual("浓妆艳抹，昼伏夜出。", inner[0]["text"])
 
     def test_h3_user_prompt_does_not_echo_inner_line_repeatedly(self):
         from backend.app.media_studio.services.llm_service import LlmService
@@ -729,7 +755,7 @@ class H3PromptTests(unittest.TestCase):
 
         with patch.object(LlmService, "_request_h3_prompt", return_value=flawed) as request:
             generated = LlmService.generate_h3_prompt(beat_info)
-        request.assert_not_called()
+        request.assert_called_once()
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
         self.assertIn(spoken_a, generated)
         self.assertNotIn("八字", generated)
@@ -1157,7 +1183,7 @@ class H3PromptTests(unittest.TestCase):
 
         with patch.object(LlmService, "_request_h3_prompt", return_value=flawed) as request:
             generated = LlmService.generate_h3_prompt(beat_info)
-        request.assert_not_called()
+        request.assert_called_once()
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
 
     def test_h3_system_prompt_uses_packing_contract(self):
@@ -1198,22 +1224,21 @@ class H3PromptTests(unittest.TestCase):
         self.assertIn("lasting 11 seconds", eleven)
         self.assertIn("duration_seconds is 11", eleven)
 
-    def test_generate_h3_prompt_renders_ref2va_without_llm(self):
+    def test_generate_h3_prompt_uses_official_six_section_packing_without_pack(self):
         from backend.app.media_studio.services.llm_service import LlmService
 
-        with patch.object(LlmService, "_request_h3_prompt") as request:
-            generated = LlmService.generate_h3_prompt({
-                "dialogue": "你好。",
-                "ref_images": [{"index": 1}, {"index": 2}],
-            })
-        request.assert_not_called()
-        self.assertIn("你好。", generated)
-        self.assertIn("<Subject 1>", generated)
-        self.assertIn("[Shot 1]", generated)
-        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", {
+        beat_info = {
             "dialogue": "你好。",
             "ref_images": [{"index": 1}, {"index": 2}],
-        }))
+        }
+        with patch.object(LlmService, "_request_h3_prompt", return_value=rich_prompt("你好。")) as request:
+            generated = LlmService.generate_h3_prompt(beat_info)
+        request.assert_called_once()
+        self.assertIn("subject_definitions:", generated)
+        self.assertIn("你好。", generated)
+        self.assertIn("<Subject 1>", generated)
+        self.assertEqual(rich_prompt("你好。").count(_THICKNESS_PAD), generated.count(_THICKNESS_PAD))
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
 
     def test_generate_h3_prompt_skill_pack_raises_when_author_fails(self):
         from backend.app.media_studio.services.llm_service import LlmService
@@ -1796,7 +1821,8 @@ class H3PromptTests(unittest.TestCase):
                 {"index": 3, "name": "单元楼电梯", "category": "scene"},
             ],
         }
-        generated = LlmService.generate_h3_prompt(beat_info)
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        generated = H3PromptBuilder.prepare_generated_prompt(H3PromptBuilder.render_ref2va(shot), shot)
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
         self.assertLess(generated.find(inner), generated.find(spoken_b))
         self.assertRegex(
@@ -1874,7 +1900,8 @@ class H3PromptTests(unittest.TestCase):
                 {"index": 3, "name": "单元楼电梯", "category": "scene"},
             ],
         }
-        generated = LlmService.generate_h3_prompt(beat_info)
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        generated = H3PromptBuilder.prepare_generated_prompt(H3PromptBuilder.render_ref2va(shot), shot)
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
         self.assertIn("<Subject 1> is 吴耐 in <Picture 1>.", generated)
         self.assertIn("<Picture 1> controls 吴耐 identity only", generated)
@@ -1955,7 +1982,8 @@ class H3PromptTests(unittest.TestCase):
                 {"index": 3, "name": "单元楼电梯", "category": "scene"},
             ],
         }
-        generated = LlmService.generate_h3_prompt(beat_info)
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        generated = H3PromptBuilder.prepare_generated_prompt(H3PromptBuilder.render_ref2va(shot), shot)
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
         self.assertIn("Already inside the closed cabin", generated)
         self.assertIn("Doors stay shut", generated)
@@ -2008,7 +2036,8 @@ class H3PromptTests(unittest.TestCase):
                 {"index": 3, "name": "9楼老旧走廊", "category": "scene"},
             ],
         }
-        generated = LlmService.generate_h3_prompt(beat_info)
+        shot = H3PromptBuilder.shot_from_beat_info(beat_info)
+        generated = H3PromptBuilder.prepare_generated_prompt(H3PromptBuilder.render_ref2va(shot), shot)
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
         self.assertIn("声控灯启动的电流声", generated)
         self.assertRegex(generated, r"\b(?:sound|audio|ambience|ambient)\b")
@@ -2047,7 +2076,7 @@ class H3PromptTests(unittest.TestCase):
         shot = H3PromptBuilder.shot_from_beat_info(beat_info)
         rendered = H3PromptBuilder.render_ref2va(shot)
         prepared = H3PromptBuilder.prepare_generated_prompt(rendered, shot)
-        generated = LlmService.generate_h3_prompt(beat_info)
+        generated = prepared
         duplicated = "says in an off-screen voiceover: says in an off-screen voiceover:"
         self.assertEqual(prepared.lower().count("says in an off-screen voiceover"), 1)
         self.assertEqual(generated.lower().count("says in an off-screen voiceover"), 1)
@@ -3588,6 +3617,406 @@ class EpisodeVideoTakesTests(unittest.TestCase):
         self.assertNotIn("https://cdn/a-2x.mp4", urls)
         adopted = next(item for item in takes if item["url"] == "https://cdn/a.mp4")
         self.assertEqual("https://cdn/a-2x.mp4", adopted["upscaled_url"])
+
+
+class EpisodeVideoPromptModeTests(unittest.TestCase):
+    def test_assert_h3_prompts_ready_reports_missing_beats(self):
+        shots = [
+            {"sequence": 1, "speaker": "沈砚", "dialogue": "你好。", "h3_prompt": rich_prompt()},
+            {"sequence": 2, "speaker": "沈砚", "dialogue": "再见。"},
+        ]
+        with self.assertRaisesRegex(ValueError, "Beat 2"):
+            EpisodeVideoService._assert_h3_prompts_ready(shots)
+        EpisodeVideoService._assert_h3_prompts_ready([shots[0]])
+
+    def test_assert_h3_prompts_ready_rejects_thin_saved_prompt(self):
+        shots = [{
+            "sequence": 1,
+            "speaker": "沈砚",
+            "dialogue": "你好。",
+            "h3_prompt": "subject_definitions:\nthis saved prompt is long enough but has no sections",
+        }]
+        with self.assertRaisesRegex(ValueError, "程序装箱预览"):
+            EpisodeVideoService._assert_h3_prompts_ready(shots)
+
+    def test_unbound_short_saved_prompt_is_rejected_instead_of_padded(self):
+        prompt = short_authored_en("你好。")
+        shot = {"sequence": 1, "speaker": "沈砚", "dialogue": "你好。", "h3_prompt": prompt}
+        prepared = H3PromptBuilder.prepare_generated_prompt(
+            prompt,
+            H3PromptBuilder.shot_from_beat_info(shot),
+            pad_thickness=False,
+        )
+        self.assertNotIn(_THICKNESS_PAD, prepared)
+        self.assertIsNone(EpisodeVideoService._workshop_prompt_for_shot(shot))
+
+    def test_create_job_rejects_unknown_prompt_mode(self):
+        with self.assertRaisesRegex(ValueError, "prompt_mode"):
+            EpisodeVideoService.create_job("p1", "e1", options={"prompt_mode": "auto"})
+
+    def test_create_job_program_mode_stores_prompts_before_worker_runs(self):
+        captured: dict[str, Any] = {}
+
+        def fake_execute(_sql, params):
+            captured["payload"] = json.loads(params[3])
+
+        shots = [{
+            "beat_id": "beat-1",
+            "sequence": 1,
+            "duration_sec": 8,
+            "frame_count": 192,
+        }]
+        with patch.object(EpisodeVideoService, "apply_confirmed_video_resolution", side_effect=lambda _pid, opts: opts), \
+             patch.object(EpisodeVideoService, "_assert_can_enqueue"), \
+             patch.object(EpisodeVideoService, "_prepare_shots", return_value=shots), \
+             patch.object(ProjectDetailService, "get_episode_detail", return_value={"number": 1, "title": "测试集", "beats": []}), \
+             patch.object(ProjectDetailService, "list_assets", return_value=[]), \
+             patch.object(H3PromptBuilder, "ensure_available", return_value={"model": "test-llm"}), \
+             patch.object(H3PromptBuilder, "build_prompts", return_value=["PROGRAM PROMPT"]) as build_prompts, \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config", return_value=SimpleNamespace(base_url="http://comfy")), \
+             patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient.preflight", return_value="minimax"), \
+             patch("backend.app.media_studio.services.episode_video_service.execute_sql", side_effect=fake_execute), \
+             patch("backend.app.media_studio.services.episode_video_service._EXECUTOR.submit"):
+            result = EpisodeVideoService.create_job(
+                "p1", "e1",
+                options={"workflow": "minimax-h3-director-accel-r2v", "prompt_mode": "program"},
+            )
+
+        self.assertEqual("queued", result["status"])
+        build_prompts.assert_called_once()
+        payload = captured["payload"]
+        self.assertEqual("program_preview", payload["prompt_source"])
+        self.assertIn("程序装箱预览", payload["prompt_warning"])
+        self.assertEqual("PROGRAM PROMPT", payload["shots"][0]["prompt"])
+        self.assertEqual("beat-1", payload["shots"][0]["beat_id"])
+
+    def test_slim_job_payload_keeps_program_preview_prompts(self):
+        slim = slim_job_payload({
+            "prompt_source": "program_preview",
+            "prompt_warning": "本次提交使用程序装箱预览，未使用 H3 六段式提示词。",
+            "shots": [
+                {"beat_id": "beat-1", "sequence": 1, "prompt": "six section prompt"},
+                {"beat_id": "beat-2", "sequence": 2, "prompt": ""},
+            ],
+        })
+        self.assertEqual("six section prompt", slim["shots"][0]["prompt"])
+        self.assertEqual(1, slim["shots"][0]["sequence"])
+        self.assertEqual("", slim["shots"][1]["prompt"])
+        self.assertIn("程序装箱预览", slim["prompt_warning"])
+
+    def test_slim_job_payload_omits_saved_h3_prompts(self):
+        slim = slim_job_payload({
+            "prompt_source": "workshop_material",
+            "shots": [{"beat_id": "beat-1", "sequence": 1, "prompt": "saved six section"}],
+        })
+        self.assertNotIn("prompt", slim["shots"][0])
+        self.assertNotIn("sequence", slim["shots"][0])
+
+
+class ProgramPackPromptQualityTests(unittest.TestCase):
+    @staticmethod
+    def _shot(**overrides):
+        shot = {
+            "beat_id": "beat-1",
+            "sequence": 1,
+            "scene": "洗手间 - 夜",
+            "action": "李明走到洗手间门口，手放在门把上。墙上挂钟发出咔哒一声，秒针跳到00:00。",
+            "camera": "纵向构图，从门把特写摇到挂钟，再摇回门缝。 成片 9:16（竖屏）",
+            "audio": "尖锐的电子蜂鸣声，随后死一般的寂静。",
+            "duration_seconds": 8,
+            "character_references": [{"character_id": "c-li", "character_name": "李明"}],
+        }
+        shot.update(overrides)
+        return shot
+
+    def test_program_pack_uses_rich_action_and_skips_thickness_filler(self):
+        prompt = H3PromptBuilder.build_prompts([self._shot()], aspect_ratio="16:9")[0]
+        self.assertIn("李明走到洗手间门口", prompt)
+        self.assertIn("秒针跳到00:00", prompt)
+        self.assertNotIn(_THICKNESS_PAD, prompt)
+
+    def test_program_pack_uses_job_aspect_and_realigns_framing_word(self):
+        prompt = H3PromptBuilder.build_prompts([self._shot()], aspect_ratio="16:9")[0]
+        self.assertIn(" 16:9 shot of 李明", prompt)
+        self.assertNotIn("9:16", prompt)
+        self.assertIn("Camera movement: 横向构图", prompt)
+
+    def test_program_pack_keeps_real_camera_and_drops_generic_camera_beats(self):
+        shot = self._shot(dialogue="谁在里面？", speaker="李明")
+        prompt = H3PromptBuilder.build_prompts([shot], aspect_ratio="16:9")[0]
+        self.assertIn("Camera movement: 横向构图，从门把特写摇到挂钟", prompt)
+        self.assertIn("(S1) <Subject 1> 李明 says <d>[Chinese] 谁在里面？</d>", prompt)
+        self.assertNotIn("The camera holds a static shot.", prompt)
+        self.assertNotIn("The camera pushes in a fraction on the closed mouth.", prompt)
+        self.assertNotIn("The camera tilts", prompt)
+
+    def test_program_pack_skips_freeze_line_when_beat_has_no_dialogue(self):
+        prompt = H3PromptBuilder.build_prompts([self._shot()], aspect_ratio="16:9")[0]
+        self.assertNotIn("After the last syllable", prompt)
+
+    def test_program_pack_tags_each_speaker_line_separately(self):
+        shot = self._shot(
+            dialogue_turns=[
+                {"speaker": "李明", "text": "谁在里面？"},
+                {"speaker": "王主管", "text": "别出声。"},
+            ],
+            dialogue="",
+            character_references=[
+                {"character_id": "c-li", "character_name": "李明"},
+                {"character_id": "c-wang", "character_name": "王主管"},
+            ],
+        )
+        prompt = H3PromptBuilder.build_prompts([shot], aspect_ratio="16:9")[0]
+        self.assertIn("(S1) <Subject 1> 李明 says <d>[Chinese] 谁在里面？</d>", prompt)
+        self.assertIn("(S2) <Subject 2> 王主管 says <d>[Chinese] 别出声。</d>", prompt)
+        self.assertEqual(2, prompt.count("says <d>[Chinese]"))
+
+    def test_program_pack_declares_spoken_audio_contract(self):
+        prompt = H3PromptBuilder.build_prompts([self._shot()], aspect_ratio="16:9")[0]
+        self.assertIn("Spoken audio is limited to the Chinese lines inside <d> tags", prompt)
+        self.assertIn("never read aloud", prompt)
+
+    def test_speech_contract_rejects_merged_dialogue_and_speaker_labels(self):
+        shot = self._shot(
+            dialogue_turns=[
+                {"speaker": "李明", "text": "谁在里面？"},
+                {"speaker": "王主管", "text": "别出声。"},
+            ],
+            dialogue="",
+            character_references=[
+                {"character_id": "c-li", "character_name": "李明"},
+                {"character_id": "c-wang", "character_name": "王主管"},
+            ],
+        )
+        merged = (
+            "(S1) <Subject 1> 李明 says <d>[Chinese] 谁在里面？王主管：别出声。</d>. "
+            "The shot holds long enough for the complete unhurried speech and a natural pause."
+        )
+        errors = H3PromptBuilder.speech_contract_errors(merged, shot)
+        self.assertTrue(any("合并进同一条 <d>" in item for item in errors))
+
+        own_label = (
+            "(S2) <Subject 2> 王主管 says <d>[Chinese] 王主管：别出声。</d>. "
+            "The shot holds long enough for the complete unhurried speech and a natural pause."
+        )
+        label_errors = H3PromptBuilder.speech_contract_errors(own_label, shot)
+        self.assertTrue(any("王主管：" in item and "混入 <d>" in item for item in label_errors))
+
+        split = (
+            "(S1) <Subject 1> 李明 says <d>[Chinese] 谁在里面？</d>. "
+            "The shot holds long enough for the complete unhurried speech and a natural pause. "
+            "(S2) <Subject 2> 王主管 says <d>[Chinese] 别出声。</d>. "
+            "The shot holds long enough for the complete unhurried speech and a natural pause."
+        )
+        clean_errors = [
+            item
+            for item in H3PromptBuilder.speech_contract_errors(split, shot)
+            if "合并" in item or "混入 <d>" in item
+        ]
+        self.assertEqual([], clean_errors)
+
+    def test_speech_contract_does_not_flag_clean_single_speaker_lines(self):
+        # 台词原文本身就带"名字："称呼时,清洗后的 <d> 只含纯台词,不应误报
+        shot = self._shot(
+            dialogue_turns=[{"speaker": "王主管", "text": "你给我记住。"}],
+            dialogue="",
+            character_references=[
+                {"character_id": "c-li", "character_name": "李明"},
+                {"character_id": "c-wang", "character_name": "王主管"},
+            ],
+        )
+        prompt = (
+            "(S2) <Subject 2> 王主管 says <d>[Chinese] 你给我记住。</d>. "
+            "The shot holds long enough for the complete unhurried speech and a natural pause."
+        )
+        self.assertEqual(
+            [],
+            [
+                item
+                for item in H3PromptBuilder.speech_contract_errors(prompt, shot)
+                if "混入 <d>" in item or "合并" in item
+            ],
+        )
+
+
+class BeatSpeakerResolutionTests(unittest.TestCase):
+    def test_resolves_multi_speaker_dialogue_text(self):
+        beat = {
+            "dialogue": "张伟：“念念，你也该清醒了。”\n苏念：“祝你们幸福。”",
+            "characters": ["苏念", "张伟"],
+        }
+        patch = H3PromptBuilder.resolve_beat_speakers(beat)
+        self.assertEqual("张伟", patch["speaker"])
+        self.assertEqual(
+            ["张伟", "苏念"],
+            [str(turn.get("speaker") or "") for turn in patch["dialogue_turns"]],
+        )
+
+    def test_keeps_existing_speaker_and_adds_inner_monologue_turns(self):
+        beat = {"speaker": "厉景深", "dialogue": "厉景深（内心独白）：又是这种场合。"}
+        patch = H3PromptBuilder.resolve_beat_speakers(beat, ["厉景深", "苏念"])
+        self.assertNotIn("speaker", patch)
+        self.assertEqual(["厉景深"], [turn["speaker"] for turn in patch["dialogue_turns"]])
+
+    def test_stage_direction_without_speaker_is_not_resolved(self):
+        self.assertEqual(
+            {},
+            H3PromptBuilder.resolve_beat_speakers({"dialogue": "（无台词，仅内心活动暗示）"}, ["苏念"]),
+        )
+        self.assertEqual({}, H3PromptBuilder.resolve_beat_speakers({"dialogue": ""}, ["苏念"]))
+
+    def test_prepare_shots_accepts_dialogue_without_speaker_field(self):
+        detail = {
+            "project_id": "p1",
+            "beats": [{
+                "id": "beat-1",
+                "sequence": 1,
+                "action": "苏念把戒指放回桌面",
+                "camera": "中景 → 特写",
+                "dialogue": "张伟：“念念，你也该清醒了。”\n苏念：“祝你们幸福。”",
+                "scene": "高档西餐厅",
+                "scene_id": "asset-scene",
+                "character_ids": ["asset-lead"],
+            }],
+        }
+        assets = [
+            {"id": "asset-lead", "kind": "character", "name": "苏念", "extra": {}},
+            {"id": "asset-scene", "kind": "scene", "name": "高档西餐厅", "extra": {}},
+        ]
+        with self.assertRaises(ValueError) as ctx:
+            EpisodeVideoService._prepare_shots(detail, assets)
+        message = str(ctx.exception)
+        self.assertNotIn("有对白但缺少说话人", message)
+        self.assertIn("缺少场景「高档西餐厅」的主视图", message)
+
+    def test_prepare_shots_still_flags_dialogue_without_any_speaker(self):
+        detail = {
+            "project_id": "p1",
+            "beats": [{
+                "id": "beat-1",
+                "sequence": 1,
+                "action": "苏念沉默",
+                "camera": "特写",
+                "dialogue": "今天天气不错。",
+                "scene": "街头",
+                "scene_id": "asset-scene",
+                "character_ids": ["asset-lead"],
+            }],
+        }
+        assets = [
+            {"id": "asset-lead", "kind": "character", "name": "苏念", "extra": {}},
+            {"id": "asset-scene", "kind": "scene", "name": "街头", "extra": {}},
+        ]
+        with self.assertRaises(ValueError) as ctx:
+            EpisodeVideoService._prepare_shots(detail, assets)
+        self.assertIn("Beat 1 有对白但缺少说话人", str(ctx.exception))
+
+    def test_single_look_survives_era_keyword_in_beat(self):
+        character = {
+            "id": "asset-lead",
+            "kind": "character",
+            "name": "苏念",
+            "extra": {"identities": [{"id": "look-1", "name": "默认造型", "image_url": "https://x/1.png", "description": "白衬衫牛仔"}]},
+        }
+        modern_beat = {"action": "厉景深西装革履走出车门", "scene": "民政局门口"}
+        self.assertEqual(
+            "look-1",
+            EpisodeVideoService._select_character_look(character, modern_beat)["id"],
+        )
+
+    def test_multiple_looks_still_disambiguated_by_era(self):
+        character = {
+            "id": "asset-lead",
+            "kind": "character",
+            "name": "苏念",
+            "extra": {
+                "identities": [
+                    {"id": "look-ancient", "name": "古代造型", "image_url": "https://x/a.png", "description": "粗布长衫发髻"},
+                    {"id": "look-modern", "name": "现代造型", "image_url": "https://x/m.png", "description": "现代西装衬衫"},
+                ]
+            },
+        }
+        self.assertEqual(
+            "look-modern",
+            EpisodeVideoService._select_character_look(character, {"action": "她走进现代办公室"})["id"],
+        )
+
+    def test_stage_direction_note_is_not_treated_as_spoken_dialogue(self):
+        detail = {
+            "project_id": "p1",
+            "beats": [{
+                "id": "beat-1",
+                "sequence": 1,
+                "action": "苏念独自留在台阶上",
+                "camera": "特写 → 定格",
+                "dialogue": "（无台词，仅内心活动暗示）",
+                "scene": "民政局门口",
+                "scene_id": "asset-scene",
+                "character_ids": ["asset-lead"],
+            }],
+        }
+        assets = [
+            {"id": "asset-lead", "kind": "character", "name": "苏念", "extra": {}},
+            {"id": "asset-scene", "kind": "scene", "name": "民政局门口", "extra": {}},
+        ]
+        with self.assertRaises(ValueError) as ctx:
+            EpisodeVideoService._prepare_shots(detail, assets)
+        self.assertNotIn("有对白但缺少说话人", str(ctx.exception))
+
+
+class DialogueTurnParsingTests(unittest.TestCase):
+    MULTI_SPEAKER = (
+        "厉景深：“你敢吗？”\n苏念：“怕你不成？”\n工作人员：“那个……请问二位认识多久了？”\n"
+        "厉景深（冷淡）：“刚认识。”\n苏念（心虚）：“……一见钟情。”"
+    )
+
+    def test_quoted_turns_win_over_label_fallback(self):
+        turns = H3PromptBuilder._parse_script_turns(self.MULTI_SPEAKER, ["苏念", "厉景深"])
+        self.assertEqual(
+            [
+                ("厉景深", "你敢吗？"),
+                ("苏念", "怕你不成？"),
+                ("工作人员", "那个……请问二位认识多久了？"),
+                ("厉景深（冷淡）", "刚认识。"),
+                ("苏念（心虚）", "……一见钟情。"),
+            ],
+            [(item["speaker"], item["text"]) for item in turns],
+        )
+
+    def test_label_fallback_still_splits_unquoted_script(self):
+        turns = H3PromptBuilder._parse_script_turns("厉景深：让开。\n苏念：怕你不成。", ["苏念", "厉景深"])
+        self.assertEqual([("厉景深", "让开。"), ("苏念", "怕你不成。")], [(i["speaker"], i["text"]) for i in turns])
+
+    def test_stage_note_is_not_speakable(self):
+        self.assertTrue(H3PromptBuilder.is_stage_note("（无台词，仅内心活动暗示）"))
+        self.assertFalse(H3PromptBuilder.is_stage_note("苏念（大声）：“我要结婚！”"))
+        self.assertEqual([], H3PromptBuilder._parse_script_turns("（无台词，仅内心活动暗示）", ["苏念"]))
+        spoken, inner = H3PromptBuilder.split_spoken_and_inner(
+            {"dialogue": "（无台词，仅内心活动暗示）", "speaker": "", "characters": ["苏念"]}
+        )
+        self.assertEqual(([], []), (spoken, inner))
+
+    def test_pack_speech_requirement_drops_stage_note(self):
+        from backend.app.skill_packs.handlers import _required_speech_atoms
+
+        beat = {"dialogue": "（无台词，仅内心活动暗示）", "speaker": "", "characters": ["苏念"]}
+        self.assertEqual([], _required_speech_atoms(beat))
+        spoken_beat = {"dialogue": "苏念：“祝你们幸福。”", "speaker": "", "characters": ["苏念"]}
+        self.assertEqual(["祝你们幸福。"], _required_speech_atoms(spoken_beat))
+
+
+class ComfyHistoryErrorTests(unittest.TestCase):
+    def test_error_names_failing_node(self):
+        status = {
+            "status_str": "error",
+            "messages": [
+                ["execution_start", {}],
+                ["execution_error", {"node_id": "12", "node_type": "MiniMaxH3Director", "exception_message": "[Errno 22] Invalid argument\n"}],
+            ],
+        }
+        message = ComfyVideoClient._history_error(status)
+        self.assertIn("MiniMaxH3Director 节点", message)
+        self.assertIn("Errno 22", message)
 
 
 if __name__ == "__main__":

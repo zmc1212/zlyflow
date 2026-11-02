@@ -12,6 +12,7 @@ from ...director_craft.coverage import (
     CLAUSE_ALREADY_INSIDE,
     CLAUSE_INNER_HOLD,
     CLAUSE_PUSH_IN,
+    CLAUSE_START_WAIST,
     CLAUSE_TILT_UP,
     compile_coverage_plan,
     coverage_prompt_errors,
@@ -50,6 +51,14 @@ H3_SECTIONS = (
 _SCRIPT_TURN_RE = re.compile(
     r"([^：:“”\"'\s]{1,20})[：:]\s*[“\"「]([^”\"」]+)[”\"」]"
 )
+# 写作备注：整段被括号包住、内部没有说话人冒号，例如「（无台词，仅内心活动暗示）」。
+_STAGE_NOTE_RE = re.compile(r"^[（(][^：:]*[)）]\s*$", re.S)
+_SCRIPT_LABEL_RE = re.compile(
+    r"(?:^|(?<=[\s。！？!?；;…”」』]))"
+    r"([\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9·]{0,11}"
+    r"(?:（[^）]{0,12}）|\([^)]{0,12}\))?)"
+    r"\s*[：:]\s*"
+)
 _QUOTE_PAIRS = (("“", "”"), ("‘", "’"), ('"', '"'), ("'", "'"), ("「", "」"), ("『", "』"))
 _EMPTY_SPEAKER_QUOTE_RE = re.compile(
     r"[^：:“”\"'\s]{1,24}"
@@ -79,6 +88,12 @@ _CLOSED_MOUTH_HINT_RE = re.compile(
 )
 OFFICIAL_OFFSCREEN_VOICEOVER = "says in an off-screen voiceover"
 OFFICIAL_CLOSED_MOUTH_AFTER = " while all visible characters' lips remain completely closed."
+# 程序装箱没有 LLM 语音契约兜底，必须在每条提示词里显式声明：只有 <d> 内的中文可发音，
+# 否则 H3 会把场景描述、运镜说明等长中文句子当旁白念出来。
+PROGRAM_SPOKEN_AUDIO_CONTRACT = (
+    "Spoken audio is limited to the Chinese lines inside <d> tags; camera movement, scene "
+    "descriptions, and ambience notes are visual directions that are never read aloud."
+)
 _OFFICIAL_VO_TAIL_RE = re.compile(
     r"says\s+in\s+an\s+off-screen\s+voiceover\s*:?\s*$",
     re.I,
@@ -241,6 +256,15 @@ _THICKNESS_PAD = (
     "The camera holds a stable medium composition while natural lighting defines the room, "
     "the subject performs a precise visible action, and synchronized sound follows every contact."
 )
+_PROGRAM_CAMERA_SPLIT_RE = re.compile(r"(?:运镜|镜头运动|Camera(?: movement)?)\s*[:：]", re.I)
+_PROGRAM_SOUND_SPLIT_RE = re.compile(r"(?:声音|音效|Sound(?: design)?|Audio)\s*[:：]", re.I)
+_PROGRAM_ASPECT_NOTE_RE = re.compile(
+    r"(?:成片|画幅|画面比例|输出比例)\s*\d+\s*[:：]\s*\d+\s*(?:[（(][^）)]*[）)])?",
+    re.I,
+)
+_PROGRAM_LIGHTING_LINE = "Lighting follows the scene's practical light sources."
+_PROGRAM_PORTRAIT_FRAMING_RE = re.compile(r"纵向构图|竖构图|竖向构图|竖屏")
+_PROGRAM_LANDSCAPE_FRAMING_RE = re.compile(r"横向构图|横构图|横向取景|横屏")
 _CLAUSE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 _SECTION_SPLIT_RE = re.compile(
     r"(?=(?:COMPOSITION AND CAMERA|LOCATION|LIGHTING|CAST LOCK|"
@@ -419,8 +443,15 @@ class H3PromptBuilder:
         return value
 
     @classmethod
+    def is_stage_note(cls, text: Any) -> bool:
+        """整条对白被括号包住且没有说话人标签时，它是写作备注（如「（无台词，仅内心活动暗示）」），不是可配音的台词。"""
+        return bool(_STAGE_NOTE_RE.match(str(text or "").strip()))
+
+    @classmethod
     def _clean_dialogue(cls, text: str, speaker: str = "", extra_names: list[str] | None = None) -> str:
         value = str(text or "").strip()
+        if cls.is_stage_note(value):
+            return ""
         names = [str(item).strip() for item in [speaker, *(extra_names or [])] if str(item).strip()]
         for name in sorted(set(names), key=len, reverse=True):
             value = re.sub(
@@ -449,6 +480,46 @@ class H3PromptBuilder:
         return [item for item in merged if item] or [value]
 
     @classmethod
+    def _parse_unquoted_script_turns(
+        cls,
+        dialogue: str,
+        extra_names: list[str] | None = None,
+    ) -> list[dict[str, str]]:
+        text = str(dialogue or "").strip()
+        if not text:
+            return []
+        names = [str(item).strip() for item in (extra_names or []) if str(item).strip()]
+        labels = sorted(
+            {cls._base_speaker_name(item) for item in names if cls._base_speaker_name(item)},
+            key=len,
+            reverse=True,
+        )
+        spans: list[tuple[int, int, str]] = []
+        if labels:
+            body = "|".join(re.escape(label) for label in labels)
+            pattern = re.compile(
+                r"(?:^|(?<=[\s。！？!?；;…”」』]))"
+                rf"((?:{body})(?:（[^）]{{0,12}}）|\([^)]{{0,12}}\))?)\s*[：:]\s*"
+            )
+            spans = [(match.start(1), match.end(), match.group(1)) for match in pattern.finditer(text)]
+        if not spans:
+            spans = [
+                (match.start(1), match.end(), match.group(1))
+                for match in _SCRIPT_LABEL_RE.finditer(text)
+            ]
+        if not spans or (len(spans) == 1 and spans[0][0] != 0):
+            return []
+        turns: list[dict[str, str]] = []
+        for index, (_start, end, label) in enumerate(spans):
+            stop = spans[index + 1][0] if index + 1 < len(spans) else len(text)
+            speaker = str(label or "").strip()
+            spoken = text[end:stop]
+            cleaned = cls._clean_dialogue(spoken, cls._base_speaker_name(speaker), extra_names)
+            if cleaned:
+                turns.append({"speaker": speaker, "text": cleaned})
+        return turns
+
+    @classmethod
     def _parse_script_turns(cls, dialogue: str, extra_names: list[str] | None = None) -> list[dict[str, str]]:
         turns: list[dict[str, str]] = []
         for speaker, spoken in _SCRIPT_TURN_RE.findall(str(dialogue or "")):
@@ -456,7 +527,12 @@ class H3PromptBuilder:
             text = cls._clean_dialogue(spoken, name, extra_names)
             if text:
                 turns.append({"speaker": name, "text": text})
-        return turns
+        label_turns = cls._parse_unquoted_script_turns(dialogue, extra_names)
+        # 带引号的行内台词优先：标签回退解析会把下一位说话人的引号内容粘进上一条
+        # （如 「怕你不成？”\n工作人员：“…」」），逐字校验因此要求原文里不存在的碎片。
+        if len(turns) >= len(label_turns):
+            return turns
+        return label_turns if len(label_turns) >= 2 or not turns else turns
 
     @staticmethod
     def _is_inner_speaker(speaker: str, delivery: str = "") -> bool:
@@ -516,6 +592,38 @@ class H3PromptBuilder:
     def _dialogue_turns(cls, shot: dict[str, Any]) -> list[dict[str, Any]]:
         spoken, _inner = cls.split_spoken_and_inner(shot)
         return spoken
+
+    @classmethod
+    def resolve_beat_speakers(
+        cls,
+        beat: dict[str, Any],
+        character_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """短剧一行对白常写多人台词（「张伟：……\n苏念：……」）而 beat 只有 dialogue，
+        没有 speaker；工坊出片和提示词都按说话人消费，这里从对白文本补出。"""
+        dialogue = str(beat.get("dialogue") or "").strip()
+        if not dialogue:
+            return {}
+        names = [
+            str(item or "").strip()
+            for item in [*(character_names or []), *(beat.get("characters") or [])]
+            if str(item or "").strip()
+        ]
+        shot = {
+            "dialogue": dialogue,
+            "speaker": str(beat.get("speaker") or "").strip(),
+            "characters": names,
+            "dialogue_turns": beat.get("dialogue_turns"),
+        }
+        spoken, inner = cls.split_spoken_and_inner(shot)
+        turns = [*spoken, *inner]
+        named = [item for item in turns if str(item.get("speaker") or "").strip()]
+        if not named:
+            return {}
+        patch: dict[str, Any] = {"dialogue_turns": turns}
+        if not shot["speaker"]:
+            patch["speaker"] = str(named[0].get("speaker") or "").strip()
+        return patch
 
     @classmethod
     def third_person_narration(cls, shot: dict[str, Any]) -> str:
@@ -1981,9 +2089,62 @@ class H3PromptBuilder:
         return errors
 
     @classmethod
+    def _d_tag_merge_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
+        """单条 <d> 只允许一个说话人的一轮台词。
+
+        两轮台词被合并进同一条 <d>、或"角色名："这类标签混入 <d> 时，H3 会把标签
+        和别人的台词一起读出来；装箱校验必须把这两种情况当硬错误拦下并触发重试。
+        """
+        turns = [*cls._dialogue_turns(shot), *cls._inner_turns(shot)]
+        expected_texts = sorted(
+            {str(turn.get("text") or "").strip() for turn in turns if str(turn.get("text") or "").strip()},
+            key=len,
+            reverse=True,
+        )
+        expected_han = [cls._han_only(text) for text in expected_texts]
+        names = [name for name in dict.fromkeys(cls._known_speaker_names(shot)) if len(name) >= 2]
+        for turn in turns:
+            name = cls._base_speaker_name(str(turn.get("speaker") or "")).strip()
+            if len(name) >= 2 and name not in names:
+                names.append(name)
+        errors: list[str] = []
+        seen: set[str] = set()
+        for match in re.finditer(r"<d>\s*(?:\[[^\]]*\]\s*)?(.*?)</d>", prompt, flags=re.S):
+            content = str(match.group(1) or "").strip()
+            han = cls._han_only(content)
+            if not han:
+                continue
+            inside = [text for text in expected_han if text and text in han]
+            inside = [text for text in inside if not any(text != other and text in other for other in inside)]
+            if len(set(inside)) >= 2:
+                key = f"merge:{inside[0][:12]}|{inside[1][:12]}"
+                if key not in seen:
+                    seen.add(key)
+                    errors.append(
+                        "两条对白被合并进同一条 <d>；每轮台词必须单独一条 <d>，"
+                        "合并会让一个声音念出别人的词"
+                    )
+                continue
+            residual = content
+            for text in expected_texts:
+                residual = residual.replace(text, " ")
+            for name in names:
+                if re.search(re.escape(name) + r"\s*[:：]", residual):
+                    key = f"label:{name}"
+                    if key not in seen:
+                        seen.add(key)
+                        errors.append(
+                            f"说话人标签「{name}：」混入 <d> 对白；标签只是元数据，"
+                            "绝不能进入 <d> 被读出"
+                        )
+                    break
+        return errors
+
+    @classmethod
     def speech_contract_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
         errors = cls.speech_schedule_errors(prompt, shot)
         errors.extend(cls.inner_delivery_errors(prompt, shot))
+        errors.extend(cls._d_tag_merge_errors(prompt, shot))
         events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
         if not events:
             return errors
@@ -2449,6 +2610,8 @@ class H3PromptBuilder:
         events: list[dict[str, Any]],
         motion: list[str],
         character_count: int,
+        *,
+        allow_fallback: bool = True,
     ) -> str:
         pieces: list[str] = []
         motion[:] = [clause for clause in motion if not cls._is_literary_gaze(clause)]
@@ -2461,7 +2624,7 @@ class H3PromptBuilder:
                 pieces.append(pin)
                 if not re.search(r"holds a static shot", pin, flags=re.I):
                     pieces.append(_INNER_BODY_HOLD)
-            else:
+            elif allow_fallback:
                 pieces.append(CLAUSE_INNER_HOLD)
         elif index == first_spoken:
             tilt = cls._take_matching(motion, cls._is_tilt_up_beat)
@@ -2488,6 +2651,8 @@ class H3PromptBuilder:
                 text = text[0].upper() + text[1:]
             cleaned.append(cls._punctuate_clause(text))
         clause = " ".join(cleaned)
+        if not allow_fallback:
+            return clause
         if not cls._clause_covers_speech_gap(clause):
             fallback = CLAUSE_INNER_HOLD if event.get("kind") == "inner" else cls._fallback_camera_beat(index)
             clause = f"{fallback} {clause}".strip() if clause else fallback
@@ -2619,9 +2784,16 @@ class H3PromptBuilder:
         return re.sub(r"[ \t]{2,}", " ", text).strip()
 
     @classmethod
-    def assemble_shot_body(cls, shot: dict[str, Any], speaker_map: dict[str, str] | None = None) -> str:
+    def assemble_shot_body(
+        cls,
+        shot: dict[str, Any],
+        speaker_map: dict[str, str] | None = None,
+        *,
+        explicit_camera: bool = False,
+        program: bool = False,
+    ) -> str:
         speaker_map = speaker_map or cls._speaker_map([shot])
-        if cls._use_faithful_zh_schedule(shot):
+        if cls._use_faithful_zh_schedule(shot) and not explicit_camera:
             return cls._assemble_faithful_zh_body(shot, speaker_map)
         echo = [
             str(event.get("text") or "").strip()
@@ -2644,6 +2816,9 @@ class H3PromptBuilder:
             item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()
         ]
         plan = compile_coverage_plan(shot, events)
+        if explicit_camera:
+            plan.blocking = [clause for clause in plan.blocking if clause != CLAUSE_START_WAIST]
+            plan.moves = []
         character_count = len([
             item for item in (shot.get("character_references") or [])
             if isinstance(item, dict) and str(item.get("character_name") or "").strip()
@@ -2668,11 +2843,21 @@ class H3PromptBuilder:
                 continue
             body.append(clause)
         for index, event in enumerate(events):
-            body.append(cls._camera_for_speech_event(event, index, events, motion, character_count))
+            body.append(cls._camera_for_speech_event(
+                event,
+                index,
+                events,
+                motion,
+                character_count,
+                allow_fallback=not explicit_camera,
+            ))
             body.append(cls._speech_contract_line(event, shot, speaker_map))
-        body.extend(buckets["freeze"] or [
-            "After the last syllable, the shot freezes on a readable facial reaction for about one second."
-        ])
+        if program:
+            body.extend(buckets["freeze"])
+        else:
+            body.extend(buckets["freeze"] or [
+                "After the last syllable, the shot freezes on a readable facial reaction for about one second."
+            ])
         visible = str(shot.get("visible_text") or "").strip()
         if visible:
             body.append(
@@ -2695,7 +2880,69 @@ class H3PromptBuilder:
         return f"{item}."
 
     @classmethod
-    def render_ref2va(cls, shot: dict[str, Any]) -> str:
+    def _program_strip_annotations(cls, text: str) -> str:
+        value = str(text or "")
+        value = _PROGRAM_CAMERA_SPLIT_RE.split(value, maxsplit=1)[0]
+        value = _PROGRAM_SOUND_SPLIT_RE.split(value, maxsplit=1)[0]
+        value = _PROGRAM_ASPECT_NOTE_RE.sub(" ", value)
+        return re.sub(r"[ \t]{2,}", " ", value).strip(" 。；;，,")
+
+    @classmethod
+    def program_visual_draft(cls, shot: dict[str, Any]) -> str:
+        """Pick the richest real shot text for deterministic program packing."""
+        echo = [
+            str(event.get("text") or "").strip()
+            for event in cls.ordered_speech_events(shot)
+            if str(event.get("text") or "").strip()
+        ]
+        best = ""
+        best_score = -1
+        for key in ("action", "video_prompt_zh", "visual_prompt"):
+            text = cls._program_strip_annotations(shot.get(key) or "")
+            text = cls.strip_script_echo(text, echo)
+            text = re.sub(r"[ \t]{2,}", " ", text).strip()
+            if not text:
+                continue
+            score = len(_HAN_RE.findall(text)) * 2 + cls.english_word_count(text)
+            if score > best_score:
+                best, best_score = text, score
+        return best
+
+    @classmethod
+    def program_camera_text(cls, shot: dict[str, Any]) -> str:
+        text = str(shot.get("camera") or "").strip()
+        if not text:
+            for key in ("video_prompt_zh", "action"):
+                raw = str(shot.get(key) or "")
+                match = _PROGRAM_CAMERA_SPLIT_RE.search(raw)
+                if not match:
+                    continue
+                text = _PROGRAM_SOUND_SPLIT_RE.split(raw[match.end():], maxsplit=1)[0].strip()
+                if text:
+                    break
+        text = _PROGRAM_ASPECT_NOTE_RE.sub(" ", text)
+        text = re.sub(r"\b(?:9\s*[:：]\s*16|16\s*[:：]\s*9)\b", "", text)
+        return re.sub(r"[ \t]{2,}", " ", text).strip(" 。；;，,")
+
+    @classmethod
+    def _program_align_framing(cls, text: str, aspect_ratio: str) -> str:
+        value = str(text or "")
+        if not value or not aspect_ratio:
+            return value
+        if aspect_ratio == "16:9":
+            return _PROGRAM_PORTRAIT_FRAMING_RE.sub("横向构图", value)
+        if aspect_ratio == "9:16":
+            return _PROGRAM_LANDSCAPE_FRAMING_RE.sub("纵向构图", value)
+        return value
+
+    @classmethod
+    def render_ref2va(
+        cls,
+        shot: dict[str, Any],
+        *,
+        program: bool = False,
+        aspect_ratio: str | None = None,
+    ) -> str:
         speaker_map = cls._speaker_map([shot])
         seconds = str(shot.get("duration_seconds") or shot.get("duration_sec") or 8).strip() or "8"
         names = [
@@ -2709,12 +2956,28 @@ class H3PromptBuilder:
             "visual_prompt": shot.get("visual_prompt") or "",
             "action": shot.get("action") or "",
             "camera": shot.get("camera") or "",
-            "aspect_ratio": shot.get("aspect_ratio") or "",
+            "aspect_ratio": aspect_ratio or shot.get("aspect_ratio") or "",
         })
         ratio_note = f" {ratio}" if ratio else ""
-        detail = "[Shot 1] " + cls.assemble_shot_body(shot, speaker_map)
-        while cls.english_word_count(detail) < 280:
-            detail = f"{_THICKNESS_PAD} {detail}"
+        if program:
+            program_shot = {**shot, "visual_prompt": cls.program_visual_draft(shot)}
+            camera = cls._program_align_framing(cls.program_camera_text(shot), ratio)
+            body = cls.assemble_shot_body(
+                program_shot,
+                speaker_map,
+                explicit_camera=bool(camera),
+                program=True,
+            )
+            if camera and camera.lower() not in body.lower():
+                body = f"Camera movement: {camera}. {body}".strip()
+            body = f"{body} {PROGRAM_SPOKEN_AUDIO_CONTRACT}".strip()
+            if not re.search(r"\b(?:light|lighting|lit|illumination|illuminated)\b", body, flags=re.I):
+                body = f"{body} {_PROGRAM_LIGHTING_LINE}".strip()
+            detail = "[Shot 1] " + body
+        else:
+            detail = "[Shot 1] " + cls.assemble_shot_body(shot, speaker_map)
+            while cls.english_word_count(detail) < 280:
+                detail = f"{_THICKNESS_PAD} {detail}"
         indexes = cls._required_picture_indexes(shot)
         retention = [
             f"<Subject {index}> (appears in [Shot 1]): fully_preserved - "
@@ -2780,6 +3043,8 @@ class H3PromptBuilder:
         prompt: str,
         shot: dict[str, Any],
         speaker_map: dict[str, str] | None = None,
+        *,
+        pad_thickness: bool = True,
     ) -> str:
         speaker_map = speaker_map or cls._speaker_map([shot])
         text = cls.canonicalize_reference_tags(prompt)
@@ -2791,7 +3056,8 @@ class H3PromptBuilder:
         text = cls.collapse_repeated_speech(text, shot)
         text = cls.repair_inner_delivery(text, shot)
         text = cls._repair_coverage_landings(text, shot)
-        text = cls._repair_thickness_terms(text)
+        if pad_thickness:
+            text = cls._repair_thickness_terms(text)
         text = re.sub(r"\bthen speaks\b", "", text, flags=re.I)
         text = re.sub(r"\bspeaks first with\b", "", text, flags=re.I)
         text = _HE_THINKS_LEAD_RE.sub("", text)
@@ -2818,13 +3084,21 @@ class H3PromptBuilder:
         cls,
         shots: list[dict[str, Any]],
         on_attempt: Callable[[dict[str, Any]], None] | None = None,
+        *,
+        aspect_ratio: str | None = None,
+        min_english_words: int = 60,
     ) -> list[str]:
         prompts: list[str] = []
         for shot in shots:
             beat_info = cls.sanitize_beat_draft(cls.beat_info_from_shot(shot))
             rendered = cls.shot_from_beat_info(beat_info)
-            prompt = cls.render_ref2va(rendered)
-            errors = cls.validate_prompts([rendered], [prompt])
+            prompt = cls.render_ref2va(rendered, program=True, aspect_ratio=aspect_ratio)
+            errors = cls.validate_prompts(
+                [rendered],
+                [prompt],
+                min_english_words=min_english_words,
+                program=True,
+            )
             if on_attempt:
                 on_attempt({
                     "beat_id": str(shot.get("beat_id") or rendered.get("beat_id") or ""),
@@ -3105,6 +3379,9 @@ class H3PromptBuilder:
         shots: list[dict[str, Any]],
         prompts: list[str],
         speaker_map: dict[str, str] | None = None,
+        *,
+        min_english_words: int = 280,
+        program: bool = False,
     ) -> list[str]:
         errors: list[str] = []
         if len(prompts) != len(shots):
@@ -3183,11 +3460,15 @@ class H3PromptBuilder:
                 errors.append(f"{label} 未逐字保留画面文字")
             for issue in cls.speech_contract_errors(prompt, shot):
                 errors.append(f"{label} {issue}")
-            for issue in cls.thickness_errors(prompt):
+            for issue in cls.thickness_errors(prompt, min_english_words=min_english_words):
                 errors.append(f"{label} {issue}")
             events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
-            for issue in cls.craft_prompt_errors(prompt, shot, events):
-                errors.append(f"{label} {issue}")
+            if program:
+                for issue in reference_authority_errors(prompt, shot):
+                    errors.append(f"{label} {issue}")
+            else:
+                for issue in cls.craft_prompt_errors(prompt, shot, events):
+                    errors.append(f"{label} {issue}")
         return errors
 
     @classmethod

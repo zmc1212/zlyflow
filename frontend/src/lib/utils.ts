@@ -26,10 +26,12 @@ export function parseMediaAspect(value?: string | number | boolean | null): Medi
   return { width, height }
 }
 
-export function mediaAspectVars(aspect?: MediaAspectSize): Record<"--media-aspect-w" | "--media-aspect-h", string> | undefined {
+export function mediaAspectVars(aspect?: MediaAspectSize): Record<"--media-aspect-w" | "--media-aspect-h" | "--media-ratio", string> | undefined {
   if (!aspect) return undefined
+  const ratio = Math.round((aspect.width / aspect.height) * 10000) / 10000
   return {
     "--media-aspect-w": String(aspect.width),
     "--media-aspect-h": String(aspect.height),
+    "--media-ratio": String(ratio),
   }
 }

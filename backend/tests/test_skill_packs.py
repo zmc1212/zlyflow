@@ -96,8 +96,9 @@ class SkillPackRegistryTests(unittest.TestCase):
         reset_pack_cache()
         catalog = list_pack_catalog()
         self.assertEqual("", catalog[0]["id"])
-        self.assertEqual(["render_ref2va_default"], catalog[0]["workshop_shot"])
-        self.assertEqual("不注入 Plaza 制作配方，工坊用程序装箱六段。", catalog[0]["summary"])
+        self.assertEqual([], catalog[0]["workshop_shot"])
+        self.assertEqual("H3 官方六段式", catalog[0]["name"])
+        self.assertIn("H3 官方六段式", catalog[0]["summary"])
         ids = [item["id"] for item in catalog]
         self.assertIn(HALF_NARRATED_PACK_ID, ids)
         half = next(item for item in catalog if item["id"] == HALF_NARRATED_PACK_ID)
@@ -179,16 +180,14 @@ class SkillPackPackingPromptTests(unittest.TestCase):
         self.assertIn("only schedule", system)
         self.assertNotIn("Do NOT emit At HH:MM.SSS", system)
 
-    def test_workshop_default_prompt_does_not_call_llm(self):
+    def test_workshop_default_prompt_no_longer_program_packs(self):
         with patch.object(LlmService, "_request_h3_prompt") as request:
-            prompt = run_workshop_prompt({
-                "dialogue": "你好。",
-                "ref_images": [{"index": 1}, {"index": 2}],
-            })
+            with self.assertRaises(DualShotAuthorError):
+                run_workshop_prompt({
+                    "dialogue": "你好。",
+                    "ref_images": [{"index": 1}, {"index": 2}],
+                })
         request.assert_not_called()
-        self.assertIn("[Shot 1]", prompt)
-        self.assertIn("你好。", prompt)
-        self.assertIn(_THICKNESS_PAD, prompt)
 
     def test_workshop_half_narrated_raises_when_author_fails(self):
         beat_info = {
@@ -1499,11 +1498,15 @@ class SkillPackCraftOverlayTests(unittest.TestCase):
 
 
 class SkillPackDefaultRecipeTests(unittest.TestCase):
-    def test_empty_pack_id_is_default_render(self):
+    def test_empty_pack_id_uses_official_h3_six_section_packing(self):
         recipe = default_recipe()
         self.assertTrue(recipe.is_default)
-        self.assertEqual(("render_ref2va_default",), recipe.workshop_shot)
+        self.assertEqual("H3 官方六段式", recipe.name)
+        self.assertEqual((), recipe.workshop_shot)
+        self.assertTrue(recipe.packing_overrides.skip_program_pack)
         self.assertFalse(recipe.packing_overrides.allow_timeranges)
+        self.assertFalse(recipe.packing_overrides.allow_multi_camera_path)
+        self.assertFalse(recipe.packing_overrides.faithful_zh_pack)
         self.assertEqual("", validate_skill_pack_id(""))
 
 

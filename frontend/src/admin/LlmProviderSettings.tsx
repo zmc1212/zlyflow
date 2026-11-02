@@ -6,6 +6,13 @@ import { jsonMutation, requestJson } from "../api"
 import { buildModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
 import type { CatalogModel, CatalogResponse, ProviderPresetsResponse } from "./provider-models"
 
+type SavedEndpointCredential = {
+  base_url: string
+  model: string
+  api_key_masked?: string | null
+  updated_at?: string | null
+}
+
 type LlmConfig = {
   enabled: boolean
   base_url: string
@@ -20,6 +27,7 @@ type LlmConfig = {
   last_test_at?: string | null
   supports_vision?: boolean
   assistant_models?: string[]
+  saved_provider_credentials?: SavedEndpointCredential[]
 }
 
 function modelLooksLikeVision(model: string): boolean {
@@ -173,8 +181,12 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
     setApiKey("")
     const found = providerPresets.find((p) => p.value === presetValue)
     if (found && found.value !== "custom") {
+      // 该服务保存过凭据档案时，自动带出上次使用的模型，切换即用。
+      const remembered = query.data?.saved_provider_credentials?.find(
+        (credential) => sameProviderEndpoint(credential.base_url, found.baseUrl),
+      )
       setBaseUrl(found.baseUrl)
-      setModel(found.model)
+      setModel(remembered?.model || found.model)
     }
     setCatalogModels([])
     autoFetchedFor.current = ""
@@ -244,7 +256,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   useEffect(() => {
     const canFetchLocal = selectedPreset === "ollama" || selectedPreset === "lmstudio"
     const savedKeyMatches = query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url)
-    const canFetchCloud = (selectedPreset === "siliconflow" || selectedPreset === "zhipu") && Boolean(savedKeyMatches)
+    const canFetchCloud = (selectedPreset === "siliconflow" || selectedPreset === "zhipu" || selectedPreset === "internai") && Boolean(savedKeyMatches)
     if (!canFetchLocal && !canFetchCloud) return
     const key = `${selectedPreset}|${baseUrl}|${query.data?.has_api_key ? "saved" : "none"}`
     if (autoFetchedFor.current === key) return
@@ -260,6 +272,13 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   const selectedModelFree = resolveModelFree(baseUrl, model, activeCatalog, officialPresets ?? [])
   const pricingPreset = officialPresets?.find(preset => sameProviderEndpoint(preset.base_url, baseUrl))
   const savedKeyMatches = Boolean(query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url))
+  // 当前地址在凭据档案里存在（可能是非激活的其它供应商），保存时后端会自动带出对应 Key。
+  const savedEndpointCredential = useMemo(
+    () => query.data?.saved_provider_credentials?.find(
+      (credential) => sameProviderEndpoint(credential.base_url, baseUrl),
+    ) ?? null,
+    [query.data?.saved_provider_credentials, baseUrl],
+  )
 
   const error = save.error ?? test.error ?? catalog.error ?? query.error ?? presetsQuery.error
 
@@ -428,9 +447,17 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               placeholder={
                 selectedPreset === "ollama" || selectedPreset === "lmstudio"
                   ? "本地服务可留空"
-                  : (savedKeyMatches ? query.data?.api_key_masked : null) || "输入平台生成的 API Key / Token"
+                  : (savedKeyMatches ? query.data?.api_key_masked : null)
+                    || (savedEndpointCredential ? `已保存 ${savedEndpointCredential.api_key_masked ?? "Key"}，留空自动沿用` : null)
+                    || "输入平台生成的 API Key / Token"
               }
             />
+            {savedEndpointCredential && !savedKeyMatches ? (
+              <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
+                已记住该服务的 API Key{savedEndpointCredential.api_key_masked ? `（${savedEndpointCredential.api_key_masked}）` : ""}
+                与模型 {savedEndpointCredential.model || "（未记录）"}：保存后自动启用，无需重新粘贴；输入新 Key 可覆盖。
+              </p>
+            ) : null}
             {selectedPreset === "ollama" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
                 Ollama 不需要云端 Token。模型名必须与 <code>ollama list</code> 完全一致；首次测试会把 7B 模型加载进显存，可能需要几十秒，请等按钮转完。

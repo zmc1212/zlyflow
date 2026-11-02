@@ -108,10 +108,35 @@ class ProjectActions:
                 for index, asset in enumerate(artifact["data"]["assets"]):
                     change("asset", f"asset:{index}", asset["name"], asset)
             else:
-                known_assets = {a["id"]: a["kind"] for a in conn.execute("SELECT id,kind FROM ai_project_assets WHERE project_id=?", (project_id,)).fetchall()}
+                asset_rows = conn.execute("SELECT id,kind,name FROM ai_project_assets WHERE project_id=?", (project_id,)).fetchall()
+                known_assets = {a["id"]: a["kind"] for a in asset_rows}
+                character_names = [a["name"] for a in asset_rows if a["kind"] == "character"]
+                invalid_refs: list[str] = []
+                for episode in artifact["data"]["episodes"]:
+                    for beat in episode["beats"]:
+                        for aid in beat["character_ids"]:
+                            if known_assets.get(aid) != "character":
+                                invalid_refs.append(f"角色 {aid}")
+                        if beat["scene_id"] and known_assets.get(beat["scene_id"]) != "scene":
+                            invalid_refs.append(f"场景 {beat['scene_id']}")
+                        for aid in beat["prop_ids"]:
+                            if known_assets.get(aid) != "prop":
+                                invalid_refs.append(f"道具 {aid}")
+                if invalid_refs:
+                    # 列出无效引用与全部有效资产 ID，模型可在同一轮重建草稿而不是反复试错。
+                    catalog = [{"id": aid, "kind": kind, "name": name} for aid, kind, name in
+                               ((a["id"], a["kind"], a["name"]) for a in asset_rows)]
+                    raise ValueError("镜头引用了不属于本工程的资产：" + "、".join(invalid_refs)
+                                     + "。有效资产（必须逐字使用以下 id）：" + json.dumps(catalog, ensure_ascii=False))
                 for episode in artifact["data"]["episodes"]:
                     key = f"episode:{episode['episode_num']}"
-                    target_id = mapping[key] if key in mapping else episode.get("episode_id")
+                    target_id = mapping[key] if key in mapping else None
+                    if target_id is None and episode.get("episode_id"):
+                        # 模型常自造占位 episode_id（如 ep-001）或引用上一版草稿里
+                        # 从未采纳的 ID：指向不存在的分集时按新建处理；
+                        # 采纳映射里显式给出的无效目标仍由下方 existing 校验拦截。
+                        exists = conn.execute("SELECT id FROM ai_project_episodes WHERE id=? AND project_id=?", (str(episode["episode_id"]), project_id)).fetchone()
+                        target_id = str(episode["episode_id"]) if exists else None
                     existing = conn.execute("SELECT * FROM ai_project_episodes WHERE id=? AND project_id=?", (target_id, project_id)).fetchone() if target_id else None
                     if not target_id:
                         same_number = conn.execute("SELECT id FROM ai_project_episodes WHERE project_id=? AND episode_num=? LIMIT 1", (project_id, episode["episode_num"])).fetchone()
@@ -120,21 +145,19 @@ class ProjectActions:
                     old_data = json.loads(existing.get("data_json") or "{}") if existing else {}
                     data = {**old_data, "summary": episode["summary"]}
                     if artifact["artifact_type"] == "storyboard":
+                        from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
+
                         old_beats = {b.get("id"): b for b in old_data.get("beats", [])}
                         beats = []
                         for index, beat in enumerate(episode["beats"]):
-                            for aid in beat["character_ids"]:
-                                if known_assets.get(aid) != "character":
-                                    raise ValueError("镜头引用了不属于本工程的角色")
-                            for aid in beat["prop_ids"]:
-                                if known_assets.get(aid) != "prop":
-                                    raise ValueError("镜头引用了不属于本工程的道具")
-                            if beat["scene_id"] and known_assets.get(beat["scene_id"]) != "scene":
-                                raise ValueError("镜头引用了不属于本工程的场景")
                             bid = beat["id"] if beat["id"] in old_beats else identifier("beat")[:64]
-                            beats.append({**old_beats.get(bid, {}), **beat, "id": bid, "sequence": index + 1,
-                                          "description": beat["action"], "promptText": beat["prompt"], "video_prompt": beat["prompt"],
-                                          "duration_sec": beat["duration"], "title": f"镜头 {index + 1}"})
+                            merged = {**old_beats.get(bid, {}), **beat, "id": bid, "sequence": index + 1,
+                                      "description": beat["action"], "promptText": beat["prompt"], "video_prompt": beat["prompt"],
+                                      "duration_sec": beat["duration"], "title": f"镜头 {index + 1}"}
+                            # 分镜草稿的多人台词只写在 dialogue 文本里，落库时补出说话人，
+                            # 否则剧集工坊出片前置检查会判定「有对白但缺少说话人」。
+                            merged.update(H3PromptBuilder.resolve_beat_speakers(merged, character_names))
+                            beats.append(merged)
                         data["beats"] = beats
                     change("episode", key, f"第{episode['episode_num']}集 · {episode['title']}", {
                         "episode_num": episode["episode_num"], "title": episode["title"], "status": "script_ready",

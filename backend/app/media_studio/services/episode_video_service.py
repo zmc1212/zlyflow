@@ -20,6 +20,7 @@ from .comfy_service import ComfyService
 from .comfy_video_client import ComfyVideoClient
 from .episode_image_prompts import resolve_scene_asset, scene_master_url
 from .h3_prompt_builder import H3PromptBuilder
+from .job_lease import converge_orphaned_jobs, start_heartbeat, worker_id
 from .project_detail_service import ProjectDetailService
 from .qiniu_service import QiniuService
 from .timeline_rendering import (
@@ -58,6 +59,10 @@ _ACTIVE_VIDEO_STATUSES = (
     "awaiting_refine",
 )
 _SUCCEEDED_VIDEO_STATUSES = ("completed", "succeeded")
+# awaiting_refine 在等人点确认，本地线程已经退出，续租反而会骗过租约判定。
+_HEARTBEATED_VIDEO_STATUSES = tuple(
+    status for status in _ACTIVE_VIDEO_STATUSES if status != "awaiting_refine"
+)
 _SHOT_TAKE_SCOPES = frozenset({"shot", "selection"})
 _EXCLUDED_TAKE_SCOPES = frozenset({"episode", "compose", "upscale"})
 PROJECT_VIDEO_RESOLUTION_QUALITIES = {
@@ -144,7 +149,7 @@ class EpisodeVideoService:
     }
     JOB_CONTROL_KEYS = {
         "workflow", "workflow_id", "duration_per_beat", "render_pass", "render_scope",
-        "render_mode", "beat_ids", "force",
+        "render_mode", "beat_ids", "force", "prompt_mode",
     }
 
     @classmethod
@@ -467,6 +472,12 @@ class EpisodeVideoService:
         )
 
     @classmethod
+    def _submit_job(cls, job_id: str) -> None:
+        """入队即续租：本进程成为该行的认领者，心跳线程随之开始续租。"""
+        start_heartbeat("video_generation", _HEARTBEATED_VIDEO_STATUSES)
+        _EXECUTOR.submit(cls._run_job, job_id)
+
+    @classmethod
     def _enqueue_upscale_job(
         cls,
         *,
@@ -544,8 +555,9 @@ class EpisodeVideoService:
         execute_sql(
             """
             INSERT INTO ai_project_jobs
-            (id, project_id, job_type, title, status, progress, result_url, payload_json, created_at, updated_at)
-            VALUES (%s, %s, 'video_generation', %s, 'queued', 0, NULL, %s, %s, %s)
+            (id, project_id, job_type, title, status, progress, result_url, payload_json,
+             created_at, updated_at, worker_id, lease_updated_at)
+            VALUES (%s, %s, 'video_generation', %s, 'queued', 0, NULL, %s, %s, %s, %s, %s)
             """,
             (
                 jid,
@@ -554,9 +566,11 @@ class EpisodeVideoService:
                 json.dumps(payload, ensure_ascii=False),
                 timestamp,
                 timestamp,
+                worker_id(),
+                timestamp,
             ),
         )
-        _EXECUTOR.submit(cls._run_job, jid)
+        cls._submit_job(jid)
         return {
             "job_id": jid,
             "status": "queued",
@@ -577,6 +591,9 @@ class EpisodeVideoService:
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         options = cls.apply_confirmed_video_resolution(project_id, options)
+        prompt_mode = str((options or {}).get("prompt_mode") or "h3").strip().lower()
+        if prompt_mode not in {"h3", "program"}:
+            raise ValueError("prompt_mode 仅支持 h3 或 program")
         settings = {**cls.DEFAULTS, **cls.resolve_generation_options(options)}
         workflow_id = str(settings.get("workflow") or cls.DEFAULTS["workflow"])
         render_mode = episode_video_render_mode(workflow_id)
@@ -622,6 +639,16 @@ class EpisodeVideoService:
         shots = cls._prepare_shots(detail, assets, beat_ids=selected_ids or None)
         if selected_ids and not shots:
             raise ValueError("指定的 Beat 不存在或无法生成视频")
+        if prompt_mode != "program":
+            cls._assert_h3_prompts_ready(shots)
+        program_preview_shots: list[dict[str, Any]] = []
+        if prompt_mode == "program":
+            prompts = H3PromptBuilder.build_prompts(
+                shots, aspect_ratio=str(settings.get("aspect_ratio") or ""),
+            )
+            program_preview_shots = [
+                {**shot, "prompt": prompt} for shot, prompt in zip(shots, prompts)
+            ]
         if options:
             settings["render_pass"] = str(options.get("render_pass") or "final")
         jid = f"job-{uuid.uuid4().hex[:12]}"
@@ -641,6 +668,7 @@ class EpisodeVideoService:
             "render_scope": render_scope,
             "render_mode": render_mode,
             "render_pass": str((options or {}).get("render_pass") or "final"),
+            "prompt_mode": prompt_mode,
             "workflow_id": workflow_id,
             "project_id": project_id,
             "episode_id": episode_id,
@@ -655,14 +683,18 @@ class EpisodeVideoService:
             "comfy_base_url": comfy_config.base_url,
             "task_type": task_type,
             "source_shots": shots,
-            "shots": [],
+            "shots": program_preview_shots,
             "render_plan": {"status": "queued", "chunks": [], "assembly": None},
         }
+        if prompt_mode == "program":
+            payload["prompt_source"] = "program_preview"
+            payload["prompt_warning"] = "本次提交使用程序装箱预览，未使用 H3 六段式提示词。"
         execute_sql(
             """
             INSERT INTO ai_project_jobs
-            (id, project_id, job_type, title, status, progress, result_url, payload_json, created_at, updated_at)
-            VALUES (%s, %s, 'video_generation', %s, 'queued', 0, NULL, %s, %s, %s)
+            (id, project_id, job_type, title, status, progress, result_url, payload_json,
+             created_at, updated_at, worker_id, lease_updated_at)
+            VALUES (%s, %s, 'video_generation', %s, 'queued', 0, NULL, %s, %s, %s, %s, %s)
             """,
             (
                 jid,
@@ -671,9 +703,11 @@ class EpisodeVideoService:
                 json.dumps(payload, ensure_ascii=False),
                 timestamp,
                 timestamp,
+                worker_id(),
+                timestamp,
             ),
         )
-        _EXECUTOR.submit(cls._run_job, jid)
+        cls._submit_job(jid)
         return {
             "job_id": jid,
             "status": "queued",
@@ -739,8 +773,9 @@ class EpisodeVideoService:
         execute_sql(
             """
             INSERT INTO ai_project_jobs
-            (id, project_id, job_type, title, status, progress, result_url, payload_json, created_at, updated_at)
-            VALUES (%s, %s, 'video_generation', %s, 'queued', 0, NULL, %s, %s, %s)
+            (id, project_id, job_type, title, status, progress, result_url, payload_json,
+             created_at, updated_at, worker_id, lease_updated_at)
+            VALUES (%s, %s, 'video_generation', %s, 'queued', 0, NULL, %s, %s, %s, %s, %s)
             """,
             (
                 jid,
@@ -749,9 +784,11 @@ class EpisodeVideoService:
                 json.dumps(payload, ensure_ascii=False),
                 timestamp,
                 timestamp,
+                worker_id(),
+                timestamp,
             ),
         )
-        _EXECUTOR.submit(cls._run_job, jid)
+        cls._submit_job(jid)
         return {"job_id": jid, "status": "queued", "render_scope": "compose", "render_mode": "shot"}
 
     @classmethod
@@ -1345,12 +1382,20 @@ class EpisodeVideoService:
         execute_sql(
             """
             UPDATE ai_project_jobs SET status = 'queued', progress = 0, result_url = NULL,
-              error_message = NULL, completed_at = NULL, payload_json = %s, updated_at = %s
+              error_message = NULL, completed_at = NULL, payload_json = %s, updated_at = %s,
+              worker_id = %s, lease_updated_at = %s
             WHERE id = %s AND project_id = %s
             """,
-            (json.dumps(payload, ensure_ascii=False), timestamp, job_id, project_id),
+            (
+                json.dumps(payload, ensure_ascii=False),
+                timestamp,
+                worker_id(),
+                timestamp,
+                job_id,
+                project_id,
+            ),
         )
-        _EXECUTOR.submit(cls._run_job, job_id)
+        cls._submit_job(job_id)
         return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
 
     @classmethod
@@ -1377,17 +1422,19 @@ class EpisodeVideoService:
             raise ValueError("未找到已保存的二采工作流，请重新生成")
         continuation["status"] = "running"
         payload["refine_continuation"] = continuation
+        timestamp = now_str()
         updated = execute_sql(
             """
             UPDATE ai_project_jobs SET status = 'queued', progress = 90, error_message = NULL,
-              completed_at = NULL, payload_json = %s, updated_at = %s
+              completed_at = NULL, payload_json = %s, updated_at = %s,
+              worker_id = %s, lease_updated_at = %s
             WHERE id = %s AND project_id = %s AND status = 'awaiting_refine'
             """,
-            (json.dumps(payload, ensure_ascii=False), now_str(), job_id, project_id),
+            (json.dumps(payload, ensure_ascii=False), timestamp, worker_id(), timestamp, job_id, project_id),
         )
         if not updated:
             raise ValueError("任务状态已变化，请刷新后重试")
-        _EXECUTOR.submit(cls._run_job, job_id)
+        cls._submit_job(job_id)
         return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (job_id,)) or {}
 
     @classmethod
@@ -1437,17 +1484,8 @@ class EpisodeVideoService:
 
     @classmethod
     def recover_orphaned_jobs(cls) -> None:
-        timestamp = now_str()
-        execute_sql(
-            """
-            UPDATE ai_project_jobs
-            SET status = 'failed', progress = 0,
-                error_message = '服务进程重启，后台视频任务已中断，请点击重试。', updated_at = %s
-            WHERE job_type = 'video_generation'
-              AND status IN ('queued', 'preparing', 'prompt_generation', 'uploading', 'comfy_queued', 'running', 'assembling', 'downloading')
-            """,
-            (timestamp,),
-        )
+        """只收敛认领进程已经停止心跳的出片任务；别的实例正在渲染的行留给它自己续租。"""
+        converge_orphaned_jobs("video_generation", _HEARTBEATED_VIDEO_STATUSES)
 
     @classmethod
     def _prepare_shots(
@@ -1472,6 +1510,9 @@ class EpisodeVideoService:
         protagonist = cls._episode_protagonist(all_beats, assets)
         if not protagonist:
             raise ValueError("无法确定分集主角，请为 Beat 关联主角资产。")
+        character_names = [
+            str(asset.get("name") or "").strip() for asset in assets if asset.get("kind") == "character"
+        ]
         missing: list[str] = []
         shots: list[dict[str, Any]] = []
         for beat in beats:
@@ -1481,7 +1522,16 @@ class EpisodeVideoService:
                 missing.append(f"Beat {sequence} 缺少动作或视频提示词")
             if not str(beat.get("camera") or "").strip():
                 missing.append(f"Beat {sequence} 缺少运镜描述")
-            if str(beat.get("dialogue") or "").strip() and not str(beat.get("speaker") or "").strip():
+            spoken_text = str(beat.get("dialogue") or "").strip()
+            if spoken_text and not str(beat.get("speaker") or "").strip():
+                if H3PromptBuilder.is_stage_note(spoken_text):
+                    beat = {**beat, "dialogue": ""}
+                else:
+                    beat = {**beat, **H3PromptBuilder.resolve_beat_speakers(beat, character_names)}
+            if (
+                str(beat.get("dialogue") or "").strip()
+                and not str(beat.get("speaker") or "").strip()
+            ):
                 missing.append(f"Beat {sequence} 有对白但缺少说话人")
             scene = resolve_scene_asset(beat, assets)
             scene_url = scene_master_url(scene)
@@ -1642,11 +1692,27 @@ class EpisodeVideoService:
         ancient = bool(re.search(r"古代|茅屋|长衫|粗布|发髻|陶碗|木床|土墙|米缸|17岁", context))
         def description(item: dict[str, Any]) -> str:
             return " ".join(str(item.get(key) or "") for key in ("name", "description", "appearance_details"))
+
+        modern_look = r"现代|西装|衬衫|研究生|26岁"
+        ancient_look = r"古代|长衫|粗布|发髻|17岁"
+        # 只有一条造型时（资产刚建好，通常是「日常/初始造型」）无从按时代甄别：
+        # 描述里没有相反时代的线索就先用它，否则整集都会被判成缺造型图而出不了片。
+        only = looks[0] if len(looks) == 1 else None
+
+        def single_look_without_conflict(conflict: str) -> dict[str, Any] | None:
+            if only is None or re.search(conflict, description(only)):
+                return None
+            return only
+
         if modern:
-            return next((item for item in looks if re.search(r"现代|西装|衬衫|研究生|26岁", description(item))), None)
+            return next(
+                (item for item in looks if re.search(modern_look, description(item))), None
+            ) or single_look_without_conflict(ancient_look)
         if ancient:
-            return next((item for item in looks if re.search(r"古代|长衫|粗布|发髻|17岁", description(item))), None)
-        return looks[0] if len(looks) == 1 else None
+            return next(
+                (item for item in looks if re.search(ancient_look, description(item))), None
+            ) or single_look_without_conflict(modern_look)
+        return only
 
     @classmethod
     @staticmethod
@@ -1667,11 +1733,31 @@ class EpisodeVideoService:
         if cls._is_manual_h3_prompt(shot):
             return H3PromptBuilder.normalize_authored_ref2va(saved)
         if cls._skip_program_pack(shot):
-            return H3PromptBuilder.canonicalize_authored_ref2va(saved, shot)
+            if str(shot.get("skill_pack_id") or "").strip():
+                return H3PromptBuilder.canonicalize_authored_ref2va(saved, shot)
+            prepared = H3PromptBuilder.prepare_generated_prompt(saved, shot, pad_thickness=False)
+            if H3PromptBuilder.validate_prompts([shot], [prepared]):
+                return None
+            return prepared
         prepared = H3PromptBuilder.prepare_generated_prompt(saved, shot)
         if H3PromptBuilder.validate_prompts([shot], [prepared]):
             return None
         return prepared
+
+    @classmethod
+    def _assert_h3_prompts_ready(cls, shots: list[dict[str, Any]]) -> None:
+        missing = [
+            f"Beat {shot.get('sequence') or '?'}"
+            for shot in shots
+            if cls._workshop_prompt_for_shot(shot) is None
+        ]
+        if not missing:
+            return
+        raise ValueError(
+            "以下镜头还没有可用的 H3 六段式提示词：" + "、".join(missing)
+            + "。请先在剧集工坊为这些镜头生成 H3 提示词；"
+            "如果只想快速预览画面，可在视频设置中开启「程序装箱预览」。"
+        )
 
     @classmethod
     def _workshop_prompts_usable(cls, source_shots: list[dict[str, Any]]) -> list[str] | None:
@@ -1725,13 +1811,11 @@ class EpisodeVideoService:
 
             payload["llm_attempts"] = []
             payload["prompt_generation_progress"] = {"completed": 0, "total": len(source_shots)}
+            prompt_mode = str(payload.get("prompt_mode") or "h3").strip().lower()
             saved_prompts = cls._workshop_prompts_usable(source_shots)
-            if saved_prompts is not None:
-                prompts = saved_prompts
-                payload["prompt_source"] = "workshop_material"
-                payload["prompt_generation_progress"]["completed"] = len(source_shots)
-            else:
-                payload["prompt_source"] = "configured_llm"
+            if prompt_mode == "program":
+                payload["prompt_source"] = "program_preview"
+                payload["prompt_warning"] = "本次提交使用程序装箱预览，未使用 H3 六段式提示词。"
                 cls._set_state(job_id, payload, "prompt_generation", 20)
 
                 def record_attempt(attempt: dict[str, Any]) -> None:
@@ -1742,7 +1826,17 @@ class EpisodeVideoService:
                     completed = int(payload["prompt_generation_progress"]["completed"])
                     cls._set_state(job_id, payload, "prompt_generation", 20 + (completed * 9 // total))
 
-                prompts = H3PromptBuilder.build_prompts(source_shots, on_attempt=record_attempt)
+                prompts = H3PromptBuilder.build_prompts(
+                    source_shots,
+                    on_attempt=record_attempt,
+                    aspect_ratio=str(payload.get("aspect_ratio") or ""),
+                )
+            elif saved_prompts is not None:
+                prompts = saved_prompts
+                payload["prompt_source"] = "workshop_material"
+                payload["prompt_generation_progress"]["completed"] = len(source_shots)
+            else:
+                cls._assert_h3_prompts_ready(source_shots)
 
             generated_shots = [{**shot, "prompt": prompt} for shot, prompt in zip(source_shots, prompts)]
             payload["shots"] = generated_shots
@@ -2472,9 +2566,11 @@ class EpisodeVideoService:
     @staticmethod
     def _set_state(job_id: str, payload: dict[str, Any], status: str, progress: int) -> None:
         payload["runtime_stage"] = status
+        timestamp = now_str()
         execute_sql(
-            "UPDATE ai_project_jobs SET status = %s, progress = %s, payload_json = %s, updated_at = %s WHERE id = %s",
-            (status, progress, json.dumps(payload, ensure_ascii=False), now_str(), job_id),
+            "UPDATE ai_project_jobs SET status = %s, progress = %s, payload_json = %s, updated_at = %s,"
+            " worker_id = %s, lease_updated_at = %s WHERE id = %s",
+            (status, progress, json.dumps(payload, ensure_ascii=False), timestamp, worker_id(), timestamp, job_id),
         )
 
     @classmethod

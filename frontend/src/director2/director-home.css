@@ -8,9 +8,9 @@
   .dh-home-workspace .dh-workspace { display: grid; grid-template-columns: 358px minmax(0, 1fr); align-items: start; gap: 29px; padding: 31px 24px 24px 42px; overflow: hidden; }
   .dh-start-column { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; overflow-y: auto; }
   .dh-start-panel { flex: none; padding: 23px 15px 15px; border: 1px solid var(--studio-border-strong); border-radius: 14px; background: var(--studio-surface); }
-  .dh-start-heading { height: 62px; padding: 0 8px; }
-  .dh-start-heading h1 { margin: 0; font-size: 26px; font-weight: 650; line-height: 36px; letter-spacing: -.02em; }
-  .dh-start-heading p { margin: 4px 0 0; color: var(--studio-text-secondary); font-size: 14px; line-height: 22px; }
+  .dh-start-heading { height: 56px; padding: 0 8px; }
+  .dh-start-heading h1 { margin: 0; font-size: 22px; font-weight: 550; line-height: 30px; letter-spacing: -.015em; }
+  .dh-start-heading p { margin: 4px 0 0; color: var(--studio-text-secondary); font-size: 13px; line-height: 20px; }
   .dh-home-workspace .dh-create-menu.ant-menu { margin-top: 18px; border-inline-end: 0; background: transparent; color: var(--studio-text); }
   .dh-home-workspace .dh-create-menu .ant-menu-item { display: flex; align-items: center; width: 100%; height: 73px; margin: 0 0 10px; padding: 0 16px !important; border: 1px solid var(--studio-border-strong); border-radius: 10px; background: var(--studio-surface-raised); line-height: normal; }
   .dh-home-workspace .dh-create-menu .ant-menu-item:last-child { margin-bottom: 0; }
@@ -39,19 +39,19 @@
   .dh-workspace-diagnosis strong { font-size: 17px; line-height: 24px; }
   .dh-workspace-diagnosis small { color: var(--studio-text-secondary); font-size: 14px; line-height: 22px; }
   .dh-project-workspace { display: flex; flex-direction: column; min-width: 0; height: 100%; min-height: 0; }
-  .dh-workspace-heading { display: flex; flex: none; align-items: flex-start; justify-content: space-between; height: 88px; padding-top: 8px; }
-  .dh-workspace-heading h2 { margin: 0; color: var(--studio-text); font-size: 30px; font-weight: 650; letter-spacing: -.02em; line-height: 42px; }
-  .dh-workspace-heading p { margin: 4px 0 0; color: var(--studio-text-secondary); font-size: 16px; line-height: 24px; }
+  .dh-workspace-heading { display: flex; flex: none; align-items: flex-start; justify-content: space-between; height: 72px; padding-top: 8px; }
+  .dh-workspace-heading h2 { margin: 0; color: var(--studio-text); font-size: 24px; font-weight: 550; letter-spacing: -.015em; line-height: 32px; }
+  .dh-workspace-heading p { margin: 4px 0 0; color: var(--studio-text-secondary); font-size: 13px; line-height: 22px; }
   .dh-project-count { margin-left: 3px; font-variant-numeric: tabular-nums; }
-  .dh-home-workspace .dh-workspace-refresh.ant-btn { height: 50px; min-width: 104px; margin-top: 6px; border: 1px solid var(--studio-border-strong); border-radius: 10px; background: var(--studio-surface); color: var(--studio-text-secondary); font-size: 14px; }
+  .dh-home-workspace .dh-workspace-refresh.ant-btn { height: 36px; min-width: 88px; margin-top: 2px; border: 1px solid var(--studio-border-strong); border-radius: 8px; background: var(--studio-surface); color: var(--studio-text-secondary); font-size: 13px; }
   .dh-workspace-toolbar { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 20px; height: 48px; margin-top: 18px; }
   .dh-home-workspace .dh-kind-filter.ant-segmented { flex: none; width: 528px; padding: 3px; border: 1px solid var(--studio-border-strong); border-radius: 9px; background: var(--studio-surface); }
   .dh-kind-filter .ant-segmented-group { width: 100%; }
   .dh-home-workspace .dh-kind-filter.ant-segmented .ant-segmented-item { flex: 1 1 0; min-width: 0; }
-  .dh-home-workspace .dh-kind-filter .ant-segmented-item-label { min-height: 40px; padding: 0 10px; font-size: 16px; line-height: 40px; }
+  .dh-home-workspace .dh-kind-filter .ant-segmented-item-label { min-height: 32px; padding: 0 10px; font-size: 14px; line-height: 32px; }
   .dh-home-workspace .dh-kind-filter .ant-segmented-item-selected { color: #fff; background: var(--studio-primary); box-shadow: none; }
   .dh-home-workspace .dh-kind-filter .ant-segmented-thumb { background: var(--studio-primary); }
-  .dh-home-workspace .dh-project-search.ant-input-affix-wrapper { flex: 0 1 360px; min-width: 200px; height: 48px; border-radius: 9px; background: var(--studio-surface); }
+  .dh-home-workspace .dh-project-search.ant-input-affix-wrapper { flex: 0 1 360px; min-width: 200px; height: 36px; border-radius: 8px; background: var(--studio-surface); }
   .dh-project-search .ant-input-prefix { color: var(--studio-text-muted); margin-right: 12px; }
   .dh-project-search .ant-input::placeholder { color: var(--studio-text-muted); }
   .dh-workspace-list-scroll { flex: 1; min-height: 0; margin-top: 20px; overflow-y: auto; }

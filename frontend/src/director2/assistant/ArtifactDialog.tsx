@@ -6,6 +6,21 @@ import remarkGfm from "remark-gfm"
 import { createProject, director2ErrorDetail, listAssets, listDocuments, listEpisodes, listProjects, type Director2Asset, type Director2Document, type Director2Episode, type Director2Project } from "../api"
 import { ASSISTANT_API, artifactLabels, assistantMutate, type ApplicationPreview, type AssistantArtifact } from "./api"
 
+function appliedMessage(artifact: AssistantArtifact): string {
+  if (artifact.artifact_type === "script") return "已采纳到工程：剧本文档已写入内容库"
+  if (artifact.artifact_type === "episodes" || artifact.artifact_type === "storyboard") return "已采纳到工程：分集已写入剧集工坊"
+  if (artifact.artifact_type === "assets") {
+    const counts = new Map<string, number>()
+    for (const asset of artifact.data.assets || []) counts.set(asset.kind, (counts.get(asset.kind) || 0) + 1)
+    const detail = [["character", "角色"], ["scene", "场景"], ["prop", "道具"]]
+      .map(([kind, label]) => (counts.get(kind) ? `${counts.get(kind)} ${label}` : ""))
+      .filter(Boolean)
+      .join("、")
+    return detail ? `已采纳到工程：${detail}已写入资产库` : "已采纳到工程"
+  }
+  return "已采纳到工程"
+}
+
 export default function ArtifactDialog({ artifact, projectId, csrfToken, onClose, onApplied }: {
   artifact: AssistantArtifact | null; projectId: string | null; csrfToken: string; onClose: () => void; onApplied: () => Promise<void>
 }) {
@@ -40,12 +55,12 @@ export default function ArtifactDialog({ artifact, projectId, csrfToken, onClose
     finally { setBusy(false) }
   }
   async function adopt() {
-    if (!preview) return
+    if (!preview || !artifact) return
     setBusy(true); setError("")
     try {
       await assistantMutate(csrfToken, `/applications/${preview.id}/apply`)
       window.dispatchEvent(new CustomEvent("director-assistant-project-updated", { detail: { projectId: target } }))
-      await onApplied(); message.success("已采纳到工程"); onClose()
+      await onApplied(); message.success(appliedMessage(artifact)); onClose()
     } catch (e) { setError(director2ErrorDetail(e, "采纳失败，请重新预览变更")); setPreview(null) }
     finally { setBusy(false) }
   }

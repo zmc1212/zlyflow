@@ -29,9 +29,9 @@ from backend.app.workflow_registry import (
     H3_FL2VA_PRUNED,
     H3_REF2VA_FULL,
     H3_REF2VA_PRUNED,
+    H3_REFINE_WORKFLOWS,
     H3_STANDARD_OPTION_SCHEMA,
     H3_TURBO_LORA_NAME,
-    H3_WORKFLOWS,
     LIGHTX2V_FL2V_4STEP_LORA,
     LIGHTX2V_FL2V_8STEP_LORA,
     LIGHTX2V_REF2V_4STEP_LORA,
@@ -53,7 +53,7 @@ def t8_aspect(mode: JobMode, raw: dict) -> dict:
 
 class H3RefineOptionTests(unittest.TestCase):
     def test_every_h3_workflow_exposes_two_pass_options_instead_of_rtx_upscale(self) -> None:
-        for mode in sorted(H3_WORKFLOWS, key=lambda item: item.value):
+        for mode in sorted(H3_REFINE_WORKFLOWS, key=lambda item: item.value):
             with self.subTest(mode=mode.value):
                 definition = workflow_for(mode)
                 schema = definition.option_schema or H3_STANDARD_OPTION_SCHEMA
@@ -79,7 +79,7 @@ class H3RefineOptionTests(unittest.TestCase):
                 self.assertEqual(properties["speed"]["ui_visible_when"], {"refine_enabled": False})
 
     def test_refine_quality_accepts_one_or_two_megapixels_only(self) -> None:
-        for mode in sorted(H3_WORKFLOWS, key=lambda item: item.value):
+        for mode in sorted(H3_REFINE_WORKFLOWS, key=lambda item: item.value):
             with self.subTest(mode=mode.value):
                 raw = t8_aspect(mode, {"refine_enabled": True, "refine_quality": "2.0"})
                 normalized = normalize_options(mode, raw)
@@ -92,7 +92,7 @@ class H3RefineOptionTests(unittest.TestCase):
                     normalize_options(mode, t8_aspect(mode, {"refine_enabled": True, "refine_quality": "3.0"}))
 
     def test_refine_stays_off_by_default(self) -> None:
-        for mode in sorted(H3_WORKFLOWS, key=lambda item: item.value):
+        for mode in sorted(H3_REFINE_WORKFLOWS, key=lambda item: item.value):
             with self.subTest(mode=mode.value):
                 normalized = normalize_options(mode, t8_aspect(mode, {}))
                 self.assertFalse(normalized["refine_enabled"])
@@ -102,7 +102,7 @@ class H3RefineOptionTests(unittest.TestCase):
                 self.assertNotIn("upscale_after", normalized)
 
     def test_refine_quality_mode_defaults_to_auto_and_rejects_unknown_values(self) -> None:
-        for mode in sorted(H3_WORKFLOWS, key=lambda item: item.value):
+        for mode in sorted(H3_REFINE_WORKFLOWS, key=lambda item: item.value):
             with self.subTest(mode=mode.value):
                 forced = normalize_options(
                     mode,
@@ -135,6 +135,22 @@ class H3RefineOptionTests(unittest.TestCase):
         normalized = normalize_options(JobMode.MINIMAX_H3_R2V, {"upscale_after": True})
         self.assertFalse(normalized["refine_enabled"])
         self.assertNotIn("upscale_after", normalized)
+
+    def test_avatar_stays_out_of_the_two_pass_contract(self) -> None:
+        self.assertNotIn(JobMode.MINIMAX_H3_AVATAR, H3_REFINE_WORKFLOWS)
+        properties = (workflow_for(JobMode.MINIMAX_H3_AVATAR).option_schema or {})["properties"]
+        for name in ("refine_enabled", "refine_quality", "refine_quality_mode", "refine_preview"):
+            self.assertNotIn(name, properties)
+        with self.assertRaisesRegex(ValueError, "数字人口播暂不支持二采精修"):
+            normalize_options(JobMode.MINIMAX_H3_AVATAR, {"refine_enabled": True})
+        with self.assertRaisesRegex(ValueError, "Unsupported H3 refine"):
+            build_minimax_h3_refine_workflow(
+                JobMode.MINIMAX_H3_AVATAR,
+                "A preview.",
+                ["portrait.png", "speech.wav"],
+                normalize_options(JobMode.MINIMAX_H3_AVATAR, {}),
+                7,
+            )
 
 
 class OfficialH3RefineTests(unittest.TestCase):
@@ -618,7 +634,7 @@ class RefineHelperTests(unittest.TestCase):
         self.assertEqual(refine_target_megapixels("2.0", 328, force=True), 2.0)
 
     def test_normalized_options_echo_the_capped_refine_megapixels(self) -> None:
-        for mode in sorted(H3_WORKFLOWS, key=lambda item: item.value):
+        for mode in sorted(H3_REFINE_WORKFLOWS, key=lambda item: item.value):
             with self.subTest(mode=mode.value):
                 long_clip = normalize_options(
                     mode, t8_aspect(mode, {"refine_enabled": True, "refine_quality": "1.0", "duration": 13}),

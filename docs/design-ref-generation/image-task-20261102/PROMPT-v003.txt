@@ -1,0 +1,17 @@
+Edit the supplied ZLY AI Studio UI screenshot into ONE final corrected design proposal, 1536x864. Preserve its polished dark ZLY header, sidebar, colors, typography, compact action buttons and bottom composer. The second reference is the user's Jimeng screenshot and defines the small single-thumbnail scale.
+
+Make ONE focused content correction: show ONLY the lower SINGLE-IMAGE task record. Completely REMOVE the upper task with four separate animal images and its prompt, metadata and action row. That upper task is unnecessary invented content. Move the remaining single-image task up to the top of the main workspace, left aligned around x=410,y=118.
+
+The one remaining task is the user's actual-style animal expression contact-sheet task:
+- compact 24px reference thumbnail and readable Chinese prompt '基于参考图中的 5 个角色生成表情包，白色背景，无文字。'
+- small gray metadata 'GPT Image 2 · 1K · 1 张 · 详细信息 ⓘ', green check and '已完成', '用时 0:55'.
+- BELOW this header at about x=410,y=188, ONE SMALL landscape thumbnail EXACTLY 252px wide, 142px tall. This is ONE composite image with little plush deer, gibbons, birds and red newts arranged in two rows on white, as seen in the original lower image. Preserve the complete miniature collage. Do not split the image into separate output cards.
+- Do not enlarge this one thumbnail. It is roughly the width of the task-history sidebar, or roughly the width of the complete 240px three-button action row below it. It occupies only one quarter of the 1008px content column; all remaining space to its right must be EMPTY dark canvas, just like a one-image Jimeng generation result. No hero image, no 600px preview, no large container, no frame stretching to row width. Fixed width and natural aspect ratio are the essential design rules.
+- A tiny expand and download hover control pair may be in the thumbnail's upper-right corner.
+- Immediately below, at y=342, one horizontal button row: 94x36 pencil icon + '重新编辑', 94x36 circular arrow icon + '再次生成', 36x36 ellipsis, with 8px gaps. Keep small 8px rounded dark gray secondary buttons, perfectly centered horizontal icon/text. The action row is approximately as wide as the 252px image, not dramatically narrower. To its right a muted tiny '已存入云端' status is acceptable.
+
+Leave the main workspace below this single record calm and largely empty; do not fill it with extra cards, comparison examples, explanatory notes, demo labels or decorative content. This is intentional: the user specifically rejects a single image consuming a large amount of space.
+
+Keep the existing bottom ZLY composer near x=410,y=650,width=880,height=165, containing '+' reference upload, prompt placeholder, '灵感', '提示词优化', '图片生成', 'GPT Image 2', '1:1 · 1K · 1', and violet '开始生图'. Do not add a balance display. Keep exactly ONE bottom sidebar '查看全部任务 100' link; remove its duplicate in the sidebar recent list if present.
+
+No browser chrome, no device mockup, no annotation arrows, no presentation board. Output only the finished full desktop application UI screenshot. Verify visually: there is ONLY ONE generated result thumbnail on the main canvas, it is about 252x142px, and the edit/regenerate/more button row under it is approximately the same width. The rest of the result row stays empty.

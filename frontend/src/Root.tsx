@@ -16,7 +16,7 @@ export default function Root() {
   })
 
   // 会话过期后接口会陆续返回 401"请先登录"：把 auth 置为未登录，
-  // 让 resolveAuthRedirect 携带当前地址跳转登录页，登录后可回到原页面。
+  // 退出私有页面时保留返回地址；公开生成页继续浏览，按需打开登录弹窗。
   useEffect(() => {
     setUnauthorizedHandler(() => {
       queryClient.setQueryData<AuthStatus>(["auth"], (current) =>
@@ -31,7 +31,7 @@ export default function Root() {
     mutationFn: () => requestJson<{ ok: boolean }>("/api/auth/logout", jsonMutation(authQuery.data?.csrf_token ?? "")),
     onSuccess: () => {
       queryClient.clear()
-      window.location.assign(PATHS.login)
+      window.location.assign(PATHS.generateVideo)
     },
   })
 

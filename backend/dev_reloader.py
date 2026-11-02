@@ -34,6 +34,8 @@ CHANGE_DEBOUNCE_SECONDS = 0.8
 KILL_WAIT_SECONDS = 3
 PORT_RELEASE_SECONDS = 0.5
 MAX_CRASH_DELAY_SECONDS = 10
+VIDEO_JOB_POLL_SECONDS = 5.0
+VIDEO_JOB_LOG_SECONDS = 30.0
 
 _active_reloader: DevReloader | None = None
 _console_handler_ref = None
@@ -120,6 +122,54 @@ def kill_process_tree(pid: int, wait: bool = True) -> None:
         os.kill(pid, signal.SIGKILL)
     except Exception:
         return
+
+
+def count_active_video_jobs() -> int | None:
+    """Count in-flight paid video jobs, or None when the job store is unreachable.
+
+    A backend restart marks every in-flight video job failed, so the supervisor
+    holds code-change restarts while paid renders are still running.
+    """
+    try:
+        import pymysql
+        from pymysql.cursors import DictCursor
+
+        if str(WORKSPACE_DIR) not in sys.path:
+            sys.path.insert(0, str(WORKSPACE_DIR))
+        from backend.app.db import mysql_settings_from_env_or_docs
+        from backend.app.media_studio.services.episode_video_service import (
+            _ACTIVE_VIDEO_STATUSES,
+        )
+
+        statuses = tuple(_ACTIVE_VIDEO_STATUSES)
+        if not statuses:
+            return 0
+        config = mysql_settings_from_env_or_docs()
+        connection = pymysql.connect(
+            host=config["host"],
+            port=int(config["port"]),
+            user=config["user"],
+            password=config["password"],
+            database=config["database"],
+            charset="utf8mb4",
+            cursorclass=DictCursor,
+            connect_timeout=3,
+        )
+        try:
+            with connection.cursor() as cursor:
+                placeholders = ", ".join(["%s"] * len(statuses))
+                cursor.execute(
+                    "SELECT COUNT(*) AS active_count FROM ai_project_jobs "
+                    f"WHERE job_type = 'video_generation' AND status IN ({placeholders})",
+                    statuses,
+                )
+                row = cursor.fetchone() or {}
+        finally:
+            connection.close()
+        return int(row.get("active_count") or 0)
+    except Exception as error:
+        log(f"cannot inspect active video jobs ({error}); restarting anyway")
+        return None
 
 
 def _console_ctrl_handler(ctrl_type: int) -> int:
@@ -284,12 +334,36 @@ class DevReloader:
                 if self._stop.is_set():
                     return
                 self._crash_count = 0
-                log("detected backend Python change; restarting")
+                log("detected backend Python change")
                 time.sleep(CHANGE_DEBOUNCE_SECONDS)
                 self._restart.clear()
+                if not self._wait_for_active_video_jobs(child):
+                    return
+                log("restarting backend")
                 self._kill(wait=True)
                 time.sleep(PORT_RELEASE_SECONDS)
                 return
+
+    def _wait_for_active_video_jobs(self, child: subprocess.Popen[bytes] | None) -> bool:
+        """Hold a pending restart until no paid video job is running.
+
+        Returns False when the supervisor is stopping instead of restarting.
+        """
+        logged_at = 0.0
+        while not self._stop.is_set():
+            if child is not None and child.poll() is not None:
+                return True
+            count = count_active_video_jobs()
+            if not count:
+                if logged_at:
+                    log("no active video jobs left; applying deferred restart")
+                return True
+            now = time.monotonic()
+            if logged_at == 0.0 or now - logged_at >= VIDEO_JOB_LOG_SECONDS:
+                log(f"{count} video job(s) still running; deferring backend restart")
+                logged_at = now
+            self._stop.wait(VIDEO_JOB_POLL_SECONDS)
+        return False
 
     def _kill(self, wait: bool) -> None:
         child = self._child

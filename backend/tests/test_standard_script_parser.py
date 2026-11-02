@@ -76,6 +76,26 @@ BOLD_LABEL_SCRIPT = """# 明天的照片
 """
 
 
+BARE_SHOT_HEADING_SCRIPT = """# 夜班守则
+
+# 第1集 午夜禁地
+
+### 镜头 1
+**场景**：开放式办公区 - 夜
+**人物**：李明
+**时长**：15秒
+**画面**：
+办公室异常安静。
+
+### 镜头 2
+**场景**：诡异洗手间 - 夜
+**人物**：李明
+**时长**：20秒
+**画面**：
+感应灯忽明忽暗。
+"""
+
+
 class StandardScriptParserEpisodeBoundaryTests(unittest.TestCase):
     def test_keeps_hash_episode_boundaries_and_adds_body(self) -> None:
         result = StandardScriptParser.parse(TWO_EPISODE_SCRIPT)
@@ -108,6 +128,13 @@ class StandardScriptParserEpisodeBoundaryTests(unittest.TestCase):
 
 
 class StandardScriptParserMarkdownLabelTests(unittest.TestCase):
+    def test_bare_shot_heading_keeps_scene_label_on_next_line(self) -> None:
+        result = StandardScriptParser.parse(BARE_SHOT_HEADING_SCRIPT)
+        shots = result["episodes"][0]["shots"]
+        self.assertEqual(["镜头 1", "镜头 2"], [shot["title"] for shot in shots])
+        self.assertEqual(["开放式办公区 - 夜", "诡异洗手间 - 夜"], [shot["scene"] for shot in shots])
+        self.assertEqual(["开放式办公区 - 夜", "诡异洗手间 - 夜"], [scene["name"] for scene in result["scenes"]])
+
     def test_scene_references_reuse_previous_scene_and_descriptions_do_not_duplicate_assets(self) -> None:
         text = """# 剧本
 # 第1集
@@ -175,6 +202,80 @@ class StandardScriptParserMarkdownLabelTests(unittest.TestCase):
 
         self.assertEqual("父亲：（轻声）明天，也可以从今天开始。", shots[2]["dialogue"])
         self.assertEqual("明天，也可以从今天开始。", shots[2]["subtitle"])
+
+
+class StandardScriptParserFallbackCharacterTests(unittest.TestCase):
+    def test_extracts_characters_from_shot_labels_when_heading_missing(self) -> None:
+        script = """# 逆光之城
+
+### 镜头1｜天台
+- 场景：CBD 写字楼顶层露台 / 日 / 外 人物：林远 动作：凭栏远望
+- 台词：林远（内心独白）：“三年，我亲手搭建的商业帝国崩塌了。”
+
+### 镜头2｜服务中心
+- 场景：公共就业服务中心 / 日 / 内
+- 人物：林远、HR经理
+- 动作：林远坐在拥挤的等候区
+"""
+        result = StandardScriptParser.parse(script)
+        names = [c["name"] for c in result["characters"]]
+        # 频次排序：林远出现两镜排第一；内联值在「动作：」处截断，动作文本不会变成姓名。
+        self.assertEqual("林远", names[0])
+        self.assertIn("HR经理", names)
+        hero = result["characters"][0]
+        self.assertEqual("分镜出场角色", hero["role"])
+        self.assertGreaterEqual(hero["shots_count"], 2)
+        self.assertFalse(any("动作" in name or "场景" in name for name in names))
+
+    def test_heading_characters_still_take_precedence(self) -> None:
+        script = """# 剧目
+
+## 一、主要人物设定
+### 吴耐——主角
+中年快递员，风雨无阻。
+
+## 三、固定场景库
+## 街道
+路灯。
+
+### 镜头1｜街道
+- 人物：路人甲
+- 场景：街道
+- 动作：吴耐低头看手机
+"""
+        result = StandardScriptParser.parse(script)
+        names = [c["name"] for c in result["characters"]]
+        self.assertEqual(["吴耐"], names)
+
+    def test_loose_main_characters_block_without_hash_heading(self) -> None:
+        script = """剧名：《闪婚蜜爱》
+
+故事定位
+现代都市情感短剧。
+
+主要人物
+- 苏念（女，24岁）：插画师，性格倔强独立。
+- 厉景深（男，28岁）：厉氏集团总裁，外表高冷禁欲。
+
+第一集：冤家路窄，冲动领证
+
+### 镜头1
+- 场景：民政局门口 / 日 / 内
+- 人物：苏念、厉景深
+- 动作：两人对峙，递上户口本。
+"""
+        result = StandardScriptParser.parse(script)
+        names = [c["name"] for c in result["characters"]]
+        self.assertEqual(["苏念", "厉景深"], names)
+        su = result["characters"][0]
+        self.assertEqual("女", su["gender"])
+        self.assertEqual("24岁", su["age"])
+        self.assertIn("插画师", su["description"])
+        self.assertEqual("主要角色", su["role"])
+        self.assertEqual(1, su["shots_count"])
+        li = result["characters"][1]
+        self.assertEqual("男", li["gender"])
+        self.assertEqual("28岁", li["age"])
 
 
 if __name__ == "__main__":

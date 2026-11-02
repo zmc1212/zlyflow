@@ -343,7 +343,7 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
               <Button type="primary" className="canvas-home-open-recent" onClick={() => navigate(canvasProjectPath(recent.id))}>打开画布<ArrowRight size={18} aria-hidden="true" /></Button>
             </div>
             <button type="button" className="canvas-home-recent-preview" aria-label={`继续创作 ${recent.title}`} onClick={() => navigate(canvasProjectPath(recent.id))}>
-              <CanvasPreviewThumbnail key={recent.id} preview={recent.preview} nodeCount={recent.node_count} featured />
+              <CanvasPreviewThumbnail key={recent.id} preview={recent.preview} nodeCount={recent.node_count ?? 0} featured />
             </button>
           </article>
         )}
@@ -423,7 +423,7 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
               return (
                 <article key={project.id} className={`canvas-home-card${isTrash ? " is-trash" : ""}`}>
                   <button type="button" className="canvas-home-card-open" disabled={isTrash} aria-label={`打开画布 ${project.title}`} onClick={() => navigate(canvasProjectPath(project.id))}>
-                    <span className="canvas-home-card-preview"><CanvasPreviewThumbnail preview={project.preview} nodeCount={project.node_count} /></span>
+                    <span className="canvas-home-card-preview"><CanvasPreviewThumbnail preview={project.preview} nodeCount={project.node_count ?? 0} /></span>
                     <span className="canvas-home-card-info">
                       <Tooltip title={project.title}><strong>{project.title}</strong></Tooltip>
                       {project.tags?.length ? <span className="canvas-home-tags">{project.tags.slice(0, 2).map((tag) => <Tag key={tag}>{tag}</Tag>)}{project.tags.length > 2 && <Tooltip title={project.tags.join("、")}><Tag>+{project.tags.length - 2}</Tag></Tooltip>}</span> : null}

@@ -29,9 +29,21 @@ def register_assistant_routes(app: Any, *, current_user: Callable, mutating_user
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    def manages_platform(user: dict) -> bool:
+        return str(user.get("role") or "") in {"admin", "super_admin"}
+
+    def manage_resource(user: dict, resource_id: str) -> tuple[dict, bool]:
+        resource = call(service().repo.get, user["id"], resource_id, "resource", shared=True)
+        if resource.get("builtin"):
+            raise HTTPException(403, "内置资源不可修改")
+        platform = bool(resource.get("platform"))
+        if platform and not manages_platform(user):
+            raise HTTPException(403, "需要管理员权限")
+        return resource, platform
+
     @router.get("/catalog", summary="读取助手资源、知识库及可选模型")
     def catalog(user: dict = Depends(current_user)):
-        return call(service().catalog, user["id"])
+        return call(service().catalog, user["id"], can_manage_platform=manages_platform(user))
 
     @router.get("/sessions", summary="读取当前账号的助手历史会话")
     def sessions(user: dict = Depends(current_user)):
@@ -95,18 +107,26 @@ def register_assistant_routes(app: Any, *, current_user: Callable, mutating_user
                 await asyncio.sleep(.35)
         return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-    @router.post("/resources", status_code=201, summary="创建个人 Skill 或专家")
+    @router.post("/resources", status_code=201, summary="创建个人或平台 Skill 或专家")
     def create_resource(payload: dict, user: dict = Depends(mutating_user)):
+        scope = str(payload.get("scope") or "personal")
+        if scope not in {"personal", "platform"}:
+            raise HTTPException(400, "资源范围无效")
+        if scope == "platform":
+            if not manages_platform(user):
+                raise HTTPException(403, "需要管理员权限")
+            return call(service().resources.save, "", payload, platform=True)
         return call(service().resources.save, user["id"], payload)
 
-    @router.put("/resources/{resource_id}", summary="编辑个人资源并创建新版本")
+    @router.put("/resources/{resource_id}", summary="编辑个人或平台资源并创建新版本")
     def update_resource(resource_id: str, payload: dict, user: dict = Depends(mutating_user)):
-        return call(service().resources.save, user["id"], payload, resource_id=resource_id)
+        _, platform = manage_resource(user, resource_id)
+        return call(service().resources.save, "" if platform else user["id"], payload, resource_id=resource_id, platform=platform)
 
-    @router.delete("/resources/{resource_id}", summary="删除个人资源并保留历史引用")
+    @router.delete("/resources/{resource_id}", summary="删除个人或平台资源并保留历史引用")
     def delete_resource(resource_id: str, user: dict = Depends(mutating_user)):
-        resource = call(service().repo.get, user["id"], resource_id, "resource")
-        return call(service().repo.update, user["id"], resource, {}, status="deleted")
+        resource, platform = manage_resource(user, resource_id)
+        return call(service().repo.update, "" if platform else user["id"], resource, {}, status="deleted")
 
     @router.put("/resources/{resource_id}/favorite", summary="收藏或取消收藏创作资源")
     def favorite(resource_id: str, payload: dict, user: dict = Depends(mutating_user)):

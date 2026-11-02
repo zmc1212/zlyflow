@@ -10,11 +10,19 @@ import threading
 import time
 from collections.abc import Callable
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 import requests
 
+from .internai_catalog import internai_model_free
+from .qiniu_catalog import (
+    QINIU_CONATUS_MODEL,
+    is_qiniu_conatus_model,
+    is_qiniu_official_base_url,
+    qiniu_model_free,
+)
 from .zhipu_catalog import (
     is_zhipu_official_base_url,
     zhipu_can_disable_thinking,
@@ -25,6 +33,11 @@ from .zhipu_catalog import (
 LLM_CONNECT_TIMEOUT_SECONDS = 20.0
 LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
 LLM_TEST_TIMEOUT_SECONDS = 90.0
+# 提示词润色 / H3 翻译等长生成链路：非流式请求在完整生成前不会有任何字节返回，
+# requests 的 read timeout 因此等于整体等待上限。部分聚合网关（如端砚免费通道）
+# 对 1800 token 级生成实测超过 150 秒；放宽到 300 秒（与导演台对话路径
+# LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS 一致的上限）。
+LLM_OPTIMIZE_TIMEOUT_SECONDS = 300.0
 LLM_TEST_MAX_TOKENS = 128
 LLM_TEST_USER_PROMPT = (
     "你好，你是什么模型？请用一两句话介绍自己，并确认可以正常进行中文对话。"
@@ -183,6 +196,24 @@ class LlmBillingError(LlmError):
 
 class LlmAuthError(LlmError):
     """Upstream refused the call because the API key is missing, invalid, or forbidden."""
+
+
+class LlmCapabilityError(LlmError):
+    """Upstream rejected one optional request field; the caller may retry without it."""
+
+    def __init__(self, field_name: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field_name
+
+
+@dataclass
+class ChatResult:
+    content: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    usage: dict[str, Any] = field(default_factory=dict)
+    finish_reason: str | None = None
+    mode: str = "legacy"
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 _BILLING_HINTS = (
@@ -433,12 +464,17 @@ def catalog_provider_key(base_url: str) -> str:
         return "modelscope"
     if host in {"127.0.0.1", "localhost", "0.0.0.0", "::1"}:
         return "ollama"
+    # 端砚 discovery 网关单独识别；chat.intern-ai.org.cn 等旧入口保持 custom 口径。
+    if host == "discovery-api.intern-ai.org.cn":
+        return "internai"
     if "deepseek.com" in host:
         return "deepseek"
     if "dashscope" in host or "aliyuncs.com" in host:
         return "dashscope"
     if "bigmodel.cn" in host or host.endswith("z.ai") or host == "api.z.ai":
         return "zhipu"
+    if host == "qnaigc.com" or host.endswith(".qnaigc.com"):
+        return "qiniu"
     return "custom"
 
 
@@ -675,6 +711,12 @@ def classify_model_free(item: dict[str, Any], *, provider: str, base_url: str = 
     official_free = zhipu_model_free(base_url, model_id)
     if official_free is not None:
         return official_free
+    official_free = qiniu_model_free(base_url, model_id)
+    if official_free is not None:
+        return official_free
+    official_free = internai_model_free(base_url, model_id)
+    if official_free is not None:
+        return official_free
     if item_has_free_label(item):
         return True
     return None
@@ -742,6 +784,26 @@ SYSTEM_PROMPT_ANALYZE_SUBJECT = """你是影视美术指导。用户会提供一
 请根据图像本身撰写适合 MiniMax H3 识别的高精度外貌、服饰、材质或空间特征描述，控制在 40 个汉字以内。
 只输出描述本身，不要前言、标题或 markdown。"""
 
+SYSTEM_PROMPT_REVERSE_VIDEO = """你是 MiniMax H3 视频提示词专家。用户会提供一张参考图（可能是剧照、截图或 AI 生成的画面）。
+请反推这张画面“如果要用 AI 视频模型重新生成，最可能使用什么提示词”，不要评价图片、不要描述图片本身，直接写出可复用的创作提示词。
+中文提示词要求：
+1. 画面主体与外观：主体身份、外貌服饰、表情动作，只写图中可见内容，忽略字幕、水印、Logo。
+2. 动作与运镜：给出适合 5 秒短片的主体动作和镜头语言（景别、推拉摇移等）。
+3. 光影与氛围：光线来源与质感、色调、环境氛围。
+4. 控制在 200 字以内，一段成文，不要分点、不要标题。
+英文提示词要求：把同样的内容写成一句符合 MiniMax H3 规范的英文提示词（180 tokens 以内）。
+只返回 JSON 对象：{"chinese_prompt": "...", "english_prompt": "..."}，不要 markdown 代码块。"""
+
+SYSTEM_PROMPT_REVERSE_IMAGE = """你是顶级 AI 绘画提示词专家（精通 FLUX、Midjourney、即梦等模型）。用户会提供一张参考图（可能是剧照、截图或 AI 生成的画面）。
+请反推这张画面“如果要用 AI 绘图模型重新生成，最可能使用什么提示词”，不要评价图片、不要描述图片本身，直接写出可复用的创作提示词。
+中文提示词要求：
+1. 画面主体：形态、材质、服饰、姿态与神情，只写图中可见内容，忽略字幕、水印、Logo。
+2. 构图与视角：景别、构图法则、透视与景深。
+3. 光影与色彩：光源方向与光质、色调与配色、艺术风格。
+4. 控制在 200 字以内，一段成文，不要分点、不要标题。
+英文提示词要求：把同样的内容写成一句英文绘画提示词（120 tokens 以内）。
+只返回 JSON 对象：{"chinese_prompt": "...", "english_prompt": "..."}，不要 markdown 代码块。"""
+
 _TRANSCRIPTION_MIME = {
     ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
     ".ogg": "audio/ogg", ".flac": "audio/flac", ".webm": "audio/webm",
@@ -794,6 +856,115 @@ def normalize_transcription(payload: dict[str, Any]) -> dict[str, Any]:
         "segments": segments,
         "usage_seconds": usage_seconds,
     }
+
+
+def _token_count(value: Any) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, number)
+
+
+def normalize_usage(usage: Any) -> dict[str, int]:
+    """Flatten OpenAI/DashScope/DeepSeek usage shapes into token counters."""
+    if not isinstance(usage, dict):
+        return {}
+    prompt = _token_count(usage.get("prompt_tokens", usage.get("input_tokens")))
+    completion = _token_count(usage.get("completion_tokens", usage.get("output_tokens")))
+    total = _token_count(usage.get("total_tokens")) or prompt + completion
+    details = usage.get("prompt_tokens_details")
+    details = details if isinstance(details, dict) else {}
+    cached = _token_count(
+        details.get("cached_tokens")
+        or usage.get("cached_tokens")
+        or usage.get("cache_read_input_tokens")
+        or usage.get("prompt_cache_hit_tokens")
+    )
+    creation = _token_count(
+        usage.get("cache_creation_input_tokens")
+        or details.get("cache_creation_tokens")
+    )
+    if not prompt and not completion and not total:
+        return {}
+    return {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+        "cached_tokens": cached,
+        "cache_creation_tokens": creation,
+    }
+
+
+def normalize_tool_calls(items: Any) -> list[dict[str, Any]]:
+    """Keep only id/name/arguments; arguments stay a JSON string for replay."""
+    calls: list[dict[str, Any]] = []
+    for index, item in enumerate(items if isinstance(items, list) else []):
+        if not isinstance(item, dict):
+            continue
+        function = item.get("function") if isinstance(item.get("function"), dict) else {}
+        name = str(function.get("name") or item.get("name") or "").strip()
+        if not name:
+            continue
+        arguments = function.get("arguments", item.get("arguments", ""))
+        if not isinstance(arguments, str):
+            arguments = json.dumps(arguments if arguments is not None else {}, ensure_ascii=False)
+        calls.append({
+            "id": str(item.get("id") or f"call_{index}"),
+            "type": "function",
+            "function": {"name": name, "arguments": arguments},
+        })
+    return calls
+
+
+def apply_explicit_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark the tail message so the whole stable prefix becomes a cache prefix.
+
+    DashScope explicit cache reads content blocks with ``cache_control``; the
+    marker must live on the last message to cover system prompt plus history.
+    """
+    cached = [dict(message) for message in messages]
+    for index in range(len(cached) - 1, -1, -1):
+        # Tool results and tool-call turns must keep plain string content.
+        if cached[index].get("role") == "tool" or cached[index].get("tool_calls"):
+            continue
+        content = cached[index].get("content")
+        if isinstance(content, str) and content.strip():
+            cached[index]["content"] = [{
+                "type": "text",
+                "text": content,
+                "cache_control": {"type": "ephemeral"},
+            }]
+            return cached
+        if isinstance(content, list) and content:
+            blocks = [dict(block) if isinstance(block, dict) else block for block in content]
+            last = blocks[-1]
+            if isinstance(last, dict):
+                blocks[-1] = {**last, "cache_control": {"type": "ephemeral"}}
+                cached[index]["content"] = blocks
+                return cached
+    return cached
+
+
+_CAPABILITY_FIELD_HINTS: dict[str, tuple[str, ...]] = {
+    "response_format": ("response_format", "response format", "json_schema", "json schema"),
+    "tools": ("tool_choice", "tools", "function calling", "functions are not supported", "does not support tool"),
+    "enable_search": ("enable_search",),
+    "cache_control": ("cache_control", "cache control", "ephemeral"),
+    "stream_options": ("stream_options", "include_usage"),
+}
+
+
+def capability_rejection_field(status: int, upstream: str, optional_fields: set[str]) -> str | None:
+    if status not in {400, 404, 422} or not optional_fields:
+        return None
+    lowered = (upstream or "").lower()
+    for field_name in ("stream_options", "cache_control", "enable_search", "response_format", "tools"):
+        if field_name not in optional_fields:
+            continue
+        if any(hint in lowered for hint in _CAPABILITY_FIELD_HINTS[field_name]):
+            return field_name
+    return None
 
 
 class OpenAICompatibleClient:
@@ -929,8 +1100,50 @@ class OpenAICompatibleClient:
         stream_idle_timeout: float | None = None,
         stream_total_timeout: float | None = None,
     ) -> str:
+        return self.chat_completion_result(
+            messages,
+            model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            stream=stream,
+            on_chunk=on_chunk,
+            on_delta=on_delta,
+            reasoning_effort=reasoning_effort,
+            thinking_enabled=thinking_enabled,
+            stream_idle_timeout=stream_idle_timeout,
+            stream_total_timeout=stream_total_timeout,
+        ).content
+
+    def chat_completion_result(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        timeout: float | tuple[float, float] = 60.0,
+        stream: bool = False,
+        on_chunk: Callable[[str], None] | None = None,
+        on_delta: Callable[[str, str], None] | None = None,
+        reasoning_effort: str | None = None,
+        thinking_enabled: bool | None = None,
+        stream_idle_timeout: float | None = None,
+        stream_total_timeout: float | None = None,
+        response_format: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+        enable_search: bool = False,
+        cache_control: bool = False,
+        include_usage: bool = False,
+    ) -> ChatResult:
+        """OpenAI-compatible chat call with optional native tools, JSON mode,
+        prompt cache and web search.  ``chat_completion`` remains the text-only
+        wrapper used by every pre-existing caller."""
         url = f"{self.base_url}/chat/completions"
         connect_timeout, read_timeout = normalize_http_timeout(timeout)
+        if cache_control:
+            messages = apply_explicit_cache(messages)
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -946,14 +1159,36 @@ class OpenAICompatibleClient:
             if not official_zhipu or temperature > 0:
                 payload["temperature"] = temperature
             payload["max_tokens"] = max_tokens
-            payload.update(self._thinking_control_fields(model))
+            payload.update(self._thinking_control_fields(model, self.base_url))
             if official_zhipu:
                 if thinking_enabled is not None and zhipu_can_disable_thinking(model):
                     payload["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
                 if reasoning_effort and model.lower().startswith("glm-5.3"):
                     payload["reasoning_effort"] = reasoning_effort
+            if is_qiniu_conatus_model(self.base_url, model) and thinking_enabled is not None:
+                payload["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
+        if response_format:
+            payload["response_format"] = response_format
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = tool_choice or "auto"
+        if enable_search:
+            payload["enable_search"] = True
         if stream:
             payload["stream"] = True
+            if include_usage:
+                payload["stream_options"] = {"include_usage": True}
+        optional_fields = {
+            name
+            for name, enabled in (
+                ("response_format", bool(response_format)),
+                ("tools", bool(tools)),
+                ("enable_search", enable_search),
+                ("cache_control", cache_control),
+                ("stream_options", bool(stream and include_usage)),
+            )
+            if enabled
+        }
         try:
             response = self.session.post(
                 url,
@@ -976,9 +1211,24 @@ class OpenAICompatibleClient:
         except requests.exceptions.RequestException as exc:
             raise LlmTemporaryError(f"请求大模型服务异常：{exc}") from exc
 
+        if response.status_code >= 400 and optional_fields:
+            try:
+                upstream = (response.text or "").strip()[:400]
+            except Exception:
+                upstream = ""
+            field_name = capability_rejection_field(response.status_code, upstream, optional_fields)
+            if field_name:
+                raise LlmCapabilityError(
+                    field_name,
+                    append_upstream_log(
+                        f"大模型拒绝了可选能力 {field_name}（HTTP {response.status_code}）。",
+                        upstream,
+                    ),
+                )
+
         try:
             if stream:
-                raw = self._read_chat_completion_body(
+                result = self._read_chat_completion_result(
                     response,
                     stream=True,
                     on_chunk=on_chunk,
@@ -986,10 +1236,10 @@ class OpenAICompatibleClient:
                     read_timeout=read_timeout,
                     stream_idle_timeout=stream_idle_timeout,
                     stream_total_timeout=stream_total_timeout,
+                    include_usage=include_usage,
                 )
             else:
-                data = self._json(response, "对话推理")
-                raw = self._extract_response_content(data)
+                result = self._extract_chat_result(self._json(response, "对话推理"))
         except LlmError as error:
             err_text = str(error)
             if "has no provider supported" in err_text or "not found" in err_text.lower():
@@ -1001,12 +1251,13 @@ class OpenAICompatibleClient:
                     ) from error
             raise
 
-        content = self._strip_thinking(raw)
-        if not content:
+        result.content = self._strip_thinking(result.content)
+        result.mode = "native" if tools else "legacy"
+        if not result.content and not result.tool_calls:
             raise LlmError("大模型返回的内容为空")
-        return content
+        return result
 
-    def _read_chat_completion_body(
+    def _read_chat_completion_result(
         self,
         response: requests.Response,
         *,
@@ -1016,23 +1267,23 @@ class OpenAICompatibleClient:
         read_timeout: float | None = None,
         stream_idle_timeout: float | None = None,
         stream_total_timeout: float | None = None,
-    ) -> str:
+        include_usage: bool = False,
+    ) -> ChatResult:
         if response.status_code >= 400:
-            data = self._json(response, "对话推理")
-            return self._extract_response_content(data)
+            return self._extract_chat_result(self._json(response, "对话推理"))
         content_type = (response.headers.get("Content-Type") or "").lower()
         if stream and "json" in content_type and "event-stream" not in content_type:
-            data = self._json(response, "对话推理")
-            return self._extract_response_content(data)
+            return self._extract_chat_result(self._json(response, "对话推理"))
         if stream:
             try:
                 response.encoding = "utf-8"
-                return self._read_sse_chat(
+                return self._read_sse_chat_result(
                     response,
                     on_chunk=on_chunk,
                     on_delta=on_delta,
                     stream_idle_timeout=stream_idle_timeout,
                     stream_total_timeout=stream_total_timeout,
+                    include_usage=include_usage,
                 )
             except requests.exceptions.RequestException as exc:
                 # urllib3 wraps a streaming ReadTimeoutError in ConnectionError
@@ -1050,10 +1301,9 @@ class OpenAICompatibleClient:
                 raise LlmTemporaryError(f"读取大模型流式响应失败：{exc}") from exc
             finally:
                 response.close()
-        data = self._json(response, "对话推理")
-        return self._extract_response_content(data)
+        return self._extract_chat_result(self._json(response, "对话推理"))
 
-    def _read_sse_chat(
+    def _read_sse_chat_result(
         self,
         response: requests.Response,
         on_chunk: Callable[[str], None] | None = None,
@@ -1061,8 +1311,13 @@ class OpenAICompatibleClient:
         *,
         stream_idle_timeout: float | None = None,
         stream_total_timeout: float | None = None,
-    ) -> str:
+        include_usage: bool = False,
+    ) -> ChatResult:
         pieces: list[str] = []
+        tool_slots: dict[int, dict[str, Any]] = {}
+        usage: dict[str, Any] = {}
+        search_info: dict[str, Any] | None = None
+        finish_reason: str | None = None
         last_emit = 0.0
         last_n = 0
         splitter = ThinkStreamSplitter()
@@ -1098,12 +1353,21 @@ class OpenAICompatibleClient:
         last_activity = [started]
         stalled = threading.Event()
         stall_reason = ["idle"]
+        # With include_usage the usage chunk arrives right after finish_reason;
+        # give it a short grace window instead of waiting for [DONE].
+        post_finish_deadline: list[float | None] = [None]
         stop_watchdog = threading.Event()
         watchdog: threading.Thread | None = None
 
         def watch_stream() -> None:
-            while not stop_watchdog.wait(0.5):
+            while not stop_watchdog.wait(0.25):
                 now = time.monotonic()
+                deadline = post_finish_deadline[0]
+                if deadline is not None and now >= deadline:
+                    stall_reason[0] = "post_finish"
+                    stalled.set()
+                    response.close()
+                    return
                 if stream_total_timeout is not None and now - started >= stream_total_timeout:
                     stall_reason[0] = "total"
                     stalled.set()
@@ -1125,7 +1389,7 @@ class OpenAICompatibleClient:
                 "将改用非流式请求重试。"
             )
 
-        if stream_idle_timeout is not None or stream_total_timeout is not None:
+        if stream_idle_timeout is not None or stream_total_timeout is not None or include_usage:
             watchdog = threading.Thread(target=watch_stream, name="llm-stream-watchdog", daemon=True)
             watchdog.start()
         try:
@@ -1159,27 +1423,85 @@ class OpenAICompatibleClient:
                     if content:
                         last_activity[0] = time.monotonic()
                         emit_parts(splitter.feed(content))
+                    output = data.get("output") if isinstance(data.get("output"), dict) else {}
                     choices = data.get("choices")
-                    finished = isinstance(choices, list) and any(
-                        isinstance(choice, dict) and choice.get("finish_reason") for choice in choices
-                    )
+                    if not isinstance(choices, list) or not choices:
+                        choices = output.get("choices")
+                    finished = False
+                    if isinstance(choices, list) and choices:
+                        first = choices[0] if isinstance(choices[0], dict) else {}
+                        delta = first.get("delta") if isinstance(first.get("delta"), dict) else {}
+                        self._merge_tool_call_deltas(tool_slots, delta.get("tool_calls"))
+                        message = first.get("message") if isinstance(first.get("message"), dict) else {}
+                        self._merge_tool_call_deltas(tool_slots, message.get("tool_calls"))
+                        if first.get("finish_reason"):
+                            finish_reason = str(first["finish_reason"])
+                            finished = True
+                    usage_raw = data.get("usage") if isinstance(data.get("usage"), dict) else output.get("usage")
+                    if isinstance(usage_raw, dict):
+                        usage = usage_raw
+                        last_activity[0] = time.monotonic()
+                    candidate_info = data.get("search_info") if isinstance(data.get("search_info"), dict) else output.get("search_info")
+                    if isinstance(candidate_info, dict):
+                        search_info = candidate_info
                     if finished:
-                        break
+                        if not include_usage:
+                            break
+                        if usage:
+                            break
+                        post_finish_deadline[0] = time.monotonic() + 2.0
             except Exception as exc:
-                if stalled.is_set():
+                if stalled.is_set() and stall_reason[0] != "post_finish":
                     raise stalled_error() from exc
-                raise
+                if not stalled.is_set():
+                    raise
         finally:
             stop_watchdog.set()
             if watchdog is not None:
                 watchdog.join(timeout=1)
-        if stalled.is_set():
+        if stalled.is_set() and stall_reason[0] != "post_finish":
             raise stalled_error()
         emit_parts(splitter.flush())
-        if not pieces:
-            raise LlmError("大模型返回的内容为空")
         notify(force=True)
-        return "".join(pieces)
+        tool_calls = [slot for _, slot in sorted(tool_slots.items())]
+        for index, call in enumerate(tool_calls):
+            if not call.get("id"):
+                call["id"] = f"call_{index}"
+        return ChatResult(
+            content="".join(pieces),
+            tool_calls=tool_calls,
+            usage=normalize_usage(usage),
+            finish_reason=finish_reason,
+            extra={"search_info": search_info} if isinstance(search_info, dict) else {},
+        )
+
+    @staticmethod
+    def _merge_tool_call_deltas(slots: dict[int, dict[str, Any]], items: Any) -> None:
+        if not isinstance(items, list):
+            return
+        for position, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            try:
+                index = int(item.get("index", position))
+            except (TypeError, ValueError):
+                index = position
+            slot = slots.setdefault(
+                index,
+                {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+            )
+            if item.get("id"):
+                slot["id"] = str(item["id"])
+            function = item.get("function")
+            if not isinstance(function, dict):
+                continue
+            if function.get("name"):
+                slot["function"]["name"] += str(function["name"])
+            arguments = function.get("arguments")
+            if isinstance(arguments, str):
+                slot["function"]["arguments"] += arguments
+            elif isinstance(arguments, dict):
+                slot["function"]["arguments"] += json.dumps(arguments, ensure_ascii=False)
 
     def _raise_if_embedded_stream_error(self, data: dict[str, Any]) -> None:
         embedded_error = _payload_error_text(data)
@@ -1243,11 +1565,15 @@ class OpenAICompatibleClient:
         return content
 
     @staticmethod
-    def _thinking_control_fields(model: str) -> dict[str, Any]:
+    def _thinking_control_fields(model: str, base_url: str = "") -> dict[str, Any]:
         """仅向已知支持切换的模型发送思考控制，固定 Thinking/VL 版本保留其默认模式。"""
         lowered = (model or "").strip().lower()
         official_aliases = {"deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro"}
         if "deepseek" in lowered and ("v4" in lowered or lowered in official_aliases):
+            return {"thinking": {"type": "disabled"}}
+        # 七牛 conatus 限时免费模型使用智谱式 thinking.type 协议（兼容环境验证过）。
+        # 结构化创作任务默认关闭思考，避免思考内容挤占输出预算。
+        if is_qiniu_conatus_model(base_url, lowered):
             return {"thinking": {"type": "disabled"}}
         # 原版 Qwen3 是混合推理模型；VL、Thinking、Instruct-2507 等独立版本
         # 不支持同一开关，不能因为名称包含 Qwen 就发送 enable_thinking。
@@ -1285,6 +1611,47 @@ class OpenAICompatibleClient:
                 cleaned = paragraphs[-1]
 
         return cleaned.strip()
+
+    def _extract_chat_result(self, data: dict[str, Any]) -> ChatResult:
+        embedded_error = _payload_error_text(data)
+        if looks_like_llm_billing(embedded_error):
+            raise LlmBillingError(format_llm_billing_error(upstream=embedded_error, action="对话推理"))
+        if looks_like_short_input_probe(embedded_error):
+            raise LlmError(format_llm_short_input_probe_error(upstream=embedded_error))
+
+        output = data.get("output") if isinstance(data.get("output"), dict) else {}
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
+            choices = output.get("choices")
+        first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        message = first.get("message") if isinstance(first.get("message"), dict) else {}
+        tool_calls = normalize_tool_calls(
+            message.get("tool_calls") or first.get("tool_calls") or output.get("tool_calls")
+        )
+        content = ""
+        for candidate in (
+            message.get("content"),
+            first.get("text"),
+            output.get("text"),
+            data.get("response"),
+            data.get("result"),
+        ):
+            text = candidate if isinstance(candidate, str) else self._coerce_stream_text(candidate)
+            if text and text.strip():
+                content = text.strip()
+                break
+        if not content and not tool_calls:
+            content = self._extract_response_content(data)
+        usage_raw = data.get("usage") if isinstance(data.get("usage"), dict) else output.get("usage")
+        search_info = data.get("search_info") if isinstance(data.get("search_info"), dict) else output.get("search_info")
+        finish_reason = first.get("finish_reason") or output.get("finish_reason")
+        return ChatResult(
+            content=content,
+            tool_calls=tool_calls,
+            usage=normalize_usage(usage_raw),
+            finish_reason=str(finish_reason) if finish_reason else None,
+            extra={"search_info": search_info} if isinstance(search_info, dict) else {},
+        )
 
     def _extract_response_content(self, data: dict[str, Any]) -> str:
         embedded_error = _payload_error_text(data)
@@ -1527,7 +1894,7 @@ class OpenAICompatibleClient:
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": user_content},
         ]
-        optimized = self.chat_completion(messages, model=model, temperature=0.7, max_tokens=max_tokens, timeout=60.0)
+        optimized = self.chat_completion(messages, model=model, temperature=0.7, max_tokens=max_tokens, timeout=LLM_OPTIMIZE_TIMEOUT_SECONDS)
         # 移除模型可能包裹的 markdown 代码块标签（如 ``` 或 ```markdown ）
         if optimized.startswith("```") and optimized.endswith("```"):
             lines = optimized.splitlines()
@@ -1570,7 +1937,7 @@ class OpenAICompatibleClient:
             model=model,
             temperature=0.2,
             max_tokens=max_tokens,
-            timeout=60.0,
+            timeout=LLM_OPTIMIZE_TIMEOUT_SECONDS,
         )
         blocks = re.findall(r"```[^\n`]*\n?(.*?)```", translated, flags=re.DOTALL)
         if blocks:
@@ -1599,7 +1966,7 @@ class OpenAICompatibleClient:
                 ],
             },
         ]
-        description = self.chat_completion(messages, model=model, temperature=0.2, max_tokens=256, timeout=60.0)
+        description = self.chat_completion(messages, model=model, temperature=0.2, max_tokens=256, timeout=LLM_OPTIMIZE_TIMEOUT_SECONDS)
         if description.startswith("```") and description.endswith("```"):
             lines = description.splitlines()
             if len(lines) >= 3:
@@ -1654,6 +2021,60 @@ class OpenAICompatibleClient:
         if not isinstance(payload, dict) or not str(payload.get("promptText") or "").strip():
             raise LlmError("镜头拉片结果缺少 promptText")
         return payload
+
+    def reverse_generation_prompt(
+        self,
+        *,
+        image_data_url: str,
+        media_type: str,
+        model: str,
+        hint: str = "",
+    ) -> dict[str, str]:
+        """提示词反推：把一张参考图反写成可直接用于生成的中/英文提示词。"""
+        if not image_data_url or not image_data_url.startswith("data:image/"):
+            raise LlmError("缺少有效的参考图，无法反推提示词")
+        media_key = "image" if media_type == "image" else "video"
+        system_prompt = SYSTEM_PROMPT_REVERSE_IMAGE if media_key == "image" else SYSTEM_PROMPT_REVERSE_VIDEO
+        user_text = "请反推这张参考图的生成提示词，按系统约定输出 JSON。"
+        if hint.strip():
+            user_text += f"\n用户补充要求：{hint.strip()[:200]}"
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            },
+        ]
+        raw_reply = self.chat_completion(messages, model=model, temperature=0.4, max_tokens=1024, timeout=LLM_OPTIMIZE_TIMEOUT_SECONDS)
+        clean_text = str(raw_reply or "").strip()
+        if "```json" in clean_text:
+            clean_text = clean_text.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif clean_text.startswith("```"):
+            clean_text = clean_text.strip("`").strip()
+        payload: Any = None
+        try:
+            payload = json.loads(clean_text)
+        except json.JSONDecodeError:
+            first_brace, last_brace = clean_text.find("{"), clean_text.rfind("}")
+            if first_brace != -1 and last_brace > first_brace:
+                try:
+                    payload = json.loads(clean_text[first_brace:last_brace + 1])
+                except json.JSONDecodeError:
+                    payload = None
+        if not isinstance(payload, dict):
+            raise LlmError("提示词反推结果不是合法 JSON，请重试")
+        chinese_prompt = str(payload.get("chinese_prompt") or "").strip()
+        english_prompt = str(payload.get("english_prompt") or "").strip()
+        if not chinese_prompt and not english_prompt:
+            raise LlmError("提示词反推结果为空，请重试")
+        if not english_prompt:
+            english_prompt = chinese_prompt
+        if not chinese_prompt:
+            chinese_prompt = english_prompt
+        return {"chinese_prompt": chinese_prompt, "english_prompt": english_prompt}
 
     def split_script(
         self,

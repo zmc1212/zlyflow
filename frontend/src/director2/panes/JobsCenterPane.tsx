@@ -2,7 +2,7 @@
 // Vue → React 对应：ref→useState、onMounted/onUnmounted→useEffect（静默轮询与清理保留）；
 // a-table bodyCell 自定义渲染 → columns render；a-* 组件 → antd 同名组件；
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Alert, Button, Dropdown, Input, Modal, Progress, Select, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
 import type { TableProps } from "antd"
@@ -26,7 +26,7 @@ import {
 } from "../director2-job-types"
 import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "../paths"
 import { jobCanConfirmRefine, jobCanShowUpscaleAction, jobPreviewVideoUrl, jobRefineShotCount, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl } from "../director2-video-settings"
-import { useMediaPreview } from "../media-preview"
+import { useMediaPreview, type OpenMediaPreviewInput } from "../media-preview"
 import "./jobs-center.css"
 
 const ACTIVE_JOB_STATUSES = new Set([
@@ -80,7 +80,7 @@ type StatusTag = { color: string; text: string }
 
 export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneProps) {
   const navigate = useNavigate()
-  const { openMediaPreview } = useMediaPreview()
+  const { openMediaPreview, openMediaPreviewList } = useMediaPreview()
   const [jobs, setJobs] = useState<Director2Job[]>([])
   const [loading, setLoading] = useState(false)
   const [detailVisible, setDetailVisible] = useState(false)
@@ -124,6 +124,25 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     })
   }, [typeJobs, searchQuery, statusFilter])
   const hasFilters = Boolean(searchQuery.trim()) || statusFilter !== "all"
+
+  // 当前筛选列表里可预览的结果集合；预览层支持在其中切换上一个 / 下一个
+  const openResultPreview = useCallback((record: Director2Job) => {
+    const inputs: OpenMediaPreviewInput[] = []
+    let startIndex = 0
+    filteredJobs.forEach((job) => {
+      const url = isVideoJob(job) ? jobPreviewVideoUrl(job) : isTtsJob(job) ? undefined : String(job.result_url || "").trim() || undefined
+      if (!url) return
+      if (job.id === record.id) startIndex = inputs.length
+      const upscaled = isVideoJob(job) && Boolean(jobUpscaledVideoUrl(job))
+      inputs.push({
+        src: url,
+        kind: isVideoJob(job) ? "video" : "image",
+        title: upscaled ? `${job.title || "生成结果"} · 2x` : job.title || "生成结果",
+      })
+    })
+    if (!inputs.length) return
+    openMediaPreviewList(inputs, startIndex)
+  }, [filteredJobs, openMediaPreviewList])
 
   useEffect(() => {
     const lastPage = Math.max(1, Math.ceil(filteredJobs.length / 20))
@@ -177,11 +196,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             type="button"
             className="result-thumb-btn"
             aria-label={upscaled ? "预览 2x 超分结果" : "预览结果"}
-            onClick={() => openMediaPreview({
-              src: previewUrl,
-              kind: isVideoJob(record) ? "video" : "image",
-              title: upscaled ? `${record.title || "生成结果"} · 2x` : record.title || "生成结果",
-            })}
+            onClick={() => openResultPreview(record)}
           >
             {isVideoJob(record) ? (
               <>
@@ -745,6 +760,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                   <div className="text-muted">复用剧集工坊已保存的 H3 提示词</div>
                 ) : selectedJob.payload?.prompt_source === "configured_llm" ? (
                   <div className="text-muted">任务内重新生成（工坊提示词未通过出片校验）</div>
+                ) : selectedJob.payload?.prompt_source === "program_preview" ? (
+                  <div className="text-muted">本次任务使用程序装箱预览，提示词未保存到镜头</div>
                 ) : null}
                 <div className="video-shot-list">
                   {videoShots(selectedJob).map((shot) => {

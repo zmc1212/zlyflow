@@ -571,18 +571,6 @@ export function upscaleBeatVideo(csrfToken: string, projectId: string, epId: str
   )
 }
 
-export function composeEpisodeVideo(
-  csrfToken: string,
-  projectId: string,
-  epId: string,
-  data: Record<string, unknown> = {},
-): Promise<{ job_id: string; status: string; render_scope?: string; render_mode?: string }> {
-  return requestJson(
-    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/compose`,
-    jsonMutation(csrfToken, data, "POST"),
-  )
-}
-
 export function getEpisodeDubbing(projectId: string, epId: string): Promise<import("./dubbing-track").DubbingTrack> {
   return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/dubbing`)
 }

@@ -1,0 +1,166 @@
+{
+  "brand": {
+    "bottom": 50,
+    "height": 28,
+    "left": 30,
+    "right": 58,
+    "top": 22,
+    "width": 28,
+    "x": 30,
+    "y": 22
+  },
+  "dpr": 1,
+  "headings": [
+    {
+      "lineHeight": "20px",
+      "size": "13px",
+      "text": "创作工作台",
+      "weight": "400"
+    },
+    {
+      "lineHeight": "34px",
+      "size": "24px",
+      "text": "无限画布",
+      "weight": "550"
+    },
+    {
+      "lineHeight": "30px",
+      "size": "20px",
+      "text": "test",
+      "weight": "550"
+    },
+    {
+      "lineHeight": "28px",
+      "size": "18px",
+      "text": "从一张空白开始",
+      "weight": "550"
+    },
+    {
+      "lineHeight": "28px",
+      "size": "18px",
+      "text": "我的画布",
+      "weight": "550"
+    }
+  ],
+  "horizontalOverflow": false,
+  "nav": [
+    {
+      "active": false,
+      "label": "生成",
+      "rect": {
+        "bottom": 156,
+        "height": 60,
+        "left": 9.5,
+        "right": 65.5,
+        "top": 96,
+        "width": 56,
+        "x": 9.5,
+        "y": 96
+      },
+      "symbol": {
+        "bottom": 126,
+        "height": 22,
+        "left": 26.5,
+        "right": 48.5,
+        "top": 104,
+        "width": 22,
+        "x": 26.5,
+        "y": 104
+      }
+    },
+    {
+      "active": false,
+      "label": "导演台",
+      "rect": {
+        "bottom": 224,
+        "height": 60,
+        "left": 9.5,
+        "right": 65.5,
+        "top": 164,
+        "width": 56,
+        "x": 9.5,
+        "y": 164
+      },
+      "symbol": {
+        "bottom": 194,
+        "height": 22,
+        "left": 26.5,
+        "right": 48.5,
+        "top": 172,
+        "width": 22,
+        "x": 26.5,
+        "y": 172
+      }
+    },
+    {
+      "active": true,
+      "label": "画布",
+      "rect": {
+        "bottom": 292,
+        "height": 60,
+        "left": 9.5,
+        "right": 65.5,
+        "top": 232,
+        "width": 56,
+        "x": 9.5,
+        "y": 232
+      },
+      "symbol": {
+        "bottom": 262,
+        "height": 22,
+        "left": 26.5,
+        "right": 48.5,
+        "top": 240,
+        "width": 22,
+        "x": 26.5,
+        "y": 240
+      }
+    },
+    {
+      "active": false,
+      "label": "资产",
+      "rect": {
+        "bottom": 360,
+        "height": 60,
+        "left": 9.5,
+        "right": 65.5,
+        "top": 300,
+        "width": 56,
+        "x": 9.5,
+        "y": 300
+      },
+      "symbol": {
+        "bottom": 330,
+        "height": 22,
+        "left": 26.5,
+        "right": 48.5,
+        "top": 308,
+        "width": 22,
+        "x": 26.5,
+        "y": 308
+      }
+    }
+  ],
+  "theme": "dark",
+  "title": "ZLY AI 视频创作平台",
+  "url": "http://localhost:5173/canvas",
+  "viewport": {
+    "height": 863,
+    "width": 1920
+  },
+  "wordmark": {
+    "size": "16px"
+  },
+  "clip": {
+    "x": 0,
+    "y": 0,
+    "width": 1400,
+    "height": 740
+  },
+  "screenshot_pixels": {
+    "width": 1400,
+    "height": 740
+  },
+  "screenshot_original_format": "JPEG",
+  "capture_verified": true
+}

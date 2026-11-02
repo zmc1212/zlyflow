@@ -204,7 +204,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
   useEffect(() => {
     const canFetchLocal = selectedPreset === "ollama"
     const savedKeyMatches = query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url)
-    const canFetchCloud = (selectedPreset === "siliconflow" || selectedPreset === "zhipu" || selectedPreset === "dashscope") && Boolean(savedKeyMatches)
+    const canFetchCloud = (selectedPreset === "siliconflow" || selectedPreset === "zhipu" || selectedPreset === "dashscope" || selectedPreset === "internai") && Boolean(savedKeyMatches)
     if (!canFetchLocal && !canFetchCloud) return
     const key = `${selectedPreset}|${baseUrl}|${query.data?.has_api_key ? "saved" : "none"}`
     if (autoFetchedFor.current === key) return

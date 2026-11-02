@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-31",
+  "page": "http://127.0.0.1:5173/generate/video",
+  "viewport": {
+    "width": 1920,
+    "height": 1080,
+    "dpr": 1.159999966621399
+  },
+  "geometry": {
+    "art": {
+      "height": 550,
+      "width": 390.8405456542969,
+      "x": 552.7748413085938,
+      "y": 265.0862121582031
+    },
+    "form": {
+      "height": 550,
+      "width": 423.41058349609375,
+      "x": 943.6153564453124,
+      "y": 265.0862121582031
+    },
+    "modal": {
+      "height": 550,
+      "width": 814.2645874023438,
+      "x": 552.7748413085938,
+      "y": 265.0862121582031
+    },
+    "submit": {
+      "height": 47.99300003051758,
+      "width": 357.4219055175781,
+      "x": 981.6137084960938,
+      "y": 636.8265380859375
+    },
+    "title": {
+      "height": 36.43588638305664,
+      "width": 357.4219055175781,
+      "x": 981.6137084960938,
+      "y": 347.0635986328125
+    }
+  },
+  "theme_previews": [
+    "login-light.webp",
+    "login-dark.webp"
+  ],
+  "public_network_paths": [
+    "GET /api/auth/status",
+    "GET /api/modes"
+  ],
+  "validation": {
+    "frontend_files": 76,
+    "frontend_tests": 558,
+    "backend_tests": 118,
+    "build_passed": true,
+    "typecheck_passed": true,
+    "real_login_used_existing_browser_autofill": true,
+    "draft_preserved_after_login": true,
+    "asset_login_return_verified": true,
+    "close_and_escape_verified": true,
+    "media_draft_switch_verified": true,
+    "required_validation_verified": true,
+    "form_reopen_resets_errors": true,
+    "no_generation_or_prompt_optimization_submitted": true,
+    "theme_persists_after_reload": true
+  },
+  "visual_notes": "Modal is centered, about 816 by 550 CSS px including border; art/form 48:52. Approved image was 1536 by 864 representing 1920 by 1080 logical pixels. Dedicated art asset reconstructed from approved image; current workspace is reused rather than replacing it with the generated screenshot. Actual browser screenshot export is 1920 by 1080 despite host DPR 1.16. No mobile verification.",
+  "console_notes": "Only the pre-existing Ant Design Select popupClassName deprecation warning remained on fresh reload. New Modal/useForm warnings were corrected.",
+  "input_correction": {
+    "date": "2026-10-31",
+    "auto_focus_removed": true,
+    "default_fields_empty_in_checked_browsers": true,
+    "autocomplete": {
+      "form": "off",
+      "username": "off",
+      "password": "new-password"
+    },
+    "wrapper_shadow_dark": "none",
+    "wrapper_shadow_light": "none",
+    "autofill_background_uses_theme_surface": true,
+    "tested_on": "5173 in-app browser and Chrome; desktop only",
+    "typescript_passed": true,
+    "browser_password_manager_fully_disabled": false,
+    "limit": "Browser/password manager may override autocomplete hints; no browser settings or saved credentials were modified."
+  }
+}

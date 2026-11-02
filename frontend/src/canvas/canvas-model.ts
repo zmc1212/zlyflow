@@ -66,6 +66,8 @@ export type CanvasNodeData = {
   runHistory?: CanvasRunSnapshot[]
   /** 结果节点（图片/视频）对应的生成运行快照。 */
   sourceRun?: CanvasRunSnapshot
+  /** 由生成节点预留的结果节点，等待上游任务完成后自动填入。 */
+  pendingGeneratorId?: string
   /** 未注册节点类型在本地归一化前的原始 type，保存时还原。 */
   originalType?: string
 }

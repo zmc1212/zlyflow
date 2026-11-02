@@ -5,6 +5,7 @@ import logging
 import mimetypes
 import re
 import secrets
+import tempfile
 import time
 import urllib.request
 from urllib.error import URLError
@@ -29,8 +30,10 @@ from .minimax_h3_refine_workflow import (
     continuation_workflow,
 )
 from .minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
+from .minimax_h3_avatar_workflow import build_minimax_h3_avatar_workflow
 from .minimax_h3_workflow import build_minimax_h3_workflow
 from .models import JobMode
+from .motion_transfer_media import prepare_motion_video
 from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, StoredResource, resource_object_url
 from .rtx_vsr_workflow import (
     RTX_VSR_NODE_TYPE,
@@ -61,6 +64,11 @@ from .seedvr2_upscale_workflow import (
 )
 from .video_depth_workflow import DEPTH_OUTPUT_NODE, build_depth_video_workflow
 from .wan_vace_depth_workflow import VACE_OUTPUT_NODE, build_vace_depth_workflow
+from .h3_motion_transfer_workflow import (
+    MOTION_TRANSFER_DEFAULT_PROMPT,
+    MOTION_TRANSFER_OUTPUT_NODE,
+    build_h3_motion_transfer_workflow,
+)
 from .workflow_registry import (
     DIRECTOR_ACCEL_WORKFLOWS,
     DUAL_ACCEL_WORKFLOWS,
@@ -933,6 +941,55 @@ class ComfyService:
         )
         return [self.output_payload(output, "video", "VACE 复刻视频")]
 
+    def _run_motion_transfer(
+        self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """H3 动作迁移：references[0] 为角色形象图，references[1] 为动作参考视频。"""
+        if len(references) != 2:
+            raise legacy.ComfyError("动作迁移需要上传角色形象图和动作参考视频。")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        update_stage("正在上传角色形象图")
+        character_image = self.upload_image(references[0], "motion_transfer_character")
+        normalized = normalize_options(JobMode.MINIMAX_H3_MOTION_TRANSFER, options or {})
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        update_stage("正在截取动作片段并对齐帧率")
+        self.settings.staging_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="motion-reference-", dir=self.settings.staging_dir) as directory:
+            prepared = prepare_motion_video(
+                Path(references[1]), Path(directory) / "motion.mp4",
+                fps=normalized["fps"], length=normalized["length"],
+            )
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            update_stage("正在上传动作参考视频")
+            motion_video = self.upload_video(str(prepared), "motion_transfer_control")
+        workflow = build_h3_motion_transfer_workflow(
+            character_image,
+            motion_video,
+            prompt.strip() or MOTION_TRANSFER_DEFAULT_PROMPT,
+            width=normalized["width"],
+            height=normalized["height"],
+            length=normalized["length"],
+            control_strength=float(normalized.get("control_strength") or 1.0),
+            steps=int(normalized.get("steps") or 20),
+            seed=normalized["seed"],
+            weight_dtype=str(normalized.get("weight_dtype") or "default"),
+            fps=int(normalized.get("fps") or 24),
+        )
+        record = self.run_workflow(
+            workflow, "H3 正在迁移动作", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        output = self.download(
+            legacy.output_file(record, MOTION_TRANSFER_OUTPUT_NODE, ("videos", "gifs", "images")),
+            "h3_motion_transfer",
+        )
+        return [self.output_payload(output, "video", "H3 动作迁移视频")]
+
     def local_path_for_output(self, output: dict) -> Path:
         extra = output.get("_local_path")
         if extra and Path(str(extra)).is_file():
@@ -1076,6 +1133,12 @@ class ComfyService:
         if mode is JobMode.WAN_VACE_DEPTH_V2V:
             output = self.download(legacy.output_file(record, VACE_OUTPUT_NODE, ("videos", "gifs", "images")), "wan_vace_depth")
             return [self.output_payload(output, "video", "VACE 复刻视频")]
+        if mode is JobMode.MINIMAX_H3_MOTION_TRANSFER:
+            output = self.download(
+                legacy.output_file(record, MOTION_TRANSFER_OUTPUT_NODE, ("videos", "gifs", "images")),
+                "h3_motion_transfer",
+            )
+            return [self.output_payload(output, "video", "H3 动作迁移视频")]
         raise legacy.ComfyError(f"不支持恢复工作流模式: {mode}")
 
     def run_refine_continuation(
@@ -1214,7 +1277,11 @@ class ComfyService:
                 engine=UPSCALE_ENGINE_SEEDVR2 if is_seedvr2_upscale_workflow(mode) else UPSCALE_ENGINE_RTX,
             )]
         if mode in H3_WORKFLOWS:
-            resolved_prompt = resolve_minimax_picture_prompt(prompt, len(references))
+            if mode is JobMode.MINIMAX_H3_AVATAR:
+                # 数字人 references 是 [形象图, 音频]，不走 <Picture n> 标签注入。
+                resolved_prompt = prompt
+            else:
+                resolved_prompt = resolve_minimax_picture_prompt(prompt, len(references))
             update_stage("正在上传参考素材" if references else "正在提交文生视频任务")
             uploaded = []
             for index, path in enumerate(references, 1):
@@ -1230,6 +1297,8 @@ class ComfyService:
                 )
             elif mode in T8_WORKFLOWS:
                 workflow = build_minimax_h3_t8_workflow(mode, resolved_prompt, uploaded, options)
+            elif mode is JobMode.MINIMAX_H3_AVATAR:
+                workflow = build_minimax_h3_avatar_workflow(resolved_prompt, uploaded, options)
             elif mode in LIGHTX2V_WORKFLOWS:
                 workflow = build_minimax_h3_lightx2v_workflow(mode, resolved_prompt, uploaded, options, seed)
             elif mode in DUAL_ACCEL_WORKFLOWS:
@@ -1284,6 +1353,11 @@ class ComfyService:
 
         if mode is JobMode.WAN_VACE_DEPTH_V2V:
             return self._run_vace_depth_replication(
+                references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
+            )
+
+        if mode is JobMode.MINIMAX_H3_MOTION_TRANSFER:
+            return self._run_motion_transfer(
                 references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
             )
 

@@ -4,24 +4,31 @@ import type { EditingAction } from "../smart-edit/api"
 
 export const ASSISTANT_API = "/api/director-assistant"
 export type RecordBase = { id: string; status: string; version: number; created_at: string; updated_at: string }
-export type AssistantSelections = { skill_id: string | null; expert_id: string | null; knowledge_ids: string[]; model_id: string }
+export type AssistantSelections = { skill_id: string | null; expert_id: string | null; knowledge_ids: string[]; model_id: string; web_search: boolean }
+export type ModelCapabilities = {
+  provider: string; native_tools: boolean; structured_output: string | null
+  prompt_cache: string | null; web_search: boolean; usage_reporting?: boolean; degraded?: string[]
+}
 export type AssistantResource = RecordBase & {
   resource_type: "skill" | "expert"; name: string; description: string; category: string
-  instructions: string; references: Record<string, string>; builtin: boolean; favorite?: boolean; version_id: string
+  instructions: string; references: Record<string, string>; builtin: boolean; platform?: boolean
+  manageable?: boolean; favorite?: boolean; version_id: string
 }
 export type KnowledgeDocument = RecordBase & { filename: string; error?: string | null; chunk_count?: number }
 export type KnowledgeLibrary = RecordBase & { name: string; description: string; builtin: boolean; documents: KnowledgeDocument[] }
 export type AssistantCatalog = {
   enabled: boolean; available: boolean; unavailable_reason?: string | null; resources: AssistantResource[]
-  knowledge: KnowledgeLibrary[]; models: { id: string; label: string }[]
+  knowledge: KnowledgeLibrary[]; models: { id: string; label: string; capabilities?: ModelCapabilities }[]; can_manage_platform?: boolean
 }
 export type AssistantSession = RecordBase & {
   title: string; project_id: string | null; selections: AssistantSelections; active_run_id: string | null
   resource_snapshot: { skill?: AssistantResource; expert?: AssistantResource }; pending_question: AssistantQuestion | null
   context?: EditingContext | null
 }
-export type AssistantQuestion = { id: string; title: string; type: "single" | "multiple" | "text"; allow_custom: boolean; options: { label: string; value: string; recommended?: boolean }[] }
+export type AssistantQuestion = { id: string; title: string; type: "single" | "multiple" | "text"; allow_custom: boolean; options: { label: string; value: string; description?: string; recommended?: boolean }[] }
 export type KnowledgeCitation = { id: string; filename: string; section: string; page: string; text: string }
+export type AssistantUsage = { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number; cache_creation_tokens?: number; requests?: number }
+export type WebSearchResult = { title: string; url: string; site?: string }
 export type MessagePart =
   | { type: "markdown"; text: string }
   | { type: "question"; question: AssistantQuestion }
@@ -30,6 +37,8 @@ export type MessagePart =
   | { type: "edit_action"; action_id: string }
   | { type: "tool"; name: string; label: string; status: string; detail?: string }
   | { type: "citations"; items: KnowledgeCitation[] }
+  | { type: "usage"; usage: AssistantUsage }
+  | { type: "web_search"; results: WebSearchResult[] }
 export type AssistantMessage = RecordBase & { role: "user" | "assistant"; parts: MessagePart[]; run_id: string; error?: string | null; resource_names?: { expert?: string; skill?: string }; selections: AssistantSelections }
 export type AssistantArtifact = RecordBase & {
   title: string; artifact_type: "script" | "assets" | "episodes" | "storyboard" | "prompt" | "plan"
@@ -47,7 +56,7 @@ export type MediaExecution = RecordBase & { error?: string; result?: Record<stri
 export type AssistantDetail = { session: AssistantSession; messages: AssistantMessage[]; artifacts: AssistantArtifact[]; proposals: MediaProposal[]; executions: MediaExecution[]; edit_proposals?: EditingAction[]; run: AssistantRun | null }
 export type ApplicationPreview = RecordBase & { project_id: string; project_name: string; changes: { entity: string; label: string; operation: "add" | "update"; target_id: string }[] }
 
-export const emptySelections = (): AssistantSelections => ({ skill_id: null, expert_id: null, knowledge_ids: [], model_id: "" })
+export const emptySelections = (): AssistantSelections => ({ skill_id: null, expert_id: null, knowledge_ids: [], model_id: "", web_search: false })
 export function assistantGet<T>(path: string) { return requestJson<T>(ASSISTANT_API + path) }
 export function assistantMutate<T>(csrfToken: string, path: string, value?: unknown, method = "POST") {
   return requestJson<T>(ASSISTANT_API + path, jsonMutation(csrfToken, value, method))

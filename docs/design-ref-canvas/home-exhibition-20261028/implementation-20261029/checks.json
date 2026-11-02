@@ -1,0 +1,1579 @@
+{
+  "date": "2026-10-28",
+  "verified_client_date": "2026-10-29",
+  "environment": "5173 Vite / independent Edge / controlled API responses and design-cropped test media; no real data writes",
+  "checks": [
+    {
+      "name": "4 real-response cards and active canvas navigation",
+      "passed": true
+    },
+    {
+      "name": "1586x992 light desktop geometry",
+      "passed": true
+    },
+    {
+      "name": "1586x992 dark desktop geometry",
+      "passed": true
+    },
+    {
+      "name": "1440x900 light desktop geometry",
+      "passed": true
+    },
+    {
+      "name": "1440x900 dark desktop geometry",
+      "passed": true
+    },
+    {
+      "name": "1920x1080 light desktop geometry",
+      "passed": true
+    },
+    {
+      "name": "1920x1080 dark desktop geometry",
+      "passed": true
+    },
+    {
+      "name": "global theme persists after a fresh reload",
+      "passed": true
+    },
+    {
+      "name": "search uses actual title and tag data, and no-results can be cleared",
+      "passed": true
+    },
+    {
+      "name": "tag filter and sort are functional Ant Design selects",
+      "passed": true
+    },
+    {
+      "name": "favorite updates the correct project and the favorites view",
+      "passed": true
+    },
+    {
+      "name": "card menu supports keyboard open and Escape focus restoration",
+      "passed": true
+    },
+    {
+      "name": "editing tags saves real field values and updates card labels",
+      "passed": true
+    },
+    {
+      "name": "trash confirmation can cancel before any mutation and then move the intended project",
+      "passed": true
+    },
+    {
+      "name": "restore returns the canvas to the active library",
+      "passed": true
+    },
+    {
+      "name": "theme-aware new canvas modal, creation and editor route",
+      "passed": true
+    },
+    {
+      "name": "continue opens the true latest canvas, preserving the existing editor shell",
+      "passed": true
+    },
+    {
+      "name": "duplicate requests the original draft, creates a copy and navigates to it",
+      "passed": true
+    },
+    {
+      "name": "permanent delete remains confirmed and only deletes its named trash project",
+      "passed": true
+    },
+    {
+      "name": "failed favorite mutation preserves state and displays the server error",
+      "passed": true
+    },
+    {
+      "name": "empty favorites and empty library remain actionable",
+      "passed": true
+    },
+    {
+      "name": "legacy previews and failed media retain usable cards and honest fallback labels",
+      "passed": true
+    },
+    {
+      "name": "dense canvases focus real connected nodes and identify partial previews",
+      "passed": true
+    },
+    {
+      "name": "loading, failed request and retry preserve the create action",
+      "passed": true
+    },
+    {
+      "name": "long project titles and eight tags stay within the card and feature",
+      "passed": true
+    },
+    {
+      "name": "final 1586x992 light geometry and readable contrast",
+      "passed": true
+    },
+    {
+      "name": "final 1586x992 dark geometry and readable contrast",
+      "passed": true
+    },
+    {
+      "name": "final 1440x900 light geometry and readable contrast",
+      "passed": true
+    },
+    {
+      "name": "final 1440x900 dark geometry and readable contrast",
+      "passed": true
+    },
+    {
+      "name": "final 1920x1080 light geometry and readable contrast",
+      "passed": true
+    },
+    {
+      "name": "final 1920x1080 dark geometry and readable contrast",
+      "passed": true
+    },
+    {
+      "name": "dark select popup, menu and modal follow the root theme",
+      "passed": true
+    },
+    {
+      "name": "no application exceptions or unexpected API paths",
+      "passed": true
+    },
+    {
+      "name": "current editor route keeps the shared header and removes home-only styles",
+      "passed": true
+    }
+  ],
+  "earlierAttempts": [
+    {
+      "name": "tag filter and sort are functional Ant Design selects",
+      "passed": false,
+      "error": "locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('option', { name: '场景灵感', exact: true })\u001b[22m\n\u001b[2m    - locator resolved to <div role=\"option\" aria-label=\"场景灵感\" id=\"_r_u__list_1\" aria-selected=\"false\">场景灵感</div>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not stable\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not stable\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    19 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is not visible\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n"
+    },
+    {
+      "name": "editing tags saves real field values and updates card labels",
+      "passed": false,
+      "error": "locator.click: Error: strict mode violation: getByRole('menuitem', { name: '编辑标签', exact: true }) resolved to 2 elements:\n    1) <li tabindex=\"-1\" role=\"menuitem\" class=\"ant-dropdown-menu-item\" data-menu-id=\"rc-menu-uuid-tags\">…</li> aka getByRole('menuitem', { name: '编辑标签' }).first()\n    2) <li tabindex=\"-1\" role=\"menuitem\" class=\"ant-dropdown-menu-item\" data-menu-id=\"rc-menu-uuid-tags\">…</li> aka getByRole('menuitem', { name: '编辑标签' }).nth(1)\n\nCall log:\n\u001b[2m  - waiting for getByRole('menuitem', { name: '编辑标签', exact: true })\u001b[22m\n"
+    },
+    {
+      "name": "editing tags saves real field values and updates card labels",
+      "passed": false,
+      "error": "locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '保存', exact: true })\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" class=\"ant-btn css-dev-only-do-not-override-b7phc css-var-_r_s_ ant-btn-primary ant-btn-color-primary ant-btn-variant-solid\">…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not stable\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not stable\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    19 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"ant-select-item-option-content\">电影感</div> from <div>…</div> subtree intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n"
+    }
+  ],
+  "harnessNotes": [
+    "Ant Design 虚拟列表的 role=option 位于隐藏的辅助节点，首次定位改用可见选项后重新验证；不是产品交互失败。",
+    "下拉菜单关闭动画期间旧 portal 短暂保留，补充等待菜单隐藏后再定位下一项。",
+    "浏览器发现标签候选层遮住保存按钮，已修改业务 Select 为选中后收起，重新验证原操作。"
+  ],
+  "errors": [],
+  "unknown": [],
+  "geometries": [
+    {
+      "mode": "light",
+      "viewport": {
+        "width": 1586,
+        "height": 992
+      },
+      "overflow": false,
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 996.1875,
+        "height": 358,
+        "top": 210,
+        "right": 1109.1875,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1125.1875,
+        "y": 210,
+        "width": 440.8125,
+        "height": 358,
+        "top": 210,
+        "right": 1566,
+        "bottom": 568,
+        "left": 1125.1875
+      },
+      "bar": {
+        "x": 113,
+        "y": 586,
+        "width": 1453,
+        "height": 43,
+        "top": 586,
+        "right": 1566,
+        "bottom": 629,
+        "left": 113
+      },
+      "first": {
+        "x": 113,
+        "y": 642,
+        "width": 351.25,
+        "height": 348,
+        "top": 642,
+        "right": 464.25,
+        "bottom": 990,
+        "left": 113
+      },
+      "grid": "351.25px 351.25px 351.25px 351.25px",
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "filters": {
+        "x": 982,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1566,
+        "bottom": 627.5,
+        "left": 982
+      }
+    },
+    {
+      "mode": "dark",
+      "viewport": {
+        "width": 1586,
+        "height": 992
+      },
+      "overflow": false,
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 996.1875,
+        "height": 358,
+        "top": 210,
+        "right": 1109.1875,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1125.1875,
+        "y": 210,
+        "width": 440.8125,
+        "height": 358,
+        "top": 210,
+        "right": 1566,
+        "bottom": 568,
+        "left": 1125.1875
+      },
+      "bar": {
+        "x": 113,
+        "y": 586,
+        "width": 1453,
+        "height": 43,
+        "top": 586,
+        "right": 1566,
+        "bottom": 629,
+        "left": 113
+      },
+      "first": {
+        "x": 113,
+        "y": 642,
+        "width": 351.25,
+        "height": 348,
+        "top": 642,
+        "right": 464.25,
+        "bottom": 990,
+        "left": 113
+      },
+      "grid": "351.25px 351.25px 351.25px 351.25px",
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "filters": {
+        "x": 982,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1566,
+        "bottom": 627.5,
+        "left": 982
+      }
+    },
+    {
+      "mode": "light",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "overflow": false,
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 894.984375,
+        "height": 358,
+        "top": 210,
+        "right": 1007.984375,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1023.984375,
+        "y": 210,
+        "width": 396.015625,
+        "height": 358,
+        "top": 210,
+        "right": 1420,
+        "bottom": 568,
+        "left": 1023.984375
+      },
+      "bar": {
+        "x": 113,
+        "y": 586,
+        "width": 1307,
+        "height": 43,
+        "top": 586,
+        "right": 1420,
+        "bottom": 629,
+        "left": 113
+      },
+      "first": {
+        "x": 113,
+        "y": 642,
+        "width": 314.75,
+        "height": 348,
+        "top": 642,
+        "right": 427.75,
+        "bottom": 990,
+        "left": 113
+      },
+      "grid": "314.75px 314.75px 314.75px 314.75px",
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "filters": {
+        "x": 836,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1420,
+        "bottom": 627.5,
+        "left": 836
+      }
+    },
+    {
+      "mode": "dark",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "overflow": false,
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 894.984375,
+        "height": 358,
+        "top": 210,
+        "right": 1007.984375,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1023.984375,
+        "y": 210,
+        "width": 396.015625,
+        "height": 358,
+        "top": 210,
+        "right": 1420,
+        "bottom": 568,
+        "left": 1023.984375
+      },
+      "bar": {
+        "x": 113,
+        "y": 586,
+        "width": 1307,
+        "height": 43,
+        "top": 586,
+        "right": 1420,
+        "bottom": 629,
+        "left": 113
+      },
+      "first": {
+        "x": 113,
+        "y": 642,
+        "width": 314.75,
+        "height": 348,
+        "top": 642,
+        "right": 427.75,
+        "bottom": 990,
+        "left": 113
+      },
+      "grid": "314.75px 314.75px 314.75px 314.75px",
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "filters": {
+        "x": 836,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1420,
+        "bottom": 627.5,
+        "left": 836
+      }
+    },
+    {
+      "mode": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "overflow": false,
+      "hero": {
+        "x": 180,
+        "y": 210,
+        "width": 1134.84375,
+        "height": 358,
+        "top": 210,
+        "right": 1314.84375,
+        "bottom": 568,
+        "left": 180
+      },
+      "create": {
+        "x": 1330.84375,
+        "y": 210,
+        "width": 502.15625,
+        "height": 358,
+        "top": 210,
+        "right": 1833,
+        "bottom": 568,
+        "left": 1330.84375
+      },
+      "bar": {
+        "x": 180,
+        "y": 586,
+        "width": 1653,
+        "height": 43,
+        "top": 586,
+        "right": 1833,
+        "bottom": 629,
+        "left": 180
+      },
+      "first": {
+        "x": 180,
+        "y": 642,
+        "width": 401.25,
+        "height": 348,
+        "top": 642,
+        "right": 581.25,
+        "bottom": 990,
+        "left": 180
+      },
+      "grid": "401.25px 401.25px 401.25px 401.25px",
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "filters": {
+        "x": 1249,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1833,
+        "bottom": 627.5,
+        "left": 1249
+      }
+    },
+    {
+      "mode": "dark",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "overflow": false,
+      "hero": {
+        "x": 180,
+        "y": 210,
+        "width": 1134.84375,
+        "height": 358,
+        "top": 210,
+        "right": 1314.84375,
+        "bottom": 568,
+        "left": 180
+      },
+      "create": {
+        "x": 1330.84375,
+        "y": 210,
+        "width": 502.15625,
+        "height": 358,
+        "top": 210,
+        "right": 1833,
+        "bottom": 568,
+        "left": 1330.84375
+      },
+      "bar": {
+        "x": 180,
+        "y": 586,
+        "width": 1653,
+        "height": 43,
+        "top": 586,
+        "right": 1833,
+        "bottom": 629,
+        "left": 180
+      },
+      "first": {
+        "x": 180,
+        "y": 642,
+        "width": 401.25,
+        "height": 348,
+        "top": 642,
+        "right": 581.25,
+        "bottom": 990,
+        "left": 180
+      },
+      "grid": "401.25px 401.25px 401.25px 401.25px",
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "filters": {
+        "x": 1249,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1833,
+        "bottom": 627.5,
+        "left": 1249
+      }
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1586,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 996.1875,
+        "height": 358,
+        "top": 210,
+        "right": 1109.1875,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1125.1875,
+        "y": 210,
+        "width": 440.8125,
+        "height": 358,
+        "top": 210,
+        "right": 1566,
+        "bottom": 568,
+        "left": 1125.1875
+      },
+      "filters": {
+        "x": 982,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1566,
+        "bottom": 627.5,
+        "left": 982
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1586,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 996.1875,
+        "height": 358,
+        "top": 210,
+        "right": 1109.1875,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1125.1875,
+        "y": 210,
+        "width": 440.8125,
+        "height": 358,
+        "top": 210,
+        "right": 1566,
+        "bottom": 568,
+        "left": 1125.1875
+      },
+      "filters": {
+        "x": 982,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1566,
+        "bottom": 627.5,
+        "left": 982
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1440,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 894.984375,
+        "height": 358,
+        "top": 210,
+        "right": 1007.984375,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1023.984375,
+        "y": 210,
+        "width": 396.015625,
+        "height": 358,
+        "top": 210,
+        "right": 1420,
+        "bottom": 568,
+        "left": 1023.984375
+      },
+      "filters": {
+        "x": 836,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1420,
+        "bottom": 627.5,
+        "left": 836
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1440,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 894.984375,
+        "height": 358,
+        "top": 210,
+        "right": 1007.984375,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1023.984375,
+        "y": 210,
+        "width": 396.015625,
+        "height": 358,
+        "top": 210,
+        "right": 1420,
+        "bottom": 568,
+        "left": 1023.984375
+      },
+      "filters": {
+        "x": 836,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1420,
+        "bottom": 627.5,
+        "left": 836
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1920,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "hero": {
+        "x": 180,
+        "y": 210,
+        "width": 1134.84375,
+        "height": 358,
+        "top": 210,
+        "right": 1314.84375,
+        "bottom": 568,
+        "left": 180
+      },
+      "create": {
+        "x": 1330.84375,
+        "y": 210,
+        "width": 502.15625,
+        "height": 358,
+        "top": 210,
+        "right": 1833,
+        "bottom": 568,
+        "left": 1330.84375
+      },
+      "filters": {
+        "x": 1249,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1833,
+        "bottom": 627.5,
+        "left": 1249
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1920,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 20,
+        "y": 14,
+        "width": 346,
+        "height": 56,
+        "top": 14,
+        "right": 366,
+        "bottom": 70,
+        "left": 20
+      },
+      "hero": {
+        "x": 180,
+        "y": 210,
+        "width": 1134.84375,
+        "height": 358,
+        "top": 210,
+        "right": 1314.84375,
+        "bottom": 568,
+        "left": 180
+      },
+      "create": {
+        "x": 1330.84375,
+        "y": 210,
+        "width": 502.15625,
+        "height": 358,
+        "top": 210,
+        "right": 1833,
+        "bottom": 568,
+        "left": 1330.84375
+      },
+      "filters": {
+        "x": 1249,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1833,
+        "bottom": 627.5,
+        "left": 1249
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1586,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 113,
+        "y": 202,
+        "width": 996.1875,
+        "height": 358,
+        "top": 202,
+        "right": 1109.1875,
+        "bottom": 560,
+        "left": 113
+      },
+      "create": {
+        "x": 1125.1875,
+        "y": 202,
+        "width": 440.8125,
+        "height": 358,
+        "top": 202,
+        "right": 1566,
+        "bottom": 560,
+        "left": 1125.1875
+      },
+      "filters": {
+        "x": 982,
+        "y": 579.5,
+        "width": 584,
+        "height": 40,
+        "top": 579.5,
+        "right": 1566,
+        "bottom": 619.5,
+        "left": 982
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1586,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 113,
+        "y": 202,
+        "width": 996.1875,
+        "height": 358,
+        "top": 202,
+        "right": 1109.1875,
+        "bottom": 560,
+        "left": 113
+      },
+      "create": {
+        "x": 1125.1875,
+        "y": 202,
+        "width": 440.8125,
+        "height": 358,
+        "top": 202,
+        "right": 1566,
+        "bottom": 560,
+        "left": 1125.1875
+      },
+      "filters": {
+        "x": 982,
+        "y": 579.5,
+        "width": 584,
+        "height": 40,
+        "top": 579.5,
+        "right": 1566,
+        "bottom": 619.5,
+        "left": 982
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1440,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 113,
+        "y": 202,
+        "width": 894.984375,
+        "height": 358,
+        "top": 202,
+        "right": 1007.984375,
+        "bottom": 560,
+        "left": 113
+      },
+      "create": {
+        "x": 1023.984375,
+        "y": 202,
+        "width": 396.015625,
+        "height": 358,
+        "top": 202,
+        "right": 1420,
+        "bottom": 560,
+        "left": 1023.984375
+      },
+      "filters": {
+        "x": 836,
+        "y": 579.5,
+        "width": 584,
+        "height": 40,
+        "top": 579.5,
+        "right": 1420,
+        "bottom": 619.5,
+        "left": 836
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1440,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 113,
+        "y": 202,
+        "width": 894.984375,
+        "height": 358,
+        "top": 202,
+        "right": 1007.984375,
+        "bottom": 560,
+        "left": 113
+      },
+      "create": {
+        "x": 1023.984375,
+        "y": 202,
+        "width": 396.015625,
+        "height": 358,
+        "top": 202,
+        "right": 1420,
+        "bottom": 560,
+        "left": 1023.984375
+      },
+      "filters": {
+        "x": 836,
+        "y": 579.5,
+        "width": 584,
+        "height": 40,
+        "top": 579.5,
+        "right": 1420,
+        "bottom": 619.5,
+        "left": 836
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1920,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 180,
+        "y": 202,
+        "width": 1134.84375,
+        "height": 358,
+        "top": 202,
+        "right": 1314.84375,
+        "bottom": 560,
+        "left": 180
+      },
+      "create": {
+        "x": 1330.84375,
+        "y": 202,
+        "width": 502.15625,
+        "height": 358,
+        "top": 202,
+        "right": 1833,
+        "bottom": 560,
+        "left": 1330.84375
+      },
+      "filters": {
+        "x": 1249,
+        "y": 579.5,
+        "width": 584,
+        "height": 40,
+        "top": 579.5,
+        "right": 1833,
+        "bottom": 619.5,
+        "left": 1249
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1920,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 180,
+        "y": 202,
+        "width": 1134.84375,
+        "height": 358,
+        "top": 202,
+        "right": 1314.84375,
+        "bottom": 560,
+        "left": 180
+      },
+      "create": {
+        "x": 1330.84375,
+        "y": 202,
+        "width": 502.15625,
+        "height": 358,
+        "top": 202,
+        "right": 1833,
+        "bottom": 560,
+        "left": 1330.84375
+      },
+      "filters": {
+        "x": 1249,
+        "y": 579.5,
+        "width": 584,
+        "height": 40,
+        "top": 579.5,
+        "right": 1833,
+        "bottom": 619.5,
+        "left": 1249
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1586,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 996.1875,
+        "height": 358,
+        "top": 210,
+        "right": 1109.1875,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1125.1875,
+        "y": 210,
+        "width": 440.8125,
+        "height": 358,
+        "top": 210,
+        "right": 1566,
+        "bottom": 568,
+        "left": 1125.1875
+      },
+      "filters": {
+        "x": 982,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1566,
+        "bottom": 627.5,
+        "left": 982
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1586,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 996.1875,
+        "height": 358,
+        "top": 210,
+        "right": 1109.1875,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1125.1875,
+        "y": 210,
+        "width": 440.8125,
+        "height": 358,
+        "top": 210,
+        "right": 1566,
+        "bottom": 568,
+        "left": 1125.1875
+      },
+      "filters": {
+        "x": 982,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1566,
+        "bottom": 627.5,
+        "left": 982
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1440,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 894.984375,
+        "height": 358,
+        "top": 210,
+        "right": 1007.984375,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1023.984375,
+        "y": 210,
+        "width": 396.015625,
+        "height": 358,
+        "top": 210,
+        "right": 1420,
+        "bottom": 568,
+        "left": 1023.984375
+      },
+      "filters": {
+        "x": 836,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1420,
+        "bottom": 627.5,
+        "left": 836
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1440,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 113,
+        "y": 210,
+        "width": 894.984375,
+        "height": 358,
+        "top": 210,
+        "right": 1007.984375,
+        "bottom": 568,
+        "left": 113
+      },
+      "create": {
+        "x": 1023.984375,
+        "y": 210,
+        "width": 396.015625,
+        "height": 358,
+        "top": 210,
+        "right": 1420,
+        "bottom": 568,
+        "left": 1023.984375
+      },
+      "filters": {
+        "x": 836,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1420,
+        "bottom": 627.5,
+        "left": 836
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    },
+    {
+      "final": true,
+      "mode": "light",
+      "width": 1920,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 180,
+        "y": 210,
+        "width": 1134.84375,
+        "height": 358,
+        "top": 210,
+        "right": 1314.84375,
+        "bottom": 568,
+        "left": 180
+      },
+      "create": {
+        "x": 1330.84375,
+        "y": 210,
+        "width": 502.15625,
+        "height": 358,
+        "top": 210,
+        "right": 1833,
+        "bottom": 568,
+        "left": 1330.84375
+      },
+      "filters": {
+        "x": 1249,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1833,
+        "bottom": 627.5,
+        "left": 1249
+      },
+      "canvas": "#f8f9fa",
+      "surface": "#ffffff",
+      "text": "#171a1f",
+      "muted": "#6b7280",
+      "secondary": "#4b5563"
+    },
+    {
+      "final": true,
+      "mode": "dark",
+      "width": 1920,
+      "overflow": false,
+      "grid": 4,
+      "header": {
+        "x": 16,
+        "y": 12,
+        "width": 312,
+        "height": 48,
+        "top": 12,
+        "right": 328,
+        "bottom": 60,
+        "left": 16
+      },
+      "hero": {
+        "x": 180,
+        "y": 210,
+        "width": 1134.84375,
+        "height": 358,
+        "top": 210,
+        "right": 1314.84375,
+        "bottom": 568,
+        "left": 180
+      },
+      "create": {
+        "x": 1330.84375,
+        "y": 210,
+        "width": 502.15625,
+        "height": 358,
+        "top": 210,
+        "right": 1833,
+        "bottom": 568,
+        "left": 1330.84375
+      },
+      "filters": {
+        "x": 1249,
+        "y": 587.5,
+        "width": 584,
+        "height": 40,
+        "top": 587.5,
+        "right": 1833,
+        "bottom": 627.5,
+        "left": 1249
+      },
+      "canvas": "#0f1115",
+      "surface": "#171a20",
+      "text": "#f3f5f7",
+      "muted": "#9ba5b1",
+      "secondary": "#c0c7d0"
+    }
+  ],
+  "controlled_mutations": [
+    {
+      "path": "/api/canvas/projects/forest",
+      "method": "PATCH",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects/forest",
+      "method": "PATCH",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects/product/trash",
+      "method": "POST",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects/product/restore",
+      "method": "POST",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects",
+      "method": "POST",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects",
+      "method": "POST",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects/created-6/draft",
+      "method": "PUT",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects/created-6/draft",
+      "method": "PUT",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects/product",
+      "method": "DELETE",
+      "csrf_present": true
+    },
+    {
+      "path": "/api/canvas/projects/rain",
+      "method": "PATCH",
+      "csrf_present": true
+    }
+  ],
+  "source_sha256": {
+    "frontend/src/App.tsx": "689cb5a5d165a755aa082f0ddb1a4b1628f40dba52a751fd1d927d6e1c38ed11",
+    "frontend/src/canvas/CanvasWorkspace.tsx": "8abba0086a6f1cc5336a78ab004f3abe1ba656b0a425c812d594ff0912ef91b3",
+    "frontend/src/canvas/CanvasPreviewThumbnail.tsx": "034409e9e19023f12a5371519a941a4e0c768cd51422e687bfbeba867e8d6a8e",
+    "frontend/src/canvas/canvas-home.css": "59f4c20819e15eb94a84f92f66d8086c6723768257ee0e369ad07d8f4230bbef",
+    "frontend/src/canvas/canvas-home.ts": "b0715cef965112386eb8f6c298219c8a2e8df4d8c492ae8e2b9ebccc4a06561c",
+    "backend/app/canvas_store.py": "6908783c3d3b8e95acf08d4144fcbfccf55d0c5644ca69ffd52ce58dc21247bc"
+  }
+}

@@ -28,6 +28,8 @@ class JobMode(str, Enum):
     NVIDIA_RTX_VSR = "nvidia-rtx-vsr"
     SEEDVR2_UPSCALE = "seedvr2-upscale"
     WAN_VACE_DEPTH_V2V = "wan21-vace-depth-v2v"
+    MINIMAX_H3_MOTION_TRANSFER = "minimax-h3-motion-transfer"
+    MINIMAX_H3_AVATAR = "minimax-h3-avatar"
     GRS_GPT_IMAGE_2 = "grs-gpt-image-2"
     GRS_GPT_IMAGE_2_VIP = "grs-gpt-image-2-vip"
 
@@ -67,8 +69,10 @@ class MediaOutput(BaseModel):
 
 
 class JobReference(BaseModel):
-    index: int = Field(ge=1, description="Reference image upload order within the job.")
-    url: str = Field(description="Reference image preview URL.")
+    index: int = Field(ge=1, description="Reference material upload order within the job.")
+    url: str = Field(description="Authenticated reference material preview URL.")
+    kind: Literal["image", "video", "audio"] = "image"
+    label: str | None = None
 
 
 class JobRequestParameter(BaseModel):
@@ -261,6 +265,9 @@ class ModeResponse(BaseModel):
     reference_labels: list[str] = Field(default_factory=list)
     accepts_negative_prompt: bool
     accepts_image_size: bool
+    accepts_audio_reference: bool = False
+    accepts_video_reference: bool = False
+    default_prompt: str | None = None
     supports_h3_options: bool = False
     request_content_type: str = "multipart/form-data"
     parameters: list[WorkflowParameterResponse] = Field(default_factory=list)
@@ -498,6 +505,13 @@ class ModelProviderPresetsResponse(BaseModel):
     presets: list[ModelProviderPreset]
 
 
+class LlmEndpointCredentialSummary(BaseModel):
+    base_url: str
+    model: str
+    api_key_masked: str | None = None
+    updated_at: str | None = None
+
+
 class LlmProviderResponse(BaseModel):
     enabled: bool
     base_url: str
@@ -512,6 +526,10 @@ class LlmProviderResponse(BaseModel):
     last_test_at: str | None = None
     supports_vision: bool = False
     assistant_models: list[str] = Field(default_factory=list, description="导演助手可选模型 ID")
+    saved_provider_credentials: list[LlmEndpointCredentialSummary] = Field(
+        default_factory=list,
+        description="已保存 Key 的供应商端点档案（掩码显示），切换服务地址时自动带出对应凭据",
+    )
     use_llm_credentials: bool = False
     llm_base_url: str | None = None
 
@@ -565,7 +583,7 @@ class PromptOptimizeRequest(BaseModel):
     media_type: Literal["video", "image"] = Field(default="video", description="生成目标媒体类型")
     workflow_name: str | None = Field(default=None, max_length=128, description="当前选择的工作流名称")
     skill_id: str | None = Field(default=None, max_length=64, description="指定 MiniMax 技能风格 ID")
-    skill_pack_id: str | None = Field(default=None, max_length=128, description="导演台技能包 ID；空表示默认程序装箱")
+    skill_pack_id: str | None = Field(default=None, max_length=128, description="导演台技能包 ID；空表示默认 H3 官方六段式大模型装箱")
     reference_count: int | None = Field(default=0, ge=0, le=10, description="当前参考图数量")
     workflow_id: str | None = Field(default=None, max_length=64, description="当前工作流 ID")
     duration_seconds: float | None = Field(
@@ -595,6 +613,12 @@ class AnalyzeSubjectResponse(BaseModel):
     description: str
     kind: str | None = None
     name: str | None = None
+
+
+class PromptReverseResponse(BaseModel):
+    chinese_prompt: str = Field(description="反推出的中文生成提示词")
+    english_prompt: str = Field(description="反推出的英文生成提示词；为空时与中文一致")
+    media_type: Literal["video", "image"] = Field(description="反推目标媒体类型")
 
 
 class SkillItem(BaseModel):

@@ -1,0 +1,201 @@
+{
+  "date": "2026-11-01",
+  "status": "implemented",
+  "source_reference": "https://jimeng.jianying.com/ai-tool/asset",
+  "creation_title_reference": {
+    "size": 30,
+    "weight": 400,
+    "line_height": 38
+  },
+  "scope": "原创SVG主导航、Z标识与常规页面标题比例；保持本项目布局和真实路由。",
+  "typography": {
+    "brand": 16,
+    "header_title": 13,
+    "generation_title": 24,
+    "canvas_title": 24,
+    "canvas_sections": [
+      18,
+      20
+    ],
+    "director_titles": [
+      22,
+      24
+    ],
+    "asset_group_title": 18
+  },
+  "desktop_checks": [
+    {
+      "page": "generate",
+      "theme": "dark",
+      "active": [
+        "生成"
+      ],
+      "icons": 22,
+      "logo": 28,
+      "item": [
+        56,
+        60
+      ],
+      "horizontal_overflow": false,
+      "background_sample": [
+        16,
+        17,
+        21
+      ]
+    },
+    {
+      "page": "generate",
+      "theme": "light",
+      "active": [
+        "生成"
+      ],
+      "icons": 22,
+      "logo": 28,
+      "item": [
+        56,
+        60
+      ],
+      "horizontal_overflow": false,
+      "background_sample": [
+        248,
+        249,
+        251
+      ]
+    },
+    {
+      "page": "director",
+      "theme": "dark",
+      "active": [
+        "导演台"
+      ],
+      "icons": 22,
+      "logo": 28,
+      "item": [
+        56,
+        60
+      ],
+      "horizontal_overflow": false,
+      "background_sample": [
+        16,
+        17,
+        21
+      ]
+    },
+    {
+      "page": "director",
+      "theme": "light",
+      "active": [
+        "导演台"
+      ],
+      "icons": 22,
+      "logo": 28,
+      "item": [
+        56,
+        60
+      ],
+      "horizontal_overflow": false,
+      "background_sample": [
+        248,
+        249,
+        251
+      ]
+    },
+    {
+      "page": "canvas",
+      "theme": "dark",
+      "active": [
+        "画布"
+      ],
+      "icons": 22,
+      "logo": 28,
+      "item": [
+        56,
+        60
+      ],
+      "horizontal_overflow": false,
+      "background_sample": [
+        16,
+        17,
+        21
+      ]
+    },
+    {
+      "page": "canvas",
+      "theme": "light",
+      "active": [
+        "画布"
+      ],
+      "icons": 22,
+      "logo": 28,
+      "item": [
+        56,
+        60
+      ],
+      "horizontal_overflow": false,
+      "background_sample": [
+        248,
+        249,
+        251
+      ]
+    },
+    {
+      "page": "assets",
+      "theme": "dark",
+      "active": [
+        "资产"
+      ],
+      "icons": 22,
+      "logo": 28,
+      "item": [
+        56,
+        60
+      ],
+      "horizontal_overflow": false,
+      "background_sample": [
+        16,
+        17,
+        21
+      ]
+    },
+    {
+      "page": "assets",
+      "theme": "light",
+      "active": [
+        "资产"
+      ],
+      "icons": 22,
+      "logo": 28,
+      "item": [
+        56,
+        60
+      ],
+      "horizontal_overflow": false,
+      "background_sample": [
+        248,
+        249,
+        251
+      ]
+    }
+  ],
+  "tests": {
+    "frontend": {
+      "command": "pnpm --dir frontend build",
+      "files": 76,
+      "tests": 558,
+      "typescript_passed": true,
+      "vite_passed": true
+    },
+    "backend": {
+      "command": "python -X utf8 -m unittest backend.tests.test_core backend.tests.test_accounts backend.tests.test_guest_catalog -q",
+      "tests": 114,
+      "passed": true
+    }
+  },
+  "interactions": "interactions.json",
+  "no_real_generation_tasks_submitted": true,
+  "old_webp_assets": "Retained for rollback; no longer referenced by Header or desktop primary navigation.",
+  "limitations": [
+    "只检查桌面；布局按本项目适配，未声称逐像素复制即梦。",
+    "栅格稿只用于设计探索，最终图标为原创SVG，不使用第三方SVG路径。"
+  ]
+}

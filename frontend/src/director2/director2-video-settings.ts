@@ -1,5 +1,6 @@
 export const DIRECTOR2_DEFAULT_VIDEO_WORKFLOW = "minimax-h3-director-accel-r2v"
 export const DIRECTOR2_VIDEO_SETTINGS_STORAGE_PREFIX = "director2-episode-video-settings:"
+export const DIRECTOR2_PROGRAM_PREVIEW_STORAGE_PREFIX = "director2-episode-program-preview:"
 export const DIRECTOR2_EPISODE_HIDDEN_OPTIONS = new Set(["duration", "custom_steps"])
 export const DIRECTOR2_BOOLEAN_VIDEO_OPTIONS = new Set(["refine_enabled"])
 
@@ -80,21 +81,6 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
     },
   },
   {
-    name: "weight_profile",
-    ui_group: "primary",
-    definition: {
-      label: "模型体积",
-      type: "string",
-      default: "full",
-      ui_group: "primary",
-      ui_options: [
-        { value: "full", label: "完整（32 GB）" },
-        { value: "pruned", label: "精简（20 GB）" },
-      ],
-      ui_visible_when: { refine_enabled: false },
-    },
-  },
-  {
     name: "quality",
     ui_group: "advanced",
     definition: {
@@ -118,21 +104,6 @@ export const DIRECTOR2_VIDEO_FALLBACK_FIELDS: Director2VideoOptionField[] = [
         { value: "1.2", label: "1.2 MP" }, { value: "1.5", label: "1.5 MP" },
         { value: "1.8", label: "1.8 MP" }, { value: "2.0", label: "2.0 MP" },
       ],
-    },
-  },
-  {
-    name: "speed",
-    ui_group: "advanced",
-    definition: {
-      label: "生成质量",
-      type: "string",
-      default: "balanced",
-      ui_group: "advanced",
-      ui_options: [
-        { value: "balanced", label: "均衡（20 步）" },
-        { value: "quality", label: "精细（25 步）" },
-      ],
-      ui_visible_when: { refine_enabled: false },
     },
   },
   {
@@ -502,9 +473,6 @@ export function videoSettingsSummary(
   const qualityField = fields.find((item) => item.name === "quality")
   const quality = values.quality || String(qualityField?.definition.default || "0.4")
   const qualityChoice = qualityField ? optionChoices(qualityField, values).find((item) => item.value === quality) : undefined
-  const weightField = fields.find((item) => item.name === "weight_profile")
-  const weight = values.weight_profile || String(weightField?.definition.default || "full")
-  const weightLabel = weightField?.definition.ui_options?.find((item) => String(item.value) === weight)?.label || weight
   const parts = [aspect]
   if (values.refine_enabled === "true") {
     const requested = Number(values.refine_quality || "1.0") || 1
@@ -522,9 +490,6 @@ export function videoSettingsSummary(
   } else if (quality) {
     parts.push(`${quality} MP`)
   }
-  if (values.refine_enabled !== "true" && weightLabel) {
-    parts.push(weightLabel.replace(/（.*?）/g, "").trim() || weightLabel)
-  }
   return parts.join(" · ")
 }
 
@@ -538,6 +503,31 @@ export function buildVideoJobOptions(
     options[name] = DIRECTOR2_BOOLEAN_VIDEO_OPTIONS.has(name) ? value === "true" : value
   }
   return { ...options, ...extra }
+}
+
+export type VideoPromptMode = "h3" | "program"
+
+export function withVideoPromptMode(
+  options: Record<string, unknown>,
+  programPreview: boolean,
+): Record<string, unknown> {
+  return { ...options, prompt_mode: programPreview ? "program" : "h3" }
+}
+
+export function loadProgramPreview(projectId: string): boolean {
+  try {
+    return window.localStorage.getItem(`${DIRECTOR2_PROGRAM_PREVIEW_STORAGE_PREFIX}${projectId}`) === "true"
+  } catch {
+    return false
+  }
+}
+
+export function saveProgramPreview(projectId: string, enabled: boolean) {
+  try {
+    window.localStorage.setItem(`${DIRECTOR2_PROGRAM_PREVIEW_STORAGE_PREFIX}${projectId}`, enabled ? "true" : "false")
+  } catch {
+    /* ignore quota / private mode */
+  }
 }
 
 export function beatHasVideo(beat: { video_url?: string | null } | null | undefined): boolean {

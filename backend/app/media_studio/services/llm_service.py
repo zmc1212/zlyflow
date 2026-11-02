@@ -549,10 +549,10 @@ class LlmService:
         skill_pack_id: str | None = None,
     ) -> str:
         overrides = packing_overrides
-        if overrides is None and skill_pack_id:
+        if overrides is None:
             from ...skill_packs import packing_overrides_of
 
-            overrides = packing_overrides_of(skill_pack_id)
+            overrides = packing_overrides_of(skill_pack_id or "")
         prompt = H3PromptBuilder.packing_system_prompt(mode, duration_seconds, packing_overrides=overrides)
         if skill_pack_id:
             from ...director_craft.coverage import COVERAGE_CONTRACT_EXCERPT
@@ -628,7 +628,9 @@ class LlmService:
             errors.append("T2VA prompt must not invent reference labels")
         if "[Shot 1]" not in text:
             errors.append("missing [Shot 1]")
-        skip_pack = cls._skip_program_pack(beat_info)
+        skip_pack = cls._skip_program_pack(beat_info) and bool(
+            str(beat_info.get("skill_pack_id") or "").strip()
+        )
         if skip_pack:
             errors.extend(H3PromptBuilder.inner_delivery_errors(text, shot_for_speech))
             errors.extend(H3PromptBuilder.speech_schedule_errors(text, shot_for_speech))
@@ -667,6 +669,34 @@ class LlmService:
         mode = cls.resolve_h3_prompt_mode(beat_info)
         shot = H3PromptBuilder.shot_from_beat_info(beat_info)
         duration_seconds = str(beat_info.get("duration_seconds") or "8").strip() or "8"
+        if mode == "Ref2VA" and not pack_id:
+            packed_info = dict(beat_info)
+            zh_prompt = str(
+                packed_info.get("timestamped_zh_prompt") or packed_info.get("video_prompt_zh") or ""
+            ).strip()
+            if zh_prompt:
+                existing = str(packed_info.get("visual_prompt") or "").strip()
+                packed_info["visual_prompt"] = f"{existing}\n\n{zh_prompt}".strip() if existing else zh_prompt
+                packed_info["timestamped_zh_prompt"] = zh_prompt
+            system_prompt = cls._h3_system_prompt(mode, duration_seconds, skill_pack_id=None)
+            user_prompt = cls._h3_user_prompt(packed_info, mode, duration_seconds)
+            emit_llm_stream_status("pack", "正在按 H3 官方六段式装箱", reset=True)
+            prompt = cls._request_h3_prompt(system_prompt, user_prompt, beat_info)
+            prompt = H3PromptBuilder.prepare_generated_prompt(prompt, shot, pad_thickness=False)
+            errors = cls._validate_h3_prompt(prompt, mode, beat_info)
+            if errors:
+                retry_user = (
+                    f"{user_prompt}\n\n"
+                    f"{H3PromptBuilder.packing_retry_block(errors, prompt, beat_info=packed_info)}"
+                )
+                emit_llm_stream_status("pack", "正在按规则重写六段", reset=True)
+                prompt = cls._request_h3_prompt(system_prompt, retry_user, beat_info)
+                prompt = H3PromptBuilder.prepare_generated_prompt(prompt, shot, pad_thickness=False)
+                errors = cls._validate_h3_prompt(prompt, mode, beat_info)
+            if errors:
+                raise ValueError("H3 提示词未通过规则校验：" + "；".join(errors))
+            _sync_workshop_fields()
+            return prompt
         if mode == "Ref2VA":
             from ...skill_packs import run_workshop_prompt
 
@@ -704,11 +734,6 @@ class LlmService:
                 return prompt
             prompt = H3PromptBuilder.prepare_generated_prompt(prompt, shot)
             errors = cls._validate_h3_prompt(prompt, mode, beat_info)
-            if not pack_id:
-                if errors:
-                    raise ValueError("H3 提示词未通过规则校验：" + "；".join(errors))
-                _sync_workshop_fields()
-                return prompt
             workshop_prompt = prompt
             workshop_errors = list(errors)
             packed_info = dict(beat_info)

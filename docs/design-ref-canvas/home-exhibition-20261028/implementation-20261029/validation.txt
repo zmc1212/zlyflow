@@ -1,0 +1,12 @@
+完成日期（客户端）：2026-10-29
+
+pnpm --dir frontend build
+python -X utf8 -m unittest backend.tests.test_canvas_store backend.tests.test_core -q
+
+ Test Files  66 passed (66)
+      Tests  454 passed (454)
+✓ built in 9.62s
+Ran 127 tests in 36.271s
+OK
+
+真实 5173、独立 Edge：34 项桌面检查通过。界面使用受控响应，后端使用临时 SQLite。

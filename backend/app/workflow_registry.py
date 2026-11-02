@@ -15,6 +15,7 @@ from .grs_catalog import (
     builtin_entry,
 )
 from .models import JobMode
+from .h3_motion_transfer_workflow import MOTION_TRANSFER_DEFAULT_PROMPT, resolve_motion_transfer_dimensions
 
 _TRUE_BOOL_TEXTS = {"true", "1", "yes", "on"}
 _FALSE_BOOL_TEXTS = {"false", "0", "no", "off", ""}
@@ -55,6 +56,16 @@ class WorkflowDefinition:
     max_total_frames: int | None = None
     supports_segment_continuity: bool = False
     supports_audio_batch: bool = False
+    accepts_audio_reference: bool = False
+    accepts_video_reference: bool = False
+    default_prompt: str | None = None
+
+    def reference_kind(self, index: int) -> str:
+        if index == 2 and self.accepts_video_reference:
+            return "video"
+        if index == 2 and self.accepts_audio_reference:
+            return "audio"
+        return "image"
 
     def payload(self) -> dict[str, Any]:
         data = asdict(self)
@@ -66,6 +77,24 @@ class WorkflowDefinition:
         group = CATALOG_GROUPS.get(self.catalog_group, {})
         data["catalog_group_label"] = group.get("label", "")
         data["catalog_group_order"] = int(group.get("order", 100))
+        return data
+
+    def public_payload(self) -> dict[str, Any]:
+        """Expose creative controls for browsing, without runtime configuration."""
+        data = self.payload()
+        data.pop("director_controls", None)
+        parameters = []
+        for parameter in data["parameters"]:
+            parameter = dict(parameter)
+            schema = parameter.get("schema")
+            if schema is not None:
+                properties = {
+                    name: dict(value) for name, value in schema.get("properties", {}).items()
+                    if value.get("ui_group") in {"primary", "advanced"}
+                }
+                parameter["schema"] = {"type": "object", "properties": properties}
+            parameters.append(parameter)
+        data["parameters"] = parameters
         return data
 
 
@@ -331,14 +360,14 @@ def h3_diffusion_unet(is_reference: bool, lora_strength: float) -> str:
 
 def h3_weight_profile_option() -> dict[str, Any]:
     return option(
-        "模型体积", "string", H3_WEIGHT_FULL, group="primary",
+        "模型体积", "string", H3_WEIGHT_FULL, group="internal",
         enum=[H3_WEIGHT_FULL, H3_WEIGHT_PRUNED],
         ui_control="select",
         ui_options=[
             {"value": H3_WEIGHT_FULL, "label": "完整（32 GB）"},
             {"value": H3_WEIGHT_PRUNED, "label": "精简（20 GB）"},
         ],
-        description="完整权重可挂加速 LoRA。精简权重关闭加速 LoRA，适合 32 GB 内存，避免加载时页面文件不足。",
+        description="完整权重可挂加速 LoRA；精简权重关闭加速 LoRA，适合 32 GB 内存机器。平台按 ComfyUI 机器内存自动选择。",
     )
 
 
@@ -370,7 +399,7 @@ H3_SPEED_PRESETS = {
 
 def h3_speed_option() -> dict[str, Any]:
     return option(
-        "生成速度", "string", H3_SPEED_BALANCED, group="primary",
+        "生成速度", "string", H3_SPEED_BALANCED, group="internal",
         enum=[H3_SPEED_FAST, H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM],
         ui_control="select",
         ui_options=[
@@ -379,19 +408,109 @@ def h3_speed_option() -> dict[str, Any]:
             {"value": H3_SPEED_QUALITY, "label": "高质量（20 步）"},
             {"value": H3_SPEED_CUSTOM, "label": "自定义"},
         ],
-        description="快速为 4 步加速，适合预览；均衡为 8 步加速，适合日常成片；高质量关闭加速、使用完整采样；自定义可填 1–40 步。",
+        description="快速为 4 步加速，适合预览；均衡为 8 步加速，适合日常成片；高质量关闭加速、使用完整采样；自定义可填 1–40 步。平台按工作流默认档位与机器配置自动托管。",
     )
 
 
 def h3_custom_steps_option() -> dict[str, Any]:
     return option(
-        "自定义步数", "integer", 8, group="primary",
+        "自定义步数", "integer", 8, group="internal",
         minimum=H3_CUSTOM_STEPS_MIN, maximum=H3_CUSTOM_STEPS_MAX, step=1,
         unit="步",
         ui_control="input-number",
         ui_visible_when={"speed": H3_SPEED_CUSTOM},
         description="4–8 步在完整权重下启用加速 LoRA；超过 8 步或选择精简权重时关闭加速。全能参考会把视频和音频采样都设为该步数。",
     )
+
+
+# --- 生成档位与模型体积自动托管 -------------------------------------------------
+# speed / weight_profile 属于采样步数与设备精度类技术参数，按产品规范由后端托管：
+# 创建表单不展示，客户端未显式提交时结合 ComfyUI 机器配置自动取最合适的组合。
+# 完整 INT8 权重约 32 GB，加载需要同等量级内存；精简约 20 GB，适合 32 GB 内存机器。
+# 阈值取 40 GiB：内存明显高于完整权重体积才托管为完整权重。
+H3_WEIGHT_FULL_MIN_RAM_BYTES = 40 * 1024**3
+
+_hardware_profile_resolver: Callable[[], dict[str, Any] | None] | None = None
+
+
+def set_hardware_profile_resolver(
+    resolver: Callable[[], dict[str, Any] | None] | None,
+) -> None:
+    """注入 ComfyUI 硬件探测；normalize_options 据此托管 speed / weight_profile。"""
+    global _hardware_profile_resolver
+    _hardware_profile_resolver = resolver
+
+
+def hardware_profile() -> dict[str, Any] | None:
+    if _hardware_profile_resolver is None:
+        return None
+    try:
+        stats = _hardware_profile_resolver()
+    except Exception:
+        return None
+    return stats if isinstance(stats, dict) and stats else None
+
+
+def comfy_ram_total_bytes(stats: dict[str, Any] | None) -> int | None:
+    """从 ComfyUI /system_stats 读取系统内存总量（字节）。"""
+    system = (stats or {}).get("system")
+    total = system.get("ram_total") if isinstance(system, dict) else None
+    if isinstance(total, bool) or not isinstance(total, (int, float)) or total <= 0:
+        return None
+    return int(total)
+
+
+def auto_weight_profile(stats: dict[str, Any] | None) -> str:
+    ram = comfy_ram_total_bytes(stats)
+    if ram is None:
+        return H3_WEIGHT_FULL
+    return H3_WEIGHT_PRUNED if ram < H3_WEIGHT_FULL_MIN_RAM_BYTES else H3_WEIGHT_FULL
+
+
+def auto_h3_runtime_options(raw: dict[str, Any], *, default_speed: str) -> dict[str, Any]:
+    """客户端未手选时按机器内存托管生成档位与模型体积。
+
+    精简权重挂不了加速 LoRA，8 步无加速属于欠采样组合，因此内存紧张时
+    同步切到高质量（20 步完整采样）；显式提交的值始终优先。
+    """
+    explicit_speed = "speed" in raw
+    explicit_weight = "weight_profile" in raw
+    if explicit_speed and explicit_weight:
+        return {}
+    stats = hardware_profile()
+    if not stats:
+        return {}
+    profile = auto_weight_profile(stats)
+    auto: dict[str, Any] = {}
+    if explicit_speed:
+        chosen = str(raw.get("speed"))
+        try:
+            steps = int(raw.get("custom_steps") or 8)
+        except (TypeError, ValueError):
+            steps = 8
+        needs_turbo = chosen in {H3_SPEED_FAST, H3_SPEED_BALANCED} or (
+            chosen == H3_SPEED_CUSTOM and steps <= H3_TURBO_STEP_MAX
+        )
+        if not explicit_weight:
+            auto["weight_profile"] = H3_WEIGHT_FULL if needs_turbo else profile
+        return auto
+    if explicit_weight:
+        if str(raw.get("weight_profile")) == H3_WEIGHT_PRUNED:
+            auto["speed"] = H3_SPEED_QUALITY
+        return auto
+    auto["weight_profile"] = profile
+    auto["speed"] = default_speed if profile == H3_WEIGHT_FULL else H3_SPEED_QUALITY
+    return auto
+
+
+def auto_h3_weight_profile(raw: dict[str, Any]) -> dict[str, Any]:
+    """仅托管模型体积，用于生成档位不依赖加速权重的管线。"""
+    if "weight_profile" in raw:
+        return {}
+    stats = hardware_profile()
+    if not stats:
+        return {}
+    return {"weight_profile": auto_weight_profile(stats)}
 
 
 def refine_enabled_option(description: str) -> dict[str, Any]:
@@ -459,7 +578,7 @@ def _speed_mapping(speed: str, custom_steps: int) -> dict[str, Any]:
 
 def lightx2v_speed_option() -> dict[str, Any]:
     return option(
-        "生成速度", "string", H3_SPEED_FAST, group="primary",
+        "生成速度", "string", H3_SPEED_FAST, group="internal",
         enum=[H3_SPEED_FAST, H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM],
         ui_control="select",
         ui_options=[
@@ -468,7 +587,7 @@ def lightx2v_speed_option() -> dict[str, Any]:
             {"value": H3_SPEED_QUALITY, "label": "高质量（20 步）"},
             {"value": H3_SPEED_CUSTOM, "label": "自定义"},
         ],
-        description="快速为 4 步 LightX2V 加速，默认 1.0 MP，适合日常成片；均衡为 8 步加速；高质量关闭加速、使用完整采样。",
+        description="快速为 4 步 LightX2V 加速，默认 1.0 MP，适合日常成片；均衡为 8 步加速；高质量关闭加速、使用完整采样。平台按工作流默认档位与机器配置自动托管。",
     )
 
 
@@ -492,7 +611,7 @@ def _lightx2v_lora_for(speed: str, custom_steps: int, *, is_reference: bool) -> 
 
 def dual_accel_speed_option() -> dict[str, Any]:
     return option(
-        "生成速度", "string", H3_SPEED_BALANCED, group="primary",
+        "生成速度", "string", H3_SPEED_BALANCED, group="internal",
         enum=[H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM],
         ui_control="select",
         ui_options=[
@@ -500,11 +619,12 @@ def dual_accel_speed_option() -> dict[str, Any]:
             {"value": H3_SPEED_QUALITY, "label": "高质量（20 步）"},
             {"value": H3_SPEED_CUSTOM, "label": "自定义"},
         ],
-        description="默认 8 步 FL2V Turbo LoRA，并串联 KJ Sage 与 H3 显存高效 Sage；高质量关闭 LoRA、使用完整采样。",
+        description="默认 8 步 FL2V Turbo LoRA，并串联 KJ Sage 与 H3 显存高效 Sage；高质量关闭 LoRA、使用完整采样。平台按工作流默认档位与机器配置自动托管。",
     )
 
 
 def apply_dual_accel_speed_preset(normalized: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    normalized.update(auto_h3_runtime_options(raw, default_speed=H3_SPEED_BALANCED))
     speed = normalized.get("speed", H3_SPEED_BALANCED)
     if speed not in {H3_SPEED_BALANCED, H3_SPEED_QUALITY, H3_SPEED_CUSTOM}:
         raise ValueError("八步双加速请选择八步双加速、高质量或自定义。")
@@ -571,31 +691,32 @@ DIRECTOR_ACCEL_SPEED_PRESETS = {
 
 def director_accel_speed_option() -> dict[str, Any]:
     return option(
-        "生成质量", "string", H3_SPEED_BALANCED, group="advanced",
+        "生成质量", "string", H3_SPEED_BALANCED, group="internal",
         enum=[H3_SPEED_BALANCED, H3_SPEED_QUALITY],
         ui_control="select",
         ui_options=[
             {"value": H3_SPEED_BALANCED, "label": "均衡（20 步）"},
             {"value": H3_SPEED_QUALITY, "label": "精细（25 步）"},
         ],
-        description="无 4 步 Turbo LoRA；均衡为 20 步双 Sage，精细为 25 步完整采样。",
+        description="无 4 步 Turbo LoRA；均衡为 20 步双 Sage，精细为 25 步完整采样。平台按工作流默认档位托管。",
     )
 
 
 def director_accel_weight_profile_option() -> dict[str, Any]:
     return option(
-        "模型体积", "string", H3_WEIGHT_FULL, group="primary",
+        "模型体积", "string", H3_WEIGHT_FULL, group="internal",
         enum=[H3_WEIGHT_FULL, H3_WEIGHT_PRUNED],
         ui_control="select",
         ui_options=[
             {"value": H3_WEIGHT_FULL, "label": "完整（32 GB）"},
             {"value": H3_WEIGHT_PRUNED, "label": "精简（20 GB）"},
         ],
-        description="加速版默认完整 INT8；加速来自双 Sage，不挂 Turbo LoRA。精简权重约 20 GB，适合内存紧张的机器。",
+        description="加速版默认完整 INT8；加速来自双 Sage，不挂 Turbo LoRA。精简权重约 20 GB，适合内存紧张的机器。平台按 ComfyUI 机器内存自动选择。",
     )
 
 
 def apply_director_accel_speed_preset(normalized: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    normalized.update(auto_h3_weight_profile(raw))
     speed = normalized.get("speed", H3_SPEED_BALANCED)
     if speed not in DIRECTOR_ACCEL_SPEED_PRESETS:
         raise ValueError("H3 Director 加速版请选择均衡或精细。")
@@ -657,6 +778,7 @@ def director_accel_option_schema() -> dict[str, Any]:
 def apply_lightx2v_speed_preset(
     normalized: dict[str, Any], raw: dict[str, Any], *, is_reference: bool,
 ) -> dict[str, Any]:
+    normalized.update(auto_h3_runtime_options(raw, default_speed=H3_SPEED_FAST))
     apply_h3_speed_preset(normalized, raw)
     lora_name, lora_strength = _lightx2v_lora_for(
         normalized["speed"], int(normalized.get("custom_steps", 8)), is_reference=is_reference,
@@ -980,6 +1102,164 @@ VACE_DEPTH_OPTION_SCHEMA = {
     },
 }
 
+# MiniMax H3 动作迁移:角色形象图 + 动作参考视频。骨架控制强度、画面比例与生成时长
+# 是普通用户可理解且直接影响结果的选项;模型/采样/骨架内部参数由后端默认值托管。
+MOTION_TRANSFER_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "control_strength": option(
+            "动作跟随强度", "number", 1.0, group="primary",
+            minimum=0.1, maximum=1.0, step=0.05, ui_inline_label=True,
+            description="越高越严格复刻参考视频的动作与节奏；调低可让角色发挥更自由。",
+        ),
+        "aspect_ratio": option(
+            "画面比例", "string", "16:9", group="primary", enum=["16:9", "9:16", "1:1"],
+            description="横版 864×480 / 竖版 480×864 / 方形 640×640。",
+        ),
+        "duration": option(
+            "生成时长", "string", "5s", group="primary", enum=["5s", "10s", "15s"],
+            description="复刻动作参考视频前 5/10/15 秒的动作。",
+        ),
+        "render_quality": option(
+            "生成质量", "string", "standard", group="advanced", enum=["preview", "standard", "fine"],
+            ui_options=[
+                {"value": "preview", "label": "快速预览"},
+                {"value": "standard", "label": "标准成片"},
+                {"value": "fine", "label": "精细成片"},
+            ],
+            steps_by_quality={"preview": 8, "standard": 20, "fine": 30},
+            description="预览更快；标准兼顾细节与耗时；精细需要更长时间。",
+        ),
+        "steps": option(
+            "采样步数", "integer", 20, group="internal",
+            minimum=4, maximum=40, step=1,
+        ),
+        "seed": option(
+            "随机种子", "integer", 0, group="advanced",
+            minimum=0, maximum=2147483647, step=1, randomize_when_zero=True,
+            description="固定种子可复现相同结果；0 表示每次随机。",
+        ),
+        "width": option("画布宽", "integer", 864, group="internal", minimum=32, maximum=2048, step=32),
+        "height": option("画布高", "integer", 480, group="internal", minimum=32, maximum=2048, step=32),
+        "length": option("生成帧数", "integer", 124, group="internal", minimum=29, maximum=362, step=1),
+        "fps": option("输出帧率", "integer", 24, group="internal", minimum=16, maximum=24, step=1),
+        "sampler": option("采样器", "string", "res_multistep", group="internal", enum=["res_multistep"]),
+        "scheduler": option("调度器", "string", "simple", group="internal", enum=["simple"]),
+        "weight_dtype": option(
+            "模型精度", "string", "default", group="internal", enum=["default", "fp16", "bf16"],
+        ),
+    },
+}
+
+MOTION_TRANSFER_WORKFLOW_IDS = {JobMode.MINIMAX_H3_MOTION_TRANSFER.value}
+
+
+def is_motion_transfer_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in MOTION_TRANSFER_WORKFLOW_IDS
+
+
+# MiniMax H3 数字人口播：形象图 + 口播音频 → 口型锁定的说话视频。
+# 生成时长由音频长度决定，不暴露时长选项；画布/模型/采样等内部参数由后端托管。
+# v1 单渲染窗口上限约 5 秒（H3 24fps、17n+5 网格的 124 帧训练窗口），长音频分窗渲染后续迭代。
+AVATAR_MAX_SCENE_SECONDS = 5.0
+AVATAR_MAX_SCENE_FRAMES = 124
+
+AVATAR_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "aspect_ratio": option(
+            "画面比例", "string", "16:9 (Widescreen)", group="primary", enum=T8_ASPECT_RATIOS,
+            ui_control="visual-settings",
+            description="数字人画面的宽高比例；竖屏口播选 9:16。",
+        ),
+        "speed": {**h3_speed_option()},
+        "scene_duration_seconds": option(
+            "口播窗口时长", "number", AVATAR_MAX_SCENE_SECONDS, group="internal",
+            minimum=1.0, maximum=AVATAR_MAX_SCENE_SECONDS, step=0.01, unit="秒",
+            description="提交任务时按口播音频实际时长写入；上限为单渲染窗口 5 秒。",
+        ),
+        "quality": option(
+            "分辨率", "string", "0.4", group="internal", ui_control="select",
+            enum=list(H3_T8_RESOLUTION_PRESETS),
+            ui_options=local_resolution_options(H3_T8_RESOLUTION_PRESETS),
+            megapixels_by_quality=H3_T8_RESOLUTION_PRESETS,
+            description="T8 条件节点画布上限 1344×768（0.98 MP），数字人默认 0.4 MP。",
+        ),
+        "megapixels": option(
+            "内部像素面积", "number", 0.4, group="internal", minimum=0.1, maximum=16.0, step=0.1, unit="MP",
+        ),
+        "multiple": option("尺寸对齐倍数", "integer", 32, minimum=8, maximum=128, step=4),
+        "steps": option("双时钟采样步数", "integer", 4, minimum=1, maximum=1000, step=1),
+        "seed": option(
+            "随机种子", "integer", 123456789,
+            minimum=0, maximum=1125899906842624, step=1,
+            description="使用相同种子和参数可获得更接近的结果。",
+        ),
+        "audio_mode": option(
+            "音频模式", "string", "lock_source",
+            enum=["lock_source", "remix_source", "reference_only", "native"],
+            description="lock_source：口型锁定源音频并保留原声；remix_source：重绘源音频；native：模型自生成音频。",
+        ),
+        "audio_denoise_strength": option("音频重绘强度", "number", 0.35, minimum=0, maximum=1, step=0.01),
+        # 当前远端 ComfyUI 0.43 构建禁用了 T8 Hybrid 路径（ref/keyframe latent 组装变更未复验），
+        # add_source_as_reference=True 会把源音频挂为参考媒体并强制 Hybrid，因此固定关闭。
+        "add_source_as_reference": option("将源音频作为参考", "boolean", False),
+        "prompt_primary_audio_ordinal": option("提示词主音频序号", "integer", 0, minimum=0, maximum=9, step=1),
+        "strict_prompt_tags": option("严格校验媒体标签", "boolean", True),
+        "ref_image_size": option("参考图尺寸策略", "string", "match", enum=["match", "max"]),
+        "reference_video_policy": option(
+            "参考视频时长策略", "string", "official_2_to_15s",
+            enum=["official_2_to_15s", "model_minimum"],
+        ),
+        "weight_profile": h3_weight_profile_option(),
+        "unet_name": option(
+            "扩散模型", "string", H3_FL2VA_FULL,
+            enum=[H3_FL2VA_FULL, H3_FL2VA_PRUNED, H3_REF2VA_FULL, H3_REF2VA_PRUNED],
+        ),
+        "weight_dtype": option(
+            "模型权重类型", "string", "default",
+            enum=["default", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e5m2"],
+        ),
+        "clip_name": option(
+            "文本编码器", "string", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            enum=["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"],
+        ),
+        "clip_device": option("文本编码设备", "string", "default", enum=["default", "cpu"]),
+        "video_vae": option(
+            "视频 VAE", "string", "minimax_h3_video_vae_fp16.safetensors",
+            enum=["minimax_h3_video_vae_fp16.safetensors"],
+        ),
+        "audio_vae": option(
+            "音频 VAE", "string", "minimax_h3_audio_vae_fp32.safetensors",
+            enum=["minimax_h3_audio_vae_fp32.safetensors"],
+        ),
+        "lora_name": option(
+            "加速 LoRA", "string", H3_TURBO_LORA_NAME,
+            enum=[H3_TURBO_LORA_NAME],
+        ),
+        "lora_strength": option("LoRA 强度", "number", 1, minimum=-100, maximum=100, step=0.01),
+        "use_sage_attention": option("启用 SageAttention", "boolean", True),
+        "frame_rate": option("输出帧率", "number", 24, minimum=1, maximum=120, step=1, unit="fps"),
+        "loop_count": option("额外循环次数", "integer", 0, minimum=0, maximum=100, step=1),
+        "output_format": option(
+            "输出格式", "string", "video/h264-mp4",
+            enum=["video/h264-mp4"],
+        ),
+        "pixel_format": option("像素格式", "string", "yuv420p", enum=["yuv420p", "yuv420p10le"]),
+        "crf": option("编码 CRF", "integer", 19, minimum=0, maximum=100, step=1),
+        "save_metadata": option("保存工作流元数据", "boolean", True),
+        "trim_to_audio": option("按音频裁剪", "boolean", False),
+        "pingpong": option("往返循环", "boolean", False),
+    },
+}
+
+AVATAR_WORKFLOW_IDS = {JobMode.MINIMAX_H3_AVATAR.value}
+
+
+def is_avatar_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in AVATAR_WORKFLOW_IDS
+
+
 WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         JobMode.MINIMAX_H3_LIGHTX2V_T2V.value,
@@ -1167,6 +1447,35 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         hidden_from_catalog=True,
     ),
     WorkflowDefinition(
+        JobMode.MINIMAX_H3_MOTION_TRANSFER.value,
+        "H3 动作迁移",
+        "把动作参考视频里的舞蹈/肢体动作迁移到角色形象图上：SDPose 全身骨架锁定动作，"
+        "角色参考图锁定身份，H3 原生音画一体出片，纯本地免费。"
+        "references[0] 为角色形象图，references[1] 为动作参考视频。",
+        "collection",
+        2,
+        2,
+        ("角色形象图", "动作参考视频"),
+        accepts_video_reference=True,
+        default_prompt=MOTION_TRANSFER_DEFAULT_PROMPT,
+        option_schema=MOTION_TRANSFER_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_AVATAR.value,
+        "H3 数字人口播",
+        "上传人物形象图与口播音频，生成口型与语音精确同步的说话视频：H3 原生音画一体驱动，"
+        "纯本地免费。当前单次生成支持约 5 秒以内的口播音频。"
+        "references[0] 为人物形象图，references[1] 为口播音频。",
+        "collection",
+        2,
+        2,
+        ("人物形象图", "口播音频"),
+        accepts_audio_reference=True,
+        option_schema=AVATAR_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
+    ),
+    WorkflowDefinition(
         JobMode.NVIDIA_RTX_VSR.value,
         "RTX 2x 超分",
         "把已成功的成片交给当前连接 ComfyUI 的 RTXVideoSuperResolution（固定 2x / ULTRA）。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
@@ -1231,7 +1540,12 @@ H3_WORKFLOWS = {
     *DUAL_ACCEL_WORKFLOWS,
     *DIRECTOR_ACCEL_WORKFLOWS,
     *T8_WORKFLOWS,
+    JobMode.MINIMAX_H3_AVATAR,
 }
+# Two-pass refine rebuilds the first pass on the Director graph, which has no drive-audio
+# input, and refines a video latent while avatar samples an AV latent. Avatar would lose its
+# lip-sync source, so it stays out of the contract until an audio-aware second pass exists.
+H3_REFINE_WORKFLOWS = H3_WORKFLOWS - {JobMode.MINIMAX_H3_AVATAR}
 T8_WORKFLOW_IDS = {item.value for item in T8_WORKFLOWS}
 LIGHTX2V_WORKFLOW_IDS = {item.value for item in LIGHTX2V_WORKFLOWS}
 DUAL_ACCEL_WORKFLOW_IDS = {item.value for item in DUAL_ACCEL_WORKFLOWS}
@@ -1319,7 +1633,7 @@ def is_upscale_workflow(mode: JobMode | str) -> bool:
 
 def is_local_comfy_job(mode: JobMode | str) -> bool:
     """Creation-page ComfyUI jobs that occupy the serial video worker."""
-    return is_h3_workflow(mode) or is_upscale_workflow(mode)
+    return is_h3_workflow(mode) or is_upscale_workflow(mode) or is_motion_transfer_workflow(mode)
 
 
 def is_t8_workflow(mode: JobMode | str) -> bool:
@@ -1383,6 +1697,7 @@ H3_OPTION_NAMES = {
     "weight_profile", "use_sage_attention", "refine_enabled", "refine_quality", "refine_quality_mode",
     "refine_preview",
 }
+H3_REFINE_OPTION_NAMES = {"refine_enabled", "refine_quality", "refine_quality_mode", "refine_preview"}
 H3_ASPECT_RATIO_PART = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
 
 
@@ -1400,6 +1715,8 @@ def parse_h3_aspect_ratio(value: Any) -> tuple[str, float]:
 
 def parameter_payload(definition: WorkflowDefinition) -> list[dict[str, Any]]:
     """Describe the exact multipart fields accepted by POST /api/jobs for one workflow."""
+    audio_reference = definition.accepts_audio_reference
+    video_reference = definition.accepts_video_reference
     parameters: list[dict[str, Any]] = [
         {
             "name": "mode", "label": "工作流", "type": "string", "required": True,
@@ -1407,15 +1724,24 @@ def parameter_payload(definition: WorkflowDefinition) -> list[dict[str, Any]]:
             "values": [definition.id],
         },
         {
-            "name": "prompt", "label": "创作提示词", "type": "string", "required": True,
-            "description": "去除首尾空白后不能为空。",
+            "name": "prompt", "label": "创作提示词", "type": "string", "required": not bool(definition.default_prompt),
+            "description": "留空使用工作流默认提示词。" if definition.default_prompt else "去除首尾空白后不能为空。",
+            **({"default": definition.default_prompt} if definition.default_prompt else {}),
         },
         {
-            "name": "references", "label": "参考图", "type": "array",
+            "name": "references", "label": "参考素材", "type": "array",
             "required": definition.min_references > 0,
-            "description": "图片文件数组。多图工作流按上传顺序解释参考图。单张文件最大 50 MB。",
+            "description": (
+                "文件数组：第 1 项为人物形象图，第 2 项为口播音频（WAV/MP3，时长不超过"
+                f" {AVATAR_MAX_SCENE_SECONDS:.0f} 秒）。"
+                if audio_reference else
+                "文件数组：第 1 项为角色形象图，第 2 项为动作参考视频（MP4/MOV/WebM）。"
+                "单份素材最大 50 MB，视频需至少覆盖所选时长；只取开头片段并对齐到 24fps。"
+                if video_reference else
+                "图片文件数组。多图工作流按上传顺序解释参考图。单张文件最大 50 MB。"
+            ),
             "min_items": definition.min_references, "max_items": definition.max_references,
-            "content_type": "image/*",
+            "content_type": "image/*,audio/*" if audio_reference else "image/*,video/*" if video_reference else "image/*",
         },
     ]
     if definition.accepts_negative_prompt:
@@ -1467,6 +1793,10 @@ def validate_references(mode: JobMode | str, references: list[object]) -> None:
         raise ValueError(f"工作流 {mode_key(mode)} 已从当前工作台移除") from error
     count = len(references)
     if not definition.min_references <= count <= definition.max_references:
+        if definition.accepts_audio_reference:
+            raise ValueError(f"{definition.name} 需要 1 张人物形象图和 1 份口播音频，当前共 {count} 项素材。")
+        if definition.accepts_video_reference:
+            raise ValueError(f"{definition.name} 需要 1 张角色形象图和 1 段动作参考视频，当前共 {count} 项素材。")
         if definition.min_references == definition.max_references:
             raise ValueError(f"{definition.name} 需要 {definition.min_references} 张参考图。")
         raise ValueError(
@@ -1489,17 +1819,40 @@ def _refine_settings(raw: dict[str, Any]) -> tuple[bool, str, bool, str]:
 def _refine_first_pass_defaults(mode: JobMode | str) -> dict[str, Any]:
     """The first pass is an implementation detail: the platform owns its technical settings."""
     key = mode_key(mode)
+    # 内存不足以装完整权重时，一采同样换精简权重：加速 LoRA 挂不上，
+    # 档位切到高质量（20 步完整采样），避免“8 步无加速”的欠采样底片。
+    stats = hardware_profile()
+    pruned_first_pass = bool(stats) and auto_weight_profile(stats) == H3_WEIGHT_PRUNED
     if key in LIGHTX2V_WORKFLOW_IDS:
         is_reference = key == JobMode.MINIMAX_H3_LIGHTX2V_R2V.value
+        lora_name = LIGHTX2V_REF2V_4STEP_LORA if is_reference else LIGHTX2V_FL2V_4STEP_LORA
+        if pruned_first_pass:
+            return {
+                "weight_profile": H3_WEIGHT_PRUNED,
+                "speed": H3_SPEED_QUALITY,
+                "custom_steps": 20,
+                "steps": 20,
+                "lora_name": lora_name,
+                "lora_strength": 0.0,
+            }
         return {
             "weight_profile": H3_WEIGHT_FULL,
             "speed": H3_SPEED_FAST,
             "custom_steps": 4,
             "steps": 4,
-            "lora_name": LIGHTX2V_REF2V_4STEP_LORA if is_reference else LIGHTX2V_FL2V_4STEP_LORA,
+            "lora_name": lora_name,
             "lora_strength": LIGHTX2V_LORA_STRENGTH,
         }
     if key in DUAL_ACCEL_WORKFLOW_IDS:
+        if pruned_first_pass:
+            return {
+                "weight_profile": H3_WEIGHT_PRUNED,
+                "speed": H3_SPEED_QUALITY,
+                "custom_steps": 20,
+                "steps": 20,
+                "lora_name": DUAL_ACCEL_LORA_NAME,
+                "lora_strength": 0.0,
+            }
         return {
             "weight_profile": H3_WEIGHT_FULL,
             "speed": H3_SPEED_BALANCED,
@@ -1518,6 +1871,19 @@ def _refine_first_pass_defaults(mode: JobMode | str) -> dict[str, Any]:
             "lora_strength": 0.0,
         }
     if key in T8_WORKFLOW_IDS:
+        if pruned_first_pass:
+            defaults: dict[str, Any] = {
+                "weight_profile": H3_WEIGHT_PRUNED,
+                "speed": H3_SPEED_QUALITY,
+                "custom_steps": 20,
+                "lora_name": H3_TURBO_LORA_NAME,
+                "lora_strength": 0.0,
+            }
+            if key == JobMode.MINIMAX_H3_T8_ALL_REFERENCE.value:
+                defaults.update({"steps": 20, "video_steps": 20, "audio_steps": 20})
+            else:
+                defaults["steps"] = 20
+            return defaults
         defaults: dict[str, Any] = {
             "weight_profile": H3_WEIGHT_FULL,
             "speed": H3_SPEED_BALANCED,
@@ -1552,6 +1918,15 @@ def _apply_refine_first_pass(
 
 
 def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[str, Any]:
+    if is_motion_transfer_workflow(mode):
+        normalized = _normalize_schema_options(MOTION_TRANSFER_OPTION_SCHEMA, raw or {})
+        quality = MOTION_TRANSFER_OPTION_SCHEMA["properties"]["render_quality"]
+        # Legacy API clients may submit steps directly; new forms submit semantic presets.
+        if "steps" not in (raw or {}):
+            normalized["steps"] = quality["steps_by_quality"][normalized["render_quality"]]
+        width, height, length = resolve_motion_transfer_dimensions(normalized["aspect_ratio"], normalized["duration"])
+        normalized.update(width=width, height=height, length=length, fps=24)
+        return normalized
     if is_image_workflow(mode):
         definition = workflow_for(mode)
         normalized = _normalize_schema_options(definition.option_schema or {}, raw or {})
@@ -1583,6 +1958,10 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
     if is_t8_workflow(mode):
         normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw)
         return _apply_refine_first_pass(mode, normalized, *_refine_settings(raw))
+    if is_avatar_workflow(mode):
+        if raw.keys() & H3_REFINE_OPTION_NAMES:
+            raise ValueError("数字人口播暂不支持二采精修：二采改用 Director 管线，会脱离口播音频驱动。")
+        return _normalize_schema_options(workflow_for(mode).option_schema or {}, raw)
     if is_lightx2v_workflow(mode):
         normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
         normalized = apply_lightx2v_speed_preset(
@@ -1619,7 +1998,9 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         raise ValueError("MiniMax H3 请选择当前工作流支持的分辨率。")
     if not H3_DURATION_MIN_SEC <= duration <= H3_DURATION_MAX_SEC:
         raise ValueError(f"MiniMax H3 时长必须在 {H3_DURATION_MIN_SEC} 到 {H3_DURATION_MAX_SEC} 秒之间。")
-    speed = raw.get("speed", H3_SPEED_BALANCED)
+    # Refine first pass is platform-owned (精简权重 + 8 步 LightX2V LoRA)，与机器托管无关。
+    auto_runtime = {} if refine_enabled else auto_h3_runtime_options(raw, default_speed=H3_SPEED_BALANCED)
+    speed = raw.get("speed", auto_runtime.get("speed", H3_SPEED_BALANCED))
     custom_steps = raw.get("custom_steps", 8)
     use_sage = raw.get("use_sage_attention", True)
     if not isinstance(use_sage, bool):
@@ -1636,7 +2017,7 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         "reference_image_size": "match",
         "speed": speed,
         "custom_steps": custom_steps,
-        "weight_profile": H3_WEIGHT_PRUNED if refine_enabled else raw.get("weight_profile", H3_WEIGHT_FULL),
+        "weight_profile": H3_WEIGHT_PRUNED if refine_enabled else raw.get("weight_profile", auto_runtime.get("weight_profile", H3_WEIGHT_FULL)),
         "use_sage_attention": use_sage,
         "refine_enabled": refine_enabled,
         "refine_quality": refine_quality,
@@ -1654,6 +2035,7 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
 
 def _normalize_schema_options(
     schema: dict[str, Any], raw: dict[str, Any], *, apply_speed: bool = True,
+    auto_default_speed: str = H3_SPEED_BALANCED,
 ) -> dict[str, Any]:
     definitions = schema.get("properties", {})
     unknown_options = set(raw) - set(definitions)
@@ -1662,7 +2044,7 @@ def _normalize_schema_options(
         raise ValueError(f"当前工作流不支持参数: {names}")
     normalized: dict[str, Any] = {}
     for name, definition in definitions.items():
-        if name == "seed":
+        if name == "seed" and not definition.get("randomize_when_zero"):
             minimum = int(definition.get("minimum", 0))
             maximum = int(definition.get("maximum", 2**63 - 2))
             normalized[name] = minimum + secrets.randbelow(maximum - minimum + 1)
@@ -1691,6 +2073,8 @@ def _normalize_schema_options(
             raise ValueError(f"{definition['label']} 不能小于 {definition['minimum']}。")
         if "maximum" in definition and value > definition["maximum"]:
             raise ValueError(f"{definition['label']} 不能大于 {definition['maximum']}。")
+        if name == "seed" and definition.get("randomize_when_zero") and value == 0:
+            value = 1 + secrets.randbelow(int(definition["maximum"]))
         normalized[name] = value
     quality_definition = definitions.get("quality")
     if quality_definition:
@@ -1698,6 +2082,7 @@ def _normalize_schema_options(
         if "quality" in raw:
             normalized["megapixels"] = quality_map[normalized["quality"]]
     if apply_speed and "speed" in definitions:
+        normalized.update(auto_h3_runtime_options(raw, default_speed=auto_default_speed))
         apply_h3_speed_preset(normalized, raw)
     for name, definition in definitions.items():
         other_name = definition.get("ui_not_less_than")

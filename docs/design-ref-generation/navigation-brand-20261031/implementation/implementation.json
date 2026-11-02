@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-31",
+  "status": "implemented",
+  "approved_reference": "../zly-navigation-brand-v005.png",
+  "scope": "共用Header品牌与桌面主菜单图标、尺寸和视觉状态；保留实际路由和登录门禁。",
+  "validation": {
+    "frontend": {
+      "command": "pnpm --dir frontend build",
+      "passed": true,
+      "test_files": 76,
+      "tests": 558,
+      "typescript": true,
+      "vite_build": true
+    },
+    "backend": {
+      "command": "python -X utf8 -m unittest backend.tests.test_core backend.tests.test_accounts backend.tests.test_guest_catalog -q",
+      "passed": true,
+      "tests": 114
+    },
+    "desktop": [
+      {
+        "theme": "dark",
+        "viewport": {
+          "height": 863,
+          "width": 1920
+        },
+        "dpr": 1,
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1000,
+          "height": 650
+        },
+        "screenshot_pixels": {
+          "width": 1000,
+          "height": 650
+        },
+        "images_loaded": 5,
+        "active_count": 1,
+        "menu_size": [
+          64,
+          80
+        ],
+        "brand_size": [
+          40,
+          40
+        ]
+      },
+      {
+        "theme": "light",
+        "viewport": {
+          "height": 919,
+          "width": 1920
+        },
+        "dpr": 1,
+        "clip": null,
+        "screenshot_pixels": {
+          "width": 1920,
+          "height": 919
+        },
+        "images_loaded": 5,
+        "active_count": 1,
+        "menu_size": [
+          64,
+          80
+        ],
+        "brand_size": [
+          40,
+          40
+        ]
+      }
+    ],
+    "interactions": "interactions.json",
+    "production_assets_match_source": true
+  },
+  "reference_measurement": "reference-measurements/measurements.json",
+  "asset_generation": "asset-generation-v001.json",
+  "limitations": [
+    "独立位图按已确认图标重建，局部微纹理可能有差异，不宣称原始矢量或逐像素一致。",
+    "受保护页面的内部内容未额外登录回归；共用壳在真实游客生成页检查，三个受保护入口的门禁均正常。",
+    "只检查桌面；控制台出现原有Ant Design Select popupClassName弃用提示，本轮未改该业务组件。"
+  ],
+  "browser_preferences": "验证后恢复Chrome原有浅色主题；清除应用内浏览器的临时视口设置。"
+}

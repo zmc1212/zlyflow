@@ -9,6 +9,7 @@ import {
   canvasJobResult,
   canvasJobStatusLabel,
   canvasJobStatusTone,
+  canvasPendingResultFill,
   canvasRunHistory,
   canvasRunSnapshotForJob,
   canvasModeOptionDefinitions,
@@ -225,6 +226,8 @@ describe("canvas generation references", () => {
     expect(canvasReferenceEligible(imageResult)).toBe(true)
     expect(canvasReferenceEligible(videoResult)).toBe(false)
     expect(canvasReferenceEligible(node("text", "text", { text: "x" }))).toBe(false)
+    expect(canvasReferenceEligible(node("gen-pending-image", "generator", { resultKind: "image" }))).toBe(true)
+    expect(canvasReferenceEligible(node("gen-pending-video", "generator", { resultKind: "video" }))).toBe(false)
     const targets = incomingGeneratorReferenceNodes(
       [node("target", "generator"), imageResult, videoResult],
       [edge("gen-vid", "target"), edge("gen-img", "target")],
@@ -245,6 +248,44 @@ describe("canvas generation references", () => {
     expect(canvasImageReferenceUrl({ resultUrl: "javascript:alert(1)" })).toBeNull()
     expect(canvasImageReferenceUrl({ url: "javascript:alert(1)" })).toBeNull()
     expect(canvasImageReferenceUrl({})).toBeNull()
+  })
+
+  it("fills a reserved result node when its generator completes", () => {
+    const pending = node("img", "image", { mediaKind: "image", label: "等待生成", pendingGeneratorId: "gen" })
+    const result = { url: "/api/files/out.png", kind: "image" as const, path: "user/out.png", label: "猫" }
+    expect(canvasPendingResultFill(pending, result, "job-1")).toEqual({
+      url: "/api/files/out.png",
+      label: "猫",
+      assetPath: "user/out.png",
+      sourceJobId: "job-1",
+      mediaKind: "image",
+      pendingGeneratorId: undefined,
+    })
+    expect(canvasPendingResultFill(
+      node("vid", "video", { mediaKind: "video", pendingGeneratorId: "gen" }),
+      { url: "/api/files/out.mp4", kind: "video" },
+      null,
+    )).toMatchObject({ url: "/api/files/out.mp4", label: "生成视频", sourceJobId: null })
+  })
+
+  it("keeps reserved nodes that are already filled or reserved for another media kind", () => {
+    const result = { url: "/api/files/out.png", kind: "image" as const }
+    expect(canvasPendingResultFill(
+      node("filled", "image", { url: "/existing.png", mediaKind: "image", pendingGeneratorId: "gen" }),
+      result,
+      null,
+    )).toBeNull()
+    expect(canvasPendingResultFill(
+      node("video", "video", { mediaKind: "video", pendingGeneratorId: "gen" }),
+      result,
+      null,
+    )).toBeNull()
+    expect(canvasPendingResultFill(node("manual", "image", { mediaKind: "image" }), result, null)).toBeNull()
+    expect(canvasPendingResultFill(
+      node("generator", "generator", { mediaKind: "image", pendingGeneratorId: "gen" }),
+      result,
+      null,
+    )).toBeNull()
   })
 
   it("validates prompt, workflow and reference count", () => {

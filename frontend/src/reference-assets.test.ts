@@ -65,4 +65,16 @@ describe("fileFromReferenceBlob", () => {
     expect(file.name).toBe("reference-2.png")
     expect(file.type.startsWith("image/")).toBe(true)
   })
+
+  it("restores a motion video from its declared media role, not as an image", async () => {
+    const header = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109])
+    const file = await fileFromReferenceBlob(new Blob([header]), 2, "application/octet-stream", "video")
+    expect(file.type).toBe("video/mp4")
+    expect(file.name).toBe("reference-2.mp4")
+    await expect(fileFromReferenceBlob(new Blob([header]), 2, "application/octet-stream")).rejects.toThrow("图片")
+  })
+
+  it("does not accept image bytes as a restored motion video", async () => {
+    await expect(fileFromReferenceBlob(new Blob([PNG_HEADER]), 2, "image/png", "video")).rejects.toThrow("视频")
+  })
 })

@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-31",
+  "purpose": "复杂精细图标方向的第04版内部检查稿",
+  "status": "superseded_by_internal_fix",
+  "superseded_by": "generation-v005.json",
+  "application_changes": false,
+  "base_version": "zly-navigation-brand-v001.png",
+  "user_request": "需要复杂、精细的图标：Z须有丰富结构，无限画布不能只是符号。",
+  "direction": "紫色精工微缩立体图标：多层胶片Z、胶片孔、金属包边与透明夹层；多画板、图片和视频卡、网格与节点连线的画布场景。",
+  "provider": "OpenAI Images API",
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x1024",
+  "quality": "high",
+  "n": 1,
+  "prompt": "prompt-v004.txt",
+  "references": [
+    {
+      "path": "zly-navigation-brand-v001.png",
+      "source": "用户偏好的第一版紫色方案"
+    }
+  ],
+  "output": "zly-navigation-brand-v004.png",
+  "sha256": "a91fca2a487e37814d14754b66c5449b3e42778105b5b2f71d6b823483c4de8d",
+  "request_id": "req_d9e9395ccdef448fb6bb08033a380949",
+  "usage": {
+    "input_tokens": 3565,
+    "input_tokens_details": {
+      "image_tokens": 1536,
+      "text_tokens": 2029
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 4937
+  },
+  "visual_review": {
+    "opened": true,
+    "result": "品牌Z与放大的无限画布场景已显著增加复杂结构与材质细节。",
+    "issue": "主菜单和底部系列中的画布仍是旧四角方框，未与放大场景一致；已发起蒙版局部修正。"
+  }
+}

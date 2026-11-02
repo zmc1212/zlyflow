@@ -1,0 +1,19 @@
+{
+  "authenticatedNavigation": [
+    "生成",
+    "导演台",
+    "画布",
+    "资产"
+  ],
+  "guestCanvasGuard": true,
+  "keyboardFocus": {
+    "focused": "导演台",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px"
+  },
+  "originalThemesRestored": {
+    "localhost": "dark",
+    "127.0.0.1": "light"
+  },
+  "jimengReferenceRestored": "https://jimeng.jianying.com/ai-tool/asset"
+}

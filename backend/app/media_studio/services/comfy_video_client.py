@@ -684,7 +684,9 @@ class ComfyVideoClient:
             if isinstance(item, (list, tuple)) and item and item[0] == "execution_error":
                 detail = item[1] if len(item) > 1 else {}
                 if isinstance(detail, dict):
-                    return "ComfyUI 执行失败: " + str(detail.get("exception_message") or detail)
+                    node = str(detail.get("node_type") or "").strip()
+                    location = f"[{node} 节点] " if node else ""
+                    return "ComfyUI 执行失败: " + location + str(detail.get("exception_message") or detail)
         return "ComfyUI 执行失败: " + json.dumps(status, ensure_ascii=False)[:3000]
 
     def view_url(self, output: dict[str, str]) -> str:

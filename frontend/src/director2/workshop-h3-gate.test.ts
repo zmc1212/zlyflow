@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   beatHasWorkshopTriptych,
+  beatsMissingH3Prompt,
   workshopH3GenerateLabel,
   workshopH3PromptGate,
 } from "./workshop-h3-gate"
@@ -45,5 +46,13 @@ describe("workshop H3 prompt gate", () => {
     expect(workshopH3GenerateLabel({})).toBe("生成 H3 提示词")
     expect(workshopH3GenerateLabel({ hasPrompt: true })).toBe("重新生成")
     expect(workshopH3GenerateLabel({ generating: true, hasPrompt: true })).toBe("生成中")
+  })
+
+  it("lists the beats that still have no saved H3 prompt", () => {
+    expect(beatsMissingH3Prompt([{ h3_prompt: "six sections" }, { h3_prompt: "  " }, {}])).toEqual([
+      { h3_prompt: "  " },
+      {},
+    ])
+    expect(beatsMissingH3Prompt([])).toEqual([])
   })
 })

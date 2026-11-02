@@ -51,6 +51,25 @@ export function director2ProjectPath(projectId: string, menu: string, episodeId?
   return `${base}/${menu}`
 }
 
+/**
+ * 侧栏/下拉切换模块时该带上的分集 ID。
+ * 剧集工坊与智能剪辑是同一集的两个视图：离开时把「正在制作的这集」带过去，
+ * 否则智能剪辑会回落到自由剪辑序列，后端不加载镜头成片，素材库看起来是空的。
+ * 已经在剪辑页时保持当前序列，避免把用户显式选择的「自由剪辑」顶掉。
+ */
+export function director2MenuEpisodeId(input: {
+  targetMenu: string
+  currentMenu: string
+  currentEpisodeId: string | null
+  lastEpisodeId?: string | null
+}): string | null {
+  const { targetMenu, currentMenu, currentEpisodeId, lastEpisodeId } = input
+  if (targetMenu === "edit")
+    return currentMenu === "edit" ? currentEpisodeId : currentEpisodeId || lastEpisodeId || null
+  if (targetMenu === "workshop" && currentMenu === "edit") return currentEpisodeId
+  return null
+}
+
 export function director2WorkshopEpisodePath(
   projectId: string,
   episodeId: string,

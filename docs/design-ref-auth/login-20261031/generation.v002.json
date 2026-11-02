@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-31",
+  "version": "v002",
+  "scope": "desktop guest workspace with on-demand login modal, design only",
+  "source": "official OpenAI Images API",
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "quality": "high",
+  "requested_size": "1536x864",
+  "actual_size": [
+    1536,
+    864
+  ],
+  "n": 1,
+  "reference_count": 3,
+  "references": [
+    {
+      "path": "G:\\AppData\\Local\\Temp\\codex-clipboard-28b8c3e7-be6a-4b5a-b824-f9ae37357dc7.png",
+      "sha256": "879ab52fd3c689bc5b1e2ef7b4fef092e1559d1c6de1fb66b7d4b76519d72b5a"
+    },
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-generation\\home-v3-20261028\\generation-home-v3-light.png",
+      "sha256": "a0c097c9575fccf0f242cdbd87b8378830d670476966b65465a8389ad847a071"
+    },
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-auth\\login-20261031\\zly-login-v001.png",
+      "sha256": "d9828c1258be6759ad20b2970534255eb701c5202775651afab1cc834b3e36c3"
+    }
+  ],
+  "prompt_file": "prompts/modal-v002.md",
+  "prompt_sha256": "c9d733bace73119af3465fbd803b1786ed0c3e50d541916e066a2e229e8b3e64",
+  "output_file": "zly-login-modal-v002.png",
+  "output_sha256": "6d5b6b6c400c896ec6c913f9b355d4ad56d2eaf37a5a0bc286e927aaaaa04254",
+  "request_id": "req_654033245a014df59e91cf4a73d71f88",
+  "usage": {
+    "input_tokens": 6548,
+    "input_tokens_details": {
+      "image_tokens": 4244,
+      "text_tokens": 2304
+    },
+    "output_tokens": 1078,
+    "total_tokens": 7626
+  },
+  "visual_review": {
+    "opened_actual_output": true,
+    "chinese_copy_checked": true,
+    "browsable_page_visibly_present": true,
+    "dismiss_control_present": true,
+    "account_password_flow_retained": true,
+    "private_task_or_account_data_visible": false,
+    "review_notes": "Single dark-theme desktop preview. Modal with artwork left and form right, clear close X, guest creation/history state and public sample gallery beneath scrim. No phone or social auth. Composition and text inspected; no interaction implementation claimed."
+  },
+  "implementation_status": "design only; application code and auth unchanged"
+}

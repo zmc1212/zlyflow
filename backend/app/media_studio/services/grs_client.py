@@ -17,7 +17,7 @@ GRS_SUBMIT_TIMEOUT = (12.0, 60.0)
 GRS_RESULT_TIMEOUT = (12.0, 60.0)
 GRS_DOWNLOAD_TIMEOUT = (10.0, 120.0)
 GRS_POLL_INTERVAL = 2.0      # 轮询间隔（秒）
-GRS_POLL_MAX_WAIT = 120.0    # 最大等待时长（秒）
+GRS_POLL_MAX_WAIT = 240.0    # 2K 设定板实测偶发 170s 完成，120s 会误判超时
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 
 SUCCESS_STATUSES = {"success", "succeeded", "completed", "done"}

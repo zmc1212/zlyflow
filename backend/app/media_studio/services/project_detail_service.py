@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from ..db import db_cursor, execute_sql, now_str, query_all, query_one, transaction_cursor
@@ -20,6 +21,7 @@ from .asset_image_prompts import (
     build_identity_generation,
     character_portrait_prompt,
     prop_view_prompt,
+    safe_scene_master_prompt,
     scene_view_prompt,
 )
 from .asset_prompt_inference import (
@@ -118,6 +120,14 @@ def match_named_asset_ids(names: list[Any], name_map: dict[str, str]) -> list[st
     return matched
 
 
+def _legacy_scene_title(title: Any) -> bool:
+    return bool(re.match(r"\s*\**\s*场景\s*\**\s*[：:]", str(title or "")))
+
+
+_ASSET_IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="asset-image")
+_ASSET_IMAGE_ACTIVE_STATUSES = ("queued", "running", "preparing", "storing")
+
+
 class ProjectDetailService:
     # --- 1. 内容库 Documents ---
     @classmethod
@@ -142,7 +152,77 @@ class ProjectDetailService:
                     )
             elif analysis is None:
                 analysis = parsed
-        return cls._merge_pipeline_recipe_assets(row, analysis, persist=persist)
+        analysis = cls._recover_scene_analysis(row, analysis, persist=persist)
+        merged = cls._merge_pipeline_recipe_assets(row, analysis, persist=persist)
+        if merged:
+            summary = merged.get("summary")
+            cls._refresh_analysis_shot_summary(merged)
+            if persist and row.get("id") and merged.get("summary") != summary:
+                execute_sql(
+                    "UPDATE ai_project_documents SET analysis_json = %s WHERE id = %s",
+                    (json.dumps(merged, ensure_ascii=False), row["id"]),
+                )
+        return merged
+
+    @classmethod
+    def _recover_scene_analysis(cls, row: dict[str, Any], analysis: dict[str, Any] | None, *, persist: bool) -> dict[str, Any] | None:
+        # 旧解析器会把镜头标题后的首个场景标签当作标题，已落库文档的 scenes 为空；无 LLM 规划时按原文重解析。
+        if not analysis:
+            return analysis
+        stored_shots = [
+            shot
+            for episode in (analysis.get("episodes") or [])
+            if isinstance(episode, dict)
+            for shot in (episode.get("shots") or [])
+            if isinstance(shot, dict)
+        ]
+        broken_titles = any(_legacy_scene_title(shot.get("title")) for shot in stored_shots)
+        if (analysis.get("scenes") or analysis.get("scene_analysis_revision")) and not broken_titles:
+            return analysis
+        raw_text = str(row.get("raw_text") or "")
+        if not re.search(r"(?m)^\s*(?:[-*+]\s*)?(?:\*\*)?场景(?:\*\*)?\s*[：:]", raw_text):
+            return analysis
+        episodes = [item for item in (analysis.get("episodes") or []) if isinstance(item, dict)]
+        if any(str(item.get("shots_source") or "").lower() == "llm" for item in episodes):
+            return analysis
+        parsed = StandardScriptParser.parse(raw_text)
+        scenes = parsed.get("scenes") or []
+        parsed_episodes = {
+            item.get("episode_num"): item
+            for item in (parsed.get("episodes") or [])
+            if isinstance(item, dict)
+        }
+        episodes = []
+        for episode in analysis.get("episodes") or []:
+            if not isinstance(episode, dict):
+                episodes.append(episode)
+                continue
+            parsed_shots = {
+                shot.get("shot_num"): shot
+                for shot in ((parsed_episodes.get(episode.get("episode_num")) or {}).get("shots") or [])
+                if isinstance(shot, dict)
+            }
+            shots = []
+            for shot in episode.get("shots") or []:
+                if not isinstance(shot, dict):
+                    shots.append(shot)
+                    continue
+                parsed_shot = parsed_shots.get(shot.get("shot_num")) or {}
+                patch: dict[str, Any] = {}
+                if not shot.get("scene") and parsed_shot.get("scene"):
+                    patch["scene"] = parsed_shot["scene"]
+                if _legacy_scene_title(shot.get("title")) and parsed_shot.get("title"):
+                    patch["title"] = parsed_shot["title"]
+                shots.append({**shot, **patch} if patch else shot)
+            episodes.append({**episode, "shots": shots})
+        recovered = {**analysis, "episodes": episodes, "scenes": scenes, "scene_analysis_revision": 2}
+        cls._refresh_analysis_shot_summary(recovered)
+        if persist and row.get("id"):
+            execute_sql(
+                "UPDATE ai_project_documents SET analysis_json = %s WHERE id = %s",
+                (json.dumps(recovered, ensure_ascii=False), row["id"]),
+            )
+        return recovered
 
     @classmethod
     def _latest_pipeline_recipe(cls, project_id: str | None) -> dict[str, Any] | None:
@@ -363,6 +443,15 @@ class ProjectDetailService:
             summary,
             count=1,
         )
+        if any(key in analysis for key in ("characters", "scenes", "props")):
+            updated = re.sub(
+                r"识别到 \d+ 位主要人物、\d+ 处拍摄场景、\d+ 件核心道具",
+                f"识别到 {len(analysis.get('characters') or [])} 位主要人物、"
+                f"{len(analysis.get('scenes') or [])} 处拍摄场景、"
+                f"{len(analysis.get('props') or [])} 件核心道具",
+                updated,
+                count=1,
+            )
         if updated != summary:
             analysis["summary"] = updated
 
@@ -981,6 +1070,7 @@ class ProjectDetailService:
             else:
                 if not prompt:
                     prompt = extra.get("environment_prompt") or row.get("visual_prompt") or row.get("name")
+                prompt = safe_scene_master_prompt(prompt, str(row.get("name") or ""))
                 clean_prompt = f"{prompt}, master wide shot cinematic scene, establishing shot, architectural environment, 8k resolution"
             job_title = f"生成场景主视角: {row['name']} ({grs_model})"
         elif target_type == "scene_reverse":
@@ -2266,9 +2356,46 @@ class ProjectDetailService:
         return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (jid,))
 
     @classmethod
+    def recover_interrupted_image_jobs(cls) -> None:
+        """资产形象图在请求线程内同步调 GRS：进程重启后任务行不会再有结果，
+        留在 running 会一直触发助手媒体提案的 409 保护。"""
+        from .storyboard_image_service import BEAT_IMAGE_TARGETS
+
+        placeholders = ", ".join("%s" for _ in _ASSET_IMAGE_ACTIVE_STATUSES)
+        rows = query_all(
+            f"SELECT id, payload_json FROM ai_project_jobs WHERE job_type = 'image_generation' AND status IN ({placeholders})",
+            tuple(_ASSET_IMAGE_ACTIVE_STATUSES),
+        )
+        for row in rows:
+            try:
+                payload = json.loads(row.get("payload_json") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                payload = {}
+            if payload.get("target_type") in BEAT_IMAGE_TARGETS:
+                continue
+            execute_sql(
+                "UPDATE ai_project_jobs SET status = 'failed', progress = 0, error_message = %s, updated_at = %s WHERE id = %s",
+                ("服务重启时生图任务已中断，请在任务中心重试。", now_str(), row["id"]),
+            )
+
+    @classmethod
+    def _retry_asset_image(cls, project_id: str, row: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+        if row.get("status") in _ASSET_IMAGE_ACTIVE_STATUSES:
+            raise ValueError("该生图任务仍在进行中，请等待完成后再重试")
+        asset_id = str(payload.get("asset_id") or "")
+        if not query_one(
+            "SELECT id FROM ai_project_assets WHERE id = %s AND project_id = %s", (asset_id, project_id)
+        ):
+            raise ValueError("资产已不存在，请在资产库重新发起生图")
+        future = _ASSET_IMAGE_EXECUTOR.submit(cls.generate_asset_image, project_id, asset_id, dict(payload))
+        # 生图失败已由新任务行的 error_message 承载，取回异常只为不在子线程里静默丢弃。
+        future.add_done_callback(lambda item: item.exception())
+        return query_one("SELECT * FROM ai_project_jobs WHERE id = %s", (row["id"],))
+
+    @classmethod
     def retry_job(cls, project_id: str, job_id: str) -> dict[str, Any]:
         row = query_one(
-            "SELECT job_type, payload_json FROM ai_project_jobs WHERE id = %s AND project_id = %s",
+            "SELECT id, job_type, status, payload_json FROM ai_project_jobs WHERE id = %s AND project_id = %s",
             (job_id, project_id),
         )
         if row and row.get("job_type") == "video_generation":
@@ -2287,6 +2414,8 @@ class ProjectDetailService:
         if payload.get("target_type") in {"beat_sketch", "beat_render"}:
             from .storyboard_image_service import StoryboardImageService
             return StoryboardImageService.retry(project_id, job_id)
+        if payload.get("asset_id"):
+            return cls._retry_asset_image(project_id, row or {}, payload)
         ts = now_str()
         execute_sql(
             "UPDATE ai_project_jobs SET status = 'running', progress = 10, error_message = NULL, updated_at = %s WHERE id = %s AND project_id = %s",

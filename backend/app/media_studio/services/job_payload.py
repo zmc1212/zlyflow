@@ -60,6 +60,7 @@ _JOB_LIST_KEYS = {
     "prompt_id",
     "queue_number",
     "prompt_source",
+    "prompt_warning",
     "api_url",
     "model",
     "image_size",
@@ -113,7 +114,7 @@ def _trim_text(value: Any, limit: int = _STREAM_TEXT_LIMIT) -> Any:
     return value[:limit]
 
 
-def _slim_shots(value: Any) -> list[dict[str, Any]]:
+def _slim_shots(value: Any, *, include_prompt: bool = False) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     slim: list[dict[str, Any]] = []
@@ -123,7 +124,11 @@ def _slim_shots(value: Any) -> list[dict[str, Any]]:
         beat_id = item.get("beat_id")
         video_url = item.get("video_url")
         if beat_id or video_url:
-            slim.append({"beat_id": beat_id, "video_url": video_url})
+            entry = {"beat_id": beat_id, "video_url": video_url}
+            if include_prompt:
+                entry["sequence"] = item.get("sequence")
+                entry["prompt"] = item.get("prompt")
+            slim.append(entry)
     return slim
 
 
@@ -152,7 +157,8 @@ def _slim_episodes_done(value: Any) -> list[dict[str, Any]]:
 def slim_job_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     source = payload or {}
     slim = {key: source[key] for key in _JOB_LIST_KEYS if key in source}
-    shots = _slim_shots(source.get("shots"))
+    include_prompt = source.get("prompt_source") == "program_preview"
+    shots = _slim_shots(source.get("shots"), include_prompt=include_prompt)
     if shots:
         slim["shots"] = shots
     source_shots = _slim_shots(source.get("source_shots"))

@@ -15,9 +15,10 @@ describe("studio theme contract", () => {
     expect(isThemeMode(null)).toBe(false)
   })
 
-  it("keeps light as the safe default for missing or invalid storage", () => {
-    expect(resolveThemeMode(null)).toBe("light")
-    expect(resolveThemeMode("legacy-dark")).toBe("light")
+  it("keeps dark as the safe default for missing or invalid storage", () => {
+    expect(resolveThemeMode(null)).toBe("dark")
+    expect(resolveThemeMode("legacy-light")).toBe("dark")
+    expect(resolveThemeMode("light")).toBe("light")
     expect(resolveThemeMode("dark")).toBe("dark")
   })
 

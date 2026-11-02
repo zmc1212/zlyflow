@@ -1,0 +1,83 @@
+/* AI 工具中心与工具页。颜色一律走 --studio-* 语义变量，浅暗主题由根级 data-theme 驱动。 */
+
+/* ===== 工具中心 hub：居中标题 + 分类 chips + 分组竖版封面卡 ===== */
+.studio-tools-hub { display: flex; flex-direction: column; gap: 18px; padding-top: 10px; }
+.studio-tools-hub-title { margin: 0; text-align: center; color: var(--studio-text); font-size: 26px; font-weight: 600; letter-spacing: .01em; }
+.studio-tools-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.studio-tools-chip { height: 34px; padding: 0 18px; border: 1px solid var(--studio-border); border-radius: 999px; background: transparent; color: var(--studio-text-muted); font-size: 13px; cursor: pointer; transition: color 160ms, background 160ms, border-color 160ms; }
+.studio-tools-chip:hover { color: var(--studio-text); border-color: var(--studio-border-strong); }
+.studio-tools-chip[aria-pressed="true"] { border-color: var(--studio-primary); background: var(--studio-primary); color: #fff; }
+.studio-tools-chip:focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 2px; }
+.studio-tools-group-title { margin: 6px 0 0; color: var(--studio-text); font-size: 15px; font-weight: 600; }
+.studio-tools-group + .studio-tools-group { margin-top: 6px; }
+.studio-tools-grid-v2 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.studio-tool-card-v2 { position: relative; display: flex; flex-direction: column; overflow: hidden; padding: 0; border: 1px solid var(--studio-border); border-radius: 16px; background: var(--studio-surface); color: var(--studio-text); text-align: left; text-decoration: none; cursor: default; transition: transform 220ms cubic-bezier(.16, 1, .3, 1), box-shadow 220ms cubic-bezier(.16, 1, .3, 1), border-color 160ms; }
+
+a.studio-tool-card-v2 { cursor: pointer; }
+.studio-tool-card-v2:not(:disabled):hover { transform: translateY(-2px); border-color: var(--studio-border-strong); box-shadow: var(--studio-shadow); }
+.studio-tool-card-v2:not(:disabled):focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 3px; }
+.studio-tool-card-v2:disabled { cursor: default; }
+.studio-tool-card-v2-cover { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--studio-media); }
+.studio-tool-card-v2-cover img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 360ms cubic-bezier(.16, 1, .3, 1); }
+.studio-tool-card-v2:not(:disabled):hover .studio-tool-card-v2-cover img { transform: scale(1.03); }
+.studio-tool-card-v2-pill { position: absolute; top: 10px; right: 10px; padding: 2px 9px; border-radius: 999px; background: var(--studio-scrim); color: #fff; font-size: 11px; line-height: 18px; backdrop-filter: blur(4px); }
+.studio-tool-card-v2-body { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 14px; }
+.studio-tool-card-v2-body h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--studio-text); }
+.studio-tool-card-v2-body p { margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--studio-text-secondary); }
+.studio-tools-more { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 72px; border: 1.5px dashed var(--studio-border-strong); border-radius: 16px; color: var(--studio-text-muted); font-size: 13px; }
+
+@media (max-width: 1280px) { .studio-tools-grid-v2 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 960px) { .studio-tools-grid-v2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ===== 工具页公共外壳 ===== */
+.studio-tools-page { display: flex; flex-direction: column; gap: 20px; padding-top: 10px; }
+.studio-tool-back { display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font-size: 13px; color: var(--studio-text-muted); cursor: pointer; }
+.studio-tool-back:hover { color: var(--studio-accent-text); }
+
+/* 工具页头部：居中品牌渐变艺术横幅 + 标题 + 描述（即梦式） */
+.studio-tool-hero-v2 { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 6px 0 2px; text-align: center; }
+.studio-tool-hero-v2-art { position: relative; display: grid; grid-template-columns: 1fr 1fr; place-items: center; width: min(380px, 100%); aspect-ratio: 12 / 5; overflow: hidden; border-radius: 20px; background: linear-gradient(120deg, #31317a 0%, #5b3df0 52%, #38b6f0 100%); }
+.studio-tool-hero-v2-art::after { content: ""; position: absolute; inset: 0; background: radial-gradient(130% 130% at 86% 8%, rgba(255, 255, 255, .30), transparent 56%); pointer-events: none; }
+.studio-tool-hero-v2-art-icon { position: relative; z-index: 1; justify-self: center; display: grid; place-items: center; width: 54px; height: 54px; border: 1px solid rgba(255, 255, 255, .38); border-radius: 16px; background: rgba(255, 255, 255, .16); color: #fff; backdrop-filter: blur(6px); }
+.studio-tool-hero-v2-art-lines { position: absolute; top: 50%; right: 10%; display: flex; width: 30%; flex-direction: column; gap: 8px; transform: translateY(-50%); }
+.studio-tool-hero-v2-art-lines i { display: block; height: 9px; border-radius: 999px; background: rgba(255, 255, 255, .78); }
+.studio-tool-hero-v2-art-lines i:nth-child(2) { width: 74%; opacity: .62; }
+.studio-tool-hero-v2-art-lines i:nth-child(3) { width: 88%; opacity: .82; }
+.studio-tool-hero-v2-art-lines i:nth-child(4) { width: 58%; opacity: .5; }
+.studio-tool-hero-v2 h1 { margin: 6px 0 0; color: var(--studio-text); font-size: 22px; font-weight: 600; }
+.studio-tool-hero-v2 p { margin: 0; max-width: 640px; font-size: 13px; line-height: 1.7; color: var(--studio-text-secondary); }
+
+/* 大上传区 */
+.studio-tool-upload { display: grid; place-items: center; gap: 14px; width: 100%; min-height: 280px; padding: 40px 24px; border: 1.5px dashed var(--studio-border-strong); border-radius: 20px; background: var(--studio-surface); text-align: center; transition: background 160ms, border-color 160ms; }
+.studio-tool-upload:hover, .studio-tool-upload.dragover { background: var(--studio-hover); border-color: var(--studio-primary); }
+.studio-tool-upload:focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 3px; }
+.studio-tool-upload-title { font-size: 14px; color: var(--studio-text); }
+.studio-tool-upload-note { font-size: 12px; color: var(--studio-text-subtle); }
+.studio-tool-upload-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+
+/* 已上传参考图预览 */
+.studio-tool-preview { display: flex; gap: 16px; padding: 14px; border: 1px solid var(--studio-border); border-radius: 18px; background: var(--studio-surface); }
+.studio-tool-preview img { width: 168px; height: 126px; flex-shrink: 0; border-radius: 10px; object-fit: cover; background: var(--studio-media); }
+.studio-tool-preview-body { display: flex; min-width: 0; flex: 1; flex-direction: column; justify-content: space-between; gap: 10px; }
+.studio-tool-preview-name { margin: 0; font-size: 13px; color: var(--studio-text); overflow-wrap: anywhere; }
+.studio-tool-section-label { display: block; margin-bottom: 6px; font-size: 12.5px; color: var(--studio-text-secondary); }
+
+/* 反推结果：外层卡片 + 内嵌深色块（即梦式结果面板） */
+.studio-tool-result { display: flex; flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--studio-border); border-radius: 18px; background: var(--studio-surface); }
+.studio-tool-result-field { padding: 12px 14px; border: 1px solid var(--studio-border); border-radius: 12px; background: var(--studio-canvas); }
+.studio-tool-result-field .ant-input { padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 13px; line-height: 1.7; }
+.studio-tool-result-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.studio-tool-result-head .studio-tool-section-label { margin-bottom: 0; font-weight: 600; color: var(--studio-text); }
+
+/* 动作迁移专属工具页：素材双槽 + 注册表驱动的参数区 */
+.studio-tool-card { display: flex; flex-direction: column; gap: 16px; padding: 18px; border: 1px solid var(--studio-border); border-radius: 18px; background: var(--studio-surface); }
+.studio-tool-motion-materials { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px dashed var(--studio-border-strong); border-radius: 14px; background: var(--studio-canvas); }
+.studio-tool-motion-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 18px; }
+.studio-tool-motion-option { min-width: 0; }
+.studio-tool-motion-option .studio-tool-section-label { margin-bottom: 2px; font-weight: 500; color: var(--studio-text); }
+.studio-tool-motion-note { font-size: 12px; color: var(--studio-text-subtle); }
+
+@media (max-width: 720px) {
+  .studio-tool-preview { flex-direction: column; }
+  .studio-tool-preview img { width: 100%; height: auto; }
+}

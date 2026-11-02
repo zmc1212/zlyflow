@@ -61,4 +61,26 @@ describe("provider model selection and pricing", () => {
   it("always provides a readable three-state price label", () => {
     expect([true, false, null].map(modelPriceLabel)).toEqual(["免费", "付费", "价格未知"])
   })
+
+  it("maps the internai discovery preset to chat and vision defaults", () => {
+    const internai: OfficialProviderPreset = {
+      key: "internai", label: "书生·端砚（上海AI实验室）", base_url: "https://discovery-api.intern-ai.org.cn/v1",
+      api_key_url: "https://discovery.intern-ai.org.cn",
+      pricing_url: "https://discovery.intern-ai.org.cn", pricing_verified_at: "2026-11-01",
+      chat_models: [
+        { id: "intern-s2", label: "书生-S2（限时 0 墨点）", free: true },
+        { id: "deepseek-v4-flash-0731", label: "DeepSeek-V4-Flash-0731（按墨点）", free: false },
+      ],
+      vision_models: [{ id: "deepseek-v4-flash-vision", label: "DeepSeek-V4-Flash-Vision（按墨点，可看图）", free: false }],
+    }
+    expect(providerPresetFor(internai, "chat").model).toBe("intern-s2")
+    expect(providerPresetFor(internai, "vision").model).toBe("deepseek-v4-flash-vision")
+    const options = buildModelOptions(internai.base_url, "intern-s2", [], providerPresetFor(internai, "chat"), [internai])
+    expect(options).toEqual([
+      { value: "intern-s2", label: "书生-S2（限时 0 墨点） · 免费" },
+      { value: "deepseek-v4-flash-0731", label: "DeepSeek-V4-Flash-0731（按墨点） · 付费" },
+    ])
+    // 中转地址不得借用端砚官方免费标记。
+    expect(resolveModelFree("https://relay.example/v1", "intern-s2", [], [internai])).toBeNull()
+  })
 })

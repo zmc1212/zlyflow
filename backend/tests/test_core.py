@@ -42,6 +42,7 @@ from backend.app.workflow_registry import (
     generation_stage, h3_dimensions, h3_length, normalize_options, validate_option_relationships,
     validate_references, workflow_for,
 )
+from backend.app import workflow_registry as registry
 
 
 class WorkflowTests(unittest.TestCase):
@@ -440,6 +441,121 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(resolve_director_workflow("unknown-family", "t2v"), "minimax-h3-t2v")
 
 
+class HardwareAutoHostingTests(unittest.TestCase):
+    """生成档位与模型体积按 ComfyUI 机器配置自动托管，不再交给用户选择。"""
+
+    LOW_RAM_STATS = {"system": {"ram_total": 32 * 1024**3}, "devices": [{"vram_total": 16 * 1024**3, "name": "cuda:0 RTX 4080"}]}
+    HIGH_RAM_STATS = {"system": {"ram_total": 96 * 1024**3}, "devices": [{"vram_total": 16 * 1024**3, "name": "cuda:0 RTX 4080"}]}
+
+    def setUp(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: None)
+
+    def tearDown(self) -> None:
+        registry.set_hardware_profile_resolver(None)
+
+    def test_ram_total_reads_system_stats_and_ignores_missing_values(self) -> None:
+        self.assertEqual(registry.comfy_ram_total_bytes(self.LOW_RAM_STATS), 32 * 1024**3)
+        self.assertIsNone(registry.comfy_ram_total_bytes({"devices": []}))
+        self.assertIsNone(registry.comfy_ram_total_bytes({"system": {"ram_total": 0}}))
+        self.assertIsNone(registry.comfy_ram_total_bytes(None))
+
+    def test_weight_profile_follows_machine_memory(self) -> None:
+        self.assertEqual(registry.auto_weight_profile(self.HIGH_RAM_STATS), registry.H3_WEIGHT_FULL)
+        self.assertEqual(registry.auto_weight_profile(self.LOW_RAM_STATS), registry.H3_WEIGHT_PRUNED)
+        # 读不到内存时保守回退到完整权重（历史默认）。
+        self.assertEqual(registry.auto_weight_profile(None), registry.H3_WEIGHT_FULL)
+        self.assertEqual(registry.auto_weight_profile({}), registry.H3_WEIGHT_FULL)
+
+    def test_standard_h3_defaults_to_workflow_preset_on_large_memory(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: self.HIGH_RAM_STATS)
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {})
+        self.assertEqual(options["speed"], "balanced")
+        self.assertEqual(options["weight_profile"], "full")
+        self.assertEqual(options["steps"], 8)
+        self.assertEqual(options["lora_strength"], 1.0)
+
+    def test_standard_h3_switches_to_pruned_quality_on_small_memory(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: self.LOW_RAM_STATS)
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {})
+        self.assertEqual(options["weight_profile"], "pruned")
+        self.assertEqual(options["speed"], "quality")
+        self.assertEqual(options["steps"], 20)
+        self.assertEqual(options["lora_strength"], 0.0)
+
+    def test_lightx2v_keeps_fast_default_on_large_memory(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: self.HIGH_RAM_STATS)
+        options = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {})
+        self.assertEqual(options["speed"], "fast")
+        self.assertEqual(options["weight_profile"], "full")
+
+    def test_explicit_options_win_over_hardware_hosting(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: self.LOW_RAM_STATS)
+        explicit = normalize_options(JobMode.MINIMAX_H3_T2V, {"speed": "balanced", "weight_profile": "full"})
+        self.assertEqual(explicit["speed"], "balanced")
+        self.assertEqual(explicit["weight_profile"], "full")
+        self.assertEqual(explicit["steps"], 8)
+
+    def test_explicit_accel_speed_pins_full_weights_even_on_small_memory(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: self.LOW_RAM_STATS)
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {"speed": "balanced"})
+        self.assertEqual(options["speed"], "balanced")
+        self.assertEqual(options["weight_profile"], "full")
+
+    def test_explicit_pruned_weights_pair_with_full_quality_sampling(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: self.HIGH_RAM_STATS)
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {"weight_profile": "pruned"})
+        self.assertEqual(options["weight_profile"], "pruned")
+        self.assertEqual(options["speed"], "quality")
+        self.assertEqual(options["steps"], 20)
+
+    def test_director_accel_hosts_weight_profile_only(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: self.LOW_RAM_STATS)
+        options = normalize_options(JobMode.MINIMAX_H3_DIRECTOR_ACCEL_R2V, {})
+        self.assertEqual(options["weight_profile"], "pruned")
+        self.assertEqual(options["speed"], "balanced")
+        self.assertEqual(options["steps"], 20)
+
+    def test_lightx2v_refine_first_pass_follows_machine_memory(self) -> None:
+        registry.set_hardware_profile_resolver(lambda: self.LOW_RAM_STATS)
+        small = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"refine_enabled": True, "refine_quality": "1.0"})
+        self.assertEqual(small["weight_profile"], "pruned")
+        self.assertEqual(small["steps"], 20)
+        self.assertEqual(small["lora_strength"], 0.0)
+        registry.set_hardware_profile_resolver(lambda: self.HIGH_RAM_STATS)
+        large = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"refine_enabled": True, "refine_quality": "1.0"})
+        self.assertEqual(large["weight_profile"], "full")
+        self.assertEqual(large["steps"], 4)
+
+    def test_standard_h3_refine_first_pass_stays_platform_owned(self) -> None:
+        # 标准 H3 一采固定精简权重 + 8 步 LightX2V LoRA，与机器托管无关。
+        registry.set_hardware_profile_resolver(lambda: self.HIGH_RAM_STATS)
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {"refine_enabled": True, "refine_quality": "1.0"})
+        self.assertEqual(options["weight_profile"], "pruned")
+        self.assertEqual(options["lora_name"], LIGHTX2V_FL2V_8STEP_LORA)
+        self.assertEqual(options["lora_strength"], 1.0)
+
+    def test_broken_resolver_falls_back_to_schema_defaults(self) -> None:
+        def broken() -> dict:
+            raise RuntimeError("comfy offline")
+
+        registry.set_hardware_profile_resolver(broken)
+        options = normalize_options(JobMode.MINIMAX_H3_T2V, {})
+        self.assertEqual(options["speed"], "balanced")
+        self.assertEqual(options["weight_profile"], "full")
+
+    def test_public_catalog_hides_hosted_options_from_guests(self) -> None:
+        definition = workflow_for(JobMode.MINIMAX_H3_T2V)
+        public_properties = {}
+        for parameter in definition.public_payload()["parameters"]:
+            if parameter["name"] == "options":
+                public_properties = parameter["schema"]["properties"]
+        self.assertNotIn("speed", public_properties)
+        self.assertNotIn("weight_profile", public_properties)
+        self.assertNotIn("custom_steps", public_properties)
+        self.assertIn("aspect_ratio", public_properties)
+        self.assertIn("duration", public_properties)
+
+
 class ApiDocumentationTests(unittest.TestCase):
     def test_openapi_schema_contains_all_public_api_operations(self) -> None:
         schema = app.openapi()
@@ -521,7 +637,7 @@ class ApiDocumentationTests(unittest.TestCase):
             ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.98", "1.0", "1.2", "1.5", "1.8", "2.0"],
         )
         self.assertEqual(parameters["options"]["schema"]["properties"]["duration"]["ui_control"], "duration-slider")
-        self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["ui_group"], "primary")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["ui_group"], "internal")
         self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["enum"], ["fast", "balanced", "quality", "custom"])
         self.assertEqual(parameters["options"]["schema"]["properties"]["speed"]["default"], "balanced")
         self.assertEqual(
@@ -529,7 +645,8 @@ class ApiDocumentationTests(unittest.TestCase):
             {"speed": "custom", "refine_enabled": False},
         )
         self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["unit"], "步")
-        self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["ui_group"], "primary")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["custom_steps"]["ui_group"], "internal")
+        self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["ui_group"], "internal")
         self.assertEqual(parameters["options"]["schema"]["properties"]["weight_profile"]["enum"], ["full", "pruned"])
         self.assertEqual(parameters["options"]["schema"]["properties"]["steps"]["ui_group"], "internal")
         self.assertEqual(
@@ -547,10 +664,13 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertEqual(t8_options["duration"]["minimum"], 2)
         self.assertEqual(t8_options["duration"]["maximum"], 15)
         self.assertEqual(t8_options["duration"]["ui_control"], "duration-slider")
+        # 采样步数与模型体积由后端按机器配置托管，不再暴露为 primary。
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "primary"},
-            {"aspect_ratio", "duration", "speed", "custom_steps", "weight_profile", "refine_enabled", "refine_quality", "refine_quality_mode"},
+            {"aspect_ratio", "duration", "refine_enabled", "refine_quality", "refine_quality_mode"},
         )
+        for hosted in ("speed", "custom_steps", "weight_profile"):
+            self.assertEqual(t8_options[hosted]["ui_group"], "internal")
         self.assertEqual(t8_options["refine_preview"]["ui_group"], "internal")
         self.assertEqual(
             {name for name, option in t8_options.items() if option["ui_group"] == "advanced"},
@@ -820,7 +940,7 @@ class StoreTests(unittest.TestCase):
             [
                 {"name": "mode", "label": "工作流", "value": "minimax-h3-r2v", "visibility": "primary"},
                 {"name": "prompt", "label": "创作提示词", "value": "Use the first reference.", "visibility": "primary"},
-                {"name": "references", "label": "参考图", "value": 2, "visibility": "primary"},
+                {"name": "references", "label": "参考素材", "value": 2, "visibility": "primary"},
                 {"name": "options.aspect_ratio", "label": "画面比例", "value": "2:3", "visibility": "primary"},
                 {"name": "options.quality", "label": "分辨率", "value": "0.2", "visibility": "advanced"},
                 {"name": "options.megapixels", "label": "内部像素面积", "value": 0.2, "visibility": "internal", "unit": "MP"},

@@ -32,6 +32,12 @@ class StandardScriptParser:
         characters = cls._extract_characters(text, character_prompts)
         scene_library = cls._extract_scene_library(text)
         episodes = cls._extract_episodes(text)
+        if not characters:
+            # 模型直出的分镜稿常没有「# 主要人物设定」标题：有的只在各镜写
+            # 「人物：姓名」，有的用裸标题「主要人物」+「- 姓名（性别，年龄）：描述」。
+            # 两条回退都试，避免资产提取拿到 0 位主要人物。
+            characters = (cls._extract_loose_main_characters(text, character_prompts)
+                          or cls._fallback_characters_from_shots(text, character_prompts))
         production_advice = cls._extract_production_advice(text)
 
         # 道具全局汇聚去重与关联统计
@@ -252,6 +258,76 @@ class StandardScriptParser:
             })
         return characters
 
+    # 同一行内联了后续字段（如「人物：林远 动作：…」）时，值在字段名处截断。
+    _INLINE_FIELD_SPLIT = re.compile(
+        r"(?:动作|画面|台词|对白|场景|道具|时长|duration|镜头|运镜|景别|提示词|生图提示词|画面提示词|音效|声音|字幕|旁白)[：:]",
+        re.I,
+    )
+
+    @classmethod
+    def _extract_loose_main_characters(cls, text: str, character_prompts: dict[str, str]) -> list[dict[str, Any]]:
+        """裸标题「主要人物」（无 # 前缀）后跟「- 姓名（性别，年龄）：描述」的直出格式。"""
+        match = re.search(r"^\s*[>#*\s]*主要人物(?:设定)?[：:]?\s*$", text, re.M)
+        if not match:
+            return []
+        entry = re.compile(
+            r"^\s*[-+*•]\s*\*{0,2}([^*_：:\n（(]+?)\*{0,2}\s*(?:[（(]([^）)\n]*)[）)])?\s*[：:]\s*(.+?)\s*$"
+        )
+        entries: list[dict[str, Any]] = []
+        for line in text[match.end():].split("\n"):
+            line_s = line.strip()
+            if not line_s:
+                continue
+            m = entry.match(line_s)
+            if not m:
+                # 条目区结束：遇到小节标题或任何非列表正文行即停止收集，
+                # 不向全文远处扫，避免把其他区块的「- xxx：yyy」误当人物。
+                break
+            name = m.group(1).strip()
+            paren = (m.group(2) or "").strip()
+            desc = m.group(3).strip()
+            gender = "女" if ("女" in paren or any(w in name for w in ["女", "她", "媛", "婷"])) else "男"
+            age_m = re.search(r"(\d+岁)", paren)
+            content = f"{paren}：{desc}" if paren else desc
+            entries.append({
+                "name": name,
+                "role": "主要角色",
+                "gender": gender,
+                "age": age_m.group(1) if age_m else "",
+                "description": content,
+                "fixed_props": [],
+                "visual_prompt": character_prompts.get(name, desc),
+                "shots_count": 0,
+            })
+        return entries
+
+    @classmethod
+    def _fallback_characters_from_shots(cls, text: str, character_prompts: dict[str, str]) -> list[dict[str, Any]]:
+        """没有「主要人物设定」标题时，从分镜「人物：/角色：」行回退汇总主要人物。"""
+        counts: dict[str, int] = {}
+        for match in re.finditer(r"(?:人物|角色)[：:]([^\n]+)", text):
+            value = cls._INLINE_FIELD_SPLIT.split(match.group(1), maxsplit=1)[0]
+            value = value.strip().rstrip("；;。，,．. ")
+            for token in re.split(r"[、,，/]+", value):
+                token = token.strip().strip("*_` ").strip()
+                if not token or len(token) > 12:
+                    continue
+                counts[token] = counts.get(token, 0) + 1
+        characters: list[dict[str, Any]] = []
+        for name, _count in sorted(counts.items(), key=lambda kv: -kv[1]):
+            content = character_prompts.get(name, "")
+            characters.append({
+                "name": name,
+                "role": "分镜出场角色",
+                "gender": "女" if any(w in name for w in ["女", "母", "姐", "妹", "娘", "妇", "媛", "婷"]) else "男",
+                "age": "",
+                "description": content,
+                "fixed_props": [],
+                "visual_prompt": content,
+                "shots_count": 0,
+            })
+        return characters
+
     @classmethod
     def _extract_scene_library(cls, text: str) -> list[dict[str, Any]]:
         """提取 #/## 三、固定场景库"""
@@ -340,7 +416,7 @@ class StandardScriptParser:
         shots: list[dict[str, Any]] = []
         episode_block = re.split(r"\n#{1,3}\s*[四五]、", episode_block, maxsplit=1)[0]
 
-        shot_splits = list(re.finditer(r"###\s*镜头\s*([0-9一二三四五六七八九十]+)[｜|/：:\s\-]*([^\n]*)", episode_block))
+        shot_splits = list(re.finditer(r"###[ \t]*镜头[ \t]*([0-9一二三四五六七八九十]+)[ \t｜|/：:\-]*([^\n]*)", episode_block))
         if not shot_splits:
             return shots
 

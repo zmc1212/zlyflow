@@ -9,7 +9,7 @@ import AssetsLibraryPane from "./panes/AssetsLibraryPane"
 import EpisodeWorkshopPane from "./panes/EpisodeWorkshopPane"
 import JobsCenterPane from "./panes/JobsCenterPane"
 import SmartEditPane from "./smart-edit/SmartEditPane"
-import { director2ProjectPath, director2HomePath, type Director2Route } from "./paths"
+import { director2ProjectPath, director2HomePath, director2MenuEpisodeId, type Director2Route } from "./paths"
 import Director2AiStudioPane from "./panes/Director2AiStudioPane"
 import { useDirectorAssistant } from "./assistant/DirectorAssistant"
 import { parseDirector2CreationMode, readDirector2CreationMode, storeDirector2CreationMode, type Director2CreationMode } from "./creation-mode"
@@ -52,6 +52,8 @@ export default function Director2ProjectDetail({
   const infoSnapshotRef = useRef({ name: "", description: "" })
   // 剧集工坊分集详情：外壳锁死视口，左右栏各自滚动
   const [inWorkshopDetail, setInWorkshopDetail] = useState(false)
+  // 本项目里最近打开的分集：工坊与智能剪辑切换时延续这个上下文
+  const [lastEpisode, setLastEpisode] = useState<{ projectId: string; episodeId: string } | null>(null)
   const [creationMode, setCreationMode] = useState<Director2CreationMode>(() => parseDirector2CreationMode(searchParams.get("mode")) ?? readDirector2CreationMode(projectId))
   const [aiBusy, setAiBusy] = useState(false)
 
@@ -61,8 +63,20 @@ export default function Director2ProjectDetail({
   const activeMenu = route.menu
   const isWorkshopDetail = activeMenu === "workshop" && (!!route.episodeId || inWorkshopDetail)
 
+  useEffect(() => {
+    if (route.episodeId) setLastEpisode({ projectId, episodeId: route.episodeId })
+    // 停在自由剪辑，说明用户显式放下了分集上下文
+    else if (route.menu === "edit") setLastEpisode(null)
+  }, [projectId, route.episodeId, route.menu])
+
   function handleMenuClick(key: string) {
-    navigate(director2ProjectPath(projectId, key))
+    const episodeId = director2MenuEpisodeId({
+      targetMenu: key,
+      currentMenu: activeMenu,
+      currentEpisodeId: route.episodeId,
+      lastEpisodeId: lastEpisode?.projectId === projectId ? lastEpisode.episodeId : null,
+    })
+    navigate(director2ProjectPath(projectId, key, episodeId))
     if (key !== "workshop") setInWorkshopDetail(false)
   }
 

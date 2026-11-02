@@ -49,6 +49,10 @@ def zhipu_model_free(base_url: str, model: str) -> bool | None:
 
 
 def model_provider_presets() -> dict[str, Any]:
+    # 历史入口：官方预设聚合函数最初只服务智谱，现按官方活动扩展七牛 AI 推理与书生·端砚。
+    from .internai_catalog import internai_provider_preset
+    from .qiniu_catalog import qiniu_provider_preset
+
     return {"presets": [{
         "key": "zhipu",
         "label": "智谱官方",
@@ -58,7 +62,7 @@ def model_provider_presets() -> dict[str, Any]:
         "pricing_verified_at": ZHIPU_PRICING_VERIFIED_AT,
         "chat_models": deepcopy(ZHIPU_CHAT_CATALOG),
         "vision_models": deepcopy(ZHIPU_VISION_CATALOG),
-    }]}
+    }, qiniu_provider_preset(), internai_provider_preset()]}
 
 
 def zhipu_can_disable_thinking(model: str) -> bool:

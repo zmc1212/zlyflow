@@ -9,6 +9,10 @@ export type WorkshopH3GateBeat = {
   triptych_status?: string | null
 }
 
+export function beatsMissingH3Prompt<T extends { h3_prompt?: string | null }>(beats: T[]): T[] {
+  return (beats || []).filter((beat) => !String(beat.h3_prompt || "").trim())
+}
+
 export function beatHasWorkshopTriptych(beat: WorkshopH3GateBeat | null | undefined): boolean {
   if (!beat) return false
   const url = String(beat.triptych_url || "").trim()

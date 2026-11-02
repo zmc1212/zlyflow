@@ -147,6 +147,9 @@ backend/tests/test_*.py
 !backend/tests/test_comfy_upload.py
 !backend/tests/test_minimax_h3_director_refine.py
 !backend/tests/test_h3_refine.py
+!backend/tests/test_h3_motion_transfer.py
+!backend/tests/test_motion_transfer_media.py
+!backend/tests/test_motion_transfer_browser.py
 !backend/tests/test_h3_confirmation_probe.py
 !backend/tests/test_h3_confirmation_adapter.py
 !backend/tests/test_h3_confirmation_jobs.py
@@ -182,5 +185,14 @@ backend/tests/test_*.py
 !backend/tests/test_canvas_store.py
 !backend/tests/test_media_studio_schema.py
 !backend/tests/test_zhipu_provider.py
+!backend/tests/test_internai_provider.py
+!backend/tests/test_llm_endpoint_credentials.py
 !backend/tests/test_accounts.py
+!backend/tests/test_llm_capabilities.py
+!backend/tests/test_document_analysis_recovery.py
+!backend/tests/test_qiniu_upload.py
+!backend/tests/test_guest_catalog.py
+!backend/tests/test_job_lease.py
 scripts/action_previs_worker/vendor/
+!docs/design-ref-director/navigation-brand-20261031/
+!docs/design-ref-director/navigation-brand-20261101/

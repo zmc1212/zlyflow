@@ -1,14 +1,17 @@
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useState } from "react"
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import AdminSettings from "./admin/AdminSettings"
 import type { AuthStatus } from "./api"
 import { CenteredStatus, CredentialScreen, PasswordChangeScreen } from "./auth/AuthScreens"
+import LoginModal from "./auth/LoginModal"
 import {
   DIRECTOR2_REDIRECT_ROUTE_PATHS,
   director2RedirectTarget,
   PATHS,
   ROUTE_PATTERNS,
   STUDIO_ROUTE_PATHS,
+  isGuestStudioPath,
+  loginRedirectFrom,
 } from "./paths"
 
 const App = lazy(() => import("./App"))
@@ -52,13 +55,31 @@ export function AppRoutes({
   logoutPending: boolean
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [loginTarget, setLoginTarget] = useState<string | null>(null)
   const studioSession = auth.authenticated && auth.user && auth.csrf_token && !auth.setup_required && !auth.user.must_change_password
     ? { user: auth.user, csrfToken: auth.csrf_token }
     : null
 
-  return (
+  const requestLogin = (target?: string) => setLoginTarget(target || `${location.pathname}${location.search}${location.hash}`)
+  const closeLogin = () => {
+    setLoginTarget(null)
+    if (location.pathname === PATHS.login) {
+      const destination = loginRedirectFrom(location.state)
+      navigate(isGuestStudioPath(destination.split(/[?#]/)[0]) ? destination : PATHS.generateVideo, { replace: true })
+    }
+  }
+  const finishLogin = (nextAuth: AuthStatus) => {
+    const destination = loginTarget ?? loginRedirectFrom(location.state)
+    setLoginTarget(null)
+    onAuthenticated(nextAuth)
+    if (location.pathname === PATHS.login || loginTarget) navigate(destination, { replace: location.pathname === PATHS.login })
+  }
+
+  return <>
+    <LoginModal open={!studioSession && (location.pathname === PATHS.login || loginTarget !== null)} onClose={closeLogin} onAuthenticated={finishLogin} />
+    {(
     <Routes>
-      <Route path={PATHS.login} element={<CredentialScreen onAuthenticated={onAuthenticated} />} />
       <Route path={PATHS.setup} element={<CredentialScreen setup onAuthenticated={onAuthenticated} />} />
       <Route
         path={PATHS.password}
@@ -95,26 +116,23 @@ export function AppRoutes({
       <Route path={ROUTE_PATTERNS.directorLegacyRecipe} element={<Navigate to={PATHS.director} replace />} />
       <Route
         element={
-          studioSession ? (
             <Suspense fallback={<CenteredStatus label="正在加载创作工作台" />}>
               <App
-                user={studioSession.user}
-                csrfToken={studioSession.csrfToken}
-                onOpenAdmin={studioSession.user.role === "employee" ? undefined : () => navigate(PATHS.adminAccounts)}
+                user={studioSession?.user ?? null}
+                csrfToken={studioSession?.csrfToken ?? ""}
+                onRequestLogin={requestLogin}
+                onOpenAdmin={!studioSession || studioSession.user.role === "employee" ? undefined : () => navigate(PATHS.adminAccounts)}
                 onLogout={onLogout}
                 logoutPending={logoutPending}
               />
             </Suspense>
-          ) : (
-            <Navigate to={PATHS.login} replace />
-          )
         }
       >
-        {STUDIO_ROUTE_PATHS.map((path) => (
+        {[PATHS.login, ...STUDIO_ROUTE_PATHS].map((path) => (
           <Route key={path} path={path} element={<></>} />
         ))}
       </Route>
       <Route path="*" element={<Navigate to={PATHS.generateVideo} replace />} />
     </Routes>
-  )
+  )}</>
 }

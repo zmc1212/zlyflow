@@ -840,8 +840,11 @@ class FrontendSpaFallbackTests(unittest.TestCase):
             root = Path(directory)
             dist = root / "frontend" / "dist"
             (dist / "assets").mkdir(parents=True)
+            (dist / "generation-home").mkdir(parents=True)
             (dist / "index.html").write_text("<!doctype html><html><body>spa-shell</body></html>", encoding="utf-8")
             (dist / "assets" / "app.js").write_text("console.log('ok')", encoding="utf-8")
+            (dist / "generation-home" / "director-coast.png").write_bytes(b"\x89PNG-fake")
+            (root / "outside-dist.txt").write_text("OUTSIDE-DIST", encoding="utf-8")
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
@@ -874,6 +877,16 @@ class FrontendSpaFallbackTests(unittest.TestCase):
                     self.assertEqual(asset.status_code, 200)
                     self.assertIn("javascript", asset.headers.get("content-type", ""))
                     self.assertIn("console.log('ok')", asset.text)
+
+                    cover = client.get("/generation-home/director-coast.png")
+                    self.assertEqual(cover.status_code, 200)
+                    self.assertEqual(cover.headers.get("content-type"), "image/png")
+                    self.assertEqual(cover.content, b"\x89PNG-fake")
+
+                    escape = client.get("/generation-home/%2e%2e%2f%2e%2e%2f%2e%2e%2foutside-dist.txt")
+                    self.assertNotIn("OUTSIDE-DIST", escape.text)
+                    if escape.status_code == 200:
+                        self.assertIn("spa-shell", escape.text)
             finally:
                 main_module.settings = original_settings
                 main_module.JobWorker = original_worker

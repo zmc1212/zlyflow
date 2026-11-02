@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-31",
+  "purpose": "implementation assets for approved login modal v002",
+  "model": "gpt-image-2.5-flare",
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "size": "1024x1536",
+  "quality": "high",
+  "n": 1,
+  "reference": "zly-login-modal-v002.png",
+  "prompt_file": "ARTWORK-v001.md",
+  "output_file": "auth-artwork-v001.png",
+  "output_sha256": "a61d8b7bd713f2c3f67bfcf353a0c92e80f28561b461340905915e9eef2c5dc2",
+  "request_id": "req_87a911cadaee476b8e26cbad5c923ad3",
+  "usage": {
+    "input_tokens": 1539,
+    "output_tokens": 1372,
+    "total_tokens": 2911
+  },
+  "derivatives": [
+    {
+      "path": "frontend\\public\\auth\\cinematic-shore.webp",
+      "sha256": "180c3a907371d75d4dda85021cf91900d6fea31736882d6052574dddf34fabc3",
+      "bytes": 306168
+    },
+    {
+      "path": "frontend\\public\\auth\\sample-perfume.webp",
+      "sha256": "3ba4d787877e445c2d9a3e30d312cb8625e1d95da5e6fb19049c8006395555e2",
+      "bytes": 13060
+    },
+    {
+      "path": "frontend\\public\\auth\\sample-portrait.webp",
+      "sha256": "e528b6bf4e25c9afd20f0b27bee0027ac48690dcb9b21981b14af8f66526ce62",
+      "bytes": 10210
+    },
+    {
+      "path": "frontend\\public\\auth\\sample-sea.webp",
+      "sha256": "28398d3b51c35cfdd593ac603c1b4ccc5a418a312c29ebb4601d8b3ee037a848",
+      "bytes": 13476
+    },
+    {
+      "path": "frontend\\public\\auth\\sample-train.webp",
+      "sha256": "cb096e02ab11e074fb7b54217a1be62eb872b729f480617a6af14c194fb1b6a9",
+      "bytes": 10422
+    }
+  ],
+  "samples": {
+    "source": "docs\\design-ref-generation\\home-v3-20261028\\generation-home-v3-light.png",
+    "crop_boxes": {
+      "sample-portrait": [
+        808,
+        625,
+        1012,
+        880
+      ],
+      "sample-perfume": [
+        1030,
+        624,
+        1301,
+        727
+      ],
+      "sample-train": [
+        1030,
+        777,
+        1301,
+        880
+      ],
+      "sample-sea": [
+        1319,
+        624,
+        1553,
+        879
+      ]
+    },
+    "public_demo_only": true
+  }
+}

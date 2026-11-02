@@ -24,29 +24,24 @@
 }
 
 .studio-canvas-home-shell { font-family: Inter, "Microsoft YaHei", "Segoe UI", sans-serif; }
-.studio-canvas-home-shell .studio-icon-rail { top: 76px; width: 92px; padding: 4px 8px 24px; border: 0; border-right: 1px solid var(--studio-border); background: var(--studio-canvas); }
-.studio-canvas-home-shell .studio-icon-rail > div { gap: 8px; }
-.studio-canvas-home-shell .studio-global-nav-item { width: 76px; height: 80px; gap: 8px; border-radius: 18px; font-size: 13px; color: var(--studio-text-secondary); }
-.studio-canvas-home-shell .studio-global-nav-item-active { background: var(--studio-primary-soft); color: var(--studio-accent-text); }
-.studio-canvas-home-shell .studio-global-nav-item-active svg { color: var(--studio-accent-text); }
-.studio-canvas-home-shell .studio-global-nav-item svg { width: 24px; height: 24px; }
-.studio-canvas-home-shell .canvas-home-nav-settings.ant-btn { width: 44px; height: 44px; margin-top: auto; color: var(--studio-text-secondary); }
-.studio-canvas-home-shell .studio-workspace.studio-canvas-view { height: calc(100vh - 76px); max-height: calc(100vh - 76px); margin-top: 76px; padding-left: 92px; }
-.studio-canvas-home-shell .studio-canvas-view > main.canvas-workspace-main { height: calc(100vh - 76px) !important; max-height: calc(100vh - 76px) !important; }
 
-.canvas-list-page.canvas-home { max-width: 1694px; padding: 16px 10px 48px 21px; color: var(--studio-text); scrollbar-gutter: stable; }
+.canvas-list-page.canvas-home { max-width: 1694px; padding: 24px 10px 48px 21px; color: var(--studio-text); scrollbar-gutter: stable; }
+/* 共用 76px 全局导航后，用左内边距保留设计稿 1586px 基线 x=113 的内容起点 */
+@media (min-width: 1280px) {
+  .canvas-list-page.canvas-home { padding-left: 37px; }
+}
 .canvas-home-heading { padding-left: 8px; margin-bottom: 8px; }
 .canvas-home-eyebrow { display: flex; align-items: center; gap: 18px; color: var(--studio-text-secondary); font-size: 10px; font-weight: 500; line-height: 16px; letter-spacing: .09em; }
 .canvas-home-eyebrow svg { width: 24px; height: 18px; color: var(--studio-accent-text); }
-.canvas-home-heading h1 { margin: 6px 0 0; color: var(--studio-text); font-size: 44px; font-weight: 750; line-height: 50px; letter-spacing: -.04em; }
-.canvas-home-heading p { margin: 4px 0 0; color: var(--studio-text-secondary); font-size: 16px; line-height: 24px; }
+.canvas-home-heading h1 { margin: 6px 0 0; color: var(--studio-text); font-size: 24px; font-weight: 550; line-height: 34px; letter-spacing: -.02em; }
+.canvas-home-heading p { margin: 4px 0 0; color: var(--studio-text-secondary); font-size: 13px; line-height: 22px; }
 .canvas-home-features { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .canvas-home-features.has-recent { grid-template-columns: minmax(0, 2.26fr) minmax(0, 1fr); }
 .canvas-home-recent, .canvas-home-create { min-width: 0; height: 358px; overflow: hidden; border: 1px solid var(--studio-border-strong); border-radius: 14px; background: var(--studio-surface); }
 .canvas-home-recent { display: grid; grid-template-columns: minmax(250px, .475fr) minmax(0, 1fr); }
 .canvas-home-recent-info { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; padding: 39px 22px 39px 30px; }
 .canvas-home-recent-label { display: inline-flex; align-items: center; gap: 9px; color: var(--studio-text-secondary); font-size: 14px; line-height: 22px; }
-.canvas-home-recent-info h2 { overflow: hidden; width: 100%; margin: 20px 0 0; color: var(--studio-text); font-size: 32px; font-weight: 700; line-height: 42px; letter-spacing: -.035em; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-home-recent-info h2 { overflow: hidden; width: 100%; margin: 20px 0 0; color: var(--studio-text); font-size: 20px; font-weight: 550; line-height: 30px; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-home-recent-info > p { margin: 6px 0 0; color: var(--studio-text); font-size: 15px; line-height: 24px; white-space: nowrap; }
 .canvas-home-tags { display: flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; }
 .canvas-home .canvas-home-tags .ant-tag { overflow: hidden; max-width: 128px; margin: 0; border: 1px solid var(--studio-border-strong); border-radius: 5px; padding: 1px 6px; background: var(--studio-surface); color: var(--studio-text-secondary); font-size: 12px; line-height: 21px; text-overflow: ellipsis; white-space: nowrap; }
@@ -64,7 +59,7 @@
 .canvas-home-create-plus { fill: var(--studio-primary); }
 .canvas-home-create-plus-icon { color: var(--studio-surface); stroke: #fff; }
 .canvas-home-create-copy { margin-top: auto; text-align: center; }
-.canvas-home-create h2 { margin: 0; color: var(--studio-text); font-size: 25px; font-weight: 700; line-height: 36px; letter-spacing: -.03em; }
+.canvas-home-create h2 { margin: 0; color: var(--studio-text); font-size: 18px; font-weight: 550; line-height: 28px; letter-spacing: -.015em; }
 .canvas-home-create p { margin: 4px 0 14px; color: var(--studio-text-secondary); font-size: 13px; line-height: 22px; }
 .canvas-home-create .ant-btn { width: 100%; height: 43px; border-radius: 9px; font-size: 15px; box-shadow: none; }
 .canvas-home-features:not(.has-recent) .canvas-home-create { height: 230px; flex-direction: row; align-items: center; justify-content: center; gap: 48px; padding: 14px 40px; }
@@ -74,7 +69,7 @@
 
 .canvas-home-library { margin-top: 18px; }
 .canvas-home-library-bar { display: flex; min-width: 0; min-height: 43px; align-items: center; gap: 26px; margin-bottom: 13px; }
-.canvas-home-library-bar > h2 { flex: none; margin: 0; font-size: 28px; font-weight: 700; line-height: 40px; letter-spacing: -.04em; }
+.canvas-home-library-bar > h2 { flex: none; margin: 0; font-size: 18px; font-weight: 550; line-height: 28px; letter-spacing: -.015em; }
 .canvas-home-tabs.ant-tabs { flex: none; min-width: 0; }
 .canvas-home-tabs .ant-tabs-nav { margin: 0; }
 .canvas-home-tabs .ant-tabs-nav::before { border: 0; }
@@ -131,9 +126,9 @@
   .canvas-home-filters > .ant-select { width: 130px; }
   .canvas-home-recent { grid-template-columns: minmax(245px, .55fr) minmax(0, 1fr); }
   .canvas-home-recent-info { padding-left: 24px; }
-  .canvas-home-recent-info h2 { font-size: 28px; }
+  .canvas-home-recent-info h2 { font-size: 20px; }
   .canvas-home-recent-info > p { font-size: 13px; }
-  .canvas-home-create h2 { font-size: 22px; }
+  .canvas-home-create h2 { font-size: 18px; }
   .canvas-home-create p { font-size: 12px; }
 }
 

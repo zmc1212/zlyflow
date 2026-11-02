@@ -7,6 +7,7 @@ import re
 import secrets
 import shutil
 import time
+import wave
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -39,6 +40,7 @@ from .director_catalog import (
 from .voice_bank import VoiceBankError, ensure_voice_prompt, list_voice_presets
 from .director_export import (
     DirectorExportError,
+    SystemFfmpegRunner,
     export_timeline_documents,
     ffmpeg_available,
     find_bgm_file,
@@ -102,7 +104,7 @@ from .models import (
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
     ModelProviderPresetsResponse,
     VlmProviderUpdateRequest, VlmProviderTestRequest, VlmModelCatalogRequest, VlmStatusResponse,
-    PromptOptimizeRequest, PromptOptimizeResponse, AnalyzeSubjectResponse, SkillsListResponse, SkillPackListResponse,
+    PromptOptimizeRequest, PromptOptimizeResponse, PromptReverseResponse, AnalyzeSubjectResponse, SkillsListResponse, SkillPackListResponse,
     ScriptSplitRequest, ScriptSplitResponse,
     DirectorContinuityRepairRequest,
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
@@ -119,6 +121,7 @@ from .models import (
     CanvasProjectCreateRequest, CanvasProjectUpdateRequest, CanvasDraftSaveRequest,
     CanvasProjectListItem, CanvasProjectResponse, CanvasDraftSaveResponse, CanvasDraftVersionItem,
 )
+from .motion_transfer_media import validate_motion_video
 
 from .library_query import (
     LIBRARY_DEFAULT_LIMIT,
@@ -143,6 +146,8 @@ from .director_assistant.service import AssistantService
 from .media_studio.services.ai_generation_service import AiGenerationService
 from .media_studio.services.episode_video_service import EpisodeVideoService
 from .media_studio.services.h3_prompt_job_service import H3PromptJobService
+from .media_studio.services.job_lease import ensure_lease_schema
+from .media_studio.services.project_detail_service import ProjectDetailService
 from .media_studio.services.shot_plan_job_service import ShotPlanJobService
 from .media_studio.services.storyboard_image_service import StoryboardImageService
 from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
@@ -154,7 +159,7 @@ from .mcp_gateway.store import McpStore
 from .resource_storage import create_resource_storage, resource_object_url
 from .storage import DirectorProjectConflictError, FINISHED_STATUSES, JobStore, elapsed_ms_between
 from .worker import JobWorker
-from .rtx_vsr_workflow import original_video_locator, source_video_shape, vsr_memory_rejection
+from .rtx_vsr_workflow import comfy_vram_device_name, comfy_vram_total_bytes, original_video_locator, source_video_shape, vsr_memory_rejection
 from .seedvr2_upscale_workflow import (
     SEEDVR2_OUTPUT_LABEL,
     UPSCALE_ENGINE_RTX,
@@ -163,10 +168,10 @@ from .seedvr2_upscale_workflow import (
     normalize_upscale_engine,
 )
 from .workflow_registry import (
-    WORKFLOWS, is_h3_workflow, is_image_workflow, is_local_comfy_job, is_rtx_vsr_workflow,
-    is_seedvr2_upscale_workflow, is_upscale_workflow,
+    AVATAR_MAX_SCENE_SECONDS, WORKFLOWS, comfy_ram_total_bytes, is_h3_workflow, is_image_workflow,
+    is_local_comfy_job, is_rtx_vsr_workflow, is_seedvr2_upscale_workflow, is_upscale_workflow,
     normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
-    validate_option_relationships, validate_references, workflow_for,
+    set_hardware_profile_resolver, validate_option_relationships, validate_references, workflow_for,
 )
 
 
@@ -567,6 +572,21 @@ def attach_elapsed(record: dict) -> dict:
     return record
 
 
+def public_reference(mode: str, index: int, url: str) -> dict:
+    data = {"index": index, "url": url}
+    try:
+        definition = workflow_for(mode)
+    except KeyError:
+        return data
+    if not (definition.accepts_video_reference or definition.accepts_audio_reference):
+        return data
+    labels = definition.reference_labels
+    return {
+        "index": index, "url": url, "kind": definition.reference_kind(index),
+        "label": labels[index - 1] if index <= len(labels) else f"参考图 {index}",
+    }
+
+
 def public_job(job: dict) -> dict:
     data = dict(job)
     data["request_parameters"] = request_parameters(job)
@@ -574,7 +594,7 @@ def public_job(job: dict) -> dict:
     data.pop("options_submitted", None)
     attach_elapsed(data)
     data["references"] = [
-        {"index": index, "url": public_api_path(f"jobs/{job['id']}/references/{index}")}
+        public_reference(job["mode"], index, public_api_path(f"jobs/{job['id']}/references/{index}"))
         for index in range(1, int(job.get("reference_count", 0)) + 1)
     ]
     data["outputs"] = []
@@ -597,10 +617,8 @@ def public_job(job: dict) -> dict:
         public_round.pop("submitted_options", None)
         public_round.pop("options_submitted", None)
         public_round["references"] = [
-            {
-                "index": index,
-                "url": public_api_path(f"jobs/{job['id']}/rounds/{round_data['id']}/references/{index}"),
-            }
+            public_reference(round_data["mode"], index,
+                             public_api_path(f"jobs/{job['id']}/rounds/{round_data['id']}/references/{index}"))
             for index in range(1, int(round_data.get("reference_count", 0)) + 1)
         ]
         public_items: list[dict] = []
@@ -701,7 +719,10 @@ def request_parameters(job: dict) -> list[dict]:
             "visibility": "primary" if image_size_definition else "internal",
         })
     if job.get("reference_count", 0):
-        parameters.append({"name": "references", "label": definitions["references"]["label"], "value": job["reference_count"], "visibility": "primary"})
+        parameter = {"name": "references", "label": definitions["references"]["label"], "value": job["reference_count"], "visibility": "primary"}
+        if definition.accepts_video_reference or definition.accepts_audio_reference:
+            parameter["unit"] = "份"
+        parameters.append(parameter)
 
     option_schema = definitions.get("options", {}).get("schema", {})
     option_definitions = option_schema.get("properties", {})
@@ -742,7 +763,7 @@ async def save_upload(upload: UploadFile, destination: Path) -> None:
             if total > MAX_UPLOAD_BYTES:
                 target.close()
                 destination.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="单张参考图不能超过 50 MB")
+                raise HTTPException(status_code=413, detail="单份参考素材不能超过 50 MB")
             target.write(chunk)
 
 
@@ -765,6 +786,25 @@ async def lifespan(app: FastAPI):
     comfy_provider = ComfyProviderService(store, settings.comfy_url)
     comfy = ComfyService(settings, resource_storage, url_resolver=comfy_provider.current_url)
     worker = JobWorker(store, comfy, grs_provider, resource_storage)
+    hardware_cache = TTLCache(ttl_seconds=60)
+
+    def resolve_hardware_profile() -> dict | None:
+        """ComfyUI 机器配置探测：采样步数与模型体积等内部参数据此自动托管。"""
+        def probe() -> dict | None:
+            stats = comfy.system_stats()
+            if not stats:
+                return None
+            return {
+                "ram_total": comfy_ram_total_bytes(stats),
+                "vram_total": comfy_vram_total_bytes(stats),
+                "gpu": comfy_vram_device_name(stats),
+            }
+        try:
+            return hardware_cache.get_or_create("comfy-hardware", probe)
+        except Exception:
+            return None
+
+    set_hardware_profile_resolver(resolve_hardware_profile)
     app.state.auth_store = auth_store
     app.state.store = store
     app.state.library_cache = EpochCache(max_entries=16)
@@ -791,8 +831,10 @@ async def lifespan(app: FastAPI):
     store.interrupt_stale_director_pipelines()
     store.interrupt_stale_director_operations()
     ensure_schema()
+    ensure_lease_schema()
     EpisodeVideoService.recover_orphaned_jobs()
     StoryboardImageService.recover_interrupted_jobs()
+    ProjectDetailService.recover_interrupted_image_jobs()
     H3PromptJobService.recover_interrupted_jobs()
     ShotPlanJobService.recover_interrupted_jobs()
     TtsGenerationJobService.recover_interrupted_jobs()
@@ -1132,8 +1174,11 @@ def listed_workflows():
 
 
 @app.get("/api/modes", response_model=ModesResponse, tags=["工作流"], summary="获取工作流注册表")
-def modes(_: Annotated[dict, Depends(current_user)]) -> dict:
-    return {"modes": [mode_payload(item) for item in listed_workflows()], "image_sizes": [], "presets": PRESETS}
+def modes(user: Annotated[dict | None, Depends(optional_current_user)]) -> dict:
+    # Guests can compose locally; generation and every private resource keep
+    # their existing current_user / mutating_user dependencies.
+    payload = mode_payload if user else lambda item: item.public_payload()
+    return {"modes": [payload(item) for item in listed_workflows()], "image_sizes": [], "presets": PRESETS}
 
 
 @app.get(
@@ -1677,6 +1722,51 @@ async def analyze_subject_endpoint(
         ip_address=client_ip(request),
     )
     return {"description": description, "kind": kind, "name": name}
+
+
+@app.post("/api/llm/reverse-prompt", response_model=PromptReverseResponse, tags=["大模型"], summary="根据参考图反推生成提示词")
+async def reverse_prompt_endpoint(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+    image: Annotated[UploadFile, File(description="待反推的参考图")],
+    media_type: Annotated[str, Form()] = "video",
+    hint: Annotated[str, Form(max_length=200)] = "",
+) -> dict:
+    if app.state.vlm_provider.vision_model_name() is None:
+        raise HTTPException(status_code=503, detail=ANALYSIS_UNAVAILABLE_MESSAGE)
+    media_key = str(media_type or "video").strip().lower()
+    if media_key not in {"video", "image"}:
+        raise HTTPException(status_code=422, detail="media_type 仅支持 video 或 image")
+    content = await image.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="请上传参考图后再反推提示词")
+    if len(content) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="参考图超过 8MB，请压缩后再试")
+    if image.content_type and not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail="提示词反推仅接受图片文件")
+
+    try:
+        result = await asyncio.to_thread(
+            app.state.vlm_provider.reverse_prompt,
+            image_data_url=_image_upload_to_data_url(image, content),
+            media_type=media_key,
+            hint=str(hint or "").strip()[:200],
+        )
+    except (LlmError, requests.exceptions.RequestException) as error:
+        raise_as_llm_http(error)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"提示词反推异常：{error}") from error
+
+    app.state.auth_store.audit(
+        "reverse_prompt", "vlm", actor_user_id=user["id"], target_id="prompt",
+        detail=f"media_type={media_key}",
+        ip_address=client_ip(request),
+    )
+    return {
+        "chinese_prompt": result["chinese_prompt"],
+        "english_prompt": result["english_prompt"],
+        "media_type": media_key,
+    }
 
 
 @app.post("/api/llm/split-script", response_model=ScriptSplitResponse, tags=["大模型"], summary="AI 剧本智能拆解为分镜头脚本")
@@ -3989,6 +4079,68 @@ async def render_director_batch_items(
     return public_director_project(saved)
 
 
+def _validate_reference_upload(definition, index: int, upload: UploadFile) -> None:
+    content_type = (upload.content_type or "").split(";")[0].strip().lower()
+    kind = definition.reference_kind(index) if definition is not None else "image"
+    if kind == "audio":
+        if content_type and not (content_type.startswith("audio/") or content_type == "application/octet-stream"):
+            raise HTTPException(status_code=422, detail="数字人口播的第 2 项素材必须是音频文件")
+    elif kind == "video":
+        extension = Path(upload.filename or "").suffix.lower()
+        if extension not in {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi"} or (
+            content_type and not (content_type.startswith("video/") or content_type == "application/octet-stream")
+        ):
+            raise HTTPException(status_code=422, detail="动作迁移的第 2 项素材必须是动作参考视频（MP4 / MOV / WebM）")
+    elif content_type and not content_type.startswith("image/"):
+        detail = "动作迁移的第 1 项素材必须是角色形象图" if definition is not None and definition.accepts_video_reference else "参考素材必须为图片"
+        raise HTTPException(status_code=422, detail=detail)
+
+
+async def _validate_saved_references(definition, paths: list[str], options: dict, upload_dir: Path) -> None:
+    if definition.accepts_video_reference:
+        try:
+            from PIL import Image
+
+            with Image.open(paths[0]) as image:
+                image.verify()
+        except Exception as error:
+            raise HTTPException(status_code=422, detail="角色形象图无法读取，请上传有效的 PNG / JPEG / WebP 图片。") from error
+        try:
+            await asyncio.to_thread(validate_motion_video, Path(paths[1]), options["duration"])
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+    if definition.accepts_audio_reference:
+        options["scene_duration_seconds"] = await asyncio.to_thread(_probe_avatar_scene_duration, paths[1], upload_dir)
+
+
+def _probe_avatar_scene_duration(path: str, upload_dir: Path) -> float:
+    """探测口播音频时长并按单渲染窗口上限收敛；失败时清理任务目录并拒绝任务。"""
+    seconds = 0.0
+    try:
+        seconds = SystemFfmpegRunner().probe_duration(Path(path))
+    except Exception:
+        seconds = 0.0
+    if seconds <= 0 and str(path).lower().endswith(".wav"):
+        try:
+            with wave.open(str(path), "rb") as handle:
+                seconds = handle.getnframes() / float(handle.getframerate() or 1)
+        except Exception:
+            seconds = 0.0
+    if seconds <= 0:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail="无法读取口播音频时长，请使用标准 WAV 或 MP3 文件。")
+    if seconds > AVATAR_MAX_SCENE_SECONDS + 0.2:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"口播音频 {seconds:.1f} 秒超出当前约 {AVATAR_MAX_SCENE_SECONDS:.0f} 秒的单次生成上限，"
+                "请裁剪音频后重试；长音频分窗生成将在后续版本支持。"
+            ),
+        )
+    return round(min(seconds, AVATAR_MAX_SCENE_SECONDS), 2)
+
+
 @app.post(
     "/api/jobs",
     status_code=202,
@@ -4000,7 +4152,7 @@ async def render_director_batch_items(
 async def create_job(
     user: Annotated[dict, Depends(mutating_user)],
     mode: Annotated[str, Form(description="生成模式；具体能力由 GET /api/modes 返回。")],
-    prompt: Annotated[str, Form(description="创作提示词，去除首尾空白后不能为空。")],
+    prompt: Annotated[str, Form(description="创作提示词；支持默认提示词的工作流可留空。")]= "",
     negative_prompt: Annotated[str, Form(description="仅 image 模式生效。")]= "",
     image_size: Annotated[str | None, Form(description="仅 image 模式必填，值来自 image_sizes。")]= None,
     options: Annotated[str | None, Form(description="MiniMax H3 参数 JSON；其他模式传 {}。")]= None,
@@ -4028,13 +4180,13 @@ async def submit_generation(
 ) -> dict:
     """Shared creation path for browser forms and authenticated MCP tools."""
     references = references or []
-    prompt = prompt.strip()
-    if not prompt:
-        raise HTTPException(status_code=422, detail="请填写创作提示词")
     try:
         definition = workflow_for(mode)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="工作流不存在") from error
+    prompt = prompt.strip() or definition.default_prompt or ""
+    if not prompt:
+        raise HTTPException(status_code=422, detail="请填写创作提示词")
     if is_upscale_workflow(mode):
         raise HTTPException(status_code=422, detail="请对已成功的视频调用超分接口，不要直接创建超分任务")
     try:
@@ -4073,11 +4225,11 @@ async def submit_generation(
     references_paths: list[str] = []
     try:
         for index, upload in enumerate(references, start=1):
-            if upload.content_type and not upload.content_type.startswith("image/"):
-                raise HTTPException(status_code=422, detail="参考素材必须为图片")
+            _validate_reference_upload(definition, index, upload)
             destination = upload_dir / f"{index}_{safe_name(upload.filename or 'upload.png')}"
             await save_upload(upload, destination)
             references_paths.append(str(destination))
+        await _validate_saved_references(definition, references_paths, generation_options, upload_dir)
     except HTTPException:
         # Never leave partially-saved references behind when a later file
         # fails validation or exceeds the size limit.
@@ -4112,7 +4264,7 @@ async def submit_generation(
 async def create_job_round(
     job_id: str,
     user: Annotated[dict, Depends(mutating_user)],
-    prompt: Annotated[str, Form()],
+    prompt: Annotated[str, Form()] = "",
     negative_prompt: Annotated[str, Form()] = "",
     image_size: Annotated[str | None, Form()] = None,
     options: Annotated[str | None, Form()] = None,
@@ -4123,20 +4275,26 @@ async def create_job_round(
     if existing.get("legacy_read_only"):
         raise HTTPException(status_code=409, detail="旧版图片结果仅支持查看，不能再次生成")
     mode = existing["mode"]
-    prompt = prompt.strip()
-    if not prompt:
-        raise HTTPException(status_code=422, detail="请填写创作提示词")
     try:
         definition = workflow_for(mode)
     except KeyError:
         definition = None
+    prompt = prompt.strip() or (definition.default_prompt if definition else None) or ""
+    if not prompt:
+        raise HTTPException(status_code=422, detail="请填写创作提示词")
     try:
         raw_options = json.loads(options) if options is not None else existing.get("options", {})
+        if options is None and definition is not None and definition.accepts_video_reference:
+            latest = existing["rounds"][-1]
+            raw_options = dict(latest.get("options") or {})
+            raw_options["seed"] = (latest.get("submitted_options") or {}).get("seed", 0)
         if not isinstance(raw_options, dict):
             raise ValueError("生成参数必须为对象。")
         reused_references = existing["rounds"][-1].get("references", []) if not references else []
         validate_references(mode, references or reused_references)
-        generation_options = normalize_options(mode, raw_options) if options is not None else existing.get("options", {})
+        generation_options = normalize_options(mode, raw_options) if options is not None or (
+            definition is not None and definition.accepts_video_reference
+        ) else existing.get("options", {})
         validate_option_relationships(mode, generation_options, len(references or reused_references))
     except (ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -4150,11 +4308,12 @@ async def create_job_round(
     reference_paths: list[str] = list(reused_references)
     try:
         for index, upload in enumerate(references, start=1):
-            if upload.content_type and not upload.content_type.startswith("image/"):
-                raise HTTPException(status_code=422, detail="参考素材必须为图片")
+            _validate_reference_upload(definition, index, upload)
             destination = upload_dir / f"{index}_{safe_name(upload.filename or 'upload.png')}"
             await save_upload(upload, destination)
             reference_paths.append(str(destination))
+        if definition is not None:
+            await _validate_saved_references(definition, reference_paths, generation_options, upload_dir)
     except HTTPException:
         shutil.rmtree(upload_dir, ignore_errors=True)
         raise
@@ -4165,7 +4324,9 @@ async def create_job_round(
             negative_prompt=negative_prompt.strip() if definition is not None and definition.accepts_negative_prompt else "",
             image_size=image_size if definition is not None and definition.accepts_image_size else None,
             references=reference_paths, options=generation_options,
-            submitted_options=raw_options if options is not None else None,
+            submitted_options=raw_options if options is not None or (
+                definition is not None and definition.accepts_video_reference
+            ) else None,
             display_prompt=display_prompt.strip() if display_prompt and display_prompt.strip() != prompt else None,
         )
     except ValueError as error:
@@ -4485,8 +4646,8 @@ async def cancel_job(job_id: str, user: Annotated[dict, Depends(mutating_user)])
 @app.get(
     "/api/jobs/{job_id}/references/{reference_index}",
     tags=["任务"],
-    summary="Preview a task reference image",
-    responses={200: {"content": {"image/*": {}}}},
+    summary="预览任务参考素材",
+    responses={200: {"content": {"image/*": {}, "video/*": {}, "audio/*": {}}}},
 )
 def job_reference(job_id: str, reference_index: int, user: Annotated[dict, Depends(current_user)]) -> FileResponse:
     if reference_index < 1:
@@ -4499,12 +4660,12 @@ def job_reference(job_id: str, reference_index: int, user: Annotated[dict, Depen
     path = Path(references[reference_index - 1]).resolve()
     if uploads_root not in path.parents or not path.is_file():
         raise HTTPException(status_code=404, detail="Reference image not found")
-    return FileResponse(path, media_type=_image_media_type(path))
+    return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or _image_media_type(path))
 
 
 @app.get(
     "/api/jobs/{job_id}/rounds/{round_id}/references/{reference_index}", tags=["任务"],
-    summary="预览指定轮次参考图", responses={200: {"content": {"image/*": {}}}},
+    summary="预览指定轮次参考素材", responses={200: {"content": {"image/*": {}, "video/*": {}, "audio/*": {}}}},
 )
 def round_reference(
     job_id: str, round_id: str, reference_index: int,
@@ -4521,7 +4682,7 @@ def round_reference(
     path = Path(references[reference_index - 1]).resolve()
     if uploads_root not in path.parents or not path.is_file():
         raise HTTPException(status_code=404, detail="参考图不存在")
-    return FileResponse(path, media_type=_image_media_type(path))
+    return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or _image_media_type(path))
 
 
 def _library_target_user_id(user: dict, user_id: str | None) -> str | None:
@@ -4843,20 +5004,39 @@ ASSET_MEDIA_TYPES = {
     ".svg": "image/svg+xml",
     ".json": "application/json",
     ".woff2": "font/woff2",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
 }
+
+
+def dist_static_file(relative: str) -> Path | None:
+    """Resolve a build-output file below the frontend dist root, rejecting escapes."""
+    if not relative or "\x00" in relative:
+        return None
+    dist_dir = settings.frontend_dist_dir.resolve()
+    candidate = (dist_dir / relative).resolve()
+    if dist_dir not in candidate.parents or not candidate.is_file():
+        return None
+    return candidate
 
 
 @app.get("/assets/{asset_path:path}", include_in_schema=False)
 def frontend_asset(asset_path: str) -> FileResponse:
-    assets_dir = (settings.frontend_dist_dir / "assets").resolve()
-    asset = (assets_dir / asset_path).resolve()
-    if assets_dir not in asset.parents or not asset.is_file():
+    asset = dist_static_file(f"assets/{asset_path}")
+    if asset is None:
         raise HTTPException(status_code=404, detail="前端资源不存在")
     return FileResponse(asset, media_type=ASSET_MEDIA_TYPES.get(asset.suffix.lower()))
 
 
 @app.get("/{path:path}", include_in_schema=False)
 def frontend(path: str) -> FileResponse:
+    # Public assets copied by the bundler sit at the dist root (images, icons, fonts);
+    # only paths that are not real files fall through to the SPA shell.
+    if path != "index.html" and (static_file := dist_static_file(path)) is not None:
+        return FileResponse(static_file, media_type=ASSET_MEDIA_TYPES.get(static_file.suffix.lower()))
     index = settings.frontend_dist_dir / "index.html"
     if not index.is_file():
         raise HTTPException(status_code=404, detail="前端未构建")

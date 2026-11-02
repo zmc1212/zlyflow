@@ -1,0 +1,122 @@
+[
+  {
+    "name": "brand-z-dark",
+    "path": "frontend/public/studio-icons/brand-z-dark.webp",
+    "size": [
+      256,
+      256
+    ],
+    "crop": [
+      89,
+      94,
+      452,
+      452
+    ],
+    "bytes": 76554,
+    "sha256": "c259360f7245042bb37501914f9deddf3fdd512b0c6b0dff7a06954a0cef9db8",
+    "alpha_extrema": [
+      0,
+      255
+    ]
+  },
+  {
+    "name": "generate",
+    "path": "frontend/public/studio-icons/generate.webp",
+    "size": [
+      256,
+      256
+    ],
+    "crop": [
+      68,
+      105,
+      444,
+      459
+    ],
+    "bytes": 70316,
+    "sha256": "b1bc9342bd790e7fc6ff1b042e04ea29b74ce2dc263feb5f8ebda180ae6678ae",
+    "alpha_extrema": [
+      0,
+      255
+    ]
+  },
+  {
+    "name": "director",
+    "path": "frontend/public/studio-icons/director.webp",
+    "size": [
+      256,
+      256
+    ],
+    "crop": [
+      85,
+      82,
+      416,
+      472
+    ],
+    "bytes": 57760,
+    "sha256": "19edcfbe738c6d862a880f493856a52535ac88f07e420c433ad6a287d6c3a832",
+    "alpha_extrema": [
+      0,
+      255
+    ]
+  },
+  {
+    "name": "canvas",
+    "path": "frontend/public/studio-icons/canvas.webp",
+    "size": [
+      256,
+      256
+    ],
+    "crop": [
+      42,
+      56,
+      482,
+      410
+    ],
+    "bytes": 66072,
+    "sha256": "254cb633952ddb97ecc2ddfac001e086db9a69831a2a6fcc409b150e9b797343",
+    "alpha_extrema": [
+      0,
+      255
+    ]
+  },
+  {
+    "name": "assets",
+    "path": "frontend/public/studio-icons/assets.webp",
+    "size": [
+      256,
+      256
+    ],
+    "crop": [
+      70,
+      44,
+      446,
+      423
+    ],
+    "bytes": 71070,
+    "sha256": "2bac49406f54fdcff444eca4a5f5d4f2c5a9e7853ae3aa1418711b70f7aeb922",
+    "alpha_extrema": [
+      0,
+      255
+    ]
+  },
+  {
+    "name": "brand-z-light",
+    "path": "frontend/public/studio-icons/brand-z-light.webp",
+    "size": [
+      256,
+      256
+    ],
+    "crop": [
+      71,
+      65,
+      423,
+      413
+    ],
+    "bytes": 72730,
+    "sha256": "a842bce04a9bd0d360e49db9037795e0513daf7543a9e2aa64df63bfc5b9626d",
+    "alpha_extrema": [
+      0,
+      255
+    ]
+  }
+]

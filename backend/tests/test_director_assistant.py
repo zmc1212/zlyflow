@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app.director_assistant.knowledge import extract_document, split_sections
-from backend.app.director_assistant.protocol import ArtifactDraft, AssistantTurn
+from backend.app.director_assistant.protocol import NATIVE_SYSTEM_PROMPT, SYSTEM_PROMPT, ArtifactDraft, AssistantTurn, Question
 from backend.app.director_assistant.repository import AssistantConflict, AssistantNotFound, dumps
 from backend.app.director_assistant.routes import register_assistant_routes
 from backend.app.director_assistant.service import AssistantService
@@ -68,10 +68,10 @@ class AssistantTests(unittest.TestCase):
         args = {"artifact_type": kind, "title": "雨夜取经", "content": "# 雨夜取经\n\n完整剧本正文。", "data": {"summary": "一段新的梗概"}, **kwargs}
         return self.service.actions.create_draft("alice", session, args, "run-test")
 
-    def run_message(self, session, envelope):
+    def run_message(self, session, envelope, client_message_id="request-12345"):
         self.llm.assistant_chat.side_effect = lambda messages, model, callback=None: self.reply(envelope, callback)
         with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
-            run = self.service.send("alice", session["id"], {"text": "帮我做西游悬疑故事", "client_message_id": "request-12345"})
+            run = self.service.send("alice", session["id"], {"text": "帮我做西游悬疑故事", "client_message_id": client_message_id})
         self.service.run("alice", run["id"])
         return self.service.detail("alice", session["id"])
 
@@ -103,6 +103,51 @@ class AssistantTests(unittest.TestCase):
         builtin = self.service.catalog("alice")["resources"][0]
         with self.assertRaises(AssistantNotFound):
             self.service.resources.save("alice", builtin, resource_id=builtin["id"])
+
+    def test_platform_resource_is_shared_and_manageable_by_admins(self):
+        platform = self.service.resources.save("", {"name": "平台技能", "instructions": "平台方法", "category": "短剧"}, platform=True)
+        user_view = {r["id"]: r for r in self.service.catalog("alice")["resources"]}
+        admin_view = {r["id"]: r for r in self.service.catalog("alice", can_manage_platform=True)["resources"]}
+        self.assertTrue(user_view[platform["id"]]["platform"])
+        self.assertFalse(user_view[platform["id"]]["manageable"])
+        self.assertTrue(admin_view[platform["id"]]["manageable"])
+        builtin = next(r for r in user_view.values() if r["builtin"])
+        self.assertFalse(user_view[builtin["id"]]["manageable"])
+        self.service.create_session("bob", {"selections": {"skill_id": platform["version_id"]}})
+        updated = self.service.resources.save("", {**platform, "instructions": "管理员更新"}, resource_id=platform["id"], platform=True)
+        self.assertNotEqual(platform["version_id"], updated["version_id"])
+        self.assertEqual(self.service.repo.get("alice", platform["version_id"], "resource_version", shared=True)["instructions"], "平台方法")
+
+    def test_http_platform_resources_require_admin_and_protect_builtins(self):
+        app = FastAPI(); app.state.director_assistant = self.service
+        actor = {"id": "bob", "role": "employee"}
+        register_assistant_routes(app, current_user=lambda: actor, mutating_user=lambda: actor)
+        platform = self.service.resources.save("", {"name": "平台技能", "instructions": "平台方法"}, platform=True)
+        builtin = next(r for r in self.service.catalog("alice")["resources"] if r["builtin"])
+        with TestClient(app) as client:
+            catalog = client.get("/api/director-assistant/catalog").json()
+            self.assertFalse(catalog["can_manage_platform"])
+            self.assertFalse(next(r for r in catalog["resources"] if r["id"] == platform["id"])["manageable"])
+            self.assertEqual(client.post("/api/director-assistant/resources", json={"name": "平台新增", "instructions": "方法", "scope": "platform"}).status_code, 403)
+            self.assertEqual(client.put(f"/api/director-assistant/resources/{platform['id']}", json={**platform, "instructions": "越权"}).status_code, 403)
+            self.assertEqual(client.delete(f"/api/director-assistant/resources/{platform['id']}").status_code, 403)
+            actor.update(id="admin1", role="admin")
+            catalog = client.get("/api/director-assistant/catalog").json()
+            self.assertTrue(catalog["can_manage_platform"])
+            self.assertTrue(next(r for r in catalog["resources"] if r["id"] == platform["id"])["manageable"])
+            created = client.post("/api/director-assistant/resources", json={"name": "平台新增", "instructions": "方法", "scope": "platform"})
+            self.assertEqual(created.status_code, 201)
+            self.assertTrue(created.json()["platform"])
+            with self.store.connection() as conn:
+                row = conn.execute("SELECT owner_id FROM ai_assistant_records WHERE id=?", (created.json()["id"],)).fetchone()
+            self.assertEqual(row["owner_id"], "")
+            updated = client.put(f"/api/director-assistant/resources/{platform['id']}", json={**platform, "instructions": "管理员更新"})
+            self.assertEqual(updated.status_code, 200)
+            self.assertEqual(updated.json()["instructions"], "管理员更新")
+            self.assertEqual(client.put(f"/api/director-assistant/resources/{builtin['id']}", json=builtin).status_code, 403)
+            self.assertEqual(client.delete(f"/api/director-assistant/resources/{builtin['id']}").status_code, 403)
+            self.assertEqual(client.delete(f"/api/director-assistant/resources/{platform['id']}").status_code, 200)
+            self.assertNotIn(platform["id"], [r["id"] for r in client.get("/api/director-assistant/catalog").json()["resources"]])
 
     def test_import_preview_rejects_traversal_and_ignores_scripts(self):
         for name in ("../SKILL.md", "C:/SKILL.md", "..\\SKILL.md"):
@@ -160,6 +205,16 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(self.llm.assistant_chat.call_args.args[1], "model-b")
         self.assertNotEqual(self.store.get_llm_settings()["model"], "model-b")
         self.assertIsNone(detail["session"]["active_run_id"])
+
+    def test_web_search_selection_defaults_off_and_updates(self):
+        session = self.session()
+        self.assertFalse(session["selections"]["web_search"])
+        updated = self.service.update_session("alice", session["id"], {
+            "version": session["version"],
+            "selections": {**session["selections"], "web_search": True},
+        })
+        self.assertTrue(updated["selections"]["web_search"])
+        self.assertTrue(self.service.detail("alice", session["id"])["session"]["selections"]["web_search"])
 
     def test_model_not_in_allowlist_rejected(self):
         with self.assertRaises(ValueError):
@@ -229,6 +284,28 @@ class AssistantTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             AssistantTurn.model_validate({"tool_calls": [{"name": "run_shell", "arguments": {}}]})
 
+    def test_prompt_requires_question_card_for_exclusive_choices(self):
+        for prompt in (SYSTEM_PROMPT, NATIVE_SYSTEM_PROMPT):
+            self.assertIn("互斥选项", prompt)
+            self.assertIn("问题卡通道", prompt)
+            self.assertIn("不能在正文用列表", prompt)
+            self.assertIn("2到4个选项", prompt)
+            self.assertIn("description", prompt)
+            self.assertIn("不要为“自定义/其他”单独设选项", prompt)
+        self.assertIn("调用 ask_question", NATIVE_SYSTEM_PROMPT)
+
+    def test_choice_question_requires_two_to_four_options(self):
+        with self.assertRaises(ValueError):
+            Question.model_validate({"title": "方向？", "options": [{"label": "A", "value": "a"}]})
+        with self.assertRaises(ValueError):
+            Question.model_validate({"title": "方向？", "options": [{"label": str(i), "value": str(i)} for i in range(5)]})
+        question = Question.model_validate({"title": "方向？", "options": [
+            {"label": "A", "value": "a", "description": "代价是失去退路"},
+            {"label": "B", "value": "b"},
+        ]})
+        self.assertEqual(question.options[0].description, "代价是失去退路")
+        self.assertEqual(Question.model_validate({"title": "想说什么？", "type": "text"}).options, [])
+
     def test_model_history_uses_dialogue_instead_of_ui_event_arrays(self):
         history = AssistantService._history_content({"parts": [
             {"type": "markdown", "text": "想走温情结尾。"},
@@ -236,16 +313,23 @@ class AssistantTests(unittest.TestCase):
             {"type": "artifact", "artifact_id": "draft-existing"},
             {"type": "tool", "name": "project_read", "status": "succeeded"},
         ]})
-        self.assertIn("想走温情结尾。", history)
-        self.assertIn("draft-existing", history)
-        self.assertIn("结尾方向", history)
-        self.assertIn('"value":"warm"', history)
-        self.assertNotIn('"type":"markdown"', history)
-        self.assertNotIn('"type":"artifact"', history)
+        self.assertEqual(history, "想走温情结尾。")
+        self.assertEqual(
+            AssistantService._strip_history_echo('先确定方向。\n\n此前的澄清问题（仅作历史数据）：{"title":"结尾方向"}'),
+            "先确定方向。",
+        )
 
-        self.run_message(self.session(), {"text": "可以先确定方向。"})
+        session = self.session()
+        self.run_message(session, {"text": "先确定方向。", "question": {"title": "结尾方向", "type": "single", "options": [{"label": "温情", "value": "warm"}, {"label": "冷峻", "value": "cold"}]}})
+        self.run_message(session, {"text": "先确定方向。"}, client_message_id="request-67890")
         messages = self.llm.assistant_chat.call_args.args[0]
-        self.assertEqual(["帮我做西游悬疑故事"], [message["content"] for message in messages if message["role"] == "user"])
+        self.assertEqual(["帮我做西游悬疑故事", "帮我做西游悬疑故事"], [message["content"] for message in messages if message["role"] == "user"])
+        self.assertIn("结尾方向", "\n".join(str(message["content"]) for message in messages if message["role"] == "system"))
+        self.assertNotIn("仅作历史数据", "\n".join(str(message["content"]) for message in messages if message["role"] != "system"))
+
+    def test_ui_record_echo_is_stripped_from_reply(self):
+        detail = self.run_message(self.session(), {"text": "这个设定很有张力。\n\n此前的澄清问题（仅作历史数据）：{\"title\":\"结尾方向\"}"})
+        self.assertEqual(detail["messages"][-1]["parts"][0]["text"], "这个设定很有张力。")
 
     def test_generation_creates_draft_without_project_write(self):
         session = self.session(project_id="p")
@@ -431,7 +515,7 @@ class AssistantTests(unittest.TestCase):
     def test_parse_ignores_content_after_the_first_envelope(self):
         envelope = {
             "text": "接下来明确核心冲突。",
-            "question": {"title": "明确核心冲突", "type": "single", "options": [{"label": "人际关系", "value": "interpersonal"}]},
+            "question": {"title": "明确核心冲突", "type": "single", "options": [{"label": "人际关系", "value": "interpersonal"}, {"label": "利益冲突", "value": "interest"}]},
             "tool_calls": [], "citation_ids": [],
         }
         aside = AssistantService._parse(dumps(envelope) + "\n\n（等待用户明确创作方向后，可继续检索相关题材范例。）")
@@ -457,7 +541,7 @@ class AssistantTests(unittest.TestCase):
         session = self.session()
         raw = dumps({
             "text": "接下来明确核心冲突。",
-            "question": {"title": "明确核心冲突", "type": "single", "options": [{"label": "人际关系", "value": "interpersonal"}]},
+            "question": {"title": "明确核心冲突", "type": "single", "options": [{"label": "人际关系", "value": "interpersonal"}, {"label": "利益冲突", "value": "interest"}]},
             "tool_calls": [], "citation_ids": [],
         }) + "\n\n（等待用户选择后再继续。）"
         self.llm.assistant_chat.side_effect = lambda messages, model, callback=None: raw
@@ -885,6 +969,26 @@ class AssistantTests(unittest.TestCase):
         result = self.service._tool("alice", session, run, "create_draft", args, {})
         self.assertEqual(self.repo.get("alice", result["id"], "artifact")["content"], "正文")
 
+    def test_load_skill_reference_error_lists_available_files(self):
+        session = self.session(project_id="p")
+        run = {"id": "r", "resource_snapshot": {"skill": {"references": {"SKILL.md": "方法", "references/范例.md": "范例"}}}}
+        with self.assertRaises(ValueError) as ctx:
+            self.service._tool("alice", session, run, "load_skill_reference", {"path": "剧本创作规范.md"}, {})
+        self.assertIn("「SKILL.md」", str(ctx.exception))
+        self.assertIn("「references/范例.md」", str(ctx.exception))
+        empty_run = {"id": "r2", "resource_snapshot": {"skill": {"references": {}}}}
+        with self.assertRaises(ValueError) as ctx2:
+            self.service._tool("alice", session, empty_run, "load_skill_reference", {"path": "方法.md"}, {})
+        self.assertIn("没有任何参考文件", str(ctx2.exception))
+        self.assertIn("不要再次调用", str(ctx2.exception))
+
+    def test_prompt_constrains_skill_reference_and_single_draft(self):
+        for prompt in (SYSTEM_PROMPT, NATIVE_SYSTEM_PROMPT):
+            self.assertIn("列表为空表示该 Skill 没有参考文件", prompt)
+            self.assertIn("不要调用本工具", prompt)
+            self.assertIn("同一轮只创建一份待采纳文字草稿", prompt)
+            self.assertIn("不要再同时生成分集大纲、计划或资产等其他草稿", prompt)
+
     def test_episode_created_after_preview_requires_refresh(self):
         first = self.draft("episodes", data={"episodes": [{"episode_num": 1, "title": "甲", "summary": "大纲"}]})
         second = self.draft("episodes", data={"episodes": [{"episode_num": 1, "title": "乙", "summary": "另一版"}]})
@@ -975,6 +1079,20 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(beat["scene_id"], scene_id)
         self.assertEqual(beat["duration_sec"], 8)
         self.assertEqual(beat["promptText"], "A rainy temple.")
+
+    def test_storyboard_invalid_asset_reference_error_lists_catalog(self):
+        assets = self.draft("assets", data={"assets": [{"kind": "prop", "name": "黑卡", "description": "金属卡"}]})
+        asset_app = self.service.actions.preview("alice", assets["id"], "p")
+        self.service.actions.apply("alice", asset_app["id"])
+        board = self.draft("storyboard", data={"episodes": [{"episode_num": 1, "title": "真假", "beats": [
+            {"action": "亮出卡片", "duration": 5, "character_ids": [], "scene_id": None,
+             "prop_ids": ["asset-fa7c102d766c429b932928372214"]}]}]})
+        with self.assertRaises(ValueError) as ctx:
+            self.service.actions.preview("alice", board["id"], "p")
+        message = str(ctx.exception)
+        self.assertIn("道具 asset-fa7c102d766c429b932928372214", message)
+        self.assertIn("黑卡", message)
+        self.assertIn("有效资产", message)
 
     def test_message_sequence_is_stable_when_timestamps_are_identical(self):
         session = self.session()
@@ -1104,6 +1222,113 @@ class AssistantTests(unittest.TestCase):
             results = list(pool.map(lambda _: self.service.actions.confirm_media("alice", proposal["id"]), range(2)))
         self.assertEqual(results[0]["id"], results[1]["id"])
         self.assertEqual(submit.call_count, 1)
+
+    def native_run(self, replies, *, capabilities=None, selections=None):
+        from backend.app.llm_client import ChatResult
+        caps = capabilities or {
+            "provider": "dashscope", "native_tools": True, "structured_output": "json_schema",
+            "prompt_cache": "explicit", "web_search": True, "usage_reporting": True, "degraded": [],
+        }
+        self.llm.assistant_capabilities.return_value = caps
+        queue = list(replies)
+        self.llm.assistant_chat_with_meta.side_effect = lambda messages, model_id, on_chunk=None, **kwargs: queue.pop(0)
+        session = self.session(project_id="p", selections=selections or {})
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {"text": "帮我做西游悬疑故事", "client_message_id": "request-12345"})
+        self.service.run("alice", run["id"])
+        self.assertTrue(all(isinstance(reply, ChatResult) for reply in replies))
+        return self.service.detail("alice", session["id"]), self.llm.assistant_chat_with_meta
+
+    @staticmethod
+    def native_call(name, **arguments):
+        return {"id": f"call_{name}", "type": "function", "function": {"name": name, "arguments": dumps(arguments)}}
+
+    def test_native_text_reply_skips_json_protocol(self):
+        from backend.app.llm_client import ChatResult
+        detail, caller = self.native_run([
+            ChatResult(content="好的，我们从雨夜巷口开始。", usage={"prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42}),
+        ])
+        message = detail["messages"][-1]
+        self.assertEqual([part["text"] for part in message["parts"] if part["type"] == "markdown"], ["好的，我们从雨夜巷口开始。"])
+        self.assertEqual([part["usage"]["total_tokens"] for part in message["parts"] if part["type"] == "usage"], [42])
+        self.assertFalse(self.llm.assistant_chat.called)
+        sent = caller.call_args.args[0]
+        self.assertNotIn("只输出一个 JSON 对象", sent[0]["content"])
+        self.assertTrue(caller.call_args.kwargs["tools"])
+        self.assertTrue(caller.call_args.kwargs["enable_search"] is False)
+
+    def test_native_read_tool_round_trips_tool_messages(self):
+        from backend.app.llm_client import ChatResult
+        detail, caller = self.native_run([
+            ChatResult(tool_calls=[self.native_call("project_read", stage="script")]),
+            ChatResult(content="工程内容已读取。"),
+        ])
+        self.assertEqual(caller.call_count, 2)
+        messages = caller.call_args_list[1].args[0]
+        assistant = next(message for message in messages if message["role"] == "assistant")
+        self.assertEqual(assistant["tool_calls"][0]["id"], "call_project_read")
+        tool_message = next(message for message in messages if message["role"] == "tool")
+        self.assertEqual(tool_message["tool_call_id"], "call_project_read")
+        self.assertTrue(tool_message["content"].startswith("{"))
+        self.assertTrue(any(part["type"] == "tool" for part in detail["messages"][-1]["parts"]))
+
+    def test_native_create_draft_finishes_with_artifact(self):
+        from backend.app.llm_client import ChatResult
+        detail, caller = self.native_run([
+            ChatResult(content="剧本草稿已准备好。", tool_calls=[self.native_call(
+                "create_draft", artifact_type="script", title="雨夜回声", content="# 雨夜回声\n\n场景一 巷口·夜·外\n林夏撑着黑伞。",
+            )]),
+        ])
+        self.assertEqual(caller.call_count, 1)
+        parts = detail["messages"][-1]["parts"]
+        artifacts = [part for part in parts if part["type"] == "artifact"]
+        self.assertEqual(len(artifacts), 1)
+        artifact = next(item for item in detail["artifacts"] if item["id"] == artifacts[0]["artifact_id"])
+        self.assertEqual(artifact["title"], "雨夜回声")
+
+    def test_native_question_and_citations_are_extracted(self):
+        raw, executable, _text = AssistantService._native_turn("", [
+            self.native_call("ask_question", title="共几集", type="single", options=[{"label": "12集", "value": "12", "description": "标准短剧长度"}, {"label": "24集", "value": "24"}], allow_custom=True),
+            self.native_call("cite_sources", chunk_ids=["chunk-1", "chunk-2"]),
+            self.native_call("editor_read"),
+        ])
+        envelope = AssistantService._parse(raw)
+        self.assertEqual(envelope.question.title, "共几集")
+        self.assertEqual(envelope.question.options[0].description, "标准短剧长度")
+        self.assertEqual(envelope.citation_ids, ["chunk-1", "chunk-2"])
+        self.assertEqual([tool.name for tool in envelope.tool_calls], ["editor_read"])
+        self.assertEqual([call["id"] for call in executable], ["call_editor_read"])
+
+    def test_native_web_search_results_are_rendered(self):
+        from backend.app.llm_client import ChatResult
+        reply = ChatResult(content="今天有一则新消息。", usage={"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28})
+        reply.extra["search_info"] = {"search_results": [
+            {"title": "行业新闻", "url": "https://example.com/news", "site_name": "Example"},
+            {"title": "重复来源", "url": "https://example.com/news", "site_name": "Example"},
+        ]}
+        detail, caller = self.native_run([reply], selections={"web_search": True})
+        self.assertTrue(caller.call_args.kwargs["enable_search"])
+        web = [part for part in detail["messages"][-1]["parts"] if part["type"] == "web_search"]
+        self.assertEqual(len(web), 1)
+        self.assertEqual(len(web[0]["results"]), 1)
+        self.assertEqual(web[0]["results"][0]["url"], "https://example.com/news")
+
+    def test_native_tools_degraded_restores_json_reply(self):
+        from backend.app.llm_client import ChatResult
+        detail, caller = self.native_run([
+            ChatResult(content='{"text":"已改用兼容模式。","question":null,"tool_calls":[],"citation_ids":[]}', extra={"degraded": ["native_tools"]}),
+        ])
+        parts = detail["messages"][-1]["parts"]
+        self.assertEqual([part["text"] for part in parts if part["type"] == "markdown"], ["已改用兼容模式。"])
+        self.assertEqual(caller.call_count, 1)
+        self.assertFalse(self.llm.assistant_chat.called)
+
+    def test_native_capabilities_exposed_in_catalog(self):
+        self.llm.assistant_model_catalog.return_value = [
+            {"id": "model-a", "label": "model-a", "capabilities": {"web_search": True, "native_tools": True}},
+        ]
+        catalog = self.service.catalog("alice")
+        self.assertTrue(catalog["models"][0]["capabilities"]["web_search"])
 
 
 class AssistantModelSettingsTests(unittest.TestCase):

@@ -1,0 +1,37 @@
+[
+  {
+    "entry": "画布",
+    "loginVisible": true,
+    "path": "/generate/video",
+    "selected": [
+      "生成"
+    ]
+  },
+  {
+    "entry": "导演台",
+    "loginVisible": true,
+    "path": "/generate/video",
+    "selected": [
+      "生成"
+    ]
+  },
+  {
+    "entry": "资产",
+    "loginVisible": true,
+    "path": "/generate/video",
+    "selected": [
+      "生成"
+    ]
+  },
+  {
+    "action": "收起任务栏",
+    "navigationCount": 4,
+    "selectedCount": 1
+  },
+  {
+    "action": "键盘焦点",
+    "focused": "导演台",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px"
+  }
+]

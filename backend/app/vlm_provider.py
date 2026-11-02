@@ -250,6 +250,24 @@ class VlmProviderService:
             model=endpoint.model,
         )
 
+    def reverse_prompt(
+        self,
+        *,
+        image_data_url: str,
+        media_type: str,
+        hint: str = "",
+    ) -> dict[str, str]:
+        endpoint = self._analysis_endpoint()
+        if endpoint is None:
+            raise LlmError(ANALYSIS_UNAVAILABLE_MESSAGE)
+        client = OpenAICompatibleClient(base_url=endpoint.base_url, api_key=endpoint.api_key)
+        return client.reverse_generation_prompt(
+            image_data_url=image_data_url,
+            media_type=media_type,
+            hint=hint,
+            model=endpoint.model,
+        )
+
     def analyze_video_shot(
         self,
         *,

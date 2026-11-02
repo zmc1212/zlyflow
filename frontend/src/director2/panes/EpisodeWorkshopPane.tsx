@@ -25,7 +25,6 @@ import {
   Skeleton,
   Spin,
   Steps,
-  Switch,
   Tabs,
   Tag,
   Tooltip,
@@ -84,11 +83,8 @@ import {
   generateBeatVideo,
   generateEpisodeVideo,
   upscaleBeatVideo,
-  composeEpisodeVideo,
   confirmProjectVideoRefine,
   skipProjectVideoRefine,
-  getEpisodeDubbing,
-  getProject,
   listAssets,
   listJobs,
   listVideoWorkflowModes,
@@ -124,10 +120,12 @@ import {
   formatEpisodeVideoSubmitMessage,
   formatSelectedShotSubmitMessage,
   groupedVideoWorkflowOptions,
+  loadProgramPreview,
   loadSavedVideoSettings,
   playbackAspectRatio,
   refineForceWarning,
   sanitizeVideoOptionValues,
+  saveProgramPreview,
   saveVideoSettings,
   selectedShotGenerateExtra,
   shotVideoActionLabel,
@@ -135,8 +133,10 @@ import {
   timelineVideoWorkflows,
   videoResolutionQuality,
   visibleVideoOptionFields,
+  withVideoPromptMode,
   type Director2WorkflowMode,
 } from "../director2-video-settings"
+import { projectVideoResolution } from "../project-video-resolution"
 import { useMediaPreview } from "../media-preview"
 import type { UpscaleEngine } from "../../video-upscale"
 import { mediaAspectVars, parseMediaAspect, type MediaAspectSize } from "../../lib/utils"
@@ -151,11 +151,17 @@ import {
 import { workshopBeatHasSplitTakes, workshopBeatLabel } from "../workshop-beat-label"
 import {
   WORKSHOP_H3_TRIPTYCH_GATE,
+  beatsMissingH3Prompt,
   workshopH3GenerateLabel,
   workshopH3PromptGate,
 } from "../workshop-h3-gate"
 import { withTriptychPanels } from "../workshop-r2v-refs"
 import { shouldShowWorkshopPromptLive, workshopFailedLiveText, workshopH3StatusLabel } from "../workshop-h3-status"
+import {
+  programPreviewPrompts,
+  sameProgramPreviewPrompts,
+  type ProgramPreviewPrompts,
+} from "../workshop-program-prompt"
 import { workshopPromptAsideLine } from "../workshop-vision-status"
 import {
   WORKSHOP_IDLE_POLL_MS,
@@ -183,6 +189,7 @@ export type EpisodeWorkshopPaneHandle = {
 }
 
 type InspectorTab = "film" | "text" | "sketch" | "material"
+type VideoPromptDecision = "submit" | "program" | "generate" | "cancel"
 
 type H3RefImage = {
   id: string
@@ -205,20 +212,6 @@ const episodeStatusOptions = [
   { value: "sketching", label: "出图中" },
   { value: "sketched", label: "分镜完成" },
 ]
-
-async function projectVideoResolution(projectId: string): Promise<{ value: string; label: string } | null> {
-  try {
-    const project = await getProject(projectId)
-    const extra = (project.extra || (project.settings as { extra?: Record<string, unknown> } | null)?.extra || {}) as Record<string, unknown>
-    const value = String(extra.video_resolution || "").trim().toLowerCase()
-    if (value === "768p" || value === "2k") {
-      return { value, label: String(extra.video_resolution_label || (value === "768p" ? "768P" : "2K")) }
-    }
-  } catch {
-    // 工程元数据失败时沿用当前设置
-  }
-  return null
-}
 
 function episodeStageItems(status: string) {
   return episodeStageStates(status).map((state, index) => ({
@@ -280,8 +273,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     // 当前分集工作区 Tab: shots | script | dubbing | compose
     const [currentTab, setCurrentTab] = useState<WorkshopTabKey>(() => parseWorkshopTab(searchParams.get("tab")) || "shots")
-    const [mixDubbing, setMixDubbing] = useState(true)
-    const [composeBlockReason, setComposeBlockReason] = useState("")
 
     // 镜头工作台状态
     const [showSketch, setShowSketch] = useState(true)
@@ -315,6 +306,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     const [inspectorTab, setInspectorTab] = useState<InspectorTab>("text")
     const [playbackMeasured, setPlaybackMeasured] = useState<MediaAspectSize>()
+    const [episodeFilmMeasured, setEpisodeFilmMeasured] = useState<MediaAspectSize>()
 
     // 各种生成 Loading 状态
     const [generatingBeatIds, setGeneratingBeatIds] = useState<Set<string>>(new Set())
@@ -327,7 +319,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [refineAction, setRefineAction] = useState<{ jobId: string; action: "confirm" | "skip" } | null>(null)
     const [beatVideoProgress, setBeatVideoProgress] = useState<Record<string, WorkshopShotVideoProgress>>({})
     const [episodeVideoProgress, setEpisodeVideoProgress] = useState<WorkshopEpisodeVideoProgress | null>(null)
-    const [composingEpisode, setComposingEpisode] = useState(false)
+    const [programPromptPreview, setProgramPromptPreview] = useState<ProgramPreviewPrompts | null>(null)
     const [currentSceneView, setCurrentSceneView] = useState<"front" | "reverse">("front")
     const [beatJobStates, setBeatJobStates] = useState<Map<string, string>>(new Map())
     const [h3RefImages, setH3RefImages] = useState<H3RefImage[]>([])
@@ -367,6 +359,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [videoOptionFields, setVideoOptionFields] = useState(DIRECTOR2_VIDEO_FALLBACK_FIELDS)
     const [videoOptions, setVideoOptions] = useState(() => defaultVideoOptionValues(DIRECTOR2_VIDEO_FALLBACK_FIELDS))
     const [confirmedVideoResolution, setConfirmedVideoResolution] = useState<{ value: string; label: string } | null>(null)
+    const [programPreview, setProgramPreview] = useState(() => loadProgramPreview(projectId))
+    const [promptGateMissing, setPromptGateMissing] = useState<Director2Beat[] | null>(null)
+    const promptGateResolveRef = useRef<((choice: VideoPromptDecision) => void) | null>(null)
 
     // 新增/编辑分集弹窗表单
     const [modalVisible, setModalVisible] = useState(false)
@@ -422,6 +417,11 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       const next = { ...videoOptions, [name]: value }
       setVideoOptions(next)
       saveVideoSettings(projectId, { workflow: videoWorkflow, ...next })
+    }
+
+    function handleProgramPreviewChange(enabled: boolean) {
+      setProgramPreview(enabled)
+      saveProgramPreview(projectId, enabled)
     }
 
     function setStageGeneratingSet(stage: GenerationStage, next: Set<string>) {
@@ -588,6 +588,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     }, [currentEpisode])
     const h3RefImagesVisible = h3ImagesExpanded ? h3RefImages : h3RefImages.slice(0, 3)
     const savedH3Prompt = String(selectedBeat?.h3_prompt || "")
+    const programPrompt = String(programPromptPreview?.prompts?.[selectedBeat?.id || ""] || "")
     const h3PromptDirty = h3PromptDraft !== savedH3Prompt
     const h3Failed = Boolean(h3Live.failed) && !generatingH3Prompt
     const showH3Live = shouldShowWorkshopPromptLive({
@@ -597,18 +598,25 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       liveText: h3Live.text,
     })
     const h3VisionLine = workshopPromptAsideLine(h3JobMeta || selectedBeat, { failed: h3Failed })
-    const showH3Editor = Boolean(h3PromptEditing || (!savedH3Prompt.trim() && !showH3Live))
-    const h3StatusLabel = workshopH3StatusLabel({
-      generating: generatingH3Prompt,
-      failed: h3Failed,
-      editing: h3PromptEditing,
-      dirty: h3PromptDirty,
-      savedPrompt: savedH3Prompt,
-      source: selectedBeat?.h3_prompt_source,
-    })
+    const showH3ProgramPreview = Boolean(
+      programPrompt && !savedH3Prompt.trim() && !showH3Live && !h3PromptEditing,
+    )
+    const showH3Editor = Boolean(
+      h3PromptEditing || (!savedH3Prompt.trim() && !showH3Live && !showH3ProgramPreview),
+    )
+    const h3StatusLabel = showH3ProgramPreview
+      ? "程序装箱预览"
+      : workshopH3StatusLabel({
+        generating: generatingH3Prompt,
+        failed: h3Failed,
+        editing: h3PromptEditing,
+        dirty: h3PromptDirty,
+        savedPrompt: savedH3Prompt,
+        source: selectedBeat?.h3_prompt_source,
+      })
     const h3PromptCopyText = showH3Live
       ? h3Live.text
-      : (showH3Editor ? h3PromptDraft : savedH3Prompt)
+      : showH3Editor ? (h3PromptDraft || programPrompt) : (savedH3Prompt || programPrompt)
     const selectedTriptychGenerating = Boolean(selectedBeat?.id && generatingTriptychBeatIds.has(selectedBeat.id))
     const h3GenerateBusy = generatingH3Prompt || selectedTriptychGenerating
     const h3GenerateLabel = workshopH3GenerateLabel({
@@ -619,6 +627,42 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const playbackAspectSize = playbackMeasured || parseMediaAspect(playbackAspect)
     const playbackPortrait = Boolean(playbackAspectSize && playbackAspectSize.height > playbackAspectSize.width)
     const playbackAspectVars = mediaAspectVars(playbackAspectSize)
+    const episodeFilmAspectVars = mediaAspectVars(episodeFilmMeasured || parseMediaAspect(playbackAspect))
+
+    // 镜头成片放大预览：携带整集已出片镜头的播放序列，预览弹窗内可上一个 / 下一个切换镜头
+    const openBeatPlaybackPreview = () => {
+      if (!selectedBeat || !selectedBeatPlayback) return
+      const withSrc = (currentEpisode?.beats || [])
+        .map((beat) => ({ beat, src: beatPlaybackUrl(beat) }))
+        .filter((item) => item.src)
+      const index = withSrc.findIndex((item) => item.beat.id === selectedBeat.id)
+      if (!withSrc.length || index < 0) {
+        openMediaPreview({
+          src: selectedBeatPlayback,
+          kind: "video",
+          title: `${workshopBeatLabel(selectedBeat)} ${selectedBeatShowingPreview ? "一采预览" : "成片"}`,
+          description: selectedBeatAwaitingRefine ? "一采预览，尚未写入本镜成片" : selectedBeatShowingPreview ? "正在二采精修，当前播放一采预览" : beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
+          aspectRatio: playbackAspect,
+        })
+        return
+      }
+      const list = withSrc.map(({ beat, src }) => ({
+        kind: "video" as const,
+        src,
+        title: `${workshopBeatLabel(beat)} 成片`,
+        description: beatHasUpscaled(beat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
+        aspectRatio: playbackAspect,
+      }))
+      openMediaPreview({
+        src: selectedBeatPlayback,
+        kind: "video",
+        title: `${workshopBeatLabel(selectedBeat)} ${selectedBeatShowingPreview ? "一采预览" : "成片"}`,
+        description: selectedBeatAwaitingRefine ? "一采预览，尚未写入本镜成片" : selectedBeatShowingPreview ? "正在二采精修，当前播放一采预览" : beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
+        aspectRatio: playbackAspect,
+        list,
+        listIndex: index,
+      })
+    }
 
     const selectedVideoWorkflow = useMemo(
       () => videoWorkflows.find((item) => item.id === videoWorkflow) || videoWorkflows[0],
@@ -1427,6 +1471,8 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           }
         })
         const videoProgress = mapWorkshopVideoProgress(jobs, epId)
+        const nextProgramPreview = programPreviewPrompts(jobs, epId)
+        setProgramPromptPreview((prev) => sameProgramPreviewPrompts(prev, nextProgramPreview) ? prev : nextProgramPreview)
         const nextVideoBeatIds = new Set(Object.keys(videoProgress.beats))
         const nextEpisodeVideoActive = Boolean(videoProgress.episode)
         setStageGeneratingSet("sketch", nextSketchIds)
@@ -1558,11 +1604,10 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           if (relevant.length === trackedVideoIds.size && relevant.every((job) => TERMINAL_JOB_STATUSES.has(job.status))) {
             const completed = relevant.filter((job) => SUCCEEDED_JOB_STATUSES.has(job.status)).length
             const failed = relevant.length - completed
-            const composed = relevant.some((job) => String(job.payload?.render_scope || "") === "compose")
             if (failed) {
-              message.warning(composed ? `合成完成：成功 ${completed}，失败 ${failed}` : `视频任务完成：成功 ${completed}，失败 ${failed}`)
+              message.warning(`视频任务完成：成功 ${completed}，失败 ${failed}`)
             } else {
-              message.success(composed ? "分集成片已合成" : "视频任务已完成，成片已写入本集")
+              message.success("视频任务已完成，成片已写入本集")
             }
             trackedVideoJobsRef.current = new Set()
             refresh = true
@@ -1617,6 +1662,37 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       message.success("已自动提炼视频运镜提示词")
     }
 
+    function settlePromptGate(choice: VideoPromptDecision) {
+      const resolve = promptGateResolveRef.current
+      promptGateResolveRef.current = null
+      setPromptGateMissing(null)
+      resolve?.(choice)
+    }
+
+    async function decideVideoPromptMode(
+      beats: Director2Beat[],
+    ): Promise<{ choice: VideoPromptDecision; missing: Director2Beat[] }> {
+      const missing = beatsMissingH3Prompt(beats)
+      if (programPreview) return { choice: "program", missing }
+      if (!missing.length) return { choice: "submit", missing }
+      const choice = await new Promise<VideoPromptDecision>((resolve) => {
+        promptGateResolveRef.current = resolve
+        setPromptGateMissing(missing)
+      })
+      return { choice, missing }
+    }
+
+    function focusMissingPromptBeat(missing: Director2Beat[]) {
+      const first = missing[0]
+      if (!first) return
+      applySelectedBeatId(first.id)
+      setInspectorTab("material")
+      message.info({
+        content: `请先为 ${workshopBeatLabel(first)} 生成 H3 提示词，再提交视频任务`,
+        duration: 6,
+      })
+    }
+
     function confirmForceRefine(durationSec: number): Promise<boolean> {
       const warning = refineForceWarning(videoOptions, durationSec)
       if (!warning) return Promise.resolve(true)
@@ -1637,15 +1713,21 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       const ep = currentEpisodeRef.current
       const beat = resolveSelectedBeat(ep)
       if (!ep || !beat) return
+      const decision = await decideVideoPromptMode([beat])
+      if (decision.choice === "cancel") return
+      if (decision.choice === "generate") {
+        focusMissingPromptBeat(decision.missing)
+        return
+      }
       if (!(await confirmForceRefine(beatDurationSec(beat.video_duration)))) return
       setGeneratingVideo(true)
       try {
         message.loading({ content: "正在提交单镜视频任务...", key: "vGen" })
-        const res = await generateBeatVideo(csrfToken, projectId, ep.id, beat.id, buildVideoJobOptions(
+        const res = await generateBeatVideo(csrfToken, projectId, ep.id, beat.id, withVideoPromptMode(buildVideoJobOptions(
           videoWorkflow,
           videoOptions,
           { duration_per_beat: beatDurationSec(beat.video_duration) },
-        ))
+        ), decision.choice === "program"))
         rememberVideoJobIds([res.job_id])
         message.success({ content: `单镜任务已进入队列：${res.job_id}`, key: "vGen", duration: 6 })
       } catch (err) {
@@ -1719,11 +1801,20 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     async function handleGenerateEpisodeVideo() {
       const ep = currentEpisodeRef.current
       if (!ep || generatingEpisodeVideo) return
+      const decision = await decideVideoPromptMode(ep.beats || [])
+      if (decision.choice === "cancel") return
+      if (decision.choice === "generate") {
+        focusMissingPromptBeat(decision.missing)
+        return
+      }
       const refineDurationSec = videoRenderMode === "episode"
         ? episodeDurationSec
         : Math.max(0, ...(ep.beats || []).map((beat) => beatDurationSec(beat.video_duration)))
       if (!(await confirmForceRefine(refineDurationSec))) return
-      const jobOptions = buildVideoJobOptions(videoWorkflow, videoOptions)
+      const jobOptions = withVideoPromptMode(
+        buildVideoJobOptions(videoWorkflow, videoOptions),
+        decision.choice === "program",
+      )
       if (videoRenderMode === "episode" && videoOptions.refine_enabled === "true") {
         message.info({ content: "整集直出无法中途确认，本次将连续跑完两段式", duration: 6 })
       }
@@ -1757,6 +1848,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         message.warning("请先勾选要生成的镜头")
         return
       }
+      const decision = await decideVideoPromptMode(selectedBeats)
+      if (decision.choice === "cancel") return
+      if (decision.choice === "generate") {
+        focusMissingPromptBeat(decision.missing)
+        return
+      }
       const refineDurationSec = Math.max(
         0, ...selectedBeats.map((beat) => beatDurationSec(beat.video_duration)),
       )
@@ -1767,7 +1864,10 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           csrfToken,
           projectId,
           ep.id,
-          buildVideoJobOptions(videoWorkflow, videoOptions, selectedShotGenerateExtra(beatIds)),
+          withVideoPromptMode(
+            buildVideoJobOptions(videoWorkflow, videoOptions, selectedShotGenerateExtra(beatIds)),
+            decision.choice === "program",
+          ),
         )
         rememberVideoJobIds(res.job_ids?.length ? res.job_ids : [res.job_id])
         message.success({
@@ -1781,25 +1881,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       }
     }
 
-    async function handleComposeEpisode() {
-      const ep = currentEpisodeRef.current
-      if (!ep || composingEpisode) return
-      if (composeBlockReason) {
-        message.warning(composeBlockReason)
-        return
-      }
-      setComposingEpisode(true)
-      try {
-        const res = await composeEpisodeVideo(csrfToken, projectId, ep.id, { mix_dubbing: mixDubbing })
-        rememberVideoJobIds([res.job_id])
-        message.success({ content: "合成任务已进入队列，可在「全部任务 → 视频生成」中查看进度", duration: 6 })
-      } catch (err) {
-        message.error({ content: director2ErrorDetail(err, "合成任务创建失败"), duration: 10 })
-      } finally {
-        setComposingEpisode(false)
-      }
-    }
-
     function handleToolNotice(name: string) {
       message.info(`已开启「${name}」模式`)
     }
@@ -1810,22 +1891,8 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     }, [searchParams])
 
     useEffect(() => {
-      if (currentTab !== "compose" || !currentEpisodeId) {
-        setComposeBlockReason("")
-        return
-      }
-      let cancelled = false
-      void getEpisodeDubbing(projectId, currentEpisodeId)
-        .then((track) => {
-          if (!cancelled) setComposeBlockReason(track.compose_block_reason || "")
-        })
-        .catch(() => {
-          if (!cancelled) setComposeBlockReason("")
-        })
-      return () => {
-        cancelled = true
-      }
-    }, [currentTab, currentEpisodeId, projectId])
+      setEpisodeFilmMeasured(undefined)
+    }, [currentEpisodeId])
 
     // ---------------- 左右拖拽调节分栏 ----------------
     // 经 ref 转发保持监听器注册/移除一致（等价 Vue 的稳定函数引用）
@@ -1976,6 +2043,10 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       // 对应原版 onMounted + onUnmounted
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    useEffect(() => {
+      setProgramPreview(loadProgramPreview(projectId))
+    }, [projectId])
 
     useEffect(() => {
       let cancelled = false
@@ -2172,8 +2243,11 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                   values={videoOptions}
                   durationSec={selectedBeat ? beatDurationSec(selectedBeat.video_duration) : undefined}
                   confirmedResolutionLabel={confirmedVideoResolution?.label}
+                  programPreview={programPreview}
+                  missingPromptCount={beatsMissingH3Prompt(currentEpisode.beats || []).length}
                   onWorkflowChange={handleVideoWorkflowChange}
                   onChange={handleVideoOptionChange}
+                  onProgramPreviewChange={handleProgramPreviewChange}
                 />
                 <Button loading={generatingEpisodeVideo || episodeVideoJobActive} icon={<Video size={14} />} onClick={() => handleGenerateEpisodeVideo()}>
                   一键生成视频
@@ -2485,13 +2559,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                               type="button"
                                               className="xiaji-shot-playback-expand"
                                               aria-label={selectedBeatShowingPreview ? "放大预览一采" : "放大预览成片"}
-                                              onClick={() => openMediaPreview({
-                                                src: selectedBeatPlayback,
-                                                kind: "video",
-                                                title: `${workshopBeatLabel(selectedBeat)} ${selectedBeatShowingPreview ? "一采预览" : "成片"}`,
-                                                description: selectedBeatAwaitingRefine ? "一采预览，尚未写入本镜成片" : selectedBeatShowingPreview ? "正在二采精修，当前播放一采预览" : beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
-                                                aspectRatio: playbackAspect,
-                                              })}
+                                              onClick={openBeatPlaybackPreview}
                                             >
                                               <Maximize2 size={14} />
                                             </button>
@@ -2501,13 +2569,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                             <Button
                                               size="small"
                                               icon={<Maximize2 size={12} />}
-                                              onClick={() => openMediaPreview({
-                                                src: selectedBeatPlayback,
-                                                kind: "video",
-                                                title: `${workshopBeatLabel(selectedBeat)} ${selectedBeatShowingPreview ? "一采预览" : "成片"}`,
-                                                description: selectedBeatAwaitingRefine ? "一采预览，尚未写入本镜成片" : selectedBeatShowingPreview ? "正在二采精修，当前播放一采预览" : beatHasUpscaled(selectedBeat) ? "正在播放 2x 超分，原片仍保留" : "本镜成片",
-                                                aspectRatio: playbackAspect,
-                                              })}
+                                              onClick={openBeatPlaybackPreview}
                                             >
                                               放大
                                             </Button>
@@ -3002,7 +3064,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                                 icon={<Pencil size={12} />}
                                                 disabled={generatingH3Prompt}
                                                 onClick={() => {
-                                                  setH3PromptDraft(savedH3Prompt)
+                                                  setH3PromptDraft(savedH3Prompt || programPrompt)
                                                   setH3PromptEditing(true)
                                                 }}
                                               >
@@ -3033,6 +3095,16 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                               setH3PromptDraft(e.target.value)
                                             }}
                                           />
+                                        ) : showH3ProgramPreview ? (
+                                          <>
+                                            <div className="h3-program-preview-note">
+                                              {`以下是最近一次程序装箱预览的提示词${programPromptPreview?.jobId ? `（任务 ${programPromptPreview.jobId}）` : ""}，未保存到镜头。如需长期复用，请生成 H3 提示词，或点「编辑」后保存。`}
+                                            </div>
+                                            <div
+                                              className="h3-prompt-display"
+                                              dangerouslySetInnerHTML={{ __html: renderH3PromptHtml(programPrompt) }}
+                                            />
+                                          </>
                                         ) : (
                                           <div
                                             className="h3-prompt-display"
@@ -3143,7 +3215,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                     <DubbingWorkbench csrfToken={csrfToken} projectId={projectId} episodeId={currentEpisode.id} />
                   ),
                 },
-                /* ==================== Tab 3: 🎞️ 成片合成 (ComposePane) ==================== */
+                /* ==================== Tab 3: 🎞️ 成片 (ComposePane) ==================== */
                 {
                   key: "compose",
                   label: <span className="workspace-tab-label"><Film size={15} />合成</span>,
@@ -3155,62 +3227,43 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                           <h3>
                             {videoRenderMode === "episode"
                               ? "第 " + currentEpisode.number + " 集 H3 Director 整集直出"
-                              : "第 " + currentEpisode.number + " 集成片合成流水线"}
+                              : "第 " + currentEpisode.number + " 集成片"}
                           </h3>
                           <p>
                             {videoRenderMode === "episode"
                               ? (episodeFilm
                                 ? "本集已由 H3 Director 加速版一次直出。勾选镜头点「生成选中」可单独重跑单镜。"
                                 : "「一键生成视频」一次出整集成片；勾选镜头后点「生成选中」只提交这些镜。")
-                              : `已出片 ${videoReadyCount}/${currentEpisode.beats?.length || 0} · 开口对白默认保留 H3 口型声，内心/旁白可叠配音轨`}
+                              : `已出片 ${videoReadyCount}/${currentEpisode.beats?.length || 0} · 整集拼接、配音混音与字幕在「智能剪辑」里完成`}
                           </p>
                         </div>
                         <Space wrap>
-                          <Switch
-                            size="small"
-                            checked={mixDubbing}
-                            onChange={setMixDubbing}
-                            checkedChildren="混入配音"
-                            unCheckedChildren="不混配音"
-                          />
                           <Button
                             type="primary"
-                            icon={<Sparkles size={14} />}
-                            loading={composingEpisode || episodeVideoJobActive}
-                            disabled={
-                              composingEpisode
-                              || episodeVideoJobActive
-                              || !currentEpisode.beats?.length
-                              || videoReadyCount < (currentEpisode.beats?.length || 0)
-                              || Boolean(composeBlockReason)
-                            }
-                            onClick={() => handleComposeEpisode()}
+                            onClick={() => navigate(director2ProjectPath(projectId, "edit", currentEpisode.id))}
                           >
-                            一键合成全集成片
-                          </Button>
-                          <Button onClick={() => handleToolNotice("字幕导出")}>
-                            导出字幕 SRT
-                          </Button>
-                          <Button onClick={() => navigate(director2ProjectPath(projectId, "edit", currentEpisode.id))}>
                             进入智能剪辑
                           </Button>
                         </Space>
                       </div>
 
-                      {composeBlockReason ? (
-                        <Alert
-                          type="warning"
-                          showIcon
-                          className="mt-4"
-                          message="解说剧还不能合成"
-                          description={composeBlockReason}
-                        />
-                      ) : null}
-
                       {episodeFilm ? (
                         <div className="compose-episode-player mt-4">
                           <h4>分集成片</h4>
-                          <video src={episodeFilm} controls playsInline className="compose-episode-video" />
+                          <div className="compose-episode-frame" style={episodeFilmAspectVars as CSSProperties}>
+                            <video
+                              key={episodeFilm}
+                              src={episodeFilm}
+                              controls
+                              playsInline
+                              className="compose-episode-video"
+                              onLoadedMetadata={(event) => {
+                                const width = event.currentTarget.videoWidth
+                                const height = event.currentTarget.videoHeight
+                                if (width > 0 && height > 0) setEpisodeFilmMeasured({ width, height })
+                              }}
+                            />
+                          </div>
                           {episodeSource === "director_direct" ? (
                             <p className="compose-episode-note">来源：H3 Director 加速版一次直出</p>
                           ) : episodeSource === "composed" ? (
@@ -3362,6 +3415,25 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
             </Form.Item>
             <p className="series-form-note"><Info size={15} />也可以在内容库导入完整剧本，再同步为分集。</p>
           </Form>
+        </Modal>
+        <Modal
+          open={Boolean(promptGateMissing)}
+          title="还有镜头缺少 H3 提示词"
+          width={520}
+          centered
+          onCancel={() => settlePromptGate("cancel")}
+          footer={<>
+            <Button onClick={() => settlePromptGate("cancel")}>取消</Button>
+            <Button onClick={() => settlePromptGate("program")}>仅本次程序装箱预览</Button>
+            <Button type="primary" onClick={() => settlePromptGate("generate")}>先去生成提示词</Button>
+          </>}
+        >
+          <div className="assistant-shoot-confirm">
+            <p>以下镜头还没有 H3 六段式提示词，正式出片前需要先生成：</p>
+            {promptGateMissing?.slice(0, 8).map((beat) => <p key={beat.id}>· {workshopBeatLabel(beat)}</p>)}
+            {promptGateMissing && promptGateMissing.length > 8 ? <p>…等 {promptGateMissing.length} 个镜头</p> : null}
+            <p>程序装箱预览不调用大模型，直接用程序模板拼提示词，画面效果仅供参考。</p>
+          </div>
         </Modal>
       </div>
     )

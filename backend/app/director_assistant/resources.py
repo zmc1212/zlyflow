@@ -37,11 +37,19 @@ class ResourceService:
                     self.save("", {"resource_type": kind, "name": name, "category": category,
                                    "description": description, "instructions": instructions, "references": {}}, resource_id=rid, builtin=True)
 
-    def catalog(self, owner: str) -> list[dict]:
+    def catalog(self, owner: str, *, can_manage_platform: bool = False) -> list[dict]:
         favorites = {x["resource_id"] for x in self.repo.list(owner, "favorite")}
-        return [{**r, "favorite": r["id"] in favorites} for r in self.repo.list(owner, "resource", shared=True)]
+        resources = []
+        for resource in self.repo.list(owner, "resource", shared=True):
+            platform = bool(resource.get("platform"))
+            resources.append({
+                **resource,
+                "favorite": resource["id"] in favorites,
+                "manageable": not resource.get("builtin") and (can_manage_platform if platform else True),
+            })
+        return resources
 
-    def save(self, owner: str, data: dict, *, resource_id=None, builtin=False) -> dict:
+    def save(self, owner: str, data: dict, *, resource_id=None, builtin=False, platform=False) -> dict:
         kind = data.get("resource_type", "skill")
         if kind not in {"skill", "expert"}:
             raise ValueError("请选择 Skill 或专家")
@@ -53,18 +61,19 @@ class ResourceService:
             raise ValueError("参考资料过多，请精简后导入")
         value = {"resource_type": kind, "name": name, "category": str(data.get("category") or "个人")[:30],
                  "description": str(data.get("description") or "")[:500], "instructions": instructions,
-                 "references": {str(k): str(v) for k, v in refs.items()}, "builtin": builtin}
+                 "references": {str(k): str(v) for k, v in refs.items()}, "builtin": builtin, "platform": platform}
+        owner_id = "" if platform or builtin else owner
         with self.repo.transaction() as conn:
             current = None
             if resource_id and not builtin:
-                current = self.repo.get(owner, resource_id, "resource", conn=conn, lock=True)
+                current = self.repo.get(owner_id, resource_id, "resource", conn=conn, lock=True)
                 if data.get("version") != current["version"]:
                     raise AssistantConflict("该资源已更新，请刷新后再编辑")
-            revision = self.repo.insert(owner, "resource_version", value, parent=resource_id or "", conn=conn)
+            revision = self.repo.insert(owner_id, "resource_version", value, parent=resource_id or "", conn=conn)
             value["version_id"] = revision["id"]
             if current:
-                return self.repo.update(owner, current, value, conn=conn)
-            return self.repo.insert(owner, "resource", value, record_id=resource_id, conn=conn)
+                return self.repo.update(owner_id, current, value, conn=conn)
+            return self.repo.insert(owner_id, "resource", value, record_id=resource_id, conn=conn)
 
     def favorite(self, owner: str, resource_id: str, enabled: bool) -> None:
         self.repo.get(owner, resource_id, "resource", shared=True)

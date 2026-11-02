@@ -1,13 +1,15 @@
 import { Avatar, Button, Dropdown, Tooltip, type MenuProps } from "antd"
-import { ChevronDown, Link2, LoaderCircle, LogOut, Moon, Sparkles, Sun, UserRound, Users } from "lucide-react"
+import { ChevronDown, Link2, LoaderCircle, LogOut, Moon, Sun, UserRound, Users } from "lucide-react"
 import { useState } from "react"
 import type { User } from "../api"
 import { useStudioTheme } from "../ThemeProvider"
 import ThemeToggle from "./ThemeToggle"
+import { StudioBrandSymbol } from "./StudioSymbols"
 import "./studio-header.css"
 
 type StudioHeaderProps = {
-  user: User
+  user: User | null
+  onRequestLogin?: () => void
   provider: "ComfyUI" | "GRS"
   providerStatus: "checking" | "online" | "offline"
   providerMessage?: string | null
@@ -19,12 +21,12 @@ type StudioHeaderProps = {
 }
 
 export default function StudioHeader({
-  user, provider, providerStatus, providerMessage, onOpenMcp, onOpenAdmin, onOpenProfile, onLogout, logoutPending,
+  user, provider, providerStatus, providerMessage, onOpenMcp, onOpenAdmin, onOpenProfile, onLogout, logoutPending, onRequestLogin,
 }: StudioHeaderProps) {
   const { mode, toggleMode } = useStudioTheme()
   const [accountOpen, setAccountOpen] = useState(false)
   const statusLabel = { checking: "连接中", online: "已连接", offline: "未连接" }[providerStatus]
-  const displayName = user.display_name || user.username
+  const displayName = user?.display_name || user?.username || ""
   const items: MenuProps["items"] = [
     { key: "theme", icon: mode === "dark" ? <Sun size={16} /> : <Moon size={16} />, label: mode === "dark" ? "浅色外观" : "暗色外观" },
     { type: "divider" },
@@ -47,22 +49,24 @@ export default function StudioHeader({
   return (
     <header className="studio-header studio-header-floating" aria-label="工作台页头">
       <div className="studio-header-island studio-header-brand">
-        <span className="studio-header-brand-mark" aria-hidden="true"><Sparkles size={18} /></span>
+        <span className="studio-header-brand-mark" aria-hidden="true">
+          <StudioBrandSymbol />
+        </span>
         <strong>ZLY AI Studio</strong>
         <span className="studio-header-divider" aria-hidden="true" />
         <h1 className="studio-header-title">创作工作台</h1>
       </div>
       <div className="studio-header-island studio-header-utilities">
-        <Tooltip title={providerMessage || `${provider} · ${statusLabel}`}>
+        {user && <><Tooltip title={providerMessage || `${provider} · ${statusLabel}`}>
           <span className="studio-header-service" role="status" aria-live="polite">
             <span className={`studio-header-service-dot studio-header-service-${providerStatus}`} aria-hidden="true" />
             <span>{provider} · {statusLabel}</span>
           </span>
         </Tooltip>
-        <span className="studio-header-divider" aria-hidden="true" />
+        <span className="studio-header-divider" aria-hidden="true" /></>}
         <ThemeToggle className="studio-header-theme-toggle" />
         <span className="studio-header-divider" aria-hidden="true" />
-        <Dropdown
+        {user ? <Dropdown
           open={accountOpen}
           onOpenChange={setAccountOpen}
           trigger={["click"]}
@@ -90,7 +94,7 @@ export default function StudioHeader({
             <span className="studio-header-account-name">{displayName}</span>
             <ChevronDown size={14} aria-hidden="true" />
           </Button>
-        </Dropdown>
+        </Dropdown> : <Button onClick={onRequestLogin} className="studio-header-login">登录</Button>}
       </div>
     </header>
   )

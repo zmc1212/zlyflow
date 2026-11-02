@@ -20,8 +20,11 @@ export default function Director2VideoSettingsPopover({
   values,
   durationSec,
   confirmedResolutionLabel,
+  programPreview,
+  missingPromptCount = 0,
   onWorkflowChange,
   onChange,
+  onProgramPreviewChange,
 }: {
   workflowId: string
   workflows: Director2WorkflowMode[]
@@ -29,8 +32,11 @@ export default function Director2VideoSettingsPopover({
   values: Record<string, string>
   durationSec?: number
   confirmedResolutionLabel?: string
+  programPreview: boolean
+  missingPromptCount?: number
   onWorkflowChange: (workflowId: string) => void
   onChange: (name: string, value: string) => void
+  onProgramPreviewChange: (enabled: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const primary = useMemo(
@@ -111,6 +117,16 @@ export default function Director2VideoSettingsPopover({
         </div>
       ) : null}
       {primary.map(renderField)}
+      <div className="d2-video-settings-refine-hint">
+        <strong>H3 提示词</strong>
+        <span>
+          {programPreview
+            ? "程序装箱预览已开启，本次出片不会使用 H3 六段式提示词。"
+            : missingPromptCount
+              ? `有 ${missingPromptCount} 个镜头还没有 H3 六段式提示词，提交前需要先生成。`
+              : "本集镜头都已有 H3 六段式提示词，出片按已保存提示词执行。"}
+        </span>
+      </div>
       {refineHint ? (
         <div className="d2-video-settings-refine-hint">
           <strong>
@@ -136,16 +152,26 @@ export default function Director2VideoSettingsPopover({
           ) : null}
         </div>
       ) : null}
-      {advanced.length ? (
-        <Collapse
-          defaultActiveKey={["advanced"]}
-          items={[{
-            key: "advanced",
-            label: "更多设置",
-            children: <Space direction="vertical" className="w-full">{advanced.map(renderField)}</Space>,
-          }]}
-        />
-      ) : null}
+      <Collapse
+        defaultActiveKey={["advanced"]}
+        items={[{
+          key: "advanced",
+          label: "更多设置",
+          children: <Space direction="vertical" className="w-full">
+            <label className="d2-video-settings-field is-switch">
+              <span>程序装箱预览</span>
+              <Switch
+                aria-label="程序装箱预览"
+                checked={programPreview}
+                onChange={(checked) => onProgramPreviewChange(checked)}
+                size="small"
+              />
+              <em>不调用大模型，直接用程序模板拼提示词，仅用于快速预览画面；正式出片请保持关闭。</em>
+            </label>
+            {advanced.map(renderField)}
+          </Space>,
+        }]}
+      />
     </div>
   )
 

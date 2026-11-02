@@ -9,7 +9,7 @@ export function defaultCreateSkillPackId(packs: Director2SkillPack[]): string {
 }
 
 export function skillPackDisplayName(pack: Pick<Director2SkillPack, "id" | "name">): string {
-  if (!String(pack.id || "").trim()) return "不绑定配方 · 默认程序装箱"
+  if (!String(pack.id || "").trim()) return "H3 官方六段式（默认）"
   return String(pack.name || pack.id).trim() || pack.id
 }
 
@@ -58,7 +58,7 @@ export function skillPackAuthor(pack: Pick<Director2SkillPack, "author"> | null 
 }
 
 export function skillPackCardTitle(pack: Pick<Director2SkillPack, "id" | "name">): string {
-  if (!String(pack.id || "").trim()) return "不绑定配方"
+  if (!String(pack.id || "").trim()) return "H3 官方六段式"
   return skillPackDisplayName(pack)
 }
 

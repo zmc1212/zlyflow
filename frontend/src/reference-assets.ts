@@ -1,6 +1,11 @@
 import { notifyUnauthorized } from "./api"
 
-export type ReferenceSource = { index: number; url: string }
+export type ReferenceSource = {
+  index: number
+  url: string
+  kind?: "image" | "video" | "audio"
+  label?: string | null
+}
 
 const IMAGE_KIND_BY_MIME: Record<string, { mime: string; ext: string }> = {
   "image/png": { mime: "image/png", ext: "png" },
@@ -57,8 +62,24 @@ export function roundReferenceSources(
   return [...job.references].sort((left, right) => left.index - right.index)
 }
 
-export async function fileFromReferenceBlob(blob: Blob, index: number, declaredType = ""): Promise<File> {
+export async function fileFromReferenceBlob(
+  blob: Blob, index: number, declaredType = "", expectedKind: "image" | "video" | "audio" = "image",
+): Promise<File> {
   const header = new Uint8Array(await blob.slice(0, 16).arrayBuffer())
+  if (expectedKind !== "image") {
+    const declared = (declaredType || blob.type).split(";")[0].trim().toLowerCase()
+    const mediaTypes: Record<string, string> = {
+      "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm", "video/x-matroska": "mkv",
+      "video/x-msvideo": "avi", "video/x-m4v": "m4v",
+      "audio/wav": "wav", "audio/x-wav": "wav", "audio/mpeg": "mp3", "audio/mp4": "m4a",
+      "audio/ogg": "ogg", "audio/flac": "flac", "audio/aac": "aac",
+    }
+    let mime = declared.startsWith(`${expectedKind}/`) && mediaTypes[declared] ? declared : ""
+    if (!mime && expectedKind === "video" && String.fromCharCode(...header.slice(4, 8)) === "ftyp") mime = "video/mp4"
+    if (!mime && expectedKind === "video" && headerStartsWith(header, [0x1a, 0x45, 0xdf, 0xa3])) mime = "video/webm"
+    if (!mime) throw new Error(`参考素材 ${index} 不是可识别的${expectedKind === "video" ? "视频" : "音频"}`)
+    return new File([blob], `reference-${index}.${mediaTypes[mime]}`, { type: mime, lastModified: Date.now() })
+  }
   const kind = sniffImageKind(header, declaredType || blob.type)
   if (!kind) throw new Error(`参考图 ${index} 不是可识别的图片`)
   return new File([blob], `reference-${index}.${kind.ext}`, { type: kind.mime, lastModified: Date.now() })
@@ -70,6 +91,6 @@ export async function restoreReferenceFiles(sources: ReferenceSource[]): Promise
     if (response.status === 401) notifyUnauthorized()
     if (!response.ok) throw new Error(`参考图 ${reference.index} 无法读取`)
     const blob = await response.blob()
-    return fileFromReferenceBlob(blob, reference.index, blob.type || response.headers.get("content-type") || "")
+    return fileFromReferenceBlob(blob, reference.index, blob.type || response.headers.get("content-type") || "", reference.kind)
   }))
 }

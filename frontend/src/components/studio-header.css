@@ -32,11 +32,12 @@
   pointer-events: auto;
 }
 
-.studio-header-brand { min-width: 312px; gap: 12px; padding: 0 16px; }
-.studio-header-brand strong { white-space: nowrap; font-size: 18px; font-weight: 600; letter-spacing: -.025em; }
-.studio-header-brand-mark { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border: 1px solid currentColor; border-radius: 7px; color: var(--studio-header-brand); }
+.studio-header-brand { min-width: 280px; gap: 10px; padding: 0 14px; }
+.studio-header-brand strong { white-space: nowrap; font-size: 16px; font-weight: 600; letter-spacing: -.02em; }
+.studio-header-brand-mark { display: grid; width: 28px; height: 28px; flex: none; place-items: center; }
+.studio-header-brand-mark svg { display: block; width: 28px; height: 28px; }
 .studio-header-divider { width: 1px; height: 18px; flex: none; background: var(--studio-border-strong); }
-.studio-header-title { margin: 0; color: var(--studio-text-secondary); white-space: nowrap; font-size: 14px; font-weight: 500; line-height: 20px; }
+.studio-header-title { margin: 0; color: var(--studio-text-secondary); white-space: nowrap; font-size: 13px; font-weight: 400; line-height: 20px; }
 .studio-header-utilities { min-width: 364px; justify-content: center; gap: 12px; padding: 0 12px; }
 .studio-header-service { display: inline-flex; align-items: center; gap: 8px; color: var(--studio-text-secondary); white-space: nowrap; font-size: 12px; line-height: 20px; }
 .studio-header-service-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; }
@@ -76,6 +77,7 @@
 
 .studio-header-account-button .ant-avatar { flex: none; background: var(--studio-primary-soft); color: var(--studio-accent-text); font-size: 14px; font-weight: 600; }
 .studio-header-account-name { overflow: hidden; max-width: 96px; text-overflow: ellipsis; white-space: nowrap; }
+.studio-header-utilities .studio-header-login { height: 32px; min-width: 66px; border-color: var(--studio-border); border-radius: 9px; background: var(--studio-surface); color: var(--studio-text); box-shadow: none; font-size: 13px; }
 .studio-header-floating .ant-btn:hover { background: var(--studio-hover) !important; color: var(--studio-text) !important; }
 .studio-header-floating .ant-btn:focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 3px; }
 

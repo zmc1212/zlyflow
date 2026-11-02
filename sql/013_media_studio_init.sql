@@ -80,5 +80,9 @@ CREATE TABLE IF NOT EXISTS `ai_project_jobs` (
     `completed_at` VARCHAR(64) DEFAULT NULL,
     `created_at` VARCHAR(64) NOT NULL,
     `updated_at` VARCHAR(64) NOT NULL,
-    KEY `idx_ai_job_project` (`project_id`)
+    -- 任务归属与心跳租约：多套后端共享本库时，启动扫描只收敛认领进程已停止心跳的行。
+    `worker_id` VARCHAR(96) NOT NULL DEFAULT '',
+    `lease_updated_at` VARCHAR(64) DEFAULT NULL,
+    KEY `idx_ai_job_project` (`project_id`),
+    KEY `idx_ai_job_lease` (`job_type`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

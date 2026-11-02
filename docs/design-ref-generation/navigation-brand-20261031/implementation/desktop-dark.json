@@ -1,0 +1,189 @@
+{
+  "brand": {
+    "loaded": true,
+    "rect": {
+      "bottom": 56,
+      "height": 40,
+      "left": 32,
+      "right": 72,
+      "top": 16,
+      "width": 40,
+      "x": 32,
+      "y": 16
+    },
+    "src": "http://127.0.0.1:5173/studio-icons/brand-z-dark.webp"
+  },
+  "dpr": 1,
+  "fonts_ready": true,
+  "full_page": false,
+  "header": {
+    "bottom": 60,
+    "height": 48,
+    "left": 16,
+    "right": 328,
+    "top": 12,
+    "width": 312,
+    "x": 16,
+    "y": 12
+  },
+  "items": [
+    {
+      "active": true,
+      "background": "rgba(141, 111, 255, 0.16)",
+      "color": "rgb(239, 233, 255)",
+      "current": "page",
+      "href": "/generate/video",
+      "image": {
+        "loaded": true,
+        "rect": {
+          "bottom": 148,
+          "height": 44,
+          "left": 15.5,
+          "right": 59.5,
+          "top": 104,
+          "width": 44,
+          "x": 15.5,
+          "y": 104
+        },
+        "src": "http://127.0.0.1:5173/studio-icons/generate.webp"
+      },
+      "name": "生成",
+      "rect": {
+        "bottom": 176,
+        "height": 80,
+        "left": 5.5,
+        "right": 69.5,
+        "top": 96,
+        "width": 64,
+        "x": 5.5,
+        "y": 96
+      }
+    },
+    {
+      "active": false,
+      "background": "rgba(0, 0, 0, 0)",
+      "color": "rgb(192, 199, 208)",
+      "current": null,
+      "href": "/director",
+      "image": {
+        "loaded": true,
+        "rect": {
+          "bottom": 236,
+          "height": 44,
+          "left": 15.5,
+          "right": 59.5,
+          "top": 192,
+          "width": 44,
+          "x": 15.5,
+          "y": 192
+        },
+        "src": "http://127.0.0.1:5173/studio-icons/director.webp"
+      },
+      "name": "导演台",
+      "rect": {
+        "bottom": 264,
+        "height": 80,
+        "left": 5.5,
+        "right": 69.5,
+        "top": 184,
+        "width": 64,
+        "x": 5.5,
+        "y": 184
+      }
+    },
+    {
+      "active": false,
+      "background": "rgba(0, 0, 0, 0)",
+      "color": "rgb(192, 199, 208)",
+      "current": null,
+      "href": "/canvas",
+      "image": {
+        "loaded": true,
+        "rect": {
+          "bottom": 324,
+          "height": 44,
+          "left": 12.5,
+          "right": 62.5,
+          "top": 280,
+          "width": 50,
+          "x": 12.5,
+          "y": 280
+        },
+        "src": "http://127.0.0.1:5173/studio-icons/canvas.webp"
+      },
+      "name": "画布",
+      "rect": {
+        "bottom": 352,
+        "height": 80,
+        "left": 5.5,
+        "right": 69.5,
+        "top": 272,
+        "width": 64,
+        "x": 5.5,
+        "y": 272
+      }
+    },
+    {
+      "active": false,
+      "background": "rgba(0, 0, 0, 0)",
+      "color": "rgb(192, 199, 208)",
+      "current": null,
+      "href": "/assets",
+      "image": {
+        "loaded": true,
+        "rect": {
+          "bottom": 412,
+          "height": 44,
+          "left": 15.5,
+          "right": 59.5,
+          "top": 368,
+          "width": 44,
+          "x": 15.5,
+          "y": 368
+        },
+        "src": "http://127.0.0.1:5173/studio-icons/assets.webp"
+      },
+      "name": "资产",
+      "rect": {
+        "bottom": 440,
+        "height": 80,
+        "left": 5.5,
+        "right": 69.5,
+        "top": 360,
+        "width": 64,
+        "x": 5.5,
+        "y": 360
+      }
+    }
+  ],
+  "rail": {
+    "bottom": 863,
+    "height": 787,
+    "left": 0,
+    "right": 76,
+    "top": 76,
+    "width": 76,
+    "x": 0,
+    "y": 76
+  },
+  "screenshot_scale": "device",
+  "theme": "dark",
+  "title": "ZLY AI 视频创作平台",
+  "url": "http://127.0.0.1:5173/generate/video",
+  "viewport": {
+    "height": 863,
+    "width": 1920
+  },
+  "clip": {
+    "x": 0,
+    "y": 0,
+    "width": 1000,
+    "height": 650
+  },
+  "screenshot_pixels": {
+    "width": 1000,
+    "height": 650
+  },
+  "screenshot_original_format": "JPEG",
+  "capture_verified": true
+}

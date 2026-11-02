@@ -20,7 +20,7 @@ function readStoredTheme(): ThemeMode {
   try {
     return resolveThemeMode(window.localStorage.getItem(THEME_STORAGE_KEY))
   } catch {
-    return "light"
+    return "dark"
   }
 }
 

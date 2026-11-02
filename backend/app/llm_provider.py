@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import Any, Callable
 from urllib.parse import urlparse
 
 from .grs_provider import CredentialManager
+from .llm_capabilities import STRUCTURED_OBJECT, STRUCTURED_SCHEMA, detect_capabilities
 from .llm_client import (
     LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
+    LLM_OPTIMIZE_TIMEOUT_SECONDS,
     LLM_TEST_TIMEOUT_SECONDS,
+    ChatResult,
     OpenAICompatibleClient,
+    LlmCapabilityError,
     LlmError,
     LlmTemporaryError,
     normalize_api_key,
@@ -28,6 +33,25 @@ DEFAULT_ASR_MODEL = "XingChenAGI/XingChenASR-V3.2-Ultra"
 ASR_MODEL_ENV = "ZLY_AI_VIDEO_STUDIO_ASR_MODEL"
 ASR_TIMEOUT_SECONDS = 300.0
 
+# A rejected optional field is remembered per endpoint+model so the next turn
+# does not repeat the same failed request.
+_CAPABILITY_DEGRADED: dict[str, set[str]] = {}
+_CAPABILITY_LOCK = threading.Lock()
+
+
+def _capability_key(base_url: str, model: str) -> str:
+    return f"{str(base_url or '').rstrip('/')}|{model}"
+
+
+def _remember_degraded(key: str, field: str) -> None:
+    with _CAPABILITY_LOCK:
+        _CAPABILITY_DEGRADED.setdefault(key, set()).add(field)
+
+
+def _degraded_capabilities(key: str) -> set[str]:
+    with _CAPABILITY_LOCK:
+        return set(_CAPABILITY_DEGRADED.get(key, set()))
+
 
 VISION_MODEL_MARKERS = (
     "vl", "vision", "gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "o4-mini",
@@ -36,6 +60,8 @@ VISION_MODEL_MARKERS = (
     "glm-5v", "internvl",
     "phi-4-multimodal", "phi-3.5-vision", "gemma-3", "gemma-4", "minicpm-v", "step-1v",
     "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen-vl",
+    # 七牛 conatus 免费模型名称不含 VL/Vision，但官方声明支持图像理解。
+    "conatus",
 )
 
 
@@ -77,23 +103,52 @@ class LlmProviderService:
             return False, "未配置大模型名称 (Model Name)。"
         return True, None
 
+    def _stored_api_key(self, base_url: str) -> str | None:
+        """Decrypted key saved in the endpoint credential vault for this base URL."""
+        record = self.store.get_llm_endpoint_credential(base_url)
+        if not record:
+            return None
+        return self.credentials.decrypt(record.get("api_key_encrypted"))
+
+    def _resolve_request_key(self, base_url: str, submitted_key: str | None) -> str | None:
+        """Key for a test/catalog call: submitted > active config > endpoint vault > local fallback."""
+        same_endpoint = str(base_url or "").rstrip("/") == str(self.store.get_llm_settings()["base_url"]).rstrip("/")
+        api_key = submitted_key or (self.api_key() if same_endpoint else None)
+        if not api_key and not same_endpoint:
+            api_key = self._stored_api_key(base_url)
+        if not api_key and is_local_base_url(base_url or ""):
+            api_key = "ollama"
+        return api_key
+
+
+    @staticmethod
+    def _mask_key(api_key: str | None) -> str | None:
+        if not api_key:
+            return None
+        if len(api_key) > 5:
+            return f"{api_key[:3]}{'*' * max(5, min(16, len(api_key) - 5))}{api_key[-2:]}"
+        return "*****"
+
+    def _endpoint_credential_summaries(self) -> list[dict[str, Any]]:
+        summaries: list[dict[str, Any]] = []
+        for record in self.store.list_llm_endpoint_credentials():
+            summaries.append({
+                "base_url": record.get("base_url"),
+                "model": str(record.get("model") or ""),
+                "api_key_masked": self._mask_key(self.credentials.decrypt(record.get("api_key_encrypted"))),
+                "updated_at": record.get("updated_at"),
+            })
+        return summaries
 
     def public_config(self) -> dict[str, Any]:
         config = self.store.get_llm_settings()
         api_key = self.api_key()
         available, reason = self.availability()
-        masked = None
-        if api_key:
-            masked = (
-                f"{api_key[:3]}{'*' * max(5, min(16, len(api_key) - 5))}{api_key[-2:]}"
-                if len(api_key) > 5
-                else "*****"
-            )
         return {
             "enabled": config["enabled"],
             "base_url": config["base_url"],
             "model": config["model"],
-            "api_key_masked": masked,
+            "api_key_masked": self._mask_key(api_key),
             "has_api_key": bool(config.get("api_key_encrypted")),
             "credential_ready": self.credentials.ready,
             "last_test_status": config.get("last_test_status"),
@@ -103,6 +158,7 @@ class LlmProviderService:
             "unavailable_reason": reason,
             "supports_vision": model_supports_vision(config.get("model")),
             "assistant_models": self.assistant_models(),
+            "saved_provider_credentials": self._endpoint_credential_summaries(),
         }
 
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -131,14 +187,23 @@ class LlmProviderService:
         changed_endpoint = values["base_url"] != str(previous.get("base_url") or "").rstrip("/")
         if changed_endpoint or values["model"] != previous.get("model") or (api_key and api_key != self.api_key()):
             values.update(last_test_status=None, last_test_message=None, last_test_at=None)
-        if changed_endpoint and not api_key:
-            if previous.get("api_key_encrypted") and not is_local_base_url(values["base_url"]):
-                raise ValueError("切换服务地址后请填写对应的 API Key；已保存凭据仅用于原地址。")
-            values["api_key_encrypted"] = None
         if api_key:
             if not self.credentials.ready:
                 raise ValueError(self.credentials.error or "凭证主密钥不可用")
             values["api_key_encrypted"] = self.credentials.encrypt(api_key)
+            self.store.upsert_llm_endpoint_credential(values["base_url"], values["api_key_encrypted"], values["model"])
+        elif changed_endpoint:
+            # 切换服务地址：优先带出该端点已保存的凭据档案，避免每次切换重新粘贴 Key。
+            stored = self.store.get_llm_endpoint_credential(values["base_url"])
+            if stored and stored.get("api_key_encrypted"):
+                values["api_key_encrypted"] = stored["api_key_encrypted"]
+            elif previous.get("api_key_encrypted") and not is_local_base_url(values["base_url"]):
+                raise ValueError("切换服务地址后请填写对应的 API Key；该服务还没有保存过凭据，输入一次后会自动记住。")
+            else:
+                values["api_key_encrypted"] = None
+        elif previous.get("api_key_encrypted"):
+            # 同端点保存：把既有凭据回填为该端点的档案，历史配置升级后立即具备切换能力。
+            self.store.upsert_llm_endpoint_credential(values["base_url"], previous["api_key_encrypted"], values["model"])
 
         self.store.update_llm_settings(**values)
         return self.public_config()
@@ -153,6 +218,32 @@ class LlmProviderService:
         if not isinstance(values, list):
             values = []
         return list(dict.fromkeys(str(v) for v in values if isinstance(v, str) and v.strip())) or [config["model"]]
+
+    def assistant_capabilities(self, model_id: str) -> dict[str, Any]:
+        config = self.store.get_llm_settings()
+        base_url = str(config.get("base_url") or "")
+        caps = detect_capabilities(base_url, model_id).as_dict()
+        degraded = _degraded_capabilities(_capability_key(base_url, model_id))
+        if "native_tools" in degraded:
+            caps["native_tools"] = False
+        if "response_format" in degraded:
+            caps["structured_output"] = None
+        elif "json_schema" in degraded and caps["structured_output"] == STRUCTURED_SCHEMA:
+            caps["structured_output"] = STRUCTURED_OBJECT
+        if "prompt_cache" in degraded:
+            caps["prompt_cache"] = None
+        if "web_search" in degraded:
+            caps["web_search"] = False
+        if "stream_options" in degraded:
+            caps["usage_reporting"] = False
+        caps["degraded"] = sorted(degraded)
+        return caps
+
+    def assistant_model_catalog(self) -> list[dict[str, Any]]:
+        return [
+            {"id": model, "label": model, "capabilities": self.assistant_capabilities(model)}
+            for model in self.assistant_models()
+        ]
 
     def assistant_chat(self, messages: list[dict], model_id: str, on_chunk: Any = None) -> str:
         if model_id not in self.assistant_models():
@@ -182,16 +273,142 @@ class LlmProviderService:
                 timeout=(15, 300),
             )
 
+    def assistant_chat_with_meta(
+        self,
+        messages: list[dict],
+        model_id: str,
+        on_chunk: Any = None,
+        *,
+        response_schema: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        enable_search: bool = False,
+    ) -> ChatResult:
+        """Assistant chat with native tools, JSON schema, cache and web search.
+
+        Each optional capability has a one-shot runtime fallback: when the
+        upstream rejects a field the call is retried without it and the
+        downgrade is remembered for this endpoint+model.
+        """
+        if model_id not in self.assistant_models():
+            raise ValueError("该模型未向助手开放，请重新选择模型")
+        client, _ = self._chat_client()
+        config = self.store.get_llm_settings()
+        base_url = str(config.get("base_url") or "")
+        key = _capability_key(base_url, model_id)
+        caps = detect_capabilities(base_url, model_id)
+        degraded = _degraded_capabilities(key)
+        options: dict[str, Any] = {
+            "response_format": self._assistant_response_format(caps, degraded, response_schema),
+            "tools": tools if tools and caps.native_tools and "native_tools" not in degraded else None,
+            "enable_search": bool(enable_search and caps.web_search and "web_search" not in degraded),
+            "cache_control": bool(caps.prompt_cache == "explicit" and "prompt_cache" not in degraded),
+            "include_usage": "stream_options" not in degraded,
+        }
+        fallbacks: list[str] = []
+        for _ in range(7):
+            try:
+                result = self._assistant_request(client, messages, model_id, on_chunk, options)
+            except LlmCapabilityError as error:
+                field_name = error.field
+                if (
+                    field_name == "response_format"
+                    and options["response_format"]
+                    and options["response_format"].get("type") == STRUCTURED_SCHEMA
+                ):
+                    _remember_degraded(key, "json_schema")
+                    options["response_format"] = {"type": STRUCTURED_OBJECT} if response_schema else None
+                    fallbacks.append("json_schema→json_object")
+                    continue
+                if field_name == "response_format":
+                    _remember_degraded(key, "response_format")
+                    options["response_format"] = None
+                    fallbacks.append("response_format")
+                    continue
+                if field_name == "tools":
+                    _remember_degraded(key, "native_tools")
+                    options["tools"] = None
+                    fallbacks.append("native_tools")
+                    continue
+                if field_name == "enable_search":
+                    _remember_degraded(key, "web_search")
+                    options["enable_search"] = False
+                    fallbacks.append("web_search")
+                    continue
+                if field_name == "cache_control":
+                    _remember_degraded(key, "prompt_cache")
+                    options["cache_control"] = False
+                    fallbacks.append("prompt_cache")
+                    continue
+                if field_name == "stream_options":
+                    _remember_degraded(key, "stream_options")
+                    options["include_usage"] = False
+                    fallbacks.append("stream_options")
+                    continue
+                raise
+            result.extra.setdefault("provider", caps.provider)
+            result.extra["degraded"] = fallbacks
+            result.extra.setdefault("web_search_requested", bool(options["enable_search"]))
+            return result
+        raise LlmError("大模型拒绝了本轮请求的附加能力，请更换模型后重试")
+
+    @staticmethod
+    def _assistant_response_format(caps: Any, degraded: set[str], schema: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not schema or "response_format" in degraded:
+            return None
+        if caps.structured_output == STRUCTURED_SCHEMA and "json_schema" not in degraded:
+            return {"type": STRUCTURED_SCHEMA, "json_schema": schema}
+        if caps.structured_output in {STRUCTURED_SCHEMA, STRUCTURED_OBJECT}:
+            return {"type": STRUCTURED_OBJECT}
+        return None
+
+    @staticmethod
+    def _assistant_request(
+        client: OpenAICompatibleClient,
+        messages: list[dict],
+        model_id: str,
+        on_chunk: Any,
+        options: dict[str, Any],
+    ) -> ChatResult:
+        try:
+            return client.chat_completion_result(
+                messages,
+                model=model_id,
+                stream=True,
+                on_chunk=on_chunk,
+                max_tokens=16000,
+                temperature=0.5,
+                timeout=(15, 240),
+                stream_idle_timeout=90,
+                stream_total_timeout=900,
+                response_format=options["response_format"],
+                tools=options["tools"],
+                enable_search=options["enable_search"],
+                cache_control=options["cache_control"],
+                include_usage=options["include_usage"],
+            )
+        except LlmTemporaryError:
+            # Free providers often keep the SSE socket open after the answer.
+            # Retry once without streaming so the run still finishes.
+            return client.chat_completion_result(
+                messages,
+                model=model_id,
+                stream=False,
+                max_tokens=16000,
+                temperature=0.5,
+                timeout=(15, 300),
+                response_format=options["response_format"],
+                tools=options["tools"],
+                enable_search=options["enable_search"],
+                cache_control=options["cache_control"],
+            )
+
 
     def test(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         config = self.store.get_llm_settings()
         base_url = (payload.get("base_url") if payload else None) or config["base_url"]
         model = (payload.get("model") if payload else None) or config["model"]
         submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
-        same_endpoint = str(base_url or "").rstrip("/") == str(config["base_url"]).rstrip("/")
-        api_key = submitted_key or (self.api_key() if same_endpoint else None)
-        if not api_key and is_local_base_url(base_url or ""):
-            api_key = "ollama"
+        api_key = self._resolve_request_key(base_url, submitted_key)
 
         if not api_key:
             raise ValueError("测试连接需要提供有效的 API Key / Token")
@@ -226,10 +443,7 @@ class LlmProviderService:
         config = self.store.get_llm_settings()
         base_url = (payload.get("base_url") if payload else None) or config["base_url"]
         submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
-        same_endpoint = str(base_url or "").rstrip("/") == str(config["base_url"]).rstrip("/")
-        api_key = submitted_key or (self.api_key() if same_endpoint else None)
-        if not api_key and is_local_base_url(base_url or ""):
-            api_key = "ollama"
+        api_key = self._resolve_request_key(base_url, submitted_key)
         if not api_key:
             raise LlmError("拉取模型目录需要提供有效的 API Key / Token")
         if not base_url:
@@ -302,7 +516,7 @@ class LlmProviderService:
                 urls,
                 max_tokens=max_tokens,
                 temperature=0.7,
-                timeout=60.0,
+                timeout=LLM_OPTIMIZE_TIMEOUT_SECONDS,
             )
             optimized = str(text or "").strip()
             if optimized.startswith("```") and optimized.endswith("```"):

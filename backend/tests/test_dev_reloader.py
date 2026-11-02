@@ -5,11 +5,13 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.dev_reloader import (
+    DevReloader,
     creation_flags,
     is_python_source,
     kill_process_tree,
@@ -61,6 +63,60 @@ class DevReloaderHelperTests(unittest.TestCase):
         flags = creation_flags()
         self.assertTrue(flags & subprocess.CREATE_NEW_PROCESS_GROUP)
         self.assertTrue(flags & subprocess.CREATE_NO_WINDOW)
+
+
+class VideoJobRestartGuardTests(unittest.TestCase):
+    def _reloader(self) -> DevReloader:
+        return DevReloader("127.0.0.1", 1, [])
+
+    def test_restart_waits_until_active_video_jobs_finish(self) -> None:
+        reloader = self._reloader()
+        child = mock.Mock()
+        child.poll.return_value = None
+        with mock.patch(
+            "backend.dev_reloader.count_active_video_jobs",
+            side_effect=[2, 1, 0],
+        ) as probe, mock.patch(
+            "backend.dev_reloader.VIDEO_JOB_POLL_SECONDS", 0.01
+        ):
+            self.assertTrue(reloader._wait_for_active_video_jobs(child))
+        self.assertEqual(probe.call_count, 3)
+
+    def test_restart_proceeds_when_no_video_job_is_active(self) -> None:
+        reloader = self._reloader()
+        with mock.patch(
+            "backend.dev_reloader.count_active_video_jobs", return_value=0
+        ) as probe:
+            self.assertTrue(reloader._wait_for_active_video_jobs(None))
+        self.assertEqual(probe.call_count, 1)
+
+    def test_restart_proceeds_when_job_store_is_unreachable(self) -> None:
+        reloader = self._reloader()
+        with mock.patch(
+            "backend.dev_reloader.count_active_video_jobs", return_value=None
+        ):
+            self.assertTrue(reloader._wait_for_active_video_jobs(None))
+
+    def test_restart_proceeds_after_child_exits_while_waiting(self) -> None:
+        reloader = self._reloader()
+        child = mock.Mock()
+        child.poll.side_effect = [None, 0]
+        with mock.patch(
+            "backend.dev_reloader.count_active_video_jobs", return_value=3
+        ) as probe, mock.patch(
+            "backend.dev_reloader.VIDEO_JOB_POLL_SECONDS", 0.01
+        ):
+            self.assertTrue(reloader._wait_for_active_video_jobs(child))
+        self.assertEqual(probe.call_count, 1)
+
+    def test_shutdown_abandons_deferred_restart(self) -> None:
+        reloader = self._reloader()
+        reloader._stop.set()
+        with mock.patch(
+            "backend.dev_reloader.count_active_video_jobs", return_value=1
+        ) as probe:
+            self.assertFalse(reloader._wait_for_active_video_jobs(mock.Mock()))
+        probe.assert_not_called()
 
 
 class WorkerStopTests(unittest.IsolatedAsyncioTestCase):

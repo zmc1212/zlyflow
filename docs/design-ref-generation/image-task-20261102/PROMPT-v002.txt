@@ -1,0 +1,37 @@
+Generate ONE corrected desktop UI mockup for ZLY AI Studio at exactly 1536x864 pixels. Flat, front-facing application screenshot, no browser chrome, no frames or annotation panels. Chinese text must be readable.
+
+Reference 1 is our previous ZLY mockup. Keep its recognizable header, ZLY branding, sidebar/navigation, dark palette and compact buttons. Its result preview was TOO LARGE and is explicitly rejected. Replace its central content layout with the sizing behavior from reference 2.
+Reference 2 is the user's actual Jimeng screenshot. Study its decisive rule: EACH IMAGE uses the SAME SMALL FIXED WIDTH, regardless of whether a task returns one image or four. A single image stays at one grid-column width at the left, leaving empty canvas to the right. Height follows the image's natural aspect ratio. The user's one portrait image is about 252px wide, the same as each of the four images above it. The entire row is not allocated to a single preview. Reproduce that visual relationship in the ZLY proposal.
+
+MOST IMPORTANT: fixed image width = 252px in this 1536px-wide desktop screenshot. The main workspace can be 1032px wide, but EACH individual result is only 252px wide. FOUR images occupy 252+8+252+8+252+8+252 = 1032px. ONE image occupies ONLY 252px at exactly the same left edge; the remaining 780px is empty dark canvas. There must be no 600px-wide single image, no hero preview, no enlarged image card, no large image footer, no responsive stretching to fill the row. This fixed width rule is the reason for the entire revision.
+
+Preserve ZLY visual language: dark canvas #0f1115; sidebar and composer surfaces #171a20; secondary controls #1e2229; readable light text #f3f5f7; muted labels #a7adb8; hairline borders #2d333d; restrained violet accents #9a8cff. Chinese sans-serif UI, 13-14px normal text, 12px metadata. No decorative gradients or glow.
+
+Application shell:
+- Top-left floating pill with purple Z logo, 'ZLY AI Studio', divider, '创作工作台'. Top-right compact pill 'GRS · 已连接', theme icon, round avatar 'g', 'grh'.
+- Narrow left icon rail about 60px: selected '生成', then '导演台', '画布', '工具', '资产'.
+- Task-history sidebar alongside rail, total left navigation width about 304px. '开启创作', '100 个图片任务', '全部用户' filter, '新对话' button, current task thumbnail row '基于参考图生成表情包', recent section with search field and four short thumbnail rows. Exactly ONE bottom '查看全部任务 100' entry. No extra menus.
+- Main content column starts at x=384, width=1032, top about y=94, clean left-aligned task feed on plain dark canvas.
+
+Show TWO task examples on this single screenshot so the equal-width rule is visually undeniable. These are illustrative generation records, not gallery panels. Do not label them 'example' in the UI and do not enclose them in large cards.
+
+UPPER TASK, four square results:
+- One compact prompt line '森林动物角色设计，统一 3D 毛绒质感与白色背景。'
+- Immediately below or inline in small muted type: 'GPT Image 2 · 1:1 · 1K · 4 张 · 详细信息 ⓘ', followed by green check '已完成'.
+- Starting around x=384,y=140, a horizontal row of EXACTLY FOUR SEPARATE SQUARE IMAGES, each EXACTLY 252x252 pixels, with 8px gaps. Picture 1 a cute brown deer, picture 2 a black gibbon, picture 3 a gray-brown bird with red neck, picture 4 a tiny orange-red newt with purple external gills. Each on clean white background, matching the 3D animal visual subject of reference 1. Uniform image sizes. No giant row-spanning illustration.
+- Under the row, after 12px, a compact left-aligned action row: pencil icon '重新编辑' (94x36px), circular-arrow icon '再次生成' (94x36px), square '…' (36x36px), gaps 8px. Dark gray secondary buttons, 8px corner radius, 14px icons, horizontal icon/text alignment.
+
+LOWER TASK, ONE actual-style landscape result:
+- Begin around y=486, with a tiny 24px reference thumbnail next to the prompt '基于参考图中的 5 个角色生成表情包，白色背景，无文字。'
+- Small muted metadata 'GPT Image 2 · 1K · 1 张 · 详细信息 ⓘ', green check '已完成', '用时 0:55'.
+- At x=384,y=542 show ONLY ONE SMALL LANDSCAPE IMAGE, EXACTLY 252px wide and 142px tall (16:9), with 6px rounded corners. This image is a miniature version of the white-background animal-expression contact sheet from reference 1, showing little deer, gibbons, birds and red newts in a two-row arrangement. The ENTIRE collage is inside this one 252x142px image. Do NOT split this collage into separate generated outputs. Do NOT enlarge it for legibility; viewing detail happens after clicking. It must be EXACTLY the same WIDTH as the first square thumbnail in the upper task, and only about 56% of its height. Leave all space to the right EMPTY; this is intentional and central.
+- A tiny expand and download pair may appear in this thumbnail's upper-right corner as hover actions, no big footer, no prominent '生成视频' button.
+- At x=384,y=696 place the SAME action row dimensions as the upper task: 94x36 '重新编辑', 94x36 '再次生成', 36x36 ellipsis; 8px gaps. The row is only 240px wide, close to the 252px thumbnail width. A quiet '已存入云端' status may sit after the action row in muted small text.
+
+BOTTOM COMPOSER:
+- A compact ZLY creation composer anchored near x=384,y=766,width=1032,height=82, separated from task buttons by clear space. Dark rounded 16px surface and subtle border.
+- Upper row: small '+' reference uploader and placeholder '描述你想生成的画面，或添加参考图…', plus small '灵感' and '提示词优化' controls at right.
+- Bottom row: compact '图片生成', 'GPT Image 2', '1:1 · 1K · 1' controls; right aligned 36px violet '开始生图' button. These are existing ZLY functions, not Jimeng Agent features.
+- No part of the composer covers the task preview or action buttons.
+
+Final visual test: upper row is four 252px-wide pictures; lower row is exactly one 252px-wide picture. Left edges align. Single result must be visibly tiny relative to the workspace, like the user's Jimeng screenshot, and must not become a hero image. Both task records have the same small secondary buttons below. Maintain generous empty dark space to the lower image's right. Output only the finished UI screenshot.

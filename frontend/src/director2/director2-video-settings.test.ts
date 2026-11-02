@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   DIRECTOR2_DEFAULT_VIDEO_WORKFLOW,
+  DIRECTOR2_PROGRAM_PREVIEW_STORAGE_PREFIX,
   DIRECTOR2_VIDEO_FALLBACK_FIELDS,
   beatHasUpscaled,
   beatPlaybackUrl,
@@ -20,6 +21,7 @@ import {
   jobCanConfirmRefine,
   jobUpscaleDisabledReason,
   jobUpscaleHint,
+  loadProgramPreview,
   optionChoices,
   playbackAspectIsPortrait,
   playbackAspectRatio,
@@ -29,6 +31,7 @@ import {
   refinePlan,
   resolutionLabelForMegapixels,
   sanitizeVideoOptionValues,
+  saveProgramPreview,
   shotVideoActionLabel,
   selectedShotGenerateExtra,
   shotVideoReadyCount,
@@ -38,6 +41,7 @@ import {
   videoSettingsSummary,
   videoWorkflowRenderLabel,
   visibleVideoOptionFields,
+  withVideoPromptMode,
   type Director2WorkflowMode,
 } from "./director2-video-settings"
 
@@ -58,7 +62,7 @@ function directorAccelMode(): Director2WorkflowMode {
         properties: {
           aspect_ratio: { label: "画面比例", type: "string", default: "16:9", ui_group: "primary", ui_options: [{ value: "16:9", label: "16:9 横屏" }] },
           duration: { label: "时长", type: "number", default: 5, ui_group: "primary" },
-          weight_profile: { label: "模型体积", type: "string", default: "full", ui_group: "primary", ui_options: [{ value: "full", label: "完整（32 GB）" }, { value: "pruned", label: "精简（20 GB）" }], ui_visible_when: { refine_enabled: false } },
+          weight_profile: { label: "模型体积", type: "string", default: "full", ui_group: "internal", ui_options: [{ value: "full", label: "完整（32 GB）" }, { value: "pruned", label: "精简（20 GB）" }], ui_visible_when: { refine_enabled: false } },
           quality: {
             label: "分辨率", type: "string", default: "0.4", ui_group: "advanced",
             megapixels_by_quality: { "0.4": 0.4, "1.0": 1.0 },
@@ -66,7 +70,7 @@ function directorAccelMode(): Director2WorkflowMode {
             ui_visible_when: { refine_enabled: false },
             ui_options: [{ value: "0.4", label: "0.4 MP" }, { value: "1.0", label: "1.0 MP" }],
           },
-          speed: { label: "生成质量", type: "string", default: "balanced", ui_group: "advanced", ui_options: [{ value: "balanced", label: "均衡（20 步）" }, { value: "quality", label: "精细（25 步）" }], ui_visible_when: { refine_enabled: false } },
+          speed: { label: "生成质量", type: "string", default: "balanced", ui_group: "internal", ui_options: [{ value: "balanced", label: "均衡（20 步）" }, { value: "quality", label: "精细（25 步）" }], ui_visible_when: { refine_enabled: false } },
           megapixels: { label: "内部像素面积", type: "number", default: 0.4, ui_group: "internal" },
           steps: { label: "采样步数", type: "integer", default: 20, ui_group: "internal" },
           refine_enabled: { label: "二采精修", type: "boolean", default: false, ui_group: "primary" },
@@ -92,41 +96,33 @@ describe("director2 video settings", () => {
   it("exposes registry primary and advanced options and hides duration plus internals", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     expect(fields.map((item) => item.name)).toEqual([
-      "aspect_ratio", "weight_profile", "quality", "speed", "refine_enabled", "refine_quality_mode", "refine_quality",
+      "aspect_ratio", "quality", "refine_enabled", "refine_quality_mode", "refine_quality",
     ])
     expect(defaultVideoOptionValues(fields)).toEqual({
       aspect_ratio: "16:9",
-      weight_profile: "full",
       quality: "0.4",
-      speed: "balanced",
       refine_enabled: "false",
       refine_quality_mode: "auto",
       refine_quality: "1.0",
     })
   })
 
-  it("keeps two-pass controls in the primary group", () => {
+  it("keeps generation quality and model size hosted by the backend as internals", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     expect(fields.filter((item) => item.ui_group === "primary").map((item) => item.name)).toEqual([
-      "aspect_ratio", "weight_profile", "refine_enabled", "refine_quality_mode", "refine_quality",
+      "aspect_ratio", "refine_enabled", "refine_quality_mode", "refine_quality",
     ])
     expect(fields.filter((item) => item.ui_group === "advanced").map((item) => item.name)).toEqual([
-      "quality", "speed",
+      "quality",
     ])
   })
 
-  it("hides quality, model size and generation quality when two-pass is enabled", () => {
+  it("hides quality when two-pass is enabled", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     const quality = fields.find((item) => item.name === "quality")!
-    const weightProfile = fields.find((item) => item.name === "weight_profile")!
-    const speed = fields.find((item) => item.name === "speed")!
     const refineQuality = fields.find((item) => item.name === "refine_quality")!
     expect(videoOptionVisible(quality, { refine_enabled: "false" })).toBe(true)
     expect(videoOptionVisible(quality, { refine_enabled: "true" })).toBe(false)
-    expect(videoOptionVisible(weightProfile, { refine_enabled: "false" })).toBe(true)
-    expect(videoOptionVisible(weightProfile, { refine_enabled: "true" })).toBe(false)
-    expect(videoOptionVisible(speed, { refine_enabled: "false" })).toBe(true)
-    expect(videoOptionVisible(speed, { refine_enabled: "true" })).toBe(false)
     expect(videoOptionVisible(refineQuality, { refine_enabled: "false" })).toBe(false)
     expect(videoOptionVisible(refineQuality, { refine_enabled: "true" })).toBe(true)
   })
@@ -138,13 +134,11 @@ describe("director2 video settings", () => {
     expect(videoOptionVisible(fallbackQuality, { refine_enabled: "true" })).toBe(false)
   })
 
-  it("rejects stale 4-step speed and 0.2 MP values that this workflow does not use", () => {
+  it("drops stale saved speed and weight settings so the backend hosts them again", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
-    expect(sanitizeVideoOptionValues(fields, { quality: "0.2", speed: "fast", refine_preview: "yes" })).toEqual({
+    expect(sanitizeVideoOptionValues(fields, { quality: "0.2", speed: "fast", weight_profile: "pruned", refine_preview: "yes" })).toEqual({
       aspect_ratio: "16:9",
-      weight_profile: "full",
       quality: "0.4",
-      speed: "balanced",
       refine_enabled: "false",
       refine_quality_mode: "auto",
       refine_quality: "1.0",
@@ -170,13 +164,11 @@ describe("director2 video settings", () => {
   it("summarizes and serializes job options without duration", () => {
     const fields = visibleVideoOptionFields(directorAccelMode())
     const values = defaultVideoOptionValues(fields)
-    expect(videoSettingsSummary(fields, values)).toBe("16:9 · 0.4 MP · 完整")
+    expect(videoSettingsSummary(fields, values)).toBe("16:9 · 0.4 MP")
     expect(buildVideoJobOptions(DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, values, { duration_per_beat: 8 })).toEqual({
       workflow: DIRECTOR2_DEFAULT_VIDEO_WORKFLOW,
       aspect_ratio: "16:9",
-      weight_profile: "full",
       quality: "0.4",
-      speed: "balanced",
       refine_enabled: false,
       refine_quality_mode: "auto",
       refine_quality: "1.0",
@@ -396,6 +388,42 @@ describe("director2 video settings", () => {
     expect(videoResolutionQuality("2k")).toBe("2.0")
     expect(videoResolutionQuality("2K", true)).toBe("2.0")
     expect(videoResolutionQuality("")).toBeUndefined()
+  })
+})
+
+describe("video prompt mode", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("tags job options with the saved-prompt or program-preview mode", () => {
+    expect(withVideoPromptMode({ workflow: "wf" }, false)).toEqual({ workflow: "wf", prompt_mode: "h3" })
+    expect(withVideoPromptMode({ workflow: "wf", prompt_mode: "h3" }, true)).toEqual({
+      workflow: "wf",
+      prompt_mode: "program",
+    })
+  })
+
+  it("persists the program preview switch per project", () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value) },
+      },
+    })
+    expect(loadProgramPreview("proj-a")).toBe(false)
+    saveProgramPreview("proj-a", true)
+    expect(store.get(`${DIRECTOR2_PROGRAM_PREVIEW_STORAGE_PREFIX}proj-a`)).toBe("true")
+    expect(loadProgramPreview("proj-a")).toBe(true)
+    expect(loadProgramPreview("proj-b")).toBe(false)
+    saveProgramPreview("proj-a", false)
+    expect(loadProgramPreview("proj-a")).toBe(false)
+  })
+
+  it("defaults to the official H3 prompts when storage is unavailable", () => {
+    expect(loadProgramPreview("proj-a")).toBe(false)
+    expect(() => saveProgramPreview("proj-a", true)).not.toThrow()
   })
 })
 

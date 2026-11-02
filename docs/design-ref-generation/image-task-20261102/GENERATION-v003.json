@@ -1,0 +1,55 @@
+{
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x864",
+  "quality": "medium",
+  "reference_count": 2,
+  "n": 1,
+  "images": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-generation\\image-task-20261102\\image-task-v003.png",
+      "sha256": "db086ccc01df450333a5ca4592840c76da46b68731c77d4283cca8af2b54d02b"
+    }
+  ],
+  "request_id": "req_0a8fd50c695544518b12a151405b1867",
+  "usage": {
+    "input_tokens": 3581,
+    "input_tokens_details": {
+      "image_tokens": 2808,
+      "text_tokens": 773
+    },
+    "output_tokens": 280,
+    "output_tokens_details": {
+      "image_tokens": 280,
+      "text_tokens": 0
+    },
+    "total_tokens": 3861
+  },
+  "prompt_version": "v003",
+  "prompt_file": "docs/design-ref-generation/image-task-20261102/PROMPT-v003.txt",
+  "prompt_sha256": "102dc63e1ca2e971346f67c9bfc457fdafe7686fa7f77995d7d237779ba0e5a7",
+  "reference_sources": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-generation\\image-task-20261102\\image-task-v002.png",
+      "sha256": "4e9c9f40fa17352ac30866c16f477e5212b00b37b6b4d1f35e78f46c107e6185",
+      "type": "previous_draft"
+    },
+    {
+      "path": "G:\\AppData\\Local\\Temp\\codex-clipboard-5c56b27e-405e-4c7a-8463-a66a377961f0.png",
+      "sha256": "01abf6ac125ed7505aa0cb5a93da2738f8ca60e1102b9ab4ad1c4279ddcc39a4",
+      "type": "user_attached_jimeng_screenshot"
+    }
+  ],
+  "review": {
+    "visually_inspected": true,
+    "user_approved": false,
+    "implementation_changed": false,
+    "checks": [
+      "Only one compact landscape result in main canvas",
+      "Single thumbnail keeps natural aspect ratio and does not fill the row",
+      "Separate edit, regenerate and more controls on one baseline",
+      "No fixed composer overlap"
+    ],
+    "note": "Raster mockup is approximate. Implementation must use fixed 252px columns for every result count. Animal artwork is an AI-redrawn placeholder."
+  }
+}

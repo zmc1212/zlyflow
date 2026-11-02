@@ -1777,12 +1777,23 @@
   color: var(--studio-text);
 }
 
+.d2-episode-workshop .compose-episode-frame {
+  position: relative;
+  width: 100%;
+  max-width: calc(420px * var(--media-aspect-w, 16) / var(--media-aspect-h, 9));
+  aspect-ratio: var(--media-aspect-w, 16) / var(--media-aspect-h, 9);
+  background: var(--studio-media, #0f1115);
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
 .d2-episode-workshop .compose-episode-video {
   display: block;
   width: 100%;
-  max-height: 420px;
-  background: #0f1115;
-  border-radius: 12px;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
 }
 
 .d2-episode-workshop .compose-episode-note {
@@ -2297,6 +2308,16 @@
   gap: 4px;
   flex-shrink: 0;
   flex-wrap: wrap;
+}
+
+.d2-episode-workshop .h3-program-preview-note {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--studio-muted, var(--studio-text-muted));
+  background: var(--studio-surface-raised, var(--studio-canvas));
+  border-bottom: 1px solid var(--studio-border, var(--studio-surface-raised));
 }
 
 .d2-episode-workshop .h3-prompt-panel .ant-input-textarea {

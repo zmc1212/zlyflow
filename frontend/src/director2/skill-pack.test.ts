@@ -18,12 +18,12 @@ import {
 
 const unbound: Director2SkillPack = {
   id: "",
-  name: "默认程序装箱",
-  summary: "不注入 Plaza 制作配方，工坊用程序装箱六段。",
+  name: "H3 官方六段式",
+  summary: "不绑定 Plaza 制作配方，直接按 H3 官方六段式 Skill 用大模型装箱。",
   surfaces: ["workshop"],
   visual_lock: "",
-  workshop_shot: ["render_ref2va_default"],
-  packing_overrides: {},
+  workshop_shot: [],
+  packing_overrides: { skip_program_pack: true },
   confirm_format: {},
 }
 
@@ -65,7 +65,7 @@ describe("skill pack picker helpers", () => {
     expect(selectValueForPackId("")).toBe(UNBOUND_PACK_SELECT_VALUE)
     expect(packIdFromSelectValue(UNBOUND_PACK_SELECT_VALUE)).toBe("")
     expect(packIdFromSelectValue(HALF_NARRATED_PACK_ID)).toBe(HALF_NARRATED_PACK_ID)
-    expect(skillPackDisplayName(unbound)).toContain("不绑定配方")
+    expect(skillPackDisplayName(unbound)).toContain("H3 官方六段式")
     expect(skillPackSelectOptions([unbound, half]).map((item) => item.value)).toEqual([
       UNBOUND_PACK_SELECT_VALUE,
       HALF_NARRATED_PACK_ID,
@@ -77,7 +77,7 @@ describe("skill pack picker helpers", () => {
     expect(skillPackCoverUrl({ cover: "/local/cover.mp4" })).toBe("")
     expect(skillPackCoverUrl({ cover: "javascript:alert(1)" })).toBe("")
     expect(skillPackAuthor({ author: " MiniMax Design " })).toBe("MiniMax Design")
-    expect(skillPackCardTitle(unbound)).toBe("不绑定配方")
+    expect(skillPackCardTitle(unbound)).toBe("H3 官方六段式")
     expect(skillPackCardTitle(half)).toBe("半解说真人短剧")
     expect(skillPackPickerOrder([unbound, half]).map((item) => item.id)).toEqual([HALF_NARRATED_PACK_ID, ""])
   })

@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-31",
+  "purpose": "复杂精细图标设计审批稿；第04版的画布图标一致性修正版",
+  "status": "approved_for_implementation",
+  "approval": "用户于2026-10-31明确要求：按这版图标还原界面。",
+  "application_changes": false,
+  "base_version": "zly-navigation-brand-v004.png",
+  "user_request": "图标需要复杂、精细；Z不能只是单个字母，无限画布不能只是符号。",
+  "direction": "紫色立体微缩图标：胶片折带、齿孔与金属拼接的Z；多画板、图片/视频/文案卡、网格底板和节点连线的无限画布。",
+  "provider": "OpenAI Images API",
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x1024",
+  "quality": "high",
+  "n": 1,
+  "prompt": "prompt-v005.txt",
+  "references": [
+    {
+      "path": "zly-navigation-brand-v004.png",
+      "source": "本轮第一张复杂图标设计图；尚未经用户审批"
+    },
+    {
+      "path": "inputs/canvas-detail-reference-v005.png",
+      "source": "从v004右侧画布场景直接裁切的参考，用于同步两枚菜单小图标"
+    }
+  ],
+  "mask": "inputs/canvas-icon-mask-v005.png",
+  "output": "zly-navigation-brand-v005.png",
+  "sha256": "216b77a185c5ef1c4028f562de45593d09533a39cf6a144cde5401ea685851ee",
+  "request_id": "req_718579fa2ffb477386f22202b6854944",
+  "usage": {
+    "input_tokens": 2401,
+    "input_tokens_details": {
+      "image_tokens": 1927,
+      "text_tokens": 474
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 3773
+  },
+  "visual_review": {
+    "opened": true,
+    "result": "Z已包含胶片孔、立体折带、金属接合与透光层次。画布放大场景及两处菜单小图标均包含多张卡片、底板与连接关系。",
+    "limits": "设计审批用栅格概念图，尚未实现到应用。AI局部编辑同时改变了主菜单选中项强调；实施时根据真实路由驱动选中态，不照搬示意图状态。"
+  }
+}

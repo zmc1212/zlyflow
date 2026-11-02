@@ -14,7 +14,7 @@ export function isThemeMode(value: unknown): value is ThemeMode {
 }
 
 export function resolveThemeMode(value: unknown): ThemeMode {
-  return isThemeMode(value) ? value : "light"
+  return isThemeMode(value) ? value : "dark"
 }
 
 const lightTheme: ThemeConfig = {

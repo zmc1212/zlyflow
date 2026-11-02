@@ -1,0 +1,51 @@
+{
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x864",
+  "quality": "medium",
+  "reference_count": 2,
+  "n": 1,
+  "images": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-generation\\image-task-20261102\\image-task-v001.png",
+      "sha256": "39802f6d49fa153401226689a6845b7f4ab235a63f0f9e678c8de4d01ecbfd90"
+    }
+  ],
+  "request_id": "req_6761997abcc24780a873cbd60f1aa3a8",
+  "usage": {
+    "input_tokens": 4655,
+    "input_tokens_details": {
+      "image_tokens": 3020,
+      "text_tokens": 1635
+    },
+    "output_tokens": 280,
+    "output_tokens_details": {
+      "image_tokens": 280,
+      "text_tokens": 0
+    },
+    "total_tokens": 4935
+  },
+  "prompt_file": "docs/design-ref-generation/image-task-20261102/PROMPT-v001.txt",
+  "prompt_sha256": "496efa6187abae4caaea95f72f5bbd625a323abfca06356ace388fa50f9b5df8",
+  "prompt_version": "v001",
+  "reference_sources": [
+    {
+      "source_url": "https://comfyui.zlyun168.com/generate/image/CTLmICJfTc",
+      "screenshot_sha256": "b5306ff85136e5120d291dabb5721ff290fe05c508191f766817ce637a899932",
+      "type": "actual_browser_screenshot",
+      "temporary_file_cleaned_after_review": true
+    },
+    {
+      "source_url": "https://jimeng.jianying.com/ai-tool/generate?workspace=17837573741836",
+      "screenshot_sha256": "b7db2b7d7b577b17c67a01f0b5f131673ec81785034f80c925b8a2b00e7d0b7f",
+      "type": "actual_browser_screenshot",
+      "temporary_file_cleaned_after_review": true
+    }
+  ],
+  "review": {
+    "visually_inspected": true,
+    "user_approved": false,
+    "implementation_changed": false,
+    "note": "Design proposal only. Animal artwork is AI-redrawn placeholder; implementation must reuse original media."
+  }
+}

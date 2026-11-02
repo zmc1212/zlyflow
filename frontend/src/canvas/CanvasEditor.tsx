@@ -2,19 +2,24 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import {
   Background,
   MiniMap,
+  Position,
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
   ViewportPortal,
+  getBezierPath,
   useEdgesState,
   useNodesState,
   useOnSelectionChange,
   useReactFlow,
   useViewport,
   type Connection,
+  type EdgeTypes,
+  type FinalConnectionState,
   type MiniMapNodeProps,
   type NodeTypes,
   type NodeChange,
+  type OnConnectStartParams,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import {
@@ -24,9 +29,9 @@ import {
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalSpaceAround,
   AlignHorizontalSpaceBetween, AlignStartHorizontal, AlignStartVertical, AlignVerticalSpaceBetween,
-  Check, ChevronDown, ChevronLeft, ClipboardPaste, CopyPlus, Download, Frame, Hand, History, Image as ImageIcon, ImagePlus, Images, Keyboard,
+  Check, ChevronDown, ChevronLeft, CircleOff, ClipboardPaste, CopyPlus, Download, Frame, GitBranch, Hand, History, Image as ImageIcon, ImagePlus, Images, Keyboard,
   Focus, Link2, LoaderCircle, Map as MapIcon, Minus, MoreHorizontal, MousePointer2, MoveDown, MoveRight, Pencil, Plus, Redo2, RefreshCw,
-  PanelRight, Search, Settings, SlidersHorizontal, Sparkles, Square, Trash2, Type, Undo2, Upload, Video,
+  PanelRight, Search, Settings, SlidersHorizontal, Sparkles, Square, Trash2, Type, Undo2, Upload, Video, Waypoints,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState,
   type ChangeEvent,
@@ -39,6 +44,8 @@ import { generateJobPath } from "../paths"
 import { ApiRequestError } from "../api"
 import { useStudioTheme } from "../ThemeProvider"
 import CanvasExportDialog from "./CanvasExportDialog"
+import CanvasFlowEdge from "./CanvasFlowEdge"
+import { canvasConnectEdge, canvasConnectMenuPosition, canvasConnectTargets } from "./canvas-connections"
 import { claimCanvasRecovery, clearCanvasRecovery, normalizedCanvasContent, readCanvasRecovery, resolveCanvasRecovery, writeCanvasRecovery } from "./canvas-recovery"
 import {
   getCanvasProject,
@@ -101,6 +108,11 @@ import {
   type CanvasViewport,
 } from "./canvas-model"
 import {
+  CANVAS_CONNECTION_MODE_OPTIONS,
+  CANVAS_GENERATION_MODE_OPTIONS,
+  compactCanvasEdgeIds,
+} from "./canvas-view-modes"
+import {
   CANVAS_IMPORT_MAX_BYTES,
   CANVAS_INSERT_ITEM_PARAM,
   CANVAS_INSERT_JOB_PARAM,
@@ -119,6 +131,7 @@ import {
   cancelCanvasJob,
   canvasImageNodeFile,
   canvasJobResult,
+  canvasPendingResultFill,
   canvasPromptEligible,
   canvasReferenceEligible,
   canvasResultHistory,
@@ -184,6 +197,19 @@ const nodeTypes: NodeTypes = {
   unknown: UnknownCanvasNode,
 }
 
+const edgeTypes: EdgeTypes = {
+  canvasFlow: CanvasFlowEdge,
+}
+
+function edgeStroke(node: CanvasNode | undefined): string {
+  if (node?.type === "text") return "var(--canvas-text-tone)"
+  if (node?.type === "video") return "var(--canvas-video-tone)"
+  if (node?.type === "generator") {
+    return node.data.resultKind === "video" ? "var(--canvas-video-tone)" : "var(--studio-primary)"
+  }
+  return "var(--canvas-image-tone)"
+}
+
 const saveStateLabels: Record<CanvasSaveState, string> = {
   saved: "已保存",
   dirty: "待保存",
@@ -205,6 +231,19 @@ type CanvasContextMenuState =
   | { kind: "node"; x: number; y: number; nodeId: string }
   | { kind: "selection"; x: number; y: number }
 
+type CanvasConnectMenuState = {
+  x: number
+  y: number
+  from: { x: number; y: number }
+  flow: { x: number; y: number }
+  sourceId: string
+  sourceHandle: string
+}
+
+type CanvasConnectStartState = OnConnectStartParams & {
+  screen: { x: number; y: number }
+}
+
 const EMPTY_GUIDES: CanvasGuideLines = { vertical: [], horizontal: [] }
 
 function sameGuides(left: CanvasGuideLines, right: CanvasGuideLines): boolean {
@@ -225,6 +264,12 @@ function settingsRecord(settings: CanvasSettings): Record<string, unknown> {
 function isTypingTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     && Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+}
+
+function eventClientPoint(event: MouseEvent | TouchEvent): { x: number; y: number } {
+  if ("clientX" in event) return { x: event.clientX, y: event.clientY }
+  const touch = event.changedTouches[0] ?? event.touches[0]
+  return touch ? { x: touch.clientX, y: touch.clientY } : { x: 0, y: 0 }
 }
 
 function computeSnapGuides(
@@ -292,6 +337,67 @@ function canvasNodeMediaUrl(node: CanvasNode): string | null {
   return null
 }
 
+const connectionModeGlyphs = {
+  off: <CircleOff size={16} />,
+  compact: <GitBranch size={16} />,
+  full: <Link2 size={16} />,
+} as const
+
+const generationModeGlyphs = {
+  independent: <CopyPlus size={16} />,
+  aggregate: <Images size={16} />,
+} as const
+
+function CanvasViewModeMenu({ settings, onChange }: {
+  settings: CanvasSettings
+  onChange: (patch: Partial<CanvasSettings>) => void
+}) {
+  return (
+    <div className="canvas-viewmode-menu">
+      <section className="canvas-viewmode-group" aria-label="连线">
+        <span className="canvas-viewmode-group-title">连线</span>
+        {CANVAS_CONNECTION_MODE_OPTIONS.map((option) => {
+          const active = settings.connectionMode === option.value
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={active}
+              className={`canvas-viewmode-option${active ? " is-active" : ""}`}
+              onClick={() => onChange({ connectionMode: option.value })}
+            >
+              <span className="canvas-viewmode-glyph">{connectionModeGlyphs[option.value]}</span>
+              <span className="canvas-viewmode-copy"><strong>{option.label}</strong><small>{option.description}</small></span>
+              {active ? <Check size={15} className="canvas-viewmode-check" /> : null}
+            </button>
+          )
+        })}
+      </section>
+      <section className="canvas-viewmode-group" aria-label="生成节点展示方式">
+        <span className="canvas-viewmode-group-title">生成节点展示方式</span>
+        {CANVAS_GENERATION_MODE_OPTIONS.map((option) => {
+          const active = settings.generationDisplayMode === option.value
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={active}
+              className={`canvas-viewmode-option${active ? " is-active" : ""}`}
+              onClick={() => onChange({ generationDisplayMode: option.value })}
+            >
+              <span className="canvas-viewmode-glyph">{generationModeGlyphs[option.value]}</span>
+              <span className="canvas-viewmode-copy"><strong>{option.label}</strong><small>{option.description}</small></span>
+              {active ? <Check size={15} className="canvas-viewmode-check" /> : null}
+            </button>
+          )
+        })}
+      </section>
+    </div>
+  )
+}
+
 export default function CanvasEditor(props: {
   project: CanvasProjectDetail
   csrfToken: string
@@ -346,10 +452,13 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const [savedAt, setSavedAt] = useState(project.draft_updated_at ?? project.updated_at)
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([])
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const [tool, setTool] = useState<CanvasTool>("select")
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelTab, setPanelTab] = useState<CanvasPanelTab>("properties")
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null)
+  const [connectMenu, setConnectMenu] = useState<CanvasConnectMenuState | null>(null)
+  const connectStartRef = useRef<CanvasConnectStartState | null>(null)
   const [guides, setGuides] = useState<CanvasGuideLines>(EMPTY_GUIDES)
   const [clipboardCount, setClipboardCount] = useState(0)
   const [recentEdgeId, setRecentEdgeId] = useState<string | null>(null)
@@ -553,6 +662,34 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   }, [libraryQuery.data])
   const libraryTotal = libraryQuery.data?.pages[0]?.total ?? 0
   const libraryCounts = libraryQuery.data?.pages[0]?.counts ?? { image: 0, video: 0 }
+
+  const needsGeneratorKind = useMemo(
+    () => nodes.some((node) => node.type === "generator" && !node.data.resultKind && node.data.workflowId),
+    [nodes],
+  )
+
+  useEffect(() => {
+    if (!generationModes.length || !needsGeneratorKind) return
+    const modeById = new Map(generationModes.map((mode) => [mode.id, mode]))
+    setNodes((current) => {
+      let changed = false
+      const next = current.map((node) => {
+        if (node.type !== "generator" || node.data.resultKind) return node
+        const mode = modeById.get(String(node.data.workflowId ?? ""))
+        if (!mode) return node
+        changed = true
+        return { ...node, data: { ...node.data, resultKind: mode.media_type } }
+      })
+      return changed ? next : current
+    })
+    if (nodesRef.current.some((node) => (
+      node.type === "generator"
+      && !node.data.resultKind
+      && modeById.has(String(node.data.workflowId ?? ""))
+    ))) {
+      setNodeDataRevision((revision) => revision + 1)
+    }
+  }, [generationModes, needsGeneratorKind, setNodes])
 
   useEffect(() => {
     const trimmed = assetSearch.trim()
@@ -964,6 +1101,23 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     return created
   }, [setEdges, setNodes])
 
+  const fillPendingResultNodes = useCallback((
+    generatorNode: CanvasNode,
+    result: CanvasJobResult,
+    jobId: string | null,
+  ): number => {
+    const sourceRun = jobId ? canvasRunSnapshotForJob(generatorNode.data, jobId) : null
+    let filled = 0
+    for (const pending of nodesRef.current) {
+      if (pending.data.pendingGeneratorId !== generatorNode.id) continue
+      const patch = canvasPendingResultFill(pending, result, jobId)
+      if (!patch) continue
+      updateNodeData(pending.id, { ...patch, ...(sourceRun ? { sourceRun } : {}) })
+      filled += 1
+    }
+    return filled
+  }, [updateNodeData])
+
   const applyGeneratorJobSnapshot = useCallback((jobId: string, job: CanvasJob) => {
     if (isCanvasJobActive(job.status) && job.status !== "awaiting_refine") return
     const matchingNodes = nodesRef.current.filter((item) => item.type === "generator" && item.data.jobId === jobId)
@@ -983,6 +1137,10 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         if (result) Object.assign(patch, canvasResultVersionPatch(node.data, result, jobId))
         updateNodeData(node.id, patch)
       }
+      if (result) {
+        const filled = fillPendingResultNodes(node, result, jobId)
+        if (filled && jobId) autoInsertedJobsRef.current.add(jobId)
+      }
       if (result && settingsRef.current.generationDisplayMode === "independent" && jobId) {
         const alreadyInserted = autoInsertedJobsRef.current.has(jobId)
           || nodesRef.current.some((item) => (
@@ -1000,7 +1158,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         }
       }
     }
-  }, [appendResultNode, updateNodeData])
+  }, [appendResultNode, fillPendingResultNodes, updateNodeData])
 
   useEffect(() => {
     for (const live of Object.values(liveJobs)) {
@@ -1340,6 +1498,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
             prompt: settingsRef.current.globalPrompt,
             workflowId: mode?.id,
             optionValues: defaultGeneratorOptionValues(mode),
+            mediaKind: mode?.media_type,
           })
           : createArtboardNode(position)
     if (!point) node.position = findCanvasFreePosition(position, canvasNodeSize(node), nodesRef.current)
@@ -1378,6 +1537,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       workflowId,
       optionValues,
       branchDirection: direction,
+      mediaKind: generationModes.find((mode) => mode.id === workflowId)?.media_type,
     })
     setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), { ...created, selected: true }])
     if (referenceCount > 0 || source.type === "text") {
@@ -1413,6 +1573,86 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       { zoom, duration: 300 },
     )
   }, [generationModes, setCenter, setEdges, setNodes, zoom])
+
+  const applyConnectTarget = useCallback((key: string) => {
+    const pending = connectMenu
+    setConnectMenu(null)
+    if (!pending) return
+    const source = nodesRef.current.find((node) => node.id === pending.sourceId)
+    const target = canvasConnectTargets(source).find((item) => item.key === key)
+    if (!source || !target) return
+
+    let created: CanvasNode | null = null
+    let notice = ""
+    if (target.kind === "generator") {
+      const referenceCount = target.targetHandle === "in" ? 1 : 0
+      const rawPrompt = source.type === "text"
+        ? source.data.text
+        : source.type === "image"
+          ? source.data.caption || source.data.label
+          : source.type === "generator"
+            ? source.data.prompt
+            : ""
+      const prompt = String(rawPrompt ?? "").trim().slice(0, 4000) || settingsRef.current.globalPrompt
+      const sourceMode = source.type === "generator"
+        ? generationModes.find((mode) => mode.id === source.data.workflowId) ?? null
+        : null
+      const modeUsable = sourceMode !== null
+        && referenceCount >= (sourceMode.min_references ?? 0)
+        && referenceCount <= (sourceMode.max_references ?? 0)
+      const mode = modeUsable ? sourceMode : pickCanvasGenerationMode(generationModes, referenceCount)
+      created = createGeneratorNode(pending.flow, {
+        prompt,
+        workflowId: mode?.id,
+        optionValues: modeUsable && sourceMode
+          ? { ...(source.data.optionValues ?? {}) }
+          : defaultGeneratorOptionValues(mode),
+        mediaKind: mode?.media_type,
+      })
+      notice = "已创建生成节点并连线"
+    } else {
+      const version = canvasResultHistory(source.data)[canvasResultVersionIndex(source.data)]
+      const jobId = version?.jobId ?? source.data.jobId ?? null
+      const result = generatorResultFromNodeData(source.data)
+        ?? (jobId ? liveJobsRef.current[jobId]?.result : null)
+      if (result && result.kind === target.kind) {
+        const label = result.label
+          || String(source.data.prompt ?? "").trim().slice(0, 24)
+          || (result.kind === "video" ? "生成视频" : "生成图片")
+        created = result.kind === "video"
+          ? createVideoNode(pending.flow, result.url, label)
+          : createImageNode(pending.flow, result.url, label)
+        const sourceRun = jobId ? canvasRunSnapshotForJob(source.data, jobId) : null
+        created.data = {
+          ...created.data,
+          assetPath: result.path || undefined,
+          sourceJobId: jobId,
+          mediaKind: result.kind,
+          ...(sourceRun ? { sourceRun } : {}),
+        }
+        notice = result.kind === "video" ? "视频结果已加入画布" : "图片结果已加入画布"
+      } else {
+        created = target.kind === "video"
+          ? createVideoNode(pending.flow, "", "等待生成")
+          : createImageNode(pending.flow, "", "等待生成")
+        created.data = { ...created.data, pendingGeneratorId: source.id }
+        notice = target.kind === "video"
+          ? "已预建视频节点，生成完成后自动填入"
+          : "已预建图片节点，生成完成后自动填入"
+      }
+    }
+
+    created.position = findCanvasFreePosition(pending.flow, canvasNodeSize(created), nodesRef.current)
+    appendNodes([created])
+    const edge = canvasConnectEdge(source.id, created.id, target.targetHandle, pending.sourceHandle)
+    setEdges((current) => (current.some((item) => item.id === edge.id) ? current : [...current, edge]))
+    setRecentEdgeId(edge.id)
+    revealAddedNode(created)
+    message.success(notice)
+    if (source.type === "text" && !String(source.data.text ?? "").trim()) {
+      message.warning("文字节点内容为空，补充文字后才能用于生成")
+    }
+  }, [appendNodes, connectMenu, generationModes, revealAddedNode, setEdges])
 
   const duplicateNode = useCallback((nodeId: string) => {
     const duplicated = duplicateCanvasSelection(nodesRef.current, edgesRef.current, [nodeId])
@@ -1781,6 +2021,40 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     return false
   }, [])
 
+  const handleConnectStart = useCallback((event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
+    connectStartRef.current = { ...params, screen: eventClientPoint(event) }
+    setContextMenu(null)
+    setConnectMenu(null)
+  }, [])
+
+  const handleConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+    const start = connectStartRef.current
+    connectStartRef.current = null
+    if (!start || !start.nodeId || start.handleType !== "source") return
+    const screen = eventClientPoint(event)
+    if (Math.abs(screen.x - start.screen.x) + Math.abs(screen.y - start.screen.y) < 10) return
+    if (state.toHandle) return
+    const source = nodesRef.current.find((node) => node.id === start.nodeId)
+    const targets = canvasConnectTargets(source)
+    if (!source || !targets.length) return
+    const rect = stageRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const size = canvasNodeSize(source)
+    const fallbackFrom = { x: source.position.x + size.width, y: source.position.y + size.height / 2 }
+    const menu = canvasConnectMenuPosition(
+      { x: screen.x - rect.left, y: screen.y - rect.top },
+      { width: rect.width, height: rect.height },
+      { width: 252, height: 44 + targets.length * 52 },
+    )
+    setConnectMenu({
+      ...menu,
+      from: state.from ?? fallbackFrom,
+      flow: screenToFlowPosition(screen),
+      sourceId: source.id,
+      sourceHandle: start.handleId ?? "out",
+    })
+  }, [screenToFlowPosition])
+
   const handleSnapDrag = useCallback((draggedNodes: CanvasNode[]) => {
     if (!settingsRef.current.guidesVisible || !draggedNodes.length) {
       setGuides((current) => (current.vertical.length || current.horizontal.length ? EMPTY_GUIDES : current))
@@ -1801,54 +2075,47 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
 
   const compactEdgeIds = useMemo(() => {
     if (settings.connectionMode !== "compact") return null
-    const keep = new Set(selectedEdgeIds)
-    const nodeKeep = new Set(selectedNodeIds)
-    if (recentEdgeId) keep.add(recentEdgeId)
-    let changed = true
-    while (changed) {
-      changed = false
-      for (const edge of edges) {
-        if (keep.has(edge.id)) {
-          if (!nodeKeep.has(edge.source)) {
-            nodeKeep.add(edge.source)
-            changed = true
-          }
-          if (!nodeKeep.has(edge.target)) {
-            nodeKeep.add(edge.target)
-            changed = true
-          }
-          continue
-        }
-        if (nodeKeep.has(edge.source)) {
-          keep.add(edge.id)
-          nodeKeep.add(edge.target)
-          changed = true
-        }
-        if (nodeKeep.has(edge.target)) {
-          keep.add(edge.id)
-          nodeKeep.add(edge.source)
-          changed = true
-        }
-      }
-    }
-    return keep
-  }, [edges, recentEdgeId, selectedEdgeIds, selectedNodeIds, settings.connectionMode])
+    return compactCanvasEdgeIds(edges, {
+      selectedNodeIds,
+      selectedEdgeIds,
+      recentEdgeId,
+      hoveredNodeId,
+    })
+  }, [edges, hoveredNodeId, recentEdgeId, selectedEdgeIds, selectedNodeIds, settings.connectionMode])
 
-  const nodeTypeById = useMemo(() => {
-    const map = new Map<string, string | undefined>()
-    for (const node of nodesRef.current) map.set(node.id, node.type)
+  const nodeById = useMemo(() => {
+    const map = new Map<string, CanvasNode>()
+    for (const node of nodesRef.current) map.set(node.id, node)
     return map
   }, [nodeDataRevision])
 
   const visibleEdges = useMemo(() => {
     if (settings.connectionMode === "off") return []
     const visible = compactEdgeIds ? edges.filter((edge) => compactEdgeIds.has(edge.id)) : edges
-    return visible.map((edge) => {
-      const sourceType = nodeTypeById.get(edge.source)
-      const stroke = sourceType === "text" ? "var(--canvas-text-tone)" : sourceType === "generator" ? "var(--studio-primary)" : "var(--canvas-image-tone)"
-      return { ...edge, type: edge.type === "smoothstep" ? "default" : edge.type, style: { ...edge.style, stroke } }
+    return visible.map((edge) => ({
+      ...edge,
+      type: "canvasFlow",
+      style: { ...edge.style, stroke: edgeStroke(nodeById.get(edge.source)) },
+    }))
+  }, [compactEdgeIds, edges, nodeById, settings.connectionMode])
+
+  const connectMenuTargets = useMemo(
+    () => (connectMenu ? canvasConnectTargets(nodeById.get(connectMenu.sourceId)) : []),
+    [connectMenu, nodeById],
+  )
+
+  const pendingConnectPath = useMemo(() => {
+    if (!connectMenu) return null
+    const [path] = getBezierPath({
+      sourceX: connectMenu.from.x,
+      sourceY: connectMenu.from.y,
+      sourcePosition: Position.Right,
+      targetX: connectMenu.flow.x,
+      targetY: connectMenu.flow.y,
+      targetPosition: Position.Left,
     })
-  }, [compactEdgeIds, edges, nodeTypeById, settings.connectionMode])
+    return path
+  }, [connectMenu])
 
   useEffect(() => {
     if (!recentEdgeId) return
@@ -1858,11 +2125,17 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
 
   useEffect(() => {
     setContextMenu(null)
+    setConnectMenu(null)
   }, [tool])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (connectMenu) {
+          setConnectMenu(null)
+          event.preventDefault()
+          return
+        }
         if (contextMenu) {
           setContextMenu(null)
           event.preventDefault()
@@ -1870,7 +2143,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         return
       }
       if (event.defaultPrevented || isTypingTarget(event.target)) return
-      if (addImageOpen || exportOpen || assetOpen || preview || pendingImport || contextMenu) return
+      if (addImageOpen || exportOpen || assetOpen || preview || pendingImport || connectMenu || contextMenu) return
       const modifier = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
 
@@ -1945,7 +2218,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [
-    addCanvasNode, addImageOpen, assetOpen, contextMenu, copySelected, exportOpen, jumpViewpoint, pasteClipboard, patchSettings, pendingImport, preview, redo,
+    addCanvasNode, addImageOpen, assetOpen, connectMenu, contextMenu, copySelected, exportOpen, jumpViewpoint, pasteClipboard, patchSettings, pendingImport, preview, redo,
     saveDraft, saveViewpoint, selectAllNodes, selectedNodeIds, setEdges, setNodes, undo,
   ])
 
@@ -2584,16 +2857,27 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
               nodes={nodes}
               edges={visibleEdges}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               onNodesChange={handleNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onConnectStart={handleConnectStart}
+              onConnectEnd={handleConnectEnd}
               isValidConnection={isValidConnection}
               onMoveEnd={handleViewportChange}
-              onMoveStart={() => setContextMenu(null)}
-              onPaneClick={() => setContextMenu(null)}
+              onMoveStart={() => {
+                setContextMenu(null)
+                setConnectMenu(null)
+              }}
+              onPaneClick={() => {
+                setContextMenu(null)
+                setConnectMenu(null)
+              }}
               onPaneContextMenu={openPaneContextMenu}
               onNodeContextMenu={openNodeContextMenu}
               onNodeClick={() => setCanvasSettingsPinned(false)}
+              onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
+              onNodeMouseLeave={() => setHoveredNodeId(null)}
               onSelectionContextMenu={openSelectionContextMenu}
               onNodeDrag={handleNodeDrag}
               onNodeDragStart={handleNodeDragStart}
@@ -2636,6 +2920,12 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
                     style={{ left: -100000, width: 200000, transform: `translateY(${y}px)` }}
                   />
                 ))}
+                {connectMenu && pendingConnectPath ? (
+                  <svg className="canvas-pending-connection" width="1" height="1" aria-hidden="true">
+                    <path d={pendingConnectPath} className="canvas-pending-path" />
+                    <circle cx={connectMenu.flow.x} cy={connectMenu.flow.y} r={4.5} className="canvas-pending-dot" />
+                  </svg>
+                ) : null}
               </ViewportPortal>
               {settings.minimapVisible ? (
                 <MiniMap
@@ -2691,6 +2981,17 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
               <Button type="text" icon={<Focus size={15} />} onClick={() => { void fitView({ padding: 0.2, duration: 300 }) }} aria-label="适应画布" />
             </Tooltip>
             <span className="canvas-bottombar-divider" />
+            <Popover
+              trigger="click"
+              placement="topRight"
+              classNames={{ root: "canvas-popover canvas-viewmode-popover" }}
+              title={<span className="canvas-popover-heading"><Waypoints size={15} />连线与生成模式</span>}
+              content={<CanvasViewModeMenu settings={settings} onChange={patchSettings} />}
+            >
+              <Tooltip title="连线与生成模式">
+                <Button type="text" className="canvas-viewmode-trigger" icon={<Waypoints size={15} />} aria-label="连线与生成模式" />
+              </Tooltip>
+            </Popover>
             <Popover trigger="click" placement="topRight" classNames={{ root: "canvas-popover canvas-viewpoints-popover" }} title="保存的视角" content={(
               <div className="canvas-viewpoints-content">
               <p>点击空位保存当前视角，点击已存视角跳转。</p>
@@ -2783,6 +3084,46 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
                     : contextMenu.kind === "selection"
                       ? handleSelectionMenuClick
                       : handlePaneMenuClick}
+                />
+              </div>
+            </>
+          ) : null}
+
+          {connectMenu && connectMenuTargets.length ? (
+            <>
+              <div
+                className="canvas-context-backdrop"
+                onPointerDown={() => setConnectMenu(null)}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  setConnectMenu(null)
+                }}
+              />
+              <div
+                className="canvas-connect-menu"
+                style={{ left: connectMenu.x, top: connectMenu.y }}
+              >
+                <div className="canvas-connect-heading">
+                  <span>添加节点</span>
+                  <small>选择后自动连线</small>
+                </div>
+                <Menu
+                  selectable={false}
+                  items={connectMenuTargets.map((target) => ({
+                    key: target.key,
+                    icon: target.kind === "generator"
+                      ? <Sparkles size={16} />
+                      : target.kind === "video"
+                        ? <Video size={16} />
+                        : <ImageIcon size={16} />,
+                    label: (
+                      <span className="canvas-connect-item">
+                        <strong>{target.label}</strong>
+                        <small>{target.description}</small>
+                      </span>
+                    ),
+                  }))}
+                  onClick={({ key }) => applyConnectTarget(key)}
                 />
               </div>
             </>

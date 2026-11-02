@@ -1,0 +1,94 @@
+{
+  "source": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-generation\\navigation-brand-20261031\\zly-navigation-brand-v005.png",
+  "source_sha256": "216b77a185c5ef1c4028f562de45593d09533a39cf6a144cde5401ea685851ee",
+  "source_size": [
+    1536,
+    1024
+  ],
+  "css_mapping": {
+    "assumed_viewport_width": null,
+    "css_per_image_pixel": null,
+    "meaning": "实现约定，不证明参考图原始 DPR 或 CSS 视口"
+  },
+  "regions": [
+    {
+      "name": "brand-z-approved",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1103,
+        130,
+        188,
+        178
+      ],
+      "normalized_box": [
+        0.718099,
+        0.126953,
+        0.122396,
+        0.173828
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "dom_comparable": true
+    },
+    {
+      "name": "global-navigation-approved",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        28,
+        192,
+        86,
+        769
+      ],
+      "normalized_box": [
+        0.018229,
+        0.1875,
+        0.05599,
+        0.750977
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "dom_comparable": true
+    },
+    {
+      "name": "canvas-scene-approved",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1112,
+        397,
+        376,
+        270
+      ],
+      "normalized_box": [
+        0.723958,
+        0.387695,
+        0.244792,
+        0.263672
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "dom_comparable": true
+    },
+    {
+      "name": "menu-series-approved",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        1114,
+        832,
+        379,
+        110
+      ],
+      "normalized_box": [
+        0.72526,
+        0.8125,
+        0.246745,
+        0.107422
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "dom_comparable": true
+    }
+  ],
+  "groups": [],
+  "vertical_scans": [],
+  "input_manifest_sha256": "b9723a09523357146b23b61db197551ba496f46a12947eee17484c8029222c45"
+}

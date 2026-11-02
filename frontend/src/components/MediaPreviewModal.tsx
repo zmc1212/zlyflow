@@ -1,6 +1,6 @@
-import { Button, Modal, Tag, Tooltip } from "antd"
-import { Download, FileImage, Film, Info, X } from "lucide-react"
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react"
+import { Button, Modal, Slider, Tag, Tooltip } from "antd"
+import { ChevronDown, ChevronUp, Download, FileImage, Film, Info, Maximize, Minimize, Pause, Play, Volume2, VolumeX, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { mediaAspectVars, parseMediaAspect, type MediaAspectSize } from "../lib/utils"
 
 export type PreviewMediaKind = "image" | "video"
@@ -15,6 +15,13 @@ export type MediaPreviewAction = {
   disabled?: boolean
 }
 
+export type MediaPreviewNavigation = {
+  hasPrev?: boolean
+  hasNext?: boolean
+  onPrev?: () => void
+  onNext?: () => void
+}
+
 interface MediaPreviewModalProps {
   open: boolean
   kind: PreviewMediaKind
@@ -25,6 +32,7 @@ interface MediaPreviewModalProps {
   actions?: MediaPreviewAction[]
   downloadName?: string
   aspectRatio?: string
+  navigation?: MediaPreviewNavigation
 }
 
 function measureAspect(width: number, height: number): MediaAspectSize | undefined {
@@ -32,7 +40,14 @@ function measureAspect(width: number, height: number): MediaAspectSize | undefin
   return { width, height }
 }
 
-/** 统一的图片 / 视频资产检视器：媒体居左，系统支持的操作集中在右侧。 */
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00"
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.floor(seconds % 60)
+  return `${minutes}:${String(rest).padStart(2, "0")}`
+}
+
+/** 统一的图片 / 视频资产检视器：媒体自适应撑满舞台，系统支持的操作集中在右侧。 */
 export default function MediaPreviewModal({
   open,
   kind,
@@ -43,6 +58,7 @@ export default function MediaPreviewModal({
   actions = [],
   downloadName,
   aspectRatio,
+  navigation,
 }: MediaPreviewModalProps) {
   const typeLabel = kind === "video" ? "视频" : "图片"
   const hint = useMemo(() => parseMediaAspect(aspectRatio), [aspectRatio])
@@ -50,9 +66,69 @@ export default function MediaPreviewModal({
   const aspect = measured || hint
   const orientation = aspect && aspect.height > aspect.width ? "portrait" : aspect && aspect.width === aspect.height ? "square" : "landscape"
 
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [muted, setMuted] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const [scrubbing, setScrubbing] = useState(false)
+  const [scrubValue, setScrubValue] = useState(0)
+
   useEffect(() => {
     setMeasured(undefined)
+    setPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
+    setScrubbing(false)
   }, [src, kind])
+
+  useEffect(() => {
+    const onFullscreenChange = () => setFullscreen(document.fullscreenElement === canvasRef.current)
+    document.addEventListener("fullscreenchange", onFullscreenChange)
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange)
+  }, [])
+
+  const hasNavigation = Boolean(navigation?.onPrev || navigation?.onNext)
+  useEffect(() => {
+    if (!hasNavigation) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowUp" && navigation?.hasPrev) navigation.onPrev?.()
+      if (event.key === "ArrowDown" && navigation?.hasNext) navigation.onNext?.()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [hasNavigation, navigation])
+
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (video.paused) void video.play().catch(() => {})
+    else video.pause()
+  }, [])
+
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.muted = !video.muted
+    setMuted(video.muted)
+  }, [])
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+    else void canvasRef.current?.requestFullscreen().catch(() => {})
+  }, [])
+
+  const seek = useCallback((value: number) => {
+    const video = videoRef.current
+    if (!video || !Number.isFinite(value)) return
+    video.currentTime = value
+    setCurrentTime(value)
+  }, [])
+
+  const barVisible = !playing || hovered || scrubbing
 
   return (
     <Modal
@@ -69,26 +145,88 @@ export default function MediaPreviewModal({
       <section className="media-preview-shell" aria-label={`${title}预览`}>
         <div className="media-preview-stage">
           <div
-            className={`media-preview-canvas media-preview-canvas-${kind} is-${orientation}`}
+            ref={canvasRef}
+            className={`media-preview-canvas media-preview-canvas-${kind} is-${orientation}${hasNavigation ? " has-navigation" : ""}`}
             style={mediaAspectVars(aspect) as CSSProperties}
           >
-            {kind === "video" ? (
-              <video
-                src={src}
-                controls
-                playsInline
-                autoPlay
-                preload="metadata"
-                aria-label={title}
-                onLoadedMetadata={(event) => setMeasured(measureAspect(event.currentTarget.videoWidth, event.currentTarget.videoHeight))}
-              />
-            ) : (
-              <img
-                src={src}
-                alt={title}
-                onLoad={(event) => setMeasured(measureAspect(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight))}
-              />
-            )}
+            <div
+              className={`media-preview-frame ${barVisible ? "is-bar-visible" : "is-bar-hidden"}`}
+              onMouseEnter={() => setHovered(true)}
+              onMouseLeave={() => setHovered(false)}
+              onDoubleClick={kind === "video" ? toggleFullscreen : undefined}
+            >
+              {kind === "video" ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    src={src}
+                    playsInline
+                    autoPlay
+                    preload="metadata"
+                    aria-label={title}
+                    onClick={togglePlay}
+                    onLoadedMetadata={(event) => {
+                      setMeasured(measureAspect(event.currentTarget.videoWidth, event.currentTarget.videoHeight))
+                      const total = event.currentTarget.duration
+                      if (Number.isFinite(total)) setDuration(total)
+                    }}
+                    onTimeUpdate={(event) => {
+                      if (!scrubbing) setCurrentTime(event.currentTarget.currentTime)
+                      // 自动播放被策略打断/恢复时，以元素真实状态为准，避免控件状态脱同步
+                      setPlaying(!event.currentTarget.paused)
+                    }}
+                    onPlay={() => setPlaying(true)}
+                    onPause={() => setPlaying(false)}
+                  />
+                  {!playing && (
+                    <button type="button" className="media-preview-center" aria-label="播放" onClick={togglePlay}>
+                      <span className="media-preview-center-btn"><Play size={26} /></span>
+                    </button>
+                  )}
+                  <div className="media-preview-bar">
+                    <Slider
+                      className="media-preview-seek"
+                      min={0}
+                      max={duration > 0 ? duration : 1}
+                      step={0.1}
+                      value={scrubbing ? scrubValue : Math.min(currentTime, duration || currentTime)}
+                      tooltip={{ formatter: (value) => formatTime(Number(value)) }}
+                      onChange={(value) => { setScrubbing(true); setScrubValue(Number(value)); seek(Number(value)) }}
+                      onChangeComplete={() => setScrubbing(false)}
+                    />
+                    <div className="media-preview-bar-row">
+                      <button type="button" aria-label={playing ? "暂停" : "播放"} onClick={togglePlay}>
+                        {playing ? <Pause size={17} /> : <Play size={17} />}
+                      </button>
+                      <span className="media-preview-time">{formatTime(currentTime)} / {formatTime(duration)}</span>
+                      <span className="media-preview-spacer" />
+                      <button type="button" aria-label={muted ? "取消静音" : "静音"} onClick={toggleMute}>
+                        {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
+                      </button>
+                      <button type="button" aria-label={fullscreen ? "退出全屏" : "全屏播放"} onClick={toggleFullscreen}>
+                        {fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <img
+                  src={src}
+                  alt={title}
+                  onLoad={(event) => setMeasured(measureAspect(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight))}
+                />
+              )}
+            </div>
+            {hasNavigation ? (
+              <div className="media-preview-nav">
+                <button type="button" aria-label="上一个" title="上一个" disabled={!navigation?.hasPrev} onClick={navigation?.onPrev}>
+                  <ChevronUp size={22} />
+                </button>
+                <button type="button" aria-label="下一个" title="下一个" disabled={!navigation?.hasNext} onClick={navigation?.onNext}>
+                  <ChevronDown size={22} />
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
         <nav className="media-preview-rail" aria-label="媒体操作">

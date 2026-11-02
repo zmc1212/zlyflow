@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-31",
+  "version": "v001",
+  "scope": "desktop-login-design-only",
+  "source": "official OpenAI Images API",
+  "endpoint": "https://api.openai.com/v1/images/generations",
+  "model": "gpt-image-2.5-flare",
+  "quality": "high",
+  "requested_size": "1536x864",
+  "actual_size": [
+    1536,
+    864
+  ],
+  "n": 1,
+  "reference_count": 0,
+  "reference_strategy": "Textual extraction from observed Jimeng home and Runway login; no reference images uploaded",
+  "prompt_file": "DESIGN.md",
+  "prompt_sha256": "6bd3b8f2ed09335219882964988e6474c21d943415c62dbd18e4a8497c728c33",
+  "output_file": "zly-login-v001.png",
+  "output_sha256": "d9828c1258be6759ad20b2970534255eb701c5202775651afab1cc834b3e36c3",
+  "request_id": "req_3eb7e1f5ccd346a4a139bdfa891a2b25",
+  "usage": {
+    "input_tokens": 1719,
+    "output_tokens": 1078,
+    "total_tokens": 2797
+  },
+  "visual_review": {
+    "opened_actual_output": true,
+    "chinese_copy_checked": true,
+    "account_password_flow_retained": true,
+    "unsupported_login_actions_added": false,
+    "review_notes": "Checked composition, readable Chinese labels, brand, account/password fields, primary action and theme control. Thumbnail carousel is a visual presentation concept; no interactive prototype was implemented."
+  },
+  "implementation_status": "design only; no app source changed"
+}

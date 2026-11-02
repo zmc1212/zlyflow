@@ -1,0 +1,46 @@
+{
+  "reference": "../zly-navigation-brand-v005.png",
+  "scope": "只测量已确认审阅板中的图标范围；审阅板不等同于产品浏览器视口，实际CSS尺寸以desktop-dark/light.json记录为准。",
+  "regions": [
+    {
+      "name": "brand-z-approved",
+      "kind": "box",
+      "box": [
+        1103,
+        130,
+        188,
+        178
+      ]
+    },
+    {
+      "name": "global-navigation-approved",
+      "kind": "box",
+      "box": [
+        28,
+        192,
+        86,
+        769
+      ]
+    },
+    {
+      "name": "canvas-scene-approved",
+      "kind": "box",
+      "box": [
+        1112,
+        397,
+        376,
+        270
+      ]
+    },
+    {
+      "name": "menu-series-approved",
+      "kind": "box",
+      "box": [
+        1114,
+        832,
+        379,
+        110
+      ]
+    }
+  ]
+}

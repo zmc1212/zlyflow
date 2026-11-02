@@ -1,0 +1,274 @@
+{
+  "measurement_sha256": "29bff580fb6eec35889eb2a84ff35fd74079a0378db51a5b846ea7579235a632",
+  "url": "http://127.0.0.1:5173/canvas",
+  "title": "ZLY AI 视频创作平台",
+  "viewport": {
+    "width": 1586,
+    "height": 992
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "document_height": 992,
+  "fonts_ready": true,
+  "images_ready": true,
+  "document_overflow_x": false,
+  "captured_at": "2026-10-28T17:21:55.518Z",
+  "elements": [
+    {
+      "name": "brand",
+      "selector": ".studio-header-brand",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        16,
+        12,
+        312,
+        48
+      ],
+      "text": "ZLY AI Studio创作工作台",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "utilities",
+      "selector": ".studio-header-utilities",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1206,
+        12,
+        364,
+        48
+      ],
+      "text": "ComfyUI · 已连接高高睿海",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "heading",
+      "selector": ".canvas-home-heading h1",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        121,
+        124,
+        1445,
+        50
+      ],
+      "text": "无限画布",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "44px",
+        "lineHeight": "50px",
+        "fontWeight": "750",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "recent",
+      "selector": ".canvas-home-recent",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        113,
+        210,
+        996.1875,
+        358
+      ],
+      "text": "继续创作雨夜来信把一个镜头，延展成一个故事分镜探索电影感4 个节点 · 20 分钟前保存打开画布文本提示雨后的城市，潮湿的街道，暖色的灯光，一个人走在夜里……图像视频风格参考",
+      "computed": {
+        "display": "grid",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "create",
+      "selector": ".canvas-home-create",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1125.1875,
+        210,
+        440.8125,
+        358
+      ],
+      "text": "从一张空白开始连接文字、图片与视频，自由分支创作。新建画布",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(250, 251, 253)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "collection",
+      "selector": ".canvas-home-library-bar",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        113,
+        586,
+        1453,
+        43
+      ],
+      "text": "我的画布全部画布4已收藏回收站全部标签最近更新",
+      "computed": {
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgba(0, 0, 0, 0)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "card-1",
+      "selector": ".canvas-home-card:nth-child(1)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        113,
+        642,
+        351.25,
+        348
+      ],
+      "text": "文本提示雨后的城市，潮湿的街道，暖色的…图像视频风格参考雨夜来信分镜探索电影感4 个节点 · 20 分钟前",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "card-2",
+      "selector": ".canvas-home-card:nth-child(2)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        480.25,
+        642,
+        351.25,
+        348
+      ],
+      "text": "文本提示阳光穿过树林，湿润的苔藓，自然…图像图像风格参考林间来信场景灵感4 个节点 · 2 小时前",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "card-3",
+      "selector": ".canvas-home-card:nth-child(3)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        847.5,
+        642,
+        351.25,
+        348
+      ],
+      "text": "文本提示产品特写，柔和光影，干净质感。图像图像风格参考产品光影产品光影4 个节点 · 昨天",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    },
+    {
+      "name": "card-4",
+      "selector": ".canvas-home-card:nth-child(4)",
+      "count": 1,
+      "status": "measured",
+      "box": [
+        1214.75,
+        642,
+        351.25,
+        348
+      ],
+      "text": "文本提示年轻女性，电影感人像，情绪氛围。图像图像风格参考角色探索角色风格探索4 个节点 · 昨天",
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "fontFamily": "Inter, \"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "fontWeight": "400",
+        "color": "rgb(23, 26, 31)",
+        "backgroundColor": "rgb(255, 255, 255)"
+      },
+      "viewport_intersects": true
+    }
+  ],
+  "assets": {},
+  "full_page": false,
+  "screenshot_scale": "css"
+}

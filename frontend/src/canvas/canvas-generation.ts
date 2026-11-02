@@ -223,10 +223,31 @@ export function serializeGeneratorOptionValues(
 
 export function canvasReferenceEligible(node: CanvasNode): boolean {
   if (node.type === "image") return Boolean(canvasImageReferenceUrl(node.data))
-  if (node.type === "generator" && node.data.resultKind === "image") {
-    return Boolean(canvasImageReferenceUrl(node.data))
+  if (node.type === "generator") {
+    const kind = generatorResultFromNodeData(node.data)?.kind ?? node.data.resultKind ?? null
+    return kind === "image"
   }
   return false
+}
+
+/** 预留给生成结果、尚未填入地址的图片/视频节点。 */
+export function canvasPendingResultFill(
+  node: CanvasNode,
+  result: CanvasJobResult,
+  jobId: string | null,
+): Partial<CanvasNode["data"]> | null {
+  if (node.type !== "image" && node.type !== "video") return null
+  if (!node.data.pendingGeneratorId) return null
+  if (String(node.data.url ?? "").trim()) return null
+  if (node.data.mediaKind !== result.kind) return null
+  return {
+    url: result.url,
+    label: result.label || (result.kind === "video" ? "生成视频" : "生成图片"),
+    assetPath: result.path || undefined,
+    sourceJobId: jobId,
+    mediaKind: result.kind,
+    pendingGeneratorId: undefined,
+  }
 }
 
 export function canvasPromptEligible(node: CanvasNode): boolean {

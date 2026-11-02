@@ -20,6 +20,9 @@ QINIU_UPLOAD_HOSTS = {
     "na0": "up-na0.qiniup.com",
     "as0": "up-as0.qiniup.com",
 }
+LARGE_UPLOAD_BYTES = 8 * 1024 * 1024
+UPLOAD_PART_BYTES = 4 * 1024 * 1024
+UPLOAD_ATTEMPTS = 3
 
 
 class QiniuService:
@@ -97,6 +100,51 @@ class QiniuService:
             raise RuntimeError("七牛云对象地址无效")
         return f"{host}/{object_key}"
 
+    @staticmethod
+    def _retryable_upload(info: object) -> bool:
+        """判断七牛 SDK 返回的失败是否属于可安全重试的传输错误。"""
+        status = getattr(info, "status_code", None)
+        if status in {-1, 0, 408, 429} or isinstance(status, int) and 500 <= status < 600:
+            return True
+        exception = getattr(info, "exception", None)
+        if isinstance(exception, (ConnectionError, OSError, TimeoutError)):
+            return True
+        detail = str(exception or info)
+        return any(token in detail for token in (
+            "RemoteDisconnected", "Connection aborted", "Connection reset",
+            "ConnectionError", "Broken pipe", "timed out",
+        ))
+
+    @classmethod
+    def _upload(
+        cls,
+        token: str,
+        key: str,
+        source_filename: str,
+        content: bytes,
+        bucket: str,
+        regions: list[Any],
+    ) -> tuple[dict | None, object]:
+        mime_type = mimetypes.guess_type(source_filename)[0] or "application/octet-stream"
+        # 成片动辄十几 MiB，put_data 单次表单请求要等整段传完才返回，
+        # 代理链路稍慢就会触发 SDK 固定的 30 秒读超时；超过 8 MiB 改走分片续传。
+        if len(content) > LARGE_UPLOAD_BYTES:
+            stream_uploader = getattr(qiniu, "put_stream_v2", None)
+            if stream_uploader is not None:
+                return stream_uploader(
+                    token, key, io.BytesIO(content), source_filename, len(content),
+                    mime_type=mime_type, bucket_name=bucket,
+                    part_size=UPLOAD_PART_BYTES, regions=regions,
+                )
+            return qiniu.put_stream(
+                token, key, io.BytesIO(content), source_filename, len(content),
+                mime_type=mime_type, bucket_name=bucket,
+                part_size=UPLOAD_PART_BYTES, version="v2", regions=regions,
+            )
+        return qiniu.put_data(
+            token, key, content, mime_type=mime_type, check_crc=True, regions=regions,
+        )
+
     @classmethod
     def store_bytes(cls, prefix: str, source_filename: str, content: bytes) -> tuple[str, str]:
         """上传二进制到七牛，返回 (object_key, cdn_url)。对齐 source1 QiniuStorage.store_bytes。"""
@@ -104,14 +152,25 @@ class QiniuService:
         suffix = Path(source_filename).suffix or ".bin"
         timestamp = time.strftime("%Y%m%d/%H%M%S")
         key = f"{cfg['object_prefix']}{prefix}/{timestamp}_{secrets.token_hex(8)}{suffix}"
-        mime_type = mimetypes.guess_type(source_filename)[0] or "application/octet-stream"
         auth = qiniu.Auth(cfg["access_key"], cfg["secret_key"])
         token = auth.upload_token(cfg["bucket"], key, 3600)
         region = cfg["region"] if cfg["region"] in QINIU_UPLOAD_HOSTS else "z0"
         regions = [qiniu.Region(up_host=QINIU_UPLOAD_HOSTS[region], scheme="https")]
-        result, info = qiniu.put_data(
-            token, key, content, mime_type=mime_type, check_crc=True, regions=regions,
-        )
-        if not getattr(info, "ok", lambda: False)() or not result or result.get("key") != key:
-            raise RuntimeError(f"七牛云上传失败: {getattr(info, 'error', None) or info}")
-        return key, cls.object_url(key, cfg["domain"])
+        last_info: object | None = None
+        for attempt in range(UPLOAD_ATTEMPTS):
+            try:
+                result, info = cls._upload(token, key, source_filename, content, cfg["bucket"], regions)
+            except Exception as error:
+                last_info = error
+                if attempt + 1 < UPLOAD_ATTEMPTS and cls._retryable_upload(error):
+                    time.sleep(0.5 * (2 ** attempt))
+                    continue
+                raise RuntimeError(f"七牛云上传失败: {error}") from error
+            last_info = info
+            if getattr(info, "ok", lambda: False)() and result and result.get("key") == key:
+                return key, cls.object_url(key, cfg["domain"])
+            if attempt + 1 < UPLOAD_ATTEMPTS and cls._retryable_upload(info):
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            break
+        raise RuntimeError(f"七牛云上传失败: {getattr(last_info, 'error', None) or last_info}")

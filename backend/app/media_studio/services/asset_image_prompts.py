@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from .visual_styles import (
@@ -217,6 +218,31 @@ Keep one consistent person across every cell.
 """.strip()
 
 
+def _text_only_identity_sheet_prompt(
+    *,
+    name: str,
+    visual: str,
+    character_details: str,
+    visual_id: str,
+) -> str:
+    """GRS 会把长英文 layout 当作编辑请求并索要参考图；纯文生图用短中文指令更稳定。"""
+    animated = is_animation_visual_style(visual_id) or visual_id in {"anime", "guoman_fantasy"}
+    medium = _animation_medium_phrase(visual_id) if animated else "写实电影质感"
+    style_line = f"\n风格：{visual}" if visual else ""
+    details = character_details.strip() or "按角色名称与项目设定保持同一人物。"
+    return f"""纯文生图。没有任何输入图片，也不需要参考图。请直接生成并输出一张 16:9 的角色设定板图片，不要索要参考图，不要回复文字。
+角色：{name}{style_line}
+外观与服装：{details}
+画面要求：
+- 纯白无缝背景，不出现环境、道具或其他人物。
+- 左侧为同一人物的正面、45 度侧面、背面三张全身站立图，从头到脚完整。
+- 右上为同一人物的六张头部 / 发型细节：正脸、俯视发缝、后脑、侧脸、高位 3/4、3/4 脸。
+- 右下为六张与实际服装一致的服装细节：上衣面料、下装腰部、下摆 / 裤脚、腰饰、手或标志配饰、鞋履。
+- 同一人物、同一套服装、同一发型，三个全身视角与细节图必须一致。
+- {medium}，画面无文字、无标签、无水印、无 UI、无分栏标题。
+- 不要输出单张头像、不要拼贴、不要多个角色。"""
+
+
 def character_look_prompt(
     asset: dict[str, Any],
     look: dict[str, Any],
@@ -268,6 +294,13 @@ A second reference image is provided showing the target costume/clothing.
         )
         if part
     )
+    if not lock_from_image:
+        return _text_only_identity_sheet_prompt(
+            name=name,
+            visual=visual,
+            character_details=character_details,
+            visual_id=visual_id,
+        )
     layout = _character_design_sheet_layout()
     ref_block = _identity_reference_role(
         follow_source_photos=follow_source_photos,
@@ -292,13 +325,21 @@ Do not draw a second character."""
             f"- Final medium must be {medium}\n"
             "- Do not mix rendering families or switch back to realistic actor rendering"
         )
-        header = "Animated character production design sheet. Neutral presentation setup."
+        header = (
+            "TEXT-TO-IMAGE animated character production design sheet. Neutral presentation setup."
+            if not lock_from_image
+            else "Animated character production design sheet. Neutral presentation setup."
+        )
     else:
         medium_rules = (
             "- The rendering medium follows the project style preset, not the reference image\n"
             "- Do NOT create beauty-retouched, glamorized, cosmetic-ad, or fashion-editorial output"
         )
-        header = "Character production design sheet. Neutral studio setup."
+        header = (
+            "TEXT-TO-IMAGE character production design sheet. Neutral studio setup."
+            if not lock_from_image
+            else "Character production design sheet. Neutral studio setup."
+        )
     return f"""{header}
 PLAIN SOLID WHITE background ONLY — no environment, no scenery, no props. {visual}
 
@@ -372,6 +413,27 @@ def build_identity_generation(
         "height": IDENTITY_SHEET_HEIGHT,
         "ident_name": str(look.get("name") or "").strip() or "角色造型",
     }
+
+
+_SCENE_POLICY_RISK = re.compile(r"血|尸|内脏|断肢|残肢|粘稠|腥|恐怖|诡异|死寂|尖叫|惨叫|腐烂|恶臭|惊悚|骇人")
+_SCENE_POLICY_SOFTEN = {"诡异": "幽暗", "恐怖": "阴冷", "死寂": "寂静"}
+
+
+def safe_scene_master_prompt(prompt: str, scene_name: str = "") -> str:
+    """Keep the safe spatial details and drop clauses that trip image content review."""
+    text = str(prompt or "").strip()
+    for risky, softened in _SCENE_POLICY_SOFTEN.items():
+        text = text.replace(risky, softened)
+    clauses = [part.strip() for part in re.split(r"[，。；;]", text) if part.strip()]
+    safe = [part for part in clauses if not _SCENE_POLICY_RISK.search(part)]
+    safe_text = "，".join(safe).replace("微距细节", "广角全景")
+    if len(safe_text) >= 12:
+        return safe_text
+    name = str(scene_name or "")
+    for risky, softened in _SCENE_POLICY_SOFTEN.items():
+        name = name.replace(risky, softened)
+    name = _SCENE_POLICY_RISK.sub("", name).strip(" -·，。的了")
+    return f"{name or '场景'}，电影感建立镜头，广角全景，真实摄影风格，环境空间清晰，画面无人物，无文字"
 
 
 def _scene_asset(asset: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:

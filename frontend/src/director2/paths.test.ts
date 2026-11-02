@@ -4,6 +4,7 @@ import {
   director2ContentLibraryDocPath,
   director2DiagnosisPath,
   director2HomePath,
+  director2MenuEpisodeId,
   director2ProjectPath,
   director2WorkshopEpisodePath,
   parseDirector2Path,
@@ -48,5 +49,28 @@ describe("director2 paths", () => {
     const path = director2ProjectPath("proj-1", "edit", "ep 2")
     expect(path).toBe("/director/projects/proj-1/edit/ep%202")
     expect(parseDirector2Path(path)).toEqual({ kind: "project", projectId: "proj-1", menu: "edit", episodeId: "ep 2" })
+  })
+
+  it("carries the episode being produced when switching between workshop and smart edit", () => {
+    // 工坊分集详情 → 智能剪辑：同一集
+    expect(director2MenuEpisodeId({ targetMenu: "edit", currentMenu: "workshop", currentEpisodeId: "ep-2" })).toBe("ep-2")
+    // 已经切走，仍记得最近在做的这集
+    expect(
+      director2MenuEpisodeId({ targetMenu: "edit", currentMenu: "content", currentEpisodeId: null, lastEpisodeId: "ep-2" }),
+    ).toBe("ep-2")
+    // 没有任何分集上下文时保持自由剪辑
+    expect(director2MenuEpisodeId({ targetMenu: "edit", currentMenu: "assets", currentEpisodeId: null })).toBeNull()
+    // 已在智能剪辑页时保持当前序列，不顶掉用户选的「自由剪辑」
+    expect(director2MenuEpisodeId({ targetMenu: "edit", currentMenu: "edit", currentEpisodeId: null, lastEpisodeId: "ep-2" })).toBeNull()
+    expect(director2MenuEpisodeId({ targetMenu: "edit", currentMenu: "edit", currentEpisodeId: "ep-2", lastEpisodeId: "ep-9" })).toBe("ep-2")
+    // 智能剪辑 → 剧集工坊回到同一集；其他模块进工坊仍是分集概览
+    expect(director2MenuEpisodeId({ targetMenu: "workshop", currentMenu: "edit", currentEpisodeId: "ep-2" })).toBe("ep-2")
+    expect(director2MenuEpisodeId({ targetMenu: "workshop", currentMenu: "content", currentEpisodeId: null, lastEpisodeId: "ep-2" })).toBeNull()
+    expect(director2MenuEpisodeId({ targetMenu: "jobs", currentMenu: "edit", currentEpisodeId: "ep-2" })).toBeNull()
+  })
+
+  it("builds the smart-edit path for the inherited episode", () => {
+    const episodeId = director2MenuEpisodeId({ targetMenu: "edit", currentMenu: "workshop", currentEpisodeId: "ep-2" })
+    expect(director2ProjectPath("proj-1", "edit", episodeId)).toBe("/director/projects/proj-1/edit/ep-2")
   })
 })

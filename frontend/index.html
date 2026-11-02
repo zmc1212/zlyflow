@@ -4,15 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#f8f9fa" />
+    <meta name="theme-color" content="#0f1115" />
     <script>
       (() => {
         const storageKey = "zly-ai-video-studio.theme";
-        let mode = "light";
+        let mode = "dark";
         try {
-          mode = localStorage.getItem(storageKey) === "dark" ? "dark" : "light";
+          mode = localStorage.getItem(storageKey) === "light" ? "light" : "dark";
         } catch (_) {
-          mode = "light";
+          mode = "dark";
         }
         document.documentElement.dataset.theme = mode;
         document.documentElement.style.colorScheme = mode;

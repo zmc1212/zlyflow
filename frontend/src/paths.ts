@@ -1,6 +1,7 @@
 import type { Location } from "react-router-dom"
 import type { AuthStatus, UserRole } from "./api"
 
+// Motion transfer has a dedicated tool page under the tools workspace; keep it registered here.
 export const PATHS = {
   home: "/",
   login: "/login",
@@ -10,6 +11,9 @@ export const PATHS = {
   mcpAuthorize: "/mcp/authorize",
   generateImage: "/generate/image",
   generateVideo: "/generate/video",
+  tools: "/tools",
+  toolPromptReverse: "/tools/prompt-reverse",
+  toolMotionTransfer: "/tools/motion-transfer",
   director: "/director",
   director2: "/director2",
   canvas: "/canvas",
@@ -55,6 +59,9 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.generateImageJob,
   PATHS.generateVideo,
   ROUTE_PATTERNS.generateVideoJob,
+  PATHS.tools,
+  PATHS.toolPromptReverse,
+  PATHS.toolMotionTransfer,
   ROUTE_PATTERNS.directorBatch,
   ROUTE_PATTERNS.directorReplication,
   ROUTE_PATTERNS.directorProject,
@@ -79,7 +86,7 @@ export type LoginRedirectState = {
   from?: Pick<Location, "pathname" | "search" | "hash">
 }
 
-export type StudioWorkspace = "generate" | "director" | "canvas" | "assets"
+export type StudioWorkspace = "generate" | "tools" | "director" | "canvas" | "assets"
 export type GenerateMediaType = "image" | "video"
 
 const DIRECTOR_LEGACY_STUDIO_SEGMENTS = new Set(["batch", "replication"])
@@ -91,6 +98,7 @@ export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
 
 export function studioWorkspaceFromPath(pathname: string): StudioWorkspace {
   if (pathname === PATHS.assets) return "assets"
+  if (pathname === PATHS.tools || pathname.startsWith(`${PATHS.tools}/`)) return "tools"
   if (pathname === PATHS.canvas || pathname.startsWith(`${PATHS.canvas}/`)) return "canvas"
   if (pathname === PATHS.director || pathname.startsWith(`${PATHS.director}/`)) return "director"
   if (pathname === PATHS.director2 || pathname.startsWith(`${PATHS.director2}/`)) return "director"
@@ -169,6 +177,11 @@ export function isAuthScreenPath(pathname: string) {
   return AUTH_SCREEN_PATHS.has(pathname)
 }
 
+export function isGuestStudioPath(pathname: string) {
+  return pathname === PATHS.home || pathname === PATHS.login
+    || pathname === PATHS.generateImage || pathname === PATHS.generateVideo
+}
+
 function isSafeInternalPath(pathname: string) {
   return pathname.startsWith("/") && !pathname.startsWith("//")
 }
@@ -197,7 +210,7 @@ export function resolveAuthRedirect(
     return pathname === PATHS.setup ? null : { to: PATHS.setup, state: fromState }
   }
   if (!auth.authenticated || !auth.user || !auth.csrf_token) {
-    return pathname === PATHS.login ? null : { to: PATHS.login, state: fromState }
+    return isGuestStudioPath(pathname) ? null : { to: PATHS.login, state: fromState }
   }
   if (auth.user.must_change_password) {
     return pathname === PATHS.password ? null : { to: PATHS.password, state: fromState }

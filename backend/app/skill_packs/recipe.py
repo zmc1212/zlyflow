@@ -108,11 +108,11 @@ class PackRecipe:
 def default_recipe() -> PackRecipe:
     return PackRecipe(
         id=DEFAULT_PACK_ID,
-        name="默认程序装箱",
-        summary="不注入 Plaza 制作配方，工坊用程序装箱六段。",
+        name="H3 官方六段式",
+        summary="不绑定 Plaza 制作配方，直接按 H3 官方六段式 Skill 用大模型装箱。",
         surfaces=("workshop",),
-        workshop_shot=("render_ref2va_default",),
-        packing_overrides=PackingOverrides(),
+        workshop_shot=(),
+        packing_overrides=PackingOverrides(skip_program_pack=True),
     )
 
 

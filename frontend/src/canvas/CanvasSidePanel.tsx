@@ -20,6 +20,7 @@ import {
   type CanvasSettings,
   type CanvasVersion,
 } from "./canvas-model"
+import { CANVAS_CONNECTION_MODE_OPTIONS, CANVAS_GENERATION_MODE_OPTIONS } from "./canvas-view-modes"
 import { formatCanvasBytes } from "./canvas-save"
 import type { CanvasGeneratorLive, CanvasWorkflowMode } from "./canvas-generation"
 import { CanvasGeneratorInspector } from "./CanvasGeneratorInspector"
@@ -241,17 +242,6 @@ function CanvasGeometrySection({ node }: { node: CanvasNode }) {
   )
 }
 
-const connectionHints: Record<CanvasConnectionMode, string> = {
-  off: "隐藏全部连线与连接点，数据仍会保留。",
-  compact: "精简模式下仅显示主要连线，保持画布整洁。",
-  full: "显示全部连线与连接点。",
-}
-
-const generationHints: Record<CanvasGenerationDisplayMode, string> = {
-  aggregate: "聚合显示同一节点的结果，便于管理。",
-  independent: "每次生成结果另起一个节点，方便并排比较与继续加工。",
-}
-
 function CanvasProperties(props: CanvasSidePanelProps) {
   const {
     nodes, edgeCount, settings, onSettingsChange, projectTitle, contentBytes, savedAt,
@@ -262,6 +252,8 @@ function CanvasProperties(props: CanvasSidePanelProps) {
     text: nodes.filter((node) => node.type === "text").length,
     generator: nodes.filter((node) => node.type === "generator").length,
   }), [nodes])
+  const connectionDescription = CANVAS_CONNECTION_MODE_OPTIONS.find((option) => option.value === settings.connectionMode)?.description
+  const generationDescription = CANVAS_GENERATION_MODE_OPTIONS.find((option) => option.value === settings.generationDisplayMode)?.description
 
   return (
     <div className="canvas-panel-canvas">
@@ -307,33 +299,26 @@ function CanvasProperties(props: CanvasSidePanelProps) {
 
       <section className="canvas-inspector-section canvas-connection-settings">
         <div className="canvas-setting-block">
-          <span className="canvas-inspector-field-label">连线显示</span>
+          <span className="canvas-inspector-field-label">连线</span>
           <Segmented
             block
             value={settings.connectionMode}
             onChange={(value) => onSettingsChange({ connectionMode: value as CanvasConnectionMode })}
-            options={[
-              { label: "隐藏", value: "off" },
-              { label: "精简", value: "compact" },
-              { label: "全部", value: "full" },
-            ]}
+            options={CANVAS_CONNECTION_MODE_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
           />
-          <p className="canvas-inspector-hint">{connectionHints[settings.connectionMode]}</p>
+          <p className="canvas-inspector-hint">{connectionDescription}</p>
         </div>
       </section>
       <section className="canvas-inspector-section canvas-generation-settings">
         <div className="canvas-setting-block">
-          <span className="canvas-inspector-field-label">生成结果</span>
+          <span className="canvas-inspector-field-label">生成节点展示方式</span>
           <Segmented
             block
             value={settings.generationDisplayMode}
             onChange={(value) => onSettingsChange({ generationDisplayMode: value as CanvasGenerationDisplayMode })}
-            options={[
-              { label: "聚合", value: "aggregate" },
-              { label: "独立", value: "independent" },
-            ]}
+            options={CANVAS_GENERATION_MODE_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
           />
-          <p className="canvas-inspector-hint">{generationHints[settings.generationDisplayMode]}</p>
+          <p className="canvas-inspector-hint">{generationDescription}</p>
         </div>
       </section>
 

@@ -39,7 +39,7 @@ import {
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { ApiRequestError } from "../../api"
-import { director2ProjectPath } from "../paths"
+import { director2MenuEpisodeId, director2ProjectPath } from "../paths"
 import { listEpisodes, type Director2Episode } from "../api"
 import {
   downloadBlob,
@@ -781,7 +781,15 @@ function EditWorkspace({
                 if (key === "edit") return
                 setPlaying(false)
                 void saveLatest()
-                  .then(() => navigate(director2ProjectPath(projectId, key)))
+                  .then(() =>
+                    navigate(
+                      director2ProjectPath(
+                        projectId,
+                        key,
+                        director2MenuEpisodeId({ targetMenu: key, currentMenu: "edit", currentEpisodeId: episodeId })
+                      )
+                    )
+                  )
                   .catch(() => message.error("请先解决保存错误，再切换页面"))
               }
             }}

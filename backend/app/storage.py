@@ -273,6 +273,13 @@ class JobStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS llm_endpoint_credentials (
+                    base_url TEXT PRIMARY KEY,
+                    api_key_encrypted TEXT NOT NULL,
+                    model TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS vlm_provider_settings (
                     id INTEGER PRIMARY KEY CHECK(id = 1),
                     enabled INTEGER NOT NULL DEFAULT 0,
@@ -1484,6 +1491,46 @@ class JobStore:
         with self.connection() as connection:
             connection.execute(f"UPDATE llm_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
         return self.get_llm_settings()
+
+    def get_llm_endpoint_credential(self, base_url: str) -> dict | None:
+        endpoint = str(base_url or "").strip().rstrip("/")
+        if not endpoint:
+            return None
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM llm_endpoint_credentials WHERE base_url = ?", (endpoint,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_llm_endpoint_credential(self, base_url: str, api_key_encrypted: str, model: str) -> dict:
+        endpoint = str(base_url or "").strip().rstrip("/")
+        if not endpoint:
+            raise ValueError("LLM 端点凭据档案需要有效的 Base URL")
+        stamp = now()
+        with self.connection() as connection:
+            existing = connection.execute(
+                "SELECT base_url FROM llm_endpoint_credentials WHERE base_url = ?", (endpoint,)
+            ).fetchone()
+            if existing:
+                connection.execute(
+                    "UPDATE llm_endpoint_credentials SET api_key_encrypted = ?, model = ?, updated_at = ? "
+                    "WHERE base_url = ?",
+                    (api_key_encrypted, str(model or ""), stamp, endpoint),
+                )
+            else:
+                connection.execute(
+                    "INSERT INTO llm_endpoint_credentials (base_url, api_key_encrypted, model, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (endpoint, api_key_encrypted, str(model or ""), stamp),
+                )
+        return self.get_llm_endpoint_credential(endpoint)  # type: ignore[return-value]
+
+    def list_llm_endpoint_credentials(self) -> list[dict]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM llm_endpoint_credentials ORDER BY updated_at DESC, base_url ASC"
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def get_vlm_settings(self) -> dict:
         with self.connection() as connection:
