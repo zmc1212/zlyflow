@@ -1,0 +1,380 @@
+/* 图片编辑（智能改图式标记编辑器）：舞台 / 工具栏 / 指令条，全部使用 --studio-* 语义变量。 */
+
+.studio-photo-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+/* ── 舞台 ─────────────────────────────────────────────── */
+
+.studio-photo-stage {
+  display: flex;
+  min-height: 440px;
+  padding: 20px;
+  border: 1px solid var(--studio-border);
+  border-radius: 16px;
+  background: var(--studio-media);
+  overflow: auto;
+}
+
+.studio-photo-stage.is-dragover {
+  border-color: var(--studio-primary);
+  box-shadow: inset 0 0 0 1px var(--studio-primary);
+}
+
+.studio-photo-stage-frame {
+  position: relative;
+  margin: auto;
+  flex: none;
+}
+
+.studio-photo-stage-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  user-select: none;
+}
+
+.studio-photo-stage-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 400px;
+  border: 1.5px dashed var(--studio-border-strong);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--studio-text-secondary);
+  cursor: pointer;
+  transition: border-color .18s ease, color .18s ease, background-color .18s ease;
+}
+
+.studio-photo-stage-empty strong {
+  color: var(--studio-text);
+  font-size: 17px;
+}
+
+.studio-photo-stage-empty span {
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.studio-photo-stage-empty:hover,
+.studio-photo-stage.is-dragover .studio-photo-stage-empty {
+  border-color: var(--studio-primary);
+  color: var(--studio-accent-text);
+}
+
+/* ── 区域标记 ─────────────────────────────────────────── */
+
+.studio-photo-regions {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.studio-photo-region {
+  position: absolute;
+  border: 1.5px dashed #22d3ee;
+  background: rgba(34, 211, 238, .07);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .45);
+  cursor: pointer;
+}
+
+.studio-photo-region.is-draft {
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.studio-photo-region.is-selected {
+  border-style: solid;
+  background: rgba(34, 211, 238, .14);
+}
+
+.studio-photo-region-badge {
+  position: absolute;
+  top: -11px;
+  right: -11px;
+  display: grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #0ea5e9;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .9);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.studio-photo-region-remove {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  display: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 17, 21, .78);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .85);
+  color: #fff;
+  cursor: pointer;
+}
+
+.studio-photo-region:hover .studio-photo-region-remove,
+.studio-photo-region.is-selected .studio-photo-region-remove {
+  display: grid;
+}
+
+.studio-photo-region-remove:hover {
+  background: var(--studio-danger);
+}
+
+/* ── 工具栏 ───────────────────────────────────────────── */
+
+.studio-photo-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-surface);
+}
+
+.studio-photo-mark.ant-btn { padding-inline: 12px; }
+.studio-photo-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--studio-border-strong);
+}
+.studio-photo-toolbar-spacer { flex: 1; }
+
+.studio-photo-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.studio-photo-zoom-value {
+  min-width: 48px;
+  text-align: center;
+  color: var(--studio-text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.studio-photo-hint {
+  margin: -4px 4px 0;
+  color: var(--studio-text-muted);
+  font-size: 12.5px;
+  line-height: 20px;
+}
+
+/* ── 底部指令条 ───────────────────────────────────────── */
+
+.studio-photo-promptbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--studio-border-strong);
+  border-radius: 16px;
+  background: var(--studio-surface-raised);
+}
+
+.studio-photo-promptbar.is-disabled {
+  opacity: .62;
+}
+
+.studio-photo-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 260px;
+}
+
+.studio-photo-chip {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 44px;
+}
+
+.studio-photo-chip img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--studio-border-strong);
+}
+
+.studio-photo-chip[data-selected] img {
+  box-shadow: 0 0 0 2px var(--studio-primary);
+}
+
+.studio-photo-chip-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  background: var(--studio-field);
+  box-shadow: 0 0 0 1px var(--studio-border-strong);
+  color: var(--studio-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.studio-photo-chip-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #0ea5e9;
+  box-shadow: 0 0 0 1.5px var(--studio-surface-raised);
+  color: #fff;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.studio-photo-chip-remove {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  display: none;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 17, 21, .78);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .85);
+  color: #fff;
+  cursor: pointer;
+}
+
+.studio-photo-chip:hover .studio-photo-chip-remove,
+.studio-photo-chip[data-selected] .studio-photo-chip-remove {
+  display: grid;
+}
+
+.studio-photo-chip-remove:hover {
+  background: var(--studio-danger);
+}
+
+.studio-photo-chip-add {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 1.5px dashed var(--studio-border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--studio-text-muted);
+  cursor: pointer;
+  transition: border-color .18s ease, color .18s ease;
+}
+
+.studio-photo-chip-add:hover {
+  border-color: var(--studio-primary);
+  color: var(--studio-accent-text);
+}
+
+/* 覆盖 .studio-motion-tool textarea.ant-input 的表单字段样式：指令条内输入区保持透明融入。 */
+.studio-motion-tool .studio-photo-input.ant-input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 4px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--studio-text);
+  font-size: 14px;
+  line-height: 22px;
+  resize: none;
+}
+
+.studio-motion-tool .studio-photo-input.ant-input::placeholder {
+  color: var(--studio-text-subtle);
+}
+
+.studio-motion-tool .studio-photo-input.ant-input:focus {
+  box-shadow: none;
+}
+
+.studio-photo-controls {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+}
+
+/* 与 motion-transfer-tool.css 的 .studio-motion-tool .ant-select / .ant-input-number 同级特异性，
+   把指令条控件从整行宽度的表单样式收窄为即梦式紧凑控件。 */
+.studio-motion-tool .studio-photo-model.ant-select,
+.studio-motion-tool .studio-photo-resolution.ant-select {
+  flex: none;
+  height: 34px;
+}
+
+.studio-motion-tool .studio-photo-model.ant-select {
+  min-width: 0;
+  width: 176px;
+}
+
+.studio-motion-tool .studio-photo-resolution.ant-select {
+  width: 80px;
+}
+
+.studio-motion-tool .studio-photo-promptbar .ant-select .ant-select-selector {
+  height: 32px;
+  padding-inline: 10px;
+  border-radius: 9px;
+}
+
+.studio-motion-tool .studio-photo-promptbar .ant-select .ant-select-content {
+  line-height: 30px;
+  font-size: 13px;
+}
+
+.studio-motion-tool .studio-photo-count.ant-input-number {
+  flex: none;
+  width: 56px;
+  height: 32px;
+}
+
+.studio-motion-tool .studio-photo-count .ant-input-number-input {
+  height: 30px;
+  padding-inline: 8px;
+  font-size: 13px;
+}
+
+.studio-photo-submit.ant-btn-circle {
+  flex: none;
+}
