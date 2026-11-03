@@ -70,6 +70,8 @@ _HEARTBEATED_VIDEO_STATUSES = tuple(
 )
 _SHOT_TAKE_SCOPES = frozenset({"shot", "selection"})
 _EXCLUDED_TAKE_SCOPES = frozenset({"episode", "compose", "upscale"})
+# 整集直出也要段级按镜落地：远端每跑完一段，那几镜就能播；Take 仍按 shot 记入历史版本。
+_CHUNK_SHOT_PUBLISH_SCOPES = _SHOT_TAKE_SCOPES | {"episode"}
 PROJECT_VIDEO_RESOLUTION_QUALITIES = {
     "768p": {"quality": "0.98", "refine_quality": "1.0"},
     "2k": {"quality": "2.0", "refine_quality": "2.0"},
@@ -2612,13 +2614,14 @@ class EpisodeVideoService:
     ) -> None:
         """段一出片就按镜落地，让工坊逐镜可播；整批收尾会复用这些地址不再重切。"""
         scope = str(payload.get("render_scope") or "")
-        if scope not in _SHOT_TAKE_SCOPES:
+        if scope not in _CHUNK_SHOT_PUBLISH_SCOPES:
             return
         chunks = (payload.get("render_plan") or {}).get("chunks") or []
         if not isinstance(chunks, list) or not 0 <= chunk_index < len(chunks):
             return
-        if len(chunks) == 1:
-            # 单段任务下一步就是整批收尾，提前发布只会把同一片子再传一次、多出一条 Take。
+        if len(chunks) == 1 and scope in _SHOT_TAKE_SCOPES:
+            # 单段选镜下一步就是整批收尾，收尾会按镜落地；提前发布只会把同一片子再传一次、多出一条 Take。
+            # 整集直出的收尾只产一条 episode_video，不拆镜，所以单段也必须在这里按镜落地。
             return
         chunk = chunks[chunk_index] or {}
         if chunk.get("shots_published"):

@@ -231,14 +231,65 @@ class VideoPreparationTests(unittest.TestCase):
         comfy.download_output.assert_not_called()
         self.assertNotIn("shot_clip_urls", task)
 
-    def test_episode_scope_batch_never_publishes_shots_early(self):
+    def test_episode_scope_batch_lands_shots_while_later_segments_still_render(self):
+        shots = [shot(), shot("b2"), shot("b3")]
+        task = {**payload(shots), "render_scope": "episode", "render_plan": {"mode": "timeline", "chunks": [
+            {"shot_ids": ["b1", "b2"], "status": "succeeded", "output": {"filename": "segment-1.mp4"}},
+            {"shot_ids": ["b3"], "status": "submitted", "output": {"filename": "segment-2.mp4"}},
+        ]}}
+        comfy = Mock()
+        comfy.download_output.return_value = b"segment"
+        beats = [{"id": "b1"}, {"id": "b2"}, {"id": "b3"}]
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value={"beats": beats}), \
+             patch.object(EpisodeVideoService, "_persist_shot_original_video",
+                          return_value={"video_takes": [], "video_take_id": "take"}) as persist, \
+             patch(VIDEO + ".split_timeline_bytes", return_value=[b"clip-1", b"clip-2"]), \
+             patch(VIDEO + ".QiniuService.get_config", return_value=SimpleNamespace(available=True)), \
+             patch(VIDEO + ".QiniuService.store_bytes", side_effect=[("k1", "url-1"), ("k2", "url-2")]):
+            EpisodeVideoService._publish_chunk_shots("job", task, comfy, 0, shots, {})
+        self.assertEqual(["url-1", "url-2"], [shots[0]["video_url"], shots[1]["video_url"]])
+        self.assertFalse(shots[2].get("video_url"))
+        self.assertEqual({"b1": "url-1", "b2": "url-2"}, task["shot_clip_urls"])
+        self.assertTrue(task["render_plan"]["chunks"][0]["shots_published"])
+        self.assertEqual("episode", persist.call_args.kwargs["scope"])
+
+    def test_single_segment_episode_batch_publishes_because_finalize_only_makes_the_film(self):
         shots = [shot(), shot("b2")]
         task = {**payload(shots), "render_scope": "episode", "render_plan": {"mode": "timeline", "chunks": [
             {"shot_ids": ["b1", "b2"], "status": "succeeded", "output": {"filename": "segment-1.mp4"}},
         ]}}
         comfy = Mock()
-        EpisodeVideoService._publish_chunk_shots("job", task, comfy, 0, shots, {})
-        comfy.download_output.assert_not_called()
+        comfy.download_output.return_value = b"segment"
+        with patch.object(ProjectDetailService, "get_episode_detail", return_value={"beats": []}), \
+             patch.object(EpisodeVideoService, "_persist_shot_original_video", return_value={}), \
+             patch(VIDEO + ".split_timeline_bytes", return_value=[b"a", b"b"]), \
+             patch(VIDEO + ".QiniuService.get_config", return_value=SimpleNamespace(available=True)), \
+             patch(VIDEO + ".QiniuService.store_bytes", side_effect=[("k1", "url-1"), ("k2", "url-2")]) as store:
+            EpisodeVideoService._publish_chunk_shots("job", task, comfy, 0, shots, {})
+        self.assertEqual(2, store.call_count)
+        self.assertEqual({"b1": "url-1", "b2": "url-2"}, task["shot_clip_urls"])
+
+    def test_whole_film_scopes_never_publish_shots_early(self):
+        for scope in ("compose", "upscale"):
+            with self.subTest(scope=scope):
+                shots = [shot(), shot("b2")]
+                task = {**payload(shots), "render_scope": scope, "render_plan": {"mode": "timeline", "chunks": [
+                    {"shot_ids": ["b1"], "status": "succeeded", "output": {"filename": "segment-1.mp4"}},
+                    {"shot_ids": ["b2"], "status": "queued"},
+                ]}}
+                comfy = Mock()
+                EpisodeVideoService._publish_chunk_shots("job", task, comfy, 0, shots, {})
+                comfy.download_output.assert_not_called()
+                self.assertNotIn("shots_published", task["render_plan"]["chunks"][0])
+
+    def test_episode_publish_lands_as_a_shot_take_so_history_still_lists_it(self):
+        adopted = EpisodeVideoService._archive_and_adopt_beat_video(
+            {"id": "b1", "video_url": "older.mp4"}, url="segment-shot.mp4", job_id="job", scope="episode",
+        )
+        self.assertEqual("segment-shot.mp4", adopted["video_url"])
+        self.assertEqual(["older.mp4", "segment-shot.mp4"], [item["url"] for item in adopted["video_takes"]])
+        self.assertEqual({"shot"}, {item["scope"] for item in adopted["video_takes"]})
+        self.assertEqual(2, len(EpisodeVideoService._normalize_video_takes(adopted["video_takes"])))
 
     def test_final_merge_reuses_segment_urls_and_only_stores_the_missing_shot(self):
         shots = [shot(), shot("b2"), shot("b3")]
